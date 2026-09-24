@@ -54,7 +54,7 @@ try {
     }
     foreach ($lit in $cands) {
       if ([string]::IsNullOrWhiteSpace($lit)) { continue }
-      $isRepoRef = ($lit -match '^(source|templates|skills-core|plugins|scripts)[\\/]') -or ($lit -ceq 'models.jsonc') -or ($lit -ceq 'models.example.jsonc')
+      $isRepoRef = ($lit -match '^(source|templates|skills-core|plugins|scripts)[\\/]') -or ($lit -ceq 'models.example.jsonc')
       if (-not $isRepoRef) { continue }
       $rel = ($lit -replace '/', '\')
       if ($seen.ContainsKey($rel)) { continue }
