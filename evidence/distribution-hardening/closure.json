@@ -1,45 +1,62 @@
 {
-  "phase": "P9 closure audit",
+  "phase": "P9.1 closure fix (distribution hardening findings resolved)",
   "date": "2026-09-24",
-  "head": "421690a",
-  "ci": {
-    "run": "36049444883",
-    "conclusion": "success",
-    "jobs": ["ci-ps51 (powershell 5.1)", "ci-ps7 (pwsh 7)"],
-    "pipeline": ["package-consistency", "v3-suite", "ci-pipeline (fresh install, idempotency, preservation, rollback, uninstall)"]
+  "head": "b185d28",
+  "previous_closure_status": "PREMATURE: claimed rollback=PASS while CI run 36050281036 (and prior runs 36049444883/36047562273) contained ROLLBACK_REQUIRED with corrupted skill paths (skills/<skill>/<last-2-chars>/SKILL.md); ci-pipeline.ps1 only compared opencode.json+AGENTS.md hashes and stayed green.",
+  "root_cause": {
+    "symptom": "apply wrote managed skills to skills/<skill>/<suffix2>/<rest> (on/rs/nt/ts = last 2 chars of skill name); rollback emitted ROLLBACK_REQUIRED; second install showed [UPDATE] for all skills instead of [SKIP]",
+    "mechanism": "install.ps1 computed relative paths as $sf.FullName.Substring($srcDir.Length + 1) over files ENUMERATED from the stage dir under $env:TEMP. On GitHub runners TEMP uses the 8.3 short form (C:\\Users\\RUNNER~1\\...); Get-ChildItem returns FullName canonicalized to the long form (runneradmin, +3 chars) while $srcDir keeps the short form, so Substring cut 2 chars into the skill directory name. Reproduced the canonicalization behavior locally (Get-ChildItem C:\\PROGRA~1 returns C:\\Program Files\\... while [IO.Directory] keeps the short form).",
+    "fix": "single ManagedOperation collection; RelativePath computed ONCE from canonical source enumeration composed only from child Name values (prefix-agnostic), carried as immutable data through plan/expected-hashes/backup/stage/CAS/apply/manifest/rollback; no Substring on enumerated FullName anywhere in install.ps1"
   },
-  "fresh_clone": {
-    "source": "https://github.com/Kusts/opencode-orchestration",
-    "install_exit": 0,
-    "consistency_exit": 0,
-    "agents_installed": 19,
-    "agents_md_markers": 1,
-    "installed_mojibake_hits": 0
+  "validation_matrix": {
+    "environment": "local Windows (authoring machine), sequential execution; PowerShell 5.1.26100.9444 and PowerShell 7.6.6",
+    "github_actions": "NOT RUN for b185d28 yet (no push performed by this session); workflow updated to run package consistency -> V3 suites -> distribution suites in both ci-ps51 (powershell) and ci-ps7 (pwsh) jobs",
+    "package_consistency": { "ps51": "10 OK / 0 FAIL (38 refs in 33 files, NO exceptions)", "ps7": "10 OK / 0 FAIL" },
+    "v3_suites": { "ps51": "PASS: 23 / FAIL: 0 / SKIP: 1 / INTERNAL_ERROR: 0 / TOTAL: 24 (exit 0)", "ps7": "PASS: 23 / FAIL: 0 / SKIP: 1 / INTERNAL_ERROR: 0 / TOTAL: 24 (exit 0)", "skip_detail": "1 documented live-conditional skip: CapabilityDeferred live governed-activation record (routing off by default; expected Valid=false)" },
+    "distribution_suites": {
+      "runner": "tests/distribution/run-distribution-tests.ps1 (deterministic discovery of *.tests.ps1; PASS/FAIL/SKIP/INTERNAL_ERROR; exit 0/1/2, internal error precedes test failure)",
+      "ps51": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9 (145 asserts)",
+      "ps7": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9 (145 asserts)",
+      "suites": ["config-preservation (11)", "eol-checkout (11)", "fresh-install (39)", "idempotency (14)", "package-consistency (3)", "planner-model (8)", "plugin-enforcement (5; documented conditional [SKIP] when bun absent - not one of the mandatory areas)", "rollback (33)", "uninstall (21)"]
+    },
+    "rollback_scan": "zero real ROLLBACK_REQUIRED emissions in final runs; the only textual occurrences are assert names proving absence ('ROLLBACK_REQUIRED ausente'). No 'NOT OK' and no unexpected FAIL.",
+    "parallelism_note": "running two V3 runners concurrently on the SAME machine/user produces cross-suite interference (shared live-state expectations); suites are green when run sequentially per machine. GitHub jobs run on separate VMs and are unaffected."
   },
+  "rollback_contracts": {
+    "scenario_A_fresh": "apply-half failure -> exit 5, ROLLBACK_COMPLETED, ROLLBACK_REQUIRED absent, full managed snapshot equal (files AND directories), created dirs removed, no partial manifest",
+    "scenario_B_upgrade": "pre-seeded state A in ALL managed groups (incl. CRLF files in opencode.json and agents/coder.md) -> apply-json failure after all ops -> byte-exact restore verified by SHA-256 snapshot equality",
+    "scenario_C_cas": "concurrent mutation wins -> exit 4, CAS_CONFLICT, no rollback message, mutated destination preserved",
+    "scenario_D_manifest": "manifest-write failure -> rollback restores opencode.json, keeps user evidence/ intact, removes partial manifest, removes created dirs"
+  },
+  "idempotency": "second install on unchanged state: state (path set + content hashes) identical; plan shows [SKIP] for all 5 skills, all agents, AGENTS.md and plugin; zero [CREATE]/[UPDATE]; single AGENTS.md marker pair; manifest stable except installed_at (volatile by design, documented)",
   "acceptance_gate": {
-    "fresh_install": "PASS",
-    "idempotent_reinstall": "PASS",
-    "custom_agent_preservation": "PASS",
-    "mcp_preservation": "PASS",
-    "plugin_preservation": "PASS",
-    "agents_md_preservation": "PASS",
-    "planner_model_override": "PASS",
-    "worker_model_pinning": "PASS",
-    "no_subdelegation": "PASS",
-    "plugin_mandate_behavior": "PASS",
-    "v3_tests": "PASS (24/24, 1 documented live-conditional skip)",
-    "rollback": "PASS",
-    "uninstall": "PASS",
-    "package_consistency": "PASS (10 checks)",
-    "ci": "PASS"
+    "root_cause_identified_and_registered": "PASS (mechanism + local canonicalization repro)",
+    "stable_relative_path": "PASS (Name-composed, single collection)",
+    "fresh_install_exact_paths": "PASS (structural source->dest isomorphism + EOL-normalized hashes + no extra dirs under skills/)",
+    "idempotent_second_install": "PASS",
+    "skills_SKIP_on_second_run": "PASS (per-skill asserts)",
+    "rollback_restores_agents_skills_plugin_agentsmd_opencodejson": "PASS (scenarios A/B snapshots)",
+    "no_unexpected_files_after_rollback": "PASS (snapshot includes directories; scenario A checks orphan dir removal)",
+    "expected_rollback_emits_ROLLBACK_COMPLETED": "PASS",
+    "ROLLBACK_REQUIRED_fails_the_test": "PASS (asserts require absence)",
+    "distribution_runner_executes_all_suites": "PASS (9/9)",
+    "ci_uses_distribution_runner": "PASS (workflow updated in both jobs)",
+    "ci_ps51_green": "PASS locally (package consistency + V3 + distribution, exit 0); GitHub run pending push",
+    "ci_ps7_green": "PASS locally (same, exit 0); GitHub run pending push",
+    "nonexistent_operational_refs_removed": "PASS (activate-routing.ps1, stage1-outcome-validate.ps1, eval-routing.ps1, route-capabilities.ps1, docs/operations, evidence/v3/stage2|outcomes citations removed or rewritten as conceptual; checker now has ZERO exceptions)",
+    "agents_global_no_multiruntime_residue": "PASS (Codex/Claude/Pi/Antigravity enumeration and 'Defaults de runtime' section removed; global principles preserved)",
+    "stage2_documented_supported_off_by_default": "PASS",
+    "closure_regenerated_from_final_head": "PASS (this file; head b185d28)"
   },
-  "distribution_suite": "9/9 suites exit 0 (76 asserts)",
-  "preexisting_baseline_failures": "12 at P0; all resolved (registry distributed) or converted to documented conditional skips",
+  "preserved_guarantees": ["custom agents preservation", "MCP preservation", "plugin preservation", "unknown keys preservation", "unknown agent properties preservation", "AGENTS external content preservation", "Planner session-model inheritance", "explicit worker model binding", "task: deny", "subagent_depth: 1", "plugin system prompt coalescence", "neutral fallback", "permission hardening", "registry safe defaults", "CAS", "atomic writes", "manifest ownership", "uninstall ownership"],
   "known_limitations": [
-    "runtime hook does not expose agent identity -> plugin applies conservative neutral mandate (probes future fields)",
+    "GitHub Actions run for b185d28 pending push (this session did not push); local full-matrix green on both engines is the recorded evidence",
+    "V3 suites must run sequentially on a shared machine/user (cross-runner interference on concurrent local runs); CI jobs are VM-isolated",
+    "runtime hook does not expose agent identity -> plugin applies conservative neutral mandate",
     "ask permissions auto-approved in runtime auto mode (confirmation control, not unconditional block)",
     "shell globs are string matching (no script content inspection); planner-enforced via dispatch contract",
-    "3 suites emit documented live-conditional skips on machines without a live opencode.json"
+    "plugin-enforcement suite skips (documented, conditional) on machines/CI without bun",
+    "V3 suite: 1 documented live-conditional skip (governed activation record absent while routing is off by default)"
   ],
-  "result": "ORCHESTRATION_V3=UNCHANGED DISTRIBUTION=HARDENED PACKAGE=SELF_CONTAINED INSTALLER=TRANSACTIONAL USER_CONFIG=PRESERVED"
+  "result": "ORCHESTRATION_V3=UNCHANGED PACKAGE_SELF_CONTAINED=true INSTALL_TRANSACTIONAL=true ROLLBACK_FULLY_VERIFIED=true SKILL_PATH_MAPPING_CORRECT=true IDEMPOTENT_REINSTALL=true USER_CONFIG_PRESERVED=true DISTRIBUTION_TESTS_ALL_EXECUTED=true OPERATIONAL_REFERENCES_VALID=true DOCUMENTATION_MATCHES_DEFAULT_RUNTIME=true"
 }
