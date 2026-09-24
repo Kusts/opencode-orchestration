@@ -1,5 +1,11 @@
 # Runtime Portability
 
+> Nota histórica de design (P1): esta página preserva o contexto multi-runtime
+> original do método. Nesta distribuição OpenCode-only, o único contrato
+> operacional é `skills-core/` deste repositório, instalado em
+> `~/.config/opencode/skills/`; os demais destinos abaixo NÃO são instalados
+> por este pacote.
+
 The same source is used by every runtime; this is not six independent method copies. Generated global instructions contain a brief method contract and an absolute canonical fallback. This file describes the installation contract, not proof of successful runtime inference.
 
 | Runtime | Global instruction destination | Skill discovery on this installation |
@@ -12,7 +18,7 @@ The same source is used by every runtime; this is not six independent method cop
 | Antigravity CLI | `~/.antigravitycli/AGENTS.md` | existing `.gemini/config/skills` projection if supported; otherwise explicit canonical read |
 | Antigravity IDE | `~/.antigravity-ide/AGENTS.md` | existing `.gemini/config/skills` projection if supported; otherwise explicit canonical read |
 
-On Windows, `~` denotes the user profile. Canonical root: `<control-plane-root>/skills/global`. Relative Markdown links resolve against the containing skill file, not the current workspace.
+On Windows, `~` denotes the user profile. Canonical root (histórico): `<control-plane-root>/skills/global` — nesta distribuição, equivale a `skills-core/`. Relative Markdown links resolve against the containing skill file, not the current workspace.
 
 If a runtime does not automatically consume its registered instruction destination, configure its supported instruction mechanism before claiming automatic activation. A file existing on disk is not proof it was loaded. Keep the short method contract available in a supported instruction source; do not invent an unsupported setting or hook. New agents need an instruction adapter and either skill discovery or file access, not a fork of this method.
 

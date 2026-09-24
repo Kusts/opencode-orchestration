@@ -27,7 +27,7 @@ source/agents/*.md            19 definições de subagents (tokens de modelo)
 source/global/AGENTS.md       política global (tokens)
 source/adapters/opencode.md   adaptador OpenCode (sem bloco de terceiros)
 source/policies/*.md          autonomia, credenciais, roteamento de conhecimento
-scripts/render-agent-config.ps1, reconcile-agent-config.ps1
+scripts/render-opencode-config.ps1, reconcile-opencode-config.ps1
 scripts/v3/...                preflight, route-accept, shadow-route, skill-bridge,
                               suítes *.tests.ps1 e lib/* (cerca de 42 arquivos)
 skills-core/{5 pastas}        hybrid-development, dispatching-parallel-agents,

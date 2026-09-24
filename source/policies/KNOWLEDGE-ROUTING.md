@@ -23,3 +23,8 @@ uma captura deliberada.
 
 O vault é indicado para decisões, procedimentos, pesquisa acumulada e
 conhecimento cruzado. Fatos temporais devem ser verificados em fonte atual.
+
+ai-memory e o vault são integrações opcionais: use quando detectados/configurados
+e continue normalmente quando ausentes, sem bloquear a tarefa. Degradação segura:
+sem memória externa, trabalhe com o estado do projeto atual e registre os limites
+de verificação resultantes.

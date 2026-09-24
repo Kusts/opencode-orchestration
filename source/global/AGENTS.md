@@ -47,7 +47,7 @@ usuÃ¡rio ou ampliar materialmente o escopo.
 ## Contexto do projeto e conhecimento
 
 - Resolva primeiro o projeto e o diretÃ³rio de trabalho atuais.
-- Use ai-memory para continuidade operacional, sempre comeÃ§ando pelo projeto
+- Use ai-memory, quando disponível/configurado, para continuidade operacional, sempre comeÃ§ando pelo projeto
   atual; amplie quando os resultados locais forem ausentes ou insuficientes.
 - Use o vault de conhecimento pessoal (opcional) para conhecimento deliberado e cruzado quando
   trouxer valor; ele nÃ£o Ã© obrigatÃ³rio para tarefas triviais.
@@ -60,11 +60,10 @@ usuÃ¡rio ou ampliar materialmente o escopo.
 
 - Nunca coloque valores de segredo em Git, instruÃ§Ãµes geradas, logs, relatÃ³rios
   ou backups plaintext.
-- Credenciais sÃ£o carregadas pelos perfis do control plane e injetadas apenas
-  no processo-filho; nÃ£o persista variÃ¡veis no escopo de usuÃ¡rio ou mÃ¡quina.
+- Credenciais vêm do ambiente do runtime (variáveis de ambiente); perfis de launcher do control plane externo são opcionais/legado e não são fornecidos por este pacote — sem eles, nada quebra.
 - Perfis de alto impacto sÃ£o opt-in e nunca entram no ambiente por padrÃ£o.
 - Preserve hooks, plugins, servidores MCP e estado pertencentes ao usuÃ¡rio,
-  runtime, Orca, Herdr ou plugins. Use merge estruturado quando a propriedade
+  runtime, plugins e integrações externas. Use merge estruturado quando a propriedade
   for compartilhada.
 - NÃ£o habilite bypass global de permissÃµes como atalho para autonomia.
 
@@ -104,15 +103,15 @@ uma skill; respeite o pedido atual e as restriÃ§Ãµes do runtime.
 
 ## Skills compartilhadas
 
-- A fonte versionada das skills globais Ã© `{{REPO_DIR}}/skills/global`; os
-  runtimes recebem junctions ou caminhos nativos para essa mesma fonte.
+- A fonte versionada das skills globais Ã© `skills-core/` deste repositório; os
+  instaladas em `~/.config/opencode/skills/` no runtime.
 - Carregue skills pelo gatilho da tarefa. Uma skill fornece tÃ©cnica e contexto,
   nÃ£o precedÃªncia sobre o pedido atual nem um ritual obrigatÃ³rio para todo
   trabalho.
 - Valide skills por decisÃµes Ãºteis, gatilhos positivos e negativos, referÃªncias
   reais e comportamento observÃ¡vel. Nunca acrescente texto para atingir mÃ©tricas
   de tamanho, nÃºmero de seÃ§Ãµes ou pontuaÃ§Ã£o artificial.
-- Skills especÃ­ficas de runtime ficam em `{{REPO_DIR}}/skills/runtime/<runtime>`
+- Skills especÃ­ficas de runtime ficam fora desta distribuição (este pacote não inclui skills de runtime)
   e nÃ£o devem ser promovidas ao escopo global sem comprovaÃ§Ã£o de portabilidade.
 - Ferramentas grandes ou com estado prÃ³prio, como gstack, ficam fora das raÃ­zes
   indexadas e sÃ£o chamadas por uma skill adaptadora pequena.
@@ -131,7 +130,7 @@ uma skill; respeite o pedido atual e as restriÃ§Ãµes do runtime.
   padrÃ£o e conflitos de concorrÃªncia abortam o arquivo afetado.
 - Prefira escrita temporÃ¡ria validada, substituiÃ§Ã£o atÃ´mica, hash antes/depois,
   backup e manifesto de rollback para qualquer destino ativo.
-- Hooks de ai-memory, plugins e integraÃ§Ãµes externas podem executar em paralelo;
+- Hooks de integrações opcionais (como ai-memory), plugins e integraÃ§Ãµes externas podem executar em paralelo;
   nÃ£o os remova nem altere por inferÃªncia de ausÃªncia no catÃ¡logo.
 
 ## Defaults de runtime
@@ -150,7 +149,7 @@ para que o Planner use proativamente os subagentes configurados quando isso
 melhorar qualidade, independÃªncia, paralelismo, economia de contexto ou custo.
 O usuÃ¡rio fornece principalmente objetivos; o Planner Ã© o dispatcher e nÃ£o
 precisa aguardar pedidos como â€œuse subagentsâ€, â€œchame Explorerâ€, â€œmande para
-reviewâ€, â€œuse Orcaâ€ ou â€œdelegueâ€.
+reviewâ€, â€œplugins e integrações externasâ€ ou â€œdelegueâ€.
 
 Uma regra de nÃ£o delegar sem pedido explÃ­cito nÃ£o impede a delegaÃ§Ã£o quando esta
 polÃ­tica estiver ativa: este `AGENTS.md` Ã© o pedido explÃ­cito persistente. Para
@@ -215,11 +214,11 @@ implÃ­cito "Planner fez tudo sozinho sem decisÃ£o de orquestraÃ§Ã£o".
 
 `{{REPO_DIR}}` Ã© a Ãºnica fonte versionada da polÃ­tica global.
 `{{HOME}}/.agents` e os caminhos nativos dos runtimes sÃ£o estado ativo
-gerado. Projeto, vault, Orca e Herdr continuam donos de seus arquivos locais;
-o control plane sÃ³ escreve os alvos e seÃ§Ãµes explicitamente registrados.
+gerado. Projeto e integrações externas opcionais continuam donos de seus arquivos locais;
+o control plane só escreve os alvos e seções explicitamente registrados. Launchers, perfis e segredos do control plane externo são opcionais/legado e não são fornecidos por este pacote; sem eles, nada quebra (credenciais por env do runtime continuam válidas).
 
 Os detalhes de cada runtime vivem em `source/adapters/`; polÃ­ticas de
 autonomia, conhecimento e credenciais vivem em `source/policies/`. Os arquivos
-ativos sÃ£o gerados por `scripts/render-agent-config.ps1` e reconciliados por
-`scripts/reconcile-agent-config.ps1`; ediÃ§Ãµes diretas nesses destinos podem ser
+ativos sÃ£o gerados por `scripts/render-opencode-config.ps1` e reconciliados por
+`scripts/reconcile-opencode-config.ps1`; ediÃ§Ãµes diretas nesses destinos podem ser
 substituÃ­das.

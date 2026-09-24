@@ -65,7 +65,7 @@ For work spanning sessions, update one existing project plan or handoff with obj
 
 ## Runtime Contract
 
-Load named skills with the native loader when available; otherwise read their `SKILL.md` with the available file reader. Resolve relative links from this skill directory, not the current project. If discovery fails, the canonical entrypoint on this installation is `<control-plane-root>/skills/global/hybrid-development/SKILL.md`; on another machine use its configured control-plane root.
+Load named skills with the native loader when available; otherwise read their `SKILL.md` with the available file reader. Resolve relative links from this skill directory, not the current project. If discovery fails, the canonical entrypoint in this repo is `skills-core/hybrid-development/SKILL.md` (installed at `~/.config/opencode/skills/hybrid-development/SKILL.md`).
 
 Use the actual shell, test runner, editing tools, and permission model. No dependency on Bash, a specific model, tool names, hooks, or subagents. Without parallel agents, execute the same decomposition sequentially. Without execution capability, provide inspected reasoning and explicitly unverified checks, not an invented pass. Do not install a capability or bypass permissions solely to satisfy this method.
 

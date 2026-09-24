@@ -112,8 +112,8 @@ if (Test-Path -LiteralPath $ocDir) {
 # 3. AGENTS.md --------------------------------------------------------------
 $header = @'
 <!-- GENERATED FILE: direct edits will be overwritten. -->
-<!-- Canonical source: source/; regenerate with scripts/render-agent-config.ps1. -->
-<!-- This file is active only after scripts/reconcile-agent-config.ps1 applies it. -->
+<!-- Canonical source: source/; regenerate with scripts/render-opencode-config.ps1. -->
+<!-- This file is active only after scripts/reconcile-opencode-config.ps1 applies it. -->
 '@
 $markStart = '<!-- opencode-orchestration:start -->'
 $markEnd = '<!-- opencode-orchestration:end -->'
