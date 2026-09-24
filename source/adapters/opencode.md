@@ -343,6 +343,8 @@ Toda delegação não trivial carrega: `TASK_ID`, `OBJECTIVE`, `DEPENDENCIES`,
 `PROHIBITED_OPERATIONS`, `RETURN_FORMAT`, `ESCALATION_CONDITIONS`. Campos
 irrelevantes podem ser omitidos; tarefas mínimas dispensam o contrato.
 
+Para delegações com escrita ou shell sensível, inclua `ALLOWED_ENVIRONMENT` (ambiente nomeado e limites), `PRODUCTION_AUTHORIZED` (`true` apenas com autorização explícita para aquele ambiente; ausência equivale a `false`) e `CREDENTIAL_SCOPE` (identificadores/perfis permitidos, nunca valores de segredos). Preencha `PROHIBITED_OPERATIONS` com proibições concretas da tarefa, inclusive destruição de dados, publicação e mutação fora do ambiente autorizado. O worker não amplia esses campos por inferência de seu papel, de uma aprovação `ask` ou de credenciais disponíveis; diante de operação não coberta, interrompe e devolve ao Planner. O Planner confirma separadamente ações destrutivas irreversíveis e criação, revogação ou rotação de credenciais; `PRODUCTION_AUTHORIZED` não autoriza tais ações por si só.
+
 Campo opcional `CAPABILITY_CONTEXT` (somente quando
 `skill_routing.enabled=true`; com a flag desligada o campo nunca é emitido):
 bloco canônico gerado pela Skill execution bridge
