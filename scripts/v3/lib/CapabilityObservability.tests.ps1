@@ -8,10 +8,16 @@ $tmpFiles = @()
 
 $total = 0
 $passed = 0
+$skipped = 0
 function Assert-That($condition, $name, $detail) {
     $script:total++
     if ($condition) { $script:passed++; Write-Host "[PASS] $name" }
     else { Write-Host "[FAIL] $name -- $detail" }
+}
+function Skip-That($name, $reason) {
+    $script:total++
+    $script:skipped++
+    Write-Host "[SKIP] $name -- $reason"
 }
 
 function New-TmpTelemetry {
@@ -22,6 +28,9 @@ function New-TmpTelemetry {
 
 try {
     Assert-That (Test-Path -LiteralPath (Join-Path $v3 'lib\CapabilityObservability.ps1') -PathType Leaf) 'Lib file exists' 'Missing lib'
+    # Hermetico clean-room: garante o dir de telemetria do repo (ausente quando
+    # a copia limpa exclui cache/); o teste so cria arquivos tmp-obs-* nele.
+    New-Item -ItemType Directory -Path $telDir -Force | Out-Null
 
     $valid = @(Get-ObservabilityValidEventTypes)
     Assert-That ($valid.Count -eq 15) 'Enum event_type tem 15 valores' ("Got $($valid.Count)")
@@ -188,8 +197,13 @@ try {
     if (Test-Path -LiteralPath $retJuncTarget) { Remove-Item -LiteralPath $retJuncTarget -Recurse -Force -ErrorAction SilentlyContinue }
 
     $liveConfig = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
-    $liveHash = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
-    Assert-That ($liveHash.StartsWith('DE22307F')) 'opencode.json vivo inalterado (prefixo DE22307F)' $liveHash
+    if (Test-Path -LiteralPath $liveConfig -PathType Leaf) {
+        $liveHash = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
+        Assert-That ($liveHash.StartsWith('DE22307F')) 'opencode.json vivo inalterado (prefixo DE22307F)' $liveHash
+    }
+    else {
+        Skip-That 'opencode.json vivo inalterado (prefixo DE22307F)' 'sem opencode.json vivo nesta maquina (estado live, nao distribuido)'
+    }
 }
 finally {
     foreach ($tmp in @($tmpFiles)) {
@@ -199,6 +213,6 @@ finally {
     }
 }
 
-Write-Host "TEST RESULTS: $passed / $total passed"
-if ($passed -ne $total) { exit 1 }
+Write-Host "TEST RESULTS: $passed / $total passed ($skipped skipped)"
+if (($passed + $skipped) -ne $total) { exit 1 }
 exit 0

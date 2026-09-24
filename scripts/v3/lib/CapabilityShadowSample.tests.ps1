@@ -73,11 +73,21 @@ try {
     foreach ($n in @('ai-agent-engineer', 'architect', 'automation-engineer', 'backend-engineer', 'coder', 'database-engineer', 'debugger', 'docs-manager', 'engineering-advisor', 'explorer', 'frontend-engineer', 'infra-engineer', 'product-designer', 'requirements-analyst', 'researcher', 'reviewer', 'security-reviewer', 'skeptic', 'tester')) { $sampleTask[$n] = 'allow' }
     $sampleTask['*'] = 'deny'
     Write-Fixture -Path $sampleConfig -Text ((([ordered]@{ agent = [ordered]@{ build = [ordered]@{ permission = [ordered]@{ task = $sampleTask } } } } | ConvertTo-Json -Depth 10) + "`n"))
+    # Hermetico clean-room: registry construido para temp da suite (o default
+    # live cache/v3/capability-registry.json nao e distribuido). O sample usa
+    # esse registry nos 14 casos normais e deriva o stale do caso degradado.
+    $sampleReg = Join-Path $base 'sample-registry.json'
+    $buildReg = Join-Path $v3 'build-capability-registry.ps1'
+    $prevEapBuild = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & powershell -NoProfile -File "$buildReg" -Out "$sampleReg" | Out-Null
+    $ErrorActionPreference = $prevEapBuild
+    Assert-That (Test-Path -LiteralPath $sampleReg -PathType Leaf) 'Suite registry construido (build-capability-registry -Out temp)' ("Missing $sampleReg")
     if (Test-Path -LiteralPath $report -PathType Leaf) { Remove-Item -LiteralPath $report -Force }
     if (Test-Path -LiteralPath $telemetry -PathType Leaf) { Remove-Item -LiteralPath $telemetry -Force }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -ReportPath $report -TelemetryPath $telemetry -FlagsPath $sampleFlags -ConfigPath $sampleConfig | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $report -TelemetryPath $telemetry -FlagsPath $sampleFlags -ConfigPath $sampleConfig -RegistryPath $sampleReg | Out-Null
     $code = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That ($code -eq 0) 'Sample roda offline com exit 0' ("Exit $code")
@@ -261,7 +271,7 @@ try {
     foreach ($tmpf in @($insideCanonical, $insideCanonReport)) { if (Test-Path -LiteralPath $tmpf -PathType Leaf) { Remove-Item -LiteralPath $tmpf -Force } }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -CanonicalPath $insideCanonical -ReportPath $insideCanonReport -TelemetryPath $telemetry -FlagsPath $sampleFlags -ConfigPath $sampleConfig 2>$null | Out-Null
+    & powershell -NoProfile -File $sample -CanonicalPath $insideCanonical -ReportPath $insideCanonReport -TelemetryPath $telemetry -FlagsPath $sampleFlags -ConfigPath $sampleConfig -RegistryPath $sampleReg 2>$null | Out-Null
     $codeCanonOk = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That ($codeCanonOk -eq 0) 'Confinamento: -CanonicalPath dentro do dir aceita (exit 0)' ("Exit $codeCanonOk")
@@ -274,7 +284,7 @@ try {
     if (Test-Path -LiteralPath $guardReport -PathType Leaf) { Remove-Item -LiteralPath $guardReport -Force }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -ReportPath $guardReport -TelemetryPath $telemetry -FlagsPath $activeFlags 2>$null | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $guardReport -TelemetryPath $telemetry -FlagsPath $activeFlags -RegistryPath $sampleReg 2>$null | Out-Null
     $codeGuard = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That ($codeGuard -eq 0) 'Guard: router_active sozinho e permitido (exit 0; shadow continua)' ("Exit $codeGuard")
@@ -302,9 +312,9 @@ try {
     }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -ReportPath $repA -TelemetryPath $telA -FlagsPath $sampleFlags -ConfigPath $sampleConfig | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $repA -TelemetryPath $telA -FlagsPath $sampleFlags -ConfigPath $sampleConfig -RegistryPath $sampleReg | Out-Null
     $codeA = $LASTEXITCODE
-    & powershell -NoProfile -File $sample -ReportPath $repB -TelemetryPath $telB -FlagsPath $sampleFlags -ConfigPath $sampleConfig | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $repB -TelemetryPath $telB -FlagsPath $sampleFlags -ConfigPath $sampleConfig -RegistryPath $sampleReg | Out-Null
     $codeB = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That (($codeA -eq 0) -and ($codeB -eq 0)) 'Determinismo: amostra roda 2x com exit 0' ("A=$codeA B=$codeB")

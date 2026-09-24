@@ -7,10 +7,16 @@ New-Item -ItemType Directory -Path $base -Force | Out-Null
 
 $total = 0
 $passed = 0
+$skipped = 0
 function Assert-That($condition, $name, $detail) {
     $script:total++
     if ($condition) { $script:passed++; Write-Host "[PASS] $name" }
     else { Write-Host "[FAIL] $name -- $detail" }
+}
+function Skip-That($name, $reason) {
+    $script:total++
+    $script:skipped++
+    Write-Host "[SKIP] $name -- $reason"
 }
 
 function Write-Fixture {
@@ -101,6 +107,7 @@ try {
         (New-ShadowRecord -Id 'skill:db-helper' -Type 'skill' -Name 'db-helper' -Caps @('database.read') -Tags @('database'))
     )
     $telDir = Join-Path $repo 'cache\v3\telemetry'
+    New-Item -ItemType Directory -Path $telDir -Force | Out-Null
     $telProbe = Join-Path $telDir ('tmp-shadow-test-' + [guid]::NewGuid().ToString('N') + '.jsonl')
     if (Test-Path -LiteralPath $telProbe -PathType Leaf) { Remove-Item -LiteralPath $telProbe -Force }
 
@@ -549,8 +556,13 @@ try {
     Assert-That ((-not $hasJob) -and (-not $hasProc) -and (-not $hasSub)) 'Workers nao consultam (sem gatilho de worker na bridge)' 'Achou gatilho'
 
     $liveConfig = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
-    $liveHash = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
-    Assert-That ($liveHash.StartsWith('DE22307F')) 'opencode.json vivo inalterado (prefixo DE22307F)' $liveHash
+    if (Test-Path -LiteralPath $liveConfig -PathType Leaf) {
+        $liveHash = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
+        Assert-That ($liveHash.StartsWith('DE22307F')) 'opencode.json vivo inalterado (prefixo DE22307F)' $liveHash
+    }
+    else {
+        Skip-That 'opencode.json vivo inalterado (prefixo DE22307F)' 'sem opencode.json vivo nesta maquina (estado live, nao distribuido)'
+    }
 }
 finally {
     foreach ($tmp in @($telProbe, $telOk, $telInProc, $telBetter, $telWorse, $telUnclear, $telNoBase, $telNoExp, $telNoRouter, $telRegMissing, $telCorrupt, $telStale, $telBad, $telSlow, $telStdin, $telSan, $telTrivial, $telPoison, $telBadId, $telDed1, $telDed2, $telDed3, $telAdvCli, $telToctouCli, $telHugeCli, $telDeepCli, $telGrowCli, $telSecTidCli, $telConcCli1, $telConcCli2)) {
@@ -562,6 +574,6 @@ finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Host "TEST RESULTS: $passed / $total passed"
-if ($passed -ne $total) { exit 1 }
+Write-Host "TEST RESULTS: $passed / $total passed ($skipped skipped)"
+if (($passed + $skipped) -ne $total) { exit 1 }
 exit 0

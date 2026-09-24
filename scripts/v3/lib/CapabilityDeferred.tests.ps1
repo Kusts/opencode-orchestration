@@ -162,7 +162,14 @@ try {
 
     $flagsOn = Join-Path $base 'flags-on.json'
     Write-FlagsFixture -Path $flagsOn -Active $true
-    $evalOn = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn
+    # Hermetico clean-room: spike + authority via fixtures explicitas (nunca o
+    # default live: evidence/v3/mcp/enforcement-spike.json e gitignored e o
+    # opencode.json vivo nao existe com USERPROFILE temporario).
+    $spikeOff = Join-Path $base 'spike-off.json'
+    Write-Fixture -Path $spikeOff -Text '{"enforcement_supported":false}'
+    $cfgExactEarly = Join-Path $base 'config-exact.json'
+    Write-ConfigFixture -Path $cfgExactEarly -AllowNames $expected19 -Wild 'deny'
+    $evalOn = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalOn.decision -ceq 'drift') 'Fixture flag ligada sem registro governado: decision=drift' ([string]$evalOn.decision)
     $joinedOn = ((@($evalOn.reasons) | ForEach-Object { "$_" }) -join ' | ')
     Assert-That ($joinedOn -match 'capability_router.active') 'Fixture flag ligada: razao cita capability_router.active' $joinedOn
@@ -182,7 +189,7 @@ try {
     Assert-That ([bool]$govView.Valid) 'Registro canonico valido: Valid=true' ([string]$govView.Error)
     $govDefault = Get-DeferredGovernedRecordView -RepoRoot $repo
     Assert-That ([bool]$govDefault.Valid) 'Caminho padrao (canonico): Valid=true' ([string]$govDefault.Error)
-    $evalGov = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $canonGov
+    $evalGov = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $canonGov -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalGov.decision -ceq 'ok') 'Flag ligada + registro canonico valido: decision=ok' ((@($evalGov.reasons) -join ' | '))
     Assert-That ((@($evalGov.reasons).Count -eq 0)) 'Flag ligada + registro valido: sem razoes de drift' ((@($evalGov.reasons) -join ' | '))
     $govOrchHit = @($evalGov.orchestration | Where-Object { [string]$_.name -ceq 'router-active-governed' -and [bool]$_.pass })
@@ -195,7 +202,7 @@ try {
     $govNonCanonView = Get-DeferredGovernedRecordView -ActivationRecordPath $govNonCanon -RepoRoot $repo
     Assert-That (-not [bool]$govNonCanonView.Valid) 'Nome nao-canonico in-dir: Valid=false' ([string]$govNonCanonView.Error)
     Assert-That (([string]$govNonCanonView.Error -match 'canonico')) 'Nome nao-canonico: erro cita canonico' ([string]$govNonCanonView.Error)
-    $evalGovNonCanon = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $govNonCanon
+    $evalGovNonCanon = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $govNonCanon -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalGovNonCanon.decision -ceq 'drift') 'Flag ligada + nome nao-canonico: decision=drift' ([string]$evalGovNonCanon.decision)
 
     # Anti self-assert: registro valido fora de evidence/v3/activation NAO governa
@@ -204,7 +211,7 @@ try {
     $govExtView = Get-DeferredGovernedRecordView -ActivationRecordPath $govExternal -RepoRoot $repo
     Assert-That (-not [bool]$govExtView.Valid) 'Registro externo (%TEMP%): Valid=false (confinado)' ([string]$govExtView.Error)
     Assert-That (([string]$govExtView.Error -match 'fora de evidence')) 'Registro externo: erro cita confinamento' ([string]$govExtView.Error)
-    $evalGovExt = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $govExternal
+    $evalGovExt = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $govExternal -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalGovExt.decision -ceq 'drift') 'Flag ligada + registro externo: decision=drift' ([string]$evalGovExt.decision)
     $govExtOrch = @($evalGovExt.orchestration | Where-Object { [string]$_.name -ceq 'router-active-governed' -and (-not [bool]$_.pass) })
     Assert-That ($govExtOrch.Count -eq 1) 'Orquestracao: router-active-governed FALHA sob registro externo' 'Passou indevidamente'
@@ -212,7 +219,7 @@ try {
     Write-Fixture -Path $canonGov -Text '{"stage":"stage1","gate_pass":true,"activation_status":"controlled_active","flags":{"capability_router":{"active":true},"skill_routing":{"enabled":true},"mcp_routing":{"enabled":false},"adaptive_ranking":{"enabled":false}}}'
     $govBadView = Get-DeferredGovernedRecordView -ActivationRecordPath $canonGov -RepoRoot $repo
     Assert-That (-not [bool]$govBadView.Valid) 'Registro com skill=true: Valid=false' ([string]$govBadView.Error)
-    $evalGovBad = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $canonGov
+    $evalGovBad = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOn -ActivationRecordPath $canonGov -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalGovBad.decision -ceq 'drift') 'Flag ligada + registro invalido (skill=true): decision=drift' ([string]$evalGovBad.decision)
 
     Write-Fixture -Path $canonGov -Text '{"stage":"stage0","gate_pass":true,"activation_status":"controlled_active","flags":{"capability_router":{"active":true},"skill_routing":{"enabled":false},"mcp_routing":{"enabled":false},"adaptive_ranking":{"enabled":false}}}'
@@ -225,18 +232,18 @@ try {
 
     $flagsSkill = Join-Path $base 'flags-skill.json'
     Write-FlagsFixture -Path $flagsSkill -Skill $true
-    $evalSkill = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsSkill
+    $evalSkill = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsSkill -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalSkill.decision -ceq 'drift') 'Fixture skill=true: decision=drift' ([string]$evalSkill.decision)
     Assert-That (((( @($evalSkill.reasons) | ForEach-Object { "$_" }) -join ' | ') -match 'skill_routing.enabled')) 'Fixture skill=true: razao cita skill_routing.enabled' 'Sem razao'
 
     $flagsAdapt = Join-Path $base 'flags-adapt.json'
     Write-FlagsFixture -Path $flagsAdapt -Adaptive $true
-    $evalAdapt = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsAdapt
+    $evalAdapt = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsAdapt -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalAdapt.decision -ceq 'drift') 'Fixture adaptive=true: decision=drift' ([string]$evalAdapt.decision)
 
     $flagsMcp = Join-Path $base 'flags-mcp.json'
     Write-FlagsFixture -Path $flagsMcp -Mcp $true
-    $evalMcp = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsMcp
+    $evalMcp = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsMcp -SpikePath $spikeOff -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalMcp.decision -ceq 'drift') 'Fixture mcp=true + spike false: decision=drift' ([string]$evalMcp.decision)
     $joinedMcp = ((@($evalMcp.reasons) | ForEach-Object { "$_" }) -join ' | ')
     Assert-That ($joinedMcp -match 'enforcement_supported=false') 'Fixture mcp=true: razao cita enforcement_supported=false' $joinedMcp
@@ -245,26 +252,26 @@ try {
     Write-Fixture -Path $spikeTrue -Text '{"enforcement_supported":true}'
     $flagsOff = Join-Path $base 'flags-off.json'
     Write-FlagsFixture -Path $flagsOff
-    $evalSpikeTrue = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -SpikePath $spikeTrue
+    $evalSpikeTrue = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -SpikePath $spikeTrue -ConfigPath $cfgExactEarly
     Assert-That ([string]$evalSpikeTrue.decision -ceq 'drift') 'Fixture spike=true: decision=drift (reavaliar adiados)' ([string]$evalSpikeTrue.decision)
 
     $cfgExtra = Join-Path $base 'config-extra.json'
     Write-ConfigFixture -Path $cfgExtra -AllowNames (@($expected19) + @('extra-agent'))
-    $evalExtra = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgExtra
+    $evalExtra = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgExtra -SpikePath $spikeOff
     Assert-That ([string]$evalExtra.decision -ceq 'drift') 'Fixture authority com allow extra: decision=drift' ([string]$evalExtra.decision)
     $joinedExtra = ((@($evalExtra.reasons) | ForEach-Object { "$_" }) -join ' | ')
     Assert-That ($joinedExtra -match 'agent.build.permission.task') 'Fixture authority extra: razao cita agent.build.permission.task' $joinedExtra
 
     $cfgWild = Join-Path $base 'config-wild.json'
     Write-ConfigFixture -Path $cfgWild -AllowNames $expected19 -Wild 'allow'
-    $evalWild = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgWild
+    $evalWild = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgWild -SpikePath $spikeOff
     Assert-That ([string]$evalWild.decision -ceq 'drift') 'Fixture authority com *=allow: decision=drift' ([string]$evalWild.decision)
 
     $cfgAsk = Join-Path $base 'config-ask.json'
     Write-ConfigFixture -Path $cfgAsk -AllowNames $expected19 -Wild 'ask'
     $authAsk = Get-DeferredAuthorityView -ConfigPath $cfgAsk -IsDefaultPath $false
     Assert-That (-not [bool]$authAsk.ExpectedOk) 'Fixture authority com *=ask: ExpectedOk=false (wildcard estrito exige deny)' (('wild=' + [string]$authAsk.Wild))
-    $evalAsk = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgAsk
+    $evalAsk = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgAsk -SpikePath $spikeOff
     Assert-That ([string]$evalAsk.decision -ceq 'drift') 'Fixture authority com *=ask: decision=drift' ([string]$evalAsk.decision)
 
     $cfgNoWild = Join-Path $base 'config-nowild.json'
@@ -274,7 +281,7 @@ try {
     Write-Fixture -Path $cfgNoWild -Text ((($docNoWild | ConvertTo-Json -Depth 10) + "`n"))
     $authNoWild = Get-DeferredAuthorityView -ConfigPath $cfgNoWild -IsDefaultPath $false
     Assert-That (-not [bool]$authNoWild.ExpectedOk) 'Fixture authority sem wildcard: ExpectedOk=false (ausencia tambem e drift)' (('wild=' + [string]$authNoWild.Wild))
-    $evalNoWild = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgNoWild
+    $evalNoWild = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgNoWild -SpikePath $spikeOff
     Assert-That ([string]$evalNoWild.decision -ceq 'drift') 'Fixture authority sem wildcard: decision=drift' ([string]$evalNoWild.decision)
 
     $cfgExact = Join-Path $base 'config-exact.json'
@@ -282,7 +289,7 @@ try {
     $authFix = Get-DeferredAuthorityView -ConfigPath $cfgExact -IsDefaultPath $false
     Assert-That ([bool]$authFix.ExpectedOk) 'Fixture authority exata (19+deny): ExpectedOk=true' (('n=' + @($authFix.AllowNames).Count + ' wild=' + [string]$authFix.Wild))
     Assert-That ($null -eq $authFix.HashMatchesKnown) 'Fixture authority: HashMatchesKnown nulo (baseline so no caminho padrao)' ([string]$authFix.HashMatchesKnown)
-    $evalExact = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgExact
+    $evalExact = Invoke-CapabilityDeferred -RepoRoot $repo -FlagsPath $flagsOff -ConfigPath $cfgExact -SpikePath $spikeOff
     Assert-That ([string]$evalExact.decision -ceq 'ok') 'Fixture authority exata + flags off: decision=ok' ((@($evalExact.reasons) -join ' | '))
 
     $threw = $false

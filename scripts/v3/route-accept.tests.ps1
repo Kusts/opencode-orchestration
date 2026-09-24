@@ -48,6 +48,10 @@ try {
     Assert-That (Test-Path -LiteralPath $cli -PathType Leaf) 'CLI file exists' "Missing $cli"
     Write-Fixture -Path $flagsActive -Text $activeFlags
     Write-Fixture -Path $flagsInactive -Text $inactiveFlags
+    # Hermetico clean-room: allowlist via fixture explicita (o default live
+    # ~/.config/opencode/opencode.json nao existe com USERPROFILE temporario).
+    $cfgAccept = Join-Path $base 'config-accept.json'
+    Write-Fixture -Path $cfgAccept -Text '{"agent":{"build":{"permission":{"task":{"*":"deny","build":"allow","coder":"allow","reviewer":"allow","backend-engineer":"allow","database-engineer":"allow","tester":"allow"}}}}}'
 
     $flagsFile = Join-Path $repo 'source\registry\capability-flags.json'
     $policyFile = Join-Path $repo 'source\registry\capability-policy.json'
@@ -59,7 +63,7 @@ try {
     }
 
     # --- Kill switch: inactive flags => deterministic ---
-    $rOff = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-FlagsPath', $flagsInactive, '-NoTelemetry')
+    $rOff = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-FlagsPath', $flagsInactive, '-ConfigPath', $cfgAccept, '-NoTelemetry')
     $oOff = Get-JsonTail -Text $rOff.Text
     Assert-That ($rOff.Code -eq 0) 'inactive: exit 0' ("Exit $($rOff.Code) :: $($rOff.Text)")
     Assert-That ($null -ne $oOff) 'inactive: JSON parseable' $rOff.Text
@@ -84,7 +88,7 @@ try {
         Assert-That (-not $isMcp) "$label selected agent is not an MCP" ([string]$o.selected_agent)
     }
 
-    $rBg = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-FlagsPath', $flagsActive, '-NoTelemetry')
+    $rBg = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-FlagsPath', $flagsActive, '-ConfigPath', $cfgAccept, '-NoTelemetry')
     $oBg = Get-JsonTail -Text $rBg.Text
     Assert-That ($rBg.Code -eq 0) 'active backend: exit 0' ("Exit $($rBg.Code)")
     Assert-That ($null -ne $oBg) 'active backend: JSON parseable' $rBg.Text
@@ -94,7 +98,7 @@ try {
     }
 
     # --- Security: Router never controls ---
-    $rSec = Invoke-AcceptCliRaw -Argv @('-Objective', 'auditar autenticacao e autorizacao do servico', '-TaskType', 'review', '-Domain', 'security', '-Risk', 'high', '-FlagsPath', $flagsActive, '-NoTelemetry')
+    $rSec = Invoke-AcceptCliRaw -Argv @('-Objective', 'auditar autenticacao e autorizacao do servico', '-TaskType', 'review', '-Domain', 'security', '-Risk', 'high', '-FlagsPath', $flagsActive, '-ConfigPath', $cfgAccept, '-NoTelemetry')
     $oSec = Get-JsonTail -Text $rSec.Text
     Assert-That ($null -ne $oSec) 'security: JSON parseable' $rSec.Text
     if ($null -ne $oSec) {
@@ -103,7 +107,7 @@ try {
     }
 
     # --- Authority change: Router never controls ---
-    $rAuth = Invoke-AcceptCliRaw -Argv @('-Objective', 'alterar allowlist e permissao de agentes', '-TaskType', 'planning', '-Domain', 'planning', '-Risk', 'high', '-FlagsPath', $flagsActive, '-NoTelemetry')
+    $rAuth = Invoke-AcceptCliRaw -Argv @('-Objective', 'alterar allowlist e permissao de agentes', '-TaskType', 'planning', '-Domain', 'planning', '-Risk', 'high', '-FlagsPath', $flagsActive, '-ConfigPath', $cfgAccept, '-NoTelemetry')
     $oAuth = Get-JsonTail -Text $rAuth.Text
     Assert-That ($null -ne $oAuth) 'authority: JSON parseable' $rAuth.Text
     if ($null -ne $oAuth) {
@@ -112,7 +116,7 @@ try {
     }
 
     # --- Trivial: direct, no delegation ---
-    $rTriv = Invoke-AcceptCliRaw -Argv @('-Objective', 'corrigir typo', '-TaskType', 'trivial', '-Domain', 'code', '-Risk', 'low', '-FlagsPath', $flagsActive, '-NoTelemetry')
+    $rTriv = Invoke-AcceptCliRaw -Argv @('-Objective', 'corrigir typo', '-TaskType', 'trivial', '-Domain', 'code', '-Risk', 'low', '-FlagsPath', $flagsActive, '-ConfigPath', $cfgAccept, '-NoTelemetry')
     $oTriv = Get-JsonTail -Text $rTriv.Text
     Assert-That ($null -ne $oTriv) 'trivial: JSON parseable' $rTriv.Text
     if ($null -ne $oTriv) {
@@ -120,7 +124,7 @@ try {
     }
 
     # --- Debugging: out of stage1 => deterministic fallback (router does not control) ---
-    $rDbg = Invoke-AcceptCliRaw -Argv @('-Objective', 'investigar bug flaky intermitente', '-TaskType', 'debugging', '-Domain', 'debugging', '-Risk', 'medium', '-FlagsPath', $flagsActive, '-NoTelemetry')
+    $rDbg = Invoke-AcceptCliRaw -Argv @('-Objective', 'investigar bug flaky intermitente', '-TaskType', 'debugging', '-Domain', 'debugging', '-Risk', 'medium', '-FlagsPath', $flagsActive, '-ConfigPath', $cfgAccept, '-NoTelemetry')
     $oDbg = Get-JsonTail -Text $rDbg.Text
     Assert-That ($null -ne $oDbg) 'debugging: JSON parseable' $rDbg.Text
     if ($null -ne $oDbg) { Assert-That (-not [bool]$oDbg.accepted) 'debugging: not accepted (out of stage1)' ($oDbg | ConvertTo-Json -Compress) }
@@ -139,7 +143,7 @@ try {
     $telDir = Join-Path $repo 'cache\v3\telemetry'
     New-Item -ItemType Directory -Path $telDir -Force | Out-Null
     $telFile = Join-Path $telDir ('tmp-routeaccept-' + [guid]::NewGuid().ToString('N') + '.jsonl')
-    $rTel = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-TaskId', 'review-backend-1', '-FlagsPath', $flagsActive, '-TelemetryPath', $telFile)
+    $rTel = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-TaskId', 'review-backend-1', '-FlagsPath', $flagsActive, '-ConfigPath', $cfgAccept, '-TelemetryPath', $telFile)
     Assert-That ($rTel.Code -eq 0) 'telemetry run: exit 0' ("Exit $($rTel.Code)")
     if (Test-Path -LiteralPath $telFile -PathType Leaf) {
         $txt = [IO.File]::ReadAllText($telFile, [Text.UTF8Encoding]::new($false))
