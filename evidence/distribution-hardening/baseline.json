@@ -1,0 +1,729 @@
+{
+    "generated_at":  "2026-09-24T15:17:12.8939856Z",
+    "git_head":  "d1e2e649d31a3a94f39a2b80f4e99bdd0deb8234",
+    "git_log_oneline":  "d1e2e64 Initial release: autonomous subagent orchestration for OpenCode",
+    "git_status_before":  "clean",
+    "files":  {
+                  "total":  98,
+                  "by_top_dir":  {
+                                     "source":  24,
+                                     "scripts":  52,
+                                     "skills_core":  14,
+                                     "plugins":  1,
+                                     "templates":  1
+                                 },
+                  "missing_top_dirs":  [
+                                           "tests",
+                                           "docs"
+                                       ]
+              },
+    "agents":  [
+                   {
+                       "name":  "ai-agent-engineer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "architect",
+                       "model":  "{{MODEL_STRONG}}",
+                       "temperature":  0.1,
+                       "permission":  "edit:deny bash:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "automation-engineer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "backend-engineer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "coder",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "database-engineer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "debugger",
+                       "model":  "{{MODEL_STRONG}}",
+                       "temperature":  0.1,
+                       "permission":  "edit:deny bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "docs-manager",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:deny",
+                       "mode":  "subagent",
+                       "hidden":  true
+                   },
+                   {
+                       "name":  "engineering-advisor",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.2,
+                       "permission":  "edit:deny bash:deny task:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "explorer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.2,
+                       "permission":  "edit:deny bash:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "frontend-engineer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "infra-engineer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:allow bash:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "product-designer",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.3,
+                       "permission":  "edit:deny bash:deny task:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "requirements-analyst",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.2,
+                       "permission":  "edit:deny bash:deny task:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "researcher",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.2,
+                       "permission":  "edit:deny bash:deny webfetch:allow websearch:allow",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "reviewer",
+                       "model":  "{{MODEL_STRONG}}",
+                       "temperature":  0.1,
+                       "permission":  "edit:deny bash:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "security-reviewer",
+                       "model":  "{{MODEL_STRONG}}",
+                       "temperature":  0.1,
+                       "permission":  "edit:deny bash:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "skeptic",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.2,
+                       "permission":  "edit:deny bash:deny task:deny",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   },
+                   {
+                       "name":  "tester",
+                       "model":  "{{MODEL_CHEAP}}",
+                       "temperature":  0.2,
+                       "permission":  "edit:deny bash:allowlist(npm/npx/yarn/pnpm/bun/bunx/pytest/python -m/ruff/mypy/go test|vet|build/cargo test|check|clippy/dotnet test|build/git status|diff|log/run-v3-tests.ps1)",
+                       "mode":  "subagent",
+                       "hidden":  false
+                   }
+               ],
+    "template":  {
+                     "file":  "templates/opencode.json.tmpl",
+                     "root_model":  "{{MODEL_PLANNER}}",
+                     "default_agent":  "build",
+                     "subagent_depth":  1,
+                     "agent_blocks":  [
+                                          {
+                                              "name":  "build",
+                                              "model":  "{{MODEL_PLANNER}}",
+                                              "permission_task":  [
+                                                                      "*:deny",
+                                                                      "ai-agent-engineer:allow",
+                                                                      "architect:allow",
+                                                                      "automation-engineer:allow",
+                                                                      "backend-engineer:allow",
+                                                                      "coder:allow",
+                                                                      "database-engineer:allow",
+                                                                      "debugger:allow",
+                                                                      "docs-manager:allow",
+                                                                      "engineering-advisor:allow",
+                                                                      "explorer:allow",
+                                                                      "frontend-engineer:allow",
+                                                                      "infra-engineer:allow",
+                                                                      "product-designer:allow",
+                                                                      "requirements-analyst:allow",
+                                                                      "researcher:allow",
+                                                                      "reviewer:allow",
+                                                                      "security-reviewer:allow",
+                                                                      "skeptic:allow",
+                                                                      "tester:allow"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "title",
+                                              "model":  "{{MODEL_PLANNER}}",
+                                              "permission_task":  [
+
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "explorer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "researcher",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "coder",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "tester",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "reviewer",
+                                              "model":  "{{MODEL_STRONG}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "debugger",
+                                              "model":  "{{MODEL_STRONG}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "security-reviewer",
+                                              "model":  "{{MODEL_STRONG}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "architect",
+                                              "model":  "{{MODEL_STRONG}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "docs-manager",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "frontend-engineer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "backend-engineer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "database-engineer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "ai-agent-engineer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "automation-engineer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          },
+                                          {
+                                              "name":  "infra-engineer",
+                                              "model":  "{{MODEL_CHEAP}}",
+                                              "permission_task":  [
+                                                                      "task:deny"
+                                                                  ]
+                                          }
+                                      ],
+                     "build_permission_task_allowlist":  [
+                                                             "*:deny",
+                                                             "ai-agent-engineer:allow",
+                                                             "architect:allow",
+                                                             "automation-engineer:allow",
+                                                             "backend-engineer:allow",
+                                                             "coder:allow",
+                                                             "database-engineer:allow",
+                                                             "debugger:allow",
+                                                             "docs-manager:allow",
+                                                             "engineering-advisor:allow",
+                                                             "explorer:allow",
+                                                             "frontend-engineer:allow",
+                                                             "infra-engineer:allow",
+                                                             "product-designer:allow",
+                                                             "requirements-analyst:allow",
+                                                             "researcher:allow",
+                                                             "reviewer:allow",
+                                                             "security-reviewer:allow",
+                                                             "skeptic:allow",
+                                                             "tester:allow"
+                                                         ]
+                 },
+    "models":  {
+                   "example_file":  "models.example.jsonc",
+                   "active_file":  "models.jsonc (presente no checkout; ignorado pelo git)",
+                   "planner":  "zai-coding-plan/glm-5.3-flash",
+                   "cheap":  "opencode-go/muse-spark-1.3-contributor",
+                   "strong":  "openai/gpt-6-sol",
+                   "example_equals_active":  true
+               },
+    "tests":  {
+                  "suites":  [
+                                 {
+                                     "path":  "scripts/v3/orchestration-preflight.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  2169,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/route-accept.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  435,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/shadow-route.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  33023,
+                                     "fail_lines":  [
+                                                        "[FAIL] Default isolado: consulta com success -- Exit 0 :: {",
+                                                        "[FAIL] Proposta database-engineer para tarefa database -- ",
+                                                        "[FAIL] Comparacao EQUAL quando rotas coincidem -- NOT_COMPARABLE",
+                                                        "[FAIL] Comparacao V3_BETTER com expected -- NOT_COMPARABLE",
+                                                        "[FAIL] Comparacao V3_WORSE legitima (success + proposta; atual acerta, proposta nao) -- NOT_COMPARABLE"
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/skill-bridge.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  3757,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityAcceptance.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  1413,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityActivation.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  431,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityAuthority.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  8458,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityClassification.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  331,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityDeferred.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  1682,
+                                     "fail_lines":  [
+                                                        "[FAIL] Flags reais legiveis -- not-found",
+                                                        "[FAIL] Flags reais: shadow=true -- ",
+                                                        "[FAIL] Flags reais: capability_router.active e bool (governado) -- ",
+                                                        "[FAIL] Spike real legivel -- spike not-found",
+                                                        "[FAIL] Repo real: decision=ok (flags off) -- flags: capability-flags.json ilegivel (not-found); estado ativo nao comprovadamente desligado | spike: evidence/v3/mcp/enforcement-spike.json ilegivel; enforcement nao comprovadamente ausente | orchestration: router-active-governed :: flags ilegiveis; estado ativo nao comprovadamente desligado nem governado | orchestration: skill-execution-off :: flags ilegÃ­veis; skill execution nao comprovadamente desligada | orchestration: tool-exposure-off :: flags ilegÃ­veis; tool exposure nao comprovadamente desligado | orchestration: adaptive-ranking-off :: flags ilegÃ­veis; adaptive ranking nao comprovadamente desligado | orchestration: no-presumed-enforcement :: spike MCP ilegÃ­vel; enforcement nao comprovadamente ausente | orchestration: policy-skill-offline :: policy ilegÃ­vel: not-found | orchestration: policy-mcp-advisory :: policy ilegÃ­vel: not-found | orchestration: hard-filter-no-exceptions :: policy ilegÃ­vel: not-found"
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityEval.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  444,
+                                     "fail_lines":  [
+                                                        "[FAIL] Dataset file exists -- Missing D:\\projetos\\opencode-orchestration\\evidence\\v3\\evals\\dataset.jsonl",
+                                                        "[FAIL] Gate file exists -- Missing D:\\projetos\\opencode-orchestration\\evidence\\v3\\evals\\gate.json"
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityJsonMutator.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  2894,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityLifecycle.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  589,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityMcpRouter.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  1524,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityObservability.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  955,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityOutcomeValidation.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  527,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityRouter.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  445,
+                                     "fail_lines":  [
+                                                        "[FAIL] Policy file exists -- Missing D:\\projetos\\opencode-orchestration\\scripts\\source\\registry\\capability-policy.json"
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilitySanitize.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  663,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilitySchema.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  687,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityShadow.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  1665,
+                                     "fail_lines":  [
+                                                        "[FAIL] Default isolado: router ausente vira failed sem lancar -- degraded",
+                                                        "[FAIL] Default isolado: consulta com success -- degraded",
+                                                        "[FAIL] Opt-in -InProcess: consulta com success -- degraded",
+                                                        "[FAIL] Isolado: saida invalida vira failed -- degraded",
+                                                        "[FAIL] Isolado default: shim lento vira timeout -- degraded"
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityShadowSample.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  434,
+                                     "fail_lines":  [
+                                                        "[FAIL] Sample file exists -- Missing D:\\projetos\\opencode-orchestration\\scripts\\v3\\shadow-sample.ps1"
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilitySkillBridge.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  1388,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilitySkillUtility.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  1300,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityStage2Sim.tests.ps1",
+                                     "exit_code":  0,
+                                     "status":  "PASS",
+                                     "duration_ms":  440,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 },
+                                 {
+                                     "path":  "scripts/v3/lib/CapabilityTaxonomy.tests.ps1",
+                                     "exit_code":  1,
+                                     "status":  "FAIL",
+                                     "duration_ms":  332,
+                                     "fail_lines":  [
+
+                                                    ],
+                                     "invocation":  "powershell -NoProfile -NonInteractive -File \u003csuite\u003e (cwd = repo root; autocontida, sem dot-source nem parametros)"
+                                 }
+                             ],
+                  "pass":  12,
+                  "fail":  12,
+                  "skip":  0,
+                  "total":  24,
+                  "total_ms":  65986
+              },
+    "preexisting_failures":  [
+                                 {
+                                     "suite":  "scripts/v3/route-accept.tests.ps1",
+                                     "reason":  "hard error: source/registry/capability-flags.json ausente (Resolve-Path PathNotFound)",
+                                     "evidence":  [
+                                                      "[PASS] CLI file exists",
+                                                      "Resolve-Path: capability-flags.json ... porque ele nao existe",
+                                                      "FullyQualifiedErrorId: PathNotFound"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/shadow-route.tests.ps1",
+                                     "reason":  "5 asserts [FAIL] + DirectoryNotFoundException final",
+                                     "evidence":  [
+                                                      "[FAIL] Default isolado: consulta com success -- Exit 0",
+                                                      "[FAIL] Proposta database-engineer para tarefa database",
+                                                      "[FAIL] Comparacao EQUAL quando rotas coincidem -- NOT_COMPARABLE",
+                                                      "[FAIL] Comparacao V3_BETTER com expected -- NOT_COMPARABLE",
+                                                      "[FAIL] Comparacao V3_WORSE legitima -- NOT_COMPARABLE"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/skill-bridge.tests.ps1",
+                                     "reason":  "throw na linha 134: ReadAllText source/registry/capability-flags.json (DirectoryNotFoundException)",
+                                     "evidence":  [
+                                                      "[PASS] Sem skill valida: fallback sem bloquear (exit 0)",
+                                                      "skill-bridge.tests.ps1:134 ReadAllText capability-flags.json",
+                                                      "FullyQualifiedErrorId: DirectoryNotFoundException"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityAcceptance.tests.ps1",
+                                     "reason":  "throw CapabilityRouter.ps1:166: capability-policy.json not found (source/registry ausente)",
+                                     "evidence":  [
+                                                      "[PASS] decision: security vector fallback -\u003e path-traversal",
+                                                      "throw capability-policy.json not found: D:/.../source/registry/capability-policy.json",
+                                                      "FullyQualifiedErrorId: capability-policy.json not found"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityActivation.tests.ps1",
+                                     "reason":  "throw linha 32: ReadAllText evidence/v3/evals/gate.json (DirectoryNotFoundException)",
+                                     "evidence":  [
+                                                      "[PASS] Function exists: Invoke-CapabilityActivation",
+                                                      "ReadAllText evidence/v3/evals/gate.json",
+                                                      "FullyQualifiedErrorId: DirectoryNotFoundException"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityClassification.tests.ps1",
+                                     "reason":  "throw imediato: source/registry/capability-policy.json ausente",
+                                     "evidence":  [
+                                                      "FAIL unexpected error: ReadAllText ... source/registry/capability-policy.json"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityDeferred.tests.ps1",
+                                     "reason":  "11 asserts [FAIL] (88/99): flags reais e spike real ilegiveis no checkout",
+                                     "evidence":  [
+                                                      "[FAIL] Flags reais legiveis -- not-found",
+                                                      "[FAIL] Flags reais: shadow=true",
+                                                      "[FAIL] Flags reais: capability_router.active e bool (governado)",
+                                                      "[FAIL] Spike real legivel -- spike not-found",
+                                                      "[FAIL] Repo real: decision=ok (flags off) -- flags/capability-flags.json ilegivel"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityEval.tests.ps1",
+                                     "reason":  "dataset/gate de eval ausentes + throw dataset not found",
+                                     "evidence":  [
+                                                      "[FAIL] Dataset file exists -- Missing evidence/v3/evals/dataset.jsonl",
+                                                      "[FAIL] Gate file exists -- Missing evidence/v3/evals/gate.json",
+                                                      "FullyQualifiedErrorId: dataset not found"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityRouter.tests.ps1",
+                                     "reason":  "1 assert [FAIL] + throw: suite resolve repo root errado (scripts/source/registry/...)",
+                                     "evidence":  [
+                                                      "[FAIL] Policy file exists -- Missing scripts/source/registry/capability-policy.json",
+                                                      "throw capability-policy.json not found: scripts/source/registry/capability-policy.json"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityShadow.tests.ps1",
+                                     "reason":  "5 asserts [FAIL] (degraded) + FileNotFoundException",
+                                     "evidence":  [
+                                                      "[FAIL] Default isolado: router ausente vira failed sem lancar -- degraded",
+                                                      "[FAIL] Default isolado: consulta com success -- degraded",
+                                                      "[FAIL] Opt-in -InProcess: consulta com success -- degraded",
+                                                      "[FAIL] Isolado: saida invalida vira failed -- degraded",
+                                                      "[FAIL] Isolado default: shim lento vira timeout -- degraded"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityShadowSample.tests.ps1",
+                                     "reason":  "1 assert [FAIL] + FileNotFoundException: scripts/v3/shadow-sample.ps1 ausente",
+                                     "evidence":  [
+                                                      "[FAIL] Sample file exists -- Missing scripts/v3/shadow-sample.ps1",
+                                                      "FullyQualifiedErrorId: FileNotFoundException"
+                                                  ]
+                                 },
+                                 {
+                                     "suite":  "scripts/v3/lib/CapabilityTaxonomy.tests.ps1",
+                                     "reason":  "throw imediato: capability-policy.json not found (source/registry ausente)",
+                                     "evidence":  [
+                                                      "FAIL unexpected error: capability-policy.json not found at source/registry/capability-policy.json"
+                                                  ]
+                                 }
+                             ],
+    "notes":  [
+                  "Invocacao: todas as 24 suites rodam via powershell -NoProfile -NonInteractive -File \u003csuite\u003e a partir da raiz do repo; autocontidas, sem dot-source nem parametros. Status derivado do exit code (0=PASS).",
+                  "Causa raiz comum dos 12 FAILs: source/registry/ (capability-policy.json, capability-flags.json) e evidence/v3/evals/ ausentes no checkout; scripts/v3/shadow-sample.ps1 ausente; CapabilityRouter.tests.ps1 resolve raiz errada.",
+                  "Template: 17 blocos agent; engineering-advisor, product-designer, requirements-analyst e skeptic tem .md em source/agents e entrada allow no build mas SEM bloco proprio no template.",
+                  "models.jsonc identico ao models.example.jsonc (planner=zai-coding-plan/glm-5.3-flash, cheap=opencode-go/muse-spark-1.3-contributor, strong=openai/gpt-6-sol).",
+                  "Nenhum arquivo de produto foi modificado; nada foi corrigido. P0 = congelamento."
+              ]
+}
