@@ -8,6 +8,7 @@ permission:
   bash: deny
   webfetch: allow
   websearch: allow
+  task: deny
 orchestration:
   build_delegable: true
   lifecycle: stable

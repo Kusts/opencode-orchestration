@@ -18,6 +18,7 @@ permission:
     "python --version": allow
     "dotnet --info": allow
     "bun --version": allow
+  task: deny
 orchestration:
   build_delegable: true
   lifecycle: stable

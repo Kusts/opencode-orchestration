@@ -6,6 +6,7 @@ temperature: 0.1
 permission:
   edit: deny
   bash: deny
+  task: deny
 orchestration:
   build_delegable: true
   lifecycle: stable

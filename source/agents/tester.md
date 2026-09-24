@@ -32,6 +32,7 @@ permission:
     "powershell.exe -NoProfile -NonInteractive -File {{REPO_DIR}}\\scripts\\v3\\run-v3-tests.ps1": allow
     "pwsh -NoProfile -NonInteractive -File scripts/v3/run-v3-tests.ps1": allow
     "pwsh -NoProfile -NonInteractive -File {{REPO_DIR}}\\scripts\\v3\\run-v3-tests.ps1": allow
+  task: deny
 orchestration:
   build_delegable: true
   lifecycle: stable

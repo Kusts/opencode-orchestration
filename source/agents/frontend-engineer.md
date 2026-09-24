@@ -28,6 +28,7 @@ permission:
     "rm -rf *": ask
     "Remove-Item *-Recurse*": ask
     "dropdb *": deny
+  task: deny
 orchestration:
   build_delegable: true
   lifecycle: stable

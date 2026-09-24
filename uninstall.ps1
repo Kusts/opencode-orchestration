@@ -464,10 +464,10 @@ foreach ($a in $actions) {
           if (($null -ne $node) -and (Has-Member $node 'permission') -and ($null -ne $node.permission) -and ($null -ne $node.permission.PSObject.Properties['task'])) {
             $null = $node.permission.PSObject.Properties.Remove('task')
           }
-          if (($null -ne $node) -and (Has-Member $node 'permission') -and ($null -ne $node.permission) -and ($null -ne $node.permission.PSObject) -and (@($node.permission.PSObject.Properties.Name).Count -eq 0)) {
+          if (($null -ne $node) -and (Has-Member $node 'permission') -and ($null -ne $node.permission) -and ($null -ne $node.permission.PSObject) -and (@($node.permission.PSObject.Properties).Count -eq 0)) {
             $null = $node.PSObject.Properties.Remove('permission')
           }
-          if (($null -ne $node) -and (@($node.PSObject.Properties.Name).Count -eq 0)) {
+          if (($null -ne $node) -and (@($node.PSObject.Properties).Count -eq 0)) {
             $null = $cfg.agent.PSObject.Properties.Remove($op.Agent)
           }
         }
@@ -476,7 +476,7 @@ foreach ($a in $actions) {
           if (($null -ne $node) -and ($null -ne $node.PSObject.Properties[$op.Leaf])) {
             $null = $node.PSObject.Properties.Remove($op.Leaf)
           }
-          if (($null -ne $node) -and (@($node.PSObject.Properties.Name).Count -eq 0)) {
+          if (($null -ne $node) -and (@($node.PSObject.Properties).Count -eq 0)) {
             $null = $cfg.agent.PSObject.Properties.Remove($op.Agent)
           }
         }
