@@ -33,10 +33,12 @@ try {
   $j | Add-Member -NotePropertyName 'meu_topo_custom' -NotePropertyValue 'keep-me' -Force
   # Worker managed com permissao extra do usuario (task intacto = "deny") ------
   $j.agent.coder.permission | Add-Member -NotePropertyName 'bash' -NotePropertyValue (([ordered]@{ '*' = 'ask' } | ConvertTo-Json -Depth 8) | ConvertFrom-Json) -Force
+  # Plugin com entrada do usuario: ownership passa a ser do usuario ------------
+  $j.plugin = @('file://./meu-plugin.ts')
   [IO.File]::WriteAllText($jsonPath, ((($j | ConvertTo-Json -Depth 32).TrimEnd()) + "`n"), (New-Object Text.UTF8Encoding $false))
 
   # Uninstall ----------------------------------------------------------------
-  $out = & (Join-Path $RepoRoot 'uninstall.ps1') -TargetHome $TmpHome 2>&1 | Out-String
+  $out = & (Join-Path $RepoRoot 'uninstall.ps1') -TargetHome $TmpHome *>&1 | Out-String
   Assert ($LASTEXITCODE -eq 0) 'uninstall exit 0'
 
   # Pacote removido -----------------------------------------------------------
@@ -49,6 +51,8 @@ try {
   $t = [IO.File]::ReadAllText((Join-Path $ocDir 'AGENTS.md'), [Text.Encoding]::UTF8)
   Assert (($t -notmatch 'opencode-orchestration:start') -and ($t -notmatch 'opencode-orchestration:end')) 'AGENTS.md bloco markered removido'
   Assert (-not (Test-Path -LiteralPath $mf -PathType Leaf)) 'manifest removido ao final'
+  Assert ($out.Contains('[KEEP] plugin')) 'uninstall lista [KEEP] plugin (conteudo do usuario)'
+  Assert ((@($j2.plugin)).Count -eq 1 -and (@($j2.plugin))[0] -eq 'file://./meu-plugin.ts') 'plugin com entrada do usuario preservado (chave inteira mantida)'
 
   # Permission extra do usuario: task removido, extra mantido, sem orfao -------
   $coderTask = 'ABSENT'

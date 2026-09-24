@@ -255,20 +255,16 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
       Add-Plan 'KEEP' ($root + ' (alterado, ou manifest ausente/nao confirma, mantido)')
     }
   }
-  foreach ($opt in @('skills.paths', 'autoupdate', 'plugin')) {
+  foreach ($opt in @('skills.paths', 'autoupdate')) {
     $has = $false
     $cur = $null
     if ($opt -eq 'skills.paths') {
       $has = (Has-Member $existingJson 'skills') -and (Has-Member $existingJson.skills 'paths')
       if ($has) { $cur = Convert-Canonical $existingJson.skills.paths }
     }
-    elseif ($opt -eq 'autoupdate') {
+    else {
       $has = Has-Member $existingJson 'autoupdate'
       if ($has) { $cur = Convert-Canonical $existingJson.autoupdate }
-    }
-    else {
-      $has = Has-Member $existingJson 'plugin'
-      if ($has) { $cur = Convert-Canonical $existingJson.plugin }
     }
     if (-not $has) { continue }
     $inManaged = $false
@@ -285,6 +281,19 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
     }
     else {
       Add-Plan 'KEEP' ($opt + ' (do usuario ou alterado, mantido)')
+    }
+  }
+  # plugin: USER-owned a partir do momento em que tem qualquer entrada.
+  # Remove SOMENTE se o valor atual for exatamente o default do pacote ([] vazio).
+  # O snapshot do manifest NAO autoriza remover conteudo divergente.
+  if (Has-Member $existingJson 'plugin') {
+    $curPlugin = Convert-Canonical $existingJson.plugin
+    if ($curPlugin -eq '[]') {
+      Add-Plan 'REMOVE' 'plugin (vazio, default do pacote)'
+      [void]$configOps.Add(@{ Op = 'del-opt'; Key = 'plugin' })
+    }
+    else {
+      Add-Plan 'KEEP' 'plugin (conteúdo do usuário presente)'
     }
   }
   if (Has-Member $existingJson 'mcp') { Add-Plan 'KEEP' 'mcp.* (nunca tocado)' }
