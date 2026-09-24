@@ -1,0 +1,153 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "{{MODEL_PLANNER}}",
+  "default_agent": "build",
+  "subagent_depth": 1,
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "model": "{{MODEL_PLANNER}}",
+      "permission": {
+        "task": {
+          "*": "deny",
+          "ai-agent-engineer": "allow",
+          "architect": "allow",
+          "automation-engineer": "allow",
+          "backend-engineer": "allow",
+          "coder": "allow",
+          "database-engineer": "allow",
+          "debugger": "allow",
+          "docs-manager": "allow",
+          "engineering-advisor": "allow",
+          "explorer": "allow",
+          "frontend-engineer": "allow",
+          "infra-engineer": "allow",
+          "product-designer": "allow",
+          "requirements-analyst": "allow",
+          "researcher": "allow",
+          "reviewer": "allow",
+          "security-reviewer": "allow",
+          "skeptic": "allow",
+          "tester": "allow"
+        }
+      }
+    },
+    "title": {
+      "model": "{{MODEL_PLANNER}}"
+    },
+    "explorer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "researcher": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "coder": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "tester": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "debugger": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "security-reviewer": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "architect": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "docs-manager": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "frontend-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "backend-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "database-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "ai-agent-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "automation-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    },
+    "infra-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permission": {
+        "task": "deny"
+      }
+    }
+  },
+  "skills": {
+    "paths": [
+      "~/.agents/skills",
+      "~/.config/opencode/skills"
+    ],
+    "urls": []
+  },
+  "plugin": [],
+  "autoupdate": false
+}
