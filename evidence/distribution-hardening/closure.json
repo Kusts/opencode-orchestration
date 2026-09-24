@@ -1,0 +1,45 @@
+{
+  "phase": "P9 closure audit",
+  "date": "2026-09-24",
+  "head": "421690a",
+  "ci": {
+    "run": "36049444883",
+    "conclusion": "success",
+    "jobs": ["ci-ps51 (powershell 5.1)", "ci-ps7 (pwsh 7)"],
+    "pipeline": ["package-consistency", "v3-suite", "ci-pipeline (fresh install, idempotency, preservation, rollback, uninstall)"]
+  },
+  "fresh_clone": {
+    "source": "https://github.com/Kusts/opencode-orchestration",
+    "install_exit": 0,
+    "consistency_exit": 0,
+    "agents_installed": 19,
+    "agents_md_markers": 1,
+    "installed_mojibake_hits": 0
+  },
+  "acceptance_gate": {
+    "fresh_install": "PASS",
+    "idempotent_reinstall": "PASS",
+    "custom_agent_preservation": "PASS",
+    "mcp_preservation": "PASS",
+    "plugin_preservation": "PASS",
+    "agents_md_preservation": "PASS",
+    "planner_model_override": "PASS",
+    "worker_model_pinning": "PASS",
+    "no_subdelegation": "PASS",
+    "plugin_mandate_behavior": "PASS",
+    "v3_tests": "PASS (24/24, 1 documented live-conditional skip)",
+    "rollback": "PASS",
+    "uninstall": "PASS",
+    "package_consistency": "PASS (10 checks)",
+    "ci": "PASS"
+  },
+  "distribution_suite": "9/9 suites exit 0 (76 asserts)",
+  "preexisting_baseline_failures": "12 at P0; all resolved (registry distributed) or converted to documented conditional skips",
+  "known_limitations": [
+    "runtime hook does not expose agent identity -> plugin applies conservative neutral mandate (probes future fields)",
+    "ask permissions auto-approved in runtime auto mode (confirmation control, not unconditional block)",
+    "shell globs are string matching (no script content inspection); planner-enforced via dispatch contract",
+    "3 suites emit documented live-conditional skips on machines without a live opencode.json"
+  ],
+  "result": "ORCHESTRATION_V3=UNCHANGED DISTRIBUTION=HARDENED PACKAGE=SELF_CONTAINED INSTALLER=TRANSACTIONAL USER_CONFIG=PRESERVED"
+}
