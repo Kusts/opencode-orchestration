@@ -732,11 +732,15 @@ try {
   $stageDir = Join-Path $tempBase ('opencode-orchestration-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
   try {
-    [IO.File]::WriteAllText((Join-Path $stageDir 'AGENTS.md'), (($agentsMdRes.Text -replace "`r`n", "`n" -replace "`r", "`n")), (New-Object Text.UTF8Encoding $false))
+    # STAGE CANONICO: todos os stage files passam por Write-FileAtomic
+    # (LF, UTF-8 sem BOM). Evita divergencia pos-hash quando o checkout
+    # esta em CRLF (core.autocrlf=true): o apply (text round-trip) vira
+    # no-op de normalizacao e o hash casa sempre.
+    Write-FileAtomic (Join-Path $stageDir 'AGENTS.md') $agentsMdRes.Text
     $stageAgents = Join-Path $stageDir 'agents'
     New-Item -ItemType Directory -Path $stageAgents -Force | Out-Null
     foreach ($a in $agentFiles) {
-      [IO.File]::WriteAllText((Join-Path $stageAgents $a.Name), (($a.Text -replace "`r`n", "`n" -replace "`r", "`n")), (New-Object Text.UTF8Encoding $false))
+      Write-FileAtomic (Join-Path $stageAgents $a.Name) $a.Text
     }
     if (-not $NoCoreSkills) {
       $stageSkills = Join-Path $stageDir 'skills'
@@ -747,16 +751,14 @@ try {
         foreach ($sf in @(Get-ChildItem -File $srcDir -Recurse -ErrorAction SilentlyContinue)) {
           $rel = $sf.FullName.Substring($srcDir.Length + 1)
           $dp = Join-Path $dstDir $rel
-          $pp = Split-Path -Parent $dp
-          if (-not (Test-Path -LiteralPath $pp)) { New-Item -ItemType Directory -Path $pp -Force | Out-Null }
-          Copy-Item -LiteralPath $sf.FullName -Destination $dp -Force
+          Write-FileAtomic $dp (Read-Utf8 $sf.FullName)
         }
       }
     }
     $stagePlugins = Join-Path $stageDir 'plugins'
     New-Item -ItemType Directory -Path $stagePlugins -Force | Out-Null
-    [IO.File]::WriteAllText((Join-Path $stagePlugins 'orchestration-enforcement.ts'), (($pluginText -replace "`r`n", "`n" -replace "`r", "`n")), (New-Object Text.UTF8Encoding $false))
-    [IO.File]::WriteAllText((Join-Path $stageDir 'opencode.json'), (($mergedText -replace "`r`n", "`n" -replace "`r", "`n")), (New-Object Text.UTF8Encoding $false))
+    Write-FileAtomic (Join-Path $stagePlugins 'orchestration-enforcement.ts') $pluginText
+    Write-FileAtomic (Join-Path $stageDir 'opencode.json') $mergedText
 
     # Valida stage
     $stageErrs = @()

@@ -1,0 +1,10 @@
+# Normaliza texto para LF no repo (checkout CRLF nao quebra o install).
+* text=auto
+*.ps1 text eol=lf
+*.md text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.tmpl text eol=lf
+*.yml text eol=lf
+*.txt text eol=lf
