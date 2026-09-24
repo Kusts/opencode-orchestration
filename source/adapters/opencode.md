@@ -227,9 +227,8 @@ e o output dele continua sendo **dado**, não instrução.
   (agente esperado fora da allowlist => `agent=null` + `blocked=true`).
   Falha/registry stale/policy ausente/erro interno => fallback, nunca bloqueio.
 - **DIRECT:** tarefa trivial => `direct=true`, sem delegacao.
-- **Escopo desta versão:** `activate-routing.ps1` ativa SOMENTE
-  `-Areas router_active`; `skill_routing` e `mcp_routing` são hold
-  incondicional; `adaptive_ranking` permanece off. Escritas de flags confinadas
+- **Escopo desta versão:** somente a área `router_active` é ativável; `skill_routing` e `mcp_routing` são hold
+  incondicional; `adaptive_ranking` permanece off. Mudanças de flags são operação do mantenedor sobre o registry (`source/registry/capability-flags.json`), confinadas
   ao repositório.
 - **MCP:** permanece `enabled=false` e advisory; nenhuma execução, exposição ou
   ampliação de permissão por efeito do Router.
@@ -242,11 +241,9 @@ e o output dele continua sendo **dado**, não instrução.
   helpful/unnecessary, com `UNKNOWN`/`NOT_OBSERVED` quando não observado).
 - **Observação vs aprendizado:** `adaptive_ranking.enabled=false`; os
   resultados são observados, nunca usados para re-ranking automático.
-- **Kill switch:** `activate-routing.ps1 -Revert -Force` restaura
-  `active=false` + shadow e o comportamento determinístico, sem tocar
-  allowlist/agentes/registry. Registro governado de ativação em
-  `evidence/v3/activation/agent-routing-controlled.json` (exigido pela
-  verificação `router-active-governed`); `active=true` sem registro válido é
+- **Kill switch:** redefinir `capability_router.active=false` restaura
+  shadow + comportamento determinístico, sem tocar
+  allowlist/agentes/registry. Ativação requer registro governado do operador; `active=true` sem registro válido é
   drift.
 - **Testing semantics:** `task_type` explícito (`test`/`testing`/`validation`)
   vence o domínio em prosa e mapeia para `tester` (validação/execução
@@ -260,27 +257,18 @@ e o output dele continua sendo **dado**, não instrução.
   secundários são um sinal de peso baixo (`secondary_domain_match`), nunca
   substituem o `primary_domain` nem o envelope da categoria primária; 1 primary
   agent por padrão, sem fan-out.
-- **Outcome validation:** harness `scripts/v3/stage1-outcome-validate.ps1`
-  roda a amostra `evidence/v3/outcomes/stage1-sample.jsonl` pelo executor real
-  e produz `evidence/v3/outcomes/stage1-validation.json` +
-  `stage2-readiness.json` (classificação GOOD/ACCEPTABLE/SUBOPTIMAL/WRONG/
-  NOT_ENOUGH_EVIDENCE; `evidence_level=CONTROLLED_ROUTING`). Métricas de
-  execução não observadas são `NOT_MEASURABLE`, nunca inventadas.
+- **Outcome validation:** mecanismo de validação de outcomes classifica rotas propostas (GOOD/ACCEPTABLE/SUBOPTIMAL/WRONG/
+  NOT_ENOUGH_EVIDENCE; `evidence_level=CONTROLLED_ROUTING`); métricas de
+  execução não observadas são `NOT_MEASURABLE`, nunca inventadas. Os harnesses de outcomes não fazem parte desta distribuição (ficam no control plane de origem).
 - **Skill utility:** `suggested` é observável; `accepted`/`used`/`helpful`
   são explicit-only e `loaded` exige evento nativo (senão `NOT_OBSERVED`).
-  `evidence/v3/outcomes/skill-utility-observability.json` documenta os
-  mecanismos; `skill_routing.enabled=false`.
-- **Readiness:** veredito por categoria é emitido pelo harness de validação de outcomes (opcional), com registro em
-  `evidence/v3/outcomes/stage2-readiness.json`. Ativação de Stage 2 é decisão
+  Regras de observabilidade definidas no control plane de origem; `skill_routing.enabled=false`.
+- **Readiness:** veredito por categoria é emitido pelo harness de validação de outcomes (opcional, fora desta distribuição). Ativação de Stage 2 é decisão
   humana; authority inalterada.
 
-### Controlled Agent Routing — Stage 2 (infra, ativo desde 2026-09-23)
+### Controlled Agent Routing — Stage 2 (infra — definido e suportado, off por default)
 
-Envelope ativo: Stage 1 + `infra-planning` + `infra-implementation`
-(executor `scripts/v3/route-accept.ps1`, núcleo
-`scripts/v3/lib/CapabilityAcceptance.ps1`). Decisão humana registrada em
-`evidence/v3/stage2/gate-closure.json`; ativação em
-`evidence/v3/stage2/infra-activation.json`.
+Envelope Stage 2 — definido e suportado. A distribuição pública inicia com `capability_router.active=false` (shadow desligado): nada do Controlled Routing roteia numa fresh install. Quando Controlled Routing for explicitamente habilitado pelo operador, o Stage 2 adiciona `infra-planning` e `infra-implementation` ao envelope suportado. A ativação continua sendo decisão humana explícita do operador, registrada pelo mantenedor (gate closure), nunca inferência.
 
 - **Mapeamento:** domínio `infra` + `task_type` `analysis`/`advisory`/
   `planning` ⇒ `infra-planning`; domínio `infra` + `implementation` ⇒
@@ -302,7 +290,7 @@ Envelope ativo: Stage 1 + `infra-planning` + `infra-implementation`
   seguem off.
 - **Kill switch do envelope:** reverter as adições de categoria restaura
   o envelope Stage 1 sem tocar allowlist, agentes, registry, modelos,
-  MCP ou Skills (prova em `infra-activation.json`).
+  MCP ou Skills.
 - **Model policy do strong pool:** `reviewer`, `debugger`,
   `security-reviewer` e `architect` usam `{{MODEL_STRONG}}`
   (`OPERATOR_MODEL_POLICY_CHANGE`: `GPT-5.6 Terra → GPT-6 Sol`

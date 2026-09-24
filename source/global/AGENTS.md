@@ -1,7 +1,7 @@
 # Unified Agent Control Plane — política global
 
 Este arquivo é a fonte canônica da política global compartilhada. Ele define
-defaults para Codex, Claude Code, OpenCode, Pi Dev e Antigravity; instruções do
+os defaults compartilhados da política; instruções do
 projeto atual, do runtime e do usuário podem ser mais específicas.
 
 ## Comunicação e execução
@@ -133,15 +133,6 @@ uma skill; respeite o pedido atual e as restrições do runtime.
 - Hooks de integrações opcionais (como ai-memory), plugins e integrações externas podem executar em paralelo;
   não os remova nem altere por inferência de ausência no catálogo.
 
-## Defaults de runtime
-
-- Codex mantém seu modo autônomo atual sem ampliar acesso.
-- Claude usa permissões estruturadas, sem bypass global.
-- OpenCode e Pi mantêm o comportamento nativo do runtime.
-- Antigravity CLI usa `--mode accept-edits` no wrapper quando disponível.
-- Antigravity IDE mantém permissões nativas e recebe somente instruções e
-  ambiente compartilhado suportados pela versão instalada.
-
 ## AUTONOMOUS DELEGATION AUTHORIZATION
 
 Esta política global constitui autorização explícita e persistente do usuário
@@ -213,11 +204,10 @@ implícito "Planner fez tudo sozinho sem decisão de orquestração".
 ## Fonte e destinos
 
 `{{REPO_DIR}}` é a única fonte versionada da política global.
-`{{HOME}}/.agents` e os caminhos nativos dos runtimes são estado ativo
-gerado. Projeto e integrações externas opcionais continuam donos de seus arquivos locais;
+`{{HOME}}/.config/opencode` é o estado ativo gerado para este runtime. Projeto e integrações externas opcionais continuam donos de seus arquivos locais;
 o control plane só escreve os alvos e seções explicitamente registrados. Launchers, perfis e segredos do control plane externo são opcionais/legado e não são fornecidos por este pacote; sem eles, nada quebra (credenciais por env do runtime continuam válidas).
 
-Os detalhes de cada runtime vivem em `source/adapters/`; políticas de
+Os detalhes deste runtime vivem em `source/adapters/opencode.md`; políticas de
 autonomia, conhecimento e credenciais vivem em `source/policies/`. Os arquivos
 ativos são gerados por `scripts/render-opencode-config.ps1` e reconciliados por
 `scripts/reconcile-opencode-config.ps1`; edições diretas nesses destinos podem ser

@@ -24,8 +24,8 @@
     O computed_at muito no futuro (>300s) e tratado como stale.
       - Invoke-EvalRouteCase: roteia UM caso via lib CapabilityRouter
         (New-RouterTask + Read-RouterRegistry + Invoke-RouterRoute ou
-        Get-RouterFallbackResult), replicando a decisao de fallback do CLI
-        route-capabilities.ps1. Modo locked abre FileStream exclusivo para
+        Get-RouterFallbackResult), replicando a decisao de fallback do executor
+        de routing scripts/v3/route-accept.ps1. Modo locked abre FileStream exclusivo para
         exercitar o caminho 'registry unreadable' (excecao real contida).
       - Measure-EvalCase: veredito por caso com as metricas do contrato:
         agent_ok, unnecessary_delegation, missing_specialist,
@@ -41,8 +41,8 @@
       - New-EvalTelemetryLine: projecao sanitizada por allowlist para o
         JSONL de telemetria (sem objective/notes/descriptions/dumps).
 
-    Nao le flags de ativacao nem escreve arquivos; quem escreve report e
-    telemetria e o CLI scripts/v3/eval-routing.ps1. Nao toca o Planner vivo.
+    Nao le flags de ativacao nem escreve arquivos; a escrita de report e
+    telemetria e responsabilidade do operador/control plane; esta lib nao toca o Planner vivo.
     PowerShell 5.1 compativel. ASCII-only de proposito (5.1 sem BOM le ANSI).
 #>
 [CmdletBinding()]

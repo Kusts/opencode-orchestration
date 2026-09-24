@@ -35,12 +35,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# NOTA test-only: -InjectFailureAfter força falha no ponto indicado para
+# NOTA test-only: -InjectFailureAfter forÃ§a falha no ponto indicado para
 # exercitar backup/stage/rollback nos testes. Nunca usar em uso real.
-# Valores: 'backup' (falha após backup), 'stage' (falha após stage),
+# Valores: 'backup' (falha apÃ³s backup), 'stage' (falha apÃ³s stage),
 # 'apply-half' (falha no meio do apply -> rollback, exit 5),
-# 'apply-json' (falha APÓS escrever opencode.json, última etapa -> rollback, exit 5),
-# 'manifest' (falha na gravação do manifest -> rollback completo, exit 5).
+# 'apply-json' (falha APÃ“S escrever opencode.json, Ãºltima etapa -> rollback, exit 5),
+# 'manifest' (falha na gravaÃ§Ã£o do manifest -> rollback completo, exit 5).
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
@@ -160,6 +160,92 @@ function Resolve-Tokens([string]$Text, [string]$Planner, [string]$Cheap, [string
 function Count-TokenMarkers([string]$Text) {
   $m = [regex]::Matches($Text, '\{\{[^}]+\}\}')
   return $m.Count
+}
+
+# ---- P9.1 identidade unica de caminhos relativos ------------------------------
+# Regra: o caminho relativo de cada arquivo gerenciado e calculado UMA vez,
+# a partir da enumeracao da fonte canonica, e carregado como dado imutavel
+# (ManagedOperation) por todo o pipeline (plan/backup/stage/CAS/apply/
+# manifest/rollback). Nunca recalcular RelativePath com Substring() sobre
+# FullName enumerado: no CI o prefixo passado ao enumerador (ex.: TEMP com
+# nome 8.3 "RUNNER~1") diverge do FullName canonicalizado retornado, e o
+# Substring produzia relativos corrompidos ("skills\<skill>\on\SKILL.md").
+function Test-ManagedRelativePath([string]$RelativePath) {
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $false }
+  if ([IO.Path]::IsPathRooted($RelativePath)) { return $false }
+  if ($RelativePath -match '(^|[\\/])\.\.($|[\\/])') { return $false }
+  if ($RelativePath.Contains(':')) { return $false }
+  if ($RelativePath.StartsWith('\') -or $RelativePath.StartsWith('/')) { return $false }
+  return $true
+}
+
+function Get-ManagedSourceFiles([string]$Dir) {
+  # Enumeracao recursiva que constroi RelativePath SOMENTE com Name (e o
+  # FullName apenas para DESCER a arvore, auto-consistente com o enumerador).
+  # Retorna @{ SourcePath; RelativePath } para cada arquivo.
+  $found = New-Object System.Collections.ArrayList
+  foreach ($item in @(Get-ChildItem -LiteralPath $Dir -Force -ErrorAction Stop)) {
+    if ($item.PSIsContainer) {
+      foreach ($child in @(Get-ManagedSourceFiles $item.FullName)) {
+        [void]$found.Add(@{ SourcePath = $child.SourcePath; RelativePath = ($item.Name + '\' + $child.RelativePath) })
+      }
+    }
+    else {
+      [void]$found.Add(@{ SourcePath = $item.FullName; RelativePath = $item.Name })
+    }
+  }
+  return $found
+}
+
+function Assert-PathUnder([string]$Path, [string]$Root, [string]$What) {
+  $rootNorm = $Root.TrimEnd('\')
+  $isUnder = $Path.StartsWith($rootNorm + '\', [StringComparison]::OrdinalIgnoreCase)
+  $isRoot = $Path.Equals($rootNorm, [StringComparison]::OrdinalIgnoreCase)
+  if ((-not $isUnder) -and (-not $isRoot)) {
+    throw ($What + ' fora da raiz esperada: ' + $Path)
+  }
+}
+
+function Assert-NoReparseUnder([string]$Root, [string]$Leaf, [string]$What) {
+  # Falha com seguranca se algum diretorio ancestral (abaixo da raiz) do
+  # destino gerenciado for junction/reparse point: o apply nao deve seguir
+  # redirecionamento para fora da raiz gerenciada.
+  $rootNorm = $Root.TrimEnd('\')
+  $cur = $Leaf
+  while ($true) {
+    $parent = Split-Path -Parent $cur
+    if ([string]::IsNullOrEmpty($parent)) { return }
+    if ($parent.Length -le $rootNorm.Length) { return }
+    if (Test-Path -LiteralPath $parent -PathType Container) {
+      $item = Get-Item -LiteralPath $parent -Force
+      if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw ($What + ': junction/reparse point detectado em ' + $parent)
+      }
+    }
+    $cur = $parent
+  }
+}
+
+function Restore-FileAtomicBytes([string]$BackupPath, [string]$DstPath) {
+  # Restaura os BYTES exatos do backup (sem normalizacao de EOL). Um arquivo
+  # pre-existente pode estar em CRLF: restaura-lo via texto mudaria seus
+  # bytes, o hash divergiria e o rollback emitiria ROLLBACK_REQUIRED indevido.
+  $parent = Split-Path -Parent $DstPath
+  if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+  $tmp = Join-Path $parent ('.' + (Split-Path -Leaf $DstPath) + '.' + [guid]::NewGuid().ToString('N') + '.rstr')
+  try {
+    Copy-Item -LiteralPath $BackupPath -Destination $tmp -Force
+    if (Test-Path -LiteralPath $DstPath) {
+      $bak2 = $tmp + '.bak'
+      try { [System.IO.File]::Replace($tmp, $DstPath, $bak2, $false) }
+      catch { Move-Item -LiteralPath $tmp -Destination $DstPath -Force }
+      if (Test-Path -LiteralPath $bak2) { Remove-Item -LiteralPath $bak2 -Force -ErrorAction SilentlyContinue }
+    }
+    else { [IO.File]::Move($tmp, $DstPath) }
+  }
+  finally {
+    if ((Test-Path -LiteralPath $tmp -PathType Leaf)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 # ---- 2.1 funcoes de merge ---------------------------------------------------
@@ -574,6 +660,50 @@ else {
 }
 $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 
+# ---- P9.1 operacoes gerenciadas (fonte unica de verdade de paths) -----------
+# Cada arquivo gerenciado vira UMA operacao com RelativePath imutavel,
+# SourcePath na fonte canonica, StagePath e DestinationPath derivados por
+# Join-Path a partir do RelativePath (nunca por Substring de FullName).
+$ops = New-Object System.Collections.ArrayList
+[void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
+foreach ($a in $agentFiles) {
+  [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
+}
+if (-not $NoCoreSkills) {
+  foreach ($s in $skillNames) {
+    $skillSrcDir = Join-Path $skillsSrc $s
+    foreach ($sf in @(Get-ManagedSourceFiles $skillSrcDir)) {
+      if (-not (Test-ManagedRelativePath $sf.RelativePath)) {
+        throw ('relative path invalido na fonte da skill: ' + $sf.RelativePath)
+      }
+      Assert-PathUnder $sf.SourcePath $skillSrcDir ('fonte da skill ' + $s)
+      [void]$ops.Add(@{
+        Component = 'skills'; Skill = $s
+        RelativePath = ('skills\' + $s + '\' + $sf.RelativePath)
+        SourcePath = $sf.SourcePath
+        Label = ('skills/' + $s + '/' + ($sf.RelativePath -replace '\\', '/'))
+      })
+    }
+  }
+}
+[void]$ops.Add(@{ Component = 'plugin'; RelativePath = 'plugins\orchestration-enforcement.ts'; StageText = $pluginText; Label = 'plugins/orchestration-enforcement.ts' })
+[void]$ops.Add(@{ Component = 'config'; RelativePath = 'opencode.json'; StageText = $mergedText; Label = 'opencode.json' })
+
+foreach ($op in $ops) {
+  $dstOp = Join-Path $ocDir $op.RelativePath
+  Assert-PathUnder $dstOp $ocDir ('destino de ' + $op.Label)
+  Assert-NoReparseUnder $ocDir $dstOp ('destino de ' + $op.Label)
+  $op.DestinationPath = $dstOp
+}
+# Junction na PROPRIA raiz gerenciada = redirecionamento deliberado do
+# usuario (ex.: .config em outro drive); nao e bloqueado, mas e sinalizado.
+if (Test-Path -LiteralPath $ocDir -PathType Container) {
+  $ocRootItem = Get-Item -LiteralPath $ocDir -Force
+  if (($ocRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    Write-Host ('AVISO: ' + $ocDir + ' e junction/reparse point; as escritas seguem o redirecionamento definido pelo usuario.') -ForegroundColor Yellow
+  }
+}
+
 # Plano por recurso ------------------------------------------------------------
 $plan = New-Object System.Collections.ArrayList
 function Add-Plan([string]$Tag, [string]$Label) {
@@ -593,15 +723,18 @@ foreach ($a in $agentFiles) {
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
-    $srcDir = Join-Path $skillsSrc $s
+    # Comparacao normalizada (EOL) entre fonte canonica e destino: o installer
+    # grava LF deliberadamente, entao conteudo equivalente com EOL diferente
+    # NAO e divergencia. Idempotencia: tudo igual => SKIP.
     $dstDir = Join-Path $skillsDst $s
     if (-not (Test-Path -LiteralPath $dstDir)) { Add-Plan 'CREATE' ('skills/' + $s + '/'); continue }
     $diff = $false
-    foreach ($sf in @(Get-ChildItem -File $srcDir -Recurse -ErrorAction SilentlyContinue)) {
-      $rel = $sf.FullName.Substring($srcDir.Length + 1)
-      $dp = Join-Path $dstDir $rel
-      if (-not (Test-Path -LiteralPath $dp -PathType Leaf)) { $diff = $true; break }
-      if ((Get-FileHashSafe $sf.FullName) -ne (Get-FileHashSafe $dp)) { $diff = $true; break }
+    foreach ($op in @($ops | Where-Object { ($_.Component -eq 'skills') -and ($_.Skill -eq $s) })) {
+      if (-not (Test-Path -LiteralPath $op.DestinationPath -PathType Leaf)) { $diff = $true; break }
+      $srcTxt = Read-Utf8 $op.SourcePath
+      $a2 = (($srcTxt -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd() + "`n")
+      $b2 = ((Read-Utf8 $op.DestinationPath) -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd() + "`n"
+      if ($a2 -ne $b2) { $diff = $true; break }
     }
     if ($diff) { Add-Plan 'UPDATE' ('skills/' + $s + '/') }
     else { Add-Plan 'SKIP' ('skills/' + $s + '/ (inalterado)') }
@@ -688,21 +821,7 @@ if ($isWhatIf) {
 
 # Hashes esperados (PRECHECK) para CAS ------------------------------------------
 $expectedHashes = @{}
-$destFilesForHash = New-Object System.Collections.ArrayList
-[void]$destFilesForHash.Add($agentsTargetPath)
-foreach ($a in $agentFiles) { [void]$destFilesForHash.Add((Join-Path $ocDir ('agents\' + $a.Name))) }
-if (-not $NoCoreSkills) {
-  foreach ($s in $skillNames) {
-    $srcDir = Join-Path $skillsSrc $s
-    foreach ($sf in @(Get-ChildItem -File $srcDir -Recurse -ErrorAction SilentlyContinue)) {
-      $rel = $sf.FullName.Substring($srcDir.Length + 1)
-      [void]$destFilesForHash.Add((Join-Path (Join-Path $skillsDst $s) $rel))
-    }
-  }
-}
-[void]$destFilesForHash.Add($pluginDst)
-[void]$destFilesForHash.Add($jsonPath)
-foreach ($d in $destFilesForHash) { $expectedHashes[$d] = Get-FileHashSafe $d }
+foreach ($op in $ops) { $expectedHashes[$op.DestinationPath] = Get-FileHashSafe $op.DestinationPath }
 
 # Backup -----------------------------------------------------------------------
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -710,15 +829,14 @@ $bakDir = Join-Path $ocDir ("backups\oo-" + $stamp)
 $backupCount = 0
 $backupMap = @{}
 try {
-  foreach ($d in $destFilesForHash) {
-    if (Test-Path -LiteralPath $d -PathType Leaf) {
-      $rel = $d.Substring($ocDir.Length + 1)
-      $dest = Join-Path $bakDir $rel
+  foreach ($op in $ops) {
+    if (Test-Path -LiteralPath $op.DestinationPath -PathType Leaf) {
+      $dest = Join-Path $bakDir $op.RelativePath
       if ($PSCmdlet.ShouldProcess($dest, 'Backup')) {
         $parent = Split-Path -Parent $dest
         if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-        Copy-Item -LiteralPath $d -Destination $dest -Force
-        $backupMap[$d] = $dest
+        Copy-Item -LiteralPath $op.DestinationPath -Destination $dest -Force
+        $backupMap[$op.DestinationPath] = $dest
         $backupCount += 1
       }
     }
@@ -732,33 +850,21 @@ try {
   $stageDir = Join-Path $tempBase ('opencode-orchestration-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
   try {
-    # STAGE CANONICO: todos os stage files passam por Write-FileAtomic
-    # (LF, UTF-8 sem BOM). Evita divergencia pos-hash quando o checkout
-    # esta em CRLF (core.autocrlf=true): o apply (text round-trip) vira
-    # no-op de normalizacao e o hash casa sempre.
-    Write-FileAtomic (Join-Path $stageDir 'AGENTS.md') $agentsMdRes.Text
-    $stageAgents = Join-Path $stageDir 'agents'
-    New-Item -ItemType Directory -Path $stageAgents -Force | Out-Null
-    foreach ($a in $agentFiles) {
-      Write-FileAtomic (Join-Path $stageAgents $a.Name) $a.Text
+    # STAGE CANONICO: uma unica passada sobre $ops. StagePath = Join-Path(
+    # stageDir, RelativePath), validado contra a raiz do stage. Todos os
+    # stage files passam por Write-FileAtomic (LF, UTF-8 sem BOM). Evita
+    # divergencia pos-hash quando o checkout esta em CRLF
+    # (core.autocrlf=true): o apply (text round-trip) vira no-op de
+    # normalizacao e o hash casa sempre.
+    foreach ($op in $ops) {
+      $stageOp = Join-Path $stageDir $op.RelativePath
+      Assert-PathUnder $stageOp $stageDir ('stage de ' + $op.Label)
+      $op.StagePath = $stageOp
+      $parentOp = Split-Path -Parent $stageOp
+      if (-not (Test-Path -LiteralPath $parentOp)) { New-Item -ItemType Directory -Path $parentOp -Force | Out-Null }
+      if ($op.ContainsKey('StageText')) { Write-FileAtomic $stageOp $op.StageText }
+      else { Write-FileAtomic $stageOp (Read-Utf8 $op.SourcePath) }
     }
-    if (-not $NoCoreSkills) {
-      $stageSkills = Join-Path $stageDir 'skills'
-      foreach ($s in $skillNames) {
-        $srcDir = Join-Path $skillsSrc $s
-        $dstDir = Join-Path $stageSkills $s
-        New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
-        foreach ($sf in @(Get-ChildItem -File $srcDir -Recurse -ErrorAction SilentlyContinue)) {
-          $rel = $sf.FullName.Substring($srcDir.Length + 1)
-          $dp = Join-Path $dstDir $rel
-          Write-FileAtomic $dp (Read-Utf8 $sf.FullName)
-        }
-      }
-    }
-    $stagePlugins = Join-Path $stageDir 'plugins'
-    New-Item -ItemType Directory -Path $stagePlugins -Force | Out-Null
-    Write-FileAtomic (Join-Path $stagePlugins 'orchestration-enforcement.ts') $pluginText
-    Write-FileAtomic (Join-Path $stageDir 'opencode.json') $mergedText
 
     # Valida stage
     $stageErrs = @()
@@ -779,10 +885,10 @@ try {
 
     # CAS recheck (antes de qualquer apply) ------------------------------------
     $conflicts = @()
-    foreach ($d in $destFilesForHash) {
-      $now = Get-FileHashSafe $d
-      $exp = $expectedHashes[$d]
-      if ($exp -ne $now) { $conflicts += $d }
+    foreach ($op in $ops) {
+      $now = Get-FileHashSafe $op.DestinationPath
+      $exp = $expectedHashes[$op.DestinationPath]
+      if ($exp -ne $now) { $conflicts += $op.DestinationPath }
     }
     if ($conflicts.Count -gt 0) {
       Write-Output 'CAS_CONFLICT (exit 4). Destino mudou entre preview e apply. NADA foi aplicado, SEM rollback.'
@@ -791,51 +897,44 @@ try {
     }
 
     # Apply --------------------------------------------------------------------
-    $ops = New-Object System.Collections.ArrayList
-    [void]$ops.Add(@{ Src = (Join-Path $stageDir 'AGENTS.md'); Dst = $agentsTargetPath; Label = 'AGENTS.md' })
-    foreach ($a in $agentFiles) {
-      [void]$ops.Add(@{ Src = (Join-Path $stageAgents $a.Name); Dst = (Join-Path $ocDir ('agents\' + $a.Name)); Label = ('agents/' + $a.Name) })
-    }
-    if (-not $NoCoreSkills) {
-      $stageSkills = Join-Path $stageDir 'skills'
-      foreach ($s in $skillNames) {
-        $srcDir = Join-Path $stageSkills $s
-        foreach ($sf in @(Get-ChildItem -File $srcDir -Recurse -ErrorAction SilentlyContinue)) {
-          $rel = $sf.FullName.Substring($srcDir.Length + 1)
-          [void]$ops.Add(@{ Src = $sf.FullName; Dst = (Join-Path (Join-Path $skillsDst $s) $rel); Label = ('skills/' + $s + '/' + $rel) })
-        }
-      }
-    }
-    [void]$ops.Add(@{ Src = (Join-Path $stagePlugins 'orchestration-enforcement.ts'); Dst = $pluginDst; Label = 'plugins/orchestration-enforcement.ts' })
-    [void]$ops.Add(@{ Src = (Join-Path $stageDir 'opencode.json'); Dst = $jsonPath; Label = 'opencode.json' })
-
+    # $ops ja carrega Src (StagePath) e Dst (DestinationPath) como dados.
     $applied = New-Object System.Collections.ArrayList
+    $createdDirs = New-Object System.Collections.ArrayList
     $halfPoint = [Math]::Floor($ops.Count / 2)
     $idx = 0
     try {
       foreach ($op in $ops) {
         $idx += 1
-        $existedBefore = Test-Path -LiteralPath $op.Dst -PathType Leaf
-        $origHash = $expectedHashes[$op.Dst]
-        if ($null -eq $origHash) { $origHash = Get-FileHashSafe $op.Dst }
+        $existedBefore = Test-Path -LiteralPath $op.DestinationPath -PathType Leaf
+        $origHash = $expectedHashes[$op.DestinationPath]
+        if ($null -eq $origHash) { $origHash = Get-FileHashSafe $op.DestinationPath }
+        # Registrar diretorios pais ainda inexistentes (serao criados pelo
+        # write) para o rollback remove-los se ficarem vazios.
+        $pdir = Split-Path -Parent $op.DestinationPath
+        $ocPrefix = $ocDir.TrimEnd('\') + '\'
+        while (($pdir) -and ($pdir.StartsWith($ocPrefix, [StringComparison]::OrdinalIgnoreCase))) {
+          if (Test-Path -LiteralPath $pdir -PathType Container) { break }
+          if (-not $createdDirs.Contains($pdir)) { [void]$createdDirs.Add($pdir) }
+          $pdir = Split-Path -Parent $pdir
+        }
         $script:LastWriteMode = 'atomic'
-        [void]$applied.Add(@{ Dst = $op.Dst; Src = $op.Src; Label = $op.Label; Existed = $existedBefore; OrigHash = $origHash; Mode = 'pending' })
+        [void]$applied.Add(@{ Dst = $op.DestinationPath; Src = $op.StagePath; Label = $op.Label; Existed = $existedBefore; OrigHash = $origHash; Mode = 'pending' })
         $rec = $applied[$applied.Count - 1]
-        if ($PSCmdlet.ShouldProcess($op.Dst, 'Apply ' + $op.Label)) {
-          Write-FileAtomic $op.Dst (Read-Utf8 $op.Src)
+        if ($PSCmdlet.ShouldProcess($op.DestinationPath, 'Apply ' + $op.Label)) {
+          Write-FileAtomic $op.DestinationPath (Read-Utf8 $op.StagePath)
         }
         $rec.Mode = $script:LastWriteMode
-        $hSrc = (Get-FileHash -LiteralPath $op.Src -Algorithm SHA256).Hash
-        $hDst = Get-FileHashSafe $op.Dst
+        $hSrc = (Get-FileHash -LiteralPath $op.StagePath -Algorithm SHA256).Hash
+        $hDst = Get-FileHashSafe $op.DestinationPath
         if ($hSrc -ne $hDst) { throw ('pos-hash divergente em ' + $op.Label) }
         if ($rec.Mode -eq 'non_atomic_fallback') {
-          $hDst2 = Get-FileHashSafe $op.Dst
+          $hDst2 = Get-FileHashSafe $op.DestinationPath
           if ($hSrc -ne $hDst2) { throw ('pos-hash divergente (non_atomic_fallback) em ' + $op.Label) }
         }
         if (($InjectFailureAfter -eq 'apply-half') -and ($idx -eq $halfPoint)) {
           throw 'INJECTED_FAILURE_AFTER=apply-half (test-only)'
         }
-        if (($InjectFailureAfter -eq 'apply-json') -and ($op.Label -eq 'opencode.json')) {
+        if (($InjectFailureAfter -eq 'apply-json') -and ($op.Component -eq 'config')) {
           throw 'INJECTED_FAILURE_AFTER=apply-json (test-only)'
         }
       }
@@ -848,7 +947,7 @@ try {
         $rec = $applied[$ri]
         try {
           if ($rec.Existed -and $backupMap.ContainsKey($rec.Dst)) {
-            Write-FileAtomic $rec.Dst (Read-Utf8 $backupMap[$rec.Dst])
+            Restore-FileAtomicBytes $backupMap[$rec.Dst] $rec.Dst
             if (($null -ne $rec.OrigHash) -and ((Get-FileHashSafe $rec.Dst) -ne $rec.OrigHash)) {
               $failedRestore += $rec.Dst
             }
@@ -866,6 +965,18 @@ try {
           $failedRestore += $rec.Dst
         }
       }
+      # Diretorios criados pelo apply que ficaram vazios: remover (mais
+      # profundo primeiro), sem tocar diretorios pre-existentes.
+      foreach ($cd in @($createdDirs | Sort-Object { $_.Length } -Descending)) {
+        try {
+          if (Test-Path -LiteralPath $cd -PathType Container) {
+            $left = @(Get-ChildItem -LiteralPath $cd -Force -ErrorAction SilentlyContinue)
+            if ($left.Count -eq 0) { Remove-Item -LiteralPath $cd -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $cd -PathType Container) { $failedRestore += $cd }
+          }
+        }
+        catch { $failedRestore += $cd }
+      }
       if ($failedRestore.Count -eq 0) {
         Write-Output 'ROLLBACK_COMPLETED'
       }
@@ -882,14 +993,28 @@ try {
     $manifestExisted = Test-Path -LiteralPath $manifestPath -PathType Leaf
     $manifestOrigHash = Get-FileHashSafe $manifestPath
     $manifestOrigText = $null
+    $manifestByteBackup = $null
     if ($manifestExisted) {
-      try { $manifestOrigText = Read-Utf8 $manifestPath } catch { $manifestOrigText = $null }
+      # Backup BYTE-EXATO do manifesto pre-existente: pode ter sido editado
+      # pelo usuario (CRLF/BOM); restaurar via texto alteraria seus bytes.
+      try {
+        $manifestOrigText = Read-Utf8 $manifestPath
+        $manifestByteBackup = Join-Path $stageDir 'manifest.orig'
+        Copy-Item -LiteralPath $manifestPath -Destination $manifestByteBackup -Force
+      }
+      catch {
+        $manifestOrigText = $null
+        $manifestByteBackup = $null
+      }
+    }
+    # Diretorio do manifest criado aqui entra no rollback de diretorios.
+    if (-not (Test-Path -LiteralPath $manifestDir -PathType Container)) {
+      if (-not $createdDirs.Contains($manifestDir)) { [void]$createdDirs.Add($manifestDir) }
     }
     try {
       $managedFiles = New-Object System.Collections.ArrayList
       foreach ($op in $ops) {
-        $rel = $op.Dst.Substring($ocDir.Length + 1)
-        [void]$managedFiles.Add(@{ relative = $rel; sha256 = (Get-FileHashSafe $op.Dst) })
+        [void]$managedFiles.Add(@{ relative = $op.RelativePath; sha256 = (Get-FileHashSafe $op.DestinationPath) })
       }
     $rev = 'unknown'
     try {
@@ -966,7 +1091,7 @@ try {
         $rec = $applied[$ri]
         try {
           if ($rec.Existed -and $backupMap.ContainsKey($rec.Dst)) {
-            Write-FileAtomic $rec.Dst (Read-Utf8 $backupMap[$rec.Dst])
+            Restore-FileAtomicBytes $backupMap[$rec.Dst] $rec.Dst
             if (($null -ne $rec.OrigHash) -and ((Get-FileHashSafe $rec.Dst) -ne $rec.OrigHash)) {
               $failedRestore += $rec.Dst
             }
@@ -985,8 +1110,19 @@ try {
         }
       }
       try {
-        if ($manifestExisted -and ($null -ne $manifestOrigText)) {
+        if ($manifestExisted -and ($null -ne $manifestByteBackup)) {
+          # Restaura BYTES exatos e VERIFICA o hash original; divergencia
+          # vai para failedRestore (nao declara sucesso silencioso).
+          Restore-FileAtomicBytes $manifestByteBackup $manifestPath
+          if ((Get-FileHashSafe $manifestPath) -ne $manifestOrigHash) {
+            $failedRestore += $manifestPath
+          }
+        }
+        elseif ($manifestExisted -and ($null -ne $manifestOrigText)) {
           Write-FileAtomic $manifestPath $manifestOrigText
+          if ((Get-FileHashSafe $manifestPath) -ne $manifestOrigHash) {
+            $failedRestore += $manifestPath
+          }
         }
         elseif (-not $manifestExisted) {
           if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
@@ -996,6 +1132,16 @@ try {
       }
       catch {
         $failedRestore += $manifestPath
+      }
+      foreach ($cd in @($createdDirs | Sort-Object { $_.Length } -Descending)) {
+        try {
+          if (Test-Path -LiteralPath $cd -PathType Container) {
+            $left = @(Get-ChildItem -LiteralPath $cd -Force -ErrorAction SilentlyContinue)
+            if ($left.Count -eq 0) { Remove-Item -LiteralPath $cd -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $cd -PathType Container) { $failedRestore += $cd }
+          }
+        }
+        catch { $failedRestore += $cd }
       }
       if ($failedRestore.Count -eq 0) {
         Write-Output 'ROLLBACK_COMPLETED'

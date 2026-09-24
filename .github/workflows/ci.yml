@@ -14,8 +14,10 @@
 # Sem segredos. Nenhuma acao de terceiros alem de actions/checkout.
 # Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
 # Dois jobs explicitos (ci-ps51/ci-ps7) em vez de matriz: steps.shell NAO
-# aceita contexts/expressoes (actionlint). O pipeline real vive em
-# scripts/ci-pipeline.ps1 (PS 5.1-compativel); cada job so o invoca.
+# aceita contexts/expressoes (actionlint). Pipeline: package consistency ->
+# V3 suites (scripts/v3/run-v3-tests.ps1) -> distribution suites
+# (tests/distribution/run-distribution-tests.ps1, PS 5.1-compativel); cada
+# job exercita as distribution suites no proprio engine (ps51/pwsh).
 
 name: CI
 
@@ -43,8 +45,8 @@ jobs:
         timeout-minutes: 20
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
-      - name: CI pipeline (fixture, install, idempotency, rollback, uninstall)
-        run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci-pipeline.ps1
+      - name: Distribution suites (9 suites, install transacional)
+        run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
 
   ci-ps7:
     name: CI (ps7)
@@ -64,5 +66,5 @@ jobs:
         timeout-minutes: 20
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
-      - name: CI pipeline (fixture, install, idempotency, rollback, uninstall)
-        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci-pipeline.ps1
+      - name: Distribution suites (9 suites, install transacional)
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1

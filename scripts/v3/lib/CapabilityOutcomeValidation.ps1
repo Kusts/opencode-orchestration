@@ -2,8 +2,10 @@
 .SYNOPSIS
     V3 Stage-1 outcome validation: classifica a DECISAO de roteamento e agrega.
 .DESCRIPTION
-    Biblioteca dot-sourceable (sem execucao ao carregar, sem disco/rede) usada
-    pelo harness `stage1-outcome-validate.ps1`. Ela NAO roteia, NAO decide
+    Biblioteca dot-sourceable (sem execucao ao carregar, sem disco/rede) de
+    validacao de outcomes; consumers sao a suite de testes
+    CapabilityOutcomeValidation.tests.ps1 e relatorios opcionais do control
+    plane (nao faz parte da distribuicao). Ela NAO roteia, NAO decide
     permissao, NAO altera authority e NAO le flags: apenas classifica a decisao
     ja produzida pelo executor Stage 1 (Invoke-CapabilityAcceptance).
 
@@ -58,7 +60,8 @@ function Get-OutcomeCaseClassification {
     .SYNOPSIS
         Classifica UMA decisao de roteamento contra a expectativa do caso.
     .DESCRIPTION
-        Regras (documentadas em docs/operations/V3-STAGE1-OUTCOMES.md):
+        Regras de classificacao definidas nesta biblioteca
+        (GOOD/ACCEPTABLE/SUBOPTIMAL/WRONG/NOT_ENOUGH_EVIDENCE):
           - Qualquer selecao proibida, ou controle do Router em categoria
             deterministic-first, e WRONG_ROUTE + SafetyViolation (zero-tolerancia).
           - Trivial esperado: direct + build => GOOD; delegacao => SUBOPTIMAL.

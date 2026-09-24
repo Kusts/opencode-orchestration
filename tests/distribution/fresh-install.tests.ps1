@@ -41,6 +41,78 @@ try {
   foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     Assert (Test-Path -LiteralPath (Join-Path $ocDir ('skills\' + $s + '\SKILL.md')) -PathType Leaf) ('skill ' + $s)
   }
+
+  # ---- P9.1: correspondencia estrutural source -> destination ----------------
+  # RelativePath correto: a arvore instalada de cada skill deve ser isomorfa
+  # a arvore da fonte (skills-core), sem fragmentos de sufixo (nt/rs/on/ts)
+  # nem arquivos extras — validado estruturalmente, sem hardcode de fragmentos.
+  function Get-TreeSet([string]$Dir) {
+    $found = New-Object System.Collections.Generic.List[string]
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return $found.ToArray() }
+    foreach ($item in @(Get-ChildItem -LiteralPath $Dir -Force)) {
+      if ($item.PSIsContainer) {
+        $found.Add(($item.Name + '\'))
+        foreach ($c in (Get-TreeSet $item.FullName)) { $found.Add(($item.Name + '\' + $c)) }
+      }
+      else { $found.Add($item.Name) }
+    }
+    return $found.ToArray()
+  }
+  function Get-FileRelSet([string]$Dir) {
+    # relativos de arquivos compostos SOMENTE por Name (sem Substring de
+    # FullName) — mesmo padrao do installer.
+    $found = New-Object System.Collections.Generic.List[string]
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return $found.ToArray() }
+    foreach ($item in @(Get-ChildItem -LiteralPath $Dir -Force)) {
+      if ($item.PSIsContainer) {
+        foreach ($c in (Get-FileRelSet $item.FullName)) { $found.Add(($item.Name + '\' + $c)) }
+      }
+      else { $found.Add($item.Name) }
+    }
+    return $found.ToArray()
+  }
+  function Get-NormalizedHash([string]$Path) {
+    # hash do conteudo com a unica normalizacao que o installer faz (LF)
+    $txt = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+    $norm = ($txt -replace "`r`n", "`n" -replace "`r", "`n")
+    $bytes = (New-Object Text.UTF8Encoding $false).GetBytes($norm)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '') } finally { $sha.Dispose() }
+  }
+  $skillsCore = Join-Path $RepoRoot 'skills-core'
+  $skillsDstRoot = Join-Path $ocDir 'skills'
+  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+    $srcSet = @(Get-TreeSet (Join-Path $skillsCore $s) | Sort-Object)
+    $dstSet = @(Get-TreeSet (Join-Path $skillsDstRoot $s) | Sort-Object)
+    Assert (($srcSet -join '|') -eq ($dstSet -join '|')) ('estrutura skill ' + $s + ' isomorfa a fonte (sem fragmentos/extras): ' + $srcSet.Count + ' entradas')
+    $mismatch = New-Object System.Collections.ArrayList
+    foreach ($rel in @(Get-FileRelSet (Join-Path $skillsCore $s))) {
+      $dp = Join-Path (Join-Path $skillsDstRoot $s) $rel
+      $sp = Join-Path (Join-Path $skillsCore $s) $rel
+      if (-not (Test-Path -LiteralPath $dp -PathType Leaf)) { [void]$mismatch.Add($rel + ' (ausente)'); continue }
+      if ((Get-NormalizedHash $sp) -ne (Get-FileHash -LiteralPath $dp -Algorithm SHA256).Hash) { [void]$mismatch.Add($rel + ' (hash)') }
+    }
+    Assert ($mismatch.Count -eq 0) ('hash(source normalizado)==hash(dest) skill ' + $s + ($mismatch -join ', '))
+  }
+  $extraSkillDirs = @(Get-ChildItem -Directory $skillsDstRoot -ErrorAction SilentlyContinue | Where-Object { @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion') -notcontains $_.Name })
+  Assert ($extraSkillDirs.Count -eq 0) 'nenhum diretorio inesperado sob skills/ (nenhum fragmento nt/rs/on/ts)'
+  $expectedManaged = New-Object System.Collections.ArrayList
+  [void]$expectedManaged.Add('AGENTS.md')
+  foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') | Sort-Object Name)) { [void]$expectedManaged.Add('agents\' + $f.Name) }
+  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+    foreach ($rel in @(Get-FileRelSet (Join-Path $skillsCore $s))) {
+      [void]$expectedManaged.Add('skills\' + $s + '\' + $rel)
+    }
+  }
+  [void]$expectedManaged.Add('plugins\orchestration-enforcement.ts')
+  [void]$expectedManaged.Add('opencode.json')
+  if (Test-Path -LiteralPath (Join-Path $TmpHome '.opencode-orchestration\manifest.json') -PathType Leaf) {
+    $m = ([IO.File]::ReadAllText((Join-Path $TmpHome '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
+    $gotManaged = @($m.managed_files | ForEach-Object { ([string]$_.relative) -replace '/', '\' } | Sort-Object)
+    $wantManaged = @($expectedManaged | Sort-Object)
+    Assert (($gotManaged -join '|') -eq ($wantManaged -join '|')) ('manifest.managed_files == conjunto esperado (' + $wantManaged.Count + ')')
+  }
+
   $plug = Join-Path $ocDir 'plugins\orchestration-enforcement.ts'
   Assert (Test-Path -LiteralPath $plug -PathType Leaf) 'plugin instalado'
   if (Test-Path -LiteralPath $plug -PathType Leaf) {

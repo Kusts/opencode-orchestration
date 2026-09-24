@@ -1583,7 +1583,7 @@ function Invoke-CapabilityShadow {
     $taskId = ''
     try {
         $repo = Get-ShadowRepoRoot -RepoRoot $RepoRoot
-        $defaultRouter = Join-Path $repo 'scripts\v3\route-capabilities.ps1'
+        $defaultRouter = Join-Path $repo 'scripts\v3\shadow-route.ps1'
         if ([string]::IsNullOrWhiteSpace($RouterPath)) { $RouterPath = $defaultRouter }
         if ([string]::IsNullOrWhiteSpace($RegistryPath)) { $RegistryPath = Join-Path $repo 'cache\v3\capability-registry.json' }
         if ([string]::IsNullOrWhiteSpace($PolicyPath)) { $PolicyPath = Join-Path $repo 'source\registry\capability-policy.json' }

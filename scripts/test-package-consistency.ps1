@@ -166,10 +166,6 @@ catch { Report-Fail '4 allowlist build == agents' $_.Exception.Message }
 
 # ---- 5. referencias a scripts existentes --------------------------------------
 try {
-  $exceptions5 = @{
-    'scripts/v3/stage1-outcome-validate.ps1' = 'deferred: harness de outcome Stage 2 citado pelo adaptador; fora do escopo P6'
-    'scripts/v3/eval-routing.ps1'            = 'deferred: CLI de eval citado em comentario de CapabilityEval.ps1; fora do escopo P6'
-  }
   $corpus = New-Object System.Collections.ArrayList
   [void]$corpus.Add((Join-Path $RepoRoot 'README.md'))
   foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'docs\*.md') -ErrorAction SilentlyContinue)) { [void]$corpus.Add($f.FullName) }
@@ -191,13 +187,11 @@ try {
       $nRefs += 1
       $full = Join-Path $RepoRoot ($ref -replace '/', '\')
       if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
-        if (-not $exceptions5.ContainsKey($ref)) {
-          [void]$bad5.Add(((Split-Path -Leaf $f) + ': ' + $ref))
-        }
+        [void]$bad5.Add(((Split-Path -Leaf $f) + ': ' + $ref))
       }
     }
   }
-  if ($bad5.Count -eq 0) { Report-Ok '5 refs de scripts existem' ([string]$nRefs + ' ref(s) em ' + [string]$corpus.Count + ' arquivo(s); excecoes: ' + [string]$exceptions5.Count) }
+  if ($bad5.Count -eq 0) { Report-Ok '5 refs de scripts existem' ([string]$nRefs + ' ref(s) em ' + [string]$corpus.Count + ' arquivo(s); sem excecoes') }
   else { Report-Fail '5 refs de scripts existem' ($bad5 -join ' | ') }
 }
 catch { Report-Fail '5 refs de scripts existem' $_.Exception.Message }

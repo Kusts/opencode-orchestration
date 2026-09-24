@@ -29,11 +29,19 @@ try {
   $s1 = Get-StateKey $ocDir
   $m1 = ([IO.File]::ReadAllText((Join-Path $TmpHome '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json)
   Start-Sleep -Seconds 2
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome 2>&1
+  $out2 = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome *>&1 | Out-String
   $c2 = $LASTEXITCODE
   Assert ($c2 -eq 0) 'run2 exit 0'
   $s2 = Get-StateKey $ocDir
   Assert ($s1 -eq $s2) 'estado identico entre run1 e run2 (exceto backups/manifest timestamps)'
+  # P9.1: idempotencia VISIVEL no plano — toda skill gerenciada deve SKIP.
+  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+    Assert ($out2 -match ('\[SKIP\] skills/' + $s + '/ \(inalterado\)')) ('run2 [SKIP] skills/' + $s + '/')
+  }
+  Assert ($out2 -notmatch '\[UPDATE\] skills/') 'run2 sem [UPDATE] de skills'
+  Assert ($out2 -notmatch '\[CREATE\]') 'run2 sem nenhum [CREATE]'
+  Assert ($out2 -notmatch '\[UPDATE\] AGENTS\.md') 'run2 AGENTS.md SKIP'
+  Assert ($out2 -notmatch '\[UPDATE\] agents/') 'run2 agents SKIP'
   $m2 = ([IO.File]::ReadAllText((Join-Path $TmpHome '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json)
   $m1copy = ($m1 | ConvertTo-Json -Depth 32 | ConvertFrom-Json)
   $m2copy = ($m2 | ConvertTo-Json -Depth 32 | ConvertFrom-Json)

@@ -10,6 +10,15 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Harness = Join-Path $PSScriptRoot 'plugin-harness'
 Assert ((Test-Path -LiteralPath (Join-Path $RepoRoot 'plugins\orchestration-enforcement.ts'))) 'plugin fonte existe'
 Assert ((Test-Path -LiteralPath (Join-Path $Harness 'run.ts'))) 'harness run.ts existe'
+$bunCmd = Get-Command bun -ErrorAction SilentlyContinue
+if ($null -eq $bunCmd) {
+  # Skip condicional de ambiente, documentado: o harness de enforcement
+  # executa TypeScript via bun. Em maquinas/CI sem bun, nao ha como rodar.
+  # Nao cobre requisitos obrigatorios de rollback/idempotencia/fresh install.
+  Write-Host '[SKIP] bun indisponivel neste ambiente (plugin-enforcement requer bun)'
+  Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)
+  exit 0
+}
 $out = & bun (Join-Path $Harness 'run.ts') 2>&1
 $code = $LASTEXITCODE
 Write-Host ($out -join "`n")

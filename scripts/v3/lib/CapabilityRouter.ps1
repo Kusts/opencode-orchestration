@@ -38,7 +38,7 @@
         runtime_version, idade); stale => fallback conforme policy.
 
     Esta biblioteca nao le flags nem escreve arquivos; o guard de flags vive
-    em route-capabilities.ps1.
+    em route-accept.ps1 (execucao) e shadow-route.ps1 (observacao).
 #>
 [CmdletBinding()]
 param()
