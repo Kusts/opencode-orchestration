@@ -1,0 +1,180 @@
+# P7 — CI de distribuicao do opencode-orchestration.
+#
+# Impede regressoes de distribuicao: validacao estatica do pacote, suites V3
+# e exercicio real de install/uninstall num home isolado
+# ($RUNNER_TEMP\oo-home), cobrindo fresh install, idempotencia, preservacao
+# de config do usuario, rollback transacional e uninstall ownership-only.
+#
+# NOTA plugin dep (best-effort): install.ps1 instala @opencode-ai/plugin via
+# bun/npm FORA da transacao e fora do rollback (efeito externo): se bun/npm
+# estiverem ausentes ou a rede falhar, o install emite AVISO e sai 0 — nunca
+# aborta. Por isso este CI nao asserta node_modules nem depende de rede de
+# plugin (bun nao e garantido no runner; npm install e best-effort).
+#
+# Sem segredos. Nenhuma acao de terceiros alem de actions/checkout.
+# Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
+# Todos os blocos `run:` sao compativeis com PS 5.1 (sem ternario, sem ??,
+# sem ?.): o job ps51 os interpreta diretamente, o job ps7 os re-executa
+# via o mesmo engine da matriz.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  ci:
+    name: CI (${{ matrix.ps }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ps: ps51
+            shell: powershell
+            engine: powershell
+          - ps: ps7
+            shell: pwsh
+            engine: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Static/package validation
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.engine }} -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
+
+      - name: V3 test suite (~5-6 min)
+        shell: ${{ matrix.shell }}
+        timeout-minutes: 20
+        run: ${{ matrix.engine }} -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
+
+      - name: 'Fixture: temp home + models.jsonc from example'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fixture = Join-Path $env:RUNNER_TEMP 'oo-home'
+          if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
+          New-Item -ItemType Directory -Path $fixture -Force | Out-Null
+          Copy-Item -LiteralPath 'models.example.jsonc' -Destination 'models.jsonc' -Force
+          'FIXTURE_HOME=' + $fixture | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          Write-Host ('Fixture home: ' + $fixture)
+
+      - name: 'Fresh install + asserts (arquivos, parse, build sem model, 19 agents)'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fh = $env:FIXTURE_HOME
+          if ([string]::IsNullOrWhiteSpace($fh)) { throw 'FIXTURE_HOME vazio (step de fixture falhou?)' }
+          & '${{ matrix.engine }}' -NoProfile -ExecutionPolicy Bypass -File 'install.ps1' -TargetHome $fh
+          if ($LASTEXITCODE -ne 0) { throw ('install (fresh) exit ' + $LASTEXITCODE + ', esperado 0') }
+          $oc = Join-Path $fh '.config\opencode'
+          $agentsMd = Join-Path $oc 'AGENTS.md'
+          $jsonPath = Join-Path $oc 'opencode.json'
+          $manifest = Join-Path $fh '.opencode-orchestration\manifest.json'
+          $plugin = Join-Path $oc 'plugins\orchestration-enforcement.ts'
+          foreach ($p in @($agentsMd, $jsonPath, $manifest, $plugin)) {
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw ('ausente apos fresh install: ' + $p) }
+          }
+          $nAgents = @(Get-ChildItem -File (Join-Path $oc 'agents\*.md') -ErrorAction SilentlyContinue).Count
+          if ($nAgents -ne 19) { throw ('agents instalados=' + $nAgents + ', esperado 19') }
+          $cfg = (Get-Content -LiteralPath $jsonPath -Raw) | ConvertFrom-Json
+          if (($cfg.agent.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue) -ne $null) { throw 'agent.build contem model (esperado: ausente, heranca de sessao)' }
+          $t = [IO.File]::ReadAllText($agentsMd, [Text.Encoding]::UTF8)
+          $cS = ([regex]::Matches($t, [regex]::Escape('<!-- opencode-orchestration:start -->'))).Count
+          $cE = ([regex]::Matches($t, [regex]::Escape('<!-- opencode-orchestration:end -->'))).Count
+          if (($cS -ne 1) -or ($cE -ne 1)) { throw ('markers AGENTS.md invalidos (start=' + $cS + ' end=' + $cE + ', esperado 1/1)') }
+          Write-Host 'FRESH INSTALL OK: arquivos existem, opencode.json parseia, build sem model, 19 agents, markers 1/1.'
+
+      - name: 'Inject user config (mcp + custom agent + custom plugin, antes do 2o install)'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jsonPath = Join-Path $env:FIXTURE_HOME '.config\opencode\opencode.json'
+          $cfg = (Get-Content -LiteralPath $jsonPath -Raw) | ConvertFrom-Json
+          $srv = New-Object PSObject
+          $srv | Add-Member -NotePropertyName 'command' 'my-server-cmd' -Force
+          $srv | Add-Member -NotePropertyName 'args' @('--flag') -Force
+          $mcp = New-Object PSObject
+          $mcp | Add-Member -NotePropertyName 'my-server' $srv -Force
+          $cfg | Add-Member -NotePropertyName 'mcp' $mcp -Force
+          $custom = New-Object PSObject
+          $custom | Add-Member -NotePropertyName 'mode' 'subagent' -Force
+          $custom | Add-Member -NotePropertyName 'model' 'my-org/my-model' -Force
+          $cfg.agent | Add-Member -NotePropertyName 'my-custom-agent' $custom -Force
+          $cfg.plugin = @($cfg.plugin) + @('file://./my-custom-plugin.ts')
+          $text = (($cfg | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
+          [IO.File]::WriteAllText($jsonPath, ($text -replace "`r`n", "`n"), (New-Object Text.UTF8Encoding $false))
+          Write-Host 'USER CONFIG INJETADA: mcp.my-server + agent.my-custom-agent + plugin custom.'
+
+      - name: 'Install again (idempotency: exit 0, marcadores unicos)'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fh = $env:FIXTURE_HOME
+          & '${{ matrix.engine }}' -NoProfile -ExecutionPolicy Bypass -File 'install.ps1' -TargetHome $fh
+          if ($LASTEXITCODE -ne 0) { throw ('install (again) exit ' + $LASTEXITCODE + ', esperado 0') }
+          $oc = Join-Path $fh '.config\opencode'
+          $t = [IO.File]::ReadAllText((Join-Path $oc 'AGENTS.md'), [Text.Encoding]::UTF8)
+          $cS = ([regex]::Matches($t, [regex]::Escape('<!-- opencode-orchestration:start -->'))).Count
+          $cE = ([regex]::Matches($t, [regex]::Escape('<!-- opencode-orchestration:end -->'))).Count
+          if (($cS -ne 1) -or ($cE -ne 1)) { throw ('2o install duplicou markers (start=' + $cS + ' end=' + $cE + ')') }
+          $nAgents = @(Get-ChildItem -File (Join-Path $oc 'agents\*.md') -ErrorAction SilentlyContinue).Count
+          if ($nAgents -ne 19) { throw ('agents apos 2o install=' + $nAgents + ', esperado 19') }
+          Write-Host 'IDEMPOTENCY OK: exit 0, markers 1/1, 19 agents.'
+
+      - name: 'Config preservation asserts (mcp + custom agent + plugin intactos)'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $jsonPath = Join-Path $env:FIXTURE_HOME '.config\opencode\opencode.json'
+          $cfg = (Get-Content -LiteralPath $jsonPath -Raw) | ConvertFrom-Json
+          if ($cfg.mcp.'my-server'.command -ne 'my-server-cmd') { throw 'mcp.my-server nao preservado apos 2o install' }
+          if ($cfg.agent.'my-custom-agent'.model -ne 'my-org/my-model') { throw 'agent.my-custom-agent nao preservado apos 2o install' }
+          if (@($cfg.plugin) -notcontains 'file://./my-custom-plugin.ts') { throw 'plugin custom nao preservado apos 2o install' }
+          Write-Host 'PRESERVATION OK: mcp, custom agent e plugin do usuario intactos.'
+
+      - name: 'Rollback (InjectFailureAfter apply-json: exit 5 + hash compare)'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fh = $env:FIXTURE_HOME
+          $jsonPath = Join-Path $fh '.config\opencode\opencode.json'
+          $agentsMd = Join-Path $fh '.config\opencode\AGENTS.md'
+          $hJsonBefore = (Get-FileHash -LiteralPath $jsonPath -Algorithm SHA256).Hash
+          $hMdBefore = (Get-FileHash -LiteralPath $agentsMd -Algorithm SHA256).Hash
+          & '${{ matrix.engine }}' -NoProfile -ExecutionPolicy Bypass -File 'install.ps1' -TargetHome $fh -InjectFailureAfter apply-json
+          if ($LASTEXITCODE -ne 5) { throw ('rollback: esperado exit 5, obtido ' + $LASTEXITCODE) }
+          $hJsonAfter = (Get-FileHash -LiteralPath $jsonPath -Algorithm SHA256).Hash
+          $hMdAfter = (Get-FileHash -LiteralPath $agentsMd -Algorithm SHA256).Hash
+          if ($hJsonBefore -ne $hJsonAfter) { throw 'rollback: opencode.json divergiu do pre-falha' }
+          if ($hMdBefore -ne $hMdAfter) { throw 'rollback: AGENTS.md divergiu do pre-falha' }
+          Write-Host 'ROLLBACK OK: exit 5 + opencode.json e AGENTS.md restaurados (hash igual).'
+
+      - name: 'Uninstall (ownership-only: managed some, usuario fica)'
+        shell: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fh = $env:FIXTURE_HOME
+          & '${{ matrix.engine }}' -NoProfile -ExecutionPolicy Bypass -File 'uninstall.ps1' -TargetHome $fh
+          if ($LASTEXITCODE -ne 0) { throw ('uninstall exit ' + $LASTEXITCODE + ', esperado 0') }
+          $oc = Join-Path $fh '.config\opencode'
+          $leftAgents = @(Get-ChildItem -File (Join-Path $oc 'agents\*.md') -ErrorAction SilentlyContinue).Count
+          if ($leftAgents -ne 0) { throw ('uninstall deixou ' + $leftAgents + ' agent(s) gerenciado(s)') }
+          if (Test-Path -LiteralPath (Join-Path $oc 'plugins\orchestration-enforcement.ts') -PathType Leaf) { throw 'uninstall nao removeu o plugin gerenciado' }
+          if (Test-Path -LiteralPath (Join-Path $fh '.opencode-orchestration\manifest.json') -PathType Leaf) { throw 'uninstall nao removeu o manifest' }
+          $agentsMd = Join-Path $oc 'AGENTS.md'
+          if (Test-Path -LiteralPath $agentsMd -PathType Leaf) {
+            $t = [IO.File]::ReadAllText($agentsMd, [Text.Encoding]::UTF8)
+            if ($t.Contains('opencode-orchestration:start')) { throw 'uninstall nao removeu o bloco markered do AGENTS.md' }
+          }
+          $jsonPath = Join-Path $oc 'opencode.json'
+          if (-not (Test-Path -LiteralPath $jsonPath -PathType Leaf)) { throw 'uninstall removeu opencode.json inteiro (deveria manter o do usuario)' }
+          $cfg = (Get-Content -LiteralPath $jsonPath -Raw) | ConvertFrom-Json
+          if ($cfg.mcp.'my-server'.command -ne 'my-server-cmd') { throw 'uninstall removeu mcp do usuario' }
+          if ($cfg.agent.'my-custom-agent'.model -ne 'my-org/my-model') { throw 'uninstall removeu custom agent do usuario' }
+          Write-Host 'UNINSTALL OK: ownership removido; mcp, custom agent e opencode.json do usuario preservados.'
