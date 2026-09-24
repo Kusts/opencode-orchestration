@@ -68,6 +68,9 @@ try {
       $psi.FileName = 'cmd.exe'
       $psi.Arguments = '/c powershell -NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '" > "' + $logFile + '" 2>&1'
       $psi.UseShellExecute = $false
+      # FIX CI ps7: filho 5.1 herdaria PSModulePath do host pwsh e perderia
+      # autoload dos modulos padrao (Get-FileHash); fixa para os modulos do 5.1.
+      $psi.EnvironmentVariables['PSModulePath'] = "$env:windir\System32\WindowsPowerShell\v1.0\Modules"
       $psi.RedirectStandardOutput = $false
       $psi.RedirectStandardError = $false
       $psi.CreateNoWindow = $true
