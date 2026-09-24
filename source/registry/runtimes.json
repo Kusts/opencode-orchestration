@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "runtimes": {
+    "opencode": {
+      "id": "opencode",
+      "display_name": "OpenCode",
+      "kind": "cli",
+      "executable": { "strategy": "command-or-known-path", "command": "opencode", "known_paths": [] },
+      "instruction_targets": [
+        { "path": "%USERPROFILE%/.config/opencode/AGENTS.md", "format": "markdown", "owner": "control-plane", "render_mode": "consolidated" }
+      ],
+      "settings_targets": [
+        { "path": "%USERPROFILE%/.config/opencode/opencode.json", "format": "json", "owner": "user+control-plane+plugin", "sections": { "mcp": "control-plane+user+plugin", "plugin": "user+plugin", "skills": "user+control-plane", "agent": "user+control-plane", "agent.build.permission.task": "control-plane", "*": "preserve" } }
+      ],
+      "mcp": { "capability": "native-config", "update_mechanism": "structured-merge", "owner": "control-plane", "preserve_unknown": true },
+      "launch": { "strategy": "native", "command": "opencode", "arguments": [] },
+      "merge_strategy": "generated-instruction-replace+structured-json-merge",
+      "smoke_test": { "command": "opencode --version", "timeout_seconds": 15 }
+    }
+  }
+}

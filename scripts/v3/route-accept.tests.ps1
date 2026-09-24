@@ -53,7 +53,10 @@ try {
     $policyFile = Join-Path $repo 'source\registry\capability-policy.json'
     $liveConfig = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
     $snapBefore = @{}
-    foreach ($p in @($flagsFile, $policyFile, $liveConfig)) { $snapBefore[$p] = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash }
+    foreach ($p in @($flagsFile, $policyFile, $liveConfig)) {
+        if (Test-Path -LiteralPath $p -PathType Leaf) { $snapBefore[$p] = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash }
+        else { $snapBefore[$p] = 'MISSING' }
+    }
 
     # --- Kill switch: inactive flags => deterministic ---
     $rOff = Invoke-AcceptCliRaw -Argv @('-Objective', 'revisar API backend', '-TaskType', 'review', '-Domain', 'backend', '-Risk', 'medium', '-FlagsPath', $flagsInactive, '-NoTelemetry')
@@ -152,12 +155,13 @@ try {
     # --- Real state untouched ---
     $drift = $false
     foreach ($p in @($flagsFile, $policyFile, $liveConfig)) {
-        $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+        $h = 'MISSING'
+        if (Test-Path -LiteralPath $p -PathType Leaf) { $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash }
         if ($h -cne $snapBefore[$p]) { $drift = $true }
     }
     Assert-That (-not $drift) 'no drift of flags/policy/opencode.json' 'drift detected'
     $flagsReal = ([IO.File]::ReadAllText($flagsFile, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
-    Assert-That (([bool]$flagsReal.capability_router.shadow -eq $true) -and ([bool]$flagsReal.skill_routing.enabled -eq $false) -and ([bool]$flagsReal.mcp_routing.enabled -eq $false) -and ([bool]$flagsReal.adaptive_ranking.enabled -eq $false) -and ($flagsReal.capability_router.active -is [bool])) 'real flags: shadow=true skill/mcp/adaptive=false (active governed)' 'flag changed'
+    Assert-That (([bool]$flagsReal.capability_router.shadow -eq $false) -and ([bool]$flagsReal.capability_router.active -eq $false) -and ($flagsReal.capability_router.active -is [bool]) -and ([bool]$flagsReal.skill_routing.enabled -eq $false) -and ([bool]$flagsReal.mcp_routing.enabled -eq $false) -and ([bool]$flagsReal.adaptive_ranking.enabled -eq $false)) 'real flags: safe-by-default (shadow=false active=false skill/mcp/adaptive=false)' 'flag changed'
 }
 finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force }

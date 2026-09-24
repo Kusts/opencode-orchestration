@@ -6,9 +6,10 @@ if ([string]::IsNullOrWhiteSpace($v3) -or (-not (Test-Path -LiteralPath $v3 -Pat
 $lib = Join-Path $v3 'lib\CapabilityRouter.ps1'
 . $lib
 
-$repo = Split-Path -Parent (Split-Path -Parent $v3)
-if (-not (Test-Path -LiteralPath (Join-Path $repo 'source\registry\capability-policy.json') -PathType Leaf)) {
-    $repo = Split-Path -Parent $v3
+$repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+if ([string]::IsNullOrWhiteSpace($repo) -or (-not (Test-Path -LiteralPath (Join-Path $repo 'source\registry\capability-policy.json') -PathType Leaf))) {
+    $alt = Split-Path -Parent (Split-Path -Parent $v3)
+    if (Test-Path -LiteralPath (Join-Path $alt 'source\registry\capability-policy.json') -PathType Leaf) { $repo = $alt }
 }
 $base = Join-Path ([IO.Path]::GetTempPath()) ('v3-router-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $base -Force | Out-Null

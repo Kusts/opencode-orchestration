@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "notes": "Gate sintetico P5 (distribuicao): thresholds para o dataset de fixtures em tests/fixtures/v3/evals/dataset.jsonl. Nao e copia de evals do control plane.",
+  "thresholds": {
+    "agent_selection_correctness": 0.8
+  }
+}

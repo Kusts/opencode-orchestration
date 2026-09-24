@@ -1,6 +1,17 @@
+[CmdletBinding()]
+param(
+    [string]$DatasetPath = '',
+    [string]$GatePath = ''
+)
 $ErrorActionPreference = 'Stop'
 $v3 = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent (Split-Path -Parent $v3)
+# Fixtures sinteticas da distribuicao (P5): default repo-relativo; override
+# via param ou env (V3_EVAL_DATASET / V3_EVAL_GATE). Nunca evals do control plane.
+if ([string]::IsNullOrWhiteSpace($DatasetPath)) { $DatasetPath = $env:V3_EVAL_DATASET }
+if ([string]::IsNullOrWhiteSpace($DatasetPath)) { $DatasetPath = Join-Path $repo 'tests\fixtures\v3\evals\dataset.jsonl' }
+if ([string]::IsNullOrWhiteSpace($GatePath)) { $GatePath = $env:V3_EVAL_GATE }
+if ([string]::IsNullOrWhiteSpace($GatePath)) { $GatePath = Join-Path $repo 'tests\fixtures\v3\evals\gate.json' }
 . (Join-Path $v3 'lib\CapabilityEval.ps1')
 . (Join-Path $v3 'lib\CapabilitySanitize.ps1')
 
@@ -18,8 +29,8 @@ function Assert-That($condition, $name, $detail) {
 try {
     $evalLib = Join-Path $v3 'lib\CapabilityEval.ps1'
     Assert-That (Test-Path -LiteralPath $evalLib -PathType Leaf) 'Eval lib file exists' "Missing $evalLib"
-    $dataset = Join-Path $repo 'evidence\v3\evals\dataset.jsonl'
-    $gateFile = Join-Path $repo 'evidence\v3\evals\gate.json'
+    $dataset = $DatasetPath
+    $gateFile = $GatePath
     $policyFile = Join-Path $repo 'source\registry\capability-policy.json'
     Assert-That (Test-Path -LiteralPath $dataset -PathType Leaf) 'Dataset file exists' "Missing $dataset"
     Assert-That (Test-Path -LiteralPath $gateFile -PathType Leaf) 'Gate file exists' "Missing $gateFile"

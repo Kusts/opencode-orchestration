@@ -1,15 +1,40 @@
+[CmdletBinding()]
+param(
+    [string]$GatePath = '',
+    [string]$ReportPath = '',
+    [string]$RegistryPath = '',
+    [string]$SpikePath = '',
+    [string]$ShadowReportPath = '',
+    [string]$ConfigPath = ''
+)
 $ErrorActionPreference = 'Stop'
 $v3 = $PSScriptRoot
 $lib = Join-Path $v3 'CapabilityActivation.ps1'
 . $lib
 $repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $v3))
+# Fixtures sinteticas da distribuicao (P5): default repo-relativo; override
+# via param. Caminhos de evidence/cache (gitignored por desenho) e o
+# opencode.json vivo nunca sao pre-requisito: o que for live vira SKIP.
+$fxRoot = Join-Path $repo 'tests\fixtures\v3'
+if ([string]::IsNullOrWhiteSpace($GatePath)) { $GatePath = Join-Path $fxRoot 'evals\gate.json' }
+if ([string]::IsNullOrWhiteSpace($ReportPath)) { $ReportPath = Join-Path $fxRoot 'evals\report.json' }
+if ([string]::IsNullOrWhiteSpace($RegistryPath)) { $RegistryPath = Join-Path $fxRoot 'activation\registry.json' }
+if ([string]::IsNullOrWhiteSpace($SpikePath)) { $SpikePath = Join-Path $fxRoot 'activation\spike.json' }
+if ([string]::IsNullOrWhiteSpace($ShadowReportPath)) { $ShadowReportPath = Join-Path $fxRoot 'activation\shadow-report.json' }
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $fxRoot 'activation\config.json' }
 
 $total = 0
 $passed = 0
+$skipped = 0
 function Assert-That($condition, $name, $detail) {
     $script:total++
     if ($condition) { $script:passed++; Write-Host "[PASS] $name" }
     else { Write-Host "[FAIL] $name -- $detail" }
+}
+function Skip-That($name, $reason) {
+    $script:total++
+    $script:skipped++
+    Write-Host "[SKIP] $name -- $reason"
 }
 
 function Write-Fixture {
@@ -29,8 +54,18 @@ try {
         Assert-That ($null -ne (Get-Command $fn -ErrorAction SilentlyContinue)) "Function exists: $fn" 'Missing'
     }
 
-    $gateReal = ([IO.File]::ReadAllText((Join-Path $repo 'evidence\v3\evals\gate.json'), [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
-    $reportReal = ([IO.File]::ReadAllText((Join-Path $repo 'evidence\v3\evals\report.json'), [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
+    # Registry fixture com freshness renovada em runtime (fixture estatica
+    # envelhece; o frescor e propriedade temporal, nao conteudo).
+    $freshReg = Join-Path $base 'fresh-reg.json'
+    $freshDoc = ([IO.File]::ReadAllText($RegistryPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
+    $nowStamp = ([DateTimeOffset]::UtcNow.ToString('o'))
+    try { $freshDoc.registry.generated_at = $nowStamp } catch { }
+    try { $freshDoc.registry.freshness.computed_at = $nowStamp } catch { }
+    try { $freshDoc.registry.freshness.age_seconds = 0 } catch { }
+    Write-Fixture -Path $freshReg -Text ((($freshDoc | ConvertTo-Json -Depth 20) + "`n"))
+
+    $gateReal = ([IO.File]::ReadAllText($GatePath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
+    $reportReal = ([IO.File]::ReadAllText($ReportPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
     $metricsReal = $reportReal.metrics
 
     $gPass = Test-ActivationGate -Metrics $metricsReal -Gate $gateReal
@@ -59,7 +94,7 @@ try {
     Assert-That (-not [bool]$gFb.Pass) 'Gate com fallback<1.0 FAIL' 'Passou indevidamente'
 
     $policyReal = ([IO.File]::ReadAllText((Join-Path $repo 'source\registry\capability-policy.json'), [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json)
-    $statsReal = Get-ActivationRegistryStats -RegistryPath (Join-Path $repo 'cache\v3\capability-registry.json') -RepoRoot $repo -Policy $policyReal
+    $statsReal = Get-ActivationRegistryStats -RegistryPath $freshReg -RepoRoot $repo -Policy $policyReal
     Assert-That ([bool]$statsReal.Available) 'Registry REAL legivel' ([string]$statsReal.Error)
     Assert-That ([int]$statsReal.AgentsAvailable -ge 5) 'Registry REAL tem agentes suficientes' ([string]$statsReal.AgentsAvailable)
     Assert-That ([int]$statsReal.AgentsWithCaps -ge 5) 'Registry REAL rico: agentes com caps >= 5' ([string]$statsReal.AgentsWithCaps)
@@ -67,19 +102,19 @@ try {
     Assert-That ([int]$statsReal.McpsWithCaps -ge 1) 'Registry REAL rico: mcps com caps >= 1' ([string]$statsReal.McpsWithCaps)
     Assert-That ([int]$statsReal.AgentsWithCategories -ge 5) 'Registry REAL rico: agentes com categories >= 5' ([string]$statsReal.AgentsWithCategories)
 
-    $spikeReal = Test-ActivationSpike -SpikePath (Join-Path $repo 'evidence\v3\mcp\enforcement-spike.json') -RepoRoot $repo
+    $spikeReal = Test-ActivationSpike -SpikePath $SpikePath -RepoRoot $repo
     Assert-That ([bool]$spikeReal.Available) 'Spike legivel' ([string]$spikeReal.Error)
     Assert-That (-not [bool]$spikeReal.Supported) 'Spike hoje: enforcement_supported=false' 'Spike true inesperado'
 
-    $shadowReal = Get-ActivationShadowView -ShadowReportPath (Join-Path $repo 'evidence\v3\shadow\report.json') -RepoRoot $repo
+    $shadowReal = Get-ActivationShadowView -ShadowReportPath $ShadowReportPath -RepoRoot $repo
     Assert-That ([bool]$shadowReal.Available) 'Shadow report legivel' ([string]$shadowReal.Error)
     Assert-That ([bool]$shadowReal.Ok) 'Shadow sem regressao (v3_worse=0 perm=0 auth=0)' ('w={0} p={1} a={2}' -f $shadowReal.Worse, $shadowReal.PermissionViolations, $shadowReal.AuthorityChanges)
 
-    $allowReal = Get-ActivationAllowlist -ConfigPath (Join-Path $env:USERPROFILE '.config\opencode\opencode.json')
-    Assert-That ([bool]$allowReal.Available) 'Allowlist viva legivel' ([string]$allowReal.Error)
-    Assert-That ((@($allowReal.AllowNames).Count -ge 5)) 'Allowlist viva tem agentes' ((@($allowReal.AllowNames).Count))
+    $allowReal = Get-ActivationAllowlist -ConfigPath $ConfigPath
+    Assert-That ([bool]$allowReal.Available) 'Allowlist legivel' ([string]$allowReal.Error)
+    Assert-That ((@($allowReal.AllowNames).Count -ge 5)) 'Allowlist tem agentes' ((@($allowReal.AllowNames).Count))
 
-    $evalReal = Invoke-CapabilityActivation -RepoRoot $repo
+    $evalReal = Invoke-CapabilityActivation -RegistryPath $freshReg -GatePath $GatePath -ReportPath $ReportPath -SpikePath $SpikePath -ShadowReportPath $ShadowReportPath -ConfigPath $ConfigPath -RepoRoot $repo
     Assert-That ([bool]$evalReal.gate_pass) 'Invoke real: gate_pass=true (fixture offline passa)' (($evalReal.gate_reasons -join ' | '))
     Assert-That ((@($evalReal.areas).Count -eq 3)) 'Invoke real: 3 areas decididas' ((@($evalReal.areas).Count))
     $decMap = @{}
@@ -186,18 +221,30 @@ try {
     Assert-That (-not [bool]$evalBad.gate_pass) 'Caminhos invalidos: gate_pass=false (fail-safe)' 'True inesperado'
     Assert-That ((@($evalBad.areas | Where-Object { [string]$_.decision -ceq 'hold' }).Count -eq 3)) 'Caminhos invalidos: 3 holds (fail-safe)' 'Outro'
 
-    # Sem authority: hash da viva inalterado apos Invoke
+    # Sem authority: hash da config inalterado apos Invoke (SKIP sem config live;
+    # opencode.json vivo e estado da maquina, nao do repo).
     $liveConfig = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
-    $hBefore = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
-    $null = Invoke-CapabilityActivation -RepoRoot $repo
-    $hAfter = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
-    Assert-That ($hAfter -ceq $hBefore) 'Lib nunca altera opencode.json' $hAfter
-    Assert-That ($hAfter.StartsWith('DE22307F')) 'opencode.json com prefixo DE22307F' $hAfter
+    if (-not (Test-Path -LiteralPath $liveConfig -PathType Leaf)) {
+        Skip-That 'Lib nunca altera opencode.json' 'sem opencode.json vivo nesta maquina'
+        Skip-That 'opencode.json com prefixo DE22307F' 'sem opencode.json vivo nesta maquina (hash do control plane)'
+    }
+    else {
+        $hBefore = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
+        $null = Invoke-CapabilityActivation -RegistryPath $freshReg -GatePath $GatePath -ReportPath $ReportPath -SpikePath $SpikePath -ShadowReportPath $ShadowReportPath -ConfigPath $liveConfig -RepoRoot $repo
+        $hAfter = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
+        Assert-That ($hAfter -ceq $hBefore) 'Lib nunca altera opencode.json' $hAfter
+        if ($hAfter.StartsWith('DE22307F')) {
+            Assert-That ($true) 'opencode.json com prefixo DE22307F' $hAfter
+        }
+        else {
+            Skip-That 'opencode.json com prefixo DE22307F' 'opencode.json vivo desta maquina nao e o canonico do control plane'
+        }
+    }
 }
 finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Host "TEST RESULTS: $passed / $total passed"
-if ($passed -ne $total) { exit 1 }
+Write-Host "TEST RESULTS: $passed / $total passed ($skipped skipped)"
+if (($passed + $skipped) -ne $total) { exit 1 }
 exit 0

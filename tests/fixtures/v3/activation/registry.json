@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "registry": {
+    "generated_at": "2026-01-01T00:00:00Z",
+    "runtime": { "name": "opencode", "version": "9.9.9-test", "isolated_claude_skills": false },
+    "freshness": { "source_fingerprint": "sha256:activation-fixture-v1", "runtime_version": "9.9.9-test", "computed_at": "2026-01-01T00:00:00Z", "age_seconds": 0 },
+    "logical_hash": "sha256:activation-fixture-v1"
+  },
+  "counts": { "agent": 6, "skill": 10, "mcp": 1, "invalid": 0, "total": 17 },
+  "capabilities": [
+    { "id": "agent:coder", "type": "agent", "name": "coder", "status": "available", "categories": ["engineering"], "capabilities": ["code.bounded-edit"], "capability_profile": { "preferred": ["code.bounded-edit"], "forbidden": [] } },
+    { "id": "agent:explorer", "type": "agent", "name": "explorer", "status": "available", "categories": ["engineering"], "capabilities": ["code.bounded-edit"], "capability_profile": { "preferred": ["code.bounded-edit"], "forbidden": [] } },
+    { "id": "agent:researcher", "type": "agent", "name": "researcher", "status": "available", "categories": ["engineering"], "capabilities": ["code.bounded-edit"], "capability_profile": { "preferred": ["code.bounded-edit"], "forbidden": [] } },
+    { "id": "agent:architect", "type": "agent", "name": "architect", "status": "available", "categories": ["engineering"], "capabilities": ["code.bounded-edit"], "capability_profile": { "preferred": ["code.bounded-edit"], "forbidden": [] } },
+    { "id": "agent:reviewer", "type": "agent", "name": "reviewer", "status": "available", "categories": ["engineering"], "capabilities": ["code.bounded-edit"], "capability_profile": { "preferred": ["code.bounded-edit"], "forbidden": [] } },
+    { "id": "agent:tester", "type": "agent", "name": "tester", "status": "available", "categories": ["engineering"], "capabilities": ["code.bounded-edit"], "capability_profile": { "preferred": ["code.bounded-edit"], "forbidden": [] } },
+    { "id": "skill:rich-1", "type": "skill", "name": "rich-1", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-2", "type": "skill", "name": "rich-2", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-3", "type": "skill", "name": "rich-3", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-4", "type": "skill", "name": "rich-4", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-5", "type": "skill", "name": "rich-5", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-6", "type": "skill", "name": "rich-6", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-7", "type": "skill", "name": "rich-7", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-8", "type": "skill", "name": "rich-8", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-9", "type": "skill", "name": "rich-9", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "skill:rich-10", "type": "skill", "name": "rich-10", "status": "available", "categories": ["skill"], "capabilities": ["docs.current"], "capability_profile": { "preferred": [], "forbidden": [] } },
+    { "id": "mcp:good-store", "type": "mcp", "name": "good-store", "status": "available", "categories": ["mcp"], "capabilities": ["memory.project-history"], "capability_profile": { "preferred": [], "forbidden": [] } }
+  ]
+}

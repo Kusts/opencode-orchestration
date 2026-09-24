@@ -62,11 +62,22 @@ try {
 
     $report = Join-Path $repo 'evidence\v3\shadow\tmp-sample-test-report.json'
     $telemetry = Join-Path $repo 'cache\v3\telemetry\tmp-sample-test-tel.jsonl'
+    # Amostra e OFFLINE/advisory: com os flags distribuidos safe-by-default
+    # (shadow=false) ela desabilita tudo por desenho. O teste opta pelo shadow
+    # via -FlagsPath fixture (shadow=true, sem skill/mcp) e allowlist fixture
+    # (19 IDs + *=deny) para metricas deterministicas em qualquer maquina.
+    $sampleFlags = Join-Path $base 'sample-flags.json'
+    Write-Fixture -Path $sampleFlags -Text '{"version":1,"capability_registry":{"enabled":true},"capability_reconciler":{"enabled":false},"capability_router":{"shadow":true,"active":false},"skill_routing":{"enabled":false},"mcp_routing":{"enabled":false},"routing_telemetry":{"enabled":false,"retention_days":30},"adaptive_ranking":{"enabled":false}}'
+    $sampleConfig = Join-Path $base 'sample-config.json'
+    $sampleTask = [ordered]@{}
+    foreach ($n in @('ai-agent-engineer', 'architect', 'automation-engineer', 'backend-engineer', 'coder', 'database-engineer', 'debugger', 'docs-manager', 'engineering-advisor', 'explorer', 'frontend-engineer', 'infra-engineer', 'product-designer', 'requirements-analyst', 'researcher', 'reviewer', 'security-reviewer', 'skeptic', 'tester')) { $sampleTask[$n] = 'allow' }
+    $sampleTask['*'] = 'deny'
+    Write-Fixture -Path $sampleConfig -Text ((([ordered]@{ agent = [ordered]@{ build = [ordered]@{ permission = [ordered]@{ task = $sampleTask } } } } | ConvertTo-Json -Depth 10) + "`n"))
     if (Test-Path -LiteralPath $report -PathType Leaf) { Remove-Item -LiteralPath $report -Force }
     if (Test-Path -LiteralPath $telemetry -PathType Leaf) { Remove-Item -LiteralPath $telemetry -Force }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -ReportPath $report -TelemetryPath $telemetry | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $report -TelemetryPath $telemetry -FlagsPath $sampleFlags -ConfigPath $sampleConfig | Out-Null
     $code = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That ($code -eq 0) 'Sample roda offline com exit 0' ("Exit $code")
@@ -250,7 +261,7 @@ try {
     foreach ($tmpf in @($insideCanonical, $insideCanonReport)) { if (Test-Path -LiteralPath $tmpf -PathType Leaf) { Remove-Item -LiteralPath $tmpf -Force } }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -CanonicalPath $insideCanonical -ReportPath $insideCanonReport -TelemetryPath $telemetry 2>$null | Out-Null
+    & powershell -NoProfile -File $sample -CanonicalPath $insideCanonical -ReportPath $insideCanonReport -TelemetryPath $telemetry -FlagsPath $sampleFlags -ConfigPath $sampleConfig 2>$null | Out-Null
     $codeCanonOk = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That ($codeCanonOk -eq 0) 'Confinamento: -CanonicalPath dentro do dir aceita (exit 0)' ("Exit $codeCanonOk")
@@ -291,9 +302,9 @@ try {
     }
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & powershell -NoProfile -File $sample -ReportPath $repA -TelemetryPath $telA | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $repA -TelemetryPath $telA -FlagsPath $sampleFlags -ConfigPath $sampleConfig | Out-Null
     $codeA = $LASTEXITCODE
-    & powershell -NoProfile -File $sample -ReportPath $repB -TelemetryPath $telB | Out-Null
+    & powershell -NoProfile -File $sample -ReportPath $repB -TelemetryPath $telB -FlagsPath $sampleFlags -ConfigPath $sampleConfig | Out-Null
     $codeB = $LASTEXITCODE
     $ErrorActionPreference = $prevEap
     Assert-That (($codeA -eq 0) -and ($codeB -eq 0)) 'Determinismo: amostra roda 2x com exit 0' ("A=$codeA B=$codeB")

@@ -1,0 +1,26 @@
+{
+    "version":  1,
+    "capability_registry":  {
+                                "enabled":  true
+                            },
+    "capability_reconciler":  {
+                                  "enabled":  false
+                              },
+    "capability_router":  {
+                              "shadow":  false,
+                              "active":  false
+                          },
+    "skill_routing":  {
+                          "enabled":  false
+                      },
+    "mcp_routing":  {
+                        "enabled":  false
+                    },
+    "routing_telemetry":  {
+                              "enabled":  false,
+                              "retention_days":  30
+                          },
+    "adaptive_ranking":  {
+                             "enabled":  false
+                         }
+}
