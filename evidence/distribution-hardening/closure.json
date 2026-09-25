@@ -1,5 +1,5 @@
 {
-  "phase": "P9.2 final closure (traceability + verdict semantics; no new features)",
+  "phase": "P9.2 final closure (remote CI validation loop; traceability + verdict semantics; no new features)",
   "date": "2026-09-24",
   "implementation_sha": "b185d28",
   "closure_sha": null,
@@ -26,7 +26,8 @@
       "ps51": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9",
       "ps7": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9",
       "suites": ["config-preservation", "eol-checkout", "fresh-install", "idempotency", "package-consistency", "planner-model", "plugin-enforcement (PASS nesta maquina com bun presente; skip condicional documentado apenas onde bun ausente)", "rollback", "uninstall"],
-      "p92_delta_fix": "tests/distribution/idempotency.tests.ps1 Get-StateKey rewritten to Name-composed relative paths (same pattern as installer) after P9.2 delta audit flagged the residual Substring(FullName) as 8.3-TEMP-sensitive in a mandatory-gate test helper; suite re-validated green in both engines"
+      "p92_delta_fix": "P9.2 delta audit MINOR fixed: idempotency helper Get-StateKey rewritten to Name-composed relative paths (same pattern as installer); suite re-validated green in both engines",
+      "p92_ci_fix": "REMOTE CI FAILURE ROOT CAUSE (run 36083266782): models.jsonc is generated/gitignored, so a clean checkout lacks it; install.ps1 precheck failed exit 3 ('models.jsonc ausente') in 16 install invocations across both jobs (package consistency and V3 steps were green; eol-checkout passed only because it builds its own copy with a models.example.jsonc fallback). Fix: distribution runner bootstraps models.jsonc from models.example.jsonc when absent (tests/distribution/run-distribution-tests.ps1), validated locally under clean-checkout conditions (models.jsonc removed, runner exit 0, 9/9 suites PASS, original file restored hash-identical). No product code changed by this fix."
     },
     "rollback_scan_p92": "zero real ROLLBACK_REQUIRED emissions in P9.2 final runs: distribution logs contain only absence asserts ('ok - A/B/D: ROLLBACK_REQUIRED ausente'); V3 logs contain only deliberate error-semantics tests ('Restauracao invalida (hash divergiu) => ROLLBACK_REQUIRED', 'rollback.json registra ROLLBACK_REQUIRED quando restore/verificacao falha'). Single 'NOT OK' string per distribution log is the absence assert 'ok - nenhum NOT OK no harness'.",
     "parallelism_note": "running two V3 runners concurrently on the SAME machine/user produces cross-suite interference (shared live-state expectations); suites are green when run sequentially per machine. GitHub jobs run on separate VMs and are unaffected."
@@ -57,11 +58,24 @@
     "jobs": {},
     "requirement": "P9 CLOSED requires status=completed and conclusion=success for BOTH jobs (PS5.1 and PS7), each running package consistency + V3 + distribution, plus log audit: zero real ROLLBACK_REQUIRED, zero FAIL, zero INTERNAL_ERROR, zero mandatory skips, 5 skills [SKIP] on second install"
   },
+  "remote_ci_history": [
+    {
+      "run_id": 36083266782,
+      "head_sha": "185a56039ab1bfdcdf5e0086b45081135efb882e",
+      "conclusion": "failure",
+      "jobs": { "ci-ps51": "failure", "ci-ps7": "failure" },
+      "green_steps": "package consistency + V3 passed in BOTH jobs",
+      "failing_step": "distribution suites (both jobs)",
+      "cause": "models.jsonc absent in clean checkout (generated, gitignored) -> installer precheck exit 3 in 16 invocations; eol-checkout passed because it self-provisions models.jsonc in its temp copy",
+      "resolution": "runner bootstrap fix in tests/distribution/run-distribution-tests.ps1; re-validation pending"
+    }
+  ],
   "final_verdict": {
     "implementation": "P9.1 IMPLEMENTATION COMPLETE",
     "local_validation": "PASS",
-    "remote_ci_validation": "PENDING",
+    "remote_ci_validation": "FAILED (run 36083266782; root-caused and fixed, re-validation pending)",
     "p9_final_closure": "PENDING",
+    "p9_state": "P9 OPEN (remote CI failure on record until a green run validates the fixed state)",
     "rule": "FINAL VERDICT: P9 CLOSED somente apos push + GitHub Actions concluido + PS5.1 green + PS7 green + logs revisados; nunca usado para estado apenas validado localmente"
   },
   "preserved_guarantees": ["custom agents preservation", "MCP preservation", "plugin preservation", "unknown keys preservation", "unknown agent properties preservation", "AGENTS external content preservation", "Planner session-model inheritance", "explicit worker model binding", "task: deny", "subagent_depth: 1", "plugin system prompt coalescence", "neutral fallback", "permission hardening", "registry safe defaults", "CAS", "atomic writes", "manifest ownership", "uninstall ownership"],
@@ -78,5 +92,5 @@
     "CI must eventually provision bun (or equivalent runtime) so plugin-enforcement becomes a mandatory gate instead of a documented conditional skip",
     "idempotency-state helper now Name-composed; no further action identified for the P9.1 delta in the P9.2 audit"
   ],
-  "result": "P9.1 IMPLEMENTATION COMPLETE | LOCAL VALIDATION: PASS (PS5.1 + PS7) | REMOTE CI VALIDATION: PENDING | P9 FINAL CLOSURE: PENDING"
+  "result": "P9.1 IMPLEMENTATION COMPLETE | LOCAL VALIDATION: PASS (PS5.1 + PS7, incl. clean-checkout bootstrap) | REMOTE CI VALIDATION: FAILED once (run 36083266782, models.jsonc bootstrap fix applied) | P9 STATE: OPEN UNTIL GREEN RUN | P9 FINAL CLOSURE: PENDING"
 }

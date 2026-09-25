@@ -29,6 +29,22 @@ try {
     Write-Host 'RUNNER FAILED: diretorio distribution nao encontrado.' -ForegroundColor Red
     exit 2
   }
+
+  # Bootstrap: checkout limpo nao traz models.jsonc (gerado, gitignored), mas o
+  # precheck do installer exige o arquivo no repo. CI run 36083266782 falhou 16x
+  # com "PRECHECK FAILED (exit 3): models.jsonc ausente" por esse motivo.
+  $repoDir = Split-Path -Parent (Split-Path -Parent $distDir)
+  $modelsJsonc = Join-Path $repoDir 'models.jsonc'
+  if (-not (Test-Path -LiteralPath $modelsJsonc -PathType Leaf)) {
+    $modelsExample = Join-Path $repoDir 'models.example.jsonc'
+    if (-not (Test-Path -LiteralPath $modelsExample -PathType Leaf)) {
+      Write-Host 'RUNNER FAILED: models.jsonc ausente e models.example.jsonc indisponivel para bootstrap.' -ForegroundColor Red
+      exit 2
+    }
+    Copy-Item -LiteralPath $modelsExample -Destination $modelsJsonc -Force
+    Write-Host 'Bootstrap: models.jsonc ausente no checkout; criado a partir de models.example.jsonc.'
+  }
+
   $suites = @(Get-ChildItem -File (Join-Path $distDir '*.tests.ps1') -ErrorAction SilentlyContinue | Sort-Object { $_.FullName })
   if ($suites.Count -eq 0) {
     Write-Host 'RUNNER FAILED: nenhuma suite encontrada em tests/distribution.' -ForegroundColor Red
