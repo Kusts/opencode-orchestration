@@ -3,7 +3,8 @@
     Remove somente o ownership do pacote opencode-orchestration (P2).
 .DESCRIPTION
     Remove agentes, bloco markered do AGENTS.md, chaves managed do
-    opencode.json, skills, plugin e o manifest. Nunca toca mcp.*, agentes
+    config (opencode.json ou opencode.jsonc — jsonc vence se ambos
+    existirem), skills, plugin e o manifest. Nunca toca mcp.*, agentes
     desconhecidos, chaves de topo desconhecidas, conteudo do usuario fora
     dos markers nem ~/.opencode-orchestration/evidence/ (dados do usuario).
     Arquivo alterado pelo usuario depois do install (hash diverge do
@@ -71,6 +72,87 @@ function Convert-Canonical($Value) {
   return $j
 }
 
+function Strip-JsoncComments([string]$Text) {
+  # Conversor JSONC->JSON em DUAS FASES (mesma logica do install.ps1).
+  # Fase 1 remove comentarios // e /* */ respeitando literais de string
+  # (trata escapes, preserva quebras para nao colar linhas); fase 2 remove
+  # virgulas sobrando sobre o texto JA SEM comentarios (',' seguida so de
+  # whitespace e depois } ou ]), tambem respeitando strings. Duas fases
+  # porque o lookahead de virgula no texto ORIGINAL enxergava '/' de
+  # comentario e nao removia a virgula.
+  # PS 5.1 compativel: sem ternario, sem ??, sem Invoke-Expression.
+  if ($null -eq $Text) { return '' }
+  # Fase 1: strip de comentarios, preservando strings e quebras.
+  $sb1 = New-Object Text.StringBuilder ($Text.Length)
+  $inStr = $false
+  $escaped = $false
+  $inLine = $false
+  $inBlock = $false
+  $i = 0
+  while ($i -lt $Text.Length) {
+    $c = $Text[$i]
+    $next = ''
+    if (($i + 1) -lt $Text.Length) { $next = $Text[$i + 1] }
+    if ($inLine) {
+      if ($c -eq "`n") { $inLine = $false; [void]$sb1.Append($c) }
+      $i += 1
+      continue
+    }
+    if ($inBlock) {
+      if (($c -eq '*') -and ($next -eq '/')) { $inBlock = $false; $i += 2; continue }
+      if ($c -eq "`n") { [void]$sb1.Append($c) }
+      $i += 1
+      continue
+    }
+    if ($inStr) {
+      [void]$sb1.Append($c)
+      if ($escaped) { $escaped = $false }
+      elseif ($c -eq '\') { $escaped = $true }
+      elseif ($c -eq '"') { $inStr = $false }
+      $i += 1
+      continue
+    }
+    if ($c -eq '"') { $inStr = $true; [void]$sb1.Append($c); $i += 1; continue }
+    if (($c -eq '/') -and ($next -eq '/')) { $inLine = $true; $i += 2; continue }
+    if (($c -eq '/') -and ($next -eq '*')) { $inBlock = $true; $i += 2; continue }
+    [void]$sb1.Append($c)
+    $i += 1
+  }
+  $noComments = $sb1.ToString()
+  # Fase 2: virgula sobrando sobre o texto sem comentarios, respeitando
+  # strings (nao remove ',' dentro de literal, ex.: "x, }" permanece).
+  $sb = New-Object Text.StringBuilder ($noComments.Length)
+  $inStr = $false
+  $escaped = $false
+  $i = 0
+  while ($i -lt $noComments.Length) {
+    $c = $noComments[$i]
+    if ($inStr) {
+      [void]$sb.Append($c)
+      if ($escaped) { $escaped = $false }
+      elseif ($c -eq '\') { $escaped = $true }
+      elseif ($c -eq '"') { $inStr = $false }
+      $i += 1
+      continue
+    }
+    if ($c -eq '"') { $inStr = $true; [void]$sb.Append($c); $i += 1; continue }
+    if ($c -eq ',') {
+      $j = $i + 1
+      while (($j -lt $noComments.Length) -and ([char]::IsWhiteSpace($noComments[$j]))) { $j += 1 }
+      if (($j -lt $noComments.Length) -and (($noComments[$j] -eq '}') -or ($noComments[$j] -eq ']'))) {
+        $i += 1
+        continue
+      }
+      [void]$sb.Append($c)
+      $i += 1
+      continue
+    }
+    [void]$sb.Append($c)
+    $i += 1
+  }
+  return $sb.ToString()
+}
+
 function Find-ManifestHash($Manifest, [string]$Relative) {
   if ($null -eq $Manifest) { return $null }
   if (-not (Has-Member $Manifest 'managed_files')) { return $null }
@@ -108,7 +190,28 @@ function Add-Plan([string]$Tag, [string]$Label) {
   [void]$plan.Add('[' + $Tag + '] ' + $Label)
 }
 
-$jsonPath = Join-Path $ocDir 'opencode.json'
+# Config: opencode.json e/ou opencode.jsonc — o ARQUIVO DO MANIFEST tem
+# precedencia quando managed_files registra a entrada de config (evita operar
+# o arquivo errado apos troca de formato: install geriu opencode.json, o
+# usuario criou opencode.jsonc depois; sem isso o uninstall tocaria o jsonc e
+# deixaria as chaves geridas no json original). Sem manifest ou sem entrada
+# de config no manifest, vale a deteccao atual (jsonc presente => alvo e o
+# jsonc; json sozinho junto do jsonc e do usuario e nao e tocado). Parse
+# tolera JSONC (comentarios + trailing commas).
+$jsonCandidatePath = Join-Path $ocDir 'opencode.json'
+$jsoncCandidatePath = Join-Path $ocDir 'opencode.jsonc'
+$configFileName = 'opencode.json'
+$manifestConfigName = $null
+if (($null -ne $manifest) -and (Has-Member $manifest 'managed_files')) {
+  foreach ($e in $manifest.managed_files) {
+    $mrel = $null
+    if (Has-Member $e 'relative') { $mrel = ([string]$e.relative) -replace '/', '\' }
+    if (($mrel -eq 'opencode.json') -or ($mrel -eq 'opencode.jsonc')) { $manifestConfigName = $mrel; break }
+  }
+}
+if (($null -ne $manifestConfigName) -and (Test-Path -LiteralPath (Join-Path $ocDir $manifestConfigName) -PathType Leaf)) { $configFileName = $manifestConfigName }
+elseif (Test-Path -LiteralPath $jsoncCandidatePath -PathType Leaf) { $configFileName = 'opencode.jsonc' }
+$jsonPath = Join-Path $ocDir $configFileName
 $agentsMdPath = Join-Path $ocDir 'AGENTS.md'
 $pluginDst = Join-Path $ocDir 'plugins\orchestration-enforcement.ts'
 
@@ -150,14 +253,15 @@ else {
   }
 }
 
-# opencode.json ------------------------------------------------------------------
+# opencode.json / opencode.jsonc ------------------------------------------------
+# (arquivo detectado acima; jsonc vence quando ambos existem)
 $existingJson = $null
 if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
-  try { $existingJson = (Read-Utf8 $jsonPath) | ConvertFrom-Json }
-  catch { Add-Plan 'KEEP' 'opencode.json (nao parseia, mantido)'; $existingJson = 'UNPARSEABLE' }
+  try { $existingJson = (Strip-JsoncComments (Read-Utf8 $jsonPath)) | ConvertFrom-Json }
+  catch { Add-Plan 'KEEP' ($configFileName + ' (nao parseia, mantido)'); $existingJson = 'UNPARSEABLE' }
 }
 else {
-  Add-Plan 'SKIP' 'opencode.json (ausente)'
+  Add-Plan 'SKIP' ($configFileName + ' (ausente)')
 }
 $configOps = New-Object System.Collections.ArrayList
 if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
@@ -255,47 +359,11 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
       Add-Plan 'KEEP' ($root + ' (alterado, ou manifest ausente/nao confirma, mantido)')
     }
   }
-  foreach ($opt in @('skills.paths', 'autoupdate')) {
-    $has = $false
-    $cur = $null
-    if ($opt -eq 'skills.paths') {
-      $has = (Has-Member $existingJson 'skills') -and (Has-Member $existingJson.skills 'paths')
-      if ($has) { $cur = Convert-Canonical $existingJson.skills.paths }
-    }
-    else {
-      $has = Has-Member $existingJson 'autoupdate'
-      if ($has) { $cur = Convert-Canonical $existingJson.autoupdate }
-    }
-    if (-not $has) { continue }
-    $inManaged = $false
-    if (($null -ne $manifest) -and (Has-Member $manifest 'adopted_paths') -and ($null -ne $manifest.adopted_paths)) {
-      if (@($manifest.adopted_paths) -contains $opt) { $inManaged = $true }
-    }
-    elseif (($null -ne $manifest) -and (Has-Member $manifest 'managed_config_paths')) {
-      if (@($manifest.managed_config_paths) -contains $opt) { $inManaged = $true }
-    }
-    $snap = Get-SnapshotValue $manifest $opt
-    if ($inManaged -and ($null -ne $snap) -and ($cur -eq $snap)) {
-      Add-Plan 'REMOVE' ($opt + ' (nos setamos; valor intacto)')
-      [void]$configOps.Add(@{ Op = 'del-opt'; Key = $opt })
-    }
-    else {
-      Add-Plan 'KEEP' ($opt + ' (do usuario ou alterado, mantido)')
-    }
-  }
-  # plugin: USER-owned a partir do momento em que tem qualquer entrada.
-  # Remove SOMENTE se o valor atual for exatamente o default do pacote ([] vazio).
-  # O snapshot do manifest NAO autoriza remover conteudo divergente.
-  if (Has-Member $existingJson 'plugin') {
-    $curPlugin = Convert-Canonical $existingJson.plugin
-    if ($curPlugin -eq '[]') {
-      Add-Plan 'REMOVE' 'plugin (vazio, default do pacote)'
-      [void]$configOps.Add(@{ Op = 'del-opt'; Key = 'plugin' })
-    }
-    else {
-      Add-Plan 'KEEP' 'plugin (conteúdo do usuário presente)'
-    }
-  }
+  # NOTA ownership (trim): skills.paths, autoupdate e plugin NAO sao mais do
+  # pacote (auto-discovery do runtime; autoupdate indesejado em distribuido).
+  # Essas chaves nunca sao removidas aqui — nem mesmo quando manifests ANTIGOS
+  # as listam em adopted_paths/managed_config_paths (listas legadas sao
+  # ignoradas para essas chaves, sem erro). mcp.* tambem nunca e tocado.
   if (Has-Member $existingJson 'mcp') { Add-Plan 'KEEP' 'mcp.* (nunca tocado)' }
   if ((Has-Member $existingJson 'agent') -and ($null -ne $existingJson.agent)) {
     foreach ($ak in @($existingJson.agent.PSObject.Properties.Name)) {
@@ -305,7 +373,7 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
     }
   }
   if ($configOps.Count -gt 0) {
-    [void]$actions.Add(@{ Kind = 'config'; Dst = $jsonPath; Label = 'opencode.json' })
+    [void]$actions.Add(@{ Kind = 'config'; Dst = $jsonPath; Label = $configFileName })
   }
 }
 
@@ -465,8 +533,8 @@ foreach ($a in $actions) {
     }
   }
   elseif ($a.Kind -eq 'config') {
-    if ($PSCmdlet.ShouldProcess($a.Dst, 'Remover chaves managed do opencode.json')) {
-      $cfg = (Read-Utf8 $a.Dst) | ConvertFrom-Json
+    if ($PSCmdlet.ShouldProcess($a.Dst, ('Remover chaves managed de ' + $a.Label))) {
+      $cfg = (Strip-JsoncComments (Read-Utf8 $a.Dst)) | ConvertFrom-Json
       foreach ($op in $configOps) {
         if ($op.Op -eq 'del-task') {
           $node = $cfg.agent.($op.Agent)
@@ -494,16 +562,9 @@ foreach ($a in $actions) {
             $null = $cfg.PSObject.Properties.Remove($op.Key)
           }
         }
-        elseif ($op.Op -eq 'del-opt') {
-          if ($op.Key -eq 'skills.paths') {
-            if ((Has-Member $cfg 'skills') -and (Has-Member $cfg.skills 'paths')) {
-              $null = $cfg.skills.PSObject.Properties.Remove('paths')
-            }
-          }
-          elseif ($null -ne $cfg.PSObject.Properties[$op.Key]) {
-            $null = $cfg.PSObject.Properties.Remove($op.Key)
-          }
-        }
+        # NOTA: 'del-opt' (skills.paths/autoupdate/plugin) foi removido com o
+        # trim de ownership — nenhuma op desse tipo e mais gerada; entradas
+        # legadas em manifests antigos sao ignoradas (nunca processadas).
       }
       Write-FileAtomicLocal $a.Dst ((($cfg | ConvertTo-Json -Depth 32).TrimEnd()) + "`n")
     }

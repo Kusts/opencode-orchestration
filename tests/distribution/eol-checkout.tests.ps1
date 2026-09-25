@@ -72,8 +72,12 @@ try {
   $agentFiles = @(Get-ChildItem -File (Join-Path $ocDir 'agents\*.md') -ErrorAction SilentlyContinue)
   Assert ($agentFiles.Count -eq 19) ('19 agents instalados (achado ' + $agentFiles.Count + ')')
   $lfBad = New-Object System.Collections.ArrayList
+  # Config: arquivo real detectado (opencode.jsonc vence se ambos existirem;
+  # fresh install cria opencode.json).
+  $configProbe = Join-Path $ocDir 'opencode.json'
+  if (Test-Path -LiteralPath (Join-Path $ocDir 'opencode.jsonc') -PathType Leaf) { $configProbe = Join-Path $ocDir 'opencode.jsonc' }
   foreach ($p in @(
-    (Join-Path $ocDir 'opencode.json'),
+    $configProbe,
     (Join-Path $ocDir 'plugins\orchestration-enforcement.ts'),
     (Join-Path $ocDir 'skills\hybrid-development\SKILL.md')
   )) {

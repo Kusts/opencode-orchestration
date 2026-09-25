@@ -34,7 +34,8 @@ try {
   # Worker managed com permissao extra do usuario (task intacto = "deny") ------
   $j.agent.coder.permission | Add-Member -NotePropertyName 'bash' -NotePropertyValue (([ordered]@{ '*' = 'ask' } | ConvertTo-Json -Depth 8) | ConvertFrom-Json) -Force
   # Plugin com entrada do usuario: ownership passa a ser do usuario ------------
-  $j.plugin = @('file://./meu-plugin.ts')
+  # (trim: template nao traz mais "plugin"; criado aqui via Add-Member)
+  $j | Add-Member -NotePropertyName 'plugin' -NotePropertyValue @('file://./meu-plugin.ts') -Force
   [IO.File]::WriteAllText($jsonPath, ((($j | ConvertTo-Json -Depth 32).TrimEnd()) + "`n"), (New-Object Text.UTF8Encoding $false))
 
   # Uninstall ----------------------------------------------------------------
@@ -51,7 +52,9 @@ try {
   $t = [IO.File]::ReadAllText((Join-Path $ocDir 'AGENTS.md'), [Text.Encoding]::UTF8)
   Assert (($t -notmatch 'opencode-orchestration:start') -and ($t -notmatch 'opencode-orchestration:end')) 'AGENTS.md bloco markered removido'
   Assert (-not (Test-Path -LiteralPath $mf -PathType Leaf)) 'manifest removido ao final'
-  Assert ($out.Contains('[KEEP] plugin')) 'uninstall lista [KEEP] plugin (conteudo do usuario)'
+  # Plugin/autoupdate/skills.paths: ownership do usuario (trim) — uninstall
+  # nunca toca essas chaves, entao nenhuma linha de plano as menciona.
+  Assert ($out -notmatch '\[REMOVE\] plugin(\s|$)') 'uninstall nao remove plugin (ownership do usuario; plugins/arquivo e outra chave)'
   Assert ((@($j2.plugin)).Count -eq 1 -and (@($j2.plugin))[0] -eq 'file://./meu-plugin.ts') 'plugin com entrada do usuario preservado (chave inteira mantida)'
 
   # Permission extra do usuario: task removido, extra mantido, sem orfao -------

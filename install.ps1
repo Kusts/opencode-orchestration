@@ -9,11 +9,12 @@
     codigo vindo de JSON.
 
     DECISOES DE DESENHO (2.1):
-    - As 5 funcoes de merge vivem NESTE arquivo (sem dot-source): instalacao
+    - As funcoes de merge vivem NESTE arquivo (sem dot-source): instalacao
       em arquivo unico, sem dependencia de resolucao de caminho extra e sem
       risco de carregar codigo inesperado. Merge-ManagedOpencodeConfig
-      orquestra Merge-ManagedAgentConfig / Merge-ManagedSkillsConfig /
-      Merge-ManagedPluginConfig; Merge-ManagedAgentsMdBlock cuida do AGENTS.md.
+      orquestra Merge-ManagedAgentConfig; Merge-ManagedAgentsMdBlock cuida
+      do AGENTS.md. (skills.paths/plugin/autoupdate: ownership removida —
+      ver NOTA ownership acima de Get-DesiredManagedPaths.)
     - Auto-criacao de models.jsonc a partir do exemplo foi REMOVIDA: criava
       um write antes da validacao. Ausente/invalido agora falha no PRECHECK
       (exit 3) sem nenhuma escrita.
@@ -39,15 +40,16 @@ $ErrorActionPreference = 'Stop'
 # exercitar backup/stage/rollback nos testes. Nunca usar em uso real.
 # Valores: 'backup' (falha apÃ³s backup), 'stage' (falha apÃ³s stage),
 # 'apply-half' (falha no meio do apply -> rollback, exit 5),
-# 'apply-json' (falha APÃ“S escrever opencode.json, Ãºltima etapa -> rollback, exit 5),
+# 'apply-json' (falha APOS escrever o config — opencode.json ou opencode.jsonc,
+# ultima etapa -> rollback, exit 5),
 # 'manifest' (falha na gravaÃ§Ã£o do manifest -> rollback completo, exit 5).
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
-$PackageVersion = '1.0.0-hardening'
-$OpenCodePluginSpec = '@opencode-ai/plugin@1.18.31'
+$PackageVersion = '1.0.0'
+$OpenCodePluginSpec = '@opencode-ai/plugin@1.18.32'
 $MarkStart = '<!-- opencode-orchestration:start -->'
 $MarkEnd = '<!-- opencode-orchestration:end -->'
 $ManifestRelPath = '.opencode-orchestration\manifest.json'
@@ -89,8 +91,88 @@ function Convert-Canonical($Value) {
 }
 
 function Strip-JsoncComments([string]$Text) {
-  $lines = $Text -split "`n" | Where-Object { $_ -notmatch '^\s*//' }
-  return ($lines -join "`n")
+  # Conversor JSONC->JSON em DUAS FASES (mesma logica no uninstall.ps1).
+  # Fase 1 remove comentarios // (ate o fim da linha, preservando a quebra)
+  # e /* */ (preservando quebras internas para nao colar linhas), respeitando
+  # literais de string (nao remove // ou /* */ dentro de strings, trata
+  # escapes \" e \\). Fase 2 remove virgulas sobrando sobre o texto JA SEM
+  # comentarios (',' seguida so de whitespace e depois } ou ]), tambem
+  # respeitando strings. Duas fases porque o lookahead de virgula no texto
+  # ORIGINAL enxergava '/' de comentario (ex.: {"a": 1, // c + quebra + })
+  # e nao removia a virgula (exit 3 no precheck). Sem ternario/??/
+  # Invoke-Expression; nao executa codigo.
+  if ($null -eq $Text) { return '' }
+  # Fase 1: strip de comentarios, preservando strings e quebras.
+  $sb1 = New-Object Text.StringBuilder ($Text.Length)
+  $inStr = $false
+  $escaped = $false
+  $inLine = $false
+  $inBlock = $false
+  $i = 0
+  while ($i -lt $Text.Length) {
+    $c = $Text[$i]
+    $next = ''
+    if (($i + 1) -lt $Text.Length) { $next = $Text[$i + 1] }
+    if ($inLine) {
+      if ($c -eq "`n") { $inLine = $false; [void]$sb1.Append($c) }
+      $i += 1
+      continue
+    }
+    if ($inBlock) {
+      if (($c -eq '*') -and ($next -eq '/')) { $inBlock = $false; $i += 2; continue }
+      if ($c -eq "`n") { [void]$sb1.Append($c) }
+      $i += 1
+      continue
+    }
+    if ($inStr) {
+      [void]$sb1.Append($c)
+      if ($escaped) { $escaped = $false }
+      elseif ($c -eq '\') { $escaped = $true }
+      elseif ($c -eq '"') { $inStr = $false }
+      $i += 1
+      continue
+    }
+    if ($c -eq '"') { $inStr = $true; [void]$sb1.Append($c); $i += 1; continue }
+    if (($c -eq '/') -and ($next -eq '/')) { $inLine = $true; $i += 2; continue }
+    if (($c -eq '/') -and ($next -eq '*')) { $inBlock = $true; $i += 2; continue }
+    [void]$sb1.Append($c)
+    $i += 1
+  }
+  $noComments = $sb1.ToString()
+  # Fase 2: virgula sobrando sobre o texto sem comentarios, respeitando
+  # strings (nao remove ',' dentro de literal, ex.: "x, }" permanece).
+  $sb = New-Object Text.StringBuilder ($noComments.Length)
+  $inStr = $false
+  $escaped = $false
+  $i = 0
+  while ($i -lt $noComments.Length) {
+    $c = $noComments[$i]
+    if ($inStr) {
+      [void]$sb.Append($c)
+      if ($escaped) { $escaped = $false }
+      elseif ($c -eq '\') { $escaped = $true }
+      elseif ($c -eq '"') { $inStr = $false }
+      $i += 1
+      continue
+    }
+    if ($c -eq '"') { $inStr = $true; [void]$sb.Append($c); $i += 1; continue }
+    if ($c -eq ',') {
+      # Olhar a frente (texto ja sem comentarios) pulando whitespace;
+      # se o proximo significativo for } ou ], a virgula e descartada.
+      $j = $i + 1
+      while (($j -lt $noComments.Length) -and ([char]::IsWhiteSpace($noComments[$j]))) { $j += 1 }
+      if (($j -lt $noComments.Length) -and (($noComments[$j] -eq '}') -or ($noComments[$j] -eq ']'))) {
+        $i += 1
+        continue
+      }
+      [void]$sb.Append($c)
+      $i += 1
+      continue
+    }
+    [void]$sb.Append($c)
+    $i += 1
+  }
+  return $sb.ToString()
 }
 
 function Write-FileAtomic([string]$Path, [string]$Text) {
@@ -352,26 +434,11 @@ function Merge-ManagedAgentConfig($ExistingAgent, $DesiredAgent) {
   return @{ Agent = $ExistingAgent; ManagedPaths = $appliedPaths }
 }
 
-function Merge-ManagedSkillsConfig($Existing, $Desired) {
-  $changed = $false
-  if (-not (Has-Member $Existing 'skills') -or ($null -eq $Existing.skills)) {
-    Set-Prop $Existing 'skills' (($Desired.skills | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
-    return @{ Changed = $true; Path = 'skills.paths'; Mode = 'SET_ABSENT_PARENT' }
-  }
-  if (-not (Has-Member $Existing.skills 'paths') -or ($null -eq $Existing.skills.paths)) {
-    Set-Prop $Existing.skills 'paths' $Desired.skills.paths
-    return @{ Changed = $true; Path = 'skills.paths'; Mode = 'SET_ABSENT' }
-  }
-  return @{ Changed = $changed; Path = 'skills.paths'; Mode = 'PRESERVED' }
-}
-
-function Merge-ManagedPluginConfig($Existing, $Desired) {
-  if (-not (Has-Member $Existing 'plugin')) {
-    Set-Prop $Existing 'plugin' @()
-    return @{ Changed = $true; Path = 'plugin'; Mode = 'SET_ABSENT_EMPTY' }
-  }
-  return @{ Changed = $false; Path = 'plugin'; Mode = 'PRESERVED' }
-}
+# NOTA ownership (trim): "skills.paths", "plugin" e "autoupdate" NAO sao mais
+# do pacote — auto-discovery do runtime cobre skills/plugins sem essas chaves
+# e autoupdate em artefato distribuido e indesejado. Ficam so $schema/model/
+# default_agent/subagent_depth + agent.*. Manifests antigos que listem as
+# chaves removidas sao tolerados (uninstall simplesmente nao as processa).
 
 function Get-DesiredManagedPaths($Desired) {
   $paths = New-Object System.Collections.ArrayList
@@ -390,9 +457,6 @@ function Get-DesiredManagedPaths($Desired) {
     [void]$paths.Add('agent.' + $key + '.model')
     [void]$paths.Add('agent.' + $key + '.permission.task')
   }
-  [void]$paths.Add('skills.paths')
-  [void]$paths.Add('autoupdate')
-  [void]$paths.Add('plugin')
   return $paths
 }
 
@@ -407,14 +471,6 @@ function Merge-ManagedOpencodeConfig($Existing, $Desired) {
   }
   $agentRes = Merge-ManagedAgentConfig $Existing.agent $Desired.agent
   foreach ($p in $agentRes.ManagedPaths) { [void]$managedPaths.Add($p) }
-  $skillsRes = Merge-ManagedSkillsConfig $Existing $Desired
-  if ($skillsRes.Changed) { [void]$managedPaths.Add($skillsRes.Path) }
-  if (-not (Has-Member $Existing 'autoupdate')) {
-    Set-Prop $Existing 'autoupdate' $Desired.autoupdate
-    [void]$managedPaths.Add('autoupdate')
-  }
-  $pluginRes = Merge-ManagedPluginConfig $Existing $Desired
-  if ($pluginRes.Changed) { [void]$managedPaths.Add($pluginRes.Path) }
   return @{ Config = $Existing; ManagedPaths = $managedPaths }
 }
 
@@ -625,38 +681,49 @@ $skillsSrc = Join-Path $RepoRoot 'skills-core'
 $skillsDst = Join-Path $ocDir 'skills'
 $skillNames = @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')
 
-$jsonPath = Join-Path $ocDir 'opencode.json'
+# Formato do config: opencode.json e/ou opencode.jsonc. O runtime (OpenCode V1)
+# suporta ambos e, se AMBOS existirem no mesmo diretorio, faz merge com o
+# jsonc vencendo conflitos. O instalador respeita a mesma precedencia:
+# jsonc presente => alvo e o jsonc; senao, alvo e o json (criado se nada
+# existir). Quando ambos existem, opencode.json e chave/arquivo do usuario
+# (PRESERVE no plano) e so o jsonc e operado.
+$jsonCandidatePath = Join-Path $ocDir 'opencode.json'
+$jsoncCandidatePath = Join-Path $ocDir 'opencode.jsonc'
+$jsonExistsNow = Test-Path -LiteralPath $jsonCandidatePath -PathType Leaf
+$jsoncExistsNow = Test-Path -LiteralPath $jsoncCandidatePath -PathType Leaf
+$configFileName = 'opencode.json'
+if ($jsoncExistsNow) { $configFileName = 'opencode.jsonc' }
+$jsonPath = Join-Path $ocDir $configFileName
+$bothConfigsExist = ($jsonExistsNow -and $jsoncExistsNow)
 $existingJsonObj = $null
 $existingJsonRaw = $null
-if ((Test-Path -LiteralPath $jsonPath -PathType Leaf) -and (-not $NoCoreSkills -or $true)) {
+$configHadComments = $false
+if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
   try {
     $existingJsonRaw = Read-Utf8 $jsonPath
-    $existingJsonObj = $existingJsonRaw | ConvertFrom-Json
+    $strippedExisting = Strip-JsoncComments $existingJsonRaw
+    if ($strippedExisting -ne $existingJsonRaw) { $configHadComments = $true }
+    $existingJsonObj = $strippedExisting | ConvertFrom-Json
   }
   catch {
-    Write-Host ('PRECHECK FAILED (exit 3): opencode.json existente nao parseia: ' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host ('PRECHECK FAILED (exit 3): ' + $configFileName + ' existente nao parseia (JSONC): ' + $_.Exception.Message) -ForegroundColor Red
     exit 3
   }
 }
 $mergedObj = $null
 $managedPaths = @()
+# adopted_paths: mantido no manifest (mesmo vazio) para compatibilidade com
+# consumers; o pacote nao adota mais nenhuma chave (ownership trim).
 $adoptedNow = @()
 if ($null -eq $existingJsonObj) {
   $mergedObj = $desired
   $managedPaths = @(Get-DesiredManagedPaths $desired)
-  $adoptedNow = @('skills.paths', 'autoupdate', 'plugin')
 }
 else {
-  $hadSkillsPaths = (Has-Member $existingJsonObj 'skills') -and (Has-Member $existingJsonObj.skills 'paths') -and ($null -ne $existingJsonObj.skills.paths)
-  $hadAutoupdate = Has-Member $existingJsonObj 'autoupdate'
-  $hadPlugin = Has-Member $existingJsonObj 'plugin'
-  $clone = ($existingJsonRaw | ConvertFrom-Json)
+  $clone = (Strip-JsoncComments $existingJsonRaw) | ConvertFrom-Json
   $mergeRes = Merge-ManagedOpencodeConfig $clone $desired
   $mergedObj = $mergeRes.Config
   $managedPaths = @(Get-DesiredManagedPaths $desired)
-  if (-not $hadSkillsPaths) { $adoptedNow += 'skills.paths' }
-  if (-not $hadAutoupdate) { $adoptedNow += 'autoupdate' }
-  if (-not $hadPlugin) { $adoptedNow += 'plugin' }
 }
 $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 
@@ -687,7 +754,12 @@ if (-not $NoCoreSkills) {
   }
 }
 [void]$ops.Add(@{ Component = 'plugin'; RelativePath = 'plugins\orchestration-enforcement.ts'; StageText = $pluginText; Label = 'plugins/orchestration-enforcement.ts' })
-[void]$ops.Add(@{ Component = 'config'; RelativePath = 'opencode.json'; StageText = $mergedText; Label = 'opencode.json' })
+# Config: RelativePath/Label reais detectados (opencode.json ou opencode.jsonc).
+# Todo o pipeline (stage/CAS/apply/manifest/rollback) segue keyed em
+# Component='config' com esse RelativePath — nada hardcoded a 'opencode.json'.
+$configRelPath = $configFileName
+$configLabel = $configFileName
+[void]$ops.Add(@{ Component = 'config'; RelativePath = $configRelPath; StageText = $mergedText; Label = $configLabel })
 
 foreach ($op in $ops) {
   $dstOp = Join-Path $ocDir $op.RelativePath
@@ -744,19 +816,21 @@ else {
   foreach ($s in $skillNames) { Add-Plan 'SKIP' ('skills/' + $s + '/ (NoCoreSkills)') }
 }
 File-Plan $pluginDst $pluginText 'plugins/orchestration-enforcement.ts'
+if ($bothConfigsExist) {
+  Add-Plan 'PRESERVE' 'opencode.json (presente junto de jsonc; runtime faz merge com jsonc vencendo)'
+}
 if ($null -eq $existingJsonObj) {
-  Add-Plan 'CREATE' 'opencode.json (merged completo)'
+  Add-Plan 'CREATE' ($configFileName + ' (merged completo)')
 }
 else {
   $before = $existingJsonObj
   $after = $mergedObj
-  foreach ($mp in @('$schema', 'model', 'default_agent', 'subagent_depth', 'autoupdate')) {
+  foreach ($mp in @('$schema', 'model', 'default_agent', 'subagent_depth')) {
     $bv = $null; $av = $null
     if (Has-Member $before $mp) { $bv = Convert-Canonical $before.$mp }
     if (Has-Member $after $mp) { $av = Convert-Canonical $after.$mp }
     if ($bv -ne $av) {
-      if ($mp -eq 'autoupdate' -and (-not (Has-Member $before 'autoupdate'))) { Add-Plan 'UPDATE' 'autoupdate (set, estava ausente)' }
-      else { Add-Plan 'UPDATE' $mp }
+      Add-Plan 'UPDATE' $mp
     }
   }
   if (Has-Member $after 'agent') {
@@ -778,14 +852,10 @@ else {
       }
     }
   }
-  if ((Has-Member $before 'skills') -and (Has-Member $before.skills 'paths') -and ($null -ne $before.skills.paths)) {
-    Add-Plan 'PRESERVE' 'skills.paths (do usuario)'
-  }
   if (Has-Member $before 'mcp') { Add-Plan 'PRESERVE' 'mcp.*' }
-  if ((Has-Member $before 'plugin') -and ($null -ne $before.plugin) -and (@($before.plugin).Count -gt 0)) {
-    Add-Plan 'PRESERVE' 'plugin (conteudo do usuario, nao vazio)'
-  }
-  $knownTop = @('$schema', 'model', 'default_agent', 'subagent_depth', 'agent', 'skills', 'plugin', 'autoupdate', 'mcp')
+  # skills/plugin/autoupdate (e qualquer outra chave de topo fora do
+  # ownership) caem no loop de chaves desconhecidas abaixo (PRESERVE).
+  $knownTop = @('$schema', 'model', 'default_agent', 'subagent_depth', 'agent', 'mcp')
   foreach ($tk in @($before.PSObject.Properties.Name)) {
     if ($knownTop -notcontains $tk) { Add-Plan 'PRESERVE' ($tk + ' (chave de topo desconhecida)') }
   }
@@ -806,6 +876,9 @@ else {
     if (Has-Member $before.agent.build 'model') {
       Add-Plan 'UPDATE' 'agent.build.model (REMOVIDO, heranca de sessao)'
     }
+  }
+  if (($configFileName -eq 'opencode.jsonc') -and $configHadComments) {
+    Add-Plan 'UPDATE' 'opencode.jsonc (merged; comentarios normalizados)'
   }
 }
 
@@ -866,11 +939,12 @@ try {
       else { Write-FileAtomic $stageOp (Read-Utf8 $op.SourcePath) }
     }
 
-    # Valida stage
+    # Valida stage (config: RelativePath real detectado — json ou jsonc)
     $stageErrs = @()
-    try { (Read-Utf8 (Join-Path $stageDir 'opencode.json')) | ConvertFrom-Json | Out-Null }
-    catch { $stageErrs += ('stage opencode.json nao parseia: ' + $_.Exception.Message) }
-    $stageAllText = (Read-Utf8 (Join-Path $stageDir 'AGENTS.md')) + "`n" + (Read-Utf8 (Join-Path $stageDir 'opencode.json'))
+    $stageConfigPath = Join-Path $stageDir $configRelPath
+    try { (Read-Utf8 $stageConfigPath) | ConvertFrom-Json | Out-Null }
+    catch { $stageErrs += ('stage ' + $configFileName + ' nao parseia: ' + $_.Exception.Message) }
+    $stageAllText = (Read-Utf8 (Join-Path $stageDir 'AGENTS.md')) + "`n" + (Read-Utf8 $stageConfigPath)
     foreach ($a in $agentFiles) { $stageAllText += "`n" + $a.Text }
     if ((Count-TokenMarkers $stageAllText) -ne 0) { $stageErrs += 'stage contem tokens {{...}} nao resolvidos.' }
     $stAgents = Read-Utf8 (Join-Path $stageDir 'AGENTS.md')
@@ -1171,8 +1245,29 @@ catch {
 }
 
 # Dependencia do plugin (best-effort, fora da transacao) -------------------------
+# Pin do manifest/typecheck: quando o diretorio ja existe, a versao instalada
+# e comparada (parse tolerante de package.json); divergencia reinstala com a
+# mesma semantica best-effort (aviso sem abortar). package.json ilegivel
+# conta como divergente.
 $pluginDep = Join-Path $ocDir 'node_modules\@opencode-ai\plugin'
-if (-not (Test-Path -LiteralPath $pluginDep)) {
+$pluginPinned = $OpenCodePluginSpec.Substring($OpenCodePluginSpec.LastIndexOf('@') + 1)
+$pluginHadDir = Test-Path -LiteralPath $pluginDep
+$pluginOldVersion = $null
+$pluginNeedInstall = $false
+if (-not $pluginHadDir) { $pluginNeedInstall = $true }
+else {
+  $pluginPkgPath = Join-Path $pluginDep 'package.json'
+  try {
+    $pluginPkgObj = ([IO.File]::ReadAllText($pluginPkgPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
+    $pluginVer = $null
+    if (Has-Member $pluginPkgObj 'version') { $pluginVer = [string]$pluginPkgObj.version }
+    $pluginOldVersion = $pluginVer
+    if ([string]::IsNullOrWhiteSpace($pluginVer)) { $pluginNeedInstall = $true }
+    elseif ($pluginVer -ne $pluginPinned) { $pluginNeedInstall = $true }
+  }
+  catch { $pluginOldVersion = $null; $pluginNeedInstall = $true }
+}
+if ($pluginNeedInstall) {
   $bun = Get-Command 'bun' -ErrorAction SilentlyContinue
   $npm = Get-Command 'npm' -ErrorAction SilentlyContinue
   $installed = $false
@@ -1205,12 +1300,22 @@ if (-not (Test-Path -LiteralPath $pluginDep)) {
   if (-not $installed) {
     Write-Host ('AVISO: nao foi possivel instalar ' + $OpenCodePluginSpec + ' (bun/npm indisponiveis ou falharam). Instale manualmente: cd ' + $ocDir + '; bun add ' + $OpenCodePluginSpec) -ForegroundColor Yellow
   }
+  elseif ($pluginHadDir) {
+    $oldLabel = $pluginOldVersion
+    if ([string]::IsNullOrWhiteSpace($oldLabel)) { $oldLabel = 'desconhecida' }
+    Write-Host ('plugin dependency atualizada de ' + $oldLabel + ' para ' + $pluginPinned)
+  }
 }
 
 Write-Host ''
 Write-Host 'Instalacao concluida.' -ForegroundColor Green
 Write-Host 'Plano aplicado:'
 foreach ($l in $plan) { Write-Host ('  ' + $l) -ForegroundColor DarkGray }
+if (($configFileName -eq 'opencode.jsonc') -and $configHadComments) {
+  # O merged gravado e JSON puro: comentarios/trailing-commas do jsonc do
+  # usuario foram normalizados. O backup byte-exato cobre o rollback manual.
+  Write-Host 'AVISO: comentarios do seu opencode.jsonc foram normalizados; original preservado no backup.' -ForegroundColor Yellow
+}
 Write-Host ("Backup: " + $bakDir + ' (' + $backupCount + ' arquivo(s))') -ForegroundColor DarkGray
 Write-Host 'Reinicie o OpenCode para carregar AGENTS.md, agents, skills e plugin.' -ForegroundColor Yellow
 exit 0

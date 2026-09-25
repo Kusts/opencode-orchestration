@@ -10,7 +10,7 @@
         { "path": "%USERPROFILE%/.config/opencode/AGENTS.md", "format": "markdown", "owner": "control-plane", "render_mode": "consolidated" }
       ],
       "settings_targets": [
-        { "path": "%USERPROFILE%/.config/opencode/opencode.json", "format": "json", "owner": "user+control-plane+plugin", "sections": { "mcp": "control-plane+user+plugin", "plugin": "user+plugin", "skills": "user+control-plane", "agent": "user+control-plane", "agent.build.permission.task": "control-plane", "*": "preserve" } }
+        { "path": "%USERPROFILE%/.config/opencode/opencode.json", "alternate_path": "%USERPROFILE%/.config/opencode/opencode.jsonc", "format": "jsonc-or-json", "owner": "user+control-plane", "notes": "Alvo: opencode.jsonc se existir, senao opencode.json; se ambos existirem, opera somente o jsonc (precedencia do runtime: merge com jsonc vencendo). skills/plugin/autoupdate nao sao ownership do pacote.", "sections": { "mcp": "control-plane+user+plugin", "agent": "user+control-plane", "agent.build.permission.task": "control-plane", "*": "preserve" } }
       ],
       "mcp": { "capability": "native-config", "update_mechanism": "structured-merge", "owner": "control-plane", "preserve_unknown": true },
       "launch": { "strategy": "native", "command": "opencode", "arguments": [] },

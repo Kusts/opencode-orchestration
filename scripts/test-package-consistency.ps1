@@ -2,7 +2,7 @@
 .SYNOPSIS
     Valida a consistencia interna do pacote opencode-orchestration (P6.3).
 .DESCRIPTION
-    10 checks, exit 0/1, uma linha [OK]/[FAIL] por check. PS 5.1 compativel.
+    11 checks, exit 0/1, uma linha [OK]/[FAIL] por check. PS 5.1 compativel.
     Se um check apontar defeito REAL no pacote, conserte o pacote, nao o teste.
 #>
 $ErrorActionPreference = 'Stop'
@@ -347,7 +347,29 @@ try {
 }
 catch { Report-Fail '10 docs criticos' $_.Exception.Message }
 
+# ---- 11. template trimmed: sem autoupdate/skills/plugin; 17 agents --------
+try {
+  $tRaw11 = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.json.tmpl')
+  $tRes11 = $tRaw11.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $errs11 = New-Object System.Collections.ArrayList
+  try { $t11 = $tRes11 | ConvertFrom-Json }
+  catch { $t11 = $null; [void]$errs11.Add(('template nao parseia: ' + $_.Exception.Message)) }
+  if ($null -ne $t11) {
+    foreach ($k in @('autoupdate', 'skills', 'plugin')) {
+      if ($null -ne $t11.PSObject.Properties[$k]) { [void]$errs11.Add(('template contem chave removida: ' + $k)) }
+    }
+    $blocks11 = @($t11.agent.PSObject.Properties.Name)
+    if ($blocks11.Count -ne 17) { [void]$errs11.Add(('blocos agent=' + $blocks11.Count + ', esperado 17')) }
+    if (($null -ne $t11.agent) -and ($null -ne $t11.agent.build) -and ($null -ne ($t11.agent.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue))) {
+      [void]$errs11.Add('template: bloco build nao deve conter "model"')
+    }
+  }
+  if ($errs11.Count -eq 0) { Report-Ok '11 template trimmed (sem autoupdate/skills/plugin)' '17 blocos agent; build sem model' }
+  else { Report-Fail '11 template trimmed (sem autoupdate/skills/plugin)' ($errs11 -join ' | ') }
+}
+catch { Report-Fail '11 template trimmed (sem autoupdate/skills/plugin)' $_.Exception.Message }
+
 Write-Host ''
-Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 10)')
+Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 11)')
 if ($script:nBad -gt 0) { exit 1 }
 exit 0
