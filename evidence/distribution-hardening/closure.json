@@ -49,13 +49,32 @@
     "no_broken_operational_references": "PASS (package consistency with ZERO exceptions)",
     "closure_traceability_distinguishes_implementation_evidence_remote_ci": "PASS (this file: implementation_sha / closure_sha / tested_revision / remote_ci)",
     "verdict_does_not_claim_closed_before_remote_ci": "PASS (final_verdict below; P9 CLOSED requires push + GitHub Actions success + log audit)",
-    "remote_ci_validated": "PENDING (status below)"
+    "remote_ci_validated": "PASS (run 36085522073: both jobs completed/success at head 1be7236; logs audited)"
   },
   "remote_ci": {
-    "status": "pending",
-    "run_id": null,
-    "head_sha": null,
-    "jobs": {},
+    "status": "success",
+    "run_id": 36085522073,
+    "head_sha": "1be7236c496bc90a7d4b70f882f66a7d02a8f9e5",
+    "jobs": {
+      "ci-ps51": "success",
+      "ci-ps7": "success"
+    },
+    "summaries": {
+      "package_consistency": { "ps51": "PASS (step: Static/package validation)", "ps7": "PASS (step: Static/package validation)" },
+      "v3": {
+        "ps51": { "pass": 18, "fail": 0, "skip": 6, "internal_error": 0, "total": 24 },
+        "ps7": { "pass": 18, "fail": 0, "skip": 6, "internal_error": 0, "total": 24 },
+        "skip_detail": "all live-state conditional skips documented in suite output: no live opencode.json on runner, gitignored MCP spike evidence, governed-activation record absent while routing is off by default"
+      },
+      "distribution": {
+        "ps51": { "pass": 8, "fail": 0, "skip": 1, "internal_error": 0, "total": 9 },
+        "ps7": { "pass": 8, "fail": 0, "skip": 1, "internal_error": 0, "total": 9 },
+        "skip_detail": "1 skip = plugin-enforcement ([SKIP] 'bun indisponivel neste ambiente', reported, not counted as PASS, outside mandatory gates)",
+        "per_suite": "config-preservation 11/0, eol-checkout 11/0, fresh-install 39/0, idempotency 14/0, package-consistency 3/0, planner-model 8/0, rollback 33/0, uninstall 21/0 (both jobs)"
+      }
+    },
+    "log_audit": "zero real ROLLBACK_REQUIRED (10 matches: 4 V3 deliberate error-semantics PASS + 6 distribution absence asserts 'A/B/D ausente'); zero NOT OK; zero FAIL; zero INTERNAL_ERROR; ROLLBACK_COMPLETED x3 + CAS_CONFLICT per job (A/B/D/C semantics); 5 skills [SKIP] on second install in both jobs",
+    "authority_note": "remote_ci.head_sha is the validation authority. The final closure/evidence commit after this run only edits this JSON (no product or test code), so the tested code state remains exactly 1be7236c496bc90a7d4b70f882f66a7d02a8f9e5.",
     "requirement": "P9 CLOSED requires status=completed and conclusion=success for BOTH jobs (PS5.1 and PS7), each running package consistency + V3 + distribution, plus log audit: zero real ROLLBACK_REQUIRED, zero FAIL, zero INTERNAL_ERROR, zero mandatory skips, 5 skills [SKIP] on second install"
   },
   "remote_ci_history": [
@@ -67,30 +86,37 @@
       "green_steps": "package consistency + V3 passed in BOTH jobs",
       "failing_step": "distribution suites (both jobs)",
       "cause": "models.jsonc absent in clean checkout (generated, gitignored) -> installer precheck exit 3 in 16 invocations; eol-checkout passed because it self-provisions models.jsonc in its temp copy",
-      "resolution": "runner bootstrap fix in tests/distribution/run-distribution-tests.ps1; re-validation pending"
+      "resolution": "runner bootstrap fix in tests/distribution/run-distribution-tests.ps1; re-validated by run 36085522073"
+    },
+    {
+      "run_id": 36085522073,
+      "head_sha": "1be7236c496bc90a7d4b70f882f66a7d02a8f9e5",
+      "conclusion": "success",
+      "jobs": { "ci-ps51": "success", "ci-ps7": "success" },
+      "log_audit": "FAIL=0, INTERNAL_ERROR=0, zero real ROLLBACK_REQUIRED, mandatory skips=0, 5 skills [SKIP] on reinstall"
     }
   ],
   "final_verdict": {
     "implementation": "P9.1 IMPLEMENTATION COMPLETE",
     "local_validation": "PASS",
-    "remote_ci_validation": "FAILED (run 36083266782; root-caused and fixed, re-validation pending)",
-    "p9_final_closure": "PENDING",
-    "p9_state": "P9 OPEN (remote CI failure on record until a green run validates the fixed state)",
+    "remote_ci_validation": "SUCCESS (run 36085522073, head 1be7236, both jobs completed/success, logs audited)",
+    "p9_final_closure": "CLOSED",
+    "p9_state": "P9 CLOSED",
     "rule": "FINAL VERDICT: P9 CLOSED somente apos push + GitHub Actions concluido + PS5.1 green + PS7 green + logs revisados; nunca usado para estado apenas validado localmente"
   },
   "preserved_guarantees": ["custom agents preservation", "MCP preservation", "plugin preservation", "unknown keys preservation", "unknown agent properties preservation", "AGENTS external content preservation", "Planner session-model inheritance", "explicit worker model binding", "task: deny", "subagent_depth: 1", "plugin system prompt coalescence", "neutral fallback", "permission hardening", "registry safe defaults", "CAS", "atomic writes", "manifest ownership", "uninstall ownership"],
   "known_limitations": [
-    "GitHub Actions run pending push (no push performed by this session); local full-matrix green on both engines is the recorded evidence until remote_ci.head_sha exists",
-    "plugin-enforcement ran as PASS here (bun present); on CI runners without bun it runs as a documented conditional skip (reported, not counted as PASS) outside the mandatory rollback/install/uninstall gates",
+    "remote validation covers 1be7236c496bc90a7d4b70f882f66a7d02a8f9e5; the final closure/evidence commit after the green run only edits this JSON (no product or test code)",
+    "plugin-enforcement runs as a documented conditional skip on CI (bun absent on runner); reported as SKIP, not PASS, outside the mandatory rollback/install/uninstall gates",
     "V3 suites must run sequentially on a shared machine/user (cross-runner interference on concurrent local runs); CI jobs are VM-isolated",
+    "V3 on CI shows 6 documented live-state conditional skips (no live opencode.json, gitignored spike, routing off) - outside mandatory gates",
     "runtime hook does not expose agent identity -> plugin applies conservative neutral mandate",
     "ask permissions auto-approved in runtime auto mode (confirmation control, not unconditional block)",
-    "shell globs are string matching (no script content inspection); planner-enforced via dispatch contract",
-    "V3 suite: 1 documented live-conditional skip (governed activation record absent while routing is off by default)"
+    "shell globs are string matching (no script content inspection); planner-enforced via dispatch contract"
   ],
   "future_hardening": [
     "CI must eventually provision bun (or equivalent runtime) so plugin-enforcement becomes a mandatory gate instead of a documented conditional skip",
     "idempotency-state helper now Name-composed; no further action identified for the P9.1 delta in the P9.2 audit"
   ],
-  "result": "P9.1 IMPLEMENTATION COMPLETE | LOCAL VALIDATION: PASS (PS5.1 + PS7, incl. clean-checkout bootstrap) | REMOTE CI VALIDATION: FAILED once (run 36083266782, models.jsonc bootstrap fix applied) | P9 STATE: OPEN UNTIL GREEN RUN | P9 FINAL CLOSURE: PENDING"
+  "result": "P9.1 IMPLEMENTATION COMPLETE | LOCAL VALIDATION: PASS (PS5.1 + PS7, incl. clean-checkout bootstrap) | REMOTE CI VALIDATION: SUCCESS (run 36085522073 @ 1be7236, both jobs) | FINAL VERDICT: P9 CLOSED"
 }
