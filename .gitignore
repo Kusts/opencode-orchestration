@@ -2,6 +2,7 @@ models.jsonc
 node_modules/
 evidence/*
 !evidence/distribution-hardening/
+!evidence/release-readiness/
 cache/
 *.bak*
 generated/
