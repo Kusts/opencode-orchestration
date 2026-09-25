@@ -5,11 +5,17 @@
 # ($RUNNER_TEMP\oo-home), cobrindo fresh install, idempotencia, preservacao
 # de config do usuario, rollback transacional e uninstall ownership-only.
 #
-# NOTA plugin dep (best-effort): install.ps1 instala @opencode-ai/plugin via
+# NOTA plugin dep (best-effort, runtime): install.ps1 instala @opencode-ai/plugin via
 # bun/npm FORA da transacao e fora do rollback (efeito externo): se bun/npm
 # estiverem ausentes ou a rede falhar, o install emite AVISO e sai 0 — nunca
-# aborta. Por isso este CI nao asserta node_modules nem depende de rede de
-# plugin (bun nao e garantido no runner; npm install e best-effort).
+# aborta. Essa tolerancia e do install.ps1 em runtime, nao do CI.
+#
+# Gate plugin-enforcement (obrigatorio no CI): bun e provisionado via npm
+# (pacote oficial mantido pela Oven) em ambos os jobs antes das distribution
+# suites; a suite plugin-enforcement.tests.ps1 falha (NOT OK + exit 1) se bun
+# estiver ausente - nao ha mais skip condicional de bun no CI. O harness usa
+# import type (apagado em runtime), por isso o CI nao asserta node_modules
+# nem depende de rede de plugin fora do provisionamento de bun.
 #
 # Sem segredos. Nenhuma acao de terceiros alem de actions/checkout.
 # Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
@@ -45,6 +51,9 @@ jobs:
         timeout-minutes: 20
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
+      - name: Provision bun (official npm package)
+        run: npm install -g bun; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
+
       - name: Distribution suites (9 suites, install transacional)
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
 
@@ -65,6 +74,9 @@ jobs:
       - name: V3 test suite (~5-6 min)
         timeout-minutes: 20
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
+
+      - name: Provision bun (official npm package)
+        run: npm install -g bun; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: Distribution suites (9 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1

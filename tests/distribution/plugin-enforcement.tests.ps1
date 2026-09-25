@@ -12,12 +12,11 @@ Assert ((Test-Path -LiteralPath (Join-Path $RepoRoot 'plugins\orchestration-enfo
 Assert ((Test-Path -LiteralPath (Join-Path $Harness 'run.ts'))) 'harness run.ts existe'
 $bunCmd = Get-Command bun -ErrorAction SilentlyContinue
 if ($null -eq $bunCmd) {
-  # Skip condicional de ambiente, documentado: o harness de enforcement
-  # executa TypeScript via bun. Em maquinas/CI sem bun, nao ha como rodar.
-  # Nao cobre requisitos obrigatorios de rollback/idempotencia/fresh install.
-  Write-Host '[SKIP] bun indisponivel neste ambiente (plugin-enforcement requer bun)'
+  # Gate obrigatorio: CI provisiona bun via npm em ambos os jobs; sem bun
+  # nao ha como rodar o harness, e isso e falha - nunca skip.
+  Assert ($false) 'bun disponivel (gate obrigatorio: CI provisiona bun)'
   Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)
-  exit 0
+  exit 1
 }
 $out = & bun (Join-Path $Harness 'run.ts') 2>&1
 $code = $LASTEXITCODE
