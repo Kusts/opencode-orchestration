@@ -1,4 +1,4 @@
-import { OrchestrationEnforcement } from "../../../plugins/orchestration-enforcement.ts";
+import { OrchestrationEnforcement, __orchestrationEnforcementTest } from "../../../plugins/orchestration-enforcement.ts";
 
 const PLANNER_MARKER = "[orchestration-enforcement:v1]";
 const WORKER_MARKER = "[orchestration-enforcement:v1:worker]";
@@ -202,11 +202,53 @@ ok(!threw, "8 malformed never throws");
       omitOk = !!hit && !("agent" in hit);
       if (hit) {
         const keys = Object.keys(hit).sort();
-        omitOk = omitOk && keys.every((k) => ["ts", "sessionType", "agent", "mandate", "markerUsed", "session"].includes(k));
+        omitOk = omitOk && keys.every((k) => ["ts", "sessionType", "agent", "mandate", "markerUsed", "session", "identity_source"].includes(k));
       }
     }
   } catch { omitOk = false; }
   ok(omitOk, "11 telemetry omits unsafe agent, schema unchanged");
+}
+
+// 12. sessionIndex bounded: CAP+N inserts via event hook => size stays at CAP,
+// oldest evicted (falls back to neutral), newest still resolves via session-map.
+{
+  const cap = __orchestrationEnforcementTest.cap;
+  const eventHook = (hooks as any).event;
+  ok(typeof eventHook === "function", "12 event hook exposed");
+  const N = cap + 10;
+  for (let i = 0; i < N; i++) {
+    await eventHook({ event: { type: "session.created", properties: { info: { id: `t-cap-${i}`, agent: "coder" } } } }, {});
+  }
+  ok(__orchestrationEnforcementTest.sessionIndexSize() === cap, `12 sessionIndex capped at ${cap}`, `size=${__orchestrationEnforcementTest.sessionIndexSize()}`);
+  const evictedOut: any = { system: ["base"] };
+  await transform({ sessionID: "t-cap-0", model: {} }, evictedOut);
+  ok(
+    typeof evictedOut.system[0] === "string" &&
+      evictedOut.system[0].includes(PLANNER_MARKER) &&
+      !evictedOut.system[0].includes(":worker"),
+    "12 oldest entry evicted (neutral fallback, no worker mandate)",
+  );
+  const recentOut: any = { system: ["base"] };
+  await transform({ sessionID: `t-cap-${N - 1}`, model: {} }, recentOut);
+  ok(
+    typeof recentOut.system[0] === "string" && recentOut.system[0].includes(WORKER_MARKER),
+    "12 newest entry still resolves via session-map (worker mandate)",
+  );
+}
+
+// 13. logged bounded: distinct transforms still inject (boundedAdd path safe),
+// size never exceeds cap.
+{
+  for (let i = 0; i < 5; i++) {
+    const out: any = { system: ["base"] };
+    await transform({ sessionID: `t-logged-${Date.now()}-${i}`, agent: "build", model: {} }, out);
+    if (typeof out.system[0] !== "string" || !out.system[0].includes(PLANNER_MARKER)) {
+      ok(false, `13 logged smoke injects (${i})`);
+      break;
+    }
+    if (i === 4) ok(true, "13 logged smoke injects (boundedAdd path safe)");
+  }
+  ok(__orchestrationEnforcementTest.loggedSize() <= __orchestrationEnforcementTest.cap, "13 logged size within cap", `size=${__orchestrationEnforcementTest.loggedSize()}`);
 }
 
 console.log(`SUMMARY pass=${pass} fail=${fail}`);
