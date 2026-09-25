@@ -2,12 +2,16 @@
 
 ## Pré-requisitos
 
-- **OpenCode** instalado e funcional (`opencode --version` responde).
+- **OpenCode V1.x** instalado e funcional (`opencode --version` deve
+  responder `1.x`; CI validado com **1.18.32**, pacote npm `opencode-ai`).
+  OpenCode **V2** (pacote `@opencode-ai/cli`, comando `opencode2`) **não é
+  suportado** — beta com breaking changes; migração futura é decisão
+  explícita.
 - **Windows PowerShell 5.1+** ou `pwsh` recente.
 - **`bun` ou `npm`** — somente para a dependência do plugin
-  `@opencode-ai/plugin@1.18.31` (best-effort: se ambos faltarem ou a rede
+  `@opencode-ai/plugin@1.18.32` (best-effort: se ambos faltarem ou a rede
   falhar, o instalador avisa e conclui sem ela; instale depois com
-  `cd ~/.config/opencode; bun add @opencode-ai/plugin@1.18.31`).
+  `cd ~/.config/opencode; bun add @opencode-ai/plugin@1.18.32`).
 - Este repo clonado + `models.jsonc` criado (copiado de
   `models.example.jsonc`, com `planner`/`cheap`/`strong` preenchidos).
   Sem `models.jsonc` válido o instalador falha no precheck (exit 3) sem
@@ -65,16 +69,16 @@ aplicado) · `5` falha no apply/manifest (rollback tentado).
 
 | Campo | Conteúdo |
 |---|---|
-| `package_version` | Versão do pacote (ex. `1.0.0-hardening`). |
+| `package_version` | Versão do pacote (ex. `1.0.0`). |
 | `installed_at` | Timestamp ISO da instalação. |
 | `source_revision` | `git rev-parse --short HEAD` do repo (`unknown` fora de git). |
 | `target_home` | Perfil onde instalou. |
 | `managed_files[]` | `{relative, sha256}` de cada arquivo do pacote. |
-| `managed_config_paths[]` | Caminhos gerenciados no `opencode.json`. |
-| `adopted_paths[]` | Chaves adotadas por estarem ausentes (`skills.paths`, `autoupdate`, `plugin`). |
-| `config_snapshot{}` | Valores canônicos instalados (para o uninstall comparar). |
+| `managed_config_paths[]` | Caminhos gerenciados no config (`$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*`). |
+| `adopted_paths[]` | Lista legada mantida por compatibilidade (hoje sempre vazia — nenhuma chave é mais adotada). |
+| `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
 | `models{}` | `planner`/`cheap`/`strong` usados. |
-| `plugin_dependency` | Spec fixada (`@opencode-ai/plugin@1.18.31`). |
+| `plugin_dependency` | Spec fixada (`@opencode-ai/plugin@1.18.32`). |
 
 ## Upgrade
 
@@ -101,13 +105,37 @@ as skills instaladas, o plugin e o manifest. Regras:
 
 - Arquivo com hash divergente do manifest (você editou após o install) é
   **mantido** com `KEEP` + aviso — nunca apagado por suposição.
-- `mcp.*`, agents/chaves de topo desconhecidas e `plugin` com conteúdo seu
-  nunca são tocados.
+- `mcp.*`, `autoupdate`, `skills.paths`, `plugin`, agents/chaves de topo
+  desconhecidas e arquivos seus nunca são tocados (o instalador não os
+  escreve; o uninstall nunca os remove).
 - `~/.opencode-orchestration/evidence/` (seus dados de telemetria)
   permanece.
 - Sem manifest legível, heurística conservadora: só remove o reconhecido
   como do pacote e lista o resto.
 - Backup pré-uninstall em `.config/opencode/backups/oo-uninstall-*`.
+
+## Formato de config (json/jsonc)
+
+O instalador respeita `opencode.json` **e** `opencode.jsonc`, com a mesma
+precedência do runtime OpenCode V1:
+
+- Só existe `opencode.json` → ele é o alvo.
+- Só existe `opencode.jsonc` → ele é o alvo.
+- Ambos existem → **só o jsonc é operado** (jsonc vence conflitos, igual ao
+  runtime); o `opencode.json` recebe `PRESERVE` no plano.
+- Nenhum existe → cria `opencode.json` com as chaves do sistema.
+
+Jsonc com comentários (ou trailing commas) é normalizado para JSON puro na
+escrita: o instalador avisa (`AVISO: comentarios do seu opencode.jsonc
+foram normalizados`) e o backup byte-exato em
+`.config/opencode/backups/oo-<yyyyMMdd-HHmmss>/` preserva o original para
+restauração manual.
+
+Skills (`~/.config/opencode/skills`) e plugins
+(`~/.config/opencode/plugins`) têm auto-discovery no runtime — por isso o
+instalador **não** escreve `skills.paths`, `plugin` nem `autoupdate`
+(todas opcionais no schema V1). Você mantém controle total dessas chaves:
+o install as preserva, o uninstall nunca as remove.
 
 ## Integração opcional: ai-memory
 

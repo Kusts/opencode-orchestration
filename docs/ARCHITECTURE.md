@@ -152,9 +152,13 @@ e devolve ao Planner. Retorno compacto (`TASK_ID`, `STATUS`,
 
 O instalador (`install.ps1`) só gerencia o que é do pacote: bloco markered
 do `AGENTS.md`, 19 `.md` de agents, plugin, skills-core e as chaves do
-sistema no `opencode.json`. Tudo do usuário fora disso (MCPs, agents
-custom, chaves desconhecidas, `plugin` preenchido, conteúdo fora dos
-markers) é preservado por merge estrutural. `~/.opencode-orchestration/manifest.json`
+sistema no config (`$schema`, `model`, `default_agent`, `subagent_depth`,
+`agent.*` — em `opencode.json` ou `opencode.jsonc`, respeitando a
+precedência do runtime: jsonc vence quando ambos existem, igual ao
+OpenCode V1). Tudo do usuário fora disso (`mcp.*`, `autoupdate`,
+`skills.paths`, `plugin`, agents custom, chaves desconhecidas, conteúdo
+fora dos markers) é preservado por merge estrutural — essas chaves nunca
+são escritas nem removidas. `~/.opencode-orchestration/manifest.json`
 registra hashes e snapshot do que foi instalado; o `uninstall.ps1` só
 remove o que está intacto (hash confere) e mantém o resto com `KEEP` +
 aviso. Ver [INSTALLATION.md](INSTALLATION.md).

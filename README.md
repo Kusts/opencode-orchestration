@@ -19,10 +19,12 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 ## Requisitos
 
-- OpenCode instalado e funcional.
-- Windows PowerShell 5.1+ ou `pwsh` recente.
-- `bun` ou `npm` — somente para a dependência `@opencode-ai/plugin@1.18.31`
-  do plugin (best-effort: o instalador avisa e segue sem abortar se falhar).
+| Requisito | Suporte |
+|---|---|
+| OpenCode **V1.x** (pacote npm `opencode-ai`) | ✅ Suportado — CI valida com **1.18.32** (`opencode --version` deve responder `1.x`). |
+| OpenCode **V2** (pacote `@opencode-ai/cli`, comando `opencode2`) | ❌ **Não suportado** — beta com breaking changes (nova plugin API/server API, `cli.json`); migração futura é decisão explícita, não automática. |
+| Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
+| `bun` ou `npm` — somente para a dependência `@opencode-ai/plugin@1.18.32` | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
 
 ## Instalar
 
@@ -53,8 +55,12 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md).
   `subagent-driven-development`, `verification-before-completion`,
   `using-superpowers`).
 - `~/.config/opencode/opencode.json` — **merge estrutural**: atualiza só as
-  chaves do sistema; MCPs, `plugin` preenchido, agents e chaves
-  desconhecidas do usuário são preservados, nunca sobrescritos.
+  chaves do sistema (`$schema`, `model`, `default_agent`, `subagent_depth`,
+  `agent.*`). `opencode.jsonc` é respeitado (jsonc vence quando ambos
+  existem, igual ao runtime; criado `opencode.json` só se nada existir).
+  `autoupdate`, `skills.paths`, `plugin`, `mcp.*` e chaves desconhecidas do
+  usuário **nunca** são tocados. Jsonc com comentários é normalizado para
+  JSON puro na escrita (aviso + backup byte-exato do original).
 - Backup automático do que já existia em
   `~/.config/opencode/backups/oo-<yyyyMMdd-HHmmss>/`, mais
   `~/.opencode-orchestration/manifest.json` (ownership do pacote).
@@ -80,10 +86,11 @@ powershell -NoProfile -File scripts\test-package-consistency.ps1
 powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 ```
 
-O primeiro checa consistência interna do pacote (10 checks, exit 0/1); o
+O primeiro checa consistência interna do pacote (11 checks, exit 0/1); o
 segundo roda as suítes `*.tests.ps1` de `scripts/v3/`. Validações de
-distribuição (fresh-install, idempotência, rollback, uninstall) vivem em
-`tests/distribution/`.
+distribuição (fresh-install, idempotência, rollback, uninstall — 10 suítes)
+vivem em `tests/distribution/`. O CI ainda roda um smoke com OpenCode V1
+real 1.18.32 num home isolado (`opencode debug config/agent/skill`).
 
 ## Atualizar
 

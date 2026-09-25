@@ -9,8 +9,8 @@ Sintoma: nenhum mandato `[orchestration-enforcement:v1]` na sessão.
    instale manualmente e reinicie o OpenCode:
    ```powershell
    cd ~/.config/opencode
-   bun add @opencode-ai/plugin@1.18.31
-   # ou: npm install @opencode-ai/plugin@1.18.31 --prefix ~/.config/opencode
+    bun add @opencode-ai/plugin@1.18.32
+    # ou: npm install @opencode-ai/plugin@1.18.32 --prefix ~/.config/opencode
    ```
 2. Confira que `.config/opencode/plugins/orchestration-enforcement.ts`
    existe (é o que o `install.ps1` instala).
@@ -61,8 +61,19 @@ Corrija, rode `.\install.ps1 -WhatIf` e depois `.\install.ps1`.
 
 ## OpenCode atualizou — e agora?
 
-Compatibilidade honesta: **não hardcodamos versão de OpenCode suportada**.
-Após atualizar o runtime, revalide com a suíte:
+Política de suporte: a linha **OpenCode V1.x** é suportada (CI valida com
+**1.18.32**, pacote npm `opencode-ai`). OpenCode **V2** (pacote
+`@opencode-ai/cli`, comando `opencode2`) **não é suportado** — migração
+futura é decisão explícita.
+
+Colisão V1/V2 (os dois comandos instalados): confira qual responde —
+
+```powershell
+opencode --version   # deve ser 1.x
+opencode2 --version  # se existir, é a V2 — não suportada por este pacote
+```
+
+Após atualizar o runtime **dentro da linha V1**, revalide com a suíte:
 
 ```powershell
 powershell -NoProfile -File scripts\test-package-consistency.ps1
@@ -88,10 +99,14 @@ pelo runner antes de reinstalar ou mudar config.
 
 O merge é ownership-aware: o pacote só escreve caminhos do sistema
 (`$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*.mode/
-model/permission.task`, mais `skills.paths`/`autoupdate`/`plugin` **só
-quando ausentes**). Preservado sempre: `mcp.*`, `plugin` com conteúdo seu,
-agents custom, chaves de topo desconhecidas e tudo fora dos markers do
-`AGENTS.md`.
+model/permission.task`). Nunca tocados: `mcp.*`, `autoupdate`,
+`skills.paths`, `plugin`, agents custom, chaves de topo desconhecidas e
+tudo fora dos markers do `AGENTS.md`.
+
+Nota sobre jsonc: se o install avisou que normalizou comentários do seu
+`opencode.jsonc`, o original byte-exato está no backup em
+`.config/opencode/backups/oo-<yyyyMMdd-HHmmss>/` — restaure manualmente
+se preferir manter os comentários (o conteúdo funcional é idêntico).
 
 - No install, o `-WhatIf` mostra `PRESERVE` para cada item seu intocado.
 - No uninstall, item alterado por você após o install recebe `KEEP` +
