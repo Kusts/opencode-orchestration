@@ -75,7 +75,11 @@ $tmpBase = $base
 $addOut = Join-Path $tmpBase ('oo-typecheck-add-out-' + [guid]::NewGuid().ToString('N') + '.log')
 $addErr = Join-Path $tmpBase ('oo-typecheck-add-err-' + [guid]::NewGuid().ToString('N') + '.log')
 Write-Host '[typecheck] bun add (API real + tsc + tipos node)...'
-$addProc = Start-Process -FilePath 'bun' -ArgumentList @('add', $PluginSpec, $TypescriptSpec, $TypesNodeSpec) -NoNewWindow -Wait -PassThru -WorkingDirectory $workDir -RedirectStandardOutput $addOut -RedirectStandardError $addErr
+# Via cmd /c: o 'bun' provisionado por npm no CI resolve como shim .ps1/.cmd,
+# que o Start-Process -FilePath 'bun' nao executa ("%1 is not a valid Win32
+# application"). cmd /c executa o shim correto e propaga o exit code.
+$addLine = 'bun add "' + $PluginSpec + '" "' + $TypescriptSpec + '" "' + $TypesNodeSpec + '"'
+$addProc = Start-Process -FilePath 'cmd' -ArgumentList @('/c', $addLine) -NoNewWindow -Wait -PassThru -WorkingDirectory $workDir -RedirectStandardOutput $addOut -RedirectStandardError $addErr
 if ($addProc.ExitCode -ne 0) {
   Write-Host '[typecheck] FALHA de ambiente: bun add falhou (rede? registry? versao?). Nao e necessariamente erro de tipos do plugin.'
   Show-FileTail -Path $addOut
@@ -88,7 +92,8 @@ Write-Host '[typecheck] bun add OK.'
 $tscOut = Join-Path $tmpBase ('oo-typecheck-tsc-out-' + [guid]::NewGuid().ToString('N') + '.log')
 $tscErr = Join-Path $tmpBase ('oo-typecheck-tsc-err-' + [guid]::NewGuid().ToString('N') + '.log')
 Write-Host '[typecheck] bun x tsc --noEmit --strict ...'
-$tscProc = Start-Process -FilePath 'bun' -ArgumentList @('x', 'tsc', '--noEmit', '--strict', '--target', 'es2022', '--module', 'esnext', '--moduleResolution', 'bundler', '--skipLibCheck', '--types', 'node', 'orchestration-enforcement.ts') -NoNewWindow -Wait -PassThru -WorkingDirectory $workDir -RedirectStandardOutput $tscOut -RedirectStandardError $tscErr
+$tscLine = 'bun x tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --skipLibCheck --types node orchestration-enforcement.ts'
+$tscProc = Start-Process -FilePath 'cmd' -ArgumentList @('/c', $tscLine) -NoNewWindow -Wait -PassThru -WorkingDirectory $workDir -RedirectStandardOutput $tscOut -RedirectStandardError $tscErr
 $tscText = ''
 if (Test-Path -LiteralPath $tscOut -PathType Leaf) { $tscText = $tscText + [IO.File]::ReadAllText($tscOut) }
 if (Test-Path -LiteralPath $tscErr -PathType Leaf) { $tscText = $tscText + "`n" + [IO.File]::ReadAllText($tscErr) }
