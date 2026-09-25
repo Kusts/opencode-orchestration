@@ -6,16 +6,25 @@ function Assert($Cond, [string]$Name) {
   if ($Cond) { $script:pass += 1; Write-Host ("ok - " + $Name) }
   else { $script:fail += 1; Write-Host ("NOT OK - " + $Name) }
 }
-function Get-StateKey([string]$OcDir) {
+function Get-StateRows([string]$Dir, [string]$Prefix) {
+  # relativos compostos SOMENTE por Name (sem Substring de FullName) —
+  # mesmo padrao do installer; robusto a TEMP em forma curta 8.3.
   $rows = New-Object System.Collections.ArrayList
-  foreach ($f in @(Get-ChildItem -File (Join-Path $OcDir '*') -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)) {
-    if ($f.FullName -like '*\backups\*') { continue }
-    if ($f.FullName -like '*\node_modules\*') { continue }
-    $rel = $f.FullName.Substring($OcDir.Length + 1)
-    $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash
-    [void]$rows.Add($rel + '=' + $h)
+  foreach ($item in @(Get-ChildItem -LiteralPath $Dir -Force -ErrorAction SilentlyContinue)) {
+    $rel = if ($Prefix) { $Prefix + '\' + $item.Name } else { $item.Name }
+    if ($item.PSIsContainer) {
+      if ($item.Name -in @('backups', 'node_modules')) { continue }
+      foreach ($r in (Get-StateRows $item.FullName $rel)) { [void]$rows.Add($r) }
+    }
+    else {
+      $h = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+      [void]$rows.Add($rel + '=' + $h)
+    }
   }
-  return ($rows -join "`n")
+  return $rows
+}
+function Get-StateKey([string]$OcDir) {
+  return (((Get-StateRows $OcDir '') | Sort-Object) -join "`n")
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $TmpHome = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-idem-' + [guid]::NewGuid().ToString('N'))

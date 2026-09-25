@@ -1,7 +1,15 @@
 {
-  "phase": "P9.1 closure fix (distribution hardening findings resolved)",
+  "phase": "P9.2 final closure (traceability + verdict semantics; no new features)",
   "date": "2026-09-24",
-  "head": "b185d28",
+  "implementation_sha": "b185d28",
+  "closure_sha": null,
+  "closure_sha_note": "closure_sha fica null para evitar auto-referencia (o commit que contem este arquivo nao pode prever o proprio SHA sem loop). A autoridade final de validacao e remote_ci.head_sha: o SHA que o GitHub Actions efetivamente executou identifica o estado publicado testado, incluido o commit de evidencia.",
+  "implementation_note": "b185d28 = commit de implementacao/fixes P9.1 (codigo do produto). b53fd3a = commit anterior apenas de evidencia (closure.json), sem codigo. Delta P9.2 desta rodada: fix do helper Get-StateKey em tests/distribution/idempotency.tests.ps1 (composicao por Name, sem Substring de FullName) + este arquivo; nenhum codigo de produto alterado apos b185d28.",
+  "tested_revision": {
+    "product_code_identical_to": "b185d28",
+    "working_tree_at_validation": "b53fd3a + delta P9.2 nao commitado no momento da execucao (helper de teste + closure.json)",
+    "validation_round": "P9.2: matriz PS5.1 e PS7 re-executada sequencialmente nesta rodada sobre o working tree descrito acima"
+  },
   "previous_closure_status": "PREMATURE: claimed rollback=PASS while CI run 36050281036 (and prior runs 36049444883/36047562273) contained ROLLBACK_REQUIRED with corrupted skill paths (skills/<skill>/<last-2-chars>/SKILL.md); ci-pipeline.ps1 only compared opencode.json+AGENTS.md hashes and stayed green.",
   "root_cause": {
     "symptom": "apply wrote managed skills to skills/<skill>/<suffix2>/<rest> (on/rs/nt/ts = last 2 chars of skill name); rollback emitted ROLLBACK_REQUIRED; second install showed [UPDATE] for all skills instead of [SKIP]",
@@ -9,17 +17,18 @@
     "fix": "single ManagedOperation collection; RelativePath computed ONCE from canonical source enumeration composed only from child Name values (prefix-agnostic), carried as immutable data through plan/expected-hashes/backup/stage/CAS/apply/manifest/rollback; no Substring on enumerated FullName anywhere in install.ps1"
   },
   "validation_matrix": {
-    "environment": "local Windows (authoring machine), sequential execution; PowerShell 5.1.26100.9444 and PowerShell 7.6.6",
-    "github_actions": "NOT RUN for b185d28 yet (no push performed by this session); workflow updated to run package consistency -> V3 suites -> distribution suites in both ci-ps51 (powershell) and ci-ps7 (pwsh) jobs",
-    "package_consistency": { "ps51": "10 OK / 0 FAIL (38 refs in 33 files, NO exceptions)", "ps7": "10 OK / 0 FAIL" },
+    "environment": "local Windows (authoring machine), sequential execution; PowerShell 5.1.26100.9444 and PowerShell 7.6.6; P9.2 re-run",
+    "github_actions": "PENDING PUSH (no run exists for this state yet); workflow runs package consistency -> V3 suites -> distribution suites in both ci-ps51 (powershell) and ci-ps7 (pwsh) jobs",
+    "package_consistency": { "ps51": "10 OK / 0 FAIL (38 refs in 33 files, ZERO exceptions)", "ps7": "10 OK / 0 FAIL" },
     "v3_suites": { "ps51": "PASS: 23 / FAIL: 0 / SKIP: 1 / INTERNAL_ERROR: 0 / TOTAL: 24 (exit 0)", "ps7": "PASS: 23 / FAIL: 0 / SKIP: 1 / INTERNAL_ERROR: 0 / TOTAL: 24 (exit 0)", "skip_detail": "1 documented live-conditional skip: CapabilityDeferred live governed-activation record (routing off by default; expected Valid=false)" },
     "distribution_suites": {
       "runner": "tests/distribution/run-distribution-tests.ps1 (deterministic discovery of *.tests.ps1; PASS/FAIL/SKIP/INTERNAL_ERROR; exit 0/1/2, internal error precedes test failure)",
-      "ps51": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9 (145 asserts)",
-      "ps7": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9 (145 asserts)",
-      "suites": ["config-preservation (11)", "eol-checkout (11)", "fresh-install (39)", "idempotency (14)", "package-consistency (3)", "planner-model (8)", "plugin-enforcement (5; documented conditional [SKIP] when bun absent - not one of the mandatory areas)", "rollback (33)", "uninstall (21)"]
+      "ps51": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9",
+      "ps7": "PASS: 9 / FAIL: 0 / SKIP: 0 / INTERNAL_ERROR: 0 / TOTAL: 9",
+      "suites": ["config-preservation", "eol-checkout", "fresh-install", "idempotency", "package-consistency", "planner-model", "plugin-enforcement (PASS nesta maquina com bun presente; skip condicional documentado apenas onde bun ausente)", "rollback", "uninstall"],
+      "p92_delta_fix": "tests/distribution/idempotency.tests.ps1 Get-StateKey rewritten to Name-composed relative paths (same pattern as installer) after P9.2 delta audit flagged the residual Substring(FullName) as 8.3-TEMP-sensitive in a mandatory-gate test helper; suite re-validated green in both engines"
     },
-    "rollback_scan": "zero real ROLLBACK_REQUIRED emissions in final runs; the only textual occurrences are assert names proving absence ('ROLLBACK_REQUIRED ausente'). No 'NOT OK' and no unexpected FAIL.",
+    "rollback_scan_p92": "zero real ROLLBACK_REQUIRED emissions in P9.2 final runs: distribution logs contain only absence asserts ('ok - A/B/D: ROLLBACK_REQUIRED ausente'); V3 logs contain only deliberate error-semantics tests ('Restauracao invalida (hash divergiu) => ROLLBACK_REQUIRED', 'rollback.json registra ROLLBACK_REQUIRED quando restore/verificacao falha'). Single 'NOT OK' string per distribution log is the absence assert 'ok - nenhum NOT OK no harness'.",
     "parallelism_note": "running two V3 runners concurrently on the SAME machine/user produces cross-suite interference (shared live-state expectations); suites are green when run sequentially per machine. GitHub jobs run on separate VMs and are unaffected."
   },
   "rollback_contracts": {
@@ -28,35 +37,46 @@
     "scenario_C_cas": "concurrent mutation wins -> exit 4, CAS_CONFLICT, no rollback message, mutated destination preserved",
     "scenario_D_manifest": "manifest-write failure -> rollback restores opencode.json, keeps user evidence/ intact, removes partial manifest, removes created dirs"
   },
-  "idempotency": "second install on unchanged state: state (path set + content hashes) identical; plan shows [SKIP] for all 5 skills, all agents, AGENTS.md and plugin; zero [CREATE]/[UPDATE]; single AGENTS.md marker pair; manifest stable except installed_at (volatile by design, documented)",
+  "idempotency": "second install on unchanged state: state (path set + content hashes, Name-composed keys) identical; plan shows [SKIP] for all 5 skills, all agents, AGENTS.md and plugin; zero [CREATE]/[UPDATE]; single AGENTS.md marker pair; manifest stable except installed_at (volatile by design, documented)",
   "acceptance_gate": {
-    "root_cause_identified_and_registered": "PASS (mechanism + local canonicalization repro)",
-    "stable_relative_path": "PASS (Name-composed, single collection)",
-    "fresh_install_exact_paths": "PASS (structural source->dest isomorphism + EOL-normalized hashes + no extra dirs under skills/)",
-    "idempotent_second_install": "PASS",
-    "skills_SKIP_on_second_run": "PASS (per-skill asserts)",
-    "rollback_restores_agents_skills_plugin_agentsmd_opencodejson": "PASS (scenarios A/B snapshots)",
-    "no_unexpected_files_after_rollback": "PASS (snapshot includes directories; scenario A checks orphan dir removal)",
-    "expected_rollback_emits_ROLLBACK_COMPLETED": "PASS",
-    "ROLLBACK_REQUIRED_fails_the_test": "PASS (asserts require absence)",
-    "distribution_runner_executes_all_suites": "PASS (9/9)",
-    "ci_uses_distribution_runner": "PASS (workflow updated in both jobs)",
-    "ci_ps51_green": "PASS locally (package consistency + V3 + distribution, exit 0); GitHub run pending push",
-    "ci_ps7_green": "PASS locally (same, exit 0); GitHub run pending push",
-    "nonexistent_operational_refs_removed": "PASS (activate-routing.ps1, stage1-outcome-validate.ps1, eval-routing.ps1, route-capabilities.ps1, docs/operations, evidence/v3/stage2|outcomes citations removed or rewritten as conceptual; checker now has ZERO exceptions)",
-    "agents_global_no_multiruntime_residue": "PASS (Codex/Claude/Pi/Antigravity enumeration and 'Defaults de runtime' section removed; global principles preserved)",
-    "stage2_documented_supported_off_by_default": "PASS",
-    "closure_regenerated_from_final_head": "PASS (this file; head b185d28)"
+    "p91_changes_present_and_reviewed": "PASS (delta b185d28^..b53fd3a audited by explorer: no Substring path derivation in installer, zero package-consistency exceptions, no ci-pipeline.ps1 residue, ROLLBACK_REQUIRED only in absence asserts, no mandatory-requirement skips; P9.2 found and fixed the test-helper MINOR)",
+    "package_consistency_ps51_and_ps7": "PASS (10 OK / 0 FAIL both)",
+    "v3_ps51_and_ps7": "PASS (FAIL=0 INTERNAL_ERROR=0 both; 1 documented live-conditional skip)",
+    "distribution_ps51_and_ps7": "PASS (FAIL=0 INTERNAL_ERROR=0 SKIP=0 both)",
+    "rollback_fully_confirmed": "PASS (A/B/D = ROLLBACK_COMPLETED; C = CAS_CONFLICT; zero real ROLLBACK_REQUIRED)",
+    "idempotency_five_skills_skip": "PASS (both engines, plan lines and per-skill asserts)",
+    "no_broken_operational_references": "PASS (package consistency with ZERO exceptions)",
+    "closure_traceability_distinguishes_implementation_evidence_remote_ci": "PASS (this file: implementation_sha / closure_sha / tested_revision / remote_ci)",
+    "verdict_does_not_claim_closed_before_remote_ci": "PASS (final_verdict below; P9 CLOSED requires push + GitHub Actions success + log audit)",
+    "remote_ci_validated": "PENDING (status below)"
+  },
+  "remote_ci": {
+    "status": "pending",
+    "run_id": null,
+    "head_sha": null,
+    "jobs": {},
+    "requirement": "P9 CLOSED requires status=completed and conclusion=success for BOTH jobs (PS5.1 and PS7), each running package consistency + V3 + distribution, plus log audit: zero real ROLLBACK_REQUIRED, zero FAIL, zero INTERNAL_ERROR, zero mandatory skips, 5 skills [SKIP] on second install"
+  },
+  "final_verdict": {
+    "implementation": "P9.1 IMPLEMENTATION COMPLETE",
+    "local_validation": "PASS",
+    "remote_ci_validation": "PENDING",
+    "p9_final_closure": "PENDING",
+    "rule": "FINAL VERDICT: P9 CLOSED somente apos push + GitHub Actions concluido + PS5.1 green + PS7 green + logs revisados; nunca usado para estado apenas validado localmente"
   },
   "preserved_guarantees": ["custom agents preservation", "MCP preservation", "plugin preservation", "unknown keys preservation", "unknown agent properties preservation", "AGENTS external content preservation", "Planner session-model inheritance", "explicit worker model binding", "task: deny", "subagent_depth: 1", "plugin system prompt coalescence", "neutral fallback", "permission hardening", "registry safe defaults", "CAS", "atomic writes", "manifest ownership", "uninstall ownership"],
   "known_limitations": [
-    "GitHub Actions run for b185d28 pending push (this session did not push); local full-matrix green on both engines is the recorded evidence",
+    "GitHub Actions run pending push (no push performed by this session); local full-matrix green on both engines is the recorded evidence until remote_ci.head_sha exists",
+    "plugin-enforcement ran as PASS here (bun present); on CI runners without bun it runs as a documented conditional skip (reported, not counted as PASS) outside the mandatory rollback/install/uninstall gates",
     "V3 suites must run sequentially on a shared machine/user (cross-runner interference on concurrent local runs); CI jobs are VM-isolated",
     "runtime hook does not expose agent identity -> plugin applies conservative neutral mandate",
     "ask permissions auto-approved in runtime auto mode (confirmation control, not unconditional block)",
     "shell globs are string matching (no script content inspection); planner-enforced via dispatch contract",
-    "plugin-enforcement suite skips (documented, conditional) on machines/CI without bun",
     "V3 suite: 1 documented live-conditional skip (governed activation record absent while routing is off by default)"
   ],
-  "result": "ORCHESTRATION_V3=UNCHANGED PACKAGE_SELF_CONTAINED=true INSTALL_TRANSACTIONAL=true ROLLBACK_FULLY_VERIFIED=true SKILL_PATH_MAPPING_CORRECT=true IDEMPOTENT_REINSTALL=true USER_CONFIG_PRESERVED=true DISTRIBUTION_TESTS_ALL_EXECUTED=true OPERATIONAL_REFERENCES_VALID=true DOCUMENTATION_MATCHES_DEFAULT_RUNTIME=true"
+  "future_hardening": [
+    "CI must eventually provision bun (or equivalent runtime) so plugin-enforcement becomes a mandatory gate instead of a documented conditional skip",
+    "idempotency-state helper now Name-composed; no further action identified for the P9.1 delta in the P9.2 audit"
+  ],
+  "result": "P9.1 IMPLEMENTATION COMPLETE | LOCAL VALIDATION: PASS (PS5.1 + PS7) | REMOTE CI VALIDATION: PENDING | P9 FINAL CLOSURE: PENDING"
 }
