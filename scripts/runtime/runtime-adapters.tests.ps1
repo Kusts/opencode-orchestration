@@ -223,6 +223,43 @@ try {
   Assert-That (([string]$ic.Out).Contains('[install] runtime=V1')) 'Installer -Runtime V1 registra decisao no log' ([string]$ic.Out)
   $afterC = @(Get-ChildItem -LiteralPath $homeC -Force -ErrorAction SilentlyContinue)
   Assert-That ($afterC.Count -eq 0) 'Installer -Runtime V1 -WhatIf nao escreveu nada' ('arquivos=' + $afterC.Count)
+
+  # --- V31-R1 F5: probe com exit != 0 e output valida => inconclusivo ---
+  $prBadExit = Invoke-RuntimeProbe -ProbeCommand (New-FakeProbe "Write-Output '1.18.32'; exit 5")
+  Assert-That ((-not [bool]$prBadExit.Ok)) 'Probe exit != 0 => Ok=false' ('Ok=' + $prBadExit.Ok + ' reason=' + [string]$prBadExit.Reason)
+  Assert-That ([string]$prBadExit.ProbeErrorKind -eq 'probe-failed') 'Probe exit != 0 => kind probe-failed' ([string]$prBadExit.ProbeErrorKind)
+  $rBadExit = Resolve-OpencodeRuntime -Registry $reg -Mode 'Auto' -ProbeCommand (New-FakeProbe "Write-Output '1.18.32'; exit 5")
+  Assert-That (([string]$rBadExit.Decision -eq 'unresolved') -and ([bool]$rBadExit.ProbeError)) 'Resolve Auto probe exit != 0 => unresolved+ProbeError' ([string]$rBadExit.Decision)
+
+  # --- V31-R1 F1: kinds discriminaveis na decisao ---
+  $rMiss = Resolve-OpencodeRuntime -Registry $reg -Mode 'Auto' -ProbeCommand @('__missing-opencode-binary__')
+  Assert-That (([bool]$rMiss.ProbeError) -and ([string]$rMiss.ProbeErrorKind -eq 'binary-missing')) 'Resolve Auto binario ausente => kind binary-missing' ([string]$rMiss.ProbeErrorKind + ' ' + [string]$rMiss.Reason)
+
+  # --- V31-R1 F6: shim em diretorio com espaco resolve ---
+  $spaceDir = Join-Path $base 'dir com espaco'
+  New-Item -ItemType Directory -Path $spaceDir -Force | Out-Null
+  Write-Fixture -Path (Join-Path $spaceDir 'opencode.cmd') -Text ('@echo off' + "`n" + 'echo 2.0.18' + "`n")
+  $savedPath3 = $env:PATH
+  try {
+    $env:PATH = $spaceDir + ';' + $env:PATH
+    $rSpace = Resolve-OpencodeRuntime -Registry $reg -Mode 'Auto' -ProbeCommand @('opencode', '--version')
+  }
+  finally {
+    $env:PATH = $savedPath3
+  }
+  Assert-That (([string]$rSpace.Decision -eq 'target') -and ([string]$rSpace.RuntimeId -eq 'opencode-v2')) 'Resolve Auto via shim com espaco => target opencode-v2' ([string]$rSpace.Decision + '/' + [string]$rSpace.RuntimeId + ' ' + [string]$rSpace.Reason)
+
+  # --- V31-R1 F1a: installer Auto + binario presente + probe lixo/falha => exit 6 ---
+  $homeD = Join-Path $base 'home-d'
+  New-Item -ItemType Directory -Path $homeD -Force | Out-Null
+  $shimFailDir = Join-Path $base 'shim-fail'
+  New-Item -ItemType Directory -Path $shimFailDir -Force | Out-Null
+  Write-Fixture -Path (Join-Path $shimFailDir 'opencode.cmd') -Text ('@echo off' + "`n" + 'echo garbage-no-version' + "`n" + 'exit /b 3' + "`n")
+  $iD = Invoke-Child -File $psExe -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "' + $installPs1 + '" -WhatIf -TargetHome "' + $homeD + '"') -PathOverride $shimFailDir
+  Assert-That ([int]$iD.Code -eq 6) 'Installer Auto binario presente + probe falho => exit 6' ('exit=' + $iD.Code + ' out=' + [string]$iD.Out)
+  Assert-That (([string]$iD.Out -like '*inconclusivo*')) 'Installer Auto probe falho avisa inconclusivo' ([string]$iD.Out)
+  $afterD = @(Get-ChildItem -LiteralPath $homeD -Force -ErrorAction SilentlyContinue)
+  Assert-That ($afterD.Count -eq 0) 'Installer Auto probe falho nao escreveu nada' ('arquivos=' + $afterD.Count)
 }
 finally {
   if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

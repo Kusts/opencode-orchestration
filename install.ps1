@@ -711,8 +711,19 @@ else {
     exit 6
   }
   elseif ([bool]$runtimeDecision.ProbeError) {
-    Write-Host ('[install] runtime probe indisponivel (' + [string]$runtimeDecision.Reason + '); assumindo V1 (comportamento legado)')
-    $runtimeDecision = @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'fallback legado (probe indisponivel)'; ProbeError = $true; Mode = 'Auto'; ProbeOutput = '' }
+    # Fail closed (V31-R1 F1): fallback legado para V1 SOMENTE com ausencia
+    # do executavel CONFIRMADA (Get-Command falha neste processo). Binario
+    # presente + probe inconclusivo (timeout/falha/saida vazia) => exit 6.
+    $binNow = Get-Command 'opencode' -ErrorAction SilentlyContinue
+    if ($null -eq $binNow) {
+      Write-Host ('[install] runtime probe indisponivel (' + [string]$runtimeDecision.Reason + '); assumindo V1 (comportamento legado)')
+      $runtimeDecision = @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'fallback legado (binario ausente, probe indisponivel)'; ProbeError = $true; ProbeErrorKind = 'binary-missing'; Mode = 'Auto'; ProbeOutput = '' }
+    }
+    else {
+      Write-Host ('[install] runtime=Auto decision=unresolved reason=probe inconclusivo com binario presente: ' + [string]$runtimeDecision.Reason) -ForegroundColor Red
+      Write-Host 'Probe do binario opencode inconclusivo (timeout/falha/saida vazia ou nao parseavel). Passe -Runtime V1 para forcar o comportamento legado. Nada foi escrito.' -ForegroundColor Red
+      exit 6
+    }
   }
   else {
     Write-Host ('[install] runtime=Auto decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red

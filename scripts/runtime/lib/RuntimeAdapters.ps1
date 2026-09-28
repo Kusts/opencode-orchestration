@@ -124,12 +124,11 @@ function Test-RuntimeSupported {
 
 function Invoke-RuntimeProbe {
   param([string[]]$ProbeCommand = @('opencode', '--version'), [int]$TimeoutMs = 15000)
-  $res = @{ Ok = $false; Output = ''; Reason = ''; TimedOut = $false }
+  $res = @{ Ok = $false; Output = ''; Reason = ''; TimedOut = $false; ExitCode = -1; ProbeErrorKind = 'probe-failed' }
   if (($null -eq $ProbeCommand) -or ($ProbeCommand.Count -eq 0)) {
     $res.Reason = 'probe command vazio'
     return $res
-  }
-  $file = $ProbeCommand[0]
+  }  $file = $ProbeCommand[0]
   $argList = @()
   if ($ProbeCommand.Count -gt 1) { $argList = @($ProbeCommand[1..($ProbeCommand.Count - 1)]) }
   $quotedArgs = @()
@@ -158,8 +157,10 @@ function Invoke-RuntimeProbe {
           $cmdExe = $env:ComSpec
           if ([string]::IsNullOrWhiteSpace($cmdExe)) { $cmdExe = 'cmd.exe' }
           $execFile = $cmdExe
-          if ([string]::IsNullOrWhiteSpace($argsLine)) { $execArgs = '/c ' + $qs }
-          else { $execArgs = '/c ' + $qs + ' ' + $argsLine }
+          # cmd /s /c com aspas externas: sem /s o cmd remove as primeiras/
+          # ultimas aspas e caminhos com espaco quebram (finding V31-R1 F6).
+          if ([string]::IsNullOrWhiteSpace($argsLine)) { $execArgs = '/s /c "' + $qs + '"' }
+          else { $execArgs = '/s /c "' + $qs + ' ' + $argsLine + '"' }
         }
         else {
           $execFile = $src
@@ -184,6 +185,13 @@ function Invoke-RuntimeProbe {
     $p = [System.Diagnostics.Process]::Start($psi)
   }
   catch {
+    $kind = 'probe-failed'
+    try {
+      $gcMiss = Get-Command -Name $file -ErrorAction SilentlyContinue
+      if ($null -eq $gcMiss) { $kind = 'binary-missing' }
+    }
+    catch { $kind = 'probe-failed' }
+    $res.ProbeErrorKind = $kind
     $res.Reason = ('probe nao executou (' + $file + '): ' + $_.Exception.Message)
     return $res
   }
@@ -200,13 +208,23 @@ function Invoke-RuntimeProbe {
     $err = ''
     try { $out = $p.StandardOutput.ReadToEnd() } catch { $out = '' }
     try { $err = $p.StandardError.ReadToEnd() } catch { $err = '' }
+    $code = -1
+    try { $code = $p.ExitCode } catch { $code = -1 }
     try { $p.Close() } catch { }
+    $res.ExitCode = $code
+    # Ok exige exit 0 E saida nao-vazia (finding V31-R1 F5): output com
+    # exit != 0 e inconclusivo, nunca evidencia de geracao.
+    if ($code -ne 0) {
+      $res.Reason = ('probe exit code ' + $code + ' (esperado 0)')
+      return $res
+    }
     $combined = (($out + "`n" + $err).Trim())
     if ([string]::IsNullOrWhiteSpace($combined)) {
       $res.Reason = 'probe sem saida (stdout+stderr vazios)'
       return $res
     }
     $res.Ok = $true
+    $res.ProbeErrorKind = 'none'
     $res.Output = $combined
     $res.Reason = 'probe ok'
     return $res
@@ -226,42 +244,46 @@ function Resolve-OpencodeRuntime {
   )
   $probeBound = $PSBoundParameters.ContainsKey('ProbeCommand')
   if ($Mode -eq 'Both') {
-    return @{ Decision = 'deferred'; RuntimeId = $null; Generation = 0; Reason = 'perfis isolados ativam em fase posterior'; ProbeError = $false; Mode = $Mode; ProbeOutput = '' }
+    return @{ Decision = 'deferred'; RuntimeId = $null; Generation = 0; Reason = 'perfis isolados ativam em fase posterior'; ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = '' }
   }
   if (($Mode -eq 'V1') -or ($Mode -eq 'V2')) {
     $wantGen = 1
     $wantId = 'opencode-v1'
     if ($Mode -eq 'V2') { $wantGen = 2; $wantId = 'opencode-v2' }
     if (-not $probeBound) {
-      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = 'explicit always wins (sem probe)'; ProbeError = $false; Mode = $Mode; ProbeOutput = '' }
+      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = 'explicit always wins (sem probe)'; ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = '' }
     }
     $pr = Invoke-RuntimeProbe -ProbeCommand $ProbeCommand
     if (-not $pr.Ok) {
-      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = ('explicit always wins; probe indisponivel: ' + $pr.Reason); ProbeError = $true; Mode = $Mode; ProbeOutput = '' }
+      $pk = 'probe-failed'
+      try { if (-not [string]::IsNullOrWhiteSpace([string]$pr.ProbeErrorKind)) { $pk = [string]$pr.ProbeErrorKind } } catch { $pk = 'probe-failed' }
+      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = ('explicit always wins; probe indisponivel: ' + $pr.Reason); ProbeError = $true; ProbeErrorKind = $pk; Mode = $Mode; ProbeOutput = '' }
     }
     $parsed = Get-RuntimeFromVersionOutput -VersionText $pr.Output
     if (($parsed.Known) -and ([int]$parsed.Generation -eq $wantGen)) {
-      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = 'explicito confirmado pelo probe'; ProbeError = $false; Mode = $Mode; ProbeOutput = $pr.Output }
+      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = 'explicito confirmado pelo probe'; ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = $pr.Output }
     }
     $gotLabel = 'unknown'
     if ($parsed.Known) { $gotLabel = ('geracao ' + $parsed.Generation) }
-    return @{ Decision = 'conflict'; RuntimeId = $null; Generation = 0; Reason = ('conflito: pedido ' + $Mode + ' (geracao ' + $wantGen + ') mas probe indica ' + $gotLabel + ' (' + $parsed.Reason + ')'); ProbeError = $false; Mode = $Mode; ProbeOutput = $pr.Output }
+    return @{ Decision = 'conflict'; RuntimeId = $null; Generation = 0; Reason = ('conflito: pedido ' + $Mode + ' (geracao ' + $wantGen + ') mas probe indica ' + $gotLabel + ' (' + $parsed.Reason + ')'); ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = $pr.Output }
   }
   # Mode Auto: probe UMA vez.
   $prAuto = Invoke-RuntimeProbe -ProbeCommand $ProbeCommand
   if (-not $prAuto.Ok) {
     $to = ''
     if ($prAuto.TimedOut) { $to = ' (timeout)' }
-    return @{ Decision = 'unresolved'; RuntimeId = $null; Generation = 0; Reason = ('probe indisponivel' + $to + ': ' + $prAuto.Reason); ProbeError = $true; Mode = $Mode; ProbeOutput = '' }
+    $ak = 'probe-failed'
+    try { if (-not [string]::IsNullOrWhiteSpace([string]$prAuto.ProbeErrorKind)) { $ak = [string]$prAuto.ProbeErrorKind } } catch { $ak = 'probe-failed' }
+    return @{ Decision = 'unresolved'; RuntimeId = $null; Generation = 0; Reason = ('probe indisponivel' + $to + ': ' + $prAuto.Reason); ProbeError = $true; ProbeErrorKind = $ak; Mode = $Mode; ProbeOutput = '' }
   }
   $pa = Get-RuntimeFromVersionOutput -VersionText $prAuto.Output
   if (-not $pa.Known) {
-    return @{ Decision = 'unresolved'; RuntimeId = $null; Generation = 0; Reason = ('versao nao reconhecida: ' + $pa.Reason); ProbeError = $false; Mode = $Mode; ProbeOutput = $prAuto.Output }
+    return @{ Decision = 'unresolved'; RuntimeId = $null; Generation = 0; Reason = ('versao nao reconhecida: ' + $pa.Reason); ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = $prAuto.Output }
   }
   if ([int]$pa.Generation -eq 1) {
-    return @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'probe indica geracao V1'; ProbeError = $false; Mode = $Mode; ProbeOutput = $prAuto.Output }
+    return @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'probe indica geracao V1'; ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = $prAuto.Output }
   }
-  return @{ Decision = 'target'; RuntimeId = 'opencode-v2'; Generation = 2; Reason = 'probe indica geracao V2'; ProbeError = $false; Mode = $Mode; ProbeOutput = $prAuto.Output }
+  return @{ Decision = 'target'; RuntimeId = 'opencode-v2'; Generation = 2; Reason = 'probe indica geracao V2'; ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = $prAuto.Output }
 }
 
 function Get-RuntimeAdapterView {
