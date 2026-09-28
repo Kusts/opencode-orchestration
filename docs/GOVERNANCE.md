@@ -31,7 +31,7 @@ só por compatibilidade com manifests antigos.
    `generated/` — nunca toca o destino ativo.
 3. **`reconcile`** (`scripts/reconcile-opencode-config.ps1`) aplica no
    destino com backup byte-exato e rollback.
-4. Mudanças nos 19 agents, no template (`templates/opencode.json.tmpl`),
+4. Mudanças nos 19 agents, nos templates (`templates/opencode.v1.json.tmpl`, `templates/opencode.v2.json.tmpl`),
    no plugin (`plugins/`) ou no registry passam pelos checks de
    consistência antes de qualquer release.
 

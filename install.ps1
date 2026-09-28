@@ -507,7 +507,7 @@ function Validate-Models([string]$ModelsPath) {
 
 function Validate-RequiredFiles([string]$Root) {
   $errs = @()
-  foreach ($rel in @('source\global\AGENTS.md', 'source\adapters\opencode.md', 'templates\opencode.json.tmpl', 'plugins\orchestration-enforcement.ts')) {
+  foreach ($rel in @('source\global\AGENTS.md', 'source\adapters\opencode.md', 'templates\opencode.v1.json.tmpl', 'plugins\orchestration-enforcement.ts')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $rel) -PathType Leaf)) {
       $errs += ('fonte obrigatoria ausente: ' + $rel)
     }
@@ -544,7 +544,7 @@ function Validate-AgentDefinitions([string]$Root) {
 
 function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong) {
   $errs = @()
-  $tmplPath = Join-Path $Root 'templates\opencode.json.tmpl'
+  $tmplPath = Join-Path $Root 'templates\opencode.v1.json.tmpl'
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template ausente'); Desired = $null }
   }

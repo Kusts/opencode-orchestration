@@ -188,6 +188,8 @@ try {
   $threwView = $false
   try { Get-RuntimeAdapterView -Registry $reg -RuntimeId 'nao-existe' | Out-Null } catch { $threwView = $true }
   Assert-That ($threwView) 'AdapterView inexistente lanca' 'nao lancou'
+  Assert-That (Test-Path -LiteralPath (Join-Path $repoRoot ([string]$v1.TemplatePath -replace '/', '\')) -PathType Leaf) 'AdapterView v1 TemplatePath existe no repo' ([string]$v1.TemplatePath)
+  Assert-That (Test-Path -LiteralPath (Join-Path $repoRoot ([string]$v2.TemplatePath -replace '/', '\')) -PathType Leaf) 'AdapterView v2 TemplatePath existe no repo' ([string]$v2.TemplatePath)
 
   # --- RuntimesRegistry: invariante de ownership preservada ---
   $names = @($reg.runtimes.PSObject.Properties.Name)

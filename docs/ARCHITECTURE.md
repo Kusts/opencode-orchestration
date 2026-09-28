@@ -63,7 +63,7 @@ profundidade, risco, workstream independente ou paralelização segura.
 `skeptic` — no máximo 1 por subtarefa, sem rito obrigatório.
 
 Total: 11 + 4 + 4 = **19 workers delegáveis** (`source/agents/*.md`).
-No `templates/opencode.json.tmpl`, 15 têm bloco `agent.*`; os 4 de planning
+No `templates/opencode.v1.json.tmpl` (V1 ativo; `templates/opencode.v2.json.tmpl` espelha a mesma semantica no shape nativo V2), 15 têm bloco `agent.*`; os 4 de planning
 vivem só nos `.md` + allowlist do `build` (by design — ver check 3 de
 `scripts/test-package-consistency.ps1`). `agent.build.model` nunca existe:
 o Planner herda o modelo da sessão.

@@ -1,0 +1,143 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "{{MODEL_PLANNER}}",
+  "default_agent": "build",
+  "experimental": {
+    "subagent_depth": 1
+  },
+  "agents": {
+    "build": {
+      "mode": "primary",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "ai-agent-engineer", "effect": "allow" },
+        { "action": "subagent", "resource": "architect", "effect": "allow" },
+        { "action": "subagent", "resource": "automation-engineer", "effect": "allow" },
+        { "action": "subagent", "resource": "backend-engineer", "effect": "allow" },
+        { "action": "subagent", "resource": "coder", "effect": "allow" },
+        { "action": "subagent", "resource": "database-engineer", "effect": "allow" },
+        { "action": "subagent", "resource": "debugger", "effect": "allow" },
+        { "action": "subagent", "resource": "docs-manager", "effect": "allow" },
+        { "action": "subagent", "resource": "engineering-advisor", "effect": "allow" },
+        { "action": "subagent", "resource": "explorer", "effect": "allow" },
+        { "action": "subagent", "resource": "frontend-engineer", "effect": "allow" },
+        { "action": "subagent", "resource": "infra-engineer", "effect": "allow" },
+        { "action": "subagent", "resource": "product-designer", "effect": "allow" },
+        { "action": "subagent", "resource": "requirements-analyst", "effect": "allow" },
+        { "action": "subagent", "resource": "researcher", "effect": "allow" },
+        { "action": "subagent", "resource": "reviewer", "effect": "allow" },
+        { "action": "subagent", "resource": "security-reviewer", "effect": "allow" },
+        { "action": "subagent", "resource": "skeptic", "effect": "allow" },
+        { "action": "subagent", "resource": "tester", "effect": "allow" }
+      ]
+    },
+    "title": {
+      "model": "{{MODEL_PLANNER}}"
+    },
+    "explorer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "researcher": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "coder": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "tester": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "debugger": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "security-reviewer": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "architect": {
+      "mode": "subagent",
+      "model": "{{MODEL_STRONG}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "docs-manager": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "frontend-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "backend-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "database-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "ai-agent-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "automation-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    },
+    "infra-engineer": {
+      "mode": "subagent",
+      "model": "{{MODEL_CHEAP}}",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    }
+  }
+}

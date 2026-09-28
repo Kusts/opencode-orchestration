@@ -1,6 +1,6 @@
 # Permissões dos agentes (P4 — hardening)
 
-Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + `templates/opencode.json.tmpl`
+Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + `templates/opencode.v1.json.tmpl` (V1 ativo; V2 em `templates/opencode.v2.json.tmpl`)
 (`mode`/`model`/`permission.task`). O instalador (`install.ps1`) faz strip do bloco
 `orchestration:` e substitui tokens `{{MODEL_*}}`/`{{REPO_DIR}}`/`{{HOME}}`; mapas `bash:`
 sobrevivem intactos. Permissões `bash:` vivem nos `.md`, não no `opencode.json`.

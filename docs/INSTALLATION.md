@@ -41,7 +41,7 @@ Flags reais do `install.ps1`:
 
 1. **Precheck** — valida tudo antes de qualquer escrita: `models.jsonc`
    (3 chaves), fontes obrigatórias (`source/global/AGENTS.md`,
-   `source/adapters/opencode.md`, `templates/opencode.json.tmpl`,
+   `source/adapters/opencode.md`, `templates/opencode.v1.json.tmpl` (instalador ativo; V2 ativa na Phase 6),
    `plugins/orchestration-enforcement.ts`), 19 `.md` em `source/agents/`
    com frontmatter/model-token válidos, template resolvido (17 blocos
    `agent`, `build` sem `model`, zero tokens pendentes), plugin e skills.
