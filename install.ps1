@@ -29,10 +29,20 @@ param(
   [string]$RepoRoot,
   [string]$TargetHome,
   [switch]$NoCoreSkills,
+  [ValidateSet('Auto', 'V1', 'V2', 'Both')]
+  [string]$Runtime = 'Auto',
   [Parameter(DontShow)]
   [ValidateSet('backup', 'stage', 'apply-half', 'apply-json', 'manifest')]
   [string]$InjectFailureAfter = ''
 )
+
+# -Runtime (Auto|V1|V2|Both), default Auto. Phase 1 (V3.1 kernel hardening):
+# forma no-op sobre o fluxo legado (exit 6 = runtime nao resolvido/nao
+# ativado, fail closed, nada escrito). Auto sem binario opencode no PATH
+# degrada para V1 (comportamento legado, com aviso); deteccao positiva de
+# V2, modo V2 ou modo Both abortam com exit 6 (renderer/instalador V2/Both
+# ativam nas fases 6-7 do plano; flags permanecem conservadoras). Modo V1
+# segue o fluxo legado exatamente.
 
 $ErrorActionPreference = 'Stop'
 
@@ -643,6 +653,73 @@ if ($preErrors.Count -gt 0) {
 $modelPlanner = $modelsRes.Values.planner
 $modelCheap = $modelsRes.Values.cheap
 $modelStrong = $modelsRes.Values.strong
+
+# ---- Phase 1 (V3.1): runtime resolution, forma no-op -------------------------
+# Resolve o runtime ANTES de qualquer escrita. V1/Auto->V1 seguem o fluxo
+# legado exatamente; qualquer outro desfecho aborta com exit 6 sem tocar
+# nada (fail closed). Nao altera o caminho legado.
+$runtimeLib = Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeAdapters.ps1'
+$runtimeRegistryPath = Join-Path $RepoRoot 'source\registry\runtimes.json'
+try {
+  . $runtimeLib
+  $runtimeRegistry = Read-RuntimeRegistry -RegistryPath $runtimeRegistryPath
+}
+catch {
+  Write-Host ('[install] runtime=' + $Runtime + ' decision=unresolved reason=registry ilegivel: ' + $_.Exception.Message) -ForegroundColor Red
+  Write-Host 'Resolucao do runtime falhou. Passe -Runtime V1 para o comportamento legado.' -ForegroundColor Red
+  exit 6
+}
+$runtimeMode = $Runtime
+$runtimeDecision = $null
+if (($runtimeMode -eq 'V2') -or ($runtimeMode -eq 'Both')) {
+  Write-Host ('[install] runtime=' + $runtimeMode + ' decision=deferred reason=renderer/instalador V2/Both ainda nao ativados (fases 6-7 do plano V3.1); flags permanecem conservadoras')
+  Write-Host 'renderer/instalador V2/Both ainda nao ativados (fases 6-7 do plano V3.1); flags permanecem conservadoras' -ForegroundColor Red
+  exit 6
+}
+$runtimeBin = Get-Command 'opencode' -ErrorAction SilentlyContinue
+if ($runtimeMode -eq 'V1') {
+  if ($null -ne $runtimeBin) {
+    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'V1' -ProbeCommand @('opencode', '--version')
+  }
+  else {
+    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'V1'
+  }
+  if ([string]$runtimeDecision.Decision -eq 'conflict') {
+    Write-Host ('[install] runtime=V1 decision=conflict reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
+    Write-Host 'Conflito de runtime: -Runtime V1 pedido mas o probe indica outra geracao. Nada foi escrito.' -ForegroundColor Red
+    exit 6
+  }
+  Write-Host ('[install] runtime=V1 decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason)
+}
+else {
+  # Auto: probeia apenas se o binario existir no PATH; sem binario, o probe
+  # e forcado a falhar de forma controlada para cair no caminho legado.
+  if ($null -ne $runtimeBin) {
+    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'Auto' -ProbeCommand @('opencode', '--version')
+  }
+  else {
+    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'Auto' -ProbeCommand @('__missing-opencode-binary__')
+  }
+  $autoId = ''
+  if ($null -ne $runtimeDecision.RuntimeId) { $autoId = [string]$runtimeDecision.RuntimeId }
+  if (([string]$runtimeDecision.Decision -eq 'target') -and ($autoId -eq 'opencode-v1')) {
+    Write-Host ('[install] runtime=Auto decision=target runtime=opencode-v1 reason=' + [string]$runtimeDecision.Reason)
+  }
+  elseif (([string]$runtimeDecision.Decision -eq 'target') -and ($autoId -eq 'opencode-v2')) {
+    Write-Host ('[install] runtime=Auto decision=target runtime=opencode-v2 reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
+    Write-Host 'Runtime OpenCode V2 detectado; renderer/instalador V2 ainda nao ativados (fases 6-7 do plano V3.1). Passe -Runtime V1 para o comportamento legado. Nada foi escrito.' -ForegroundColor Red
+    exit 6
+  }
+  elseif ([bool]$runtimeDecision.ProbeError) {
+    Write-Host ('[install] runtime probe indisponivel (' + [string]$runtimeDecision.Reason + '); assumindo V1 (comportamento legado)')
+    $runtimeDecision = @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'fallback legado (probe indisponivel)'; ProbeError = $true; Mode = 'Auto'; ProbeOutput = '' }
+  }
+  else {
+    Write-Host ('[install] runtime=Auto decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
+    Write-Host 'Runtime ambiguo ou nao reconhecido. Passe -Runtime V1 para o comportamento legado. Nada foi escrito.' -ForegroundColor Red
+    exit 6
+  }
+}
 $desired = $tmplRes.Desired
 
 # Conteudo desejado em memoria (sem writes) -----------------------------------

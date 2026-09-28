@@ -1,0 +1,308 @@
+<#!
+.SYNOPSIS
+    Runtime Adapter model (Phase 1, V3.1 kernel hardening): leitura declarativa
+    do registry dual-runtime e resolucao de geracao OpenCode.
+.DESCRIPTION
+    Lib dot-sourceable, PS 5.1 compativel (sem ternario, sem ??, sem
+    Invoke-Expression). Nao executa nada no dot-source: so define funcoes.
+    Os campos template/renderer_root dos descriptors sao METADADOS
+    declarativos nesta fase (templates V2 sao criados na Phase 2).
+    Fail closed: ambiguidade nunca resolve sozinha.
+#>
+
+$ErrorActionPreference = 'Stop'
+
+function Read-RuntimeRegistry {
+  param([string]$RegistryPath = '')
+  if ([string]::IsNullOrWhiteSpace($RegistryPath)) {
+    $here = $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($here)) { $here = (Get-Location).Path }
+    # lib vive em scripts/runtime/lib -> repo root = 3 niveis acima
+    $root = $here
+    try { $root = (Resolve-Path -LiteralPath (Join-Path $here '..\..\..')).Path } catch { }
+    $RegistryPath = Join-Path $root 'source\registry\runtimes.json'
+  }
+  if (-not (Test-Path -LiteralPath $RegistryPath -PathType Leaf)) {
+    throw ('runtime registry ilegivel (arquivo ausente): ' + $RegistryPath)
+  }
+  try {
+    $raw = [IO.File]::ReadAllText($RegistryPath, [Text.Encoding]::UTF8)
+    $reg = $raw | ConvertFrom-Json
+  }
+  catch {
+    throw ('runtime registry ilegivel (parse falhou): ' + $RegistryPath + ' : ' + $_.Exception.Message)
+  }
+  if (($null -eq $reg) -or ($null -eq $reg.runtimes)) {
+    throw ('runtime registry ilegivel (sem bloco runtimes): ' + $RegistryPath)
+  }
+  return $reg
+}
+
+function Get-RuntimeDescriptor {
+  param($Registry, [string]$RuntimeId = '')
+  if ([string]::IsNullOrWhiteSpace($RuntimeId)) {
+    throw 'runtime descriptor ausente (RuntimeId vazio).'
+  }
+  if (($null -eq $Registry) -or ($null -eq $Registry.runtimes)) {
+    throw 'runtime registry sem bloco runtimes.'
+  }
+  $names = @($Registry.runtimes.PSObject.Properties.Name)
+  if ($names -notcontains $RuntimeId) {
+    throw ('runtime descriptor ausente: ' + $RuntimeId)
+  }
+  $d = $Registry.runtimes.$RuntimeId
+  $sup = $false
+  try { if ($null -ne $d.supported) { $sup = [bool]$d.supported } } catch { $sup = $false }
+  if (-not $sup) {
+    throw ('runtime descriptor sem suporte (supported=false): ' + $RuntimeId)
+  }
+  return $d
+}
+
+function Get-RuntimeFromVersionOutput {
+  param([string]$VersionText = '')
+  $res = @{ Generation = 0; VersionText = $VersionText; Major = 0; Known = $false; Reason = '' }
+  if ([string]::IsNullOrWhiteSpace($VersionText)) {
+    $res.Reason = 'saida de versao vazia'
+    return $res
+  }
+  $found = $false
+  $major = 0
+  $lines = @($VersionText -split "`r?`n")
+  foreach ($ln in $lines) {
+    $m = [regex]::Match($ln, '(\d+)\.(\d+)\.(\d+)')
+    if ($m.Success) {
+      $found = $true
+      $major = [int]$m.Groups[1].Value
+      break
+    }
+  }
+  if (-not $found) {
+    $res.Reason = 'nenhum token semver x.y.z na saida'
+    return $res
+  }
+  $res.Major = $major
+  if ($major -eq 1) {
+    $res.Generation = 1
+    $res.Known = $true
+    $res.Reason = 'major 1 => geracao V1'
+    return $res
+  }
+  if ($major -eq 2) {
+    $res.Generation = 2
+    $res.Known = $true
+    $res.Reason = 'major 2 => geracao V2'
+    return $res
+  }
+  $res.Reason = ('major ' + $major + ' nao reconhecido (esperado 1 ou 2)')
+  return $res
+}
+
+function Test-RuntimeSupported {
+  param($Descriptor)
+  $res = @{ Supported = $false; Reason = '' }
+  if ($null -eq $Descriptor) {
+    $res.Reason = 'descriptor nulo'
+    return $res
+  }
+  $sup = $false
+  try { if ($null -ne $Descriptor.supported) { $sup = [bool]$Descriptor.supported } } catch { $sup = $false }
+  if (-not $sup) {
+    $res.Reason = 'supported=false no descriptor'
+    return $res
+  }
+  $vv = ''
+  try { if ($null -ne $Descriptor.validated_version) { $vv = [string]$Descriptor.validated_version } } catch { $vv = '' }
+  if ([string]::IsNullOrWhiteSpace($vv)) {
+    $res.Reason = 'validated_version ausente no descriptor'
+    return $res
+  }
+  $res.Supported = $true
+  $res.Reason = ('supported=true, validated_version=' + $vv)
+  return $res
+}
+
+function Invoke-RuntimeProbe {
+  param([string[]]$ProbeCommand = @('opencode', '--version'), [int]$TimeoutMs = 15000)
+  $res = @{ Ok = $false; Output = ''; Reason = ''; TimedOut = $false }
+  if (($null -eq $ProbeCommand) -or ($ProbeCommand.Count -eq 0)) {
+    $res.Reason = 'probe command vazio'
+    return $res
+  }
+  $file = $ProbeCommand[0]
+  $argList = @()
+  if ($ProbeCommand.Count -gt 1) { $argList = @($ProbeCommand[1..($ProbeCommand.Count - 1)]) }
+  $quotedArgs = @()
+  foreach ($a in $argList) {
+    $s = [string]$a
+    if (($s.Contains(' ')) -or ($s.Contains('"'))) {
+      $s = '"' + ($s -replace '"', '\"') + '"'
+    }
+    $quotedArgs += $s
+  }
+  $argsLine = ($quotedArgs -join ' ')
+  $execFile = $file
+  $execArgs = $argsLine
+  try {
+    $gc = Get-Command -Name $file -ErrorAction SilentlyContinue
+    if (($null -ne $gc) -and ($gc.CommandType -eq 'Application')) {
+      $src = [string]$gc.Source
+      if (-not [string]::IsNullOrWhiteSpace($src)) {
+        $ext = ''
+        try { $ext = [IO.Path]::GetExtension($src).ToLowerInvariant() } catch { $ext = '' }
+        if (($ext -eq '.cmd') -or ($ext -eq '.bat')) {
+          $qs = $src
+          if (($qs.Contains(' ')) -or ($qs.Contains('"'))) {
+            $qs = '"' + ($qs -replace '"', '\"') + '"'
+          }
+          $cmdExe = $env:ComSpec
+          if ([string]::IsNullOrWhiteSpace($cmdExe)) { $cmdExe = 'cmd.exe' }
+          $execFile = $cmdExe
+          if ([string]::IsNullOrWhiteSpace($argsLine)) { $execArgs = '/c ' + $qs }
+          else { $execArgs = '/c ' + $qs + ' ' + $argsLine }
+        }
+        else {
+          $execFile = $src
+          $execArgs = $argsLine
+        }
+      }
+    }
+  }
+  catch { $execFile = $file; $execArgs = $argsLine }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $execFile
+  $psi.Arguments = $execArgs
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  $psi.WorkingDirectory = [IO.Path]::GetTempPath()
+  # FIX CI ps7: filho 5.1 herdaria PSModulePath do host pwsh e perderia
+  # autoload dos modulos padrao; fixa para os modulos do 5.1.
+  try { $psi.EnvironmentVariables['PSModulePath'] = "$env:windir\System32\WindowsPowerShell\v1.0\Modules" } catch { }
+  try {
+    $p = [System.Diagnostics.Process]::Start($psi)
+  }
+  catch {
+    $res.Reason = ('probe nao executou (' + $file + '): ' + $_.Exception.Message)
+    return $res
+  }
+  try {
+    $finished = $p.WaitForExit($TimeoutMs)
+    if (-not $finished) {
+      $res.TimedOut = $true
+      try { $p.Kill() } catch { }
+      try { $p.WaitForExit(5000) } catch { }
+      $res.Reason = ('probe timeout apos ' + $TimeoutMs + 'ms')
+      return $res
+    }
+    $out = ''
+    $err = ''
+    try { $out = $p.StandardOutput.ReadToEnd() } catch { $out = '' }
+    try { $err = $p.StandardError.ReadToEnd() } catch { $err = '' }
+    try { $p.Close() } catch { }
+    $combined = (($out + "`n" + $err).Trim())
+    if ([string]::IsNullOrWhiteSpace($combined)) {
+      $res.Reason = 'probe sem saida (stdout+stderr vazios)'
+      return $res
+    }
+    $res.Ok = $true
+    $res.Output = $combined
+    $res.Reason = 'probe ok'
+    return $res
+  }
+  catch {
+    $res.Reason = ('probe falhou: ' + $_.Exception.Message)
+    return $res
+  }
+}
+
+function Resolve-OpencodeRuntime {
+  param(
+    $Registry,
+    [ValidateSet('Auto', 'V1', 'V2', 'Both')]
+    [string]$Mode = 'Auto',
+    [string[]]$ProbeCommand = @('opencode', '--version')
+  )
+  $probeBound = $PSBoundParameters.ContainsKey('ProbeCommand')
+  if ($Mode -eq 'Both') {
+    return @{ Decision = 'deferred'; RuntimeId = $null; Generation = 0; Reason = 'perfis isolados ativam em fase posterior'; ProbeError = $false; Mode = $Mode; ProbeOutput = '' }
+  }
+  if (($Mode -eq 'V1') -or ($Mode -eq 'V2')) {
+    $wantGen = 1
+    $wantId = 'opencode-v1'
+    if ($Mode -eq 'V2') { $wantGen = 2; $wantId = 'opencode-v2' }
+    if (-not $probeBound) {
+      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = 'explicit always wins (sem probe)'; ProbeError = $false; Mode = $Mode; ProbeOutput = '' }
+    }
+    $pr = Invoke-RuntimeProbe -ProbeCommand $ProbeCommand
+    if (-not $pr.Ok) {
+      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = ('explicit always wins; probe indisponivel: ' + $pr.Reason); ProbeError = $true; Mode = $Mode; ProbeOutput = '' }
+    }
+    $parsed = Get-RuntimeFromVersionOutput -VersionText $pr.Output
+    if (($parsed.Known) -and ([int]$parsed.Generation -eq $wantGen)) {
+      return @{ Decision = 'target'; RuntimeId = $wantId; Generation = $wantGen; Reason = 'explicito confirmado pelo probe'; ProbeError = $false; Mode = $Mode; ProbeOutput = $pr.Output }
+    }
+    $gotLabel = 'unknown'
+    if ($parsed.Known) { $gotLabel = ('geracao ' + $parsed.Generation) }
+    return @{ Decision = 'conflict'; RuntimeId = $null; Generation = 0; Reason = ('conflito: pedido ' + $Mode + ' (geracao ' + $wantGen + ') mas probe indica ' + $gotLabel + ' (' + $parsed.Reason + ')'); ProbeError = $false; Mode = $Mode; ProbeOutput = $pr.Output }
+  }
+  # Mode Auto: probe UMA vez.
+  $prAuto = Invoke-RuntimeProbe -ProbeCommand $ProbeCommand
+  if (-not $prAuto.Ok) {
+    $to = ''
+    if ($prAuto.TimedOut) { $to = ' (timeout)' }
+    return @{ Decision = 'unresolved'; RuntimeId = $null; Generation = 0; Reason = ('probe indisponivel' + $to + ': ' + $prAuto.Reason); ProbeError = $true; Mode = $Mode; ProbeOutput = '' }
+  }
+  $pa = Get-RuntimeFromVersionOutput -VersionText $prAuto.Output
+  if (-not $pa.Known) {
+    return @{ Decision = 'unresolved'; RuntimeId = $null; Generation = 0; Reason = ('versao nao reconhecida: ' + $pa.Reason); ProbeError = $false; Mode = $Mode; ProbeOutput = $prAuto.Output }
+  }
+  if ([int]$pa.Generation -eq 1) {
+    return @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'probe indica geracao V1'; ProbeError = $false; Mode = $Mode; ProbeOutput = $prAuto.Output }
+  }
+  return @{ Decision = 'target'; RuntimeId = 'opencode-v2'; Generation = 2; Reason = 'probe indica geracao V2'; ProbeError = $false; Mode = $Mode; ProbeOutput = $prAuto.Output }
+}
+
+function Get-RuntimeAdapterView {
+  param($Registry, [string]$RuntimeId = '')
+  if (($null -eq $Registry) -or ($null -eq $Registry.runtimes)) {
+    throw 'runtime registry sem bloco runtimes.'
+  }
+  $names = @($Registry.runtimes.PSObject.Properties.Name)
+  if ($names -notcontains $RuntimeId) {
+    throw ('runtime descriptor inexistente: ' + $RuntimeId)
+  }
+  $d = $Registry.runtimes.$RuntimeId
+  $missing = New-Object System.Collections.ArrayList
+  $tpl = ''
+  $spec = ''
+  $roots = @()
+  $smoke = ''
+  $keys = @()
+  $rend = ''
+  try { if ($null -ne $d.template) { $tpl = [string]$d.template } } catch { $tpl = '' }
+  try { if ($null -ne $d.plugin_dependency_spec) { $spec = [string]$d.plugin_dependency_spec } } catch { $spec = '' }
+  try { if ($null -ne $d.config_roots) { $roots = @($d.config_roots) } } catch { $roots = @() }
+  try { if ($null -ne $d.smoke_command) { $smoke = [string]$d.smoke_command } } catch { $smoke = '' }
+  try { if ($null -ne $d.managed_config_keys) { $keys = @($d.managed_config_keys) } } catch { $keys = @() }
+  try { if ($null -ne $d.renderer_root) { $rend = [string]$d.renderer_root } } catch { $rend = '' }
+  if ([string]::IsNullOrWhiteSpace($tpl)) { [void]$missing.Add('template') }
+  if ([string]::IsNullOrWhiteSpace($spec)) { [void]$missing.Add('plugin_dependency_spec') }
+  if ($roots.Count -eq 0) { [void]$missing.Add('config_roots') }
+  if ([string]::IsNullOrWhiteSpace($smoke)) { [void]$missing.Add('smoke_command') }
+  if ($keys.Count -eq 0) { [void]$missing.Add('managed_config_keys') }
+  if ([string]::IsNullOrWhiteSpace($rend)) { [void]$missing.Add('renderer_root') }
+  if ($missing.Count -gt 0) {
+    throw ('adapter view incompleta para ' + $RuntimeId + ' (campos ausentes: ' + ($missing -join ', ') + ')')
+  }
+  return @{
+    RuntimeId = $RuntimeId
+    TemplatePath = $tpl
+    PluginDependencySpec = $spec
+    ConfigRoots = $roots
+    SmokeCommand = $smoke
+    ManagedConfigKeys = $keys
+    RendererRoot = $rend
+  }
+}

@@ -35,6 +35,10 @@ try {
   foreach ($f in @(Get-ChildItem -File (Join-Path $v3 'lib\*.tests.ps1') -ErrorAction SilentlyContinue)) {
     [void]$all.Add($f)
   }
+  $runtimeDir = Join-Path (Split-Path -Parent $v3) 'runtime'
+  foreach ($f in @(Get-ChildItem -File (Join-Path $runtimeDir '*.tests.ps1') -ErrorAction SilentlyContinue)) {
+    [void]$all.Add($f)
+  }
   $suites = @($all | Sort-Object { $_.FullName })
   if (-not [string]::IsNullOrWhiteSpace($Name)) {
     $pat = $Name

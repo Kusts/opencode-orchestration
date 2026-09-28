@@ -1,10 +1,16 @@
 {
   "version": 1,
+  "registry_version": 2,
+  "selection": {
+    "default_runtime": "opencode",
+    "fail_closed_on_ambiguous": true
+  },
   "runtimes": {
     "opencode": {
       "id": "opencode",
       "display_name": "OpenCode",
       "kind": "cli",
+      "generation_alias": "opencode-v1",
       "executable": { "strategy": "command-or-known-path", "command": "opencode", "known_paths": [] },
       "instruction_targets": [
         { "path": "%USERPROFILE%/.config/opencode/AGENTS.md", "format": "markdown", "owner": "control-plane", "render_mode": "consolidated" }
@@ -16,6 +22,57 @@
       "launch": { "strategy": "native", "command": "opencode", "arguments": [] },
       "merge_strategy": "generated-instruction-replace+structured-json-merge",
       "smoke_test": { "command": "opencode --version", "timeout_seconds": 15 }
+    },
+    "opencode-v1": {
+      "id": "opencode-v1",
+      "display_name": "OpenCode V1",
+      "kind": "cli",
+      "generation": 1,
+      "supported": true,
+      "validated_version": "1.18.32",
+      "cli_package": "opencode-ai",
+      "plugin_package": "@opencode-ai/plugin",
+      "plugin_dependency_spec": "@opencode-ai/plugin@1.18.32",
+      "config_dialect": "v1",
+      "permission_dialect": "v1",
+      "plugin_api": "v1",
+      "command": "opencode",
+      "config_roots": ["~/.config/opencode"],
+      "env_overrides": {
+        "OPENCODE_CONFIG": "arquivo de config custom",
+        "OPENCODE_CONFIG_DIR": "diretorio de config",
+        "OPENCODE_CONFIG_CONTENT": "config inline"
+      },
+      "smoke_command": "opencode --version",
+      "template": "templates/opencode.v1.json.tmpl",
+      "managed_config_keys": ["agent", "permission", "task", "subagent_depth"],
+      "renderer_root": "generated/opencode/v1"
+    },
+    "opencode-v2": {
+      "id": "opencode-v2",
+      "display_name": "OpenCode V2",
+      "kind": "cli",
+      "generation": 2,
+      "supported": true,
+      "validated_version": "2.0.18",
+      "cli_package": "@opencode/cli",
+      "plugin_package": "@opencode/plugin",
+      "plugin_dependency_spec": "@opencode/plugin@2.0.18",
+      "config_dialect": "v2",
+      "permission_dialect": "v2",
+      "plugin_api": "v2",
+      "command": "opencode",
+      "config_roots": ["~/.config/opencode"],
+      "env_overrides": {
+        "OPENCODE_CONFIG": "nao confirmado no V2 - exige smoke",
+        "OPENCODE_CONFIG_DIR": "nao confirmado no V2 - exige smoke",
+        "OPENCODE_CONFIG_CONTENT": "nao confirmado no V2 - exige smoke"
+      },
+      "smoke_command": "opencode --version",
+      "template": "templates/opencode.v2.json.tmpl",
+      "managed_config_keys": ["agents", "permissions", "subagent", "experimental.subagent_depth", "experimental.policies"],
+      "renderer_root": "generated/opencode/v2",
+      "notes": "isolation per-process exige smoke real antes de -Runtime Both"
     }
   }
 }
