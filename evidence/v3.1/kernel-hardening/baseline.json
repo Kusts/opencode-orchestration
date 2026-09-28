@@ -1,0 +1,64 @@
+{
+  "record": "v3.1-kernel-hardening-baseline",
+  "spec": "ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md",
+  "plan": "ORCHESTRATION-V3.1-KERNEL-HARDENING-PLAN.md",
+  "recorded_at": "2026-09-28",
+  "repo_head": "78418e790fd08d3f61e8706e7d534504a0965e8c",
+  "phase": 0,
+  "baseline_results": {
+    "package_consistency": { "status": "pass", "checks_ok": 11, "checks_fail": 0 },
+    "v3_suites": {
+      "status": "pass_with_known_ambient_drift",
+      "pass": 18, "fail": 4, "skip": 2, "internal_error": 0, "total_suites": 24,
+      "known_ambient_drift": {
+        "cause": "opencode.json vivo local diverge do canonicoo esperado (hash 5E5AD0E376CC0A586F11D0695723DE4F2E18AFB76252D23085993C26C1258E59 != baseline conhecido DE22307F...)",
+        "failing_suites": [
+          "CapabilityDeferred.tests.ps1",
+          "CapabilityObservability.tests.ps1",
+          "CapabilitySkillUtility.tests.ps1",
+          "shadow-route.tests.ps1"
+        ],
+        "note": "Regressao zero do repositorio: testes repo-real exigem config vivo canonico (CI fresh-install cumpre). Skips de skill-bridge demonstram fail-safe correto do mesmo invariante."
+      }
+    },
+    "distribution_suites": { "status": "pass", "pass": 10, "fail": 0 },
+    "plugin_typecheck": { "status": "pass", "deps": "@opencode-ai/plugin@1.18.32 typescript@5 @types/node@22" },
+    "v1_real_smoke": { "status": "pass", "local_binary": "1.18.33", "ci_pin": "opencode-ai@1.18.32", "mode": "isolated TargetHome, sem --pure, plugin externo carregado" }
+  },
+  "runtime_matrix_pinned": {
+    "opencode-v1": {
+      "generation": 1,
+      "supported": true,
+      "validated_version": "1.18.32",
+      "cli_package": "opencode-ai",
+      "plugin_package": "@opencode-ai/plugin",
+      "config_dialect": "v1",
+      "permission_dialect": "v1",
+      "plugin_api": "v1",
+      "command": "opencode"
+    },
+    "opencode-v2": {
+      "generation": 2,
+      "supported": true,
+      "validated_version": "2.0.18",
+      "cli_package": "@opencode/cli",
+      "plugin_package": "@opencode/plugin",
+      "config_dialect": "v2",
+      "permission_dialect": "v2",
+      "plugin_api": "v2",
+      "command": "opencode",
+      "validation_status": "pin escolhido por pesquisa npm 2026-09-28; smoke real pendente das fases de CI/ativacao"
+    }
+  },
+  "v2_facts_researched": {
+    "plugin_dual_export": "documentado: export default { ...Plugin.define({id, setup}), async server() {...} }; requer V1 >= 1.18.29",
+    "v2_hooks": "ctx.tool.hook('execute.before'/'execute.after'), ctx.shell.hook('create.before'), session hooks prompt/context/compaction/generate/title",
+    "v2_permissions": "array ordenado {action, resource, effect}, last-match-wins, acoes shell/subagent/edit/read/...",
+    "v2_policies": "experimental.policies hard-deny apos rules+approvals; so aperta autoridade",
+    "legacy": "subagent_depth top-level ignorado com warning; temperature/top_p aceitos-mas-ignorados (request.body preservado mas ainda nao enviado)",
+    "cli_json": "global TUI-only; pacote NAO deve gerenciar",
+    "isolation": "XDG_CONFIG_HOME confirmado so para cli.json V2; isolamento do server config V2 exige smoke real com 'opencode debug paths' antes de -Runtime Both"
+  },
+  "governance_update": "V2: de 'unsupported' para 'support under controlled implementation' (SPEC section 0; rollout conservador por flags)",
+  "no_beta_tags": true
+}

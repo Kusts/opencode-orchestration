@@ -3,6 +3,7 @@ node_modules/
 evidence/*
 !evidence/distribution-hardening/
 !evidence/release-readiness/
+!evidence/v3.1/
 cache/
 *.bak*
 generated/
