@@ -32,7 +32,7 @@ param(
   [ValidateSet('Auto', 'V1', 'V2', 'Both')]
   [string]$Runtime = 'Auto',
   [Parameter(DontShow)]
-  [ValidateSet('backup', 'stage', 'apply-half', 'apply-json', 'manifest')]
+  [ValidateSet('backup', 'stage', 'cas', 'apply-half', 'apply-json', 'manifest')]
   [string]$InjectFailureAfter = ''
 )
 
@@ -48,7 +48,8 @@ $ErrorActionPreference = 'Stop'
 
 # NOTA test-only: -InjectFailureAfter forÃ§a falha no ponto indicado para
 # exercitar backup/stage/rollback nos testes. Nunca usar em uso real.
-# Valores: 'backup' (falha apÃ³s backup), 'stage' (falha apÃ³s stage),
+# Valores: 'backup' (falha apos backup), 'stage' (falha apos stage),
+# 'cas' (conflito CAS forcado -> exit 4, sem tocar o legado),
 # 'apply-half' (falha no meio do apply -> rollback, exit 5),
 # 'apply-json' (falha APOS escrever o config — opencode.json ou opencode.jsonc,
 # ultima etapa -> rollback, exit 5),
@@ -74,6 +75,23 @@ function Get-FileHashSafe([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
   }
   return $null
+}
+
+function Get-Sha256HexLower([string]$Path) {
+  # SHA256 hex lowercase dos BYTES do arquivo, via .NET direto (sem
+  # cmdlet): Get-FileHash retorna $null sob -WhatIf, e esta funcao roda no
+  # PRECHECK (antes do exit WhatIf). Byte-identico ao
+  # Get-FileHash -Algorithm SHA256. PS 5.1 compativel.
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $fs = [IO.File]::OpenRead($Path)
+    try {
+      $bytes = $sha.ComputeHash($fs)
+    }
+    finally { $fs.Close() }
+    return ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
+  }
+  finally { $sha.Dispose() }
 }
 
 function Has-Member($Obj, [string]$Name) {
@@ -583,6 +601,42 @@ function Validate-PluginSource([string]$Root) {
   return @{ Ok = $true; Errors = @() }
 }
 
+function Validate-PluginBundle([string]$Root) {
+  # P4: o instalador distribui o BUNDLE autocontido (a fonte .ts tem
+  # imports relativos ./v1 ./v2 ./shared/* que quebrariam copiados
+  # sozinhos). Ausente/invalido => exit 6 sem escrita parcial; regenere
+  # com scripts/build-plugin.ps1.
+  # V31-R2 F2: validacao deterministica por INTEGRIDADE (primeira camada):
+  # bundle existe, sidecar .sha256 existe, Get-FileHash(bundle) == sidecar
+  # (case-insensitive, trim). Mismatch ou sidecar ausente => falha ANTES de
+  # qualquer escrita (rebuild com scripts/build-plugin.ps1). Os checks de
+  # marcadores seguem como segunda camada.
+  $p = Join-Path $Root 'plugins\dist\orchestration-enforcement.js'
+  if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+    return @{ Ok = $false; Errors = @('plugin bundle ausente: plugins\dist\orchestration-enforcement.js nao encontrado no repo. Regenere com: powershell -NoProfile -File scripts\build-plugin.ps1') }
+  }
+  $side = $p + '.sha256'
+  if (-not (Test-Path -LiteralPath $side -PathType Leaf)) {
+    return @{ Ok = $false; Errors = @('plugin bundle sem sidecar de integridade: plugins\dist\orchestration-enforcement.js.sha256 ausente. Regenere com: powershell -NoProfile -File scripts\build-plugin.ps1') }
+  }
+  $actual = Get-Sha256HexLower $p
+  $expected = ''
+  try {
+    $expected = ([IO.File]::ReadAllText($side, [Text.Encoding]::UTF8)).Trim().ToLowerInvariant()
+  }
+  catch {
+    return @{ Ok = $false; Errors = @('plugin bundle com sidecar ilegivel: plugins\dist\orchestration-enforcement.js.sha256 nao pode ser lido. Regenere com: powershell -NoProfile -File scripts\build-plugin.ps1') }
+  }
+  if (($expected -ne $actual) -or ([string]::IsNullOrWhiteSpace($expected))) {
+    return @{ Ok = $false; Errors = @('plugin bundle com hash divergente do sidecar (sidecar=' + $expected + ' bundle=' + $actual + '). Regenere com: powershell -NoProfile -File scripts\build-plugin.ps1') }
+  }
+  $t = Read-Utf8 $p
+  if ((-not $t.Contains('orchestration-enforcement:')) -or (-not $t.Contains('server'))) {
+    return @{ Ok = $false; Errors = @('plugin bundle sem marcadores minimos (orchestration-enforcement: + server). Regenere com: powershell -NoProfile -File scripts\build-plugin.ps1') }
+  }
+  return @{ Ok = $true; Errors = @() }
+}
+
 function Validate-Skills([string]$Root) {
   $errs = @()
   foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
@@ -637,6 +691,13 @@ else {
 
 $plugRes = Validate-PluginSource $RepoRoot
 if (-not $plugRes.Ok) { foreach ($e in $plugRes.Errors) { [void]$preErrors.Add($e) } }
+
+$bundleRes = Validate-PluginBundle $RepoRoot
+if (-not $bundleRes.Ok) {
+  foreach ($e in $bundleRes.Errors) { Write-Host ('[install] ' + $e) -ForegroundColor Red }
+  Write-Host 'Bundle do plugin ausente/invalido. Regenere com scripts\build-plugin.ps1. Nenhuma escrita realizada.' -ForegroundColor Red
+  exit 6
+}
 
 $skillRes = Validate-Skills $RepoRoot
 if (-not $skillRes.Ok) { foreach ($e in $skillRes.Errors) { [void]$preErrors.Add($e) } }
@@ -762,8 +823,13 @@ foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') 
   $agentFiles += @{ Name = $f.Name; Text = ($clean.TrimEnd() + "`n") }
 }
 
-$pluginText = Read-Utf8 (Join-Path $RepoRoot 'plugins\orchestration-enforcement.ts')
-$pluginDst = Join-Path $ocDir 'plugins\orchestration-enforcement.ts'
+# P4: o instalado e o BUNDLE autocontido (fonte .ts tem imports relativos
+# que quebrariam copiados sozinhos). O RelativePath de destino e composto
+# por concatenacao (padrao P9.1 dos demais grupos gerenciados), nao por
+# literal de caminho do repo.
+$pluginBundleName = 'orchestration-enforcement.js'
+$pluginText = Read-Utf8 (Join-Path $RepoRoot 'plugins\dist\orchestration-enforcement.js')
+$pluginDst = Join-Path $ocDir ('plugins\' + $pluginBundleName)
 
 $skillsSrc = Join-Path $RepoRoot 'skills-core'
 $skillsDst = Join-Path $ocDir 'skills'
@@ -841,7 +907,7 @@ if (-not $NoCoreSkills) {
     }
   }
 }
-[void]$ops.Add(@{ Component = 'plugin'; RelativePath = 'plugins\orchestration-enforcement.ts'; StageText = $pluginText; Label = 'plugins/orchestration-enforcement.ts' })
+[void]$ops.Add(@{ Component = 'plugin'; RelativePath = ('plugins\' + $pluginBundleName); StageText = $pluginText; Label = ('plugins/' + $pluginBundleName) })
 # Config: RelativePath/Label reais detectados (opencode.json ou opencode.jsonc).
 # Todo o pipeline (stage/CAS/apply/manifest/rollback) segue keyed em
 # Component='config' com esse RelativePath — nada hardcoded a 'opencode.json'.
@@ -903,7 +969,29 @@ if (-not $NoCoreSkills) {
 else {
   foreach ($s in $skillNames) { Add-Plan 'SKIP' ('skills/' + $s + '/ (NoCoreSkills)') }
 }
-File-Plan $pluginDst $pluginText 'plugins/orchestration-enforcement.ts'
+File-Plan $pluginDst $pluginText ((('plugins/' + $pluginBundleName) + ' (bundle autocontido)'))
+# V31-R2 F1: upgrade de installs anteriores (pre-bundle) pode ter deixado
+# o legado plugins/orchestration-enforcement.ts no home. Antes de escrever
+# o bundle .js, o legado e adotado para o backup do install e removido
+# (o bundle .js assume). Qualquer OUTRO .ts/.js no plugins dir e
+# user-owned: nunca tocado (PRESERVE so como evidencia de plano).
+$legacyPluginRel = 'plugins\orchestration-enforcement.ts'
+$legacyPluginDst = Join-Path $ocDir $legacyPluginRel
+$legacyExists = Test-Path -LiteralPath $legacyPluginDst -PathType Leaf
+$legacyAdopted = $null
+$legacyBakDst = $null
+if ($legacyExists) {
+  Add-Plan 'REMOVE' 'plugins/orchestration-enforcement.ts (legado pre-bundle; adotado para backup, bundle .js assume)'
+}
+$pluginHomeDir = Join-Path $ocDir 'plugins'
+if (Test-Path -LiteralPath $pluginHomeDir -PathType Container) {
+  foreach ($uf in @(Get-ChildItem -File -LiteralPath $pluginHomeDir -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    $ufExt = ([IO.Path]::GetExtension($uf.Name)).ToLowerInvariant()
+    if (($ufExt -ne '.ts') -and ($ufExt -ne '.js')) { continue }
+    if (($uf.Name -ceq $pluginBundleName) -or ($uf.Name -ceq 'orchestration-enforcement.ts')) { continue }
+    Add-Plan 'PRESERVE' ('plugins/' + $uf.Name + ' (arquivo do usuario, intacto)')
+  }
+}
 if ($bothConfigsExist) {
   Add-Plan 'PRESERVE' 'opencode.json (presente junto de jsonc; runtime faz merge com jsonc vencendo)'
 }
@@ -990,6 +1078,10 @@ $bakDir = Join-Path $ocDir ("backups\oo-" + $stamp)
 $backupCount = 0
 $backupMap = @{}
 try {
+  # V31-R2-RESIDUAL R1: remocao fisica do legado ADIADA para pos-CAS
+  # (estagio apply). Aqui apenas backup dos alvos; nenhum .ts e tocado
+  # antes do CAS, logo exit 4 sai com o legado intacto. Ver bloco
+  # pos-CAS "adocao tardia do legado".
   foreach ($op in $ops) {
     if (Test-Path -LiteralPath $op.DestinationPath -PathType Leaf) {
       $dest = Join-Path $bakDir $op.RelativePath
@@ -1045,17 +1137,40 @@ try {
     }
     if ($InjectFailureAfter -eq 'stage') { throw 'INJECTED_FAILURE_AFTER=stage (test-only)' }
 
-    # CAS recheck (antes de qualquer apply) ------------------------------------
+    # CAS recheck (antes de qualquer apply E antes de tocar o legado) --------
     $conflicts = @()
     foreach ($op in $ops) {
       $now = Get-FileHashSafe $op.DestinationPath
       $exp = $expectedHashes[$op.DestinationPath]
       if ($exp -ne $now) { $conflicts += $op.DestinationPath }
     }
+    if ($InjectFailureAfter -eq 'cas') { $conflicts += 'INJECTED_CAS_CONFLICT (test-only)' }
     if ($conflicts.Count -gt 0) {
       Write-Output 'CAS_CONFLICT (exit 4). Destino mudou entre preview e apply. NADA foi aplicado, SEM rollback.'
       foreach ($c in $conflicts) { Write-Output ('  CONFLICT: ' + $c) }
       exit 4
+    }
+
+    # V31-R2-RESIDUAL R1: adocao tardia do legado (pos-CAS, dentro da
+    # transacao coberta pelos catches de apply/manifest/outer). Copia
+    # byte-exata para o backup e remove do plugins dir; o manifest
+    # registra o hash original (legacy-removed).
+    if ($legacyExists) {
+      if (Test-Path -LiteralPath $legacyPluginDst -PathType Leaf) {
+        $legacyBakDst = Join-Path $bakDir $legacyPluginRel
+        $legacyHash = Get-FileHashSafe $legacyPluginDst
+        if ($PSCmdlet.ShouldProcess($legacyBakDst, 'Backup')) {
+          $legacyParent = Split-Path -Parent $legacyBakDst
+          if (-not (Test-Path -LiteralPath $legacyParent)) { New-Item -ItemType Directory -Path $legacyParent -Force | Out-Null }
+          Copy-Item -LiteralPath $legacyPluginDst -Destination $legacyBakDst -Force
+        }
+        if ($PSCmdlet.ShouldProcess($legacyPluginDst, 'Remover legado pre-bundle')) {
+          Remove-Item -LiteralPath $legacyPluginDst -Force
+        }
+        $legacyAdopted = @{ relative = $legacyPluginRel; sha256 = $legacyHash; status = 'legacy-removed' }
+        $backupCount += 1
+        Write-Host ('Backup (legado): ' + $legacyPluginRel) -ForegroundColor DarkGray
+      }
     }
 
     # Apply --------------------------------------------------------------------
@@ -1126,6 +1241,21 @@ try {
         catch {
           $failedRestore += $rec.Dst
         }
+      }
+      # V31-R2 F1: restaura o legado adotado quando o apply falha (o backup
+      # byte-exato esta em $legacyBakDst; hash original verificado).
+      try {
+        if (($null -ne $legacyAdopted) -and ($null -ne $legacyBakDst) -and (Test-Path -LiteralPath $legacyBakDst -PathType Leaf)) {
+          $legacyParent2 = Split-Path -Parent $legacyPluginDst
+          if (-not (Test-Path -LiteralPath $legacyParent2)) { New-Item -ItemType Directory -Path $legacyParent2 -Force | Out-Null }
+          Copy-Item -LiteralPath $legacyBakDst -Destination $legacyPluginDst -Force
+          if ((Get-FileHashSafe $legacyPluginDst) -ne $legacyAdopted.sha256) {
+            $failedRestore += $legacyPluginDst
+          }
+        }
+      }
+      catch {
+        $failedRestore += $legacyPluginDst
       }
       # Diretorios criados pelo apply que ficaram vazios: remover (mais
       # profundo primeiro), sem tocar diretorios pre-existentes.
@@ -1218,6 +1348,27 @@ try {
       }
       catch { }
     }
+    # V31-R2 F1: legados adotados/removidos (uniao com manifests antigos;
+    # evidencia de upgrade + hash original para rollback manual).
+    $legacyRemoved = @()
+    if ($null -ne $legacyAdopted) { $legacyRemoved += $legacyAdopted }
+    if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+      try {
+        $oldM2 = ([IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
+        if (($null -ne $oldM2) -and (Has-Member $oldM2 'legacy_removed') -and ($null -ne $oldM2.legacy_removed)) {
+          foreach ($p in @($oldM2.legacy_removed)) {
+            $rel2 = ''
+            if (Has-Member $p 'relative') { $rel2 = [string]$p.relative }
+            $dup2 = $false
+            foreach ($q in @($legacyRemoved)) {
+              if ((Has-Member $q 'relative') -and ([string]$q.relative -ceq $rel2)) { $dup2 = $true; break }
+            }
+            if (-not $dup2) { $legacyRemoved += $p }
+          }
+        }
+      }
+      catch { }
+    }
     $manifest = [ordered]@{
       package_version = $PackageVersion
       installed_at = (Get-Date).ToString('o')
@@ -1226,6 +1377,7 @@ try {
       managed_files = @($managedFiles)
       managed_config_paths = @($managedPaths)
       adopted_paths = @($adoptedUnion)
+      legacy_removed = @($legacyRemoved)
       config_snapshot = $snapshot
       models = [ordered]@{ planner = $modelPlanner; cheap = $modelCheap; strong = $modelStrong }
       plugin_dependency = $OpenCodePluginSpec
@@ -1295,6 +1447,20 @@ try {
       catch {
         $failedRestore += $manifestPath
       }
+      # V31-R2 F1: restaura o legado adotado quando o manifest falha.
+      try {
+        if (($null -ne $legacyAdopted) -and ($null -ne $legacyBakDst) -and (Test-Path -LiteralPath $legacyBakDst -PathType Leaf)) {
+          $legacyParent3 = Split-Path -Parent $legacyPluginDst
+          if (-not (Test-Path -LiteralPath $legacyParent3)) { New-Item -ItemType Directory -Path $legacyParent3 -Force | Out-Null }
+          Copy-Item -LiteralPath $legacyBakDst -Destination $legacyPluginDst -Force
+          if ((Get-FileHashSafe $legacyPluginDst) -ne $legacyAdopted.sha256) {
+            $failedRestore += $legacyPluginDst
+          }
+        }
+      }
+      catch {
+        $failedRestore += $legacyPluginDst
+      }
       foreach ($cd in @($createdDirs | Sort-Object { $_.Length } -Descending)) {
         try {
           if (Test-Path -LiteralPath $cd -PathType Container) {
@@ -1323,6 +1489,16 @@ try {
 }
 catch {
   $msg = $_.Exception.Message
+  # V31-R2 F1: falhas antes/durante backup+stage (incl. injecoes test-only)
+  # restauram o legado adotado quando o apply nunca rodou seu rollback.
+  try {
+    if (($null -ne $legacyAdopted) -and ($null -ne $legacyBakDst) -and (Test-Path -LiteralPath $legacyBakDst -PathType Leaf) -and (-not (Test-Path -LiteralPath $legacyPluginDst -PathType Leaf))) {
+      $legacyParent4 = Split-Path -Parent $legacyPluginDst
+      if (-not (Test-Path -LiteralPath $legacyParent4)) { New-Item -ItemType Directory -Path $legacyParent4 -Force | Out-Null }
+      Copy-Item -LiteralPath $legacyBakDst -Destination $legacyPluginDst -Force
+    }
+  }
+  catch { }
   if ($msg -like 'INJECTED_FAILURE_AFTER=stage*') { Write-Host $msg -ForegroundColor Yellow; exit 5 }
   if ($msg -like 'INJECTED_FAILURE_AFTER=backup*') { Write-Host $msg -ForegroundColor Yellow; exit 5 }
   if ($msg -like 'INJECTED_FAILURE_AFTER=apply-*') { Write-Host $msg -ForegroundColor Yellow; exit 5 }

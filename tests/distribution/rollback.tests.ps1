@@ -90,7 +90,7 @@ function New-SeedHome([string]$Home2) {
   New-Item -ItemType Directory -Path (Join-Path $oc 'skills\hybrid-development\references') -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $oc 'skills\hybrid-development\references\runtimes.md'), "# ref A`n", $utf8)
   New-Item -ItemType Directory -Path (Join-Path $oc 'plugins') -Force | Out-Null
-  [IO.File]::WriteAllText((Join-Path $oc 'plugins\orchestration-enforcement.ts'), "// pre A`n", $utf8)
+  [IO.File]::WriteAllText((Join-Path $oc 'plugins\orchestration-enforcement.js'), "// pre A`n", $utf8)
   New-Item -ItemType Directory -Path (Join-Path $Home2 '.opencode-orchestration') -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $Home2 '.opencode-orchestration\manifest.json'), '{"sentinel":"manifest-A"}' + "`n", $utf8)
 }
@@ -145,7 +145,7 @@ try {
     'skills\subagent-driven-development\SKILL.md',
     'skills\using-superpowers\SKILL.md',
     'skills\verification-before-completion\SKILL.md',
-    'plugins\orchestration-enforcement.ts')) {
+    'plugins\orchestration-enforcement.js')) {
     if ($rel -eq 'opencode.json') { continue }
     $p = Join-Path $ocB $rel
     Assert (Test-Path -LiteralPath $p -PathType Leaf) ('B: estado A presente apos rollback: ' + $rel)

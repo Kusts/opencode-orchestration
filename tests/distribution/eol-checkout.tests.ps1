@@ -78,7 +78,7 @@ try {
   if (Test-Path -LiteralPath (Join-Path $ocDir 'opencode.jsonc') -PathType Leaf) { $configProbe = Join-Path $ocDir 'opencode.jsonc' }
   foreach ($p in @(
     $configProbe,
-    (Join-Path $ocDir 'plugins\orchestration-enforcement.ts'),
+    (Join-Path $ocDir 'plugins\orchestration-enforcement.js'),
     (Join-Path $ocDir 'skills\hybrid-development\SKILL.md')
   )) {
     if ((Test-Path -LiteralPath $p -PathType Leaf) -and (Has-CR $p)) { [void]$lfBad.Add($p) }

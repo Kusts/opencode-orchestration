@@ -104,7 +104,7 @@ try {
       [void]$expectedManaged.Add('skills\' + $s + '\' + $rel)
     }
   }
-  [void]$expectedManaged.Add('plugins\orchestration-enforcement.ts')
+  [void]$expectedManaged.Add('plugins\orchestration-enforcement.js')
   [void]$expectedManaged.Add('opencode.json')
   if (Test-Path -LiteralPath (Join-Path $TmpHome '.opencode-orchestration\manifest.json') -PathType Leaf) {
     $m = ([IO.File]::ReadAllText((Join-Path $TmpHome '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
@@ -113,8 +113,8 @@ try {
     Assert (($gotManaged -join '|') -eq ($wantManaged -join '|')) ('manifest.managed_files == conjunto esperado (' + $wantManaged.Count + ')')
   }
 
-  $plug = Join-Path $ocDir 'plugins\orchestration-enforcement.ts'
-  Assert (Test-Path -LiteralPath $plug -PathType Leaf) 'plugin instalado'
+  $plug = Join-Path $ocDir 'plugins\orchestration-enforcement.js'
+  Assert (Test-Path -LiteralPath $plug -PathType Leaf) 'plugin instalado (bundle .js)'
   if (Test-Path -LiteralPath $plug -PathType Leaf) {
     Assert ([IO.File]::ReadAllText($plug, [Text.Encoding]::UTF8).Contains('orchestration-enforcement')) 'plugin contem marker'
   }

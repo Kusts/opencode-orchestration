@@ -202,7 +202,7 @@ ok(!threw, "8 malformed never throws");
       omitOk = !!hit && !("agent" in hit);
       if (hit) {
         const keys = Object.keys(hit).sort();
-        omitOk = omitOk && keys.every((k) => ["ts", "sessionType", "agent", "mandate", "markerUsed", "session", "identity_source"].includes(k));
+        omitOk = omitOk && keys.every((k) => ["ts", "runtime", "sessionType", "agent", "mandate", "markerUsed", "session", "identity_source"].includes(k));
       }
     }
   } catch { omitOk = false; }

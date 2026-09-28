@@ -2,7 +2,7 @@
 .SYNOPSIS
     Valida a consistencia interna do pacote opencode-orchestration (P6.3 + V3.1 Phase 2).
 .DESCRIPTION
-    15 checks, exit 0/1, uma linha [OK]/[FAIL] por check. PS 5.1 compativel.
+    16 checks, exit 0/1, uma linha [OK]/[FAIL] por check. PS 5.1 compativel.
     Se um check apontar defeito REAL no pacote, conserte o pacote, nao o teste.
 #>
 $ErrorActionPreference = 'Stop'
@@ -511,7 +511,46 @@ try {
 }
 catch { Report-Fail '15 registry <-> templates' $_.Exception.Message }
 
+# ---- 16. bundle instalavel do plugin (P4) + sidecar de integridade (V31-R2 F2) --
+# Sanity do artefato derivado: existe, tem os marcadores minimos e e
+# autocontido (nenhum require( de @opencode* - os adapters usam
+# `import type`, apagado no build). O sidecar .sha256 existe, tem formato
+# SHA256 hex (64 chars, trim) e casa com Get-FileHash do bundle.
+try {
+  $errs16 = New-Object System.Collections.ArrayList
+  $bundle16 = Join-Path $RepoRoot 'plugins\dist\orchestration-enforcement.js'
+  $side16 = $bundle16 + '.sha256'
+  if (-not (Test-Path -LiteralPath $bundle16 -PathType Leaf)) {
+    [void]$errs16.Add('ausente: plugins\dist\orchestration-enforcement.js (regenere com scripts\build-plugin.ps1)')
+  }
+  else {
+    $bt16 = Read-Utf8 $bundle16
+    if (-not $bt16.Contains('orchestration-enforcement:')) { [void]$errs16.Add('bundle sem marcador orchestration-enforcement:') }
+    if (-not $bt16.Contains('server')) { [void]$errs16.Add('bundle sem marcador server (entry V1)') }
+    $req16 = @($bt16 -split "`n" | Where-Object { $_ -match 'require\s*\(\s*["'']@opencode' })
+    if ($req16.Count -gt 0) { [void]$errs16.Add(('bundle referencia @opencode via require(: ' + $req16.Count + ' linha(s); bundle deve ser autocontido')) }
+  }
+  if (-not (Test-Path -LiteralPath $side16 -PathType Leaf)) {
+    [void]$errs16.Add('ausente: plugins\dist\orchestration-enforcement.js.sha256 (regenere com scripts\build-plugin.ps1)')
+  }
+  else {
+    $hex16 = ([IO.File]::ReadAllText($side16, [Text.Encoding]::UTF8)).Trim()
+    if ($hex16 -notmatch '^[0-9a-fA-F]{64}$') {
+      [void]$errs16.Add('sidecar com formato invalido (esperado SHA256 hex 64 chars + newline)')
+    }
+    elseif ((Test-Path -LiteralPath $bundle16 -PathType Leaf)) {
+      $h16 = ((Get-FileHash -LiteralPath $bundle16 -Algorithm SHA256).Hash).ToLowerInvariant()
+      if ($hex16.ToLowerInvariant() -cne $h16) {
+        [void]$errs16.Add(('sidecar diverge do bundle (sidecar=' + $hex16 + ' bundle=' + $h16 + '); regenere com scripts\build-plugin.ps1'))
+      }
+    }
+  }
+  if ($errs16.Count -eq 0) { Report-Ok '16 bundle do plugin autocontido + sidecar' 'dist existe; marcadores ok; sem require(@opencode*); sidecar .sha256 casa com o bundle' }
+  else { Report-Fail '16 bundle do plugin autocontido + sidecar' ($errs16 -join ' | ') }
+}
+catch { Report-Fail '16 bundle do plugin autocontido + sidecar' $_.Exception.Message }
+
 Write-Host ''
-Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 15)')
+Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 16)')
 if ($script:nBad -gt 0) { exit 1 }
 exit 0

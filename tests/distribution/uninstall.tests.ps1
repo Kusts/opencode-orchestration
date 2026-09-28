@@ -45,7 +45,7 @@ try {
   # Pacote removido -----------------------------------------------------------
   Assert (-not (Test-Path -LiteralPath (Join-Path $ocDir 'agents\coder.md') -PathType Leaf)) 'managed agents/coder.md removido'
   Assert (-not (Test-Path -LiteralPath (Join-Path $ocDir 'skills\hybrid-development\SKILL.md') -PathType Leaf)) 'managed skills/hybrid-development/SKILL.md removido'
-  Assert (-not (Test-Path -LiteralPath (Join-Path $ocDir 'plugins\orchestration-enforcement.ts') -PathType Leaf)) 'managed plugin removido'
+  Assert (-not (Test-Path -LiteralPath (Join-Path $ocDir 'plugins\orchestration-enforcement.js') -PathType Leaf)) 'managed plugin bundle .js removido'
   $j2 = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
   $hasExplorer = ($null -ne ($j2.agent | Get-Member -Name 'explorer' -ErrorAction SilentlyContinue))
   Assert (-not $hasExplorer) 'opencode.json agent.explorer removido (managed intacto; coder tem permissao extra e e avaliado abaixo)'

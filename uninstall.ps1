@@ -213,7 +213,10 @@ if (($null -ne $manifestConfigName) -and (Test-Path -LiteralPath (Join-Path $ocD
 elseif (Test-Path -LiteralPath $jsoncCandidatePath -PathType Leaf) { $configFileName = 'opencode.jsonc' }
 $jsonPath = Join-Path $ocDir $configFileName
 $agentsMdPath = Join-Path $ocDir 'AGENTS.md'
-$pluginDst = Join-Path $ocDir 'plugins\orchestration-enforcement.ts'
+# P4: nomes do plugin por concatenacao (relativas de destino, nao literais
+# de caminho do repo — mesmo padrao do install.ps1).
+$pluginBundleName = 'orchestration-enforcement.js'
+$pluginLegacyName = 'orchestration-enforcement.ts'
 
 # Agentes ----------------------------------------------------------------------
 foreach ($n in $AgentNames) {
@@ -421,19 +424,30 @@ foreach ($s in $SkillNames) {
 }
 
 # Plugin ---------------------------------------------------------------------------
-if (-not (Test-Path -LiteralPath $pluginDst -PathType Leaf)) {
-  Add-Plan 'SKIP' 'plugins/orchestration-enforcement.ts (ausente)'
-}
-else {
-  $exp = Find-ManifestHash $manifest 'plugins\orchestration-enforcement.ts'
-  if (($null -ne $exp) -and ((Get-FileHashSafe $pluginDst) -eq $exp)) {
-    Add-Plan 'REMOVE' 'plugins/orchestration-enforcement.ts (hash confere)'
-    [void]$actions.Add(@{ Kind = 'del-file'; Dst = $pluginDst; Label = 'plugins/orchestration-enforcement.ts' })
-    [void]$actions.Add(@{ Kind = 'cleanup-dir'; Dst = (Split-Path -Parent $pluginDst); Label = 'plugins/ (somente se vazio)' })
+# P4: o instalado atual e o bundle plugins/orchestration-enforcement.js;
+# instalacoes antigas (pre-bundle) deixaram
+# plugins/orchestration-enforcement.ts. Ambos sao package-owned quando o
+# hash confere com o manifest; cada ausencia vira SKIP (nao erro).
+$pluginRemoved = $false
+foreach ($prel in @(('plugins\' + $pluginBundleName), ('plugins\' + $pluginLegacyName))) {
+  $pDst = Join-Path $ocDir $prel
+  $pLabel = ($prel -replace '\\', '/')
+  if (-not (Test-Path -LiteralPath $pDst -PathType Leaf)) {
+    Add-Plan 'SKIP' ($pLabel + ' (ausente)')
+    continue
+  }
+  $exp = Find-ManifestHash $manifest $prel
+  if (($null -ne $exp) -and ((Get-FileHashSafe $pDst) -eq $exp)) {
+    Add-Plan 'REMOVE' ($pLabel + ' (hash confere)')
+    [void]$actions.Add(@{ Kind = 'del-file'; Dst = $pDst; Label = $pLabel })
+    $pluginRemoved = $true
   }
   else {
-    Add-Plan 'KEEP' 'plugins/orchestration-enforcement.ts (alterado ou manifest ausente, mantido)'
+    Add-Plan 'KEEP' ($pLabel + ' (alterado ou manifest ausente, mantido)')
   }
+}
+if ($pluginRemoved) {
+  [void]$actions.Add(@{ Kind = 'cleanup-dir'; Dst = (Join-Path $ocDir 'plugins'); Label = 'plugins/ (somente se vazio)' })
 }
 
 Add-Plan 'REMOVE' 'manifest.json (ao final)'
