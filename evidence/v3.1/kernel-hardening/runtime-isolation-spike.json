@@ -1,0 +1,7 @@
+﻿{
+  "record": "v3.1-runtime-isolation-spike",
+  "date": "2026-09-28",
+  "opencode_v2": { "version": "2.0.18", "provisioned": "cache/v2-probe (npm @opencode/cli@2.0.18, postinstall aprovado local)", "xdg_config_home": "CONFIRMADO: debug paths mostra config = $XDG_CONFIG_HOME/opencode (server config, nao so cli.json)" },
+  "opencode_v1": { "version": "1.18.33", "xdg_config_home": "CONFIRMADO empiricamente: debug config com XDG apontando dir vazio retorna config vazio (nao leu o config real do usuario)" },
+  "consequence": "mecanismo preferido do SPEC secao 14 (XDG_CONFIG_HOME por processo) e viavel para -Runtime Both em Windows; data/cache/state permanecem por-usuario e nao colidem para config"
+}
