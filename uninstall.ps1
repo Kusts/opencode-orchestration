@@ -10,12 +10,18 @@
     Arquivo alterado pelo usuario depois do install (hash diverge do
     manifest) e mantido com AVISO. Sem manifest, heuristica conservadora:
     so remove o que reconhecer como do pacote e lista o resto.
+    -Runtime (Auto|V1|V2, default Auto): dirige-se pelo manifest (secao
+    runtime.id; legado sem secao = v1) com validacao cruzada — divergencia
+    aborta com exit 6 sem tocar nada. Sem manifest, o -Runtime explicito
+    vira o dialeto da heuristica.
     PS 5.1 compativel. Suporta -WhatIf via SupportsShouldProcess.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
   [string]$TargetHome,
-  [string]$ManifestPath
+  [string]$ManifestPath,
+  [ValidateSet('Auto', 'V1', 'V2')]
+  [string]$Runtime = 'Auto'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -176,13 +182,43 @@ function Get-SnapshotValue($Manifest, [string]$Path) {
 }
 
 $manifest = $null
-if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
+$manifestExists = Test-Path -LiteralPath $ManifestPath -PathType Leaf
+if ($manifestExists) {
   try { $manifest = (Read-Utf8 $ManifestPath) | ConvertFrom-Json }
   catch { Write-Host ('AVISO: manifest ilegivel, modo conservador: ' + $_.Exception.Message) -ForegroundColor Yellow; $manifest = $null }
 }
 else {
   Write-Host 'AVISO: manifest ausente, heuristica conservadora (so remove o reconhecido como do pacote).' -ForegroundColor Yellow
 }
+
+# Phase 6: runtime efetivo. O manifest diz o runtime (secao runtime.id;
+# legado sem secao = v1 por compat). -Runtime e validacao cruzada:
+# divergencia com o manifest (incl. legado) => erro 6 sem tocar nada.
+# Sem manifest, -Runtime explicito vira o dialeto da heuristica.
+$manifestRuntimeId = $null
+if (($null -ne $manifest) -and (Has-Member $manifest 'runtime') -and ($null -ne $manifest.runtime) -and (Has-Member $manifest.runtime 'id')) {
+  $manifestRuntimeId = [string]$manifest.runtime.id
+}
+$IsV2Un = $false
+if ($Runtime -eq 'V2') {
+  if ($manifestExists -and ($manifestRuntimeId -ne 'opencode-v2')) {
+    Write-Host 'Conflito de runtime: -Runtime V2 pedido mas o manifest indica V1 (ou legado sem secao runtime, tratado como v1). Nada foi tocado.' -ForegroundColor Red
+    exit 6
+  }
+  $IsV2Un = $true
+}
+elseif ($Runtime -eq 'V1') {
+  if ($manifestRuntimeId -eq 'opencode-v2') {
+    Write-Host 'Conflito de runtime: -Runtime V1 pedido mas o manifest indica V2. Nada foi tocado.' -ForegroundColor Red
+    exit 6
+  }
+  $IsV2Un = $false
+}
+else {
+  $IsV2Un = ($manifestRuntimeId -eq 'opencode-v2')
+}
+if ($IsV2Un) { Write-Host '[uninstall] runtime=opencode-v2 (dialeto agents/permissions/experimental)' -ForegroundColor DarkGray }
+else { Write-Host '[uninstall] runtime=opencode-v1 (dialeto agent/permission.task/subagent_depth)' -ForegroundColor DarkGray }
 
 $plan = New-Object System.Collections.ArrayList
 $actions = New-Object System.Collections.ArrayList
@@ -267,7 +303,135 @@ else {
   Add-Plan 'SKIP' ($configFileName + ' (ausente)')
 }
 $configOps = New-Object System.Collections.ArrayList
-if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
+if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2Un) {
+  # Dialeto V2: agents.* (mode/model/permissions array) + title.model +
+  # build.mode/permissions + experimental.subagent_depth + roots
+  # model/default_agent. Mesma regra do V1: so remove com snapshot do
+  # manifest confirmando valor intacto; resto e KEEP.
+  foreach ($w in $WorkerKeys) {
+    foreach ($leaf in @('mode', 'model')) {
+      $mp = 'agents.' + $w + '.' + $leaf
+      $has = (Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents $w) -and (Has-Member $existingJson.agents.$w $leaf)
+      if (-not $has) { continue }
+      $snap = Get-SnapshotValue $manifest $mp
+      $cur = Convert-Canonical $existingJson.agents.$w.$leaf
+      if (($null -ne $manifest) -and ($null -ne $snap)) {
+        if ($cur -eq $snap) {
+          Add-Plan 'REMOVE' ($mp + ' (intacto)')
+          [void]$configOps.Add(@{ Op = 'del-v2-leaf'; Agent = $w; Leaf = $leaf })
+        }
+        else {
+          Add-Plan 'KEEP' ($mp + ' (alterado pelo usuario, mantido)')
+        }
+      }
+      else {
+        Add-Plan 'KEEP' ($mp + ' (manifest ausente, mantido)')
+      }
+    }
+    $mpp = 'agents.' + $w + '.permissions'
+    $hasP = (Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents $w) -and (Has-Member $existingJson.agents.$w 'permissions')
+    if ($hasP) {
+      $snap = Get-SnapshotValue $manifest $mpp
+      $cur = Convert-Canonical $existingJson.agents.$w.permissions
+      if (($null -ne $manifest) -and ($null -ne $snap)) {
+        if ($cur -eq $snap) {
+          Add-Plan 'REMOVE' ($mpp + ' (intacto; demais propriedades preservadas)')
+          [void]$configOps.Add(@{ Op = 'del-v2-perms'; Agent = $w })
+        }
+        else {
+          Add-Plan 'KEEP' ($mpp + ' (alterado pelo usuario, mantido)')
+        }
+      }
+      else {
+        Add-Plan 'KEEP' ($mpp + ' (manifest ausente, mantido)')
+      }
+    }
+  }
+  if ((Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents 'title') -and (Has-Member $existingJson.agents.title 'model')) {
+    $snap = Get-SnapshotValue $manifest 'agents.title.model'
+    $cur = Convert-Canonical $existingJson.agents.title.model
+    if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+      Add-Plan 'REMOVE' 'agents.title.model (intacto)'
+      [void]$configOps.Add(@{ Op = 'del-v2-leaf'; Agent = 'title'; Leaf = 'model' })
+    }
+    else {
+      Add-Plan 'KEEP' 'agents.title.model (alterado ou manifest ausente, mantido)'
+    }
+  }
+  if ((Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents 'build')) {
+    if (Has-Member $existingJson.agents.build 'mode') {
+      $snap = Get-SnapshotValue $manifest 'agents.build.mode'
+      $cur = Convert-Canonical $existingJson.agents.build.mode
+      if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+        Add-Plan 'REMOVE' 'agents.build.mode (intacto)'
+        [void]$configOps.Add(@{ Op = 'del-v2-leaf'; Agent = 'build'; Leaf = 'mode' })
+      }
+      else {
+        Add-Plan 'KEEP' 'agents.build.mode (alterado ou manifest ausente, mantido)'
+      }
+    }
+    if (Has-Member $existingJson.agents.build 'permissions') {
+      $snap = Get-SnapshotValue $manifest 'agents.build.permissions'
+      $cur = Convert-Canonical $existingJson.agents.build.permissions
+      if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+        Add-Plan 'REMOVE' 'agents.build.permissions (intacto; demais propriedades preservadas)'
+        [void]$configOps.Add(@{ Op = 'del-v2-perms'; Agent = 'build' })
+      }
+      else {
+        Add-Plan 'KEEP' 'agents.build.permissions (alterado ou manifest ausente, mantido)'
+      }
+    }
+  }
+  if ((Has-Member $existingJson 'experimental') -and ($null -ne $existingJson.experimental) -and (Has-Member $existingJson.experimental 'subagent_depth')) {
+    $snap = Get-SnapshotValue $manifest 'experimental.subagent_depth'
+    $cur = Convert-Canonical $existingJson.experimental.subagent_depth
+    if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+      Add-Plan 'REMOVE' 'experimental.subagent_depth (manifest confirma ownership, valor intacto)'
+      [void]$configOps.Add(@{ Op = 'del-v2-expdepth' })
+    }
+    else {
+      Add-Plan 'KEEP' 'experimental.subagent_depth (alterado, ou manifest ausente/nao confirma, mantido)'
+    }
+  }
+  foreach ($root in @('model', 'default_agent')) {
+    if (-not (Has-Member $existingJson $root)) { continue }
+    $snap = Get-SnapshotValue $manifest $root
+    $cur = Convert-Canonical $existingJson.$root
+    if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+      Add-Plan 'REMOVE' ($root + ' (manifest confirma ownership, valor intacto)')
+      [void]$configOps.Add(@{ Op = 'del-root'; Key = $root })
+    }
+    else {
+      Add-Plan 'KEEP' ($root + ' (alterado, ou manifest ausente/nao confirma, mantido)')
+    }
+  }
+  if (Has-Member $existingJson '$schema') {
+    $snapSch = Get-SnapshotValue $manifest '$schema'
+    $curSch = Convert-Canonical $existingJson.'$schema'
+    if (($null -ne $manifest) -and ($null -ne $snapSch) -and ($curSch -eq $snapSch)) {
+      Add-Plan 'REMOVE' '$schema (manifest confirma ownership, valor intacto)'
+      [void]$configOps.Add(@{ Op = 'del-root'; Key = '$schema' })
+    }
+    else {
+      Add-Plan 'KEEP' '$schema (alterado, ou manifest ausente/nao confirma, mantido)'
+    }
+  }
+  if (Has-Member $existingJson 'mcp') { Add-Plan 'KEEP' 'mcp.* (nunca tocado)' }
+  if ((Has-Member $existingJson 'agents') -and ($null -ne $existingJson.agents)) {
+    foreach ($ak in @($existingJson.agents.PSObject.Properties.Name)) {
+      if ($WorkerKeys -notcontains $ak -and $ak -ne 'build' -and $ak -ne 'title') {
+        Add-Plan 'KEEP' ('agents.' + $ak + ' (desconhecido, intacto)')
+      }
+    }
+  }
+  if ((Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents 'build') -and (Has-Member $existingJson.agents.build 'model')) {
+    Add-Plan 'KEEP' 'agents.build.model (nao gerenciado; heranca de sessao, mantido)'
+  }
+  if ($configOps.Count -gt 0) {
+    [void]$actions.Add(@{ Kind = 'config'; Dst = $jsonPath; Label = $configFileName })
+  }
+}
+elseif (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
   foreach ($w in $WorkerKeys) {
     foreach ($leaf in @('mode', 'model', 'permission')) {
       if ($leaf -eq 'permission') {
@@ -574,6 +738,36 @@ foreach ($a in $actions) {
         elseif ($op.Op -eq 'del-root') {
           if ($null -ne $cfg.PSObject.Properties[$op.Key]) {
             $null = $cfg.PSObject.Properties.Remove($op.Key)
+          }
+        }
+        elseif ($op.Op -eq 'del-v2-leaf') {
+          if ((Has-Member $cfg 'agents') -and ($null -ne $cfg.agents) -and (Has-Member $cfg.agents $op.Agent)) {
+            $node = $cfg.agents.($op.Agent)
+            if (($null -ne $node) -and ($null -ne $node.PSObject.Properties[$op.Leaf])) {
+              $null = $node.PSObject.Properties.Remove($op.Leaf)
+            }
+            if (($null -ne $node) -and (@($node.PSObject.Properties).Count -eq 0)) {
+              $null = $cfg.agents.PSObject.Properties.Remove($op.Agent)
+            }
+          }
+        }
+        elseif ($op.Op -eq 'del-v2-perms') {
+          if ((Has-Member $cfg 'agents') -and ($null -ne $cfg.agents) -and (Has-Member $cfg.agents $op.Agent)) {
+            $node = $cfg.agents.($op.Agent)
+            if (($null -ne $node) -and ($null -ne $node.PSObject.Properties['permissions'])) {
+              $null = $node.PSObject.Properties.Remove('permissions')
+            }
+            if (($null -ne $node) -and (@($node.PSObject.Properties).Count -eq 0)) {
+              $null = $cfg.agents.PSObject.Properties.Remove($op.Agent)
+            }
+          }
+        }
+        elseif ($op.Op -eq 'del-v2-expdepth') {
+          if ((Has-Member $cfg 'experimental') -and ($null -ne $cfg.experimental) -and ($null -ne $cfg.experimental.PSObject.Properties['subagent_depth'])) {
+            $null = $cfg.experimental.PSObject.Properties.Remove('subagent_depth')
+          }
+          if ((Has-Member $cfg 'experimental') -and ($null -ne $cfg.experimental) -and (@($cfg.experimental.PSObject.Properties).Count -eq 0)) {
+            $null = $cfg.PSObject.Properties.Remove('experimental')
           }
         }
         # NOTA: 'del-opt' (skills.paths/autoupdate/plugin) foi removido com o

@@ -143,7 +143,20 @@ function Invoke-RuntimeProbe {
   $execFile = $file
   $execArgs = $argsLine
   try {
-    $gc = Get-Command -Name $file -ErrorAction SilentlyContinue
+    # Phase 6 (robustez npm-shim): Get-Command sem -All devolve por
+    # precedencia de tipo (ExternalScript .ps1 vence Application .cmd mesmo
+    # com o .cmd antes no PATH). Prefere-se o primeiro Application na ordem
+    # do PATH (.cmd/.exe executaveis de verdade); dirs npm/V2-probe trazem
+    # opencode.ps1 + opencode.cmd lado a lado e o .cmd e o executavel.
+    $gc = $null
+    try {
+      $cands = @(Get-Command -Name $file -All -ErrorAction SilentlyContinue)
+      foreach ($cd in $cands) {
+        if ($cd.CommandType -eq 'Application') { $gc = $cd; break }
+      }
+      if (($null -eq $gc) -and ($cands.Count -gt 0)) { $gc = $cands[0] }
+    }
+    catch { $gc = Get-Command -Name $file -ErrorAction SilentlyContinue }
     if (($null -ne $gc) -and ($gc.CommandType -eq 'Application')) {
       $src = [string]$gc.Source
       if (-not [string]::IsNullOrWhiteSpace($src)) {
@@ -247,6 +260,10 @@ function Resolve-OpencodeRuntime {
     return @{ Decision = 'deferred'; RuntimeId = $null; Generation = 0; Reason = 'perfis isolados ativam em fase posterior'; ProbeError = $false; ProbeErrorKind = 'none'; Mode = $Mode; ProbeOutput = '' }
   }
   if (($Mode -eq 'V1') -or ($Mode -eq 'V2')) {
+    # NOTA V31-P6-FIX-EXPLICIT: o ramo conflict abaixo existe para CHAMADORES
+    # que passam ProbeCommand explicitamente (dupla checagem opt-in). O
+    # installer (install.ps1) NAO usa probe para -Runtime explicito: chama sem
+    # ProbeCommand e cai no ramo 'explicit always wins (sem probe)' acima.
     $wantGen = 1
     $wantId = 'opencode-v1'
     if ($Mode -eq 'V2') { $wantGen = 2; $wantId = 'opencode-v2' }

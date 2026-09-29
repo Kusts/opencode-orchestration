@@ -8,6 +8,8 @@
     atomicamente via .tmp + verificacao de hash. OpenCode-only: sem
     runtimes.json, sem componentes Mcp/Launchers. Ownership interno apenas
     informativo (control-plane|user|runtime|plugin).
+    Phase 6: -Runtime (V1|V2, default do manifest do install; legado =
+    v1) seleciona generated/opencode/v1|v2/AGENTS.md como fonte.
 #>
 [CmdletBinding()]
 param(
@@ -18,6 +20,8 @@ param(
     [string]$ModelsPath,
     [string]$HomeDir,
     [string]$RepoDir,
+    [ValidateSet('', 'V1', 'V2')]
+    [string]$Runtime = '',
     [switch]$Apply
 )
 
@@ -77,8 +81,52 @@ function Read-Utf8([string]$Path) {
     return [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
 }
 
-$sourcePath = Join-Path $GeneratedRoot 'opencode/AGENTS.md'
-if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Generated source ausente: opencode/AGENTS.md (rode scripts/render-opencode-config.ps1)." }
+$sourceRel = 'opencode/AGENTS.md'
+$runtimeLabel = 'OpenCode'
+# Phase 6: -Runtime explicito vence; default le o manifest do install
+# (.opencode-orchestration/manifest.json, secao runtime.id; legado/ausente
+# = v1 por compat). Aplica o merge com o template do runtime resolvido.
+$effRuntime = $Runtime
+if ([string]::IsNullOrWhiteSpace($effRuntime)) {
+  $effRuntime = 'V1'
+  try {
+    $mfPath = Join-Path $UserProfileRoot '.opencode-orchestration\manifest.json'
+    if (Test-Path -LiteralPath $mfPath -PathType Leaf) {
+      $mfObj = ([IO.File]::ReadAllText($mfPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
+      if (($null -ne $mfObj) -and ($null -ne $mfObj.runtime) -and ($null -ne $mfObj.runtime.id) -and ([string]$mfObj.runtime.id -eq 'opencode-v2')) {
+        $effRuntime = 'V2'
+      }
+    }
+  }
+  catch { $effRuntime = 'V1' }
+}
+if ($effRuntime -eq 'V2') {
+  $v2Rel = 'opencode/v2/AGENTS.md'
+  if (Test-Path -LiteralPath (Join-Path $GeneratedRoot $v2Rel) -PathType Leaf) {
+    $sourceRel = $v2Rel
+    $runtimeLabel = 'OpenCode-V2'
+  }
+  else {
+    Write-Host 'Fonte gerada ausente para runtime V2: generated/opencode/v2/AGENTS.md (renderize com scripts/render-opencode-config.ps1). Nada foi escrito.' -ForegroundColor Red
+    exit 6
+  }
+}
+else {
+  $v1Rel = 'opencode/v1/AGENTS.md'
+  if (Test-Path -LiteralPath (Join-Path $GeneratedRoot $v1Rel) -PathType Leaf) {
+    $sourceRel = $v1Rel
+  }
+  else {
+    Write-Host 'Fonte gerada ausente para runtime V1: generated/opencode/v1/AGENTS.md (renderize com scripts/render-opencode-config.ps1). Nada foi escrito.' -ForegroundColor Red
+    exit 6
+  }
+  $runtimeLabel = 'OpenCode-V1'
+}
+$sourcePath = Join-Path $GeneratedRoot $sourceRel
+if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+  Write-Host ("Fonte gerada ausente: " + $sourceRel + " (renderize com scripts/render-opencode-config.ps1). Nada foi escrito.") -ForegroundColor Red
+  exit 6
+}
 $generatedText = Read-Utf8 $sourcePath
 if ($generatedText -notmatch '(?m)^<!-- GENERATED FILE:') { throw 'Fonte gerada sem marcador de geracao.' }
 
@@ -132,10 +180,10 @@ if ($null -ne $currentHash) {
 }
 
 Write-Host '' ; Write-Host '=== OPENCODE CONFIG RECONCILIATION ===' -ForegroundColor Cyan
-if ($Apply) { Write-Host 'MODE: APPLY; COMPONENT: Instructions; RUNTIME: OpenCode' -ForegroundColor Yellow } else { Write-Host 'MODE: PREVIEW; COMPONENT: Instructions; RUNTIME: OpenCode' -ForegroundColor Cyan }
+if ($Apply) { Write-Host ('MODE: APPLY; COMPONENT: Instructions; RUNTIME: ' + $runtimeLabel) -ForegroundColor Yellow } else { Write-Host ('MODE: PREVIEW; COMPONENT: Instructions; RUNTIME: ' + $runtimeLabel) -ForegroundColor Cyan }
 $shortCurrent = '<none>'
 if ($currentHash) { $shortCurrent = $currentHash.Substring(0, 12) }
-Write-Host ("[{0}] generated/opencode/AGENTS.md -> {1} (current {2}; desired {3}; owner {4}; action {5})" -f $status, $targetPath, $shortCurrent, $desiredHash.Substring(0, 12), $owner, $action) -ForegroundColor $(if ($status -eq 'SAME') { 'Green' } else { 'Yellow' })
+Write-Host ("[{0}] generated/" + $sourceRel + " -> {1} (current {2}; desired {3}; owner {4}; action {5})" -f $status, $targetPath, $shortCurrent, $desiredHash.Substring(0, 12), $owner, $action) -ForegroundColor $(if ($status -eq 'SAME') { 'Green' } else { 'Yellow' })
 if ($pendingModelTokens -or $pendingPathTokens) {
     Write-Host 'Plano com tokens pendentes: informe ModelsPath para resolver modelos antes do apply.' -ForegroundColor Yellow
 }
@@ -169,10 +217,10 @@ $rollback = [ordered]@{
     version = 1
     created_at = (Get-Date).ToString('o')
     component = 'Instructions'
-    runtime = 'OpenCode'
+    runtime = $runtimeLabel
     entries = @(
         [ordered]@{
-            label = 'generated/opencode/AGENTS.md'
+            label = ('generated/' + $sourceRel)
             target = $targetPath
             source = $sourcePath
             owner = $owner
@@ -232,7 +280,7 @@ try {
     $rollback.entries[0].status = 'applied-and-verified'
     $rollback.entries[0].applied_hash = $afterHash
     Write-SafeJson -Path $rollbackPath -Value $rollback
-    Write-Host ("[APPLIED] generated/opencode/AGENTS.md -> " + $targetPath) -ForegroundColor Green
+    Write-Host ("[APPLIED] generated/" + $sourceRel + " -> " + $targetPath) -ForegroundColor Green
     Write-Host ("Rollback manifest: " + $rollbackPath) -ForegroundColor DarkGray
     Write-Host 'Reconciliation complete.' -ForegroundColor Green
     exit 0

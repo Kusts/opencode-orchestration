@@ -122,8 +122,11 @@ try {
   Assert (Test-Path -LiteralPath $mf -PathType Leaf) 'manifest criado'
   if (Test-Path -LiteralPath $mf -PathType Leaf) {
     $m = ([IO.File]::ReadAllText($mf, [Text.Encoding]::UTF8)) | ConvertFrom-Json
-    Assert ($m.package_version -eq '1.0.0') 'manifest package_version'
+    Assert ($m.package_version -eq '1.1.0') 'manifest package_version'
     Assert ($m.plugin_dependency -eq '@opencode-ai/plugin@1.18.32') 'manifest plugin_dependency'
+    Assert ($m.runtime.id -eq 'opencode-v1') 'manifest runtime.id v1'
+    Assert ([int]$m.runtime.generation -eq 1) 'manifest runtime.generation 1'
+    Assert ($m.runtime.profile -eq 'v1') 'manifest runtime.profile v1'
     Assert (-not [string]::IsNullOrWhiteSpace($m.installed_at)) 'manifest installed_at'
     Assert ($m.target_home -eq $TmpHome) 'manifest target_home'
     Assert ((@($m.managed_files).Count) -gt 20) 'manifest managed_files>20'

@@ -8,6 +8,16 @@
     sem operador ternario, sem ??, sem Invoke-Expression e sem executar
     codigo vindo de JSON.
 
+    Phase 6 (V3.1): installer runtime-aware. -Runtime V1 instala o dialeto
+    V1 (agent/permission.task/subagent_depth); -Runtime V2 instala o dialeto
+    V2 nativo (agents/permissions/experimental.subagent_depth) com o MESMO
+    merge estrutural preservador (user-owned intacto). Explicito vence (sem
+    probe, sem conflito); -Runtime Auto segue o probe (V1 ou V2); ambiguo
+    aborta com exit 6. -Runtime Both segue BLOQUEADO (exit 6; perfis isolados
+    chegam na Phase 7).
+    Smoke V2 pos-install e best-effort com warning nesta fase (exit 0);
+    smoke bloqueante entra na Phase 8 (CI).
+
     DECISOES DE DESENHO (2.1):
     - As funcoes de merge vivem NESTE arquivo (sem dot-source): instalacao
       em arquivo unico, sem dependencia de resolucao de caminho extra e sem
@@ -18,8 +28,8 @@
     - Auto-criacao de models.jsonc a partir do exemplo foi REMOVIDA: criava
       um write antes da validacao. Ausente/invalido agora falha no PRECHECK
       (exit 3) sem nenhuma escrita.
-    - Instalacao da dependencia do plugin (bun/npm) e pos-instalacao
-      best-effort, fora da transacao e fora do rollback (efeito externo).
+    - plugin_dependency e METADADO offline no manifest (sem bun/npm,
+      sem rede): o bundle e autocontido; validacao da dependency no CI.
     - Exit codes: 0 ok; 3 falha de precheck (nada escrito); 4 CAS_CONFLICT
       (aborta SEM rollback, nada aplicado); 5 falha no apply (rollback
       tentado).
@@ -36,13 +46,13 @@ param(
   [string]$InjectFailureAfter = ''
 )
 
-# -Runtime (Auto|V1|V2|Both), default Auto. Phase 1 (V3.1 kernel hardening):
-# forma no-op sobre o fluxo legado (exit 6 = runtime nao resolvido/nao
-# ativado, fail closed, nada escrito). Auto sem binario opencode no PATH
-# degrada para V1 (comportamento legado, com aviso); deteccao positiva de
-# V2, modo V2 ou modo Both abortam com exit 6 (renderer/instalador V2/Both
-# ativam nas fases 6-7 do plano; flags permanecem conservadoras). Modo V1
-# segue o fluxo legado exatamente.
+# -Runtime (Auto|V1|V2|Both), default Auto. Phase 6 (V3.1): V1 e V2 ATIVOS
+# (fluxos nativos por runtime, mesma transacao backup+stage+CAS+apply+
+# manifest+rollback). Explicito vence: -Runtime V1/V2 aplica o dialeto pedido
+# SEM probe e SEM conflito (probe so no Auto). Auto resolve via probe (V1 ou
+# V2); ambiguo/inconclusivo com binario presente aborta com exit 6. Both segue
+# BLOQUEADO com exit 6 (perfis isolados chegam na Phase 7). Auto sem binario
+# opencode no PATH degrada para V1 (comportamento legado, com aviso).
 
 $ErrorActionPreference = 'Stop'
 
@@ -59,8 +69,10 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
-$PackageVersion = '1.0.0'
-$OpenCodePluginSpec = '@opencode-ai/plugin@1.18.32'
+$PackageVersion = '1.1.0'
+$OpenCodePluginSpecV1 = '@opencode-ai/plugin@1.18.32'
+$OpenCodePluginSpecV2 = '@opencode/plugin@2.0.18'
+$OpenCodePluginSpec = $OpenCodePluginSpecV1
 $MarkStart = '<!-- opencode-orchestration:start -->'
 $MarkEnd = '<!-- opencode-orchestration:end -->'
 $ManifestRelPath = '.opencode-orchestration\manifest.json'
@@ -502,6 +514,105 @@ function Merge-ManagedOpencodeConfig($Existing, $Desired) {
   return @{ Config = $Existing; ManagedPaths = $managedPaths }
 }
 
+# ---- Phase 6: merge do dialeto V2 (agents/permissions/experimental) --------
+# Mesma semantica preservadora do V1: somente as chaves do template sao
+# gerenciadas; agentes user-owned dentro de agents{} e chaves de topo
+# desconhecidas (mcp/plugin/skills/autoupdate/...) ficam intactos.
+# permissions e array: substituicao integral quando o canonico diverge
+# (ordem broad-first do template e significativa no runtime V2).
+
+function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents) {
+  $appliedPaths = New-Object System.Collections.ArrayList
+  if ($null -eq $ExistingAgents) {
+    $ExistingAgents = (New-Object PSObject)
+  }
+  foreach ($key in @($DesiredAgents.PSObject.Properties.Name)) {
+    $desiredEntry = $DesiredAgents.$key
+    if (-not (Has-Member $ExistingAgents $key)) {
+      Set-Prop $ExistingAgents $key (($desiredEntry | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
+    }
+    else {
+      $node = $ExistingAgents.$key
+      if ($key -eq 'build') {
+        if (Set-PropIfDifferent $node 'mode' $desiredEntry.mode) { }
+        if (Has-Member $desiredEntry 'permissions') {
+          if (Set-PropIfDifferent $node 'permissions' $desiredEntry.permissions) { }
+        }
+        Remove-Prop $node 'model'
+      }
+      elseif ($key -eq 'title') {
+        if (Has-Member $desiredEntry 'model') {
+          if (Set-PropIfDifferent $node 'model' $desiredEntry.model) { }
+        }
+      }
+      else {
+        if (Has-Member $desiredEntry 'mode') {
+          if (Set-PropIfDifferent $node 'mode' $desiredEntry.mode) { }
+        }
+        if (Has-Member $desiredEntry 'model') {
+          if (Set-PropIfDifferent $node 'model' $desiredEntry.model) { }
+        }
+        if (Has-Member $desiredEntry 'permissions') {
+          if (Set-PropIfDifferent $node 'permissions' $desiredEntry.permissions) { }
+        }
+      }
+    }
+    if ($key -eq 'build') {
+      [void]$appliedPaths.Add('agents.build.mode')
+      [void]$appliedPaths.Add('agents.build.permissions')
+      [void]$appliedPaths.Add('agents.build.model=ABSENT')
+    }
+    elseif ($key -eq 'title') {
+      [void]$appliedPaths.Add('agents.title.model')
+    }
+    else {
+      [void]$appliedPaths.Add('agents.' + $key + '.mode')
+      [void]$appliedPaths.Add('agents.' + $key + '.model')
+      [void]$appliedPaths.Add('agents.' + $key + '.permissions')
+    }
+  }
+  return @{ Agents = $ExistingAgents; ManagedPaths = $appliedPaths }
+}
+
+function Get-DesiredManagedPathsV2($Desired) {
+  $paths = New-Object System.Collections.ArrayList
+  foreach ($top in @('$schema', 'model', 'default_agent', 'experimental.subagent_depth')) {
+    [void]$paths.Add($top)
+  }
+  foreach ($key in @($Desired.agents.PSObject.Properties.Name)) {
+    if ($key -eq 'build') {
+      [void]$paths.Add('agents.build.mode')
+      [void]$paths.Add('agents.build.permissions')
+      [void]$paths.Add('agents.build.model=ABSENT')
+      continue
+    }
+    if ($key -eq 'title') { [void]$paths.Add('agents.title.model'); continue }
+    [void]$paths.Add('agents.' + $key + '.mode')
+    [void]$paths.Add('agents.' + $key + '.model')
+    [void]$paths.Add('agents.' + $key + '.permissions')
+  }
+  return $paths
+}
+
+function Merge-ManagedOpencodeConfigV2($Existing, $Desired) {
+  $managedPaths = New-Object System.Collections.ArrayList
+  foreach ($top in @('$schema', 'model', 'default_agent')) {
+    if (Set-PropIfDifferent $Existing $top $Desired.$top) { }
+    [void]$managedPaths.Add($top)
+  }
+  if (-not (Has-Member $Existing 'experimental') -or ($null -eq $Existing.experimental)) {
+    Set-Prop $Existing 'experimental' (New-Object PSObject)
+  }
+  if (Set-PropIfDifferent $Existing.experimental 'subagent_depth' $Desired.experimental.subagent_depth) { }
+  [void]$managedPaths.Add('experimental.subagent_depth')
+  if (-not (Has-Member $Existing 'agents') -or ($null -eq $Existing.agents)) {
+    Set-Prop $Existing 'agents' (New-Object PSObject)
+  }
+  $agentRes = Merge-ManagedAgentConfigV2 $Existing.agents $Desired.agents
+  foreach ($p in $agentRes.ManagedPaths) { [void]$managedPaths.Add($p) }
+  return @{ Config = $Existing; ManagedPaths = $managedPaths }
+}
+
 # ---- 2.4 precheck -----------------------------------------------------------
 function Validate-Models([string]$ModelsPath) {
   $errs = @()
@@ -523,15 +634,26 @@ function Validate-Models([string]$ModelsPath) {
   return @{ Ok = $true; Errors = @(); Values = $parsed }
 }
 
-function Validate-RequiredFiles([string]$Root) {
+function Get-RequiredTemplatesForRuntime([string]$RuntimeId) {
+  if ([string]$RuntimeId -eq 'opencode-v2') { return @('templates\opencode.v2.json.tmpl') }
+  return @('templates\opencode.v1.json.tmpl')
+}
+
+function Validate-RequiredFiles([string]$Root, [string[]]$RequiredTemplates) {
+  if ($null -eq $RequiredTemplates) { $RequiredTemplates = @('templates\opencode.v1.json.tmpl', 'templates\opencode.v2.json.tmpl') }
   $errs = @()
-  foreach ($rel in @('source\global\AGENTS.md', 'source\adapters\opencode.md', 'templates\opencode.v1.json.tmpl', 'plugins\orchestration-enforcement.ts')) {
+  foreach ($rel in @('source\global\AGENTS.md', 'source\adapters\opencode.md', 'source\adapters\opencode-v2.md', 'scripts\runtime\lib\AgentTranslator.ps1', 'plugins\orchestration-enforcement.ts')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $rel) -PathType Leaf)) {
       $errs += ('fonte obrigatoria ausente: ' + $rel)
     }
   }
   $agents = @(Get-ChildItem -File (Join-Path $Root 'source\agents\*.md') -ErrorAction SilentlyContinue)
   if ($agents.Count -ne 19) { $errs += ('source\agents: esperado 19 .md, encontrado ' + $agents.Count) }
+  foreach ($trel in @($RequiredTemplates)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $Root $trel) -PathType Leaf)) {
+      $errs += ('fonte obrigatoria ausente: ' + $trel)
+    }
+  }
   foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root ('skills-core\' + $s + '\SKILL.md')) -PathType Leaf)) {
       $errs += ('skill-core ausente: ' + $s + '/SKILL.md')
@@ -585,6 +707,101 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   }
   else { $errs += 'template: bloco agent.build ausente.' }
   if ((Count-TokenMarkers $resolved) -ne 0) { $errs += 'template: tokens nao resolvidos apos substituicao.' }
+  if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Desired = $null } }
+  return @{ Ok = $true; Errors = @(); Desired = $desired }
+}
+
+function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong) {
+  # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
+  # experimental.subagent_depth), 17 blocos agents, build sem model,
+  # tokens resolvidos. Mesmos exit paths (precheck exit 3, nada escrito).
+  $errs = @()
+  $tmplPath = Join-Path $Root 'templates\opencode.v2.json.tmpl'
+  if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
+    return @{ Ok = $false; Errors = @('template V2 ausente'); Desired = $null }
+  }
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $env:USERPROFILE $Root
+  try {
+    $desired = $resolved | ConvertFrom-Json
+  }
+  catch {
+    return @{ Ok = $false; Errors = @('template V2 nao e JSON valido pos-token: ' + $_.Exception.Message); Desired = $null }
+  }
+  $agentCount = 0
+  if (Has-Member $desired 'agents') {
+    $agentCount = @($desired.agents.PSObject.Properties.Name).Count
+  }
+  if ($agentCount -ne 17) { $errs += ('template V2: esperado 17 blocos agents, encontrado ' + $agentCount) }
+  if (Has-Member $desired 'agents') {
+    if (Has-Member $desired.agents 'build') {
+      if (Has-Member $desired.agents.build 'model') {
+        $errs += 'template V2: bloco build nao deve conter "model" (DH-03, heranca de sessao).'
+      }
+      if (-not (Has-Member $desired.agents.build 'permissions')) {
+        $errs += 'template V2: bloco agents.build sem permissions array.'
+      }
+    }
+    else { $errs += 'template V2: bloco agents.build ausente.' }
+    if (Has-Member $desired.agents 'title') {
+      if (Has-Member $desired.agents.title 'permissions') {
+        $errs += 'template V2: bloco title nao deve conter permissions.'
+      }
+    }
+    else { $errs += 'template V2: bloco agents.title ausente.' }
+  }
+  else { $errs += 'template V2: bloco agents ausente.' }
+  if (Has-Member $desired 'agent') { $errs += 'template V2: contem chave legada "agent" (singular).' }
+  if (Has-Member $desired 'subagent_depth') { $errs += 'template V2: contem chave legada "subagent_depth" no topo (use experimental.subagent_depth).' }
+  if (-not (Has-Member $desired 'experimental')) { $errs += 'template V2: bloco experimental ausente.' }
+  if ((Has-Member $desired 'experimental') -and ($null -ne $desired.experimental) -and (Has-Member $desired.experimental 'subagent_depth')) {
+    $sdV2 = $desired.experimental.subagent_depth
+    $sdOkV2 = $false
+    if (($sdV2 -is [int]) -or ($sdV2 -is [long])) { if ([int64]$sdV2 -ge 1) { $sdOkV2 = $true } }
+    elseif ($sdV2 -is [double]) { if (($sdV2 -eq [Math]::Floor($sdV2)) -and ($sdV2 -ge 1)) { $sdOkV2 = $true } }
+    if (-not $sdOkV2) { $errs += 'template V2: experimental.subagent_depth deve ser inteiro >= 1.' }
+  }
+  else { $errs += 'template V2: experimental.subagent_depth ausente.' }
+  if (Has-Member $desired 'agents') {
+    if (($null -eq $desired.agents) -or ($desired.agents -is [array]) -or ($desired.agents -is [string])) {
+      $errs += 'template V2: bloco agents deve ser objeto.'
+    }
+    else {
+      foreach ($akV2 in @($desired.agents.PSObject.Properties.Name)) {
+        $nodeV2 = $desired.agents.$akV2
+        if (($null -ne $nodeV2) -and (Has-Member $nodeV2 'permissions')) {
+          $permsV2 = $nodeV2.permissions
+          if (-not ($permsV2 -is [array])) {
+            $errs += ('template V2: agents.' + $akV2 + '.permissions deve ser array.')
+          }
+          else {
+            $piV2 = 0
+            foreach ($pV2 in @($permsV2)) {
+              $entryOkV2 = $true
+              if (($null -eq $pV2) -or (-not (Has-Member $pV2 'action')) -or (-not ($pV2.action -is [string])) -or ([string]$pV2.action -eq '')) { $entryOkV2 = $false }
+              if (($null -eq $pV2) -or (-not (Has-Member $pV2 'resource')) -or (-not ($pV2.resource -is [string])) -or ([string]$pV2.resource -eq '')) { $entryOkV2 = $false }
+              if (($null -eq $pV2) -or (-not (Has-Member $pV2 'effect'))) { $entryOkV2 = $false }
+              elseif (@('allow', 'ask', 'deny') -cnotcontains [string]$pV2.effect) { $entryOkV2 = $false }
+              if (-not $entryOkV2) { $errs += ('template V2: agents.' + $akV2 + '.permissions[' + $piV2 + '] requer action/resource/effect validos (effect em allow|ask|deny).') }
+              $piV2 += 1
+            }
+          }
+        }
+      }
+      if ((Has-Member $desired.agents 'build') -and ($null -ne $desired.agents.build) -and (Has-Member $desired.agents.build 'permissions')) {
+        $bpV2 = $desired.agents.build.permissions
+        if (($bpV2 -is [array]) -and (@($bpV2).Count -gt 0)) {
+          $firstV2 = @($bpV2)[0]
+          if (($null -eq $firstV2) -or ([string]$firstV2.action -ne 'subagent') -or ([string]$firstV2.resource -ne '*') -or ([string]$firstV2.effect -ne 'deny')) {
+            $errs += 'template V2: agents.build.permissions[0] deve ser {action:subagent, resource:*, effect:deny}.'
+          }
+        }
+        else {
+          $errs += 'template V2: bloco agents.build sem permissions array.'
+        }
+      }
+    }
+  }
+  if ((Count-TokenMarkers $resolved) -ne 0) { $errs += 'template V2: tokens nao resolvidos apos substituicao.' }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Desired = $null } }
   return @{ Ok = $true; Errors = @(); Desired = $desired }
 }
@@ -665,6 +882,63 @@ function Validate-V3Dependencies([string]$Root) {
   return @{ Ok = $true; Errors = @() }
 }
 
+# ---- Phase 6: smoke V2 pos-install (best-effort) ------------------------------
+# DECISAO Phase 6: smoke roda apos o apply como VALIDACAO POS com warning
+# (exit 0 mantido). Smoke bloqueante (exit 5 / rollback) entra na Phase 8
+# (CI). Motivo: install em TargetHome isolado nao requer binario global;
+# binario ausente ou nao-V2 => smoke skipped com motivo, arquivos ok.
+function Invoke-V2PostInstallSmoke([string]$TargetHome) {
+  try {
+    $bin = Get-Command 'opencode' -ErrorAction SilentlyContinue
+    if ($null -eq $bin) {
+      Write-Host '[smoke v2] skipped: binario opencode ausente no PATH (install de arquivos ok).' -ForegroundColor Yellow
+      return
+    }
+    $pr = Invoke-RuntimeProbe -ProbeCommand @('opencode', '--version') -TimeoutMs 15000
+    if (-not $pr.Ok) {
+      Write-Host ('[smoke v2] skipped: probe de versao indisponivel (' + [string]$pr.Reason + ').') -ForegroundColor Yellow
+      return
+    }
+    $parsed = Get-RuntimeFromVersionOutput -VersionText $pr.Output
+    if ((-not $parsed.Known) -or ([int]$parsed.Generation -ne 2)) {
+      Write-Host ('[smoke v2] skipped: binario no PATH nao e V2 (' + [string]$parsed.Reason + ').') -ForegroundColor Yellow
+      return
+    }
+    $verLine = ([string]$pr.Output -split "`r?`n" | Select-Object -First 1)
+    Write-Host ('[smoke v2] version 2.x reconhecida: ' + $verLine) -ForegroundColor DarkGray
+    # debug paths sob XDG isolado: valida que o binario real resolve o
+    # config root dentro do TargetHome instalado (prova de isolamento).
+    # NOTA: `debug config` trava headless (aguarda o background service;
+    # verificado: --help instantaneo, chamada nua trava >15s mesmo com stdin
+    # fechado) e foi trocado por `debug paths` aqui; validacao completa
+    # (incl. parse com default_agent e plugin load V2) fica para a Phase 8.
+    # Sem Kill de arvore: debug paths responde rapido e nao deixa orfaos.
+    $oldXdg = $env:XDG_CONFIG_HOME
+    try {
+      $env:XDG_CONFIG_HOME = $TargetHome
+      $dc = Invoke-RuntimeProbe -ProbeCommand @('opencode', 'debug', 'paths') -TimeoutMs 20000
+    }
+    finally {
+      $env:XDG_CONFIG_HOME = $oldXdg
+    }
+    if (-not $dc.Ok) {
+      Write-Host ('[smoke v2] warning: opencode debug paths indisponivel (' + [string]$dc.Reason + '); validacao completa na Phase 8.') -ForegroundColor Yellow
+      return
+    }
+    $homeSlash = ($TargetHome -replace '\\', '/')
+    $homeBack = ($TargetHome -replace '/', '\')
+    if ((([string]$dc.Output).Contains($homeSlash)) -or (([string]$dc.Output).Contains($homeBack))) {
+      Write-Host '[smoke v2] ok: debug paths resolve config dentro do TargetHome instalado.' -ForegroundColor Green
+    }
+    else {
+      Write-Host '[smoke v2] warning: debug paths sem TargetHome no output; validacao completa na Phase 8.' -ForegroundColor Yellow
+    }
+  }
+  catch {
+    Write-Host ('[smoke v2] warning: smoke falhou sem bloquear (' + $_.Exception.Message + ').') -ForegroundColor Yellow
+  }
+}
+
 # ---- main -------------------------------------------------------------------
 $ocDir = Join-Path $TargetHome '.config\opencode'
 $modelsPath = Join-Path $RepoRoot 'models.jsonc'
@@ -674,19 +948,94 @@ $preErrors = New-Object System.Collections.ArrayList
 $modelsRes = Validate-Models $modelsPath
 if (-not $modelsRes.Ok) { foreach ($e in $modelsRes.Errors) { [void]$preErrors.Add($e) } }
 
-$reqRes = Validate-RequiredFiles $RepoRoot
+# ---- Phase 6 (V3.1): runtime resolution ANTES do precheck de templates -----
+# V31-R3 F3: -Runtime V1 exige so o template v1; -Runtime V2 exige so o v2;
+# Auto exige so o do alvo resolvido. Fail closed (exit 6) sem escrita quando
+# nao resolvido. Nao altera o caminho legado V1.
+$runtimeLib = Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeAdapters.ps1'
+$runtimeRegistryPath = Join-Path $RepoRoot 'source\registry\runtimes.json'
+try {
+  . $runtimeLib
+  $runtimeRegistry = Read-RuntimeRegistry -RegistryPath $runtimeRegistryPath
+}
+catch {
+  Write-Host ('[install] runtime=' + $Runtime + ' decision=unresolved reason=registry ilegivel: ' + $_.Exception.Message) -ForegroundColor Red
+  Write-Host 'Resolucao do runtime falhou. Passe -Runtime V1 para o comportamento legado.' -ForegroundColor Red
+  exit 6
+}
+$runtimeMode = $Runtime
+$runtimeDecision = $null
+if ($runtimeMode -eq 'Both') {
+  Write-Host ('[install] runtime=Both decision=deferred reason=perfis isolados chegam na Phase 7 do plano V3.1')
+  Write-Host 'Modo Both bloqueado nesta fase: perfis isolados chegam na Phase 7. Use -Runtime V1, V2 ou Auto. Nada foi escrito.' -ForegroundColor Red
+  exit 6
+}
+$runtimeBin = Get-Command 'opencode' -ErrorAction SilentlyContinue
+# V31-P6-FIX-EXPLICIT: -Runtime explicito vence; probe SOMENTE no Auto.
+# V1/V2 explicitos resolvem o descriptor direto, SEM probe e SEM conflito
+# (instalar V2 num TargetHome isolado com V1 global no PATH e o caso de uso
+# primario da Phase 7 wrappers). A lib mantem o ramo conflict quando o
+# CHAMADOR passa ProbeCommand explicitamente (dupla checagem opt-in); o
+# installer nao usa esse ramo.
+if (($runtimeMode -eq 'V1') -or ($runtimeMode -eq 'V2')) {
+  $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode $runtimeMode
+  Write-Host ('[install] runtime=' + $runtimeMode + ' decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason)
+}
+else {
+  if ($null -ne $runtimeBin) {
+    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'Auto' -ProbeCommand @('opencode', '--version')
+  }
+  else {
+    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'Auto' -ProbeCommand @('__missing-opencode-binary__')
+  }
+  $autoId = ''
+  if ($null -ne $runtimeDecision.RuntimeId) { $autoId = [string]$runtimeDecision.RuntimeId }
+  if (([string]$runtimeDecision.Decision -eq 'target') -and (($autoId -eq 'opencode-v1') -or ($autoId -eq 'opencode-v2'))) {
+    Write-Host ('[install] runtime=Auto decision=target runtime=' + $autoId + ' reason=' + [string]$runtimeDecision.Reason)
+  }
+  elseif ([bool]$runtimeDecision.ProbeError) {
+    $binNow = Get-Command 'opencode' -ErrorAction SilentlyContinue
+    if ($null -eq $binNow) {
+      Write-Host ('[install] runtime probe indisponivel (' + [string]$runtimeDecision.Reason + '); assumindo V1 (comportamento legado)')
+      $runtimeDecision = @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'fallback legado (binario ausente, probe indisponivel)'; ProbeError = $true; ProbeErrorKind = 'binary-missing'; Mode = 'Auto'; ProbeOutput = '' }
+    }
+    else {
+      Write-Host ('[install] runtime=Auto decision=unresolved reason=probe inconclusivo com binario presente: ' + [string]$runtimeDecision.Reason) -ForegroundColor Red
+      Write-Host 'Probe do binario opencode inconclusivo (timeout/falha/saida vazia ou nao parseavel). Passe -Runtime V1 para forcar o comportamento legado. Nada foi escrito.' -ForegroundColor Red
+      exit 6
+    }
+  }
+  else {
+    Write-Host ('[install] runtime=Auto decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
+    Write-Host 'Runtime ambiguo ou nao reconhecido. Passe -Runtime V1 para o comportamento legado. Nada foi escrito.' -ForegroundColor Red
+    exit 6
+  }
+}
+$preRuntimeId = 'opencode-v1'
+if (($null -ne $runtimeDecision) -and ($null -ne $runtimeDecision.RuntimeId)) { $preRuntimeId = [string]$runtimeDecision.RuntimeId }
+$preTemplates = @(Get-RequiredTemplatesForRuntime $preRuntimeId)
+$preIsV2 = ($preRuntimeId -eq 'opencode-v2')
+
+$reqRes = Validate-RequiredFiles $RepoRoot $preTemplates
 if (-not $reqRes.Ok) { foreach ($e in $reqRes.Errors) { [void]$preErrors.Add($e) } }
 
 $defsRes = Validate-AgentDefinitions $RepoRoot
 if (-not $defsRes.Ok) { foreach ($e in $defsRes.Errors) { [void]$preErrors.Add($e) } }
 
 $tmplRes = @{ Ok = $false; Errors = @(); Desired = $null }
+$tmplResV2 = @{ Ok = $false; Errors = @(); Desired = $null }
 if ($modelsRes.Ok) {
-  $tmplRes = Validate-Template $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong
-  if (-not $tmplRes.Ok) { foreach ($e in $tmplRes.Errors) { [void]$preErrors.Add($e) } }
+  if ($preIsV2) {
+    $tmplResV2 = Validate-TemplateV2 $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong
+    if (-not $tmplResV2.Ok) { foreach ($e in $tmplResV2.Errors) { [void]$preErrors.Add($e) } }
+  }
+  else {
+    $tmplRes = Validate-Template $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong
+    if (-not $tmplRes.Ok) { foreach ($e in $tmplRes.Errors) { [void]$preErrors.Add($e) } }
+  }
 }
 else {
-  [void]$preErrors.Add('template nao validado (modelos invalidos).')
+  [void]$preErrors.Add('templates nao validados (modelos invalidos).')
 }
 
 $plugRes = Validate-PluginSource $RepoRoot
@@ -715,84 +1064,21 @@ $modelPlanner = $modelsRes.Values.planner
 $modelCheap = $modelsRes.Values.cheap
 $modelStrong = $modelsRes.Values.strong
 
-# ---- Phase 1 (V3.1): runtime resolution, forma no-op -------------------------
-# Resolve o runtime ANTES de qualquer escrita. V1/Auto->V1 seguem o fluxo
-# legado exatamente; qualquer outro desfecho aborta com exit 6 sem tocar
-# nada (fail closed). Nao altera o caminho legado.
-$runtimeLib = Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeAdapters.ps1'
-$runtimeRegistryPath = Join-Path $RepoRoot 'source\registry\runtimes.json'
-try {
-  . $runtimeLib
-  $runtimeRegistry = Read-RuntimeRegistry -RegistryPath $runtimeRegistryPath
-}
-catch {
-  Write-Host ('[install] runtime=' + $Runtime + ' decision=unresolved reason=registry ilegivel: ' + $_.Exception.Message) -ForegroundColor Red
-  Write-Host 'Resolucao do runtime falhou. Passe -Runtime V1 para o comportamento legado.' -ForegroundColor Red
-  exit 6
-}
-$runtimeMode = $Runtime
-$runtimeDecision = $null
-if (($runtimeMode -eq 'V2') -or ($runtimeMode -eq 'Both')) {
-  Write-Host ('[install] runtime=' + $runtimeMode + ' decision=deferred reason=renderer/instalador V2/Both ainda nao ativados (fases 6-7 do plano V3.1); flags permanecem conservadoras')
-  Write-Host 'renderer/instalador V2/Both ainda nao ativados (fases 6-7 do plano V3.1); flags permanecem conservadoras' -ForegroundColor Red
-  exit 6
-}
-$runtimeBin = Get-Command 'opencode' -ErrorAction SilentlyContinue
-if ($runtimeMode -eq 'V1') {
-  if ($null -ne $runtimeBin) {
-    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'V1' -ProbeCommand @('opencode', '--version')
-  }
-  else {
-    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'V1'
-  }
-  if ([string]$runtimeDecision.Decision -eq 'conflict') {
-    Write-Host ('[install] runtime=V1 decision=conflict reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
-    Write-Host 'Conflito de runtime: -Runtime V1 pedido mas o probe indica outra geracao. Nada foi escrito.' -ForegroundColor Red
-    exit 6
-  }
-  Write-Host ('[install] runtime=V1 decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason)
+# Runtime ja resolvido no precheck (V31-R3 F3); aqui so deriva o fluxo.
+$IsV2 = ([string]$runtimeDecision.RuntimeId -eq 'opencode-v2')
+$RuntimeId = 'opencode-v1'
+$RuntimeGeneration = 1
+$RuntimeProfile = 'v1'
+if ($IsV2) {
+  $RuntimeId = 'opencode-v2'
+  $RuntimeGeneration = 2
+  $RuntimeProfile = 'v2'
+  $OpenCodePluginSpec = $OpenCodePluginSpecV2
+  $desired = $tmplResV2.Desired
 }
 else {
-  # Auto: probeia apenas se o binario existir no PATH; sem binario, o probe
-  # e forcado a falhar de forma controlada para cair no caminho legado.
-  if ($null -ne $runtimeBin) {
-    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'Auto' -ProbeCommand @('opencode', '--version')
-  }
-  else {
-    $runtimeDecision = Resolve-OpencodeRuntime -Registry $runtimeRegistry -Mode 'Auto' -ProbeCommand @('__missing-opencode-binary__')
-  }
-  $autoId = ''
-  if ($null -ne $runtimeDecision.RuntimeId) { $autoId = [string]$runtimeDecision.RuntimeId }
-  if (([string]$runtimeDecision.Decision -eq 'target') -and ($autoId -eq 'opencode-v1')) {
-    Write-Host ('[install] runtime=Auto decision=target runtime=opencode-v1 reason=' + [string]$runtimeDecision.Reason)
-  }
-  elseif (([string]$runtimeDecision.Decision -eq 'target') -and ($autoId -eq 'opencode-v2')) {
-    Write-Host ('[install] runtime=Auto decision=target runtime=opencode-v2 reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
-    Write-Host 'Runtime OpenCode V2 detectado; renderer/instalador V2 ainda nao ativados (fases 6-7 do plano V3.1). Passe -Runtime V1 para o comportamento legado. Nada foi escrito.' -ForegroundColor Red
-    exit 6
-  }
-  elseif ([bool]$runtimeDecision.ProbeError) {
-    # Fail closed (V31-R1 F1): fallback legado para V1 SOMENTE com ausencia
-    # do executavel CONFIRMADA (Get-Command falha neste processo). Binario
-    # presente + probe inconclusivo (timeout/falha/saida vazia) => exit 6.
-    $binNow = Get-Command 'opencode' -ErrorAction SilentlyContinue
-    if ($null -eq $binNow) {
-      Write-Host ('[install] runtime probe indisponivel (' + [string]$runtimeDecision.Reason + '); assumindo V1 (comportamento legado)')
-      $runtimeDecision = @{ Decision = 'target'; RuntimeId = 'opencode-v1'; Generation = 1; Reason = 'fallback legado (binario ausente, probe indisponivel)'; ProbeError = $true; ProbeErrorKind = 'binary-missing'; Mode = 'Auto'; ProbeOutput = '' }
-    }
-    else {
-      Write-Host ('[install] runtime=Auto decision=unresolved reason=probe inconclusivo com binario presente: ' + [string]$runtimeDecision.Reason) -ForegroundColor Red
-      Write-Host 'Probe do binario opencode inconclusivo (timeout/falha/saida vazia ou nao parseavel). Passe -Runtime V1 para forcar o comportamento legado. Nada foi escrito.' -ForegroundColor Red
-      exit 6
-    }
-  }
-  else {
-    Write-Host ('[install] runtime=Auto decision=' + [string]$runtimeDecision.Decision + ' reason=' + [string]$runtimeDecision.Reason) -ForegroundColor Red
-    Write-Host 'Runtime ambiguo ou nao reconhecido. Passe -Runtime V1 para o comportamento legado. Nada foi escrito.' -ForegroundColor Red
-    exit 6
-  }
+  $desired = $tmplRes.Desired
 }
-$desired = $tmplRes.Desired
 
 # Conteudo desejado em memoria (sem writes) -----------------------------------
 $header = @'
@@ -801,7 +1087,9 @@ $header = @'
 <!-- This file is active only after scripts/reconcile-opencode-config.ps1 applies it. -->
 '@
 $globalBody = Read-Utf8 (Join-Path $RepoRoot 'source\global\AGENTS.md')
-$adapterBody = Read-Utf8 (Join-Path $RepoRoot 'source\adapters\opencode.md')
+$adapterRel = 'source\adapters\opencode.md'
+if ($IsV2) { $adapterRel = 'source\adapters\opencode-v2.md' }
+$adapterBody = Read-Utf8 (Join-Path $RepoRoot $adapterRel)
 $agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $TargetHome $RepoRoot
 
 $agentsTargetPath = Join-Path $ocDir 'AGENTS.md'
@@ -811,6 +1099,42 @@ $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $head
 
 $repoEsc = $RepoRoot.Replace('\', '\\')
 $agentFiles = @()
+if ($IsV2) {
+  # V2: frontmatter nativo (permissions array) via AgentTranslator pura
+  # (dot-source local, sem rede/binario/escrita). Corpo markdown intacto;
+  # tokens e bloco orchestration tratados igual ao V1 abaixo.
+  . (Join-Path $RepoRoot 'scripts\runtime\lib\AgentTranslator.ps1')
+  foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') | Sort-Object Name)) {
+    try {
+      $parsedV2 = Read-AgentFileCanonical -Path $f.FullName
+    }
+    catch {
+      Write-Host ('PRECHECK FAILED (exit 3): agente V2 nao traduz (parse canonico): ' + $f.Name + ': ' + $_.Exception.Message) -ForegroundColor Red
+      exit 3
+    }
+    try {
+      $resV2 = Convert-CanonicalToV2Frontmatter -Canonical $parsedV2.Canonical
+    }
+    catch {
+      Write-Host ('PRECHECK FAILED (exit 3): agente V2 nao traduz (emissao V2): ' + $f.Name + ': ' + $_.Exception.Message) -ForegroundColor Red
+      exit 3
+    }
+    $fmText = [string]$resV2.Text
+    $fmText = $fmText.Replace('{{MODEL_PLANNER}}', $modelPlanner)
+    $fmText = $fmText.Replace('{{MODEL_CHEAP}}', $modelCheap)
+    $fmText = $fmText.Replace('{{MODEL_STRONG}}', $modelStrong)
+    $fmText = $fmText.Replace('{{REPO_DIR}}', $repoEsc)
+    $fmText = $fmText.Replace('{{HOME}}', ($TargetHome -replace '\\', '/'))
+    $bodyV2 = [string]$parsedV2.Body
+    $bodyV2 = $bodyV2.Replace('{{REPO_DIR}}', $repoEsc)
+    $bodyV2 = $bodyV2.Replace('{{HOME}}', ($TargetHome -replace '\\', '/'))
+    $fullV2 = ('---' + "`n" + $fmText + "`n" + '---' + "`n" + $bodyV2)
+    $noNl = ($fullV2 -replace "`r`n", "`n" -replace "`r", "`n")
+    $clean = Remove-OrchestrationBlock ($noNl -split "`n")
+    $agentFiles += @{ Name = $f.Name; Text = ($clean.TrimEnd() + "`n") }
+  }
+}
+else {
 foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') | Sort-Object Name)) {
   $raw = Read-Utf8 $f.FullName
   $raw = $raw.Replace('{{MODEL_PLANNER}}', $modelPlanner)
@@ -821,6 +1145,7 @@ foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') 
   $noNl = ($raw -replace "`r`n", "`n" -replace "`r", "`n")
   $clean = Remove-OrchestrationBlock ($noNl -split "`n")
   $agentFiles += @{ Name = $f.Name; Text = ($clean.TrimEnd() + "`n") }
+}
 }
 
 # P4: o instalado e o BUNDLE autocontido (fonte .ts tem imports relativos
@@ -871,13 +1196,21 @@ $managedPaths = @()
 $adoptedNow = @()
 if ($null -eq $existingJsonObj) {
   $mergedObj = $desired
-  $managedPaths = @(Get-DesiredManagedPaths $desired)
+  if ($IsV2) { $managedPaths = @(Get-DesiredManagedPathsV2 $desired) }
+  else { $managedPaths = @(Get-DesiredManagedPaths $desired) }
 }
 else {
   $clone = (Strip-JsoncComments $existingJsonRaw) | ConvertFrom-Json
-  $mergeRes = Merge-ManagedOpencodeConfig $clone $desired
-  $mergedObj = $mergeRes.Config
-  $managedPaths = @(Get-DesiredManagedPaths $desired)
+  if ($IsV2) {
+    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired
+    $mergedObj = $mergeRes.Config
+    $managedPaths = @(Get-DesiredManagedPathsV2 $desired)
+  }
+  else {
+    $mergeRes = Merge-ManagedOpencodeConfig $clone $desired
+    $mergedObj = $mergeRes.Config
+    $managedPaths = @(Get-DesiredManagedPaths $desired)
+  }
 }
 $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 
@@ -997,6 +1330,75 @@ if ($bothConfigsExist) {
 }
 if ($null -eq $existingJsonObj) {
   Add-Plan 'CREATE' ($configFileName + ' (merged completo)')
+}
+elseif ($IsV2) {
+  # Plano V2: mesma semantica do V1 sobre o dialeto nativo (agents/
+  # permissions/experimental.subagent_depth). Agentes e chaves desconhecidas
+  # sao PRESERVE (nunca tocados).
+  $before = $existingJsonObj
+  $after = $mergedObj
+  foreach ($mp in @('$schema', 'model', 'default_agent')) {
+    $bv = $null; $av = $null
+    if (Has-Member $before $mp) { $bv = Convert-Canonical $before.$mp }
+    if (Has-Member $after $mp) { $av = Convert-Canonical $after.$mp }
+    if ($bv -ne $av) {
+      Add-Plan 'UPDATE' $mp
+    }
+  }
+  $bev = $null; $aev = $null
+  if ((Has-Member $before 'experimental') -and ($null -ne $before.experimental) -and (Has-Member $before.experimental 'subagent_depth')) { $bev = Convert-Canonical $before.experimental.subagent_depth }
+  if ((Has-Member $after 'experimental') -and ($null -ne $after.experimental) -and (Has-Member $after.experimental 'subagent_depth')) { $aev = Convert-Canonical $after.experimental.subagent_depth }
+  if ($bev -ne $aev) { Add-Plan 'UPDATE' 'experimental.subagent_depth' }
+  if (Has-Member $after 'agents') {
+    foreach ($ak in @($after.agents.PSObject.Properties.Name)) {
+      $isKnown = Has-Member $desired.agents $ak
+      if (-not $isKnown) { continue }
+      foreach ($leaf in @('mode', 'model', 'permissions')) {
+        $hasB = (Has-Member $before.agents $ak) -and (Has-Member $before.agents.$ak $leaf)
+        $bv = $null
+        if ($hasB) { $bv = Convert-Canonical $before.agents.$ak.$leaf }
+        $hasA = (Has-Member $after.agents $ak) -and (Has-Member $after.agents.$ak $leaf)
+        $av = $null
+        if ($hasA) { $av = Convert-Canonical $after.agents.$ak.$leaf }
+        if ($ak -eq 'build' -and $leaf -eq 'model') {
+          if ($hasB) { Add-Plan 'UPDATE' 'agents.build.model (REMOVIDO, heranca de sessao)' }
+          continue
+        }
+        if ($bv -ne $av) { Add-Plan 'UPDATE' ('agents.' + $ak + '.' + $leaf) }
+      }
+    }
+  }
+  if (Has-Member $before 'mcp') { Add-Plan 'PRESERVE' 'mcp.*' }
+  $knownTopV2 = @('$schema', 'model', 'default_agent', 'experimental', 'agents', 'mcp')
+  foreach ($tk in @($before.PSObject.Properties.Name)) {
+    if ($knownTopV2 -notcontains $tk) { Add-Plan 'PRESERVE' ($tk + ' (chave de topo desconhecida)') }
+  }
+  if ((Has-Member $before 'experimental') -and ($null -ne $before.experimental)) {
+    foreach ($ek in @($before.experimental.PSObject.Properties.Name)) {
+      if ($ek -ne 'subagent_depth') { Add-Plan 'PRESERVE' ('experimental.' + $ek + ' (propriedade desconhecida)') }
+    }
+  }
+  if ((Has-Member $before 'agents') -and ($null -ne $before.agents)) {
+    foreach ($ak in @($before.agents.PSObject.Properties.Name)) {
+      if (-not (Has-Member $desired.agents $ak)) {
+        Add-Plan 'PRESERVE' ('agents.' + $ak + ' (agente desconhecido, intacto)')
+        continue
+      }
+      foreach ($prop in @($before.agents.$ak.PSObject.Properties.Name)) {
+        if (@('mode', 'model', 'permissions') -notcontains $prop) {
+          Add-Plan 'PRESERVE' ('agents.' + $ak + '.' + $prop + ' (propriedade desconhecida)')
+        }
+      }
+    }
+  }
+  if ((Has-Member $before 'agents') -and (Has-Member $before.agents 'build')) {
+    if (Has-Member $before.agents.build 'model') {
+      Add-Plan 'UPDATE' 'agents.build.model (REMOVIDO, heranca de sessao)'
+    }
+  }
+  if (($configFileName -eq 'opencode.jsonc') -and $configHadComments) {
+    Add-Plan 'UPDATE' 'opencode.jsonc (merged; comentarios normalizados)'
+  }
 }
 else {
   $before = $existingJsonObj
@@ -1321,7 +1723,10 @@ try {
     }
     catch { $rev = 'unknown' }
     $snapshot = @{}
-    foreach ($mp in @(Get-DesiredManagedPaths $desired)) {
+    $snapshotPaths = @()
+    if ($IsV2) { $snapshotPaths = @(Get-DesiredManagedPathsV2 $desired) }
+    else { $snapshotPaths = @(Get-DesiredManagedPaths $desired) }
+    foreach ($mp in $snapshotPaths) {
       try {
         if ($mp -eq 'agent.build.model=ABSENT') { $snapshot[$mp] = 'ABSENT'; continue }
         $parts = $mp -split '\.'
@@ -1374,6 +1779,7 @@ try {
       installed_at = (Get-Date).ToString('o')
       source_revision = $rev
       target_home = $TargetHome
+      runtime = [ordered]@{ id = $RuntimeId; generation = $RuntimeGeneration; profile = $RuntimeProfile }
       managed_files = @($managedFiles)
       managed_config_paths = @($managedPaths)
       adopted_paths = @($adoptedUnion)
@@ -1508,69 +1914,14 @@ catch {
   exit 5
 }
 
-# Dependencia do plugin (best-effort, fora da transacao) -------------------------
-# Pin do manifest/typecheck: quando o diretorio ja existe, a versao instalada
-# e comparada (parse tolerante de package.json); divergencia reinstala com a
-# mesma semantica best-effort (aviso sem abortar). package.json ilegivel
-# conta como divergente.
-$pluginDep = Join-Path $ocDir 'node_modules\@opencode-ai\plugin'
-$pluginPinned = $OpenCodePluginSpec.Substring($OpenCodePluginSpec.LastIndexOf('@') + 1)
-$pluginHadDir = Test-Path -LiteralPath $pluginDep
-$pluginOldVersion = $null
-$pluginNeedInstall = $false
-if (-not $pluginHadDir) { $pluginNeedInstall = $true }
-else {
-  $pluginPkgPath = Join-Path $pluginDep 'package.json'
-  try {
-    $pluginPkgObj = ([IO.File]::ReadAllText($pluginPkgPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
-    $pluginVer = $null
-    if (Has-Member $pluginPkgObj 'version') { $pluginVer = [string]$pluginPkgObj.version }
-    $pluginOldVersion = $pluginVer
-    if ([string]::IsNullOrWhiteSpace($pluginVer)) { $pluginNeedInstall = $true }
-    elseif ($pluginVer -ne $pluginPinned) { $pluginNeedInstall = $true }
-  }
-  catch { $pluginOldVersion = $null; $pluginNeedInstall = $true }
-}
-if ($pluginNeedInstall) {
-  $bun = Get-Command 'bun' -ErrorAction SilentlyContinue
-  $npm = Get-Command 'npm' -ErrorAction SilentlyContinue
-  $installed = $false
-  if ($bun -ne $null) {
-    if ($PSCmdlet.ShouldProcess($ocDir, 'bun add ' + $OpenCodePluginSpec)) {
-      Push-Location $ocDir
-      try {
-        & bun add $OpenCodePluginSpec
-        if ($LASTEXITCODE -eq 0) { $installed = $true } else { Write-Host ("bun add " + $OpenCodePluginSpec + " falhou (exit " + $LASTEXITCODE + "). Tentando npm...") -ForegroundColor Yellow }
-      }
-      catch {
-        Write-Host ("bun add " + $OpenCodePluginSpec + " falhou: " + $_) -ForegroundColor Yellow
-      }
-      Pop-Location
-    }
-    else { $installed = $true }
-  }
-  if ((-not $installed) -and ($npm -ne $null)) {
-    if ($PSCmdlet.ShouldProcess($ocDir, 'npm install ' + $OpenCodePluginSpec)) {
-      try {
-        & npm install $OpenCodePluginSpec --prefix $ocDir
-        if ($LASTEXITCODE -eq 0) { $installed = $true } else { Write-Host ("npm install " + $OpenCodePluginSpec + " falhou (exit " + $LASTEXITCODE + ").") -ForegroundColor Yellow }
-      }
-      catch {
-        Write-Host ("npm install " + $OpenCodePluginSpec + " falhou: " + $_) -ForegroundColor Yellow
-      }
-    }
-    else { $installed = $true }
-  }
-  if (-not $installed) {
-    Write-Host ('AVISO: nao foi possivel instalar ' + $OpenCodePluginSpec + ' (bun/npm indisponiveis ou falharam). Instale manualmente: cd ' + $ocDir + '; bun add ' + $OpenCodePluginSpec) -ForegroundColor Yellow
-  }
-  elseif ($pluginHadDir) {
-    $oldLabel = $pluginOldVersion
-    if ([string]::IsNullOrWhiteSpace($oldLabel)) { $oldLabel = 'desconhecida' }
-    Write-Host ('plugin dependency atualizada de ' + $oldLabel + ' para ' + $pluginPinned)
-  }
-}
+# Smoke V2 pos-install (best-effort, warning; ver decisao na Phase 6 acima) ---
+if ($IsV2) { Invoke-V2PostInstallSmoke -TargetHome $TargetHome }
 
+# Dependencia do plugin: METADADO offline, sem rede ------------------------------
+# plugin_dependency no manifest documenta qual API o bundle alvo usa; o bundle
+# distribuido (plugins/dist/orchestration-enforcement.js) e autocontido e nao
+# requer node_modules em runtime. Install 100% offline: nenhuma chamada
+# bun/npm aqui (validacao da dependency vive no CI typecheck-plugin.ps1).
 Write-Host ''
 Write-Host 'Instalacao concluida.' -ForegroundColor Green
 Write-Host 'Plano aplicado:'

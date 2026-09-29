@@ -198,13 +198,30 @@ try {
   Assert-That ([string]$ownerSection -eq 'control-plane') 'Registry opencode ownership preservada' ([string]$ownerSection)
   Assert-That ([string]$reg.selection.default_runtime -eq 'opencode') 'Registry selection default_runtime=opencode' ([string]$reg.selection.default_runtime)
 
-  # --- Instalador (a): -Runtime V2 -WhatIf -> exit 6 sem tocar nada ---
+  # --- Instalador (a): -Runtime V2 -WhatIf -> plano V2 sem escrita (Phase 6 ativa) ---
   $homeA = Join-Path $base 'home-a'
   New-Item -ItemType Directory -Path $homeA -Force | Out-Null
-  $ia = Invoke-Child -File $psExe -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "' + $installPs1 + '" -Runtime V2 -WhatIf -TargetHome "' + $homeA + '"')
-  Assert-That ([int]$ia.Code -eq 6) 'Installer -Runtime V2 -WhatIf => exit 6' ('exit=' + $ia.Code + ' out=' + [string]$ia.Out)
+  $emptyA = Join-Path $base 'empty-a'
+  New-Item -ItemType Directory -Path $emptyA -Force | Out-Null
+  $ia = Invoke-Child -File $psExe -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "' + $installPs1 + '" -Runtime V2 -WhatIf -TargetHome "' + $homeA + '"') -PathOverride $emptyA
+  Assert-That ([int]$ia.Code -eq 0) 'Installer -Runtime V2 -WhatIf => exit 0' ('exit=' + $ia.Code + ' out=' + [string]$ia.Out)
+  Assert-That (([string]$ia.Out -like '*runtime=V2*')) 'Installer -Runtime V2 registra decisao no log' ([string]$ia.Out)
+  Assert-That (([string]$ia.Out -like '*INSTALL PLAN*')) 'Installer -Runtime V2 -WhatIf imprime plano' ([string]$ia.Out)
   $afterA = @(Get-ChildItem -LiteralPath $homeA -Force -ErrorAction SilentlyContinue)
-  Assert-That ($afterA.Count -eq 0) 'Installer -Runtime V2 nao escreveu nada' ('arquivos=' + $afterA.Count)
+  Assert-That ($afterA.Count -eq 0) 'Installer -Runtime V2 -WhatIf nao escreveu nada' ('arquivos=' + $afterA.Count)
+
+  # --- Instalador (a2): V31-P6-FIX-EXPLICIT: -Runtime V2 -WhatIf com V1 global no PATH => exit 0 (explicit wins, sem probe) ---
+  $homeA2 = Join-Path $base 'home-a2'
+  New-Item -ItemType Directory -Path $homeA2 -Force | Out-Null
+  $shimV1Dir = Join-Path $base 'shim-v1-global'
+  New-Item -ItemType Directory -Path $shimV1Dir -Force | Out-Null
+  Write-Fixture -Path (Join-Path $shimV1Dir 'opencode.cmd') -Text ('@echo off' + "`n" + 'echo 1.18.32' + "`n")
+  $ia2 = Invoke-Child -File $psExe -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "' + $installPs1 + '" -Runtime V2 -WhatIf -TargetHome "' + $homeA2 + '"') -PathOverride $shimV1Dir
+  Assert-That ([int]$ia2.Code -eq 0) 'Installer -Runtime V2 -WhatIf com V1 global => exit 0 (explicit wins)' ('exit=' + $ia2.Code + ' out=' + [string]$ia2.Out)
+  Assert-That (([string]$ia2.Out -like '*runtime=V2*')) 'Installer -Runtime V2 com V1 global registra runtime=V2' ([string]$ia2.Out)
+  Assert-That (([string]$ia2.Out -like '*INSTALL PLAN*')) 'Installer -Runtime V2 com V1 global imprime plano' ([string]$ia2.Out)
+  $afterA2 = @(Get-ChildItem -LiteralPath $homeA2 -Force -ErrorAction SilentlyContinue)
+  Assert-That ($afterA2.Count -eq 0) 'Installer -Runtime V2 com V1 global nao escreveu nada' ('arquivos=' + $afterA2.Count)
 
   # --- Instalador (b): -Runtime Auto sem opencode no PATH -> assume V1 com aviso ---
   $homeB = Join-Path $base 'home-b'
