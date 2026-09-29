@@ -5,15 +5,18 @@
 Sintoma: nenhum mandato `[orchestration-enforcement:v1]` na sessão.
 
 1. Dependência ausente é a causa mais comum: confira
-   `.config/opencode/node_modules/@opencode-ai/plugin`. Se faltar,
-   instale manualmente e reinicie o OpenCode:
+   `.config/opencode/node_modules/@opencode-ai/plugin` (V1) ou
+   `.config/opencode/node_modules/@opencode/plugin` (V2). Se faltar,
+   instale a do seu runtime e reinicie o OpenCode:
    ```powershell
    cd ~/.config/opencode
-    bun add @opencode-ai/plugin@1.18.32
-    # ou: npm install @opencode-ai/plugin@1.18.32 --prefix ~/.config/opencode
+    bun add @opencode-ai/plugin@1.18.32   # runtime V1
+    # ou: bun add @opencode/plugin@2.0.18 # runtime V2
+    # ou: npm install <spec> --prefix ~/.config/opencode
    ```
-2. Confira que `.config/opencode/plugins/orchestration-enforcement.ts`
-   existe (é o que o `install.ps1` instala).
+2. Confira que `.config/opencode/plugins/orchestration-enforcement.js`
+   existe (bundle autocontido; é o que o `install.ps1` instala hoje — um
+   `.ts` legado é adotado para backup e removido).
 3. Reinicie o OpenCode após instalar dependência ou plugin — carrega no boot.
 
 ## Provider rejeita o system prompt (prompt muito longo)
@@ -28,7 +31,7 @@ Se mesmo assim o provider reclamar de tamanho:
 
 1. Rode com `-NoCoreSkills` na próxima instalação para reduzir skills.
 2. Para remover **só o plugin** (mantendo agents e `AGENTS.md`): apague
-   `.config/opencode/plugins/orchestration-enforcement.ts` e reinicie.
+   `.config/opencode/plugins/orchestration-enforcement.js` e reinicie.
    Sem o plugin, o sistema continua valendo por `AGENTS.md` + preflight —
    você só perde o mandato automático e a telemetria.
 
@@ -61,19 +64,28 @@ Corrija, rode `.\install.ps1 -WhatIf` e depois `.\install.ps1`.
 
 ## OpenCode atualizou — e agora?
 
-Política de suporte: a linha **OpenCode V1.x** é suportada (CI valida com
-**1.18.32**, pacote npm `opencode-ai`). OpenCode **V2** (pacote
-`@opencode-ai/cli`, comando `opencode2`) **não é suportado** — migração
-futura é decisão explícita.
+Política de suporte: as linhas **OpenCode V1.x** (pacote npm
+`opencode-ai`, CI valida com **1.18.32**) e **OpenCode V2** (pacote
+`@opencode/cli`, validado com **2.0.18**) são suportadas (programa V3.1).
+O `install.ps1 -Runtime Auto` detecta a geração pelo probe; explícito
+(`-Runtime V1`/`-Runtime V2`) sempre vence. Uma versão **mais nova e ainda
+não testada** de qualquer linha pode ser "esperadamente compatível", mas
+só vira "validada" depois de smoke/suítes verdes — nesse meio tempo,
+reinstale e revalide.
 
-Colisão V1/V2 (os dois comandos instalados): confira qual responde —
+Colisão de gerações no `PATH` (ambas respondem a `opencode`): confira qual
+responde —
 
 ```powershell
-opencode --version   # deve ser 1.x
-opencode2 --version  # se existir, é a V2 — não suportada por este pacote
+opencode --version   # 1.x => geração V1; 2.x => geração V2
 ```
 
-Após atualizar o runtime **dentro da linha V1**, revalide com a suíte:
+Para as duas lado a lado, **não** compartilhe config: use perfis isolados
+(`.\install.ps1 -Runtime Both` ou
+`scripts\runtime\new-opencode-profile.ps1`) — cada perfil tem seu próprio
+config root e wrapper (`opencode-v1.ps1`/`opencode-v2.ps1`).
+
+Após atualizar o runtime **dentro da linha**, revalide com as suítes:
 
 ```powershell
 powershell -NoProfile -File scripts\test-package-consistency.ps1
@@ -82,6 +94,26 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 
 Tudo verde → compatível. Falha em suite → abra o log da suite indicada
 pelo runner antes de reinstalar ou mudar config.
+
+### Falha conhecida: invariante "opencode.json vivo inalterado"
+
+Sintoma: 4 suítes V3 (`CapabilityDeferred`, `CapabilityObservability`,
+`CapabilitySkillUtility`, `shadow-route`) falham com
+`opencode.json vivo inalterado (prefixo DE22307F)` e um hash obtido
+diferente.
+
+Causa: essas suítes protegem um invariante de origem — o `opencode.json`
+vivo do control plane deve ser byte-idêntico ao baseline canônico. Se o
+config vivo da máquina foi editado fora do `render`/`reconcile` (ou por
+outro runtime/instalação), o invariante dispara. **Não é regressão do
+pacote** — registre que o mesmo desvio já existia no baseline congelado
+(`evidence/v3.1/kernel-hardening/baseline.json`).
+
+Tratamento: reconcilie o config vivo com o canônico
+(`scripts\render-opencode-config.ps1` +
+`scripts\reconcile-opencode-config.ps1 -Apply`) ou rode as suítes num
+checkout/home isolado. As suítes novas do V3.1 (runtime adapters, tradução
+de agents, plugin dual, perfis) não dependem desse invariante.
 
 ## Rollback necessário
 

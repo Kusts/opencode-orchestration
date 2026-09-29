@@ -26,11 +26,11 @@ divergência, o `source/` vence.
      │            │ │ (juízo)  │ │ read-only)   │ │ não editam)│
      └────────────┘ └──────────┘ └──────────────┘ └────────────┘
                                  │ enforcement por sessão
-                    ┌────────────┴────────────┐
-                    │ plugins/                │
-                    │ orchestration-          │  mandato + telemetria
-                    │ enforcement.ts          │  sanitizada local
-                    └─────────────────────────┘
+                     ┌────────────┴────────────┐
+                     │ plugins/                │
+                     │ orchestration-          │  mandato + telemetria
+                     │ enforcement (dual v1/v2)│  sanitizada local
+                     └─────────────────────────┘
 ```
 
 O Planner mantém no próprio contexto só objetivo, plano, decisões, estado
@@ -146,7 +146,41 @@ e devolve ao Planner. Retorno compacto (`TASK_ID`, `STATUS`,
 - **V3 em maintenance mode**: sem V4, sem novas phases/flags/frameworks.
   Reabre só por bug observado, capability nova do runtime, telemetria
   recorrente `WRONG`/`SUBOPTIMAL`/`BYPASS`, mudança de modelo/runtime ou
-  evidência que retire um HOLD/BLOCKED.
+  evidência que retire um HOLD/BLOCKED. **Exceção ativa**: o programa
+  V3.1 (abaixo) — classes `RUNTIME_COMPATIBILITY` +
+  `FEATURE_REEVALUATION` — não reabre o router/flags da V3.
+
+## Dual-runtime (V3.1, em andamento)
+
+A orquestração é canônica; a sintaxe de cada geração é adaptação
+(`docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`):
+
+- **Registry de runtimes** (`source/registry/runtimes.json`): descritores
+  `opencode-v1` (validado 1.18.32) e `opencode-v2` (validado 2.0.18) com
+  dialeto de config/permissões, pacote de plugin, chaves geridas e raiz de
+  render. Detecção determinística (`scripts/runtime/`):
+  `RuntimeAdapters.ps1` (probe, geração, fail-closed) +
+  `detect-opencode-runtime.ps1`.
+- **Render nativo por geração**: `templates/opencode.v1.json.tmpl`
+  (`agent`/`permission`/`task`/`subagent_depth`) e
+  `templates/opencode.v2.json.tmpl` (`agents`/`permissions` ordenadas
+  broad-first/`subagent`/`experimental.subagent_depth`); tradução dos 19
+  agents por `AgentTranslator.ps1` (paridade validada pelos checks 12–15).
+- **Installer runtime-aware**: `install.ps1 -Runtime Auto|V1|V2|Both`
+  (Auto faz probe e falha fechado; manifest grava o runtime) e
+  `uninstall.ps1 -Runtime Auto|V1|V2` (conflito explícito, exit 6).
+- **Perfis isolados**: V1+V2 na mesma máquina com config root por perfil
+  (`XDG_CONFIG_HOME` por processo, provado em
+  `evidence/v3.1/kernel-hardening/runtime-isolation-spike.json`) e
+  wrappers `opencode-v1.ps1`/`opencode-v2.ps1`.
+- **Plugin dual-runtime**: fonte única (`v1.ts`/`v2.ts`/`shared/`,
+  dual-export `{id, setup, server}`), bundle `plugins/dist/`
+  `orchestration-enforcement.js` + sidecar sha256.
+- **Pendente** (phases 5 e 8–20 do plano): spike de enforcement V2
+  (`experimental.policies`), lanes de CI V2/dual e o **Task Kernel**
+  (estado CAS, grants, Evidence Contract, verifier, DONE
+  kernel-authorized, leases, worktrees). Flags `runtime_support`/
+  `task_kernel` ainda não existem em `capability-flags.json`.
 
 ## Ownership model do installer (PACKAGE/USER)
 

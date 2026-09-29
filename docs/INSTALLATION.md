@@ -34,16 +34,22 @@ Flags reais do `install.ps1`:
 | Flag | Efeito |
 |---|---|
 | `-WhatIf` | Imprime o plano (`CREATE`/`UPDATE`/`SKIP`/`PRESERVE` por recurso) e sai sem escrever. |
+| `-Runtime Auto\|V1\|V2\|Both` | Geração alvo. `Auto` (default) faz probe do `opencode` no PATH e falha fechado em ambiguidade; explícito sempre vence. `Both` cria perfis isolados (ver seção abaixo). |
 | `-RepoRoot <caminho>` | Instala a partir de outro diretório do pacote. |
 | `-TargetHome <perfil>` | Instala em outro perfil (padrão: `$env:USERPROFILE`). |
 | `-NoCoreSkills` | Pula as 5 skills-core em `~/.config/opencode/skills/`. |
+| `-ProfileRoot`, `-BinaryV1`, `-BinaryV2`, `-ProvisionRuntime` | Controles do caminho `-Runtime Both` (detalhes na seção "Perfis isolados"). |
 
 ## O que cada fase faz
 
 1. **Precheck** — valida tudo antes de qualquer escrita: `models.jsonc`
    (3 chaves), fontes obrigatórias (`source/global/AGENTS.md`,
-   `source/adapters/opencode.md`, `templates/opencode.v1.json.tmpl` (instalador ativo; V2 ativa na Phase 6),
-   `plugins/orchestration-enforcement.ts`), 19 `.md` em `source/agents/`
+   `source/adapters/opencode.md`, `source/adapters/opencode-v2.md`,
+   `scripts/runtime/lib/AgentTranslator.ps1`,
+   `templates/opencode.v1.json.tmpl` + `templates/opencode.v2.json.tmpl`
+   conforme o runtime resolvido, bundle
+   `plugins/dist/orchestration-enforcement.js` + sidecar sha256),
+   19 `.md` em `source/agents/`
    com frontmatter/model-token válidos, template resolvido (17 blocos
    `agent`, `build` sem `model`, zero tokens pendentes), plugin e skills.
    Falha → exit 3, **nada escrito**.
@@ -64,22 +70,25 @@ Flags reais do `install.ps1`:
    então instala a dependência do plugin (best-effort, fora da transação).
 
 Exit codes: `0` ok · `3` precheck (nada escrito) · `4` CAS_CONFLICT (nada
-aplicado) · `5` falha no apply/manifest (rollback tentado).
+aplicado) · `5` falha no apply/manifest (rollback tentado) · `6`
+fail-closed de runtime (Both sem isolamento provado, ou conflito de
+runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 
 ## manifest.json (campos)
 
 | Campo | Conteúdo |
 |---|---|
-| `package_version` | Versão do pacote (ex. `1.0.0`). |
+| `package_version` | Versão do pacote (ex. `1.1.0`). |
 | `installed_at` | Timestamp ISO da instalação. |
 | `source_revision` | `git rev-parse --short HEAD` do repo (`unknown` fora de git). |
 | `target_home` | Perfil onde instalou. |
+| `runtime` | Runtime/gravação instalada (`opencode-v1` ou `opencode-v2`; manifest legado sem esta seção é tratado como v1). |
 | `managed_files[]` | `{relative, sha256}` de cada arquivo do pacote. |
-| `managed_config_paths[]` | Caminhos gerenciados no config (`$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*`). |
+| `managed_config_paths[]` | Caminhos gerenciados no config, no dialeto do runtime (V1: `$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*`; V2: `$schema`, `model`, `default_agent`, `experimental.subagent_depth`, `agents.*`). |
 | `adopted_paths[]` | Lista legada mantida por compatibilidade (hoje sempre vazia — nenhuma chave é mais adotada). |
 | `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
 | `models{}` | `planner`/`cheap`/`strong` usados. |
-| `plugin_dependency` | Spec fixada (`@opencode-ai/plugin@1.18.32`). |
+| `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.32` no V1; `@opencode/plugin@2.0.18` no V2). |
 
 ## Upgrade
 
@@ -97,12 +106,15 @@ seu permanece. Para trocar modelos, edite `models.jsonc` e reinstale.
 
 ```powershell
 .\uninstall.ps1 -WhatIf
-.\uninstall.ps1
+.\uninstall.ps1                    # Auto: usa o runtime do manifest
+.\uninstall.ps1 -Runtime V2        # exige que o manifest seja V2 (conflito => exit 6)
 ```
 
 Remove **só** o ownership do pacote: os 19 `agents/*.md`, o bloco markered
-do `AGENTS.md` (resto preservado), as chaves managed do `opencode.json`,
-as skills instaladas, o plugin e o manifest. Regras:
+do `AGENTS.md` (resto preservado), as chaves managed do `opencode.json`
+(no dialeto do runtime do manifest), as skills instaladas, o plugin e o
+manifest. Perfis criados por `-Runtime Both` são removidos um a um
+(uninstall no home do perfil + `Remove-P7Profile`). Regras:
 
 - Arquivo com hash divergente do manifest (você editou após o install) é
   **mantido** com `KEEP` + aviso — nunca apagado por suposição.

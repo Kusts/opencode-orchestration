@@ -21,10 +21,11 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 | Requisito | Suporte |
 |---|---|
-| OpenCode **V1.x** (pacote npm `opencode-ai`) | ✅ Suportado — CI valida com **1.18.32** (`opencode --version` deve responder `1.x`). |
-| OpenCode **V2** (pacote `@opencode-ai/cli`, comando `opencode2`) | ❌ **Não suportado** — beta com breaking changes (nova plugin API/server API, `cli.json`); migração futura é decisão explícita, não automática. |
+| OpenCode **V1.x** (pacote npm `opencode-ai`) | ✅ Suportado — CI valida com **1.18.32** (`opencode --version` responde `1.x`). |
+| OpenCode **V2** (pacote `@opencode/cli`) | ✅ Suportado (programa V3.1) — validado com **2.0.18** (`opencode --version` responde `2.x`); render/config/permissões **nativos V2** e plugin dual-runtime. Camada `experimental.policies` e lane de CI própria ainda pendentes (ver [CHANGELOG](CHANGELOG.md)). |
+| V1 **e** V2 na mesma máquina | ✅ Via perfis isolados (`.\install.ps1 -Runtime Both`); fail-closed sem binários provados. |
 | Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
-| `bun` ou `npm` — somente para a dependência `@opencode-ai/plugin@1.18.32` | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
+| `bun` ou `npm` — dependência do plugin (`@opencode-ai/plugin@1.18.32` no V1; `@opencode/plugin@2.0.18` no V2) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
 
 ## Instalar
 
@@ -33,11 +34,15 @@ git clone <este-repo>
 cd opencode-orchestration
 copy models.example.jsonc models.jsonc
 # edite models.jsonc: planner, cheap, strong (ver "Configurar modelos")
-.\install.ps1 -WhatIf
-.\install.ps1
+.\install.ps1 -WhatIf              # plano por recurso, nenhuma escrita
+.\install.ps1                      # Auto: detecta a geração do `opencode` no PATH
+.\install.ps1 -Runtime V1          # força V1 (dialeto agent/permission/task)
+.\install.ps1 -Runtime V2          # força V2 (dialeto agents/permissions/subagent)
+.\install.ps1 -Runtime Both        # perfis isolados V1+V2 (fail-closed sem binários provados)
 ```
 
-Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md).
+Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
+(inclui perfis isolados e `-ProvisionRuntime`).
 `models.jsonc` está no `.gitignore` — nunca é commitado.
 
 ## O que é instalado
@@ -48,16 +53,22 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md).
   `<!-- opencode-orchestration:end -->`. O resto do arquivo é preservado.
 - `~/.config/opencode/agents/*.md` — 19 agents (bloco `orchestration:` do
   frontmatter removido na instalação; o canônico com o bloco vive no repo).
-- `~/.config/opencode/plugins/orchestration-enforcement.ts` — enforcement
-  por sessão; telemetria em `~/.opencode-orchestration/evidence/...`.
+- `~/.config/opencode/plugins/orchestration-enforcement.js` — bundle
+  autocontido do plugin dual-runtime (fonte única com adaptadores V1/V2 e
+  lógica compartilhada); enforcement por sessão; telemetria em
+  `~/.opencode-orchestration/evidence/...`. Um `.ts` legado pré-bundle é
+  adotado para backup e removido.
 - `~/.config/opencode/skills/*` — as 5 skills-core (a menos que
   `-NoCoreSkills`: `hybrid-development`, `dispatching-parallel-agents`,
   `subagent-driven-development`, `verification-before-completion`,
   `using-superpowers`).
-- `~/.config/opencode/opencode.json` — **merge estrutural**: atualiza só as
-  chaves do sistema (`$schema`, `model`, `default_agent`, `subagent_depth`,
-  `agent.*`). `opencode.jsonc` é respeitado (jsonc vence quando ambos
-  existem, igual ao runtime; criado `opencode.json` só se nada existir).
+- `~/.config/opencode/opencode.json` — **merge estrutural**, no dialeto do
+  `-Runtime` escolhido: V1 gerencia `$schema`, `model`, `default_agent`,
+  `subagent_depth`, `agent.*`; V2 gerencia `$schema`, `model`,
+  `default_agent`, `experimental.subagent_depth`, `agents.*` (regras
+  `permissions` ordenadas, broad-first). `opencode.jsonc` é respeitado
+  (jsonc vence quando ambos existem, igual ao runtime; criado
+  `opencode.json` só se nada existir).
   `autoupdate`, `skills.paths`, `plugin`, `mcp.*` e chaves desconhecidas do
   usuário **nunca** são tocados. Jsonc com comentários é normalizado para
   JSON puro na escrita (aviso + backup byte-exato do original).
@@ -86,11 +97,20 @@ powershell -NoProfile -File scripts\test-package-consistency.ps1
 powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 ```
 
-O primeiro checa consistência interna do pacote (11 checks, exit 0/1); o
-segundo roda as suítes `*.tests.ps1` de `scripts/v3/`. Validações de
-distribuição (fresh-install, idempotência, rollback, uninstall — 10 suítes)
-vivem em `tests/distribution/`. O CI ainda roda um smoke com OpenCode V1
-real 1.18.32 num home isolado (`opencode debug config/agent/skill`).
+O primeiro checa consistência interna do pacote (16 checks, exit 0/1 —
+incluindo shape/paridade dos templates V1 e V2 e integridade do bundle do
+plugin); o segundo roda as suítes `*.tests.ps1` de `scripts/v3/` e
+`scripts/runtime/`. Validações de distribuição (fresh-install,
+idempotência, rollback, uninstall, runtime V1/V2, perfis isolados — 13
+suítes) vivem em `tests/distribution/`. O CI ainda roda um smoke com
+OpenCode V1 real 1.18.32 num home isolado (`opencode debug
+config/agent/skill`); lanes de CI para V2/dual-perfil são pendentes
+(Phase 8 do plano V3.1).
+
+Condição conhecida: se o `opencode.json` vivo da máquina divergiu do
+baseline canônico do control plane, 4 suítes V3 falham no invariante de
+origem (hash prefixo `DE22307F`) — não é regressão do pacote; ver
+[TROUBLESHOOTING](docs/TROUBLESHOOTING.md).
 
 ## Atualizar
 
@@ -115,7 +135,9 @@ Remove só o ownership do pacote (agents, bloco markered, chaves managed,
 skills, plugin, manifest). `mcp.*`, agents/chaves desconhecidas, arquivos
 alterados por você após o install e
 `~/.opencode-orchestration/evidence/` (seus dados) são preservados.
-Detalhes em [docs/INSTALLATION.md](docs/INSTALLATION.md).
+Com `-Runtime V1`/`-Runtime V2` o uninstall mira o runtime do manifest
+(conflito explícito, exit 6); perfis criados por `-Runtime Both` são
+removidos perfil a perfil (ver [docs/INSTALLATION.md](docs/INSTALLATION.md)).
 
 ## Scripts avançados
 

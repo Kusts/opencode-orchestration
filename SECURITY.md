@@ -8,8 +8,12 @@
 | < 1.0 (pré-release, ex. `1.0.0-hardening`) | ❌ Não |
 
 Nota sobre o runtime: este pacote suporta o **OpenCode V1.x** (validado
-com 1.18.32). O **OpenCode V2** (`@opencode-ai/cli`, comando `opencode2`)
-**não é suportado**.
+com 1.18.32) e, desde o programa V3.1, o **OpenCode V2** (`@opencode/cli`,
+validado com 2.0.18) com render/config/permissões nativos e plugin
+dual-runtime. O enforcement V2 usa as permissões nativas ordenadas
+(last-match-wins, broad-first); a camada `experimental.policies` (hard-deny)
+ainda não está ativada. V1 e V2 lado a lado só via perfis isolados
+(`-Runtime Both`) — nunca compartilhando o mesmo config nativo.
 
 ## Resumo da política
 
