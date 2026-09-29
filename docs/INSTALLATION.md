@@ -2,11 +2,12 @@
 
 ## Pré-requisitos
 
-- **OpenCode V1.x** instalado e funcional (`opencode --version` deve
-  responder `1.x`; CI validado com **1.18.32**, pacote npm `opencode-ai`).
-  OpenCode **V2** (pacote `@opencode-ai/cli`, comando `opencode2`) **não é
-  suportado** — beta com breaking changes; migração futura é decisão
-  explícita.
+- **OpenCode V1.x e/ou V2.x** instalado(s) e funcional(is) (`opencode
+  --version` responde `1.x` ou `2.x`; CI validado com **1.18.32**, pacote
+  npm `opencode-ai`, e **2.0.18**, pacote `@opencode/cli`). Instalação
+  single-runtime usa o dialeto do `-Runtime` pedido (Phase 6); `-Runtime
+  Both` exige um binário provado por geração ou `-ProvisionRuntime`
+  (Phase 7, abaixo).
 - **Windows PowerShell 5.1+** ou `pwsh` recente.
 - **`bun` ou `npm`** — somente para a dependência do plugin
   `@opencode-ai/plugin@1.18.32` (best-effort: se ambos faltarem ou a rede
@@ -144,6 +145,74 @@ terceiros omitida de propósito). Para continuidade entre sessões, instale o
 [ai-memory](https://github.com/akitaonrails/ai-memory) à parte e siga a
 documentação oficial dele. Sem memória externa, o sistema trabalha
 normalmente com o estado do projeto atual.
+
+## Perfis isolados V1/V2 (Phase 7)
+
+V1 e V2 lado a lado na mesma maquina, isolados por `XDG_CONFIG_HOME` por
+processo (ambas as geracoes honram `XDG_CONFIG_HOME` para o config root do
+server — prova em `evidence/v3.1/kernel-hardening/runtime-isolation-spike.json`;
+o installer re-verifica em runtime com `debug paths`, nunca confia cegamente).
+
+Layout (default `~/.opencode-orchestration/profiles/`):
+
+| Caminho | Conteudo |
+|---|---|
+| `<profiles>/v1/home/` | `TargetHome` do install V1 (`.config/opencode` + manifest) |
+| `<profiles>/v2/home/` | `TargetHome` do install V2 (idem, dialeto nativo) |
+| `<profiles>/v1|v2/manifest.json` | manifest do perfil (`profile`, `runtime_id`, `generation`, `config_root`, `runtime_dir`, `provisioned`) |
+| `<profiles>/v1|v2/runtime/` | binario provisionado via npm (so com `-ProvisionRuntime`) |
+| `<profiles>/bin/opencode-v1.ps1` | wrapper V1 (XDG do perfil, so no processo) |
+| `<profiles>/bin/opencode-v2.ps1` | wrapper V2 (idem) |
+
+Comandos:
+
+```powershell
+# Perfil individual (offline; usa o PATH quando a geracao bate)
+powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v1
+powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2
+
+# Com binario provisionado dentro do perfil (requer rede + npm, opt-in)
+powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
+
+# Ambos de uma vez (sem -ProvisionRuntime: prova isolamento ANTES de escrever; com -ProvisionRuntime: perfis provisionados permanecem mesmo se a prova falhar; fail-closed exit 6)
+.\install.ps1 -Runtime Both
+.\install.ps1 -Runtime Both -ProvisionRuntime
+.\install.ps1 -Runtime Both -ProfileRoot "D:\perfis" -BinaryV1 C:\...\opencode.cmd -BinaryV2 D:\...\opencode.cmd
+
+# Uso diario (o wrapper escolhe o binario exato do perfil ou o do PATH
+# quando a geracao bate; repassa argumentos e o exit code)
+<ProfileRoot>\bin\opencode-v1.ps1 --version
+<ProfileRoot>\bin\opencode-v2.ps1 --version
+<ProfileRoot>\bin\opencode-v2.ps1 -BinaryPath D:\bin\opencode.cmd --version
+```
+
+Override de binário: `new-opencode-profile.ps1 -BinaryPath <bin>` (e as
+flags `-BinaryV1`/`-BinaryV2` do `install.ps1 -Runtime Both`) informam um
+binário já provado para reusar — validado por geração (`--version`), sem
+`npm`, e gravado no `manifest.json` do perfil como
+`provisioned = { binary_path, version, provenance = 'override' }`. No
+caminho Both sem binários faltantes, o `install.ps1` repassa os candidatos
+provados via override para que o wrapper resolva o MESMO binário provado.
+
+Exit codes do Both: `0` ok (isolamento provado) · `6` fail-closed
+(`isolation unproven` sem binario para provar, ou `proof-failed`) ·
+`7` falha de rede no `-ProvisionRuntime` (opt-in; o perfil de arquivos fica,
+sem binario).
+Contrato Both: "nada escrito" vale só para o caminho sem provisionamento.
+No caminho com `-ProvisionRuntime`, se a prova falhar a saída é exit 6 e
+os perfis provisionados PERMANECEM (usáveis pelos wrappers individuais,
+removíveis por `Remove-P7Profile`).
+
+Limitacoes:
+
+- So o **config root** (`<XDG>/opencode`) e isolado; `data`/`cache`/`state`
+  permanecem por-usuario e nao colidem para config.
+- O wrapper nunca persiste env global (USERPROFILE/machine) e nunca
+  reescreve o `opencode` global; `-ProvisionRuntime` nunca toca o global.
+- V1 nunca aponta para config V2-native (cada perfil instala seu dialeto).
+- `install.ps1 -WhatIf -Runtime Both` imprime o plano sem escrever.
+- Remover um perfil: `Remove-P7Profile` (uninstall no home do perfil +
+  remocao do diretorio); o outro perfil fica intacto.
 
 ## Fluxo opt-in do registry V3
 

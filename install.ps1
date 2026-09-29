@@ -8,13 +8,19 @@
     sem operador ternario, sem ??, sem Invoke-Expression e sem executar
     codigo vindo de JSON.
 
-    Phase 6 (V3.1): installer runtime-aware. -Runtime V1 instala o dialeto
-    V1 (agent/permission.task/subagent_depth); -Runtime V2 instala o dialeto
-    V2 nativo (agents/permissions/experimental.subagent_depth) com o MESMO
-    merge estrutural preservador (user-owned intacto). Explicito vence (sem
-    probe, sem conflito); -Runtime Auto segue o probe (V1 ou V2); ambiguo
-    aborta com exit 6. -Runtime Both segue BLOQUEADO (exit 6; perfis isolados
-    chegam na Phase 7).
+     Phase 6 (V3.1): installer runtime-aware. -Runtime V1 instala o dialeto
+     V1 (agent/permission.task/subagent_depth); -Runtime V2 instala o dialeto
+     V2 nativo (agents/permissions/experimental.subagent_depth) com o MESMO
+     merge estrutural preservador (user-owned intacto). Explicito vence (sem
+     probe, sem conflito); -Runtime Auto segue o probe (V1 ou V2); ambiguo
+     aborta com exit 6.
+     Phase 7 (V3.1): -Runtime Both ATIVO via perfis isolados por
+     XDG_CONFIG_HOME (~/.opencode-orchestration/profiles/{v1,v2}), com prova
+     de isolamento em runtime (fail-closed exit 6 sem prova) e wrappers
+     bin/opencode-v1.ps1 + opencode-v2.ps1. -ProvisionRuntime (opt-in, rede)
+     instala os binarios pinados dentro do perfil; install 100% offline sem
+     ele. Novos params: -ProfileRoot, -BinaryV1/-BinaryV2 (overrides de
+     prova), -ProvisionRuntime.
     Smoke V2 pos-install e best-effort com warning nesta fase (exit 0);
     smoke bloqueante entra na Phase 8 (CI).
 
@@ -41,6 +47,10 @@ param(
   [switch]$NoCoreSkills,
   [ValidateSet('Auto', 'V1', 'V2', 'Both')]
   [string]$Runtime = 'Auto',
+  [string]$ProfileRoot = '',
+  [string]$BinaryV1 = '',
+  [string]$BinaryV2 = '',
+  [switch]$ProvisionRuntime,
   [Parameter(DontShow)]
   [ValidateSet('backup', 'stage', 'cas', 'apply-half', 'apply-json', 'manifest')]
   [string]$InjectFailureAfter = ''
@@ -50,9 +60,10 @@ param(
 # (fluxos nativos por runtime, mesma transacao backup+stage+CAS+apply+
 # manifest+rollback). Explicito vence: -Runtime V1/V2 aplica o dialeto pedido
 # SEM probe e SEM conflito (probe so no Auto). Auto resolve via probe (V1 ou
-# V2); ambiguo/inconclusivo com binario presente aborta com exit 6. Both segue
-# BLOQUEADO com exit 6 (perfis isolados chegam na Phase 7). Auto sem binario
-# opencode no PATH degrada para V1 (comportamento legado, com aviso).
+# V2); ambiguo/inconclusivo com binario presente aborta com exit 6.
+# Phase 7 (V3.1): Both ATIVO via perfis isolados (ver ramo Both abaixo).
+# Auto sem binario opencode no PATH degrada para V1 (comportamento legado,
+# com aviso).
 
 $ErrorActionPreference = 'Stop'
 
@@ -966,9 +977,159 @@ catch {
 $runtimeMode = $Runtime
 $runtimeDecision = $null
 if ($runtimeMode -eq 'Both') {
-  Write-Host ('[install] runtime=Both decision=deferred reason=perfis isolados chegam na Phase 7 do plano V3.1')
-  Write-Host 'Modo Both bloqueado nesta fase: perfis isolados chegam na Phase 7. Use -Runtime V1, V2 ou Auto. Nada foi escrito.' -ForegroundColor Red
-  exit 6
+  # Phase 7 (V3.1): perfis isolados V1+V2 side-by-side na mesma maquina.
+  # Isolamento por XDG_CONFIG_HOME por processo (prova empirica em
+  # evidence/v3.1/kernel-hardening/runtime-isolation-spike.json): o XDG de
+  # cada perfil aponta para <perfil>\home\.config, exatamente onde o install
+  # escreve .config\opencode. Fail-closed: sem binario para PROVAR o
+  # isolamento de cada geracao, Both sai com exit 6 (nada escrito), a menos
+  # que -ProvisionRuntime (opt-in com rede) provisione os binarios pinados
+  # dentro dos perfis e prove com eles. Sem -ProvisionRuntime, 100% offline.
+  # Contrato Both: "nada escrito" vale SOMENTE para o caminho sem
+  # provisionamento. No caminho com -ProvisionRuntime, prova falhando sai
+  # exit 6 e os perfis provisionados PERMANECEM (usaveis pelos wrappers
+  # individuais, removiveis por Remove-P7Profile).
+  $BothProfileRoot = $ProfileRoot
+  if ([string]::IsNullOrWhiteSpace($BothProfileRoot)) {
+    $BothProfileRoot = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles'
+  }
+  . (Join-Path $RepoRoot 'scripts\runtime\New-OrchestrationProfile.ps1')
+  if ($WhatIfPreference) {
+    Write-Host '=== INSTALL PLAN Both (WhatIf, nenhuma escrita) ===' -ForegroundColor Cyan
+    Write-Host ('[CREATE] perfil v1 em ' + (Join-Path $BothProfileRoot 'v1\home') + ' (install -Runtime V1)') -ForegroundColor DarkGray
+    Write-Host ('[CREATE] perfil v2 em ' + (Join-Path $BothProfileRoot 'v2\home') + ' (install -Runtime V2)') -ForegroundColor DarkGray
+    if ($ProvisionRuntime) { Write-Host '[PROVISION] binarios v1+v2 via npm dentro dos perfis (rede, opt-in)' -ForegroundColor DarkGray }
+    else { Write-Host '[PROOF] isolamento XDG verificado com binarios existentes (leitura, sem rede)' -ForegroundColor DarkGray }
+    Write-Host ('[CREATE] wrappers em ' + (Join-Path $BothProfileRoot 'bin')) -ForegroundColor DarkGray
+    Write-Host 'Plano Both: 2 perfil(is) + 2 wrapper(s). Nenhuma escrita realizada.' -ForegroundColor Cyan
+    exit 0
+  }
+  # Candidatos por geracao: override explicito > provisionado existente no
+  # perfil > PATH (quando a geracao bate no --version).
+  $candV1 = $BinaryV1
+  $candV2 = $BinaryV2
+  $provV1 = Join-Path $BothProfileRoot 'v1\runtime\node_modules\.bin\opencode.cmd'
+  $provV2 = Join-Path $BothProfileRoot 'v2\runtime\node_modules\.bin\opencode.cmd'
+  if ([string]::IsNullOrWhiteSpace($candV1) -and (Test-Path -LiteralPath $provV1 -PathType Leaf)) { $candV1 = $provV1 }
+  if ([string]::IsNullOrWhiteSpace($candV2) -and (Test-Path -LiteralPath $provV2 -PathType Leaf)) { $candV2 = $provV2 }
+  if ([string]::IsNullOrWhiteSpace($candV1) -or [string]::IsNullOrWhiteSpace($candV2)) {
+    try {
+      $gcBoth = @(Get-Command -Name 'opencode' -All -ErrorAction SilentlyContinue)
+      $pathBoth = $null
+      foreach ($cBoth in $gcBoth) {
+        if ($cBoth.CommandType -eq 'Application') { $pathBoth = $cBoth; break }
+      }
+      if (($null -eq $pathBoth) -and ($gcBoth.Count -gt 0)) { $pathBoth = $gcBoth[0] }
+      if (($null -ne $pathBoth) -and (-not [string]::IsNullOrWhiteSpace([string]$pathBoth.Source))) {
+        $pvBoth = Invoke-P7Process -File ([string]$pathBoth.Source) -ArgsLine '--version' -TimeoutMs 20000
+        if ([int]$pvBoth.ExitCode -eq 0) {
+          $majorBoth = Get-P7Major $pvBoth.Output
+          if (($majorBoth -eq 1) -and [string]::IsNullOrWhiteSpace($candV1)) { $candV1 = [string]$pathBoth.Source }
+          if (($majorBoth -eq 2) -and [string]::IsNullOrWhiteSpace($candV2)) { $candV2 = [string]$pathBoth.Source }
+        }
+      }
+    }
+    catch { }
+  }
+  $missingBoth = @()
+  if ([string]::IsNullOrWhiteSpace($candV1)) { $missingBoth += 'v1' }
+  if ([string]::IsNullOrWhiteSpace($candV2)) { $missingBoth += 'v2' }
+  try {
+    if (($missingBoth.Count -gt 0) -and (-not $ProvisionRuntime)) {
+      Write-Host ('[install] runtime=Both decision=unproven reason=sem binario para provar isolamento (' + ($missingBoth -join ',') + ')') -ForegroundColor Red
+      Write-Host 'Isolamento XDG: isolation unproven nesta maquina (nenhum binario disponivel para a geracao indicada).' -ForegroundColor Red
+      Write-Host 'Use -ProvisionRuntime (baixa os binarios pinados via npm para dentro dos perfis; requer rede, opt-in) ou instale perfis individuais:' -ForegroundColor Red
+      Write-Host '  powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v1' -ForegroundColor Red
+      Write-Host '  powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2' -ForegroundColor Red
+      Write-Host 'Nada foi escrito.' -ForegroundColor Red
+      exit 6
+    }
+    if ($missingBoth.Count -gt 0) {
+      # Com -ProvisionRuntime: cria os perfis provisionando e prova o
+      # isolamento com os binarios provisionados (falha de rede => exit 7).
+      $infoB1 = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $BothProfileRoot -RuntimeId 'opencode-v1' -ProvisionRuntime
+      $infoB2 = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $BothProfileRoot -RuntimeId 'opencode-v2' -ProvisionRuntime
+      $candV1 = $infoB1.BinaryPath
+      $candV2 = $infoB2.BinaryPath
+      if ([string]::IsNullOrWhiteSpace($candV1) -or [string]::IsNullOrWhiteSpace($candV2)) {
+        Write-Host '[install] runtime=Both decision=unproven reason=provisionamento sem binario verificavel.' -ForegroundColor Red
+        Write-Host 'Both fail-closed (exit 6).' -ForegroundColor Red
+        exit 6
+      }
+    }
+    $tB1 = Test-P7Isolation -BinaryPath $candV1 -Generation 1
+    $tB2 = Test-P7Isolation -BinaryPath $candV2 -Generation 2
+    if ((-not $tB1.Ok) -or (-not $tB2.Ok)) {
+      Write-Host ('[install] runtime=Both decision=proof-failed reason=v1: ' + [string]$tB1.Reason + ' | v2: ' + [string]$tB2.Reason) -ForegroundColor Red
+      if ($missingBoth.Count -eq 0) {
+        Write-Host 'Prova de isolamento XDG falhou nesta maquina (Both fail-closed). Nada foi escrito.' -ForegroundColor Red
+      }
+      else {
+        Write-Host 'Both fail-closed (exit 6): os perfis provisionados permanecem usaveis individualmente pelos wrappers.' -ForegroundColor Red
+      }
+      exit 6
+    }
+    Write-Host ('[install] runtime=Both isolation-proven v1 <- ' + $candV1) -ForegroundColor DarkGray
+    Write-Host ('[install] runtime=Both isolation-proven v2 <- ' + $candV2) -ForegroundColor DarkGray
+    if ($missingBoth.Count -eq 0) {
+      # Os candidatos ja provados acima sao reusados via -BinaryOverride:
+      # o wrapper resolve o MESMO binario provado (sem npm; manifest com
+      # provenance 'override'). -ProvisionRuntime aqui nao reprovisiona
+      # quando ha override (o override vence).
+      $infoBothV1 = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $BothProfileRoot -RuntimeId 'opencode-v1' -ProvisionRuntime:$ProvisionRuntime -BinaryOverride $candV1
+      $infoBothV2 = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $BothProfileRoot -RuntimeId 'opencode-v2' -ProvisionRuntime:$ProvisionRuntime -BinaryOverride $candV2
+      if ($ProvisionRuntime) {
+        # Re-prova EXATAMENTE os binarios registrados nos manifests
+        # recem-escritos (override provado acima ou provisionado nesta
+        # execucao). Sem binario registravel => exit 6 fail-closed.
+        $rb1 = [string]$infoBothV1.BinaryPath
+        $rb2 = [string]$infoBothV2.BinaryPath
+        if ([string]::IsNullOrWhiteSpace($rb1)) {
+          try {
+            $mRB1 = Get-P7Profile -ProfileRoot $BothProfileRoot -Profile 'v1'
+            if (($null -ne $mRB1) -and ($null -ne $mRB1.provisioned)) { $rb1 = [string]$mRB1.provisioned.binary_path }
+          }
+          catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($rb2)) {
+          try {
+            $mRB2 = Get-P7Profile -ProfileRoot $BothProfileRoot -Profile 'v2'
+            if (($null -ne $mRB2) -and ($null -ne $mRB2.provisioned)) { $rb2 = [string]$mRB2.provisioned.binary_path }
+          }
+          catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($rb1) -or [string]::IsNullOrWhiteSpace($rb2)) {
+          Write-Host '[install] runtime=Both decision=unproven reason=sem binario registrado nos manifests para re-prova.' -ForegroundColor Red
+          Write-Host 'Both fail-closed (exit 6).' -ForegroundColor Red
+          exit 6
+        }
+        $rB1 = Test-P7Isolation -BinaryPath $rb1 -Generation 1
+        $rB2 = Test-P7Isolation -BinaryPath $rb2 -Generation 2
+        if ((-not $rB1.Ok) -or (-not $rB2.Ok)) {
+          Write-Host ('[install] runtime=Both decision=proof-failed-post-provision reason=v1: ' + [string]$rB1.Reason + ' | v2: ' + [string]$rB2.Reason) -ForegroundColor Red
+          Write-Host 'Both fail-closed (exit 6): os perfis criados permanecem usaveis individualmente pelos wrappers.' -ForegroundColor Red
+          exit 6
+        }
+        Write-Host '[install] runtime=Both isolation-proven sobre binarios registrados.' -ForegroundColor DarkGray
+      }
+    }
+  }
+  catch {
+    $bmsg = $_.Exception.Message
+    if ($bmsg -match '^P7-PROVISION-NETWORK') { Write-Host $bmsg -ForegroundColor Red; exit 7 }
+    $bm = [regex]::Match($bmsg, 'P7-INSTALL-EXIT-(\d+)')
+    if ($bm.Success) { Write-Host $bmsg -ForegroundColor Red; exit ([int]$bm.Groups[1].Value) }
+    Write-Host ('[install] Both falhou: ' + $bmsg) -ForegroundColor Red
+    exit 5
+  }
+  Write-Host ''
+  Write-Host 'Instalacao Both concluida (perfis isolados).' -ForegroundColor Green
+  Write-Host ('  perfil v1: ' + (Join-Path $BothProfileRoot 'v1') + ' (XDG=' + (Join-Path $BothProfileRoot 'v1\home\.config') + ')') -ForegroundColor DarkGray
+  Write-Host ('  perfil v2: ' + (Join-Path $BothProfileRoot 'v2') + ' (XDG=' + (Join-Path $BothProfileRoot 'v2\home\.config') + ')') -ForegroundColor DarkGray
+  Write-Host ('  wrapper v1: ' + (Join-Path $BothProfileRoot 'bin\opencode-v1.ps1')) -ForegroundColor DarkGray
+  Write-Host ('  wrapper v2: ' + (Join-Path $BothProfileRoot 'bin\opencode-v2.ps1')) -ForegroundColor DarkGray
+  Write-Host 'Use cada perfil pelo seu wrapper (XDG isolado por processo).' -ForegroundColor Yellow
+  exit 0
 }
 $runtimeBin = Get-Command 'opencode' -ErrorAction SilentlyContinue
 # V31-P6-FIX-EXPLICIT: -Runtime explicito vence; probe SOMENTE no Auto.
