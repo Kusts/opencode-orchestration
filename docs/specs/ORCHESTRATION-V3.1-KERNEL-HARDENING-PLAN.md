@@ -5,14 +5,19 @@
 **Revision date:** 2026-09-28  
 **Companion SPEC:** `ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`
 
-**Status de implementação (2026-09-29):** Phases **0–4 e 6–7 concluídas**
+**Status de implementação (2026-09-29):** Phases **0–4, 6–7 concluídas**
 (commits `2a0218e`→`47e508c`; baseline em
 `evidence/v3.1/kernel-hardening/baseline.json`, isolamento XDG provado em
-`runtime-isolation-spike.json`). **Pendentes:** Phase 5 (spike de
-enforcement/policies V2), Phase 8 (lanes de CI V2/dual) e Phases 9–20
-(Task Kernel, grants, Evidence Contract, verifier, DONE kernel, leases,
-worktrees, observabilidade, shadow rollout, release). Estado vivo no
-`CHANGELOG.md [Unreleased]`.
+`runtime-isolation-spike.json`) e **Phases 9–19 concluídas** (Task Kernel
+CAS com lock interprocesso, grants com interseção, Evidence Contract,
+verifier com allowlist fechada, DONE kernel-authorized só de REVIEWING,
+leases fail-closed, worktrees com marker ownership, observabilidade com 29
+eventos + dimensão runtime, flags shadow rollout — revisadas por Reviewer +
+Security Reviewer com 15 findings corrigidos; suítes 75/75, 56/56, 49/49).
+**Pendentes:** Phase 5 (enforcement comportamental V2 — spike real travou
+em `debug config/agents`, HOLD honesto), Phase 8 (smoke de binário V2 em
+CI) e ativação das flags. Estado vivo no `CHANGELOG.md [Unreleased]` e em
+`evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 ## 1. Delivery strategy
 

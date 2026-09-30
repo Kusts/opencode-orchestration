@@ -21,6 +21,22 @@
                               "retention_days":  30
                           },
     "adaptive_ranking":  {
-                             "enabled":  false
-                         }
+                              "enabled":  false
+                          },
+    "runtime_support":  {
+                            "v1":  true,
+                            "v2":  false,
+                            "dual_profile":  false
+                        },
+    "task_kernel":  {
+                        "enabled":  false,
+                        "shadow":  true
+                    },
+    "worktree_isolation":  {
+                               "enabled":  false
+                           },
+    "runtime_grant_enforcement":  {
+                                      "v1":  false,
+                                      "v2":  false
+                                  }
 }

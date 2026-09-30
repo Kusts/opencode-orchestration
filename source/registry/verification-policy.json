@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "default_timeout_seconds": 120,
+  "max_output_chars": 4000,
+  "profiles": {
+    "package-consistency": {
+      "class": "test",
+      "command": "powershell -NoProfile -File scripts/test-package-consistency.ps1",
+      "timeout_seconds": 300
+    },
+    "v3-kernel": {
+      "class": "test",
+      "command": "powershell -NoProfile -File scripts/v3/run-v3-tests.ps1 -Name TaskKernel",
+      "timeout_seconds": 300
+    }
+  }
+}

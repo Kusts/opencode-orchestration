@@ -21,12 +21,14 @@
 # Politica de pinning (reprodutibilidade): actions por SHA com comentario da
 # versao (ex.: actions/checkout@<sha> # v4.2.2); bun e opencode-ai por versao
 # exata (bun@1.3.14, opencode-ai@1.18.32, ambos validados localmente).
-# Tres jobs: ci-ps51/ci-ps7 (suites V3 + distribution, engines ps51/pwsh) e
+# Tres jobs: ci-ps51/ci-ps7 (suites V3 + distribution, engines ps51/pwsh),
 # ci-smoke-opencode (OpenCode V1 REAL num home isolado + typecheck do plugin
-# contra a API real @opencode-ai/plugin@1.18.32).
+# contra a API real @opencode-ai/plugin@1.18.32) e ci-v2-lane (package
+# consistency + V3 + distribution + typecheck V1/V2/dual sem binario V2
+# real — sem install path V2 provado no Windows).
 # Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
-# Tres jobs explicitos (ci-ps51/ci-ps7/smoke) em vez de matriz: steps.shell NAO
-# aceita contexts/expressoes (actionlint). Pipeline: package consistency ->
+# Tres jobs explicitos (ci-ps51/ci-ps7/smoke) mais a lane ci-v2-lane em vez de
+# matriz: steps.shell NAO aceita contexts/expressoes (actionlint). Pipeline: package consistency ->
 # V3 suites (scripts/v3/run-v3-tests.ps1) -> distribution suites
 # (tests/distribution/run-distribution-tests.ps1, PS 5.1-compativel); cada
 # job exercita as distribution suites no proprio engine (ps51/pwsh).
@@ -60,7 +62,7 @@ jobs:
       - name: Provision bun (official npm package)
         run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
-      - name: Distribution suites (9 suites, install transacional)
+      - name: Distribution suites (13 suites, install transacional)
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
 
   ci-ps7:
@@ -84,7 +86,7 @@ jobs:
       - name: Provision bun (official npm package)
         run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
-      - name: Distribution suites (9 suites, install transacional)
+      - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
 
   ci-smoke-opencode:
@@ -108,4 +110,31 @@ jobs:
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode.ps1
 
       - name: Typecheck plugin against real API
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/typecheck-plugin.ps1
+
+  ci-v2-lane:
+    name: CI (v2 lane, sem binario V2 real)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Static/package validation
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
+
+      - name: V3 test suite (~5-6 min)
+        timeout-minutes: 20
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
+
+      - name: Provision bun (official npm package, pinned)
+        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
+
+      - name: Distribution suites (13 suites, install transacional)
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
+
+      - name: Plugin typecheck V1/V2/dual
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/typecheck-plugin.ps1

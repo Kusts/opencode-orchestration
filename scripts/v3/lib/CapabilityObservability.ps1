@@ -43,7 +43,50 @@ function Get-ObservabilityRepoRoot {
 function Get-ObservabilityValidEventTypes {
     [CmdletBinding()]
     param()
-    return @('TASK_RECEIVED', 'ROUTE_EVALUATED', 'AGENT_SELECTED', 'SKILL_SELECTED', 'MCP_SELECTED', 'DISPATCHED', 'STARTED', 'TOOL_USED', 'COMPLETED', 'VALIDATED', 'REVIEWED', 'RETRY', 'ESCALATED', 'FAILED', 'DONE')
+    return @('TASK_RECEIVED', 'ROUTE_EVALUATED', 'AGENT_SELECTED', 'SKILL_SELECTED', 'MCP_SELECTED', 'DISPATCHED', 'STARTED', 'TOOL_USED', 'COMPLETED', 'VALIDATED', 'REVIEWED', 'RETRY', 'ESCALATED', 'FAILED', 'DONE', 'TASK_CREATED', 'TASK_STATE_CHANGED', 'TASK_CANCELLED', 'TASK_EXHAUSTED', 'TASK_DONE', 'LEASE_ACQUIRED', 'LEASE_CONFLICT', 'WORKTREE_CREATED', 'CANDIDATE_RESULT_RECORDED', 'VERIFICATION_STARTED', 'VERIFICATION_PASSED', 'VERIFICATION_FAILED', 'REVIEW_APPROVED', 'REVIEW_CHANGES_REQUIRED')
+}
+
+function Get-ObservabilityRuntimeId {
+    [CmdletBinding()]
+    param([string]$RuntimeId)
+    try {
+        $s = ([string]$RuntimeId).Trim()
+        if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+        if ($s.Length -gt 64) { return '' }
+        if ($s -cmatch '^[a-z0-9][a-z0-9._-]{0,63}$') { return $s }
+    }
+    catch { }
+    return ''
+}
+
+function Get-ObservabilityRuntimeGeneration {
+    [CmdletBinding()]
+    param($RuntimeGeneration)
+    try {
+        if ($null -eq $RuntimeGeneration) { return $null }
+        $s = ([string]$RuntimeGeneration).Trim()
+        if ([string]::IsNullOrWhiteSpace($s)) { return $null }
+        $n = 0
+        if (-not [int]::TryParse($s, [ref]$n)) { return $null }
+        if (($n -eq 1) -or ($n -eq 2)) { return $n }
+    }
+    catch { }
+    return $null
+}
+
+function Get-ObservabilityRuntimeVersion {
+    [CmdletBinding()]
+    param([string]$RuntimeVersion)
+    try {
+        $s = ([string]$RuntimeVersion).Trim()
+        if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+        $clean = ($s -replace '[^a-zA-Z0-9._+-]', '')
+        if ([string]::IsNullOrWhiteSpace($clean)) { return '' }
+        if ($clean.Length -gt 32) { return '' }
+        return $clean
+    }
+    catch { }
+    return ''
 }
 
 function Get-ObservabilitySchemaFields {
@@ -364,7 +407,11 @@ function New-ObservabilityEvent {
         $Escalation = $false,
         $DurationMs = 0,
         $Metadata = $null,
-        [string]$Timestamp = ''
+        [string]$Timestamp = '',
+        [string]$RuntimeId = '',
+        $RuntimeGeneration = $null,
+        [string]$RuntimeVersion = '',
+        [string]$RuntimeProfile = ''
     )
     try {
         $et = Get-ObservabilityEventType -EventType $EventType
@@ -442,7 +489,7 @@ function New-ObservabilityEvent {
         catch { $dur = 0 }
         $meta = Get-ObservabilitySanitizedMetadata -Metadata $Metadata
         $tsOut = Get-ObservabilityTimestamp -Timestamp $Timestamp
-        return [PSCustomObject]@{
+        $ev = [PSCustomObject]@{
             trace_id        = $traceHash
             parent_task_id  = $parentHash
             task_id         = $taskHash
@@ -463,6 +510,23 @@ function New-ObservabilityEvent {
             metadata        = ([PSCustomObject]$meta)
             warnings        = ([string[]]$warnings.ToArray())
         }
+        $rid = Get-ObservabilityRuntimeId -RuntimeId $RuntimeId
+        if (-not [string]::IsNullOrWhiteSpace($rid)) {
+            $ev | Add-Member -NotePropertyName 'runtime_id' -NotePropertyValue $rid
+        }
+        $rgen = Get-ObservabilityRuntimeGeneration -RuntimeGeneration $RuntimeGeneration
+        if ($null -ne $rgen) {
+            $ev | Add-Member -NotePropertyName 'runtime_generation' -NotePropertyValue ([int]$rgen)
+        }
+        $rver = Get-ObservabilityRuntimeVersion -RuntimeVersion $RuntimeVersion
+        if (-not [string]::IsNullOrWhiteSpace($rver)) {
+            $ev | Add-Member -NotePropertyName 'runtime_version' -NotePropertyValue $rver
+        }
+        $rprof = Get-ObservabilityRuntimeId -RuntimeId $RuntimeProfile
+        if (-not [string]::IsNullOrWhiteSpace($rprof)) {
+            $ev | Add-Member -NotePropertyName 'runtime_profile' -NotePropertyValue $rprof
+        }
+        return $ev
     }
     catch { return $null }
 }
@@ -602,7 +666,11 @@ function Write-ObservabilityEvent {
                 -Escalation (Get-ObservabilityNodeProp -Node $Event -Name 'escalation') `
                 -DurationMs (Get-ObservabilityNodeProp -Node $Event -Name 'duration_ms') `
                 -Metadata (Get-ObservabilityNodeProp -Node $Event -Name 'metadata') `
-                -Timestamp ([string](Get-ObservabilityNodeProp -Node $Event -Name 'timestamp')))
+                -Timestamp ([string](Get-ObservabilityNodeProp -Node $Event -Name 'timestamp')) `
+                -RuntimeId ([string](Get-ObservabilityNodeProp -Node $Event -Name 'runtime_id')) `
+                -RuntimeGeneration (Get-ObservabilityNodeProp -Node $Event -Name 'runtime_generation') `
+                -RuntimeVersion ([string](Get-ObservabilityNodeProp -Node $Event -Name 'runtime_version')) `
+                -RuntimeProfile ([string](Get-ObservabilityNodeProp -Node $Event -Name 'runtime_profile')))
         }
         catch { $norm = $null }
         if ($null -eq $norm) { return $false }
@@ -626,6 +694,12 @@ function Write-ObservabilityEvent {
             duration_ms     = [int]$norm.duration_ms
             metadata        = $norm.metadata
             warnings        = ([string[]]@($norm.warnings))
+        }
+        foreach ($rn in @('runtime_id', 'runtime_generation', 'runtime_version', 'runtime_profile')) {
+            $rv = Get-ObservabilityNodeProp -Node $norm -Name $rn
+            if ($null -eq $rv) { continue }
+            if ($rv -is [string] -and [string]::IsNullOrWhiteSpace($rv)) { continue }
+            $doc[$rn] = $rv
         }
         $text = ''
         try { $text = ($doc | ConvertTo-Json -Depth 10 -Compress) }

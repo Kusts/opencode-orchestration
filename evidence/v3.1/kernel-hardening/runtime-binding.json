@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "date": "2026-09-29",
+  "layers": {
+    "v1_permissions": "runtime-enforced (proven: templates + installer tests + CI smoke 1.18.x)",
+    "v2_permissions": "rendered+validated (consistency checks 12-15); runtime enforcement claim pending real-V2 spike (Phase 5)",
+    "v2_policies": "HOLD pending real-runtime validation (Phase 5); no hard-deny shipped",
+    "plugin_v1_hooks": "runtime-enforced (proven on 1.18.x, plugin tests)",
+    "plugin_v2_hooks": "implemented (v2.ts + mock tests); live-runtime claim pending V2 CI lane (Phase 8)",
+    "kernel_checks": "kernel-enforced (OrchestrationTaskKernel CAS/gate/DONE; 50+ tests)",
+    "grants": "kernel-enforced intersection; runtime_grant_enforcement flags OFF until activation",
+    "leases_worktrees": "kernel-enforced; flags OFF by default"
+  },
+  "holds": [
+    "V2 experimental.policies hard-deny",
+    "V2 plugin live-load in CI",
+    "runtime grant enforcement activation"
+  ]
+}

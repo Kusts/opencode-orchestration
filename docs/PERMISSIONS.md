@@ -80,6 +80,20 @@ de enforcement contra o runtime V2 real **ainda não foram implementadas**
 permissões nativas, e nenhum claim de enforcement V2 vai além do que os
 checks cobrem.
 
+### Camadas de enforcement (matriz)
+
+| Camada | Status |
+|---|---|
+| Permissões V1 | runtime-enforced (templates + testes do instalador + smoke CI 1.18.x) |
+| Permissões V2 | renderizado + validado por checks (consistency 12–15); claim de enforcement aguarda spike V2 real (Phase 5) |
+| Policies V2 (`experimental.policies`) | HOLD (Phase 5); nenhum hard-deny enviado |
+| Hooks do plugin V1 | runtime-enforced (provado em 1.18.x, testes do plugin) |
+| Hooks do plugin V2 | implementado com testes mock; claim live pendente da lane CI V2 (Phase 8) |
+| Kernel (CAS/gate/DONE/grants/leases/worktrees) | kernel-enforced; flags OFF por padrão até ativação com evidência (Phase 19) |
+
+Matriz viva em `evidence/v3.1/kernel-hardening/runtime-binding.json` — nenhum
+claim além do testado.
+
 ## Limitações declaradas (sem capacidades inventadas)
 
 - Globs `bash:` são **matching de string** sobre o texto do comando. Não inspecionam
@@ -101,3 +115,39 @@ checks cobrem.
   disponíveis; diante de operação não coberta, interrompe e devolve ao Planner.
 - Nenhuma capacidade nova é criada por este documento: ele descreve o que está nos
   frontmatters, no template e no Dispatch Contract.
+
+## Camada kernel-enforced (V3.1)
+
+Acima das barreiras por runtime/contrato, o Task Kernel (`scripts/v3/task-kernel.ps1`;
+núcleo em `scripts/v3/lib/OrchestrationTaskKernel.ps1`) aplica autoridade
+determinística, idêntica em V1 e V2:
+
+- **Grants por interseção**: autoridade efetiva = baseline do papel ∩ grants da
+  task ∩ capacidade do runtime ∩ autorização de ambiente ∩ aprovação humana
+  quando exigida (`source/registry/execution-grants.json`). Nunca união; grants
+  sensíveis (`destructive.fs`, `deploy.production`, `secrets.read`, `git.push`)
+  não estão em nenhum baseline e exigem grant explícito + aprovação.
+- **Evidence Contract**: workers emitem SOMENTE `candidate_pass`/`failed`/`blocked`;
+  `verified_pass` vem do verificador (`Set-OrchestrationTaskVerification`,
+  allowlist em `source/registry/verification-policy.json`) e `DONE` só do kernel
+  (`Complete-OrchestrationTask`, após `Test-OrchestrationTaskCompletion`).
+- **Leases/worktrees**: escrita concorrente exige lease (`cache/runtime/locks`);
+  writers paralelos exigem worktrees isoladas com cleanup ownership-aware.
+- **Flags**: `task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
+  iniciam OFF (shadow rollout, Phase 19) — enforcement de kernel torna-se
+  obrigatório somente após ativação com evidência. Estado vivo em
+  `evidence/v3.1/kernel-hardening/runtime-binding.json`.
+
+## Status V2 — spike e HOLDs (2026-09-29)
+
+Harness: `scripts/runtime/spike-v2-permissions.ps1` (resolve binário V2 via
+`-BinaryPath` → manifest do perfil v2 → probe PATH 2.x; sem binário, registra
+`skipped` e sai 0). Evidência: `evidence/v3.1/kernel-hardening/v2-permissions-spike.json`.
+Checks automatizados correspondem 1:1 a comandos executados (`--version`,
+`debug paths`, `debug config`, `debug agent`); enforcement comportamental
+(agente live tentando operação negada) fica como `manual_checklist_pending`
+— nenhum claim de enforcement V2 vai além do observado.
+
+HOLDs honestos (sem teste no runtime exato, sem claim): hard-deny via
+`experimental.policies`, live-load do plugin V2 em CI e ativação do
+`runtime_grant_enforcement`.

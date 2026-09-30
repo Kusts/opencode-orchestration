@@ -356,6 +356,16 @@ Retorno compacto: `TASK_ID`, `STATUS`, `KEY_FINDINGS`, `EVIDENCE`
 Planner nem envie logs/dumps extensos; referencie onde a evidência completa
 está. Mensagem de sucesso de worker nunca é prova.
 
+Contrato de resultado do worker (Evidence Contract): o worker retorna SOMENTE
+`candidate_pass` (candidato, com evidência reivindicada), `failed` ou
+`blocked` — sempre com refs de critério (`criterion:<idx>:<evidencia>`).
+O worker NUNCA emite `verified_pass`, `done` ou aprovação: `verified_pass`
+vem só do verificador (`Set-OrchestrationTaskVerification`, allowlist em
+`source/registry/verification-policy.json`), `DONE` só do kernel
+(`Complete-OrchestrationTask`, após `Test-OrchestrationTaskCompletion`), e
+aprovação só de reviewer/security-reviewer. Claim do worker é input para
+verificação determinística, nunca prova.
+
 ### Ciclo, tentativas e DONE
 
 Estágios lógicos `coder → tester → reviewer` (quantos workers cada estágio
@@ -372,6 +382,21 @@ Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 comportamento validado, checks executados, integração verificada, findings
 resolvidos ou conscientemente aceitos, review encerrado, riscos residuais
 conhecidos, nenhuma unidade essencial esquecida.
+
+Fluxo canônico do Task Kernel (`scripts/v3/task-kernel.ps1`; detalhes em
+`scripts/v3/lib/OrchestrationTaskKernel.ps1`): preflight → criar task →
+planejar scopes/grants (interseção: baseline do papel ∩ grants da task ∩
+capacidade do runtime ∩ ambiente; nunca união) → adquirir lease (+ worktree
+quando paralelo/alto risco) → dispatch → resultado candidato →
+verificação determinística allowlisted → tester → reviewer (+ security
+quando disparado) → gate de conclusão (`Test-OrchestrationTaskCompletion`)
+→ cleanup (release do lease, remoção do worktree owned) → DONE
+(`Complete-OrchestrationTask`, kernel-authorized). Orçamento de retry: 2ª
+falha exige Debugger; 3ª tentativa exige evidência, hipótese ou estratégia
+nova, senão EXHAUSTED (kernel-enforced). Flags `task_kernel`,
+`worktree_isolation` e `runtime_grant_enforcement` iniciam OFF (shadow
+rollout, Phase 19): o fluxo torna-se obrigatório somente após ativação
+com evidência.
 
 ### Papéis: invariantes
 

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "date": "2026-09-29",
+  "program": "Orchestration V3.1 Dual-Runtime Kernel Hardening",
+  "repository_head": "340b485 (master, pos docs 340b485; implementacao nao commitada neste ponto)",
+  "spec": "docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md",
+  "plan": "docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-PLAN.md",
+  "phases": {
+    "0_baseline_freeze": "done — evidence/v3.1/kernel-hardening/baseline.json (pins V1 opencode-ai@1.18.32; V2 @opencode/cli@2.0.18; plugins 1.18.32/2.0.18)",
+    "1_runtime_adapters": "done — source/registry/runtimes.json + scripts/runtime/lib/RuntimeAdapters.ps1 + detect-opencode-runtime.ps1",
+    "2_config_templates": "done — templates/opencode.v1|v2.json.tmpl + checks 12-15",
+    "3_agent_translation": "done — scripts/runtime/lib/AgentTranslator.ps1 (19 agents, fail-closed)",
+    "4_dual_plugin": "done — v1.ts/v2.ts/shared + dual-export + bundle dist + typecheck V1/V2/DUAL",
+    "5_v2_policy_spike": "harness done; behavioral enforcement PENDING — spike real executado contra V2 2.0.18 provisionado: version + XDG PASS; debug config/agents HANG (2x timeout 90s) => status failed honesto em v2-permissions-spike.json; nenhum claim de enforcement V2",
+    "6_runtime_installer": "done — install.ps1 -Runtime Auto|V1|V2|Both; uninstall -Runtime Auto|V1|V2",
+    "7_profiles": "done — XDG provado (runtime-isolation-spike.json) + wrappers + fail-closed Both",
+    "8_ci_lanes": "partial — job ci-v2-lane adicionado (consistency+v3+distribution+typecheck V1/V2/dual); smoke de binario V2 real no CI ainda SEM path comprovado no Windows",
+    "9_task_kernel": "done — OrchestrationTaskKernel.ps1 (CAS com lock interprocesso, transicoes legais, terminais imutaveis, DONE so via Complete-OrchestrationTask)",
+    "10_grants": "done — execution-grants.json (16 grants, baselines, intersecao nunca uniao; sensiveis exigem task+runtime+env+aprovacao humana)",
+    "11_evidence_contract": "done — worker so candidate_pass|failed|blocked; verified/done/aprovacao so via kernel/verifier/reviewer",
+    "12_verifier": "done — OrchestrationVerifier.ps1 + verification-policy.json (allowlist fechada, out-of-scope bloqueia antes de executar, base obrigatoria, parsing -z com renames)",
+    "13_done_retry": "done — gate de 12+ cheques, DONE so de REVIEWING, retry: 2a falha exige debugger, 3a exige evidencia nova, senao EXHAUSTED",
+    "14_leases": "done — OrchestrationOwnership.ps1 (lock de diretorio, fail-closed em lease malformado recente, conflito cross-generation)",
+    "15_worktrees": "done — OrchestrationWorktree.ps1 (marker ownership, nunca force implicito, registro git conferido)",
+    "16_runtime_binding": "done-honest — runtime-binding.json com layers + HOLDs (policies V2, live plugin V2 em CI, ativacao de grants)",
+    "17_contract_integration": "done — Evidence Contract + fluxo canonicos em source/adapters/opencode.md e opencode-v2.md (renderizados)",
+    "18_observability": "done — 14 tipos novos (29 total) + runtime_id/generation/version/profile opcionais",
+    "19_shadow_rollout": "done — flags runtime_support/task_kernel(shadow)/worktree_isolation/runtime_grant_enforcement todas conservadoras por padrao",
+    "20_release": "evidence recorded (este arquivo); release final pendente de commit humano"
+  },
+  "suites": {
+    "package_consistency": "16/16 OK",
+    "v3_runner": "31 suites: 24 PASS / 4 FAIL (invariante de ambiente pre-existente DE22307F — config vivo divergente do canonico; ja falhava no baseline congelado) / 3 SKIP (typecheck dual gated por rede)",
+    "new_kernel_suites": "OrchestrationTaskKernel 75/75; OrchestrationOwnership 56/56; OrchestrationVerifier 49/49; CapabilityFlags 20/20; CapabilityObservability 111/112 (unico FAIL = invariante de ambiente)",
+    "distribution": "13/13 PASS (inclui runtime-install V1+V2 115 asserts, profile-isolation, rollback, uninstall)"
+  },
+  "runtime_versions_observed": {
+    "v1_global_path": "1.18.33 (C:/Users/walis/bin/opencode.cmd)",
+    "v1_ci_pin": "1.18.32",
+    "v2_provisioned_profile": "2.0.18 (@opencode/cli, npm no perfil, global intocado)",
+    "v2_global_path_stray": "2.0.19 observado em npm dir — risco mitigado por resolucao manifest-first do spike"
+  },
+  "reviews": [
+    "REVIEW-KERNEL: CHANGES_REQUIRED (10 findings) — todos corrigidos na wave K5",
+    "SECREV-KERNEL: CHANGES_REQUIRED — F1-F3/F5/F8 corrigidos em K5/K6; residuais documentados abaixo",
+    "REREVIEW-K5: CHANGES_REQUIRED (5 findings) — todos corrigidos na wave K6 (CreateNew, lease parcial fail-closed, criterio via verifier real, texto protegido uniforme, rename commitado)"
+  ],
+  "known_deviations_and_residual_risks": [
+    "Invariante DE22307F: 4 suites V3 falham quando o opencode.json vivo diverge do baseline canonico — pre-existente, ambiente-dependente, nao-regressao",
+    "V2 2.0.18: debug config/agents travam sob XDG fixture (2x timeout 90s); fora do fixture falham rapido (usage/exit 1) — contrato de invocacao difere; HOLD em claims de enforcement V2 ate investigacao upstream",
+    "behavioral_permission_enforcement (precedencia de regras ordenadas, saved approvals, experimental.policies) = manual_checklist_pending",
+    "OrchestrationCompliance no gate e verdict por proveniencia do chamador (preflight roda in-process upstream); residual documentado no header da lib",
+    "Provisionador V2 executa postinstall.mjs explicitamente apos npm --ignore-scripts (mecanismo pre-existente, opt-in, sem pin por digest)"
+  ],
+  "flags_state": {
+    "runtime_support": { "v1": true, "v2": false, "dual_profile": false },
+    "task_kernel": { "enabled": false, "shadow": true },
+    "worktree_isolation": { "enabled": false },
+    "runtime_grant_enforcement": { "v1": false, "v2": false }
+  }
+}

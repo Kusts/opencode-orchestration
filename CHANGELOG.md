@@ -8,7 +8,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 Programa **V3.1 — Dual-Runtime Kernel Hardening** em andamento
 (especificação e plano em `docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-*`).
-Fases 0–4 e 6–7 implementadas e verificadas; fases 5 e 8–20 pendentes.
+Fases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel) **implementadas, revisadas
+(Reviewer + Security Reviewer) e corrigidas**; Phase 5 entrega só o harness
+(enforcement comportamental V2 pendente), Phase 8 tem lane CI sem smoke de
+binário V2; evidência completa em
+`evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 ### Added
 
@@ -50,19 +54,66 @@ Fases 0–4 e 6–7 implementadas e verificadas; fases 5 e 8–20 pendentes.
   `@opencode/plugin@2.0.18`.
 - Spec e plano V3.1 documentados em `docs/specs/`.
 
+- **Task Kernel (Phases 9–19)** — estado de tarefa persistente e
+  determinístico, todos com suítes próprias:
+  - `scripts/v3/lib/OrchestrationTaskKernel.ps1` + CLI
+    `scripts/v3/task-kernel.ps1`: registros em `cache/runtime/tasks/` com
+    CAS (lock interprocesso + re-checagem na seção crítica), transições
+    legais, estados terminais imutáveis, `DONE` só via
+    `Complete-OrchestrationTask` (gate de 12+ cheques; só de `REVIEWING`),
+    orçamento de retry (2ª falha exige debugger, 3ª exige evidência nova,
+    senão `EXHAUSTED`), identidade de ator com fontes confiáveis e
+    redação de segredos em todo texto persistido.
+  - `source/registry/execution-grants.json` + interseção de autoridade
+    efetiva (baseline ∩ task ∩ runtime ∩ ambiente ∩ aprovação — nunca
+    união); grants sensíveis (`destructive.fs`, `deploy.production`,
+    `secrets.read`, `git.push`) fora de todo baseline.
+  - Evidence Contract: worker só emite `candidate_pass|failed|blocked`;
+    `verified_pass`/aprovação vêm só de verifier/reviewer; verificação
+    obsoleta após novo trabalho (`verification_stale`/`review_stale`).
+  - `scripts/v3/lib/OrchestrationVerifier.ps1` +
+    `source/registry/verification-policy.json`: allowlist fechada de
+    comandos, checagem de escopo git antes de executar qualquer comando,
+    base revision obrigatória, output limitado e com segredos redigidos,
+    evidência por critério (`criterion:<idx>:`) gerada pelo próprio
+    verifier.
+  - `scripts/v3/lib/OrchestrationOwnership.ps1`: write leases em
+    `cache/runtime/locks/` com lock de diretório, conflito
+    cross-generation (V1 vs V2 no mesmo escopo) e fail-closed em lease
+    malformado recente.
+  - `scripts/v3/lib/OrchestrationWorktree.ps1`: worktrees por tarefa com
+    marker de ownership, nunca `--force` implícito, registro git
+    conferido antes de remover.
+  - Observabilidade: 14 tipos de evento novos (29 total) e dimensão
+    runtime (`runtime_id/generation/version/profile`) opcional e
+    sanitizada; flags de rollout conservadoras
+    (`task_kernel` desligado+shadow, `worktree_isolation` e
+    `runtime_grant_enforcement` desligados, `runtime_support.v2` off até
+    ativação com evidência).
+- **Revisões independentes**: Reviewer + Security Reviewer emitiram
+  `CHANGES_REQUIRED` com 15 findings válidos (concorrência CAS/lease,
+  auto-atestação de DONE, evidência claimed, `--force` implícito, união
+  de grants, segredos) — todos corrigidos e revalidados (75/75,
+  56/56, 49/49).
+- **Spike V2 honesto** (`scripts/runtime/spike-v2-permissions.ps1`): com
+  V2 2.0.18 provisionado no perfil, `version` e isolamento XDG passam;
+  `debug config/agents` travam (2× timeout) — status `failed` registrado
+  sem claim de enforcement; checklist comportamental pendente.
+- **Lane CI V2** (`ci-v2-lane`): consistência + suítes V3 + distribuição +
+  typecheck V1/V2/dual; smoke de binário V2 real no CI segue sem path
+  comprovado no Windows.
+
 ### Pendente (não implementado)
 
-- **Phase 5** — spike de enforcement V2: fixture de resource strings,
-  precedência de regras em runtime real e `experimental.policies`
-  (hard-deny). `docs/PERMISSIONS.md` descreve o render nativo, mas o
-  enforcement V2 ainda não foi validado contra o runtime.
-- **Phase 8** — lanes de CI para V2 e dual-perfil (o CI atual valida só V1
-  1.18.32; V2 é validado por suítes locais + spike de isolamento).
-- **Phases 9–19** — Task Kernel: estado persistente com CAS, execution
-  grants, Evidence Contract, verifier determinístico, DONE
-  kernel-authorized, leases, worktrees, observabilidade com dimensão de
-  runtime e shadow rollout. Nenhuma flag `runtime_support`/`task_kernel`
-  existe ainda em `source/registry/capability-flags.json`.
+- **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
+  saved approvals e `experimental.policies` contra o runtime V2 real
+  (requer resolver o travamento do `debug` V2 e/ou lane de CI com binário
+  real). Nenhum hard-deny é shipado antes disso.
+- **Phase 8 (smoke V2 em CI)** — mecanismo oficial de instalação V2 no
+  Windows ainda não provado para uso em CI.
+- **Ativação** — flags `task_kernel`/`worktree_isolation`/
+  `runtime_grant_enforcement`/`runtime_support.v2` permanecem OFF; ativar
+  é decisão humana com evidência (shadow rollout, Phase 19).
 
 ### Known issues (pré-existentes, dependentes de ambiente)
 

@@ -176,11 +176,24 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
 - **Plugin dual-runtime**: fonte única (`v1.ts`/`v2.ts`/`shared/`,
   dual-export `{id, setup, server}`), bundle `plugins/dist/`
   `orchestration-enforcement.js` + sidecar sha256.
-- **Pendente** (phases 5 e 8–20 do plano): spike de enforcement V2
-  (`experimental.policies`), lanes de CI V2/dual e o **Task Kernel**
-  (estado CAS, grants, Evidence Contract, verifier, DONE
-  kernel-authorized, leases, worktrees). Flags `runtime_support`/
-  `task_kernel` ainda não existem em `capability-flags.json`.
+- **Task Kernel (Phases 9–19, implementado)**: estado de tarefa
+  persistente em `cache/runtime/tasks/` com CAS (lock interprocesso),
+  transições legais e terminais imutáveis; grants por interseção
+  (`source/registry/execution-grants.json`); Evidence Contract
+  (`candidate_pass|failed|blocked` — worker nunca atesta verificação);
+  verifier com allowlist fechada (`OrchestrationVerifier.ps1` +
+  `verification-policy.json`); `DONE` só via `Complete-OrchestrationTask`
+  (gate próprio, só de `REVIEWING`, retry com debugger/evidência nova);
+  write leases (`cache/runtime/locks/`) e worktrees por tarefa com marker
+  de ownership. Eventos TASK_*/LEASE_*/VERIFICATION_*/REVIEW_* na
+  telemetria (29 tipos) com dimensão runtime.
+- **Pendente** (honesto): enforcement **comportamental** V2
+  (`experimental.policies`, precedência de regras no runtime real) —
+  spike travou em `debug config/agents` do V2 2.0.18 (HOLD registrado em
+  `evidence/v3.1/kernel-hardening/runtime-binding.json`); smoke de
+  binário V2 na lane CI `ci-v2-lane`; ativação das flags
+  (`task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
+  nascem OFF — shadow rollout, ativação é decisão humana com evidência).
 
 ## Ownership model do installer (PACKAGE/USER)
 

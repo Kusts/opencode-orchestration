@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "grants": [
+    "fs.read",
+    "fs.write",
+    "shell.validation",
+    "shell.diagnostic",
+    "git.diff",
+    "git.commit",
+    "git.branch",
+    "git.worktree",
+    "git.push",
+    "docs.write",
+    "db.migration.create",
+    "deploy.staging",
+    "deploy.production",
+    "secrets.reference",
+    "secrets.read",
+    "destructive.fs"
+  ],
+  "role_baselines": {
+    "build": ["fs.read", "fs.write", "shell.validation", "shell.diagnostic", "git.diff", "git.commit", "git.branch", "git.worktree", "docs.write"],
+    "explorer": ["fs.read", "git.diff"],
+    "researcher": ["fs.read", "git.diff"],
+    "coder": ["fs.read", "fs.write", "shell.validation", "shell.diagnostic", "git.diff", "git.commit", "git.branch", "git.worktree", "docs.write"],
+    "tester": ["fs.read", "shell.validation", "git.diff"],
+    "reviewer": ["fs.read", "git.diff"],
+    "security-reviewer": ["fs.read", "git.diff"],
+    "debugger": ["fs.read", "shell.validation", "shell.diagnostic", "git.diff"],
+    "architect": ["fs.read", "git.diff"],
+    "docs-manager": ["fs.read", "docs.write"],
+    "frontend-engineer": ["fs.read", "fs.write", "shell.validation", "git.diff", "git.commit", "git.branch", "docs.write"],
+    "backend-engineer": ["fs.read", "fs.write", "shell.validation", "git.diff", "git.commit", "git.branch", "docs.write"],
+    "database-engineer": ["fs.read", "fs.write", "shell.validation", "git.diff", "git.commit", "git.branch", "db.migration.create", "docs.write"],
+    "ai-agent-engineer": ["fs.read", "fs.write", "shell.validation", "git.diff", "git.commit", "git.branch", "docs.write"],
+    "automation-engineer": ["fs.read", "fs.write", "shell.validation", "git.diff", "git.commit", "git.branch", "docs.write"],
+    "infra-engineer": ["fs.read", "fs.write", "shell.validation", "shell.diagnostic", "git.diff", "git.branch", "git.worktree", "docs.write"],
+    "requirements-analyst": ["fs.read", "git.diff", "docs.write"],
+    "engineering-advisor": ["fs.read", "git.diff", "docs.write"],
+    "product-designer": ["fs.read", "git.diff", "docs.write"],
+    "skeptic": ["fs.read", "git.diff"]
+  },
+  "actor_identity_sources": {
+    "trusted": [
+      "runtime-v1-session-map",
+      "runtime-v1-input-probe",
+      "runtime-v2-session-context",
+      "runtime-v2-tool-event",
+      "explicit-cli"
+    ],
+    "untrusted": [
+      "unknown"
+    ]
+  }
+}

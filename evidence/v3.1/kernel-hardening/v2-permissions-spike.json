@@ -1,0 +1,45 @@
+{
+    "spike":  "v2-permissions",
+    "date":  "2026-09-29",
+    "status":  "failed",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\.bin\\opencode.cmd",
+    "binary_source":  "profile-manifest-v2",
+    "version":  "opencode v2.0.18",
+    "isolation":  "XDG_CONFIG_HOME (+XDG_DATA/STATE/CACHE no temp; stdin NUL; rc por echo)",
+    "checks":  [
+                   {
+                       "name":  "version_responds_2x",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version; rc=0; out=opencode v2.0.18"
+                   },
+                   {
+                       "name":  "isolation_xdg_honored",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths com XDG_CONFIG_HOME=temp; config resolve dentro da fixture"
+                   },
+                   {
+                       "name":  "config_sources_listed",
+                       "passed":  false,
+                       "detail":  "cmd: \u003cbin\u003e debug config (isolado); TIMEOUT 90s (stdin vem de NUL; sem saidas)"
+                   },
+                   {
+                       "name":  "agents_load_fixture",
+                       "passed":  false,
+                       "detail":  "cmd: \u003cbin\u003e debug agents (isolado); TIMEOUT 90s (stdin vem de NUL; sem saidas)"
+                   }
+               ],
+    "notes":  [
+                  "V2 `debug config` lista fontes de configuracao (nao e o validador do V1); `debug agents` e a sonda de load da fixture."
+              ],
+    "behavioral_permission_enforcement":  {
+                                              "status":  "manual_checklist_pending",
+                                              "note":  "Levar um agente live a tentar operacao negada nao e automatizavel neste harness; passos abaixo pendentes de execucao manual contra o binario acima.",
+                                              "steps":  [
+                                                            "1. fixture-writer executa `git status --short` (allow estreito): esperado ALLOW (last-match-wins sobre o deny-all).",
+                                                            "2. fixture-writer executa shell fora do allow (ex.: `git push --force`): esperado DENY pelo deny-all ordenado.",
+                                                            "3. fixture-reader tenta qualquer edit/shell: esperado DENY.",
+                                                            "4. worker tenta subdelegar (subagent): esperado DENY; saved approval/ask nao pode ampliar para ALLOW.",
+                                                            "5. experimental.policies com hard-deny (ex.: force-push): esperado DENY mesmo com allow + saved approval; sem policy inventada ate este passo passar no runtime real."
+                                                        ]
+                                          }
+}

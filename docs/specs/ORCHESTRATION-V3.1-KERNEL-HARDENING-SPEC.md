@@ -4,7 +4,7 @@
 **Baseline:** `master` @ `78418e790fd08d3f61e8706e7d534504a0965e8c`  
 **Revision date:** 2026-09-28  
 **Target release:** preferably `1.1.0` if backward compatibility is preserved  
-**Status:** Em implementação — Phases 0–4 e 6–7 implementadas e verificadas (2026-09-29; evidência em `evidence/v3.1/kernel-hardening/` e CHANGELOG `[Unreleased]`). Phases 5 (spike de enforcement/policies V2) e 8–20 (lanes de CI, Task Kernel, grants, verifier, DONE kernel, leases, worktrees, observabilidade, shadow rollout, release) pendentes.  
+**Status:** Em implementação — Phases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel, grants, Evidence Contract, verifier, DONE kernel, leases, worktrees, binding records, contrato, observabilidade, flags) implementadas, revisadas (Reviewer + Security Reviewer, 15 findings corrigidos) e verdes (2026-09-29). Phase 5: harness pronto; enforcement comportamental V2 pendente (HOLD honesto). Phase 8: lane CI adicionada; smoke de binário V2 pendente. Phase 20: evidência registrada em `evidence/v3.1/kernel-hardening/implementation-status.json`. Flags de rollout OFF por padrão.  
 **Change class:** `RUNTIME_COMPATIBILITY` + `FEATURE_REEVALUATION` + `AUTHORITY_HARDENING`
 
 ## 0. Primary objective

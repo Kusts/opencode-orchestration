@@ -33,10 +33,91 @@ try {
     New-Item -ItemType Directory -Path $telDir -Force | Out-Null
 
     $valid = @(Get-ObservabilityValidEventTypes)
-    Assert-That ($valid.Count -eq 15) 'Enum event_type tem 15 valores' ("Got $($valid.Count)")
+    Assert-That ($valid.Count -eq 29) 'Enum event_type tem 29 valores' ("Got $($valid.Count)")
     foreach ($e in @('TASK_RECEIVED', 'ROUTE_EVALUATED', 'AGENT_SELECTED', 'SKILL_SELECTED', 'MCP_SELECTED', 'DISPATCHED', 'STARTED', 'TOOL_USED', 'COMPLETED', 'VALIDATED', 'REVIEWED', 'RETRY', 'ESCALATED', 'FAILED', 'DONE')) {
         Assert-That ($valid -ccontains $e) ("Enum contem $e") ($valid -join ',')
     }
+    $newTypes = @('TASK_CREATED', 'TASK_STATE_CHANGED', 'TASK_CANCELLED', 'TASK_EXHAUSTED', 'TASK_DONE', 'LEASE_ACQUIRED', 'LEASE_CONFLICT', 'WORKTREE_CREATED', 'CANDIDATE_RESULT_RECORDED', 'VERIFICATION_STARTED', 'VERIFICATION_PASSED', 'VERIFICATION_FAILED', 'REVIEW_APPROVED', 'REVIEW_CHANGES_REQUIRED')
+    Assert-That ($newTypes.Count -eq 14) 'Enum: 14 novos tipos Phase 18' ("Got $($newTypes.Count)")
+    foreach ($e in $newTypes) {
+        Assert-That ($valid -ccontains $e) ("Enum contem novo $e") ($valid -join ',')
+    }
+    foreach ($e in $newTypes) {
+        $t = $null
+        try { $t = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType $e } catch { $t = 'THREW' }
+        Assert-That (($null -ne $t) -and ($t -ne 'THREW') -and ($t.event_type -ceq $e)) ("Novo tipo aceito $e") ([string]$t)
+        $tl = $null
+        try { $tl = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType ($e.ToLowerInvariant()) } catch { $tl = 'THREW' }
+        Assert-That (($null -ne $tl) -and ($tl -ne 'THREW') -and ($tl.event_type -ceq $e)) ("Novo tipo case-insensitive $e") ([string]$tl)
+    }
+
+    $rt = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeVersion '1.2.3' -RuntimeProfile 'default'
+    Assert-That (($null -ne $rt) -and ([string]$rt.runtime_id -ceq 'opencode-v1') -and ([int]$rt.runtime_generation -eq 1) -and ([string]$rt.runtime_version -ceq '1.2.3') -and ([string]$rt.runtime_profile -ceq 'default')) 'Runtime valido persistido' 'Campos ausentes/errados'
+    $rt2 = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeId 'opencode-v1' -RuntimeGeneration 2 -RuntimeVersion '2.0.0-beta+1' -RuntimeProfile 'dual.profile-1'
+    Assert-That (($null -ne $rt2) -and ([int]$rt2.runtime_generation -eq 2)) 'Runtime generation 2 aceita' 'Rejeitada'
+
+    $rtOmit = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED'
+    $omitOk = $true
+    if ($null -eq $rtOmit) { $omitOk = $false }
+    else {
+        foreach ($rn in @('runtime_id', 'runtime_generation', 'runtime_version', 'runtime_profile')) {
+            $p = $rtOmit.PSObject.Properties | Where-Object { $_.Name -ceq $rn } | Select-Object -First 1
+            if ($null -ne $p) { $omitOk = $false }
+        }
+    }
+    Assert-That $omitOk 'Runtime omitido => campos ausentes (sem null/vazio)' 'Campo presente'
+
+    $telRt = New-TmpTelemetry
+    $evRtRaw = [PSCustomObject]@{ task_id = 'RT-11AA'; event_type = 'TASK_CREATED'; agent = 'coder' }
+    $okRt = $false
+    try { $okRt = Write-ObservabilityEvent -Event $evRtRaw -TelemetryPath $telRt } catch { $okRt = 'THREW' }
+    Assert-That ($okRt -eq $true) 'Escrita sem runtime nao bloqueia' ([string]$okRt)
+    if (Test-Path -LiteralPath $telRt -PathType Leaf) {
+        $txtRt = [IO.File]::ReadAllText($telRt, [Text.UTF8Encoding]::new($false))
+        Assert-That ((-not $txtRt.Contains('runtime_id')) -and (-not $txtRt.Contains('runtime_generation')) -and (-not $txtRt.Contains('runtime_version')) -and (-not $txtRt.Contains('runtime_profile'))) 'JSONL sem runtime: sem chaves null/vazias' 'Chave vazia emitida'
+    }
+    else { Assert-That $false 'JSONL sem runtime escrito' 'Ausente' }
+
+    $rtBadId = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeId 'BAD ID!!'
+    $badIdOk = ($null -ne $rtBadId)
+    if ($badIdOk) { $p = $rtBadId.PSObject.Properties | Where-Object { $_.Name -ceq 'runtime_id' } | Select-Object -First 1; if ($null -ne $p) { $badIdOk = $false } }
+    Assert-That $badIdOk 'Runtime id invalido descartado, evento valido' 'Campo vazou ou evento null'
+    $rtBadUp = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeId 'Opencode-V1'
+    $badUpOk = ($null -ne $rtBadUp)
+    if ($badUpOk) { $p = $rtBadUp.PSObject.Properties | Where-Object { $_.Name -ceq 'runtime_id' } | Select-Object -First 1; if ($null -ne $p) { $badUpOk = $false } }
+    Assert-That $badUpOk 'Runtime id maiusculo descartado (fail-safe)' 'Campo vazou'
+    $rtBadGen = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeGeneration 3
+    $badGenOk = ($null -ne $rtBadGen)
+    if ($badGenOk) { $p = $rtBadGen.PSObject.Properties | Where-Object { $_.Name -ceq 'runtime_generation' } | Select-Object -First 1; if ($null -ne $p) { $badGenOk = $false } }
+    Assert-That $badGenOk 'Runtime generation 3 descartada, evento valido' 'Campo vazou ou evento null'
+    $rtBadVer = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeVersion ('x' * 40)
+    $badVerOk = ($null -ne $rtBadVer)
+    if ($badVerOk) { $p = $rtBadVer.PSObject.Properties | Where-Object { $_.Name -ceq 'runtime_version' } | Select-Object -First 1; if ($null -ne $p) { $badVerOk = $false } }
+    Assert-That $badVerOk 'Runtime version longa descartada, evento valido' 'Campo vazou ou evento null'
+    $rtSan = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeVersion 'v1.0;rm -rf'
+    Assert-That (($null -ne $rtSan) -and ([string]$rtSan.runtime_version -ceq 'v1.0rm-rf') -and (-not ([string]$rtSan.runtime_version).Contains(';')) -and (-not ([string]$rtSan.runtime_version).Contains(' '))) 'Runtime version sanitizada (strip fora de [a-zA-Z0-9._+-])' ([string]$rtSan.runtime_version)
+    $rtBadProf = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_CREATED' -RuntimeProfile 'BAD PROFILE!!'
+    $badProfOk = ($null -ne $rtBadProf)
+    if ($badProfOk) { $p = $rtBadProf.PSObject.Properties | Where-Object { $_.Name -ceq 'runtime_profile' } | Select-Object -First 1; if ($null -ne $p) { $badProfOk = $false } }
+    Assert-That $badProfOk 'Runtime profile invalido descartado, evento valido' 'Campo vazou ou evento null'
+
+    $telRt2 = New-TmpTelemetry
+    $evRtFull = [PSCustomObject]@{ task_id = 'RT-22BB'; event_type = 'TASK_CREATED'; agent = 'coder'; runtime_id = 'opencode-v1'; runtime_generation = 1; runtime_version = '1.0.0'; runtime_profile = 'default' }
+    $okRt2 = $false
+    try { $okRt2 = Write-ObservabilityEvent -Event $evRtFull -TelemetryPath $telRt2 } catch { $okRt2 = 'THREW' }
+    Assert-That ($okRt2 -eq $true) 'Escrita com runtime valido persiste' ([string]$okRt2)
+    if (Test-Path -LiteralPath $telRt2 -PathType Leaf) {
+        $txtRt2 = [IO.File]::ReadAllText($telRt2, [Text.UTF8Encoding]::new($false))
+        Assert-That (($txtRt2.Contains('opencode-v1') -and $txtRt2.Contains('runtime_id'))) 'JSONL com runtime_id persistido' 'Ausente'
+        $oRt = $null
+        try { $oRt = (($txtRt2 -split "`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1) | ConvertFrom-Json) } catch { $oRt = $null }
+        $reOk = $false
+        try {
+            $reOk = Write-ObservabilityEvent -Event $oRt -TelemetryPath (New-TmpTelemetry)
+        } catch { $reOk = 'THREW' }
+        Assert-That ($reOk -eq $true) 'Re-normalizacao com runtime preserva (idempotente)' ([string]$reOk)
+    }
+    else { Assert-That $false 'JSONL com runtime escrito' 'Ausente' }
 
     $ev = New-ObservabilityEvent -TaskId 'DB-1A2B' -EventType 'TASK_RECEIVED' -Agent 'coder' -Risk 'medium' -Status 'received'
     Assert-That (($null -ne $ev) -and ($ev.event_type -ceq 'TASK_RECEIVED')) 'Evento valido construido' 'Null ou tipo errado'
