@@ -1,0 +1,90 @@
+{
+  "smoke": "v2-ci-smoke",
+  "date": "2026-09-30",
+  "status": "ok",
+  "binary": "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+  "expected_version": "2.0.18",
+  "version_exact": true,
+  "service_port": 53889,
+  "workers_expected": 19,
+  "workers_loaded": [
+    "build",
+    "ai-agent-engineer",
+    "architect",
+    "automation-engineer",
+    "backend-engineer",
+    "coder",
+    "database-engineer",
+    "debugger",
+    "docs-manager",
+    "engineering-advisor",
+    "explorer",
+    "frontend-engineer",
+    "infra-engineer",
+    "product-designer",
+    "requirements-analyst",
+    "researcher",
+    "reviewer",
+    "security-reviewer",
+    "skeptic",
+    "tester"
+  ],
+  "isolation": "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome; OPENCODE_CONFIG* removido do filho; cwd no TargetHome; stdin fechado",
+  "checks": [
+    {
+      "name": "version_exact",
+      "passed": true,
+      "detail": "cmd: <bin> --version; exige 2.0.18; obtido: opencode v2.0.18"
+    },
+    {
+      "name": "config_19_workers_built",
+      "passed": true,
+      "detail": "opencode.json gerado via AgentTranslator com 19 workers (esperado 19): ai-agent-engineer,architect,automation-engineer,backend-engineer,coder,database-engineer,debugger,docs-manager,engineering-advisor,explorer,frontend-engineer,infra-engineer,product-designer,requirements-analyst,researcher,reviewer,security-reviewer,skeptic,tester"
+    },
+    {
+      "name": "isolation_paths",
+      "passed": true,
+      "detail": "cmd: <bin> debug paths (isolado); config resolve no TargetHome"
+    },
+    {
+      "name": "service_port_configured",
+      "passed": true,
+      "detail": "cmd: <bin> service set port <livre> => 53889"
+    },
+    {
+      "name": "config_sources_listed",
+      "passed": true,
+      "detail": "cmd: <bin> debug config (servidor privado); fixture listada"
+    },
+    {
+      "name": "service_private_running",
+      "passed": true,
+      "detail": "cmd: <bin> service status => http://127.0.0.1:53889"
+    },
+    {
+      "name": "agents_19_workers_loaded",
+      "passed": true,
+      "detail": "cmd: <bin> debug agents ate 3x; 20/20 ids (build+19) em 1 tentativa(s)"
+    },
+    {
+      "name": "plugin_list_observed",
+      "passed": true,
+      "detail": "cmd: <bin> plugin list (rc=0) => No plugins found"
+    },
+    {
+      "name": "mcp_list_observed",
+      "passed": true,
+      "detail": "cmd: <bin> mcp list (rc=0) => No MCP servers configured"
+    },
+    {
+      "name": "service_stop_clean",
+      "passed": true,
+      "detail": "cmd: <bin> service stop (servidor privado); rc=0"
+    }
+  ],
+  "notes": [
+    "plugin list observado sem claim de tool/hook: ambiente isolado sem plugins instalados; load de plugin V2 com tools permanece pendente de cenario dedicado.",
+    "`models` nao tentado (exige providers/rede); sem chamadas pagas ou credenciais neste smoke.",
+    "Enforcement comportamental (allow/deny live) permanece manual_checklist_pending no spike v2-permissions; este smoke prova load/descoberta, nao enforcement."
+  ]
+}

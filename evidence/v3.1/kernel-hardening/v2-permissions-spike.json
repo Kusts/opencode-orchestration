@@ -1,39 +1,57 @@
 {
     "spike":  "v2-permissions",
-    "date":  "2026-09-29",
+    "date":  "2026-09-30",
     "status":  "failed",
     "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\.bin\\opencode.cmd",
     "binary_source":  "profile-manifest-v2",
     "version":  "opencode v2.0.18",
-    "isolation":  "XDG_CONFIG_HOME (+XDG_DATA/STATE/CACHE no temp; stdin NUL; rc por echo)",
+    "version_exact_2_0_18":  true,
+    "service_port":  58704,
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no run-child; OPENCODE_CONFIG* removido do filho; clean env (allowlist SO) em todas as sondas; cwd no run-child; stdin fechado; exit code real do processo",
     "checks":  [
                    {
-                       "name":  "version_responds_2x",
+                       "name":  "version_exact_2_0_18",
                        "passed":  true,
-                       "detail":  "cmd: \u003cbin\u003e --version; rc=0; out=opencode v2.0.18"
+                       "detail":  "cmd: \u003cbin\u003e --version (isolado, clean env); rc=0; timeout=False; out=opencode v2.0.18"
                    },
                    {
                        "name":  "isolation_xdg_honored",
                        "passed":  true,
-                       "detail":  "cmd: \u003cbin\u003e debug paths com XDG_CONFIG_HOME=temp; config resolve dentro da fixture"
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado, clean env); rc=0; config resolve dentro da fixture=True"
+                   },
+                   {
+                       "name":  "service_port_configured",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service set port \u003clivre\u003e (porta efemera local, clean env); rc=0; timeout=False"
                    },
                    {
                        "name":  "config_sources_listed",
-                       "passed":  false,
-                       "detail":  "cmd: \u003cbin\u003e debug config (isolado); TIMEOUT 90s (stdin vem de NUL; sem saidas)"
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug config (servidor privado, warmup, clean env); rc=0; timeout=False; fixture listada=True"
+                   },
+                   {
+                       "name":  "service_private_running",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service status (apos warmup, clean env) =\u003e http://127.0.0.1:58704; esperado 127.0.0.1:58704 sem 49374"
                    },
                    {
                        "name":  "agents_load_fixture",
                        "passed":  false,
-                       "detail":  "cmd: \u003cbin\u003e debug agents (isolado); TIMEOUT 90s (stdin vem de NUL; sem saidas)"
+                       "detail":  "cmd: \u003cbin\u003e debug agents ate 3x (servidor privado, clean env); tentativas=3; lastRc=-1; lista fixture-writer=False (1a chamada pode devolver [] com servico inicializando)"
+                   },
+                   {
+                       "name":  "service_stop_clean",
+                       "passed":  true,
+                       "detail":  "stop com gates (owned): attempted=True; stop rc=0 (servico owned parado)"
                    }
                ],
     "notes":  [
+                  "V2 debug exige o background service (serve --service, porta fixa 127.0.0.1:49374); porta ocupada trava o CLI sem saida. Servidor privado por ambiente via `service set port` (o servico sobe sob demanda no 1o comando); prova em `service status` apos o warmup.",
                   "V2 `debug config` lista fontes de configuracao (nao e o validador do V1); `debug agents` e a sonda de load da fixture."
               ],
     "behavioral_permission_enforcement":  {
                                               "status":  "manual_checklist_pending",
-                                              "note":  "Levar um agente live a tentar operacao negada nao e automatizavel neste harness; passos abaixo pendentes de execucao manual contra o binario acima.",
+                                              "note":  "Load automatizado OK nao e PASS comportamental. Levar um agente live a tentar operacao negada nao e automatizavel neste harness; passos abaixo pendentes de execucao manual contra o binario acima.",
                                               "steps":  [
                                                             "1. fixture-writer executa `git status --short` (allow estreito): esperado ALLOW (last-match-wins sobre o deny-all).",
                                                             "2. fixture-writer executa shell fora do allow (ex.: `git push --force`): esperado DENY pelo deny-all ordenado.",

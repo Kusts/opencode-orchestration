@@ -32,6 +32,11 @@
 # V3 suites (scripts/v3/run-v3-tests.ps1) -> distribution suites
 # (tests/distribution/run-distribution-tests.ps1, PS 5.1-compativel); cada
 # job exercita as distribution suites no proprio engine (ps51/pwsh).
+# Job ci-smoke-opencode-v2 (Phase 8): OpenCode V2 REAL (@opencode/cli@2.0.18
+# via npm + postinstall oficial) num home isolado ($RUNNER_TEMP\oo-v2smoke-home):
+# config com os 19 workers via AgentTranslator + debug config/agents contra
+# servidor privado (service set port) + plugin/mcp list observados. Mandatorio
+# (exit 1 em runtime ausente/errado, load ou timeout; nunca skip silencioso).
 
 name: CI
 
@@ -138,3 +143,20 @@ jobs:
 
       - name: Plugin typecheck V1/V2/dual
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/typecheck-plugin.ps1
+
+  ci-smoke-opencode-v2:
+    name: CI (smoke opencode v2 real)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install OpenCode V2 (pinned, official npm package)
+        run: npm install -g @opencode/cli@2.0.18; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; opencode --version
+
+      - name: Smoke test with real OpenCode V2 (isolated home, private server)
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2.ps1
