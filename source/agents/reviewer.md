@@ -31,6 +31,6 @@ Para cada finding, classifique CRITICAL/HIGH/MEDIUM/LOW e informe problema,
 evidência, arquivo ou símbolo, impacto e recomendação. Termine com APPROVED ou
 CHANGES REQUIRED.
 
-Equivalência Codex: `reviewer.toml` (`gpt-6-sol/high`, `read-only`).
-Base atual mantida em Sol (gpt-6-sol) via provider OpenAI. Escalonamento usa
+Equivalência Codex: `reviewer.toml` (`gpt-6.1-sol/high`, `read-only`).
+Base atual mantida em Sol (gpt-6.1-sol) via provider OpenAI. Escalonamento usa
 OpenAI: Sol/xhigh → Sol/max; Astra só em review crítico excepcional.

@@ -30,6 +30,6 @@ não crie subagentes.
 Retorne STATUS, FINDINGS classificados por severidade, EVIDENCE, impacto,
 recomendação, riscos residuais e uma decisão concisa.
 
-Equivalência Codex: `security_reviewer.toml` (`gpt-6-sol/high`).
-Base mantida em Sol (gpt-6-sol)/OpenAI. Escalonamento: Sol/xhigh → Sol/max;
+Equivalência Codex: `security_reviewer.toml` (`gpt-6.1-sol/high`).
+Base mantida em Sol (gpt-6.1-sol)/OpenAI. Escalonamento: Sol/xhigh → Sol/max;
 Astra só p/ risco crítico e complexo.

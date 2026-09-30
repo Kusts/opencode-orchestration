@@ -29,6 +29,6 @@ recomendação clara. A decisão final é do Planner.
 
 Retorne STATUS, FINDINGS, EVIDENCE, RISKS, alternativas breves e RECOMMENDATION.
 
-Equivalência Codex: `architect.toml` (`gpt-6-sol/high`, `read-only`).
-Base mantida em Sol (gpt-6-sol)/OpenAI. Escalonamento: Sol/xhigh → Sol/max;
+Equivalência Codex: `architect.toml` (`gpt-6.1-sol/high`, `read-only`).
+Base mantida em Sol (gpt-6.1-sol)/OpenAI. Escalonamento: Sol/xhigh → Sol/max;
 Astra só p/ decisão excepcional, crítica ou difícil de reverter.
