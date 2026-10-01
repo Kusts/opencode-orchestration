@@ -90,7 +90,21 @@ do escopo V3.1. Classes ativas: `RUNTIME_COMPATIBILITY` +
 `FEATURE_REEVALUATION` (+ `AUTHORITY_HARDENING` do kernel).
 Estado (sem histórico de sessão): Phases 0–4, 6–7 e 9–19 implementadas e
 verdes; Phase 5 = só harness (enforcement comportamental V2 em HOLD honesto);
-Phase 8 = lane CI sem smoke de binário V2; flags de rollout nascem OFF
+Phase 8 = lane CI sem smoke de binário V2; Runtime Reliability P21 done
+(baseline + fixtures 17/17), P22 parcial-HOLD (preflight + wrapper
+condicionado + E2E nativo; REUSE HOLD), P23 done-record-only (budgets,
+sem enforcement), P24 parcial (plugin V2 event.subscribe + live-hook;
+d sem-modelo e updated NOT-VERIFIED); P25 done-shadow (RuntimeWatchdog
+lib shadow puro: fingerprints sanitizados len:valor, repetição da policy,
+HARD_TIMEOUT/NO_PROGRESS/REPEATED_ACTION/CYCLE/BUDGET_NEAR_LIMIT em
+shadow, JSONL bounded com lock in-process e cap fail-closed, identidade
+obrigatória, watchdog{enabled:false, shadow:true}, enabled=true =>
+WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED; watchdog 80/80 PS5.1+PS7, kernel
+75/75, consistência 16/16; reviewer APPROVED (REV4) + security APPROVED
+(SEC3); follow-ups: lock cross-process, retenção multi-dia; interrupt
+real = Phase 26); Phases 26–33 não iniciadas
+(estado vivo em `evidence/v3.1/runtime-reliability/program-status.json`);
+flags de rollout nascem OFF
 (shadow, ativação só com evidência). Não ativar `skill_routing`,
 `mcp_routing`, `adaptive_ranking`; não criar V4/daemon/database.
 

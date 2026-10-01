@@ -1,0 +1,171 @@
+{
+  "record": "v3.1-runtime-reliability-program-status",
+  "date": "2026-10-01",
+  "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-33)",
+  "program_concluded": false,
+  "spec_addenda": [
+    "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md",
+    "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md",
+    "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md"
+  ],
+  "pins": {
+    "opencode_v1": "1.18.32 (pacote opencode-ai; plugin @opencode-ai/plugin@1.18.32)",
+    "opencode_v2": "2.0.18 (pacote @opencode/cli; plugin @opencode/plugin@2.0.18)",
+    "note": "Observados em campo 1.18.33 (global V1) e v2.0.19 (canal do usuario); validacao vale para os pins exatos. Ver evidence/v3.1/runtime-reliability/baseline.json."
+  },
+  "flags": {
+    "source": "source/registry/capability-flags.json",
+    "all_off": true,
+    "bounded_execution": { "enabled": false, "shadow": true },
+    "task_kernel": { "enabled": false, "shadow": true },
+    "worktree_isolation": { "enabled": false },
+    "runtime_grant_enforcement": { "v1": false, "v2": false },
+    "runtime_support": { "v1": true, "v2": false, "dual_profile": false },
+    "capability_router": { "shadow": false, "active": false },
+    "skill_routing": { "enabled": false },
+    "mcp_routing": { "enabled": false },
+    "adaptive_ranking": { "enabled": false }
+  },
+  "phases": {
+    "phase21_baseline": {
+      "status": "done",
+      "task_id": "RR-P21",
+      "evidence": "evidence/v3.1/runtime-reliability/baseline.json",
+      "summary": "Baseline de confiabilidade congelado: pins V1/V2 presentes, listener 49374 identificado como AI Memory local (Docker, saudavel), fixtures de watchdog 17/17 PASS em PS5.1 e PS7 (record-only, sem enforcement).",
+      "suites": [
+        "fixtures watchdog-baseline 17/17 PASS (PS5.1 + PS7) — evidence/v3.1/runtime-reliability/fixtures/watchdog-baseline-fixtures.tests.ps1",
+        "scripts/test-package-consistency.ps1 16/16 OK",
+        "run-v3-tests.ps1 -Name CapabilityFlags 20/20 asserts PASS (flags conservadoras intactas)",
+        "smoke V2 2.0.18 em porta privada 64868: FAILED honesto (version/isolation/service_port_configured PASS; debug config TIMEOUT 30s, sem retry)",
+        "smoke V1 isolado: FAILED por ambiente (shim global do operador; nao regressao)"
+      ],
+      "holds": [
+        "debug config/agents do V2 2.0.18 instavel sob fixture XDG (HOLD pre-existente)",
+        "migracao AI Memory para VPS pendente; 49374 local segue ocupado"
+      ]
+    },
+    "phase22_port_preflight": {
+      "status": "parcial-HOLD",
+      "task_id": "RR-P22",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase22.json",
+        "evidence/v3.1/runtime-reliability/phase22-wrapper.json",
+        "evidence/v3.1/runtime-reliability/native-port-contract.json",
+        "evidence/v3.1/runtime-reliability/native-start-contract.json"
+      ],
+      "summary": "Preflight deterministico de porta/processo implementado (6 outcomes: PORT_FREE e demais), CLI com exit 0/1/2, wrapper V2 com startup condicionado a configuracao verificada + PORT_FREE, E2E nativo alternativo provado em perfil isolado (16/16 steps, candidate_pass). REUSE segue HOLD; wrapper produtivo segue UNVERIFIED.",
+      "delivered": [
+        "scripts/runtime/lib/RuntimePortPreflight.ps1 + scripts/runtime/RuntimePortPreflight.ps1 (exit 0 PORT_FREE / 2 fail-closed / 1 uso; select_free persiste SOMENTE pending)",
+        "wrapper V2 com gate central Ensure/Test-PreflightConfiguredPort; diagnosticos (--version/--help/service status/get) sem gate; startup SOMENTE com -ServicePort + configuracao verificada + PORT_FREE",
+        "E2E nativo: set em empty-state provado + recheck get/service.json + start unico bounded + listener/status/ownership .exe + stop owned + settlement; 49374 intacto antes/depois",
+        "diagnostico real do 49374: listener Docker/ssh identificado por PID, nunca mutado; AI Memory nunca tocado"
+      ],
+      "suites": [
+        "scripts/runtime/runtime-port-preflight.tests.ps1 (preflight, 6 outcomes)",
+        "scripts/runtime/runtime-port-preflight-wrapper.tests.ps1 (gates w2-w13)",
+        "E2E nativo native-start-contract.json 16/16 steps OK, verdict candidate_pass"
+      ],
+      "holds": [
+        "REUSE HOLD: nenhum ShouldReuse true em producao; PORT_OWNED_BY_EXPECTED_SERVICE nao emitido",
+        "PORT_CONFIGURATION_UNVERIFIED: wrapper produtivo bloqueia (exit 2) sem schema exato pending",
+        "descendants sem cleanup provado (sem job objects): Kill() so encerra filho direto — BLOCKER explicito",
+        "set/start nativo real SOMENTE com RR_P22_RUN_NATIVE=1; default sem mutacao"
+      ]
+    },
+    "phase23_budgets": {
+      "status": "done-record-only",
+      "task_id": "RR-P23",
+      "evidence": "evidence/v3.1/runtime-reliability/phase23.json",
+      "summary": "Orcamentos canonicos de execucao registrados no kernel (record-only): 5 perfis com defaults exatos, role defaults, heranca sem ampliacao (no-widen), planner-turn com high-water por input novo, gates via CLI. Nenhum enforcement/watchdog nesta phase (Phases 24-28, nao implementados).",
+      "delivered": [
+        "5 perfis de execution_budget com defaults exatos (worker wall 45m/2700s, planner 90m/5400s, steps 96, soft 3 / hard 5)",
+        "worker nunca amplia o proprio orcamento (BUDGET_IMMUTABLE / BUDGET_WIDEN_DENIED; bytes inalterados)",
+        "planner-turn: sinal obrigatorio; turno duplicado rejeitado; input novo abre novo turn id",
+        "CLI scripts/v3/task-kernel.ps1: get-budget/start-attempt/set-budget/planner-turn (exits 0/1/2/3/8)",
+        "registros legados intactos (derivacao read-only, zero byte change; mutacoes so via CAS+lock)"
+      ],
+      "suites": [
+        "acceptance Phase23: todos os criterios PASS (valid_budgets, bounds, no-widen, planner-turn, stale CAS_CONFLICT, shadow_flags)",
+        "kernel pre-existente 75/75 verde preservado (EXHAUSTED/retry/DONE/grants/leases)",
+        "smoke CLI em temp dir com filho real: create/get-budget/start-attempt/planner-turn exit 0; worker set-budget denied nonzero"
+      ],
+      "holds": [
+        "native step HOLD: limites nativos de steps onde nao provado seguem sem enforcement",
+        "enforcement/watchdog/loop-guard sao Phases 24-28 (nao implementados)"
+      ]
+    },
+    "phase24_livehook": {
+      "status": "parcial",
+      "task_id": "RR-P24-MIGRATE + RR-P24-LIVEHOOK + RR-P24-REV-FIX + RR-P24-TRIGGER-FIX",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase24.json",
+        "evidence/v3.1/runtime-reliability/phase24-livehook.jsonl"
+      ],
+      "summary": "Plugin V2 migrado para event.subscribe com AbortController (abort-safe, non-blocking, feature detection fail-open). Live-hook no binario exato 2.0.18: plugin carrega, session.created VERIFIED, context VERIFIED, execute.before e session.updated NOT-VERIFIED com causa registrada, interrupt/wait com presenca verificada e semantica intacta para a Phase 25.",
+      "delivered": [
+        "plugins/orchestration-enforcement/v2.ts: event.hook obsoleto => ctx.event.subscribe({ signal }) detached; cleanup aborta antes de registrar (abort-before-record); session.hook/tool.hook intocados; zero runtime import",
+        "live-hook T2 no 2.0.18 (porta 56782, perfil TEMP isolado): BOOT/FEATURES/SUBSCRIBED/CONTEXT_REGISTERED/TOOL_REGISTERED/EVENT session.created/CONTEXT_FIRED com session==trigger (match=True)",
+        "(b) created VERIFIED via POST /api/session; (c) context VERIFIED via prompt sem modelo; (e) interrupt/wait presenca-verificada; (f) cleanup settled (stop owned, stopped + sem listener)",
+        "REV-FIX: 3 findings corrigidos (gates versao-exata+confinamento + cenario negativo dry-run; parser OpenAPI preserva barra; abort-before-record + teste de corrida 10c); TRIGGER-FIX: 4 findings corrigidos (10c-controle discriminacao; guard anterior; parser fail-closed + truncamento; session id antes de e.id + TRIGGER sanitizado)"
+      ],
+      "suites": [
+        "typecheck-plugin.ps1: V1 + V2 + DUAL PASS (sem SKIP; bundle regenerado)",
+        "plugin dual-runtime 20/20 PASS (mock V2 22/22 incl. 10c + 10c-controle discriminacao)",
+        "plugin enforcement V1 30/30 PASS (V1 intacto)",
+        "live-hook PS5.1 35/0 HOLD 1 (TRIGGER pos-TRIGGER-FIX com session==trigger match=True); PS7 23/0 HOLD 4 (binario exato 2.0.18)",
+        "git diff --check PASS nos arquivos da fatia"
+      ],
+      "holds": [
+        "(d) execute.before NOT-VERIFIED sem modelo pago: shell direto nao passa por tool.hook; stub openai-compatible exige schema do provider nao provado sem rede — sem adivinhacao",
+        "(b-updated) session.updated NOT-VERIFIED: PATCH title exit 0 sem EVENT observado",
+        "T3 sdk-inprocess SKIP: @opencode/sdk ausente nos node_modules provisionados; sem install pela rede",
+        "WATCHDOG_HOLD: watchdog/interrupt nao implementados nesta fatia (Phase 25)"
+      ]
+    },
+    "phase25_watchdog": {
+      "status": "done-shadow",
+      "task_id": "RR-P25",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase25.json"
+      ],
+      "summary": "RuntimeWatchdog lib shadow puro (scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1): registra execucao, fingerprints sanitizados por campo com framing len:valor, semantica de repeticao da policy, avaliacao HARD_TIMEOUT/NO_PROGRESS/REPEATED_ACTION/CYCLE/BUDGET_NEAR_LIMIT, telemetria JSONL bounded com lock in-process e cap fail-closed, identidade obrigatoria, flag watchdog {enabled:false, shadow:true}; enabled=true retorna WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED (nada armazenado). Interrupt real e da Phase 26 (nao implementado).",
+      "delivered": [
+        "fingerprints sanitizados por campo (normalize+redact+truncate, framing len:valor com '|', sem vazamento de segredos/canarios)",
+        "semantica de repeticao da policy (soft 3 STALL_SUSPECTED / hard 5 REPEATED_ACTION; ciclos A-B x3 REPEATED_CYCLE; classificacao vence repeticao)",
+        "avaliacao HARD_TIMEOUT/NO_PROGRESS/REPEATED_ACTION/CYCLE/BUDGET_NEAR_LIMIT em modo shadow (would-interrupt, execucao intacta, sem task record)",
+        "telemetria JSONL bounded propria (watchdog-YYYYMMDD.jsonl, cap 1MB com pre-size accounting, rotacao com cap, fail-closed sob lock exclusivo in-process)",
+        "identidade obrigatoria (AttemptN+SessionId; re-register mesma identidade idempotente com clock exato; divergencia => IDENTITY_CONFLICT sem mutacao)"
+      ],
+      "suites": [
+        "scripts/v3/lib/OrchestrationRuntimeWatchdog.tests.ps1 80/80 PASS (PS5.1 + PS7)",
+        "kernel pre-existente 75/75 verde preservado",
+        "scripts/test-package-consistency.ps1 16/16 OK"
+      ],
+      "holds": [
+        "WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED: enabled=true retorna o hold sem armazenar (interrupt real e Phase 26)",
+        "lock cross-process: telemetria usa lock in-process; concorrencia cross-process e follow-up documentado (single-writer assumido)",
+        "retencao multi-dia: JSONL do watchdog com cap de rotacao; retencao alem do cap e follow-up documentado"
+      ]
+    }
+  },
+  "reviews": {
+    "mode": "Reviewer + Security Reviewer independentes, por fase",
+    "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
+    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED)"
+  },
+  "not_started": {
+    "phases_26_33": "nao iniciadas (loop guard, budgets enforcement, circuit breaker, Jev advisory, AI Memory remoto, E2E stall/recovery). Criterios RR-01-RR-20 seguem pendentes onde nao cobertos acima.",
+    "explicit_holds": [
+      "(d) execute.before sem via sem-modelo provada",
+      "updated event nao observado",
+      "REUSE de porta em producao",
+      "ativacao de qualquer flag (decisao humana com evidencia)"
+    ]
+  },
+  "invariants": [
+    "ai-memory nunca mutado (listener local 127.0.0.1:49374 mantido; migração para VPS planejada, nao executada)",
+    "roteamento MCP generico segue desligado",
+    "nenhuma flag nova criada; nenhuma ativacao realizada",
+    "requisitos dos addenda de SPEC/PLAN nao alterados por este status"
+  ]
+}

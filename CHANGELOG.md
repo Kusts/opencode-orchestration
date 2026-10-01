@@ -14,6 +14,67 @@ Fases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel) **implementadas, revisa
 binário V2; evidência completa em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
+Programa **V3.1 — Runtime Reliability, Loop Recovery & Jev MCP
+(Phases 21–33)** em andamento — **Phases 21–25 com estado consolidado
+(2026-10-01)**, Phases 26–33 não iniciadas (detalhes em
+`evidence/v3.1/runtime-reliability/program-status.json`; especificação e
+plano em
+`docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`,
+`docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` e
+`docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md`):
+- **P21 done** — baseline congelado (`baseline.json`): pins V1/V2
+  presentes, listener `49374` identificado como AI Memory local (Docker,
+  saudável); fixtures de watchdog **17/17 PASS** (PS5.1 e PS7),
+  record-only, sem enforcement; consistência **16/16 OK**;
+  `CapabilityFlags` **20/20**; smokes V1/V2 com FAILED honesto por
+  ambiente (sem retry, sem regressão).
+- **P22 parcial-HOLD** — preflight determinístico de porta/processo
+  (`scripts/runtime/RuntimePortPreflight.ps1`, 6 outcomes, exits
+  0/1/2); wrapper V2 com startup condicionado a configuração verificada
+  + `PORT_FREE`; E2E nativo alternativo provado em perfil isolado
+  (`native-start-contract.json`, 16/16 steps, `candidate_pass`);
+  diagnóstico real do `49374` (Docker/ssh por PID, nunca mutado);
+  AI Memory **nunca** mutado. HOLDs: `REUSE`, wrapper produtivo
+  `UNVERIFIED` (exit 2 sem schema exato), cleanup de descendants sem
+  prova, set/start nativo só com `RR_P22_RUN_NATIVE=1`.
+- **P23 done-record-only** — orçamentos canônicos no kernel
+  (`phase23.json`): 5 perfis com defaults exatos (worker 45m, planner
+  90m, steps 96, soft 3 / hard 5), role defaults, sem ampliação
+  (`BUDGET_IMMUTABLE`/`BUDGET_WIDEN_DENIED`), planner-turn por input
+  novo, CLI `task-kernel.ps1` (`get-budget/start-attempt/set-budget/
+  planner-turn`); kernel pré-existente **75/75** preservado. Sem
+  enforcement real (Phases 24–28); native step em HOLD.
+- **P24 parcial** — plugin V2 migrado para `event.subscribe`
+  abort-safe (`plugins/orchestration-enforcement/v2.ts`); live-hook no
+  binário exato 2.0.18 (`phase24-livehook.jsonl`): plugin carrega,
+  `session.created` VERIFIED, context VERIFIED, `execute.before` e
+  `session.updated` NOT-VERIFIED com causa, interrupt/wait com presença
+   verificada; typecheck V1+V2+DUAL, dual-runtime **20/20**, mock V2
+   **22/22** (10c + 10c-controle com discriminação), V1 **30/30**,
+   live-hook PS5.1 **35/0 HOLD 1** (trigger real com session==trigger,
+   match=True) / PS7 **23/0 HOLD 4**; REV-FIX com 3 findings +
+    TRIGGER-FIX com 4 findings corrigidos.
+- **P25 done-shadow** — RuntimeWatchdog lib shadow puro
+  (`scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1`, `phase25.json`):
+  registra execução, fingerprints sanitizados por campo com framing
+  `len:valor`, semântica de repetição da policy (soft 3 / hard 5),
+  avaliação `HARD_TIMEOUT`/`NO_PROGRESS`/`REPEATED_ACTION`/`CYCLE`/
+  `BUDGET_NEAR_LIMIT` em modo shadow (would-interrupt, execução
+  intacta, sem task record), telemetria JSONL bounded com lock
+  in-process e cap fail-closed, identidade obrigatória, flag
+  `watchdog{enabled:false, shadow:true}`; `enabled=true` retorna
+  `WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` (nada armazenado).
+  Suítes: watchdog **80/80** (PS5.1 + PS7), kernel **75/75**,
+  consistência **16/16 OK**; reviews Reviewer **APPROVED** (REV4) +
+  Security **APPROVED** (SEC3). Follow-ups documentados: lock
+  cross-process, retenção multi-dia; interrupt real é Phase 26
+  (não implementado).
+Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
+por fase** (HOLDs registrados). Todas as flags seguem **OFF**
+(`source/registry/capability-flags.json`); nenhuma flag nova criada;
+roteamento MCP genérico segue desligado; critérios `RR-01`–`RR-20`
+seguem pendentes onde não cobertos acima. Programa **não** concluído.
+
 ### Added
 
 - **Suporte dual-runtime**: OpenCode **V1** (`opencode-ai`, validado
@@ -105,6 +166,11 @@ binário V2; evidência completa em
 
 ### Pendente (não implementado)
 
+- **Phases 26–33 (runtime reliability)** — não iniciadas: loop guard,
+  enforcement de budgets, circuit breaker, Jev advisory,
+  AI Memory remoto e E2E de stall/recovery. HOLDs explícitos: (d)
+  `execute.before` sem via sem-modelo provada, evento `updated` não
+  observado, `REUSE` de porta em produção e ativação de qualquer flag.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
   saved approvals e `experimental.policies` contra o runtime V2 real
   (requer resolver o travamento do `debug` V2 e/ou lane de CI com binário

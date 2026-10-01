@@ -83,6 +83,10 @@ $taskKernelOwnershipPath = Join-Path $PSScriptRoot 'OrchestrationOwnership.ps1'
 if (Test-Path -LiteralPath $taskKernelOwnershipPath -PathType Leaf) {
     . $taskKernelOwnershipPath
 }
+$taskKernelBudgetPath = Join-Path $PSScriptRoot 'OrchestrationExecutionBudget.ps1'
+if (Test-Path -LiteralPath $taskKernelBudgetPath -PathType Leaf) {
+    . $taskKernelBudgetPath
+}
 
 # ---------- repo / path helpers ----------
 
@@ -900,7 +904,9 @@ function New-OrchestrationTask {
         [string[]]$ExpectedArtifacts = @(),
         [string[]]$EnvironmentAllowed = @(),
         [bool]$ProductionAuthorized = $false,
-        [int]$AttemptBudget = 3,
+        $AttemptBudget = 3,
+        [string]$BudgetProfile = '',
+        [string]$BudgetPolicyPath = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
@@ -915,6 +921,26 @@ function New-OrchestrationTask {
         if (-not (Test-TaskKernelId -TaskId $tid)) {
             return (New-TaskKernelError -Code 'INVALID_TASK_ID')
         }
+        $budgetPolicyPath = $BudgetPolicyPath
+        if ([string]::IsNullOrWhiteSpace($budgetPolicyPath)) {
+            $budgetPolicyPath = Get-ExecutionBudgetDefaultPolicyPath -RepoRoot $RepoRoot
+        }
+        $budgetExplicit = ($PSBoundParameters.ContainsKey('BudgetProfile') -and (-not [string]::IsNullOrWhiteSpace([string]$BudgetProfile)))
+        $budgetProfileName = ([string]$BudgetProfile).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($budgetProfileName)) {
+            $budgetProfileName = 'standard-write'
+        }
+        if (-not (Test-ExecutionBudgetPolicyFull -Path $budgetPolicyPath)) {
+            return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
+        }
+        $budgetSlot = Get-ExecutionBudgetProfileBudget -Profile $budgetProfileName -PolicyPath $budgetPolicyPath -RepoRoot $RepoRoot
+        if (-not [bool]$budgetSlot.ok) {
+            $code = ([string]$budgetSlot.error)
+            if ([string]::IsNullOrWhiteSpace($code)) { $code = 'INVALID_BUDGET' }
+            if ($code -ceq 'INVALID_PROFILE') { $code = 'INVALID_BUDGET' }
+            return (New-TaskKernelError -Code $code)
+        }
+        $budgetRecord = $budgetSlot.budget
         $objective = ([string]$Objective).Trim()
         if ([string]::IsNullOrWhiteSpace($objective)) {
             return (New-TaskKernelError -Code 'INVALID_OBJECTIVE')
@@ -931,7 +957,7 @@ function New-OrchestrationTask {
         if (([int]$RuntimeGeneration -ne 1) -and ([int]$RuntimeGeneration -ne 2)) {
             return (New-TaskKernelError -Code 'INVALID_RUNTIME')
         }
-        if ([int]$AttemptBudget -lt 1) {
+        if (-not (Test-ExecutionBudgetInt -Value $AttemptBudget -Min 1 -Max 100)) {
             return (New-TaskKernelError -Code 'INVALID_BUDGET')
         }
         $taskType = ([string]$TaskType).Trim()
@@ -1015,6 +1041,35 @@ function New-OrchestrationTask {
             acceptance_criteria       = ([string[]]$criteriaItems)
             expected_artifacts        = ([string[]]$artifactItems)
             attempt_budget            = [int]$AttemptBudget
+            execution_budget          = [ordered]@{
+                profile                    = ([string]$budgetRecord['profile'])
+                step_budget                = [int]$budgetRecord['step_budget']
+                wall_clock_seconds         = [int]$budgetRecord['wall_clock_seconds']
+                no_progress_seconds        = [int]$budgetRecord['no_progress_seconds']
+                repeated_action_soft_limit = [int]$budgetRecord['repeated_action_soft_limit']
+                repeated_action_hard_limit = [int]$budgetRecord['repeated_action_hard_limit']
+                cycle_repeat_limit         = [int]$budgetRecord['cycle_repeat_limit']
+                provider_retry_limit       = [int]$budgetRecord['provider_retry_limit']
+            }
+            execution_budget_source   = $(if ($budgetExplicit) { 'explicit' } else { 'derived' })
+            execution_runtime         = [ordered]@{
+                session_id             = ''
+                started_at             = ''
+                deadline_at            = ''
+                last_progress_at       = ''
+                last_progress_revision = 0
+                attempt_role           = ''
+                attempt_n              = 0
+                budget_snapshot        = $null
+            }
+            planner_turn              = [ordered]@{
+                turn_id    = ''
+                started_at = ''
+                signal     = ''
+                budget_snapshot = $null
+            }
+            planner_turn_history      = @()
+            planner_turn_seq          = 0
             attempts                  = @()
             worker_result             = $null
             verification              = $null
@@ -1172,6 +1227,7 @@ function Set-OrchestrationTaskWorkerResult {
         [string]$Hypothesis = '',
         [switch]$NewEvidence,
         [switch]$DebuggerInvoked,
+        [string]$ProposedBudgetJson = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
@@ -1189,6 +1245,9 @@ function Set-OrchestrationTaskWorkerResult {
         $producer = ([string]$ProducedBy).Trim()
         if ([string]::IsNullOrWhiteSpace($producer)) {
             return (New-TaskKernelError -Code 'INVALID_ACTOR')
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$ProposedBudgetJson)) {
+            return (New-TaskKernelError -Code 'BUDGET_IMMUTABLE' -Extra @{ detail = 'workers cannot widen execution budgets' })
         }
         $ev = Get-TaskKernelEvidenceList -Value $ClaimedEvidence
         if (-not [bool]$ev.valid) { return (New-TaskKernelError -Code 'INVALID_EVIDENCE') }
@@ -2127,6 +2186,685 @@ function Get-OrchestrationTaskStatus {
             attempts             = $attemptCount
             attempt_budget       = ([int]$rec['attempt_budget'])
             updated_at           = ([string]$rec['updated_at'])
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+# ---------- execution budgets (Phase 23, shadow record-only) ----------
+
+function Get-OrchestrationTaskBudget {
+    <#
+    .SYNOPSIS
+        Reads the canonical execution_budget. Old records without one get
+        a safely derived default (read-only, never writes). Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [string]$TasksDir = '',
+        [string]$RepoRoot = '',
+        [string]$BudgetPolicyPath = ''
+    )
+    try {
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        $stored = $null
+        try {
+            if ($rec -is [System.Collections.IDictionary]) {
+                if ($rec.Contains('execution_budget')) { $stored = $rec['execution_budget'] }
+            }
+        }
+        catch { $stored = $null }
+        if ($null -ne $stored) {
+            $check = Test-ExecutionBudgetObject -Budget $stored
+            if ([bool]$check.valid) {
+                return [PSCustomObject]@{ ok = $true; task_id = $tid; profile = ([string]$stored['profile']); budget = $stored; derived = $false }
+            }
+        }
+        $pp = $BudgetPolicyPath
+        if ([string]::IsNullOrWhiteSpace($pp)) { $pp = Get-ExecutionBudgetDefaultPolicyPath -RepoRoot $RepoRoot }
+        if (-not (Test-ExecutionBudgetPolicyFull -Path $pp)) {
+            return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
+        }
+        $d = Get-ExecutionBudgetDerivedDefault -PolicyPath $pp -RepoRoot $RepoRoot
+        if (-not [bool]$d.ok) { return $d }
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; profile = ([string]$d.profile); budget = $d.budget; derived = $true }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Start-OrchestrationTaskAttempt {
+    <#
+    .SYNOPSIS
+        Initializes execution_runtime on active start (CAS + lock + trusted
+        planner/build actor). Phase 23 shadow record-only: no enforcement.
+        Budget snapshot is kernel-resolved (explicit or legacy stored budget
+        retained; derived/provisional default resolves from AttemptRole;
+        absent budget defaults to role), never caller-supplied. Requires
+        state IMPLEMENTING. A retry-blocked attempt (debugger_required /
+        requires_new_evidence on the last kernel attempt) is rejected
+        (ATTEMPT_GATE_FAILED, no markers written) UNLESS the planner
+        supplies BOTH -DebuggerEvidenceRefs (debugger trace) AND
+        -NewEvidenceRefs (novelty evidence): non-empty, validated with the
+        existing evidence-list helper and sanitized, recorded as
+        planner-attested gate evidence bound to the next attempt number
+        under the same CAS+lock snapshot. A debugger-role actor can never
+        start attempts (planner/build only), so debugger output cannot
+        self-approve. Same attempt_n + same session/role is idempotent
+        (no deadline extension, no write); same attempt_n with a different
+        session is rejected. Deadline assigned exactly once per attempt_n.
+        Strategy index has no runtime source: HOLD documented (attempt_role
+        recorded; no invented strategy). Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string]$AttemptRole,
+        [Parameter(Mandatory = $true)][string]$SessionId,
+        [Parameter(Mandatory = $true)][string]$Actor,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$ActorIdentitySource = 'unknown',
+        [string[]]$DebuggerEvidenceRefs = @(),
+        [string[]]$NewEvidenceRefs = @(),
+        [string]$BudgetPolicyPath = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $role = ([string]$AttemptRole).Trim()
+        if ([string]::IsNullOrWhiteSpace($role)) {
+            return (New-TaskKernelError -Code 'INVALID_ROLE')
+        }
+        $sid = ([string]$SessionId).Trim()
+        if ([string]::IsNullOrWhiteSpace($sid)) {
+            return (New-TaskKernelError -Code 'INVALID_SESSION')
+        }
+        $actor = ([string]$Actor).Trim()
+        if ([string]::IsNullOrWhiteSpace($actor)) {
+            return (New-TaskKernelError -Code 'INVALID_ACTOR')
+        }
+        $actorLow = $actor.ToLowerInvariant()
+        if (($actorLow -cne 'planner') -and ($actorLow -cne 'build')) {
+            return (New-TaskKernelError -Code 'BUDGET_WIDEN_DENIED' -Extra @{ detail = 'attempt start is planner/build only (trusted administrative boundary)' })
+        }
+        if (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource)) {
+            return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
+        }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        $curState = ([string]$rec['state']).Trim().ToUpperInvariant()
+        if ($curState -cne 'IMPLEMENTING') {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'attempt start requires IMPLEMENTING' })
+        }
+        if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+            return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+        }
+        $pp = $BudgetPolicyPath
+        if ([string]::IsNullOrWhiteSpace($pp)) { $pp = Get-ExecutionBudgetDefaultPolicyPath -RepoRoot $RepoRoot }
+        if (-not (Test-ExecutionBudgetPolicyFull -Path $pp)) {
+            return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
+        }
+        $gateEvidence = $null
+        try {
+            $prior = @()
+            if ($null -ne $rec['attempts']) { $prior = @($rec['attempts']) }
+            if ($prior.Count -gt 0) {
+                $last = $prior[$prior.Count - 1]
+                $needDbg = $false
+                $needEv = $false
+                try {
+                    if ($last -is [System.Collections.IDictionary]) {
+                        if ($null -ne $last['debugger_required']) { $needDbg = [bool]$last['debugger_required'] }
+                        if ($null -ne $last['requires_new_evidence']) { $needEv = [bool]$last['requires_new_evidence'] }
+                    }
+                }
+                catch { }
+                if ($needDbg -or $needEv) {
+                    $dbgOk = $false
+                    $evOk = $false
+                    $dbgItems = @()
+                    $evItems = @()
+                    if ($needDbg) {
+                        if ($PSBoundParameters.ContainsKey('DebuggerEvidenceRefs')) {
+                            $dl = Get-TaskKernelEvidenceList -Value $DebuggerEvidenceRefs
+                            if ([bool]$dl.valid -and (@($dl.items)).Count -gt 0) {
+                                $dbgItems = Protect-TaskKernelStringList -Items ([string[]]$dl.items)
+                                if ((@($dbgItems)).Count -gt 0) { $dbgOk = $true }
+                            }
+                        }
+                    }
+                    else { $dbgOk = $true }
+                    if ($needEv) {
+                        if ($PSBoundParameters.ContainsKey('NewEvidenceRefs')) {
+                            $nl = Get-TaskKernelEvidenceList -Value $NewEvidenceRefs
+                            if ([bool]$nl.valid -and (@($nl.items)).Count -gt 0) {
+                                $evItems = Protect-TaskKernelStringList -Items ([string[]]$nl.items)
+                                if ((@($evItems)).Count -gt 0) { $evOk = $true }
+                            }
+                        }
+                    }
+                    else { $evOk = $true }
+                    if (-not ($dbgOk -and $evOk)) {
+                        return (New-TaskKernelError -Code 'ATTEMPT_GATE_FAILED' -Extra @{ reason = 'retry gate blocked: planner must supply debugger trace AND novelty evidence refs' })
+                    }
+                    $gateEvidence = [ordered]@{
+                        debugger_refs    = ([string[]]$dbgItems)
+                        new_evidence_refs = ([string[]]$evItems)
+                    }
+                }
+            }
+        }
+        catch { }
+        $nextN = 1
+        try {
+            if ($null -ne $rec['attempts']) { $nextN = (@($rec['attempts'])).Count + 1 }
+        } catch { $nextN = 1 }
+        if ($nextN -lt 1) { $nextN = 1 }
+        $curRt = $null
+        try {
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('execution_runtime')) { $curRt = $rec['execution_runtime'] }
+        }
+        catch { $curRt = $null }
+        $curSess = ''
+        $curRole = ''
+        $curN = 0
+        $curDeadline = ''
+        try {
+            if (($null -ne $curRt) -and ($curRt -is [System.Collections.IDictionary])) {
+                if ($null -ne $curRt['session_id']) { $curSess = ([string]$curRt['session_id']).Trim() }
+                if ($null -ne $curRt['attempt_role']) { $curRole = ([string]$curRt['attempt_role']).Trim() }
+                if ($null -ne $curRt['attempt_n']) { $curN = [int]$curRt['attempt_n'] }
+                if ($null -ne $curRt['deadline_at']) { $curDeadline = ([string]$curRt['deadline_at']).Trim() }
+            }
+        }
+        catch { }
+        if ((-not [string]::IsNullOrWhiteSpace($curSess)) -and ($curN -eq $nextN) -and ($curN -gt 0)) {
+            if (($curSess -ceq $sid) -and ($curRole -ceq $role)) {
+                return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); profile = ([string]$curRt['budget_snapshot']['profile']); deadline_at = $curDeadline; idempotent = $true }
+            }
+            return (New-TaskKernelError -Code 'SESSION_MISMATCH' -Extra @{ detail = 'attempt already bound to a different session; deadline assigned once per attempt' })
+        }
+        $snap = $null
+        $profName = ''
+        $src = ''
+        try {
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('execution_budget_source')) { $src = ([string]$rec['execution_budget_source']).Trim().ToLowerInvariant() }
+        }
+        catch { $src = '' }
+        $storedValid = $null
+        try {
+            $stored = $null
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('execution_budget')) { $stored = $rec['execution_budget'] }
+            if ($null -ne $stored) {
+                $chk = Test-ExecutionBudgetObject -Budget $stored
+                if ([bool]$chk.valid) { $storedValid = $stored }
+            }
+        }
+        catch { $storedValid = $null }
+        if (($null -ne $storedValid) -and (($src -ceq 'explicit') -or [string]::IsNullOrWhiteSpace($src))) {
+            $snap = $storedValid
+        }
+        else {
+            $rb = Get-ExecutionBudgetForRole -Role $role -PolicyPath $pp -RepoRoot $RepoRoot
+            if ([bool]$rb.ok) { $snap = $rb.budget }
+            elseif ($null -ne $storedValid) { $snap = $storedValid }
+            else {
+                $d = Get-ExecutionBudgetDerivedDefault -PolicyPath $pp -RepoRoot $RepoRoot
+                if (-not [bool]$d.ok) { return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID') }
+                $snap = $d.budget
+            }
+        }
+        try { $profName = ([string]$snap['profile']).Trim() } catch { $profName = '' }
+        $snapshot = [ordered]@{
+            profile                    = $profName
+            step_budget                = [int]$snap['step_budget']
+            wall_clock_seconds         = [int]$snap['wall_clock_seconds']
+            no_progress_seconds        = [int]$snap['no_progress_seconds']
+            repeated_action_soft_limit = [int]$snap['repeated_action_soft_limit']
+            repeated_action_hard_limit = [int]$snap['repeated_action_hard_limit']
+            cycle_repeat_limit         = [int]$snap['cycle_repeat_limit']
+            provider_retry_limit       = [int]$snap['provider_retry_limit']
+        }
+        $now = (Get-Date).ToUniversalTime()
+        $startText = $now.ToString('o')
+        $deadlineText = ($now.AddSeconds([double][int]$snap['wall_clock_seconds'])).ToString('o')
+        $newRev = ([int]$rec['revision'] + 1)
+        $rec['execution_runtime'] = [ordered]@{
+            session_id             = (Protect-TaskKernelText -Text $sid)
+            started_at             = $startText
+            deadline_at            = $deadlineText
+            last_progress_at       = $startText
+            last_progress_revision = $newRev
+            attempt_role           = (Protect-TaskKernelText -Text $role)
+            attempt_n              = [int]$nextN
+            gate_evidence          = $gateEvidence
+            budget_snapshot        = $snapshot
+        }
+        $rec['revision'] = $newRev
+        $rec['updated_at'] = (Get-TaskKernelTimestamp)
+        $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+        if (-not [bool]$wr.ok) {
+            return (New-TaskKernelError -Code ([string]$wr.error))
+        }
+        $null = Send-TaskKernelTelemetry -EventType 'TASK_STATE_CHANGED' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; profile = $profName; deadline_at = $deadlineText }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Set-OrchestrationTaskBudget {
+    <#
+    .SYNOPSIS
+        Planner/kernel-only PARTIAL budget update within explicit policy
+        bounds. Raw values preserved (no [int] coercion): each supplied
+        numeric must be an exact integral type (int/long), else INVALID_BUDGET
+        with no mutation. Absence detected via PSBoundParameters (no 0/-1
+        sentinel). Without an explicit -BudgetProfile the current valid
+        stored budget is preserved (no canonical reset). Workers denied
+        (BUDGET_WIDEN_DENIED). CAS + lock + trusted actor. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [string]$BudgetProfile = '',
+        $BudgetStepBudget = $null,
+        $BudgetWallSeconds = $null,
+        $BudgetNoProgressSeconds = $null,
+        [Parameter(Mandatory = $true)][string]$Actor,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$ActorIdentitySource = 'unknown',
+        [string]$BudgetPolicyPath = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $actor = ([string]$Actor).Trim()
+        if ([string]::IsNullOrWhiteSpace($actor)) {
+            return (New-TaskKernelError -Code 'INVALID_ACTOR')
+        }
+        $actorLow = $actor.ToLowerInvariant()
+        if (($actorLow -cne 'planner') -and ($actorLow -cne 'build')) {
+            return (New-TaskKernelError -Code 'BUDGET_WIDEN_DENIED' -Extra @{ detail = 'budget override is planner/kernel only' })
+        }
+        if (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource)) {
+            return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
+        }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+            return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+        }
+        $pp = $BudgetPolicyPath
+        if ([string]::IsNullOrWhiteSpace($pp)) { $pp = Get-ExecutionBudgetDefaultPolicyPath -RepoRoot $RepoRoot }
+        if (-not (Test-ExecutionBudgetPolicyFull -Path $pp)) {
+            return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
+        }
+        $profileExplicit = ($PSBoundParameters.ContainsKey('BudgetProfile') -and (-not [string]::IsNullOrWhiteSpace([string]$BudgetProfile)))
+        $baseProf = ([string]$BudgetProfile).Trim().ToLowerInvariant()
+        $curStored = $null
+        try {
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('execution_budget')) { $curStored = $rec['execution_budget'] }
+        }
+        catch { $curStored = $null }
+        $curValid = $null
+        try {
+            if ($null -ne $curStored) {
+                $chk0 = Test-ExecutionBudgetObject -Budget $curStored
+                if ([bool]$chk0.valid) { $curValid = $curStored }
+            }
+        }
+        catch { $curValid = $null }
+        if ($profileExplicit) {
+            if ([string]::IsNullOrWhiteSpace((Get-ExecutionBudgetProfileName -Profile $baseProf))) {
+                return (New-TaskKernelError -Code 'INVALID_BUDGET')
+            }
+        }
+        elseif ($null -ne $curValid) {
+            $baseProf = ([string]$curValid['profile']).Trim().ToLowerInvariant()
+        }
+        else {
+            if ([string]::IsNullOrWhiteSpace($baseProf)) { $baseProf = 'standard-write' }
+        }
+        $base = Get-ExecutionBudgetProfileBudget -Profile $baseProf -PolicyPath $pp -RepoRoot $RepoRoot
+        if (-not [bool]$base.ok) {
+            return (New-TaskKernelError -Code 'INVALID_BUDGET')
+        }
+        if ($profileExplicit) {
+            $cand = [ordered]@{
+                profile                    = ([string]$base.budget['profile'])
+                step_budget                = [int]$base.budget['step_budget']
+                wall_clock_seconds         = [int]$base.budget['wall_clock_seconds']
+                no_progress_seconds        = [int]$base.budget['no_progress_seconds']
+                repeated_action_soft_limit = [int]$base.budget['repeated_action_soft_limit']
+                repeated_action_hard_limit = [int]$base.budget['repeated_action_hard_limit']
+                cycle_repeat_limit         = [int]$base.budget['cycle_repeat_limit']
+                provider_retry_limit       = [int]$base.budget['provider_retry_limit']
+            }
+        }
+        elseif ($null -ne $curValid) {
+            $cand = [ordered]@{
+                profile                    = ([string]$curValid['profile'])
+                step_budget                = [int]$curValid['step_budget']
+                wall_clock_seconds         = [int]$curValid['wall_clock_seconds']
+                no_progress_seconds        = [int]$curValid['no_progress_seconds']
+                repeated_action_soft_limit = [int]$curValid['repeated_action_soft_limit']
+                repeated_action_hard_limit = [int]$curValid['repeated_action_hard_limit']
+                cycle_repeat_limit         = [int]$curValid['cycle_repeat_limit']
+                provider_retry_limit       = [int]$curValid['provider_retry_limit']
+            }
+        }
+        else {
+            $cand = [ordered]@{
+                profile                    = ([string]$base.budget['profile'])
+                step_budget                = [int]$base.budget['step_budget']
+                wall_clock_seconds         = [int]$base.budget['wall_clock_seconds']
+                no_progress_seconds        = [int]$base.budget['no_progress_seconds']
+                repeated_action_soft_limit = [int]$base.budget['repeated_action_soft_limit']
+                repeated_action_hard_limit = [int]$base.budget['repeated_action_hard_limit']
+                cycle_repeat_limit         = [int]$base.budget['cycle_repeat_limit']
+                provider_retry_limit       = [int]$base.budget['provider_retry_limit']
+            }
+        }
+        if ($PSBoundParameters.ContainsKey('BudgetStepBudget')) {
+            if (-not (Test-ExecutionBudgetInt -Value $BudgetStepBudget -Min 1 -Max 86400)) {
+                return (New-TaskKernelError -Code 'INVALID_BUDGET')
+            }
+            $cand['step_budget'] = [int]$BudgetStepBudget
+        }
+        if ($PSBoundParameters.ContainsKey('BudgetWallSeconds')) {
+            if (-not (Test-ExecutionBudgetInt -Value $BudgetWallSeconds -Min 1 -Max 86400)) {
+                return (New-TaskKernelError -Code 'INVALID_BUDGET')
+            }
+            $cand['wall_clock_seconds'] = [int]$BudgetWallSeconds
+        }
+        if ($PSBoundParameters.ContainsKey('BudgetNoProgressSeconds')) {
+            if (-not (Test-ExecutionBudgetInt -Value $BudgetNoProgressSeconds -Min 1 -Max 86400)) {
+                return (New-TaskKernelError -Code 'INVALID_BUDGET')
+            }
+            $cand['no_progress_seconds'] = [int]$BudgetNoProgressSeconds
+        }
+        $isPlanner = ([string]$cand['profile'] -ceq 'planner-turn')
+        $ov = Test-ExecutionBudgetOverride -Budget $cand -IsPlannerTurn:$isPlanner -PolicyPath $pp -RepoRoot $RepoRoot
+        if (-not [bool]$ov.valid) {
+            return (New-TaskKernelError -Code 'INVALID_BUDGET' -Extra @{ reasons = ([string[]]$ov.errors) })
+        }
+        $newRev = ([int]$rec['revision'] + 1)
+        $rec['execution_budget'] = $cand
+        $rec['execution_budget_source'] = 'explicit'
+        $rec['revision'] = $newRev
+        $rec['updated_at'] = (Get-TaskKernelTimestamp)
+        $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+        if (-not [bool]$wr.ok) {
+            return (New-TaskKernelError -Code ([string]$wr.error))
+        }
+        $null = Send-TaskKernelTelemetry -EventType 'TASK_STATE_CHANGED' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; profile = ([string]$cand['profile']) }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Start-OrchestrationPlannerTurn {
+    <#
+    .SYNOPSIS
+        Starts a new planner turn on a trusted administrative boundary event
+        (NEW turn id + NEW event id + strictly increasing task-bound sequence).
+        Phase 23 shadow record-only. The -UserInputSignal parameter carries an
+        event identity (compat name), NOT free-text proof: it must be a
+        closed-charset id and is rejected otherwise (no secret stdout;
+        sanitized ids only). -UserInputSequence is mandatory: an exact
+        integral type (int/long, never bool/string/fraction), strictly
+        positive and strictly greater than the persisted task-bound
+        high-water mark (old records without one start at 0). Any sequence
+        replay (<= high-water) is rejected without mutation, regardless of
+        bounded history retention: the high-water mark (single integer,
+        CAS+lock guarded) closes the evicted-history replay gap. Reuse of
+        ANY previous turn id and replay of ANY retained event id are also
+        rejected. Bounded history (last 20, each entry with its seq) is
+        retained for audit only. Actor trust is the explicit administrative
+        CLI boundary (planner/build + trusted identity source); it does not
+        prove runtime auth. CAS + lock + planner/build + trusted source.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string]$TurnId,
+        [Parameter(Mandatory = $true)][string]$Actor,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$UserInputSignal = '',
+        $UserInputSequence = $null,
+        [string]$ActorIdentitySource = 'unknown',
+        [string]$BudgetPolicyPath = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $turn = ([string]$TurnId).Trim()
+        if (-not (Test-ExecutionBudgetEventId -Value $turn)) {
+            return (New-TaskKernelError -Code 'INVALID_TURN')
+        }
+        $signal = ([string]$UserInputSignal).Trim()
+        if ([string]::IsNullOrWhiteSpace($signal)) {
+            return (New-TaskKernelError -Code 'PLANNER_TURN_SIGNAL_REQUIRED' -Extra @{ detail = 'new user input signal starts a new turn' })
+        }
+        if (-not (Test-ExecutionBudgetEventId -Value $signal)) {
+            return (New-TaskKernelError -Code 'INVALID_SIGNAL' -Extra @{ detail = 'signal must be a closed-charset event id, not free text' })
+        }
+        if ($turn -ceq $signal) {
+            return (New-TaskKernelError -Code 'INVALID_SIGNAL' -Extra @{ detail = 'turn id and event id must be distinct' })
+        }
+        if (-not $PSBoundParameters.ContainsKey('UserInputSequence')) {
+            return (New-TaskKernelError -Code 'PLANNER_TURN_SEQUENCE_REQUIRED' -Extra @{ detail = 'strictly increasing task-bound input sequence is mandatory' })
+        }
+        if (-not (Test-ExecutionBudgetInt -Value $UserInputSequence -Min 1 -Max 2147483647)) {
+            return (New-TaskKernelError -Code 'INVALID_SEQUENCE' -Extra @{ detail = 'sequence must be an exact positive integer (no bool/string/fraction)' })
+        }
+        $seqWant = [long]$UserInputSequence
+        $actor = ([string]$Actor).Trim()
+        if ([string]::IsNullOrWhiteSpace($actor)) {
+            return (New-TaskKernelError -Code 'INVALID_ACTOR')
+        }
+        $actorLow = $actor.ToLowerInvariant()
+        if (($actorLow -cne 'planner') -and ($actorLow -cne 'build')) {
+            return (New-TaskKernelError -Code 'BUDGET_WIDEN_DENIED' -Extra @{ detail = 'planner turn is planner only' })
+        }
+        if (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource)) {
+            return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
+        }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+            return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+        }
+        $highWater = [long]0
+        try {
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('planner_turn_seq') -and ($null -ne $rec['planner_turn_seq'])) {
+                $hv = $rec['planner_turn_seq']
+                if (($hv -is [int]) -or ($hv -is [long])) { $highWater = [long]$hv }
+            }
+        }
+        catch { $highWater = [long]0 }
+        if ($highWater -lt [long]0) { $highWater = [long]0 }
+        if ($seqWant -le $highWater) {
+            return (New-TaskKernelError -Code 'PLANNER_TURN_SEQUENCE_REPLAY' -Extra @{ detail = 'sequence must exceed the persisted task-bound high-water mark' })
+        }
+        $curTurn = ''
+        $curSignal = ''
+        try {
+            $pt = $null
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('planner_turn')) { $pt = $rec['planner_turn'] }
+            if (($null -ne $pt) -and ($pt -is [System.Collections.IDictionary])) {
+                if ($null -ne $pt['turn_id']) { $curTurn = ([string]$pt['turn_id']).Trim() }
+                if ($null -ne $pt['signal']) { $curSignal = ([string]$pt['signal']).Trim() }
+            }
+        }
+        catch { }
+        $hist = @()
+        try {
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('planner_turn_history') -and ($null -ne $rec['planner_turn_history'])) {
+                $hist = @($rec['planner_turn_history'])
+            }
+        }
+        catch { $hist = @() }
+        $seenTurns = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        $seenSignals = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        if (-not [string]::IsNullOrWhiteSpace($curTurn)) { $seenTurns.Add($curTurn) | Out-Null }
+        if (-not [string]::IsNullOrWhiteSpace($curSignal)) { $seenSignals.Add($curSignal) | Out-Null }
+        foreach ($h in @($hist)) {
+            try {
+                if ($h -is [System.Collections.IDictionary]) {
+                    if ($null -ne $h['turn_id']) {
+                        $ht = ([string]$h['turn_id']).Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($ht)) { $seenTurns.Add($ht) | Out-Null }
+                    }
+                    if ($null -ne $h['signal']) {
+                        $hs = ([string]$h['signal']).Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($hs)) { $seenSignals.Add($hs) | Out-Null }
+                    }
+                }
+            }
+            catch { }
+        }
+        if ($seenTurns.Contains($turn)) {
+            return (New-TaskKernelError -Code 'PLANNER_TURN_DUPLICATE' -Extra @{ detail = 'turn id already used' })
+        }
+        if ($seenSignals.Contains($signal)) {
+            return (New-TaskKernelError -Code 'PLANNER_TURN_SIGNAL_REPLAY' -Extra @{ detail = 'event id already used' })
+        }
+        $pp = $BudgetPolicyPath
+        if ([string]::IsNullOrWhiteSpace($pp)) { $pp = Get-ExecutionBudgetDefaultPolicyPath -RepoRoot $RepoRoot }
+        if (-not (Test-ExecutionBudgetPolicyFull -Path $pp)) {
+            return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
+        }
+        $pb = Get-ExecutionBudgetProfileBudget -Profile 'planner-turn' -PolicyPath $pp -RepoRoot $RepoRoot
+        if (-not [bool]$pb.ok) {
+            return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
+        }
+        $snapshot = [ordered]@{
+            profile                    = 'planner-turn'
+            step_budget                = [int]$pb.budget['step_budget']
+            wall_clock_seconds         = [int]$pb.budget['wall_clock_seconds']
+            no_progress_seconds        = [int]$pb.budget['no_progress_seconds']
+            repeated_action_soft_limit = [int]$pb.budget['repeated_action_soft_limit']
+            repeated_action_hard_limit = [int]$pb.budget['repeated_action_hard_limit']
+            cycle_repeat_limit         = [int]$pb.budget['cycle_repeat_limit']
+            provider_retry_limit       = [int]$pb.budget['provider_retry_limit']
+        }
+        $newRev = ([int]$rec['revision'] + 1)
+        $turnSafe = Protect-TaskKernelText -Text $turn
+        $sigSafe = Protect-TaskKernelText -Text $signal
+        if ((-not [string]::IsNullOrWhiteSpace($curTurn)) -or (-not [string]::IsNullOrWhiteSpace($curSignal))) {
+            $hist = @($hist) + @([ordered]@{ turn_id = (Protect-TaskKernelText -Text $curTurn); signal = (Protect-TaskKernelText -Text $curSignal); seq = [long]$highWater; at = (Get-TaskKernelTimestamp) })
+        }
+        while (@($hist).Count -gt 20) { $hist = @($hist | Select-Object -Skip 1) }
+        $rec['planner_turn_history'] = $hist
+        $rec['planner_turn_seq'] = [long]$seqWant
+        $rec['planner_turn'] = [ordered]@{
+            turn_id         = $turnSafe
+            started_at      = (Get-TaskKernelTimestamp)
+            signal          = $sigSafe
+            seq             = [long]$seqWant
+            budget_snapshot = $snapshot
+        }
+        $rec['revision'] = $newRev
+        $rec['updated_at'] = (Get-TaskKernelTimestamp)
+        $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+        if (-not [bool]$wr.ok) {
+            return (New-TaskKernelError -Code ([string]$wr.error))
+        }
+        $null = Send-TaskKernelTelemetry -EventType 'TASK_STATE_CHANGED' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; turn_id = $turnSafe; signal = $sigSafe; seq = [long]$seqWant }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
         }
     }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }

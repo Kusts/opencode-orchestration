@@ -527,37 +527,61 @@ async function subscribe(registrations, owner, name, callback) {
 }
 async function setupV2(ctx) {
   const registrations = [];
+  let eventController = null;
   try {
     const c = ctx;
     if (!c || typeof c !== "object")
       return;
     try {
-      const surfaces = [
-        { label: "event.hook", owner: c.event },
-        { label: "session.hook", owner: c.session },
-        { label: "tool.hook", owner: c.tool }
-      ];
-      for (const s of surfaces) {
-        try {
-          if (!s.owner || typeof s.owner.hook !== "function") {
-            writeUnavailable("v2", s.label + " unavailable");
-          }
-        } catch {}
-      }
+      try {
+        if (!c.event || typeof c.event.subscribe !== "function") {
+          writeUnavailable("v2", "event.subscribe unavailable");
+        }
+      } catch {}
+      try {
+        if (!c.session || typeof c.session.hook !== "function") {
+          writeUnavailable("v2", "session.hook unavailable");
+        }
+      } catch {}
+      try {
+        if (!c.tool || typeof c.tool.hook !== "function") {
+          writeUnavailable("v2", "tool.hook unavailable");
+        }
+      } catch {}
     } catch {}
     try {
       const ev = c.event;
-      if (ev && typeof ev.hook === "function") {
-        await subscribe(registrations, ev, "session.created", async (input) => {
+      if (ev && typeof ev.subscribe === "function") {
+        try {
+          const controller = new AbortController;
+          eventController = controller;
+          const stream = ev.subscribe({ signal: controller.signal });
+          (async () => {
+            try {
+              for await (const e of stream) {
+                try {
+                  if (controller.signal.aborted)
+                    return;
+                } catch {
+                  return;
+                }
+                try {
+                  recordSessionEvent(sessionIndex2, e);
+                } catch {}
+                try {
+                  if (controller.signal.aborted)
+                    return;
+                } catch {
+                  return;
+                }
+              }
+            } catch {}
+          })();
+        } catch {
           try {
-            recordSessionEvent(sessionIndex2, input);
+            writeUnavailable("v2", "event.subscribe unavailable");
           } catch {}
-        });
-        await subscribe(registrations, ev, "session.updated", async (input) => {
-          try {
-            recordSessionEvent(sessionIndex2, input);
-          } catch {}
-        });
+        }
       }
     } catch {}
     await subscribe(registrations, c.session, "context", async (input) => {
@@ -604,6 +628,14 @@ async function setupV2(ctx) {
     return;
   }
   return () => {
+    try {
+      if (eventController) {
+        try {
+          eventController.abort();
+        } catch {}
+        eventController = null;
+      }
+    } catch {}
     try {
       sessionIndex2.clear();
     } catch {}

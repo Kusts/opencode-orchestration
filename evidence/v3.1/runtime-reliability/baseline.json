@@ -1,0 +1,82 @@
+{
+  "record": "v3.1-runtime-reliability-baseline-phase21",
+  "date": "2026-09-30",
+  "phase": 21,
+  "repo_head": "8047c22ce4a8423c12a51b4b1b4ddc3e5755ab04",
+  "repo_branch": "master (clean vs origin/master no inicio da coleta)",
+  "addenda_read": [
+    "ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md",
+    "ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md",
+    "ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md"
+  ],
+  "pins_present": {
+    "opencode-v1": { "validated_version": "1.18.32", "cli_package": "opencode-ai", "plugin": "@opencode-ai/plugin@1.18.32" },
+    "opencode-v2": { "validated_version": "2.0.18", "cli_package": "@opencode/cli", "plugin": "@opencode/plugin@2.0.18" },
+    "source": "source/registry/runtimes.json + scripts/ci/smoke-opencode.ps1 + scripts/ci/smoke-opencode-v2.ps1"
+  },
+  "versions_observed": {
+    "v1_global": { "cmd": "opencode --version", "timeout_s": 30, "exit": 0, "version": "1.18.33", "note": "drift +0.0.01 vs CI pin 1.18.32 (mesmo drift ja registrado em implementation-status.json)" },
+    "v2_global": { "cmd": "<APPDATA>/npm/node_modules/@opencode/cli/bin/opencode.exe --version", "timeout_s": 30, "exit": 0, "version": "opencode v2.0.19", "note": "drift +0.0.01 vs pin 2.0.18; canal do usuario, nao o pin do pacote" },
+    "v2_provisioned_profile": { "cmd": "<profiles>/v2/runtime/.../@opencode/cli/bin/opencode.exe --version", "timeout_s": 60, "exit": 0, "version": "opencode v2.0.18", "note": "binario do pin exato continua presente e responde --version" },
+    "ai_memory": { "version": "2.4.1", "source": "docker inspect ai-memory (health log, somente leitura)", "note": "sem segredos coletados" }
+  },
+  "port_49374": {
+    "ai_memory_listening": true,
+    "listener": "TCP 127.0.0.1:49374 LISTEN, owning PID 8160 (com.docker.backend.exe = host port-forward do Docker)",
+    "container": { "name": "ai-memory", "image": "akitaonrails/ai-memory:latest", "ports": "127.0.0.1:49374->49374/tcp", "health": "healthy" },
+    "established_clients_observed": [ "cloudflared (PID 8804)", "opencode V1 (PIDs 10556, 13760)" ],
+    "windows_excluded": false,
+    "note": "listener 49374 e o proprio AI Memory local (via Docker); colisao com o default do servico V2 confirmada como real e atual"
+  },
+  "windows_excluded_tcp_ranges": [
+    "50000-50059 (admin)",
+    "52754-52853",
+    "52854-52953"
+  ],
+  "v2_service_diagnostics": {
+    "default_service_port": "127.0.0.1:49374 (conforme mensagem do proprio runtime)",
+    "log_errors_sanitized": [
+      "2026-09-28 (v2.0.18): serve --service => ERROR Managed service port 4096 ... already in use ... Configure another port with `opencode service set port <port>` (repetido ~15x em ~2min)",
+      "2026-09-30T08:26:34Z: serve --service => ERROR Managed service port 49374 ... already in use ... Configure another port with `opencode service set port <port>`"
+    ],
+    "runtime_named_remediation": "opencode service set port <port>",
+    "new_default_port_startup_attempted_phase21": false,
+    "new_default_port_startup_reason": "conflito 49374 ativo (AI Memory); proibido iniciar V2 no default enquanto ocupado",
+    "alt_port_support": "ja provado em evidence/v3.1/kernel-hardening/v2-permissions-spike.json (porta 58704) e v2-ci-smoke.json (porta 53889); reutilizado abaixo no smoke Phase21 (porta 64868)"
+  },
+  "fixtures": {
+    "path": "evidence/v3.1/runtime-reliability/fixtures/watchdog-baseline-fixtures.tests.ps1",
+    "cmd": "powershell -NoProfile -ExecutionPolicy Bypass -File <fixture>",
+    "result": "17/17 PASS, exit 0 em PS5.1 e PS7 (RR-P21-FIX residual: sufixo pos-progresso + canario meaningful)",
+    "covers": [
+      "stall sem retorno: child sleep isolado, TimeoutMs 6000 => TimedOut + evidencia parcial + ExitCode -1",
+      "no-progress medido desde ultimo progresso real (heartbeat nao reseta)",
+      "3x identico sem progresso => STALL_SUSPECTED; 5x => HARD_STALL",
+      "ciclo A-B 3x sem delta => REPEATED_CYCLE",
+      "iterador limitado com progresso => NONE (sem falso positivo)",
+      "redacao de segredos antes do fingerprint (tokens distintos convergem; dois canarios sinteticos distintos convergem para versao redigida)",
+      "progresso real invalida STALL_SUSPECTED",
+      "progresso antigo fora da janela nao mascara stall (X,A x5 => HARD_STALL; X,A x3 => STALL_SUSPECTED; X,A,B x3 => REPEATED_CYCLE; fix RR-P21-FIX)",
+      "sufixo pos-progresso: mesma identidade no progresso inicial nao mascara (A x4 true+3f => STALL_SUSPECTED/sufixo A x3; A x6 true+5f => HARD_STALL/sufixo A x5; ciclo A,B,A,B,A,B,A true+6f => REPEATED_CYCLE/sufixo B,A x3; residual RR-P21-FIX)"
+    ],
+    "enforcement_enabled": false
+  },
+  "suites_sequential": [
+    { "cmd": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1", "result": "16/16 OK, exit 0" },
+    { "cmd": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1 -Name CapabilityFlags", "result": "1 suite PASS (20/20 asserts), exit 0; flags conservadoras intactas (v2/task_kernel/worktrees/grants OFF, router/mcp/skill/adaptive OFF)" },
+    { "cmd": "smoke-opencode-v2.ps1 -BinaryPath <v2 2.0.18 provisionado> -TargetHome <TEMP>/oo-v2smoke-rr21 -EvidencePath evidence/v3.1/runtime-reliability/v2-smoke-phase21.json", "result": "FAILED honesto: version_exact/isolation/service_port_configured(64868)/config_19_workers PASS; debug config TIMEOUT 30s; sem retry (regra de escalacao); porta 64868 sem listener apos finally (TIME_WAIT apenas), nenhum processo orfao novo" },
+    { "cmd": "smoke-opencode.ps1 -TargetHome <TEMP>/oo-smoke-rr21", "result": "FAILED por ambiente (nao regressao): install.ps1 REAL exit 0 em home isolado; assert filho (i) falhou porque o shim global do operador resolve %USERPROFILE%/bin/opencode-v1.js, ausente sob USERPROFILE redirecionado (MODULE_NOT_FOUND); `opencode --version` direto = 1.18.33 exit 0" }
+  ],
+  "full_v3_runner_rerun_phase21": false,
+  "full_v3_last_state": "implementation-status.json 2026-09-29 (24 PASS / 4 FAIL por drift DE22307F pre-existente / 3 SKIP; kernel 75/75, ownership 56/56, verifier 49/49; distribution 13/13)",
+  "no_full_green_claim": true,
+  "blockers": [
+    "V2 2.0.18 debug config nao respondeu em 30s no servidor privado 64868 (1 tentativa; sem retry por regra); comportamento compativel com HOLD ja documentado (debug config/agents instaveis sob fixture XDG)",
+    "Smoke V1 isolado bloqueado pelo shim global do operador (%USERPROFILE%-dependente); requer decisao do Planner (ajuste de harness ou aceite como limitacao de ambiente) — fora do escopo Phase21",
+    "Migracao AI Memory para VPS ainda pendente (Phase 22/31); 49374 local segue ocupado pelo container saudavel"
+  ],
+  "phase22_ready": [
+    "mecanismo `service set port` provado de novo (64868) sem tocar 49374",
+    "diagnostico de preflight tem todos os inputs reais (listener/PID/container/ranges/log)"
+  ]
+}

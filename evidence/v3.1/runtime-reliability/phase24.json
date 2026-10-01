@@ -1,0 +1,90 @@
+{
+  "acceptance": {
+    "cleanup_aborts_stream": "PASS (v2-mock 10b: push pos-cleanup nao reindexa; 10c: next() pendente + cleanup antes => indice vazio; 10c-controle: iterador hostil entrega valor apos abort => sem guard indexaria, prova executavel de discriminacao)",
+    "event_filter": "PASS (v2-mock 2b: session.idle nao indexa; recordSessionEvent so session.created|session.updated)",
+    "feature_detection_subscribe": "PASS (setup({}) emite event.subscribe unavailable + session.hook + tool.hook unavailable; fail-open)",
+    "no_hook_mutation": "PASS (session.hook context e tool.hook execute.before intactos; dual-runtime purity checks verdes)",
+    "non_blocking_setup": "PASS (v2-mock 1b: setup resolve < 2000ms com stream infinito)",
+    "subscribe_consumes_events": "PASS (v2-mock 2: push via event.subscribe => sessionIndex 1/19 checks)",
+    "type_only_imports": "PASS (dual-runtime b2/b3: zero import runtime; v2.ts so import type @opencode/plugin)",
+    "typecheck_v1_v2_dual": "PASS (typecheck-plugin.ps1: V1 + V2 + DUAL contra APIs reais 1.18.32/2.0.18 + rebuild bundle com marcadores)"
+  },
+  "date": "2026-09-30",
+  "flags_activated": [],
+  "gaps": [
+    "execute.before sem-modelo no 2.0.18 (shell direto nao passa por tool.hook; stub openai-compatible exige schema do provider nao provado sem rede)",
+    "watchdog/interrupt NAO implementados nesta fatia (fora de escopo por contrato)"
+  ],
+  "holds": [
+    "LIVE_HOOK_PARTIAL: (b) created + (c) context provados no binario exato 2.0.18 (T2) com evidencia do host real; (d) execute.before segue NAO-VERIFICADO sem modelo pago (shell exit 0 sem TOOL_FIRED; proxima fatia: stub local com schema provado ou geracao com modelo); (b-updated) PATCH sem EVENT updated",
+    "WATCHDOG_HOLD: nenhuma semantica de enforcement/watchdog/loop-guard nesta fatia; plugin segue observabilidade fail-open (interrupt/wait existem no host, semantica intacta para Phase 25)"
+  ],
+  "implementation": {
+    "files_changed": [
+      "plugins/orchestration-enforcement/v2.ts (event.hook obsoleto => ctx.event.subscribe({ signal }) AsyncIterable detached com AbortController; cleanup aborta; feature detection event.subscribe)",
+      "tests/distribution/plugin-harness/v2-mock.ts (makeEventStream com signal/abort; provas 1b/2/2b/10b; label event.subscribe unavailable)",
+      "plugins/dist/orchestration-enforcement.js + .sha256 (rebuild automatico do typecheck-plugin.ps1, marcadores ok)"
+    ],
+    "notes": "session.hook(context) e tool.hook(execute.before) intocados; envelope tolerante recordSessionEvent reutilizado, nao duplicado; PS/TS estilo atual, comentarios ASCII com refs addenda Part H sec 24",
+    "requirements_coverage": "R1 non-blocking loop OK; R2 feature detection OK; R3 filtro via recordSessionEvent OK; R4 hooks validos intactos OK; R5 zero runtime import OK; R6 mock+expectativa independente OK; R7 validacao OK; R8 este arquivo OK"
+  },
+  "status": "partial",
+  "task_id": "RR-P24-MIGRATE",
+  "review_fix": {
+    "task_id": "RR-P24-REV-FIX",
+    "date": "2026-10-01",
+    "findings": "3 findings de RR-REV-P23P23P24 corrigidos: (1 HIGH) gates bloqueantes versao-exata+confinamento antes de set/start + cenario negativo dry-run sem servico; (2 MEDIUM) parser OpenAPI preserva barra + fixture /session prova createArgs populado; (3 MEDIUM) abort-before-record no loop v2.ts + teste 10c de corrida no v2-mock",
+    "files_changed": [
+      "tests/distribution/live-hook-v2.tests.ps1 (VersionGateOk/ConfGateOk + Fail-Preserve; S5/S6 exigem gates; S4-neg dry-run; Resolve-SessionCreateArgs com barra + POST; fixtures S7 com/sem /session)",
+      "plugins/orchestration-enforcement/v2.ts (aborted ANTES de recordSessionEvent em cada evento)",
+      "tests/distribution/plugin-harness/v2-mock.ts (10c: next() pendente + cleanup antes => indice vazio)",
+      "plugins/dist/orchestration-enforcement.js + .sha256 (rebuild typecheck-plugin.ps1)"
+    ]
+  },
+  "trigger_fix": {
+    "task_id": "RR-P24-TRIGGER-FIX",
+    "date": "2026-10-01",
+    "findings": "4 findings de RR-P24-TRIGGER-REV corrigidos: (1) 10c-controle executavel prova que o iterador hostil ignora abort (10c nao passa vacuamente); (2) fixture livehook com guard de abort ANTERIOR a interpretacao/gravacao de cada evento (+ posterior mantido); (3) parser fail-closed com $postOk iniciando false + deteccao de truncamento case-sensitive no formato exato do wrapper + fixtures marca/tamanho-real/truncated-minusculo; (4) fixture extrai session id antes de e.id + TRIGGER sanitizado no JSONL + igualdade so com match comparavel",
+    "root_cause": "Rerun pos-REV-FIX falhou no trigger (createArgs vazio, 32/1): o guard '-match truncado em|TRUNCATED' (regex case-insensitive) dava falso-positivo no 'truncated' minusculo da spec real 3.1.0 (251892 chars observados, nao 131105) e zerava o createArgs com captura integra. Correcao: -cmatch case-sensitive em '\\[truncado em \\d+ chars\\]|TRUNCATED' (formato exato do wrapper) + MaxChars 524288 (margem 2x). Rerun: PASS 35/0 HOLD 1 com trigger real.",
+    "files_changed": [
+      "tests/distribution/plugin-harness/v2-mock.ts (10c-controle: next() pendente apos abort resolve done:false => sem guard indexaria)",
+      "tests/distribution/livehook-v2-fixture.js (guard anterior ctrl.signal.aborted antes de interpretar/gravar; extracao sessionID/sessionId/session.id/data.* antes de e.id)",
+      "tests/distribution/live-hook-v2.tests.ps1 ($postOk fail-closed; -cmatch no formato do wrapper; fixtures marca + truncated-minusculo + tamanho-real >251892; MaxChars 524288)",
+      "evidence/v3.1/runtime-reliability/phase24-livehook.jsonl (8 linhas: BOOT/FEATURES/SUBSCRIBED/CONTEXT_REGISTERED/TOOL_REGISTERED/EVENT/TRIGGER/CONTEXT_FIRED)"
+    ]
+  },
+  "validation": {
+    "git_diff_check": "PASS (sem whitespace errors nos arquivos da fatia)",
+    "plugin_dual_runtime_suite": "PASS 20/20 (inclui mock V2 22/22 com 10c + 10c-controle discriminacao)",
+    "plugin_enforcement_v1_suite": "PASS (harness run.ts 30/30; V1 intacto)",
+    "typecheck_plugin": "PASS V1 + V2 + DUAL contra APIs reais 1.18.32/2.0.18 (install via npm-fallback; sem SKIP) + rebuild bundle com marcadores",
+    "v2_mock_direct": "PASS 22/22 via bun run (inclui 10c corrida abort-before-record + 10c-controle prova de discriminacao)",
+    "livehook_ps51": "PASS 35/0 HOLD 1 (PS 5.1, binario exato 2.0.18, porta 56782; TRIGGER: auth OPENCODE_PASSWORD + openapi MaxChars 524288 + POST /api/session + PATCH + shell + prompt; fixtures /api/session + marca-truncamento + truncated-minusculo + tamanho-real)",
+    "livehook_ps7": "PASS 23/0 HOLD 4 (PS 7, pre REV-FIX)"
+  },
+  "livehook": {
+    "task_id": "RR-P24-LIVEHOOK",
+    "date": "2026-09-30",
+    "harness": "tests/distribution/live-hook-v2.tests.ps1 + tests/distribution/livehook-v2-fixture.js",
+    "binary": "C:\\\\Users\\\\walis\\\\.opencode-orchestration\\\\profiles\\\\v2\\\\runtime\\\\node_modules\\\\@opencode\\\\cli\\\\bin\\\\opencode.exe",
+    "version_exact": "opencode v2.0.18",
+    "engines": {
+      "ps51": "PASS 35/0 HOLD 1 (TRIGGER 2026-10-01 pos-TRIGGER-FIX: (b) EVENT + (c) CONTEXT_FIRED verificados com session==trigger; (d) HOLD)",
+      "ps7": "PASS 23/0 HOLD 4 (pre REV-FIX)"
+    },
+    "port_used": 56782,
+    "scenarios": {
+      "T3_sdk_inprocess": "SKIP: @opencode/sdk ausente nos node_modules provisionados; sem install pela rede",
+      "a_plugin_loads": "PASS: fixture {id,setup} ESM carregou no host real (BOOT); dist bundle hash==sidecar no mesmo dir auto-discovery; sem erro no server log",
+      "b_event_delivery": "VERIFIED (created): POST /api/session --data {} exit 0 com OPENCODE_PASSWORD do service.json TEMP (in-memory, nunca em evidencia); EVENT session.created via subscribe com session==trigger (match=True). NOT-VERIFIED (updated): PATCH title exit 0 mas sem EVENT session.updated observado no JSONL",
+      "c_context_injection": "VERIFIED: POST /api/session/{id}/prompt {text:hi} exit 0 sem modelo pago dispara session.hook context; CONTEXT_FIRED com session==trigger (match=True, igualdade comparavel verificada)",
+      "d_execute_before": "NOT-VERIFIED: TOOL registrado, nunca disparado; shell direto POST /api/session/{id}/shell exit 0 nao passa por tool.hook execute.before (evidencia: sem TOOL_FIRED no JSONL); prompt sem modelo nao executa tool; stub openai-compatible local exige schema do provider V2 nao provado sem rede (sem adivinhacao); sem modelo pago",
+      "e_interrupt_wait": "PRESENCE-VERIFIED: ctx.session.interrupt=function ctx.session.wait=function no host 2.0.18; semantica cooperativa NAO tentada (Watchdog e Phase 25)",
+      "f_cleanup_settlement": "PASS: service stop owned exit 0; status stopped + sem listener",
+      "features_host": "subscribe=function sessionHook=function toolHook=function interrupt=function wait=function",
+      "guards": "49374 intacto antes==depois (ssh pid 18268); config global hash igual; start unico; todos filhos bounded 15-30s"
+    },
+    "evidence_rows": "evidence/v3.1/runtime-reliability/phase24-livehook.jsonl (8 linhas TRIGGER 2026-10-01 pos-TRIGGER-FIX: BOOT,FEATURES,SUBSCRIBED,CONTEXT_REGISTERED,TOOL_REGISTERED,EVENT session.created com session==trigger,TRIGGER com session sanitizada,CONTEXT_FIRED com session==trigger; sanitize: so kinds/tipos/ids charset-gated, sem segredos)",
+    "notes": "plugin list diz No plugins found mas o host CARREGA loose files de plugins/ (auto-discovery confirmada; list cobre so registrados via plugin add). Carga e lazy: BOOT aparece apos interacao com o servidor, nao no boot. service.json do perfil contem password local; nunca impresso/copiado (lido in-memory p/ OPENCODE_PASSWORD do filho; evidencia so com kinds/tipos/ids). Causa raiz do gap anterior: api sem OPENCODE_PASSWORD => exit 1 Authentication required; spec real e openapi 3.1.0 com 251892 chars / 115 paths (nao 131105) + caminho real /api/session (nao /session, que serve HTML). Falso-positivo do parser (TRIGGER-FIX): -match case-insensitive casava 'truncated' minusculo da spec e zerava createArgs; corrigido com -cmatch no formato exato do wrapper + MaxChars 524288. Watchdog continua NAO implementado (Phase 25)."
+  }
+}

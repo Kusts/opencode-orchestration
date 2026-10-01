@@ -1,0 +1,116 @@
+{
+    "tool":  "RR-P22-NATIVE-IMPLEMENT",
+    "date":  "2026-09-30T18:25:35.8798940-03:00",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "steps":  [
+                  {
+                      "name":  "pin-exato-2.0.18",
+                      "ok":  true,
+                      "detail":  "opencode v2.0.18"
+                  },
+                  {
+                      "name":  "colisao-49374-intacta-antes",
+                      "ok":  true,
+                      "detail":  "exists=True pid=18268 name=ssh addr=127.0.0.1"
+                  },
+                  {
+                      "name":  "desired-567xx-livre-verificada",
+                      "ok":  true,
+                      "detail":  "desired=56777"
+                  },
+                  {
+                      "name":  "perfil-temp-contrato-serviceport",
+                      "ok":  true,
+                      "detail":  "root=C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\rr-p22-native-e591c2722cae475eaa9378606858b22a"
+                  },
+                  {
+                      "name":  "wrapper-fresh-diagnostico",
+                      "ok":  true,
+                      "detail":  "finished=True unverified_ausente=True"
+                  },
+                  {
+                      "name":  "baseline-desired-only",
+                      "ok":  true,
+                      "detail":  "get=[{}] getport=[] status=[stopped] state_items=0"
+                  },
+                  {
+                      "name":  "service-set-port",
+                      "ok":  true,
+                      "detail":  "\npersistido como pending (desired; applied exige prova de instancia, HOLD RR-P22-FIX2)\nempty-state: perfil vazio provado: state C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\rr-p22-native-e591c2722cae475eaa9378606858b22a\\v2\\home\\.local\\state\\opencode com 0 item(ns); desired nativo atual (ausente; default implicito); 49374 global nao consultado."
+                  },
+                  {
+                      "name":  "recheck-configuration-verified",
+                      "ok":  true,
+                      "detail":  "get=56777 service.json=56777 desired=56777"
+                  },
+                  {
+                      "name":  "desired-only-sem-applied",
+                      "ok":  true,
+                      "detail":  "listener=False state_items=0"
+                  },
+                  {
+                      "name":  "service-start-unico",
+                      "ok":  true,
+                      "detail":  "timedout=False exit=0"
+                  },
+                  {
+                      "name":  "ownership-provada",
+                      "ok":  true,
+                      "detail":  "pid=22144 name=opencode exematch=True endpoint_exato=True"
+                  },
+                  {
+                      "name":  "state-schema-capturado",
+                      "ok":  true,
+                      "detail":  "schema=[service.json]"
+                  },
+                  {
+                      "name":  "service-stop-owned",
+                      "ok":  true,
+                      "detail":  "exit=0"
+                  },
+                  {
+                      "name":  "settlement-pos-stop",
+                      "ok":  true,
+                      "detail":  "status=[stopped] listener=False"
+                  },
+                  {
+                      "name":  "colisao-49374-intacta-depois",
+                      "ok":  true,
+                      "detail":  "exists=True pid=18268 addr=127.0.0.1"
+                  }
+              ],
+    "verdict":  "candidate_pass",
+    "version_exact":  "opencode v2.0.18",
+    "collision_49374_before":  "exists=True pid=18268 name=ssh addr=127.0.0.1",
+    "desired":  56777,
+    "temp_profile":  "C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\rr-p22-native-e591c2722cae475eaa9378606858b22a",
+    "profile_dir":  "C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\rr-p22-native-e591c2722cae475eaa9378606858b22a\\v2",
+    "set_output":  "\npersistido como pending (desired; applied exige prova de instancia, HOLD RR-P22-FIX2)\nempty-state: perfil vazio provado: state C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\rr-p22-native-e591c2722cae475eaa9378606858b22a\\v2\\home\\.local\\state\\opencode com 0 item(ns); desired nativo atual (ausente; default implicito); 49374 global nao consultado.",
+    "empty_state_proof":  "perfil vazio provado: state C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\rr-p22-native-e591c2722cae475eaa9378606858b22a\\v2\\home\\.local\\state\\opencode com 0 item(ns); desired nativo atual (ausente; default implicito); 49374 global nao consultado.",
+    "configuration_verified":  true,
+    "start":  {
+                  "timed_out":  false,
+                  "finished":  true,
+                  "exit":  0,
+                  "output":  "http://127.0.0.1:56777"
+              },
+    "status_output":  "http://127.0.0.1:56777",
+    "listener":  "exists=True pid=22144 addr=127.0.0.1 querysucceeded=True",
+    "owner_identity":  "exists=True name=opencode exe_only_match=True",
+    "endpoint_exact":  true,
+    "service_state_schema":  [
+                                 "service.json"
+                             ],
+    "stop":  {
+                 "finished":  true,
+                 "exit":  0,
+                 "output":  ""
+             },
+    "settled":  true,
+    "collision_49374_after":  "exists=True pid=18268 addr=127.0.0.1",
+    "holds":  [
+                  "REUSE HOLD intacto: nenhum ShouldReuse avaliado/consumido neste E2E",
+                  "sem claim applied persistido: service-port.json permanece pending (desired)",
+                  "wrapper UNVERIFIED inalterado: start executado via binario isolado direto, nao via wrapper"
+              ]
+}

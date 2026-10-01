@@ -32,6 +32,14 @@
                         "enabled":  false,
                         "shadow":  true
                     },
+    "bounded_execution":  {
+                              "enabled":  false,
+                              "shadow":  true
+                          },
+    "watchdog":  {
+                     "enabled":  false,
+                     "shadow":  true
+                 },
     "worktree_isolation":  {
                                "enabled":  false
                            },

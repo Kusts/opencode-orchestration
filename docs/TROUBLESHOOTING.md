@@ -1,5 +1,56 @@
 # Troubleshooting
 
+## Programa Phases 21–33 (runtime reliability — P21–P24 consolidadas, P25+ pendentes)
+
+Estado vivo em
+`evidence/v3.1/runtime-reliability/program-status.json`. O que já tem
+diagnóstico real (P21–P22) e o que segue manual:
+
+- **V2 trava no startup / timeout opaco do serviço (Windows)**: causa
+  provável é colisão de porta — o serviço gerenciado V2 usa por padrão
+  `127.0.0.1:49374`, mesma porta do AI Memory local (P21 confirmou:
+  listener Docker saudável + clientes `cloudflared`/opencode V1).
+  Diagnóstico determinístico disponível (P22):
+  `scripts/runtime/RuntimePortPreflight.ps1` — outcomes `PORT_FREE`,
+  `PORT_OCCUPIED_*`, `PORT_WINDOWS_EXCLUDED`, etc.; exit **0** =
+  `PORT_FREE` (start autorizado), **2** = fail-closed, **1** = erro de
+  uso. Nunca mate um PID desconhecido automaticamente.
+- **Wrapper V2 com startup condicionado (P22)**: o wrapper só inicia o
+  serviço com `-ServicePort` explícito + configuração verificada
+  (`get` + `service.json` iguais ao desejado) + preflight `PORT_FREE`;
+  sem isso, bloqueia com exit 2 (`PORT_CONFIGURATION_UNVERIFIED`).
+  `service set/stop/restart` brutos nunca são encaminhados (só via
+  helper protegido com prova de empty-state). `REUSE` de porta segue
+  em HOLD — porta ocupada, mesmo pelo serviço esperado, não autoriza
+  reaproveitamento automático.
+- **Ranges de porta excluídos/reservados do Windows**: a preflight
+  cobre o caso (`PORT_WINDOWS_EXCLUDED`); escolha outra porta livre
+  fora do range (o fluxo provado usa `opencode service set port
+  <porta>` + recheck, como no E2E nativo em perfil isolado).
+- **Child/worker travado sem retorno (retry budget nunca consome)**:
+  o kernel atual só escala após falha retornada; execução que nunca
+  retorna não chega a Debugger/`EXHAUSTED`. Há fixtures de detecção
+  (P21, `evidence/v3.1/runtime-reliability/fixtures/`, 17/17), mas não
+  há watchdog/loop guard (Phases 25–26 pendentes): interrompa
+  manualmente e re-despache com escopo reduzido/estratégia nova;
+  preserve evidência parcial à mão.
+- **Orçamentos sem enforcement (P23 record-only)**: os budgets
+  canônicos (5 perfis) estão registrados e validados, mas nada impõe
+  interrupção — trate estouro manualmente até as Phases 24–28.
+- **MCP indisponível prende a orquestração em retries**: sem circuit
+  breaker (Phase 29 pendente) — pare de chamar o MCP problemático
+  manualmente; indisponibilidade de MCP consultivo nunca equivale a
+  aprovação.
+- **AI Memory remoto indisponível**: comportamento planejado
+  (`MEMORY_UNAVAILABLE` limitado, sem retry infinito — Phase 31
+  pendente); hoje, falha de memória não deve travar trabalho não
+  relacionado — siga sem a memória quando seguro e registre o blocker.
+  O listener local `127.0.0.1:49374` **nunca** foi mutado pelo programa
+  (migração para VPS planejada, não executada).
+- **Jev indisponível**: comportamento planejado (`JEV_UNAVAILABLE`
+  limitado, Phase 30 pendente); Jev é consultivo e nunca substitui
+  verifier/Reviewer/Security Reviewer/DONE do kernel.
+
 ## Plugin não carrega
 
 Sintoma: nenhum mandato `[orchestration-enforcement:v1]` na sessão.

@@ -5,12 +5,51 @@
     Define funcoes para criar, verificar e remover perfis OpenCode isolados
     por XDG_CONFIG_HOME. Nao executa nada no dot-source: so define funcoes.
     PS 5.1 compativel (sem ternario, sem ??, sem Invoke-Expression).
-    ASCII only. Nunca persiste env de usuario/maquina; nunca toca o binario
-    opencode global; -ProvisionRuntime escreve SOMENTE sob o perfil.
-    Fail closed: sem prova de isolamento, Both nao instala.
+ASCII only. Nunca persiste env de usuario/maquina; nunca toca o binario
+opencode global; -ProvisionRuntime escreve SOMENTE sob o perfil.
+Fail closed: sem prova de isolamento, Both nao instala.
 #>
 
 $ErrorActionPreference = 'Stop'
+
+# Preflight lib preload em escopo de biblioteca (fix RR-P22-FIX1 finding 6):
+# dot-source AQUI no top-level do modulo, nunca dentro de funcao (senao as
+# funcoes somem com o escopo local ao retornar). Import-P7Preflight abaixo
+# NAO executa dot-source (so relata disponibilidade); call sites usam Ensure
+# via Get-Command. Sem loops: carrega uma vez se ausente.
+try {
+  if (-not (Get-Command Set-PreflightPersistedPort -ErrorAction SilentlyContinue)) {
+    $P7PreflightCandidate = ''
+    try { $P7PreflightCandidate = (Join-Path $PSScriptRoot 'lib\RuntimePortPreflight.ps1') } catch { $P7PreflightCandidate = '' }
+    if ((-not [string]::IsNullOrWhiteSpace($P7PreflightCandidate)) -and (Test-Path -LiteralPath $P7PreflightCandidate -PathType Leaf)) {
+      # RR-P22-WRAPPER-FIX2: bootstrap ancestry FULL antes do dot-source
+      # (sem carregar codigo antes dos checks). Walk ate o volume, sem
+      # reparse em nenhum ancestral existente; falha => sem dot-source.
+      $bootOk = $true
+      try {
+        $bootCursor = ([IO.Path]::GetFullPath($P7PreflightCandidate)).TrimEnd('\')
+        while (-not [string]::IsNullOrWhiteSpace($bootCursor)) {
+          if (Test-Path -LiteralPath $bootCursor) {
+            try {
+              $bootAttrs = (Get-Item -Force -LiteralPath $bootCursor -ErrorAction Stop).Attributes
+              if (($bootAttrs -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $bootOk = $false; break }
+            }
+            catch { $bootOk = $false; break }
+          }
+          $bootParent = $bootCursor
+          try { $bootParent = (Split-Path -Parent $bootCursor) } catch { break }
+          if ([string]::IsNullOrWhiteSpace($bootParent) -or ($bootParent -eq $bootCursor)) { break }
+          $bootCursor = $bootParent.TrimEnd('\')
+        }
+      }
+      catch { $bootOk = $false }
+      if ($bootOk) {
+        . $P7PreflightCandidate
+      }
+    }
+  }
+}
+catch { }
 
 function Get-P7Engine {
   if ($PSVersionTable.PSEdition -eq 'Core') { return 'pwsh' }
@@ -110,6 +149,17 @@ function Invoke-P7Process {
     $res.Output = 'P7-PROFILE-FAIL: Invoke-P7Process sem File.'
     return $res
   }
+  # RR-P22-FIX1 finding 8 (helper existente envolvido): rejeita paths com
+  # metachars sensiveis ao cmd.exe antes de qualquer execucao. Nova mutacao
+  # usa exe resolvido sem shell (ver lib preflight); este helper legado
+  # mantem cmd /c mas nunca com File/WorkDir suspeitos.
+  try {
+    if (($File -match '[&|<>^%!`$;(){}\[\]"' + "'" + ']') -or ($WorkDir -match '[&|<>^]')) {
+      $res.Output = 'P7-PROFILE-FAIL: Invoke-P7Process recusado (metachar cmd sensivel em File/WorkDir).'
+      return $res
+    }
+  }
+  catch { }
   # Anti-deadlock: filho verboso bloqueia se o pai nao drena stdout durante
   # WaitForExit (mesmo motivo dos runners: cmd /c com redirecionamento para
   # arquivo). Nunca pipe direto aqui.
@@ -166,7 +216,10 @@ function Invoke-P7Process {
     try { $p.Close() } catch { }
     try {
       if (Test-Path -LiteralPath $logFile -PathType Leaf) {
-        $res.Output = ([IO.File]::ReadAllText($logFile, [Text.Encoding]::UTF8).Trim())
+        $rawOut = ([IO.File]::ReadAllText($logFile, [Text.Encoding]::UTF8).Trim())
+        if ($rawOut.Length -gt 32768) { $rawOut = $rawOut.Substring(0, 32768) + "`n...[truncado]..." }
+        try { $rawOut = [regex]::Replace($rawOut, '(?i)(api[_-]?key|token|secret|authorization|bearer|password|passwd|\bpwd\b)\s*[:=]\s*\S+', '$1=[REDACTED]') } catch { }
+        $res.Output = $rawOut
       }
     }
     catch { }
@@ -345,6 +398,71 @@ function Install-P7RuntimeBinary {
   return @{ BinaryPath = $bin; Version = $verLine }
 }
 
+function Get-P7PreflightLib([string]$RepoRoot) {
+  $lib = Join-Path $RepoRoot 'scripts\runtime\lib\RuntimePortPreflight.ps1'
+  if (Test-Path -LiteralPath $lib -PathType Leaf) { return $lib }
+  return ''
+}
+
+function Import-P7Preflight([string]$RepoRoot) {
+  # Compat: NAO executa dot-source aqui (escopo local desapareceria no return
+  # e loops dot-source sao proibidos). O preload top-level deste modulo ja
+  # carregou a lib em escopo de biblioteca. Retorna disponibilidade apenas.
+  try {
+    if (Get-Command Set-PreflightPersistedPort -ErrorAction SilentlyContinue) { return $true }
+  }
+  catch { }
+  try {
+    $lib = Get-P7PreflightLib $RepoRoot
+    if ((-not [string]::IsNullOrWhiteSpace($lib)) -and (Test-Path -LiteralPath $lib -PathType Leaf)) { return $true }
+  }
+  catch { }
+  return $false
+}
+
+function Assert-P7PreflightLoaded {
+  try {
+    if (Get-Command Set-PreflightPersistedPort -ErrorAction SilentlyContinue) { return }
+  }
+  catch { }
+  throw 'P7-PROFILE-FAIL: preflight lib indisponivel (Set-PreflightPersistedPort ausente; faca dot-source da lib em escopo de biblioteca, nunca dentro de funcao).'
+}
+
+function Write-P7PreflightLibCopy {
+  param([string]$RepoRoot = '', [string]$ProfileDir = '')
+  # RR-P22-FIX2 (1): a lib e distribuida JUNTO ao perfil (copia gerenciada
+  # com ownership), nao inline duplicado no wrapper. O wrapper usa dot-source
+  # nesta copia; lib ausente/divergente BLOQUEIA startup (fail-closed).
+  if ([string]::IsNullOrWhiteSpace($RepoRoot) -or (-not (Test-Path -LiteralPath $RepoRoot -PathType Container))) {
+    throw ('P7-PROFILE-FAIL: RepoRoot invalido para copia da lib preflight: ' + $RepoRoot)
+  }
+  if ([string]::IsNullOrWhiteSpace($ProfileDir) -or (-not (Test-Path -LiteralPath $ProfileDir -PathType Container))) {
+    throw ('P7-PROFILE-FAIL: ProfileDir invalido para copia da lib preflight: ' + $ProfileDir)
+  }
+  $src = Get-P7PreflightLib $RepoRoot
+  if ([string]::IsNullOrWhiteSpace($src)) {
+    throw 'P7-PROFILE-FAIL: lib preflight ausente no repo (scripts\runtime\lib\RuntimePortPreflight.ps1); perfil sem gate e recusado.'
+  }
+  Assert-P7PathUnder $ProfileDir (Split-Path -Parent $ProfileDir) 'perfil (destino da lib)'
+  $destDir = Join-Path $ProfileDir 'lib'
+  if (-not (Test-Path -LiteralPath $destDir -PathType Container)) {
+    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+  }
+  $dest = Join-Path $destDir 'RuntimePortPreflight.ps1'
+  $tmp = $dest + '.tmp-' + [guid]::NewGuid().ToString('N')
+  Copy-Item -LiteralPath $src -Destination $tmp -Force
+  $hSrc = ''
+  $hDst = ''
+  try { $hSrc = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash } catch { throw 'P7-PROFILE-FAIL: hash da lib origem falhou.' }
+  try { $hDst = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash } catch { throw 'P7-PROFILE-FAIL: hash da copia da lib falhou.' }
+  if ($hSrc -ne $hDst) {
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    throw 'P7-PROFILE-FAIL: copia da lib preflight divergente (hash); perfil sem gate e recusado.'
+  }
+  Move-Item -LiteralPath $tmp -Destination $dest -Force
+  return $dest
+}
+
 function Write-P7Wrapper {
   param([string]$ProfileRoot = '', [string]$Profile = '', [string]$RuntimeId = '', [int]$Generation = 0)
   $binDir = Join-Path $ProfileRoot 'bin'
@@ -358,11 +476,85 @@ function Write-P7Wrapper {
 # aponta para o config root DO PERFIL apenas durante a execucao do binario,
 # e o env do chamador e restaurado em finally. Nunca reescreve config de
 # outro perfil; nunca instala nada (provisionamento e opt-in separado).
+# NOTA: parametros do wrapper sao manuais (exact-match, sem prefix-match do
+# PowerShell): -BinaryPath <exe> | -ServicePort <porta> | -- <args nativos>.
+# Flags nativas com traco (ex. serve --service) passam direto; '--service'
+# nunca casa com -ServicePort aqui. Uso: opencode-{PROFILE}.ps1 [-BinaryPath
+# <exe>] [-ServicePort <porta>] [--] <args nativos...>.
 param(
-  [string]$BinaryPath = '',
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$RemainingArgs = @()
 )
+$ErrorActionPreference = 'Stop'
+$BinaryPath = ''
+$ServicePort = 0
+$NativeArgsW = New-Object System.Collections.ArrayList
+try {
+  $iW = 0
+  $endW = $false
+  $rawW = @($RemainingArgs)
+  while ($iW -lt $rawW.Count) {
+    $tW = [string]$rawW[$iW]
+    if ($endW) { [void]$NativeArgsW.Add($tW); $iW++; continue }
+    if (($tW -eq '--')) { $endW = $true; $iW++; continue }
+    $lowW = $tW.Trim().ToLowerInvariant()
+    if (($lowW -eq '-binarypath') -or ($lowW -eq '--binarypath') -or ($lowW -eq '/binarypath')) {
+      if (($iW + 1) -ge $rawW.Count) { Write-Host ('[wrapper {PROFILE}] -BinaryPath exige valor.') -ForegroundColor Red; exit 1 }
+      $BinaryPath = [string]$rawW[$iW + 1]
+      $iW += 2
+      continue
+    }
+    if (($lowW -eq '-serviceport') -or ($lowW -eq '--serviceport') -or ($lowW -eq '/serviceport')) {
+      if (($iW + 1) -ge $rawW.Count) { Write-Host ('[wrapper {PROFILE}] -ServicePort exige valor 1..65535.') -ForegroundColor Red; exit 1 }
+      $vvW = 0
+      try { $vvW = [int]$rawW[$iW + 1] } catch { $vvW = 0 }
+      if (($vvW -lt 1) -or ($vvW -gt 65535)) { Write-Host ('[wrapper {PROFILE}] -ServicePort invalida (esperado 1..65535).') -ForegroundColor Red; exit 1 }
+      $ServicePort = $vvW
+      $iW += 2
+      continue
+    }
+    if (($lowW.StartsWith('-binarypath:')) -or ($lowW.StartsWith('--binarypath:')) -or ($lowW.StartsWith('-binarypath=')) -or ($lowW.StartsWith('--binarypath='))) {
+      $sepW = $tW.IndexOf(':')
+      $eqW = $tW.IndexOf('=')
+      if (($eqW -ge 0) -and (($sepW -lt 0) -or ($eqW -lt $sepW))) { $sepW = $eqW }
+      $BinaryPath = $tW.Substring($sepW + 1)
+      $iW++
+      continue
+    }
+    if (($lowW.StartsWith('-serviceport:')) -or ($lowW.StartsWith('--serviceport:')) -or ($lowW.StartsWith('-serviceport=')) -or ($lowW.StartsWith('--serviceport='))) {
+      $sepW = $tW.IndexOf(':')
+      $eqW = $tW.IndexOf('=')
+      if (($eqW -ge 0) -and (($sepW -lt 0) -or ($eqW -lt $sepW))) { $sepW = $eqW }
+      $vvW = 0
+      try { $vvW = [int]$tW.Substring($sepW + 1) } catch { $vvW = 0 }
+      if (($vvW -lt 1) -or ($vvW -gt 65535)) { Write-Host ('[wrapper {PROFILE}] -ServicePort invalida (esperado 1..65535).') -ForegroundColor Red; exit 1 }
+      $ServicePort = $vvW
+      $iW++
+      continue
+    }
+    [void]$NativeArgsW.Add($tW)
+    $iW++
+  }
+  # Compat: primeiro token posicional como BinaryPath SOMENTE se for arquivo
+  # .exe/.cmd existente (uso legado); comandos nativos (service/serve/--version)
+  # nunca sao arquivos .exe/.cmd, entao nunca ha confusao.
+  if ([string]::IsNullOrWhiteSpace($BinaryPath) -and ($NativeArgsW.Count -gt 0)) {
+    try {
+      $firstW = [string]$NativeArgsW[0]
+      if ((($firstW.ToLowerInvariant().EndsWith('.exe')) -or ($firstW.ToLowerInvariant().EndsWith('.cmd'))) -and (Test-Path -LiteralPath $firstW -PathType Leaf)) {
+        $BinaryPath = $firstW
+        $NativeArgsW.RemoveAt(0)
+      }
+    }
+    catch { }
+  }
+  $RemainingArgs = @($NativeArgsW)
+}
+catch {
+  if ($_.Exception.Message -match '^\[wrapper') { throw }
+  Write-Host ('[wrapper {PROFILE}] argumentos invalidos: ' + $_.Exception.Message) -ForegroundColor Red
+  exit 1
+}
 $ErrorActionPreference = 'Stop'
 $ProfileTag = '{PROFILE}'
 $WantedGeneration = {GENERATION}
@@ -370,6 +562,120 @@ $BinDirW = $PSScriptRoot
 $ProfileRootW = Split-Path -Parent $BinDirW
 $ProfileDirW = Join-Path $ProfileRootW $ProfileTag
 $ProfileManifestW = Join-Path $ProfileDirW 'manifest.json'
+# RR-P22-FIX2: lib distribuida junto ao perfil (copia gerenciada com hash);
+# sem inline duplicado no wrapper. Ausente => startup bloqueado.
+$PreflightLibW = Join-Path $ProfileDirW 'lib\RuntimePortPreflight.ps1'
+
+function Test-WrapperDiagAllowed {
+  param([string[]]$Argv = @())
+  # RR-P22-WRAPPER-FIX1: allowlist EXATA de tokens read-only. Somente
+  # --version / --help (token unico exato), service status / service get
+  # (dois tokens exatos) e service get port (tres tokens exatos) passam sem
+  # gate. Sem regex ampla, sem bypass. get/status/--version nunca iniciam.
+  $toks = @($Argv | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+  if ($toks.Count -eq 1) {
+    $t0 = ([string]$toks[0]).Trim().ToLowerInvariant()
+    if (($t0 -eq '--version') -or ($t0 -eq '--help')) { return $true }
+    return $false
+  }
+  if ($toks.Count -eq 2) {
+    $t0 = ([string]$toks[0]).Trim().ToLowerInvariant()
+    $t1 = ([string]$toks[1]).Trim().ToLowerInvariant()
+    if (($t0 -eq 'service') -and (($t1 -eq 'status') -or ($t1 -eq 'get'))) { return $true }
+    return $false
+  }
+  if ($toks.Count -eq 3) {
+    $t0 = ([string]$toks[0]).Trim().ToLowerInvariant()
+    $t1 = ([string]$toks[1]).Trim().ToLowerInvariant()
+    $t2 = ([string]$toks[2]).Trim().ToLowerInvariant()
+    if (($t0 -eq 'service') -and ($t1 -eq 'get') -and ($t2 -eq 'port')) { return $true }
+    return $false
+  }
+  return $false
+}
+
+function Test-WrapperStartupAllowed {
+  param([string[]]$Argv = @())
+  # RR-P22-WRAPPER-FIX1: startup permitido SOMENTE service start e
+  # serve --service, ambos com aridade exata 2. TUI default (vazio) e
+  # demais comandos sao unknown bloqueado com reason honesta (Phase22 nao
+  # suporta sessao interativa sem lifetime bounded).
+  $toks = @($Argv | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+  if ($toks.Count -ne 2) { return $false }
+  $t0 = ([string]$toks[0]).Trim().ToLowerInvariant()
+  $t1 = ([string]$toks[1]).Trim().ToLowerInvariant()
+  if (($t0 -eq 'service') -and ($t1 -eq 'start')) { return $true }
+  if (($t0 -eq 'serve') -and ($t1 -eq '--service')) { return $true }
+  return $false
+}
+
+function Test-WrapperBlockedReason {
+  param([string[]]$Argv = @())
+  # RR-P22-WRAPPER-FIX1 vinculo semantico: recusa mutadores (service
+  # set/stop/restart) e opts de destino (--port etc) ANTES de qualquer
+  # execucao. service set SOMENTE via helper protected
+  # (Invoke-PreflightServiceSetPort); o wrapper nunca encaminha mutadores
+  # arbitrarios. Retorna '' quando permitido/unknown (unknown e tratado
+  # como bloqueado pelo chamador com reason honesta distinta).
+  # RR-P22-WRAPPER-FIX2: destino ANTES de aridade (serve --port retorna
+  # opt de destino, consistente com os testes de exit 2 sem execucao).
+  $toks = @($Argv | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+  foreach ($rawT in @($toks)) {
+    $low = ([string]$rawT).Trim().ToLowerInvariant()
+    if (($low -eq '--port') -or ($low -eq '-port') -or ($low -eq '/port') -or ($low -eq '--service-port') -or ($low -eq '-serviceport') -or ($low -eq '--serviceport') -or ($low -eq '-p')) {
+      return ('opt de destino recusada (' + [string]$rawT + '); porta SOMENTE via -ServicePort do wrapper com marker pending + gate central.')
+    }
+    if (($low.StartsWith('--port=')) -or ($low.StartsWith('--port:')) -or ($low.StartsWith('-port=')) -or ($low.StartsWith('-port:')) -or ($low.StartsWith('--service-port=')) -or ($low.StartsWith('--service-port:')) -or ($low.StartsWith('--serviceport=')) -or ($low.StartsWith('--serviceport:'))) {
+      return ('opt de destino recusada (' + [string]$rawT + '); porta SOMENTE via -ServicePort do wrapper com marker pending + gate central.')
+    }
+  }
+  if ($toks.Count -ge 2) {
+    $t0 = ([string]$toks[0]).Trim().ToLowerInvariant()
+    $t1 = ([string]$toks[1]).Trim().ToLowerInvariant()
+    if (($t0 -eq 'service') -and (($t1 -eq 'set') -or ($t1 -eq 'stop') -or ($t1 -eq 'restart'))) {
+      return ('mutador service ' + $t1 + ' recusado pelo wrapper; service set SOMENTE via helper protected com empty-state provado, stop/restart fora de escopo (cleanup E2E pelo harness com prova de ownership direta, sem wrapper).')
+    }
+    if (($t0 -eq 'serve') -and ($toks.Count -ne 2)) {
+      return 'serve com aridade/flags fora de serve --service exato recusado (sem encaminhar flags arbitrarias).'
+    }
+  }
+  return ''
+}
+
+function Test-WrapperAncestryClean {
+  param([string]$Path = '', [string]$Root = '')
+  # RR-P22-WRAPPER-FIX2 guard full: contencao lexical SEPARADA do walk.
+  # Walk SEMPRE ate a raiz do filesystem (nunca break em Root): junction
+  # acima do perfil redireciona todo filho confinado. Modo confinado (Root
+  # nao vazio): exige Path sob Root (lexical) E walk full sem reparse.
+  # Modo standalone (Root vazio): walk full sem reparse (override deliberado
+  # fora do perfil, com pin bounded a jusante). Sem dot-source antes.
+  if ([string]::IsNullOrWhiteSpace($Path)) { return @{ Ok = $false; Detail = 'caminho vazio (ancestry nao verificavel).' } }
+  $pNorm = ''
+  try { $pNorm = ([IO.Path]::GetFullPath($Path)).TrimEnd('\') } catch { return @{ Ok = $false; Detail = ('caminho nao normalizavel: ' + $Path) } }
+  $rNorm = ''
+  if (-not [string]::IsNullOrWhiteSpace($Root)) {
+    try { $rNorm = ([IO.Path]::GetFullPath($Root)).TrimEnd('\') } catch { return @{ Ok = $false; Detail = ('raiz nao normalizavel: ' + $Root) } }
+    $isUnder = $pNorm.StartsWith($rNorm + '\', [StringComparison]::OrdinalIgnoreCase)
+    $isRoot = $pNorm.Equals($rNorm, [StringComparison]::OrdinalIgnoreCase)
+    if ((-not $isUnder) -and (-not $isRoot)) { return @{ Ok = $false; Detail = ('fora da raiz esperada: ' + $Path) } }
+  }
+  $cursor = $pNorm
+  while (-not [string]::IsNullOrWhiteSpace($cursor)) {
+    if (Test-Path -LiteralPath $cursor) {
+      try {
+        $attrs = (Get-Item -Force -LiteralPath $cursor -ErrorAction Stop).Attributes
+        if (($attrs -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return @{ Ok = $false; Detail = ('atravessa reparse point: ' + $cursor) } }
+      }
+      catch { return @{ Ok = $false; Detail = ('inspeacao de ancestral falhando: ' + $cursor) } }
+    }
+    $parent = $cursor
+    try { $parent = (Split-Path -Parent $cursor) } catch { break }
+    if ([string]::IsNullOrWhiteSpace($parent) -or ($parent -eq $cursor)) { break }
+    $cursor = $parent.TrimEnd('\')
+  }
+  return @{ Ok = $true; Detail = 'ancestry sem reparse' }
+}
 
 function Get-WrapperMajor([string]$Text) {
   $m = [regex]::Match([string]$Text, '(\d+)\.(\d+)\.(\d+)')
@@ -377,43 +683,238 @@ function Get-WrapperMajor([string]$Text) {
   return [int]$m.Groups[1].Value
 }
 
-$configRootW = Join-Path (Join-Path $ProfileDirW 'home') '.config'
+function Test-WrapperExact2018([string]$Text) {
+  try { return [regex]::IsMatch([string]$Text, '(?m)^opencode v2\.0\.18\s*$') } catch { return $false }
+}
+
+$homeDirW = Join-Path $ProfileDirW 'home'
+$configRootW = ''
 $provisionedW = ''
-if (Test-Path -LiteralPath $ProfileManifestW -PathType Leaf) {
+# RR-P22-WRAPPER-FIX1 ancestry full ANTES de READ/dot-source/execute, com
+# guard standalone local (sem carregar codigo antes dos checks). V2 exige:
+# ProfileDir sob ProfileRoot sem reparse; manifest existente, sem reparse,
+# legivel, geracao 2, com config_root MANDATORIO (fail-closed inclusive para
+# diagnosticos); lib com ancestry limpa antes do dot-source. Paths
+# desconhecidos => negado (exit 2/6 honesto, sem default).
+if ($WantedGeneration -eq 2) {
+  $pdAncW = Test-WrapperAncestryClean -Path $ProfileDirW -Root $ProfileRootW
+  if (-not [bool]$pdAncW.Ok) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: ProfileDir com ancestry invalida (' + [string]$pdAncW.Detail + '); fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if (-not (Test-Path -LiteralPath $ProfileDirW -PathType Container)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: ProfileDir inexistente; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  $mfAncW = Test-WrapperAncestryClean -Path $ProfileManifestW -Root $ProfileDirW
+  if (-not [bool]$mfAncW.Ok) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest com ancestry invalida (' + [string]$mfAncW.Detail + '); fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if (-not (Test-Path -LiteralPath $ProfileManifestW -PathType Leaf)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest ausente; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  try {
+    $mfAttrsW = (Get-Item -Force -LiteralPath $ProfileManifestW -ErrorAction Stop).Attributes
+    if (($mfAttrsW -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest e reparse point; fail-closed.') -ForegroundColor Red
+      exit 2
+    }
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest nao inspecionavel; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
   try {
     $pmW = ([IO.File]::ReadAllText($ProfileManifestW, [Text.Encoding]::UTF8)) | ConvertFrom-Json
-    if (($null -ne $pmW) -and (-not [string]::IsNullOrWhiteSpace([string]$pmW.config_root))) {
-      $configRootW = [string]$pmW.config_root
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest ilegivel; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if (($null -eq $pmW) -or ([string]$pmW.runtime_id -ne '{RUNTIME_ID}') -or ([int]$pmW.generation -ne $WantedGeneration)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest nao e {RUNTIME_ID}/geracao ' + $WantedGeneration + '; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$pmW.config_root)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: manifest sem config_root mandatorio (env nao confinado; recusado inclusive para diagnosticos).') -ForegroundColor Red
+    exit 2
+  }
+  $configRootW = [string]$pmW.config_root
+  $cfgAncW = Test-WrapperAncestryClean -Path $configRootW -Root $ProfileDirW
+  if (-not [bool]$cfgAncW.Ok) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: config_root com ancestry invalida (' + [string]$cfgAncW.Detail + '); fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if (($null -ne $pmW.provisioned) -and (-not [string]::IsNullOrWhiteSpace([string]$pmW.provisioned.binary_path))) {
+    $provisionedW = [string]$pmW.provisioned.binary_path
+  }
+} else {
+  $configRootW = Join-Path (Join-Path $ProfileDirW 'home') '.config'
+  if (Test-Path -LiteralPath $ProfileManifestW -PathType Leaf) {
+    try {
+      $pmW = ([IO.File]::ReadAllText($ProfileManifestW, [Text.Encoding]::UTF8)) | ConvertFrom-Json
+      if (($null -ne $pmW) -and (-not [string]::IsNullOrWhiteSpace([string]$pmW.config_root))) {
+        $configRootW = [string]$pmW.config_root
+      }
+      if (($null -ne $pmW) -and ($null -ne $pmW.provisioned) -and (-not [string]::IsNullOrWhiteSpace([string]$pmW.provisioned.binary_path))) {
+        $provisionedW = [string]$pmW.provisioned.binary_path
+      }
     }
-    if (($null -ne $pmW) -and ($null -ne $pmW.provisioned) -and (-not [string]::IsNullOrWhiteSpace([string]$pmW.provisioned.binary_path))) {
-      $provisionedW = [string]$pmW.provisioned.binary_path
+    catch { }
+  }
+}
+$stateRootW = Join-Path $ProfileDirW 'home\.local\state'
+$dataRootW = Join-Path $ProfileDirW 'home\.local\share'
+$cacheRootW = Join-Path $ProfileDirW 'home\.local\cache'
+# RR-P22-WRAPPER-FIX1: lib com ancestry limpa ANTES do dot-source no V2
+# (marker/library com reparse na leitura => rejeitado). Sem inline duplicado.
+$libLoadedW = $false
+if ($WantedGeneration -eq 2) {
+  $libAncW = Test-WrapperAncestryClean -Path $PreflightLibW -Root $ProfileDirW
+  if (-not [bool]$libAncW.Ok) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: lib preflight com ancestry invalida (' + [string]$libAncW.Detail + '); fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if (-not (Test-Path -LiteralPath $PreflightLibW -PathType Leaf)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: lib preflight ausente (' + $PreflightLibW + '); fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  try {
+    $libAttrsW = (Get-Item -Force -LiteralPath $PreflightLibW -ErrorAction Stop).Attributes
+    if (($libAttrsW -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: lib preflight e reparse point; fail-closed.') -ForegroundColor Red
+      exit 2
+    }
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: lib preflight nao inspecionavel; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  try {
+    . $PreflightLibW
+    if (-not (Get-Command Invoke-PreflightPort -ErrorAction SilentlyContinue)) { throw 'lib sem Invoke-PreflightPort' }
+    if (-not (Get-Command Ensure-PreflightConfiguredPort -ErrorAction SilentlyContinue)) { throw 'lib sem Ensure-PreflightConfiguredPort' }
+    if (-not (Get-Command Invoke-PreflightBoundedExe -ErrorAction SilentlyContinue)) { throw 'lib sem Invoke-PreflightBoundedExe' }
+    if (-not (Get-Command Resolve-PreflightNativeExe -ErrorAction SilentlyContinue)) { throw 'lib sem Resolve-PreflightNativeExe' }
+    $libLoadedW = $true
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: lib preflight nao carregou; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  # RR-P22-WRAPPER-FIX1 vinculo semantico ANTES de qualquer execucao
+  # (inclusive pin --version): mutadores e opts de destino recusados aqui;
+  # unknown (inclui TUI vazio nesta phase) bloqueado com reason honesta.
+  $blockReasonW = Test-WrapperBlockedReason -Argv $RemainingArgs
+  if (-not [string]::IsNullOrWhiteSpace($blockReasonW)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: ' + $blockReasonW) -ForegroundColor Red
+    exit 2
+  }
+  $isDiagW = Test-WrapperDiagAllowed -Argv $RemainingArgs
+  $isStartW = Test-WrapperStartupAllowed -Argv $RemainingArgs
+  if ((-not $isDiagW) -and (-not $isStartW)) {
+    $tokW = [string]($RemainingArgs -join ' ')
+    if ([string]::IsNullOrWhiteSpace($tokW)) { $tokW = '(sem argumentos: sessao interativa TUI)' }
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: comando desconhecido/nao suportado nesta phase (' + $tokW + '). Permitidos: diagnosticos exatos (--version, --help, service status, service get, service get port) e startup exato (service start, serve --service) com -ServicePort + gate central.') -ForegroundColor Red
+    exit 2
+  }
+  # RR-P22-WRAPPER-FIX2: effEnv FULL validado em TODO diagnostico/start
+  # ANTES do resolver e do processo final (diag nao pula validacao).
+  # Paths obrigatorios + anti-reparse via Test-PreflightConfinedEnv.
+  try {
+    $preBaseW = @{ XDG_CONFIG_HOME = $configRootW }
+    $preEffW = Get-PreflightEffectiveEnv -EnvTable $preBaseW -ProfileDir $ProfileDirW
+    $preCheckW = Test-PreflightConfinedEnv -EnvTable $preEffW -ProfileDir $ProfileDirW -ConfigRoot $configRootW
+    if (($null -eq $preCheckW) -or (-not [bool]$preCheckW.Ok)) {
+      $preDW = ''
+      try { $preDW = [string]$preCheckW.Detail } catch { $preDW = 'env nao confinado' }
+      Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: env efetivo nao confinado antes do resolver (' + $preDW + '); fail-closed.') -ForegroundColor Red
+      exit 2
+    }
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: validacao do env efetivo falhou (fail-closed).') -ForegroundColor Red
+    exit 2
+  }
+}
+# RR-P22-WRAPPER-FIX1: RESOLVE do .exe V2 ANTES do pin/selecao inicial, via
+# resolver central (manifest npm .cmd shim => .exe sob o pacote; sem PATH;
+# sem shell/cmd). Mesmo binario/env usados no gate e na execucao final.
+# Override explicito fora do perfil: permitido quando deliberado, mas com
+# ancestry full sem reparse (standalone) + pin exato bounded.
+$candsW = New-Object System.Collections.ArrayList
+if (-not [string]::IsNullOrWhiteSpace($BinaryPath)) { [void]$candsW.Add($BinaryPath) }
+if ((-not [string]::IsNullOrWhiteSpace($provisionedW)) -and ($candsW -notcontains $provisionedW)) { [void]$candsW.Add($provisionedW) }
+if ($WantedGeneration -ne 2) {
+  try {
+    $gcW = @(Get-Command -Name 'opencode' -All -ErrorAction SilentlyContinue)
+    $pathW = $null
+    foreach ($cW in $gcW) {
+      if ($cW.CommandType -eq 'Application') { $pathW = $cW; break }
+    }
+    if (($null -eq $pathW) -and ($gcW.Count -gt 0)) { $pathW = $gcW[0] }
+    if (($null -ne $pathW) -and (-not [string]::IsNullOrWhiteSpace([string]$pathW.Source)) -and ($candsW -notcontains [string]$pathW.Source)) {
+      [void]$candsW.Add([string]$pathW.Source)
     }
   }
   catch { }
 }
-$candsW = New-Object System.Collections.ArrayList
-if (-not [string]::IsNullOrWhiteSpace($BinaryPath)) { [void]$candsW.Add($BinaryPath) }
-if ((-not [string]::IsNullOrWhiteSpace($provisionedW)) -and ($candsW -notcontains $provisionedW)) { [void]$candsW.Add($provisionedW) }
-try {
-  $gcW = @(Get-Command -Name 'opencode' -All -ErrorAction SilentlyContinue)
-  $pathW = $null
-  foreach ($cW in $gcW) {
-    if ($cW.CommandType -eq 'Application') { $pathW = $cW; break }
+$chosenW = ''
+if ($WantedGeneration -eq 2) {
+  if ((-not [string]::IsNullOrWhiteSpace($BinaryPath)) -and (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf))) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] caminho desconhecido negado (-BinaryPath inexistente): ' + $BinaryPath) -ForegroundColor Red
+    exit 6
   }
-  if (($null -eq $pathW) -and ($gcW.Count -gt 0)) { $pathW = $gcW[0] }
-  if (($null -ne $pathW) -and (-not [string]::IsNullOrWhiteSpace([string]$pathW.Source)) -and ($candsW -notcontains [string]$pathW.Source)) {
-    [void]$candsW.Add([string]$pathW.Source)
+  $selBaseW = @{ XDG_CONFIG_HOME = $configRootW }
+  $rvW = $null
+  try {
+    $rvW = Resolve-PreflightNativeExe -ProfileDir $ProfileDirW -Candidates @($candsW) -ExpectedVersion '2.0.18' -EnvTable $selBaseW -TimeoutMs 15000
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: resolve do binario exato falhou (fail-closed).') -ForegroundColor Red
+    exit 2
+  }
+  if (($null -eq $rvW) -or (-not [bool]$rvW.Ok) -or [string]::IsNullOrWhiteSpace([string]$rvW.Exe)) {
+    $rdW = ''
+    try { $rdW = [string]$rvW.Detail } catch { $rdW = '' }
+    Write-Host ('[wrapper ' + $ProfileTag + '] nenhum binario exato 2.0.18 sob o pacote (sem PATH; shim .cmd resolve para .exe central): ' + $rdW) -ForegroundColor Red
+    Write-Host 'Provisione o binario do perfil (rede, opt-in):' -ForegroundColor Red
+    Write-Host ('  powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId {RUNTIME_ID} -ProvisionRuntime') -ForegroundColor Red
+    exit 6
+  }
+  $chosenW = [string]$rvW.Exe
+  $exeAncW = Test-WrapperAncestryClean -Path $chosenW -Root ''
+  if (-not [bool]$exeAncW.Ok) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: binario com ancestry invalida (' + [string]$exeAncW.Detail + '); fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  try {
+    $exeAttrsW = (Get-Item -Force -LiteralPath $chosenW -ErrorAction Stop).Attributes
+    if (($exeAttrsW -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: binario e reparse point; fail-closed.') -ForegroundColor Red
+      exit 2
+    }
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: binario nao inspecionavel; fail-closed.') -ForegroundColor Red
+    exit 2
+  }
+  if (-not $chosenW.ToLowerInvariant().EndsWith('.exe')) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: binario deve ser .exe (sem shell/cmd); fail-closed.') -ForegroundColor Red
+    exit 2
   }
 }
-catch { }
-$chosenW = ''
-foreach ($candW in $candsW) {
-  if (-not (Test-Path -LiteralPath $candW -PathType Leaf)) { continue }
-  try {
-    $voW = (& $candW --version 2>&1 | Out-String)
+else {
+  foreach ($candW in $candsW) {
+    if (-not (Test-Path -LiteralPath $candW -PathType Leaf)) { continue }
+    try {
+      $voW = (& $candW --version 2>&1 | Out-String)
+    }
+    catch { continue }
+    if ((Get-WrapperMajor $voW) -eq $WantedGeneration) { $chosenW = $candW; break }
   }
-  catch { continue }
-  if ((Get-WrapperMajor $voW) -eq $WantedGeneration) { $chosenW = $candW; break }
 }
 if ([string]::IsNullOrWhiteSpace($chosenW)) {
   Write-Host ('[wrapper ' + $ProfileTag + '] nenhum binario geracao ' + $WantedGeneration + ' encontrado.') -ForegroundColor Red
@@ -421,15 +922,195 @@ if ([string]::IsNullOrWhiteSpace($chosenW)) {
   Write-Host ('  powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId {RUNTIME_ID} -ProvisionRuntime') -ForegroundColor Red
   exit 6
 }
+# RR-P22-WRAPPER-FIX1: gate central via lib (sem inline duplicado).
+# Marker service-port.json com schema pending exato (via lib); sem marker
+# valido => Ensure retorna HOLD PORT_CONFIGURATION_UNVERIFIED (nunca muda
+# 49374). Diagnostico exato passa sem gate mas com o MESMO env final e MESMO
+# binario resolvido. Startup exato (service start | serve --service) exige
+# Ensure-PreflightConfiguredPort. Marker pending sozinho nunca autoriza.
+# Execucao final (diagnostico/startup permitido) via runner bounded 15s com
+# output cap; timeout/falha/truncado => BLOCKER exit 2 (sem estado settled).
+# Sessao interativa TUI nao e suportada nesta phase (unknown bloqueado acima
+# com reason honesta); logo nenhum lifetime interativo e limitado aqui.
+$gateW = $null
+if ($WantedGeneration -eq 2) {
+  if ($isStartW) {
+    try {
+      $gateW = Ensure-PreflightConfiguredPort -ProfileDir $ProfileDirW -ExplicitPort $ServicePort -ChosenBinary $chosenW -TimeoutMs 15000
+    }
+    catch {
+      Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado (blocker; fail-closed).') -ForegroundColor Red
+      exit 2
+    }
+    if (($null -eq $gateW) -or (-not [bool]$gateW.Permitted)) {
+      $msgW = 'startup bloqueado.'
+      $holdW = 'BLOCKED'
+      try { if ($null -ne $gateW) { $msgW = [string]$gateW.Detail } } catch { }
+      try { if (($null -ne $gateW) -and (-not [string]::IsNullOrWhiteSpace([string]$gateW.Hold))) { $holdW = [string]$gateW.Hold } } catch { }
+      Write-Host ('[wrapper ' + $ProfileTag + '] ' + $msgW + ' (HOLD ' + $holdW + '; sem tocar 49374).') -ForegroundColor Red
+      Write-Host ('Diagnostico: powershell -NoProfile -File scripts\runtime\RuntimePortPreflight.ps1 -ProfileDir "' + $ProfileDirW + '"') -ForegroundColor Red
+      exit 2
+    }
+    try {
+      $gateExeW = [string]$gateW.Exe
+      if (-not [string]::IsNullOrWhiteSpace($gateExeW)) {
+        $aW = ([IO.Path]::GetFullPath($gateExeW)).TrimEnd('\')
+        $bW = ([IO.Path]::GetFullPath($chosenW)).TrimEnd('\')
+        if (-not $aW.Equals($bW, [StringComparison]::OrdinalIgnoreCase)) {
+          Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: binario do gate diverge do resolvido (mesmo binario exigido); fail-closed.') -ForegroundColor Red
+          exit 2
+        }
+        $chosenW = $gateExeW
+      }
+    } catch { }
+  }
+}
+# RR-P22-WRAPPER-FIX1: execucao final V2 via bounded runner (sem shell/cmd).
+# V1 preserva o legado abaixo (somente CONFIG isolado, passthrough).
+if ($WantedGeneration -eq 2) {
+  if ([string]::IsNullOrWhiteSpace($chosenW)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] nenhum binario geracao ' + $WantedGeneration + ' encontrado.') -ForegroundColor Red
+    exit 6
+  }
+  $finEnvW = @{
+    XDG_CONFIG_HOME = $configRootW
+    XDG_STATE_HOME = $stateRootW
+    XDG_DATA_HOME = $dataRootW
+    XDG_CACHE_HOME = $cacheRootW
+    HOME = $homeDirW
+    USERPROFILE = $homeDirW
+  }
+  if (($null -ne $gateW) -and ($null -ne $gateW.Env)) {
+    try {
+      foreach ($ekW in @('XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'HOME', 'USERPROFILE')) {
+        $evW = [string]$gateW.Env[$ekW]
+        if (-not [string]::IsNullOrWhiteSpace($evW)) { $finEnvW[$ekW] = $evW }
+      }
+    } catch { }
+  }
+  # RR-P22-WRAPPER-FIX2: revalida env FINAL antes do processo final
+  # (diagnostico e startup; mesmo env do gate quando houver).
+  try {
+    $finCheckW = Test-PreflightConfinedEnv -EnvTable $finEnvW -ProfileDir $ProfileDirW -ConfigRoot $configRootW
+    if (($null -eq $finCheckW) -or (-not [bool]$finCheckW.Ok)) {
+      $finDW = ''
+      try { $finDW = [string]$finCheckW.Detail } catch { $finDW = 'env final nao confinado' }
+      Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: env final nao confinado antes da execucao (' + $finDW + '); fail-closed.') -ForegroundColor Red
+      exit 2
+    }
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: validacao do env final falhou (fail-closed).') -ForegroundColor Red
+    exit 2
+  }
+  $argLineW = [string]($RemainingArgs -join ' ')
+  $finW = $null
+  try {
+    $finW = Invoke-PreflightBoundedExe -File $chosenW -ArgsLine $argLineW -WorkDir ([IO.Path]::GetTempPath()) -EnvTable $finEnvW -EnvRemove @('OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_FILE', 'OPENCODE_CONFIG_HOME', 'OPENCODE_CONFIG_PATH') -TimeoutMs 15000
+  }
+  catch {
+    Write-Host ('[wrapper ' + $ProfileTag + '] BLOCKER: execucao bounded falhou sem settle (fail-closed).') -ForegroundColor Red
+    exit 2
+  }
+  if (($null -eq $finW) -or [bool]$finW.TimedOut -or (-not [bool]$finW.Finished)) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] BLOCKER: comando nao settled em 15s (filho direto encerrado; descendants sem prova; sem claim). Output parcial capado acima quando houver.') -ForegroundColor Red
+    try { if (($null -ne $finW) -and (-not [string]::IsNullOrWhiteSpace([string]$finW.Output))) { Write-Host ([string]$finW.Output) } } catch { }
+    exit 2
+  }
+  if ([bool]$finW.Truncated) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] BLOCKER: leitura truncada/incompleta (sem claim; fail-closed).') -ForegroundColor Red
+    exit 2
+  }
+  try { if (-not [string]::IsNullOrWhiteSpace([string]$finW.Output)) { Write-Host ([string]$finW.Output) } } catch { }
+  if ([int]$finW.ExitCode -ne 0) {
+    Write-Host ('[wrapper ' + $ProfileTag + '] BLOCKER: exit ' + [int]$finW.ExitCode + ' (sem estado settled alem do reportado; fail-closed).') -ForegroundColor Red
+    exit 2
+  }
+  exit 0
+}
+# RR-P22-WRAPPER-FIX1: caminho legado V1 INTACTO (somente CONFIG isolado,
+# passthrough OPENCODE_CONFIG*). V2 nunca chega aqui (saiu via bounded
+# runner acima); este bloco e exclusivo da geracao 1.
+if ([string]::IsNullOrWhiteSpace($chosenW)) {
+  Write-Host ('[wrapper ' + $ProfileTag + '] nenhum binario geracao ' + $WantedGeneration + ' encontrado.') -ForegroundColor Red
+  exit 6
+}
 $oldXdgW = $env:XDG_CONFIG_HOME
+$oldStateW = $env:XDG_STATE_HOME
+$oldDataW = $env:XDG_DATA_HOME
+$oldCacheW = $env:XDG_CACHE_HOME
+$oldHomeW = $env:HOME
+$oldProfileW = $env:USERPROFILE
+$oldCfgValsW = @{}
+try {
+  foreach ($kkW in @([Environment]::GetEnvironmentVariables().Keys)) {
+    if ([string]$kkW -like 'OPENCODE_CONFIG*') {
+      try { $oldCfgValsW[[string]$kkW] = [string]([Environment]::GetEnvironmentVariable([string]$kkW)) } catch { }
+    }
+  }
+}
+catch { }
 try {
   $env:XDG_CONFIG_HOME = $configRootW
+  # RR-P22-FIX2 (8) + FIX3 (C): V1 restaura o original (somente CONFIG isolado);
+  # mudancas de STATE/DATA/CACHE/HOME sao exclusivas do V2. OPENCODE_CONFIG*
+  # removido do filho SOMENTE geracao 2; geracao 1 recebe o valor (passthrough).
+  if ($WantedGeneration -eq 2) {
+    if (($null -ne $gateW) -and ($null -ne $gateW.Env)) {
+      try {
+        $env:XDG_STATE_HOME = [string]$gateW.Env['XDG_STATE_HOME']
+        $env:XDG_DATA_HOME = [string]$gateW.Env['XDG_DATA_HOME']
+        $env:XDG_CACHE_HOME = [string]$gateW.Env['XDG_CACHE_HOME']
+        $env:HOME = [string]$gateW.Env['HOME']
+        $env:USERPROFILE = [string]$gateW.Env['USERPROFILE']
+      }
+      catch {
+        $env:XDG_STATE_HOME = $stateRootW
+        $env:XDG_DATA_HOME = $dataRootW
+        $env:XDG_CACHE_HOME = $cacheRootW
+        $env:HOME = $homeDirW
+        $env:USERPROFILE = $homeDirW
+      }
+    }
+    else {
+      $env:XDG_STATE_HOME = $stateRootW
+      $env:XDG_DATA_HOME = $dataRootW
+      $env:XDG_CACHE_HOME = $cacheRootW
+      $env:HOME = $homeDirW
+      $env:USERPROFILE = $homeDirW
+    }
+  }
+  if ($WantedGeneration -eq 2) {
+    foreach ($kkW in @($oldCfgValsW.Keys)) {
+      try { Remove-Item -Path ('Env:\' + [string]$kkW) -ErrorAction SilentlyContinue } catch { }
+    }
+  }
   & $chosenW @RemainingArgs
   $codeW = $LASTEXITCODE
 }
 finally {
   if ($null -eq $oldXdgW) { Remove-Item Env:\XDG_CONFIG_HOME -ErrorAction SilentlyContinue }
   else { $env:XDG_CONFIG_HOME = $oldXdgW }
+  if ($null -eq $oldStateW) { Remove-Item Env:\XDG_STATE_HOME -ErrorAction SilentlyContinue }
+  else { $env:XDG_STATE_HOME = $oldStateW }
+  if ($null -eq $oldDataW) { Remove-Item Env:\XDG_DATA_HOME -ErrorAction SilentlyContinue }
+  else { $env:XDG_DATA_HOME = $oldDataW }
+  if ($null -eq $oldCacheW) { Remove-Item Env:\XDG_CACHE_HOME -ErrorAction SilentlyContinue }
+  else { $env:XDG_CACHE_HOME = $oldCacheW }
+  if ($WantedGeneration -eq 2) {
+    if ($null -eq $oldHomeW) { Remove-Item Env:\HOME -ErrorAction SilentlyContinue }
+    else { $env:HOME = $oldHomeW }
+    if ($null -eq $oldProfileW) { Remove-Item Env:\USERPROFILE -ErrorAction SilentlyContinue }
+    else { $env:USERPROFILE = $oldProfileW }
+  }
+  foreach ($kkW in @($oldCfgValsW.Keys)) {
+    try {
+      $vvW = $oldCfgValsW[[string]$kkW]
+      if ($null -eq $vvW) { Remove-Item -Path ('Env:\' + [string]$kkW) -ErrorAction SilentlyContinue }
+      else { Set-Item -Path ('Env:\' + [string]$kkW) -Value $vvW }
+    }
+    catch { }
+  }
 }
 exit $codeW
 '@
@@ -470,7 +1151,9 @@ function New-P7ProfileManifestObject {
     [string]$InstallManifest = '',
     [string]$WrapperPath = '',
     $ProvisionedNode = $null,
-    [string]$RepoRoot = ''
+    [string]$RepoRoot = '',
+    $ServicePortNode = $null,
+    [string]$PreflightLibPath = ''
   )
   $manifest = [ordered]@{
     profile = $Profile
@@ -481,6 +1164,8 @@ function New-P7ProfileManifestObject {
     runtime_dir = $RuntimeDir
     install_manifest = $InstallManifest
     wrapper = $WrapperPath
+    service_port = $ServicePortNode
+    preflight_lib = $PreflightLibPath
     created_at = ((Get-Date).ToString('o'))
     source_revision = (Get-P7SourceRevision $RepoRoot)
     provisioned = $ProvisionedNode
@@ -495,7 +1180,8 @@ function New-OrchestrationProfile {
     [string]$ProfileRoot = '',
     [string]$RuntimeId = '',
     [switch]$ProvisionRuntime,
-    [string]$BinaryOverride = ''
+    [string]$BinaryOverride = '',
+    [int]$ServicePort = 0
   )
   if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $here = $PSScriptRoot
@@ -516,6 +1202,14 @@ function New-OrchestrationProfile {
   $homeDir = Join-Path $profileDir 'home'
   $configRoot = Join-Path $homeDir '.config'
   $runtimeDir = Join-Path $profileDir 'runtime'
+  if ($ServicePort -ne 0) {
+    if (($ServicePort -lt 1) -or ($ServicePort -gt 65535)) {
+      throw ('P7-PROFILE-FAIL: ServicePort invalida (esperado 1..65535): ' + $ServicePort)
+    }
+    if ($profile -ne 'v2') {
+      throw 'P7-PROFILE-FAIL: ServicePort so e suportada no perfil v2 (RuntimeId opencode-v2).'
+    }
+  }
   Assert-P7PathUnder $homeDir $ProfileRoot 'home do perfil'
   Assert-P7PathUnder $runtimeDir $ProfileRoot 'runtime do perfil'
   $installScript = Join-Path $RepoRoot 'install.ps1'
@@ -586,9 +1280,21 @@ function New-OrchestrationProfile {
       # Falha de provisionamento: escreve wrapper + manifest com
       # provisioned = $null ANTES de rethrow da mesma excecao. O perfil de
       # arquivos criado fica coerente e recuperavel; o CLI mapeia
-      # P7-PROVISION-NETWORK para exit 7.
+      # P7-PROVISION-NETWORK para exit 7. Phase22: preserva service-port
+      # pedida no manifest parcial (persistencia por perfil).
+      $partialSvcNode = $null
+      if (($profile -eq 'v2') -and ($ServicePort -ne 0)) {
+        try {
+          Assert-P7PreflightLoaded
+          $psv = Set-PreflightPersistedPort -ProfileDir $profileDir -Port $ServicePort -Source 'new-profile' -State 'pending'
+          $partialSvcNode = [ordered]@{ port = [int]$psv.Port; state = 'pending'; path = [string]$psv.Path }
+        }
+        catch { }
+      }
+      $partialLib = ''
+      try { $partialLib = Write-P7PreflightLibCopy -RepoRoot $RepoRoot -ProfileDir $profileDir } catch { $partialLib = '' }
       $partialWrapper = Write-P7Wrapper -ProfileRoot $ProfileRoot -Profile $profile -RuntimeId $RuntimeId -Generation $gen
-      $partial = New-P7ProfileManifestObject -Profile $profile -RuntimeId $RuntimeId -Generation $gen -HomeDir $homeDir -ConfigRoot $configRoot -RuntimeDir $runtimeDir -InstallManifest $installManifest -WrapperPath $partialWrapper -ProvisionedNode $null -RepoRoot $RepoRoot
+      $partial = New-P7ProfileManifestObject -Profile $profile -RuntimeId $RuntimeId -Generation $gen -HomeDir $homeDir -ConfigRoot $configRoot -RuntimeDir $runtimeDir -InstallManifest $installManifest -WrapperPath $partialWrapper -ProvisionedNode $null -RepoRoot $RepoRoot -ServicePortNode $partialSvcNode -PreflightLibPath $partialLib
       Write-P7JsonAtomic $partial $manifestPath
       throw
     }
@@ -608,14 +1314,54 @@ function New-OrchestrationProfile {
       catch { $versionLine = '' }
     }
   }
-  # Ordem: WRAPPER antes do MANIFEST; o manifest e o ultimo artefato
-  # (marcador de sucesso), escrito de forma atomica.
+  # RR-P22-FIX2: -ServicePort grava SOMENTE pending (desired); nunca claim de
+  # applied/efeito nativo. Sem -ServicePort, preserva marker valido com schema
+  # exato; marker antigo sem state nao e carregado (startup bloqueia com
+  # PORT_CONFIGURATION_UNVERIFIED, nunca muda 49374).
+  $servicePortNode = $null
+  if ($profile -eq 'v2') {
+    $svcPersisted = 0
+    if ($ServicePort -ne 0) { $svcPersisted = $ServicePort }
+    $svcFile = Join-Path $profileDir 'service-port.json'
+    if ($svcPersisted -ne 0) {
+      Assert-P7PreflightLoaded
+      try {
+        $saved = Set-PreflightPersistedPort -ProfileDir $profileDir -Port $svcPersisted -Source 'new-profile' -State 'pending'
+        $servicePortNode = [ordered]@{ port = [int]$saved.Port; state = 'pending'; path = [string]$saved.Path }
+      }
+      catch {
+        if ($_.Exception.Message -match '^PREFLIGHT-FAIL') { throw ('P7-PROFILE-FAIL: ' + $_.Exception.Message) }
+        throw
+      }
+      if ($svcPersisted -eq 49374) {
+        Write-Host '[profile v2] AVISO: porta 49374 e o default com colisao conhecida (AI Memory local/V2); o preflight recusara start enquanto ocupada.' -ForegroundColor Yellow
+      }
+      Write-Host ('[profile v2] service port desired (pending) por perfil: ' + $svcPersisted) -ForegroundColor DarkGray
+    }
+    else {
+      try {
+        if (Test-Path -LiteralPath $svcFile -PathType Leaf) {
+          Assert-P7PreflightLoaded
+          $sj = (([IO.File]::ReadAllText($svcFile, [Text.Encoding]::UTF8)) | ConvertFrom-Json)
+          $sch = Test-PreflightServicePortSchema -Json $sj
+          if ([bool]$sch.Ok) {
+            $servicePortNode = [ordered]@{ port = [int]$sch.Port; state = 'pending'; path = $svcFile }
+          }
+        }
+      }
+      catch { }
+    }
+  }
+  # Ordem: LIB + WRAPPER antes do MANIFEST; o manifest e o ultimo artefato
+  # (marcador de sucesso), escrito de forma atomica. Lib ausente => perfil
+  # recusado (wrapper bloquearia startup sem gate).
+  $preflightLibCopy = Write-P7PreflightLibCopy -RepoRoot $RepoRoot -ProfileDir $profileDir
   $wrapperPath = Write-P7Wrapper -ProfileRoot $ProfileRoot -Profile $profile -RuntimeId $RuntimeId -Generation $gen
   $provNode = $null
   if ($provisioned) {
     $provNode = [ordered]@{ binary_path = $binaryPath; version = $versionLine; provenance = $provenance }
   }
-  $manifest = New-P7ProfileManifestObject -Profile $profile -RuntimeId $RuntimeId -Generation $gen -HomeDir $homeDir -ConfigRoot $configRoot -RuntimeDir $runtimeDir -InstallManifest $installManifest -WrapperPath $wrapperPath -ProvisionedNode $provNode -RepoRoot $RepoRoot
+  $manifest = New-P7ProfileManifestObject -Profile $profile -RuntimeId $RuntimeId -Generation $gen -HomeDir $homeDir -ConfigRoot $configRoot -RuntimeDir $runtimeDir -InstallManifest $installManifest -WrapperPath $wrapperPath -ProvisionedNode $provNode -RepoRoot $RepoRoot -ServicePortNode $servicePortNode -PreflightLibPath $preflightLibCopy
   Write-P7JsonAtomic $manifest $manifestPath
   Write-Host ('[profile ' + $profile + '] home: ' + $homeDir) -ForegroundColor DarkGray
   Write-Host ('[profile ' + $profile + '] XDG_CONFIG_HOME: ' + $configRoot) -ForegroundColor DarkGray

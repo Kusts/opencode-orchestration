@@ -1,0 +1,55 @@
+{
+    "tool":  "RR-P22-NATIVE-IMPLEMENT",
+    "date":  "2026-09-30",
+    "task":  "RR-P22-NATIVE-IMPLEMENT",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_exact":  "opencode v2.0.18 (exit 0, TimeoutMs 15000, filho isolado via Invoke-PreflightBoundedExe, drain async bounded)",
+    "temp_profile":  "TEMP\\opencode\\rr-p22-native-\u003cguid\u003e\\v2 (XDG_CONFIG/DATA/STATE/CACHE+HOME/USERPROFILE confinados; OPENCODE_CONFIG* removidos do filho; cwd isolado; attrs Directory sem ReparsePoint; porta 56777 livre verificada, nunca 49374)",
+    "service_help_keys":  [
+                              "service get [key] [name]",
+                              "service set \u003ckey\u003e \u003cvalue\u003e [env-value]",
+                              "service status",
+                              "start/restart/stop"
+                          ],
+    "observations":  {
+                         "get_before_all":  "{} (exit 0)",
+                         "get_port_before":  "(vazio, exit 0) =\u003e default implicito, sem service.json",
+                         "status_before":  "stopped (exit 0; read-only seguro nesta phase)",
+                         "set_port_56777":  "exit 0, stdout vazio; helper persistiu pending + empty-state proof (49374 global NAO consultado)",
+                         "get_port_after":  "56777 (exit 0; numeric full-equal ao desired)",
+                         "get_all_after":  "(nao re-lido; get port + service.json bastam para configuration-verified)",
+                         "native_file":  "XDG_CONFIG_HOME/opencode/service.json = {port: 56777} - unico campo observado; sem credentials",
+                         "state_dir_before":  "xdg-state/opencode com 0 itens (vazio) sem start =\u003e nenhum artefato applied/ownership",
+                         "state_schema_after_start":  "[service.json] (allowlist: nomes de arquivo + port; sem segredo)",
+                         "listener_56777_before":  "AUSENTE (QuerySucceeded + sem retorno) =\u003e desired sem applied",
+                         "start_unique":  "service start exit 0 sem timeout (uma tentativa, 15s; sem repeticao cega)",
+                         "status_after_start":  "http://127.0.0.1:56777 (exit 0; endpoint exato 127.0.0.1:porta)",
+                         "listener_56777_after":  "PRESENTE 127.0.0.1:56777 PID 22144 (Get-NetTCPConnection QuerySucceeded)",
+                         "owner_identity":  "PID 22144 name=opencode path=\u003cexe exato esperado\u003e (.exe-only match; nome-only nunca usado)",
+                         "stop_owned":  "service stop exit 0 com mesmo env isolado (nunca kill; nunca stop global)",
+                         "settlement":  "status=stopped + sem listener 56777 =\u003e settled provado",
+                         "profile_B_same_exe":  "(revalidado na suite: service get =\u003e {} e sem service.json =\u003e isolamento por config_root, exe path sozinho NAO distingue instancias)"
+                     },
+    "contract":  {
+                     "desired":  "service.json {port} + service get [port] - afirmavel SEM start",
+                     "applied":  "provado SOMENTE via start + listener TCP 127.0.0.1:\u003cport\u003e + service status com endpoint exato + ownership .exe (demonstracao isolada: native-start-contract.json verdict candidate_pass)",
+                     "desired_vs_applied_proof":  "pre-set: get={} + sem service.json + status stopped + state 0 itens; pos-set: service.json={port:56777} + get=56777 MAS sem listener + state 0 itens =\u003e desired-only; pos-start: listener owned + status endpoint exato =\u003e applied; pos-stop: stopped + sem listener =\u003e settled",
+                     "ownership_rule":  "instancias do mesmo exe distinguem-se por config_root (XDG_CONFIG_HOME) + porta vinculada + PID dono com path .exe exato; nunca por nome; nunca kill de PID desconhecido",
+                     "effective_port_without_start":  "apenas DESIRED afirmavel (get/service.json); APPLIED exige start+status+listener+ownership (wrapper produtivo segue UNVERIFIED exit 2; start direto somente em E2E isolado autorizado)",
+                     "set_may_stop_note":  "set em perfil vazio provado nao para nada (state 0 itens); set em perfil com state exige prova de stop owned (fora de escopo; helper recusa fail-closed)",
+                     "empty_state_fix":  "gate global 49374 REMOVIDO de Invoke-PreflightServiceSetPort (indevido: ssh port-forward em 49374 bloqueava SET de alternativa para perfil vazio). Substituido por Test-PreflightProfileEmptyState: state/opencode inexistente-ou-0-itens + service.json ausente-ou-{port}-numerico-legivel, tudo com ancestry anti-reparse; sem prova =\u003e recusa fail-closed sem olhar/matar 49374"
+                 },
+    "verification_49374":  "intacto antes/depois: TCP 127.0.0.1:49374 + ::1:49374 LISTEN, PID 18268 (ssh.exe); nenhum comando tocou 49374; nenhum kill executado",
+    "prohibited_respected":  [
+                                 "sem config global (so temp)",
+                                 "sem AI-memory",
+                                 "sem toque/kill em 49374",
+                                 "sem kill de PID desconhecido",
+                                 "sem commit/install/subdelegacao",
+                                 "sem novas flags",
+                                 "sem novo daemon/framework",
+                                 "start unico sem repeticao cega"
+                             ],
+    "recommendation":  "fluxo native-safe validado: perfil temp confinado + porta 567xx livre verificada (fora de faixa excluida, query com sucesso) + contrato -ServicePort explicito + baseline desired-only + set com empty-state proof + recheck get/service.json full-equal (configuration-verified) + preflight PORT_FREE + start unico bounded + status/listener/ownership + stop owned + settlement; REUSE segue HOLD; wrapper produtivo segue UNVERIFIED",
+    "evidence_ref":  "native-start-contract.json (mesmo diretorio; 16/16 steps OK, verdict candidate_pass)"
+}

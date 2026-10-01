@@ -4,8 +4,14 @@
 **Baseline:** `master` @ `78418e790fd08d3f61e8706e7d534504a0965e8c`  
 **Revision date:** 2026-09-28  
 **Target release:** preferably `1.1.0` if backward compatibility is preserved  
-**Status:** Em implementação — Phases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel, grants, Evidence Contract, verifier, DONE kernel, leases, worktrees, binding records, contrato, observabilidade, flags) implementadas, revisadas (Reviewer + Security Reviewer, 15 findings corrigidos) e verdes (2026-09-29). Phase 5: harness pronto; enforcement comportamental V2 pendente (HOLD honesto). Phase 8: lane CI adicionada; smoke de binário V2 pendente. Phase 20: evidência registrada em `evidence/v3.1/kernel-hardening/implementation-status.json`. Flags de rollout OFF por padrão.  
+**Status:** Em implementação — Phases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel, grants, Evidence Contract, verifier, DONE kernel, leases, worktrees, binding records, contrato, observabilidade, flags) implementadas, revisadas (Reviewer + Security Reviewer, 15 findings corrigidos) e verdes (2026-09-29). Phase 5: harness pronto; enforcement comportamental V2 pendente (HOLD honesto). Phase 8: lane CI adicionada; smoke de binário V2 pendente. Phase 20: evidência registrada em `evidence/v3.1/kernel-hardening/implementation-status.json`. Flags de rollout OFF por padrão. **Programa de confiabilidade Phases 21–33 (runtime reliability, loop recovery, Jev MCP) em andamento como especificação — não implementado, sem enforcement ativo** (ver documentos relacionados abaixo).
 **Change class:** `RUNTIME_COMPATIBILITY` + `FEATURE_REEVALUATION` + `AUTHORITY_HARDENING`
+
+**Documentos relacionados (programa Phases 21–33, em especificação — não implementar sem o plano addendum):**
+
+- `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` — SPEC addendum (bounded execution, watchdog, loop guard, port preflight, MCP safety, AI Memory remoto, Jev consultivo).
+- `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` — plano das Phases 21–33.
+- `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md` — prompt de execução das Phases 21–33.
 
 ## 0. Primary objective
 
@@ -1307,3 +1313,5 @@ V3.1 Dual-Runtime Kernel Hardening is complete only when:
 16. Documentation records exact tested runtime versions and known deviations.
 17. Feature flags stay conservative by default.
 18. No unrelated router/model/MCP redesign is included.
+
+Continuidade (2026-09-30): o programa de confiabilidade Phases 21–33 tem Definition of Done própria em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` (Part K, 20 itens — todos pendentes); este DoD das fases dual-runtime/kernel permanece inalterado.

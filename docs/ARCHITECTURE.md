@@ -195,6 +195,96 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
   (`task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
   nascem OFF — shadow rollout, ativação é decisão humana com evidência).
 
+## Confiabilidade de runtime (V3.1 Phases 21–33 — P21–P25 consolidadas, P26+ pendentes)
+
+Programa em andamento, com estado vivo em
+`evidence/v3.1/runtime-reliability/program-status.json`; especificado em
+[Runtime Reliability SPEC addendum](specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md),
+planejado em [Plan addendum](specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md),
+com execução descrita em [Implementation prompt](specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md):
+
+- **P21 done (baseline)**: pins V1/V2 presentes, listener `49374`
+  identificado como AI Memory local (Docker, saudável); fixtures de
+  watchdog **17/17 PASS** (PS5.1 e PS7), record-only, sem enforcement
+  (`evidence/v3.1/runtime-reliability/baseline.json` + `fixtures/`).
+- **P22 parcial-HOLD (port/process preflight)**: preflight
+  determinístico (`scripts/runtime/RuntimePortPreflight.ps1`, 6
+  outcomes, exits 0/1/2) + wrapper V2 com startup condicionado a
+  configuração verificada + `PORT_FREE`; E2E nativo alternativo provado
+  em perfil isolado (16/16 steps, `candidate_pass`,
+  `native-start-contract.json`); diagnóstico real do `49374`
+  (Docker/ssh por PID, nunca mutado). HOLDs: `REUSE`, wrapper
+  produtivo `UNVERIFIED`, cleanup de descendants sem prova, set/start
+  nativo só com `RR_P22_RUN_NATIVE=1`.
+- **P23 done-record-only (budgets)**: orçamentos canônicos no kernel
+  (5 perfis: worker 45m, planner 90m, steps 96, soft 3 / hard 5),
+  sem ampliação pelo worker, planner-turn por input novo, CLI
+  `scripts/v3/task-kernel.ps1`; kernel pré-existente **75/75**
+  preservado. Sem enforcement (Phases 24–28); native step em HOLD.
+- **P24 parcial (plugin/session lifecycle)**: plugin V2 migrado para
+  `event.subscribe` abort-safe
+  (`plugins/orchestration-enforcement/v2.ts`); live-hook no binário
+   exato 2.0.18 (`phase24-livehook.jsonl`, 8 linhas): plugin carrega,
+  `session.created` VERIFIED, context VERIFIED, `execute.before` e
+  `session.updated` NOT-VERIFIED com causa, interrupt/wait com presença
+  verificada e semântica intacta para a Phase 25. Suítes: typecheck
+   V1+V2+DUAL, dual-runtime **20/20**, mock V2 **22/22** (10c +
+   10c-controle com discriminação), V1 **30/30**,
+   live-hook PS5.1 **35/0 HOLD 1** (trigger real com session==trigger,
+    match=True) / PS7 **23/0 HOLD 4**; REV-FIX com 3
+    findings + TRIGGER-FIX com 4 findings corrigidos.
+- **P25 done-shadow (watchdog)**: RuntimeWatchdog lib shadow puro
+  (`scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1`): registra
+  execução, fingerprints sanitizados por campo com framing
+  `len:valor`, semântica de repetição da policy, avaliação
+  `HARD_TIMEOUT`/`NO_PROGRESS`/`REPEATED_ACTION`/`CYCLE`/
+  `BUDGET_NEAR_LIMIT` em modo shadow (would-interrupt, execução
+  intacta, sem task record), telemetria JSONL bounded com lock
+  in-process e cap fail-closed, identidade obrigatória, flag
+  `watchdog{enabled:false, shadow:true}`; `enabled=true` retorna
+  `WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED`. Suítes: watchdog
+  **80/80** (PS5.1 + PS7), kernel **75/75**, consistência **16/16**;
+  reviews Reviewer **APPROVED** (REV4) + Security **APPROVED**
+  (SEC3). Follow-ups documentados: lock cross-process, retenção
+  multi-dia; interrupt real é Phase 26 (não implementado).
+
+Mecanismos-alvo do programa (desenho vigente; só o acima está
+implementado):
+
+- **Execução limitada (bounded execution)**: todo attempt ativo passa a
+  ter orçamento canônico (`execution_budget`: steps, wall-clock,
+  no-progress) por perfil (`fast`, `standard-read`, `standard-write`,
+  `deep`, `planner-turn`); worker nunca amplia o próprio orçamento.
+- **Watchdog + Loop Guard**: supervisão de progresso significativo,
+  deadlines, detecção de ação repetida (soft 3 / hard 5) e ciclos curtos
+  (2–4 ações, 3 repetições), interrupção com evidência parcial preservada
+  e `Recovery Context` exigindo estratégia nova (Debugger na 2ª
+  falha Stall, `EXHAUSTED` na 3ª sem novidade). Semáforos atuais de
+  retry/escalation permanecem autoritativos.
+- **Port/process preflight V2** (`PORT_FREE`, `PORT_OCCUPIED_OTHER_PROCESS`,
+  `PORT_WINDOWS_EXCLUDED`, etc.): diagnóstico determinístico de
+  propriedade de porta antes do hang opaco de startup; nunca mata PID
+  desconhecido automaticamente.
+- **MCP safety**: budgets por classe (advisory 30s, memory 60s, remoto
+  geral 120s) + circuit breaker (2 falhas consecutivas abrem o circuito);
+  roteamento MCP genérico segue desligado.
+- **AI Memory remoto**: tratado como dependência remota com health check
+  limitado e `MEMORY_UNAVAILABLE` limitado — migração do listener local
+  `127.0.0.1:49374` para VPS planejada, **não executada**.
+- **Jev MCP**: somente consultivo e opt-in (`jev_advisory` OFF), nunca
+  autoriza ações, concede permissões, sobrescreve Reviewer/Security
+  Reviewer/verificação/DONE; indisponibilidade retorna `JEV_UNAVAILABLE`
+  limitado sem retry infinito.
+
+Limites honestos: o acima é o que existe — sem enforcement de
+watchdog/loop-guard/budgets/circuit breaker (Phases 26+ não iniciadas);
+todas as flags seguem OFF em
+`source/registry/capability-flags.json` (nenhuma flag nova); AI Memory
+nunca mutado (listener local mantido); roteamento MCP genérico
+desligado; revisões Reviewer + Security Reviewer com APPROVED parcial
+por fase (HOLDs registrados); critérios `RR-01`–`RR-20` pendentes onde
+não cobertos. Programa **não** concluído.
+
 ## Ownership model do installer (PACKAGE/USER)
 
 O instalador (`install.ps1`) só gerencia o que é do pacote: bloco markered

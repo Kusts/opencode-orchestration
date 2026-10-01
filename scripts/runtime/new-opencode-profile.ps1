@@ -8,7 +8,9 @@
     (opt-in, perfil de arquivos criado, sem binario). Nunca escreve fora do
     perfil; nunca persiste env; nunca toca o opencode global. -BinaryPath
     informa um binario ja provado para reusar (validado por geracao, sem
-    npm; gravado no manifest com provenance 'override').
+    npm; gravado no manifest com provenance 'override'). -ServicePort
+    (v2, 1..65535) persiste a porta alternativa do servico POR PERFIL
+    (service-port.json sob o ProfileDir; nunca global).
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -17,7 +19,8 @@ param(
   [ValidateSet('opencode-v1', 'opencode-v2')]
   [string]$RuntimeId = 'opencode-v2',
   [switch]$ProvisionRuntime,
-  [string]$BinaryPath = ''
+  [string]$BinaryPath = '',
+  [int]$ServicePort = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,7 +31,7 @@ $lib = Join-Path $RepoRoot 'scripts\runtime\New-OrchestrationProfile.ps1'
 . $lib
 
 try {
-  $info = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $ProfileRoot -RuntimeId $RuntimeId -ProvisionRuntime:$ProvisionRuntime -BinaryOverride $BinaryPath
+  $info = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $ProfileRoot -RuntimeId $RuntimeId -ProvisionRuntime:$ProvisionRuntime -BinaryOverride $BinaryPath -ServicePort $ServicePort
   if (-not [string]::IsNullOrWhiteSpace([string]$info.WrapperPath)) {
     Write-Host ('wrapper: ' + [string]$info.WrapperPath) -ForegroundColor Green
   }

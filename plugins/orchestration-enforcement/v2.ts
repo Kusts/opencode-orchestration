@@ -56,55 +56,98 @@ async function subscribe(
 
 async function setupV2(ctx: any): Promise<(() => void) | void> {
   const registrations: Array<{ dispose: () => unknown }> = [];
+  let eventController: AbortController | null = null;
   try {
     const c = ctx as any;
     if (!c || typeof c !== "object") return undefined;
 
-    // FEATURE DETECTION (V31-R2 F3): verify each hook surface used below
-    // is a function BEFORE registering. Any missing/non-function surface
-    // emits one 'hooks-unavailable' telemetry row (same jsonl, with the
-    // surface as reason) and setup continues with whatever IS available.
-    // Never throws: every probe is guarded and the writer is fail-open.
+    // FEATURE DETECTION (V31-R2 F3, Phase 24 fatia 1): verify each surface
+    // used below is a function BEFORE registering. Lifecycle indexing now
+    // uses the documented ctx.event.subscribe({ signal }) AsyncIterable
+    // (addenda Part H, sec 24); the old event.hook("session.created" /
+    // "session.updated") shape is obsolete and never fires on host 2.0.18.
+    // Any missing/non-function surface emits one 'hooks-unavailable'
+    // telemetry row (same jsonl, with the surface as reason) and setup
+    // continues with whatever IS available. Never throws: every probe is
+    // guarded and the writer is fail-open.
     try {
-      const surfaces: Array<{ label: string; owner: any }> = [
-        { label: "event.hook", owner: c.event },
-        { label: "session.hook", owner: c.session },
-        { label: "tool.hook", owner: c.tool },
-      ];
-      for (const s of surfaces) {
-        try {
-          if (!s.owner || typeof s.owner.hook !== "function") {
-            writeUnavailable("v2", s.label + " unavailable");
-          }
-        } catch {
-          // Fail-open: one bad probe never blocks the others.
+      try {
+        if (!c.event || typeof c.event.subscribe !== "function") {
+          writeUnavailable("v2", "event.subscribe unavailable");
         }
+      } catch {
+        // Fail-open: one bad probe never blocks the others.
+      }
+      try {
+        if (!c.session || typeof c.session.hook !== "function") {
+          writeUnavailable("v2", "session.hook unavailable");
+        }
+      } catch {
+        // Fail-open: one bad probe never blocks the others.
+      }
+      try {
+        if (!c.tool || typeof c.tool.hook !== "function") {
+          writeUnavailable("v2", "tool.hook unavailable");
+        }
+      } catch {
+        // Fail-open: one bad probe never blocks the others.
       }
     } catch {
       // Fail-open: detection itself never breaks setup.
     }
 
-    // Lifecycle indexing (parentID => worker detection) when the host
-    // exposes an event hook with V1-compatible session event names.
-    // Fully defensive: unknown event systems are a no-op here and the
-    // agent field on the context input remains the primary signal.
+    // Lifecycle indexing (parentID => worker detection) via the documented
+    // V2 event stream: ctx.event.subscribe({ signal }) returns an
+    // AsyncIterable. Setup NEVER awaits the infinite stream: it starts a
+    // detached loop with its own AbortController and returns; the cleanup
+    // callback aborts it. Filtering lives in recordSessionEvent (tolerant
+    // envelope in shared/identity.ts): only session.created/session.updated
+    // populate the index, unknown shapes are a no-op. Fail-open throughout.
+    // session.hook("context") and tool.hook("execute.before") below are
+    // untouched: both surfaces are confirmed valid on host 2.0.18.
     try {
       const ev = c.event;
-      if (ev && typeof ev.hook === "function") {
-        await subscribe(registrations, ev, "session.created", async (input: any) => {
+      if (ev && typeof ev.subscribe === "function") {
+        try {
+          const controller = new AbortController();
+          eventController = controller;
+          const stream = ev.subscribe({ signal: controller.signal });
+          // Detached on purpose: setup resolves while this loop lives on
+          // until cleanup aborts it. Never awaited here.
+          void (async () => {
+            try {
+              for await (const e of stream as AsyncIterable<unknown>) {
+                // RR-P24-REV-FIX: checar abort ANTES de indexar. Sem isso, um
+                // next() ja pendente que resolve com evento apos o cleanup
+                // ainda popularia o indice (corrida). Abort antes => drop.
+                try {
+                  if (controller.signal.aborted) return;
+                } catch {
+                  return;
+                }
+                try {
+                  recordSessionEvent(sessionIndex, e);
+                } catch {
+                  // NEVER throw out of the lifecycle loop.
+                }
+                try {
+                  if (controller.signal.aborted) return;
+                } catch {
+                  return;
+                }
+              }
+            } catch {
+              // Fail-open: stream errors end the loop silently.
+            }
+          })();
+        } catch {
+          // Fail-open: subscribe failure stays best-effort.
           try {
-            recordSessionEvent(sessionIndex, input);
+            writeUnavailable("v2", "event.subscribe unavailable");
           } catch {
-            // NEVER throw out of a lifecycle hook.
+            // Fail-open.
           }
-        });
-        await subscribe(registrations, ev, "session.updated", async (input: any) => {
-          try {
-            recordSessionEvent(sessionIndex, input);
-          } catch {
-            // NEVER throw out of a lifecycle hook.
-          }
-        });
+        }
       }
     } catch {
       // Fail-open: event indexing is best-effort in V2.
@@ -165,6 +208,18 @@ async function setupV2(ctx: any): Promise<(() => void) | void> {
     return undefined;
   }
   return () => {
+    try {
+      if (eventController) {
+        try {
+          eventController.abort();
+        } catch {
+          // Fail-open.
+        }
+        eventController = null;
+      }
+    } catch {
+      // Fail-open.
+    }
     try {
       sessionIndex.clear();
     } catch {

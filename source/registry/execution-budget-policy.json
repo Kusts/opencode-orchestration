@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "profiles": {
+    "fast": { "step_budget": 16, "wall_clock_seconds": 600, "no_progress_seconds": 180 },
+    "standard-read": { "step_budget": 24, "wall_clock_seconds": 900, "no_progress_seconds": 240 },
+    "standard-write": { "step_budget": 32, "wall_clock_seconds": 1200, "no_progress_seconds": 300 },
+    "deep": { "step_budget": 40, "wall_clock_seconds": 1800, "no_progress_seconds": 360 },
+    "planner-turn": { "step_budget": 64, "wall_clock_seconds": 3600, "no_progress_seconds": 480 }
+  },
+  "loop_guard": {
+    "repeated_action_soft_limit": 3,
+    "repeated_action_hard_limit": 5,
+    "cycle_repeat_limit": 3,
+    "provider_retry_limit": 2
+  },
+  "default_profile": "standard-write",
+  "role_defaults": {
+    "build": "planner-turn",
+    "explorer": "standard-read",
+    "researcher": "standard-read",
+    "tester": "standard-read",
+    "reviewer": "standard-read",
+    "security-reviewer": "standard-read",
+    "docs-manager": "standard-read",
+    "requirements-analyst": "standard-read",
+    "engineering-advisor": "standard-read",
+    "product-designer": "standard-read",
+    "skeptic": "standard-read",
+    "coder": "standard-write",
+    "frontend-engineer": "standard-write",
+    "backend-engineer": "standard-write",
+    "database-engineer": "standard-write",
+    "ai-agent-engineer": "standard-write",
+    "automation-engineer": "standard-write",
+    "infra-engineer": "standard-write",
+    "debugger": "deep",
+    "architect": "deep"
+  },
+  "override_bounds": {
+    "max_step_budget": 96,
+    "max_wall_clock_seconds_worker": 2700,
+    "max_wall_clock_seconds_planner": 5400,
+    "max_no_progress_seconds": 960
+  },
+  "planner_turn": {
+    "budget_profile": "planner-turn",
+    "new_input_signal_required": true,
+    "session_lifetime_unbounded": true,
+    "shadow_record_only": true
+  }
+}

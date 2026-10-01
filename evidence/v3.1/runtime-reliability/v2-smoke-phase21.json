@@ -1,0 +1,34 @@
+{
+    "smoke":  "v2-ci-smoke",
+    "date":  "2026-09-30",
+    "status":  "failed",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "expected_version":  "2.0.18",
+    "service_port":  64868,
+    "checks":  [
+                   {
+                       "name":  "version_exact",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version; exige 2.0.18; obtido: opencode v2.0.18"
+                   },
+                   {
+                       "name":  "config_19_workers_built",
+                       "passed":  true,
+                       "detail":  "opencode.json gerado via AgentTranslator com 19 workers (esperado 19): ai-agent-engineer,architect,automation-engineer,backend-engineer,coder,database-engineer,debugger,docs-manager,engineering-advisor,explorer,frontend-engineer,infra-engineer,product-designer,requirements-analyst,researcher,reviewer,security-reviewer,skeptic,tester"
+                   },
+                   {
+                       "name":  "isolation_paths",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "name":  "service_port_configured",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service set port \u003clivre\u003e =\u003e 64868"
+                   }
+               ],
+    "notes":  [
+
+              ],
+    "fail_detail":  "debug config: TIMEOUT 30s (servico nao subiu na porta privada?)."
+}

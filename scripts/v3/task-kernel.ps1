@@ -13,6 +13,10 @@
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
+      get-budget    - Get-OrchestrationTaskBudget (needs -TaskId; old records derive defaults read-only)
+      start-attempt - Start-OrchestrationTaskAttempt (needs -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision; optional -DebuggerEvidenceRefs/-NewEvidenceRefs string arrays for retry-gated starts)
+      set-budget    - Set-OrchestrationTaskBudget planner/kernel only (needs -TaskId -Actor -ExpectedRevision)
+      planner-turn  - Start-OrchestrationPlannerTurn (needs -TaskId -PlannerTurnId -UserInputSignal -UserInputSequence -Actor -ExpectedRevision)
     List parameters (-ReadScopes, -WriteScopes, -Grants, -AcceptanceCriteria,
     -ExpectedArtifacts, -EnvironmentAllowed, -Evidence, -CommandClasses,
     -ClaimedEvidence, -ResidualRisks) accept native PowerShell arrays
@@ -74,7 +78,19 @@ param(
     [string[]]$ExpectedArtifacts = @(),
     [string[]]$EnvironmentAllowed = @(),
     [switch]$ProductionAuthorized,
-    [int]$AttemptBudget = 3,
+    $AttemptBudget = 3,
+    [string]$BudgetProfile = '',
+    [string]$BudgetPolicyPath = '',
+    [string]$SessionId = '',
+    [string]$AttemptRole = '',
+    [string[]]$DebuggerEvidenceRefs = @(),
+    [string[]]$NewEvidenceRefs = @(),
+    [string]$PlannerTurnId = '',
+    [string]$UserInputSignal = '',
+    $UserInputSequence = $null,
+    $BudgetWallSeconds = $null,
+    $BudgetStepBudget = $null,
+    $BudgetNoProgressSeconds = $null,
     [string]$TasksDir = '',
     [string]$FlagsPath = '',
     [string]$LeasesDir = '',
@@ -136,9 +152,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn ...'
     exit 2
 }
 
@@ -155,6 +171,40 @@ function Convert-TaskKernelPassed {
     if (($s -ceq 'true') -or ($s -ceq '1') -or ($s -ceq 'yes')) { return @{ valid = $true; value = $true } }
     if (($s -ceq 'false') -or ($s -ceq '0') -or ($s -ceq 'no')) { return @{ valid = $true; value = $false } }
     return @{ valid = $false; value = $false }
+}
+
+function Convert-TaskKernelBudgetInt {
+    <#
+    .SYNOPSIS
+        Strict canonical-decimal parser for CLI budget/sequence inputs.
+        Accepts [int]/[long] in [Min, Max], or a STRING of 1-10 ASCII
+        digits parsed via [long]::TryParse (invariant culture, no styles)
+        so over-long inputs can never overflow: length is capped by the
+        regex, conversion is TryParse-guarded, and the caller's Min/Max
+        bounds the value ('2147483648' fails Max; '1000000'/'2147483647'
+        pass when Max allows). Rejects bool/float/decimal/non-strings,
+        blanks, signs, fractions and 11+ digit strings. Never throws.
+    #>
+    param($Raw, [int]$Min = 1, [int]$Max = 86400)
+    try {
+        if ($null -eq $Raw) { return @{ valid = $false; value = 0 } }
+        if ($Raw -is [bool]) { return @{ valid = $false; value = 0 } }
+        if ($Raw -is [double] -or $Raw -is [single] -or $Raw -is [decimal]) { return @{ valid = $false; value = 0 } }
+        if ($Raw -is [int] -or $Raw -is [long]) {
+            $n = [long]$Raw
+            if (($n -ge [long]$Min) -and ($n -le [long]$Max)) { return @{ valid = $true; value = [int]$n } }
+            return @{ valid = $false; value = 0 }
+        }
+        if (-not ($Raw -is [string])) { return @{ valid = $false; value = 0 } }
+        $s = ([string]$Raw).Trim()
+        if ($s -cnotmatch '^[0-9]{1,10}$') { return @{ valid = $false; value = 0 } }
+        $n = [long]0
+        $parsed = [long]::TryParse($s, [System.Globalization.NumberStyles]::None, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$n)
+        if (-not $parsed) { return @{ valid = $false; value = 0 } }
+        if (($n -ge [long]$Min) -and ($n -le [long]$Max)) { return @{ valid = $true; value = [int]$n } }
+        return @{ valid = $false; value = 0 }
+    }
+    catch { return @{ valid = $false; value = 0 } }
 }
 
 $result = $null
@@ -174,6 +224,11 @@ switch ($action) {
         if ([string]::IsNullOrWhiteSpace($rprof)) {
             if ([int]$RuntimeGeneration -eq 2) { $rprof = 'v2' } else { $rprof = 'v1' }
         }
+        $abConv = Convert-TaskKernelBudgetInt -Raw $AttemptBudget -Min 1 -Max 100
+        if (-not [bool]$abConv.valid) {
+            Write-TaskKernelCliError 'create: -AttemptBudget exige decimal canonico 1..100.'
+            exit 2
+        }
         $result = New-OrchestrationTask -TaskId $TaskId -Objective $Objective -TaskType $tt -Risk $rk `
             -ParentTaskId $ParentTaskId -TraceId $TraceId -OrchestrationDecision $OrchestrationDecision -Actor $Actor `
             -RuntimeId $rid -RuntimeGeneration ([int]$RuntimeGeneration) -RuntimeProfile $rprof -RuntimeVersion $RuntimeVersion `
@@ -182,7 +237,8 @@ switch ($action) {
             -AcceptanceCriteria (Split-TaskKernelCliList -Value $AcceptanceCriteria) `
             -ExpectedArtifacts (Split-TaskKernelCliList -Value $ExpectedArtifacts) `
             -EnvironmentAllowed (Split-TaskKernelCliList -Value $EnvironmentAllowed) `
-            -ProductionAuthorized ([bool]$ProductionAuthorized) -AttemptBudget ([int]$AttemptBudget) `
+            -ProductionAuthorized ([bool]$ProductionAuthorized) -AttemptBudget ([int]$abConv.value) `
+            -BudgetProfile $BudgetProfile -BudgetPolicyPath $BudgetPolicyPath `
             -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'get' {
@@ -299,6 +355,93 @@ switch ($action) {
         if (-not [string]::IsNullOrWhiteSpace($LeasesDir)) { $completeArgs['LeasesDir'] = $LeasesDir }
         if (-not [string]::IsNullOrWhiteSpace($CurrentBaseRevision)) { $completeArgs['CurrentBaseRevision'] = $CurrentBaseRevision }
         $result = Complete-OrchestrationTask @completeArgs
+    }
+    'get-budget' {
+        if ([string]::IsNullOrWhiteSpace($TaskId)) {
+            Write-TaskKernelCliError 'get-budget exige -TaskId.'
+            exit 2
+        }
+        $result = Get-OrchestrationTaskBudget -TaskId $TaskId -TasksDir $TasksDir -BudgetPolicyPath $BudgetPolicyPath
+    }
+    'start-attempt' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($AttemptRole) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Actor)) {
+            Write-TaskKernelCliError 'start-attempt exige -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $ids = $ActorIdentitySource
+        if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
+        $saArgs = @{
+            TaskId = $TaskId; AttemptRole = $AttemptRole; SessionId = $SessionId
+            Actor = $Actor; ExpectedRevision = ([int]$ExpectedRevision); ActorIdentitySource = $ids
+            BudgetPolicyPath = $BudgetPolicyPath; TasksDir = $TasksDir; FlagsPath = $FlagsPath
+        }
+        foreach ($rk in @('DebuggerEvidenceRefs', 'NewEvidenceRefs')) {
+            if ($PSBoundParameters.ContainsKey($rk)) {
+                $boundVal = $PSBoundParameters[$rk]
+                $refList = New-Object System.Collections.Generic.List[string]
+                $items = @()
+                if ($null -ne $boundVal) { $items = @($boundVal) }
+                foreach ($e in @($items)) {
+                    if (-not ($e -is [string]) -or [string]::IsNullOrWhiteSpace([string]$e)) {
+                        Write-TaskKernelCliError ('start-attempt: -{0} exige array de strings nao-vazias.' -f $rk)
+                        exit 2
+                    }
+                    $refList.Add([string]$e) | Out-Null
+                }
+                $saArgs[$rk] = [string[]]$refList.ToArray()
+            }
+        }
+        $result = Start-OrchestrationTaskAttempt @saArgs
+    }
+    'set-budget' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor)) {
+            Write-TaskKernelCliError 'set-budget exige -TaskId -Actor -ExpectedRevision (override e planner/kernel only).'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $ids = $ActorIdentitySource
+        if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
+        $sbArgs = @{
+            TaskId = $TaskId; Actor = $Actor; ExpectedRevision = ([int]$ExpectedRevision); ActorIdentitySource = $ids
+            BudgetPolicyPath = $BudgetPolicyPath; TasksDir = $TasksDir; FlagsPath = $FlagsPath
+        }
+        if ($PSBoundParameters.ContainsKey('BudgetProfile') -and (-not [string]::IsNullOrWhiteSpace($BudgetProfile))) {
+            $sbArgs['BudgetProfile'] = $BudgetProfile
+        }
+        foreach ($bk in @('BudgetStepBudget', 'BudgetWallSeconds', 'BudgetNoProgressSeconds')) {
+            if ($PSBoundParameters.ContainsKey($bk)) {
+                $raw = (Get-Variable -Name $bk -ValueOnly)
+                $conv = Convert-TaskKernelBudgetInt -Raw $raw -Min 1 -Max 86400
+                if (-not [bool]$conv.valid) {
+                    Write-TaskKernelCliError ('set-budget: -{0} exige decimal canonico 1..86400 (sem sinal, sem fracao).' -f $bk)
+                    exit 2
+                }
+                $sbArgs[$bk] = [int]$conv.value
+            }
+        }
+        $result = Set-OrchestrationTaskBudget @sbArgs
+    }
+    'planner-turn' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($PlannerTurnId) -or [string]::IsNullOrWhiteSpace($Actor)) {
+            Write-TaskKernelCliError 'planner-turn exige -TaskId -PlannerTurnId -UserInputSignal -UserInputSequence -Actor -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $ids = $ActorIdentitySource
+        if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
+        if (-not $PSBoundParameters.ContainsKey('UserInputSequence')) {
+            Write-TaskKernelCliError 'planner-turn exige -UserInputSequence decimal canonico >= 1 e crescente por task.'
+            exit 2
+        }
+        $seqConv = Convert-TaskKernelBudgetInt -Raw $UserInputSequence -Min 1 -Max 2147483647
+        if (-not [bool]$seqConv.valid) {
+            Write-TaskKernelCliError 'planner-turn: -UserInputSequence exige decimal canonico 1..2147483647 (sem sinal, sem fracao).'
+            exit 2
+        }
+        $result = Start-OrchestrationPlannerTurn -TaskId $TaskId -TurnId $PlannerTurnId -UserInputSignal $UserInputSignal -UserInputSequence ([int]$seqConv.value) `
+            -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) -ActorIdentitySource $ids `
+            -BudgetPolicyPath $BudgetPolicyPath -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
 }
 

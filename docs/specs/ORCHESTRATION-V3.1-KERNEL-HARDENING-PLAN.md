@@ -19,6 +19,8 @@ em `debug config/agents`, HOLD honesto), Phase 8 (smoke de binário V2 em
 CI) e ativação das flags. Estado vivo no `CHANGELOG.md [Unreleased]` e em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
+**Continuação (2026-09-30):** programa de confiabilidade **Phases 21–33** (runtime reliability, loop recovery, Jev MCP) em andamento **como especificação — não implementado**. Plano em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` (SPEC em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`, execução em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md`). Fases 0–20 acima preservadas sem alteração.
+
 ## 1. Delivery strategy
 
 This is an incremental compatibility + hardening program.
@@ -1007,3 +1009,15 @@ The implementation is complete only when:
 - Reviewer approves;
 - Security Reviewer has no unresolved high/critical finding;
 - release evidence lists exact tested versions and limitations.
+
+---
+
+## 26. Continuação — Reliability Phases 21–33 (não implementado)
+
+O programa de confiabilidade (bounded execution, watchdog, loop guard, Planner/subagent supervision, port preflight V2, MCP safety/circuit breaker, AI Memory remoto, Jev consultivo, lane E2E Windows V2, rollout) está especificado e planejado **fora deste plano**, sem reabrir as Phases 0–20:
+
+- SPEC: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` (critérios `RR-01`–`RR-20`, 20 itens de Definition of Done — todos pendentes).
+- Plano: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` (Phases 21–33 + constraints + Definition of Done final).
+- Execução: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md` (ordem de implementação, gates de Reviewer/Security Reviewer).
+
+Limites honestos: nenhum enforcement de watchdog/loop guard existe; nenhuma flag nova (`bounded_execution`, `watchdog`, `loop_guard`, `port_preflight`, `mcp_safety`, `jev_advisory`) foi criada; AI Memory permanece com listener local (migração para VPS planejada, não executada); roteamento MCP genérico segue desligado.
