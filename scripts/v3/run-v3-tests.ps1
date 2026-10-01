@@ -5,6 +5,9 @@
     Descobre suites deterministicamente (FullName alfabetico), executa cada
     uma isolada (powershell -NoProfile -File, timeout 300s/suite), coleta
     exit code + duracao e imprime PASS/FAIL/SKIP por suite + resumo final.
+    Filtro -Name com charset validado (fail-closed, exit 2): so seleciona
+    suites ja descobertas nos roots fixos, nunca resolve caminho nem executa
+    outro script. Sem match = exit 2.
     PS 5.1 compativel. Nao altera as suites.
     SKIP = suite que imprime [SKIP] e sai 0 (padrao P5: passed+skipped==total).
     Exit codes: 0 = nenhuma FAIL e nenhum erro interno (SKIP nao e fail); 1 = alguma suite EXECUTOU e falhou; 2 = falha do runner ou qualquer internal_error de infra (Process.Start lancou, log ilegivel/ausente). internal_error nunca vira FAIL.
@@ -40,7 +43,17 @@ try {
     [void]$all.Add($f)
   }
   $suites = @($all | Sort-Object { $_.FullName })
-  if (-not [string]::IsNullOrWhiteSpace($Name)) {
+  if ($Name.Length -gt 0) {
+    # Charset fechado: letras, digitos, ponto, traco, underscore, espaco e
+    # curingas * ?. Qualquer outro caractere e fail-closed (exit 2): o filtro
+    # so seleciona suites ja descobertas nos roots fixos acima, nunca resolve
+    # caminho, nunca executa outro script. \A...\z (nao $) para nao aceitar
+    # LF final; guard por Length (nao IsNullOrWhiteSpace) para whitespace-only
+    # tambem passar pelo filtro (e falhar fechado no sem-match abaixo).
+    if ($Name -notmatch '\A[A-Za-z0-9_\-\. \*\?]+\z') {
+      Write-Host ('RUNNER FAILED: filtro -Name invalido (permitido: letras, digitos, ponto, traco, underscore, espaco, curingas * ?): "' + $Name + '".') -ForegroundColor Red
+      exit 2
+    }
     $pat = $Name
     if ($pat -notmatch '[\*\?]') { $pat = '*' + $pat + '*' }
     $suites = @($suites | Where-Object { $_.Name -like $pat })

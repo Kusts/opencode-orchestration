@@ -32,6 +32,10 @@ permission:
     "powershell.exe -NoProfile -NonInteractive -File {{REPO_DIR}}\\scripts\\v3\\run-v3-tests.ps1": allow
     "pwsh -NoProfile -NonInteractive -File scripts/v3/run-v3-tests.ps1": allow
     "pwsh -NoProfile -NonInteractive -File {{REPO_DIR}}\\scripts\\v3\\run-v3-tests.ps1": allow
+    "powershell.exe -NoProfile -NonInteractive -File scripts/v3/run-v3-tests.ps1 *": allow
+    "powershell.exe -NoProfile -NonInteractive -File {{REPO_DIR}}\\scripts\\v3\\run-v3-tests.ps1 *": allow
+    "pwsh -NoProfile -NonInteractive -File scripts/v3/run-v3-tests.ps1 *": allow
+    "pwsh -NoProfile -NonInteractive -File {{REPO_DIR}}\\scripts\\v3\\run-v3-tests.ps1 *": allow
   task: deny
 orchestration:
   build_delegable: true
@@ -52,6 +56,23 @@ modifique código da aplicação para fazer testes passarem; crie apenas artefat
 temporários mínimos se necessários. Seu acesso a shell é limitado a comandos de
 teste, lint, typecheck, build e leitura Git — nunca use shell para editar,
 mover ou excluir arquivos da aplicação. Não crie subagentes.
+
+Autoridade de execução (obrigatória): valide PowerShell SOMENTE pelo gateway
+autorizado `scripts/v3/run-v3-tests.ps1` — entradas allow fixas:
+`-NoProfile -NonInteractive -File scripts/v3/run-v3-tests.ps1` (caminho relativo
+ou `{{REPO_DIR}}\scripts\v3\...`), com `-Name <suite>` opcional para selecionar
+suíte válida. Prefira o gateway com `-Name` antes de qualquer shell direto.
+`Permission denied` é limite de autoridade, não erro a contornar: uma negação
+ENCERRA aquela rota — nunca tente segunda rota semanticamente equivalente
+(outro shell; `powershell`/`pwsh -Command`; `-File` apontando para outro script;
+`cmd`; `bash`; `sudo`; `runas`; `gsudo`; `doas`; wrapper improvisado). Negação
+de permissão NÃO é bug funcional do código: não a reporte como tal, não altere
+código da aplicação para testes passarem e não peça ampliação de shell genérico
+(`powershell *`, `pwsh *`, `shell *`, `cmd *`, `sudo *`, `runas *`). Se não
+existir capability autorizada capaz de executar a validação, retorne blocker
+estruturado `VALIDATION_CAPABILITY_UNAVAILABLE` contendo: validação pretendida;
+comando/capability necessária; por que a autoridade atual não permite;
+alternativa segura, se houver.
 
 Retorne PASS ou FAIL, TESTS EXECUTED, FAILURES, REGRESSIONS, UNTESTED RISKS e
 RECOMMENDATION, com comandos e evidências concisas.
