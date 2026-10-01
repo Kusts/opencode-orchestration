@@ -13,6 +13,8 @@
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
+      watchdog-interrupt - Set-OrchestrationTaskWatchdogInterrupt (needs -TaskId -Actor -ExpectedRevision -WatchdogAttemptN -WatchdogClass; optional -WatchdogTelemetryFile)
+      watchdog-settle    - Confirm-OrchestrationTaskWatchdogSettlement (needs -TaskId -Actor -ExpectedRevision; idempotent)
       get-budget    - Get-OrchestrationTaskBudget (needs -TaskId; old records derive defaults read-only)
       start-attempt - Start-OrchestrationTaskAttempt (needs -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision; optional -DebuggerEvidenceRefs/-NewEvidenceRefs string arrays for retry-gated starts)
       set-budget    - Set-OrchestrationTaskBudget planner/kernel only (needs -TaskId -Actor -ExpectedRevision)
@@ -94,7 +96,10 @@ param(
     [string]$TasksDir = '',
     [string]$FlagsPath = '',
     [string]$LeasesDir = '',
-    [string]$CurrentBaseRevision = ''
+    [string]$CurrentBaseRevision = '',
+    $WatchdogAttemptN = $null,
+    [string]$WatchdogClass = '',
+    [string]$WatchdogTelemetryFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -152,9 +157,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle ...'
     exit 2
 }
 
@@ -442,6 +447,39 @@ switch ($action) {
         $result = Start-OrchestrationPlannerTurn -TaskId $TaskId -TurnId $PlannerTurnId -UserInputSignal $UserInputSignal -UserInputSequence ([int]$seqConv.value) `
             -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) -ActorIdentitySource $ids `
             -BudgetPolicyPath $BudgetPolicyPath -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'watchdog-interrupt' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($WatchdogClass)) {
+            Write-TaskKernelCliError 'watchdog-interrupt exige -TaskId -Actor -ExpectedRevision -WatchdogAttemptN -WatchdogClass HARD_TIMEOUT|NO_PROGRESS|REPEATED_ACTION|REPEATED_CYCLE.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        if (-not $PSBoundParameters.ContainsKey('WatchdogAttemptN')) {
+            Write-TaskKernelCliError 'watchdog-interrupt exige -WatchdogAttemptN decimal canonico 1..1000000.'
+            exit 2
+        }
+        $wdConv = Convert-TaskKernelBudgetInt -Raw $WatchdogAttemptN -Min 1 -Max 1000000
+        if (-not [bool]$wdConv.valid) {
+            Write-TaskKernelCliError 'watchdog-interrupt: -WatchdogAttemptN exige decimal canonico 1..1000000 (sem sinal, sem fracao).'
+            exit 2
+        }
+        $ids = $ActorIdentitySource
+        if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
+        $result = Set-OrchestrationTaskWatchdogInterrupt -TaskId $TaskId -AttemptN ([int]$wdConv.value) -Class $WatchdogClass `
+            -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) -TelemetryFile $WatchdogTelemetryFile -ActorIdentitySource $ids `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'watchdog-settle' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor)) {
+            Write-TaskKernelCliError 'watchdog-settle exige -TaskId -Actor -ExpectedRevision (idempotente).'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $ids = $ActorIdentitySource
+        if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
+        $result = Confirm-OrchestrationTaskWatchdogSettlement -TaskId $TaskId `
+            -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) -ActorIdentitySource $ids `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
 }
 

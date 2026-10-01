@@ -15,8 +15,9 @@ binário V2; evidência completa em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 Programa **V3.1 — Runtime Reliability, Loop Recovery & Jev MCP
-(Phases 21–33)** em andamento — **Phases 21–25 com estado consolidado
-(2026-10-01)**, Phases 26–33 não iniciadas (detalhes em
+(Phases 21–42)** em andamento — **Phases 21–25 com estado consolidado
+(2026-10-01)**, Phases 26–42 (programa revisado em 2026-10-01, que
+substitui o design anterior P26–P33) não iniciadas (detalhes em
 `evidence/v3.1/runtime-reliability/program-status.json`; especificação e
 plano em
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`,
@@ -69,10 +70,108 @@ plano em
   Security **APPROVED** (SEC3). Follow-ups documentados: lock
   cross-process, retenção multi-dia; interrupt real é Phase 26
   (não implementado).
+- **P26 slice 1 done-code-flag-off (hardened P26-FIX1 + P26-FIX2
+  + P26-FIX3 + P26-FIX4 + P26-FIX5 + P26-FIX6 re-review)** — caminho de ENFORCEMENT real do
+  RuntimeWatchdog com processos proprios no Windows
+  (`scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1`,
+  `evidence/v3.1/runtime-reliability/phase26.json`): binding opcional
+  de processo validado no registro com identidade EXATA de creation
+  time (tick equality, sem janela de tolerancia) e parentage
+  CIM-provada (CIM precisa suceder e o parent vivo precisa ser o
+  supervisor; valores declarados nunca sao prova; CIM
+  indisponivel/divergente registra SEM binding, advisory
+  `WATCHDOG_NO_PROCESS_IDENTITY`); o registro tambem captura
+  last_alive_proof e o conjunto vazio last_verified_tree: a prova e
+  o instante UTC coletado DURANTE a validacao — timestamp capturado
+  ANTES, vida confirmada DEPOIS com checagem explicita na mesma
+  instancia pinada (`HasExited -eq $false`; vivo-depois implica
+  vivo-na-captura); sem vida confirmada nao ha prova e a validacao
+  falha fechado (devolvido como `proof_at` so com vida confirmada,
+  sem fallback now() em nenhum ponto: registro sem prova =>
+  INVALID, ownership sem prova => REFUSED `proof-unavailable` mesmo
+  com identidade e parentesco ok, gone-path sem prova => REFUSED);
+  o refresh no Invoke usa o `proof_at` do ownership bem-sucedido;
+  o conjunto atualiza a cada arvore bem-sucedida;
+  interrupcao segura com ownership
+  re-verificada imediatamente antes de qualquer kill (divergencia ou
+  fato nao-provavel => `WATCHDOG_INTERRUPT_REFUSED`, PIDs
+  desconhecidos nunca mortos); pre-checagem, Kill e WaitForExit
+  operam SEMPRE no HANDLE PINADO da instancia verificada (fixado no
+  primeiro acesso; PS5.1 e PS7 cacheiam o handle, sem re-resolucao
+  por PID em nenhum ponto; acesso negado ao handle => falha de
+  inspecao, nunca kill); ownership explicito de handles: toda
+  instancia fixada e nao transferida ao caller e descartada
+  deterministicamente (choke de dispose com contador diagnostico:
+  excluidos, recusas, preparacao abortada, registro/ownership
+  recusados);
+  ausencia provada vs falha de inspecao distinguidas
+  (falha de inspecao => `WATCHDOG_INTERRUPT_FAILED` com settlement
+  PENDING, nunca SETTLED); kill em duas fases cobre raiz +
+  descendentes verificados via snapshot CIM com identidade por
+  geracao (fronteira pid+ticks, nunca PID nu; linha CIM do ancestral
+  correlacionada com a instancia fixada; filho claramente mais velho
+  que o ancestral e prova de NAO-descendencia => excluido do kill
+  set, transitivo, contado em `tree_excluded` com o token fechado
+  `WATCHDOG_TREE_EXCLUDED`, nunca falha da op; faixa ambigua falha
+  fechado sem matar); no gone-path, liquidacao restrita a atribuicao
+  PROVAVEL a geracao registrada (identidades exatas do ultimo
+  conjunto verificado, ou criacao <= lastAliveProof; mais novo =>
+  EXCLUDED, nunca morto — fecha a janela PID-reutilizado entre a
+  ausencia observada e o snapshot); caps fail-closed de
+  profundidade (32) e nos (64) com fronteira pendente =>
+  `WATCHDOG_TREE_LIMIT_EXCEEDED`, nada morto, nunca settled,
+  settlement REFUSED; raiz ja salida nao abandona o conjunto
+  verificado/atribuido (mata/aguarda todos; `ALREADY_EXITED`
+  so apos o exit do conjunto inteiro; falha => FAILED com PENDING);
+  deadline compartilhado cobre a preparacao, e transportado a cada
+  stop e re-checado antes de QUALQUER terminalizacao nos DOIS caminhos
+  (inclusive o ramo vazio do gone-path): checagem na entrada do nivel,
+  apos cada enumeracao, a cada candidato, antes do primeiro kill, antes
+  de cada stop, antes de terminalizar e revalidado imediatamente antes
+  de qualquer persistencia terminal, inclusive apos a escrita
+  (bloqueante) de telemetria; pos-prazo com kills => FAILED
+  com settlement PENDING parcial e evidencia preservada (`partial`,
+  `killed_count`, nunca terminal — chamada posterior retoma o restante);
+  pos-prazo sem kills => `WATCHDOG_DEADLINE_EXCEEDED`; sem Job Objects
+  (BLOCKER conhecido da P22, follow-up); settlements terminais
+  (SETTLED/ALREADY_EXITED) centralizados e idempotentes por qualquer
+  entrada (sem degradacao); seam `-FaultInject` de enum fechado, default ausente,
+  test-only (+ overrides test-only de snapshot/parentesco/atraso/
+  ambiguidade, `null` em producao); kernel fail-closed (transicao
+  generica para CANCELLED/EXHAUSTED e auto-exaustao via worker-result
+  exigem settlement; helper malformado/excecao nunca le como livre);
+  seam minimo no kernel (`Set-/Confirm-OrchestrationTaskWatchdogSettlement`,
+  `SETTLEMENT_REQUIRED` em complete/cancel, CLI
+  `watchdog-interrupt`/`watchdog-settle`); flag
+  `watchdog{enabled:false, shadow:true}` **inalterada**; registro sem
+  binding em ENFORCE mantem o HOLD honesto P25. Suite nova **339/339**
+  (PS5.1 + PS7, so filhos efemeros proprios; TODOS os cenarios de
+  risco sob harness de deadline real via Start-Job/Wait-Job-Timeout
+  — hung, CLI, arvore, fail-closed — com aborto provado; cenarios
+  rapidos com Stopwatch; refusal/injecao de falha via seam;
+  readiness-wait anti-race .NET Core); regressoes:
+  watchdog **80/80** (PS5.1 + PS7), kernel **75/75** (PS5.1; PS7 74/75
+  com 1 falha pre-existente, caminho so de leases, sem codigo
+  watchdog envolvido), consistencia **16/16**.
+  Residuais honestos: spawn pos-snapshot escapa; orfao de filho
+  morto antes do snapshot escapa; over-exclusao conservadora no
+  gone-path (nascido entre a ultima prova e a morte escapa);
+  UMA chamada CIM individual fica sob os timeouts do WMI;
+  transiente CIM/WMI sob carga falha fechado (REFUSED/
+  DEADLINE_EXCEEDED, direcao segura) sem retry — 1 ocorrencia
+  observada no cenario 25 do FIX2 sob carga paralela, verde no
+  re-run solo e no PS7; conhost transitorio sob pwsh drenado nos
+  testes gone-empty (somente imagem conhost, limitado); lock
+  in-process; ator/fonte sao strings do chamador, sem autenticacao
+  de processo. Variante substituto-PID da janela validacao→gravacao:
+  coberta indiretamente (fail-closed de prova ausente + identidades
+  exatas do conjunto verificado); sem teste direto do substituto.
+  HOLDs: ativacao da flag e decisao humana; interrupt de sessao V2
+  nativa e step budget nativo seguem HOLD.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;
-roteamento MCP genérico segue desligado; critérios `RR-01`–`RR-20`
+roteamento MCP genérico segue desligado; critérios `PAE-01`–`PAE-40`
 seguem pendentes onde não cobertos acima. Programa **não** concluído.
 
 ### Added
@@ -166,9 +265,12 @@ seguem pendentes onde não cobertos acima. Programa **não** concluído.
 
 ### Pendente (não implementado)
 
-- **Phases 26–33 (runtime reliability)** — não iniciadas: loop guard,
-  enforcement de budgets, circuit breaker, Jev advisory,
-  AI Memory remoto e E2E de stall/recovery. HOLDs explícitos: (d)
+- **Phases 26–42 (runtime reliability)** — não iniciadas: watchdog
+  enforcement, recovery/typed waits, MCP safety, Jev advisory,
+  AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler,
+  execution modes, evidence reuse, validação adaptativa, simplicidade,
+  planner loop, capability doctor, V2 native, evolution e E2E/release.
+  HOLDs explícitos: (d)
   `execute.before` sem via sem-modelo provada, evento `updated` não
   observado, `REUSE` de porta em produção e ativação de qualquer flag.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,

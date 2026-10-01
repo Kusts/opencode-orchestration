@@ -1,7 +1,8 @@
 {
   "record": "v3.1-runtime-reliability-program-status",
   "date": "2026-10-01",
-  "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-33)",
+  "revision": "2026-10-01 (P26–P42 substitui design P26–P33; PAE-01–PAE-40 substitui RR-01–RR-20)",
+  "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-42)",
   "program_concluded": false,
   "spec_addenda": [
     "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md",
@@ -146,6 +147,25 @@
         "lock cross-process: telemetria usa lock in-process; concorrencia cross-process e follow-up documentado (single-writer assumido)",
         "retencao multi-dia: JSONL do watchdog com cap de rotacao; retencao alem do cap e follow-up documentado"
       ]
+    },
+    "phase26_watchdog_enforcement_slice1": {
+      "status": "done-code-flag-off",
+      "task_id": "RR-P26-S1-WATCHDOG-ENFORCEMENT (+FIX1..FIX6)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase26.json",
+      "summary": "Caminho de ENFORCEMENT real do RuntimeWatchdog implementado (flag watchdog {enabled:false,shadow:true} INALTERADA; ativacao e decisao humana): binding de processo com identidade exata pid+creation-ticks e prova de vida coletada na validacao (captura antes, confirmacao HasExited depois, sem fallback now); interrupcao segura somente com ownership verificada (WATCHDOG_INTERRUPT_REFUSED caso contrario; PIDs desconhecidos nunca mortos, PAE-08); kill/wait pelo handle pinado da instancia verificada; arvore via snapshot CIM com caps de profundidade/nos fail-closed (WATCHDOG_TREE_LIMIT_EXCEEDED), exclusao provada de nao-descendentes (WATCHDOG_TREE_EXCLUDED) e atribuicao no gone-path restrita a identidades exatas ou criacao<=prova de vida; deadline cobre preparacao, cada stop, pos-telemetria e antes de qualquer terminalizacao (pos-prazo => FAILED/PENDING parcial retomavel, nunca terminal); falha de inspecao != ausencia (WATCHDOG_INTERRUPT_FAILED); seam minima no kernel (SETTLEMENT_REQUIRED em complete/cancel/transicoes terminais/auto-exhaust; CLI watchdog-interrupt/watchdog-settle).",
+      "suites": [
+        "OrchestrationRuntimeWatchdogEnforcement.tests.ps1 339/339 PASS (PS5.1 + PS7, so filhos efemeros proprios)",
+        "watchdog P25 pre-existente 80/80 (PS5.1 + PS7)",
+        "kernel pre-existente 75/75 PS5.1 (PS7 74/75 com ownership_conflict pre-existente em HEAD limpo, caminho leases-only)",
+        "test-package-consistency.ps1 16/16; git diff --check limpo nos arquivos do slice"
+      ],
+      "reviews": "Reviewer APPROVED + Security Reviewer APPROVED no FIX6 (6 rounds de correcao: FIX1..FIX6 com findings de review/seguranca resolvidos e revalidados a cada round)",
+      "holds": [
+        "flag watchdog permanece {enabled:false,shadow:true}; ativacao exige decisao humana com evidencia",
+        "interrupt de sessao V2 nativa (runtime API) nao implementado neste slice (prova P24 e presenca, nao enforcement)",
+        "sem Job Objects (BLOCKER conhecido da P22): spawn pos-snapshot e orfao de filho morto antes do snapshot escapam; over-exclusao conservadora no gone-path; variante substituto-PID sem teste direto (coberta indiretamente por fail-closed de prova ausente + identidades exatas)",
+        "chamada CIM individual sob timeout do WMI; lock de telemetria in-process; ator/fonte sao strings declaradas pelo chamador (sem autenticacao de processo)"
+      ]
     }
   },
   "reviews": {
@@ -154,7 +174,7 @@
     "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED)"
   },
   "not_started": {
-    "phases_26_33": "nao iniciadas (loop guard, budgets enforcement, circuit breaker, Jev advisory, AI Memory remoto, E2E stall/recovery). Criterios RR-01-RR-20 seguem pendentes onde nao cobertos acima.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, loop guard, safe interruption) concluído como done-code-flag-off em 2026-10-01 (PAE-01/02/03/04/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26 e P27–P42 não iniciados (programa revisado 2026-10-01: recovery/typed waits, MCP safety, Jev advisory, AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",

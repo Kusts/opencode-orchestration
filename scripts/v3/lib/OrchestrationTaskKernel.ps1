@@ -1180,6 +1180,9 @@ function Invoke-OrchestrationTaskTransition {
         if ((@('IMPLEMENTING', 'VALIDATING', 'REVIEWING') -ccontains $to) -and (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource))) {
             return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
         }
+        if ((Test-TaskKernelTerminalState -State $to) -and (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec))) {
+            return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
+        }
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
@@ -1330,6 +1333,9 @@ function Set-OrchestrationTaskWorkerResult {
             }
             $rec['attempts'] = $attempts
             if (($n -ge $budget) -and (-not [bool]$NewEvidence)) {
+                if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
+                    return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
+                }
                 $hist = @()
                 if ($null -ne $rec['history']) { $hist = @($rec['history']) }
                 $hist += [ordered]@{
@@ -1710,6 +1716,9 @@ function Cancel-OrchestrationTask {
         if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
             return (New-TaskKernelError -Code 'CAS_CONFLICT')
         }
+        if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
+            return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
+        }
         $owner = ([string]$rec['current_owner']).Trim()
         if (($actor -cne $owner) -and (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource))) {
             return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
@@ -1742,6 +1751,232 @@ function Cancel-OrchestrationTask {
         }
         $null = Send-TaskKernelTelemetry -EventType 'TASK_CANCELLED' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
         return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; state = 'CANCELLED' }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+# ---------- watchdog settlement seam (Phase 26) ----------
+
+function Test-TaskKernelWatchdogSettlementClear {
+    <#
+    .SYNOPSIS
+        Fail-closed settlement gate (Phase 26, hardened P26-FIX1 F7).
+        Returns $true ONLY when no watchdog interrupt is pending
+        settlement: the watchdog_interrupt node is ABSENT, or it is a
+        well-formed dict whose engaged flag is a $false bool, or whose
+        engaged=$true bool pairs with a settled=$true bool. EVERYTHING
+        else blocks: null/non-dict record, present-but-null/non-dict
+        node, missing/non-bool engaged/settled flags, engaged without
+        confirmed settlement, and any inspection exception. A malformed
+        node NEVER reads as 'free'. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record)
+    try {
+        if (($null -eq $Record) -or (-not ($Record -is [System.Collections.IDictionary]))) { return $false }
+        if (-not $Record.Contains('watchdog_interrupt')) { return $true }
+        $node = $Record['watchdog_interrupt']
+        if (($null -eq $node) -or (-not ($node -is [System.Collections.IDictionary]))) { return $false }
+        if (-not $node.Contains('engaged')) { return $false }
+        $rawEngaged = $node['engaged']
+        if (-not ($rawEngaged -is [bool])) { return $false }
+        if (-not [bool]$rawEngaged) { return $true }
+        if (-not $node.Contains('settled')) { return $false }
+        $rawSettled = $node['settled']
+        if (-not ($rawSettled -is [bool])) { return $false }
+        return ([bool]$rawSettled)
+    }
+    catch { return $false }
+}
+
+function Set-OrchestrationTaskWatchdogInterrupt {
+    <#
+    .SYNOPSIS
+        Records a watchdog interrupt engagement on the task record
+        (Phase 26 seam): attempt_n + closed-class token + telemetry FILE
+        reference (leaf name only, never content) + engaged mark with
+        settled=$false. A pending (engaged, unsettled) mark blocks
+        Complete/Cancel with SETTLEMENT_REQUIRED until
+        Confirm-OrchestrationTaskWatchdogSettlement runs. Re-engaging
+        while a mark is pending returns WATCHDOG_ALREADY_ENGAGED without
+        mutation; engaging after settlement starts a fresh mark. Planner/
+        build + trusted identity + CAS + lock. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        $AttemptN = $null,
+        [Parameter(Mandatory = $true)][string]$Class,
+        [Parameter(Mandatory = $true)][string]$Actor,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$TelemetryFile = '',
+        [string]$ActorIdentitySource = 'unknown',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        if (-not (Test-ExecutionBudgetInt -Value $AttemptN -Min 1 -Max 1000000)) {
+            return (New-TaskKernelError -Code 'INVALID_ATTEMPT')
+        }
+        $cls = ([string]$Class).Trim().ToUpperInvariant()
+        if (($cls -cne 'HARD_TIMEOUT') -and ($cls -cne 'NO_PROGRESS') -and ($cls -cne 'REPEATED_ACTION') -and ($cls -cne 'REPEATED_CYCLE')) {
+            return (New-TaskKernelError -Code 'INVALID_WATCHDOG_CLASS')
+        }
+        $actor = ([string]$Actor).Trim()
+        if ([string]::IsNullOrWhiteSpace($actor)) {
+            return (New-TaskKernelError -Code 'INVALID_ACTOR')
+        }
+        $actorLow = $actor.ToLowerInvariant()
+        if (($actorLow -cne 'planner') -and ($actorLow -cne 'build')) {
+            return (New-TaskKernelError -Code 'BUDGET_WIDEN_DENIED' -Extra @{ detail = 'watchdog interrupt mark is planner/kernel only' })
+        }
+        if (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource)) {
+            return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
+        }
+        $leaf = ([string]$TelemetryFile).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($leaf)) {
+            try { $leaf = Split-Path -Leaf $leaf } catch { }
+            $leaf = ([string]$leaf).Trim()
+            if ($leaf.Length -gt 256) { $leaf = $leaf.Substring(0, 256) }
+        }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+            return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+        }
+        if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
+            return (New-TaskKernelError -Code 'WATCHDOG_ALREADY_ENGAGED')
+        }
+        $newRev = ([int]$rec['revision'] + 1)
+        $rec['watchdog_interrupt'] = [ordered]@{
+            engaged        = $true
+            attempt_n      = [int][long]$AttemptN
+            class          = $cls
+            telemetry_file = (Protect-TaskKernelText -Text $leaf)
+            engaged_at     = (Get-TaskKernelTimestamp)
+            engaged_by     = (Protect-TaskKernelText -Text $actor)
+            settled        = $false
+            settled_at     = ''
+        }
+        $rec['revision'] = $newRev
+        $rec['updated_at'] = (Get-TaskKernelTimestamp)
+        $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+        if (-not [bool]$wr.ok) {
+            return (New-TaskKernelError -Code ([string]$wr.error))
+        }
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; watchdog_engaged = $true; class = $cls }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Confirm-OrchestrationTaskWatchdogSettlement {
+    <#
+    .SYNOPSIS
+        Confirms post-interrupt settlement (Phase 26 seam): flips a
+        pending watchdog_interrupt mark to settled=$true so release/
+        complete may proceed. Idempotent: repeats and confirms on a
+        never-engaged record succeed without mutation. Planner/build +
+        trusted identity + CAS + lock. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string]$Actor,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$ActorIdentitySource = 'unknown',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $actor = ([string]$Actor).Trim()
+        if ([string]::IsNullOrWhiteSpace($actor)) {
+            return (New-TaskKernelError -Code 'INVALID_ACTOR')
+        }
+        $actorLow = $actor.ToLowerInvariant()
+        if (($actorLow -cne 'planner') -and ($actorLow -cne 'build')) {
+            return (New-TaskKernelError -Code 'BUDGET_WIDEN_DENIED' -Extra @{ detail = 'watchdog settlement confirm is planner/kernel only' })
+        }
+        if (-not (Test-OrchestrationActorIdentitySource -Source $ActorIdentitySource)) {
+            return (New-TaskKernelError -Code 'UNTRUSTED_IDENTITY')
+        }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+            return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+        }
+        if (Test-TaskKernelWatchdogSettlementClear -Record $rec) {
+            return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); watchdog_settled = $true; noop = $true }
+        }
+        $node = $rec['watchdog_interrupt']
+        if (($null -eq $node) -or (-not ($node -is [System.Collections.IDictionary]))) {
+            return (New-TaskKernelError -Code 'MALFORMED')
+        }
+        $node['settled'] = $true
+        $node['settled_at'] = (Get-TaskKernelTimestamp)
+        $newRev = ([int]$rec['revision'] + 1)
+        $rec['revision'] = $newRev
+        $rec['updated_at'] = (Get-TaskKernelTimestamp)
+        $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+        if (-not [bool]$wr.ok) {
+            return (New-TaskKernelError -Code ([string]$wr.error))
+        }
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; watchdog_settled = $true }
         }
         finally {
             Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
@@ -1999,6 +2234,9 @@ function Test-OrchestrationTaskCompletion {
         if ($rr.Count -eq 0 -and -not [bool]$AcceptEmptyResidualRisks) {
             $reasons.Add('residual-risks-not-recorded') | Out-Null
         }
+        if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
+            $reasons.Add('watchdog-settlement-pending') | Out-Null
+        }
     }
     catch { $reasons.Add('internal-error') | Out-Null }
     $arr = ([string[]]$reasons.ToArray())
@@ -2010,6 +2248,8 @@ function Complete-OrchestrationTask {
     .SYNOPSIS
         The ONLY writer of state DONE. Fails closed with
         COMPLETION_GATE_FAILED + reasons when the gate does not pass.
+        A pending watchdog interrupt without confirmed settlement fails
+        closed with SETTLEMENT_REQUIRED (Phase 26 seam) before the gate.
     #>
     [CmdletBinding()]
     param(
@@ -2058,6 +2298,9 @@ function Complete-OrchestrationTask {
         $rec = $slot.record
         if ([int]$rec['revision'] -ne [int]$ExpectedRevision) {
             return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
+            return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
         }
         $from = ([string]$rec['state']).Trim().ToUpperInvariant()
         if (Test-TaskKernelTerminalState -State $from) {
