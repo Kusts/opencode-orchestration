@@ -1,0 +1,55 @@
+﻿{
+    "phase":  27,
+    "date":  "2026-10-01",
+    "status":  "done-code-fix3",
+    "lib":  "scripts/v3/lib/OrchestrationTaskKernel.ps1",
+    "cli":  "scripts/v3/task-kernel.ps1",
+    "suite":  "scripts/v3/lib/OrchestrationRecovery.tests.ps1",
+    "suite_counts":  {
+                         "ps51":  "61/61",
+                         "ps7":  "61/61"
+                     },
+    "acceptance":  {
+                       "c01_recovery_fingerprint_stable":  "PASS (lexical variants share one strategy fingerprint; reworded failure detail keeps one recovery fingerprint; attempts still count n=1,2)",
+                       "c02_stall_rejected":  "PASS (same strategy without evidence =\u003e STALLED_STRATEGY_REJECTED, bytes unchanged; same strategy with fresh evidence refs opens)",
+                       "c03_different_strategy_allowed":  "PASS (materially different approach opens with a new recorded fingerprint)",
+                       "c04_debugger_required":  "PASS (novelty without debugger trace after second failure =\u003e DEBUGGER_REQUIRED, bytes unchanged; with trace it opens; kernel records the requirement, dispatches nobody)",
+                       "c05_exhausted":  "PASS (third start without novelty =\u003e EXHAUSTED persisted; EXHAUSTED stays terminal)",
+                       "c06_typed_human_wait":  "PASS (human_decision/user/choose_database accepted, fingerprint matches pure helper, active_wait persisted)",
+                       "c07_typed_external_wait":  "PASS (external_dependency with dependency_id accepted; id is part of the fingerprint)",
+                       "c08_declared_invalid_rejected":  "PASS (declared wait with empty action and unknown type =\u003e WAIT_TYPED_REQUIRED, state IMPLEMENTING untouched, bytes unchanged; real prose-only rejection is the strict per-task gate in c15)",
+                       "c09_duplicate_active_work":  "PASS (same objective+scope+DoD+project on active task =\u003e DUPLICATE_ACTIVE_WORK with existing_task_id, second file never created, never merged)",
+                       "c10_distinct_scope_creates":  "PASS (same objective/DoD/project with distinct scope creates normally)",
+                       "c11_reblock_idempotent":  "PASS (same wait fingerprint re-block ok with idempotent flag, revision unchanged, single blocker entry)",
+                       "c12_legacy_readable":  "PASS (hand-written record without new keys reads, transitions, fails, and restarts; attempt strategy fields default empty)",
+                       "c13_novelty_opens_third":  "PASS (new strategy + evidence + debugger trace opens attempt_n 3, no EXHAUSTED)",
+                       "c14_unblock_needs_ref":  "PASS (bare unblock =\u003e UNBLOCK_REF_REQUIRED, still BLOCKED; fingerprint ref unblocks and archives wait; concrete-action unblock works)",
+                       "c15_strict_task_prose_rejected":  "PASS (F-A: require_typed_waits task rejects prose-only BLOCKED on block and transition paths, bytes unchanged; typed wait accepted; strict unblock still needs ref; legacy task keeps the prose lane)",
+                       "c16_concurrent_dedupe_atomic":  "PASS (F-B: two parallel jobs with distinct ids and one work fingerprint yield exactly one winner and one DUPLICATE_ACTIVE_WORK under a real external deadline)",
+                       "c17_framing_no_collisions":  "PASS (F-C: single scope item with comma differs from two items; pipe inside objective cannot shift fields; equivalent inputs still share the fingerprint)",
+                       "c18_evidence_replay":  "PASS (F-D: replay of a used evidence ref is not novelty (STALLED, bytes unchanged); an unseen ref opens)",
+                       "c19_strategy_binding":  "PASS (F-E: fieldless result inherits the attempt-bound strategy; divergent worker fingerprint =\u003e STRATEGY_MISMATCH, bytes unchanged)",
+                       "c20_novelty_auth_consumed":  "PASS (F-F: third attempt opened with novelty records candidate_pass without artificial switches)",
+                       "c21_malformed_wait":  "PASS (F-G: corrupt active_wait (invalid type) blocks unblock and re-block with MALFORMED_WAIT, state BLOCKED, bytes unchanged)",
+                       "c22_fix2_session_binding":  "PASS (historical refs do not clobber requested session_id; same session+role stays idempotent via pre-gate fast path)",
+                       "c23_fix2_consumed_refs":  "PASS (kernel-owned consumed_evidence_refs under same CAS+lock; replay of consumed ref alone rejected STALLED/EXHAUSTED; mixed consumed+fresh opens)",
+                       "c24_fix2_inherited_strategy":  "PASS (strategy-less aware start inherits lastFp+descriptor and binds non-empty fp; bare candidate_pass records without ATTEMPT_GATE_FAILED)",
+                       "c25_fix2_bound_hypothesis":  "PASS (aware attempts persist bound hypothesis kernel-owned; divergent worker hypothesis quarantined in worker_hypothesis; omitted inherits bound)",
+                       "c26_fix3_request_equivalence":  "PASS (same session with changed strategy/hypothesis/evidence refs is re-authorized, never idempotent; invalid fingerprint gets INVALID_STRATEGY_FINGERPRINT without write; byte-identical retry stays idempotent with session binding intact)"
+                   },
+    "regressions":  {
+                        "git_diff_check":  "clean (only owned files: kernel lib + CLI + new suite + CHANGELOG + phase27.json; capability-flags.json and all pre-existing test files without diff)",
+                        "package_consistency":  "16/16 powershell 5.1",
+                        "task_kernel":  "75/75 PS5.1; PS7 74/75 with ONE pre-existing failure (foreign active lease ownership_conflict on the leases-only path, no recovery code involved; same as phase26 baseline)",
+                        "execution_budget":  "117/117 PS5.1 + 117/117 PS7 (legacy start-attempt/record-result gates byte-identical when no strategy fields or no P27 authorization marker are present)",
+                        "cli_smoke":  "manual CLI pass: strict create ok, strict prose block WAIT_TYPED_REQUIRED exit 1, strict typed block exit 0, check-duplicate true exit 0"
+                    },
+    "flags_activated":  "",
+    "flags_shadow":  [
+                         "task_kernel",
+                         "watchdog",
+                         "bounded_execution"
+                     ],
+    "holds":  "no flag changed (capability-flags.json untouched); Debugger dispatch stays a Planner decision (kernel only records/requires); full typed-only BLOCKED stays opt-in per task (require_typed_waits, default off); Planner/prompt wiring out of this slice",
+    "gaps":  "canonical fingerprints are lexical len:value-framed (real synonyms are NOT canonical and yield distinct fingerprints); dedupe scan-then-create is serialized under a tasks-dir WORKDEDUPE interprocess lock (creation itself stays CreateNew-atomic); dedupe still requires project identity (without project the fingerprint is recorded but create is never refused, preserving legacy callers); evidence refs are Planner-attested identities compared after trim (existence/freshness of the underlying evidence is NOT verified); wait owner is a declared string (unblock reference is NOT human-approval enforcement); changed_from_previous is false on the first attempt (no previous to differ from); EXHAUSTED-on-stale fires on the start-attempt path only, worker-result keeps its budget-based auto-exhaust widened only by consumed P27 novelty authorization"
+}

@@ -54,6 +54,13 @@
       - Reuses CapabilitySchema (ConvertTo-DeterministicJson, Get-LogicalHash)
         and OrchestrationPreflight (Test-OrchestrationDoneCompliance verdict
         strings) by dot-sourcing; never duplicates them.
+      - Phase 27 slice 1 (kernel-side): optional strategy/recovery fields
+        on failed attempts with canonical SHA-256 fingerprints (strategy,
+        recovery, typed wait, work unit); stall gates on attempt start
+        (STALLED_STRATEGY_REJECTED, DEBUGGER_REQUIRED, EXHAUSTED);
+        typed BLOCKED waits with idempotent re-block and referenced
+        unblock; active-work dedupe (DUPLICATE_ACTIVE_WORK, never merge).
+        Legacy calls/records without the new fields behave as before.
 
     PowerShell 5.1 compatible. ASCII-only. Expected domain errors are
     returned as result objects ({ok:$false, error:'CODE'}), never thrown.
@@ -891,6 +898,8 @@ function New-OrchestrationTask {
         [string]$ParentTaskId = '',
         [string]$TraceId = '',
         [string]$OrchestrationDecision = '',
+        [string]$Project = '',
+        [switch]$RequireTypedWaits,
         [string]$Actor = '',
         [string]$RuntimeId = 'opencode-v1',
         [int]$RuntimeGeneration = 1,
@@ -978,6 +987,13 @@ function New-OrchestrationTask {
         if (-not [bool]$artifacts.valid) { return (New-TaskKernelError -Code 'INVALID_ARTIFACTS') }
         $envAllowed = Get-TaskKernelCleanList -Value $EnvironmentAllowed
         if (-not [bool]$envAllowed.valid) { return (New-TaskKernelError -Code 'INVALID_ENVIRONMENTS') }
+        $projectCanon = Get-TaskKernelCanonicalText -Text ([string]$Project)
+        $scopeAll = @(@($reads.items) + @($writes.items))
+        $workSlot = Get-OrchestrationWorkFingerprint -Objective $objective -Scope $scopeAll -DefinitionOfDone ([string[]]$criteria.items) -Project ([string]$Project)
+        if (-not [bool]$workSlot.ok) {
+            return (New-TaskKernelError -Code ([string]$workSlot.error))
+        }
+        $workFp = ([string]$workSlot.fingerprint)
 
         $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($taskFile)) {
@@ -986,6 +1002,16 @@ function New-OrchestrationTask {
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
+        $dedupeLock = $null
+        if (-not [string]::IsNullOrWhiteSpace($projectCanon)) {
+            $dedupeAnchor = $taskFile
+            try { $dedupeAnchor = Join-Path (Split-Path -Parent $taskFile) 'WORKDEDUPE' } catch { $dedupeAnchor = $taskFile }
+            $dedupeLock = Enter-TaskKernelFileLock -TaskFile $dedupeAnchor
+            if (-not [bool]$dedupeLock.acquired) {
+                return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+            }
+        }
+        try {
         $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
         if (-not [bool]$lock.acquired) {
             return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
@@ -994,12 +1020,19 @@ function New-OrchestrationTask {
             if (Test-Path -LiteralPath $taskFile -PathType Leaf) {
                 return (New-TaskKernelError -Code 'ALREADY_EXISTS')
             }
+            if (-not [string]::IsNullOrWhiteSpace($projectCanon)) {
+                $dup = Get-OrchestrationDuplicateWork -WorkFingerprint $workFp -TasksDir $TasksDir -RepoRoot $RepoRoot -ExcludeTaskId $tid
+                if ([bool]$dup.found) {
+                    return (New-TaskKernelError -Code 'DUPLICATE_ACTIVE_WORK' -Extra @{ existing_task_id = ([string]$dup.existing_task_id) })
+                }
+            }
             $objective = Protect-TaskKernelText -Text $objective
             $criteriaItems = Protect-TaskKernelStringList -Items ([string[]]$criteria.items)
             $artifactItems = Protect-TaskKernelStringList -Items ([string[]]$artifacts.items)
             $taskTypeSafe = Protect-TaskKernelText -Text $taskType
             $parentSafe = Protect-TaskKernelText -Text (([string]$ParentTaskId).Trim())
             $traceSafe = Protect-TaskKernelText -Text (([string]$TraceId).Trim())
+            $projectSafe = Protect-TaskKernelText -Text (([string]$Project).Trim())
             $decisionSafe = Protect-TaskKernelText -Text (([string]$OrchestrationDecision).Trim())
             $actorSafe = Protect-TaskKernelText -Text $actor
             $runtimeIdSafe = Protect-TaskKernelText -Text (([string]$RuntimeId).Trim())
@@ -1078,6 +1111,11 @@ function New-OrchestrationTask {
             blockers                  = @()
             residual_risks            = @()
             closure_reason            = ''
+            project                   = $projectSafe
+            work_fingerprint          = $workFp
+            require_typed_waits       = [bool]$RequireTypedWaits
+            active_wait               = $null
+            wait_history              = @()
             compliance_verdict        = ''
             worktree                  = ''
             history                   = @()
@@ -1093,6 +1131,12 @@ function New-OrchestrationTask {
         }
         finally {
             Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+        }
+        finally {
+            if ($null -ne $dedupeLock) {
+                Exit-TaskKernelFileLock -Handle $dedupeLock.handle -LockFile $dedupeLock.lockFile
+            }
         }
     }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
@@ -1128,6 +1172,12 @@ function Invoke-OrchestrationTaskTransition {
         [Parameter(Mandatory = $true)][int]$ExpectedRevision,
         [string]$Reason = '',
         [string]$ActorIdentitySource = 'unknown',
+        [string]$WaitType = '',
+        [string]$WaitOwner = '',
+        [string]$WaitAction = '',
+        [string]$WaitDependencyId = '',
+        [string]$WaitFingerprint = '',
+        [string]$UnblockAction = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
@@ -1186,6 +1236,37 @@ function Invoke-OrchestrationTaskTransition {
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
+        $waitDeclared = Test-TaskKernelWaitDeclared -Type $WaitType -Owner $WaitOwner -Action $WaitAction -DependencyId $WaitDependencyId
+        $typedWait = $null
+        if (($to -ceq 'BLOCKED') -and $waitDeclared) {
+            $wslot = New-TaskKernelTypedWait -Type $WaitType -Owner $WaitOwner -Action $WaitAction -DependencyId $WaitDependencyId
+            if (-not [bool]$wslot.ok) {
+                return (New-TaskKernelError -Code ([string]$wslot.error))
+            }
+            $typedWait = $wslot.wait
+        }
+        if (($to -ceq 'BLOCKED') -and (-not $waitDeclared) -and (Test-TaskKernelRequireTypedWaits -Record $rec)) {
+            return (New-TaskKernelError -Code 'WAIT_TYPED_REQUIRED' -Extra @{ detail = 'task requires typed waits; prose-only BLOCKED is rejected' })
+        }
+        if (($from -ceq 'BLOCKED') -and ($to -ceq 'IMPLEMENTING')) {
+            $unChk = Test-TaskKernelActiveWait -Record $rec
+            if ([string]$unChk.presence -ceq 'malformed') {
+                return (New-TaskKernelError -Code 'MALFORMED_WAIT' -Extra @{ detail = 'active wait node is present but corrupt; unblock is blocked' })
+            }
+            $activeFp = ([string]$unChk.fingerprint)
+            if (-not [string]::IsNullOrWhiteSpace($activeFp)) {
+                $refFp = ConvertTo-TaskKernelFingerprint -Value ([string]$WaitFingerprint)
+                $actRef = ([string]$UnblockAction).Trim()
+                if ((([string]::IsNullOrWhiteSpace($refFp)) -or ($refFp -cne $activeFp)) -and ([string]::IsNullOrWhiteSpace($actRef))) {
+                    return (New-TaskKernelError -Code 'UNBLOCK_REF_REQUIRED' -Extra @{ detail = 'unblock must reference the active wait fingerprint or a concrete action' })
+                }
+                $wh = @()
+                if ($null -ne $rec['wait_history']) { $wh = @($rec['wait_history']) }
+                $wh += $rec['active_wait']
+                $rec['wait_history'] = $wh
+                $rec['active_wait'] = $null
+            }
+        }
         $reasonClean = Protect-TaskKernelText -Text ([string]$Reason)
         $newRev = ([int]$rec['revision'] + 1)
         $hist = @()
@@ -1197,6 +1278,13 @@ function Invoke-OrchestrationTaskTransition {
             at       = (Get-TaskKernelTimestamp)
             revision = $newRev
             reason   = $reasonClean
+        }
+        if (($to -ceq 'BLOCKED') -and ($null -ne $typedWait)) {
+            $tbl = @()
+            if ($null -ne $rec['blockers']) { $tbl = @($rec['blockers']) }
+            $tbl += [ordered]@{ reason = $reasonClean; actor = $actor; at = (Get-TaskKernelTimestamp); wait = $typedWait }
+            $rec['blockers'] = $tbl
+            $rec['active_wait'] = $typedWait
         }
         $rec['history'] = $hist
         $rec['state'] = $to
@@ -1230,6 +1318,15 @@ function Set-OrchestrationTaskWorkerResult {
         [string]$Hypothesis = '',
         [switch]$NewEvidence,
         [switch]$DebuggerInvoked,
+        [string]$StrategyId = '',
+        [string]$StrategyApproach = '',
+        [string]$StrategyTool = '',
+        [string[]]$StrategyParams = @(),
+        [string]$StrategyFingerprint = '',
+        [string]$FailureClass = '',
+        [string]$FailureDetail = '',
+        [string]$RecoverySource = '',
+        [string[]]$NewEvidenceRefs = @(),
         [string]$ProposedBudgetJson = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
@@ -1254,6 +1351,31 @@ function Set-OrchestrationTaskWorkerResult {
         }
         $ev = Get-TaskKernelEvidenceList -Value $ClaimedEvidence
         if (-not [bool]$ev.valid) { return (New-TaskKernelError -Code 'INVALID_EVIDENCE') }
+        $p27Strat = Resolve-TaskKernelStrategyFingerprint -Explicit $StrategyFingerprint -Approach $StrategyApproach -ToolOrPath $StrategyTool -KeyParams $StrategyParams
+        if (-not [bool]$p27Strat.ok) {
+            return (New-TaskKernelError -Code ([string]$p27Strat.error))
+        }
+        $p27Fp = ([string]$p27Strat.fingerprint)
+        $p27Class = 'unknown'
+        if (-not [string]::IsNullOrWhiteSpace(([string]$FailureClass).Trim())) {
+            $cc = ([string]$FailureClass).Trim().ToLowerInvariant()
+            if ((@(Get-OrchestrationFailureClasses) -cnotcontains $cc)) {
+                return (New-TaskKernelError -Code 'INVALID_FAILURE_CLASS')
+            }
+            $p27Class = $cc
+        }
+        $p27Source = ([string]$RecoverySource).Trim().ToLowerInvariant()
+        if ((-not [string]::IsNullOrWhiteSpace($p27Source)) -and ((@(Get-OrchestrationRecoverySources) -cnotcontains $p27Source))) {
+            return (New-TaskKernelError -Code 'INVALID_RECOVERY_SOURCE')
+        }
+        $p27Refs = @()
+        $refCount = 0
+        foreach ($e in @($NewEvidenceRefs)) { if ($null -ne $e) { $refCount++ } }
+        if ($refCount -gt 0) {
+            $rl = Get-TaskKernelEvidenceList -Value $NewEvidenceRefs
+            if (-not [bool]$rl.valid) { return (New-TaskKernelError -Code 'INVALID_EVIDENCE') }
+            $p27Refs = Protect-TaskKernelStringList -Items ([string[]]$rl.items)
+        }
         $tid = ([string]$TaskId).Trim()
         $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($taskFile)) {
@@ -1278,6 +1400,76 @@ function Set-OrchestrationTaskWorkerResult {
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
+        $boundFp = ''
+        $boundId = ''
+        $boundHyp = ''
+        $geDbgPresent = $false
+        $geEvRefs = @()
+        try {
+            $rt = $rec['execution_runtime']
+            if (($null -ne $rt) -and ($rt -is [System.Collections.IDictionary]) -and ($null -ne $rt['gate_evidence'])) {
+                $ge = $rt['gate_evidence']
+                if (($null -ne $ge) -and ($ge -is [System.Collections.IDictionary]) -and $ge.Contains('strategy_fingerprint')) {
+                    $boundFp = ConvertTo-TaskKernelFingerprint -Value ([string]$ge['strategy_fingerprint'])
+                    if ($ge.Contains('strategy_id') -and ($null -ne $ge['strategy_id'])) { $boundId = ([string]$ge['strategy_id']).Trim() }
+                    if ($ge.Contains('hypothesis') -and ($null -ne $ge['hypothesis'])) { $boundHyp = ([string]$ge['hypothesis']) }
+                    try {
+                        if ($ge.Contains('debugger_refs')) {
+                            foreach ($e in @($ge['debugger_refs'])) {
+                                if (($null -ne $e) -and (-not [string]::IsNullOrWhiteSpace([string]$e))) { $geDbgPresent = $true }
+                            }
+                        }
+                    }
+                    catch { }
+                    try {
+                        if ($ge.Contains('new_evidence_refs')) {
+                            foreach ($e in @($ge['new_evidence_refs'])) {
+                                if (($null -ne $e) -and (-not [string]::IsNullOrWhiteSpace([string]$e))) { $geEvRefs += ([string]$e) }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch {
+            $boundFp = ''
+            $boundId = ''
+            $boundHyp = ''
+            $geDbgPresent = $false
+            $geEvRefs = @()
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($boundFp)) -and (-not [string]::IsNullOrWhiteSpace($p27Fp)) -and ($p27Fp -cne $boundFp)) {
+            return (New-TaskKernelError -Code 'STRATEGY_MISMATCH' -Extra @{ detail = 'worker strategy does not match the attempt-bound strategy' })
+        }
+        $rtN = 0
+        try {
+            $rt = $rec['execution_runtime']
+            if (($null -ne $rt) -and ($rt -is [System.Collections.IDictionary]) -and ($null -ne $rt['attempt_n'])) { $rtN = [int]$rt['attempt_n'] }
+        }
+        catch { $rtN = 0 }
+        $attCount = 0
+        try { if ($null -ne $rec['attempts']) { $attCount = (@($rec['attempts'])).Count } } catch { $attCount = 0 }
+        $p27Auth = ((-not [string]::IsNullOrWhiteSpace($boundFp)) -and ($rtN -gt 0) -and ($rtN -eq ($attCount + 1)))
+        $p27AuthNovel = $false
+        if ($p27Auth) {
+            $lastFpA = ''
+            $lastHypA = ''
+            try {
+                if ($attCount -gt 0) {
+                    $la = (@($rec['attempts']))[$attCount - 1]
+                    $lastFpA = ConvertTo-TaskKernelFingerprint -Value ([string](Get-TaskKernelAttemptField -Attempt $la -Name 'strategy_fingerprint'))
+                    $lhA = Get-TaskKernelAttemptField -Attempt $la -Name 'hypothesis'
+                    if ($null -ne $lhA) { $lastHypA = ([string]$lhA) }
+                }
+            }
+            catch { }
+            if ((@($geEvRefs)).Count -gt 0) { $p27AuthNovel = $true }
+            if (($boundFp -cne $lastFpA)) { $p27AuthNovel = $true }
+            if ((-not [string]::IsNullOrWhiteSpace($boundHyp)) -and ((Get-TaskKernelCanonicalText -Text $boundHyp) -cne (Get-TaskKernelCanonicalText -Text $lastHypA))) { $p27AuthNovel = $true }
+        }
+        $effDbgInvoked = ([bool]$DebuggerInvoked -or ([bool]$p27Auth -and [bool]$geDbgPresent))
+        $effNewEv = ([bool]$NewEvidence -or ([bool]$p27Auth -and [bool]$p27AuthNovel))
         $priorAttempts = @()
         if ($null -ne $rec['attempts']) { $priorAttempts = @($rec['attempts']) }
         if ($priorAttempts.Count -gt 0) {
@@ -1295,15 +1487,36 @@ function Set-OrchestrationTaskWorkerResult {
                 }
             }
             catch { }
-            if ($needDbg -and (-not [bool]$DebuggerInvoked)) {
+            if ($needDbg -and (-not $effDbgInvoked)) {
                 return (New-TaskKernelError -Code 'ATTEMPT_GATE_FAILED' -Extra @{ reason = 'debugger_required' })
             }
-            if ($needEv -and (-not [bool]$NewEvidence)) {
+            if ($needEv -and (-not $effNewEv)) {
                 return (New-TaskKernelError -Code 'ATTEMPT_GATE_FAILED' -Extra @{ reason = 'new_evidence_required' })
             }
         }
+        $effStrategyId = ([string]$StrategyId).Trim()
+        $workerHypRaw = ([string]$Hypothesis)
+        $effHypothesis = $workerHypRaw
+        $workerHypDivergent = ''
+        if ((-not [string]::IsNullOrWhiteSpace($boundFp)) -and [string]::IsNullOrWhiteSpace($p27Fp)) {
+            $p27Fp = $boundFp
+            $effStrategyId = $boundId
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($boundFp)) -and (-not [string]::IsNullOrWhiteSpace($p27Fp)) -and ($p27Fp -ceq $boundFp) -and (-not [string]::IsNullOrWhiteSpace($boundHyp))) {
+            $wTrim = ([string]$workerHypRaw).Trim()
+            if ([string]::IsNullOrWhiteSpace($wTrim)) {
+                $effHypothesis = $boundHyp
+            }
+            elseif ((Get-TaskKernelCanonicalText -Text $wTrim) -cne (Get-TaskKernelCanonicalText -Text $boundHyp)) {
+                $workerHypDivergent = (Protect-TaskKernelText -Text $workerHypRaw)
+                $effHypothesis = $boundHyp
+            }
+            else {
+                $effHypothesis = $boundHyp
+            }
+        }
         $claimedItems = Protect-TaskKernelStringList -Items ([string[]]$ev.items)
-        $hypClean = Protect-TaskKernelText -Text ([string]$Hypothesis)
+        $hypClean = Protect-TaskKernelText -Text $effHypothesis
         $newRev = ([int]$rec['revision'] + 1)
         $stamp = Get-TaskKernelTimestamp
         $rec['worker_result'] = [ordered]@{
@@ -1321,18 +1534,40 @@ function Set-OrchestrationTaskWorkerResult {
             $budget = 3
             try { $budget = [int]$rec['attempt_budget'] } catch { $budget = 3 }
             if ($budget -lt 1) { $budget = 3 }
+            $prevFp = ''
+            if ($attempts.Count -gt 0) {
+                $prevFp = ConvertTo-TaskKernelFingerprint -Value ([string](Get-TaskKernelAttemptField -Attempt $attempts[$attempts.Count - 1] -Name 'strategy_fingerprint'))
+            }
+            $p27Changed = $false
+            if ((-not [string]::IsNullOrWhiteSpace($p27Fp)) -and (-not [string]::IsNullOrWhiteSpace($prevFp)) -and ($p27Fp -cne $prevFp)) {
+                $p27Changed = $true
+            }
+            $p27Scope = @()
+            try { $p27Scope = @(@($rec['read_scopes']) + @($rec['write_scopes'])) } catch { $p27Scope = @() }
+            $p27RecFp = ''
+            $p27RecSlot = Get-OrchestrationRecoveryFingerprint -FailureClass $p27Class -StrategyFingerprint $p27Fp -Scope $p27Scope
+            if ([bool]$p27RecSlot.ok) { $p27RecFp = ([string]$p27RecSlot.fingerprint) }
             $attempts += [ordered]@{
                 n                      = $n
                 status                 = 'failed'
                 hypothesis             = $hypClean
-                debugger_invoked       = [bool]$DebuggerInvoked
+                worker_hypothesis      = $workerHypDivergent
+                debugger_invoked       = [bool]$effDbgInvoked
                 debugger_required      = ($n -ge 2)
-                new_evidence           = [bool]$NewEvidence
+                new_evidence           = [bool]$effNewEv
                 requires_new_evidence  = ($n -ge 2)
+                strategy_id            = (Protect-TaskKernelText -Text $effStrategyId)
+                strategy_fingerprint   = $p27Fp
+                failure_class          = $p27Class
+                failure_detail         = (Protect-TaskKernelText -Text ([string]$FailureDetail))
+                recovery_source        = $p27Source
+                new_evidence_refs      = ([string[]]$p27Refs)
+                recovery_fingerprint   = $p27RecFp
+                changed_from_previous  = [bool]$p27Changed
                 at                     = $stamp
             }
             $rec['attempts'] = $attempts
-            if (($n -ge $budget) -and (-not [bool]$NewEvidence)) {
+            if (($n -ge $budget) -and (-not $effNewEv)) {
                 if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
                     return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
                 }
@@ -1599,6 +1834,10 @@ function Block-OrchestrationTask {
         [Parameter(Mandatory = $true)][string]$Actor,
         [Parameter(Mandatory = $true)][int]$ExpectedRevision,
         [Parameter(Mandatory = $true)][string]$Reason,
+        [string]$WaitType = '',
+        [string]$WaitOwner = '',
+        [string]$WaitAction = '',
+        [string]$WaitDependencyId = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
@@ -1617,6 +1856,7 @@ function Block-OrchestrationTask {
         if ([string]::IsNullOrWhiteSpace($reason)) {
             return (New-TaskKernelError -Code 'INVALID_REASON')
         }
+        $waitDeclared = Test-TaskKernelWaitDeclared -Type $WaitType -Owner $WaitOwner -Action $WaitAction -DependencyId $WaitDependencyId
         $tid = ([string]$TaskId).Trim()
         $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($taskFile)) {
@@ -1638,6 +1878,23 @@ function Block-OrchestrationTask {
         if (Test-TaskKernelTerminalState -State $from) {
             return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
         }
+        if ($from -ceq 'BLOCKED') {
+            if (-not $waitDeclared) {
+                return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'already BLOCKED' })
+            }
+            $reWait = New-TaskKernelTypedWait -Type $WaitType -Owner $WaitOwner -Action $WaitAction -DependencyId $WaitDependencyId
+            if (-not [bool]$reWait.ok) {
+                return (New-TaskKernelError -Code ([string]$reWait.error))
+            }
+            $reChk = Test-TaskKernelActiveWait -Record $rec
+            if ([string]$reChk.presence -ceq 'malformed') {
+                return (New-TaskKernelError -Code 'MALFORMED_WAIT' -Extra @{ detail = 'active wait node is present but corrupt; unblock is blocked' })
+            }
+            if (([string]$reChk.presence -ceq 'valid') -and ([string]$reChk.fingerprint -ceq ([string]$reWait.wait['fingerprint']))) {
+                return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); state = 'BLOCKED'; wait_fingerprint = ([string]$reChk.fingerprint); idempotent = $true }
+            }
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'already BLOCKED on a different wait; unblock first' })
+        }
         $map = Get-OrchestrationTaskAllowedTransitions
         if ((-not $map.ContainsKey($from)) -or ((@($map[$from]) -ccontains 'BLOCKED') -ne $true)) {
             return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION')
@@ -1645,13 +1902,28 @@ function Block-OrchestrationTask {
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
+        $strictBlock = Test-TaskKernelRequireTypedWaits -Record $rec
+        if ($strictBlock -and (-not $waitDeclared)) {
+            return (New-TaskKernelError -Code 'WAIT_TYPED_REQUIRED' -Extra @{ detail = 'task requires typed waits; prose-only BLOCKED is rejected' })
+        }
         $reasonClean = Protect-TaskKernelText -Text $reason
         $newRev = ([int]$rec['revision'] + 1)
         $stamp = Get-TaskKernelTimestamp
+        $typedWait = $null
+        if ($waitDeclared) {
+            $wslot = New-TaskKernelTypedWait -Type $WaitType -Owner $WaitOwner -Action $WaitAction -DependencyId $WaitDependencyId
+            if (-not [bool]$wslot.ok) {
+                return (New-TaskKernelError -Code ([string]$wslot.error))
+            }
+            $typedWait = $wslot.wait
+        }
         $blockers = @()
         if ($null -ne $rec['blockers']) { $blockers = @($rec['blockers']) }
-        $blockers += [ordered]@{ reason = $reasonClean; actor = $actor; at = $stamp }
+        $blockerEntry = [ordered]@{ reason = $reasonClean; actor = $actor; at = $stamp }
+        if ($null -ne $typedWait) { $blockerEntry['wait'] = $typedWait }
+        $blockers += $blockerEntry
         $rec['blockers'] = $blockers
+        if ($null -ne $typedWait) { $rec['active_wait'] = $typedWait }
         $hist = @()
         if ($null -ne $rec['history']) { $hist = @($rec['history']) }
         $hist += [ordered]@{ from = $from; to = 'BLOCKED'; actor = $actor; at = $stamp; revision = $newRev }
@@ -1664,7 +1936,9 @@ function Block-OrchestrationTask {
             return (New-TaskKernelError -Code ([string]$wr.error))
         }
         $null = Send-TaskKernelTelemetry -EventType 'TASK_STATE_CHANGED' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
-        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; state = 'BLOCKED' }
+        $blockOut = [ordered]@{ ok = $true; task_id = $tid; revision = $newRev; state = 'BLOCKED' }
+        if ($null -ne $typedWait) { $blockOut['wait_fingerprint'] = ([string]$typedWait['fingerprint']) }
+        return ([PSCustomObject]$blockOut)
         }
         finally {
             Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
@@ -1757,6 +2031,451 @@ function Cancel-OrchestrationTask {
         }
     }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+# ---------- strategy-aware recovery, typed waits, idempotent work (Phase 27 slice 1) ----------
+#
+# Kernel-side slice only: canonical fingerprints, stall gates, typed wait
+# contract, work dedupe. Planner dispatch/prompt wiring is out of this
+# slice. All new inputs are value-detected (non-empty after trim): legacy
+# calls that never pass strategy/wait/project fields take unchanged
+# paths. Reads of legacy records (missing new keys) stay valid via
+# tolerant field access. Never throws; domain errors are
+# {ok:$false,error:'CODE'}. ASCII-only, PS 5.1.
+#
+# Canonicalization is lexical and deterministic (trim, single spaces,
+# lowercase, sorted params): rewording with the same words in a
+# different order/case/whitespace yields the same fingerprint, so
+# rewording never resets counts. Real synonyms are NOT canonical
+# (residual, documented in phase27.json). Every serialization that
+# feeds SHA-256 uses len:value framing (P25 convention) so structural
+# boundaries can never collide: 'a,b' as one item differs from the two
+# items 'a' and 'b', and '|' inside values cannot shift fields.
+
+function Get-TaskKernelCanonicalText {
+    [CmdletBinding()]
+    param([string]$Text)
+    try {
+        $t = ([string]$Text).Trim()
+        if ([string]::IsNullOrWhiteSpace($t)) { return '' }
+        $t = ([regex]::Replace($t, '\s+', ' '))
+        return ($t.ToLowerInvariant())
+    }
+    catch { return '' }
+}
+
+function Get-TaskKernelCanonicalList {
+    <#
+    .SYNOPSIS
+        Canonical list fingerprint input: cleaned, canonicalized,
+        ordinal-sorted items in len:value framing with an explicit
+        item count. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Value)
+    try {
+        $clean = Get-TaskKernelCleanList -Value $Value
+        if (-not [bool]$clean.valid) { return '0:' }
+        $list = New-Object System.Collections.Generic.List[string]
+        foreach ($s in @($clean.items)) {
+            $c = Get-TaskKernelCanonicalText -Text ([string]$s)
+            if (-not [string]::IsNullOrWhiteSpace($c)) { $list.Add($c) | Out-Null }
+        }
+        $list.Sort([System.StringComparer]::Ordinal)
+        $parts = New-Object System.Collections.Generic.List[string]
+        foreach ($s in $list.ToArray()) { $parts.Add((Get-TaskKernelFrame -Text $s)) | Out-Null }
+        return (($parts.Count.ToString([Globalization.CultureInfo]::InvariantCulture)) + ':' + ($parts.ToArray() -join ','))
+    }
+    catch { return '0:' }
+}
+
+function Get-TaskKernelFrame {
+    <#
+    .SYNOPSIS
+        len:value framing for one canonical field (length in UTF-16
+        code units, invariant digits). Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Text)
+    try {
+        $t = [string]$Text
+        return ($t.Length.ToString([Globalization.CultureInfo]::InvariantCulture) + ':' + $t)
+    }
+    catch { return '0:' }
+}
+
+function New-TaskKernelFingerprint {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Canonical)
+    return ('sha256:' + (Get-TaskKernelStringHash -Text ([string]$Canonical)))
+}
+
+function ConvertTo-TaskKernelFingerprint {
+    <#
+    .SYNOPSIS
+        Normalizes to 'sha256:<hex>' or '' when invalid. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Value)
+    try {
+        $v = ([string]$Value).Trim().ToLowerInvariant()
+        if ($v.StartsWith('sha256:')) { $v = $v.Substring(7) }
+        if ($v -cmatch '^[0-9a-f]{64}$') { return ('sha256:' + $v) }
+    }
+    catch { }
+    return ''
+}
+
+function Get-OrchestrationFailureClasses {
+    [CmdletBinding()]
+    param()
+    return @('timeout', 'no_progress', 'repeated_action', 'repeated_cycle', 'worker_failed', 'verification_failed', 'review_rejected', 'external_dependency', 'unknown')
+}
+
+function Get-OrchestrationRecoverySources {
+    [CmdletBinding()]
+    param()
+    return @('planner', 'debugger', 'watchdog', 'worker', 'manual')
+}
+
+function Get-OrchestrationWaitTypes {
+    [CmdletBinding()]
+    param()
+    return @('human_decision', 'external_dependency', 'worker', 'review', 'approval', 'runtime_recovery')
+}
+
+function Get-OrchestrationStrategyFingerprint {
+    <#
+    .SYNOPSIS
+        Canonical strategy fingerprint: SHA-256 over the canonical
+        descriptor (normalized approach + primary tool/path + ordinal
+        sorted key params). Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Approach = '', [string]$ToolOrPath = '', $KeyParams = @())
+    try {
+        $a = Get-TaskKernelCanonicalText -Text ([string]$Approach)
+        if ([string]::IsNullOrWhiteSpace($a)) {
+            return ([PSCustomObject]@{ ok = $false; error = 'INVALID_STRATEGY'; fingerprint = '' })
+        }
+        $tool = Get-TaskKernelCanonicalText -Text ([string]$ToolOrPath)
+        $params = Get-TaskKernelCanonicalList -Value $KeyParams
+        $canon = ('v1|approach=' + (Get-TaskKernelFrame -Text $a) + '|tool=' + (Get-TaskKernelFrame -Text $tool) + '|params=' + $params)
+        return ([PSCustomObject]@{ ok = $true; error = ''; fingerprint = (New-TaskKernelFingerprint -Canonical $canon) })
+    }
+    catch { return ([PSCustomObject]@{ ok = $false; error = 'INTERNAL_ERROR'; fingerprint = '' }) }
+}
+
+function Get-OrchestrationRecoveryFingerprint {
+    <#
+    .SYNOPSIS
+        Canonical failure/recovery fingerprint: SHA-256 over closed
+        failure class + strategy fingerprint + canonical scope. The
+        free-text failure detail is NOT an input, so rewording the
+        same failure keeps the fingerprint (counts never reset).
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$FailureClass = '', [string]$StrategyFingerprint = '', $Scope = @())
+    try {
+        $cls = ([string]$FailureClass).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($cls)) { $cls = 'unknown' }
+        if ((@(Get-OrchestrationFailureClasses) -cnotcontains $cls)) {
+            return ([PSCustomObject]@{ ok = $false; error = 'INVALID_FAILURE_CLASS'; fingerprint = '' })
+        }
+        $fp = ConvertTo-TaskKernelFingerprint -Value ([string]$StrategyFingerprint)
+        $scopeCanon = Get-TaskKernelCanonicalList -Value $Scope
+        $canon = ('v1|failure_class=' + (Get-TaskKernelFrame -Text $cls) + '|strategy=' + (Get-TaskKernelFrame -Text $fp) + '|scope=' + $scopeCanon)
+        return ([PSCustomObject]@{ ok = $true; error = ''; fingerprint = (New-TaskKernelFingerprint -Canonical $canon); failure_class = $cls })
+    }
+    catch { return ([PSCustomObject]@{ ok = $false; error = 'INTERNAL_ERROR'; fingerprint = '' }) }
+}
+
+function Get-OrchestrationWaitFingerprint {
+    <#
+    .SYNOPSIS
+        Canonical typed-wait fingerprint: SHA-256 over closed wait
+        type + owner + action (+ dependency id when present).
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Type = '', [string]$Owner = '', [string]$Action = '', [string]$DependencyId = '')
+    try {
+        $t = ([string]$Type).Trim().ToLowerInvariant()
+        if ((@(Get-OrchestrationWaitTypes) -cnotcontains $t)) {
+            return ([PSCustomObject]@{ ok = $false; error = 'WAIT_TYPED_REQUIRED'; fingerprint = '' })
+        }
+        $o = Get-TaskKernelCanonicalText -Text ([string]$Owner)
+        $a = Get-TaskKernelCanonicalText -Text ([string]$Action)
+        if ([string]::IsNullOrWhiteSpace($o) -or [string]::IsNullOrWhiteSpace($a)) {
+            return ([PSCustomObject]@{ ok = $false; error = 'WAIT_TYPED_REQUIRED'; fingerprint = '' })
+        }
+        $d = Get-TaskKernelCanonicalText -Text ([string]$DependencyId)
+        $canon = ('v1|type=' + (Get-TaskKernelFrame -Text $t) + '|owner=' + (Get-TaskKernelFrame -Text $o) + '|action=' + (Get-TaskKernelFrame -Text $a) + '|dependency_id=' + (Get-TaskKernelFrame -Text $d))
+        return ([PSCustomObject]@{ ok = $true; error = ''; fingerprint = (New-TaskKernelFingerprint -Canonical $canon) })
+    }
+    catch { return ([PSCustomObject]@{ ok = $false; error = 'INTERNAL_ERROR'; fingerprint = '' }) }
+}
+
+function New-TaskKernelTypedWait {
+    <#
+    .SYNOPSIS
+        Builds the sanitized typed-wait node (type/owner/action/
+        dependency_id/fingerprint) or WAIT_TYPED_REQUIRED. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Type = '', [string]$Owner = '', [string]$Action = '', [string]$DependencyId = '')
+    try {
+        $slot = Get-OrchestrationWaitFingerprint -Type $Type -Owner $Owner -Action $Action -DependencyId $DependencyId
+        if (-not [bool]$slot.ok) {
+            return ([PSCustomObject]@{ ok = $false; error = ([string]$slot.error); wait = $null })
+        }
+        $wait = [ordered]@{
+            type          = (([string]$Type).Trim().ToLowerInvariant())
+            owner         = (Protect-TaskKernelText -Text (([string]$Owner).Trim()))
+            action        = (Protect-TaskKernelText -Text (([string]$Action).Trim()))
+            dependency_id = (Protect-TaskKernelText -Text (([string]$DependencyId).Trim()))
+            fingerprint   = ([string]$slot.fingerprint)
+        }
+        return ([PSCustomObject]@{ ok = $true; error = ''; wait = $wait })
+    }
+    catch { return ([PSCustomObject]@{ ok = $false; error = 'INTERNAL_ERROR'; wait = $null }) }
+}
+
+function Test-TaskKernelWaitDeclared {
+    <#
+    .SYNOPSIS
+        Value-based detection: a typed wait is declared when any wait
+        field carries a non-blank value. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Type = '', [string]$Owner = '', [string]$Action = '', [string]$DependencyId = '')
+    try {
+        foreach ($v in @($Type, $Owner, $Action, $DependencyId)) {
+            if (-not [string]::IsNullOrWhiteSpace(([string]$v).Trim())) { return $true }
+        }
+    }
+    catch { }
+    return $false
+}
+
+function Get-OrchestrationWorkFingerprint {
+    <#
+    .SYNOPSIS
+        Canonical work-unit fingerprint: SHA-256 over canonical
+        objective + ordinal-sorted scope + ordinal-sorted definition
+        of done + project identity. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Objective = '', $Scope = @(), $DefinitionOfDone = @(), [string]$Project = '')
+    try {
+        $obj = Get-TaskKernelCanonicalText -Text ([string]$Objective)
+        if ([string]::IsNullOrWhiteSpace($obj)) {
+            return ([PSCustomObject]@{ ok = $false; error = 'INVALID_OBJECTIVE'; fingerprint = '' })
+        }
+        $scopeCanon = Get-TaskKernelCanonicalList -Value $Scope
+        $dodCanon = Get-TaskKernelCanonicalList -Value $DefinitionOfDone
+        $proj = Get-TaskKernelCanonicalText -Text ([string]$Project)
+        $canon = ('v1|objective=' + (Get-TaskKernelFrame -Text $obj) + '|scope=' + $scopeCanon + '|definition_of_done=' + $dodCanon + '|project=' + (Get-TaskKernelFrame -Text $proj))
+        return ([PSCustomObject]@{ ok = $true; error = ''; fingerprint = (New-TaskKernelFingerprint -Canonical $canon) })
+    }
+    catch { return ([PSCustomObject]@{ ok = $false; error = 'INTERNAL_ERROR'; fingerprint = '' }) }
+}
+
+function Get-TaskKernelAttemptField {
+    <#
+    .SYNOPSIS
+        Tolerant attempt-field read (legacy attempts miss new keys).
+        Returns $null when absent. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Attempt, [string]$Name)
+    try {
+        if ($Attempt -is [System.Collections.IDictionary]) {
+            if ($Attempt.Contains($Name)) { return $Attempt[$Name] }
+            return $null
+        }
+        $p = $Attempt.PSObject.Properties | Where-Object { $_.Name -ceq $Name } | Select-Object -First 1
+        if ($null -ne $p) { return $p.Value }
+    }
+    catch { }
+    return $null
+}
+
+function Get-TaskKernelActiveWaitFingerprint {
+    <#
+    .SYNOPSIS
+        Normalized active-wait fingerprint or '' (legacy records have
+        no active_wait node). Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record)
+    try {
+        if (($null -eq $Record) -or (-not ($Record -is [System.Collections.IDictionary]))) { return '' }
+        if (-not $Record.Contains('active_wait')) { return '' }
+        $w = $Record['active_wait']
+        if (($null -eq $w) -or (-not ($w -is [System.Collections.IDictionary]))) { return '' }
+        if (-not $w.Contains('fingerprint')) { return '' }
+        return (ConvertTo-TaskKernelFingerprint -Value ([string]$w['fingerprint']))
+    }
+    catch { return '' }
+}
+
+function Test-TaskKernelActiveWait {
+    <#
+    .SYNOPSIS
+        Distinguishes absent (no node or null: legacy, gate-free) from
+        valid (closed type, non-blank owner/action, well-formed
+        fingerprint) and malformed (present but corrupt: fail-closed).
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record)
+    $out = @{ presence = 'absent'; fingerprint = '' }
+    try {
+        if (($null -eq $Record) -or (-not ($Record -is [System.Collections.IDictionary]))) { return $out }
+        if (-not $Record.Contains('active_wait')) { return $out }
+        $w = $Record['active_wait']
+        if ($null -eq $w) { return $out }
+        if (-not ($w -is [System.Collections.IDictionary])) {
+            $out.presence = 'malformed'
+            return $out
+        }
+        $wt = ''
+        $wo = ''
+        $wa = ''
+        $wf = ''
+        try {
+            if ($w.Contains('type')) { $wt = ([string]$w['type']).Trim().ToLowerInvariant() }
+            if ($w.Contains('owner')) { $wo = ([string]$w['owner']).Trim() }
+            if ($w.Contains('action')) { $wa = ([string]$w['action']).Trim() }
+            if ($w.Contains('fingerprint')) { $wf = ConvertTo-TaskKernelFingerprint -Value ([string]$w['fingerprint']) }
+        }
+        catch { $out.presence = 'malformed'; return $out }
+        if (((@(Get-OrchestrationWaitTypes) -cnotcontains $wt)) -or ([string]::IsNullOrWhiteSpace($wo)) -or ([string]::IsNullOrWhiteSpace($wa)) -or ([string]::IsNullOrWhiteSpace($wf))) {
+            $out.presence = 'malformed'
+            return $out
+        }
+        $out.presence = 'valid'
+        $out.fingerprint = $wf
+        return $out
+    }
+    catch { $out.presence = 'malformed'; return $out }
+}
+
+function Test-TaskKernelRequireTypedWaits {
+    <#
+    .SYNOPSIS
+        Sticky per-task strict flag (F-A): true only when the record
+        carries require_typed_waits as a $true bool. Absent (legacy)
+        or any other shape reads as false. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record)
+    try {
+        if (($null -eq $Record) -or (-not ($Record -is [System.Collections.IDictionary]))) { return $false }
+        if (-not $Record.Contains('require_typed_waits')) { return $false }
+        $v = $Record['require_typed_waits']
+        return ((($v -is [bool]) -and [bool]$v))
+    }
+    catch { return $false }
+}
+
+function Resolve-TaskKernelStrategyFingerprint {
+    <#
+    .SYNOPSIS
+        Resolves the incoming strategy fingerprint: explicit value
+        wins (validated), else computed from the descriptor, else ''
+        when nothing was supplied (legacy). Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Explicit = '', [string]$Approach = '', [string]$ToolOrPath = '', $KeyParams = @())
+    try {
+        $explicitBound = (-not [string]::IsNullOrWhiteSpace(([string]$Explicit).Trim()))
+        $hasDesc = $false
+        foreach ($v in @(([string]$Approach), ([string]$ToolOrPath))) {
+            if (-not [string]::IsNullOrWhiteSpace($v)) { $hasDesc = $true }
+        }
+        try {
+            foreach ($e in @($KeyParams)) {
+                if (($null -ne $e) -and (-not [string]::IsNullOrWhiteSpace([string]$e))) { $hasDesc = $true }
+            }
+        }
+        catch { }
+        if ($explicitBound) {
+            $exp = ConvertTo-TaskKernelFingerprint -Value ([string]$Explicit)
+            if ([string]::IsNullOrWhiteSpace($exp)) {
+                return @{ ok = $false; fingerprint = ''; error = 'INVALID_STRATEGY_FINGERPRINT' }
+            }
+            if ($hasDesc) {
+                $dslot = Get-OrchestrationStrategyFingerprint -Approach $Approach -ToolOrPath $ToolOrPath -KeyParams $KeyParams
+                if (-not [bool]$dslot.ok) { return @{ ok = $false; fingerprint = ''; error = ([string]$dslot.error) } }
+                if ([string]$dslot.fingerprint -cne $exp) {
+                    return @{ ok = $false; fingerprint = ''; error = 'STRATEGY_MISMATCH' }
+                }
+            }
+            return @{ ok = $true; fingerprint = $exp; error = '' }
+        }
+        if (-not $hasDesc) { return @{ ok = $true; fingerprint = ''; error = '' } }
+        $slot = Get-OrchestrationStrategyFingerprint -Approach $Approach -ToolOrPath $ToolOrPath -KeyParams $KeyParams
+        if (-not [bool]$slot.ok) { return @{ ok = $false; fingerprint = ''; error = ([string]$slot.error) } }
+        return @{ ok = $true; fingerprint = ([string]$slot.fingerprint); error = '' }
+    }
+    catch { return @{ ok = $false; fingerprint = ''; error = 'INTERNAL_ERROR' } }
+}
+
+function Get-OrchestrationDuplicateWork {
+    <#
+    .SYNOPSIS
+        Scans the tasks dir for an ACTIVE (non-terminal) task with the
+        same work fingerprint. Malformed/unreadable rows are skipped
+        (fail-open for create); only exact fingerprint matches dedupe.
+        The kernel never merges: it reports existing_task_id and the
+        Planner decides attach/resume. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkFingerprint,
+        [string]$TasksDir = '',
+        [string]$RepoRoot = '',
+        [string]$ExcludeTaskId = ''
+    )
+    $out = @{ found = $false; existing_task_id = '' }
+    try {
+        $fp = ConvertTo-TaskKernelFingerprint -Value ([string]$WorkFingerprint)
+        if ([string]::IsNullOrWhiteSpace($fp)) { return $out }
+        $dir = $TasksDir
+        if ([string]::IsNullOrWhiteSpace($dir)) { $dir = Get-TaskKernelDefaultTasksDir -RepoRoot $RepoRoot }
+        $fullDir = ''
+        try { $fullDir = [IO.Path]::GetFullPath($dir) } catch { return $out }
+        if (-not (Test-Path -LiteralPath $fullDir -PathType Container)) { return $out }
+        $excl = ([string]$ExcludeTaskId).Trim()
+        foreach ($f in @(Get-ChildItem -LiteralPath $fullDir -File -Filter '*.json' -ErrorAction SilentlyContinue)) {
+            try {
+                $base = [IO.Path]::GetFileNameWithoutExtension($f.Name)
+                if ((-not [string]::IsNullOrWhiteSpace($excl)) -and ($base -ceq $excl)) { continue }
+                $slot = Read-TaskKernelRecord -TaskFile $f.FullName
+                if ((-not [bool]$slot.found) -or ([bool]$slot.malformed)) { continue }
+                $rec = $slot.record
+                if (($null -eq $rec) -or (-not ($rec -is [System.Collections.IDictionary]))) { continue }
+                if (-not $rec.Contains('work_fingerprint')) { continue }
+                $cand = ConvertTo-TaskKernelFingerprint -Value ([string]$rec['work_fingerprint'])
+                if ([string]::IsNullOrWhiteSpace($cand) -or ($cand -cne $fp)) { continue }
+                $st = ''
+                try { $st = ([string]$rec['state']).Trim().ToUpperInvariant() } catch { $st = '' }
+                if (Test-TaskKernelTerminalState -State $st) { continue }
+                $tid = ''
+                try { $tid = ([string]$rec['task_id']).Trim() } catch { $tid = '' }
+                if ([string]::IsNullOrWhiteSpace($tid)) { $tid = $base }
+                $out.found = $true
+                $out.existing_task_id = $tid
+                return $out
+            }
+            catch { continue }
+        }
+    }
+    catch { }
+    return $out
 }
 
 # ---------- watchdog settlement seam (Phase 26) ----------
@@ -2484,6 +3203,127 @@ function Get-OrchestrationTaskBudget {
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 
+function Test-TaskKernelStartRequestEquivalent {
+    <#
+    .SYNOPSIS
+        FIX3: true only when the caller request is effectively identical
+        to the persisted attempt binding: same session/role/attempt_n
+        plus same effective strategy fingerprint (omitted inherits the
+        last attempt fingerprint, same rule as the gate), strategy id,
+        hypothesis and evidence-ref set, all normalized with trim (and
+        the same Protect pipeline used at bind time). Resolve or
+        evidence-list failure returns false so the caller falls through
+        to the gate for the structured error. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        $Record,
+        [string]$SessionId = '',
+        [string]$Role = '',
+        [string]$StrategyFingerprint = '',
+        [string]$StrategyApproach = '',
+        [string]$StrategyTool = '',
+        $StrategyParams = @(),
+        [string]$StrategyId = '',
+        [string]$AttemptHypothesis = '',
+        $NewEvidenceRefs = $null
+    )
+    try {
+        $sid = ([string]$SessionId).Trim()
+        $role = ([string]$Role).Trim()
+        if ([string]::IsNullOrWhiteSpace($sid)) { return $false }
+        if ([string]::IsNullOrWhiteSpace($role)) { return $false }
+        if (($null -eq $Record) -or (-not ($Record -is [System.Collections.IDictionary]))) { return $false }
+        $attCount = 0
+        try { if ($null -ne $Record['attempts']) { $attCount = (@($Record['attempts'])).Count } } catch { $attCount = 0 }
+        $nextN = ($attCount + 1)
+        if ($nextN -lt 1) { $nextN = 1 }
+        $rt = $null
+        try {
+            if ($Record.Contains('execution_runtime')) { $rt = $Record['execution_runtime'] }
+        }
+        catch { $rt = $null }
+        if (($null -eq $rt) -or (-not ($rt -is [System.Collections.IDictionary]))) { return $false }
+        $bSess = ''
+        $bRole = ''
+        $bN = 0
+        try {
+            if ($null -ne $rt['session_id']) { $bSess = ([string]$rt['session_id']).Trim() }
+            if ($null -ne $rt['attempt_role']) { $bRole = ([string]$rt['attempt_role']).Trim() }
+            if ($null -ne $rt['attempt_n']) { $bN = [int]$rt['attempt_n'] }
+        }
+        catch { return $false }
+        if ([string]::IsNullOrWhiteSpace($bSess)) { return $false }
+        if (($bN -ne $nextN) -or ($bN -le 0)) { return $false }
+        if (($bSess -cne $sid) -or ($bRole -cne $role)) { return $false }
+        $rs = Resolve-TaskKernelStrategyFingerprint -Explicit $StrategyFingerprint -Approach $StrategyApproach -ToolOrPath $StrategyTool -KeyParams $StrategyParams
+        if (($null -eq $rs) -or (-not [bool]$rs.ok)) { return $false }
+        $inFp = ([string]$rs.fingerprint)
+        $lastFp = ''
+        $lastSid = ''
+        try {
+            if ($attCount -gt 0) {
+                $la = (@($Record['attempts']))[$attCount - 1]
+                $lastFp = ConvertTo-TaskKernelFingerprint -Value ([string](Get-TaskKernelAttemptField -Attempt $la -Name 'strategy_fingerprint'))
+                $lsx = Get-TaskKernelAttemptField -Attempt $la -Name 'strategy_id'
+                if ($null -ne $lsx) { $lastSid = ([string]$lsx).Trim() }
+            }
+        }
+        catch { }
+        $effFp = $inFp
+        if ([string]::IsNullOrWhiteSpace($effFp)) { $effFp = $lastFp }
+        $effSid = (([string]$StrategyId).Trim())
+        if ([string]::IsNullOrWhiteSpace($effSid) -and (-not [string]::IsNullOrWhiteSpace($effFp)) -and ($effFp -ceq $lastFp)) { $effSid = $lastSid }
+        $effHyp = (([string]$AttemptHypothesis).Trim())
+        $rl = Get-TaskKernelEvidenceList -Value $NewEvidenceRefs
+        if (($null -eq $rl) -or (-not [bool]$rl.valid)) { return $false }
+        $effEv = New-Object System.Collections.Generic.List[string]
+        try {
+            foreach ($e in @($rl.items)) {
+                if (($null -ne $e) -and (-not [string]::IsNullOrWhiteSpace([string]$e))) {
+                    $t = (Protect-TaskKernelText -Text ([string]$e)).Trim()
+                    if ((-not [string]::IsNullOrWhiteSpace($t)) -and (-not $effEv.Contains($t))) { $effEv.Add($t) | Out-Null }
+                }
+            }
+        }
+        catch { return $false }
+        $ge = $null
+        try {
+            if ($null -ne $rt['gate_evidence']) { $ge = $rt['gate_evidence'] }
+        }
+        catch { $ge = $null }
+        $bFp = ''
+        $bSid = ''
+        $bHyp = ''
+        $bEv = New-Object System.Collections.Generic.List[string]
+        try {
+            if (($null -ne $ge) -and ($ge -is [System.Collections.IDictionary])) {
+                if ($ge.Contains('strategy_fingerprint') -and ($null -ne $ge['strategy_fingerprint'])) { $bFp = ConvertTo-TaskKernelFingerprint -Value ([string]$ge['strategy_fingerprint']) }
+                if ($ge.Contains('strategy_id') -and ($null -ne $ge['strategy_id'])) { $bSid = ([string]$ge['strategy_id']).Trim() }
+                if ($ge.Contains('hypothesis') -and ($null -ne $ge['hypothesis'])) { $bHyp = ([string]$ge['hypothesis']).Trim() }
+                if ($ge.Contains('new_evidence_refs') -and ($null -ne $ge['new_evidence_refs'])) {
+                    foreach ($e in @($ge['new_evidence_refs'])) {
+                        if (($null -ne $e) -and (-not [string]::IsNullOrWhiteSpace([string]$e))) {
+                            $t = ([string]$e).Trim()
+                            if (-not $bEv.Contains($t)) { $bEv.Add($t) | Out-Null }
+                        }
+                    }
+                }
+            }
+        }
+        catch { return $false }
+        if ($bFp -cne $effFp) { return $false }
+        if ($bSid -cne (Protect-TaskKernelText -Text $effSid)) { return $false }
+        if ($bHyp -cne (Protect-TaskKernelText -Text $effHyp)) { return $false }
+        if ($bEv.Count -ne $effEv.Count) { return $false }
+        foreach ($e in $effEv.ToArray()) {
+            if (-not $bEv.Contains($e)) { return $false }
+        }
+        return $true
+    }
+    catch { return $false }
+}
+
 function Start-OrchestrationTaskAttempt {
     <#
     .SYNOPSIS
@@ -2501,11 +3341,16 @@ function Start-OrchestrationTaskAttempt {
         planner-attested gate evidence bound to the next attempt number
         under the same CAS+lock snapshot. A debugger-role actor can never
         start attempts (planner/build only), so debugger output cannot
-        self-approve. Same attempt_n + same session/role is idempotent
-        (no deadline extension, no write); same attempt_n with a different
-        session is rejected. Deadline assigned exactly once per attempt_n.
-        Strategy index has no runtime source: HOLD documented (attempt_role
-        recorded; no invented strategy). Never throws.
+        self-approve. Same attempt_n + same session/role + identical
+        effective request (strategy fingerprint with lastFp inheritance,
+        strategy id, hypothesis, evidence refs, all normalized) is
+        idempotent (no deadline extension, no write); same session/role
+        with divergent params falls through to the gate (rejected or
+        re-authorized, never ambiguous success); same attempt_n with a
+        different session is rejected. Deadline assigned exactly once
+        per attempt_n. Strategy index has no runtime source: HOLD
+        documented (attempt_role recorded; no invented strategy).
+        Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -2517,6 +3362,12 @@ function Start-OrchestrationTaskAttempt {
         [string]$ActorIdentitySource = 'unknown',
         [string[]]$DebuggerEvidenceRefs = @(),
         [string[]]$NewEvidenceRefs = @(),
+        [string]$StrategyId = '',
+        [string]$StrategyApproach = '',
+        [string]$StrategyTool = '',
+        [string[]]$StrategyParams = @(),
+        [string]$StrategyFingerprint = '',
+        [string]$AttemptHypothesis = '',
         [string]$BudgetPolicyPath = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
@@ -2579,7 +3430,161 @@ function Start-OrchestrationTaskAttempt {
         if (-not (Test-ExecutionBudgetPolicyFull -Path $pp)) {
             return (New-TaskKernelError -Code 'BUDGET_POLICY_INVALID')
         }
+        try {
+            $idemNextN = 1
+            if ($null -ne $rec['attempts']) { $idemNextN = (@($rec['attempts'])).Count + 1 }
+            if ($idemNextN -lt 1) { $idemNextN = 1 }
+            $idemRt = $null
+            if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('execution_runtime')) { $idemRt = $rec['execution_runtime'] }
+            $idemSess = ''
+            $idemRole = ''
+            $idemN = 0
+            $idemDeadline = ''
+            $idemProf = ''
+            if (($null -ne $idemRt) -and ($idemRt -is [System.Collections.IDictionary])) {
+                if ($null -ne $idemRt['session_id']) { $idemSess = ([string]$idemRt['session_id']).Trim() }
+                if ($null -ne $idemRt['attempt_role']) { $idemRole = ([string]$idemRt['attempt_role']).Trim() }
+                if ($null -ne $idemRt['attempt_n']) { $idemN = [int]$idemRt['attempt_n'] }
+                if ($null -ne $idemRt['deadline_at']) { $idemDeadline = ([string]$idemRt['deadline_at']).Trim() }
+                try {
+                    if (($null -ne $idemRt['budget_snapshot']) -and ($idemRt['budget_snapshot'] -is [System.Collections.IDictionary]) -and ($null -ne $idemRt['budget_snapshot']['profile'])) { $idemProf = ([string]$idemRt['budget_snapshot']['profile']) }
+                }
+                catch { $idemProf = '' }
+            }
+            if ((-not [string]::IsNullOrWhiteSpace($idemSess)) -and ($idemN -eq $idemNextN) -and ($idemN -gt 0) -and ($idemSess -ceq $sid) -and ($idemRole -ceq $role) -and (Test-TaskKernelStartRequestEquivalent -Record $rec -SessionId $sid -Role $role -StrategyFingerprint $StrategyFingerprint -StrategyApproach $StrategyApproach -StrategyTool $StrategyTool -StrategyParams $StrategyParams -StrategyId $StrategyId -AttemptHypothesis $AttemptHypothesis -NewEvidenceRefs $NewEvidenceRefs)) {
+                return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); profile = $idemProf; deadline_at = $idemDeadline; idempotent = $true }
+            }
+        }
+        catch { }
         $gateEvidence = $null
+        $skipLegacyGate = $false
+        $p27GateExt = $null
+        $p27Start = Resolve-TaskKernelStrategyFingerprint -Explicit $StrategyFingerprint -Approach $StrategyApproach -ToolOrPath $StrategyTool -KeyParams $StrategyParams
+        if (-not [bool]$p27Start.ok) {
+            return (New-TaskKernelError -Code ([string]$p27Start.error))
+        }
+        $inFp = ([string]$p27Start.fingerprint)
+        $p27Prior = @()
+        if ($null -ne $rec['attempts']) { $p27Prior = @($rec['attempts']) }
+        $lastFp = ''
+        $lastHyp = ''
+        $lastSid = ''
+        $lastDbgReq = $false
+        if ($p27Prior.Count -gt 0) {
+            $p27Last = $p27Prior[$p27Prior.Count - 1]
+            $lastFp = ConvertTo-TaskKernelFingerprint -Value ([string](Get-TaskKernelAttemptField -Attempt $p27Last -Name 'strategy_fingerprint'))
+            try {
+                $lh = Get-TaskKernelAttemptField -Attempt $p27Last -Name 'hypothesis'
+                if ($null -ne $lh) { $lastHyp = ([string]$lh) }
+            }
+            catch { }
+            try {
+                $ls = Get-TaskKernelAttemptField -Attempt $p27Last -Name 'strategy_id'
+                if ($null -ne $ls) { $lastSid = ([string]$ls).Trim() }
+            }
+            catch { }
+            try {
+                if ($p27Last -is [System.Collections.IDictionary]) {
+                    if ($null -ne $p27Last['debugger_required']) { $lastDbgReq = [bool]$p27Last['debugger_required'] }
+                }
+            }
+            catch { }
+        }
+        $p27Aware = ((-not [string]::IsNullOrWhiteSpace($lastFp)) -or (-not [string]::IsNullOrWhiteSpace($inFp)))
+        if ($p27Aware) {
+            $p27DbgRefs = @()
+            try {
+                $p27dl = Get-TaskKernelEvidenceList -Value $DebuggerEvidenceRefs
+                if ([bool]$p27dl.valid) { $p27DbgRefs = @($p27dl.items) }
+            }
+            catch { $p27DbgRefs = @() }
+            $p27EvRefs = @()
+            try {
+                $p27nl = Get-TaskKernelEvidenceList -Value $NewEvidenceRefs
+                if ([bool]$p27nl.valid) { $p27EvRefs = @($p27nl.items) }
+            }
+            catch { $p27EvRefs = @() }
+            $p27DbgOk = ((@($p27DbgRefs)).Count -gt 0)
+            $p27Seen = New-Object System.Collections.Generic.List[string]
+            try {
+                foreach ($pa in @($p27Prior)) {
+                    $pr = Get-TaskKernelAttemptField -Attempt $pa -Name 'new_evidence_refs'
+                    foreach ($e in @($pr)) {
+                        if (($null -ne $e) -and (-not [string]::IsNullOrWhiteSpace([string]$e))) {
+                            $refId = ([string]$e).Trim()
+                            if (-not $p27Seen.Contains($refId)) { $p27Seen.Add($refId) | Out-Null }
+                        }
+                    }
+                }
+                try {
+                    if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('consumed_evidence_refs') -and ($null -ne $rec['consumed_evidence_refs'])) {
+                        foreach ($ce in @($rec['consumed_evidence_refs'])) {
+                            if (($null -ne $ce) -and (-not [string]::IsNullOrWhiteSpace([string]$ce))) {
+                                $crefId = ([string]$ce).Trim()
+                                if (-not $p27Seen.Contains($crefId)) { $p27Seen.Add($crefId) | Out-Null }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+            catch { }
+            $p27EvNovel = $false
+            foreach ($e in @($p27EvRefs)) {
+                $nid = ([string]$e).Trim()
+                if ((-not [string]::IsNullOrWhiteSpace($nid)) -and (-not $p27Seen.Contains($nid))) { $p27EvNovel = $true }
+            }
+            $p27HypBound = (-not [string]::IsNullOrWhiteSpace(([string]$AttemptHypothesis).Trim()))
+            $p27HypNovel = ($p27HypBound -and ((Get-TaskKernelCanonicalText -Text ([string]$AttemptHypothesis)) -cne (Get-TaskKernelCanonicalText -Text $lastHyp)))
+            $p27StratNovel = ((-not [string]::IsNullOrWhiteSpace($inFp)) -and (([string]::IsNullOrWhiteSpace($lastFp)) -or ($inFp -cne $lastFp)))
+            $p27Novelty = ([bool]$p27EvNovel -or [bool]$p27HypNovel -or [bool]$p27StratNovel)
+            $p27NextN = ($p27Prior.Count + 1)
+            if ((-not $p27Novelty) -and ($p27NextN -ge 3)) {
+                if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
+                    return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
+                }
+                $p27Stamp = Get-TaskKernelTimestamp
+                $p27Rev = ([int]$rec['revision'] + 1)
+                $p27Hist = @()
+                if ($null -ne $rec['history']) { $p27Hist = @($rec['history']) }
+                $p27Hist += [ordered]@{
+                    from     = $curState
+                    to       = 'EXHAUSTED'
+                    actor    = 'task-kernel'
+                    at       = $p27Stamp
+                    revision = $p27Rev
+                }
+                $rec['history'] = $p27Hist
+                $rec['state'] = 'EXHAUSTED'
+                $rec['revision'] = $p27Rev
+                $rec['updated_at'] = (Get-TaskKernelTimestamp)
+                $p27wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+                if (-not [bool]$p27wr.ok) {
+                    return (New-TaskKernelError -Code ([string]$p27wr.error))
+                }
+                $null = Send-TaskKernelTelemetry -EventType 'TASK_EXHAUSTED' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
+                return (New-TaskKernelError -Code 'EXHAUSTED' -Extra @{ task_id = $tid; revision = $p27Rev; attempted_n = $p27NextN })
+            }
+            if ($lastDbgReq -and (-not $p27DbgOk)) {
+                return (New-TaskKernelError -Code 'DEBUGGER_REQUIRED' -Extra @{ reason = 'second material failure requires debugger trace'; attempt_n = $p27NextN })
+            }
+            if (-not $p27Novelty) {
+                return (New-TaskKernelError -Code 'STALLED_STRATEGY_REJECTED' -Extra @{ reason = 'same strategy without new evidence or hypothesis'; attempt_n = $p27NextN })
+            }
+            $skipLegacyGate = $true
+            $effInFp = $inFp
+            if ([string]::IsNullOrWhiteSpace($effInFp)) { $effInFp = $lastFp }
+            $effStratId = (([string]$StrategyId).Trim())
+            if ([string]::IsNullOrWhiteSpace($effStratId) -and (-not [string]::IsNullOrWhiteSpace($effInFp)) -and ($effInFp -ceq $lastFp)) { $effStratId = $lastSid }
+            $p27GateExt = [ordered]@{
+                debugger_refs        = ([string[]](Protect-TaskKernelStringList -Items ([string[]]@($p27DbgRefs))))
+                new_evidence_refs    = ([string[]](Protect-TaskKernelStringList -Items ([string[]]@($p27EvRefs))))
+                strategy_id          = (Protect-TaskKernelText -Text $effStratId)
+                strategy_fingerprint = $effInFp
+                hypothesis           = (Protect-TaskKernelText -Text (([string]$AttemptHypothesis).Trim()))
+            }
+        }
+        if (-not $skipLegacyGate) {
         try {
             $prior = @()
             if ($null -ne $rec['attempts']) { $prior = @($rec['attempts']) }
@@ -2630,6 +3635,7 @@ function Start-OrchestrationTaskAttempt {
             }
         }
         catch { }
+        }
         $nextN = 1
         try {
             if ($null -ne $rec['attempts']) { $nextN = (@($rec['attempts'])).Count + 1 }
@@ -2654,10 +3660,13 @@ function Start-OrchestrationTaskAttempt {
         }
         catch { }
         if ((-not [string]::IsNullOrWhiteSpace($curSess)) -and ($curN -eq $nextN) -and ($curN -gt 0)) {
-            if (($curSess -ceq $sid) -and ($curRole -ceq $role)) {
+            $sameBinding = (($curSess -ceq $sid) -and ($curRole -ceq $role))
+            if ($sameBinding -and (Test-TaskKernelStartRequestEquivalent -Record $rec -SessionId $sid -Role $role -StrategyFingerprint $StrategyFingerprint -StrategyApproach $StrategyApproach -StrategyTool $StrategyTool -StrategyParams $StrategyParams -StrategyId $StrategyId -AttemptHypothesis $AttemptHypothesis -NewEvidenceRefs $NewEvidenceRefs)) {
                 return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); profile = ([string]$curRt['budget_snapshot']['profile']); deadline_at = $curDeadline; idempotent = $true }
             }
-            return (New-TaskKernelError -Code 'SESSION_MISMATCH' -Extra @{ detail = 'attempt already bound to a different session; deadline assigned once per attempt' })
+            if (-not $sameBinding) {
+                return (New-TaskKernelError -Code 'SESSION_MISMATCH' -Extra @{ detail = 'attempt already bound to a different session; deadline assigned once per attempt' })
+            }
         }
         $snap = $null
         $profName = ''
@@ -2704,6 +3713,34 @@ function Start-OrchestrationTaskAttempt {
         $startText = $now.ToString('o')
         $deadlineText = ($now.AddSeconds([double][int]$snap['wall_clock_seconds'])).ToString('o')
         $newRev = ([int]$rec['revision'] + 1)
+        $effGate = $gateEvidence
+        if ($null -ne $p27GateExt) { $effGate = $p27GateExt }
+        try {
+            $toConsume = @()
+            if (($null -ne $effGate) -and ($effGate -is [System.Collections.IDictionary]) -and ($null -ne $effGate['new_evidence_refs'])) { $toConsume = @($effGate['new_evidence_refs']) }
+            if ((@($toConsume)).Count -gt 0) {
+                $merged = New-Object System.Collections.Generic.List[string]
+                try {
+                    if (($rec -is [System.Collections.IDictionary]) -and $rec.Contains('consumed_evidence_refs') -and ($null -ne $rec['consumed_evidence_refs'])) {
+                        foreach ($ce in @($rec['consumed_evidence_refs'])) {
+                            if (($null -ne $ce) -and (-not [string]::IsNullOrWhiteSpace([string]$ce))) {
+                                $cid = ([string]$ce).Trim()
+                                if (-not $merged.Contains($cid)) { $merged.Add($cid) | Out-Null }
+                            }
+                        }
+                    }
+                }
+                catch { }
+                foreach ($ne in @($toConsume)) {
+                    if (($null -ne $ne) -and (-not [string]::IsNullOrWhiteSpace([string]$ne))) {
+                        $nid2 = ([string]$ne).Trim()
+                        if (-not $merged.Contains($nid2)) { $merged.Add($nid2) | Out-Null }
+                    }
+                }
+                $rec['consumed_evidence_refs'] = ([string[]]$merged)
+            }
+        }
+        catch { }
         $rec['execution_runtime'] = [ordered]@{
             session_id             = (Protect-TaskKernelText -Text $sid)
             started_at             = $startText
@@ -2712,7 +3749,7 @@ function Start-OrchestrationTaskAttempt {
             last_progress_revision = $newRev
             attempt_role           = (Protect-TaskKernelText -Text $role)
             attempt_n              = [int]$nextN
-            gate_evidence          = $gateEvidence
+            gate_evidence          = $effGate
             budget_snapshot        = $snapshot
         }
         $rec['revision'] = $newRev

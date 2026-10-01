@@ -148,6 +148,23 @@
         "retencao multi-dia: JSONL do watchdog com cap de rotacao; retencao alem do cap e follow-up documentado"
       ]
     },
+    "phase27_recovery_typed_waits_slice1": {
+      "status": "done-code-fix3",
+      "task_id": "RR-P27-S1-RECOVERY-TYPED-WAITS (+FIX1..FIX3)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase27.json",
+      "summary": "Strategy-aware recovery, typed waits e idempotent recovery no Task Kernel (kernel-side; wiring comportamental do Planner e policy/prompt, fora do slice): attempts com strategy_id/fingerprint/hypothesis/new_evidence_refs kernel-owned; fingerprints canonicos SHA-256 com framing len:valor (anti-colisao estrutural); gates de stall no start-attempt (STALLED_STRATEGY_REJECTED; DEBUGGER_REQUIRED na 2a falha material; EXHAUSTED na 3a sem novidade; anti-replay de evidencia via consumed_evidence_refs kernel-owned + seen-set dual); typed waits com enum fechado de 6 tipos gated por atributo sticky por task require_typed_waits (strict => prose-only => WAIT_TYPED_REQUIRED; lane legada inalterada); unblock exige referencia (MALFORMED_WAIT fail-closed); dedupe de work unit ativo atomico (lock WORKDEDUPE, DUPLICATE_ACTIVE_WORK com existing_task_id, nunca funde); binding start/resultado kernel-owned (STRATEGY_MISMATCH, bound hypothesis vence, worker_hypothesis isolada); idempotencia de start exigindo equivalencia efetiva da requisicao (estrategia/hipotese/refs) — divergencia cai no gate, nunca sucesso ambiguo.",
+      "suites": [
+        "OrchestrationRecovery.tests.ps1 61/61 PASS (PS5.1 + PS7)",
+        "kernel pre-existente 75/75 PS5.1 (PS7 74/75 com ownership_conflict pre-existente em HEAD, leases-only)",
+        "budget 117/117 (PS5.1 + PS7); test-package-consistency.ps1 16/16; git diff --check limpo"
+      ],
+      "reviews": "Reviewer APPROVED + Security Reviewer APPROVED no FIX3 (3 rounds de correcao: FIX1 8 findings, FIX2 3 bindings/anti-replay, FIX3 fast-path de idempotencia)",
+      "holds": [
+        "wiring comportamental do Planner (dispatch do Debugger, BLOCKED sempre tipado em tasks novas) e policy/prompt — fora deste slice",
+        "strict typed waits e opt-in sticky por task (require_typed_waits no create); enforcement universal exigiria decisaos de compat",
+        "evidence refs sao atestadas pelo Planner (existencia/frescor nao verificados); owner do wait e string declarada (unblock nao e enforcement de aprovacao humana); fingerprints lexicais ( sinonimos reais => fps distintos); reserve antecipada de work unit possivel na fronteira administrativa local"
+      ]
+    },
     "phase26_watchdog_enforcement_slice1": {
       "status": "done-code-flag-off",
       "task_id": "RR-P26-S1-WATCHDOG-ENFORCEMENT (+FIX1..FIX6)",
@@ -174,7 +191,7 @@
     "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED)"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, loop guard, safe interruption) concluído como done-code-flag-off em 2026-10-01 (PAE-01/02/03/04/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26 e P27–P42 não iniciados (programa revisado 2026-10-01: recovery/typed waits, MCP safety, Jev advisory, AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off) e P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) concluídos em 2026-10-01 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 e P28–P42 não iniciados (MCP safety, Jev advisory, AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",

@@ -3,20 +3,21 @@
     Task Kernel CLI: thin wrapper over lib/OrchestrationTaskKernel.ps1.
 .DESCRIPTION
     Actions:
-      create        - New-OrchestrationTask (needs -TaskId -Objective)
+      create        - New-OrchestrationTask (needs -TaskId -Objective; optional -Project for active-work dedupe: same objective+scope+DoD+project on an ACTIVE task returns DUPLICATE_ACTIVE_WORK, never merges; optional -RequireTypedWaits switch for a sticky per-task typed-wait requirement)
+      check-duplicate - Get-OrchestrationDuplicateWork query (needs -Objective; optional scopes/criteria/project; read-only, no creation)
       get           - Get-OrchestrationTask (needs -TaskId)
       status        - Get-OrchestrationTaskStatus (needs -TaskId)
-      transition    - Invoke-OrchestrationTaskTransition (needs -TaskId -ToState -Actor -ExpectedRevision)
-      record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision)
+      transition    - Invoke-OrchestrationTaskTransition (needs -TaskId -ToState -Actor -ExpectedRevision; optional typed wait for -ToState BLOCKED; unblock from BLOCKED needs -WaitFingerprint or -UnblockAction when a typed wait is active)
+      record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision; optional strategy/recovery fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -FailureClass -FailureDetail -RecoverySource -NewEvidenceRefs)
       verify        - Set-OrchestrationTaskVerification (needs -TaskId -VerifierResultFile|-VerifierResultJson -ExpectedRevision; never -Passed)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision)
-      block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
+      block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
       watchdog-interrupt - Set-OrchestrationTaskWatchdogInterrupt (needs -TaskId -Actor -ExpectedRevision -WatchdogAttemptN -WatchdogClass; optional -WatchdogTelemetryFile)
       watchdog-settle    - Confirm-OrchestrationTaskWatchdogSettlement (needs -TaskId -Actor -ExpectedRevision; idempotent)
       get-budget    - Get-OrchestrationTaskBudget (needs -TaskId; old records derive defaults read-only)
-      start-attempt - Start-OrchestrationTaskAttempt (needs -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision; optional -DebuggerEvidenceRefs/-NewEvidenceRefs string arrays for retry-gated starts)
+      start-attempt - Start-OrchestrationTaskAttempt (needs -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision; optional -DebuggerEvidenceRefs/-NewEvidenceRefs string arrays for retry-gated starts; optional strategy fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -AttemptHypothesis for stall gates)
       set-budget    - Set-OrchestrationTaskBudget planner/kernel only (needs -TaskId -Actor -ExpectedRevision)
       planner-turn  - Start-OrchestrationPlannerTurn (needs -TaskId -PlannerTurnId -UserInputSignal -UserInputSequence -Actor -ExpectedRevision)
     List parameters (-ReadScopes, -WriteScopes, -Grants, -AcceptanceCriteria,
@@ -99,7 +100,24 @@ param(
     [string]$CurrentBaseRevision = '',
     $WatchdogAttemptN = $null,
     [string]$WatchdogClass = '',
-    [string]$WatchdogTelemetryFile = ''
+    [string]$WatchdogTelemetryFile = '',
+    [string]$Project = '',
+    [switch]$RequireTypedWaits,
+    [string]$StrategyId = '',
+    [string]$StrategyApproach = '',
+    [string]$StrategyTool = '',
+    [string[]]$StrategyParams = @(),
+    [string]$StrategyFingerprint = '',
+    [string]$FailureClass = '',
+    [string]$FailureDetail = '',
+    [string]$RecoverySource = '',
+    [string]$AttemptHypothesis = '',
+    [string]$WaitType = '',
+    [string]$WaitOwner = '',
+    [string]$WaitAction = '',
+    [string]$WaitDependencyId = '',
+    [string]$WaitFingerprint = '',
+    [string]$UnblockAction = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -157,9 +175,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
     exit 2
 }
 
@@ -235,7 +253,7 @@ switch ($action) {
             exit 2
         }
         $result = New-OrchestrationTask -TaskId $TaskId -Objective $Objective -TaskType $tt -Risk $rk `
-            -ParentTaskId $ParentTaskId -TraceId $TraceId -OrchestrationDecision $OrchestrationDecision -Actor $Actor `
+            -ParentTaskId $ParentTaskId -TraceId $TraceId -OrchestrationDecision $OrchestrationDecision -Project $Project -RequireTypedWaits:$RequireTypedWaits -Actor $Actor `
             -RuntimeId $rid -RuntimeGeneration ([int]$RuntimeGeneration) -RuntimeProfile $rprof -RuntimeVersion $RuntimeVersion `
             -BaseRevision $BaseRevision -ReadScopes (Split-TaskKernelCliList -Value $ReadScopes) `
             -WriteScopes (Split-TaskKernelCliList -Value $WriteScopes) -Grants (Split-TaskKernelCliList -Value $Grants) `
@@ -245,6 +263,21 @@ switch ($action) {
             -ProductionAuthorized ([bool]$ProductionAuthorized) -AttemptBudget ([int]$abConv.value) `
             -BudgetProfile $BudgetProfile -BudgetPolicyPath $BudgetPolicyPath `
             -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'check-duplicate' {
+        if ([string]::IsNullOrWhiteSpace($Objective)) {
+            Write-TaskKernelCliError 'check-duplicate exige -Objective (consulta somente-leitura, nada cria).'
+            exit 2
+        }
+        $fpSlot = Get-OrchestrationWorkFingerprint -Objective $Objective `
+            -Scope ((Split-TaskKernelCliList -Value $ReadScopes) + (Split-TaskKernelCliList -Value $WriteScopes)) `
+            -DefinitionOfDone (Split-TaskKernelCliList -Value $AcceptanceCriteria) -Project $Project
+        if (-not [bool]$fpSlot.ok) {
+            Write-TaskKernelCliError ('check-duplicate: ' + [string]$fpSlot.error)
+            exit 2
+        }
+        $dup = Get-OrchestrationDuplicateWork -WorkFingerprint ([string]$fpSlot.fingerprint) -TasksDir $TasksDir
+        $result = [PSCustomObject]@{ ok = $true; duplicate = [bool]$dup.found; existing_task_id = ([string]$dup.existing_task_id); work_fingerprint = ([string]$fpSlot.fingerprint) }
     }
     'get' {
         if ([string]::IsNullOrWhiteSpace($TaskId)) {
@@ -270,6 +303,8 @@ switch ($action) {
         if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
         $result = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState $ToState -Actor $Actor `
             -ExpectedRevision ([int]$ExpectedRevision) -Reason $Reason -ActorIdentitySource $ids `
+            -WaitType $WaitType -WaitOwner $WaitOwner -WaitAction $WaitAction -WaitDependencyId $WaitDependencyId `
+            -WaitFingerprint $WaitFingerprint -UnblockAction $UnblockAction `
             -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'record-result' {
@@ -282,6 +317,10 @@ switch ($action) {
             -ClaimedEvidence (Split-TaskKernelCliList -Value $ClaimedEvidence) -ProducedBy $ProducedBy `
             -ExpectedRevision ([int]$ExpectedRevision) -Hypothesis $Hypothesis -NewEvidence:$NewEvidence `
             -DebuggerInvoked:$DebuggerInvoked `
+            -StrategyId $StrategyId -StrategyApproach $StrategyApproach -StrategyTool $StrategyTool `
+            -StrategyParams (Split-TaskKernelCliList -Value $StrategyParams) -StrategyFingerprint $StrategyFingerprint `
+            -FailureClass $FailureClass -FailureDetail $FailureDetail -RecoverySource $RecoverySource `
+            -NewEvidenceRefs (Split-TaskKernelCliList -Value $NewEvidenceRefs) `
             -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'verify' {
@@ -329,7 +368,8 @@ switch ($action) {
         }
         Assert-TaskKernelRevision
         $result = Block-OrchestrationTask -TaskId $TaskId -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) `
-            -Reason $Reason -TasksDir $TasksDir -FlagsPath $FlagsPath
+            -Reason $Reason -WaitType $WaitType -WaitOwner $WaitOwner -WaitAction $WaitAction -WaitDependencyId $WaitDependencyId `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'cancel' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason)) {
@@ -380,6 +420,11 @@ switch ($action) {
             TaskId = $TaskId; AttemptRole = $AttemptRole; SessionId = $SessionId
             Actor = $Actor; ExpectedRevision = ([int]$ExpectedRevision); ActorIdentitySource = $ids
             BudgetPolicyPath = $BudgetPolicyPath; TasksDir = $TasksDir; FlagsPath = $FlagsPath
+            StrategyId = $StrategyId; StrategyApproach = $StrategyApproach; StrategyTool = $StrategyTool
+            StrategyFingerprint = $StrategyFingerprint; AttemptHypothesis = $AttemptHypothesis
+        }
+        if (-not [string]::IsNullOrWhiteSpace(([string]($StrategyParams -join '')).Trim())) {
+            $saArgs['StrategyParams'] = (Split-TaskKernelCliList -Value $StrategyParams)
         }
         foreach ($rk in @('DebuggerEvidenceRefs', 'NewEvidenceRefs')) {
             if ($PSBoundParameters.ContainsKey($rk)) {

@@ -70,6 +70,74 @@ plano em
   Security **APPROVED** (SEC3). Follow-ups documentados: lock
   cross-process, retenção multi-dia; interrupt real é Phase 26
   (não implementado).
+- **P27 slice 1 done-code** — recovery com estrategia, typed waits e
+  trabalho idempotente no kernel (`scripts/v3/lib/
+  OrchestrationTaskKernel.ps1`, `scripts/v3/task-kernel.ps1`,
+  `evidence/v3.1/runtime-reliability/phase27.json`): campos opcionais
+  no attempt (strategy_id/fingerprint, failure_class/detail,
+  recovery_source, new_evidence_refs, recovery_fingerprint,
+  changed_from_previous); fingerprints canonicos SHA-256
+  (`sha256:` + hex) para estrategia, falha/recuperacao, wait
+  tipado e work unit (rewording lexical nao reseta contagens;
+  sinonimos reais nao sao canonicos); gates no start-attempt
+  (`STALLED_STRATEGY_REJECTED`, `DEBUGGER_REQUIRED` na 2a falha
+  material sem trace do debugger, `EXHAUSTED` na 3a sem novidade;
+  com novidade abre); waits tipados com enum fechado
+  (`human_decision|external_dependency|worker|review|approval|
+  runtime_recovery`) + fingerprint, prose-only declarado rejeitado
+  (`WAIT_TYPED_REQUIRED`), re-block idempotente, unblock exige
+  referencia (`UNBLOCK_REF_REQUIRED`); dedupe de work ativo por
+  projeto (`DUPLICATE_ACTIVE_WORK` com `existing_task_id`, nunca
+  funde; sem projeto nao recusa, so registra). Suite nova **29/29**
+  (PS5.1 + PS7); regressoes: kernel **75/75** (PS5.1; PS7 74/75 com
+  1 falha pre-existente de leases), budget **117/117** (PS5.1 + PS7),
+  consistencia **16/16**. Flags inalteradas; dispatch do Debugger e
+  wiring de prompt do Planner fora do slice (HOLD honesto).
+- **P27 slice 1 FIX1 (review findings F-A..F-G)** — `require_typed_waits`
+  sticky por task (opt-in na criacao, imutavel; prose-only =>
+  `WAIT_TYPED_REQUIRED` so na task strict, lane legada intacta); dedupe
+  atomico sob lock `WORKDEDUPE` do tasks-dir (concorrencia real com 2
+  ids => 1 vencedor + `DUPLICATE_ACTIVE_WORK`); framing `len:valor` em
+  toda serializacao de fingerprint (colisoes estruturais separadas);
+  replay de evidence ref nao conta como novidade; resultado herda a
+  strategy do attempt (`STRATEGY_MISMATCH` em divergencia); 3a tentativa
+  autorizada consome a novidade sem switches artificiais;
+  `active_wait` corrompido falha fechado (`MALFORMED_WAIT`). Suite
+  **46/46** (PS5.1 + PS7, cenario 16 sob deadline externo real);
+  regressoes inalteradas. Residuais em `phase27.json`: refs atestadas
+  (existencia/frescor nao verificados), owner e string declarada,
+  fingerprints lexicais.
+- **P27 slice 1 FIX2 (re-review convergente: variavel, anti-replay,
+  binding)** — gate anti-replay nao reutiliza mais `$sid` (variavel
+  exclusiva por ref; `session_id` persistido e sempre o solicitado);
+  idempotencia da mesma sessao via fast-path antes dos gates de
+  novidade; refs consumidas pelo kernel (`consumed_evidence_refs`,
+  sob o mesmo CAS/lock do start que autoriza) entram no seen-set
+  junto as declaradas pelo worker (mesma normalizacao trim; replay
+  puro rejeitado, misto com 1 ref nova abre); start aware sem
+  descritor herda estrategia da ultima falha (`lastFp` + descritor)
+  e persiste binding completo nao-vazio (resultado bare registra
+  `candidate_pass` sem `ATTEMPT_GATE_FAILED`); em attempts aware a
+  hipotese bound vence kernel-owned (divergente do worker vai em
+  `worker_hypothesis`; omitida herda a bound). Suite **56/56**
+  (PS5.1 + PS7); regressoes: kernel **75/75** (PS5.1; PS7 74/75 com
+  1 falha pre-existente de leases), budget **117/117**, consistencia
+  **16/16**. Residuais mantidos: evidencia atestada nao verificada,
+  owner declarado, fingerprints lexicais, reserve-antecipada possivel
+  na fronteira administrativa.
+- **P27 slice 1 FIX3 (re-review: equivalencia da requisicao)** —
+  idempotencia do start exige requisicao efetiva IDENTICA ao binding
+  (`Test-TaskKernelStartRequestEquivalent`: mesma sessao/role/
+  attempt_n + fingerprint efetivo com heranca `lastFp`, strategy id,
+  hipotese e set de evidence refs, tudo normalizado com trim e o
+  mesmo pipeline `Protect` do bind; resolve/parse-fail nunca e
+  idempotente). Mesma sessao com estrategia/hipotese/refs
+  divergentes cai no fluxo normal do gate (rejeita ou re-autoriza
+  com novidade, nunca sucesso ambiguo); fingerprint invalido recebe
+  `INVALID_STRATEGY_FINGERPRINT` sem escrita; retry byte-identico
+  segue idempotente. Suite **61/61** (PS5.1 + PS7); regressoes:
+  kernel **75/75** (PS5.1), budget **117/117**, consistencia
+  **16/16**. Residuais mantidos.
 - **P26 slice 1 done-code-flag-off (hardened P26-FIX1 + P26-FIX2
   + P26-FIX3 + P26-FIX4 + P26-FIX5 + P26-FIX6 re-review)** — caminho de ENFORCEMENT real do
   RuntimeWatchdog com processos proprios no Windows
