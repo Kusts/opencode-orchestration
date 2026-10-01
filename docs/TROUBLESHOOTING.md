@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## Programa Phases 21–33 (runtime reliability — P21–P24 consolidadas, P25+ pendentes)
+## Programa Phases 21–42 (revisão 2026-10-01) (runtime reliability — P21–P25 consolidadas, P26–P42 pendentes)
 
 Estado vivo em
 `evidence/v3.1/runtime-reliability/program-status.json`. O que já tem
@@ -29,26 +29,28 @@ diagnóstico real (P21–P22) e o que segue manual:
   <porta>` + recheck, como no E2E nativo em perfil isolado).
 - **Child/worker travado sem retorno (retry budget nunca consome)**:
   o kernel atual só escala após falha retornada; execução que nunca
-  retorna não chega a Debugger/`EXHAUSTED`. Há fixtures de detecção
-  (P21, `evidence/v3.1/runtime-reliability/fixtures/`, 17/17), mas não
-  há watchdog/loop guard (Phases 25–26 pendentes): interrompa
+  retorna não chega a Debugger/`EXHAUSTED`. Há detecção em shadow
+  (P25: RuntimeWatchdog lib, suíte 80/80) e fixtures de baseline (P21,
+  `evidence/v3.1/runtime-reliability/fixtures/`, 17/17), mas não há
+  enforcement de watchdog/loop guard (P26 pendente): interrompa
   manualmente e re-despache com escopo reduzido/estratégia nova;
   preserve evidência parcial à mão.
 - **Orçamentos sem enforcement (P23 record-only)**: os budgets
   canônicos (5 perfis) estão registrados e validados, mas nada impõe
-  interrupção — trate estouro manualmente até as Phases 24–28.
+  interrupção — trate estouro manualmente até a Phase 26, quando os
+  budgets passam a ser enforceáveis.
 - **MCP indisponível prende a orquestração em retries**: sem circuit
-  breaker (Phase 29 pendente) — pare de chamar o MCP problemático
+  breaker (Phase 28 pendente) — pare de chamar o MCP problemático
   manualmente; indisponibilidade de MCP consultivo nunca equivale a
   aprovação.
 - **AI Memory remoto indisponível**: comportamento planejado
-  (`MEMORY_UNAVAILABLE` limitado, sem retry infinito — Phase 31
-  pendente); hoje, falha de memória não deve travar trabalho não
+   (`MEMORY_UNAVAILABLE` limitado, sem retry infinito — Phase 30
+   pendente); hoje, falha de memória não deve travar trabalho não
   relacionado — siga sem a memória quando seguro e registre o blocker.
   O listener local `127.0.0.1:49374` **nunca** foi mutado pelo programa
   (migração para VPS planejada, não executada).
 - **Jev indisponível**: comportamento planejado (`JEV_UNAVAILABLE`
-  limitado, Phase 30 pendente); Jev é consultivo e nunca substitui
+   limitado, Phase 29 pendente); Jev é consultivo e nunca substitui
   verifier/Reviewer/Security Reviewer/DONE do kernel.
 
 ## Plugin não carrega

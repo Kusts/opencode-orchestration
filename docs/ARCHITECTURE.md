@@ -195,7 +195,7 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
   (`task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
   nascem OFF — shadow rollout, ativação é decisão humana com evidência).
 
-## Confiabilidade de runtime (V3.1 Phases 21–33 — P21–P25 consolidadas, P26+ pendentes)
+## Confiabilidade de runtime (V3.1 Phases 21–42 (revisão 2026-10-01) — P21–P25 consolidadas, P26–P42 não iniciadas)
 
 Programa em andamento, com estado vivo em
 `evidence/v3.1/runtime-reliability/program-status.json`; especificado em
@@ -219,8 +219,8 @@ com execução descrita em [Implementation prompt](specs/ORCHESTRATION-V3.1-RUNT
 - **P23 done-record-only (budgets)**: orçamentos canônicos no kernel
   (5 perfis: worker 45m, planner 90m, steps 96, soft 3 / hard 5),
   sem ampliação pelo worker, planner-turn por input novo, CLI
-  `scripts/v3/task-kernel.ps1`; kernel pré-existente **75/75**
-  preservado. Sem enforcement (Phases 24–28); native step em HOLD.
+   `scripts/v3/task-kernel.ps1`; kernel pré-existente **75/75**
+   preservado. Sem enforcement (P26+); native step em HOLD.
 - **P24 parcial (plugin/session lifecycle)**: plugin V2 migrado para
   `event.subscribe` abort-safe
   (`plugins/orchestration-enforcement/v2.ts`); live-hook no binário
@@ -275,14 +275,17 @@ implementado):
   autoriza ações, concede permissões, sobrescreve Reviewer/Security
   Reviewer/verificação/DONE; indisponibilidade retorna `JEV_UNAVAILABLE`
   limitado sem retry infinito.
+- **Programa restante P26–P42 (revisão 2026-10-01)**: persistent bootstrap,
+  reconciler + continuation envelope, execution modes, evidence reuse,
+  validação adaptativa, capability doctor, evolution.
 
 Limites honestos: o acima é o que existe — sem enforcement de
-watchdog/loop-guard/budgets/circuit breaker (Phases 26+ não iniciadas);
+watchdog/loop-guard/budgets/circuit breaker (P26–P42 não iniciadas);
 todas as flags seguem OFF em
 `source/registry/capability-flags.json` (nenhuma flag nova); AI Memory
 nunca mutado (listener local mantido); roteamento MCP genérico
 desligado; revisões Reviewer + Security Reviewer com APPROVED parcial
-por fase (HOLDs registrados); critérios `RR-01`–`RR-20` pendentes onde
+por fase (HOLDs registrados); critérios `PAE-01`–`PAE-40` pendentes onde
 não cobertos. Programa **não** concluído.
 
 ## Ownership model do installer (PACKAGE/USER)

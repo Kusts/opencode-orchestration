@@ -19,7 +19,7 @@ em `debug config/agents`, HOLD honesto), Phase 8 (smoke de binário V2 em
 CI) e ativação das flags. Estado vivo no `CHANGELOG.md [Unreleased]` e em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
-**Continuação (2026-09-30):** programa de confiabilidade **Phases 21–33** (runtime reliability, loop recovery, Jev MCP) em andamento **como especificação — não implementado**. Plano em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` (SPEC em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`, execução em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md`). Fases 0–20 acima preservadas sem alteração.
+**Continuação (revisão 2026-10-01):** programa de confiabilidade **Phases 21–42** — P21–P25 implementadas (evidência em `evidence/v3.1/runtime-reliability/program-status.json`); P26–P42 em especificação (o addendum revisado substitui o desenho anterior P26–P33). Plano em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` (SPEC em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`, execução em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md`). Fases 0–20 acima preservadas sem alteração.
 
 ## 1. Delivery strategy
 
@@ -1012,12 +1012,14 @@ The implementation is complete only when:
 
 ---
 
-## 26. Continuação — Reliability Phases 21–33 (não implementado)
+## 26. Continuação — Reliability Phases 21–42 (revisão 2026-10-01; P21–P25 implementadas)
 
-O programa de confiabilidade (bounded execution, watchdog, loop guard, Planner/subagent supervision, port preflight V2, MCP safety/circuit breaker, AI Memory remoto, Jev consultivo, lane E2E Windows V2, rollout) está especificado e planejado **fora deste plano**, sem reabrir as Phases 0–20:
+O programa de confiabilidade (bounded execution, watchdog, loop guard, Planner/subagent supervision, port preflight V2, MCP safety/circuit breaker, AI Memory remoto, Jev consultivo, bootstrap persistente, Task/Run/Seat/Session, reconciler + continuation envelope, execution modes, evidence reuse, validação adaptativa, capability doctor, V2 native, evolution, lane E2E Windows V2, rollout) está especificado e planejado **fora deste plano**, sem reabrir as Phases 0–20:
 
-- SPEC: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` (critérios `RR-01`–`RR-20`, 20 itens de Definition of Done — todos pendentes).
-- Plano: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` (Phases 21–33 + constraints + Definition of Done final).
+- SPEC: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` (critérios `PAE-01`–`PAE-40`, que substituem os `RR-01`–`RR-20` do desenho anterior; Definition of Done — todos pendentes a partir da P26).
+- Plano: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` (Phases 26–42 + constraints + Definition of Done final; o desenho anterior P26–P33 foi substituído pela revisão 2026-10-01).
 - Execução: `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md` (ordem de implementação, gates de Reviewer/Security Reviewer).
 
-Limites honestos: nenhum enforcement de watchdog/loop guard existe; nenhuma flag nova (`bounded_execution`, `watchdog`, `loop_guard`, `port_preflight`, `mcp_safety`, `jev_advisory`) foi criada; AI Memory permanece com listener local (migração para VPS planejada, não executada); roteamento MCP genérico segue desligado.
+Estado: P21–P25 implementadas (evidência em `evidence/v3.1/runtime-reliability/program-status.json`); programa restante revisado em 2026-10-01 para P26–P42; critérios PAE-01–PAE-40 substituem RR-01–RR-20.
+
+Limites honestos: nenhum enforcement de watchdog/loop guard existe; AI Memory permanece com listener local (migração para VPS planejada, não executada); roteamento MCP genérico segue desligado.

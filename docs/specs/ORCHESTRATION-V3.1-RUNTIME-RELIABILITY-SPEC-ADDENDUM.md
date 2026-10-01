@@ -1,845 +1,1299 @@
-# SPEC ADDENDUM — Orchestration V3.1 Runtime Reliability, Loop Recovery & Jev MCP
+# SPEC ADDENDUM — Orchestration V3.1 Persistent Adaptive Engineering & Runtime Reliability
 
-**Repository:** `Kusts/opencode-orchestration`  
-**Current baseline reviewed:** `master @ 8047c22ce4a8423c12a51b4b1b4ddc3e5755ab04`  
-**Revision date:** 2026-09-30  
-**Companion:** `ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`  
-**Change class:** `RUNTIME_RELIABILITY` + `BOUNDED_EXECUTION` + `MCP_INTEGRATION`  
-**Suggested release:** continue V3.1 / 1.1.x. **Do not create V4.**
+**Repository:** `Kusts/opencode-orchestration`
+**Baseline:** `master @ 4a996b29659967312d7ba3abbfbfb6003ce0bec1`
+**Revision date:** 2026-10-01
+**Companion:** `ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`
+**Plan:** `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md`
+**Change class:** `RUNTIME_RELIABILITY` + `PERSISTENT_ORCHESTRATION` + `ADAPTIVE_EXECUTION` + `EFFICIENCY_HARDENING` + `MCP_INTEGRATION`
+**Release line:** continue V3.1 / 1.1.x. **Do not create V4 solely for this program.**
 
-## 0. Purpose
+## 0. Status and scope of this revision
 
-This addendum extends the already-implemented V3.1 Kernel Hardening work without redesigning or replacing the existing orchestration.
+This revision supersedes the unimplemented design of the previous Runtime Reliability addendum from Phase 26 onward.
 
-The existing Task Kernel, CAS, grants, Evidence Contract, deterministic verifier, kernel-authorized DONE, leases, worktrees, runtime adapters and current retry/escalation semantics remain authoritative.
+Phases 21–25 are already implemented or partially implemented and remain the baseline:
 
-This revision addresses three operational gaps observed after the V3.1 implementation:
+- P21: frozen reliability baseline;
+- P22: deterministic V2 port/process preflight, partial HOLDs preserved;
+- P23: canonical execution budgets, record-only;
+- P24: V2 plugin/session-lifecycle migration and exact-runtime evidence, partial HOLDs preserved;
+- P25: watchdog shadow implementation, no interruption enforcement yet.
 
-1. OpenCode V2 runtime/service port collisions, including a collision with the local AI Memory service;
-2. Planner and subagent executions that may remain active indefinitely without consuming the existing retry budget;
-3. adding Jev MCP as a bounded, advisory judgment capability without enabling unrestricted generic MCP routing.
+This revision does **not** rewrite those phases. It redesigns the remaining program so reliability, persistence, efficiency and agent behavior are solved together.
 
-The core rule is:
+The target end-state is:
 
-> **No orchestration execution may remain indefinitely active without bounded steps, progress supervision, a deadline, or an explicit recovery/termination path.**
-
----
-
-## 1. Findings that change the design
-
-### 1.1 The current retry budget is necessary but not sufficient
-
-The current kernel already enforces:
-
-- first failed attempt → reassess/narrow;
-- second failed attempt → Debugger;
-- third attempt requires new evidence/hypothesis/strategy;
-- otherwise → `EXHAUSTED`.
-
-However, this logic only activates **after an attempt returns a failure**.
-
-A worker or Planner that never returns:
-
-- never increments the meaningful failure sequence;
-- never reaches Debugger escalation;
-- never reaches `EXHAUSTED`;
-- can hold the parent session indefinitely.
-
-Therefore V3.1 needs an execution supervision layer **before** retry/escalation.
-
-### 1.2 OpenCode itself cannot be the only protection
-
-Upstream OpenCode reports show multiple variants of indefinite execution:
-
-- child/subagent session stalled while the parent waits;
-- repeated identical tool calls for long periods;
-- provider stream waiting indefinitely after a tool call;
-- permission asks inside non-interactive subagents;
-- long-lived V2 server/process instability.
-
-The orchestration package MUST therefore treat native runtime protections as one layer, not the entire reliability model.
-
-### 1.3 Current V2 port conflict has a concrete probable cause
-
-The user's local AI Memory has been using `127.0.0.1:49374`.
-
-Recent OpenCode V2 Windows reports show the managed background service also trying to bind to `127.0.0.1:49374`.
-
-Moving AI Memory to a VPS should remove this specific local listener conflict, but it does not eliminate:
-
-- Windows excluded/reserved port ranges;
-- another process occupying the chosen V2 service port;
-- stale/zombie listeners;
-- future local MCPs introducing another listener conflict.
-
-Therefore runtime startup needs deterministic port ownership diagnostics.
-
-### 1.4 V2 runtime contracts are still moving
-
-The current V3.1 V2 adapter/plugin must be revalidated against the exact pinned V2 runtime before reliability enforcement is enabled.
-
-The implementation MUST NOT assume that:
-
-- plugin event APIs from an older beta are still current;
-- public legacy documentation matches V2;
-- V2 config schema documentation and runtime behavior are perfectly synchronized.
-
-Every V2 enforcement feature added by this addendum requires an exact-runtime integration test.
+> The user opens OpenCode, states the objective, and the Planner automatically performs orchestration, capability selection, Jev consultation when justified, bounded execution, validation, recovery and cross-session continuation. Human input is requested only at explicit authority, risk, irreversibility or product-decision boundaries.
 
 ---
 
-## 2. Non-goals
+# 1. Primary objectives
 
-This addendum MUST NOT:
+The system MUST evolve from a configured set of subagents into a persistent engineering control plane while preserving the existing V3.1 Task Kernel and dual-runtime model.
 
-- remove OpenCode V1;
-- make V2 the only supported runtime;
-- introduce deep subagents;
-- introduce a new daemon or persistent orchestration database;
-- enable generic `mcp_routing` globally;
-- let Jev authorize actions;
-- let Jev override permissions, grants, Reviewer, Security Reviewer or kernel DONE;
-- automatically kill an unknown process merely because it owns a port;
-- rewrite already-completed V3.1 phases;
-- replace the existing retry/escalation contract with unrestricted autonomous retries.
+The program has eight primary outcomes.
+
+### O1 — Always-on orchestration
+
+The user MUST NOT need to repeatedly say:
+
+- use subagents;
+- use the Planner;
+- use Jev;
+- use skills;
+- use AI Memory;
+- review/test this;
+- continue the previous orchestration.
+
+The global/runtime bootstrap and Planner policy determine those choices automatically.
+
+### O2 — Bounded execution
+
+No Planner turn, worker, MCP call or recovery attempt may remain indefinitely active without:
+
+- a step budget;
+- a wall-clock budget;
+- a no-progress budget;
+- loop/stall detection;
+- or an explicit interruption/recovery path.
+
+### O3 — Persistent work across OpenCode sessions
+
+A task MUST be durable independently of any OpenCode session.
+
+A task can survive:
+
+- TUI close;
+- process restart;
+- session replacement;
+- compaction;
+- child-session loss;
+- parent-session replacement.
+
+### O4 — Minimum sufficient engineering
+
+Agents MUST prefer the smallest correct intervention that satisfies the current objective and acceptance criteria.
+
+The system MUST actively discourage:
+
+- bonus work;
+- speculative abstraction;
+- unrelated refactors;
+- unnecessary new modules;
+- broad changes not justified by the objective;
+- redoing valid work/evidence.
+
+### O5 — Evidence reuse and differential validation
+
+Valid evidence MUST be reusable until invalidated.
+
+Tester and Reviewer MUST evaluate gaps and risks instead of mechanically repeating Coder work.
+
+### O6 — Adaptive execution
+
+The Planner MUST choose the execution mode from the shape, risk, uncertainty and continuity requirements of the task rather than applying one fixed pipeline.
+
+Supported semantic modes:
+
+1. deterministic workflow;
+2. persistent specialist;
+3. one-shot subagent.
+
+### O7 — Jev as bounded judgment, not authority
+
+Jev MUST be persistently available to the Planner but invoked only at explicit decision boundaries.
+
+Jev never grants authority, writes DONE or replaces deterministic verification.
+
+### O8 — Measurable orchestration evolution
+
+The system SHOULD learn from repeated operational evidence through controlled evolution:
+
+`telemetry → candidate improvement → eval → shadow → promotion`
+
+No prompt/policy is automatically rewritten from one anecdote.
 
 ---
 
-# PART A — BOUNDED EXECUTION
+# 2. Existing invariants that remain authoritative
 
-## 3. Execution budget contract
+This revision preserves:
 
-Every active orchestration attempt MUST have a normalized budget.
+- one Planner (`build`) as control plane;
+- 19 current workers; no new role is required merely for this program;
+- shallow hierarchy;
+- workers cannot create subagents;
+- Task Kernel as authoritative task-state owner;
+- CAS for persistent task mutations;
+- execution grants by intersection;
+- Evidence Contract;
+- deterministic verifier;
+- kernel-authorized DONE;
+- write leases and task worktrees;
+- V1 and V2 runtime adapters;
+- V1 first-class support;
+- exact-runtime evidence before enforcement claims;
+- generic `mcp_routing` disabled;
+- no secret committed to the repository;
+- no automatic killing of unknown processes;
+- no unrestricted retry loop;
+- no new always-on daemon or database in this release.
 
-Suggested task record extension:
+Where this revision conflicts with the previous unimplemented P26+ text, this revision wins.
+
+---
+
+# 3. Non-goals
+
+This program MUST NOT:
+
+- create V4 merely because the behavior is broader;
+- replace OpenCode with a custom harness;
+- copy OpenRig, Paperclip, Strands, AX or another framework wholesale;
+- require Kubernetes, Agent Substrate or a new server control plane;
+- make OpenCode V2 the only supported runtime;
+- claim V1/V2 behavioral parity where the runtime capability differs;
+- enable arbitrary MCP auto-discovery with execution authority;
+- let the capability registry automatically install or authorize unknown tools;
+- convert every task into a large SDLC ceremony;
+- require Tester and Reviewer for every low-risk edit;
+- make Jev a mandatory network call for every task;
+- use AI Memory as the authoritative task-state store;
+- use chat history as authoritative task state;
+- persist raw secret-bearing tool output as evidence;
+- auto-modify agent policy from telemetry without evaluation and explicit promotion.
+
+---
+
+# 4. Canonical architecture
+
+```text
+                         USER OBJECTIVE
+                               |
+                               v
+                    Persistent Planner `build`
+                               |
+                      orchestration preflight
+                               |
+                +--------------+---------------+
+                |                              |
+                v                              v
+          Task Kernel                    Capability Health
+       durable task state              skills / MCP / runtime
+                |                              |
+                +---------------+--------------+
+                                |
+                         Execution Router
+                                |
+              +-----------------+------------------+
+              |                 |                  |
+              v                 v                  v
+       Deterministic       Persistent         One-shot
+         Workflow          Specialist         Subagent
+              |                 |                  |
+              +-----------------+------------------+
+                                |
+                     bounded execution layer
+                     watchdog / loop guard
+                                |
+                         Evidence Store
+                                |
+                     Validation Router
+                 reuse / tester / reviewer /
+                    security / verifier
+                                |
+                     Completion Gate
+                                |
+                              DONE
+                                |
+                +---------------+---------------+
+                |                               |
+                v                               v
+         AI Memory / learnings            Evolution signals
+```
+
+The semantic control plane remains runtime-neutral. OpenCode V2 capabilities are used through the V2 adapter, never by leaking V2-specific assumptions into the canonical kernel.
+
+---
+
+# 5. Persistent bootstrap
+
+## 5.1 Default entrypoint
+
+For an installed orchestration profile:
+
+- `default_agent` MUST resolve to the Planner `build`;
+- the global `AGENTS.md` MUST contain persistent delegation/orchestration authority;
+- the orchestration plugin MUST bootstrap automatically;
+- required capability descriptors MUST be discoverable at startup;
+- the user is not required to restate orchestration instructions per session.
+
+## 5.2 Planner bootstrap contract
+
+At the first meaningful user turn of a root session, the Planner SHOULD receive or reconstruct:
+
+- project/workspace identity;
+- runtime generation and exact version;
+- healthy/unhealthy capabilities;
+- active/detached tasks for the project;
+- current task binding, if one exists;
+- pending human decisions;
+- recent valid evidence summaries;
+- Jev availability;
+- AI Memory availability;
+- applicable skills;
+- current feature-flag state.
+
+Bootstrap MUST be bounded and MUST NOT block normal work indefinitely because an optional capability is unavailable.
+
+## 5.3 Persistent Jev availability
+
+Jev SHOULD be configured globally/at runtime so the Planner can invoke it without per-session user setup.
+
+Availability is not equivalent to mandatory invocation.
+
+---
+
+# 6. Task, Run, Seat and Session model
+
+The system MUST separate durable work from runtime sessions.
+
+## 6.1 Task
+
+A Task is the durable unit already owned by the Task Kernel.
+
+It survives runtime/session lifecycle changes.
+
+## 6.2 Orchestration Run
+
+A Run is one bounded execution episode for a Task, usually associated with one Planner root session.
+
+Suggested fields:
+
+- `run_id`;
+- `task_id`;
+- `root_session_id`;
+- `runtime_id`;
+- `runtime_version`;
+- `started_at`;
+- `ended_at`;
+- `status`;
+- `continuation_from_run_id`.
+
+## 6.3 Logical Seat
+
+A Seat is a logical execution identity where continuity matters.
+
+Examples:
+
+- Planner for TASK-123;
+- long-running Debugger for TASK-123;
+- persistent Coder for one feature.
+
+A Seat MUST NOT be confused with a runtime session ID.
+
+Initial implementation MAY use seats only for Planner and selected persistent specialists.
+
+## 6.4 Runtime Session
+
+A runtime session is disposable execution infrastructure.
+
+Suggested binding:
 
 ```json
 {
-  "execution_budget": {
-    "profile": "standard",
-    "step_budget": 32,
-    "wall_clock_seconds": 1200,
-    "no_progress_seconds": 300,
-    "repeated_action_soft_limit": 3,
-    "repeated_action_hard_limit": 5,
-    "cycle_repeat_limit": 3,
-    "provider_retry_limit": 2
-  },
-  "execution_runtime": {
-    "session_id": null,
-    "started_at": null,
-    "deadline_at": null,
-    "last_progress_at": null,
-    "last_progress_revision": 0
-  }
+  "seat_id": "task-123:coder",
+  "session_id": "ses_x",
+  "parent_session_id": "ses_root",
+  "runtime": "opencode-v2",
+  "binding_status": "attached"
 }
 ```
 
-Budgets are policy, not worker-controlled metadata.
+## 6.5 Execution binding is not task state
 
-A worker MUST NOT widen its own budget.
-
-### 3.1 Initial budget profiles
-
-These are initial measurable defaults and SHOULD be tuned from telemetry after real usage.
-
-| Profile | Typical use | Step budget | Wall clock | No-progress |
-|---|---|---:|---:|---:|
-| `fast` | trivial/discovery helper | 16 | 10 min | 3 min |
-| `standard-read` | Explorer, Researcher, Tester, Reviewer, Docs | 24 | 15 min | 4 min |
-| `standard-write` | Coder and domain implementation workers | 32 | 20 min | 5 min |
-| `deep` | Debugger, Architect, complex implementation | 40 | 30 min | 6 min |
-| `planner-turn` | Planner active orchestration turn | 64 | 60 min | 8 min |
-
-Rules:
-
-- New user input begins a new Planner turn/budget.
-- A Planner interactive session has no lifetime timeout merely because the TUI remains open.
-- An **active Planner orchestration turn** is bounded.
-- A task MAY request a larger profile, but only through Planner/kernel policy.
-- Maximum automatic wall-clock extension: 45 minutes for workers and 90 minutes for a Planner turn.
-- Larger execution requires explicit user/human approval or decomposition.
-
-### 3.2 Native runtime step limits
-
-Where the runtime provides a native maximum-step field, the renderer SHOULD set it from the canonical budget.
-
-The canonical field remains `execution_budget.step_budget`; runtime-specific configuration is an adapter concern.
-
-For V1 and V2, support MUST be validated on the exact pinned versions before claiming parity.
-
-Native step limits are a **first line of defense**, not a replacement for the watchdog.
-
----
-
-## 4. Runtime Watchdog
-
-Add a canonical watchdog that supervises active task attempts.
-
-Suggested module:
-
-`RuntimeWatchdog`
-
-Responsibilities:
-
-1. register Planner/worker execution start;
-2. bind runtime session ID to task ID;
-3. observe progress signals;
-4. enforce wall-clock deadline;
-5. enforce no-progress deadline;
-6. detect repeated-action/cycle stalls;
-7. request runtime interrupt/abort when safe and supported;
-8. persist structured termination evidence;
-9. hand control back to the Task Kernel;
-10. never self-authorize task completion.
-
-The watchdog SHOULD live inside the existing orchestration plugin/runtime integration rather than becoming a new external daemon.
-
----
-
-## 5. Progress model
-
-A task is not considered to be making progress merely because the process is alive.
-
-Meaningful progress includes one or more of:
-
-- new tool call with materially different canonical arguments;
-- new tool result;
-- new evidence artifact;
-- task state revision;
-- changed Git diff;
-- changed test/validation result;
-- new hypothesis;
-- new strategy identifier;
-- new reviewed finding/resolution;
-- explicit runtime status transition.
-
-The following alone do NOT reset the meaningful-progress timer:
-
-- identical repeated tool call;
-- identical tool result;
-- repeating the same reasoning cycle;
-- heartbeat with no state/evidence change;
-- retrying the same provider failure without new strategy.
-
----
-
-## 6. Loop Guard
-
-### 6.1 Canonical action fingerprint
-
-For each tool action, compute a sanitized fingerprint from:
-
-- tool name;
-- normalized arguments;
-- relevant target path/resource;
-- normalized result hash/class when available.
-
-Secrets MUST be redacted before persistence.
-
-### 6.2 Repeated identical action
-
-Initial policy:
-
-- same action fingerprint 3 times without meaningful progress → `STALL_SUSPECTED`;
-- same action fingerprint 5 times without meaningful progress → hard stall → interrupt attempt.
-
-Legitimate loops MAY opt into a declared bounded iterator contract, but that contract must include:
-
-- explicit item set/range;
-- maximum iterations;
-- progress marker.
-
-### 6.3 Short-cycle detection
-
-Detect repeated cycles of 2–4 action fingerprints.
-
-If the same cycle repeats 3 times with no evidence/state delta:
-
-- classify `REPEATED_CYCLE`;
-- interrupt the attempt;
-- do not silently replay the same strategy.
-
-### 6.4 Runtime-native doom-loop handling
-
-If a runtime offers its own doom-loop/recovery protection, keep it enabled where compatible.
-
-The package MUST NOT treat runtime-native doom-loop detection as sufficient for:
-
-- wall-clock stalls;
-- provider stream stalls;
-- blocked permission prompts;
-- child sessions that stop emitting actions.
-
----
-
-## 7. Stall taxonomy
-
-Canonical termination/failure classes:
-
-- `HARD_TIMEOUT`
-- `NO_PROGRESS`
-- `REPEATED_ACTION`
-- `REPEATED_CYCLE`
-- `PROVIDER_STALL`
-- `MCP_TIMEOUT`
-- `PERMISSION_DEADLOCK`
-- `RUNTIME_UNRESPONSIVE`
-- `USER_CANCELLED`
-
-These SHOULD be attempt-result classifications, not new top-level task states.
-
-The canonical task state machine remains unchanged whenever possible.
-
-Recommended telemetry events:
-
-- `STALL_SUSPECTED`
-- `WATCHDOG_INTERRUPT_REQUESTED`
-- `WATCHDOG_INTERRUPTED`
-- `WATCHDOG_INTERRUPT_FAILED`
-- `PARTIAL_EVIDENCE_CAPTURED`
-- `RECOVERY_PLANNED`
-- `STRATEGY_CHANGED`
-- `STRATEGY_REJECTED_DUPLICATE`
-- `BUDGET_EXCEEDED`
-
----
-
-# PART B — RECOVERY INSTEAD OF BLIND RETRY
-
-## 8. Recovery Context
-
-After a watchdog interruption, the next attempt MUST receive a bounded Recovery Context.
+Closing/crashing a session MUST NOT force a semantic task state change.
 
 Example:
 
+```text
+task.state = IMPLEMENTING
+execution_binding = DETACHED
+```
+
+Do not invent `BLOCKED` merely because no runtime session is currently attached.
+
+---
+
+# 7. Cross-session continuation
+
+## 7.1 Session Reconciler
+
+On startup/session creation the V2 adapter SHOULD reconcile durable Task Kernel records against native OpenCode session state.
+
+For each bound session:
+
+- still running → reattach supervision where possible;
+- completed → recover final messages/evidence;
+- interrupted → classify and recover;
+- missing → `SESSION_LOST`;
+- stale ownership → fail closed and reconcile.
+
+No status is assumed from stale local memory alone.
+
+## 7.2 Continuation Envelope
+
+A replacement Planner MUST receive a compact continuation packet instead of the complete prior transcript.
+
+Minimum content:
+
+```text
+TASK_ID
+OBJECTIVE
+STATE
+BASE_REVISION
+CURRENT_OWNER
+COMPLETED_WORK
+CURRENT_WORK
+DECISIONS
+VALID_EVIDENCE
+FAILED_STRATEGIES
+ACTIVE_RISKS
+PENDING_WAITS
+NEXT_MOVE
+```
+
+The envelope MUST preserve the product/user intent, not only low-level implementation state.
+
+## 7.3 Native V2 session graph
+
+Where proven on the exact V2 runtime, use native session identifiers and hierarchy (`parentID`/family/root or equivalent public APIs) as execution evidence.
+
+Native sessions are not the source of truth for task state.
+
+## 7.4 V1 behavior
+
+V1 MUST remain supported.
+
+If V1 lacks a proven session graph/rebind primitive:
+
+- Task continuity still works through the Task Kernel;
+- a new runtime session is created;
+- the Continuation Envelope rehydrates the Planner/worker;
+- no false claim of native session resume is made.
+
+---
+
+# 8. Adaptive execution modes
+
+The Planner MUST choose one of three semantic modes per work unit.
+
+## 8.1 Deterministic Workflow
+
+Use when control flow is known and repeatable.
+
+Examples:
+
+- implement → focused verify → review;
+- fixed file bundles → parallel review → aggregate;
+- deterministic migration checklist;
+- SDLC-style staged pipeline.
+
+Transitions SHOULD be kernel/script driven when possible rather than asking the LLM to rediscover the same sequence.
+
+## 8.2 Persistent Specialist
+
+Use when a specialist benefits materially from retained context across turns/runs.
+
+Typical candidates:
+
+- complex Debugger;
+- Architect on a long design problem;
+- long-running Researcher;
+- feature Coder with iterative feedback.
+
+Use sparingly. Persistent context has cost and stale-state risk.
+
+## 8.3 One-shot Subagent
+
+Default delegation for bounded work:
+
+- locate code;
+- inspect a diff;
+- test one behavior;
+- research one question;
+- review one bundle.
+
+A one-shot worker returns a structured result and terminates.
+
+## 8.4 Mode-selection inputs
+
+Planner considers:
+
+- uncertainty;
+- risk;
+- expected duration;
+- need for retained context;
+- separability;
+- cost;
+- latency;
+- current evidence;
+- runtime capability;
+- user deadline/constraints.
+
+Team size alone MUST NOT determine execution mode.
+
+---
+
+# 9. Adaptive Engineering Loop for the Planner
+
+For every non-trivial objective:
+
+```text
+FRAME
+  ↓
+REUSE
+  ↓
+SIMPLICITY GATE
+  ↓
+RISK / UNCERTAINTY
+  ↓
+SELECT EXECUTION MODE
+  ↓
+RESERVE VALIDATION BUDGET
+  ↓
+DISPATCH MINIMUM SUFFICIENT WORK
+  ↓
+COLLECT EVIDENCE
+  ↓
+VALIDATE GAPS
+  ↓
+COMPLETE OR RECOVER
+```
+
+The Planner remains the final strategy owner. Jev, advisors and routers are signals.
+
+---
+
+# 10. Simplicity and change discipline
+
+These are global implementation principles for Coder and domain implementation workers.
+
+## 10.1 Minimum Sufficient Change
+
+Implement the smallest coherent change that satisfies acceptance criteria and safety requirements.
+
+## 10.2 No Bonus Work
+
+An edit must be linked to one of:
+
+- current acceptance criterion;
+- confirmed bug/root cause;
+- required safety invariant;
+- unavoidable prerequisite.
+
+Unrelated improvements are recorded, not implemented.
+
+## 10.3 Reuse Before Create
+
+Before adding:
+
+- helper;
+- service;
+- abstraction;
+- interface;
+- module;
+- config layer;
+
+inspect whether the project already has a suitable implementation/pattern.
+
+## 10.4 Abstraction by Evidence
+
+A new abstraction requires a concrete reason such as:
+
+- at least two real consumers;
+- real external boundary;
+- real variation;
+- safety/testability requirement;
+- demonstrable complexity reduction.
+
+Do not create speculative compatibility/future layers.
+
+## 10.5 Change Budget
+
+Planner SHOULD set an expected blast radius before implementation.
+
+Suggested qualitative classes:
+
+- `LOW`;
+- `MEDIUM`;
+- `HIGH`.
+
+Worker reports actual changed paths and rationale.
+
+Materially exceeding expected scope requires explanation before completion.
+
+`CHANGE_BUDGET_EXCEEDED` is a review signal, not an automatic failure.
+
+## 10.6 Stop Conditions
+
+Every worker dispatch MUST include a stop condition.
+
+Examples:
+
+- Explorer: enough mapping to make the next decision;
+- Researcher: sufficient evidence to answer the material question;
+- Coder: acceptance met + focused checks green;
+- Tester: material unproven risks evaluated;
+- Reviewer: diff/evidence reviewed and no material finding remains.
+
+Agents MUST NOT continue searching for work after the stop condition is satisfied.
+
+---
+
+# 11. Role-specific methods
+
+The current roles remain; behavior is refined.
+
+| Role | Primary working method |
+|---|---|
+| Planner | Goal → constraints → reuse → route → evidence → stop |
+| Explorer | bounded reconnaissance + blast-radius mapping |
+| Researcher | evidence-first research + explicit stop condition |
+| Requirements Analyst | observable acceptance criteria; avoid premature solution binding |
+| Architect | reversible decisions + ADR-style trade-off record when durable |
+| Engineering Advisor | incremental design + cost-of-change |
+| Skeptic | YAGNI + premortem + complexity challenge |
+| Coder/domain engineers | Minimum Sufficient Change + Reuse Before Create |
+| Tester | risk-based differential validation |
+| Reviewer | defect-oriented review against exact candidate |
+| Debugger | hypothesis-driven debugging; one hypothesis per experiment |
+| Security Reviewer | trust-boundary/coverage-ledger driven validation |
+| Docs Manager | continuity and durable decision documentation without duplicating state |
+
+Skills refine technique, but do not create a second orchestration system.
+
+---
+
+# 12. Evidence model and reuse
+
+## 12.1 Evidence identity
+
+Reusable evidence SHOULD record:
+
+- evidence ID;
+- task/run/worker identity;
+- base revision;
+- diff hash or relevant source fingerprints;
+- scope/files covered;
+- command/action;
+- environment/runtime;
+- result;
+- timestamp;
+- assumptions;
+- invalidation conditions.
+
+## 12.2 Evidence reuse rule
+
+A downstream agent MUST inspect valid evidence before repeating work.
+
+Reuse is allowed only when relevant inputs remain unchanged.
+
+Examples of invalidation:
+
+- relevant source changed;
+- environment changed materially;
+- test configuration changed;
+- base revision no longer matches;
+- acceptance criterion changed;
+- evidence provenance is incomplete.
+
+## 12.3 Context offload
+
+Large raw outputs SHOULD stay outside the Planner context.
+
+Planner receives compact references:
+
+```text
+EVIDENCE E42
+kind=test
+scope=auth
+status=PASS
+base=abc123
+```
+
+Full content is retrieved only when needed.
+
+This is a context-efficiency mechanism, not evidence deletion.
+
+---
+
+# 13. Validation Router
+
+The system MUST stop treating `Coder → Tester → Reviewer` as a universal ritual.
+
+The Planner selects a validation level from risk/evidence.
+
+## 13.1 Initial levels
+
+### L0 — trivial/direct
+
+- allowed only under existing `TRIVIAL_DIRECT` policy;
+- focused deterministic check where applicable.
+
+### L1 — low-risk localized change
+
+Typical route:
+
+`Coder → focused self-validation → verifier/DONE gate`
+
+Independent Reviewer MAY replace Tester where logic-risk justifies it.
+
+### L2 — normal engineering change
+
+Typical route:
+
+`Coder → focused validation → Tester differential validation → Reviewer`
+
+### L3 — high-risk/cross-cutting
+
+Typical route:
+
+`Discovery/specialist → Coder → Tester → Reviewer → Security Reviewer (when triggered) → integration evidence`
+
+Risk, not lines of code, determines level.
+
+## 13.2 Coder validation
+
+Coder validates for fast feedback.
+
+Coder SHOULD execute the smallest checks needed to establish that the implementation is a viable candidate.
+
+Coder does not self-authorize final verification.
+
+## 13.3 Tester differential validation
+
+Tester MUST:
+
+1. inspect Coder evidence;
+2. identify what is still unproven;
+3. avoid equivalent repetition without a reason;
+4. target edge cases, integration, regression or adversarial behavior that can falsify the candidate.
+
+Tester is an independent falsifier, not a duplicate command runner.
+
+## 13.4 Reviewer deterministic scoping
+
+Before LLM review, deterministic logic SHOULD compute:
+
+- exact diff/candidate;
+- files requiring review;
+- related-file bundles;
+- applicable rule sets;
+- valid existing evidence.
+
+Reviewer reviews the exact candidate/bundle.
+
+Do not ask the Reviewer to redesign unrelated architecture.
+
+## 13.5 Security Coverage Ledger
+
+For material security review, track:
+
+- planned units;
+- covered units;
+- candidate findings;
+- confirmed findings;
+- needs-validation;
+- deferred/out-of-scope;
+- reused prior evidence;
+- source changes that invalidate prior coverage.
+
+Independent verification remains required for confirmed material findings.
+
+---
+
+# 14. Budget-aware orchestration
+
+The Planner MUST reserve enough budget to finish, not only to explore.
+
+Before fan-out:
+
+1. estimate total execution budget;
+2. reserve validation/review requirements;
+3. reserve mandatory critic/verifier capacity for high-risk work;
+4. allocate the remainder to discovery/implementation.
+
+Do not spend the whole budget on workers and leave no capacity to verify.
+
+Budget dimensions MAY include:
+
+- model/tool steps;
+- worker invocations;
+- wall clock;
+- model tier;
+- context/token cost where observable.
+
+---
+
+# 15. Bounded execution, watchdog and loop guard
+
+P23/P25 provide the record/shadow baseline.
+
+P26+ MUST enforce the existing contract.
+
+Canonical failure classes remain:
+
+- `HARD_TIMEOUT`;
+- `NO_PROGRESS`;
+- `REPEATED_ACTION`;
+- `REPEATED_CYCLE`;
+- `PROVIDER_STALL`;
+- `MCP_TIMEOUT`;
+- `PERMISSION_DEADLOCK`;
+- `RUNTIME_UNRESPONSIVE`;
+- `SESSION_LOST`;
+- `USER_CANCELLED`.
+
+Initial loop policy remains:
+
+- repeated identical action 3 times without meaningful progress → `STALL_SUSPECTED`;
+- 5 times → interrupt;
+- short action cycle length 2–4 repeated 3 times without state/evidence delta → interrupt.
+
+A legitimate iterator must declare a bounded range and progress marker.
+
+---
+
+# 16. Recovery and typed waits
+
+## 16.1 Strategy-aware recovery
+
+A deterministic stall cannot be retried with materially the same strategy unless new evidence explains why it should now work.
+
+Attempt history includes:
+
+- strategy ID/fingerprint;
+- hypothesis;
+- new evidence;
+- recovery source;
+- material change from prior attempt.
+
+Second material failure requires Debugger.
+
+Third attempt requires new evidence/hypothesis/decomposition/tool/runtime path; otherwise `EXHAUSTED`.
+
+## 16.2 Typed Wait
+
+`BLOCKED` MUST have a routable wait condition.
+
+Suggested shape:
+
 ```json
 {
-  "recovery": {
-    "failure_class": "REPEATED_ACTION",
-    "previous_attempt": 1,
-    "previous_strategy_id": "search-by-grep-v1",
-    "previous_strategy_fingerprint": "sha256:...",
-    "actions_already_tried": [],
-    "last_meaningful_evidence": [],
-    "partial_artifacts": [],
-    "forbidden_repetition": [
-      "Do not repeat the same tool+arguments loop"
-    ],
-    "required_change": "new evidence, hypothesis, decomposition or tool path"
+  "wait": {
+    "type": "human_decision",
+    "owner": "user",
+    "action": "choose_database",
+    "fingerprint": "sha256:..."
   }
 }
 ```
 
-The next worker MUST know what failed.
+Possible types:
 
-Do not solve a stalled attempt by simply resending the original prompt.
+- `human_decision`;
+- `external_dependency`;
+- `worker`;
+- `review`;
+- `approval`;
+- `runtime_recovery`.
 
----
+Free-text “waiting for something” is insufficient.
 
-## 9. Strategy identity
+## 16.3 Recovery fingerprint
 
-Extend attempt history with:
-
-- `strategy_id`;
-- `strategy_fingerprint`;
-- `hypothesis`;
-- `new_evidence_refs`;
-- `recovery_from`;
-- `changed_from_previous`.
-
-The Task Kernel MUST reject a retry when:
-
-- the previous attempt ended in a deterministic stall; and
-- the proposed strategy fingerprint is materially unchanged; and
-- there is no new evidence explaining why the same strategy should now succeed.
-
-Transient infrastructure errors MAY retry the same logical strategy within the provider/infrastructure retry budget.
+Equivalent failure/wait conditions share a canonical fingerprint so rephrasing does not reset retry/recovery counts.
 
 ---
 
-## 10. Recovery ladder
+# 17. Idempotent work units
 
-### Attempt 1 fails/stalls
+Before creating a new task/work unit, compute a bounded identity from:
 
-Planner MUST:
+- objective;
+- scope;
+- definition/criteria of done;
+- project identity.
 
-- classify failure;
-- preserve partial evidence;
-- narrow scope or change strategy;
-- produce a new `strategy_id`.
+If an equivalent active work unit exists, Planner SHOULD:
 
-### Attempt 2 fails/stalls
+- attach;
+- resume;
+- reuse;
 
-Debugger becomes mandatory.
+rather than silently create duplicate work.
 
-Debugger MUST:
-
-- review both failure traces;
-- identify likely root cause;
-- propose a materially different strategy;
-- state what evidence makes the new strategy different.
-
-### Attempt 3
-
-Allowed only when there is:
-
-- new evidence; or
-- new hypothesis; or
-- new decomposition; or
-- different tool/runtime path.
-
-Otherwise transition to `EXHAUSTED`.
-
-This preserves the current V3.1 retry semantics while making them applicable to previously infinite attempts.
+No dedupe rule may merge materially distinct objectives merely because descriptions are similar.
 
 ---
 
-# PART C — PLANNER AND SUBAGENT SUPERVISION
+# 18. MCP safety envelope
 
-## 11. Planner supervision
+All MCP calls are bounded.
 
-The Planner needs stronger protection without making interactive sessions unusable.
+Initial execution targets:
 
-Rules:
-
-- the TUI/session itself may remain open indefinitely;
-- an active orchestration turn is bounded;
-- native step budget SHOULD be set where supported;
-- a Planner no-progress condition is based on orchestration progress, not UI lifetime;
-- if the Planner is stalled, capture current child state before interrupting;
-- completed child results MUST be retained even if another child stalls;
-- after recovery, Planner resumes from preserved evidence instead of redispatching all completed work.
-
----
-
-## 12. Subagent supervision
-
-Every child execution SHOULD have:
-
-- parent task ID;
-- child session ID;
-- start timestamp;
-- deadline;
-- progress timestamp;
-- step budget;
-- current strategy;
-- interruption capability status.
-
-If a child becomes stuck:
-
-1. capture partial evidence;
-2. request child interrupt/abort;
-3. confirm settlement if runtime supports it;
-4. mark attempt with a canonical failure class;
-5. release owned lease/worktree only after settlement/ownership verification;
-6. start recovery through the kernel.
-
-Parent execution MUST NOT wait forever for a child.
-
----
-
-## 13. Non-interactive permission policy
-
-A hidden/synchronous subagent MUST NOT enter an unresolvable permission prompt.
-
-Before dispatch:
-
-- compute effective grants/permissions;
-- if an action would require interactive approval and no human channel exists:
-  - fail/return a structured blocker; or
-  - move approval to the Planner before child execution.
-
-Do not leave a worker waiting for a permission prompt that the user cannot see.
-
----
-
-# PART D — OPENCode V2 PORT AND PROCESS HARDENING
-
-## 14. Port preflight
-
-Before starting/using the V2 managed service on Windows, perform an explicit preflight.
-
-Suggested module:
-
-`RuntimePortPreflight.ps1`
-
-Checks:
-
-1. intended service port;
-2. existing TCP listener and owning PID;
-3. owning process identity where available;
-4. Windows excluded/reserved TCP ranges;
-5. expected OpenCode service health;
-6. stale package-owned service evidence;
-7. profile/runtime ownership.
-
-Diagnostic output MUST distinguish:
-
-- `PORT_FREE`
-- `PORT_OWNED_BY_EXPECTED_SERVICE`
-- `PORT_OCCUPIED_OTHER_PROCESS`
-- `PORT_WINDOWS_EXCLUDED`
-- `PORT_STALE_OR_UNKNOWN`
-- `SERVICE_UNHEALTHY`
-
-### 14.1 Safety rules
-
-- Never kill an unknown PID automatically.
-- Reuse an existing service only after health + identity/ownership verification.
-- If a package-owned service is stale, cleanup requires ownership proof.
-- Prefer an explicitly selected, persisted, verified port rather than relying on an accidental collision-prone default.
-- If the runtime supports a safe `port 0`/auto allocation contract, it MAY be used only when the chosen port can be discovered and persisted reliably.
-
-### 14.2 Current AI Memory migration
-
-AI Memory is being moved to a VPS.
-
-Expected result:
-
-- local listener `127.0.0.1:49374` disappears;
-- the specific AI Memory ↔ OpenCode V2 collision should disappear if no other process/reservation owns that port.
-
-The package MUST still validate the actual port before V2 service startup.
-
----
-
-## 15. Process cleanup
-
-Windows tests MUST verify:
-
-- interrupting a child does not leave a package-owned child process running indefinitely;
-- stopping/restarting the V2 profile does not leave an owned listener incorrectly treated as healthy;
-- cleanup never terminates an unrelated process;
-- process-tree cleanup is bounded;
-- failed cleanup is surfaced as a blocker rather than hidden.
-
-CPU/RSS telemetry MAY be captured, but automatic memory-based killing is not required for the first reliability release.
-
----
-
-# PART E — MCP SAFETY
-
-## 16. MCP request budgets
-
-No MCP call may have an unbounded orchestration wait.
-
-Canonical policy SHOULD support:
-
-- connection/catalog timeout;
-- execution timeout;
-- consecutive failure threshold;
-- temporary circuit-open cooldown;
-- per-server override.
-
-Initial orchestration defaults:
-
-| MCP class | Suggested execution budget |
+| Class | Budget |
 |---|---:|
-| fast advisory | 30 s |
+| fast advisory/Jev | 30 s |
 | memory/retrieval | 60 s |
 | general remote MCP | 120 s |
-| explicitly long-running MCP | task contract required |
+| long-running | explicit task contract |
 
-If the exact OpenCode runtime exposes only startup/catalog timeout and not call-execution timeout, the orchestration/plugin layer MUST provide the execution bound.
+Two consecutive timeout/network failures in one orchestration turn SHOULD open a temporary circuit.
 
----
+Circuit-open behavior is structured and must not become retry spam.
 
-## 17. MCP circuit breaker
-
-For each MCP server:
-
-- 1 transient failure → return structured error;
-- 2 consecutive timeout/network failures in one orchestration turn → open circuit temporarily;
-- while open, do not repeatedly call the same unavailable MCP;
-- record `MCP_CIRCUIT_OPEN`;
-- fallback behavior depends on capability criticality.
-
-An unavailable advisory MCP MUST NOT trap Planner/subagents in retries.
+Generic `mcp_routing` remains OFF.
 
 ---
 
-# PART F — AI MEMORY ON VPS
+# 19. Jev integration
 
-## 18. Remote AI Memory contract
+## 19.1 Purpose
 
-AI Memory SHOULD be treated as a remote dependency after migration.
+Jev is the Planner's decision-escalation layer.
+
+Use when judgment can materially change the route.
+
+## 19.2 Suggested triggers
+
+- route uncertainty;
+- model-tier uncertainty;
+- consequential tool-call proposal;
+- conflicting research evidence;
+- completion uncertainty on substantial work;
+- optional bounded comparison of recovery strategies.
+
+Do not call Jev for obvious local tasks.
+
+## 19.3 Authority
+
+Jev may advise:
+
+- `route_task`;
+- `route_model` among already permitted models;
+- tool-call guard;
+- research/evidence judgment;
+- completion judgment.
+
+Jev cannot:
+
+- execute;
+- grant permissions;
+- widen scope;
+- approve destructive production action;
+- replace human approval;
+- override deterministic verifier;
+- override Security Reviewer;
+- write DONE.
+
+## 19.4 Jev evidence
+
+Jev result is recorded as advisory evidence with:
+
+- tool;
+- input decision boundary;
+- result;
+- latency;
+- availability;
+- task/run/session identity.
+
+`JEV_UNAVAILABLE` falls back safely and never means approval.
+
+---
+
+# 20. Remote AI Memory
+
+AI Memory migration to VPS SHOULD remove the local fixed-port dependency.
 
 Requirements:
 
-- endpoint supplied from user-owned config/env;
-- no secret or token committed to repository;
-- startup health check is bounded;
-- retrieval calls use `memory/retrieval` budget;
-- connectivity failure returns `MEMORY_UNAVAILABLE`;
-- memory outage does not block unrelated implementation work;
-- writes, if supported, follow existing trust/side-effect policy;
-- no local fixed listener is required on the developer machine.
-
-The existing memory semantics remain unchanged.
+- user-owned endpoint/credentials;
+- bounded health check;
+- retrieval timeout;
+- circuit breaker;
+- no secret in telemetry;
+- optional memory failure does not block unrelated engineering;
+- Task Kernel remains authoritative;
+- AI Memory stores durable learnings/decisions, not live execution ownership.
 
 ---
 
-# PART G — JEV MCP
+# 21. Capability health and fallback
 
-## 19. Integration model
+Adopt an explicit capability-layer model.
 
-Add an MCP server identity:
+A capability may have:
 
-`jev`
+- preferred provider;
+- fallback providers;
+- health status;
+- platform support;
+- cost/risk class;
+- authority class.
 
-Preferred first integration: the hosted remote Jev MCP endpoint, because:
+Example:
 
-- it avoids adding another local listener/port;
-- it matches the current effort to reduce local service conflicts;
-- Jev is naturally an advisory remote decision service.
-
-Credentials MUST be supplied from a local environment/credential store such as `JEV_API_KEY`.
-
-Never commit the key.
-
----
-
-## 20. Jev authority boundary
-
-Jev is a **consultative judgment service**.
-
-Jev MAY help with:
-
-- guarding a consequential tool-call proposal;
-- choosing among bounded task-routing alternatives;
-- choosing among models already permitted by existing policy;
-- checking whether supplied evidence supports a claim;
-- reviewing whether completion evidence looks sufficient;
-- bounded alternative decisions.
-
-Jev MUST NOT:
-
-- execute the underlying action;
-- grant permissions;
-- widen write scope;
-- approve a deployment by itself;
-- override Security Reviewer;
-- override deterministic verification;
-- override kernel DONE;
-- create an otherwise-disallowed model;
-- bypass attempt/retry policy.
-
-Jev output is evidence/advice, not authority.
-
----
-
-## 21. Jev failure behavior
-
-Jev has an initial call timeout target of 30 seconds.
-
-If Jev is unavailable:
-
-- record `JEV_UNAVAILABLE`;
-- do not loop retry indefinitely;
-- use at most the MCP transient retry budget;
-- continue with existing deterministic policy where safe;
-- never interpret Jev unavailability as approval.
-
----
-
-## 22. Jev routing
-
-Do **not** enable generic `mcp_routing.enabled` solely to add Jev.
-
-Initial implementation SHOULD be explicit and bounded:
-
-- Jev integration flag;
-- explicit decision boundaries;
-- explicit agents/roles permitted to invoke Jev;
-- explicit tool allowlist discovered/validated at startup.
-
-Suggested default callers:
-
-- Planner;
-- Engineering Advisor;
-- Skeptic;
-- Reviewer;
-- Security Reviewer for advisory checks only;
-- Debugger when comparing bounded hypotheses.
-
-Implementation workers MAY use Jev only when the dispatch contract requests a Jev decision boundary.
-
----
-
-## 23. Jev completion review
-
-`jev_review_completion` (or the equivalent discovered tool) MAY be called before the kernel completion gate as an additional signal.
-
-It never replaces:
-
-1. deterministic verifier;
-2. Reviewer approval;
-3. Security Reviewer when triggered;
-4. kernel `Complete-OrchestrationTask`.
-
-If Jev says “not complete”, Planner/Reviewer MAY investigate the identified gap.
-
-If Jev says “complete”, the normal DONE gate still runs unchanged.
-
----
-
-# PART H — V2 PLUGIN/API REVALIDATION
-
-## 24. Exact-runtime plugin contract
-
-Before implementing watchdog enforcement, revalidate the plugin against the exact supported V2 pin.
-
-At minimum prove:
-
-- plugin loads;
-- session lifecycle can be observed;
-- child vs parent identity can be derived reliably;
-- `tool.execute.before`/after equivalent is available;
-- runtime session interruption is available to the plugin or through an approved SDK/API path;
-- cleanup callback works;
-- event subscription shape is current.
-
-Do not build reliability enforcement on a hook that silently no-ops.
-
-If a previous beta hook shape differs from the exact stable V2 contract, update only the V2 adapter. Canonical orchestration semantics remain runtime-neutral.
-
----
-
-# PART I — FLAGS AND ROLLOUT
-
-## 25. New feature flags
-
-Suggested additions:
-
-```json
-{
-  "bounded_execution": {
-    "enabled": false,
-    "shadow": true
-  },
-  "watchdog": {
-    "enabled": false,
-    "shadow": true
-  },
-  "loop_guard": {
-    "enabled": false,
-    "shadow": true
-  },
-  "port_preflight": {
-    "enabled": true
-  },
-  "mcp_safety": {
-    "enabled": false,
-    "shadow": true
-  },
-  "jev_advisory": {
-    "enabled": false
-  }
-}
+```text
+code.semantic-discovery
+├─ jevgrep        (when supported/healthy)
+├─ native search
+└─ rg/direct reads
 ```
 
-Rollout order:
+## 21.1 Doctor/preflight
 
-1. telemetry/shadow;
-2. port preflight;
-3. native step budgets;
-4. watchdog shadow;
-5. loop guard shadow;
-6. controlled enforcement on workers;
-7. Planner enforcement;
-8. MCP circuit breaker;
-9. Jev opt-in.
+Bootstrap SHOULD expose compact health:
 
----
+```text
+Task Kernel       HEALTHY
+OpenCode sessions HEALTHY
+Jev               HEALTHY
+AI Memory         DEGRADED
+Jevgrep           UNSUPPORTED_PLATFORM
+```
 
-# PART J — ACCEPTANCE CRITERIA
+The Planner routes around optional failures.
 
-## 26. Reliability acceptance criteria
+## 21.2 Jevgrep
 
-### RR-01
-A worker that emits no meaningful progress past its configured threshold cannot remain running indefinitely.
+Jevgrep MAY be integrated as an optional Explorer capability for unfamiliar codebases.
 
-### RR-02
-A worker that repeats an identical tool+args action beyond the hard threshold is interrupted and classified.
+It MUST NOT replace exact symbol/path search when direct search is sufficient.
 
-### RR-03
-A repeated short cycle is detected without depending on model self-awareness.
+Platform/runtime support must be detected; do not assume native Windows support.
 
-### RR-04
-A stalled child cannot block the Planner indefinitely.
-
-### RR-05
-Completed sibling child results survive another child being interrupted.
-
-### RR-06
-Watchdog interruption records partial evidence and failure class.
-
-### RR-07
-A deterministic-stall retry with the same strategy fingerprint and no new evidence is rejected.
-
-### RR-08
-Second failed/stalled attempt requires Debugger, preserving current V3.1 semantics.
-
-### RR-09
-Invalid third attempt transitions to `EXHAUSTED`.
-
-### RR-10
-Planner interactive session is not killed merely for being open; only active orchestration turns are bounded.
-
-### RR-11
-Port preflight identifies a busy/reserved V2 service port before opaque startup timeout.
-
-### RR-12
-Unknown port-owning processes are never automatically killed.
-
-### RR-13
-Remote AI Memory outage returns a bounded unavailable result and does not cause infinite orchestration retry.
-
-### RR-14
-Jev outage returns bounded `JEV_UNAVAILABLE`.
-
-### RR-15
-Jev cannot change permissions, grants, write scopes or DONE status.
-
-### RR-16
-Generic MCP routing remains disabled unless separately approved.
-
-### RR-17
-V1 remains green.
-
-### RR-18
-V2 exact pinned runtime passes real-runtime watchdog/interrupt tests.
-
-### RR-19
-Windows process cleanup tests prove no package-owned runaway child remains after watchdog interruption, or surface an explicit cleanup blocker.
-
-### RR-20
-All existing V3.1 Kernel/DONE/lease/worktree/security tests remain green.
+Search output is evidence, not truth.
 
 ---
 
-# PART K — DEFINITION OF DONE FOR THIS ADDENDUM
+# 22. OpenCode V2 native capabilities to exploit
 
-This reliability addendum is complete only when:
+Every item requires exact-runtime validation before enforcement.
 
-1. exact current V1/V2 runtime pins are recorded;
-2. the V2 port conflict preflight is implemented and tested on Windows;
-3. AI Memory remote configuration is supported without a required local listener;
-4. canonical execution budgets exist;
-5. native runtime step limits are rendered where proven;
-6. watchdog shadow telemetry works;
-7. worker hard timeout/no-progress interruption works;
-8. repeated-action and short-cycle detection works;
-9. partial evidence survives interruption;
-10. recovery requires a changed strategy after deterministic stalls;
-11. current Debugger/Architect escalation rules remain intact;
-12. MCP calls are bounded/circuit-broken;
-13. Jev is integrated as an opt-in advisory MCP;
-14. Jev cannot bypass any authority boundary;
-15. no generic MCP auto-routing is accidentally activated;
-16. exact-runtime V2 tests demonstrate the actual plugin/session interrupt contract;
-17. Reviewer approves;
-18. Security Reviewer has no unresolved high/critical finding;
-19. V1 regression suite remains green;
-20. V2 Windows end-to-end stall tests remain green.
+## 22.1 Native session hierarchy
+
+Use session/root/family/parent relationships where supported to improve:
+
+- supervision;
+- reconciliation;
+- provenance;
+- continuation.
+
+## 22.2 Session-specific permissions
+
+Translate Dispatch Contract authority into native per-session restrictions when possible.
+
+A child can receive equal or narrower authority, never broader authority.
+
+Invariant:
+
+`WorkerGrant ⊆ PlannerGrant ⊆ User/TaskGrant`
+
+## 22.3 `experimental.policies`
+
+Use only for hard global invariants after exact-runtime validation.
+
+Candidate uses:
+
+- worker subdelegation hard deny;
+- force-push/destructive actions;
+- protected control-plane resources.
+
+Policies tighten authority only.
+
+## 22.4 Background subagents
+
+Background execution MAY improve wave latency.
+
+Parent MUST NOT depend solely on process-local completion notifications.
+
+Task Kernel + Session Reconciler must recover after restart.
+
+## 22.5 Native step limits
+
+Render from canonical execution budgets where exact version proves the field.
+
+## 22.6 Plugin persistent storage
+
+`ctx.storage` or equivalent MAY store runtime indexes/bindings.
+
+It MUST NOT replace the Task Kernel.
+
+## 22.7 Snapshots
+
+Native snapshots MAY provide auxiliary:
+
+- changed-state evidence;
+- recovery provenance;
+- rollback assistance.
+
+Git/worktrees remain authoritative for source ownership.
+
+## 22.8 Durable session event log
+
+Experimental event log MAY be used as secondary replay/reconciliation evidence.
+
+It MUST NOT be the sole source of task truth while experimental.
+
+---
+
+# 23. Human exception model
+
+Autonomy is default for local, reversible, authorized engineering.
+
+Human/user input is required for explicit exceptions such as:
+
+- materially ambiguous product decision;
+- irreversible/destructive production action;
+- external spending/purchase;
+- credential creation/rotation/revocation;
+- legal/compliance decision;
+- scope expansion that changes the requested outcome;
+- exhausted recovery budget;
+- explicit authority boundary already defined by policy.
+
+A hidden worker must never wait on an invisible interactive permission prompt.
+
+Approval must be resolved before dispatch or surfaced as a typed wait.
+
+---
+
+# 24. Orchestration Evolution Loop
+
+The orchestration system SHOULD be refinable from real usage without prompt accretion.
+
+## 24.1 Signals
+
+Candidate evolution signals include:
+
+- same retry pattern repeated;
+- Tester frequently duplicating Coder commands;
+- Reviewer findings repeatedly caused by one missing instruction;
+- repeated orchestration bypass;
+- systematic budget overrun;
+- repeated unused agents/capabilities;
+- recurrent user correction;
+- high false-positive watchdog/validation behavior.
+
+## 24.2 Candidate process
+
+```text
+observe
+  ↓
+generalize root behavior
+  ↓
+EVOLUTION_CANDIDATE
+  ↓
+offline/replay evaluation
+  ↓
+A/B or shadow
+  ↓
+review
+  ↓
+explicit promotion
+```
+
+One example MUST NOT create one permanent special-case rule.
+
+## 24.3 Evaluation artifacts
+
+Evolution candidate records SHOULD contain:
+
+- problem;
+- evidence/sample size;
+- proposed policy/prompt change;
+- expected effect;
+- regression risk;
+- evaluation;
+- decision;
+- rollback.
+
+---
+
+# 25. Observability and efficiency metrics
+
+Add or derive metrics sufficient to evaluate the refinements.
+
+Recommended metrics:
+
+- wall-clock per task;
+- time per phase/agent;
+- tool calls per worker;
+- repeated-action count;
+- watchdog interventions;
+- retries by fingerprint;
+- evidence reused vs recomputed;
+- Coder checks vs Tester repeated-equivalent checks;
+- changed-file count vs expected change budget;
+- Reviewer findings per bundle;
+- validation level distribution;
+- Jev invocation rate and decision impact;
+- MCP circuit-open count;
+- cross-session resume success;
+- duplicate task/work-unit prevented;
+- model-tier escalation rate;
+- user-intervention rate;
+- task completion after continuation.
+
+Metrics MUST be sanitized and bounded.
+
+---
+
+# 26. Feature flags and rollout
+
+New behavior MUST start conservative.
+
+Suggested semantic flags, exact representation left to current registry conventions:
+
+- `watchdog` — existing;
+- `loop_guard`;
+- `mcp_safety`;
+- `jev_advisory`;
+- `persistent_bootstrap`;
+- `cross_session_binding`;
+- `execution_mode_router`;
+- `evidence_reuse`;
+- `adaptive_validation`;
+- `capability_doctor`;
+- `orchestration_evolution`.
+
+Rules:
+
+- new enforcement begins OFF or shadow unless preflight-only and non-invasive;
+- activation requires exact-runtime evidence where runtime-specific;
+- V1 cannot be disabled to make V2 tests pass;
+- no feature flag grants authority.
+
+---
+
+# 27. Acceptance criteria
+
+## Reliability
+
+- **PAE-01:** a hung worker cannot block its parent indefinitely.
+- **PAE-02:** repeated identical tool loops are interrupted within configured bounds.
+- **PAE-03:** a short repeated cycle without progress is interrupted.
+- **PAE-04:** partial evidence survives interruption.
+- **PAE-05:** deterministic stall retry with unchanged strategy/no new evidence is rejected.
+- **PAE-06:** second material failure requires Debugger.
+- **PAE-07:** invalid third attempt becomes `EXHAUSTED`.
+- **PAE-08:** unknown PIDs are never killed automatically.
+- **PAE-09:** MCP waits are bounded and repeated outage opens a circuit.
+
+## Persistent orchestration
+
+- **PAE-10:** new OpenCode root sessions default to Planner orchestration without user reminders.
+- **PAE-11:** Task state survives root-session replacement.
+- **PAE-12:** V2 Task↔Run↔Session bindings can be reconstructed after restart.
+- **PAE-13:** a completed child result is not lost because another child stalls.
+- **PAE-14:** Continuation Envelope resumes work without requiring the entire prior transcript.
+- **PAE-15:** V1 can continue the same Task through a fresh session even without native V2 graph features.
+- **PAE-16:** closing a session does not falsely mark the Task blocked or failed.
+
+## Efficiency and behavior
+
+- **PAE-17:** Coder receives a stop condition and change scope.
+- **PAE-18:** unrelated “bonus” changes are rejected or recorded outside the implementation.
+- **PAE-19:** materially exceeded change budget is visible to review.
+- **PAE-20:** Tester consumes valid Coder evidence before deciding what to run.
+- **PAE-21:** equivalent valid checks are not repeated without rationale.
+- **PAE-22:** Reviewer receives the exact candidate/bundle and applicable rules.
+- **PAE-23:** low-risk work is not forced through the full L3 pipeline.
+- **PAE-24:** high-risk work cannot silently downgrade required independent validation.
+- **PAE-25:** fan-out cannot consume reserved validation/review budget.
+
+## Jev/capabilities
+
+- **PAE-26:** Jev is available persistently but is not called for every task.
+- **PAE-27:** Jev cannot grant permission, widen scope or write DONE.
+- **PAE-28:** Jev unavailable falls back without infinite retry.
+- **PAE-29:** capability doctor reports health/fallback status without granting authority.
+- **PAE-30:** optional semantic code discovery falls back when unsupported/unhealthy.
+
+## Cross-session/native V2
+
+- **PAE-31:** V2 session hierarchy/provenance is recorded where exact-runtime support is proven.
+- **PAE-32:** session-specific permissions never exceed the canonical Task/Planner grant.
+- **PAE-33:** background child completion can be reconciled after parent/runtime restart.
+- **PAE-34:** experimental event-log/snapshot features are auxiliary, not authoritative.
+
+## Evolution
+
+- **PAE-35:** no orchestration policy is promoted from one anecdotal failure.
+- **PAE-36:** an evolution candidate has evidence, evaluation and rollback.
+- **PAE-37:** shadow/A-B evaluation can detect regression before promotion.
+
+## Compatibility
+
+- **PAE-38:** V1 regression suite remains green.
+- **PAE-39:** exact pinned V2 real-runtime lane covers watchdog and cross-session scenarios.
+- **PAE-40:** no generic MCP routing is required to satisfy this SPEC.
+
+---
+
+# 28. Definition of Done
+
+This expanded V3.1 program is complete only when:
+
+1. P21–P25 evidence remains valid or explicitly superseded by newer evidence.
+2. Worker and Planner active execution is bounded.
+3. Loop guard interrupts deterministic stalls safely.
+4. Recovery is strategy-aware and fingerprinted.
+5. Typed waits prevent silent blocked states.
+6. Jev and AI Memory are bounded remote dependencies.
+7. Planner/subagents/Jev are persistent defaults rather than per-session reminders.
+8. Task/Run/Seat/Session separation is implemented.
+9. V2 session reconciliation and cross-session continuation are proven.
+10. V1 continuity remains functional without false V2 parity claims.
+11. three adaptive execution modes exist semantically, with deterministic fallback.
+12. evidence reuse and invalidation are implemented.
+13. Tester performs differential validation.
+14. Reviewer receives deterministic review scope/bundles.
+15. Security review can use a coverage ledger for material audits.
+16. Minimum Sufficient Change / No Bonus Work / Reuse Before Create are enforced through dispatch/review behavior.
+17. validation levels are risk/evidence driven.
+18. fan-out is budget-aware.
+19. capability health/fallback is observable.
+20. optional Jevgrep-style semantic discovery cannot become a hard dependency.
+21. V2 native session permissions/policies are used only where exact-runtime validated.
+22. orchestration evolution has an evaluated shadow/promotion path.
+23. exact V2 Windows E2E covers hangs, loops, restart, cross-session continuation and MCP outages.
+24. V1 remains green.
+25. Reviewer approves the final program.
+26. Security Reviewer has no unresolved high/critical finding.
+
+---
+
+# 29. Non-normative design provenance
+
+The following projects informed patterns in this revision but are not runtime dependencies:
+
+- `mvschwarz/openrig` — durable agent identity, queues, restore/handoff and separation of logical identity from runtime session;
+- `PaperclipAI/paperclip` — execution semantics, typed waits, bounded recovery and governance;
+- `strands-agents/harness-sdk` — session persistence, context offload, background work, intervention and authority narrowing;
+- `revfactory/harness` — workflow vs persistent collaboration vs one-shot delegation and controlled harness evolution;
+- previously reviewed SDLC / Claude Agent Kit — deterministic staged workflows, maker/checker, state and recovery;
+- `alibaba/open-code-review` — deterministic scope/bundling/rule matching around LLM review;
+- `cloudflare/security-audit-skill` — coverage ledger, prior-evidence reuse, strict budget reservation and independent verification;
+- `dzhng/jevgrep` — bounded semantic code discovery as evidence;
+- `browser-use/jev-ultrafast` — typed actions, state fingerprints, bounded loops and stale-decision protection;
+- `Panniantong/Agent-Reach` — capability health, primary/fallback routes and doctor diagnostics;
+- `markfulton/ai-employees` — idempotent routines and human intervention at consequential boundaries;
+- `builderio/agent-native` — future-facing shared capability contracts;
+- `google/ax` + `agent-substrate/substrate` — long-term reference for task/workspace isolation, suspend/resume and sandboxed workloads.
+
+The repository's own canonical policy, Task Kernel and exact OpenCode runtime behavior always outrank these references.

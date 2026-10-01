@@ -102,7 +102,8 @@ obrigatória, watchdog{enabled:false, shadow:true}, enabled=true =>
 WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED; watchdog 80/80 PS5.1+PS7, kernel
 75/75, consistência 16/16; reviewer APPROVED (REV4) + security APPROVED
 (SEC3); follow-ups: lock cross-process, retenção multi-dia; interrupt
-real = Phase 26); Phases 26–33 não iniciadas
+ real = Phase 26); Phases 26–42 não iniciadas (programa revisado
+ 2026-10-01; PAE-01–PAE-40 substituem RR-01–RR-20)
 (estado vivo em `evidence/v3.1/runtime-reliability/program-status.json`);
 flags de rollout nascem OFF
 (shadow, ativação só com evidência). Não ativar `skill_routing`,
