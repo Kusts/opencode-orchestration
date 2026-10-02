@@ -84,7 +84,7 @@ function New-TrackDir {
   Copy-Item -LiteralPath $pluginIndex -Destination (Join-Path $d 'orchestration-enforcement.ts') -Force
   Copy-Item -LiteralPath (Join-Path $pluginDir 'v1.ts') -Destination (Join-Path $d 'orchestration-enforcement\v1.ts') -Force
   Copy-Item -LiteralPath (Join-Path $pluginDir 'v2.ts') -Destination (Join-Path $d 'orchestration-enforcement\v2.ts') -Force
-  foreach ($f in @('types.ts', 'sanitize.ts', 'identity.ts', 'mandate.ts', 'telemetry.ts')) {
+  foreach ($f in @('types.ts', 'sanitize.ts', 'identity.ts', 'mandate.ts', 'telemetry.ts', 'mcp-transport.ts')) {
     Copy-Item -LiteralPath (Join-Path $pluginDir ("shared\" + $f)) -Destination (Join-Path $d ("orchestration-enforcement\shared\" + $f)) -Force
   }
   return $d
@@ -228,7 +228,8 @@ $sharedRoots = @(
   'orchestration-enforcement/shared/sanitize.ts',
   'orchestration-enforcement/shared/identity.ts',
   'orchestration-enforcement/shared/mandate.ts',
-  'orchestration-enforcement/shared/telemetry.ts'
+  'orchestration-enforcement/shared/telemetry.ts',
+  'orchestration-enforcement/shared/mcp-transport.ts'
 )
 
 $code = @(Invoke-Track -Tag 'v1' -Deps @($V1Spec, $TypescriptSpec, $TypesNodeSpec) -Roots ($sharedRoots + @('orchestration-enforcement/v1.ts')))[-1]

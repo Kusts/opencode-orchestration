@@ -413,6 +413,106 @@ function writeUnavailable(runtime, reason) {
     setAddBounded(logged, key, INDEX_CAP);
   } catch {}
 }
+var MCP_EVENT_ALLOWLIST = [
+  "would-timeout",
+  "timeout",
+  "would-block-circuit-open",
+  "circuit-block",
+  "circuit-open",
+  "half-open-probe",
+  "rearm",
+  "refusal-long-running",
+  "would-refuse-long-running",
+  "refusal-aborted",
+  "would-refuse-aborted",
+  "policy-fallback",
+  "enforce-denied-shadow"
+];
+var MCP_CAUSE_ALLOWLIST = [
+  "MCP_TIMEOUT",
+  "MCP_CIRCUIT_OPEN",
+  "MCP_HALF_OPEN_BUSY",
+  "MCP_ERROR",
+  "MCP_LONG_RUNNING_REQUIRES_CONTRACT",
+  "MCP_ABORTED",
+  "MCP_INTERNAL"
+];
+var MCP_ORIGIN_ALLOWLIST = [
+  "call",
+  "configure",
+  "policy-file"
+];
+function allowlisted(value, list) {
+  try {
+    if (typeof value === "string" && list.indexOf(value) >= 0)
+      return value;
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+function boundedMs(value) {
+  try {
+    if (typeof value !== "number" || !isFinite(value))
+      return;
+    const n = Math.floor(value);
+    if (n < 0 || n > 86400000)
+      return;
+    return n;
+  } catch {
+    return;
+  }
+}
+function writeMcpEvent(runtime, fields) {
+  try {
+    const f = fields;
+    if (!f || typeof f !== "object")
+      return;
+    const event = allowlisted(f.event, MCP_EVENT_ALLOWLIST);
+    const server = sanitizeOpt(f.server);
+    const mcpClass = sanitizeOpt(f.mcpClass);
+    const criticality = sanitizeOpt(f.criticality);
+    const mode = sanitizeOpt(f.mode);
+    const cause = allowlisted(f.cause, MCP_CAUSE_ALLOWLIST);
+    const origin = allowlisted(f.origin, MCP_ORIGIN_ALLOWLIST);
+    const key = runtime + "::mcp::" + event + "::" + (server ?? "null") + "::" + (mcpClass ?? "null");
+    if (logged.has(key))
+      return;
+    const path = telemetryPath();
+    if (path === null)
+      return;
+    const line = {
+      ts: new Date().toISOString(),
+      runtime,
+      kind: "mcp-transport",
+      event
+    };
+    if (server)
+      line["server"] = server;
+    if (mcpClass)
+      line["class"] = mcpClass;
+    if (criticality)
+      line["criticality"] = criticality;
+    if (mode)
+      line["mode"] = mode;
+    if (cause !== "unknown")
+      line["cause"] = cause;
+    if (origin !== "unknown")
+      line["origin"] = origin;
+    const turnLen = boundedMs(f.turnLen);
+    if (turnLen !== undefined)
+      line["turn_len"] = "len:" + String(turnLen);
+    const elapsedMs = boundedMs(f.elapsedMs);
+    if (elapsedMs !== undefined)
+      line["elapsed_ms"] = "len:" + String(elapsedMs);
+    const budgetMs = boundedMs(f.budgetMs);
+    if (budgetMs !== undefined)
+      line["budget_ms"] = "len:" + String(budgetMs);
+    appendFileSync(path, JSON.stringify(line) + `
+`, "utf8");
+    setAddBounded(logged, key, INDEX_CAP);
+  } catch {}
+}
 function writeToolEvent(runtime, fields) {
   try {
     const tool = sanitizeOpt(fields.tool);
@@ -514,7 +614,1174 @@ var __orchestrationEnforcementTest = {
 };
 
 // plugins/orchestration-enforcement/v2.ts
+import { readFileSync, statSync } from "node:fs";
+
+// plugins/orchestration-enforcement/shared/mcp-transport.ts
+var MCP_EMBEDDED_BUDGET_S = {
+  advisory: 30,
+  memory: 60,
+  remote: 120
+};
+var MCP_EMBEDDED_FAILURE_THRESHOLD = 2;
+var MCP_EMBEDDED_COOLDOWN_S = 300;
+var MCP_POLICY_TEXT_CAP = 65536;
+var MCP_CIRCUIT_CAP = 500;
+var MCP_LONG_RUNNING_MAX_BUDGET_S = 3600;
+var CAUSES = [
+  "MCP_TIMEOUT",
+  "MCP_CIRCUIT_OPEN",
+  "MCP_HALF_OPEN_BUSY",
+  "MCP_ERROR",
+  "MCP_LONG_RUNNING_REQUIRES_CONTRACT",
+  "MCP_ABORTED",
+  "MCP_INTERNAL"
+];
+function isCausalCode(v) {
+  try {
+    return typeof v === "string" && CAUSES.indexOf(v) >= 0;
+  } catch {
+    return false;
+  }
+}
+function toBoundedInt(v, min, max, fallback) {
+  try {
+    if (typeof v !== "number" || !isFinite(v))
+      return fallback;
+    const n = Math.floor(v);
+    if (n < min || n > max)
+      return fallback;
+    return n;
+  } catch {
+    return fallback;
+  }
+}
+function safeLower(v, cap) {
+  try {
+    if (typeof v !== "string")
+      return "";
+    const t = v.trim().toLowerCase();
+    if (t.length === 0 || t.length > cap)
+      return "";
+    return t;
+  } catch {
+    return "";
+  }
+}
+function isSafeServer(v) {
+  try {
+    if (v.length === 0 || v.length > 64)
+      return false;
+    return /^[a-z0-9][a-z0-9._-]*$/.test(v);
+  } catch {
+    return false;
+  }
+}
+var SEPS = ["_", "-", ":", ".", "/"];
+function withSep(base, name) {
+  try {
+    if (name === base)
+      return true;
+    for (const s of SEPS) {
+      if (name.length > base.length + 1 && name.indexOf(base + s) === 0)
+        return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+function serverAfter(base, name) {
+  try {
+    const rest = name.slice(base.length);
+    let i = 0;
+    while (i < rest.length && SEPS.indexOf(rest.charAt(i)) >= 0)
+      i++;
+    const tail = rest.slice(i);
+    let end = tail.length;
+    for (let j = 0;j < tail.length; j++) {
+      if (SEPS.indexOf(tail.charAt(j)) >= 0) {
+        end = j;
+        break;
+      }
+    }
+    const seg = tail.slice(0, end);
+    if (isSafeServer(seg))
+      return seg;
+    return "mcp";
+  } catch {
+    return "mcp";
+  }
+}
+function classifyMcpTool(tool) {
+  try {
+    const name = safeLower(tool, 256);
+    if (name.length === 0)
+      return null;
+    if (withSep("jev", name))
+      return { server: "jev", mcpClass: "advisory" };
+    if (withSep("memory", name))
+      return { server: "memory", mcpClass: "memory" };
+    if (withSep("ai-memory", name))
+      return { server: "ai-memory", mcpClass: "memory" };
+    if (withSep("ai_memory", name))
+      return { server: "ai-memory", mcpClass: "memory" };
+    if (name === "mcp")
+      return { server: "mcp", mcpClass: "remote" };
+    if (withSep("mcp", name))
+      return { server: serverAfter("mcp", name), mcpClass: "remote" };
+    return null;
+  } catch {
+    return null;
+  }
+}
+function normalizeMcpClass(v) {
+  try {
+    const c = safeLower(v, 32);
+    if (c === "jev")
+      return "advisory";
+    if (c === "advisory" || c === "memory" || c === "remote" || c === "long_running") {
+      return c;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function normalizeMcpCriticality(v) {
+  try {
+    if (typeof v === "string" && v.trim().toLowerCase() === "required")
+      return "required";
+    return "optional";
+  } catch {
+    return "optional";
+  }
+}
+function normalizeMcpTurn(v) {
+  try {
+    if (typeof v === "string") {
+      const t = v.trim().toLowerCase();
+      if (t.length >= 1 && t.length <= 64 && /^[a-z0-9][a-z0-9._-]*$/.test(t))
+        return t;
+    }
+    return "default-turn";
+  } catch {
+    return "default-turn";
+  }
+}
+function embeddedPolicy() {
+  return {
+    budgetsS: {
+      advisory: MCP_EMBEDDED_BUDGET_S["advisory"],
+      memory: MCP_EMBEDDED_BUDGET_S["memory"],
+      remote: MCP_EMBEDDED_BUDGET_S["remote"]
+    },
+    failureThreshold: MCP_EMBEDDED_FAILURE_THRESHOLD,
+    cooldownS: MCP_EMBEDDED_COOLDOWN_S,
+    source: "embedded-defaults",
+    valid: true
+  };
+}
+function asRecord(v) {
+  try {
+    if (!v || typeof v !== "object" || Array.isArray(v))
+      return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+function isExactInt(v, min, max) {
+  try {
+    if (typeof v !== "number" || !isFinite(v))
+      return false;
+    if (Math.floor(v) !== v)
+      return false;
+    return v >= min && v <= max;
+  } catch {
+    return false;
+  }
+}
+function parseStrictPolicyText(text) {
+  try {
+    if (text.length === 0 || text.length > MCP_POLICY_TEXT_CAP)
+      return null;
+    let doc = null;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      return null;
+    }
+    const root = asRecord(doc);
+    if (!root)
+      return null;
+    if (root["version"] !== 1)
+      return null;
+    const classes = asRecord(root["classes"]);
+    if (!classes)
+      return null;
+    const wantExec = { advisory: 30, memory: 60, remote: 120 };
+    const wantConn = { advisory: 10, memory: 15, remote: 20 };
+    const budgets = {};
+    for (const k of ["advisory", "memory", "remote"]) {
+      const slot = asRecord(classes[k]);
+      if (!slot)
+        return null;
+      const ex = slot["execution_timeout_seconds"];
+      if (ex !== wantExec[k])
+        return null;
+      const co = slot["connect_timeout_seconds"];
+      if (co !== wantConn[k])
+        return null;
+      budgets[k] = ex;
+    }
+    const lr = asRecord(classes["long_running"]);
+    if (!lr)
+      return null;
+    if (lr["execution_timeout_seconds"] !== 0)
+      return null;
+    if (lr["requires_explicit_task_contract"] !== true)
+      return null;
+    if (lr["connect_timeout_seconds"] !== 20)
+      return null;
+    const aliases = asRecord(root["class_aliases"]);
+    if (!aliases || aliases["jev"] !== "advisory")
+      return null;
+    if (root["failure_threshold"] !== 2)
+      return null;
+    const circuit = asRecord(root["circuit"]);
+    if (!circuit)
+      return null;
+    const cd = circuit["cooldown_seconds"];
+    if (cd !== 300)
+      return null;
+    const crit = asRecord(root["criticality"]);
+    if (!crit)
+      return null;
+    const allowed = crit["allowed"];
+    if (!Array.isArray(allowed) || allowed.length !== 2)
+      return null;
+    if (allowed.indexOf("optional") < 0 || allowed.indexOf("required") < 0)
+      return null;
+    if (crit["default"] !== "optional")
+      return null;
+    return {
+      budgetsS: budgets,
+      failureThreshold: 2,
+      cooldownS: cd,
+      source: "policy-text",
+      valid: true
+    };
+  } catch {
+    return null;
+  }
+}
+function resolveMcpPolicy(policyText) {
+  try {
+    if (typeof policyText === "string" && policyText.length > 0) {
+      const parsed = parseStrictPolicyText(policyText);
+      if (parsed)
+        return parsed;
+    }
+    return embeddedPolicy();
+  } catch {
+    return embeddedPolicy();
+  }
+}
+var transportConfig = { enforced: false, policyText: null, policyPath: null };
+var inlinePolicyCache = null;
+var policyFileReader = null;
+function readEnvFlag(name) {
+  try {
+    const g = globalThis;
+    const env = g && g.process && g.process.env ? g.process.env : null;
+    if (!env)
+      return false;
+    const v = env[name];
+    return typeof v === "string" && v.trim() === "1";
+  } catch {
+    return false;
+  }
+}
+function readEnvText(name, cap) {
+  try {
+    const g = globalThis;
+    const env = g && g.process && g.process.env ? g.process.env : null;
+    if (!env)
+      return null;
+    const v = env[name];
+    if (typeof v !== "string")
+      return null;
+    const t = v.trim();
+    if (t.length === 0 || t.length > cap)
+      return null;
+    return t;
+  } catch {
+    return null;
+  }
+}
+function configureMcpTransport(cfg) {
+  try {
+    if (!cfg || typeof cfg !== "object") {
+      transportConfig = { enforced: false, policyText: null, policyPath: null };
+    } else {
+      transportConfig = {
+        enforced: cfg["enforced"] === true,
+        policyText: typeof cfg["policyText"] === "string" ? cfg["policyText"] : null,
+        policyPath: typeof cfg["policyPath"] === "string" ? cfg["policyPath"] : null
+      };
+    }
+    clearPolicyCache();
+  } catch {
+    transportConfig = { enforced: false, policyText: null, policyPath: null };
+    clearPolicyCache();
+  }
+}
+function getMcpTransportConfig() {
+  try {
+    return {
+      enforced: transportConfig.enforced === true,
+      hasPolicyText: typeof transportConfig.policyText === "string",
+      hasPolicyPath: typeof transportConfig.policyPath === "string"
+    };
+  } catch {
+    return { enforced: false, hasPolicyText: false, hasPolicyPath: false };
+  }
+}
+function clearPolicyCache() {
+  try {
+    inlinePolicyCache = null;
+  } catch {}
+}
+function setMcpPolicyFileReader(reader) {
+  try {
+    if (typeof reader === "function") {
+      policyFileReader = reader;
+    } else {
+      policyFileReader = null;
+    }
+    clearPolicyCache();
+  } catch {
+    policyFileReader = null;
+  }
+}
+function effectivePolicy(callText, callPath) {
+  try {
+    const hasCallText = typeof callText === "string" && callText.length > 0;
+    const hasConfigText = typeof transportConfig.policyText === "string";
+    const text = hasCallText ? callText : hasConfigText ? transportConfig.policyText : null;
+    if (text !== null) {
+      try {
+        if (inlinePolicyCache && inlinePolicyCache.text === text) {
+          return { policy: inlinePolicyCache.result, invalidOrigin: null };
+        }
+      } catch {}
+      const parsed = parseStrictPolicyText(text);
+      if (parsed) {
+        try {
+          inlinePolicyCache = { text, result: parsed };
+        } catch {}
+        return { policy: parsed, invalidOrigin: null };
+      }
+      return { policy: embeddedPolicy(), invalidOrigin: hasCallText ? "call" : "configure" };
+    }
+    const path = typeof callPath === "string" && callPath.length > 0 ? callPath : typeof transportConfig.policyPath === "string" ? transportConfig.policyPath : readEnvText("OO_MCP_TRANSPORT_POLICY_PATH", 512);
+    if (path !== null && policyFileReader !== null) {
+      let fileText = null;
+      try {
+        fileText = policyFileReader(path);
+      } catch {
+        fileText = null;
+      }
+      if (typeof fileText === "string" && fileText.length > 0) {
+        const parsed = parseStrictPolicyText(fileText);
+        if (parsed) {
+          parsed.source = "policy-file";
+          return { policy: parsed, invalidOrigin: null };
+        }
+      }
+      return { policy: embeddedPolicy(), invalidOrigin: "policy-file" };
+    }
+    return { policy: embeddedPolicy(), invalidOrigin: null };
+  } catch {
+    return { policy: embeddedPolicy(), invalidOrigin: null };
+  }
+}
+function globalEnforced() {
+  try {
+    if (transportConfig.enforced === true)
+      return true;
+    return readEnvFlag("OO_MCP_TRANSPORT_ENFORCED");
+  } catch {
+    return false;
+  }
+}
+function effectiveMcpMode(requested) {
+  try {
+    const r = typeof requested === "string" ? requested.trim().toLowerCase() : "";
+    if (r === "shadow")
+      return { mode: "shadow", denied: false };
+    if (globalEnforced())
+      return { mode: "enforced", denied: false };
+    if (r === "enforced")
+      return { mode: "shadow", denied: true };
+    return { mode: "shadow", denied: false };
+  } catch {
+    return { mode: "shadow", denied: false };
+  }
+}
+var circuitStore = new Map;
+function circuitKey(server, mcpClass, turn) {
+  return server + "|" + mcpClass + "|" + turn;
+}
+function readEntry(key) {
+  try {
+    const e = circuitStore.get(key);
+    if (!e || typeof e !== "object")
+      return null;
+    return e;
+  } catch {
+    return null;
+  }
+}
+function writeEntry(key, e) {
+  try {
+    mapSetBounded(circuitStore, key, e, MCP_CIRCUIT_CAP);
+  } catch {}
+}
+function releaseProbe(key) {
+  try {
+    const e = readEntry(key);
+    if (e && e.open && e.probeInFlight) {
+      e.probeInFlight = false;
+      writeEntry(key, e);
+    }
+  } catch {}
+}
+function getMcpCircuitSnapshot(server, mcpClass, turn, nowMs) {
+  try {
+    const cls = normalizeMcpClass(mcpClass);
+    if (cls === null)
+      return { state: "UNKNOWN", consecutive: 0 };
+    const srv = typeof server === "string" && isSafeServer(server.trim().toLowerCase()) ? server.trim().toLowerCase() : "mcp";
+    const key = circuitKey(srv, cls, normalizeMcpTurn(turn));
+    const e = readEntry(key);
+    if (!e)
+      return { state: "CLOSED", consecutive: 0 };
+    if (!e.open)
+      return { state: "CLOSED", consecutive: e.consecutive };
+    const now = toBoundedInt(nowMs, 0, 9007199254740991, Date.now());
+    if (now >= e.openedAtMs + MCP_EMBEDDED_COOLDOWN_S * 1000) {
+      return { state: "HALF_OPEN", consecutive: e.consecutive };
+    }
+    return { state: "OPEN", consecutive: e.consecutive };
+  } catch {
+    return { state: "UNKNOWN", consecutive: 0 };
+  }
+}
+function resetMcpTransport() {
+  try {
+    circuitStore.clear();
+  } catch {}
+  try {
+    transportConfig = { enforced: false, policyText: null, policyPath: null };
+    clearPolicyCache();
+    policyFileReader = null;
+  } catch {}
+}
+function nowOf(v) {
+  return toBoundedInt(v, 0, 9007199254740991, Date.now());
+}
+function validContract(c) {
+  try {
+    if (!c || typeof c !== "object")
+      return { ok: false, budgetS: 0 };
+    const id = c.id;
+    if (typeof id !== "string" || id.trim().length === 0 || id.length > 128) {
+      return { ok: false, budgetS: 0 };
+    }
+    const b = c.budgetSeconds;
+    if (!isExactInt(b, 1, MCP_LONG_RUNNING_MAX_BUDGET_S))
+      return { ok: false, budgetS: 0 };
+    return { ok: true, budgetS: b };
+  } catch {
+    return { ok: false, budgetS: 0 };
+  }
+}
+function mapUnavailable(cause, criticality, base) {
+  const safeCause = isCausalCode(cause) ? cause : "MCP_INTERNAL";
+  if (criticality === "required") {
+    return {
+      ok: false,
+      status: "MCP_REQUIRED_BLOCKED",
+      cause: safeCause,
+      blocked: true,
+      fallback_continue: false,
+      engaged: base.engaged,
+      server: base.server,
+      mcpClass: base.mcpClass,
+      criticality,
+      mode: base.mode,
+      elapsedMs: base.elapsedMs
+    };
+  }
+  return {
+    ok: true,
+    status: "MCP_UNAVAILABLE",
+    cause: safeCause,
+    blocked: false,
+    fallback_continue: true,
+    engaged: base.engaged,
+    server: base.server,
+    mcpClass: base.mcpClass,
+    criticality,
+    mode: base.mode,
+    elapsedMs: base.elapsedMs
+  };
+}
+function mcpResultGrantsAuthority(_result) {
+  return { granted: false, widened: false, status: "MCP_RESULT_CANNOT_GRANT" };
+}
+function observeMcpBeforeExecute(runtime, fields) {
+  try {
+    const c = classifyMcpTool(fields ? fields.tool : null);
+    if (!c)
+      return { mcp: false, wouldBlock: false };
+    const turn = normalizeMcpTurn(fields ? fields.turn : null);
+    const key = circuitKey(c.server, c.mcpClass, turn);
+    const e = readEntry(key);
+    let wouldBlock = false;
+    let state = "CLOSED";
+    try {
+      if (e && e.open) {
+        const now = Date.now();
+        if (now < e.openedAtMs + MCP_EMBEDDED_COOLDOWN_S * 1000) {
+          wouldBlock = true;
+          state = "OPEN";
+        } else if (e.probeInFlight) {
+          wouldBlock = true;
+          state = "HALF_OPEN_BUSY";
+        } else {
+          state = "HALF_OPEN";
+        }
+      }
+    } catch {
+      wouldBlock = false;
+    }
+    if (wouldBlock) {
+      writeMcpEvent(runtime, {
+        event: "would-block-circuit-open",
+        server: c.server,
+        mcpClass: c.mcpClass,
+        criticality: normalizeMcpCriticality(fields ? fields.criticality : null),
+        mode: "shadow",
+        cause: "MCP_CIRCUIT_OPEN",
+        turnLen: turn.length
+      });
+    }
+    return { mcp: true, wouldBlock };
+  } catch {
+    return { mcp: false, wouldBlock: false };
+  }
+}
+var activeDeadlines = 0;
+function pendingMcpDeadlines() {
+  try {
+    return activeDeadlines;
+  } catch {
+    return -1;
+  }
+}
+function startDeadline(ms) {
+  let timer = null;
+  let done = false;
+  const settle = () => {
+    try {
+      if (!done) {
+        done = true;
+        activeDeadlines = Math.max(0, activeDeadlines - 1);
+      }
+    } catch {}
+  };
+  try {
+    activeDeadlines = activeDeadlines + 1;
+  } catch {}
+  const fired = new Promise((resolve) => {
+    const onFire = () => {
+      timer = null;
+      settle();
+      try {
+        resolve(true);
+      } catch {}
+    };
+    try {
+      timer = setTimeout(onFire, ms);
+    } catch {
+      timer = null;
+      settle();
+      try {
+        resolve(true);
+      } catch {}
+      return;
+    }
+    try {
+      const u = timer;
+      if (u && typeof u.unref === "function") {
+        u.unref.call(timer);
+      }
+    } catch {}
+  });
+  const cancel = () => {
+    try {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    } catch {} finally {
+      settle();
+    }
+  };
+  return { fired, cancel };
+}
+async function runMcpGuarded(opts) {
+  const wallStart = Date.now();
+  let callCriticality = "required";
+  let probeKey = null;
+  try {
+    if (!opts || typeof opts !== "object" || typeof opts.execute !== "function") {
+      return {
+        ok: false,
+        status: "MCP_REQUIRED_BLOCKED",
+        cause: "MCP_INTERNAL",
+        blocked: true,
+        fallback_continue: false,
+        engaged: true,
+        server: null,
+        mcpClass: null,
+        criticality: "required",
+        mode: "shadow",
+        elapsedMs: 0
+      };
+    }
+    const classification = classifyMcpTool(opts.tool);
+    if (!classification) {
+      return opts.execute().then((value) => {
+        return {
+          ok: true,
+          status: "MCP_BYPASS_NOT_MCP",
+          cause: null,
+          blocked: false,
+          fallback_continue: false,
+          engaged: false,
+          server: null,
+          mcpClass: null,
+          criticality: normalizeMcpCriticality(opts.criticality),
+          mode: "shadow",
+          elapsedMs: Math.max(0, Date.now() - wallStart),
+          value
+        };
+      });
+    }
+    const server = classification.server;
+    const criticality = normalizeMcpCriticality(opts.criticality);
+    callCriticality = criticality;
+    const turn = normalizeMcpTurn(opts.turn);
+    const eff = effectiveMcpMode(opts.mode);
+    const mode = eff.mode;
+    const effPolicy = effectivePolicy(opts.policyText, opts.policyPath);
+    const policy = effPolicy.policy;
+    if (effPolicy.invalidOrigin !== null) {
+      try {
+        writeMcpEvent("v2", {
+          event: "policy-fallback",
+          server,
+          mcpClass: classification.mcpClass,
+          criticality,
+          mode,
+          turnLen: turn.length,
+          origin: effPolicy.invalidOrigin
+        });
+      } catch {}
+    }
+    const mcpClass = normalizeMcpClass(opts.classOverride) ?? classification.mcpClass;
+    const base = {
+      engaged: true,
+      server,
+      mcpClass,
+      mode,
+      elapsedMs: 0
+    };
+    if (eff.denied) {
+      try {
+        writeMcpEvent("v2", {
+          event: "enforce-denied-shadow",
+          server,
+          mcpClass,
+          criticality,
+          mode,
+          turnLen: turn.length
+        });
+      } catch {}
+    }
+    let budgetMs = 0;
+    let unbounded = false;
+    if (mcpClass === "long_running") {
+      const vc = validContract(opts.contract === undefined ? null : opts.contract);
+      if (!vc.ok) {
+        if (mode === "shadow") {
+          try {
+            writeMcpEvent("v2", {
+              event: "would-refuse-long-running",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_LONG_RUNNING_REQUIRES_CONTRACT",
+              turnLen: turn.length
+            });
+          } catch {}
+          unbounded = true;
+          budgetMs = 86400000;
+        } else {
+          try {
+            writeMcpEvent("v2", {
+              event: "refusal-long-running",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_LONG_RUNNING_REQUIRES_CONTRACT",
+              turnLen: turn.length
+            });
+          } catch {}
+          const r2 = mapUnavailable("MCP_LONG_RUNNING_REQUIRES_CONTRACT", criticality, base);
+          r2.elapsedMs = Math.max(0, Date.now() - wallStart);
+          return r2;
+        }
+      } else {
+        budgetMs = vc.budgetS * 1000;
+      }
+    } else {
+      const perClass = policy.budgetsS[mcpClass];
+      const secs = typeof perClass === "number" ? perClass : 120;
+      budgetMs = secs * 1000;
+    }
+    if (!unbounded) {
+      const tight = toBoundedInt(opts.tightenBudgetMs, 1, budgetMs, budgetMs);
+      budgetMs = tight;
+    }
+    const key = circuitKey(server, mcpClass, turn);
+    const nowAdm = nowOf(opts.nowMs);
+    const cooldownMs = policy.cooldownS * 1000;
+    const threshold = policy.failureThreshold;
+    let isProbe = false;
+    if (mode === "enforced") {
+      const e = readEntry(key);
+      if (e && e.open) {
+        if (nowAdm < e.openedAtMs + cooldownMs) {
+          try {
+            writeMcpEvent("v2", {
+              event: "circuit-block",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_CIRCUIT_OPEN",
+              turnLen: turn.length
+            });
+          } catch {}
+          const r2 = mapUnavailable("MCP_CIRCUIT_OPEN", criticality, base);
+          r2.elapsedMs = Math.max(0, Date.now() - wallStart);
+          return r2;
+        }
+        if (e.probeInFlight) {
+          try {
+            writeMcpEvent("v2", {
+              event: "circuit-block",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_HALF_OPEN_BUSY",
+              turnLen: turn.length
+            });
+          } catch {}
+          const r2 = mapUnavailable("MCP_CIRCUIT_OPEN", criticality, base);
+          r2.elapsedMs = Math.max(0, Date.now() - wallStart);
+          return r2;
+        }
+        e.probeInFlight = true;
+        writeEntry(key, e);
+        isProbe = true;
+        probeKey = key;
+        try {
+          writeMcpEvent("v2", {
+            event: "half-open-probe",
+            server,
+            mcpClass,
+            criticality,
+            mode,
+            turnLen: turn.length
+          });
+        } catch {}
+      }
+    } else {
+      const e = readEntry(key);
+      if (e && e.open) {
+        const busy = nowAdm < e.openedAtMs + cooldownMs || e.probeInFlight;
+        try {
+          writeMcpEvent("v2", {
+            event: "would-block-circuit-open",
+            server,
+            mcpClass,
+            criticality,
+            mode,
+            cause: "MCP_CIRCUIT_OPEN",
+            turnLen: turn.length
+          });
+        } catch {}
+      }
+    }
+    try {
+      const sig = opts.signal;
+      if (sig && typeof sig === "object" && sig.aborted === true) {
+        if (mode === "shadow") {
+          try {
+            writeMcpEvent("v2", {
+              event: "would-refuse-aborted",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_ABORTED",
+              turnLen: turn.length
+            });
+          } catch {}
+        } else {
+          try {
+            writeMcpEvent("v2", {
+              event: "refusal-aborted",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_ABORTED",
+              turnLen: turn.length
+            });
+          } catch {}
+          if (isProbe) {
+            releaseProbe(key);
+          }
+          const r2 = mapUnavailable("MCP_ABORTED", criticality, base);
+          r2.elapsedMs = Math.max(0, Date.now() - wallStart);
+          return r2;
+        }
+      }
+    } catch {}
+    const conclusionNow = () => {
+      try {
+        if (opts.nowMs !== undefined)
+          return nowAdm;
+        return nowOf(Date.now());
+      } catch {
+        return nowAdm;
+      }
+    };
+    const recordSuccess = (concludedAt) => {
+      try {
+        const prev = readEntry(key);
+        const wasProbe = isProbe || prev !== null && prev.open;
+        writeEntry(key, { consecutive: 0, open: false, openedAtMs: 0, probeInFlight: false });
+        if (wasProbe) {
+          try {
+            writeMcpEvent("v2", {
+              event: "rearm",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              turnLen: turn.length
+            });
+          } catch {}
+        }
+      } catch {}
+    };
+    const recordFailure = (concludedAt) => {
+      try {
+        const prev = readEntry(key);
+        const consecutive = (prev ? prev.consecutive : 0) + 1;
+        if (consecutive >= threshold) {
+          writeEntry(key, {
+            consecutive,
+            open: true,
+            openedAtMs: concludedAt,
+            probeInFlight: false
+          });
+          try {
+            writeMcpEvent("v2", {
+              event: "circuit-open",
+              server,
+              mcpClass,
+              criticality,
+              mode,
+              cause: "MCP_TIMEOUT",
+              turnLen: turn.length
+            });
+          } catch {}
+        } else {
+          writeEntry(key, {
+            consecutive,
+            open: prev ? prev.open : false,
+            openedAtMs: prev ? prev.openedAtMs : 0,
+            probeInFlight: false
+          });
+        }
+      } catch {}
+    };
+    if (mode === "shadow") {
+      const t0 = Date.now();
+      let value = undefined;
+      let failed = false;
+      try {
+        value = await opts.execute();
+      } catch {
+        failed = true;
+      }
+      const elapsed2 = Math.max(0, Date.now() - t0);
+      const concluded = nowOf(opts.nowMs !== undefined ? opts.nowMs : Date.now());
+      if (failed) {
+        recordFailure(concluded);
+        const r2 = mapUnavailable("MCP_ERROR", criticality, base);
+        r2.elapsedMs = elapsed2;
+        return r2;
+      }
+      if (!unbounded && elapsed2 > budgetMs) {
+        recordFailure(concluded);
+        try {
+          writeMcpEvent("v2", {
+            event: "would-timeout",
+            server,
+            mcpClass,
+            criticality,
+            mode,
+            cause: "MCP_TIMEOUT",
+            turnLen: turn.length,
+            elapsedMs: elapsed2,
+            budgetMs
+          });
+        } catch {}
+      } else {
+        recordSuccess(concluded);
+      }
+      return {
+        ok: true,
+        status: "OK",
+        cause: null,
+        blocked: false,
+        fallback_continue: false,
+        engaged: true,
+        server,
+        mcpClass,
+        criticality,
+        mode,
+        elapsedMs: elapsed2,
+        value
+      };
+    }
+    let abortListener = null;
+    const execP = (async () => {
+      try {
+        const v = await opts.execute();
+        return { kind: "value", value: v };
+      } catch {
+        return { kind: "error" };
+      }
+    })();
+    const deadline = startDeadline(budgetMs);
+    let settled = { kind: "error" };
+    try {
+      const timerP = deadline.fired.then(() => ({ kind: "timeout" }));
+      let raceP = Promise.race([execP, timerP]);
+      const sig = opts.signal;
+      if (sig && typeof sig === "object" && typeof sig.addEventListener === "function") {
+        const abortP = new Promise((resolve) => {
+          abortListener = () => {
+            try {
+              resolve({ kind: "aborted" });
+            } catch {}
+          };
+          try {
+            sig.addEventListener("abort", abortListener, { once: true });
+          } catch {}
+        });
+        raceP = Promise.race([execP, timerP, abortP]);
+      }
+      try {
+        settled = await raceP;
+      } catch {
+        settled = { kind: "error" };
+      }
+    } finally {
+      try {
+        deadline.cancel();
+      } catch {}
+      try {
+        const s = opts.signal;
+        if (s && typeof s === "object" && abortListener !== null && typeof s.removeEventListener === "function") {
+          s.removeEventListener("abort", abortListener);
+        }
+      } catch {}
+    }
+    const elapsed = Math.max(0, Date.now() - wallStart);
+    if (settled.kind === "value") {
+      recordSuccess(conclusionNow());
+      return {
+        ok: true,
+        status: "OK",
+        cause: null,
+        blocked: false,
+        fallback_continue: false,
+        engaged: true,
+        server,
+        mcpClass,
+        criticality,
+        mode,
+        elapsedMs: elapsed,
+        value: settled.value
+      };
+    }
+    if (settled.kind === "aborted") {
+      if (isProbe) {
+        releaseProbe(key);
+      }
+      try {
+        writeMcpEvent("v2", {
+          event: "refusal-aborted",
+          server,
+          mcpClass,
+          criticality,
+          mode,
+          cause: "MCP_ABORTED",
+          turnLen: turn.length
+        });
+      } catch {}
+      const r2 = mapUnavailable("MCP_ABORTED", criticality, base);
+      r2.elapsedMs = elapsed;
+      return r2;
+    }
+    if (settled.kind === "timeout") {
+      recordFailure(conclusionNow());
+      try {
+        writeMcpEvent("v2", {
+          event: "timeout",
+          server,
+          mcpClass,
+          criticality,
+          mode,
+          cause: "MCP_TIMEOUT",
+          turnLen: turn.length,
+          elapsedMs: elapsed,
+          budgetMs
+        });
+      } catch {}
+    } else {
+      recordFailure(conclusionNow());
+    }
+    const cause = settled.kind === "timeout" ? "MCP_TIMEOUT" : "MCP_ERROR";
+    const r = mapUnavailable(cause, criticality, base);
+    r.elapsedMs = elapsed;
+    return r;
+  } catch {
+    try {
+      if (probeKey !== null) {
+        try {
+          releaseProbe(probeKey);
+        } catch {}
+      }
+    } catch {}
+    try {
+      const r = mapUnavailable("MCP_INTERNAL", callCriticality, {
+        engaged: true,
+        server: null,
+        mcpClass: null,
+        mode: "shadow",
+        elapsedMs: Math.max(0, Date.now() - wallStart)
+      });
+      return r;
+    } catch {
+      return {
+        ok: false,
+        status: "MCP_REQUIRED_BLOCKED",
+        cause: "MCP_INTERNAL",
+        blocked: true,
+        fallback_continue: false,
+        engaged: true,
+        server: null,
+        mcpClass: null,
+        criticality: "required",
+        mode: "shadow",
+        elapsedMs: 0
+      };
+    }
+  }
+}
+var __mcpTransportTest = {
+  circuitSize: () => {
+    try {
+      return circuitStore.size;
+    } catch {
+      return -1;
+    }
+  },
+  pendingDeadlines: () => {
+    try {
+      return pendingMcpDeadlines();
+    } catch {
+      return -1;
+    }
+  },
+  reset: () => {
+    resetMcpTransport();
+  }
+};
+
+// plugins/orchestration-enforcement/v2.ts
 var V2_ID = "orchestration-enforcement";
+function readMcpPolicyFileBounded(absPath) {
+  try {
+    if (typeof absPath !== "string")
+      return null;
+    const t = absPath.trim();
+    if (t.length === 0 || t.length > 512)
+      return null;
+    const isAbs = t.charAt(0) === "/" || /^[A-Za-z]:[\\/]/.test(t);
+    if (!isAbs)
+      return null;
+    let size = -1;
+    let isFile = false;
+    try {
+      const st = statSync(t);
+      isFile = st.isFile();
+      size = st.size;
+    } catch {
+      return null;
+    }
+    if (!isFile)
+      return null;
+    if (size <= 0 || size > 65536)
+      return null;
+    let text = "";
+    try {
+      text = readFileSync(t, "utf8");
+    } catch {
+      return null;
+    }
+    if (text.length === 0 || text.length > 65536)
+      return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
 var sessionIndex2 = new Map;
 async function subscribe(registrations, owner, name, callback) {
   try {
@@ -622,8 +1889,18 @@ async function setupV2(ctx) {
         if (!inp || typeof inp !== "object")
           return;
         writeToolEvent("v2", { tool: inp.tool, session: inp.sessionID, agent: inp.agent });
+        try {
+          observeMcpBeforeExecute("v2", {
+            tool: inp.tool,
+            turn: inp.turnID !== undefined ? inp.turnID : inp.turnId,
+            criticality: inp.criticality
+          });
+        } catch {}
       } catch {}
     });
+    try {
+      setMcpPolicyFileReader(readMcpPolicyFileBounded);
+    } catch {}
   } catch {
     return;
   }
@@ -672,8 +1949,24 @@ var DualExport = {
 };
 var orchestration_enforcement_default = DualExport;
 export {
+  setMcpPolicyFileReader,
+  runMcpGuarded,
+  resolveMcpPolicy,
+  resetMcpTransport,
+  pendingMcpDeadlines,
+  observeMcpBeforeExecute,
+  normalizeMcpTurn,
+  normalizeMcpCriticality,
+  normalizeMcpClass,
+  mcpResultGrantsAuthority,
+  getMcpTransportConfig,
+  getMcpCircuitSnapshot,
+  effectiveMcpMode,
   orchestration_enforcement_default as default,
+  configureMcpTransport,
+  classifyMcpTool,
   __orchestrationEnforcementTest,
+  __mcpTransportTest,
   V2_ID,
   OrchestrationEnforcement
 };

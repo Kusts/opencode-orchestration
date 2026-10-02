@@ -30,10 +30,55 @@ import {
   recordSessionEvent,
   resolveRole,
 } from "./shared/identity";
+import { readFileSync, statSync } from "node:fs";
 import { appendTextPart, hasMarker, mandateFor } from "./shared/mandate";
+import {
+  observeMcpBeforeExecute,
+  setMcpPolicyFileReader,
+} from "./shared/mcp-transport";
 import { loggedSize, writeInjection, writeToolEvent, writeUnavailable } from "./shared/telemetry";
 
 export const V2_ID = "orchestration-enforcement";
+
+// Bounded policy-file reader for the MCP transport envelope (Phase 28
+// slice 2): absolute paths only, regular files only, 64 KiB cap,
+// utf8, every failure => null (the envelope then uses the embedded
+// defaults, which mirror the canonical policy exactly). Installed at
+// setup; fail-open throughout. NEVER throws.
+function readMcpPolicyFileBounded(absPath: unknown): string | null {
+  try {
+    if (typeof absPath !== "string") return null;
+    const t = absPath.trim();
+    if (t.length === 0 || t.length > 512) return null;
+    const isAbs = t.charAt(0) === "/" || /^[A-Za-z]:[\\/]/.test(t);
+    if (!isAbs) return null;
+    let size = -1;
+    let isFile = false;
+    try {
+      const st = statSync(t);
+      isFile = st.isFile();
+      size = st.size;
+    } catch {
+      return null;
+    }
+    if (!isFile) return null;
+    if (size <= 0 || size > 65536) return null;
+    let text = "";
+    try {
+      text = readFileSync(t, "utf8");
+    } catch {
+      return null;
+    }
+    // Post-read re-check: covers the stat/read window (the file may
+    // have grown between stat and read). Oversized or empty content
+    // is refused, so the envelope falls back to the embedded
+    // defaults with a policy-fallback telemetry row.
+    if (text.length === 0 || text.length > 65536) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
 
 const sessionIndex = new Map<string, SessionEntry>();
 
@@ -194,15 +239,35 @@ async function setupV2(ctx: any): Promise<(() => void) | void> {
     });
 
     // Observability minimum: tool events, never blocking.
+    // MCP transport observation (Phase 28 slice 2): classifies the
+    // tool and reports a would-block when the circuit is open. Shadow
+    // semantics: observe only, NEVER cancel the execution. Fail-open.
     await subscribe(registrations, c.tool, "execute.before", async (input: any) => {
       try {
         const inp = input as any;
         if (!inp || typeof inp !== "object") return;
         writeToolEvent("v2", { tool: inp.tool, session: inp.sessionID, agent: inp.agent });
+        try {
+          observeMcpBeforeExecute("v2", {
+            tool: inp.tool,
+            turn: inp.turnID !== undefined ? inp.turnID : inp.turnId,
+            criticality: inp.criticality,
+          });
+        } catch {
+          // Fail-open: MCP observation never breaks tool execution.
+        }
       } catch {
         // Fail-open: observability never breaks tool execution.
       }
     });
+    // Install the bounded MCP policy-file reader (absolute paths only;
+    // without an explicit path configured the envelope stays on the
+    // embedded defaults and performs no file access). Fail-open.
+    try {
+      setMcpPolicyFileReader(readMcpPolicyFileBounded);
+    } catch {
+      // Fail-open: envelope works on embedded defaults regardless.
+    }
   } catch {
     // Fail-open: setup never throws to the runtime.
     return undefined;
@@ -267,6 +332,13 @@ export const __orchestrationEnforcementV2Test = {
       return loggedSize();
     } catch {
       return -1;
+    }
+  },
+  readPolicyFileBounded: (p: unknown): string | null => {
+    try {
+      return readMcpPolicyFileBounded(p);
+    } catch {
+      return null;
     }
   },
 };

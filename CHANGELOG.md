@@ -290,6 +290,33 @@ plano em
   enforcement em transporte real (plugin/integração TS) é slice 2;
   falha pré-existente/ambiental da suíte `WatchdogEnforcement`
   provada por A/B sem os arquivos do slice.
+- **P28 slice 2 done-code-fix3-shadow** — envelope bounded de
+  transporte MCP no plugin TS (`plugins/orchestration-enforcement/
+  shared/mcp-transport.ts`, `shared/telemetry.ts`, `v2.ts`,
+  `tests/distribution/plugin-mcp-transport.tests.ps1` + harness):
+  classificação conservadora por allowlist fechada (sem descoberta
+  automática; `mcp_routing` segue OFF), budgets por classe
+  30/60/120s (long-running só com contrato explícito), timeout
+  enforced via race com cleanup em `finally` (zero timers órfãos,
+  `unref`), circuito por `(server, classe, turn)` com 2 falhas ⇒
+  `OPEN`, cooldown contado da conclusão, half-open com probe único e
+  release garantida em abort (abort não conta como falha do server),
+  parser estrito exigindo os valores canônicos do policy
+  (30/60/120, connect 10/15/20, cooldown 300), cache por conteúdo
+  integral, `MCP_REQUIRED_BLOCKED` em todos os ramos `required`,
+  **shadow default** (observa, nunca altera admissão — inclusive
+  pré-aborto), enforced só com opt-in explícito
+  (`OO_MCP_TRANSPORT_ENFORCED=1`), telemetria sanitizada
+  allowlisted, wiring V2 abort-safe sem bloquear, V1 observe-only.
+  Suíte **142/142** (pwsh + powershell), dual-runtime **20/20**,
+  mock V2 **22/22**, plugin V1 **30/30**, consistência **16/16**;
+  typecheck V1+V2+DUAL com bundle/sidecar regenerados. Reviews:
+  Reviewer **APPROVED** (round 3; abort no probe half-open
+  resolvido) + Security **APPROVED** (sem HIGH/CRITICAL). HOLDs:
+  enforcement em binário real V2 **não validado** (`execute.before`
+  é observação; `runMcpGuarded` exige integração explícita), V1
+  observe-only, eviction do circuito fail-open documentado,
+  abandono sem rollback.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;

@@ -36,3 +36,28 @@ export default DualExport;
 export { OrchestrationEnforcement } from "./orchestration-enforcement/v1";
 export { __orchestrationEnforcementTest } from "./orchestration-enforcement/v1";
 export { V2_ID } from "./orchestration-enforcement/v2";
+
+// Phase 28 slice 2: public MCP transport envelope for the integration
+// layer (calls ALREADY classified as MCP). Default is shadow-only;
+// enforcement requires explicit configureMcpTransport opt-in. V1 has
+// no tool-interception surface, so under V1 the envelope is available
+// here for direct use with identical semantics (documented parity:
+// observe/skip, never silent enforcement, never a crash).
+export {
+  __mcpTransportTest,
+  classifyMcpTool,
+  configureMcpTransport,
+  effectiveMcpMode,
+  getMcpCircuitSnapshot,
+  getMcpTransportConfig,
+  mcpResultGrantsAuthority,
+  normalizeMcpClass,
+  normalizeMcpCriticality,
+  normalizeMcpTurn,
+  observeMcpBeforeExecute,
+  pendingMcpDeadlines,
+  resetMcpTransport,
+  resolveMcpPolicy,
+  runMcpGuarded,
+  setMcpPolicyFileReader,
+} from "./orchestration-enforcement/shared/mcp-transport";
