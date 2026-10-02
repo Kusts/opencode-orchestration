@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "required_principles": [
+    "minimum-sufficient-change",
+    "no-bonus-work",
+    "reuse-before-create",
+    "abstraction-by-evidence",
+    "stop-condition"
+  ],
+  "change_budget": {
+    "max_files": 3,
+    "max_loc_by_category": {
+      "code": 120,
+      "tests": 160,
+      "docs": 100,
+      "config": 80,
+      "other": 60
+    },
+    "max_total_loc": 240
+  },
+  "thresholds": { "soft_multiplier": 1, "hard_multiplier": 2 },
+  "thresholds_doc": "Soft >1x through exactly 2x signals proportional drift and requires explicit rationale for acceptance; hard >2x signals uncontrolled deviation and requires explicit rationale.",
+  "contract_fields": ["NON_GOALS", "PRESERVE"]
+}
