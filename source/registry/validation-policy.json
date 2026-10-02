@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "levels": {
+    "L0": { "required_roles": ["coder"], "description": "trivial direct; existing TRIVIAL_DIRECT policy applies" },
+    "L1": { "required_roles": ["coder"], "description": "low-risk localized change; focused self-validation" },
+    "L2": { "required_roles": ["coder", "tester", "reviewer"], "description": "normal engineering change; independent validation" },
+    "L3": { "required_roles": ["coder", "tester", "reviewer", "security-reviewer"], "description": "high-risk or cross-cutting change" }
+  },
+  "hard_risk_triggers": ["auth", "credentials", "payments", "destructive", "production", "irreversible", "security-sensitive"],
+  "minimum_level_by_risk": { "low": "L0", "medium": "L2", "high": "L3", "critical": "L3" },
+  "max_coverage_age_days": 30,
+  "descriptor_rules": [
+    { "when": { "trivial_direct": true }, "level": "L0" },
+    { "when": { "localized": true, "risk": "low" }, "level": "L1" },
+    { "when": { "risk": "medium" }, "level": "L2" },
+    { "when": { "risk": "high" }, "level": "L3" }
+  ],
+  "verified_pass_authorities": ["verifier", "kernel-allowlisted-verifier"],
+  "notes": "Declarative policy only. DONE authority remains the kernel; dispatch wiring is P38."
+}
