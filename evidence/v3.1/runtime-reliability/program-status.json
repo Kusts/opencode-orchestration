@@ -250,15 +250,30 @@
         "deploy real do VPS e endpoint user-owned são infra do operador (não provisionados); re-preflight de porta V2 e fechamento de HOLDs de REUSE somente com evidência pós-migração",
         "transporte real NÃO ativado (seam sintética); ai-memory local intocado por design"
       ]
+    },
+    "phase31_bootstrap_context_slice1": {
+      "status": "done-code-fix3",
+      "task_id": "RR-P31-BOOTSTRAP-CONTEXT-S1 (+FIX1..FIX3)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase31.json",
+      "summary": "Bootstrap context builder kernel-side (plan §8, fatia 1): read-only e parse-only (nunca executa processo/scripts; runtime via RuntimeInfo injetado ou unknown/not-probed), seções project/runtime/capability_health/tasks/pending_waits/jev_status/aimemory_status, não-bloqueante (fonte ausente/corrompida => seção unavailable), byte budget com sequência única de descarte (refs → waits.refs → jev → aimemory → counts → capability_health por último, provada por teste de snapshots sucessivos), sanitizado (hostname/token/sk-), determinístico com clock injetável.",
+      "suites": [
+        "OrchestrationBootstrapContext.tests.ps1 16/16 (powershell + pwsh)",
+        "consistency 16/16; kernel 75/75 PS5.1 (intocado)"
+      ],
+      "reviews": "Reviewer APPROVED round 4 + Security APPROVED (parse-only exigido e atendido)",
+      "holds": [
+        "ativação de runtime (auto-start plugin, AGENTS.md global, default_agent) = estado ativo do operador, fora do escopo",
+        "wiring do contexto no início de sessão = fatia 2 (depende de decisão de ativação)"
+      ]
     }
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
     "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
-    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
+    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. P28 (dois slices), P29 slice 1 e P30 slice 1 concluídos em 2026-10-02; restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador + re-preflight de porta, HOLDs de infra) e de P31–P42 não iniciados (persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. P28 (dois slices), P29 slice 1, P30 slice 1 e P31 slice 1 concluídos em 2026-10-02; restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador + re-preflight de porta, HOLDs de infra), da P31 (ativação de runtime + wiring session-start, decisão do operador) e de P32–P42 não iniciados (Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",

@@ -357,6 +357,22 @@ plano em
   deploy real do VPS é infra do operador; re-preflight de porta V2
   e fechamento de HOLDs de REUSE só com evidência pós-migração;
   transporte real exige HTTPS.
+- **P31 slice 1 done-code-fix3** — bootstrap context builder
+  kernel-side (`scripts/v3/lib/OrchestrationBootstrapContext.ps1`):
+  read-only e **parse-only** (nunca executa processo/scripts;
+  runtime via `RuntimeInfo` injetado ou `unknown/not-probed`),
+  seções project/runtime/capability_health/tasks/pending_waits/
+  jev_status/aimemory_status, **não-bloqueante** (fonte
+  ausente/corrompida ⇒ seção `unavailable`), byte budget com
+  **sequência única de descarte** (refs → waits.refs → jev →
+  aimemory → counts → capability_health por último, provada por
+  teste de snapshots sucessivos), sanitizado (hostname/token/`sk-`),
+  determinístico com clock injetável. Suíte **16/16** (PS5.1 +
+  pwsh); consistência **16/16**; kernel **75/75** intocado.
+  Reviews: Reviewer **APPROVED** (round 4) + Security
+  **APPROVED**. HOLDs: ativação de runtime (auto-start, AGENTS.md
+  global, default_agent) é estado do operador; wiring no início de
+  sessão é fatia 2.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;
