@@ -683,6 +683,40 @@ Tester MUST:
 
 Tester is an independent falsifier, not a duplicate command runner.
 
+### 13.3.1 Tester execution authority (IMPLEMENTED 2026-10-01, reconciled 2026-10-02 — do not reimplement)
+
+In this repository, PowerShell validation runs only through the fixed gateway
+`scripts/v3/run-v3-tests.ps1`, with focused `-Name <suite>` selection whose
+charset is guarded and fail-closed. Arbitrary PowerShell (`-Command`, `-File`
+of another script), alternate shells, wrappers and elevation mechanisms remain
+denied; the allowed wildcard exists only after the fixed gateway path. The
+Tester MUST NOT broaden that allowlist, and MUST NOT request generic shell
+widening.
+
+### 13.3.2 Permission-denial invariant (canonical)
+
+- A denial of the PRIMARY operation ends that route. The Tester MUST NOT
+  attempt an equivalent action through another shell, wrapper, interpreter,
+  elevation mechanism, alternate command form or other gateway, and MUST NOT
+  keep searching indefinitely for another route.
+- AT MOST ONE authority-safe reformulation is permitted, and only when both
+  conditions hold: the denial clearly identifies an AUXILIARY presentation or
+  filtering stage (`tail`, `head`, `grep`, `findstr`, `Select-Object`) as the
+  only denied segment, AND the primary operation is separately authorized. The
+  reformulation removes only the auxiliary stage and runs the same primary
+  validation unchanged (for example `pnpm test | tail-40` → `pnpm test`). No
+  chained output-utility sequence is attempted, and no reformulation may add an
+  executable, shell, wrapper, interpreter, privilege or authority.
+- When no authorized capability can satisfy the validation requirement, the
+  Tester returns the typed blocker `VALIDATION_CAPABILITY_UNAVAILABLE` to the
+  Planner, reporting INTENDED VALIDATION; NECESSARY COMMAND/CAPABILITY;
+  RESTRICTION FOUND; SAFE ALTERNATIVE.
+
+The Tester distinguishes `TEST FAILED` (validation ran and failed),
+`AUXILIARY OUTPUT STAGE DENIED` (auxiliary presentation denied, remove it once)
+and `VALIDATION CAPABILITY UNAVAILABLE`. A permission denial is not a
+functional defect: it MUST NOT lead to code changes made to make a test pass.
+
 ## 13.4 Reviewer deterministic scoping
 
 Before LLM review, deterministic logic SHOULD compute:

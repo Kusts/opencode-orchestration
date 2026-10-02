@@ -313,6 +313,23 @@
       ]
     }
   },
+  "tester_gateway_hardening": {
+    "status": "implemented-contract-tested-live-hold",
+    "task_id": "TESTER-GATEWAY-HARDENING",
+    "date": "2026-10-02",
+    "evidence": "master 0bc57a3 (fixed PowerShell validation gateway) + master b62f814 (authority-safe auxiliary reformulation); registered in SPEC addendum 13.3.1/13.3.2 and PLAN addendum P36 item 4",
+    "summary": "PowerShell validation in this repository uses the fixed scripts/v3/run-v3-tests.ps1 gateway with fail-closed -Name selection. Four wildcard patterns remain restricted to the fixed gateway path; no generic shell wildcard is added. Denial of the primary operation ends the route. At most one reformulation may remove only an auxiliary presentation/filtering segment when it is the sole denied segment and the primary validation is separately authorized; otherwise return VALIDATION_CAPABILITY_UNAVAILABLE with the required fields. No shell, wrapper, interpreter, privilege, or authority is added by reformulation.",
+    "suites": [
+      "scripts/runtime/tester-gateway-permissions.tests.ps1: 183/183 PASS; matcher/contract-text assertions, not live agent behavior",
+      "scripts/runtime/agent-translation.tests.ps1: 116/116 PASS; V1/V2 translation and permission parity",
+      "scripts/test-package-consistency.ps1: 16/16 PASS on current master; an earlier dirty-worktree run reported a plugin bundle/sidecar mismatch that was not reproduced on current master"
+    ],
+    "reviews": "Reviewer APPROVED; Security Reviewer APPROVED with residual HOLD for live runtime/agent behavior",
+    "holds": [
+      "live V1/V2 runtime enforcement and live agent reformulation behavior were not demonstrated by these matcher/contract tests",
+      "shell chaining containment remains planner-enforced; permission globs are not a parser or sandbox"
+    ]
+  },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
     "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
@@ -331,6 +348,7 @@
     "ai-memory nunca mutado (listener local 127.0.0.1:49374 mantido; migração para VPS planejada, nao executada)",
     "roteamento MCP generico segue desligado",
     "nenhuma flag nova criada; nenhuma ativacao realizada",
+    "tester: negação da operação principal encerra a rota; uma única reformulação auxiliar só quando o segmento auxiliar é o único negado e a validação principal está autorizada separadamente",
     "requisitos dos addenda de SPEC/PLAN nao alterados por este status"
   ]
 }

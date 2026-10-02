@@ -520,7 +520,20 @@ Replace universal duplicate validation with risk/evidence-driven validation.
    - read evidence first;
    - identify unproven risks;
    - differential validation;
-   - repeat an equivalent test only with rationale.
+   - repeat an equivalent test only with rationale;
+   - PRESERVE the implemented Tester Gateway Hardening (2026-10-01, reconciled
+     2026-10-02 — contract already implemented, no reimplementation): PowerShell
+     validation runs only through `scripts/v3/run-v3-tests.ps1` (focused
+     `-Name <suite>` selection, fail-closed); a denial of the primary operation
+     terminates the route (no retry via other shell, wrapper, interpreter,
+     elevation or gateway); at most one authority-safe reformulation, allowed
+     only when the denial isolates an auxiliary presentation/filtering stage as
+     the sole denied segment and the primary operation is separately
+     authorized, keeping the same primary validation; when no authorized
+     capability covers the validation, return the typed blocker
+     `VALIDATION_CAPABILITY_UNAVAILABLE`. Differential validation and evidence
+     reuse MUST use this gateway as the baseline and MUST NOT recreate the
+     gateway or equivalent permission rules.
 5. Reviewer:
    - receive exact candidate/diff;
    - deterministic file selection;
