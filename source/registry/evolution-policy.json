@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "authority": {
+    "mode": "observation-and-decision-record-only",
+    "automatic_promotion": false,
+    "writes_production_policy": false,
+    "cannot": [
+      "write-production-policy",
+      "write-capability-flags",
+      "edit-source-or-registry",
+      "auto-promote",
+      "auto-rollback",
+      "grant-permission",
+      "widen-scope",
+      "write-done",
+      "apply-change-without-review"
+    ],
+    "note": "Phase 41 slice 1 (kernel side): sanitized signal derivation, EVOLUTION_CANDIDATE records, offline eval, explicit promotion decision and rollback decision. Nothing here writes production policy or applies a change; applying a promoted change stays the normal reviewed-code flow."
+  },
+  "min_sample_threshold": 5,
+  "min_distinct_refs": 2,
+  "shadow_comparison_tolerance": 0.05,
+  "promotion_requires": {
+    "review_marker": true,
+    "shadow_comparison": "pass"
+  },
+  "eval": {
+    "min_samples_per_variant": 5,
+    "require_no_regression": true,
+    "verdicts": [
+      "pass",
+      "regression",
+      "inconclusive"
+    ]
+  },
+  "eval_targets": [
+    {
+      "id": "tester_duplication_rate",
+      "kind": "rate",
+      "numerator": "tester_duplication_events",
+      "denominator": "tester_rounds",
+      "direction": "lower_is_better"
+    },
+    {
+      "id": "tool_loop_rate",
+      "kind": "rate",
+      "numerator": "tool_loop_tasks",
+      "denominator": "tasks",
+      "direction": "lower_is_better"
+    },
+    {
+      "id": "task_wall_time",
+      "kind": "average",
+      "numerator": "wall_time_s",
+      "denominator": "tasks",
+      "direction": "lower_is_better"
+    },
+    {
+      "id": "reviewer_finding_rate",
+      "kind": "rate",
+      "numerator": "reviewer_findings",
+      "denominator": "reviewer_rounds",
+      "direction": "lower_is_better"
+    },
+    {
+      "id": "change_budget_exceed_rate",
+      "kind": "rate",
+      "numerator": "budget_exceeded_tasks",
+      "denominator": "tasks",
+      "direction": "lower_is_better"
+    },
+    {
+      "id": "user_intervention_rate",
+      "kind": "rate",
+      "numerator": "user_interventions",
+      "denominator": "tasks",
+      "direction": "lower_is_better"
+    },
+    {
+      "id": "jev_useful_call_rate",
+      "kind": "rate",
+      "numerator": "jev_useful_calls",
+      "denominator": "jev_calls",
+      "direction": "higher_is_better"
+    },
+    {
+      "id": "evidence_reuse_rate",
+      "kind": "rate",
+      "numerator": "evidence_reused",
+      "denominator": "evidence_available",
+      "direction": "higher_is_better"
+    }
+  ],
+  "caps": {
+    "max_evidence_refs": 20,
+    "max_text_length": 500,
+    "max_ref_length": 128,
+    "max_review_marker_length": 120,
+    "max_reason_length": 240,
+    "max_record_bytes": 32768,
+    "max_history_bytes": 1048576,
+    "max_candidate_files": 500,
+    "max_telemetry_files": 64,
+    "max_telemetry_records": 2000,
+    "max_telemetry_line_bytes": 4096,
+    "max_telemetry_file_bytes": 4194304,
+    "max_metric_value": 1000000,
+    "lock_timeout_ms": 200
+  }
+}
