@@ -296,15 +296,30 @@
         "probe real de sessão: HOLD (estados declarados pelo caller confiável)",
         "registro kernel-side de SESSION_LOST: HOLD documentado"
       ]
+    },
+    "phase34_execution_modes_slice1": {
+      "status": "done-code-fix3",
+      "task_id": "RR-P34-EXECUTION-MODES-S1 (+FIX1..FIX3)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase34.json",
+      "summary": "Execution modes kernel-side (plan §11): decisão pura determinística A (deterministic workflow) / B (persistent specialist) / C (one-shot); B duplamente gated (policy specialist_enabled false default + runtime_caps OFF — HOLD de primitiva) com elegibilidade explícita (specialist_requested ou long_debug+continuity) e fallback_from distinguindo policy-off/runtime-unsupported; team_size sozinho nunca decide (teste de controle); descriptor hostil => C conservador; evidência JSONL sanitizada com timestamp validado semanticamente (DateTimeOffset RoundtripKind, offset normalizado para UTC).",
+      "suites": [
+        "OrchestrationExecutionModes.tests.ps1 35/35 (powershell + pwsh)",
+        "consistency 16/16; nenhuma lib existente tocada"
+      ],
+      "reviews": "Reviewer APPROVED round 4 + Security APPROVED round 2 (callback de clock removido — timestamp como valor)",
+      "holds": [
+        "wiring no Planner: fatia 2 / P38",
+        "primitiva runtime de persistent specialist: HOLD"
+      ]
     }
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
     "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
-    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
+    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); RR-P34-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (round 2); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. P28 (dois slices), P29 slice 1, P30 slice 1, P31 slice 1, P32 e P33 slice 1 concluídos em 2026-10-02; restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador), da P31 (ativação de runtime + wiring session-start), da P33 (reconciler V2 nativo/probe real) e de P34–P42 não iniciados (execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. **Wave B concluída em 2026-10-02**: P28 (dois slices), P29 slice 1, P30 slice 1, P31 slice 1, P32, P33 slice 1 e P34 slice 1 concluídos. Restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador), da P31 (ativação de runtime), da P33 (reconciler V2 nativo) e de P35–P42 não iniciados (evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes — Waves C, D e E). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",

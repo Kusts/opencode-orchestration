@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "specialist_enabled": false,
+  "runtime_caps": {
+    "v1_persistent_specialist": false,
+    "v2_persistent_specialist": false
+  },
+  "modes": {
+    "A": { "trigger": "task_shape=fixed_pipeline", "description": "deterministic workflow" },
+    "B": { "trigger": "task_shape=long_debug AND continuity_need=required AND specialist_enabled AND runtime_capability", "description": "persistent specialist" },
+    "C": { "trigger": "bounded delegation, lookup, invalid input, or fallback", "description": "one-shot worker" }
+  },
+  "fallbacks": {
+    "B": { "mode": "C", "when": ["specialist_enabled=false", "runtime_capability=false"], "record": ["fallback_from=B", "policy_gated=specialist-off"] }
+  }
+}

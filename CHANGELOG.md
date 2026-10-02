@@ -390,6 +390,22 @@ plano em
   regressões completas verdes. Reviews: Reviewer + Security
   **APPROVED** (4 rondas). HOLDs: reconciler V2 nativo, probe
   real, registro kernel-side de SESSION_LOST.
+- **P34 slice 1 done-code-fix3** — execution modes kernel-side
+  (`scripts/v3/lib/OrchestrationExecutionModes.ps1`,
+  `source/registry/execution-modes-policy.json`): decisão pura
+  determinística **A** (deterministic workflow) / **B** (persistent
+  specialist) / **C** (one-shot); B duplamente gated (policy
+  `specialist_enabled: false` default + `runtime_caps` OFF — HOLD
+  de primitiva) com elegibilidade explícita e `fallback_from`
+  distinguindo `policy-off`/`runtime-unsupported`; **team_size
+  sozinho nunca decide** (teste de controle); descriptor hostil ⇒
+  C conservador; evidência sanitizada com timestamp validado
+  semanticamente (DateTimeOffset RoundtripKind, offset
+  normalizado). Suíte **35/35** (PS5.1 + pwsh). Reviews: Reviewer
+  **APPROVED** (round 4) + Security **APPROVED**. HOLDs: wiring no
+  Planner é fatia 2 (P38); primitiva runtime de specialist.
+  
+  **Wave B concluída** (P31–P34 kernel-side, 2026-10-02).
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;
