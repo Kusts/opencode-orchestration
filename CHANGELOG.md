@@ -338,6 +338,25 @@ plano em
   **APPROVED**. HOLDs: transporte real (rede) não ativado;
   ativação da flag é decisão humana com evidência; integração no
   fluxo do Planner é fatia 2 (P31/P38).
+- **P30 slice 1 done-code-fix2** — dependência remota bounded do
+  AI Memory kernel-side (`scripts/v3/lib/
+  OrchestrationAiMemoryRemote.ps1`,
+  `source/registry/ai-memory-remote-policy.json`): policy com
+  endpoint **user-owned** (vazio/placeholder, auth só nome de env
+  `AIMEMORY_REMOTE_TOKEN`, `tls_verify` fixo true), retrieval 60s /
+  health 10s, circuito 2/300s **reusando o envelope P28** (classe
+  memory), **remote-only por config** — ausência de config ⇒
+  `AIMEMORY_UNCONFIGURED` (optional continua / required bloqueia
+  tipado), **nunca fallback silencioso** para o listener local
+  `49374`, que permanece intocado; `POLICY_INVALID` fail-closed
+  bloqueante nas duas criticalities (matriz de testes **8/8**);
+  telemetria sanitizada (host+len:port, escopo hasheado, redação
+  nominal do token). Suíte **111/111** (PS5.1 + pwsh);
+  consistência **16/16**; regressões verdes. Reviews: Reviewer
+  aprovou o código (round 2) + Security **APPROVED**. HOLDs:
+  deploy real do VPS é infra do operador; re-preflight de porta V2
+  e fechamento de HOLDs de REUSE só com evidência pós-migração;
+  transporte real exige HTTPS.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "endpoint": {
+    "url": "",
+    "auth": {
+      "type": "env",
+      "name": "AIMEMORY_REMOTE_TOKEN"
+    },
+    "tls_verify": true,
+    "note": "user-owned remote endpoint only; empty url (or __USER_OWNED__ placeholder) means UNCONFIGURED: optional continues structured, required blocks typed; never a fixed local listener default; real VPS deploy and port re-preflight are HOLD (operator infra)"
+  },
+  "retrieval_budget_seconds": 60,
+  "health_probe_budget_seconds": 10,
+  "circuit": {
+    "failure_threshold": 2,
+    "cooldown_seconds": 300,
+    "note": "identical to the canonical MCP safety envelope: two consecutive timeout/network failures in one planner turn open the circuit per (server, capability, turn); expired cooldown allows one half-open probe"
+  },
+  "scoping": {
+    "workspace_param": "workspace",
+    "project_param": "project",
+    "require_both_together": true,
+    "forbid_local_fallback": true,
+    "note": "workspace and project travel together always (project scoping rules preserved); absence of remote config never falls back to any local listener"
+  },
+  "criticality": {
+    "allowed": [
+      "optional",
+      "required"
+    ],
+    "default": "optional",
+    "note": "optional plus unavailable yields AIMEMORY_UNAVAILABLE with fallback_continue=true and blocked=false; required plus unavailable yields AIMEMORY_REQUIRED_BLOCKED with blocked=true in every branch"
+  }
+}
