@@ -25,7 +25,8 @@
     "capability_router": { "shadow": false, "active": false },
     "skill_routing": { "enabled": false },
     "mcp_routing": { "enabled": false },
-    "adaptive_ranking": { "enabled": false }
+    "adaptive_ranking": { "enabled": false },
+    "jev_advisory": { "enabled": false, "shadow": true }
   },
   "phases": {
     "phase21_baseline": {
@@ -219,15 +220,30 @@
         "enforcement em binário real V2 NÃO validado (execute.before é observação; runMcpGuarded exige integração explícita no host)",
         "V1 parity observe-only; eviction do circuito fail-open documentado; abandono sem rollback"
       ]
+    },
+    "phase29_jev_advisory_slice1": {
+      "status": "done-code-fix2",
+      "task_id": "RR-P29-JEV-ADVISORY-S1 (+FIX1..FIX2)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase29.json",
+      "summary": "Jev advisory kernel-side (plan §6 / spec §19): flag jev_advisory {enabled:false, shadow:true} nasce OFF (sanção do plan §6.1); policy canônica com tool set fechado, budget 30s, probe 10s, circuito 2/300s, criticality optional (JEV_UNAVAILABLE => fallback determinístico), credencial só como nome de env; bounded invoke reusando o envelope P28 (classe advisory, seam sintética, zero rede); trigger policy determinística pura (trivial nunca consulta); authority guard sempre-nega (kernel deny vence Jev allow; verifier fail vence Jev complete); evidência advisory JSONL sanitizada com cap fail-closed.",
+      "suites": [
+        "OrchestrationJevAdvisory.tests.ps1 73/73 (powershell + pwsh)",
+        "OrchestrationMcpSafety 203/203 (AC10 canônico); CapabilityFlags 22/22; consistency 16/16; kernel 75/75 intocado"
+      ],
+      "reviews": "Reviewer APPROVED round 3 + Security APPROVED (sem HIGH/CRITICAL)",
+      "holds": [
+        "transporte real Jev (rede) NÃO ativado (seam sintética; zero primitivas de rede no lib)",
+        "ativação da flag é decisão humana com evidência; integração no fluxo do Planner é fatia 2 (P31/P38)"
+      ]
     }
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
     "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
-    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
+    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 e de P29–P42 não iniciados (P28 concluído nos dois slices em 2026-10-02: Jev advisory, AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. P28 concluído nos dois slices e P29 slice 1 (Jev advisory kernel-side, done-code-fix2) concluídos em 2026-10-02; restante da P29 (integração no fluxo do Planner, fatia 2) e de P30–P42 não iniciados (AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",

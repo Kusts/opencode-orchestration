@@ -317,6 +317,27 @@ plano em
   é observação; `runMcpGuarded` exige integração explícita), V1
   observe-only, eviction do circuito fail-open documentado,
   abandono sem rollback.
+- **P29 slice 1 done-code-fix2** — integração advisory do Jev
+  kernel-side (`scripts/v3/lib/OrchestrationJevAdvisory.ps1`,
+  `source/registry/jev-advisory-policy.json`): flag
+  `jev_advisory {enabled:false, shadow:true}` nasce **OFF** (sanção
+  do plan §6.1); policy canônica com tool set fechado
+  (check/gate/score/decide), budget 30s, probe 10s, circuito
+  2/300s, criticality optional (`JEV_UNAVAILABLE` ⇒ fallback
+  determinístico, nunca bloqueia), credencial só como **nome de
+  env** (`JEV_API_KEY`, sem valor em registry/git); bounded invoke
+  **reusando o envelope P28** (classe advisory, seam sintética,
+  zero rede); trigger policy determinística (trivial nunca
+  consulta; 6 razões estáveis); authority guard sempre-nega
+  (kernel deny vence Jev allow; verifier fail vence Jev complete);
+  evidência advisory JSONL sanitizada com cap fail-closed. Suíte
+  nova **73/73** (PS5.1 + pwsh); McpSafety **203/203** (AC10
+  atualizado ao shape canônico com `jev_advisory`), CapabilityFlags
+  **22/22**, consistência **16/16**; kernel **75/75** intocado.
+  Reviews: Reviewer **APPROVED** (round 3) + Security
+  **APPROVED**. HOLDs: transporte real (rede) não ativado;
+  ativação da flag é decisão humana com evidência; integração no
+  fluxo do Planner é fatia 2 (P31/P38).
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;

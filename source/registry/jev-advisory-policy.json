@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "allowed_tools": [
+    "jev_check",
+    "jev_gate",
+    "jev_score",
+    "jev_decide"
+  ],
+  "request_budget_seconds": 30,
+  "health_probe_budget_seconds": 10,
+  "catalog_probe_budget_seconds": 10,
+  "circuit": {
+    "failure_threshold": 2,
+    "cooldown_seconds": 300,
+    "note": "identical to the MCP safety envelope: two consecutive timeout/network failures in one planner turn open the circuit per (server, capability, turn); expired cooldown allows one half-open probe"
+  },
+  "criticality": {
+    "allowed": [
+      "optional",
+      "required"
+    ],
+    "default": "optional",
+    "note": "optional plus JEV_UNAVAILABLE yields structured deterministic fallback and never blocks the task"
+  },
+  "credential_source": {
+    "type": "env",
+    "name": "JEV_API_KEY",
+    "note": "name of the user-owned environment variable only; never a credential value; real transport is HOLD in this slice"
+  },
+  "authority": {
+    "mode": "advisory-only",
+    "cannot": [
+      "grant-permission",
+      "widen-scope",
+      "select-model",
+      "bypass-human-approval",
+      "override-verifier",
+      "override-reviewer",
+      "override-security",
+      "write-done"
+    ],
+    "note": "jev output is advisory evidence only; kernel, verifier, reviewer and security always win"
+  }
+}
