@@ -228,11 +228,15 @@ function Get-SecretValuePattern {
     $parts = @(
         'Bearer\s+[A-Za-z0-9\-._~+/=]{8,}',
         'sk-[A-Za-z0-9]{10,}',
+        'sk-(?i:proj)-[A-Za-z0-9_-]{10,}',
+        '(?i)\b(token|secret|password|credential)\s*[:=]\s*[^\s,;]+',
         'ghp_[A-Za-z0-9]{20,}',
         'AKIA[0-9A-Z]{16}',
         'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',
         '[:=]\s*[''"]?[A-Fa-f0-9]{32,}',
-        '[:=]\s*[''"]?[A-Za-z0-9+/=_-]{32,}'
+        '[:=]\s*[''"]?[A-Za-z0-9+/=_-]{32,}',
+        '(?i)\b[a-z0-9.-]+\.(com|net|org|local|dev|io|br)\b',
+        '(?im)(^|\r?\n)\s*(User|Assistant|###\s*Human|###\s*Assistant)\s*:\s*.*'
     )
     return ($parts -join '|')
 }

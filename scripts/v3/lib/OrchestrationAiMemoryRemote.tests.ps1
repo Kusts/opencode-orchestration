@@ -233,7 +233,7 @@ try {
     # ---------- healthy recall seam ----------
     Clear-McpSafetyState
     $healthy = Invoke-AiMemoryRemoteCall -TurnId 'turn-aimem-ok-1' -Workspace $scopeWs -Project $scopeProj -Probe $okProbe -PolicyPath $cfgPolicy -McpPolicyPath $repoMcpPolicy -TelemetryRoot $teleRoot -Token $canaryToken
-    Assert-AiMemoryRemote (([bool]$healthy.ok) -and ([string]$healthy.status -ceq 'AIMEMORY_OK') -and ([bool]$healthy.consulted) -and ([string]$healthy.output -ceq 'recall-ok') -and (-not [bool]$healthy.blocked) -and ([string]$healthy.endpoint_host -ceq 'memory.example.com')) '[T-healthy] seam returns recall OK' (([string]$healthy.status + '/' + [string]$healthy.output))
+    Assert-AiMemoryRemote (([bool]$healthy.ok) -and ([string]$healthy.status -ceq 'AIMEMORY_OK') -and ([bool]$healthy.consulted) -and ([string]$healthy.output -ceq 'recall-ok') -and (-not [bool]$healthy.blocked) -and ([string]$healthy.endpoint_host -ceq '[REDACTED]')) '[T-healthy] seam returns recall OK with shared host redaction' (([string]$healthy.status + '/' + [string]$healthy.output))
 
     # ---------- DNS failure seam ----------
     Clear-McpSafetyState
@@ -341,7 +341,7 @@ try {
 
     # ---------- R4/R5: telemetry sanitized, bounded ----------
     $evText = Get-AiMemoryEvidenceText -Dir $teleRoot
-    Assert-AiMemoryRemote (($evText -match 'AIMEMORY_OK') -and ($evText -match 'memory.example.com') -and ($evText -match 'len:4')) '[R4] host plus len:port recorded' ''
+    Assert-AiMemoryRemote (($evText -match 'AIMEMORY_OK') -and ($evText -match '\[REDACTED\]') -and ($evText -match 'len:4')) '[R4] host redacted and len:port recorded' ''
     Assert-AiMemoryRemote ((($evText -notmatch 'SYNTHETICSECRET'))) '[R4] canary token never in JSONL' ''
     Assert-AiMemoryRemote (($evText -notmatch 'memory.example.com:8443')) '[R4] endpoint URL never logged whole' ''
     Assert-AiMemoryRemote (($evText -notmatch 'zz9canary')) '[R4] raw scope names never in JSONL' ''

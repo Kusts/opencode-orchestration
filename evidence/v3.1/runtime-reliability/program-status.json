@@ -280,15 +280,31 @@
         "coordenação cross-process de bindings: HOLD (single-writer in-process)",
         "integração plugin/runtime real: fatia 2"
       ]
+    },
+    "phase33_reconciler_envelope_slice1": {
+      "status": "done-code-fix3",
+      "task_id": "RR-P33-RECONCILER-ENVELOPE-S1 (+FIX1..FIX3)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase33.json",
+      "summary": "Continuidade de sessão kernel-side (plan §10, fatia 1): Continuation Envelope bounded 8KB (objective, intent, decisões, evidências, estratégias falhadas sem transcripts, riscos, typed waits, next move) com redator COMPARTILHADO em todos os campos string (padrões hostname/TLD, transcript, token=valor, sk-proj- promovidos ao CapabilitySanitize) e timestamp injetável como VALOR; SESSION_LOST tipado por declared missing + proof sem mutar task; reconciler determinístico sobre bindings P32 + observações declaradas com ações recomendadas (reattach via CLI, recover-output, inspect-interrupted) — nunca probe/kill; caps 200/500 fail-closed; V1 fresh-session sem fake resume. Suíte 156/156; regressões completas verdes.",
+      "suites": [
+        "OrchestrationSessionReconciler.tests.ps1 156/156 (powershell + pwsh; matriz adversarial 15×9)",
+        "CapabilitySanitize 31/31; McpSafety 203/203; Jev 73/73; AiMemory 111/111; TaskBindings 29/29; BootstrapContext 16/16; consistency 16/16"
+      ],
+      "reviews": "Reviewer + Security APPROVED em 4 rondas (SEC-1 HIGH resolvido com redator compartilhado; 2 notas aceitas documentadas: sk-proj- mantido deliberadamente, GeneratedAt via helper)",
+      "holds": [
+        "reconciler V2 nativo: HOLD (exige APIs exatas do runtime)",
+        "probe real de sessão: HOLD (estados declarados pelo caller confiável)",
+        "registro kernel-side de SESSION_LOST: HOLD documentado"
+      ]
     }
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
     "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
-    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
+    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. P28 (dois slices), P29 slice 1, P30 slice 1, P31 slice 1 e P32 concluídos em 2026-10-02; restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador), da P31 (ativação de runtime + wiring session-start) e de P33–P42 não iniciados (reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. P28 (dois slices), P29 slice 1, P30 slice 1, P31 slice 1, P32 e P33 slice 1 concluídos em 2026-10-02; restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador), da P31 (ativação de runtime + wiring session-start), da P33 (reconciler V2 nativo/probe real) e de P34–P42 não iniciados (execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",

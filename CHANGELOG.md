@@ -373,6 +373,23 @@ plano em
   **APPROVED**. HOLDs: ativação de runtime (auto-start, AGENTS.md
   global, default_agent) é estado do operador; wiring no início de
   sessão é fatia 2.
+- **P33 slice 1 done-code-fix3** — Continuation Envelope +
+  reconciler kernel-side (`scripts/v3/lib/
+  OrchestrationSessionReconciler.ps1`): envelope bounded 8KB
+  (objective, intent, decisões, evidências, estratégias falhadas
+  **sem transcripts**, riscos, typed waits, next move) com redator
+  **compartilhado** em todos os campos (padrões hostname/TLD,
+  transcript, token=valor, `sk-proj-` promovidos ao
+  `CapabilitySanitize`), timestamp injetável como **valor** (sem
+  scriptblock); **SESSION_LOST** tipado (declared missing + proof,
+  sem mutar task); reconciler determinístico sobre bindings P32 +
+  observações declaradas com ações **recomendadas** (reattach via
+  CLI, recover-output, inspect-interrupted) — nunca probe/kill;
+  caps 200/500 fail-closed; V1 fresh-session sem fake resume.
+  Suíte **156/156** (PS5.1 + pwsh; matriz adversarial 15×9);
+  regressões completas verdes. Reviews: Reviewer + Security
+  **APPROVED** (4 rondas). HOLDs: reconciler V2 nativo, probe
+  real, registro kernel-side de SESSION_LOST.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;
