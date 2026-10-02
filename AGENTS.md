@@ -102,9 +102,15 @@ obrigatória, watchdog{enabled:false, shadow:true}, enabled=true =>
 WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED; watchdog 80/80 PS5.1+PS7, kernel
 75/75, consistência 16/16; reviewer APPROVED (REV4) + security APPROVED
 (SEC3); follow-ups: lock cross-process, retenção multi-dia; interrupt
- real = Phase 26); Phases 26–42 não iniciadas (programa revisado
- 2026-10-01; PAE-01–PAE-40 substituem RR-01–RR-20)
-(estado vivo em `evidence/v3.1/runtime-reliability/program-status.json`);
+ real = Phase 26); Waves A–E do programa revisado (2026-10-01;
+  PAE-01-PAE-40 substituem RR-01-RR-20) **code-complete e commitadas
+  2026-10-02** (P28 S1+S2, P29 S1, P30 S1, P31 S1, P32, P33 S1, P34,
+  P35, P36, P37, P38, P39, P40, P41, P42 fatia 1 E2E manifest — todas
+  com reviewer + security APPROVED; estado vivo em
+  `evidence/v3.1/runtime-reliability/program-status.json`);
+  **release gate pendente de evidência do operador**: lane V2 Windows
+  real, deploy VPS AI Memory, ativações de flag com evidência, probes
+  reais, jevgrep real, wirings fatia 2 (P31/P38);
 flags de rollout nascem OFF
 (shadow, ativação só com evidência). Não ativar `skill_routing`,
 `mcp_routing`, `adaptive_ranking`; não criar V4/daemon/database.

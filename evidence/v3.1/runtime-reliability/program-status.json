@@ -17,16 +17,43 @@
   "flags": {
     "source": "source/registry/capability-flags.json",
     "all_off": true,
-    "bounded_execution": { "enabled": false, "shadow": true },
-    "task_kernel": { "enabled": false, "shadow": true },
-    "worktree_isolation": { "enabled": false },
-    "runtime_grant_enforcement": { "v1": false, "v2": false },
-    "runtime_support": { "v1": true, "v2": false, "dual_profile": false },
-    "capability_router": { "shadow": false, "active": false },
-    "skill_routing": { "enabled": false },
-    "mcp_routing": { "enabled": false },
-    "adaptive_ranking": { "enabled": false },
-    "jev_advisory": { "enabled": false, "shadow": true }
+    "bounded_execution": {
+      "enabled": false,
+      "shadow": true
+    },
+    "task_kernel": {
+      "enabled": false,
+      "shadow": true
+    },
+    "worktree_isolation": {
+      "enabled": false
+    },
+    "runtime_grant_enforcement": {
+      "v1": false,
+      "v2": false
+    },
+    "runtime_support": {
+      "v1": true,
+      "v2": false,
+      "dual_profile": false
+    },
+    "capability_router": {
+      "shadow": false,
+      "active": false
+    },
+    "skill_routing": {
+      "enabled": false
+    },
+    "mcp_routing": {
+      "enabled": false
+    },
+    "adaptive_ranking": {
+      "enabled": false
+    },
+    "jev_advisory": {
+      "enabled": false,
+      "shadow": true
+    }
   },
   "phases": {
     "phase21_baseline": {
@@ -311,6 +338,121 @@
         "wiring no Planner: fatia 2 / P38",
         "primitiva runtime de persistent specialist: HOLD"
       ]
+    },
+    "phase35_evidence_reuse_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase35.json",
+      "summary": "Evidence reuse store file-based (plan 12): schema com identidade/provenance required, fingerprints SHA-256 com enumeracao bounded, invalidation_conditions allowlist+sanitize+cap ANTES da serializacao, validade por fingerprints/criteria/revision-policy/ttl invariante, query desc com MaxResults sem raw, retrieval com store-root containment + reparse-point walk + streaming cap, metricas consultaveis, ids 32-hex com record-conflict.",
+      "status": "done-code-fix3",
+      "reviews": "reviewer APPROVED r3 + security APPROVED r3 (SEC-1 conditions HIGH resolvido; reparse walk; caps antecipados)",
+      "holds": [
+        "integracao com dispatch real: fatia 2/P36-P38",
+        "file-based sem daemon/database"
+      ],
+      "suites": [
+        "OrchestrationEvidenceStore.tests.ps1 38/38 (powershell + pwsh)"
+      ],
+      "task_id": "RR-P35-EVIDENCE-REUSE-S1 (+FIX1..FIX3)"
+    },
+    "phase36_adaptive_validation_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase36.json",
+      "summary": "Validacao adaptativa L0-L3 (plan 13): policy como autoridade fail-closed, hard triggers incontornaveis varrendo domain/operation/summary, completion gate effective_level=max (risk desconhecido => L3), cobertura exigindo conjunto completo de fingerprints com semantica P35 (TTL default 30d/7d fail-closed), security coverage ledger confirmed/needs-validation, bundles deterministicos.",
+      "status": "done-code-fix2",
+      "reviews": "reviewer APPROVED r3 + security APPROVED r3 (SEC-1/2 HIGH downgrade bypass resolvido)",
+      "holds": [
+        "wiring no fluxo de dispatch/completion: fatia 2/P38",
+        "allowlist de verified_pass permanece a do kernel"
+      ],
+      "suites": [
+        "OrchestrationValidationPolicy.tests.ps1 35/35 (powershell + pwsh)"
+      ],
+      "task_id": "RR-P36-ADAPTIVE-VALIDATION-S1 (+FIX1..FIX2)"
+    },
+    "phase37_simplicity_discipline_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase37.json",
+      "summary": "Simplicity discipline (plan 14): contract fields builder (MSC/NBW/RBC/ABE/stop/NON_GOALS/PRESERVE/blast-radius) com budget normalizado sanitizado, ChangeBudget soft 1x/hard 2x com rationale e CHANGE_BUDGET_EXCEEDED, reviewer checklist ASSISTIDA deterministica (4 categorias), caps de cardinalidade.",
+      "status": "done-code-fix2",
+      "reviews": "reviewer APPROVED r3 (budget sanitizado/clamped; checklist assistida documentada) + security APPROVED r1",
+      "holds": [
+        "edicao dos prompts canonicos source/agents = decisao do operador",
+        "wiring no dispatch = P38"
+      ],
+      "suites": [
+        "OrchestrationSimplicityPolicy.tests.ps1 31/31 (powershell + pwsh)"
+      ],
+      "task_id": "RR-P37-SIMPLICITY-DISCIPLINE-S1 (+FIX1..FIX2)"
+    },
+    "phase38_planner_loop_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase38.json",
+      "summary": "Planner adaptive loop (plan 15): estagios Frame-Reuse-Simplicity-Risk-mode-budget-dispatch-gaps-complete REUSANDO P29/P34-P37; PLAN RECORD com cap 8KB garantido (descartes ordenados => truncagem progressiva => envelope minimo VALIDO, nunca substring-cut; plan/plan_json do mesmo objeto); Jev nao-autoritativo; budget record-only; parallel_ok por ownership/separabilidade.",
+      "status": "done-code-fix2",
+      "reviews": "reviewer APPROVED r3 + security APPROVED r3",
+      "holds": [
+        "execucao real do plano: operador/fatia 2",
+        "wiring session: P31 fatia 2"
+      ],
+      "suites": [
+        "OrchestrationPlannerLoop.tests.ps1 21/21 (powershell + pwsh)"
+      ],
+      "task_id": "RR-P38-PLANNER-LOOP-S1 (+FIX1..FIX2)"
+    },
+    "phase39_capability_doctor_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase39.json",
+      "summary": "Capability Doctor (plan 16): descritores estendidos com schema validation tipada (platform_support booleano ESTRITO pos-bug [bool]false), doctor read-only com probes sinteticos injetaveis (budget = metadado honesto), fallback valida destino, risk_class execution/authority sem health => typed blocker, jevgrep optional com Windows-unsupported honesto.",
+      "status": "done-code-fix2",
+      "reviews": "reviewer APPROVED r3 + security APPROVED r1. Jev consultivo: 2.93/3",
+      "holds": [
+        "probes reais: HOLD (fatia de transporte)",
+        "jevgrep real: HOLD",
+        "instalacao automatica fora de escopo"
+      ],
+      "suites": [
+        "OrchestrationCapabilityDoctor.tests.ps1 38/38 (powershell + pwsh)"
+      ],
+      "task_id": "RR-P39-CAPABILITY-DOCTOR-S1 (+FIX1..FIX2)"
+    },
+    "phase40_v2_native_gating_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase40.json",
+      "summary": "V2 native gating data-driven (plan 17, fatia honesta): registry das 8 features candidatas TODAS hold-unproven com required_evidence e v1_fallback; gating fail-closed (enabled SO com evidencia exact-binary-live valida: feature/pin 2.0.18/scenario exact-match + SHA-256; timestamp RFC3339 com offset obrigatorio); authority_impact nunca widening, invalido => unknown sem eco; lib read-only.",
+      "status": "done-code-fix1",
+      "reviews": "reviewer APPROVED r2 + security APPROVED r2 (SEC-4 eco de payload resolvido; fail-closed confirmado)",
+      "holds": [
+        "TODAS as 8 features exigem prova no binario 2.0.18 no ambiente do operador (P42)",
+        "integridade vs autenticidade do produtor de evidencia documentada"
+      ],
+      "suites": [
+        "OrchestrationV2NativeGating.tests.ps1 114/114 (powershell + pwsh)"
+      ],
+      "task_id": "RR-P40-V2-NATIVE-AUTHORITY-S1 (+FIX1)"
+    },
+    "phase41_evolution_eval_slice1": {
+      "status": "done-code-fix5",
+      "summary": "Evolution loop observacional (plan 18): sinais com leitura incremental orcada (toda linha examinada conta), EVOLUTION_CANDIDATE content-addressed com threshold+refs distintos, eval offline com cobertura incompleta => inconclusive, promocao EXPLICITA one-at-a-time com enumeracao fail-closed (nao-parseavel/oversized/id-divergente), leituras bounded 32KB nos 3 caminhos com ordenacao provada, TOCTOU removido, rollback com historico.",
+      "commit_note": "fatia base commitada pelo operador 8e853b2; follow-up FIX2-FIX5 pelo Planner",
+      "reviews": "reviewer APPROVED r4 + security APPROVED r4 (SEC-4 classe fechada nos 3 caminhos de leitura)",
+      "holds": [
+        "apply de mudanca promovida = fluxo revisado (decision record)",
+        "produtor de telemetria real: HOLD",
+        "replay real: fatia 2"
+      ],
+      "suites": [
+        "OrchestrationEvolutionLoop.tests.ps1 147/147 (powershell + pwsh; mutation-tested por fix)"
+      ],
+      "task_id": "RR-P41-EVOLUTION-EVAL-S1 (+FIX1..FIX5)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase41.json"
+    },
+    "phase42_e2e_manifest_slice1": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase42.json",
+      "summary": "E2E manifest + rollout checklist (plan 19, fatia 1): 41 cenarios (40 do plan + invariante sintetica do policy-deny) com classificacao honesta - 18 runnable-synthetic pass executando checagens reais contra P28-P41, 22 blocked honestos (19 operator-runtime, 1 flag-activation, 3 real-transport; nunca fake-pass); rollout checklist de 19 passos com promote fail-closed (flag nao declarada => blocked-activation; ilegivel/nao-parseavel/bool coercido => blocked-evidence, NUNCA shipped); folhas booleanas estritas.",
+      "status": "done-code-fix2",
+      "reviews": "reviewer APPROVED r3 + security APPROVED r3",
+      "holds": [
+        "RELEASE GATE REAL PENDENTE DO OPERADOR: lane V2 Windows, VPS AI Memory, ativacoes de flag, probes reais, jevgrep, wirings fatia 2, contadores P41",
+        "SEM FAKE-CLOSE"
+      ],
+      "suites": [
+        "OrchestrationE2eManifest.tests.ps1 194/194 (powershell + pwsh; mutacao 7/7)"
+      ],
+      "task_id": "RR-P42-E2E-CLOSURE-S1 (+FIX1..FIX2)"
     }
   },
   "tester_gateway_hardening": {
@@ -332,16 +474,18 @@
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
-    "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
+    "verdict": "APPROVED parcial por slice (findings corrigidos e revalidados; HOLDs registrados). Slices 2026-10-02: P28-S1 r10, P28-S2 r3, P29-S1 r3, P30-S1 r2, P31-S1 r4, P32 r5, P33-S1 r4, P34 r4, P35 r3, P36 r3, P37 r3, P38 r3, P39 r3, P40 r2, P41 r4, P42 r3 - todos APPROVED (reviewer + security)",
     "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); RR-P34-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (round 2); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10) e slice 2 (transporte MCP no plugin TS, done-code-fix3-shadow) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 não iniciado. **Wave B concluída em 2026-10-02**: P28 (dois slices), P29 slice 1, P30 slice 1, P31 slice 1, P32, P33 slice 1 e P34 slice 1 concluídos. Restante da P29 (integração no fluxo do Planner), da P30 (deploy VPS real do operador), da P31 (ativação de runtime), da P33 (reconciler V2 nativo) e de P35–P42 não iniciados (evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release pendentes — Waves C, D e E). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "Programa V3.1 Runtime Reliability CODE-COMPLETE nas fatias kernel-side/plugin (2026-10-02): P26 S1, P27 S1, P28 S1+S2, P29 S1, P30 S1, P31 S1, P32, P33 S1, P34, P35, P36, P37, P38, P39, P40, P41, P42 fatia 1 - todas com suites verdes, reviewer + security APPROVED e HOLDs explicitos. Pendencias de ATIVACAO/EVIDENCIA do operador: lane V2 Windows real (E2E), deploy VPS AI Memory + re-preflight de porta, ativacao de flags com evidencia, probes reais de health/transporte, jevgrep real, wirings fatia 2 (P31 session-start, P38 dispatch), produtores de telemetria P41, revisor de supersessao de evidencias P40.",
     "explicit_holds": [
-      "(d) execute.before sem via sem-modelo provada",
-      "updated event nao observado",
-      "REUSE de porta em producao",
-      "P28-S1: TurnId nao autenticado; ativacao de qualquer flag (decisao humana com evidencia). P28-S2: enforcement em binario real V2 nao validado (execute.before e observacao; runMcpGuarded exige integracao explicita); V1 observe-only; eviction do circuito fail-open documentado"
+      "P28-S1: TurnId nao autenticado; ativacao de flag = decisao humana",
+      "P28-S2: enforcement em binario real nao validado (shadow default)",
+      "P30/P22: deploy VPS e REUSE so com evidencia pos-migracao",
+      "P40: todas as 8 features hold-unproven",
+      "P41: apply via fluxo revisado; telemetria sem produtor",
+      "P42: release gate real pendente do ambiente do operador - SEM FAKE-CLOSE"
     ]
   },
   "invariants": [

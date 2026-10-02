@@ -406,6 +406,51 @@ plano em
   Planner é fatia 2 (P38); primitiva runtime de specialist.
   
   **Wave B concluída** (P31–P34 kernel-side, 2026-10-02).
+- **P32 done-code-fix5** — bindings Task/Run/Seat/Session no kernel
+  (CAS, single-owner por task, rebind somente detached, IDs 128/charset,
+  CLI com exits e resolução de RunId; 29/29; kernel 75/75 preservado).
+- **P35 done-code-fix3** — evidence reuse store (schema reutilizável
+  com identidade/provenance, validade por fingerprints/criteria/
+  revision-policy/ttl invariante, query compacta sem raw, retrieval
+  com containment + reparse-point walk + streaming cap, métricas;
+  38/38).
+- **P36 done-code-fix2** — validação adaptativa L0–L3 (policy como
+  autoridade fail-closed, triggers duros incontornáveis, completion
+  gate com effective_level = max — risk desconhecido ⇒ L3, cobertura
+  completa de fingerprints com TTL default; 35/35).
+- **P37 done-code-fix2** — disciplina de simplicidade (contrato
+  MSC/NBW/RBC/ABE/stop-condition, ChangeBudget soft 1x/hard 2x com
+  rationale, checklist assistida do Reviewer; 31/31).
+- **P38 done-code-fix2** — planner adaptive loop (Frame→Reuse→
+  Simplicity→Risk→mode→budget→dispatch→gaps→complete reusando
+  P29/P34–P37; PLAN RECORD com cap 8KB garantido via envelope mínimo
+  válido; Jev não-autoritativo; 21/21).
+- **P39 done-code-fix2** — capability doctor (descriptores com bool
+  estrito pós-bug de coerção, fallback valida destino, risk_class
+  execution/authority bloqueia, jevgrep opcional com
+  Windows-unsupported honesto; 38/38).
+- **P40 done-code-fix1** — V2 native gating data-driven (8 features
+  hold-unproven; enabled só com evidência exact-binary validada —
+  pin/scenario exact-match + SHA-256; 114/114).
+- **P41 done-code-fix5** — evolution loop observacional (candidates
+  com threshold+refs distintos, eval offline com cobertura
+  incompleta ⇒ inconclusive, promoção explícita one-at-a-time com
+  enumeração fail-closed, leituras bounded 32KB nos 3 caminhos,
+  TOCTOU removido; 147/147 mutation-tested).
+- **P42 fatia 1 done-code-fix2** — E2E manifest + rollout checklist
+  (`scripts/v3/lib/OrchestrationE2eManifest.ps1`,
+  `source/registry/e2e-scenarios.json`): **41 cenários** (40 do plan
+  + invariante sintética separada do policy-deny) com classificação
+  honesta — **18 runnable-synthetic pass** (checagens reais contra
+  as libs P28–P41) e **22 blocked honestos** (19 operator-runtime,
+  1 flag-activation, 3 real-transport — nunca fake-pass); rollout
+  checklist de 19 passos com promote fail-closed. Suíte **194/194**
+  (PS5.1 + pwsh; mutação 7/7). Reviews: Reviewer **APPROVED**
+  (round 3) + Security **APPROVED**. **Release gate real pendente
+  do ambiente V2 do operador — sem fake-close.**
+- **Waves A–E code-complete kernel-side/plugin (2026-10-02)**;
+  pendências de ativação/evidência do operador listadas em
+  `evidence/v3.1/runtime-reliability/program-status.json`.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;
