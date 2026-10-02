@@ -276,6 +276,51 @@ Assert-BodyHas 'bug funcional' 'negacao nao e bug funcional'
 Assert-BodyHas 'amplia' 'proibe pedir shell generico'
 Assert-BodyHas 'modifique c' 'proibe alterar app para testes passarem'
 Assert-BodyHas 'altere c' 'reafirma proibicao de alterar app'
+Assert-BodyHas 'AUTHORITY-SAFE COMMAND REFORMULATION' 'nomeia regra canonica'
+Assert-BodyHas 'MAX ONE SAFE REFORMULATION' 'limita reformulacao a uma'
+Assert-BodyHas 'SAME PRIMARY VALIDATION' 'preserva validacao principal'
+Assert-BodyHas 'AUXILIARY OUTPUT STAGE' 'distingue deny auxiliar'
+Assert-BodyHas 'VALIDATION CAPABILITY UNAVAILABLE' 'distingue incapacidade principal'
+Assert-BodyHas 'TEST FAILED' 'distingue falha funcional'
+Assert-BodyHas 'ferramenta de teste direta' 'prioriza teste direto'
+Assert-BodyHas 'flags nativas' 'prioriza flags nativas'
+Assert-BodyHas 'tail, head, grep, sed' 'nao sugere utilitarios de output'
+Assert-BodyHas 'indefinidamente' 'encerra busca por rotas'
+Assert-BodyHas 'su' 'proibe su como elevacao'
+
+# F) CONTRATO TEXTUAL + MATCHERS V1/V2 (nao execucao live do agente).
+# Package managers permanecem autorizados; teste o conteudo literal do exemplo
+# canonico, em vez de simular a saida do modelo com a expectativa como variavel.
+foreach ($cmd in @('pnpm --filter @iptv/api exec vitest run test/a.test.ts', 'npm test', 'yarn test', 'bun test')) {
+  Assert-Effect 'allow' $cRel $cmd ('F: ferramenta de teste direta preservada: ' + $cmd)
+}
+Assert-BodyHas 'input `pnpm test | tail-40` -> output `pnpm test`' 'F: exemplo contratual remove apenas tail'
+# Nos runtimes suportados, o parser entrega recursos por comando; um deny em
+# qualquer segmento bloqueia a invocacao. Estes asserts exercitam os matchers
+# com segmentos de fixture, nao o parser/runtime real nem decisao live do agente.
+$mainSegment = 'pnpm --filter @iptv/api exec vitest run test/a.test.ts 2>&1'
+$auxSegment = 'tail -40'
+Assert-Effect 'allow' $cRel $mainSegment 'F: segmento principal autorizado [V1/V2]'
+Assert-Effect 'deny' $cRel $auxSegment 'F: tail auxiliar negado [V1/V2]'
+$segmentEffects = @((Get-V1Effect $cRel $mainSegment), (Get-V1Effect $cRel $auxSegment))
+Assert-Ok ($segmentEffects -contains 'deny') 'F: qualquer segmento negado bloqueia a invocacao no matcher V1'
+$segmentEffectsV2 = @((Get-V2Effect $cRel $mainSegment), (Get-V2Effect $cRel $auxSegment))
+Assert-Ok ($segmentEffectsV2 -contains 'deny') 'F: qualquer segmento negado bloqueia a invocacao no matcher V2'
+Assert-BodyHas 'principal esta autorizada separadamente' 'F: reformulacao exige main autorizado'
+Assert-BodyHas 'auxiliar e o unico negado' 'F: reformulacao exige deny auxiliar isolado'
+Assert-BodyHas 'NO ALTERNATE OUTPUT UTILITY SEQUENCE' 'F: contrato proibe tentativa sequencial de utilitarios'
+Assert-BodyHas 'MAX ONE SAFE REFORMULATION' 'F: contrato limita a uma reformulacao'
+Assert-BodyHas 'NO ALTERNATE OUTPUT UTILITY SEQUENCE' 'F: contrato proibe tentativa sequencial de utilitarios'
+$deniedPrimary = 'powershell -File teste.ps1'
+$forbiddenRewrites = @('powershell -Command "& teste.ps1"', 'cmd /c powershell -File teste.ps1', 'pwsh -Command "& teste.ps1"', 'bash -c "powershell -File teste.ps1"', 'sudo powershell -File teste.ps1', 'runas powershell -File teste.ps1', 'gsudo powershell -File teste.ps1', 'doas powershell -File teste.ps1', 'su -c "powershell -File teste.ps1"')
+Assert-Effect 'deny' $cRel $deniedPrimary 'F: deny da operacao principal termina a rota'
+foreach ($rewrite in $forbiddenRewrites) {
+  Assert-Effect 'deny' $cRel $rewrite ('F: bypass proibido: ' + $rewrite)
+}
+Assert-BodyHas 'INTENDED VALIDATION' 'blocker inclui validacao pretendida'
+Assert-BodyHas 'RESTRICTION FOUND' 'blocker inclui restricao encontrada'
+Assert-BodyHas 'SAFE ALTERNATIVE' 'blocker inclui alternativa segura se conhecida'
+
 
 Write-Host ''
 Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + $script:total + ' passed')

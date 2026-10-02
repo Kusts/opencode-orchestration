@@ -115,6 +115,14 @@ claim além do testado.
   disponíveis; diante de operação não coberta, interrompe e devolve ao Planner.
 - Nenhuma capacidade nova é criada por este documento: ele descreve o que está nos
   frontmatters, no template e no Dispatch Contract.
+- Para o Tester, `Permission denied` encerra a rota negada. A leitura dos sources
+  versionados V1 1.18.32 e V2 2.0.18 indica que pipelines/listas são submetidos à
+  autorização por recursos de comando e qualquer recurso negado bloqueia a invocação;
+  redirecionamento integra o recurso do comando correspondente. Isso é análise de
+  source, não prova live dos binários. Uma única simplificação remove apresentação
+  auxiliar somente se a operação principal está autorizada separadamente e o auxiliar
+  é o único negado; caso contrário, blocker. Negação principal não permite shell,
+  wrapper, interpretador ou elevação equivalente. Sem mudança em parser/allowlist.
 
 ## Camada kernel-enforced (V3.1)
 
