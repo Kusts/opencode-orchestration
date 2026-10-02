@@ -49,6 +49,6 @@ Retorne STATUS, CHANGES (arquivos e resumo), VALIDATION (comandos e resultados),
 RISKS e RECOMMENDATION, sem logs extensos.
 
 Equivalência Codex: `coder.toml` (`gpt-6-luna/medium`, `workspace-write`).
-Base atual: Muse Spark 1.3 via OpenCode Go. Escalonamento usa OpenAI:
+Base atual: baseline cheap via OpenCode Go. Escalonamento usa OpenAI:
 Luna/high → Sol/medium → Sol/high; Astra só em exceção crítica (ver
 política do Planner).

@@ -31,5 +31,5 @@ riscos e RECOMMENDATION. Não copie documentação inteira nem despeje resultado
 brutos no contexto do Planner.
 
 Equivalência Codex: `researcher.toml` (`gpt-6-luna/medium`, `read-only`).
-Base atual: Muse Spark 1.3 via OpenCode Go. Escalonamento usa OpenAI:
+Base atual: baseline cheap via OpenCode Go. Escalonamento usa OpenAI:
 Luna/high → Sol/medium → Sol/high só p/ síntese complexa; Astra nunca.

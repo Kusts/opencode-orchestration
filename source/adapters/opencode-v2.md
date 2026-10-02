@@ -48,7 +48,8 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `engineering-advisor`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Strong worker pool — `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
+- Fallback do cheap pool — em indisponibilidade/erro do modelo default, escalar em ordem: 1º `opencode-go/muse-spark-1.3-contributor`, 2º `openai/gpt-6-luna`; override temporário no spawn com reset ao baseline, sujeito às cotas de escalonamento já definidas.
+- Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
@@ -174,9 +175,9 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
-`requirements-analyst` Muse → Sol para requisitos estruturalmente complexos;
-`engineering-advisor` Muse → Sol → Sol/high quando necessário;
-`product-designer` Muse → Sol excepcionalmente; `skeptic` Muse →
+`requirements-analyst` baseline cheap → Sol para requisitos estruturalmente complexos;
+`engineering-advisor` baseline cheap → Sol → Sol/high quando necessário;
+`product-designer` baseline cheap → Sol excepcionalmente; `skeptic` baseline cheap →
 Sol para plano/arquitetura high-risk. Nunca reutilize um
 worker escalonado após a subtarefa.
 

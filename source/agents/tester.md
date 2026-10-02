@@ -58,5 +58,5 @@ RECOMMENDATION, com comandos e evidências concisas.
 
 Equivalência Codex: `tester.toml` (`gpt-6-luna/medium`, `workspace-write`
 com restrição de não alterar app — aqui enforced via `edit: deny`).
-Base atual: Muse Spark 1.3 via OpenCode Go. Escalonamento usa OpenAI:
+Base atual: baseline cheap via OpenCode Go. Escalonamento usa OpenAI:
 Luna/high → Sol/medium → Sol/high só p/ validação complexa; Astra nunca.

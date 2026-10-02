@@ -3,7 +3,7 @@
   // Planner: agente primário "build" — herda o modelo da sessão.
   "planner": "zai-coding-plan/glm-5.3-flash",
   // Pool barato: explorer, researcher, coder, tester, engineers, planning advisors.
-  "cheap": "opencode-go/muse-spark-1.3-contributor",
+  "cheap": "opencode/space-bunny-free",
   // Pool forte: reviewer, debugger, security-reviewer, architect.
   "strong": "openai/gpt-6.1-sol"
 }

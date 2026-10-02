@@ -30,5 +30,5 @@ Retorne somente STATUS, FINDINGS, EVIDENCE com referências precisas
 não envie logs ou dumps extensos.
 
 Equivalência Codex: `explorer.toml` (`gpt-6-luna/medium`, `read-only`).
-Base atual: Muse Spark 1.3 via OpenCode Go. Escalonamento, quando necessário,
+Base atual: baseline cheap via OpenCode Go. Escalonamento, quando necessário,
 usa modelos OpenAI (ver política do Planner): Luna/high → Sol/medium.
