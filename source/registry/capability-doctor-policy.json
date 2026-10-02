@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "probe_mode": "synthetic-only",
+  "max_detail_chars": 160,
+  "fallback_destinations": {
+    "local-project-search": {"platform_support": {"windows": true, "linux": true, "macos": true}},
+    "deterministic-policy": {"platform_support": {"windows": true, "linux": true, "macos": true}},
+    "direct-search": {"platform_support": {"windows": true, "linux": true, "macos": true}},
+    "local-evidence": {"platform_support": {"windows": true, "linux": true, "macos": true}}
+  },
+  "capabilities": {
+    "ai-memory": {
+      "health": "unknown",
+      "provider": "ai-memory-remote",
+      "fallback_order": ["local-project-search", "degraded-mode"],
+      "platform_support": {"windows": true, "linux": true, "macos": true},
+      "risk_class": {"authority": "none"},
+      "health_probe": {"probe_budget_metadata": 10, "synthetic_only": true},
+      "optional": true,
+      "routing_hint": "Use direct path or exact-symbol lookup before semantic discovery."
+    },
+    "jev": {
+      "health": "unknown",
+      "provider": "jev-advisory",
+      "fallback_order": ["deterministic-policy", "degraded-mode"],
+      "platform_support": {"windows": true, "linux": true, "macos": true},
+      "risk_class": {"authority": "advisory"},
+      "health_probe": {"probe_budget_metadata": 10, "synthetic_only": true},
+      "optional": true
+    },
+    "semantic-discovery": {
+      "health": "unknown",
+      "provider": "jevgrep",
+      "fallback_order": ["direct-search", "degraded-mode"],
+      "platform_support": {"windows": false, "linux": true, "macos": true},
+      "risk_class": {"authority": "none"},
+      "health_probe": {"probe_budget_metadata": 2, "synthetic_only": true},
+      "optional": true,
+      "routing_hint": "Exact symbol/path lookup uses direct search; semantic results are evidence, not authority."
+    },
+    "external-research": {
+      "health": "unknown",
+      "provider": "external-research",
+      "fallback_order": ["local-evidence", "degraded-mode"],
+      "platform_support": {"windows": true, "linux": true, "macos": true},
+      "risk_class": {"authority": "advisory"},
+      "health_probe": {"probe_budget_metadata": 5, "synthetic_only": true},
+      "optional": true
+    }
+  }
+}
