@@ -721,7 +721,7 @@ function Get-OrchestrationEvolutionSignals {
         complete): telemetry files are read INCREMENTALLY (one line at a
         time, never ReadAllLines/ReadAllText) under two budgets - per file
         max_telemetry_file_bytes and a global max_telemetry_records that
-        counts EVERY non-blank line examined, valid or not. Exhausting
+        counts EVERY line read, blank ones included, valid or not. Exhausting
         either budget returns EVOLUTION_TELEMETRY_BUDGET_EXCEEDED.
         Returns @{ok, generated_at, records_read, records_skipped,
         skipped_by_reason, truncated, targets[], signals_hash16}.
@@ -749,8 +749,9 @@ function Get-OrchestrationEvolutionSignals {
         $records = New-Object System.Collections.ArrayList
         $truncated = $false
         $sources = 0
-        # Load budget: EVERY non-blank line/record examined counts, valid or
-        # not, so a hostile file of junk cannot be smuggled past the cap.
+        # Load budget: EVERY line/record examined counts, blank ones included,
+        # valid or not, so a hostile file (junk OR blank padding) cannot be
+        # smuggled past the cap.
         $examined = 0
         if ($null -ne $Fixtures) {
             $sources = 1
@@ -782,11 +783,15 @@ function Get-OrchestrationEvolutionSignals {
                 try {
                     $line = $null
                     while ($null -ne ($line = $reader.ReadLine())) {
-                        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+                        # FIX3: EVERY line read counts against the budget,
+                        # blank ones included - otherwise a file padded with
+                        # empty lines would read unbounded while "passing" a
+                        # budget check that never saw those lines.
                         $examined++
                         if ($examined -gt $maxRecords) {
                             return (New-EvolutionError -Code 'EVOLUTION_TELEMETRY_BUDGET_EXCEEDED' -Extra @{ budget = 'max_telemetry_records'; limit = [int]$maxRecords })
                         }
+                        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
                         if ([Text.Encoding]::UTF8.GetByteCount([string]$line) -gt $maxLineBytes) {
                             $key = 'line-too-long'
                             if (-not $skipped.Contains($key)) { $skipped[$key] = 0 }
@@ -925,8 +930,11 @@ function Save-EvolutionCandidateRecord {
         Writes one content-addressed candidate record. With
         -Overwrite:$false an existing record with different IMMUTABLE
         content is a conflict; identical immutable content is idempotent
-        and the stored record is preserved untouched. Caller holds the store
-        lock. Never throws.
+        and the stored record is preserved untouched. An existing record
+        larger than the hard record cap is refused with
+        EVOLUTION_RECORD_TOO_LARGE BEFORE it is read (SEC-4: the comparison
+        path is the only place this function reads an untrusted file).
+        Caller holds the store lock. Never throws.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$StoreDir, [Parameter(Mandatory = $true)]$Policy, [Parameter(Mandatory = $true)]$Record, [switch]$Overwrite)
@@ -942,6 +950,16 @@ function Save-EvolutionCandidateRecord {
         if (-not (Test-Path -LiteralPath $dir -PathType Container)) { [void][IO.Directory]::CreateDirectory($dir) }
         $path = Get-EvolutionCandidatePath -StoreDir $StoreDir -CandidateId $id
         if ((-not [bool]$Overwrite) -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            # SEC-4 (idempotent-comparison path): the existing record is the
+            # only UNTRUSTED file this function reads, so its size is checked
+            # via FileInfo BEFORE any ReadAllText - a candidate inflated
+            # outside the write path must not be pulled into memory by a
+            # re-creation. Same semantics as the single-record read (FIX4).
+            $existingLength = [long]-1
+            try { $existingLength = ([IO.FileInfo]::new($path)).Length } catch { return [PSCustomObject]@{ ok = $false; error = 'EVOLUTION_RECORD_UNREADABLE' } }
+            if ($existingLength -gt [long]$script:EvolutionHardCapRecordBytes) {
+                return [PSCustomObject]@{ ok = $false; error = 'EVOLUTION_RECORD_TOO_LARGE'; bytes = [long]$existingLength; cap = [int]$script:EvolutionHardCapRecordBytes }
+            }
             $existing = $null
             try { $existing = [IO.File]::ReadAllText($path) } catch { return [PSCustomObject]@{ ok = $false; error = 'EVOLUTION_RECORD_UNREADABLE' } }
             $existingDoc = $null
@@ -964,8 +982,11 @@ function Get-OrchestrationEvolutionCandidate {
     <#
     .SYNOPSIS
         Reads one candidate record (read-only, shape-validated; the file name
-        must match the embedded candidate_id). Returns the record or a
-        structured error. Never throws.
+        must match the embedded candidate_id). A file larger than the hard
+        record cap is refused with EVOLUTION_RECORD_TOO_LARGE BEFORE it is
+        read (SEC-4, same rule as the inventory), so the promotion/rollback
+        gate fails closed without loading an oversized record. Returns the
+        record or a structured error. Never throws.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$StoreDir, [Parameter(Mandatory = $true)][string]$CandidateId)
@@ -973,6 +994,15 @@ function Get-OrchestrationEvolutionCandidate {
         if (-not (Test-EvolutionCandidateId -Value $CandidateId)) { return (New-EvolutionError -Code 'EVOLUTION_INVALID_CANDIDATE_ID') }
         $path = Get-EvolutionCandidatePath -StoreDir $StoreDir -CandidateId ([string]$CandidateId)
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return (New-EvolutionError -Code 'EVOLUTION_CANDIDATE_NOT_FOUND') }
+        # SEC-4 (same rule as the inventory): the size is checked via FileInfo
+        # BEFORE any ReadAllText, so an oversized/corrupt record is refused
+        # without ever being loaded. Promotion and rollback decide from this
+        # read, so the refusal is fail-closed for both.
+        $length = [long]-1
+        try { $length = ([IO.FileInfo]::new($path)).Length } catch { return (New-EvolutionError -Code 'EVOLUTION_CANDIDATE_UNREADABLE') }
+        if ($length -gt [long]$script:EvolutionHardCapRecordBytes) {
+            return (New-EvolutionError -Code 'EVOLUTION_RECORD_TOO_LARGE' -Extra @{ bytes = [long]$length; cap = [int]$script:EvolutionHardCapRecordBytes })
+        }
         $text = $null
         try { $text = [IO.File]::ReadAllText($path, [Text.UTF8Encoding]::new($false)) } catch { return (New-EvolutionError -Code 'EVOLUTION_CANDIDATE_UNREADABLE') }
         $doc = ConvertTo-EvolutionOrdered -Node ($text | ConvertFrom-Json)
@@ -992,10 +1022,16 @@ function Get-EvolutionCandidateInventory {
     .SYNOPSIS
         Full candidate-store inventory with an explicit completeness flag.
         @{ok; entries[]; total_files; cap; complete}. `complete` is $false
-        when the store holds MORE candidate files than the policy cap, i.e.
-        the returned window is only a prefix of the store. Callers that make
-        a decision from this window (promotion / one-at-a-time) must fail
-        closed on complete=$false instead of trusting the prefix (V5/V7).
+        when the store holds MORE candidate files than the policy cap (the
+        window is only a prefix), OR when any file in the candidates directory
+        cannot be interpreted as the candidate it claims to be: unexpected
+        name, larger than the hard record cap (checked via FileInfo before any
+        read, so it is never loaded), unreadable, unparsable, non-object,
+        unknown status, or an embedded candidate_id that does not match the
+        file name (identity). Callers that make a decision from this window
+        (promotion / one-at-a-time) must fail closed on complete=$false
+        instead of trusting a window that may be hiding a promoted change
+        (V5/V7/FIX2/FIX3).
         Read-only. Never throws.
     #>
     [CmdletBinding()]
@@ -1021,13 +1057,33 @@ function Get-EvolutionCandidateInventory {
             if ($count -ge [int]$cap) { break }
             $count++
             $id = [IO.Path]::GetFileNameWithoutExtension($f)
-            if (-not (Test-EvolutionCandidateId -Value $id)) { continue }
+            # Fail-closed on an unreadable store: a file in the candidates
+            # directory that cannot be interpreted as the candidate it claims
+            # to be leaves this store unprovable as "free of another promoted
+            # change", so the enumeration is INCOMPLETE and promotion refuses
+            # (EVOLUTION_ENUMERATION_INCOMPLETE). Three ways that happens:
+            #   (a) the FILE NAME is not a candidate id;
+            #   (b) the file is larger than the hard record cap - checked via
+            #       FileInfo BEFORE any ReadAllText, so an oversized/corrupt
+            #       file is never loaded into memory (SEC-4);
+            #   (c) the file is unreadable, not JSON, not an object, carries an
+            #       unknown status, or its embedded candidate_id does not match
+            #       the file name (identity: a record cannot claim to be a
+            #       different candidate than the file it lives in).
+            if (-not (Test-EvolutionCandidateId -Value $id)) { $out.complete = $false; continue }
+            $length = [long]-1
+            try { $length = ([IO.FileInfo]::new($f)).Length } catch { $out.complete = $false; continue }
+            if ($length -gt [long]$script:EvolutionHardCapRecordBytes) { $out.complete = $false; continue }
             $doc = $null
-            try { $doc = ConvertTo-EvolutionOrdered -Node (([IO.File]::ReadAllText($f, [Text.UTF8Encoding]::new($false))) | ConvertFrom-Json) } catch { continue }
-            if (-not ($doc -is [System.Collections.IDictionary])) { continue }
+            try { $doc = ConvertTo-EvolutionOrdered -Node (([IO.File]::ReadAllText($f, [Text.UTF8Encoding]::new($false))) | ConvertFrom-Json) } catch { $out.complete = $false; continue }
+            if (-not ($doc -is [System.Collections.IDictionary])) { $out.complete = $false; continue }
+            $status = [string](Get-EvolutionValue $doc 'status' 'unknown')
+            if ($status -cnotin @('candidate', 'promoted', 'rolled_back')) { $out.complete = $false; continue }
+            $recordId = [string](Get-EvolutionValue $doc 'candidate_id' '')
+            if ((-not (Test-EvolutionCandidateId -Value $recordId)) -or ($recordId -cne $id)) { $out.complete = $false; continue }
             [void]$entries.Add([PSCustomObject]@{
-                    candidate_id = [string](Get-EvolutionValue $doc 'candidate_id' $id)
-                    status       = [string](Get-EvolutionValue $doc 'status' 'unknown')
+                    candidate_id = $recordId
+                    status       = $status
                     created_at   = [string](Get-EvolutionValue $doc 'created_at' '')
                 })
         }
@@ -1179,7 +1235,15 @@ function New-OrchestrationEvolutionCandidate {
                 }
             }
             $save = Save-EvolutionCandidateRecord -StoreDir $store -Policy $policy -Record $record
-            if (-not [bool]$save.ok) { return (New-EvolutionError -Code ([string]$save.error)) }
+            if (-not [bool]$save.ok) {
+                # Keep the size detail of a refused stored record (SEC-4)
+                # without ever returning a candidate_id: a refused creation
+                # must not hand back something that looks promotable.
+                $saveExtra = @{}
+                if ($null -ne $save.bytes) { $saveExtra['bytes'] = [long]$save.bytes }
+                if ($null -ne $save.cap) { $saveExtra['cap'] = [int]$save.cap }
+                return (New-EvolutionError -Code ([string]$save.error) -Extra $saveExtra)
+            }
             $idempotent = ([string]$save.error -ceq 'idempotent')
             $historyEvent = [ordered]@{
                 schema_version      = 1

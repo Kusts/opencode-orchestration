@@ -147,6 +147,7 @@ $policyTwoTargets = Join-Path $tempRoot 'policy-two-targets.json'
 $policyTinyFileBytes = Join-Path $tempRoot 'policy-tiny-file-bytes.json'
 $policyCap2 = Join-Path $tempRoot 'policy-cap2.json'
 $policyCap3 = Join-Path $tempRoot 'policy-cap3.json'
+$policyRecords3 = Join-Path $tempRoot 'policy-records3.json'
 $teleDir = Join-Path $tempRoot 'telemetry'
 New-Item -ItemType Directory -Path $teleDir -Force | Out-Null
 
@@ -168,6 +169,7 @@ $threeTargets = @(
 [void](New-EvolutionPolicyFile -Path $policyTinyFileBytes -Overrides @{ caps = @{ max_telemetry_file_bytes = 64 } })
 [void](New-EvolutionPolicyFile -Path $policyCap2 -Overrides @{ caps = @{ max_candidate_files = 2 } })
 [void](New-EvolutionPolicyFile -Path $policyCap3 -Overrides @{ caps = @{ max_candidate_files = 3 } })
+[void](New-EvolutionPolicyFile -Path $policyRecords3 -Overrides @{ caps = @{ max_telemetry_records = 3 } })
 $teleLines = @(
     '{"dup_events":2,"tester_rounds":4,"wall_time_s":100,"tasks":1,"evidence_reused":1,"evidence_available":4}'
     '{"dup_events":1,"tester_rounds":4,"wall_time_s":140,"tasks":1,"evidence_reused":2,"evidence_available":4}'
@@ -571,6 +573,169 @@ Assert-Evolution ([bool]$validShape.ok) 'M1 two-target control policy still vali
     Assert-Evolution ((-not [bool]$promotedOutsideWindow.ok) -and ([string]$promotedOutsideWindow.error -ceq 'EVOLUTION_ENUMERATION_INCOMPLETE')) 'H3 promotion over an incomplete enumeration fails closed' ("" + $promotedOutsideWindow.error)
     $w1After = Get-OrchestrationEvolutionCandidate -StoreDir $storeCap3 -CandidateId ([string]$w1.candidate_id)
     Assert-Evolution ([string]$w1After.record.status -ceq 'candidate') 'H3 the blocked promotion left the status untouched' ("" + $w1After.record.status)
+
+    # ---- FIX2: a candidate file the inventory cannot interpret makes the
+    # enumeration incomplete, so a promotion cannot hide behind it ----
+    $storeCorrupt = New-EvolutionStore -Root $tempRoot -Name 'store-corrupt-record'
+    $cr1 = New-OrchestrationEvolutionCandidate -Problem 'corrupt probe one' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'cr1') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeCorrupt -PolicyPath $repoPolicy -AtUtc $AT
+    $cr2 = New-OrchestrationEvolutionCandidate -Problem 'corrupt probe two' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'cr2') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeCorrupt -PolicyPath $repoPolicy -AtUtc $AT
+    $crPromoted = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$cr1.candidate_id) -ReviewMarker 'review:REV15' -EvalVerdict 'pass' `
+        -StoreDir $storeCorrupt -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ([bool]$crPromoted.ok) 'FIX2 control: the first candidate promotes in an intact store' ("" + $crPromoted.error)
+    $crIntactInv = Get-EvolutionCandidateInventory -StoreDir $storeCorrupt -Policy $repoPolicy
+    Assert-Evolution (([bool]$crIntactInv.ok) -and ([bool]$crIntactInv.complete) -and ([int]$crIntactInv.entries.Count -eq 2)) 'FIX2 intact store enumerates completely' ("" + $crIntactInv.complete)
+    # Corruption: the promoted record file becomes unparsable, so its status
+    # can no longer be proven 'promoted' from the store itself.
+    [IO.File]::WriteAllText((Get-EvolutionCandidatePath -StoreDir $storeCorrupt -CandidateId ([string]$cr1.candidate_id)), 'not-json{ at all', [Text.UTF8Encoding]::new($false))
+    $crBrokenInv = Get-EvolutionCandidateInventory -StoreDir $storeCorrupt -Policy $repoPolicy
+    Assert-Evolution (([bool]$crBrokenInv.ok) -and (-not [bool]$crBrokenInv.complete)) 'FIX2 an unparsable candidate file marks the enumeration incomplete' ("" + $crBrokenInv.complete)
+    $crBlocked = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$cr2.candidate_id) -ReviewMarker 'review:REV16' -EvalVerdict 'pass' `
+        -StoreDir $storeCorrupt -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ((-not [bool]$crBlocked.ok) -and ([string]$crBlocked.error -ceq 'EVOLUTION_ENUMERATION_INCOMPLETE')) 'FIX2 promotion blocked while a candidate record is uninterpretable' ("" + $crBlocked.error)
+    $cr2After = Get-OrchestrationEvolutionCandidate -StoreDir $storeCorrupt -CandidateId ([string]$cr2.candidate_id)
+    Assert-Evolution ([string]$cr2After.record.status -ceq 'candidate') 'FIX2 the blocked promotion left the second candidate untouched' ("" + $cr2After.record.status)
+    # Intact-store control: with the record readable again the second
+    # promotion is refused by the one-at-a-time rule, not by the enumeration.
+    [IO.File]::WriteAllText((Get-EvolutionCandidatePath -StoreDir $storeCorrupt -CandidateId ([string]$cr1.candidate_id)), (ConvertTo-Json -InputObject (ConvertTo-EvolutionOrdered -Node $crPromoted.record) -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
+    $crHealthy = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$cr2.candidate_id) -ReviewMarker 'review:REV17' -EvalVerdict 'pass' `
+        -StoreDir $storeCorrupt -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution (((-not [bool]$crHealthy.ok) -and ([string]$crHealthy.error -ceq 'EVOLUTION_ONE_CHANGE_AT_A_TIME')) -and ([bool]$crHealthy.ok -eq $false)) 'FIX2 intact store still decides on one-at-a-time (not enumeration)' ("" + $crHealthy.error)
+
+    # ---- FIX3/F1: identity - a record whose embedded candidate_id differs
+    # from its file name makes the enumeration incomplete ----
+    $storeIdentity = New-EvolutionStore -Root $tempRoot -Name 'store-identity'
+    $idA = New-OrchestrationEvolutionCandidate -Problem 'identity probe a' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'ia') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeIdentity -PolicyPath $repoPolicy -AtUtc $AT
+    $idB = New-OrchestrationEvolutionCandidate -Problem 'identity probe b' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'ib') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeIdentity -PolicyPath $repoPolicy -AtUtc $AT
+    $idPromoted = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$idA.candidate_id) -ReviewMarker 'review:REV18' -EvalVerdict 'pass' `
+        -StoreDir $storeIdentity -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ([bool]$idPromoted.ok) 'FIX3/F1 control: the first candidate promotes' ("" + $idPromoted.error)
+    # Candidate A's file now carries candidate B's id: identity is broken, so
+    # the promoted status can no longer be attributed to a known record.
+    $swapped = ConvertTo-EvolutionOrdered -Node $idPromoted.record
+    $swapped['candidate_id'] = [string]$idB.candidate_id
+    [IO.File]::WriteAllText((Get-EvolutionCandidatePath -StoreDir $storeIdentity -CandidateId ([string]$idA.candidate_id)), (ConvertTo-Json -InputObject $swapped -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
+    $idInv = Get-EvolutionCandidateInventory -StoreDir $storeIdentity -Policy $repoPolicy
+    Assert-Evolution (([bool]$idInv.ok) -and (-not [bool]$idInv.complete) -and (@($idInv.entries).Count -eq 1)) 'FIX3/F1 candidate_id vs file name mismatch marks the enumeration incomplete' ("" + $idInv.complete + '/' + @($idInv.entries).Count)
+    $idBlocked = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$idB.candidate_id) -ReviewMarker 'review:REV19' -EvalVerdict 'pass' `
+        -StoreDir $storeIdentity -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ((-not [bool]$idBlocked.ok) -and ([string]$idBlocked.error -ceq 'EVOLUTION_ENUMERATION_INCOMPLETE')) 'FIX3/F1 promotion blocked on an identity mismatch' ("" + $idBlocked.error)
+
+    # ---- FIX3/F2 (SEC-4): an oversized candidate file is refused BEFORE it
+    # is read (FileInfo.Length > 32 KB hard cap) ----
+    $storeOversize = New-EvolutionStore -Root $tempRoot -Name 'store-oversized'
+    $os1 = New-OrchestrationEvolutionCandidate -Problem 'oversized probe one' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'os') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeOversize -PolicyPath $repoPolicy -AtUtc $AT
+    $os2 = New-OrchestrationEvolutionCandidate -Problem 'oversized probe two' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'ot') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeOversize -PolicyPath $repoPolicy -AtUtc $AT
+    $osPromoted = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$os1.candidate_id) -ReviewMarker 'review:REV20' -EvalVerdict 'pass' `
+        -StoreDir $storeOversize -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ([bool]$osPromoted.ok) 'FIX3/F2 control: the first candidate promotes' ("" + $osPromoted.error)
+    # Valid JSON that a promoting record could never have produced (padded
+    # past the 32 KB record cap): it parses, so only the size pre-check can
+    # catch it.
+    $osDoc = ConvertTo-EvolutionOrdered -Node $osPromoted.record
+    $osDoc['problem'] = (Get-EvolutionSafeText -Value ('p' * 40000) -MaxLength 40000)
+    $osText = ConvertTo-Json -InputObject $osDoc -Depth 8 -Compress
+    [IO.File]::WriteAllText((Get-EvolutionCandidatePath -StoreDir $storeOversize -CandidateId ([string]$os1.candidate_id)), $osText, [Text.UTF8Encoding]::new($false))
+    Assert-Evolution ([Text.Encoding]::UTF8.GetByteCount($osText) -gt 32768) 'FIX3/F2 the padded record is genuinely over the 32 KB cap' ("" + [Text.Encoding]::UTF8.GetByteCount($osText))
+    $osInv = Get-EvolutionCandidateInventory -StoreDir $storeOversize -Policy $repoPolicy
+    Assert-Evolution (([bool]$osInv.ok) -and (-not [bool]$osInv.complete) -and (@($osInv.entries).Count -eq 1)) 'FIX3/F2 oversized candidate file is not parsed and marks the enumeration incomplete' ("" + $osInv.complete + '/' + @($osInv.entries).Count)
+    $osBlocked = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$os2.candidate_id) -ReviewMarker 'review:REV21' -EvalVerdict 'pass' `
+        -StoreDir $storeOversize -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ((-not [bool]$osBlocked.ok) -and ([string]$osBlocked.error -ceq 'EVOLUTION_ENUMERATION_INCOMPLETE')) 'FIX3/F2 promotion blocked while a candidate file is oversized' ("" + $osBlocked.error)
+
+    # ---- FIX3/F3: blank telemetry lines count against the same budget ----
+    $teleBlanks = Join-Path $tempRoot 'telemetry-blanks'
+    New-Item -ItemType Directory -Path $teleBlanks -Force | Out-Null
+    $teleBlankLines = @($teleLines[0], '', $teleLines[1], '   ')
+    Write-EvolutionFixture -Path (Join-Path $teleBlanks 'telemetry-blank.jsonl') -Text ($teleBlankLines -join "`n")
+    $blankSignals = Get-OrchestrationEvolutionSignals -TelemetryDir $teleBlanks -PolicyPath $policyRecords3 -AtUtc $AT
+    Assert-Evolution ((-not [bool]$blankSignals.ok) -and ([string]$blankSignals.error -ceq 'EVOLUTION_TELEMETRY_BUDGET_EXCEEDED') -and ([string]$blankSignals.budget -ceq 'max_telemetry_records')) 'FIX3/F3 blank lines count against the record budget (4 lines, cap 3)' ("" + $blankSignals.error)
+    $teleNoBlanks = Join-Path $tempRoot 'telemetry-no-blanks'
+    New-Item -ItemType Directory -Path $teleNoBlanks -Force | Out-Null
+    Write-EvolutionFixture -Path (Join-Path $teleNoBlanks 'telemetry-plain.jsonl') -Text ($teleLines -join "`n")
+    $plainSignals = Get-OrchestrationEvolutionSignals -TelemetryDir $teleNoBlanks -PolicyPath $policyRecords3 -AtUtc $AT
+    Assert-Evolution (([bool]$plainSignals.ok) -and ([int]$plainSignals.records_read -eq 2) -and ([int]$plainSignals.records_skipped -eq 0)) 'FIX3/F3 control: the same 2 records without blanks stay inside the cap' ("" + $plainSignals.error + '/' + $plainSignals.records_skipped)
+
+    # ---- FIX4 (SEC-4): the single-record read refuses an oversized file
+    # BEFORE reading it, so promotion/rollback fail closed ----
+    $storeSingle = New-EvolutionStore -Root $tempRoot -Name 'store-single-oversized'
+    $sg1 = New-OrchestrationEvolutionCandidate -Problem 'single probe one' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'sg1') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeSingle -PolicyPath $repoPolicy -AtUtc $AT
+    $sg2 = New-OrchestrationEvolutionCandidate -Problem 'single probe two' -RepeatedEvidenceRefs (New-EvolutionRefs -Count 3 -Prefix 'sg2') `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeSingle -PolicyPath $repoPolicy -AtUtc $AT
+    $sgNormal = Get-OrchestrationEvolutionCandidate -StoreDir $storeSingle -CandidateId ([string]$sg1.candidate_id)
+    Assert-Evolution (([bool]$sgNormal.ok) -and ([string]$sgNormal.record.candidate_id -ceq [string]$sg1.candidate_id)) 'FIX4 control: a normal record reads fine' ("" + $sgNormal.error)
+    $sgPromoted = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$sg1.candidate_id) -ReviewMarker 'review:REV22' -EvalVerdict 'pass' `
+        -StoreDir $storeSingle -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ([bool]$sgPromoted.ok) 'FIX4 control: a normal candidate promotes' ("" + $sgPromoted.error)
+    $sgRollback = Rollback-OrchestrationEvolutionCandidate -CandidateId ([string]$sg1.candidate_id) -Reason 'normal rollback control' -StoreDir $storeSingle -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution (([bool]$sgRollback.ok) -and ([string]$sgRollback.status -ceq 'rolled_back')) 'FIX4 control: a normal candidate rolls back' ("" + $sgRollback.error)
+    # Pad sg2 past the 32 KB hard cap (still valid JSON: only the size
+    # pre-check can catch it).
+    $sgDoc = ConvertTo-EvolutionOrdered -Node $sgNormal.record
+    $sgDoc['candidate_id'] = [string]$sg2.candidate_id
+    $sgDoc['problem'] = (Get-EvolutionSafeText -Value ('p' * 40000) -MaxLength 40000)
+    $sgText = ConvertTo-Json -InputObject $sgDoc -Depth 8 -Compress
+    [IO.File]::WriteAllText((Get-EvolutionCandidatePath -StoreDir $storeSingle -CandidateId ([string]$sg2.candidate_id)), $sgText, [Text.UTF8Encoding]::new($false))
+    $sgBigRead = Get-OrchestrationEvolutionCandidate -StoreDir $storeSingle -CandidateId ([string]$sg2.candidate_id)
+    Assert-Evolution ((-not [bool]$sgBigRead.ok) -and ([string]$sgBigRead.error -ceq 'EVOLUTION_RECORD_TOO_LARGE') -and ([int]$sgBigRead.cap -eq 32768) -and ($null -eq $sgBigRead.record)) 'FIX4 oversized single record refused with a structured too-large error' ("" + $sgBigRead.error)
+    $sgPromoteRefused = Approve-OrchestrationEvolutionCandidate -CandidateId ([string]$sg2.candidate_id) -ReviewMarker 'review:REV23' -EvalVerdict 'pass' `
+        -StoreDir $storeSingle -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ((-not [bool]$sgPromoteRefused.ok) -and ([string]$sgPromoteRefused.error -ceq 'EVOLUTION_RECORD_TOO_LARGE')) 'FIX4 promotion refuses an oversized candidate record' ("" + $sgPromoteRefused.error)
+    $sgRollbackRefused = Rollback-OrchestrationEvolutionCandidate -CandidateId ([string]$sg2.candidate_id) -Reason 'oversized rollback probe' -StoreDir $storeSingle -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ((-not [bool]$sgRollbackRefused.ok) -and ([string]$sgRollbackRefused.error -ceq 'EVOLUTION_RECORD_TOO_LARGE')) 'FIX4 rollback refuses an oversized candidate record' ("" + $sgRollbackRefused.error)
+    $sgUntouched = Get-EvolutionCandidateInventory -StoreDir $storeSingle -Policy $repoPolicy
+    Assert-Evolution ((-not [bool]$sgUntouched.complete) -and (@($sgUntouched.entries | Where-Object { [string]$_.candidate_id -ceq [string]$sg2.candidate_id }).Count -eq 0)) 'FIX4 the oversized record is not promoted and stays out of the enumeration' ("" + $sgUntouched.complete)
+    # Ordering proxy: while the oversized file is held with FileShare::None a
+    # ReadAllText WOULD throw (sharing violation), while a FileInfo.Length stat
+    # still succeeds. Getting TOO_LARGE (not UNREADABLE) therefore proves the
+    # size is checked BEFORE the file is opened.
+    $sgHeld = $null
+    try { $sgHeld = [IO.File]::Open((Get-EvolutionCandidatePath -StoreDir $storeSingle -CandidateId ([string]$sg2.candidate_id)), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None) } catch { }
+    try {
+        $sgOrdered = Get-OrchestrationEvolutionCandidate -StoreDir $storeSingle -CandidateId ([string]$sg2.candidate_id)
+        Assert-Evolution (((-not [bool]$sgOrdered.ok) -and ([string]$sgOrdered.error -ceq 'EVOLUTION_RECORD_TOO_LARGE')) -and ($null -ne $sgHeld)) 'FIX4 the size is checked BEFORE the file is read (held oversized file still returns too-large)' ("" + $sgOrdered.error)
+    }
+    finally { try { if ($null -ne $sgHeld) { $sgHeld.Dispose() } } catch { } }
+
+    # ---- FIX5 (SEC-4): the idempotent-comparison path also refuses an
+    # oversized stored record BEFORE reading it ----
+    $storeIdem = New-EvolutionStore -Root $tempRoot -Name 'store-idempotent-oversized'
+    $idmRefA = @('idm-1', 'idm-2', 'idm-3')
+    $idm = New-OrchestrationEvolutionCandidate -Problem 'idempotent probe' -RepeatedEvidenceRefs $idmRefA `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeIdem -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ([bool]$idm.ok) 'FIX5 control: the candidate is created' ("" + $idm.error)
+    $idmControl = New-OrchestrationEvolutionCandidate -Problem 'idempotent probe' -RepeatedEvidenceRefs $idmRefA `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeIdem -PolicyPath $repoPolicy -AtUtc '2026-01-02T03:04:09.0000000Z'
+    $idmControlHist = Get-OrchestrationEvolutionHistory -StoreDir $storeIdem -CandidateId ([string]$idm.candidate_id)
+    Assert-Evolution (([bool]$idmControl.ok) -and ([string]$idmControl.candidate_id -ceq [string]$idm.candidate_id) -and ([int]$idmControlHist.count -eq 1)) 'FIX5 control: re-creating a normal record stays idempotent' ("" + $idmControl.error)
+    # Inflate the STORED record past the hard cap (a path the writer would
+    # never produce) and re-create the very same candidate.
+    $idmDoc = ConvertTo-EvolutionOrdered -Node $idm.record
+    $idmDoc['problem'] = (Get-EvolutionSafeText -Value ('p' * 40000) -MaxLength 40000)
+    $idmPath = Get-EvolutionCandidatePath -StoreDir $storeIdem -CandidateId ([string]$idm.candidate_id)
+    [IO.File]::WriteAllText($idmPath, (ConvertTo-Json -InputObject $idmDoc -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
+    $idmBig = New-OrchestrationEvolutionCandidate -Problem 'idempotent probe' -RepeatedEvidenceRefs $idmRefA `
+        -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeIdem -PolicyPath $repoPolicy -AtUtc $AT
+    Assert-Evolution ((-not [bool]$idmBig.ok) -and ([string]$idmBig.error -ceq 'EVOLUTION_RECORD_TOO_LARGE') -and ([int]$idmBig.cap -eq 32768) -and ([int]$idmBig.bytes -gt 32768)) 'FIX5 idempotent re-creation of an oversized record is refused structurally' ("" + $idmBig.error)
+    Assert-Evolution ([string]$idmBig.candidate_id -ceq '') 'FIX5 the refused re-creation returns no candidate id'
+    # Ordering proxy: holding the file makes a ReadAllText throw, so getting
+    # TOO_LARGE proves the size is checked BEFORE the file is opened.
+    $idmHeld = $null
+    try { $idmHeld = [IO.File]::Open($idmPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None) } catch { }
+    try {
+        $idmOrdered = New-OrchestrationEvolutionCandidate -Problem 'idempotent probe' -RepeatedEvidenceRefs $idmRefA `
+            -GeneralizedCause 'x' -ProposedChange 'y' -ExpectedEffect 'z' -Risk 'low' -RollbackPlan 'w' -StoreDir $storeIdem -PolicyPath $repoPolicy -AtUtc $AT
+        Assert-Evolution (((-not [bool]$idmOrdered.ok) -and ([string]$idmOrdered.error -ceq 'EVOLUTION_RECORD_TOO_LARGE')) -and ($null -ne $idmHeld)) 'FIX5 the size is checked BEFORE the stored record is read (held file still returns too-large)' ("" + $idmOrdered.error)
+    }
+    finally { try { if ($null -ne $idmHeld) { $idmHeld.Dispose() } } catch { } }
+    $idmAfter = Get-EvolutionCandidateInventory -StoreDir $storeIdem -Policy $repoPolicy
+    Assert-Evolution ((-not [bool]$idmAfter.complete) -and (@($idmAfter.entries).Count -eq 0)) 'FIX5 the inflated record is not enumerated as a valid candidate' ("" + $idmAfter.complete)
 
     # ---- V8 (T): mutation tests for the two auto-fixed bugs ----
     $storeMut = New-EvolutionStore -Root $tempRoot -Name 'store-mutation'
