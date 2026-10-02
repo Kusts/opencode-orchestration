@@ -118,6 +118,8 @@ param(
     [string]$WaitDependencyId = '',
     [string]$WaitFingerprint = '',
     [string]$UnblockAction = ''
+    ,[string]$RunId = '', [string]$SeatId = '', [string]$BindingRuntime = '', [string]$BindingVersion = '',
+    [string]$ParentSessionId = '', [string]$RootSessionId = '', [switch]$WorkerSession
 )
 
 $ErrorActionPreference = 'Stop'
@@ -175,7 +177,7 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings')
 if ($validActions -cnotcontains $action) {
     Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
     exit 2
@@ -279,6 +281,34 @@ switch ($action) {
         $dup = Get-OrchestrationDuplicateWork -WorkFingerprint ([string]$fpSlot.fingerprint) -TasksDir $TasksDir
         $result = [PSCustomObject]@{ ok = $true; duplicate = [bool]$dup.found; existing_task_id = ([string]$dup.existing_task_id); work_fingerprint = ([string]$fpSlot.fingerprint) }
     }
+    { $_ -in @('bind-session','rebind-session','detach-session') } {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or ([string]::IsNullOrWhiteSpace($RunId) -and $action -ne 'detach-session')) { Write-TaskKernelCliError 'binding exige -TaskId -SessionId e -RunId (exceto detach-session, que o resolve se unico).'; exit 1 }
+        if ($ExpectedRevision -lt 0) { Write-TaskKernelCliError 'binding exige -ExpectedRevision.'; exit 1 }
+        $op='bind'; if($action -eq 'rebind-session'){$op='rebind'} elseif($action -eq 'detach-session'){$op='detach'}
+        if ($op -eq 'detach' -and [string]::IsNullOrWhiteSpace($RunId)) {
+            $boundTask=Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir
+            if ($null -eq $boundTask -or $boundTask.PSObject.Properties['error']) { $result=$boundTask }
+            else {
+                $runs=@($boundTask['bindings']['runs']); $matches=@()
+                foreach($candidate in $runs) {
+                    if ([string]$candidate['status'] -ne 'attached') { continue }
+                    if (([string]$candidate['root_session'] -ceq $SessionId) -or (@($candidate['worker_sessions']) -ccontains $SessionId)) { $matches+=,[string]$candidate['run_id'] }
+                }
+                if($matches.Count -eq 0) {
+                    foreach($candidate in $runs) {
+                        if ([string]$candidate['status'] -ne 'detached') { continue }
+                        if (([string]$candidate['root_session'] -ceq $SessionId) -or (@($candidate['worker_sessions']) -ccontains $SessionId)) { $matches+=,[string]$candidate['run_id'] }
+                    }
+                }
+                if($matches.Count -ne 1){$result=New-TaskKernelError -Code 'BIND_RUN_AMBIGUOUS' -Extra @{matches=$matches.Count;detail='RunId required when session does not resolve to exactly one run (including detached runs)'}}
+                else{$RunId=[string]$matches[0]}
+            }
+        }
+        if ($null -ne $result -and (Get-TaskKernelResultError -Result $result)) { break }
+        $bindingArgs=@{Operation=$op;TaskId=$TaskId;RunId=$RunId;SessionId=$SessionId;ExpectedRevision=$ExpectedRevision;TasksDir=$TasksDir;FlagsPath=$FlagsPath;SeatId=$SeatId;Runtime=$BindingRuntime;Version=$BindingVersion;ParentId=$ParentSessionId;RootId=$RootSessionId;WorkerSession=[bool]$WorkerSession}
+        $result=Invoke-OrchestrationTaskSessionBinding @bindingArgs
+    }
+    'get-bindings' { if([string]::IsNullOrWhiteSpace($TaskId)){Write-TaskKernelCliError 'get-bindings exige -TaskId.';exit 1};$result=Get-OrchestrationTaskBindings -TaskId $TaskId -TasksDir $TasksDir }
     'get' {
         if ([string]::IsNullOrWhiteSpace($TaskId)) {
             Write-TaskKernelCliError 'get exige -TaskId.'
@@ -529,6 +559,10 @@ switch ($action) {
 }
 
 $code = Get-TaskKernelExitCode -ErrorCode (Get-TaskKernelResultError -Result $result)
+if ($action -in @('bind-session','rebind-session','detach-session') -and -not [string]::IsNullOrWhiteSpace((Get-TaskKernelResultError -Result $result))) {
+    $code = 2
+    if ((Get-TaskKernelResultError -Result $result) -eq 'BIND_INVALID_ID') { $code = 1 }
+}
 try {
     Write-Output ($result | ConvertTo-Json -Depth 12)
 }

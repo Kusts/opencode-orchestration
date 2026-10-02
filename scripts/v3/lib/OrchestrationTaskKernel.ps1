@@ -59,8 +59,13 @@
         recovery, typed wait, work unit); stall gates on attempt start
         (STALLED_STRATEGY_REJECTED, DEBUGGER_REQUIRED, EXHAUSTED);
         typed BLOCKED waits with idempotent re-block and referenced
-        unblock; active-work dedupe (DUPLICATE_ACTIVE_WORK, never merge).
-        Legacy calls/records without the new fields behave as before.
+         unblock; active-work dedupe (DUPLICATE_ACTIVE_WORK, never merge).
+         Legacy calls/records without the new fields behave as before.
+      - Phase 32 session bindings live in the task record; the kernel is
+        canonical and plugin indexes are disposable. active_execution_owner
+        is task-scoped (stricter than work-unit scope) because P27 dedupe and
+        idempotency are task-scoped; multiple work units per task are future
+        work. Cross-process binding coordination remains HOLD.
 
     PowerShell 5.1 compatible. ASCII-only. Expected domain errors are
     returned as result objects ({ok:$false, error:'CODE'}), never thrown.
@@ -1162,6 +1167,93 @@ function Get-OrchestrationTask {
     }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
+
+# Session bindings are canonical task-record data. Plugin-side indexes are
+# disposable and must be rebuilt by reading this section.
+function Get-OrchestrationTaskBindings {
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][string]$TaskId,[string]$TasksDir='',[string]$RepoRoot='')
+    try {
+        $task = Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ($null -eq $task -or $task.PSObject.Properties['error']) { return $task }
+        if ($task.Contains('bindings')) { return [PSCustomObject]@{ ok=$true; task_id=$TaskId; bindings=$task['bindings'] } }
+        return [PSCustomObject]@{ ok=$true; task_id=$TaskId; bindings=[ordered]@{ runs=@(); active_execution_owner='' } }
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Test-TaskKernelBindingId {
+    [CmdletBinding()]
+    param([string]$Value, [switch]$Optional)
+    if ([string]::IsNullOrEmpty($Value)) { return [bool]$Optional }
+    return ($Value.Length -le 128 -and $Value -cmatch '^[A-Za-z0-9._-]+$')
+}
+
+function Invoke-OrchestrationTaskSessionBinding {
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][ValidateSet('bind','rebind','detach')][string]$Operation,
+        [Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][AllowEmptyString()][string]$RunId,
+        [string]$SessionId='', [int]$ExpectedRevision=-1, [string]$SeatId='',
+        [string]$Runtime='',[string]$Version='',[string]$ParentId='',[string]$RootId='',
+        [switch]$WorkerSession,[string]$TasksDir='', [string]$FlagsPath='', [string]$RepoRoot='')
+    try {
+        $flags=Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not $flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED') }
+        $tid=$TaskId.Trim(); $run=$RunId; $sid=$SessionId
+        if (-not (Test-TaskKernelBindingId -Value ([string]$run))) { return (New-TaskKernelError -Code 'BIND_INVALID_ID') }
+        foreach($idValue in @($sid,$SeatId,$ParentId,$RootId)) {
+            if (-not (Test-TaskKernelBindingId -Value ([string]$idValue) -Optional)) { return (New-TaskKernelError -Code 'BIND_INVALID_ID') }
+        }
+        if (-not (Test-TaskKernelId $tid) -or [string]::IsNullOrEmpty($sid)) { return (New-TaskKernelError -Code 'BIND_INVALID_ID') }
+        $file=Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($file)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $lock=Enter-TaskKernelFileLock -TaskFile $file
+        if (-not $lock.acquired) { return (New-TaskKernelError -Code 'LOCK_TIMEOUT') }
+        try {
+            $slot=Read-TaskKernelRecord -TaskFile $file
+            if (-not $slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ($slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec=$slot.record
+            if ($ExpectedRevision -lt 0 -or [int]$rec['revision'] -ne $ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            $b=$rec['bindings']; if ($null -eq $b) { $b=[ordered]@{runs=@();active_execution_owner=''} }
+            $runs=@($b['runs']); $idx=-1
+            for($i=0;$i -lt $runs.Count;$i++){if([string]$runs[$i]['run_id'] -ceq $run){$idx=$i;break}}
+            if ($Operation -eq 'rebind' -and $idx -lt 0) { return (New-TaskKernelError -Code 'REBIND_RUN_MISMATCH') }
+            if ($Operation -eq 'detach') {
+                if($idx -lt 0){return (New-TaskKernelError -Code 'NOT_FOUND')}
+                $entry=$runs[$idx]
+                $sessions=@($entry['worker_sessions']) + @($entry['root_session'])
+                if([string]$entry['status'] -eq 'detached'){
+                    $registered=@($entry['worker_sessions']) + @([string]$entry['root_session'])
+                    if($registered -cnotcontains $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$entry['root_session']})}
+                    return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}
+                }
+                if($sessions -cnotcontains $sid){return (New-TaskKernelError -Code 'NOT_FOUND')}
+                $entry['status']='detached';$entry['detached_at']=Get-TaskKernelTimestamp
+                if([string]$b['active_execution_owner'] -ceq $sid){$b['active_execution_owner']=''}
+            } elseif ($Operation -eq 'rebind') {
+                $entry=$runs[$idx]; $old=[string]$entry['root_session']
+                if($old -ceq $sid -and [string]$entry['status'] -eq 'attached'){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}}
+                if([string]$entry['status'] -ne 'detached'){
+                    return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})
+                }
+                $entry['root_session']=$sid;$entry['status']='attached';$entry.Remove('detached_at')
+                $b['active_execution_owner']=$sid
+            } else {
+                if($idx -lt 0){$entry=[ordered]@{run_id=$run;root_session='';worker_sessions=@();seat_id=$SeatId;status='attached';provenance=[ordered]@{runtime=(Protect-TaskKernelText $Runtime);version=(Protect-TaskKernelText $Version);parent_id=(Protect-TaskKernelText $ParentId);root_id=(Protect-TaskKernelText $RootId)};bound_at=(Get-TaskKernelTimestamp)}; $runs+=,$entry;$idx=$runs.Count-1}
+                $entry=$runs[$idx]
+                if($WorkerSession){$ws=@($entry['worker_sessions']);if($ws -ccontains $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['worker_sessions']=@($ws + $sid)}else{if([string]$entry['root_session'] -ceq $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['root_session']=$sid};$entry['status']='attached';$b['active_execution_owner']=$sid
+            }
+            $b['runs']=$runs;$rec['bindings']=$b;$rec['revision']=[int]$rec['revision']+1;$rec['updated_at']=Get-TaskKernelTimestamp
+            $wr=Write-TaskKernelRecord -Record $rec -TaskFile $file
+            if(-not $wr.ok){return (New-TaskKernelError -Code $wr.error)}
+            return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];bindings=$b}
+        } finally { Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile }
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Bind-OrchestrationTaskSession { [CmdletBinding()] param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$RunId,[Parameter(Mandatory=$true)][string]$SessionId,[Parameter(Mandatory=$true)][int]$ExpectedRevision,[string]$SeatId='',[string]$Runtime='',[string]$Version='',[string]$ParentId='',[string]$RootId='',[switch]$WorkerSession,[string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot=''); Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $TaskId -RunId $RunId -SessionId $SessionId -ExpectedRevision $ExpectedRevision -SeatId $SeatId -Runtime $Runtime -Version $Version -ParentId $ParentId -RootId $RootId -WorkerSession:$WorkerSession -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot }
+function Rebind-OrchestrationTaskSession { [CmdletBinding()] param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$RunId,[Parameter(Mandatory=$true)][string]$SessionId,[Parameter(Mandatory=$true)][int]$ExpectedRevision,[string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot=''); Invoke-OrchestrationTaskSessionBinding -Operation rebind -TaskId $TaskId -RunId $RunId -SessionId $SessionId -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot }
+function Detach-OrchestrationTaskSession { [CmdletBinding()] param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][AllowEmptyString()][string]$RunId,[Parameter(Mandatory=$true)][string]$SessionId,[Parameter(Mandatory=$true)][int]$ExpectedRevision,[string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot=''); Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId $TaskId -RunId $RunId -SessionId $SessionId -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot }
 
 function Invoke-OrchestrationTaskTransition {
     [CmdletBinding()]
