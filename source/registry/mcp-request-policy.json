@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "classes": {
+    "advisory": {
+      "execution_timeout_seconds": 30,
+      "connect_timeout_seconds": 10,
+      "note": "fast advisory calls including jev (alias)"
+    },
+    "memory": {
+      "execution_timeout_seconds": 60,
+      "connect_timeout_seconds": 15,
+      "note": "memory and retrieval calls"
+    },
+    "remote": {
+      "execution_timeout_seconds": 120,
+      "connect_timeout_seconds": 20,
+      "note": "general remote MCP calls"
+    },
+    "long_running": {
+      "execution_timeout_seconds": 0,
+      "connect_timeout_seconds": 20,
+      "requires_explicit_task_contract": true,
+      "note": "no default budget: caller must supply task contract id plus explicit budget seconds"
+    }
+  },
+  "class_aliases": {
+    "jev": "advisory"
+  },
+  "failure_threshold": 2,
+  "circuit": {
+    "cooldown_seconds": 300,
+    "note": "two consecutive timeout/network failures in one planner turn open the circuit per (server, capability, turn); expired cooldown allows one half-open probe"
+  },
+  "criticality": {
+    "allowed": [ "optional", "required" ],
+    "default": "optional",
+    "note": "optional plus unavailable yields MCP_UNAVAILABLE fallback; required plus unavailable yields MCP_REQUIRED_BLOCKED"
+  }
+}

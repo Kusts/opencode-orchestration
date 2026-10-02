@@ -1,7 +1,7 @@
 {
   "record": "v3.1-runtime-reliability-program-status",
-  "date": "2026-10-01",
-  "revision": "2026-10-01 (P26–P42 substitui design P26–P33; PAE-01–PAE-40 substitui RR-01–RR-20)",
+  "date": "2026-10-02",
+  "revision": "2026-10-02 (fechamento FIX6–FIX10 do P28-S1; base 2026-10-01: P26–P42 substitui design P26–P33; PAE-01–PAE-40 substitui RR-01–RR-20)",
   "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-42)",
   "program_concluded": false,
   "spec_addenda": [
@@ -183,20 +183,40 @@
         "sem Job Objects (BLOCKER conhecido da P22): spawn pos-snapshot e orfao de filho morto antes do snapshot escapam; over-exclusao conservadora no gone-path; variante substituto-PID sem teste direto (coberta indiretamente por fail-closed de prova ausente + identidades exatas)",
         "chamada CIM individual sob timeout do WMI; lock de telemetria in-process; ator/fonte sao strings declaradas pelo chamador (sem autenticacao de processo)"
       ]
+    },
+    "phase28_mcp_safety_slice1": {
+      "status": "done-code-fix10",
+      "task_id": "RR-P28-S1-MCP-SAFETY (+FIX1..FIX10)",
+      "evidence": "evidence/v3.1/runtime-reliability/phase28.json",
+      "summary": "MCP safety envelope e circuit breaker kernel-side (lib PS deterministica + policy registry + 123 asserts PS5.1/PS7): policy canônica fail-closed com budgets advisory/Jev 30s, memory 60s, general 120s, long-running só com contract (connect sempre pela policy); circuito por (server, capability, planner-turn) abre com 2 falhas consecutivas timeout/rede, cooldown contado da conclusão da falha, half-open com probe único, rearm; resultados estruturados sem exceção na fronteira; criticidade optional => MCP_UNAVAILABLE + fallback_continue, required => MCP_REQUIRED_BLOCKED fail-closed em todos os ramos; guard de autoridade sempre-nega; telemetria JSONL sanitizada bounded (allowlists, redação por campo, len:valor, cap fail-closed, skip lock-busy); reserva atômica de capacidade via célula C# compartilhada (in-flight + abandonados <= 8; sem célula => fail-closed); BeginStop + settle bounded com abandono deliberado de runspace (settled=false, sem rollback, retry automático proibido); todos os locks com aquisição bounded (ordem global->chave). FIX6–FIX10 (2026-10-02): estado do circuito compartilhado no processo (dicionários privados em C#), validação estrita de wire com UNKNOWN fail-closed (ausência ≠ falha de leitura), normalização required completa em todos os ramos, recursão de policy bounded (profundidade/nós/ciclo), cap de wire 4096 antes do split.",
+      "suites": [
+        "OrchestrationMcpSafety.tests.ps1 202/202 (PS5.1 + PS7, runner oficial; 123 base + 79 asserts FIX6..FIX10)",
+        "regressões: watchdog 80/80 (PS5.1 + PS7), kernel 75/75 (PS5.1), McpRouter 58/58, CapabilityFlags 20/20, consistência 16/16",
+        "capability-flags.json byte-idêntico (mcp_routing segue OFF); git status só com os 4 arquivos do slice"
+      ],
+      "reviews": "Reviewer APPROVED no round 10 (10 rounds no total, FIX1..FIX10: rounds 6-9 desta sessão resolveram H1 recursão, H3 compartilhamento same-key, H6 normalização required, wire malformado, fail-open de leitura, ordem de locks) + Security Reviewer APPROVED (sem HIGH/CRITICAL; 2 LOW resolvidos: store em campos C# privados, cap de wire antes do split; confirmação C1-C3)",
+      "holds": [
+        "TurnId declarado pelo chamador sem autenticação de identidade (disponibilidade atacável documentada; OPEN nunca libera REQUIRED)",
+        "runspace não é sandbox: seam só para scriptblocks confiáveis do kernel; abandono pós-timeout não faz rollback (settled=false => sem retry de efeitos colaterais)",
+        "locks in-process; coordenação cross-process é follow-up (mesmo padrão do watchdog)",
+        "ocupação por abandono não-reclaimable na sessão (bounded por recusa, cap 8)",
+        "enforcement em transporte real (plugin/integração TS) e budgets no transporte são slice 2; zero rede neste slice",
+        "falha pré-existente/ambiental da suíte WatchdogEnforcement (ALREADY_EXITED settlements) provada por A/B sem os arquivos do slice — fora do escopo"
+      ]
     }
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
     "verdict": "APPROVED parcial por fase (findings corrigidos e revalidados; HOLDs registrados, sem aprovacao total do programa)",
-    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED)"
+    "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off) e P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) concluídos em 2026-10-01 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 e P28–P42 não iniciados (MCP safety, Jev advisory, AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release). Demais critérios PAE pendentes onde não cobertos.",
+    "phases_26_42": "P26 slice 1 (watchdog enforcement, done-code-flag-off), P27 slice 1 (strategy-aware recovery + typed waits + idempotent recovery, done-code-fix3) e P28 slice 1 (MCP safety envelope kernel-side, done-code-fix10 concluído 2026-10-02) concluídos em 2026-10-01/02 (PAE-01/02/03/04/05 parcial/08 cobertos em nível de código+testes; aceitação programática completa depende de ativação com decisão humana e evidência). Restante da P26/P27 e de P28 (slice 2: enforcement em transporte real/plugin TS) e P29–P42 não iniciados (Jev advisory, AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler, execution modes, evidence reuse, validação adaptativa, simplicidade, planner loop, capability doctor, V2 native, evolution, E2E/release). Demais critérios PAE pendentes onde não cobertos.",
     "explicit_holds": [
       "(d) execute.before sem via sem-modelo provada",
       "updated event nao observado",
       "REUSE de porta em producao",
-      "ativacao de qualquer flag (decisao humana com evidencia)"
+      "P28: TurnId nao autenticado; enforcement em transporte real e slice 2; ativacao de qualquer flag (decisao humana com evidencia)"
     ]
   },
   "invariants": [

@@ -15,9 +15,11 @@ binário V2; evidência completa em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 Programa **V3.1 — Runtime Reliability, Loop Recovery & Jev MCP
-(Phases 21–42)** em andamento — **Phases 21–25 com estado consolidado
-(2026-10-01)**, Phases 26–42 (programa revisado em 2026-10-01, que
-substitui o design anterior P26–P33) não iniciadas (detalhes em
+(Phases 21–42)** em andamento — **Phases 21–27 e P28 slice 1 com
+estado consolidado (2026-10-01)**; do programa revisado em 2026-10-01
+(que substitui o design anterior P26–P33) os slices P26-S1, P27-S1 e
+P28-S1 estão entregues (ver bullets abaixo) e o restante das Phases
+26–42 não iniciado (detalhes em
 `evidence/v3.1/runtime-reliability/program-status.json`; especificação e
 plano em
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`,
@@ -236,6 +238,58 @@ plano em
   exatas do conjunto verificado); sem teste direto do substituto.
   HOLDs: ativacao da flag e decisao humana; interrupt de sessao V2
   nativa e step budget nativo seguem HOLD.
+- **P28 slice 1 done-code-fix10** — MCP safety envelope e circuit
+  breaker kernel-side (`scripts/v3/lib/OrchestrationMcpSafety.ps1`,
+  `source/registry/mcp-request-policy.json`,
+  `evidence/v3.1/runtime-reliability/phase28.json`): policy canônica
+  validada fail-closed (`MCP_POLICY_INVALID`) com budgets por classe —
+  advisory/Jev 30s, memory 60s, general remote 120s, long-running só
+  com contract explícito (connect sempre pelo budget da policy);
+  circuito por (server, capability, planner-turn) abre com 2 falhas
+  consecutivas timeout/rede, cooldown contado da CONCLUSÃO da falha,
+  half-open com probe único sob lock por chave, rearm por sucesso;
+  fast-fails estruturados sem exceção na fronteira (`MCP_TIMEOUT`,
+  `MCP_CIRCUIT_OPEN`, `MCP_LOCK_BUSY`, `MCP_BUSY_GLOBAL`,
+  `MCP_ABANDON_LIMIT_REACHED`, `MCP_CAPACITY_CELL_UNAVAILABLE`);
+  criticidade optional => `MCP_UNAVAILABLE` + fallback_continue,
+  required => `MCP_REQUIRED_BLOCKED` fail-closed em todos os ramos
+  (timeout/rede/circuito/erro comum/lock-busy/guard-busy/cap/
+  cell-unavailable); guard de autoridade sempre-nega (nenhum
+  resultado concede ou transporta grants); telemetria JSONL
+  sanitizada bounded (allowlists fechadas, redação por campo,
+  framing `len:valor`, cap com rotação fail-closed, skip `lock-busy`
+  sob contenção); reserva atômica de capacidade via célula C#
+  compartilhada (in-flight + abandonados ≤ 8; abandono consome a
+  unidade permanentemente; sem célula => fail-closed); timeout da
+  probe com `BeginStop` + margem de settle bounded e abandono
+  deliberado de runspace sem dispose (`settled=false`, sem rollback —
+  retry automático de efeitos colaterais proibido); todos os locks
+  com aquisição bounded (zero `Monitor.Enter` sem timeout; ordem
+  global→chave documentada). Fechamento **FIX6–FIX10** (2026-10-02,
+  5 rounds Reviewer + 2 Security): estado do circuito e locks por
+  chave compartilhados **no processo** (dicionários privados em C#,
+  `TryEnter` bounded, ordem global→chave), validação estrita do wire
+  com **UNKNOWN fail-closed** (ausência ≠ falha de leitura; wire
+  malformado nunca vira CLOSED), normalização
+  `MCP_REQUIRED_BLOCKED`/`blocked=true` em **todos** os ramos
+  `required`, recursão de policy bounded (profundidade/nós/ciclo),
+  falha de leitura pós-admissão sem escrita, cap de wire 4096 antes
+  do split. Suíte **202/202** (PS5.1 + PS7, runner oficial; 123 base
+  + 79 asserts novos); regressões: watchdog **80/80**, kernel
+  **75/75** (PS5.1), McpRouter **58/58**, flags **20/20**,
+  consistência **16/16**;
+  `capability-flags.json` byte-idêntico (`mcp_routing` segue OFF),
+  nenhum arquivo de plugin tocado. Reviews: Reviewer **APPROVED**
+  (round 10; 10 rounds no total) + Security **APPROVED** (sem
+  HIGH/CRITICAL; 2 LOW resolvidos — store em campos C# privados e
+  cap de wire antes do split; fixture não-cooperativa determinística
+  prova retorno bounded do chamador).
+  HOLDs honestos: TurnId declarado sem autenticação; runspace não é
+  sandbox (só scriptblocks confiáveis do kernel); locks in-process
+  (cross-process follow-up); ocupação por abandono não-reclaimable;
+  enforcement em transporte real (plugin/integração TS) é slice 2;
+  falha pré-existente/ambiental da suíte `WatchdogEnforcement`
+  provada por A/B sem os arquivos do slice.
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;
