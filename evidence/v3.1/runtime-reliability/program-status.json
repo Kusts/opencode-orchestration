@@ -395,6 +395,23 @@
       ],
       "task_id": "RR-P38-PLANNER-LOOP-S1 (+FIX1..FIX2)"
     },
+    "phase38_dispatch_pipeline_slice2": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase38.json",
+      "summary": "Dispatch integration (fatia 2): pipeline kernel-side RECORD-ONLY que consome o PLAN RECORD do planner loop e produz bundle de despacho: contratos de worker com os 9 campos derivados somente de plan+descriptor declarado (ausente => incomplete sem inventar), allowlist fechada de papeis com identidade Ordinal+controle ANTES da sanitizacao, no-widen (budget nao reservado => rota minima; workers vazio declarado => 0 contratos; cap de workers com contador de consumo independente, enumerable sem contagem consome no maximo cap+1), sequenciamento parallel so com booleano real, prefill de evidencia so de plan.reuse, gate de completion P36 fail-closed (unknown-required-role/gate-unverifiable/gate-unavailable/validation-stage-unavailable), persistencia P35 so com store_dir explicito (path ORIGINAL verbatim; display sanitizado) e >=1 invalidation_condition, gate_status em vocabulario fechado, truncagem UTF-8 com surrogate pairs atomicos, cap declarado so aperta 8KB, determinismo byte-identico.",
+      "status": "done-code-fix3",
+      "reviews": "reviewer APPROVED r4 + security APPROVED r4 (FIX1 6 findings, FIX2 6 findings, FIX2b corrida de temp entre processos, FIX3 4 findings; mutacoes de verificacao 10/10 capturadas)",
+      "holds": [
+        "gate valida shape, nao autenticidade de proveniencia: bundle nunca e autoridade independente; DONE/verified_pass permanece kernel-side",
+        "spawn real de workers segue operador/decisao de ativacao (record-only)",
+        "fast path de truncagem assume Unicode valido (residual LOW: surrogate orfao em string que ja cabe no cap)",
+        "enumerable limita quantidade, nao duracao por operacao (nao e sandbox)"
+      ],
+      "suites": [
+        "OrchestrationDispatchPipeline.tests.ps1 201/201 (powershell 5.1 + pwsh 7, incluindo roda CONCORRENTE entre engines)",
+        "regressoes: PlannerLoop 21/21, ValidationPolicy 35/35, EvidenceStore PASS, SimplicityPolicy 31/31, ExecutionModes 35/35, consistency 16/16"
+      ],
+      "task_id": "RR-P38-S2-DISPATCH-PIPELINE (+FIX1..FIX3)"
+    },
     "phase39_capability_doctor_slice1": {
       "evidence": "evidence/v3.1/runtime-reliability/phase39.json",
       "summary": "Capability Doctor (plan 16): descritores estendidos com schema validation tipada (platform_support booleano ESTRITO pos-bug [bool]false), doctor read-only com probes sinteticos injetaveis (budget = metadado honesto), fallback valida destino, risk_class execution/authority sem health => typed blocker, jevgrep optional com Windows-unsupported honesto.",
@@ -446,7 +463,7 @@
       "status": "done-code-fix2",
       "reviews": "reviewer APPROVED r3 + security APPROVED r3",
       "holds": [
-        "RELEASE GATE REAL PENDENTE DO OPERADOR: lane V2 Windows, VPS AI Memory, ativacoes de flag, probes reais, jevgrep, wirings fatia 2, contadores P41",
+        "RELEASE GATE REAL PENDENTE DO OPERADOR: lane V2 Windows, VPS AI Memory, ativacoes de flag, probes reais, jevgrep, wiring fatia 2 P31 session-start (P38 dispatch entregue kernel-side), contadores P41",
         "SEM FAKE-CLOSE"
       ],
       "suites": [
@@ -474,11 +491,11 @@
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
-    "verdict": "APPROVED parcial por slice (findings corrigidos e revalidados; HOLDs registrados). Slices 2026-10-02: P28-S1 r10, P28-S2 r3, P29-S1 r3, P30-S1 r2, P31-S1 r4, P32 r5, P33-S1 r4, P34 r4, P35 r3, P36 r3, P37 r3, P38 r3, P39 r3, P40 r2, P41 r4, P42 r3 - todos APPROVED (reviewer + security)",
+    "verdict": "APPROVED parcial por slice (findings corrigidos e revalidados; HOLDs registrados). Slices 2026-10-02: P28-S1 r10, P28-S2 r3, P29-S1 r3, P30-S1 r2, P31-S1 r4, P32 r5, P33-S1 r4, P34 r4, P35 r3, P36 r3, P37 r3, P38 r3, P38-S2 r4, P39 r3, P40 r2, P41 r4, P42 r3 - todos APPROVED (reviewer + security)",
     "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); RR-P34-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (round 2); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
-    "phases_26_42": "Programa V3.1 Runtime Reliability CODE-COMPLETE nas fatias kernel-side/plugin (2026-10-02): P26 S1, P27 S1, P28 S1+S2, P29 S1, P30 S1, P31 S1, P32, P33 S1, P34, P35, P36, P37, P38, P39, P40, P41, P42 fatia 1 - todas com suites verdes, reviewer + security APPROVED e HOLDs explicitos. Pendencias de ATIVACAO/EVIDENCIA do operador: lane V2 Windows real (E2E), deploy VPS AI Memory + re-preflight de porta, ativacao de flags com evidencia, probes reais de health/transporte, jevgrep real, wirings fatia 2 (P31 session-start, P38 dispatch), produtores de telemetria P41, revisor de supersessao de evidencias P40.",
+    "phases_26_42": "Programa V3.1 Runtime Reliability CODE-COMPLETE nas fatias kernel-side/plugin (2026-10-02): P26 S1, P27 S1, P28 S1+S2, P29 S1, P30 S1, P31 S1, P32, P33 S1, P34, P35, P36, P37, P38 S1+S2 (dispatch integration kernel-side entregue), P39, P40, P41, P42 fatia 1 - todas com suites verdes, reviewer + security APPROVED e HOLDs explicitos. Pendencias de ATIVACAO/EVIDENCIA do operador: lane V2 Windows real (E2E), deploy VPS AI Memory + re-preflight de porta, ativacao de flags com evidencia, probes reais de health/transporte, jevgrep real, wiring fatia 2 P31 session-start, produtores de telemetria P41, revisor de supersessao de evidencias P40.",
     "explicit_holds": [
       "P28-S1: TurnId nao autenticado; ativacao de flag = decisao humana",
       "P28-S2: enforcement em binario real nao validado (shadow default)",

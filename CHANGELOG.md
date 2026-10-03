@@ -425,6 +425,20 @@ plano em
   Simplicity→Risk→mode→budget→dispatch→gaps→complete reusando
   P29/P34–P37; PLAN RECORD com cap 8KB garantido via envelope mínimo
   válido; Jev não-autoritativo; 21/21).
+- **P38 fatia 2 done-code-fix3** — dispatch integration kernel-side
+  (`OrchestrationDispatchPipeline.ps1`): pipeline **record-only** que
+  consome o PLAN RECORD e produz bundle de despacho — contratos de
+  worker com os 9 campos do contrato de delegação derivados só de
+  plan+descriptor declarado; no-widen (budget não reservado ⇒ rota
+  mínima; workers vazio declarado ⇒ 0 contratos; cap com contador de
+  consumo independente); gate de completion P36 fail-closed
+  (unknown-required-role/gate-unverifiable/gate-unavailable/
+  validation-stage-unavailable); persistência P35 só com `store_dir`
+  explícito (path original verbatim) e ≥1 invalidation_condition;
+  truncagem UTF-8 com surrogate pairs atômicos; determinismo
+  byte-idêntico. Suíte **201/201** (PS5.1 + pwsh, roda concorrente).
+  Reviews: Reviewer **APPROVED** (round 4) + Security **APPROVED**
+  (round 4). Ativação operacional do despacho = decisão do operador.
 - **P39 done-code-fix2** — capability doctor (descriptores com bool
   estrito pós-bug de coerção, fallback valida destino, risk_class
   execution/authority bloqueia, jevgrep opcional com
