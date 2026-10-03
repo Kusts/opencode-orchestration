@@ -1,0 +1,79 @@
+{
+    "smoke":  "v2-ci-smoke-lifecycle",
+    "date":  "2026-10-03",
+    "status":  "ok",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "expected_version":  "2.0.18",
+    "version_exact":  true,
+    "service_port":  49339,
+    "preflight_outcome":  "PORT_FREE",
+    "listener_observed":  {
+                              "pid":  "20140",
+                              "name":  "opencode",
+                              "path_prefix_match":  true
+                          },
+    "port49374_owner_before":  "1872",
+    "port49374_owner_after":  "1872",
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos (so PATH/SystemRoot/ComSpec/PATHEXT/TEMP/TMP/PSModulePath); cwd no TargetHome; stdin fechado",
+    "checks":  [
+                   {
+                       "name":  "version_exact",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.18; obtido: opencode v2.0.18"
+                   },
+                   {
+                       "name":  "config_19_workers_built",
+                       "passed":  true,
+                       "detail":  "opencode.json gerado via AgentTranslator com 19 workers (esperado 19)"
+                   },
+                   {
+                       "name":  "isolation_paths",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado, -CleanEnvironment); config resolve no TargetHome"
+                   },
+                   {
+                       "name":  "port_preflight_free",
+                       "passed":  true,
+                       "detail":  "cmd: Invoke-PreflightPort (lib P22) na porta 49339 =\u003e PORT_FREE should_start=True"
+                   },
+                   {
+                       "name":  "service_port_configured",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service set port =\u003e 49339 (rc=0)"
+                   },
+                   {
+                       "name":  "service_start_explicit",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service start (rc=0; -CleanEnvironment)"
+                   },
+                   {
+                       "name":  "service_listener_observed",
+                       "passed":  true,
+                       "detail":  "listener porta 49339 (deadline 30s): seen=True ausente_conclusiva=False consultas_inconclusivas=0 pid=20140 name=opencode path_prefix_match=True (fato observado, sem claim OWNED - REUSE HOLD P22)"
+                   },
+                   {
+                       "name":  "service_private_running",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service status (rc=0): url_privada=True menciona_49374=False (fatos allowlisted, sem stdout bruto)"
+                   },
+                   {
+                       "name":  "service_stop_owned",
+                       "passed":  true,
+                       "detail":  "cmd: \u003cbin\u003e service stop (rc=0; sem kill de PID)"
+                   },
+                   {
+                       "name":  "service_settlement",
+                       "passed":  true,
+                       "detail":  "apos stop (deadline 30s): ausente_conclusiva=True ainda_presente=False consultas_inconclusivas=0 (terminacao do processo NAO afirmada)"
+                   },
+                   {
+                       "name":  "port49374_untouched",
+                       "passed":  true,
+                       "detail":  "owner antes=1872 depois=1872 (nunca iniciada nem alterada; QUERY_FAILED falha o invariante)"
+                   }
+               ],
+    "notes":  [
+                  "caminho implicito de startup (debug config) NAO tentado aqui: flake upstream caracterizado no 2.0.18 (debugcfg-hang-investigation.json); este smoke prova o ciclo explicito do servico gerenciado (padrao P22).",
+                  "nenhum PID preexistente ou externo terminado; stop e via CLI do servico; home isolado EXCLUSIVO em TEMP; ambiente dos filhos limpo (-CleanEnvironment); nenhuma flag ativada."
+              ]
+}

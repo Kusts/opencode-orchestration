@@ -536,6 +536,29 @@ especificação e plano em
   Suíte 148→**164** asserts (PS5.1 + pwsh); EvolutionLoop 147/147;
   mutation check provou não-vacuidade (7 asserts caem sem o fix).
   Reviewer **APPROVED** (r2) + Security **APPROVED**.
+- **Phase 8 follow-up done-code (2026-10-03)** — smoke de binário V2
+  real via **ciclo de vida explícito** do serviço gerenciado
+  (`scripts/ci/smoke-opencode-v2-lifecycle.ps1`, padrão P22): resolve
+  binário com **versão exata pinada** (`Test-SpikeExactVersion`, shims
+  resolvidos para `.exe`, pin imutável 2.0.18), home isolado **exclusivo
+  por execução**, filhos com **`-CleanEnvironment`** (só
+  PATH/SystemRoot/ComSpec/PATHEXT/TEMP/TMP/PSModulePath), preflight de
+  porta **PORT_FREE && ShouldStart** (49374 recusada na seleção),
+  `service set/start/status/stop` owned com listener observado como FATO
+  (contrato exato da lib P22: `QuerySucceeded`/`Exists`/`OwningPID`;
+  janelas por deadline com modos presence/absence; consulta inconclusiva
+  nunca decide), settlement por **ausência conclusiva** (sem claim de
+  terminação), invariante 49374 antes/depois, cleanup gated por
+  `Invoke-SpikeServiceStopIfOwned` (recusa não-owned provada em execução),
+  exceções e bootstrap com evidência failed + exit 1. **3/3 PASS** no
+  binário exato 2.0.18 (portas 49339/49635/57173; 49374 owner 1872
+  estável). Reviews: Reviewer **APPROVED** (r3) + Security **APPROVED**
+  (r3). Evidência: `evidence/v3.1/kernel-hardening/
+  v2-ci-smoke-lifecycle*.json` (inclui sumário honesto das 5 execuções,
+  2 falhas iniciais por bugs do PRÓPRIO script — contrato de observação e
+  semântica inconclusive — sem fake-close). O caminho implícito (debug
+  config) segue flaky upstream e fora deste path; wiring do passo no job
+  CI aguarda primeira execução no runner.
 - **Waves A–E code-complete kernel-side/plugin (2026-10-02/03)**;
   pendências de ativação/evidência do operador listadas em
   `evidence/v3.1/runtime-reliability/program-status.json`; rastreio por

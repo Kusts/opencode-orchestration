@@ -606,7 +606,8 @@
     "evidence_dir": "evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/",
     "converted_scenarios": ["RR-E2E-01", "RR-E2E-02", "RR-E2E-03"],
     "residual": "debug config (caminho implicito) e cenarios de watchdog/sessao/restart (integracao de sessao real) seguem bloqueando o gate",
-    "script_date_fix_2026_10_03": "campo date do smoke-opencode-v2.ps1 era hardcoded '2026-09-30' (nota script_note acima) e agora e carimbado do relogio na escrita; os artefatos desta lane permanecem como registro historico do que rodou (sem reescrita de evidencia)"
+    "script_date_fix_2026_10_03": "campo date do smoke-opencode-v2.ps1 era hardcoded '2026-09-30' (nota script_note acima) e agora e carimbado do relogio na escrita; os artefatos desta lane permanecem como registro historico do que rodou (sem reescrita de evidencia)",
+    "lifecycle_smoke_2026_10_03": "NOVO path de smoke de binario V2 COMPROVADO: scripts/ci/smoke-opencode-v2-lifecycle.ps1 (ciclo de vida explicito do servico gerenciado, padrao P22) — 3/3 PASS no binario exato 2.0.18 (portas 49339/49635/57173), 49374 intocada (owner 1872 estavel), reviewer APPROVED r3 + security APPROVED r3, evidencia em evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle*.json; reduz a dependencia do release gate em relacao ao caminho implicito flaky (debug config), que segue BLOCKER upstream para RR-E2E-39"
   },
   "invariants": [
     "ai-memory nunca mutado (listener local 127.0.0.1:49374 mantido; migração para VPS planejada, nao executada)",

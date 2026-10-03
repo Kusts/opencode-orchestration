@@ -1,0 +1,59 @@
+{
+  "record": "v2-ci-smoke-lifecycle-summary-2026-10-03",
+  "date": "2026-10-03",
+  "executor": "Planner deterministico (preflight DETERMINISTIC_FALLBACK hard_exclusion_security_sensitive - processo/porta nao delegavel)",
+  "script": "scripts/ci/smoke-opencode-v2-lifecycle.ps1",
+  "binary": "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+  "version_exact": "opencode v2.0.18 (Test-SpikeExactVersion, regex exato)",
+  "purpose": "Path de CI comprovado em Windows para o smoke de binario V2 real via ciclo de vida EXPLICITO do servico gerenciado (padrao P22), sem depender do caminho implicito flaky (debug config; flake upstream caracterizado em debugcfg-hang-investigation.json).",
+  "runs": [
+    {
+      "n": 1,
+      "time": "~15:14",
+      "port": 55434,
+      "status": "failed-honest (sobrescrito por runs seguintes; fatos no transcript)",
+      "result": "service start rc=0, listener 'ausente' apos 10s",
+      "cause": "BUG DO SCRIPT (nao do produto): observacao usava campo OwningProcess inexistente no contrato da lib (correto: QuerySucceeded/Exists/OwningPID) - listener nunca seria reconhecido"
+    },
+    {
+      "n": 2,
+      "time": "~15:20",
+      "port": 55082,
+      "status": "failed-honest (sobrescrito; fatos no transcript)",
+      "result": "mesma assinatura, run detached limpo (sobreviveu a restarts do harness)",
+      "cause": "mesmo bug de observacao da run 1; diagnostico adicionado: service status rc=0 com URL privada correta (o daemon ESTAVA de pe)"
+    },
+    {
+      "n": 3,
+      "time": "15:21:50-15:24:10",
+      "port": 60876,
+      "status": "failed-honest (sobrescrito; fatos no transcript)",
+      "result": "apos fix do contrato de observacao: 9/10 checks PASS; settlement falhou",
+      "cause": "BUG DO SCRIPT: Inconclusive pegajoso (uma consulta falha sob carga envenenava a janela inteira); a porta foi conferida livre logo apos - o servico PAROU, so nao dentro da semantica quebrada. Correcao: ausencia CONCLUSIVA (consulta com sucesso sem listener) prova settlement; consulta falha apenas conta"
+    },
+    {
+      "n": 4,
+      "time": "~15:31",
+      "port": 49339,
+      "status": "PASS (11/11 checks)",
+      "evidence": "arquivado em v2-ci-smoke-lifecycle-run1-<stamp>.json",
+      "listener": "pid=20140 name=opencode path_prefix_match=True (binario do perfil)"
+    },
+    {
+      "n": 5,
+      "time": "~15:36",
+      "port": 49635,
+      "status": "PASS (reproducao consecutiva)",
+      "evidence": "evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle.json (arquivo final)"
+    }
+  ],
+  "invariants_observed": [
+    "49374: owner 1872 nos snapshots antes/depois de todos os runs que chegaram a amostrar (PID preexistente de 08:08; nunca iniciado nem alterado)",
+    "nenhum PID preexistente ou externo terminado; stop exclusivamente via CLI do servico com gates de ownership (Invoke-SpikeServiceStopIfOwned no cleanup)",
+    "home isolado EXCLUSIVO por execucao em TEMP; ambiente dos filhos limpo (-CleanEnvironment: so PATH/SystemRoot/ComSpec/PATHEXT/TEMP/TMP/PSModulePath)",
+    "nenhuma flag ativada; sem credenciais no ambiente dos filhos; sem stdout bruto na evidencia (fatos allowlisted)"
+  ],
+  "reviews": "reviewer CHANGES_REQUIRED r1 (6 findings) + security CHANGES_REQUIRED r1 (4 findings) => TODOS aplicados na reescrita; reviewer r2 CHANGES_REQUIRED (2 findings: break prematuro no startup, init fora do try) + security r2 CHANGES_REQUIRED (SEC4 pin) => aplicados; FINAL: reviewer APPROVED r3 + security APPROVED r3",
+  "verdict": "path-comprovado-reproduzivel: 3/3 PASS (2 pos-fix-r1 nas portas 49339/49635 + 1 pos-fix-r2 na porta 57173) no binario exato 2.0.18 com ciclo de vida explicito; cleanup gated provou recusa nao-owned em execucao real; smoke implicito (debug config) segue flaky upstream e fora deste path",
+  "no_fake_close": true
+}

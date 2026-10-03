@@ -1,0 +1,9 @@
+{
+    "smoke":  "v2-ci-smoke-lifecycle",
+    "date":  "2026-10-03",
+    "cleanup":  {
+                    "attempted":  false,
+                    "stopped":  false,
+                    "reason":  "status sem endpoint privado 127.0.0.1:57173: stop ausente (nao-owned)"
+                }
+}

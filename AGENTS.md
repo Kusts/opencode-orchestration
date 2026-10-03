@@ -90,7 +90,8 @@ do escopo V3.1. Classes ativas: `RUNTIME_COMPATIBILITY` +
 `FEATURE_REEVALUATION` (+ `AUTHORITY_HARDENING` do kernel).
 Estado (sem histórico de sessão): Phases 0–4, 6–7 e 9–19 implementadas e
 verdes; Phase 5 = só harness (enforcement comportamental V2 em HOLD honesto);
-Phase 8 = lane CI sem smoke de binário V2; Runtime Reliability P21 done
+Phase 8 = lane CI com smoke de binário V2 COMPROVADO via lifecycle explícito
+(2026-10-03, 3/3 PASS, path local; wiring no runner pendente); Runtime Reliability P21 done
 (baseline + fixtures 17/17), P22 parcial-HOLD (preflight + wrapper
 condicionado + E2E nativo; REUSE HOLD), P23 done-record-only (budgets,
 sem enforcement), P24 parcial (plugin V2 event.subscribe + live-hook;
