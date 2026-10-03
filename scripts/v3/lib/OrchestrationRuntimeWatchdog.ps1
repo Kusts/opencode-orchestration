@@ -102,9 +102,79 @@
         shadow=false (or node missing) => WATCHDOG_DISABLED, no effect.
         enabled=false + shadow=true => shadow telemetry only.
         This file never writes flags.
+      - Cross-process telemetry write coordination: the pre-size
+        accounting + append runs under a NAMED kernel mutex whose name
+        is deterministic from the CANONICAL telemetry directory
+        ([IO.Path]::GetFullPath + [IO.DirectoryInfo].FullName, folded
+        to lower case, sha256 hash16), so every writer in every process
+        that spells the same directory differently - relative or
+        absolute, trailing separator, '.\' suffix, internal '..\',
+        other case - coordinates on the same object (the in-process
+        Monitor alone only covered one writer per process). The wait is
+        BOUNDED ($script:WatchdogTelemetryMutexWaitMs, default 300 ms)
+        and telemetry is best-effort observability: contention SKIPS the
+        write with an honest reason ('lock-busy'), never blocking the
+        caller path. An ABANDONED mutex (holder died mid-append) is
+        fail-safe too: AbandonedMutexException is caught, ownership
+        released at once and the write SKIPPED ('mutex-abandoned'). An
+        unopenable mutex also skips ('mutex-unavailable'); the writer
+        never throws and never writes uncoordinated.
+        KNOWN LIMITATION (best-effort, documented on purpose): the gate
+        is a NAME, so a hostile process may squat it and hold it. Every
+        event then pays one bounded 300 ms wait and is dropped
+        ('lock-busy'), and an abandoned name is not even signalled when
+        no other handle keeps the object alive. Therefore watchdog
+        telemetry is ADVISORY ONLY: missing events (or a whole missing
+        day) are acceptable, and telemetry MUST NEVER be used as
+        mandatory proof of execution, authorization or settlement -
+        under the Evidence Contract a verified_pass comes only from the
+        kernel / an allowlisted verifier, never from this file.
+      - Framing guard for the same file: before every append, under the
+        gate, Test-WatchdogTelemetryTailIntact requires the file to end
+        with a complete LF-terminated JSON line (bounded 8 KB tail
+        read); otherwise the event is refused ('tail-incomplete' /
+        'tail-unreadable') and the fragment is preserved as evidence.
+        Losing one event is acceptable, corrupting the JSONL is not.
+      - Bounded multi-day retention of the same telemetry (the P25
+        follow-up): one operation resolves the telemetry directory
+        EXACTLY ONCE and pins that absolute value for target, gate and
+        sweep (a relative root must never be re-resolved later against
+        the process working directory). Invoke-WatchdogTelemetryRetention
+        sweeps ONLY files
+        whose name matches the watchdog daily pattern
+        (watchdog-YYYYMMDD.jsonl) in the resolved telemetry directory
+        and deletes the ones whose stamp is strictly older than the
+        horizon ($script:WatchdogTelemetryRetentionDays, default 7
+        days: today plus the horizon are always kept), refusing the
+        sweep entirely when the telemetry directory is itself a reparse
+        point ('reparse-detected'). Caps bound the work per call
+        ($script:WatchdogRetentionMaxExamined, default 64 ENTRIES
+        examined, spent per file system entry visited - names outside
+        the pattern and subdirectories included - by incremental
+        enumeration; 0 means 'examine nothing', returned before any
+        enumeration; $script:WatchdogRetentionMaxDeleted, default 32
+        deleted), the clock is injectable (-AtUtc) for determinism, and
+        a per-file delete failure leaves that file in place and
+        continues the sweep. Anything not matching the pattern, and any
+        directory, is never touched. Deletion covers the oldest files
+        WITHIN THE EXAMINED BATCH and reports 'truncated' conservatively
+        from the counter (no probe). Retention runs best-effort after a
+        successful telemetry write (the write result is never changed by
+        it).
+        ACCEPTED RESIDUAL - retention has NO cross-call cursor: a
+        non-deletable prefix (in-horizon files, files owned by someone
+        else, hostile names) can consume the whole budget on every call
+        and starve the entries behind it. This is best-effort cleanup of
+        a shadow-path directory controlled by the kernel, so a cursor is
+        out of scope on purpose; the starvation is at least OBSERVABLE
+        (no_progress / 'no-progress' when truncated with nothing
+        deleted) instead of silent. A cursor becomes a follow-up only if
+        enforcement is ever activated. As everywhere else here, telemetry
+        is never proof of execution or authorization.
       - Bounded: per-execution fingerprint history capped at 256 entries
         (oldest evicted, counter kept); telemetry file rotation cap
-        (1 MB per daily file, check+append under an exclusive lock,
+        (1 MB per daily file, check+append under the exclusive
+        in-process lock AND the cross-process named mutex,
         fail-closed: accounting failure or overflow refuses the write);
         clock is UTC (Get-Date).ToUniversalTime() unless -AtUtc
         overrides (tests); settlement wait bounded (30 x 100ms); no
@@ -132,6 +202,10 @@ $script:WatchdogHistoryCap = 256
 $script:WatchdogTelemetryCapBytes = 1048576
 $script:WatchdogNearLimitRatio = 0.8
 $script:WatchdogTelemetryLock = New-Object Object
+$script:WatchdogTelemetryMutexWaitMs = 300
+$script:WatchdogTelemetryRetentionDays = 7
+$script:WatchdogRetentionMaxExamined = 64
+$script:WatchdogRetentionMaxDeleted = 32
 $script:WatchdogSimulateAccountingFailure = $false
 
 # ---------- repo / path helpers ----------
@@ -487,7 +561,58 @@ function Get-WatchdogTaskHash16 {
     catch { return 'unavailable' }
 }
 
-function Get-WatchdogTelemetryFile {
+function Resolve-WatchdogCanonicalDirectoryPath {
+    <#
+    .SYNOPSIS
+        Canonical ABSOLUTE directory path (shared by the writer, the
+        cross-process mutex name and retention, so all three agree on
+        one identity for "the same directory"): [IO.Path]::GetFullPath
+        (collapses '.', '..' and relative segments) followed by
+        [IO.DirectoryInfo].FullName (canonical rooted form, no trailing
+        separator). A relative path resolves against the PROCESS working
+        directory ([Environment]::CurrentDirectory), deliberately NOT the
+        PowerShell location: a per-runspace location would make the same
+        call resolve differently depending on the caller's session,
+        while the process directory is the stable base two producers
+        writing the same relative path already agree on. Case is folded
+        later by the mutex name, so the common spellings of one Windows
+        path - different case, trailing separator, '.\' suffix,
+        internal '..\', relative vs absolute - produce the SAME mutex and
+        the SAME sweep target. Returns '' when no canonical form can be
+        derived (callers
+        fail safe: skip the write / refuse the sweep, never act on a
+        half-resolved path).
+        LIMITATION (accepted residual): junction/symlink/subst ALIASES
+        are NOT resolved to a common target - a path reached through an
+        alias gets that alias' identity. Only the trusted caller chooses
+        the telemetry root, so this cannot redirect one writer's data
+        into another's gate.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Path)
+    try {
+        $p = ([string]$Path).Trim()
+        if ([string]::IsNullOrWhiteSpace($p)) { return '' }
+        $full = [IO.Path]::GetFullPath($p)
+        if ([string]::IsNullOrWhiteSpace([string]$full)) { return '' }
+        $info = [IO.DirectoryInfo]::new([string]$full)
+        return ([string]$info.FullName)
+    }
+    catch { return '' }
+}
+
+function Get-WatchdogTelemetryDirectory {
+    <#
+    .SYNOPSIS
+        Single CANONICAL resolution of the telemetry DIRECTORY:
+        -TelemetryRoot when given, else <repo>\cache\v3\telemetry,
+        passed through Resolve-WatchdogCanonicalDirectoryPath. Shared by
+        the daily file name, the cross-process mutex name and retention,
+        so the writer, the gate and the sweep always agree on one
+        directory identity (one mutex, one cap, one sweep target).
+        Never throws.
+    #>
     [CmdletBinding()]
     param([string]$TelemetryRoot, [string]$RepoRoot)
     try {
@@ -496,10 +621,506 @@ function Get-WatchdogTelemetryFile {
             $repo = Get-WatchdogRepoRoot -RepoRoot $RepoRoot
             $dir = Join-Path $repo 'cache\v3\telemetry'
         }
+        return (Resolve-WatchdogCanonicalDirectoryPath -Path ([string]$dir))
+    }
+    catch { return '' }
+}
+
+function Test-WatchdogTelemetryDirectoryReparse {
+    <#
+    .SYNOPSIS
+        Guard for the retention sweep: the telemetry directory ITSELF
+        must not be a reparse point (junction/symlink/mount point).
+        A junction would silently redirect deletion outside the physical
+        directory the caller believes it owns, so the sweep is REFUSED
+        fail-safe (delete nothing, structured reason) instead of
+        traversing it. A plain missing/unreadable directory is reported
+        too, but as its own reason.
+        ACCEPTED RESIDUAL (same judgement as the security review): a
+        reparse point in an ANCESTOR of the telemetry root is not
+        resolved or refused - the trusted caller owns the root it hands
+        in, and a per-directory check here cannot prove anything about
+        ancestors without walking the whole volume. Returns
+        @{ok; reason} where reason is '' | 'no-directory' |
+        'attributes-unavailable' | 'reparse-detected'. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Directory)
+    try {
+        $dir = ([string]$Directory).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) { return [PSCustomObject]@{ ok = $false; reason = 'no-directory' } }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return [PSCustomObject]@{ ok = $false; reason = 'no-directory' } }
+        $attrs = 0
+        try { $attrs = [int][IO.File]::GetAttributes($dir) }
+        catch { return [PSCustomObject]@{ ok = $false; reason = 'attributes-unavailable' } }
+        if (($attrs -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) {
+            return [PSCustomObject]@{ ok = $false; reason = 'reparse-detected' }
+        }
+        return [PSCustomObject]@{ ok = $true; reason = '' }
+    }
+    catch { return [PSCustomObject]@{ ok = $false; reason = 'attributes-unavailable' } }
+}
+
+function Get-WatchdogTelemetryFile {
+    <#
+    .SYNOPSIS
+        Daily file name (watchdog-YYYYMMDD.jsonl) inside a telemetry
+        directory. -Directory, when given, is used AS IS: it is the
+        already-resolved canonical value the caller pinned for this
+        operation, and re-resolving it would re-introduce the
+        working-directory dependency the pinning exists to remove (see
+        Resolve-WatchdogCanonicalDirectoryPath and the single-resolution
+        rule in Write-WatchdogTelemetryEvent). Without -Directory the
+        directory is resolved from -TelemetryRoot/-RepoRoot.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$TelemetryRoot, [string]$RepoRoot, [string]$Directory = '')
+    try {
+        $dir = ([string]$Directory).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            $dir = Get-WatchdogTelemetryDirectory -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
+        }
+        if ([string]::IsNullOrWhiteSpace($dir)) { return '' }
         $stamp = ([DateTimeOffset]::UtcNow.ToString('yyyyMMdd'))
         return (Join-Path $dir ('watchdog-' + $stamp + '.jsonl'))
     }
     catch { return '' }
+}
+
+function Get-WatchdogTelemetryMutexName {
+    <#
+    .SYNOPSIS
+        Deterministic CROSS-PROCESS gate name for a telemetry directory:
+        'Global\OrchWatchdogTel-<sha256 hash16>' over the CANONICAL
+        directory path (Resolve-WatchdogCanonicalDirectoryPath:
+        [IO.Path]::GetFullPath + [IO.DirectoryInfo].FullName) folded to
+        invariant lower case. Every common spelling of one Windows path -
+        different case, trailing separator, '.\' suffix, internal '..\',
+        relative vs absolute - therefore derives the SAME name, so the
+        exclusivity of the rotation cap really is cross-process for the
+        same directory. LIMITATION: junction/symlink/subst aliases are
+        NOT resolved (see Resolve-WatchdogCanonicalDirectoryPath).
+        -Directory wins over -TelemetryRoot/-RepoRoot. Returns '' when no
+        name can be derived (callers then skip the write: fail-safe,
+        never uncoordinated). Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$TelemetryRoot, [string]$RepoRoot, [string]$Directory = '')
+    try {
+        $dir = ([string]$Directory).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            $dir = Get-WatchdogTelemetryDirectory -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
+        }
+        else { $dir = Resolve-WatchdogCanonicalDirectoryPath -Path $dir }
+        if ([string]::IsNullOrWhiteSpace($dir)) { return '' }
+        $norm = ($dir -replace '/', '\').TrimEnd('\').ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($norm)) { return '' }
+        $bytes = [Text.Encoding]::UTF8.GetBytes($norm)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { $digest = $sha.ComputeHash($bytes) }
+        finally { try { $sha.Dispose() } catch { } }
+        $hex = ((($digest | ForEach-Object { $_.ToString('x2') }) -join '').ToLowerInvariant()).Substring(0, 16)
+        return ('Global\OrchWatchdogTel-' + $hex)
+    }
+    catch { return '' }
+}
+
+function Enter-WatchdogTelemetryWriteGate {
+    <#
+    .SYNOPSIS
+        Cross-process write gate for the daily watchdog JSONL. Opens the
+        named mutex derived from the telemetry directory and acquires it
+        with a BOUNDED wait ($script:WatchdogTelemetryMutexWaitMs,
+        default 300 ms): telemetry is best-effort observability, so
+        contention SKIPS the write with an honest reason instead of
+        blocking the caller path (lock-busy). Abandonment by a holder
+        that died mid-append is fail-safe: AbandonedMutexException is
+        caught, the ownership it grants is released immediately and the
+        write is SKIPPED (mutex-abandoned), so no line is ever appended
+        after a possibly truncated one. A mutex that cannot be opened at
+        all also skips (mutex-unavailable; Global namespace first,
+        session Local namespace as fallback). Returns
+        @{ok; skipped; mutex; owned} - the caller releases ownership and
+        disposes the handle. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$TelemetryFile = '', [string]$TelemetryRoot = '', [string]$RepoRoot = '')
+    $mutex = $null
+    try {
+        $dir = ''
+        try { $dir = ([string](Split-Path -Parent ([string]$TelemetryFile))).Trim() } catch { $dir = '' }
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            $dir = Get-WatchdogTelemetryDirectory -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
+        }
+        $name = Get-WatchdogTelemetryMutexName -Directory $dir
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            return [PSCustomObject]@{ ok = $false; skipped = 'mutex-unavailable'; mutex = $null; owned = $false }
+        }
+        $waitMs = 300
+        try { $waitMs = [int]$script:WatchdogTelemetryMutexWaitMs } catch { $waitMs = 300 }
+        if ($waitMs -lt 0) { $waitMs = 0 }
+        if ($waitMs -gt 10000) { $waitMs = 10000 }
+        $candidates = @($name)
+        if ($name.StartsWith('Global\')) { $candidates += ('Local\' + $name.Substring(7)) }
+        else { $candidates += ('Global\' + $name) }
+        foreach ($cand in @($candidates)) {
+            $m = $null
+            try { $m = [System.Threading.Mutex]::new($false, [string]$cand) }
+            catch { try { if ($null -ne $m) { $m.Dispose() } } catch { }; $m = $null }
+            if ($null -eq $m) { continue }
+            $took = $false
+            $abandoned = $false
+            try { $took = [bool]$m.WaitOne([int]$waitMs) }
+            catch [System.Threading.AbandonedMutexException] { $abandoned = $true; $took = $true }
+            catch { $took = $false }
+            if ([bool]$abandoned) {
+                try { $m.ReleaseMutex() } catch { }
+                try { $m.Dispose() } catch { }
+                return [PSCustomObject]@{ ok = $false; skipped = 'mutex-abandoned'; mutex = $null; owned = $false }
+            }
+            if (-not [bool]$took) {
+                try { $m.Dispose() } catch { }
+                return [PSCustomObject]@{ ok = $false; skipped = 'lock-busy'; mutex = $null; owned = $false }
+            }
+            $mutex = $m
+            return [PSCustomObject]@{ ok = $true; skipped = ''; mutex = $m; owned = $true }
+        }
+        return [PSCustomObject]@{ ok = $false; skipped = 'mutex-unavailable'; mutex = $null; owned = $false }
+    }
+    catch {
+        try { if ($null -ne $mutex) { try { $mutex.ReleaseMutex() } catch { }; try { $mutex.Dispose() } catch { } } } catch { }
+        return [PSCustomObject]@{ ok = $false; skipped = 'mutex-unavailable'; mutex = $null; owned = $false }
+    }
+}
+
+function Exit-WatchdogTelemetryWriteGate {
+    <#
+    .SYNOPSIS
+        Deterministic release choke point for the cross-process gate:
+        releases ownership (only when acquired) and disposes the handle,
+        exactly once per successful acquisition, on every exit path.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param($Mutex, [bool]$Owned = $false)
+    try {
+        if ($null -ne $Mutex) {
+            if ([bool]$Owned) { try { $Mutex.ReleaseMutex() } catch { } }
+            try { $Mutex.Dispose() } catch { }
+        }
+    }
+    catch { }
+}
+
+function Invoke-WatchdogTelemetryRetention {
+    <#
+    .SYNOPSIS
+        Bounded multi-day retention of the watchdog telemetry (P25
+        follow-up). -Directory, when given, is the ALREADY-RESOLVED
+        canonical directory pinned by the caller for this operation and
+        is used as is (FIX8: the writer resolves once and passes that
+        value, so a working-directory change during the operation can
+        never redirect the sweep); without it the directory is resolved
+        from -TelemetryRoot/-RepoRoot. Sweeps
+        the resolved telemetry directory and deletes
+        ONLY files whose name matches the daily watchdog pattern
+        (watchdog-YYYYMMDD.jsonl, strict case-sensitive pattern with a
+        valid calendar stamp) whose stamp is strictly older than the
+        horizon ($script:WatchdogTelemetryRetentionDays, default 7
+        days: today plus the horizon are always kept). Anything else in
+        the directory - other producers, other extensions, malformed
+        stamps - is never touched, and the directory ITSELF must not be
+        a reparse point (junction/symlink): such a directory is refused
+        fail-safe with reason 'reparse-detected' and nothing is deleted
+        (a reparse point in an ANCESTOR is an accepted residual: the
+        trusted caller owns the root it hands in - see
+        Test-WatchdogTelemetryDirectoryReparse). Work is bounded per call by
+        -MaxFilesExamined (default $script:WatchdogRetentionMaxExamined,
+        64) and -MaxFilesDeleted (default
+        $script:WatchdogRetentionMaxDeleted, 32), spent by INCREMENTAL
+        enumeration of EVERY file system entry
+        ([IO.Directory]::EnumerateFileSystemEntries, NO glob): each entry
+        visited costs budget BEFORE any validation, whatever it is - a
+        non-matching name, a subdirectory, a telemetry-looking directory
+        - so a directory flooded by an untrusted writer cannot make one
+        append materialize, validate and sort an unbounded list, and no
+        entry is ever scanned for free outside the declared budget. Only
+        the limited batch is ordered, so deletion targets the OLDEST
+        files WITHIN THE EXAMINED BATCH - not a claimed global oldest,
+        which would require scanning everything. 'truncated' is reported
+        CONSERVATIVELY as (examined == max examined) with NO probe (a
+        probe would visit one entry outside the budget), so a directory
+        holding exactly as many entries as the cap reports truncated
+        even when nothing was left behind. An examined cap of 0 returns
+        'cap-zero' BEFORE any enumerator is created, so nothing is even
+        listed. The clock is injectable
+        (-AtUtc, DateTime or ISO string) for deterministic tests. A
+        per-file delete failure leaves that file in place and CONTINUES
+        the sweep (counted in failed); the result is advisory telemetry
+        bookkeeping and never throws. Only files of OTHER days are
+        deleted, never the file the current process appends to, and
+        never a directory.
+        STARVATION SIGNAL (no cursor by design): there is no cross-call
+        cursor, so a non-deletable prefix can consume the whole budget on
+        every call. When that happens the result says so explicitly -
+        no_progress=$true with reason='no-progress' (truncated with
+        nothing deleted) - instead of looking like a healthy sweep.
+        Returns @{ok; examined; deleted; retained; failed; truncated;
+        no_progress; retention_days; max_examined; max_deleted; reason}.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$TelemetryRoot = '',
+        [string]$RepoRoot = '',
+        $AtUtc = $null,
+        [int]$RetentionDays = -1,
+        [int]$MaxFilesExamined = -1,
+        [int]$MaxFilesDeleted = -1,
+        [string]$Directory = ''
+    )
+    $days = 7
+    $maxExam = 64
+    $maxDel = 32
+    try {
+        try { $days = [int]$script:WatchdogTelemetryRetentionDays } catch { $days = 7 }
+        if ($RetentionDays -ge 0) { $days = [int]$RetentionDays }
+        if ($days -lt 1) { $days = 1 }
+        if ($days -gt 3650) { $days = 3650 }
+        try { $maxExam = [int]$script:WatchdogRetentionMaxExamined } catch { $maxExam = 64 }
+        if ($MaxFilesExamined -ge 0) { $maxExam = [int]$MaxFilesExamined }
+        if ($maxExam -lt 0) { $maxExam = 0 }
+        if ($maxExam -gt 4096) { $maxExam = 4096 }
+        try { $maxDel = [int]$script:WatchdogRetentionMaxDeleted } catch { $maxDel = 32 }
+        if ($MaxFilesDeleted -ge 0) { $maxDel = [int]$MaxFilesDeleted }
+        if ($maxDel -lt 0) { $maxDel = 0 }
+        if ($maxDel -gt 4096) { $maxDel = 4096 }
+        $res = [ordered]@{
+            ok             = $true
+            examined       = 0
+            deleted        = 0
+            retained       = 0
+            failed         = 0
+            truncated      = $false
+            no_progress    = $false
+            retention_days = [int]$days
+            max_examined   = [int]$maxExam
+            max_deleted    = [int]$maxDel
+            reason         = ''
+        }
+        # FIX8: -Directory carries the ALREADY-RESOLVED canonical directory
+        # pinned by the caller for this operation and is used as is.
+        # Re-resolving a relative -TelemetryRoot here would resolve it
+        # against [Environment]::CurrentDirectory AGAIN, and that value is
+        # process-wide mutable: a working-directory change between the
+        # writer's target resolution and this sweep could then delete old
+        # telemetry in a DIFFERENT directory than the one just written.
+        $dir = ([string]$Directory).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            $dir = Get-WatchdogTelemetryDirectory -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
+        }
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            $res['ok'] = $false
+            $res['reason'] = 'no-directory'
+            return [PSCustomObject]$res
+        }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+            $res['reason'] = 'no-directory'
+            return [PSCustomObject]$res
+        }
+        # F4: never sweep THROUGH a reparse point. A junction used AS the
+        # telemetry directory would redirect deletion outside the physical
+        # directory the caller believes it owns, so the whole sweep is
+        # refused (nothing deleted, structured reason).
+        $rp = Test-WatchdogTelemetryDirectoryReparse -Directory $dir
+        if (-not [bool]$rp.ok) {
+            if ([string]$rp.reason -ceq 'no-directory') {
+                $res['reason'] = 'no-directory'
+                return [PSCustomObject]$res
+            }
+            if ([string]$rp.reason -ceq 'reparse-detected') {
+                $res['reason'] = 'reparse-detected'
+                return [PSCustomObject]$res
+            }
+            $res['ok'] = $false
+            $res['reason'] = [string]$rp.reason
+            return [PSCustomObject]$res
+        }
+        # FIX5: a zero examined-cap means "examine NOTHING", so return
+        # BEFORE any enumerator exists - the directory is not even listed.
+        if ($maxExam -le 0) {
+            $res['reason'] = 'cap-zero'
+            return [PSCustomObject]$res
+        }
+        $now = Get-WatchdogUtcNow -AtUtc $AtUtc
+        $cutoff = $now.Date.AddDays(-[double]$days)
+        # F3/FIX5: incremental enumeration of EVERY file system entry (no
+        # glob filter), budget spent per ENTRY VISITED BEFORE any
+        # validation: a name outside the pattern, a subdirectory or a
+        # malformed stamp all cost the budget, so a hostile directory can
+        # never make one append materialize, validate and sort an
+        # unbounded list, and no entry is scanned for free. Only the
+        # limited batch is validated and ordered, so deletion targets the
+        # OLDEST files WITHIN THE EXAMINED BATCH (never a claimed global
+        # oldest, which would require scanning everything).
+        $batch = New-Object System.Collections.ArrayList
+        $examined = 0
+        $scanFailed = $false
+        $enum = $null
+        $it = $null
+        try { $enum = [IO.Directory]::EnumerateFileSystemEntries([string]$dir); $it = $enum.GetEnumerator() }
+        catch { $scanFailed = $true }
+        if ([bool]$scanFailed) {
+            $res['ok'] = $false
+            $res['reason'] = 'scan-failed'
+            return [PSCustomObject]$res
+        }
+        try {
+            while ($examined -lt [int]$maxExam) {
+                $has = $false
+                try { $has = [bool]$it.MoveNext() } catch { $scanFailed = $true; break }
+                if (-not $has) { break }
+                $examined++
+                $p = ''
+                try { $p = [string]$it.Current } catch { $p = '' }
+                $leaf = ''
+                try { $leaf = [IO.Path]::GetFileName([string]$p) } catch { $leaf = '' }
+                if ([string]::IsNullOrWhiteSpace($leaf)) { continue }
+                $rx = [regex]::Match($leaf, '^watchdog-(\d{8})\.jsonl$')
+                if (-not $rx.Success) { continue }
+                $stamp = [string]$rx.Groups[1].Value
+                $day = $null
+                try {
+                    $yy = [int]$stamp.Substring(0, 4)
+                    $mm = [int]$stamp.Substring(4, 2)
+                    $dd = [int]$stamp.Substring(6, 2)
+                    $day = [DateTime]::new($yy, $mm, $dd, 0, 0, 0, [DateTimeKind]::Utc)
+                }
+                catch { $day = $null }
+                if ($null -eq $day) { continue }
+                # A DIRECTORY that happens to carry a telemetry-looking
+                # name is never deleted: it spent budget, it is kept.
+                $isDirEntry = $false
+                try {
+                    $ea = [int][IO.File]::GetAttributes([string]$p)
+                    $isDirEntry = (($ea -band [int][IO.FileAttributes]::Directory) -ne 0)
+                }
+                catch { continue }
+                if ($isDirEntry) { $res['retained'] = ([int]$res['retained'] + 1); continue }
+                [void]$batch.Add([PSCustomObject]@{ path = [string]$p; name = $leaf; day = $day })
+            }
+            # FIX5: truncation is reported CONSERVATIVELY from the counter
+            # itself. No probe MoveNext here: a peek would visit one more
+            # entry OUTSIDE the budget (and would enumerate at all when
+            # the cap is 0).
+            if ((-not [bool]$scanFailed) -and ($examined -ge [int]$maxExam)) { $res['truncated'] = $true }
+        }
+        finally { try { if ($null -ne $it) { $it.Dispose() } } catch { } }
+        $res['examined'] = [int]$examined
+        if ([bool]$scanFailed) {
+            $res['ok'] = $false
+            $res['reason'] = 'scan-failed'
+            return [PSCustomObject]$res
+        }
+        $ordered = @($batch | Sort-Object -Property name)
+        foreach ($c in @($ordered)) {
+            if ($c.day -ge $cutoff) { $res['retained'] = ([int]$res['retained'] + 1); continue }
+            if ([int]$res['deleted'] -ge [int]$maxDel) { $res['retained'] = ([int]$res['retained'] + 1); continue }
+            try {
+                [IO.File]::Delete([string]$c.path)
+                $res['deleted'] = ([int]$res['deleted'] + 1)
+            }
+            catch { $res['failed'] = ([int]$res['failed'] + 1) }
+        }
+        # FIX6: the sweep has no cursor, so a non-deletable prefix can eat
+        # the whole budget on EVERY call. That starvation is observable,
+        # not silent: truncated AND nothing deleted => no_progress (with
+        # a structured reason) so an operator can see the sweep is stuck
+        # on entries it will never remove. Cursor-based continuation
+        # across calls is an accepted residual (judged out of scope:
+        # best-effort cleanup in a shadow path, kernel-controlled
+        # directory).
+        if ([bool]$res['truncated'] -and ([int]$res['deleted'] -eq 0)) {
+            $res['no_progress'] = $true
+            $res['reason'] = 'no-progress'
+        }
+        return [PSCustomObject]$res
+    }
+    catch {
+        return [PSCustomObject]@{
+            ok = $false; examined = 0; deleted = 0; retained = 0; failed = 0; truncated = $false; no_progress = $false
+            retention_days = [int]$days; max_examined = [int]$maxExam; max_deleted = [int]$maxDel; reason = 'internal'
+        }
+    }
+}
+
+function Test-WatchdogTelemetryTailIntact {
+    <#
+    .SYNOPSIS
+        Cheap deterministic FRAMING check for the daily JSONL, run under
+        the write gate immediately BEFORE an append (F1): an absent or
+        empty file is intact; otherwise the file must END with a
+        complete LF-terminated line whose content parses as JSON. At
+        most the last 8192 bytes are read, and the inspected line always
+        starts at an LF inside that window, so no partial multi-byte
+        character is ever decoded and the whole file is never scanned.
+        A writer terminated mid-append leaves a fragment without the
+        terminating LF (or a non-parsable last line); the caller then
+        REFUSES the append with a structured reason, preserving the
+        fragment as evidence instead of concatenating the next event
+        onto it - losing one event is acceptable, corrupting the file is
+        not. Returns @{ok; reason} where reason is '' |
+        'tail-incomplete' | 'tail-unreadable'. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Path, [int]$WindowBytes = 8192)
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path)) { return [PSCustomObject]@{ ok = $true; reason = '' } }
+        $len = [long]0
+        try {
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return [PSCustomObject]@{ ok = $true; reason = '' } }
+            $len = ([IO.FileInfo]::new($Path)).Length
+        }
+        catch { return [PSCustomObject]@{ ok = $false; reason = 'tail-unreadable' } }
+        if ([long]$len -eq 0) { return [PSCustomObject]@{ ok = $true; reason = '' } }
+        $win = 8192
+        if ($WindowBytes -lt 64) { $win = 64 }
+        if ([long]$win -gt [long]$len) { $win = [int]$len }
+        $fs = $null
+        $raw = $null
+        $read = 0
+        try {
+            $fs = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            [void]$fs.Seek(([long]$len - [long]$win), [IO.SeekOrigin]::Begin)
+            $raw = New-Object byte[] $win
+            $read = $fs.Read($raw, 0, $win)
+        }
+        catch { return [PSCustomObject]@{ ok = $false; reason = 'tail-unreadable' } }
+        finally { try { if ($null -ne $fs) { $fs.Dispose() } } catch { } }
+        if ($read -le 0) { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
+        if ([int]$read -lt $win) {
+            $slice = New-Object byte[] $read
+            [Array]::Copy($raw, 0, $slice, 0, [int]$read)
+        }
+        else { $slice = $raw }
+        if ($slice[$slice.Length - 1] -ne 10) { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
+        $endIdx = ($slice.Length - 1)
+        $startIdx = -1
+        for ($i = ($endIdx - 1); $i -ge 0; $i--) {
+            if ($slice[$i] -eq 10) { $startIdx = $i; break }
+        }
+        if ($startIdx -lt 0) { $startIdx = 0 }
+        $lineLen = ($endIdx - $startIdx)
+        if ($lineLen -le 0) { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
+        $lineBytes = New-Object byte[] $lineLen
+        [Array]::Copy($slice, $startIdx, $lineBytes, 0, $lineLen)
+        $line = ''
+        try { $line = [Text.Encoding]::UTF8.GetString($lineBytes) } catch { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
+        if ([string]::IsNullOrWhiteSpace($line)) { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
+        try { [void]($line | ConvertFrom-Json) } catch { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
+        return [PSCustomObject]@{ ok = $true; reason = '' }
+    }
+    catch { return [PSCustomObject]@{ ok = $false; reason = 'tail-incomplete' } }
 }
 
 function Write-WatchdogTelemetryEvent {
@@ -514,7 +1135,30 @@ function Write-WatchdogTelemetryEvent {
         under source 'watchdog-enforce' with shadow=false, through the
         same caps and lock. Check (pre-size accounting) + append run
         atomically under an exclusive in-process lock (Monitor on a
-        script-scope object; PS 5.1 compatible, released in finally).
+        script-scope object; PS 5.1 compatible, released in finally)
+        AND, for cross-process coordination, under a NAMED kernel mutex
+        whose name is deterministic from the telemetry directory
+        (Enter-WatchdogTelemetryWriteGate): acquired with a bounded wait
+        (default 300 ms), so contention SKIPS the write with an honest
+        reason ('lock-busy') instead of blocking the caller path, and an
+        abandoned mutex (holder died mid-append) also skips
+        ('mutex-abandoned') instead of appending after a possibly
+        truncated line; an unopenable mutex skips ('mutex-unavailable').
+        Because the OS only reports abandonment while the mutex OBJECT
+        survives (an observer handle), the abandonment signal alone
+        cannot protect the framing: before every append, under the gate,
+        Test-WatchdogTelemetryTailIntact verifies the file ends with a
+        complete LF-terminated JSON line and otherwise refuses the event
+        ('tail-incomplete', fragment preserved as evidence; an unreadable
+        file is 'tail-unreadable'). Losing one event is acceptable,
+        corrupting the JSONL is not.
+        The telemetry directory is resolved EXACTLY ONCE per call and
+        that absolute value is PINNED for the whole operation: target
+        file, cross-process gate and retention sweep all consume it.
+        [Environment]::CurrentDirectory is process-wide and mutable, so
+        re-resolving a relative root halfway through the call could make
+        the sweep delete old telemetry in a DIFFERENT directory than the
+        one just written (FIX8).
         Fail-closed: mkdir failure, accounting failure (size unreadable
         or fault-injection seam $script:WatchdogSimulateAccountingFailure
         set for tests) or overflow all refuse the write with a skipped
@@ -523,8 +1167,10 @@ function Write-WatchdogTelemetryEvent {
         sleeps inside the lock before the append of WATCHDOG_SETTLED
         events ONLY, so integration tests deterministically cross the
         enforce deadline with a slow terminal writer without delaying
-        earlier events off the pre-terminal gates. Returns @{ok, skipped}.
-        Never throws, never blocks.
+        earlier events off the pre-terminal gates. After a SUCCESSFUL
+        append the bounded multi-day retention sweep runs best-effort
+        (Invoke-WatchdogTelemetryRetention) and never changes this
+        result. Returns @{ok, skipped}. Never throws, never blocks.
     #>
     [CmdletBinding()]
     param(
@@ -568,11 +1214,33 @@ function Write-WatchdogTelemetryEvent {
         try { $text = ($doc | ConvertTo-Json -Depth 4 -Compress) }
         catch { return [PSCustomObject]@{ ok = $false; skipped = 'serialize' } }
         if ([string]::IsNullOrWhiteSpace($text)) { return [PSCustomObject]@{ ok = $false; skipped = 'serialize' } }
-        $target = Get-WatchdogTelemetryFile -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
+        # FIX8: ONE resolution per operation. The telemetry directory is
+        # canonicalized exactly ONCE here and the resulting absolute
+        # value is pinned for the whole call: the daily file target, the
+        # cross-process gate and the retention sweep all consume THAT
+        # value ([Environment]::CurrentDirectory is process-wide and
+        # mutable, so re-resolving a relative root later in the call
+        # could send the sweep to a different destination than the one
+        # that was just written).
+        $teleDir = Get-WatchdogTelemetryDirectory -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($teleDir)) { return [PSCustomObject]@{ ok = $false; skipped = 'no-target' } }
+        $target = Get-WatchdogTelemetryFile -Directory $teleDir
         if ([string]::IsNullOrWhiteSpace($target)) { return [PSCustomObject]@{ ok = $false; skipped = 'no-target' } }
         $lockTaken = $false
+        $gateMutex = $null
+        $gateOwned = $false
+        $writeResult = $null
         try {
             [System.Threading.Monitor]::Enter($script:WatchdogTelemetryLock, [ref]$lockTaken)
+            # Cross-process coordination: bounded named mutex per telemetry
+            # directory. Contention/abandonment SKIP the write (honest
+            # reason, best-effort observability), never block or throw.
+            $gate = Enter-WatchdogTelemetryWriteGate -TelemetryFile $target
+            if (-not [bool]$gate.ok) {
+                return [PSCustomObject]@{ ok = $false; skipped = [string]$gate.skipped }
+            }
+            $gateMutex = $gate.mutex
+            $gateOwned = [bool]$gate.owned
             try {
                 $parent = Split-Path -Parent $target
                 if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
@@ -592,6 +1260,18 @@ function Write-WatchdogTelemetryEvent {
                 }
             }
             catch { return [PSCustomObject]@{ ok = $false; skipped = 'accounting-unavailable' } }
+            # F1 framing guard: under the gate, before appending, the
+            # tail must be a complete LF-terminated JSON line. A writer
+            # terminated mid-append leaves a fragment; appending onto it
+            # would concatenate two events into one corrupt line, so the
+            # event is dropped (best-effort) and the fragment is kept as
+            # evidence.
+            $tail = Test-WatchdogTelemetryTailIntact -Path $target
+            if (-not [bool]$tail.ok) {
+                $tailCode = ([string]$tail.reason).Trim()
+                if ([string]::IsNullOrWhiteSpace($tailCode)) { $tailCode = 'tail-incomplete' }
+                return [PSCustomObject]@{ ok = $false; skipped = $tailCode }
+            }
             try {
                 try {
                     $ovw = $script:WatchdogTreeTestOverride
@@ -605,15 +1285,25 @@ function Write-WatchdogTelemetryEvent {
                 }
                 catch { }
                 [IO.File]::AppendAllText($target, ($text + "`n"), [Text.UTF8Encoding]::new($false))
-                return [PSCustomObject]@{ ok = $true; skipped = '' }
+                $writeResult = [PSCustomObject]@{ ok = $true; skipped = '' }
             }
-            catch { return [PSCustomObject]@{ ok = $false; skipped = 'write' } }
+            catch { $writeResult = [PSCustomObject]@{ ok = $false; skipped = 'write' } }
         }
         finally {
+            Exit-WatchdogTelemetryWriteGate -Mutex $gateMutex -Owned $gateOwned
             if ($lockTaken) {
                 try { [System.Threading.Monitor]::Exit($script:WatchdogTelemetryLock) } catch { }
             }
         }
+        # Bounded retention sweep after a SUCCESSFUL append, with both
+        # locks already released: it only touches OTHER days' files, so
+        # it never corrupts the event just written and never keeps a
+        # contending writer waiting. Best-effort: it never changes the
+        # result returned to the caller.
+        if (($null -ne $writeResult) -and [bool]$writeResult.ok) {
+            try { [void](Invoke-WatchdogTelemetryRetention -Directory $teleDir) } catch { }
+        }
+        return $writeResult
     }
     catch { return [PSCustomObject]@{ ok = $false; skipped = 'internal' } }
 }

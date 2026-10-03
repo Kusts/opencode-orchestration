@@ -23,6 +23,29 @@
     Phase 25 never interrupts: every would_interrupt=true assert also
     proves the execution is still registered and no task file was
     written.
+    Telemetry follow-ups (cross-process write coordination + bounded
+    multi-day retention): deterministic gate name per telemetry
+    directory, a real OWN child process holding the mutex (write skips
+    lock-busy in bounded time, nothing written, recovers afterwards), a
+    child killed mid-hold (write applies the policy without hanging,
+    recovers afterwards, and the abandonment SIGNAL is asserted at the
+    gate where Windows still delivers it), retention deleting ONLY
+    matching files strictly older than the injected-Now horizon, caps
+    honored, non-matching files untouched, per-file delete error
+    non-fatal, the sweep wired into the successful write without
+    damaging it, plus the FIX reviews: canonical directory identity (one
+    mutex per directory spelling), bounded incremental sweep under a
+    flooded directory, no sweep through a reparse point, and JSONL
+    framing preserved after a truncated tail, plus the FIX reviews:
+    canonical directory identity (one mutex per directory spelling,
+    absolute AND relative), one resolution per operation (writer, gate
+    and sweep share the pinned directory even when the process working
+    directory moves in between), bounded incremental sweep with the budget
+    spent before any filtering (including names outside the pattern and
+    subdirectories, cap 0 = no enumeration, conservative truncation with
+    no probe), observable retention starvation (no_progress), no sweep
+    through a reparse point, and JSONL framing preserved after a
+    truncated tail.
 #>
 [CmdletBinding()]
 param()
@@ -33,6 +56,7 @@ $libPath = Join-Path $PSScriptRoot 'OrchestrationRuntimeWatchdog.ps1'
 
 $script:passed = 0
 $script:failed = 0
+$script:wdChildren = New-Object System.Collections.ArrayList
 
 function Assert-Watchdog {
     param([bool]$Condition, [string]$Name, [string]$Detail = '')
@@ -91,6 +115,94 @@ function Get-WatchdogTeleText {
     }
     catch { }
     return $acc
+}
+
+# ---------- cross-process gate helpers (OWN ephemeral children only) ----------
+
+function Get-WatchdogTestShell {
+    # Current host executable (so each engine spawns its own flavor),
+    # with the standard powershell.exe fallback chain. Never throws.
+    try {
+        $fn = ''
+        try { $fn = [string]([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) } catch { $fn = '' }
+        if ((-not [string]::IsNullOrWhiteSpace($fn)) -and (Test-Path -LiteralPath $fn -PathType Leaf)) { return $fn }
+    }
+    catch { }
+    $c = Get-Command powershell.exe -ErrorAction SilentlyContinue
+    if (($null -ne $c) -and (-not [string]::IsNullOrWhiteSpace([string]$c.Source))) { return ([string]$c.Source) }
+    return (Join-Path ([string]$env:SystemRoot) 'System32\WindowsPowerShell\v1.0\powershell.exe')
+}
+
+function Get-WatchdogMutexHolderScript {
+    # Standalone holder: acquires the named mutex, signals readiness,
+    # then holds it for -HoldMs. Writes only the ready file; never
+    # touches the repository.
+    $lines = @(
+        'param(',
+        '    [Parameter(Mandatory = $true)][string]$MutexName,',
+        '    [Parameter(Mandatory = $true)][string]$ReadyFile,',
+        '    [int]$HoldMs = 2500',
+        ')',
+        '$ErrorActionPreference = ''Stop''',
+        '$m = [System.Threading.Mutex]::new($false, $MutexName)',
+        '$ok = $false',
+        'try { $ok = [bool]$m.WaitOne(30000) } catch { $ok = $false }',
+        'try { [IO.File]::WriteAllText($ReadyFile, (''held='' + [string]$ok)) } catch { }',
+        'if ($HoldMs -gt 0) { Start-Sleep -Milliseconds ([int]$HoldMs) }',
+        'if ($ok) { try { $m.ReleaseMutex() } catch { } }',
+        'try { $m.Dispose() } catch { }',
+        'exit 0'
+    )
+    return ($lines -join "`n")
+}
+
+function Start-WatchdogMutexHolder {
+    param([string]$MutexName, [string]$ReadyFile, [int]$HoldMs = 2500)
+    $shell = Get-WatchdogTestShell
+    $holder = Join-Path $tempRoot ('mutex-holder-' + [guid]::NewGuid().ToString('N') + '.ps1')
+    Write-WatchdogFixture -Path $holder -Text (Get-WatchdogMutexHolderScript)
+    $proc = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $holder + '"'), '-MutexName', ('"' + $MutexName + '"'), '-ReadyFile', ('"' + $ReadyFile + '"'), '-HoldMs', ([string]$HoldMs)) -WindowStyle Hidden -PassThru
+    [void]$script:wdChildren.Add($proc)
+    return $proc
+}
+
+function Wait-WatchdogFileReady {
+    param([string]$Path, [int]$TimeoutMs = 20000)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt [long]$TimeoutMs) {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) { return $true }
+        Start-Sleep -Milliseconds 50
+    }
+    return (Test-Path -LiteralPath $Path -PathType Leaf)
+}
+
+function Stop-WatchdogOwnChild {
+    param($Proc)
+    try {
+        if ($null -ne $Proc) {
+            try { $Proc.Refresh() } catch { }
+            if (-not [bool]$Proc.HasExited) { Stop-Process -Id ([int]$Proc.Id) -Force -ErrorAction SilentlyContinue }
+            try { [void]$Proc.WaitForExit(10000) } catch { }
+        }
+    }
+    catch { }
+}
+
+function Write-WatchdogJsonlFixture {
+    param([Parameter(Mandatory = $true)][string]$Dir, [Parameter(Mandatory = $true)][string]$Name)
+    $p = Join-Path $Dir $Name
+    [IO.File]::WriteAllText($p, ('{' + '"ts":"2026-01-01T00:00:00.0000000Z"' + '}' + "`n"), [Text.UTF8Encoding]::new($false))
+    return $p
+}
+
+function Get-WatchdogDirNames {
+    param([string]$Dir)
+    $names = @()
+    try {
+        foreach ($f in @(Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue)) { $names += ([string]$f.Name) }
+    }
+    catch { }
+    return $names
 }
 
 try {
@@ -441,6 +553,398 @@ try {
     Assert-Watchdog (((($k1 -ceq $k2) -and ($k2 -ceq $k3)) -and ($k3 -ceq $kR)) -and ($k1 -cmatch '^[0-9a-f]{64}$')) 'SK-/Sk-/sk- canary variants converge to redacted form' ($k1)
     Assert-Watchdog (($k1 -notmatch 'SYNTHETICSECRET') -and ($k1 -notmatch 'SYNTH')) 'upper/mixed canary values never leak' ''
 
+    # 30. FOLLOW-UP cross-process gate: the mutex name is deterministic
+    #     from the telemetry directory (closed charset, no path chars),
+    #     so every process that resolves the same directory coordinates
+    #     on the SAME kernel object.
+    $teleGate = Join-Path $tempRoot 'telemetry-gate'
+    New-Item -ItemType Directory -Path $teleGate -Force | Out-Null
+    $gateName = Get-WatchdogTelemetryMutexName -TelemetryRoot $teleGate -RepoRoot $repo
+    $gateNameSame = Get-WatchdogTelemetryMutexName -Directory ((Join-Path $teleGate '.'))
+    $gateNameOther = Get-WatchdogTelemetryMutexName -TelemetryRoot $teleSilent -RepoRoot $repo
+    Assert-Watchdog ([string]$gateName -cmatch '^Global\\OrchWatchdogTel-[0-9a-f]{16}$') 'gate name is a deterministic closed-charset global mutex name' ([string]$gateName)
+    Assert-Watchdog (([string]$gateName -ceq [string]$gateNameSame) -and ([string]$gateName -cne [string]$gateNameOther)) 'gate name stable per directory, distinct per directory' (([string]$gateName + ' vs ' + [string]$gateNameOther))
+
+    # 31. HIGH cross-process contention: an OWN ephemeral child process
+    #     holds the mutex for ~2.5s; the write must SKIP with an honest
+    #     reason in bounded time (never block on the holder, never
+    #     throw, never leave a partial line), and must succeed again once
+    #     the holder is gone.
+    $teleLock = Join-Path $tempRoot 'telemetry-lock'
+    New-Item -ItemType Directory -Path $teleLock -Force | Out-Null
+    $lockName = Get-WatchdogTelemetryMutexName -TelemetryRoot $teleLock -RepoRoot $repo
+    $lockReady = Join-Path $tempRoot 'mutex-holder-ready.txt'
+    $lockChild = Start-WatchdogMutexHolder -MutexName $lockName -ReadyFile $lockReady -HoldMs 2500
+    $lockHeld = Wait-WatchdogFileReady -Path $lockReady -TimeoutMs 20000
+    $swLock = [System.Diagnostics.Stopwatch]::StartNew()
+    $wLock = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-lock-1' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $teleLock -RepoRoot $repo
+    $swLock.Stop()
+    Assert-Watchdog ([bool]$lockHeld) 'contention fixture: child acquired the telemetry mutex' ''
+    Assert-Watchdog (((-not [bool]$wLock.ok)) -and ([string]$wLock.skipped -ceq 'lock-busy')) 'real cross-process contention skips the write with lock-busy' ([string]$wLock.skipped)
+    Assert-Watchdog ($swLock.ElapsedMilliseconds -lt 2000) 'contention skip is bounded (did not wait out the holder)' (([string]$swLock.ElapsedMilliseconds + 'ms for a 2500ms holder'))
+    Assert-Watchdog (-not (Test-Path -LiteralPath (Get-WatchdogTelemetryFile -TelemetryRoot $teleLock -RepoRoot $repo) -PathType Leaf)) 'skipped write created no file, no partial line' ''
+    Stop-WatchdogOwnChild -Proc $lockChild
+    $wAfterLock = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-lock-2' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $teleLock -RepoRoot $repo
+    $lockFile = Get-WatchdogTelemetryFile -TelemetryRoot $teleLock -RepoRoot $repo
+    $lockLines = @()
+    try { $lockLines = @([IO.File]::ReadAllLines($lockFile, [Text.Encoding]::UTF8) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) } catch { }
+    Assert-Watchdog (([bool]$wAfterLock.ok) -and (@($lockLines).Count -eq 1)) 'write succeeds again after contention, exactly one complete line' (([string]$wAfterLock.skipped + '/' + [string](@($lockLines).Count)))
+
+    # 32. HIGH abandoned mutex: a child acquires the mutex and dies
+    #     WITHOUT releasing it. The next write must not hang and must
+    #     apply the fail-safe policy (skip with the structured
+    #     mutex-abandoned reason, since a writer that died mid-append
+    #     may have left a truncated line), then succeed afterwards.
+    $teleAband = Join-Path $tempRoot 'telemetry-abandon'
+    New-Item -ItemType Directory -Path $teleAband -Force | Out-Null
+    $abandName = Get-WatchdogTelemetryMutexName -TelemetryRoot $teleAband -RepoRoot $repo
+    $abandReady = Join-Path $tempRoot 'mutex-abandon-ready.txt'
+    $abandChild = Start-WatchdogMutexHolder -MutexName $abandName -ReadyFile $abandReady -HoldMs 60000
+    $abandHeld = Wait-WatchdogFileReady -Path $abandReady -TimeoutMs 20000
+    Stop-WatchdogOwnChild -Proc $abandChild
+    Assert-Watchdog ([bool]$abandHeld) 'abandon fixture: OWN child acquired the telemetry mutex and died holding it' ''
+    $swAb = [System.Diagnostics.Stopwatch]::StartNew()
+    $wAb = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-aband-1' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $teleAband -RepoRoot $repo
+    $swAb.Stop()
+    $abSkip = [string]$wAb.skipped
+    Assert-Watchdog ($swAb.ElapsedMilliseconds -lt 2000) 'abandoned mutex never hangs the caller' (([string]$swAb.ElapsedMilliseconds + 'ms'))
+    Assert-Watchdog (((-not [bool]$wAb.ok)) -or ([string]$abSkip -ceq '')) 'abandoned mutex applies a policy: skip with a reason, or a clean write when no signal arrives' ($abSkip)
+    $abFile = Get-WatchdogTelemetryFile -TelemetryRoot $teleAband -RepoRoot $repo
+    $abLines = @()
+    $abBad = 0
+    try {
+        $abLines = @([IO.File]::ReadAllLines($abFile, [Text.Encoding]::UTF8) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        foreach ($abLine in @($abLines)) { try { [void]($abLine | ConvertFrom-Json) } catch { $abBad++ } }
+    }
+    catch { $abBad = 1 }
+    Assert-Watchdog (([bool]$wAb.ok) -and (@($abLines).Count -eq 1) -and ($abBad -eq 0)) 'after a real abandonment the file holds exactly one complete parseable line' (($abSkip + '/' + [string](@($abLines).Count) + '/' + [string]$abBad))
+    $wAfterAb = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-aband-2' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $teleAband -RepoRoot $repo
+    Assert-Watchdog ([bool]$wAfterAb.ok) 'write recovers after an abandoned mutex (gate not leaked)' ([string]$wAfterAb.skipped)
+    # Signal leg at the gate: Windows only delivers
+    # AbandonedMutexException while the mutex OBJECT survives, i.e. while
+    # some other handle is open. That observer handle is a test fixture
+    # for the signal itself (never needed for the policy above); the gate
+    # must release the ownership the exception grants and skip, and the
+    # next acquire must succeed - otherwise the abandoned name would
+    # wedge every later event.
+    $abandKeep = $null
+    try {
+        $abandKeep = [System.Threading.Mutex]::new($false, $abandName)
+        $abandReady2 = Join-Path $tempRoot 'mutex-abandon-ready2.txt'
+        $abandChild2 = Start-WatchdogMutexHolder -MutexName $abandName -ReadyFile $abandReady2 -HoldMs 60000
+        [void](Wait-WatchdogFileReady -Path $abandReady2 -TimeoutMs 20000)
+        Stop-WatchdogOwnChild -Proc $abandChild2
+        $sigGate = Enter-WatchdogTelemetryWriteGate -TelemetryRoot $teleAband -RepoRoot $repo
+        Assert-Watchdog (((-not [bool]$sigGate.ok)) -and ([string]$sigGate.skipped -ceq 'mutex-abandoned')) 'abandonment signal: gate skips with mutex-abandoned (fail-safe)' ([string]$sigGate.skipped)
+        $sigGate2 = Enter-WatchdogTelemetryWriteGate -TelemetryRoot $teleAband -RepoRoot $repo
+        $sig2ok = [bool]$sigGate2.ok
+        $sig2skip = [string]$sigGate2.skipped
+        Exit-WatchdogTelemetryWriteGate -Mutex $sigGate2.mutex -Owned ([bool]$sigGate2.owned)
+        Assert-Watchdog ([bool]$sig2ok) 'gate not wedged after an abandonment (next acquire succeeds, ownership released)' ([string]$sig2skip)
+    }
+    finally { try { if ($null -ne $abandKeep) { $abandKeep.Dispose() } } catch { } }
+
+    # 33. FOLLOW-UP retention horizon/caps are documented defaults in the lib
+    Assert-Watchdog (([int]$script:WatchdogTelemetryRetentionDays -eq 7) -and ([int]$script:WatchdogRetentionMaxExamined -eq 64) -and ([int]$script:WatchdogRetentionMaxDeleted -eq 32)) 'retention defaults documented: 7-day horizon, 64 examined, 32 deleted' (([string]$script:WatchdogTelemetryRetentionDays + '/' + [string]$script:WatchdogRetentionMaxExamined + '/' + [string]$script:WatchdogRetentionMaxDeleted))
+
+    # 34. HIGH retention deletes ONLY matching watchdog files strictly
+    #     older than the horizon; every non-matching file in the same
+    #     directory is left untouched. Now is injected (deterministic).
+    $retNow = [DateTime]::new(2026, 3, 20, 12, 0, 0, [DateTimeKind]::Utc)
+    $teleRet = Join-Path $tempRoot 'telemetry-retention'
+    New-Item -ItemType Directory -Path $teleRet -Force | Out-Null
+    $retOld = Write-WatchdogJsonlFixture -Dir $teleRet -Name 'watchdog-20260312.jsonl'
+    $retEdge = Write-WatchdogJsonlFixture -Dir $teleRet -Name 'watchdog-20260313.jsonl'
+    $retToday = Write-WatchdogJsonlFixture -Dir $teleRet -Name 'watchdog-20260320.jsonl'
+    foreach ($rn in @('mcp-safety-20260312.jsonl', 'watchdog.jsonl', 'watchdog-2026.jsonl', 'watchdog-2026031.jsonl', 'watchdog-20261332.jsonl', 'watchdog-20260312.jsonl.bak', 'notes-20260312.txt')) {
+        [void](Write-WatchdogJsonlFixture -Dir $teleRet -Name $rn)
+    }
+    # 'examined' counts every file system ENTRY visited (no glob), so the
+    # other producers' files and the malformed names cost budget too
+    # (10 entries here).
+    $retRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleRet -RepoRoot $repo -AtUtc $retNow
+    Assert-Watchdog (([bool]$retRes.ok) -and ([int]$retRes.deleted -eq 1) -and ([int]$retRes.retained -eq 2) -and ([int]$retRes.failed -eq 0) -and ([int]$retRes.examined -eq 10) -and (-not [bool]$retRes.truncated) -and (-not [bool]$retRes.no_progress)) 'retention: only the strictly-older matching file deleted (examined 10 entries, deleted 1, retained 2)' (([string]$retRes.examined + '/' + [string]$retRes.deleted + '/' + [string]$retRes.retained + '/' + [string]$retRes.failed))
+    Assert-Watchdog (-not (Test-Path -LiteralPath $retOld -PathType Leaf)) 'retention: file older than the 7-day horizon removed' ($retOld)
+    Assert-Watchdog ((Test-Path -LiteralPath $retEdge -PathType Leaf) -and (Test-Path -LiteralPath $retToday -PathType Leaf)) 'retention: horizon edge (exactly 7 days) and today kept' ''
+    $retNames = @(Get-WatchdogDirNames -Dir $teleRet)
+    $intact = $true
+    foreach ($keepName in @('watchdog-20260313.jsonl', 'watchdog-20260320.jsonl', 'mcp-safety-20260312.jsonl', 'watchdog.jsonl', 'watchdog-2026.jsonl', 'watchdog-2026031.jsonl', 'watchdog-20261332.jsonl', 'watchdog-20260312.jsonl.bak', 'notes-20260312.txt')) {
+        if ($retNames -cnotcontains $keepName) { $intact = $false }
+    }
+    Assert-Watchdog ($intact) 'retention: non-matching files untouched (other producers, bad stamps, other extensions)' (($retNames -join ','))
+    Assert-Watchdog ([int]$retRes.retention_days -eq 7) 'retention reports the documented 7-day horizon' ([string]$retRes.retention_days)
+    $retAgain = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleRet -RepoRoot $repo -AtUtc $retNow
+    Assert-Watchdog (([int]$retAgain.deleted -eq 0) -and ([int]$retAgain.examined -eq 9) -and (-not [bool]$retAgain.truncated)) 'retention is idempotent and deterministic under the same injected Now' (([string]$retAgain.examined + '/' + [string]$retAgain.deleted))
+    $teleRetSoon = Join-Path $tempRoot 'telemetry-retention-soon'
+    New-Item -ItemType Directory -Path $teleRetSoon -Force | Out-Null
+    [void](Write-WatchdogJsonlFixture -Dir $teleRetSoon -Name 'watchdog-20260312.jsonl')
+    $retSoon = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleRetSoon -RepoRoot $repo -AtUtc ($retNow.AddDays(-7))
+    Assert-Watchdog (([int]$retSoon.deleted -eq 0) -and (@(Get-WatchdogDirNames -Dir $teleRetSoon) -contains 'watchdog-20260312.jsonl')) 'retention honors the injected clock (a week earlier deletes nothing)' ([string]$retSoon.deleted)
+
+    # 35. MEDIUM caps bound the per-call work (examined and deleted)
+    $teleRetCap = Join-Path $tempRoot 'telemetry-retention-cap'
+    New-Item -ItemType Directory -Path $teleRetCap -Force | Out-Null
+    foreach ($cn in @('watchdog-20260301.jsonl', 'watchdog-20260302.jsonl', 'watchdog-20260303.jsonl', 'watchdog-20260304.jsonl', 'watchdog-20260305.jsonl')) { [void](Write-WatchdogJsonlFixture -Dir $teleRetCap -Name $cn) }
+    $capRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleRetCap -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 2 -MaxFilesDeleted 1
+    $capLeft = @(Get-WatchdogDirNames -Dir $teleRetCap)
+    Assert-Watchdog (([int]$capRes.examined -eq 2) -and ([int]$capRes.deleted -eq 1) -and ([int]$capRes.retained -eq 1)) 'retention caps honored: examined 2, deleted 1' (([string]$capRes.examined + '/' + [string]$capRes.deleted + '/' + [string]$capRes.retained))
+    Assert-Watchdog ((@($capLeft).Count -eq 4) -and ($capLeft -ccontains 'watchdog-20260305.jsonl') -and (-not ($capLeft -ccontains 'watchdog-20260301.jsonl'))) 'retention cap leaves the rest for the next bounded call' (($capLeft -join ','))
+
+    # 36. MEDIUM a per-file delete failure keeps that file and does NOT
+    #     stop the sweep (locked file injected for real, no seam).
+    $teleRetLock = Join-Path $tempRoot 'telemetry-retention-locked'
+    New-Item -ItemType Directory -Path $teleRetLock -Force | Out-Null
+    foreach ($ln in @('watchdog-20260301.jsonl', 'watchdog-20260302.jsonl', 'watchdog-20260303.jsonl')) { [void](Write-WatchdogJsonlFixture -Dir $teleRetLock -Name $ln) }
+    $lockedPath = Join-Path $teleRetLock 'watchdog-20260303.jsonl'
+    $lockHandle = $null
+    try {
+        $lockHandle = [IO.File]::Open($lockedPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+        $lockRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleRetLock -RepoRoot $repo -AtUtc $retNow
+        Assert-Watchdog (([bool]$lockRes.ok) -and ([int]$lockRes.deleted -eq 2) -and ([int]$lockRes.failed -eq 1)) 'per-file delete error leaves that file and the sweep continues' (([string]$lockRes.deleted + '/' + [string]$lockRes.failed))
+        Assert-Watchdog ((Test-Path -LiteralPath $lockedPath -PathType Leaf) -and (-not (Test-Path -LiteralPath (Join-Path $teleRetLock 'watchdog-20260301.jsonl') -PathType Leaf))) 'undeletable file kept, older siblings still removed' ''
+    }
+    finally { try { if ($null -ne $lockHandle) { $lockHandle.Dispose() } } catch { } }
+
+    # 37. MEDIUM retention is wired into the write path and never damages
+    #     the event just written (other producer's file untouched)
+    $realNow = (Get-Date).ToUniversalTime()
+    $teleRetWrite = Join-Path $tempRoot 'telemetry-retention-write'
+    New-Item -ItemType Directory -Path $teleRetWrite -Force | Out-Null
+    $staleStamp = ([DateTimeOffset]::new($realNow.AddDays(-9)).UtcDateTime.ToString('yyyyMMdd'))
+    $stalePath = Write-WatchdogJsonlFixture -Dir $teleRetWrite -Name ('watchdog-' + $staleStamp + '.jsonl')
+    $foreignStale = Write-WatchdogJsonlFixture -Dir $teleRetWrite -Name ('mcp-safety-' + $staleStamp + '.jsonl')
+    $wRet = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-ret-1' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $teleRetWrite -RepoRoot $repo
+    $writeRetFile = Get-WatchdogTelemetryFile -TelemetryRoot $teleRetWrite -RepoRoot $repo
+    Assert-Watchdog (((-not (Test-Path -LiteralPath $stalePath -PathType Leaf)) -and (Test-Path -LiteralPath $foreignStale -PathType Leaf)) -and ([bool]$wRet.ok)) 'write path sweeps stale watchdog files only, other producers untouched' ([string]$wRet.skipped)
+    $writeRetLines = @()
+    try { $writeRetLines = @([IO.File]::ReadAllLines($writeRetFile, [Text.Encoding]::UTF8) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) } catch { }
+    Assert-Watchdog ((@($writeRetLines).Count -eq 1) -and ([string]$writeRetLines[0] -match 'STALL_SUSPECTED')) 'retention never damaged the event just written (one complete line)' (([string](@($writeRetLines).Count) + ' line(s)'))
+
+    # 38. LOW retention on a directory that does not exist is honest and
+    #     never throws (the write path calls it best-effort every time)
+    $retMissing = Invoke-WatchdogTelemetryRetention -TelemetryRoot (Join-Path $tempRoot 'telemetry-absent') -RepoRoot $repo -AtUtc $retNow
+    Assert-Watchdog (([bool]$retMissing.ok) -and ([string]$retMissing.reason -ceq 'no-directory') -and ([int]$retMissing.deleted -eq 0)) 'retention on a missing directory is a no-op, no throw' ([string]$retMissing.reason)
+
+    # 39. HIGH F2 canonical identity: every common spelling of ONE
+    #     directory must derive the SAME mutex, otherwise two producers
+    #     would silently break the exclusivity of the rotation cap.
+    $canonDir = Join-Path $tempRoot 'canon'
+    New-Item -ItemType Directory -Path $canonDir -Force | Out-Null
+    $canonNames = @(
+        (Get-WatchdogTelemetryMutexName -Directory $canonDir),
+        (Get-WatchdogTelemetryMutexName -Directory ($canonDir + '\')),
+        (Get-WatchdogTelemetryMutexName -Directory ($canonDir.ToUpperInvariant())),
+        (Get-WatchdogTelemetryMutexName -Directory ($canonDir + '\.')),
+        (Get-WatchdogTelemetryMutexName -Directory (Join-Path $tempRoot 'canon-sibling\..\canon'))
+    )
+    $canonUnique = @($canonNames | Select-Object -Unique)
+    Assert-Watchdog (@($canonUnique).Count -eq 1) 'F2: trailing sep, upper case, dot-suffix and internal dotdot all share ONE mutex name' (($canonUnique -join ','))
+    $canonResolved = Get-WatchdogTelemetryDirectory -TelemetryRoot ($canonDir + '\.') -RepoRoot $repo
+    Assert-Watchdog (([IO.Path]::IsPathRooted($canonResolved)) -and ([IO.Path]::GetFullPath($canonResolved) -ceq $canonResolved)) 'F2: the telemetry directory resolves to one rooted canonical path' ([string]$canonResolved)
+    Assert-Watchdog (([string](Get-WatchdogTelemetryMutexName -Directory (Join-Path $tempRoot 'canon-sibling\..\canon'))) -ceq ([string](Get-WatchdogTelemetryMutexName -TelemetryRoot $canonDir -RepoRoot $repo))) 'F2: writer, gate and retention resolve the same canonical name for one directory' ''
+
+    # 40. HIGH F3 bounded work per call: a directory flooded with entries
+    #     must cost only the caps - no materialization, no unbounded
+    #     validation or sorting - and truncation is reported.
+    $hostileA = Join-Path $tempRoot 'telemetry-hostile-a'
+    $hostileB = Join-Path $tempRoot 'telemetry-hostile-b'
+    $hostileInv = Join-Path $tempRoot 'telemetry-hostile-invalid'
+    foreach ($hd in @($hostileA, $hostileB, $hostileInv)) { New-Item -ItemType Directory -Path $hd -Force | Out-Null }
+    foreach ($hd in @($hostileA, $hostileB)) {
+        for ($i = 0; $i -lt 200; $i++) {
+            $hdDay = ([DateTime]::new(2025, 12, 1, 0, 0, 0, [DateTimeKind]::Utc)).AddDays($i)
+            [void](Write-WatchdogJsonlFixture -Dir $hd -Name ('watchdog-' + $hdDay.ToString('yyyyMMdd') + '.jsonl'))
+        }
+    }
+    for ($i = 0; $i -lt 50; $i++) { [void](Write-WatchdogJsonlFixture -Dir $hostileInv -Name ('watchdog-bad' + $i + '.jsonl')) }
+    $hostileRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $hostileA -RepoRoot $repo -AtUtc $retNow
+    Assert-Watchdog (([int]$hostileRes.examined -eq 64) -and ([int]$hostileRes.deleted -eq 32) -and ([int]$hostileRes.retained -eq 32) -and ([bool]$hostileRes.truncated)) 'F3: a 200-file directory costs only the caps (examined 64, deleted 32, truncated)' (([string]$hostileRes.examined + '/' + [string]$hostileRes.deleted + '/' + [string]$hostileRes.retained + '/' + [string]$hostileRes.truncated))
+    Assert-Watchdog ((@(Get-WatchdogDirNames -Dir $hostileA)).Count -eq 168) 'F3: exactly the capped deletions happened (200 - 32), the rest is left for later calls' ([string](@(Get-WatchdogDirNames -Dir $hostileA)).Count)
+    $hostileRes2 = Invoke-WatchdogTelemetryRetention -TelemetryRoot $hostileB -RepoRoot $repo -AtUtc $retNow
+    Assert-Watchdog (([int]$hostileRes2.examined -eq [int]$hostileRes.examined) -and ([int]$hostileRes2.deleted -eq [int]$hostileRes.deleted) -and ([bool]$hostileRes2.truncated -eq [bool]$hostileRes.truncated)) 'F3: bounded and deterministic for two identical flooded directories' (([string]$hostileRes2.examined + '/' + [string]$hostileRes2.deleted + '/' + [string]$hostileRes2.truncated))
+    $hostileZero = Invoke-WatchdogTelemetryRetention -TelemetryRoot $hostileB -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 0
+    Assert-Watchdog (([int]$hostileZero.examined -eq 0) -and ([int]$hostileZero.deleted -eq 0) -and ([string]$hostileZero.reason -ceq 'cap-zero') -and ((@(Get-WatchdogDirNames -Dir $hostileB)).Count -eq 168)) 'F3/FIX5: examined cap 0 examines and deletes nothing at all (cap-zero)' (([string]$hostileZero.examined + '/' + [string]$hostileZero.deleted + '/' + [string]$hostileZero.reason))
+    $invRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $hostileInv -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 5
+    Assert-Watchdog (([int]$invRes.examined -eq 5) -and ([int]$invRes.deleted -eq 0) -and ([bool]$invRes.truncated)) 'F3: invalid names spend the examined budget (scanning them is never free)' (([string]$invRes.examined + '/' + [string]$invRes.deleted + '/' + [string]$invRes.truncated))
+
+    # 41. HIGH F4 the sweep never traverses a reparse point: a junction
+    #     used AS the telemetry directory is refused fail-safe, so no
+    #     canary outside the physical directory can be deleted. Explicitly
+    #     SKIPPED (never faked) where the environment forbids it.
+    $junctionTarget = Join-Path $tempRoot 'junction-target'
+    New-Item -ItemType Directory -Path $junctionTarget -Force | Out-Null
+    $junctionCanary = Write-WatchdogJsonlFixture -Dir $junctionTarget -Name 'watchdog-20250101.jsonl'
+    $junctionLink = Join-Path $tempRoot 'junction-link'
+    $junctionOk = $false
+    $junctionErr = ''
+    try { New-Item -ItemType Junction -Path $junctionLink -Target $junctionTarget -ErrorAction Stop | Out-Null; $junctionOk = $true }
+    catch { $junctionErr = [string]$_.Exception.Message }
+    if ($junctionOk) {
+        try {
+            $junctionRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $junctionLink -RepoRoot $repo -AtUtc $retNow
+            Assert-Watchdog (([string]$junctionRes.reason -ceq 'reparse-detected') -and ([int]$junctionRes.deleted -eq 0) -and (Test-Path -LiteralPath $junctionCanary -PathType Leaf)) 'F4: junction telemetry dir => reparse-detected, nothing deleted, canary intact' ([string]$junctionRes.reason)
+            $junctionDirect = Invoke-WatchdogTelemetryRetention -TelemetryRoot $junctionTarget -RepoRoot $repo -AtUtc $retNow
+            Assert-Watchdog (([int]$junctionDirect.deleted -eq 1) -and (-not (Test-Path -LiteralPath $junctionCanary -PathType Leaf))) 'F4: the same canary in the REAL directory is swept (guard is specific, not a blanket refusal)' ([string]$junctionDirect.deleted)
+        }
+        finally { try { if (Test-Path -LiteralPath $junctionLink) { [IO.Directory]::Delete($junctionLink, $false) } } catch { } }
+    }
+    else { Write-Host ('[SKIP] F4 junction fixture unavailable in this environment (' + $junctionErr + ')') }
+
+    # 42. HIGH F1 framing: a writer terminated mid-append leaves a tail
+    #     fragment; the next event must be refused (structured reason),
+    #     the fragment must be preserved as evidence and NOTHING may be
+    #     concatenated onto it. With an intact tail the append goes
+    #     through again.
+    $teleTail = Join-Path $tempRoot 'telemetry-tail'
+    New-Item -ItemType Directory -Path $teleTail -Force | Out-Null
+    $wTail1 = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-tail-1' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $teleTail -RepoRoot $repo
+    $tailFile = Get-WatchdogTelemetryFile -TelemetryRoot $teleTail -RepoRoot $repo
+    $tailFragment = '{"ts":"2026-01-01T00:00:00.0000000Z","source":"watchdog-shadow","eve'
+    [IO.File]::AppendAllText($tailFile, $tailFragment, [Text.UTF8Encoding]::new($false))
+    $wTail2 = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-tail-2' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 2 -ElapsedSeconds 2 -TelemetryRoot $teleTail -RepoRoot $repo
+    $tailText = ''
+    try { $tailText = [IO.File]::ReadAllText($tailFile, [Text.Encoding]::UTF8) } catch { }
+    Assert-Watchdog (([bool]$wTail1.ok) -and ((-not [bool]$wTail2.ok)) -and ([string]$wTail2.skipped -ceq 'tail-incomplete')) 'F1: appending onto a truncated tail is refused with tail-incomplete' ([string]$wTail2.skipped)
+    $tailParts = @($tailText -split "`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    Assert-Watchdog ((@($tailParts).Count -eq 2) -and ([string]$tailParts[1] -ceq $tailFragment)) 'F1: fragment preserved verbatim and never concatenated (one intact line + the fragment)' (([string](@($tailParts).Count) + ' part(s)'))
+    [IO.File]::WriteAllText($tailFile, (([string]$tailParts[0]) + "`n"), [Text.UTF8Encoding]::new($false))
+    $wTail3 = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-tail-3' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 3 -ElapsedSeconds 3 -TelemetryRoot $teleTail -RepoRoot $repo
+    Assert-Watchdog ([bool]$wTail3.ok) 'F1: with an intact tail the append goes through again' ([string]$wTail3.skipped)
+    $tailAllOk = $true
+    try {
+        foreach ($tl in @([IO.File]::ReadAllLines($tailFile, [Text.Encoding]::UTF8) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+            try { [void]($tl | ConvertFrom-Json) } catch { $tailAllOk = $false }
+        }
+    }
+    catch { $tailAllOk = $false }
+    Assert-Watchdog ($tailAllOk) 'F1: every line of the recovered file is a complete parseable event' ''
+
+    # 43. HIGH FIX5 the budget is spent BEFORE any filtering: entries
+    #     outside the watchdog pattern and subdirectories cost budget too,
+    #     are never deleted, and truncation comes from the counter alone
+    #     (no probe - exactly `cap` entries is reported conservatively).
+    $teleOutside = Join-Path $tempRoot 'telemetry-outside'
+    New-Item -ItemType Directory -Path $teleOutside -Force | Out-Null
+    for ($i = 0; $i -lt 100; $i++) { [IO.File]::WriteAllText((Join-Path $teleOutside ('hostis-' + $i + '.txt')), 'x') }
+    for ($i = 0; $i -lt 20; $i++) { [IO.File]::WriteAllText((Join-Path $teleOutside ('notas-' + $i + '.jsonl')), 'x') }
+    for ($i = 0; $i -lt 5; $i++) { New-Item -ItemType Directory -Path (Join-Path $teleOutside ('subdir-' + $i)) -Force | Out-Null }
+    $telemetryLookalikeDir = Join-Path $teleOutside 'watchdog-20250101.jsonl'
+    New-Item -ItemType Directory -Path $telemetryLookalikeDir -Force | Out-Null
+    $outsideRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleOutside -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 8 -MaxFilesDeleted 8
+    Assert-Watchdog (([int]$outsideRes.examined -eq 8) -and ([int]$outsideRes.deleted -eq 0) -and ([bool]$outsideRes.truncated)) 'FIX5: names outside the pattern still spend the budget (examined == cap, truncated, nothing deleted)' (([string]$outsideRes.examined + '/' + [string]$outsideRes.deleted + '/' + [string]$outsideRes.truncated))
+    $outsideFiles = @(Get-WatchdogDirNames -Dir $teleOutside)
+    $outsideDirs = @(Get-ChildItem -LiteralPath $teleOutside -Directory -ErrorAction SilentlyContinue)
+    Assert-Watchdog ((@($outsideFiles).Count -eq 120) -and (Test-Path -LiteralPath $telemetryLookalikeDir -PathType Container) -and (@($outsideDirs).Count -eq 6)) 'FIX5: no entry outside the pattern and no subdirectory was deleted (120 files + 6 dirs intact)' (([string](@($outsideFiles).Count) + ' files, ' + [string](@($outsideDirs).Count) + ' dirs'))
+    $teleExact = Join-Path $tempRoot 'telemetry-exact'
+    New-Item -ItemType Directory -Path $teleExact -Force | Out-Null
+    for ($i = 0; $i -lt 4; $i++) {
+        $exDay = ([DateTime]::new(2025, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)).AddDays($i)
+        [void](Write-WatchdogJsonlFixture -Dir $teleExact -Name ('watchdog-' + $exDay.ToString('yyyyMMdd') + '.jsonl'))
+    }
+    $exactRes = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleExact -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 4 -MaxFilesDeleted 4
+    Assert-Watchdog (([int]$exactRes.examined -eq 4) -and ([int]$exactRes.deleted -eq 4) -and ([bool]$exactRes.truncated) -and (-not [bool]$exactRes.no_progress)) 'FIX5: exactly cap entries => conservative truncated (no probe), every eligible one deleted' (([string]$exactRes.examined + '/' + [string]$exactRes.deleted + '/' + [string]$exactRes.truncated))
+    $exactRes2 = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleExact -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 4 -MaxFilesDeleted 4
+    Assert-Watchdog (([int]$exactRes2.examined -eq 0) -and (-not [bool]$exactRes2.truncated) -and (-not [bool]$exactRes2.no_progress)) 'FIX5: an exhausted directory is not flagged truncated (counter below the cap)' (([string]$exactRes2.examined + '/' + [string]$exactRes2.truncated))
+
+    # 44. MEDIUM FIX6 starvation is OBSERVABLE: a non-deletable prefix
+    #      eats the whole budget on every call and the result says so.
+    #      Remove the prefix and the next call reaches the canary.
+    $teleStarve = Join-Path $tempRoot 'telemetry-starve'
+    New-Item -ItemType Directory -Path $teleStarve -Force | Out-Null
+    for ($i = 0; $i -lt 100; $i++) { [IO.File]::WriteAllText((Join-Path $teleStarve ('aaa-prefix-' + $i + '.txt')), 'x') }
+    $starveCanary = Write-WatchdogJsonlFixture -Dir $teleStarve -Name 'watchdog-20250101.jsonl'
+    $starveRes1 = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleStarve -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 4 -MaxFilesDeleted 4
+    Assert-Watchdog (([bool]$starveRes1.truncated) -and ([int]$starveRes1.deleted -eq 0) -and ([bool]$starveRes1.no_progress) -and ([string]$starveRes1.reason -ceq 'no-progress') -and (Test-Path -LiteralPath $starveCanary -PathType Leaf)) 'FIX6: starvation is signalled (truncated + nothing deleted + no_progress) with the canary intact' (([string]$starveRes1.truncated + '/' + [string]$starveRes1.deleted + '/' + [string]$starveRes1.no_progress + '/' + [string]$starveRes1.reason))
+    foreach ($sp in @(Get-ChildItem -LiteralPath $teleStarve -Filter 'aaa-prefix-*.txt' -File -ErrorAction SilentlyContinue)) { try { Remove-Item -LiteralPath $sp.FullName -Force -ErrorAction SilentlyContinue } catch { } }
+    $starveRes2 = Invoke-WatchdogTelemetryRetention -TelemetryRoot $teleStarve -RepoRoot $repo -AtUtc $retNow -MaxFilesExamined 4 -MaxFilesDeleted 4
+    Assert-Watchdog (([int]$starveRes2.deleted -eq 1) -and (-not (Test-Path -LiteralPath $starveCanary -PathType Leaf)) -and (-not [bool]$starveRes2.no_progress)) 'FIX6: with the prefix gone the next bounded call reaches and deletes the canary' (([string]$starveRes2.deleted + '/' + [string]$starveRes2.no_progress))
+
+    # 45. HIGH FIX7 RELATIVE path: the same directory passed relative
+    #      resolves to the same canonical directory, the same mutex and
+    #      the same file as the absolute form, so writer, gate and
+    #      retention really coordinate.
+    $relDir = Join-Path $tempRoot 'telemetry-rel'
+    New-Item -ItemType Directory -Path $relDir -Force | Out-Null
+    $absMutex = Get-WatchdogTelemetryMutexName -TelemetryRoot $relDir -RepoRoot $repo
+    $absResolved = Get-WatchdogTelemetryDirectory -TelemetryRoot $relDir -RepoRoot $repo
+    $relMutex = ''
+    $relResolved = ''
+    $wAbsRel = $null
+    $wRelAbs = $null
+    $oldLoc = ''
+    $oldCwd = ''
+    try {
+        # Canonicalization resolves a relative path against the PROCESS
+        # working directory (the only stable base a library can rely on),
+        # so the fixture moves it - and restores both afterwards.
+        $oldLoc = [string](Get-Location).Path
+        $oldCwd = [string][Environment]::CurrentDirectory
+        [Environment]::CurrentDirectory = $tempRoot
+        Set-Location -LiteralPath $tempRoot
+        $relMutex = Get-WatchdogTelemetryMutexName -Directory '.\telemetry-rel'
+        $relResolved = Get-WatchdogTelemetryDirectory -TelemetryRoot 'telemetry-rel' -RepoRoot $repo
+        $wAbsRel = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-rel-abs' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot $relDir -RepoRoot $repo
+        $wRelAbs = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-rel-rel' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 2 -ElapsedSeconds 2 -TelemetryRoot '.\telemetry-rel\' -RepoRoot $repo
+    }
+    finally {
+        try { if (-not [string]::IsNullOrWhiteSpace($oldCwd)) { [Environment]::CurrentDirectory = $oldCwd } } catch { }
+        try { if (-not [string]::IsNullOrWhiteSpace($oldLoc)) { Set-Location -LiteralPath $oldLoc } } catch { }
+    }
+    Assert-Watchdog (([string]$relMutex -ceq [string]$absMutex) -and ([string]$relResolved -ceq [string]$absResolved)) 'FIX7: a relative path resolves to the same canonical directory and the same mutex name' (([string]$relMutex + ' vs ' + [string]$absMutex))
+    $relFile = Get-WatchdogTelemetryFile -TelemetryRoot $relDir -RepoRoot $repo
+    $relLines = @()
+    try { $relLines = @([IO.File]::ReadAllLines($relFile, [Text.Encoding]::UTF8) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) } catch { }
+    Assert-Watchdog (([bool]$wAbsRel.ok) -and ([bool]$wRelAbs.ok) -and (@($relLines).Count -eq 2)) 'FIX7: append via relative and via absolute land in ONE file under ONE gate' (([string]$wAbsRel.skipped + '/' + [string]$wRelAbs.skipped + '/' + [string](@($relLines).Count)))
+
+    # 46. HIGH FIX8 single resolution per operation: the directory is
+    #     canonicalized ONCE and pinned for target, gate and sweep. The
+    #     process working directory is mutable, so re-resolving a
+    #     relative root later in the same call could make the sweep
+    #     delete old telemetry in a DIFFERENT directory than the one
+    #     just written. Two destinations share the SAME relative name
+    #     here, reachable only from different working directories.
+    $teleFix8A = Join-Path $tempRoot 'fix8-telemetry'
+    $teleFix8Other = Join-Path $tempRoot 'other'
+    $teleFix8B = Join-Path $teleFix8Other 'fix8-telemetry'
+    New-Item -ItemType Directory -Path $teleFix8A -Force | Out-Null
+    New-Item -ItemType Directory -Path $teleFix8B -Force | Out-Null
+    $fix8CanaryA = Write-WatchdogJsonlFixture -Dir $teleFix8A -Name 'watchdog-20250101.jsonl'
+    $fix8CanaryB = Write-WatchdogJsonlFixture -Dir $teleFix8B -Name 'watchdog-20250101.jsonl'
+    $fix8Pinned = ''
+    $fix8Hazard = ''
+    $fix8Sweep = $null
+    $oldCwd8 = ''
+    try {
+        $oldCwd8 = [string][Environment]::CurrentDirectory
+        [Environment]::CurrentDirectory = $tempRoot
+        # pinned the way the writer pins it: one resolution, absolute
+        $fix8Pinned = Get-WatchdogTelemetryDirectory -TelemetryRoot 'fix8-telemetry' -RepoRoot $repo
+        # the hazard: the SAME relative input now resolves elsewhere
+        [Environment]::CurrentDirectory = $teleFix8Other
+        $fix8Hazard = Get-WatchdogTelemetryDirectory -TelemetryRoot 'fix8-telemetry' -RepoRoot $repo
+        Assert-Watchdog (([string]$fix8Pinned -ceq (Resolve-Path -LiteralPath $teleFix8A).Path) -and ([string]$fix8Hazard -ceq (Resolve-Path -LiteralPath $teleFix8B).Path) -and ([string]$fix8Pinned -cne [string]$fix8Hazard)) 'FIX8: a relative root IS working-directory dependent, and the pinned value is the absolute first destination' (([string]$fix8Pinned + ' vs ' + [string]$fix8Hazard))
+        # the internal call the writer makes: the sweep gets the PINNED
+        # directory, even though the working directory now points at the
+        # other destination
+        $fix8Sweep = Invoke-WatchdogTelemetryRetention -Directory $fix8Pinned -AtUtc $retNow
+        Assert-Watchdog (([int]$fix8Sweep.deleted -eq 1) -and (-not (Test-Path -LiteralPath $fix8CanaryA -PathType Leaf)) -and (Test-Path -LiteralPath $fix8CanaryB -PathType Leaf)) 'FIX8: sweep with the pinned directory deletes ONLY there (second destination canary intact)' (([string]$fix8Sweep.deleted + '/' + [string]$fix8Sweep.reason))
+    }
+    finally { try { if (-not [string]::IsNullOrWhiteSpace($oldCwd8)) { [Environment]::CurrentDirectory = $oldCwd8 } } catch { } }
+    # a write whose relative root resolves to the OTHER destination must
+    # stay entirely there: nothing appears in the first one
+    $fix8W = $null
+    $oldCwd8b = ''
+    try {
+        $oldCwd8b = [string][Environment]::CurrentDirectory
+        [Environment]::CurrentDirectory = $teleFix8Other
+        $fix8W = Write-WatchdogTelemetryEvent -EventName 'STALL_SUSPECTED' -TaskId 'wd-fix8-1' -AttemptN 1 -Class 'STALL_SUSPECTED' -WouldInterrupt $false -Steps 1 -ElapsedSeconds 1 -TelemetryRoot 'fix8-telemetry' -RepoRoot $repo
+    }
+    finally { try { if (-not [string]::IsNullOrWhiteSpace($oldCwd8b)) { [Environment]::CurrentDirectory = $oldCwd8b } } catch { } }
+    $fix8FilesA = @(Get-WatchdogDirNames -Dir $teleFix8A)
+    $fix8LinesB = @()
+    try { $fix8LinesB = @([IO.File]::ReadAllLines((Get-WatchdogTelemetryFile -TelemetryRoot $teleFix8B -RepoRoot $repo), [Text.Encoding]::UTF8) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) } catch { }
+    Assert-Watchdog (([bool]$fix8W.ok) -and (@($fix8FilesA).Count -eq 0) -and (@($fix8LinesB).Count -eq 1)) 'FIX8: the write and its sweep stay in the directory resolved by THAT call (first destination never touched)' (([string]$fix8W.skipped + '/' + [string](@($fix8FilesA).Count) + '/' + [string](@($fix8LinesB).Count)))
+
     Write-Host ''
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)
     if ($script:failed -ne 0) { exit 1 }
@@ -448,5 +952,12 @@ try {
 }
 finally {
     try { Clear-OrchestrationWatchdogState } catch { }
+    # Only OWN ephemeral mutex-holder children are ever stopped here.
+    try {
+        foreach ($wc in @($script:wdChildren.ToArray())) {
+            try { if (-not [bool]$wc.HasExited) { Stop-Process -Id ([int]$wc.Id) -Force -ErrorAction SilentlyContinue } } catch { }
+        }
+    }
+    catch { }
     try { if (Test-Path -LiteralPath $tempRoot) { Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue } } catch { }
 }
