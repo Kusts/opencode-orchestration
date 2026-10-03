@@ -559,6 +559,19 @@ especificação e plano em
   semântica inconclusive — sem fake-close). O caminho implícito (debug
   config) segue flaky upstream e fora deste path; wiring do passo no job
   CI aguarda primeira execução no runner.
+- **Correção de registro (2026-10-03): AI Memory do operador já remoto**
+  — a migração do AI Memory PROD do operador para servidor próprio foi
+  **executada** antes de 2026-10-01 (registros anteriores diziam
+  "planejada, não executada" — desatualizados). Endpoint é
+  **user-owned por design**: cada usuário do pacote aponta o SEU próprio
+  AI Memory em arquivo de policy local FORA do repo (override
+  `-PolicyPath`); o placeholder público permanece vazio e **nenhum
+  endpoint, IP, domínio ou token pessoal entra neste repo público**.
+  O listener local `49374` foi identificado pelo operador como resto
+  obsoleto pós-migração (opencode.exe global); segue intocado, com
+  desativação na autonomia do operador. Pendências P22/P30 restantes:
+  config local + evidência de health/transporte registrando apenas o
+  resultado (nunca a identidade do servidor).
 - **Waves A–E code-complete kernel-side/plugin (2026-10-02/03)**;
   pendências de ativação/evidência do operador listadas em
   `evidence/v3.1/runtime-reliability/program-status.json`; rastreio por

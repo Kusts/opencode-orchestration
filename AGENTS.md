@@ -116,7 +116,9 @@ bounded, FIX1..FIX8), kernel
   `evidence/v3.1/runtime-reliability/pae-traceability.json`; docs
   reconciliadas em 2026-10-03);
   **release gate pendente de evidência do operador**: lane V2 Windows
-  real, deploy VPS AI Memory, ativações de flag com evidência, probes
+  real, AI Memory remoto do operador já em PROD (restam config
+  user-owned local fora do repo + evidência de health/transporte sem
+  identidade no repo), ativações de flag com evidência, probes
   reais, jevgrep real, wirings de chamador em produção (P31-S2, P38-S2,
   P40-S2 append/enable, P41-S2 telemetria);
 flags de rollout nascem OFF
