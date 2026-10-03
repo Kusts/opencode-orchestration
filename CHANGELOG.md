@@ -475,6 +475,18 @@ plano em
   (PS5.1 + pwsh; mutação 7/7). Reviews: Reviewer **APPROVED**
   (round 3) + Security **APPROVED**. **Release gate real pendente
   do ambiente V2 do operador — sem fake-close.**
+- **P41 fatia 2 done-code-fix2** — produtor de telemetria
+  observacional (`OrchestrationEvolutionTelemetryProducer.ps1`):
+  deriva os contadores declarados na policy real a partir de fontes
+  **REAIS** (task records do kernel, watchdog JSONL, reuse-metrics
+  P35); contador sem fonte real ⇒ **ausente com razão** (nunca
+  fabricado); identidade de tentativa via `execution_runtime.attempt_n`
+  (schema real do kernel); leitura bounded (scanner sem materializar
+  linha acima do cap, snapshot de comprimento contra crescimento
+  concorrente); watchdog ilegível ⇒ indisponível sem zeros; escrita só
+  com `OutDir` explícito. Suíte **148/148** (PS5.1 + pwsh).
+  Reviews: Reviewer **APPROVED** (round 3) + Security **APPROVED**
+  (round 3). Wiring de chamador em produção = decisão do operador.
 - **Waves A–E code-complete kernel-side/plugin (2026-10-02)**;
   pendências de ativação/evidência do operador listadas em
   `evidence/v3.1/runtime-reliability/program-status.json`.
