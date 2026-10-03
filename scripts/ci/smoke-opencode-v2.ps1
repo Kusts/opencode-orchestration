@@ -19,7 +19,9 @@
       4. Assercoes: debug paths (isolamento) / debug config (fontes, warmup)
          / service status (URL privada) / debug agents ate 3x (19 ids)
          / plugin list + mcp list (observados, rc=0) / service stop.
-      5. Evidencia JSON 1:1 com os comandos (so fatos observados).
+      5. Evidencia JSON 1:1 com os comandos (so fatos observados). O campo
+          `date` e o carimbo da execucao (data do relogio na escrita da
+          evidencia, formato yyyy-MM-dd), nunca um literal do script.
 
     Sem chamadas pagas, sem credenciais, sem modelo/API. Falhas de load ou
     timeout => exit 1. `models` nao e tentado (exige providers/rede):
@@ -96,11 +98,20 @@ function Add-SmokeCheck([string]$Name, [bool]$Passed, [string]$Detail) {
   [void]$script:smokeChecks.Add([ordered]@{ name = $Name; passed = $Passed; detail = $Detail })
 }
 
+function Get-SmokeEvidenceDate {
+  # Carimbo da EXECUCAO: data do relogio no momento em que a evidencia e
+  # escrita (formato yyyy-MM-dd, o mesmo do campo historico). Antes era um
+  # literal fixo de data, que carimbava com a data da PASSAGEM qualquer
+  # evidencia gerada depois. Sem semantica alem do valor: nada mais no
+  # registro muda.
+  return (Get-Date).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Fail-Smoke([string]$Message) {
   Write-Host ('[smoke-v2] FALHA: ' + $Message)
   $failed = [ordered]@{
     smoke = 'v2-ci-smoke'
-    date = '2026-09-30'
+    date = Get-SmokeEvidenceDate
     status = 'failed'
     binary = $script:binaryUsed
     expected_version = $script:ExpectedVersion
@@ -339,7 +350,7 @@ try {
 
   $pass = [ordered]@{
     smoke = 'v2-ci-smoke'
-    date = '2026-09-30'
+    date = Get-SmokeEvidenceDate
     status = 'ok'
     binary = $binaryUsed
     expected_version = $ExpectedVersion

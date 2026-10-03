@@ -147,7 +147,9 @@
         max_telemetry_line_bytes, an over-cap line is drained to its
         terminator without accumulating (a 1 MB line costs a fixed 4 KB
         buffer) and counted, and an unterminated final line within the cap is
-        processed normally;
+        processed normally; the discard accounting of a final line is
+        IDENTICAL with and without the final LF (MaxLines pre-check, over-cap,
+        blank, parse in the same order on both paths);
       - JSONL line size: max_telemetry_line_bytes; output line size: the same
         cap, and an over-cap line is refused WHOLE (nothing is truncated and
         nothing is written);
@@ -410,7 +412,13 @@ function Read-EvolutionTelemetryJsonLines {
         line is converted or included (same order as the unterminated EOF
         branch), so the reader never returns one line beyond the cap; the
         excess line is still counted (max-lines-reached). Every line counted
-        against MaxLines, blank included. Returns @{ok; lines[]; examined;
+        against MaxLines, blank included. FINAL-LF PARITY: the unterminated
+        EOF branch applies exactly the same steps in the same order as the
+        terminated branch (MaxLines pre-check, over-cap, blank, parse), so the
+        same content yields the same lines/examined/skipped/skipped_by_reason
+        with and without the final LF; only a truly EMPTY final segment (a
+        file ending exactly at its last LF) is not a line at all, and it is
+        not counted in either variant. Returns @{ok; lines[]; examined;
         skipped; skipped_by_reason; truncated; reason}. Never throws.
     #>
     [CmdletBinding()]
@@ -507,26 +515,42 @@ function Read-EvolutionTelemetryJsonLines {
                 }
                 if ($n -gt 0) { $len = $n; $pos = 0; continue }
                 # EOF of the snapshot: an over-cap or unterminated final line
-                # is still counted.
-                if ($over) {
-                    $out.examined = ([int]$out.examined + 1)
-                    Add-EvolutionTelemetrySkip -Map $byReason -Reason 'line-too-long'
-                    if ([int]$out.examined -gt $maxLines) { $out.truncated = $true }
-                }
-                elseif ($acc.Count -gt 0) {
-                    $text = [Text.Encoding]::UTF8.GetString([byte[]]$acc.ToArray())
-                    $out.examined = ([int]$out.examined + 1)
-                    if ([int]$out.examined -gt $maxLines) { $out.truncated = $true }
+                # is still counted. The accounting is DELIBERATELY IDENTICAL to
+                # the same line with its terminator inside the buffer: the
+                # MaxLines bound is checked BEFORE the line is included and the
+                # excess line is counted by the same declared reason, then
+                # over-cap, then blank, then parse. Otherwise the SAME content
+                # would report a different discarded-line count depending only
+                # on whether the file ends with a final LF - the unterminated
+                # branch used to count the excess line in `examined` without
+                # counting it in `skipped`, and to feed a whitespace-only final
+                # segment to ConvertFrom-Json (unparsable-line instead of
+                # blank-line). An EMPTY final segment (a file that ends exactly
+                # at its last LF) is not a line at all in either variant, so it
+                # is never counted.
+                if ($over -or ($acc.Count -gt 0)) {
+                    $text = ''
+                    if (-not $over) { $text = [Text.Encoding]::UTF8.GetString([byte[]]$acc.ToArray()) }
+                    if ([int]$out.examined -ge $maxLines) {
+                        $out.examined = ([int]$out.examined + 1)
+                        Add-EvolutionTelemetrySkip -Map $byReason -Reason 'max-lines-reached'
+                        $out.truncated = $true
+                    }
                     else {
-                        $row = $null
-                        try { $row = ($text | ConvertFrom-Json) }
-                        catch { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'unparsable-line' }
-                        if ($null -ne $row) {
-                            $ord = ConvertTo-EvolutionOrdered -Node $row
-                            if ($ord -is [System.Collections.IDictionary]) { [void]$lines.Add($ord) }
-                            else { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'not-an-object' }
+                        $out.examined = ([int]$out.examined + 1)
+                        if ($over) { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'line-too-long' }
+                        elseif ([string]::IsNullOrWhiteSpace($text)) { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'blank-line' }
+                        else {
+                            $row = $null
+                            try { $row = ($text | ConvertFrom-Json) }
+                            catch { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'unparsable-line' }
+                            if ($null -ne $row) {
+                                $ord = ConvertTo-EvolutionOrdered -Node $row
+                                if ($ord -is [System.Collections.IDictionary]) { [void]$lines.Add($ord) }
+                                else { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'not-an-object' }
+                            }
+                            elseif ($null -eq $row) { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'unparsable-line' }
                         }
-                        elseif ($null -eq $row) { Add-EvolutionTelemetrySkip -Map $byReason -Reason 'unparsable-line' }
                     }
                 }
                 $stop = $true

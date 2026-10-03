@@ -112,6 +112,24 @@ function Get-TelemetryMapKeys {
     return @(@($Map.PSObject.Properties) | ForEach-Object { [string]$_.Name })
 }
 
+function Get-TelemetrySkipText {
+    <#
+    .SYNOPSIS
+        Order-independent 'reason=count;...' text of a skip map, so two
+        accounting maps can be compared for EQUALITY (the reader reports an
+        ordered dictionary, the produced record a PSCustomObject).
+    #>
+    param($Map)
+    $parts = @()
+    foreach ($k in @(Get-TelemetryMapKeys -Map $Map | Sort-Object)) {
+        $v = ''
+        if ($Map -is [System.Collections.IDictionary]) { $v = [string]$Map[[string]$k] }
+        else { $v = [string]$Map.PSObject.Properties[[string]$k].Value }
+        $parts += ([string]$k + '=' + $v)
+    }
+    return ($parts -join ';')
+}
+
 function New-TelemetrySizedLine {
     <#
     .SYNOPSIS
@@ -626,6 +644,85 @@ try {
     Assert-Producer ((@(Get-TelemetryMapKeys -Map $g8LfRun.skipped_by_reason)) -ccontains 'max-lines-reached') 'G8 the excess line is accounted by a declared reason' (@(Get-TelemetryMapKeys -Map $g8LfRun.skipped_by_reason) -join ',')
     $g8NoLfRun = Read-EvolutionTelemetryJsonLines -Path $g8NoLf -MaxLines 1 -MaxLineBytes 4096 -MaxFileBytes 65536
     Assert-Producer ((@($g8NoLfRun.lines).Count -eq 1) -and ([int]$g8NoLfRun.examined -eq 2) -and ([bool]$g8NoLfRun.truncated)) 'G8 parity with the unterminated EOF branch: the same content without the final LF gives the same accounting' (@($g8NoLfRun.lines).Count)
+
+    # ---------- G8b: the final LF never changes the discard accounting ----------
+    # Same content, two variants: WITH the final LF and WITHOUT it. The
+    # unterminated EOF branch used to skip the MaxLines pre-check (the excess
+    # final line was counted in `examined` but never in `skipped`) and to feed a
+    # whitespace-only final segment straight to ConvertFrom-Json
+    # (unparsable-line instead of blank-line), so one trailing byte changed the
+    # discarded-line count. Every pair below asserts BOTH variants at once: the
+    # accounting must be identical, and the shared value must still be the
+    # honest one (nothing is dropped to make the two match).
+    $lfDir = Join-Path $tempRoot 'lf-parity'
+    [void][IO.Directory]::CreateDirectory($lfDir)
+    $lfLineA = (New-TelemetrySizedLine -TotalBytes 128 -Hash 'la')
+    $lfLineB = (New-TelemetrySizedLine -TotalBytes 128 -Hash 'lb')
+    $lfTwo = ($lfLineA + "`n" + $lfLineB + "`n")
+    [IO.File]::WriteAllText((Join-Path $lfDir 'two-with-lf.jsonl'), $lfTwo, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $lfDir 'two-no-lf.jsonl'), $lfTwo.Substring(0, $lfTwo.Length - 1), [Text.UTF8Encoding]::new($false))
+    $lfRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'two-with-lf.jsonl') -MaxLines 100 -MaxLineBytes 4096 -MaxFileBytes 65536
+    $lfNoRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'two-no-lf.jsonl') -MaxLines 100 -MaxLineBytes 4096 -MaxFileBytes 65536
+    Assert-Producer ((@($lfRun.lines).Count -eq 2) -and (@($lfNoRun.lines).Count -eq 2)) 'G8b two valid lines are returned with AND without the final LF' ("lf=$(@($lfRun.lines).Count) noLf=$(@($lfNoRun.lines).Count)")
+    Assert-Producer (([int]$lfRun.examined -eq 2) -and ([int]$lfNoRun.examined -eq 2)) 'G8b both variants examine both lines' ("lf=$($lfRun.examined) noLf=$($lfNoRun.examined)")
+    Assert-Producer (([int]$lfRun.skipped -eq 0) -and ([int]$lfNoRun.skipped -eq 0)) 'G8b neither variant discards a valid line (with or without the final LF)' ("lf=$($lfRun.skipped) noLf=$($lfNoRun.skipped)")
+
+    # MaxLines cuts the SECOND line: with the final LF it goes through the
+    # terminated branch, without it through the unterminated one. Both must
+    # account the excess line as max-lines-reached (the pre-fix EOF branch
+    # reported skipped=0 here).
+    $lfTrunc = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'two-with-lf.jsonl') -MaxLines 1 -MaxLineBytes 4096 -MaxFileBytes 65536
+    $lfTruncNo = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'two-no-lf.jsonl') -MaxLines 1 -MaxLineBytes 4096 -MaxFileBytes 65536
+    Assert-Producer (([int]$lfTrunc.skipped -eq 1) -and ([int]$lfTruncNo.skipped -eq 1)) 'G8b MaxLines excess line is counted as discarded in BOTH variants' ("lf=$($lfTrunc.skipped) noLf=$($lfTruncNo.skipped)")
+    Assert-Producer ((@(Get-TelemetryMapKeys -Map $lfTrunc.skipped_by_reason) -ccontains 'max-lines-reached') -and (@(Get-TelemetryMapKeys -Map $lfTruncNo.skipped_by_reason) -ccontains 'max-lines-reached')) 'G8b the excess line carries the same declared reason with and without the final LF' ((@(Get-TelemetryMapKeys -Map $lfTrunc.skipped_by_reason) -join ',') + ' | ' + (@(Get-TelemetryMapKeys -Map $lfTruncNo.skipped_by_reason) -join ','))
+    Assert-Producer (([bool]$lfTrunc.truncated) -and ([bool]$lfTruncNo.truncated) -and ([int]$lfTrunc.examined -eq [int]$lfTruncNo.examined)) 'G8b the truncation and the examined count are identical in both variants' ("lf=$($lfTrunc.examined)/$($lfTrunc.skipped) noLf=$($lfTruncNo.examined)/$($lfTruncNo.skipped)")
+    Assert-Producer ((Get-TelemetrySkipText -Map $lfTrunc.skipped_by_reason) -ceq (Get-TelemetrySkipText -Map $lfTruncNo.skipped_by_reason)) 'G8b the whole skip-reason map is byte-identical with and without the final LF (MaxLines case)' ((Get-TelemetrySkipText -Map $lfTrunc.skipped_by_reason) + ' | ' + (Get-TelemetrySkipText -Map $lfTruncNo.skipped_by_reason))
+
+    # whitespace-only FINAL segment: with LF it is a blank line, without LF it
+    # used to be reported as unparsable-line.
+    $lfBlank = ($lfLineA + "`n" + '   ' + "`n")
+    [IO.File]::WriteAllText((Join-Path $lfDir 'blank-with-lf.jsonl'), $lfBlank, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $lfDir 'blank-no-lf.jsonl'), $lfBlank.Substring(0, $lfBlank.Length - 1), [Text.UTF8Encoding]::new($false))
+    $lfBlankRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'blank-with-lf.jsonl') -MaxLines 100 -MaxLineBytes 4096 -MaxFileBytes 65536
+    $lfBlankNoRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'blank-no-lf.jsonl') -MaxLines 100 -MaxLineBytes 4096 -MaxFileBytes 65536
+    Assert-Producer ((@(Get-TelemetryMapKeys -Map $lfBlankRun.skipped_by_reason) -ccontains 'blank-line') -and (@(Get-TelemetryMapKeys -Map $lfBlankNoRun.skipped_by_reason) -ccontains 'blank-line')) 'G8b a whitespace-only final segment is blank-line in BOTH variants' ((@(Get-TelemetryMapKeys -Map $lfBlankRun.skipped_by_reason) -join ',') + ' | ' + (@(Get-TelemetryMapKeys -Map $lfBlankNoRun.skipped_by_reason) -join ','))
+    Assert-Producer (([int]$lfBlankRun.skipped -eq 1) -and ([int]$lfBlankNoRun.skipped -eq 1) -and ((Get-TelemetrySkipText -Map $lfBlankRun.skipped_by_reason) -ceq (Get-TelemetrySkipText -Map $lfBlankNoRun.skipped_by_reason))) 'G8b blank-line discard accounting is identical with and without the final LF' ((Get-TelemetrySkipText -Map $lfBlankRun.skipped_by_reason) + ' | ' + (Get-TelemetrySkipText -Map $lfBlankNoRun.skipped_by_reason))
+
+    # over-cap FINAL line: with LF it is drained by the terminated branch,
+    # without it by the unterminated one - same reason, same counts.
+    $lfOver = (New-TelemetrySizedLine -TotalBytes 200 -Hash 'lo') + "`n"
+    [IO.File]::WriteAllText((Join-Path $lfDir 'over-with-lf.jsonl'), $lfOver, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $lfDir 'over-no-lf.jsonl'), $lfOver.Substring(0, $lfOver.Length - 1), [Text.UTF8Encoding]::new($false))
+    $lfOverRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'over-with-lf.jsonl') -MaxLines 100 -MaxLineBytes 64 -MaxFileBytes 65536
+    $lfOverNoRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'over-no-lf.jsonl') -MaxLines 100 -MaxLineBytes 64 -MaxFileBytes 65536
+    Assert-Producer ((@(Get-TelemetryMapKeys -Map $lfOverRun.skipped_by_reason) -ccontains 'line-too-long') -and (@(Get-TelemetryMapKeys -Map $lfOverNoRun.skipped_by_reason) -ccontains 'line-too-long')) 'G8b an over-cap final line is drained as line-too-long in BOTH variants' ((@(Get-TelemetryMapKeys -Map $lfOverRun.skipped_by_reason) -join ',') + ' | ' + (@(Get-TelemetryMapKeys -Map $lfOverNoRun.skipped_by_reason) -join ','))
+    Assert-Producer (((@($lfOverRun.lines).Count -eq 0) -and (@($lfOverNoRun.lines).Count -eq 0)) -and ((Get-TelemetrySkipText -Map $lfOverRun.skipped_by_reason) -ceq (Get-TelemetrySkipText -Map $lfOverNoRun.skipped_by_reason))) 'G8b over-cap discard accounting is identical with and without the final LF' ((Get-TelemetrySkipText -Map $lfOverRun.skipped_by_reason) + ' | ' + (Get-TelemetrySkipText -Map $lfOverNoRun.skipped_by_reason))
+
+    # unparsable FINAL line: same accounting in both variants.
+    $lfBad = ($lfLineA + "`n" + 'not-json-at-all' + "`n")
+    [IO.File]::WriteAllText((Join-Path $lfDir 'bad-with-lf.jsonl'), $lfBad, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $lfDir 'bad-no-lf.jsonl'), $lfBad.Substring(0, $lfBad.Length - 1), [Text.UTF8Encoding]::new($false))
+    $lfBadRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'bad-with-lf.jsonl') -MaxLines 100 -MaxLineBytes 4096 -MaxFileBytes 65536
+    $lfBadNoRun = Read-EvolutionTelemetryJsonLines -Path (Join-Path $lfDir 'bad-no-lf.jsonl') -MaxLines 100 -MaxLineBytes 4096 -MaxFileBytes 65536
+    Assert-Producer (((@(Get-TelemetryMapKeys -Map $lfBadRun.skipped_by_reason) -ccontains 'unparsable-line') -and (@(Get-TelemetryMapKeys -Map $lfBadNoRun.skipped_by_reason) -ccontains 'unparsable-line')) -and ((Get-TelemetrySkipText -Map $lfBadRun.skipped_by_reason) -ceq (Get-TelemetrySkipText -Map $lfBadNoRun.skipped_by_reason))) 'G8b an unparsable final line is accounted identically with and without the final LF' ((Get-TelemetrySkipText -Map $lfBadRun.skipped_by_reason) + ' | ' + (Get-TelemetrySkipText -Map $lfBadNoRun.skipped_by_reason))
+
+    # end-to-end through the producer: two watchdog dirs carrying the SAME
+    # content with and without the final LF must publish the same discard
+    # accounting in the record (lines_skipped + reason map), not only in the
+    # reader. MaxLines is lowered to 1 through the REAL policy so the SECOND
+    # (final) line is the one cut.
+    $lfWithDir = Join-Path $tempRoot 'lf-watchdog-with'
+    $lfNoDir = Join-Path $tempRoot 'lf-watchdog-without'
+    foreach ($d in @($lfWithDir, $lfNoDir)) { [void][IO.Directory]::CreateDirectory($d) }
+    [IO.File]::WriteAllText((Join-Path $lfWithDir 'watchdog-20260102.jsonl'), $lfTwo, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $lfNoDir 'watchdog-20260102.jsonl'), ($lfTwo.Substring(0, $lfTwo.Length - 1)), [Text.UTF8Encoding]::new($false))
+    $lfPolicy = Copy-EvolutionPolicyWithCaps -PolicyPath $realPolicyPath -Caps @{ max_telemetry_records = 1 }
+    $lfE2eWith = Invoke-OrchestrationTelemetryProduction -Policy $lfPolicy -TasksDir $emptyForWd -WatchdogDir $lfWithDir -Now $AT
+    $lfE2eNo = Invoke-OrchestrationTelemetryProduction -Policy $lfPolicy -TasksDir $emptyForWd -WatchdogDir $lfNoDir -Now $AT
+    Assert-Producer (([int]$lfE2eWith.record.sources.watchdog.lines_examined -eq 2) -and ([int]$lfE2eNo.record.sources.watchdog.lines_examined -eq 2)) 'G8b the produced record examines the same line count with and without the final LF' ("lf=$($lfE2eWith.record.sources.watchdog.lines_examined) noLf=$($lfE2eNo.record.sources.watchdog.lines_examined)")
+    Assert-Producer (([int]$lfE2eWith.record.sources.watchdog.lines_skipped -eq 1) -and ([int]$lfE2eNo.record.sources.watchdog.lines_skipped -eq 1)) 'G8b the produced record discards the same line count with and without the final LF' ("lf=$($lfE2eWith.record.sources.watchdog.lines_skipped) noLf=$($lfE2eNo.record.sources.watchdog.lines_skipped)")
+    Assert-Producer ((Get-TelemetrySkipText -Map $lfE2eWith.record.sources.watchdog.skipped_by_reason) -ceq (Get-TelemetrySkipText -Map $lfE2eNo.record.sources.watchdog.skipped_by_reason)) 'G8b the produced skip-reason map is identical with and without the final LF' ((Get-TelemetrySkipText -Map $lfE2eWith.record.sources.watchdog.skipped_by_reason) + ' | ' + (Get-TelemetrySkipText -Map $lfE2eNo.record.sources.watchdog.skipped_by_reason))
+    Assert-Producer (([int]$lfE2eWith.counters.tool_loop_tasks -eq 1) -and ([int]$lfE2eNo.counters.tool_loop_tasks -eq 1) -and ([bool]$lfE2eWith.record.sources.watchdog.truncated) -and ([bool]$lfE2eNo.record.sources.watchdog.truncated)) 'G8b the derived counters and the truncation flag are identical with and without the final LF' ("lf=$($lfE2eWith.counters.tool_loop_tasks) noLf=$($lfE2eNo.counters.tool_loop_tasks)")
 
     # ---------- G9: the read is confined to the measured snapshot ----------
     # The read handle allows concurrent writers (FileShare.ReadWrite), so a
