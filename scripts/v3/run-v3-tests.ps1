@@ -81,16 +81,17 @@ try {
     try {
       # cmd /c com redirecionamento para arquivo: evita deadlock de pipe
       # (suite verbosa bloqueia se o pai nao drenar stdout durante WaitForExit).
+      # Console oculto HERDAVEL (UseShellExecute + WindowStyle Hidden): a
+      # suite e os netos `& powershell` herdam o console oculto. Com
+      # CreateNoWindow os netos sem console ganhavam janela visivel no host.
       $psi = New-Object System.Diagnostics.ProcessStartInfo
       $psi.FileName = 'cmd.exe'
-      $psi.Arguments = '/c powershell -NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '" > "' + $logFile + '" 2>&1'
-      $psi.UseShellExecute = $false
       # FIX CI ps7: filho 5.1 herdaria PSModulePath do host pwsh e perderia
       # autoload dos modulos padrao (Get-FileHash); fixa para os modulos do 5.1.
-      $psi.EnvironmentVariables['PSModulePath'] = "$env:windir\System32\WindowsPowerShell\v1.0\Modules"
-      $psi.RedirectStandardOutput = $false
-      $psi.RedirectStandardError = $false
-      $psi.CreateNoWindow = $true
+      # (via `set` do cmd: EnvironmentVariables nao funciona com UseShellExecute)
+      $psi.Arguments = '/c set "PSModulePath=%windir%\System32\WindowsPowerShell\v1.0\Modules" && powershell -NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '" > "' + $logFile + '" 2>&1'
+      $psi.UseShellExecute = $true
+      $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
       $psi.WorkingDirectory = $v3
       $p = [System.Diagnostics.Process]::Start($psi)
       $finished = $p.WaitForExit($SuiteTimeoutMs)

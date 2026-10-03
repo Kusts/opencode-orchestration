@@ -221,7 +221,7 @@ function Get-EnforceShell {
 function Start-EnforceChild {
     param([int]$SleepSeconds = 120)
     $shell = Get-EnforceShell
-    $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Seconds ' + [string]$SleepSeconds)) -PassThru
+    $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Seconds ' + [string]$SleepSeconds)) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($p)
     return $p
 }
@@ -229,7 +229,7 @@ function Start-EnforceChild {
 function Start-EnforceShortChild {
     param([int]$SleepMs = 300)
     $shell = Get-EnforceShell
-    $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Milliseconds ' + [string]$SleepMs)) -PassThru
+    $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Milliseconds ' + [string]$SleepMs)) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($p)
     return $p
 }
@@ -607,7 +607,7 @@ try {
             $flags = ([string]$Ctx['flags'])
             $repo = ([string]$Ctx['repo'])
             $tele = ([string]$Ctx['tele'])
-            $c1 = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 120') -PassThru
+            $c1 = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
             [void]$jkids.Add($c1)
             $ready = $false
             $rsw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1064,10 +1064,10 @@ try {
             $work = Join-Path ([IO.Path]::GetTempPath()) ('v3-wd-tree-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $work -Force | Out-Null
             $midScript = Join-Path $work 'tree-mid.ps1'
-            [IO.File]::WriteAllText($midScript, ("Start-Process -FilePath '" + $shell + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')" + "`r`nStart-Sleep -Seconds 120`r`n"), [Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText($midScript, ("Start-Process -FilePath '" + $shell + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden" + "`r`nStart-Sleep -Seconds 120`r`n"), [Text.UTF8Encoding]::new($false))
             $rootScript = Join-Path $work 'tree-root.ps1'
-            [IO.File]::WriteAllText($rootScript, ("Start-Process -FilePath '" + $shell + "' -ArgumentList @('-NoProfile','-File','" + $midScript + "')" + "`r`nStart-Sleep -Seconds 120`r`n"), [Text.UTF8Encoding]::new($false))
-            $root = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-File', $rootScript) -PassThru
+            [IO.File]::WriteAllText($rootScript, ("Start-Process -FilePath '" + $shell + "' -ArgumentList @('-NoProfile','-File','" + $midScript + "') -WindowStyle Hidden" + "`r`nStart-Sleep -Seconds 120`r`n"), [Text.UTF8Encoding]::new($false))
+            $root = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-File', $rootScript) -WindowStyle Hidden -PassThru
             $rsw = [System.Diagnostics.Stopwatch]::StartNew()
             while ($rsw.Elapsed.TotalSeconds -lt 10) {
                 $rready = $false
@@ -1204,7 +1204,7 @@ try {
             $tele = ([string]$Ctx['tele'])
             $work = Join-Path ([IO.Path]::GetTempPath()) ('v3-wd-fc-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $work -Force | Out-Null
-            $c15a = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 120') -PassThru
+            $c15a = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
             [void]$jkids.Add($c15a)
             [void](Wait-JobReady2 -Proc $c15a -TimeoutMs 10000)
             $lp15 = ''
@@ -1226,8 +1226,8 @@ try {
             $s15a = Get-OrchestrationWatchdogSettlement -TaskId 'wd-fix1-treefail' -FlagsPath $flags -RepoRoot $repo -TelemetryRoot $tele
             Assert-Job (([string]$s15a.settlement -ceq 'REFUSED')) 'F3 enum failure queryable, never SETTLED'
             $rootScript15 = Join-Path $work 'tree-pair.ps1'
-            [IO.File]::WriteAllText($rootScript15, ("Start-Process -FilePath '" + $shell + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`r`nStart-Sleep -Seconds 120`r`n"), [Text.UTF8Encoding]::new($false))
-            $root15 = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-File', $rootScript15) -PassThru
+            [IO.File]::WriteAllText($rootScript15, ("Start-Process -FilePath '" + $shell + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`r`nStart-Sleep -Seconds 120`r`n"), [Text.UTF8Encoding]::new($false))
+            $root15 = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-File', $rootScript15) -WindowStyle Hidden -PassThru
             [void]$jkids.Add($root15)
             [void](Wait-JobReady2 -Proc $root15 -TimeoutMs 10000)
             $kidPid15 = 0
@@ -1484,8 +1484,8 @@ try {
         New-Item -ItemType Directory -Path $treeWork23 -Force | Out-Null
         $shell23 = Get-EnforceShell
         $rootScript23 = Join-Path $treeWork23 'tree-deep.ps1'
-        Write-EnforceFixture -Path $rootScript23 -Text ("Start-Process -FilePath '" + $shell23 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-        $root23 = Start-Process -FilePath $shell23 -ArgumentList @('-NoProfile', '-File', $rootScript23) -PassThru
+        Write-EnforceFixture -Path $rootScript23 -Text ("Start-Process -FilePath '" + $shell23 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+        $root23 = Start-Process -FilePath $shell23 -ArgumentList @('-NoProfile', '-File', $rootScript23) -WindowStyle Hidden -PassThru
         [void]$script:enfChildren.Add($root23)
         [void](Wait-EnforceReady -Proc $root23 -TimeoutMs 10000)
         $kid23 = 0
@@ -1536,8 +1536,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork24 -Force | Out-Null
     $shell24 = Get-EnforceShell
     $rootScript24 = Join-Path $treeWork24 'tree-flash.ps1'
-    Write-EnforceFixture -Path $rootScript24 -Text ("Start-Process -FilePath '" + $shell24 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 6`n")
-    $root24 = Start-Process -FilePath $shell24 -ArgumentList @('-NoProfile', '-File', $rootScript24) -PassThru
+    Write-EnforceFixture -Path $rootScript24 -Text ("Start-Process -FilePath '" + $shell24 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 6`n")
+    $root24 = Start-Process -FilePath $shell24 -ArgumentList @('-NoProfile', '-File', $rootScript24) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root24)
     $kid24 = 0
     $fsw24 = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1586,8 +1586,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork25 -Force | Out-Null
     $shell25 = Get-EnforceShell
     $rootScript25 = Join-Path $treeWork25 'tree-pair25.ps1'
-    Write-EnforceFixture -Path $rootScript25 -Text ("Start-Process -FilePath '" + $shell25 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-    $root25 = Start-Process -FilePath $shell25 -ArgumentList @('-NoProfile', '-File', $rootScript25) -PassThru
+    Write-EnforceFixture -Path $rootScript25 -Text ("Start-Process -FilePath '" + $shell25 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root25 = Start-Process -FilePath $shell25 -ArgumentList @('-NoProfile', '-File', $rootScript25) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root25)
     [void](Wait-EnforceReady -Proc $root25 -TimeoutMs 10000)
     $kid25 = 0
@@ -1699,8 +1699,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork29 -Force | Out-Null
     $shell29 = Get-EnforceShell
     $rootScript29 = Join-Path $treeWork29 'tree-flash29.ps1'
-    Write-EnforceFixture -Path $rootScript29 -Text ("Start-Process -FilePath '" + $shell29 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 6`n")
-    $root29 = Start-Process -FilePath $shell29 -ArgumentList @('-NoProfile', '-File', $rootScript29) -PassThru
+    Write-EnforceFixture -Path $rootScript29 -Text ("Start-Process -FilePath '" + $shell29 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 6`n")
+    $root29 = Start-Process -FilePath $shell29 -ArgumentList @('-NoProfile', '-File', $rootScript29) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root29)
     $kid29 = 0
     $fsw29 = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1745,8 +1745,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork30 -Force | Out-Null
     $shell30 = Get-EnforceShell
     $rootScript30 = Join-Path $treeWork30 'tree-late30.ps1'
-    Write-EnforceFixture -Path $rootScript30 -Text ("Start-Sleep -Seconds 4`nStart-Process -FilePath '" + $shell30 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-    $root30 = Start-Process -FilePath $shell30 -ArgumentList @('-NoProfile', '-File', $rootScript30) -PassThru
+    Write-EnforceFixture -Path $rootScript30 -Text ("Start-Sleep -Seconds 4`nStart-Process -FilePath '" + $shell30 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root30 = Start-Process -FilePath $shell30 -ArgumentList @('-NoProfile', '-File', $rootScript30) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root30)
     $b30 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
     $r30 = Register-EnforceBound -TaskId 'wd-fix3-attr' -SessionId 'wd-fix3-sess-attr' -Child $root30 -Budget $b30 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -Repo $repo
@@ -1787,8 +1787,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork31 -Force | Out-Null
     $shell31 = Get-EnforceShell
     $rootScript31 = Join-Path $treeWork31 'tree-pair31.ps1'
-    Write-EnforceFixture -Path $rootScript31 -Text ("Start-Process -FilePath '" + $shell31 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-    $root31 = Start-Process -FilePath $shell31 -ArgumentList @('-NoProfile', '-File', $rootScript31) -PassThru
+    Write-EnforceFixture -Path $rootScript31 -Text ("Start-Process -FilePath '" + $shell31 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root31 = Start-Process -FilePath $shell31 -ArgumentList @('-NoProfile', '-File', $rootScript31) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root31)
     [void](Wait-EnforceReady -Proc $root31 -TimeoutMs 10000)
     $kid31 = 0
@@ -1838,10 +1838,10 @@ try {
     New-Item -ItemType Directory -Path $treeWork32 -Force | Out-Null
     $shell32 = Get-EnforceShell
     $midScript32 = Join-Path $treeWork32 'tree-mid32.ps1'
-    Write-EnforceFixture -Path $midScript32 -Text ("Start-Process -FilePath '" + $shell32 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
+    Write-EnforceFixture -Path $midScript32 -Text ("Start-Process -FilePath '" + $shell32 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
     $rootScript32 = Join-Path $treeWork32 'tree-root32.ps1'
-    Write-EnforceFixture -Path $rootScript32 -Text ("Start-Process -FilePath '" + $shell32 + "' -ArgumentList @('-NoProfile','-File','" + $midScript32 + "')`nStart-Sleep -Seconds 120`n")
-    $root32 = Start-Process -FilePath $shell32 -ArgumentList @('-NoProfile', '-File', $rootScript32) -PassThru
+    Write-EnforceFixture -Path $rootScript32 -Text ("Start-Process -FilePath '" + $shell32 + "' -ArgumentList @('-NoProfile','-File','" + $midScript32 + "') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root32 = Start-Process -FilePath $shell32 -ArgumentList @('-NoProfile', '-File', $rootScript32) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root32)
     [void](Wait-EnforceReady -Proc $root32 -TimeoutMs 10000)
     $mid32 = 0
@@ -1911,8 +1911,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork34 -Force | Out-Null
     $shell34 = Get-EnforceShell
     $rootScript34 = Join-Path $treeWork34 'tree-late34.ps1'
-    Write-EnforceFixture -Path $rootScript34 -Text ("Start-Sleep -Seconds 2`nStart-Process -FilePath '" + $shell34 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-    $root34 = Start-Process -FilePath $shell34 -ArgumentList @('-NoProfile', '-File', $rootScript34) -PassThru
+    Write-EnforceFixture -Path $rootScript34 -Text ("Start-Sleep -Seconds 2`nStart-Process -FilePath '" + $shell34 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root34 = Start-Process -FilePath $shell34 -ArgumentList @('-NoProfile', '-File', $rootScript34) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root34)
     [void](Wait-EnforceReady -Proc $root34 -TimeoutMs 10000)
     $livePath34 = ''
@@ -2014,8 +2014,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork36 -Force | Out-Null
     $shell36 = Get-EnforceShell
     $rootScript36 = Join-Path $treeWork36 'tree-pair36.ps1'
-    Write-EnforceFixture -Path $rootScript36 -Text ("Start-Process -FilePath '" + $shell36 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Process -FilePath '" + $shell36 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-    $root36 = Start-Process -FilePath $shell36 -ArgumentList @('-NoProfile', '-File', $rootScript36) -PassThru
+    Write-EnforceFixture -Path $rootScript36 -Text ("Start-Process -FilePath '" + $shell36 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Process -FilePath '" + $shell36 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root36 = Start-Process -FilePath $shell36 -ArgumentList @('-NoProfile', '-File', $rootScript36) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root36)
     [void](Wait-EnforceReady -Proc $root36 -TimeoutMs 10000)
     $kids36 = @()
@@ -2119,8 +2119,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork38 -Force | Out-Null
     $shell38 = Get-EnforceShell
     $rootScript38 = Join-Path $treeWork38 'tree-pair38.ps1'
-    Write-EnforceFixture -Path $rootScript38 -Text ("Start-Process -FilePath '" + $shell38 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 120`n")
-    $root38 = Start-Process -FilePath $shell38 -ArgumentList @('-NoProfile', '-File', $rootScript38) -PassThru
+    Write-EnforceFixture -Path $rootScript38 -Text ("Start-Process -FilePath '" + $shell38 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 120`n")
+    $root38 = Start-Process -FilePath $shell38 -ArgumentList @('-NoProfile', '-File', $rootScript38) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root38)
     [void](Wait-EnforceReady -Proc $root38 -TimeoutMs 10000)
     $kid38 = 0
@@ -2188,8 +2188,8 @@ try {
     New-Item -ItemType Directory -Path $treeWork39 -Force | Out-Null
     $shell39 = Get-EnforceShell
     $rootScript39 = Join-Path $treeWork39 'tree-flash39.ps1'
-    Write-EnforceFixture -Path $rootScript39 -Text ("Start-Process -FilePath '" + $shell39 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120')`nStart-Sleep -Seconds 6`n")
-    $root39 = Start-Process -FilePath $shell39 -ArgumentList @('-NoProfile', '-File', $rootScript39) -PassThru
+    Write-EnforceFixture -Path $rootScript39 -Text ("Start-Process -FilePath '" + $shell39 + "' -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden`nStart-Sleep -Seconds 6`n")
+    $root39 = Start-Process -FilePath $shell39 -ArgumentList @('-NoProfile', '-File', $rootScript39) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($root39)
     $kid39 = 0
     $fsw39 = [System.Diagnostics.Stopwatch]::StartNew()
