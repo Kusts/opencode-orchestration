@@ -487,6 +487,18 @@ plano em
   com `OutDir` explícito. Suíte **148/148** (PS5.1 + pwsh).
   Reviews: Reviewer **APPROVED** (round 3) + Security **APPROVED**
   (round 3). Wiring de chamador em produção = decisão do operador.
+- **P40 fatia 2 done-code-fix2** — revisor de supersessão de
+  evidências (`OrchestrationV2EvidenceSupersession.ps1`):
+  avaliação determinística fail-closed entre registro existente e
+  candidato do gating V2 — vereditos fechados (duplicate /
+  supersede-recommended / stale / ambiguous / invalid-* /
+  identity-mismatch), identidade **Ordinal** nos 5 campos, agregação
+  com precedência (impeditivos ⇒ review-required; duplicate ⇒
+  no-op), digest ecoado só com forma `\A[0-9a-fA-F]{64}\z`, Now
+  explícito inutilizável ⇒ fail-closed. **Decision-record only**:
+  zero escrita, zero habilitação. Suíte **238/238** (PS5.1 + pwsh).
+  Reviews: Reviewer **APPROVED** (round 2) + Security **APPROVED**
+  (round 3). Append/enable permanece decisão do operador.
 - **Waves A–E code-complete kernel-side/plugin (2026-10-02)**;
   pendências de ativação/evidência do operador listadas em
   `evidence/v3.1/runtime-reliability/program-status.json`.
