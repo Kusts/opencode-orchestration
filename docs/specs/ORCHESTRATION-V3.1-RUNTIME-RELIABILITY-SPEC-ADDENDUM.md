@@ -1,5 +1,14 @@
 # SPEC ADDENDUM — Orchestration V3.1 Persistent Adaptive Engineering & Runtime Reliability
 
+> **Implementation status (2026-10-02):** Waves A–E (Phases 26–42)
+> **code-complete** nas fatias kernel-side/plugin — todos os slices com
+> suites verdes, Reviewer + Security Reviewer APPROVED e estado vivo em
+> `evidence/v3.1/runtime-reliability/program-status.json`. O **release
+> gate real permanece pendente de evidência do operador** (lane V2
+> Windows no binário exato 2.0.18, deploy VPS do AI Memory, ativações
+> de flag com evidência, probes reais). Nenhuma flag foi ativada;
+> sem fake-close.
+
 **Repository:** `Kusts/opencode-orchestration`
 **Baseline:** `master @ 4a996b29659967312d7ba3abbfbfb6003ce0bec1`
 **Revision date:** 2026-10-01

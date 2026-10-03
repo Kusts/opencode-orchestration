@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## Programa Phases 21–42 (revisão 2026-10-01) (runtime reliability — P21–P25 consolidadas, P26–P42 pendentes)
+## Programa Phases 21-42 (revisão 2026-10-01) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; pendências de ativação/evidência do operador)
 
 Estado vivo em
 `evidence/v3.1/runtime-reliability/program-status.json`. O que já tem

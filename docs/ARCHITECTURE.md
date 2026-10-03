@@ -195,7 +195,26 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
   (`task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
   nascem OFF — shadow rollout, ativação é decisão humana com evidência).
 
-## Confiabilidade de runtime (V3.1 Phases 21–42 (revisão 2026-10-01) — P21–P25 consolidadas, P26–P42 não iniciadas)
+## Confiabilidade de runtime (V3.1 Phases 21-42 (revisão 2026-10-01) - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; release gate pendente do operador)
+
+**Status 2026-10-02:** programa **code-complete** nas fatias
+kernel-side/plugin — Waves A–E implementadas via ciclo
+coder → tester → reviewer (+ security) com APPROVED por slice.
+Bibliotecas novas em `scripts/v3/lib/`:
+`OrchestrationMcpSafety` (envelope bounded + circuit breaker),
+`OrchestrationJevAdvisory` (Jev como advisory, flag OFF),
+`OrchestrationAiMemoryRemote` (dependência remota bounded),
+`OrchestrationBootstrapContext`, `OrchestrationTaskBindings`
+(bindings CAS no kernel), `OrchestrationSessionReconciler`
+(Continuation Envelope), `OrchestrationExecutionModes`,
+`OrchestrationEvidenceStore` (reuse), `OrchestrationValidationPolicy`
+(L0–L3), `OrchestrationSimplicityPolicy`, `OrchestrationPlannerLoop`,
+`OrchestrationCapabilityDoctor`, `OrchestrationV2NativeGating`
+(todas as features hold-unproven), `OrchestrationEvolutionLoop`
+(observacional) e o transporte MCP no plugin
+(`plugins/orchestration-enforcement/shared/mcp-transport.ts`,
+shadow default). E2E manifest com 41 cenários classificados
+(18 sintéticos pass, 22 blocked honestos).
 
 Programa em andamento, com estado vivo em
 `evidence/v3.1/runtime-reliability/program-status.json`; especificado em
