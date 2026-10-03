@@ -10,8 +10,10 @@ Programa **V3.1 — Dual-Runtime Kernel Hardening** em andamento
 (especificação e plano em `docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-*`).
 Fases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel) **implementadas, revisadas
 (Reviewer + Security Reviewer) e corrigidas**; Phase 5 entrega só o harness
-(enforcement comportamental V2 pendente), Phase 8 tem lane CI sem smoke de
-binário V2; evidência completa em
+(enforcement comportamental V2 pendente), Phase 8 tem o smoke de binário V2
+wired no job `ci-smoke-opencode-v2` via lifecycle explícito do serviço
+gerenciado (padrão P22, **3/3 PASS local** em 2026-10-03; primeira execução
+real no runner pendente do push do operador); evidência completa em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 Programa **V3.1 — Runtime Reliability, Loop Recovery & Jev MCP
@@ -31,8 +33,10 @@ especificação e plano em
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` e
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md`):
 - **P21 done** — baseline congelado (`baseline.json`): pins V1/V2
-  presentes, listener `49374` identificado como AI Memory local (Docker,
-  saudável); fixtures de watchdog **17/17 PASS** (PS5.1 e PS7),
+  presentes, listener `49374` **não é AI Memory** — é o serviço de fundo
+  do V2 CLI (`opencode.exe serve --service` do npm global) que o harness
+  respawn a cada sessão/restart (stop owned e efêmero por construção),
+  nunca mutado aqui; fixtures de watchdog **17/17 PASS** (PS5.1 e PS7),
   record-only, sem enforcement; consistência **16/16 OK**;
   `CapabilityFlags` **20/20**; smokes V1/V2 com FAILED honesto por
   ambiente (sem retry, sem regressão).
@@ -41,7 +45,9 @@ especificação e plano em
   0/1/2); wrapper V2 com startup condicionado a configuração verificada
   + `PORT_FREE`; E2E nativo alternativo provado em perfil isolado
   (`native-start-contract.json`, 16/16 steps, `candidate_pass`);
-  diagnóstico real do `49374` (Docker/ssh por PID, nunca mutado);
+  diagnóstico real do `49374` (Docker/ssh por PID, nunca mutado;
+  registro do diagnóstico de então — identidade do listener corrigida em
+  2026-10-03, ver P21 acima);
   AI Memory **nunca** mutado. HOLDs: `REUSE`, wrapper produtivo
   `UNVERIFIED` (exit 2 sem schema exato), cleanup de descendants sem
   prova, set/start nativo só com `RR_P22_RUN_NATIVE=1`.
@@ -567,9 +573,11 @@ especificação e plano em
   AI Memory em arquivo de policy local FORA do repo (override
   `-PolicyPath`); o placeholder público permanece vazio e **nenhum
   endpoint, IP, domínio ou token pessoal entra neste repo público**.
-  O listener local `49374` foi identificado pelo operador como resto
-  obsoleto pós-migração (opencode.exe global); segue intocado, com
-  desativação na autonomia do operador. Pendências P22/P30 restantes:
+  O listener local `49374` **NÃO é AI Memory**: é o serviço de fundo do
+  V2 CLI (`opencode.exe serve --service` do npm global), respawnado a
+  cada sessão/restart; segue intocado, e qualquer desativação durável
+  é decisão do operador via configuração (não é "resto obsoleto"
+  removível). Pendências P22/P30 restantes:
   config local + evidência de health/transporte registrando apenas o
   resultado (nunca a identidade do servidor).
 - **Waves A–E code-complete kernel-side/plugin (2026-10-02/03)**;
@@ -696,8 +704,14 @@ pendente do operador).
   `debug config/agents` travam (2× timeout) — status `failed` registrado
   sem claim de enforcement; checklist comportamental pendente.
 - **Lane CI V2** (`ci-v2-lane`): consistência + suítes V3 + distribuição +
-  typecheck V1/V2/dual; smoke de binário V2 real no CI segue sem path
-  comprovado no Windows.
+  typecheck V1/V2/dual; smoke de binário V2 real tem path comprovado
+  localmente (`scripts/ci/smoke-opencode-v2-lifecycle.ps1`, lifecycle
+  explícito do serviço gerenciado no padrão P22, **3/3 PASS** no binário
+  2.0.18 em 2026-10-03) e está wired como step do job
+  `ci-smoke-opencode-v2`, **antes** do smoke implícito (`debug
+  paths/config/agents`), que segue flaky upstream
+  (`debugcfg-hang-investigation.json`) e foi mantido como probe honesto;
+  primeira execução real no runner pendente do push do operador.
 
 ### Pendente (não implementado)
 
@@ -716,10 +730,13 @@ pendente do operador).
   `debugcfg-hang-investigation.json`) e os cenários de
   watchdog/sessão/
   restart exigem integração de sessão real; evidência em
-  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/`), deploy do
-  VPS de AI Memory + re-preflight
-  de porta, ativações de flag com evidência (decisão humana), probes
-  reais de health/transporte, jevgrep real e wirings de chamador em
+  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/`), config
+  user-owned local do endpoint de AI Memory **remota já em PROD** (deploy
+  do VPS de AI Memory executado pelo operador; restam a configuração fora
+  do repo e a evidência de health/transporte sem registrar identidade no
+  repo) e o re-preflight de porta P22, ativações de flag com evidência
+  (decisão humana), probes reais de health/transporte, jevgrep real e
+  wirings de chamador em
   produção (produtor de telemetria P41, append/enable do revisor de
   supersessão P40-S2, spawn real do despacho P38, hooks de arranque
   P31). Checklist em `evidence/v3.1/runtime-reliability/phase42.json`;
@@ -732,10 +749,14 @@ pendente do operador).
   ativada; `program-status.json` mantém o detalhamento por fase.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
   saved approvals e `experimental.policies` contra o runtime V2 real
-  (requer resolver o travamento do `debug` V2 e/ou lane de CI com binário
-  real). Nenhum hard-deny é shipado antes disso.
-- **Phase 8 (smoke V2 em CI)** — mecanismo oficial de instalação V2 no
-  Windows ainda não provado para uso em CI.
+  (requer resolver o travamento do `debug` V2 e/ou evidência do job
+  `ci-smoke-opencode-v2` já wired (primeira execução no runner, pendente
+  de push)). Nenhum hard-deny é shipado antes disso.
+- **Phase 8 (smoke V2 em CI)** — instalação oficial do V2 no Windows
+  (`@opencode/cli@2.0.18` via npm + postinstall) provada localmente e
+  smoke de lifecycle wired no job `ci-smoke-opencode-v2`; pendente apenas a
+  primeira execução real no runner (push do operador) e a resolução do
+  flakiness upstream do `debug config`.
 - **Ativação** — flags `task_kernel`/`worktree_isolation`/
   `runtime_grant_enforcement`/`runtime_support.v2`/`watchdog`/
   `jev_advisory` permanecem OFF; ativar é decisão humana com evidência

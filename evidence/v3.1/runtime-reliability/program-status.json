@@ -90,7 +90,7 @@
       "status": "done",
       "task_id": "RR-P21",
       "evidence": "evidence/v3.1/runtime-reliability/baseline.json",
-      "summary": "Baseline de confiabilidade congelado: pins V1/V2 presentes, listener 49374 identificado como AI Memory local (Docker, saudavel), fixtures de watchdog 17/17 PASS em PS5.1 e PS7 (record-only, sem enforcement).",
+      "summary": "Baseline de confiabilidade congelado: pins V1/V2 presentes, listener 49374 NAO e AI Memory (identidade corrigida em 2026-10-03: e o servico de fundo do V2 CLI, opencode.exe serve --service do npm global, que o harness RESPAWN a cada sessao/restart; nunca mutado aqui), fixtures de watchdog 17/17 PASS em PS5.1 e PS7 (record-only, sem enforcement).",
       "suites": [
         "fixtures watchdog-baseline 17/17 PASS (PS5.1 + PS7) — evidence/v3.1/runtime-reliability/fixtures/watchdog-baseline-fixtures.tests.ps1",
         "scripts/test-package-consistency.ps1 16/16 OK",
@@ -100,7 +100,7 @@
       ],
       "holds": [
         "debug config/agents do V2 2.0.18 instavel sob fixture XDG (HOLD pre-existente)",
-        "migracao AI Memory para VPS pendente; 49374 local segue ocupado"
+        "migracao AI Memory para VPS pendente (RESOLVIDO 2026-10-03: deploy executado antes de 2026-10-01; restam config user-owned fora do repo + evidencia de health/transporte sem identidade + re-preflight de porta P22); 49374 local segue ocupado (identidade corrigida: servico de fundo do V2 CLI, ver invariants)"
       ]
     },
     "phase22_port_preflight": {

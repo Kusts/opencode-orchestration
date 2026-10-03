@@ -24,8 +24,11 @@
 # Tres jobs: ci-ps51/ci-ps7 (suites V3 + distribution, engines ps51/pwsh),
 # ci-smoke-opencode (OpenCode V1 REAL num home isolado + typecheck do plugin
 # contra a API real @opencode-ai/plugin@1.18.32) e ci-v2-lane (package
-# consistency + V3 + distribution + typecheck V1/V2/dual sem binario V2
-# real — sem install path V2 provado no Windows).
+# consistency + V3 + distribution + typecheck V1/V2/dual sem binario V2 real —
+# lane que nao instala o binario V2; o exercicio do binario V2 real vive no job
+# ci-smoke-opencode-v2, que roda o smoke de ciclo de vida explicito do servico
+# gerenciado (scripts/ci/smoke-opencode-v2-lifecycle.ps1, padrao P22, 3/3 PASS
+# local em 2026-10-03; primeira execucao real no runner so ocorre no push).
 # Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
 # Tres jobs explicitos (ci-ps51/ci-ps7/smoke) mais a lane ci-v2-lane em vez de
 # matriz: steps.shell NAO aceita contexts/expressoes (actionlint). Pipeline: package consistency ->
@@ -33,10 +36,17 @@
 # (tests/distribution/run-distribution-tests.ps1, PS 5.1-compativel); cada
 # job exercita as distribution suites no proprio engine (ps51/pwsh).
 # Job ci-smoke-opencode-v2 (Phase 8): OpenCode V2 REAL (@opencode/cli@2.0.18
-# via npm + postinstall oficial) num home isolado ($RUNNER_TEMP\oo-v2smoke-home):
-# config com os 19 workers via AgentTranslator + debug config/agents contra
-# servidor privado (service set port) + plugin/mcp list observados. Mandatorio
-# (exit 1 em runtime ausente/errado, load ou timeout; nunca skip silencioso).
+# via npm + postinstall oficial) num home isolado ($RUNNER_TEMP\oo-v2smoke-home
+# e $RUNNER_TEMP\oo-v2lifecycle-<run-id>). Ordem deliberada: PRIMEIRO o smoke de
+# ciclo de vida EXPLICITO do servico gerenciado (service set port -> start ->
+# status -> stop owned -> settlement; sem `debug config`), path estavel do padrao
+# P22, que produz evidencia; DEPOIS o smoke implicito (debug paths/config/agents,
+# plugin list, mcp list), mantido como probe honesto do comportamento upstream
+# flaky conhecido (7 hangs vs 5 passes no 2.0.18 no mesmo dia;
+# debugcfg-hang-investigation.json): nao removido nem alterado. Config com os 19
+# workers via AgentTranslator + servidor privado (service set port) em ambos.
+# Mandatorio (exit 1 em runtime ausente/errado, load ou timeout; nunca skip
+# silencioso).
 
 name: CI
 
@@ -157,6 +167,9 @@ jobs:
 
       - name: Install OpenCode V2 (pinned, official npm package)
         run: npm install -g @opencode/cli@2.0.18; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; opencode --version
+
+      - name: Smoke lifecycle explicito do servico V2 (padrao P22, path comprovado local 2026-10-03)
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2-lifecycle.ps1
 
       - name: Smoke test with real OpenCode V2 (isolated home, private server)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2.ps1
