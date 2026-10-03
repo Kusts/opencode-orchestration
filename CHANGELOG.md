@@ -373,6 +373,19 @@ plano em
   **APPROVED**. HOLDs: ativação de runtime (auto-start, AGENTS.md
   global, default_agent) é estado do operador; wiring no início de
   sessão é fatia 2.
+- **P31 slice 2 done-code-fix1** — startup wiring (`scripts/runtime/
+  SessionBootstrapContext.ps1`, CLI hook-style sobre o builder S1):
+  **fail-open total** (arranque nunca bloqueia — qualquer falha
+  interna emite envelope mínimo válido com exit 0; exit 1 só uso
+  estrutural), saída JSON **bounded** com LF reservado no budget,
+  determinismo com timestamp injetável, **parse-only** (zero
+  spawn/rede), telemetria de compliance **metadata-only** (task 8 do
+  plano) com cap 1MB atômico entre processos (handle exclusivo
+  measure+append), contenção ⇒ skip silencioso, falha operacional ⇒
+  nota honesta no stderr sem bloquear. Suíte **43/43** (PS5.1 +
+  pwsh). Reviews: Reviewer **APPROVED** (round 2) + Security
+  **APPROVED** (round 2). **Nada é registrado/instalado** — a
+  ativação do wiring no arranque real permanece decisão do operador.
 - **P33 slice 1 done-code-fix3** — Continuation Envelope +
   reconciler kernel-side (`scripts/v3/lib/
   OrchestrationSessionReconciler.ps1`): envelope bounded 8KB

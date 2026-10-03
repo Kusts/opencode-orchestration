@@ -280,7 +280,7 @@
     },
     "phase31_bootstrap_context_slice1": {
       "status": "done-code-fix3",
-      "task_id": "RR-P31-BOOTSTRAP-CONTEXT-S1 (+FIX1..FIX3)",
+      "task_id": "RR-P31-BOOTSTRAP-CONTEXT-S1 (+FIX1..FIX3) / RR-P31-S2-STARTUP-WIRING (+FIX1)",
       "evidence": "evidence/v3.1/runtime-reliability/phase31.json",
       "summary": "Bootstrap context builder kernel-side (plan §8, fatia 1): read-only e parse-only (nunca executa processo/scripts; runtime via RuntimeInfo injetado ou unknown/not-probed), seções project/runtime/capability_health/tasks/pending_waits/jev_status/aimemory_status, não-bloqueante (fonte ausente/corrompida => seção unavailable), byte budget com sequência única de descarte (refs → waits.refs → jev → aimemory → counts → capability_health por último, provada por teste de snapshots sucessivos), sanitizado (hostname/token/sk-), determinístico com clock injetável.",
       "suites": [
@@ -290,8 +290,23 @@
       "reviews": "Reviewer APPROVED round 4 + Security APPROVED (parse-only exigido e atendido)",
       "holds": [
         "ativação de runtime (auto-start plugin, AGENTS.md global, default_agent) = estado ativo do operador, fora do escopo",
-        "wiring do contexto no início de sessão = fatia 2 (depende de decisão de ativação)"
-      ]
+        "wiring do contexto no início de sessão: ENTREGUE na fatia 2 (componente invocável, ativação permanece decisão do operador)"
+      ],
+      "slice2_startup_wiring": {
+        "status": "done-code-fix1",
+        "task_id": "RR-P31-S2-STARTUP-WIRING (+FIX1)",
+        "summary": "Wiring de arranque (scripts/runtime/SessionBootstrapContext.ps1, CLI hook-style sobre o builder S1): fail-open TOTAL (arranque nunca bloqueia; exit 0 com envelope mínimo válido em qualquer falha interna; exit 1 só uso estrutural), saída JSON bounded com LF reservado no budget, determinismo com timestamp injetável, parse-only (zero spawn/rede), telemetria de compliance metadata-only (task 8 do plan) com cap 1MB atômico entre processos (handle exclusivo measure+append), contenção => skip silencioso, falha operacional => nota no stderr sem bloquear, sanitização por campo. NADA registrado/instalado: ativação é decisão do operador.",
+        "suites": [
+          "session-bootstrap-context.tests.ps1 43/43 (powershell 5.1 + pwsh)",
+          "OrchestrationBootstrapContext 16/16; consistency 16/16"
+        ],
+        "reviews": "reviewer APPROVED r2 + security APPROVED r2 (FIX1: LF fora do budget, TOCTOU no cap, falha operacional bloqueando arranque, permissão sinalizada, reasons exatas, [SKIP] PS7, greps ampliados)",
+        "holds": [
+          "ativação/registro em hooks = operador",
+          "sanitização integral do stdout depende do builder S1",
+          "matriz profunda PS7 e Stopwatch monotônico = follow-up"
+        ]
+      }
     },
     "phase32_task_run_session_slice1": {
       "status": "done-code-fix5",
@@ -463,7 +478,7 @@
       "status": "done-code-fix2",
       "reviews": "reviewer APPROVED r3 + security APPROVED r3",
       "holds": [
-        "RELEASE GATE REAL PENDENTE DO OPERADOR: lane V2 Windows, VPS AI Memory, ativacoes de flag, probes reais, jevgrep, wiring fatia 2 P31 session-start (P38 dispatch entregue kernel-side), contadores P41",
+        "RELEASE GATE REAL PENDENTE DO OPERADOR: lane V2 Windows, VPS AI Memory, ativacoes de flag, probes reais, jevgrep, contadores P41 (wirings P31 startup e P38 dispatch entregues kernel-side)",
         "SEM FAKE-CLOSE"
       ],
       "suites": [
@@ -491,7 +506,7 @@
   },
   "reviews": {
     "mode": "Reviewer + Security Reviewer independentes, por fase",
-    "verdict": "APPROVED parcial por slice (findings corrigidos e revalidados; HOLDs registrados). Slices 2026-10-02: P28-S1 r10, P28-S2 r3, P29-S1 r3, P30-S1 r2, P31-S1 r4, P32 r5, P33-S1 r4, P34 r4, P35 r3, P36 r3, P37 r3, P38 r3, P38-S2 r4, P39 r3, P40 r2, P41 r4, P42 r3 - todos APPROVED (reviewer + security)",
+    "verdict": "APPROVED parcial por slice (findings corrigidos e revalidados; HOLDs registrados). Slices 2026-10-02: P28-S1 r10, P28-S2 r3, P29-S1 r3, P30-S1 r2, P31-S1 r4, P31-S2 r2, P32 r5, P33-S1 r4, P34 r4, P35 r3, P36 r3, P37 r3, P38 r3, P38-S2 r4, P39 r3, P40 r2, P41 r4, P42 r3 - todos APPROVED (reviewer + security)",
     "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); RR-P34-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (round 2); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
   "not_started": {
