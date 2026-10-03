@@ -490,6 +490,26 @@ plano em
 - **Waves A–E code-complete kernel-side/plugin (2026-10-02)**;
   pendências de ativação/evidência do operador listadas em
   `evidence/v3.1/runtime-reliability/program-status.json`.
+- **Permissões do tester: shell amplo com negações destrutivas
+  (2026-10-03)** — `source/agents/tester.md` troca o deny-default +
+  allowlist fechada por `"*": allow` + denies de destruição (`rm`, `del`,
+  `erase`, `rd`, `rmdir`, `ri`, `Remove-Item`, `truncate`, `shred`, `dd`,
+  `format`), elevação (`sudo`, `su`, `runas`, `gsudo`, `doas`), mutação Git
+  (`push`, `reset`, `clean`, `rebase`, `merge`, `commit`, `branch -D`),
+  `dropdb`, `terraform destroy`, `kubectl delete`, com `ask` para
+  deploy/publish/infra; `edit: deny` e `task: deny` permanecem. Contrato
+  reescrito: suíte `scripts/runtime/tester-shell-permissions.tests.ps1`
+  (renomeada de `tester-gateway-permissions.tests.ps1`) valida allow de
+  validação, deny de rotas destrutivas, ask de deploy, estrutura
+  (catch-all allow, wildcard no fim, guard V2), paridade V1=V2 e corpo do
+  agente; `agent-translation.tests.ps1` ajustado (catch-all allow; F3 com
+  canonical sintético). Suítes 236/236 e 116/116 (PS 5.1). Security review
+  (CHANGES REQUIRED → integrado): formas bare de git/sudo/su adicionadas
+  como deny exato e claims de docs corrigidos — escrita via shell
+  não-listada é proibição comportamental (prompt/planner), não barreira de
+  runtime. Decisão explícita do operador; owner determinístico (hard
+  exclusion `permission_change` — mudança de permissão não é delegada a
+  workers).
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
 por fase** (HOLDs registrados). Todas as flags seguem **OFF**
 (`source/registry/capability-flags.json`); nenhuma flag nova criada;

@@ -415,8 +415,9 @@ com evidência.
 
 - Especialistas nunca criam subagentes (`experimental.subagent_depth: 1` no
   `opencode.json` + `permissions: [{subagent, *, deny}]` nos agentes). Hierarquia rasa sempre.
-- Tester valida sem modificar a aplicação (`permissions` sem `edit`/`shell` +
-  allowlist de `bash` só para teste/lint/typecheck/build/diagnóstico read-only).
+- Tester valida sem modificar a aplicação (`permissions` sem `edit` + `shell`
+  allow-default com denies de destruição/elevação/mutação Git e `ask` de
+  deploy/publish).
 - Reviewer é read-only e independente; ignora estilo sem impacto.
 - Architect é advisor: não implementa, não edita, não coordena workers; a
   decisão final é do Planner.

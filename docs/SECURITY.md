@@ -11,8 +11,13 @@ normativas em [PERMISSIONS.md](PERMISSIONS.md). Resumo:
 - **writer-shell** (coder + 6 engineers): edita, shell amplo com
   negações/`ask` pontuais.
 - **writer-no-shell** (docs-manager): edita, sem shell.
-- **diagnostic** (tester, debugger): sem escrita, shell restrito a
-  allowlist explícita de teste/diagnóstico.
+- **validator-shell** (tester): ferramenta de edição bloqueada
+  (`edit: deny`) + shell allow-default com negações de destruição/elevação/
+  mutação Git e `ask` de deploy/publish; escrita via shell não coberta por
+  negações é proibição comportamental (prompt/planner), não barreira de
+  runtime.
+- **diagnostic** (debugger): sem escrita, shell restrito a
+  allowlist explícita de diagnóstico.
 - Barreiras: **runtime-enforced** (`edit`, mapas `bash:`,
   `subagent_depth: 1`, `permission.task: deny` — workers não delegam),
   **prompt-enforced** (instruções no corpo do agente) e
@@ -78,9 +83,11 @@ Decisões de preflight/roteamento geram evidência em
 - **Globs `bash:` são matching de string** sobre o texto do comando — não
   inspecionam conteúdo de scripts, aliases nem wrappers (`pwsh -Command
   ...`, `bash -c ...`). A contenção dessas rotas é planner-enforced.
-- **`tester` tem allowlist ampla** (`npm *`, `npx *` etc.) — amplitude de
-  leitura/execução de teste, não permissão de escrita (`edit: deny`
-  permanece).
+- **`tester` tem shell allow-default** (`"*": allow` + denies de destruição,
+  elevação e mutação Git — incluindo formas bare como `git push` — e `ask`
+  de deploy/publish) — amplitude de execução de validação. `edit: deny`
+  bloqueia a ferramenta de edição; escrita via shell não-listada é proibição
+  comportamental (prompt/planner-enforced), não barreira de runtime.
 
 ## Canários sintéticos
 

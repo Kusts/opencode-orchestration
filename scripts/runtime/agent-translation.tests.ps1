@@ -186,7 +186,7 @@ $t = $canonById['tester']
 Assert-Ok (([string]$t.Edit -ceq 'deny') -and ([bool]$t.EditPresent)) 'tester edit deny' ([string]$t.Edit)
 Assert-Ok ((@($t.ShellRules)).Count -gt 10) 'tester shell map amplo' ('rules=' + (@($t.ShellRules)).Count)
 Assert-Ok ([string]$t.BashKind -ceq 'map') 'tester bash em mapa' ([string]$t.BashKind)
-Assert-Ok ([bool]$t.HasCatchAll -and ([string]$t.CatchAllEffect -ceq 'deny')) 'tester catch-all deny' ([string]$t.CatchAllEffect)
+Assert-Ok ([bool]$t.HasCatchAll -and ([string]$t.CatchAllEffect -ceq 'allow')) 'tester catch-all allow (shell amplo)' ([string]$t.CatchAllEffect)
 
 foreach ($stem in @('reviewer', 'security-reviewer', 'architect')) {
   $c = $canonById[$stem]
@@ -298,8 +298,13 @@ Assert-Ok $threwF2c 'F2: git * x git status * => throw' 'nao falhou'
 Assert-Ok ($msgF2c -like '*ambiguous-permission-overlap*') 'F2: git */status erro e overlap' $msgF2c
 
 # --- V31-R1 F3: backslash escapado no YAML double-quoted ---
-$tV2 = Convert-CanonicalToV2Frontmatter -Canonical $canonById['tester']
-Assert-Ok ([string]$tV2.Text -like '*{{REPO_DIR}}\\scripts*') 'F3: tester V2 com \\ duplicado' 'pattern sem escape'
+# O tester hoje usa catch-all allow + denies destrutivos (sem {{REPO_DIR}});
+# a propriedade de escaping e da TRADUCAO, nao do mapa do tester — exercitada
+# com canonical sintetico que carrega padrao {{REPO_DIR}} com backslash.
+$cF3 = $canonById['tester'].Clone()
+$cF3.ShellRules = @(@{ Pattern = 'pwsh -NoProfile -NonInteractive -File {{REPO_DIR}}\scripts\run-tests.ps1'; Effect = 'allow' })
+$tV2 = Convert-CanonicalToV2Frontmatter -Canonical $cF3
+Assert-Ok ([string]$tV2.Text -like '*{{REPO_DIR}}\\scripts*') 'F3: V2 com \\ duplicado (canonical sintetico)' 'pattern sem escape'
 $yamlEscOk = $true
 $yamlEscDetail = ''
 $allowedEsc = @('0', 'a', 'b', 't', 'n', 'v', 'f', 'r', 'e', ' ', '"', '\', '/', 'N', '_', 'L', 'P', 'x', 'u', 'U')

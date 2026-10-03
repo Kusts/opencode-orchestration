@@ -28,12 +28,15 @@ sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não 
 | automation-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | infra-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | docs-manager | writer-no-shell | allow | deny | runtime-enforced + prompt-enforced |
-| tester | diagnostic | deny | deny-default + allowlist de teste/leitura | runtime-enforced + planner-enforced |
+| tester | validator-shell | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
 | debugger | diagnostic | deny | deny-default + allowlist de diagnóstico | runtime-enforced + planner-enforced |
 
 Classes: **read-only** = sem escrita, sem shell; **writer-shell** = edita + shell amplo com
 negações/confirmações pontuais; **writer-no-shell** = edita, sem shell; **diagnostic** =
-sem escrita + shell restrito a allowlist explícita.
+sem escrita + shell restrito a allowlist explícita; **validator-shell** = ferramenta de
+edição bloqueada (`edit: deny`) + shell allow-default com negações destrutivas (tester) —
+escrita via shell não coberta por negações é proibição comportamental
+(prompt/planner-enforced), não barreira de runtime.
 
 Barreiras: **runtime-enforced** = aplicado pelo runtime (`edit`, mapas `bash:`,
 `subagent_depth: 1` + `permission.task: deny` no `opencode.json` — hierarquia rasa, workers
@@ -101,9 +104,17 @@ claim além do testado.
   Contenção real dessas rotas é planner-enforced (contrato + ownership), não do glob.
 - `ask` é **controle de confirmação, não bloqueio incondicional**: no modo auto do
   runtime ele é auto-aprovado. `deny` é o único bloqueio no mapa.
-- `tester` mantém **allowlist ampla nesta fase** (`npm *`, `npx *`, `bun *`,
-  `python -m *` etc.) — revisão futura registrada; não confundir amplitude com
-  permissão de escrita (`edit: deny` permanece).
+- `tester` usa **shell allow-default** (`"*": allow`) com denies de destruição
+  (`rm`, `del`, `erase`, `rd`, `rmdir`, `ri`, `Remove-Item`, `truncate`, `shred`,
+  `dd`, `format`), elevação (`sudo`, `su`, `runas`, `gsudo`, `doas`), mutação
+  Git (`push`, `reset`, `clean`, `rebase`, `merge`, `commit`, `branch -D`),
+  `dropdb`/`terraform destroy`/`kubectl delete` e `ask` para deploy/publish/infra
+  (modelo validator-shell). A política de não editar é dupla e honesta:
+  runtime-enforced para a ferramenta de edição (`edit: deny`) e para as
+  rotas de shell nomeadas acima; escrita via shell não coberta por negações
+  (`Set-Content`, `Out-File`, redirecionamento, `Copy-Item`, git não-listado)
+  é proibição comportamental — prompt-enforced (corpo do agente) +
+  planner-enforced (contrato), não barreira de glob.
 - `read-only` depende de **`bash: deny` no runtime + prompt**. Sem shell, a barreira é
   total no runtime; o prompt cobre o que o runtime não vê (ex.: instruções via contrato).
 - `PRODUCTION_AUTHORIZED` ausente equivale a `false`, e `true` **não autoriza por si só**
@@ -115,14 +126,13 @@ claim além do testado.
   disponíveis; diante de operação não coberta, interrompe e devolve ao Planner.
 - Nenhuma capacidade nova é criada por este documento: ele descreve o que está nos
   frontmatters, no template e no Dispatch Contract.
-- Para o Tester, `Permission denied` encerra a rota negada. A leitura dos sources
-  versionados V1 1.18.32 e V2 2.0.18 indica que pipelines/listas são submetidos à
-  autorização por recursos de comando e qualquer recurso negado bloqueia a invocação;
-  redirecionamento integra o recurso do comando correspondente. Isso é análise de
-  source, não prova live dos binários. Uma única simplificação remove apresentação
-  auxiliar somente se a operação principal está autorizada separadamente e o auxiliar
-  é o único negado; caso contrário, blocker. Negação principal não permite shell,
-  wrapper, interpretador ou elevação equivalente. Sem mudança em parser/allowlist.
+- Para o Tester, `Permission denied` de rota destrutiva/elevação encerra a
+  rota: sem reformulação por outro shell, wrapper, interpretador ou elevação
+  que produza o mesmo efeito; o corpo define o blocker estruturado
+  `VALIDATION_CAPABILITY_UNAVAILABLE`. O matcher é string-matching: conteúdo
+  dentro de wrappers não é contido pelo glob (asserção honesta na suíte
+  `tester-shell-permissions.tests.ps1`). Sem mudança em parser/allowlist do
+  runtime — o contrato é o frontmatter canônico + corpo do agente.
 
 ## Camada kernel-enforced (V3.1)
 
