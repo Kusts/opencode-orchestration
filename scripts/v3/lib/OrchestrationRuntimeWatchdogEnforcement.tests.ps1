@@ -2039,11 +2039,22 @@ try {
     $fsw36.Stop()
     Assert-Enforce (((@($kids36).Count) -ge 2)) 'FIX4-2b two-child tree formed' ('children=' + [string](@($kids36).Count))
     $saveWait36 = [int]$script:WatchdogSettleWaitMs
-    $script:WatchdogSettleWaitMs = 2500
+    # FIX4-2b budget (2026-10-03 flake, killed=1 1/4 on PS5.1): the shared
+    # enforce deadline must absorb the real CIM tree preparation AND the root
+    # stop, so the first child is still killed before the deadline bites, so
+    # killed_count=2 (root + first child) holds. The invariant is
+    # budget >= preparation AND stop_delay_ms > budget: the hook sleep before
+    # the SECOND descendant then always breaches the deadline, breaking the
+    # loop there and never killing the expected-extra process. Raising only
+    # the budget (2500 -> 9000, 3.6x preparation slack) while leaving
+    # stop_delay_ms at 5000 would breach nothing and kill 3. stop_delay_ms is
+    # pinned at the lib clamp ceiling (10000) so the breach also survives a
+    # short Start-Sleep undershoot. Asserts below are UNCHANGED.
+    $script:WatchdogSettleWaitMs = 9000
     $b36 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
     $r36 = Register-EnforceBound -TaskId 'wd-fix4-partial' -SessionId 'wd-fix4-sess-partial' -Child $root36 -Budget $b36 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -Repo $repo
     Assert-Enforce ([bool]$r36.ok) 'FIX4-2b partial register bound' ''
-    $script:WatchdogTreeTestOverride = @{ stop_delay_ms = 5000 }
+    $script:WatchdogTreeTestOverride = @{ stop_delay_ms = 10000 }
     try {
         $exec36 = $script:WatchdogExecutions['wd-fix4-partial']
         $int36 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix4-partial' -Execution $exec36 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo

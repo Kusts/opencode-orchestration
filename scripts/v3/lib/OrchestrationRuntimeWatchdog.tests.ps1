@@ -240,17 +240,19 @@ try {
     Assert-Watchdog ($gDis -ceq 'DISABLED') 'flags without watchdog node gate DISABLED' ($gDis)
 
     # 5. disabled seam: every entry point refuses without effect
+    $teleDisabled = Join-Path $tempRoot 'telemetry-disabled'
     $dReg = Register-OrchestrationWatchdogExecution -TaskId 'wd-disabled-1' -AttemptN 1 -SessionId 'wd-sess-1' -Role 'coder' -FlagsPath $flagsDisabled -RepoRoot $repo
     Assert-Watchdog (([string]$dReg.error -ceq 'WATCHDOG_DISABLED') -and (-not [bool]$dReg.ok)) 'disabled register returns WATCHDOG_DISABLED' ([string]$dReg.error)
-    $dAdd = Add-OrchestrationWatchdogAction -TaskId 'wd-disabled-1' -Tool 'shell' -FlagsPath $flagsDisabled -RepoRoot $repo
+    $dAdd = Add-OrchestrationWatchdogAction -TaskId 'wd-disabled-1' -Tool 'shell' -FlagsPath $flagsDisabled -RepoRoot $repo -TelemetryRoot $teleDisabled
     Assert-Watchdog ([string]$dAdd.error -ceq 'WATCHDOG_DISABLED') 'disabled observe returns WATCHDOG_DISABLED' ([string]$dAdd.error)
-    $dEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-disabled-1' -FlagsPath $flagsDisabled -RepoRoot $repo
+    $dEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-disabled-1' -FlagsPath $flagsDisabled -RepoRoot $repo -TelemetryRoot $teleDisabled
     Assert-Watchdog ([string]$dEval.error -ceq 'WATCHDOG_DISABLED') 'disabled evaluate returns WATCHDOG_DISABLED' ([string]$dEval.error)
 
     # 6. enforcement seam: honest not-implemented, nothing stored
+    $teleEnforceGate = Join-Path $tempRoot 'telemetry-enforce-gate'
     $eReg = Register-OrchestrationWatchdogExecution -TaskId 'wd-enforce-1' -AttemptN 1 -SessionId 'wd-sess-1' -Role 'coder' -FlagsPath $flagsEnforce -RepoRoot $repo
     Assert-Watchdog ([string]$eReg.error -ceq 'WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED') 'enabled=true returns ENFORCEMENT_NOT_IMPLEMENTED' ([string]$eReg.error)
-    $eLookup = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enforce-1' -FlagsPath $flagsShadow -RepoRoot $repo
+    $eLookup = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enforce-1' -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleEnforceGate
     Assert-Watchdog ([string]$eLookup.error -ceq 'NOT_REGISTERED') 'rejected enforcement stored nothing' ([string]$eLookup.error)
 
     # 7. id validation (closed charset, existing convention)
@@ -279,17 +281,19 @@ try {
     Assert-Watchdog (([string]$hLast.classification -ceq 'NONE') -and (-not [bool]$hLast.would_interrupt) -and ([bool]$hLast.ok)) 'varied progressing worker stays NONE' ([string]$hLast.classification)
 
     # 9. synthetic non-returning worker hits HARD_TIMEOUT in shadow; nothing actually happens
+    $teleStall = Join-Path $tempRoot 'telemetry-stall'
     $bShort = New-WatchdogTinyBudget -Steps 4 -Wall 30 -NoProg 10
     $sReg = Register-OrchestrationWatchdogExecution -TaskId 'wd-stall-1' -AttemptN 1 -SessionId 'wd-sess-2' -Role 'coder' -Budget $bShort -StartedAtUtc $t0 -FlagsPath $flagsShadow -RepoRoot $repo
     Assert-Watchdog ([bool]$sReg.ok) 'synthetic stall register ok' ''
-    $sEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-stall-1' -AtUtc ($t0.AddSeconds(31)) -FlagsPath $flagsShadow -RepoRoot $repo
+    $sEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-stall-1' -AtUtc ($t0.AddSeconds(31)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleStall
     Assert-Watchdog (([string]$sEval.classification -ceq 'HARD_TIMEOUT') -and ([bool]$sEval.would_interrupt)) 'no-return past wall => HARD_TIMEOUT would-interrupt' ([string]$sEval.classification)
-    $sStill = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-stall-1' -AtUtc ($t0.AddSeconds(32)) -FlagsPath $flagsShadow -RepoRoot $repo
+    $sStill = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-stall-1' -AtUtc ($t0.AddSeconds(32)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleStall
     Assert-Watchdog (([bool]$sStill.ok) -and ([int]$sStill.steps -eq 0)) 'shadow interrupted nothing: execution intact, steps 0' ([string]$sStill.steps)
     $probeTaskFile = Join-Path $repoTasksDir 'wd-stall-1.json'
     Assert-Watchdog (-not (Test-Path -LiteralPath $probeTaskFile)) 'shadow wrote no task record' ($probeTaskFile)
 
     # 10. long but progressing worker does not hit NO_PROGRESS
+    $teleProg = Join-Path $tempRoot 'telemetry-progress'
     $bProg = New-WatchdogTinyBudget -Steps 64 -Wall 3600 -NoProg 60
     $pReg = Register-OrchestrationWatchdogExecution -TaskId 'wd-progress-1' -AttemptN 1 -SessionId 'wd-sess-3' -Role 'explorer' -Budget $bProg -StartedAtUtc $t0 -FlagsPath $flagsShadow -RepoRoot $repo
     Assert-Watchdog ([bool]$pReg.ok) 'progressing register ok' ''
@@ -297,18 +301,20 @@ try {
     for ($i = 0; $i -lt 6; $i++) {
         $pLast = Add-OrchestrationWatchdogAction -TaskId 'wd-progress-1' -AttemptN 1 -SessionId 'wd-sess-3' -Tool 'shell' -Arguments ('git diff HEAD~' + $i) -Target 'repo' -HasProgress $true -AtUtc ($t0.AddSeconds(50 + $i * 50)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleRoot
     }
-    $pEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-progress-1' -AtUtc ($t0.AddSeconds(340)) -FlagsPath $flagsShadow -RepoRoot $repo
+    $pEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-progress-1' -AtUtc ($t0.AddSeconds(340)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleProg
     Assert-Watchdog (([string]$pEval.classification -ceq 'NONE') -and (-not [bool]$pEval.would_interrupt)) 'steady progress over 5min never stalls' ([string]$pEval.classification)
 
     # 11. genuine no-progress past threshold => NO_PROGRESS suspected + would-interrupt recorded
+    $teleNoProgThresh = Join-Path $tempRoot 'telemetry-noprog-threshold'
     $bNp = New-WatchdogTinyBudget -Steps 32 -Wall 1200 -NoProg 20
     $nReg = Register-OrchestrationWatchdogExecution -TaskId 'wd-noprog-1' -AttemptN 1 -SessionId 'wd-sess-4' -Role 'coder' -Budget $bNp -StartedAtUtc $t0 -FlagsPath $flagsShadow -RepoRoot $repo
     Assert-Watchdog ([bool]$nReg.ok) 'no-progress fixture register ok' ''
-    [void](Add-OrchestrationWatchdogAction -TaskId 'wd-noprog-1' -AttemptN 1 -SessionId 'wd-sess-4' -Tool 'shell' -Arguments 'git status --short' -Target 'repo' -HasProgress $false -AtUtc $t0 -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleRoot)
-    $nEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-noprog-1' -AtUtc ($t0.AddSeconds(21)) -FlagsPath $flagsShadow -RepoRoot $repo
+    [void](Add-OrchestrationWatchdogAction -TaskId 'wd-noprog-1' -AttemptN 1 -SessionId 'wd-sess-4' -Tool 'shell' -Arguments 'git status --short' -Target 'repo' -HasProgress $false -AtUtc $t0 -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleNoProgThresh)
+    $nEval = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-noprog-1' -AtUtc ($t0.AddSeconds(21)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleNoProgThresh
     Assert-Watchdog (([string]$nEval.classification -ceq 'NO_PROGRESS') -and ([bool]$nEval.would_interrupt)) 'silence past no_progress => NO_PROGRESS would-interrupt' ([string]$nEval.classification)
 
     # 12. identical repetition soft (3x) then hard (5x) in the correct window
+    $teleRepeat = Join-Path $tempRoot 'telemetry-repeat'
     $bRep = New-WatchdogTinyBudget -Steps 64 -Wall 3600 -NoProg 900
     [void](Register-OrchestrationWatchdogExecution -TaskId 'wd-repeat-1' -AttemptN 1 -SessionId 'wd-sess-5' -Role 'coder' -Budget $bRep -StartedAtUtc $t0 -FlagsPath $flagsShadow -RepoRoot $repo)
     $rRes = $null
@@ -320,7 +326,7 @@ try {
         $rRes = Add-OrchestrationWatchdogAction -TaskId 'wd-repeat-1' -AttemptN 1 -SessionId 'wd-sess-5' -Tool 'shell' -Arguments 'git status --short' -Target 'repo' -HasProgress $false -AtUtc ($t0.AddSeconds($i)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleRoot
     }
     Assert-Watchdog (([string]$rRes.classification -ceq 'REPEATED_ACTION') -and ([bool]$rRes.would_interrupt)) '5x identical => REPEATED_ACTION would-interrupt' ([string]$rRes.classification)
-    $rStill = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-repeat-1' -AtUtc ($t0.AddSeconds(6)) -FlagsPath $flagsShadow -RepoRoot $repo
+    $rStill = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-repeat-1' -AtUtc ($t0.AddSeconds(6)) -FlagsPath $flagsShadow -RepoRoot $repo -TelemetryRoot $teleRepeat
     Assert-Watchdog ([bool]$rStill.ok) 'hard stall recorded only: execution still present' ''
 
     # 13. old progress does not mask a later stall (X,A x5 / X,A x3)
