@@ -1,7 +1,7 @@
 {
   "record": "v3.1-runtime-reliability-program-status",
-  "date": "2026-10-02",
-  "revision": "2026-10-02 (fechamento FIX6–FIX10 do P28-S1; base 2026-10-01: P26–P42 substitui design P26–P33; PAE-01–PAE-40 substitui RR-01–RR-20)",
+  "date": "2026-10-03",
+  "revision": "2026-10-03 (doc reconciliation: correcao do bloco flags contra source/registry/capability-flags.json, entrada P40 fatia 2 e matriz de rastreabilidade PAE-01–PAE-40; base 2026-10-02: fechamento FIX6–FIX10 do P28-S1 + P40-S2 decision-record + P41-S2; base 2026-10-01: P26–P42 substitui design P26–P33; PAE-01–PAE-40 substitui RR-01–RR-20; sessao autonoma 2026-10-03: P25-FU1 telemetria watchdog (gate cross-process + retencao multi-dia, FIX1..FIX8), paridade EOF do produtor P41-S2 e data dinamica no smoke V2)",
   "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-42)",
   "program_concluded": false,
   "spec_addenda": [
@@ -16,26 +16,13 @@
   },
   "flags": {
     "source": "source/registry/capability-flags.json",
-    "all_off": true,
-    "bounded_execution": {
-      "enabled": false,
-      "shadow": true
+    "all_off": false,
+    "all_off_note": "all_off=false NAO indica flag de rollout V3.1 ligada: capability_registry.enabled=true e runtime_support.v1=true sao pre-existentes do V3 (fora do rollout V3.1). TODAS as flags de rollout/shadow do programa V3.1 permanecem OFF/shadow: capability_router{shadow:false,active:false}, skill_routing=false, mcp_routing=false, adaptive_ranking=false, routing_telemetry=false, capability_reconciler=false, watchdog={enabled:false,shadow:true}, task_kernel={enabled:false,shadow:true}, bounded_execution={enabled:false,shadow:true}, jev_advisory={enabled:false,shadow:true}, worktree_isolation=false, runtime_grant_enforcement={v1:false,v2:false}, runtime_support.v2=false e runtime_support.dual_profile=false. Regra espelhada pelo builder P31 S1 (capability_registry.enabled=true => all_off=false); nenhuma flag foi ativada por este programa.",
+    "capability_registry": {
+      "enabled": true
     },
-    "task_kernel": {
-      "enabled": false,
-      "shadow": true
-    },
-    "worktree_isolation": {
+    "capability_reconciler": {
       "enabled": false
-    },
-    "runtime_grant_enforcement": {
-      "v1": false,
-      "v2": false
-    },
-    "runtime_support": {
-      "v1": true,
-      "v2": false,
-      "dual_profile": false
     },
     "capability_router": {
       "shadow": false,
@@ -47,13 +34,56 @@
     "mcp_routing": {
       "enabled": false
     },
+    "routing_telemetry": {
+      "enabled": false,
+      "retention_days": 30
+    },
     "adaptive_ranking": {
       "enabled": false
+    },
+    "runtime_support": {
+      "v1": true,
+      "v2": false,
+      "dual_profile": false
+    },
+    "task_kernel": {
+      "enabled": false,
+      "shadow": true
+    },
+    "bounded_execution": {
+      "enabled": false,
+      "shadow": true
+    },
+    "watchdog": {
+      "enabled": false,
+      "shadow": true
     },
     "jev_advisory": {
       "enabled": false,
       "shadow": true
+    },
+    "worktree_isolation": {
+      "enabled": false
+    },
+    "runtime_grant_enforcement": {
+      "v1": false,
+      "v2": false
     }
+  },
+  "capability_flags_assert_growth": {
+    "suite": "scripts/v3/lib/CapabilityFlags.tests.ps1 (rodada por scripts/v3/run-v3-tests.ps1 -Name CapabilityFlags)",
+    "growth": "20/20 PASS (2026-10-01, baseline P21) => 22/22 PASS (2026-10-02)",
+    "cause": "commit 25a549f (P29 slice 1, 2026-10-02) adicionou exatamente 2 asserts ao suite - jev_advisory.enabled == false (nasce OFF, P29) e jev_advisory.shadow == true (would-consult, P29) - e a flag jev_advisory {enabled:false, shadow:true} ao registry. Diff conferido: scripts/v3/lib/CapabilityFlags.tests.ps1 +2 linhas.",
+    "not_bounded_execution": "CORRECAO de leitura divergente: bounded_execution NAO causou o crescimento. A flag bounded_execution ja existia no registry antes de 2026-10-02 (commit 4a996b2) e continua SEM assert dedicado no suite - a suite cobre runtime_support, task_kernel, worktree_isolation, runtime_grant_enforcement, version, capability_registry, capability_reconciler, capability_router, skill_routing, mcp_routing, routing_telemetry, adaptive_ranking e jev_advisory. bounded_execution permanece validada por outras suites (ex.: kernel/task-kernel.tests.ps1 e os gates de orcamento do P23).",
+    "classification": "GROWTH, NAO REGRESSAO: mais asserts, todos verdes, nenhum assert removido ou afrouxado entre 2026-10-01 e 2026-10-02."
+  },
+  "pae_traceability": {
+    "file": "evidence/v3.1/runtime-reliability/pae-traceability.json",
+    "spec_source": "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md#27-acceptance-criteria",
+    "created": "2026-10-03",
+    "coverage": "PAE-01..PAE-40, uma entrada por criterio aceito, com status, evidencia real e gap restante.",
+    "no_new_flags_note": "As 9 flags sugeridas no SPEC ADDENDUM §26 que NAO foram criadas no registry por design conservador sao: loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor e orchestration_evolution. Das 11 flags listadas em §26, apenas 2 existem: watchdog (pre-existente do V3) e jev_advisory (criada no P29 com sancao explicita do plan §6.1). O rollout deste programa NAO introduziu flag nova alem de jev_advisory; o comportamento novo e gated pelas flags EXISTENTES bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement e runtime_caps, todas OFF/shadow. Nenhuma flag concede autoridade (SPEC §26).",
+    "honesty_note": "Status da matriz = estado da evidencia hoje. 'done-kernel-side' significa codigo+suite+review aprovados no kernel/plugin, NAOativacao e NAO prova no binario real do operador; 'blocked-operator-evidence' significa que o criterio depende de evidencia que so o ambiente do operador pode produzir (sem fake-close)."
   },
   "phases": {
     "phase21_baseline": {
@@ -166,15 +196,25 @@
         "identidade obrigatoria (AttemptN+SessionId; re-register mesma identidade idempotente com clock exato; divergencia => IDENTITY_CONFLICT sem mutacao)"
       ],
       "suites": [
-        "scripts/v3/lib/OrchestrationRuntimeWatchdog.tests.ps1 80/80 PASS (PS5.1 + PS7)",
+        "scripts/v3/lib/OrchestrationRuntimeWatchdog.tests.ps1 134/134 PASS (PS5.1 + PS7; 80/80 base P25 + 54 asserts do follow-up 2026-10-03)",
         "kernel pre-existente 75/75 verde preservado",
         "scripts/test-package-consistency.ps1 16/16 OK"
       ],
       "holds": [
         "WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED: enabled=true retorna o hold sem armazenar (interrupt real e Phase 26)",
-        "lock cross-process: telemetria usa lock in-process; concorrencia cross-process e follow-up documentado (single-writer assumido)",
-        "retencao multi-dia: JSONL do watchdog com cap de rotacao; retencao alem do cap e follow-up documentado"
-      ]
+        "squatting do mutex nomeado: processo hostil pode forcar lock-busy (300ms/evento) => perda de telemetria best-effort; telemetria NUNCA e prova de execucao/autorizacao",
+        "retencao sem cursor: prefixo hostil/nao-apagavel pode impedir progresso (observavel via no_progress); cursor e follow-up se enforcement ativar",
+        "reparse em ANCESTRAL do root de telemetria e aliases junction/subst nao sao resolvidos (caller confiavel controla a root)"
+      ],
+      "followup_2026_10_03": {
+        "status": "done-code-fix8",
+        "task_id": "RR-P25-FU1-WATCHDOG-TELEMETRY-HARDENING (+FIX1..FIX8)",
+        "summary": "Follow-ups do phase25 entregues kernel-side: gate cross-process na escrita JSONL (mutex nomeado deterministico, wait bounded 300ms, skip razoado, tail-check sob o gate recusa append sobre cauda incompleta preservando o fragmento) e retencao multi-dia bounded (stamps estritamente anteriores a 7d, orcamento por entrada visitada ANTES de filtrar, caps 64/32, cap=0 nao enumera, truncamento conservador sem peek, no_progress observavel, guard de reparse no dir, canonicalizacao unica de path compartilhada por writer/gate/retention — FIX8: retencao nunca re-resolve CWD mutavel, teste mutante discriminante). Suite 80 => 134 asserts (PS5.1 + pwsh); regressoes enforcement 339/339, McpSafety 203/203, CapabilityFlags 22/22, consistencia 16/16. Reviews: reviewer APPROVED r4 + security APPROVED r3. Flag watchdog INALTERADA {enabled:false, shadow:true}.",
+        "suites": [
+          "scripts/v3/lib/OrchestrationRuntimeWatchdog.tests.ps1 134/134 (powershell 5.1 + pwsh)",
+          "OrchestrationRuntimeWatchdogEnforcement 339/339 (1x/engine na rodada final; FIX4-2b flaky pre-existente observado 1/4 no PS5.1 em rodada anterior, limpo nas demais)"
+        ]
+      }
     },
     "phase27_recovery_typed_waits_slice1": {
       "status": "done-code-fix3",
@@ -456,6 +496,23 @@
       ],
       "task_id": "RR-P40-V2-NATIVE-AUTHORITY-S1 (+FIX1)"
     },
+    "phase40_v2_native_gating_slice2": {
+      "evidence": "evidence/v3.1/runtime-reliability/phase40.json (campo slice2_supersession)",
+      "summary": "Revisor de supersessao de evidencias do gating V2 (OrchestrationV2EvidenceSupersession.ps1): avaliacao deterministica fail-closed entre registro existente e candidato - vereditos fechados (duplicate / supersede-recommended / stale-candidate / ambiguous-same-instant / invalid-existing / invalid-candidate / identity-mismatch / unavailable); identidade Ordinal nos 5 campos; instantes comparados via forma UTC do helper do S1 + CompareOrdinal; candidato validado 1x antes do loop (candidate_reason do S1, sanitizado); review agregado sobre o registry com precedencia deterministica (impeditivos ambiguous/invalid/unavailable => review-required; duplicate => duplicate-no-op; supersede so sem stale); digest ecoado somente com forma \\A[0-9a-fA-F]{64}\\z (normalizado); Now explicito inutilizavel => fail-closed antes de comparar (ausencia nao decide). DECISION-RECORD ONLY: zero escrita, zero habilitacao - o gate S1 e o operador permanecem a autoridade.",
+      "status": "done-code-decision-record-only",
+      "reviews": "reviewer APPROVED r2 + security APPROVED r3 - FIX1 (agregacao recomendava append com impeditivos; identidade sem Ordinal; candidato invalido nao validado sem identidade correspondente; record_hash hostil ecoado sem validacao 64-hex; Now invalido mantinha recomendacao positiva) + FIX2 (newline terminal passava no gate de digest via $; -Now $null explicito contornava fail-closed); mutacoes G1-G3/F1-F2 e in-suite documentadas",
+      "holds": [
+        "veredito e RELACAO entre registros, nao autenticacao do produtor nem autorizacao de rollout",
+        "vocabulario registry-has-invalid-records ficou morto por construcao (invalid-existing sempre impeditivo) - mantido por compatibilidade com assert de invariante",
+        "wiring de chamada advisory pelo operador/kernel = fora do escopo",
+        "append/enable do registro supersessao permanece decisao do operador (zero escrita, zero habilitacao)"
+      ],
+      "suites": [
+        "OrchestrationV2EvidenceSupersession.tests.ps1 238/238 (powershell 5.1 + pwsh)",
+        "regressao V2NativeGating 114/114 (powershell + pwsh); consistency 16/16; git diff --check limpo"
+      ],
+      "task_id": "RR-P40-S2-EVIDENCE-SUPERSESSION (+FIX1..FIX2)"
+    },
     "phase41_evolution_eval_slice1": {
       "status": "done-code-fix5",
       "task_id": "RR-P41-EVOLUTION-EVAL-S1 (+FIX1..FIX5) / RR-P41-S2-TELEMETRY-PRODUCERS (+FIX1..FIX2)",
@@ -472,16 +529,20 @@
         "task_id": "RR-P41-S2-TELEMETRY-PRODUCERS (+FIX1..FIX2)",
         "summary": "Produtor observacional de telemetria kernel-side: deriva os contadores declarados na policy real a partir de fontes REAIS (task records, watchdog JSONL, reuse-metrics P35); contador sem fonte real => ausente com razao (nunca fabricado); identidade de tentativa via execution_runtime.attempt_n (schema real); leitura bounded (scanner sem materializar linha acima do cap, MaxLines antes de incluir, snapshot de comprimento contra crescimento concorrente, task record em handle unica); watchdog ilegivel => indisponivel sem zeros; escrita so com OutDir explicito; integracao ponta-a-ponta provada com o S1 e a policy real.",
         "suites": [
-          "OrchestrationEvolutionTelemetryProducer.tests.ps1 148/148 (powershell 5.1 + pwsh)",
+          "OrchestrationEvolutionTelemetryProducer.tests.ps1 164/164 (powershell 5.1 + pwsh; 148 base + 16 asserts de paridade EOF com/sem LF final, follow-up 2026-10-03)",
           "regressao EvolutionLoop 147/147; consistency 16/16"
         ],
         "reviews": "reviewer APPROVED r3 + security APPROVED r3 (FIX1: REPEATED_CYCLE, dupla contagem pos-falha, BUDGET_NEAR_LIMIT, leitura sem limite, watchdog ilegivel; FIX2: attempt_n em execution_runtime, cap no ramo LF, MaxLines, snapshot de leitura, fixture distinta); mutacoes G1-G3 e G6-G9 documentadas",
         "holds": [
           "wiring de chamador em producao = fatia seguinte/decisao do operador",
           "user_interventions e jev_* sem fonte real (ausentes com razao declarada)",
-          "contabilidade de descarte difere com/sem LF final (LOW, follow-up)",
           "G9 e stress guard, nao prova formal de interleaving"
-        ]
+        ],
+        "followup_2026_10_03": {
+          "status": "done-code",
+          "task_id": "RR-EVID-HONESTY-01 (paridade EOF + data dinamica do smoke)",
+          "summary": "Follow-up LOW da contabilidade de descarte FECHADO: ramo EOF do Read-EvolutionTelemetryJsonLines unificado na ordem do ramo terminado (pre-check MaxLines -> over-cap -> blank -> parse); contabilidade identica para mesmo conteudo com e sem LF final, sem schema novo. Mutation check provou nao-vacuidade (7 asserts caem sem o fix). Suite 148 => 164 (PS5.1 + pwsh); EvolutionLoop 147/147. Reviewer APPROVED r2 + security APPROVED. Na mesma fatia, o campo date do scripts/ci/smoke-opencode-v2.ps1 passou a ser carimbado do relogio na escrita (era hardcoded 2026-09-30; artefatos historicos intactos)."
+        }
       },
       "suites": [
         "OrchestrationEvolutionLoop.tests.ps1 147/147 (powershell + pwsh; mutation-tested por fix)"
@@ -491,7 +552,7 @@
     },
     "phase42_e2e_manifest_slice1": {
       "evidence": "evidence/v3.1/runtime-reliability/phase42.json",
-      "summary": "E2E manifest + rollout checklist (plan 19, fatia 1): 41 cenarios (40 do plan + invariante sintetica do policy-deny) com classificacao honesta - 18 runnable-synthetic pass executando checagens reais contra P28-P41, 22 blocked honestos (19 operator-runtime, 1 flag-activation, 3 real-transport; nunca fake-pass); rollout checklist de 19 passos com promote fail-closed (flag nao declarada => blocked-activation; ilegivel/nao-parseavel/bool coercido => blocked-evidence, NUNCA shipped); folhas booleanas estritas.",
+      "summary": "E2E manifest + rollout checklist (plan 19, fatia 1): 41 cenarios (40 do plan + invariante sintetica do policy-deny) com classificacao honesta - 18 runnable-synthetic pass executando checagens reais contra P28-P41, 23 blocked honestos (19 operator-runtime, 1 flag-activation, 3 real-transport; aritmetica reconciliada com honest_counts do phase42.json em 2026-10-03 - o texto anterior dizia 22 por erro de soma pre-existente; nunca fake-pass); rollout checklist de 19 passos com promote fail-closed (flag nao declarada => blocked-activation; ilegivel/nao-parseavel/bool coercido => blocked-evidence, NUNCA shipped); folhas booleanas estritas.",
       "status": "done-code-fix2",
       "reviews": "reviewer APPROVED r3 + security APPROVED r3",
       "holds": [
@@ -526,22 +587,33 @@
     "verdict": "APPROVED parcial por slice (findings corrigidos e revalidados; HOLDs registrados). Slices 2026-10-02/03: P28-S1 r10, P28-S2 r3, P29-S1 r3, P30-S1 r2, P31-S1 r4, P31-S2 r2, P32 r5, P33-S1 r4, P34 r4, P35 r3, P36 r3, P37 r3, P38 r3, P38-S2 r4, P39 r3, P40 r2, P40-S2 r2/r3, P41 r4, P41-S2 r3, P42 r3 - todos APPROVED (reviewer + security)",
     "known_fix": "RR-P24-REV-FIX (2026-10-01): 3 findings corrigidos; RR-P24-TRIGGER-FIX (2026-10-01): 4 findings corrigidos; RR-P25 REV4 (reviewer APPROVED) + SEC3 (security APPROVED); RR-P28-S1 FIX1..FIX10 (2026-10-01/02): reviewer APPROVED (round 10) + security APPROVED (rounds 5-6, sem HIGH/CRITICAL; 2 LOW resolvidos); RR-P28-S2 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED (sem HIGH/CRITICAL); RR-P29-S1 FIX1..FIX2 (2026-10-02): reviewer APPROVED (round 3) + security APPROVED; RR-P30-S1 FIX1..FIX2 (2026-10-02): reviewer aprovou código (round 2, matriz de testes 8/8 completada) + security APPROVED (HTTPS obrigatório antes de transporte real); RR-P31-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (parse-only); RR-P32 FIX1..FIX5 (2026-10-02): reviewer APPROVED (round 5, adjudicação fail-closed) + security APPROVED (round 2); RR-P33-S1 FIX1..FIX3 (2026-10-02): reviewer + security APPROVED (4 rondas; redator compartilhado promovido com regressão completa verde); RR-P34-S1 FIX1..FIX3 (2026-10-02): reviewer APPROVED (round 4) + security APPROVED (round 2); Jev consultivo (advisory only): fechamento S1 2.55/3, S2 2.91/3 Jev consultivo (advisory only): reclassify 0.83, fechamento do slice 0.87"
   },
-  "not_started": {
-    "phases_26_42": "Programa V3.1 Runtime Reliability CODE-COMPLETE nas fatias kernel-side/plugin (2026-10-02/03): P26 S1, P27 S1, P28 S1+S2, P29 S1, P30 S1, P31 S1+S2 (startup wiring entregue; ativação é do operador), P32, P33 S1, P34, P35, P36, P37, P38 S1+S2 (dispatch integration kernel-side entregue), P39, P40 S1+S2 (revisor de supersessão de evidências entregue, decision-record only), P41 S1+S2 (produtores de telemetria entregues, observacionais), P42 fatia 1 - todas com suites verdes, reviewer + security APPROVED e HOLDs explicitos. Pendencias de ATIVACAO/EVIDENCIA do operador: lane V2 Windows real (E2E), deploy VPS AI Memory + re-preflight de porta, ativacao de flags com evidencia, probes reais de health/transporte, jevgrep real, wiring de chamador em producao para o produtor P41 e para o revisor P40.",
+  "activation_pending": {
+    "renamed_from": "not_started (renomeado em 2026-10-03): o nome era enganoso - nenhuma phase do programa esta 'not started'; todas as fatias estao CODE-COMPLETE no kernel/plugin com suite verde e review APPROVED. O que resta sao ATIVACOES e EVIDENCIAS do operador. program_concluded permanece false ate o release gate real passar (sem fake-close).",
+    "phases_26_42": "Programa V3.1 Runtime Reliability CODE-COMPLETE nas fatias kernel-side/plugin (2026-10-02/03): P26 S1, P27 S1, P28 S1+S2, P29 S1, P30 S1, P31 S1+S2 (startup wiring entregue; ativação é do operador), P32, P33 S1, P34, P35, P36, P37, P38 S1+S2 (dispatch integration kernel-side entregue), P39, P40 S1+S2 (revisor de supersessão de evidências entregue, decision-record only), P41 S1+S2 (produtores de telemetria entregues, observacionais), P42 fatia 1 - todas com suites verdes, reviewer + security APPROVED e HOLDs explicitos. Pendencias de ATIVACAO/EVIDENCIA do operador: lane V2 Windows real (E2E) - EXECUTADA PARCIALMENTE em 2026-10-03 (preflights reais de porta 3/3 verdes - RR-E2E-01/02/03 convertidos com evidencia real; ciclo de vida explicito do servico verde - set/start/status/stop owned, 49374 intocado; startup implicito via debug config apresenta INTERMITENCIA caracterizada experimentalmente (7 hangs vs 5 passes no mesmo dia, debugcfg-hang-investigation.json; stdin, conteudo de config e estado do servico refutados como gatilhos deterministicos nas condicoes testadas; suspeita principal interna ao binario 2.0.18, NAO comprovada); cenarios de watchdog/sessao/restart exigem integracao de sessao real; evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/lane-summary.json), deploy VPS AI Memory + re-preflight de porta, ativacao de flags com evidencia, probes reais de health/transporte, jevgrep real, wiring de chamador em producao para o produtor P41, para o bundle de dispatch P38-S2 e para o revisor de supersessao P40-S2 (append/enable).",
     "explicit_holds": [
       "P28-S1: TurnId nao autenticado; ativacao de flag = decisao humana",
       "P28-S2: enforcement em binario real nao validado (shadow default)",
       "P30/P22: deploy VPS e REUSE so com evidencia pos-migracao",
       "P40: todas as 8 features hold-unproven",
       "P41: apply via fluxo revisado; telemetria sem produtor",
-      "P42: release gate real pendente do ambiente do operador - SEM FAKE-CLOSE"
+      "P42: release gate real pendente do ambiente do operador - SEM FAKE-CLOSE (lane V2 real executada parcialmente 2026-10-03: preflights reais + ciclo de vida explicito verdes, startup implicito debug config RED 3/3 no dia, historico PASS em 09-30)"
     ]
+  },
+  "v2_real_lane_2026_10_03": {
+    "status": "executed-partial-green",
+    "executor": "Planner deterministico (preflight DETERMINISTIC_FALLBACK hard_exclusion_authority_change)",
+    "summary": "Lane V2 Windows real no binario exato 2.0.18 do perfil: preflights reais 3/3 PASS (RR-E2E-01 PORT_FREE 59820; RR-E2E-02 recusa fail-closed em 49374 com ownership nao provavel; RR-E2E-03 PORT_WINDOWS_EXCLUDED em 53900); ciclo de vida explicito do servico PASS (set/start/status/stop owned em home isolado, listener PID owned, settlement sem listener); smoke com startup implicito (debug config) RED honesto 3/3 no dia (TIMEOUT 30s; causa indeterminada - hipoteses ambientais/startup implicito; pin e build de config confirmados pelos 4 checks PASS de cada run) com historico PASS em 2026-09-30. 49374 intocado (owner PID 1872 nos snapshots antes/depois); nenhum PID preexistente ou externo terminado (o smoke pode ter feito taskkill forcado dos PROPRIOS filhos em timeout via SpikeProcess - registrado como possibilidade); nenhuma flag ativada.",
+    "evidence_dir": "evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/",
+    "converted_scenarios": ["RR-E2E-01", "RR-E2E-02", "RR-E2E-03"],
+    "residual": "debug config (caminho implicito) e cenarios de watchdog/sessao/restart (integracao de sessao real) seguem bloqueando o gate",
+    "script_date_fix_2026_10_03": "campo date do smoke-opencode-v2.ps1 era hardcoded '2026-09-30' (nota script_note acima) e agora e carimbado do relogio na escrita; os artefatos desta lane permanecem como registro historico do que rodou (sem reescrita de evidencia)"
   },
   "invariants": [
     "ai-memory nunca mutado (listener local 127.0.0.1:49374 mantido; migração para VPS planejada, nao executada)",
     "roteamento MCP generico segue desligado",
-    "nenhuma flag nova criada; nenhuma ativacao realizada",
+    "nenhuma flag de rollout NOVA criada alem de jev_advisory (P29, com sancao explicita do plan §6.1, {enabled:false, shadow:true}); as 9 flags sugeridas no SPEC ADDENDUM §26 que dependem de primitiva ausente (loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor, orchestration_evolution) NAO foram criadas - ver pae_traceability.no_new_flags_note; nenhuma flag foi ativada por este programa",
     "tester: negação da operação principal encerra a rota; uma única reformulação auxiliar só quando o segmento auxiliar é o único negado e a validação principal está autorizada separadamente",
-    "requisitos dos addenda de SPEC/PLAN nao alterados por este status"
+    "requisitos dos addenda de SPEC/PLAN nao alterados por este status",
+    "nenhuma feature nova entra por flag: o comportamento novo e gated pelas flags EXISTENTES bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement e runtime_caps, todas OFF/shadow (SPEC §26: nenhuma flag concede autoridade)"
   ]
 }

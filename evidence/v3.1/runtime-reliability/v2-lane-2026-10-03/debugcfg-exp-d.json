@@ -1,0 +1,28 @@
+{
+  "record": "v2-lane-expd-config-bisect",
+  "date": "2026-10-03T10:12:10.6683815-03:00",
+  "D1_full_19": {
+    "workers": 19,
+    "tester_incluido": true,
+    "cfg_bytes": 111221,
+    "debug_config": {
+      "timedout": false,
+      "rc": -3,
+      "out_head": ""
+    }
+  },
+  "D2_sem_tester": {
+    "workers": 18,
+    "tester_incluido": false,
+    "cfg_bytes": 95227,
+    "debug_config": {
+      "timedout": false,
+      "rc": -3,
+      "out_head": ""
+    }
+  },
+  "intact_49374": 1872,
+  "verdict_hint": "AMBOS_PASSAM_hang_nao_reproduziu",
+  "finished_at": "2026-10-03T10:12:12.3963451-03:00",
+  "probe_valido_nota": "PROBE INVALIDO como discriminador (anotado 2026-10-03 no re-review): esta run da Exp D dot-sourceou apenas AgentTranslator (Invoke-SpikeChild inexistente => threw) e o home nao tinha o dir cwd criado (runs com rc=-3 Started=false 'nome do diretorio invalido' nesta serie). O verdict_hint 'AMBOS_PASSAM_hang_nao_reproduziu' era rotulagem errada do probe, nao resultado do V2. A reproducao real do hang esta em debugcfg-exp-d2.json."
+}

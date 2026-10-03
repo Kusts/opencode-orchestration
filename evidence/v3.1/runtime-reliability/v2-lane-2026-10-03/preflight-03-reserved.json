@@ -1,0 +1,30 @@
+{
+    "tool":  "RuntimePortPreflight",
+    "date":  "2026-10-03T09:16:34.4966653-03:00",
+    "port":  53900,
+    "outcome":  "PORT_WINDOWS_EXCLUDED",
+    "should_start":  false,
+    "should_reuse":  false,
+    "listener":  null,
+    "process":  null,
+    "excluded":  {
+                     "Checked":  true,
+                     "Range":  {
+                                   "End":  53931,
+                                   "Raw":  "53832       53931",
+                                   "Start":  53832
+                               },
+                     "Excluded":  true
+                 },
+    "health":  {
+                   "Checked":  false,
+                   "Healthy":  false,
+                   "Detail":  "nao avaliado (faixa excluida)"
+               },
+    "diagnostics":  [
+                        "preflight read-only; nenhum PID sera terminado por este modulo",
+                        "3 faixa(s) excluida(s) lida(s)",
+                        "porta 53900 em faixa excluida do Windows: 53832       53931"
+                    ],
+    "collision_hint":  ""
+}

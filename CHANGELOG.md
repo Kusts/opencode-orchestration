@@ -15,13 +15,18 @@ binário V2; evidência completa em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 Programa **V3.1 — Runtime Reliability, Loop Recovery & Jev MCP
-(Phases 21–42)** em andamento — **Phases 21–27 e P28 slice 1 com
-estado consolidado (2026-10-01)**; do programa revisado em 2026-10-01
-(que substitui o design anterior P26–P33) os slices P26-S1, P27-S1 e
-P28-S1 estão entregues (ver bullets abaixo) e o restante das Phases
-26–42 não iniciado (detalhes em
-`evidence/v3.1/runtime-reliability/program-status.json`; especificação e
-plano em
+(Phases 21–42)** em andamento — **fatias kernel-side/plugin P26–P42
+code-complete e commitadas em 2026-10-02/03** (P26 S1, P27 S1, P28
+S1+S2, P29 S1, P30 S1, P31 S1+S2, P32, P33 S1, P34, P35, P36, P37,
+P38 S1+S2, P39, P40 S1+S2, P41 S1+S2 e P42 fatia 1 — todas com suítes
+verdes, Reviewer + Security Reviewer **APPROVED** e HOLDs explícitos;
+ver bullets abaixo). As pendências restantes são de **ativação e
+evidência do operador** (release gate), não de código faltante
+(detalhes em
+`evidence/v3.1/runtime-reliability/program-status.json`; rastreio por
+critério `PAE-01`–`PAE-40` em
+`evidence/v3.1/runtime-reliability/pae-traceability.json`;
+especificação e plano em
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md`,
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` e
 `docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md`):
@@ -468,9 +473,11 @@ plano em
   (`scripts/v3/lib/OrchestrationE2eManifest.ps1`,
   `source/registry/e2e-scenarios.json`): **41 cenários** (40 do plan
   + invariante sintética separada do policy-deny) com classificação
-  honesta — **18 runnable-synthetic pass** (checagens reais contra
-  as libs P28–P41) e **22 blocked honestos** (19 operator-runtime,
-  1 flag-activation, 3 real-transport — nunca fake-pass); rollout
+  honesta - **18 runnable-synthetic pass** (checagens reais contra
+  as libs P28-P41) e **23 blocked honestos** (19 operator-runtime,
+  1 flag-activation, 3 real-transport - nunca fake-pass; aritmética
+  reconciliada com `phase42.json#honest_counts` em 2026-10-03, o texto
+  anterior dizia 22 por erro de soma); rollout
   checklist de 19 passos com promote fail-closed. Suíte **194/194**
   (PS5.1 + pwsh; mutação 7/7). Reviews: Reviewer **APPROVED**
   (round 3) + Security **APPROVED**. **Release gate real pendente
@@ -499,9 +506,41 @@ plano em
   zero escrita, zero habilitação. Suíte **238/238** (PS5.1 + pwsh).
   Reviews: Reviewer **APPROVED** (round 2) + Security **APPROVED**
   (round 3). Append/enable permanece decisão do operador.
-- **Waves A–E code-complete kernel-side/plugin (2026-10-02)**;
+- **P25 follow-up done-code-fix8 (2026-10-03)** — telemetria do
+  watchdog endurecida (follow-ups documentados do phase25):
+  **gate cross-process** na escrita JSONL (mutex nomeado determinístico,
+  wait bounded 300 ms, skip razoado `lock-busy`/`mutex-abandoned`/
+  `mutex-unavailable`, nunca bloqueia nem lança), **tail-check** sob o
+  gate (append recusado com `tail-incomplete` sobre cauda fragmentada,
+  fragmento preservado), **retenção multi-dia bounded**
+  (`watchdog-YYYYMMDD.jsonl` estritamente anterior a 7 d; orçamento por
+  entrada visitada ANTES de qualquer filtragem, caps 64/32, cap=0 não
+  enumera `cap-zero`, truncamento conservador sem peek, starvation
+  observável via `no_progress`), guard de reparse no diretório (junction
+  real testada, canário intacto), canonicalização única de path
+  compartilhada por writer/gate/retenção (FIX8: retenção nunca
+  re-resolve CWD mutável). Suíte 80→**134** asserts (PS5.1 + pwsh);
+  regressões enforcement 339/339, McpSafety 203/203, CapabilityFlags
+  22/22, consistência 16/16. Reviews: Reviewer **APPROVED** (r4) +
+  Security **APPROVED** (r3). Residuais documentados: squatting do
+  mutex (telemetria best-effort, nunca prova de execução/autorização),
+  retenção sem cursor (`no_progress` observável; cursor é follow-up se
+  enforcement ativar), reparse em ancestral e aliases junction/subst
+  não resolvidos. Flag watchdog segue `{enabled:false, shadow:true}`.
+- **Honestidade de evidência (2026-10-03)** — campo `date` do
+  `smoke-opencode-v2.ps1` agora carimbado do relógio na escrita
+  (era hardcoded `2026-09-30`; artefatos históricos permanecem como
+  registro do que rodou) e paridade EOF com/sem LF final no leitor do
+  produtor de telemetria P41-S2 (follow-up LOW fechado; ramo EOF
+  unificado: MaxLines → over-cap → blank → parse, sem schema novo).
+  Suíte 148→**164** asserts (PS5.1 + pwsh); EvolutionLoop 147/147;
+  mutation check provou não-vacuidade (7 asserts caem sem o fix).
+  Reviewer **APPROVED** (r2) + Security **APPROVED**.
+- **Waves A–E code-complete kernel-side/plugin (2026-10-02/03)**;
   pendências de ativação/evidência do operador listadas em
-  `evidence/v3.1/runtime-reliability/program-status.json`.
+  `evidence/v3.1/runtime-reliability/program-status.json`; rastreio por
+  critério em
+  `evidence/v3.1/runtime-reliability/pae-traceability.json`.
 - **Permissões do tester: shell amplo com negações destrutivas
   (2026-10-03)** — `source/agents/tester.md` troca o deny-default +
   allowlist fechada por `"*": allow` + denies de destruição (`rm`, `del`,
@@ -523,10 +562,17 @@ plano em
   exclusion `permission_change` — mudança de permissão não é delegada a
   workers).
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
-por fase** (HOLDs registrados). Todas as flags seguem **OFF**
-(`source/registry/capability-flags.json`); nenhuma flag nova criada;
+por fase** (HOLDs registrados). Todas as flags de rollout seguem
+**OFF/shadow** (`source/registry/capability-flags.json`; única exceção,
+pré-existente do V3: `capability_registry.enabled=true`); nenhuma flag de
+rollout nova além de `jev_advisory` (P29, com sanção explícita do plan
+addendum §6.1, OFF/shadow);
 roteamento MCP genérico segue desligado; critérios `PAE-01`–`PAE-40`
-seguem pendentes onde não cobertos acima. Programa **não** concluído.
+rastreados na matriz
+`evidence/v3.1/runtime-reliability/pae-traceability.json`, pendentes
+de evidência do operador onde marcados `activation-pending`/
+`blocked-operator-evidence`. Programa **não** concluído (release gate
+pendente do operador).
 
 ### Added
 
@@ -619,14 +665,35 @@ seguem pendentes onde não cobertos acima. Programa **não** concluído.
 
 ### Pendente (não implementado)
 
-- **Phases 26–42 (runtime reliability)** — não iniciadas: watchdog
-  enforcement, recovery/typed waits, MCP safety, Jev advisory,
-  AI Memory VPS, persistent bootstrap, Task/Run/Session, reconciler,
-  execution modes, evidence reuse, validação adaptativa, simplicidade,
-  planner loop, capability doctor, V2 native, evolution e E2E/release.
-  HOLDs explícitos: (d)
-  `execute.before` sem via sem-modelo provada, evento `updated` não
-  observado, `REUSE` de porta em produção e ativação de qualquer flag.
+- **Release gate de P26-P42 (runtime reliability)** - o código
+  kernel-side/plugin está code-complete (2026-10-02/03); o que falta é
+  evidência do ambiente do operador, não implementação: lane V2 Windows
+  real - **executada parcialmente em 2026-10-03** (preflights reais de
+  porta 3/3 verdes, RR-E2E-01/02/03 convertidos com evidência real; ciclo
+  de vida explícito do serviço verde - set/start/status/stop owned,
+  49374 intocado; porém o startup implícito via `debug config` apresenta
+  **intermitência caracterizada experimentalmente** (2026-10-03: 7
+  travamentos vs 5 passes no mesmo dia/binário/máquina; stdin, conteúdo
+  da config e estado do serviço refutados como gatilhos determinísticos
+  nas condições testadas; suspeita principal: caminho interno do binário
+  2.0.18, **não comprovada** -
+  `debugcfg-hang-investigation.json`) e os cenários de
+  watchdog/sessão/
+  restart exigem integração de sessão real; evidência em
+  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/`), deploy do
+  VPS de AI Memory + re-preflight
+  de porta, ativações de flag com evidência (decisão humana), probes
+  reais de health/transporte, jevgrep real e wirings de chamador em
+  produção (produtor de telemetria P41, append/enable do revisor de
+  supersessão P40-S2, spawn real do despacho P38, hooks de arranque
+  P31). Checklist em `evidence/v3.1/runtime-reliability/phase42.json`;
+  estado por fase em `program-status.json`; rastreio por critério em
+  `pae-traceability.json`.
+- **HOLDs estruturais mantidos em P22–P41** — (d) `execute.before` sem
+  via sem-modelo provada; evento `session.updated` não observado;
+  `REUSE` de porta em produção; reconciler V2 nativo; interrupt de
+  sessão V2 nativa; ausência de Job Objects na P22. Nenhuma flag
+  ativada; `program-status.json` mantém o detalhamento por fase.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
   saved approvals e `experimental.policies` contra o runtime V2 real
   (requer resolver o travamento do `debug` V2 e/ou lane de CI com binário
@@ -634,8 +701,9 @@ seguem pendentes onde não cobertos acima. Programa **não** concluído.
 - **Phase 8 (smoke V2 em CI)** — mecanismo oficial de instalação V2 no
   Windows ainda não provado para uso em CI.
 - **Ativação** — flags `task_kernel`/`worktree_isolation`/
-  `runtime_grant_enforcement`/`runtime_support.v2` permanecem OFF; ativar
-  é decisão humana com evidência (shadow rollout, Phase 19).
+  `runtime_grant_enforcement`/`runtime_support.v2`/`watchdog`/
+  `jev_advisory` permanecem OFF; ativar é decisão humana com evidência
+  (shadow rollout, Phase 19).
 
 ### Known issues (pré-existentes, dependentes de ambiente)
 

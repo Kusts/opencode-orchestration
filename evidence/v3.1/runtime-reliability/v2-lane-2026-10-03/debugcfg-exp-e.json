@@ -1,0 +1,26 @@
+﻿{
+    "record":  "v2-lane-expe-socket-capture",
+    "date":  "2026-10-03T10:23:00.3527203-03:00",
+    "config_fixture":  "19 workers (copia D1)",
+    "port_expected":  59833,
+    "set_rc":  0,
+    "child_pid":  8164,
+    "child_exited_at_ms":  2000,
+    "child_exited_during_capture":  true,
+    "socket_samples":  [
+
+                       ],
+    "proc_count_timeline":  [
+                                "1000:5"
+                            ],
+    "any_conn_49374":  0,
+    "any_conn_59833":  0,
+    "socket_summary":  [
+
+                       ],
+    "dc_out_head":  "[ { \"type\": \"document\", \"path\": \"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-v2lane-expe\\\\xdg\\\\opencode\\\\opencode.json\", \"info\": { \"default_agent\": \"build\", \"agents\": { \"build\": { \"mode\": \"primary\", \"permissions\": [ { \"action\": \"subagent\", \"resource\": \"*\", \"effect\": \"deny\" }, { \"action\": \"subagent\", ",
+    "dc_err_head":  "(vazio)",
+    "stop_rc":  0,
+    "intact_49374":  1872,
+    "finished_at":  "2026-10-03T10:23:04.7609321-03:00"
+}

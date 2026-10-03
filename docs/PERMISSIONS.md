@@ -156,7 +156,7 @@ determinística, idêntica em V1 e V2:
   obrigatório somente após ativação com evidência. Estado vivo em
   `evidence/v3.1/kernel-hardening/runtime-binding.json`.
 
-## Status V2 — spike e HOLDs (2026-09-29)
+## Status V2 — spike e HOLDs (2026-09-29; revisado em 2026-10-03)
 
 Harness: `scripts/runtime/spike-v2-permissions.ps1` (resolve binário V2 via
 `-BinaryPath` → manifest do perfil v2 → probe PATH 2.x; sem binário, registra
@@ -168,4 +168,28 @@ Checks automatizados correspondem 1:1 a comandos executados (`--version`,
 
 HOLDs honestos (sem teste no runtime exato, sem claim): hard-deny via
 `experimental.policies`, live-load do plugin V2 em CI e ativação do
-`runtime_grant_enforcement`.
+`runtime_grant_enforcement`. O enforcement comportamental V2 (Phase 5)
+segue pendente do runtime real.
+
+**Camadas de permissão entregues, ainda sem enforcement ativo
+(2026-10-02/03).** O programa de confiabilidade entregou envelopes
+kernel-side de contenção de autoridade — MCP safety envelope com guard
+de autoridade sempre-nega e `MCP_REQUIRED_BLOCKED` fail-closed (P28),
+Jev como advisory com authority guard sempre-nega que nunca concede nem
+transporta grants (P29) e gating data-driven de capacidades nativas do
+V2, cujas 8 features estão todas `hold-unproven` e só podem ser
+habilitadas com evidência `exact-binary-live` validada (P40). Isso
+**não** é enforcement de permissão no runtime: `mcp_routing`,
+`jev_advisory` e o gating V2 seguem desligados
+(`source/registry/capability-flags.json`), o transporte MCP no plugin é
+shadow por default e qualquer ativação é decisão humana com evidência.
+
+**Mudança de 2026-10-03 (decisão do operador).** As permissões do agente
+`tester` trocaram o deny-default + allowlist fechada por shell amplo
+(`"*": allow`) com negações explícitas para operações destrutivas,
+elevação e mutação Git, `ask` para deploy/publish/infra e
+`edit: deny`/`task: deny` mantidos — ver o bullet correspondente em
+`CHANGELOG.md` `[Unreleased]` e a suíte
+`scripts/runtime/tester-shell-permissions.tests.ps1`. Escrita via shell
+não listada continua sendo proibição comportamental (prompt/Planner),
+não barreira de runtime.

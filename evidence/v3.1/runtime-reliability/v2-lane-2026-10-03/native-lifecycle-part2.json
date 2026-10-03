@@ -1,0 +1,22 @@
+{
+  "part1": {
+    "bin": "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "home": "C:\\Users\\walis\\AppData\\Local\\Temp\\oo-v2lane-native",
+    "port": 59820,
+    "set_rc": 0,
+    "set_out": "",
+    "service_json_exists": true,
+    "service_json": "{\n  \"port\": 59820\n}",
+    "start_rc": 0,
+    "start_out": "http://127.0.0.1:59820",
+    "listener": "PID=5064 addr=127.0.0.1:59820"
+  },
+  "status_rc": 0,
+  "status_out": "http://127.0.0.1:59820",
+  "stop_rc": 0,
+  "stop_out": "",
+  "settlement_59820": "SETTLED (no listener)",
+  "proc5064_alive": false,
+  "intact_49374": 1872,
+  "date": "2026-10-03T09:24:03.3007062-03:00"
+}

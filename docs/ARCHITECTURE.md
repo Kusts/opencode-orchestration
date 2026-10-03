@@ -197,24 +197,27 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
 
 ## Confiabilidade de runtime (V3.1 Phases 21-42 (revisão 2026-10-01) - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; release gate pendente do operador)
 
-**Status 2026-10-02:** programa **code-complete** nas fatias
+**Status 2026-10-02/03:** programa **code-complete** nas fatias
 kernel-side/plugin — Waves A–E implementadas via ciclo
 coder → tester → reviewer (+ security) com APPROVED por slice.
 Bibliotecas novas em `scripts/v3/lib/`:
 `OrchestrationMcpSafety` (envelope bounded + circuit breaker),
 `OrchestrationJevAdvisory` (Jev como advisory, flag OFF),
 `OrchestrationAiMemoryRemote` (dependência remota bounded),
-`OrchestrationBootstrapContext`, `OrchestrationTaskBindings`
-(bindings CAS no kernel), `OrchestrationSessionReconciler`
+`OrchestrationBootstrapContext`, bindings CAS dentro de
+`OrchestrationTaskKernel` (sem lib própria), `OrchestrationSessionReconciler`
 (Continuation Envelope), `OrchestrationExecutionModes`,
 `OrchestrationEvidenceStore` (reuse), `OrchestrationValidationPolicy`
 (L0–L3), `OrchestrationSimplicityPolicy`, `OrchestrationPlannerLoop`,
-`OrchestrationCapabilityDoctor`, `OrchestrationV2NativeGating`
-(todas as features hold-unproven), `OrchestrationEvolutionLoop`
-(observacional) e o transporte MCP no plugin
+`OrchestrationDispatchPipeline` (record-only), `OrchestrationCapabilityDoctor`,
+`OrchestrationV2NativeGating`
+(todas as features hold-unproven), `OrchestrationV2EvidenceSupersession`
+(decision-record only), `OrchestrationEvolutionLoop`
+(observacional), `OrchestrationE2eManifest` e o transporte MCP no plugin
 (`plugins/orchestration-enforcement/shared/mcp-transport.ts`,
 shadow default). E2E manifest com 41 cenários classificados
-(18 sintéticos pass, 22 blocked honestos).
+(18 sintéticos pass, 23 blocked honestos — aritmética reconciliada com
+`phase42.json#honest_counts`).
 
 Programa em andamento, com estado vivo em
 `evidence/v3.1/runtime-reliability/program-status.json`; especificado em
@@ -265,10 +268,186 @@ com execução descrita em [Implementation prompt](specs/ORCHESTRATION-V3.1-RUNT
   **80/80** (PS5.1 + PS7), kernel **75/75**, consistência **16/16**;
   reviews Reviewer **APPROVED** (REV4) + Security **APPROVED**
   (SEC3). Follow-ups documentados: lock cross-process, retenção
-  multi-dia; interrupt real é Phase 26 (não implementado).
+  multi-dia; o caminho de interrupt real está na subsection de P26
+  abaixo.
 
-Mecanismos-alvo do programa (desenho vigente; só o acima está
-implementado):
+### Capacidades entregues em P26–P42 (kernel-side/plugin, 2026-10-02/03)
+
+As subseções abaixo registram o que existe no código e seus limites
+honestos. Nenhuma delas implica ativação: todas as flags seguem OFF e o
+release gate depende de evidência do ambiente do operador.
+
+#### Watchdog: shadow + caminho de enforcement (P25/P26)
+
+P25 entrega a biblioteca em modo shadow puro; P26 entrega o caminho de
+interrupção real (identidade exata `pid`+creation-ticks, prova de vida
+coletada na validação, kill pelo handle pinado da instância verificada,
+árvore via snapshot CIM com caps fail-closed e seam `SETTLEMENT_REQUIRED`
+no kernel). Flag `watchdog{enabled:false, shadow:true}` inalterada.
+Limites: interrupt de sessão V2 nativa (runtime API) não implementado,
+sem Job Objects (BLOCKER conhecido da P22) e ator/fonte são strings
+declaradas pelo chamador. Evidência:
+`evidence/v3.1/runtime-reliability/phase25.json`, `phase26.json`.
+
+#### MCP safety e transporte (P28)
+
+Envelope bounded + circuit breaker kernel-side com policy canônica
+fail-closed (`source/registry/mcp-request-policy.json`) e envelope de
+transporte no plugin TS (`shared/mcp-transport.ts`) em **shadow
+default** — observa, nunca altera admissão sem opt-in explícito.
+`mcp_routing` segue OFF. Limites: enforcement em binário real V2 não
+validado, V1 observe-only e locks in-process. Evidência:
+`evidence/v3.1/runtime-reliability/phase28.json`.
+
+#### Jev advisory kernel-side + guard de autoridade (P29)
+
+Jev entra como **consultivo** com tool set fechado, budget 30s, probe
+10s, circuito 2/300s e criticality `optional` (`JEV_UNAVAILABLE` ⇒
+fallback determinístico). O guard de autoridade é sempre-nega: deny do
+kernel vence allow do Jev e falha do verifier vence "complete" do Jev.
+Flag `jev_advisory{enabled:false, shadow:true}` nasce OFF. Limites:
+transporte real (rede) não ativado (seam sintética, zero primitivas de
+rede). Evidência: `evidence/v3.1/runtime-reliability/phase29.json`.
+
+#### AI Memory remoto como dependência (P30)
+
+Policy com endpoint **user-owned**
+(`source/registry/ai-memory-remote-policy.json`), `tls_verify` fixo e
+HTTPS obrigatório antes de transporte real, retrieval 60s / health 10s,
+circuito reusando o envelope P28 e modo **remote-only por config**.
+Limites: ausência de config ⇒ `AIMEMORY_UNCONFIGURED` (optional
+continua, required bloqueia tipado) e **nunca** fallback silencioso para
+o listener local `49374`; deploy do VPS e fechamento dos HOLDs de
+`REUSE` são infraestrutura do operador. Evidência:
+`evidence/v3.1/runtime-reliability/phase30.json`.
+
+#### Bootstrap context e wiring de arranque (P31)
+
+Builder read-only e parse-only (nunca executa processo/scripts) com
+seções project/runtime/capability_health/tasks/pending_waits/jev_status/
+aimemory_status, byte budget com sequência única de descarte e clock
+injetável; `scripts/runtime/SessionBootstrapContext.ps1` expõe o
+componente como CLI hook-style **fail-open total**. Limites: nada é
+registrado nem instalado — auto-start do plugin, AGENTS.md global,
+`default_agent` e o registro do hook no arranque real são decisão do
+operador. Evidência: `evidence/v3.1/runtime-reliability/phase31.json`.
+
+#### Bindings Task/Run/Seat/Session (P32)
+
+Seção `bindings` opcional e backward-compatible no kernel, com
+`bind`/`rebind`/`detach` sob o lock CAS existente, um único
+`active_execution_owner` por task, rebind só em sessão equivalente ou run
+detached e CLI com 4 subcomandos (ambiguidade ⇒ exit 2 fail-closed). O
+kernel permanece única fonte de verdade. Limites: coordenação
+cross-process em HOLD (single-writer in-process) e integração com
+plugin/runtime real fora do slice. Evidência:
+`evidence/v3.1/runtime-reliability/phase32.json`.
+
+#### Reconciler de sessão + Continuation Envelope (P33)
+
+Continuation Envelope bounded em 8KB (objective, intent, decisões,
+evidências, estratégias falhadas sem transcripts, riscos, typed waits,
+next move) com redator compartilhado em todos os campos string, e
+`SESSION_LOST` tipado por declared missing + proof sem mutar task. O
+reconciler é determinístico sobre os bindings P32 e produz ações
+**recomendadas** (reattach via CLI, recover-output, inspect-interrupted)
+— nunca faz probe nem kill. Limites: reconciler V2 nativo e probe real de
+sessão em HOLD (estados declarados pelo caller confiável). Evidência:
+`evidence/v3.1/runtime-reliability/phase33.json`.
+
+#### Execution modes A/B/C (P34)
+
+Decisão pura e determinística entre **A** (deterministic workflow), **B**
+(persistent specialist) e **C** (one-shot). O modo B é duplamente gated
+(policy `specialist_enabled: false` por default + `runtime_caps` OFF) e o
+resultado distingue `fallback_from` `policy-off` de
+`runtime-unsupported`; `team_size` sozinho nunca decide. Limites:
+primitiva runtime de specialist em HOLD e wiring no Planner fora do slice
+(P38). Evidência: `evidence/v3.1/runtime-reliability/phase34.json`.
+
+#### Evidence reuse store (P35)
+
+Store file-based de reuso de evidência com identidade/provenance
+obrigatórios, fingerprints SHA-256, validade por
+fingerprints/criteria/revision-policy/ttl invariante, query compacta sem
+raw, retrieval com containment do store-root + reparse-point walk +
+streaming cap e métricas consultáveis. Limites: sem daemon nem database,
+e a integração com o dispatch real é do fluxo P38. Evidência:
+`evidence/v3.1/runtime-reliability/phase35.json`.
+
+#### Validação adaptativa L0–L3 (P36)
+
+Policy como autoridade fail-closed: hard triggers incontornáveis
+varrendo domain/operation/summary e completion gate com
+`effective_level = max` (risco desconhecido ⇒ L3), cobertura exigindo o
+conjunto completo de fingerprints com a semântica de validade do P35 e
+ledger de cobertura de segurança (`confirmed`/`needs-validation`).
+Limites: wiring no fluxo de dispatch/completion é do P38 e a allowlist de
+`verified_pass` permanece a do kernel. Evidência:
+`evidence/v3.1/runtime-reliability/phase36.json`.
+
+#### Disciplina de simplicidade (P37)
+
+Builder de campos de contrato (MSC/NBW/RBC/ABE/stop-condition/NON_GOALS/
+PRESERVE/blast-radius) com budget normalizado e sanitizado,
+`ChangeBudget` soft 1x / hard 2x com rationale obrigatório
+(`CHANGE_BUDGET_EXCEEDED`) e checklist de Reviewer **assistida** e
+determinística. Limites: a edição dos prompts canônicos em
+`source/agents/*.md` é decisão do operador (este pacote não a faz) e o
+wiring no dispatch é do P38. Evidência:
+`evidence/v3.1/runtime-reliability/phase37.json`.
+
+#### Planner loop e dispatch pipeline record-only (P38)
+
+O planner loop adaptativo encadeia Frame → Reuse → Simplicity → Risk →
+mode → budget → dispatch → gaps → complete reusando P29/P34–P37 e
+produz um `PLAN RECORD` com cap 8KB garantido (descarte ordenado,
+envelope mínimo sempre válido, nunca substring-cut). O dispatch pipeline
+kernel-side consome esse record e produz o bundle de despacho: contratos
+de worker derivados só de plan+descriptor declarado, no-widen,
+sequenciamento parallel apenas com booleano real e gate de completion do
+P36 fail-closed. Limites: **record-only** — o gate valida shape, não
+autenticidade de proveniência, e `DONE`/`verified_pass` permanece
+kernel-side; spawn real de workers é decisão do operador. Evidência:
+`evidence/v3.1/runtime-reliability/phase38.json`.
+
+#### Capability doctor (P39)
+
+Descritores de capacidade com schema validation tipada (booleano
+estrito) e doctor **read-only** com probes sintéticos injetáveis (budget
+é metadado honesto, não medição real), fallback que valida o destino e
+`risk_class` execution/authority sem health ⇒ typed blocker. Limites:
+probes reais e jevgrep real em HOLD (fatia de transporte), instalação
+automática fora de escopo. Evidência:
+`evidence/v3.1/runtime-reliability/phase39.json`.
+
+#### Gating de capacidades nativas do V2 (P40)
+
+Registry data-driven das 8 features candidatas, **todas hold-unproven**,
+com `required_evidence` e `v1_fallback`; gating estritamente fail-closed
+(`enabled` só com evidência `exact-binary-live` validada: feature, pin
+2.0.18, scenario exact-match + SHA-256 e timestamp RFC3339 com offset). A
+fatia 2 acrescenta o revisor de supersessão de evidências
+(`OrchestrationV2EvidenceSupersession.ps1`), **decision-record only** (zero
+escrita, zero habilitação). Limites: toda ativação exige prova no binário
+2.0.18 no ambiente do operador, e o append/enable do registro é decisão
+dele. Evidência: `evidence/v3.1/runtime-reliability/phase40.json`.
+
+#### Evolution loop e telemetria observacional (P41)
+
+Loop observacional com sinais de leitura incremental orçada,
+`EVOLUTION_CANDIDATE` content-addressed (threshold + refs distintos), eval
+offline que retorna inconclusivo com cobertura incompleta e promoção
+explícita one-at-a-time com enumeração fail-closed. A fatia 2 entrega o
+produtor de telemetria, que deriva os contadores declarados na policy real
+a partir de fontes reais (task records do kernel, JSONL do watchdog,
+reuse-metrics do P35) e marca **ausente com razão** o que não tem fonte —
+nunca fabrica número. Limites: wiring de chamador em produção e o `apply`
+de mudança promovida (fluxo revisado) são do operador. Evidência:
+`evidence/v3.1/runtime-reliability/phase41.json`.
+
+### Mecanismos-alvo do programa (desenho vigente; as capacidades P26–P42
+já existem em código, sem ativação)
 
 - **Execução limitada (bounded execution)**: todo attempt ativo passa a
   ter orçamento canônico (`execution_budget`: steps, wall-clock,
@@ -294,18 +473,33 @@ implementado):
   autoriza ações, concede permissões, sobrescreve Reviewer/Security
   Reviewer/verificação/DONE; indisponibilidade retorna `JEV_UNAVAILABLE`
   limitado sem retry infinito.
-- **Programa restante P26–P42 (revisão 2026-10-01)**: persistent bootstrap,
-  reconciler + continuation envelope, execution modes, evidence reuse,
-  validação adaptativa, capability doctor, evolution.
+- **Programa P26–P42 (revisão 2026-10-01)**: as capacidades listadas
+  acima (persistent bootstrap, reconciler + continuation envelope,
+  execution modes, evidence reuse, validação adaptativa, capability
+  doctor, evolution e E2E/release) existem em código desde 2026-10-02/03.
 
-Limites honestos: o acima é o que existe — sem enforcement de
-watchdog/loop-guard/budgets/circuit breaker (P26–P42 não iniciadas);
-todas as flags seguem OFF em
-`source/registry/capability-flags.json` (nenhuma flag nova); AI Memory
-nunca mutado (listener local mantido); roteamento MCP genérico
-desligado; revisões Reviewer + Security Reviewer com APPROVED parcial
-por fase (HOLDs registrados); critérios `PAE-01`–`PAE-40` pendentes onde
-não cobertos. Programa **não** concluído.
+Limites honestos: o código existe, a **ativação** não. Nenhuma flag foi
+ligada — `watchdog`, `mcp_routing`, `jev_advisory`, `task_kernel`,
+`worktree_isolation` e `runtime_grant_enforcement` seguem OFF em
+`source/registry/capability-flags.json` (nenhuma flag de rollout nova
+além de `jev_advisory`, criada no P29 com sanção do plan addendum §6.1);
+o watchdog
+permanece shadow, o transporte MCP em shadow default e o enforcement
+comportamental V2 (Phase 5) depende do runtime real; AI Memory nunca foi
+mutado (listener local mantido, migração ao VPS planejada e não
+executada); o release gate (lane V2 Windows real - executada
+parcialmente em 2026-10-03: preflights reais e ciclo de vida explícito
+do serviço verdes; `debug config` com intermitência caracterizada
+experimentalmente (7 hangs vs 5 passes no mesmo dia; suspeita principal
+interna ao binário 2.0.18, não comprovada;
+`debugcfg-hang-investigation.json`); deploy do VPS,
+probes
+reais, jevgrep real e wirings de chamador em produção) depende de
+evidência do operador; revisões Reviewer + Security Reviewer com APPROVED
+por slice (HOLDs registrados); critérios `PAE-01`–`PAE-40` rastreados em
+`evidence/v3.1/runtime-reliability/pae-traceability.json`, pendentes de
+evidência do operador onde marcados `activation-pending`/
+`blocked-operator-evidence`. Programa **não** concluído.
 
 ## Ownership model do installer (PACKAGE/USER)
 

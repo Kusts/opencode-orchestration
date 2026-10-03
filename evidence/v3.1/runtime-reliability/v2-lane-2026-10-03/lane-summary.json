@@ -1,0 +1,78 @@
+{
+  "record": "v3.1-v2-real-windows-lane-2026-10-03",
+  "date": "2026-10-03",
+  "executor": "Planner (deterministic owner; preflight DETERMINISTIC_FALLBACK hard_exclusion_authority_change - dominio de flags/autoridade nao delegavel)",
+  "binary": "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+  "version_exact": "opencode v2.0.18 (pin exato)",
+  "invariants": [
+    "49374 (default do servico V2 / AI Memory local) NUNCA iniciado nem alterado por esta lane: owner 127.0.0.1:49374 PID 1872 nos snapshots ANTES (preflight-02, 09:16) e DEPOIS (native-lifecycle-part2, 09:24); sem monitoramento continuo entre snapshots",
+    "PID policy: nenhum PID preexistente ou externo foi terminado; unica terminacao forcada possivel foi de FILHOS PROPRIOS do smoke em timeout (scripts/runtime/lib/SpikeProcess.ps1 faz taskkill /T /F do filho own quando o comando estoura o timeout - os 3 runs falharam exatamente em TIMEOUT, logo o cleanup own-child pode ter ocorrido; sem evidencia por-PID do taskkill, registrado como possibilidade, nao como fato); o stop do lifecycle explicito foi service stop OWNED via CLI (sem kill)",
+    "nenhuma flag ativada; config viva do usuario intocada; tudo em homes isolados em TEMP"
+  ],
+  "results": {
+    "e2e_01_port_free": {
+      "scenario": "RR-E2E-01 (V2 port free)",
+      "status": "pass-real",
+      "evidence": [
+        "preflight-01-selectfree.json (artefato da selecao: registra tool/mode/port/date - SEM campo outcome; o 'PORT_FREE ... exit 0' dessa invocacao esta no transcript da sessao, nao no artefato)",
+        "preflight-01b-port59820-recheck.json (ARTEFATO COMPLETO: outcome=PORT_FREE, should_start=true, sem listener; exit 0 observado no transcript da invocacao, nao no JSON)"
+      ],
+      "detail": "porta 59820 livre e verificada por artefato completo no recheck (a porta selecionada pelo SelectFree e a mesma confirmada pelo recheck; entre elas a porta foi usada e liberada pelo lifecycle explicito desta lane)"
+    },
+    "e2e_02_port_occupied_unproven_owner": {
+      "scenario": "RR-E2E-02 (porta ocupada, ownership nao provavel)",
+      "status": "pass-real (recusa fail-closed correta)",
+      "evidence": "preflight-02-49374.json",
+      "detail": "porta 49374 ocupada por processo 'opencode' (PID 1872, binario global npm) mas SEM prova de ownership (path/perfil) => PORT_STALE_OR_UNKNOWN, should_start=false, should_reuse=false, exit 2. Nome sozinho nunca autoriza reuse (REUSE HOLD P22 respeitado)."
+    },
+    "e2e_03_port_reserved": {
+      "scenario": "RR-E2E-03 (porta em faixa reservada do Windows)",
+      "status": "pass-real",
+      "evidence": "preflight-03-reserved.json",
+      "detail": "porta 53900 dentro da faixa excluida 53832-53931 => PORT_WINDOWS_EXCLUDED, start=false, exit 2"
+    },
+    "smoke_lane_implicit_service": {
+      "scenario": "Lane completa scripts/ci/smoke-opencode-v2.ps1 (startup implicito do servico via debug config)",
+      "status": "failed-honest (3/3 executacoes com evidencia em 2026-10-03)",
+      "evidence": [
+        "v2-ci-smoke.json (run 1, porta 55345, 4 checks PASS + fail_detail debug config TIMEOUT)",
+        "v2-ci-smoke-run2.json (run 2, porta 55426, 4 checks PASS + fail_detail debug config TIMEOUT; o comando foi interrompido pelo restart do harness mas a evidencia chegou a ser gravada)",
+        "v2-ci-smoke-run3.json (run 3 detached, sobreviveu ao restart e completou, mesmo resultado)"
+      ],
+      "checks_pass_consistentes": [
+        "version_exact (2.0.18)",
+        "config_19_workers_built (AgentTranslator, 19 workers canonicos)",
+        "isolation_paths (debug paths no TargetHome isolado)",
+        "service_port_configured (service set port em porta privada)"
+      ],
+      "failing_check": "debug config: TIMEOUT 30s; intermitencia comprovada experimentalmente em 2026-10-03 (7 hangs vs 5 passes, mesmo binario/maquina/dia; ver debugcfg-hang-investigation.json); stdin, conteudo de config (tester), presenca de config e estado do servico refutados como causa local; suspeita principal: flake upstream no 2.0.18",
+      "causa": "FLAKE INTERMITENTE DO BINARIO comprovado experimentalmente (debugcfg-hang-investigation.json): 7 hangs vs 5 passes no mesmo dia/binario/maquina; stdin, conteudo da config (18 vs 19 workers), presenca de config e estado do servico refutados como causa local por experimentos discriminantes; suspeita principal: caminho interno do 2.0.18 (debug config/warmup) - causa raiz exige investigacao upstream. PASS historico do mesmo fluxo existe (evidence/v3.1/kernel-hardening/v2-ci-smoke.json, status ok, porta 53889, 2026-09-30), coerente com intermitencia",
+      "script_note": "campo date do script esta hardcoded '2026-09-30' (smoke-opencode-v2.ps1 L103/L342) - evidencias de hoje tem LastWriteTime de 2026-10-03 e portas distintas das historicas; date campo e historico, nao carimbo da execucao"
+    },
+    "explicit_service_lifecycle": {
+      "scenario": "Ciclo de vida explicito do servico (padrao P22 native-start-contract)",
+      "status": "pass-real (completo)",
+      "evidence": ["native-lifecycle-part1.json", "native-lifecycle-part2.json"],
+      "producer_note": "produzido por comandos inline do Planner em duas invocacoes (a segunda interrompida por restart do harness mas concluida antes de morrer); o arquivo native-lifecycle-part2.ps1 e uma variante detached PREPARADA para reexecucao que NAO foi o produtor do JSON (campos distintos); preservado para reprodutibilidade",
+      "detail": "home isolado TEMP/oo-v2lane-native + XDG por processo; service set port 59820 (rc=0, service.json {\"port\":59820}); service start (rc=0, http://127.0.0.1:59820, listener PID 5064 owned pelo binario do perfil); service status (rc=0, URL correta); service stop (rc=0); settlement: sem listener, processo 5064 encerrado graciosamente; 49374 intocado (PID 1872) nos snapshots de antes e depois",
+      "conclusion": "nesta execucao o servico gerenciado V2 subiu e parou de forma explicita e deterministicamente (set/start/status/stop owned, settlement limpo); o TIMEOUT do caminho implicito em 3 runs, com o lifecycle explicito verde na mesma sessao, INDICA especificidade do caminho implicito de startup (debug config) - indicacao, nao prova de causa"
+    }
+  },
+  "scenario_conversion": {
+    "converted_to_real_evidence": ["RR-E2E-01", "RR-E2E-02", "RR-E2E-03"],
+    "lifecycle_proven": "start/status/stop owned do servico V2 real 2.0.18 (suporte para cenarios de runtime; cenarios 05-10 de watchdog e 16-22 de sessao/restart exigem integracao de sessao real, nao executados nesta lane)",
+    "still_blocked": [
+      "RR-E2E-39 (V2 policy deny): exige o caminho debug config funcionar (falha atual de causa indeterminada)",
+      "RR-E2E-05..10 (watchdog em runtime real): exigem workers reais dentro da lane V2 (integracao de sessao)",
+      "RR-E2E-16..22 (persistencia/restart): exigem sessao real + restart (integracao de sessao)",
+      "RR-E2E-32 (flag): ativacao de flag = decisao do operador (intocavel)"
+    ]
+  },
+  "environmental_observations": [
+    "processos opencode pre-existentes e orfaos observados (5608 de 08:04, 1872/12616 de 08:08) - nenhum tocado (PIDs desconhecidos nunca mortos)",
+    "restarts do harness opencode durante a sessao mataram 4 comandos foreground - mitigado com execucao detached; run 3 detached sobreviveu e completou",
+    "faixas excluidas TCP do host: 50000-50059 (administrada), 53832-53931, 53932-54031"
+  ],
+  "verdict": "lane-parcialmente-verde: preflights reais 3/3 PASS (com artefato completo no recheck do RR-E2E-01), ciclo de vida explicito PASS, smoke com startup implicito RED honesto (3 runs com evidencia, todas TIMEOUT no debug config; PASS historico em 09-30; causa indeterminada) - release gate segue aberto sem fake-close",
+  "no_fake_close": true
+}

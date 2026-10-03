@@ -1,0 +1,43 @@
+{
+    "tool":  "RuntimePortPreflight",
+    "date":  "2026-10-03T09:16:18.1602510-03:00",
+    "port":  49374,
+    "outcome":  "PORT_STALE_OR_UNKNOWN",
+    "should_start":  false,
+    "should_reuse":  false,
+    "listener":  {
+                     "Detail":  "listener 127.0.0.1:49374 PID 1872",
+                     "OwningPID":  1872,
+                     "Source":  "netstat",
+                     "QuerySucceeded":  true,
+                     "LocalAddress":  "127.0.0.1",
+                     "Exists":  true
+                 },
+    "process":  {
+                    "Path":  "C:\\Users\\walis\\AppData\\Roaming\\npm\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+                    "Exists":  true,
+                    "Name":  "opencode",
+                    "PID":  1872,
+                    "Detail":  "processo opencode PID 1872"
+                },
+    "excluded":  {
+                     "Checked":  true,
+                     "Range":  null,
+                     "Excluded":  false
+                 },
+    "health":  {
+                   "Checked":  false,
+                   "Healthy":  false,
+                   "Detail":  "sem probe de saude; reuse exige ownership+health (fail-closed)"
+               },
+    "diagnostics":  [
+                        "preflight read-only; nenhum PID sera terminado por este modulo",
+                        "3 faixa(s) excluida(s) lida(s)",
+                        "listener 127.0.0.1:49374 PID 1872",
+                        "processo opencode PID 1872",
+                        "processo dono: opencode (expected-name=True ownership=False)",
+                        "sem probe de saude; reuse exige ownership+health (fail-closed)",
+                        "nome esperado mas SEM prova de ownership (path/perfil): fail-closed (PORT_STALE_OR_UNKNOWN); nome sozinho nunca autoriza reuse"
+                    ],
+    "collision_hint":  "porta 49374 e o default do servico V2 e o default historico do AI Memory local. Nunca inicie usando 49374 se ocupado; selecione porta livre e persista por perfil."
+}

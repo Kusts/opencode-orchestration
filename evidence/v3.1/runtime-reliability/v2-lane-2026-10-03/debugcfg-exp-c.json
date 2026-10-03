@@ -1,0 +1,30 @@
+﻿{
+    "record":  "v2-lane-expc-stdin-discriminator-v3",
+    "date":  "2026-10-03T09:55:31.9832113-03:00",
+    "port":  59825,
+    "home":  "C:\\Users\\walis\\AppData\\Local\\Temp\\oo-v2lane-expc",
+    "set":  {
+                "timedout":  false,
+                "rc":  0
+            },
+    "C0_no_stdinnul":  {
+                           "timedout":  false,
+                           "rc":  0,
+                           "out_head":  "[ { \"type\": \"directory\", \"path\": \"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-v2lane-expc\\\\xdg\\\\opencode\" }, { \"type\": \"directory\", \"path\": \"C:\\\\Users\\\\walis\\\\.opencode\" } ]",
+                           "stdout_len":  198
+                       },
+    "C1_stdinnul":  {
+                        "timedout":  false,
+                        "rc":  0,
+                        "out_head":  "[ { \"type\": \"directory\", \"path\": \"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-v2lane-expc\\\\xdg\\\\opencode\" }, { \"type\": \"directory\", \"path\": \"C:\\\\Users\\\\walis\\\\.opencode\" } ]",
+                        "err_head":  "",
+                        "stdout_len":  198
+                    },
+    "stop":  {
+                 "timedout":  false,
+                 "rc":  0
+             },
+    "intact_49374":  1872,
+    "verdict_hint":  "AMBOS_PASSAM_stdin_nao_e_causa_hoje",
+    "finished_at":  "2026-10-03T09:55:33.9528203-03:00"
+}

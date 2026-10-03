@@ -1,0 +1,15 @@
+﻿{
+    "record":  "v2-lane-expb-debugcfg-implicit-timeline",
+    "date":  "2026-10-03T09:44:23.9367735-03:00",
+    "port":  59822,
+    "home":  "C:\\Users\\walis\\AppData\\Local\\Temp\\oo-v2lane-expb",
+    "port_free_at_start":  true,
+    "set_rc":  0,
+    "debugconfig_exited":  null,
+    "debugconfig_elapsed_ms":  90,
+    "debugconfig_rc":  "TIMEOUT_150S_own_child_killed",
+    "debugconfig_out_head":  "",
+    "debugconfig_err_head":  "",
+    "stop_rc":  0,
+    "intact_49374":  1872
+}

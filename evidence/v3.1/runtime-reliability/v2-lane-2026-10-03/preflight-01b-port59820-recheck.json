@@ -1,0 +1,34 @@
+{
+    "tool":  "RuntimePortPreflight",
+    "date":  "2026-10-03T09:30:43.7291425-03:00",
+    "port":  59820,
+    "outcome":  "PORT_FREE",
+    "should_start":  true,
+    "should_reuse":  false,
+    "listener":  {
+                     "Detail":  "sem listener 127.0.0.1/0.0.0.0 na porta 59820",
+                     "OwningPID":  0,
+                     "Source":  "netstat",
+                     "QuerySucceeded":  true,
+                     "LocalAddress":  "",
+                     "Exists":  false
+                 },
+    "process":  null,
+    "excluded":  {
+                     "Checked":  true,
+                     "Range":  null,
+                     "Excluded":  false
+                 },
+    "health":  {
+                   "Checked":  false,
+                   "Healthy":  false,
+                   "Detail":  "sem listener; health n/a"
+               },
+    "diagnostics":  [
+                        "preflight read-only; nenhum PID sera terminado por este modulo",
+                        "3 faixa(s) excluida(s) lida(s)",
+                        "sem listener 127.0.0.1/0.0.0.0 na porta 59820",
+                        "porta 59820 livre: start permitido (re-checar no start real)"
+                    ],
+    "collision_hint":  ""
+}

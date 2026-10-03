@@ -99,18 +99,25 @@ lib shadow puro: fingerprints sanitizados len:valor, repetição da policy,
 HARD_TIMEOUT/NO_PROGRESS/REPEATED_ACTION/CYCLE/BUDGET_NEAR_LIMIT em
 shadow, JSONL bounded com lock in-process e cap fail-closed, identidade
 obrigatória, watchdog{enabled:false, shadow:true}, enabled=true =>
-WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED; watchdog 80/80 PS5.1+PS7, kernel
+WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED; watchdog 134/134 PS5.1+PS7 (80
+base + follow-up 2026-10-03: gate cross-process + retenção multi-dia
+bounded, FIX1..FIX8), kernel
 75/75, consistência 16/16; reviewer APPROVED (REV4) + security APPROVED
-(SEC3); follow-ups: lock cross-process, retenção multi-dia; interrupt
+(SEC3); follow-ups de telemetria ENTREGUES 2026-10-03; interrupt
  real = Phase 26); Waves A–E do programa revisado (2026-10-01;
   PAE-01-PAE-40 substituem RR-01-RR-20) **code-complete e commitadas
-  2026-10-02** (P28 S1+S2, P29 S1, P30 S1, P31 S1, P32, P33 S1, P34,
-  P35, P36, P37, P38, P39, P40, P41, P42 fatia 1 E2E manifest — todas
+  2026-10-02/03** (P28 S1+S2, P29 S1, P30 S1, P31 S1+S2, P32, P33 S1,
+  P34, P35, P36, P37, P38 S1+S2, P39, P40 S1+S2, P41 S1+S2, P42
+  fatia 1 E2E manifest — todas
   com reviewer + security APPROVED; estado vivo em
-  `evidence/v3.1/runtime-reliability/program-status.json`);
+  `evidence/v3.1/runtime-reliability/program-status.json`; matriz
+  PAE-01-PAE-40 em
+  `evidence/v3.1/runtime-reliability/pae-traceability.json`; docs
+  reconciliadas em 2026-10-03);
   **release gate pendente de evidência do operador**: lane V2 Windows
   real, deploy VPS AI Memory, ativações de flag com evidência, probes
-  reais, jevgrep real, wirings fatia 2 (P31/P38);
+  reais, jevgrep real, wirings de chamador em produção (P31-S2, P38-S2,
+  P40-S2 append/enable, P41-S2 telemetria);
 flags de rollout nascem OFF
 (shadow, ativação só com evidência). Não ativar `skill_routing`,
 `mcp_routing`, `adaptive_ranking`; não criar V4/daemon/database.

@@ -4,10 +4,10 @@
 **Baseline:** `master` @ `78418e790fd08d3f61e8706e7d534504a0965e8c`  
 **Revision date:** 2026-09-28  
 **Target release:** preferably `1.1.0` if backward compatibility is preserved  
-**Status:** Em implementação — Phases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel, grants, Evidence Contract, verifier, DONE kernel, leases, worktrees, binding records, contrato, observabilidade, flags) implementadas, revisadas (Reviewer + Security Reviewer, 15 findings corrigidos) e verdes (2026-09-29). Phase 5: harness pronto; enforcement comportamental V2 pendente (HOLD honesto). Phase 8: lane CI adicionada; smoke de binário V2 pendente. Phase 20: evidência registrada em `evidence/v3.1/kernel-hardening/implementation-status.json`. Flags de rollout OFF por padrão. **Programa de confiabilidade Phases 21–42 — P21–P25 implementadas (evidência em `evidence/v3.1/runtime-reliability/program-status.json`); P26–P42 em especificação (revisão 2026-10-01), sem enforcement ativo** (ver documentos relacionados abaixo).
+**Status:** Em implementação — Phases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel, grants, Evidence Contract, verifier, DONE kernel, leases, worktrees, binding records, contrato, observabilidade, flags) implementadas, revisadas (Reviewer + Security Reviewer, 15 findings corrigidos) e verdes (2026-09-29). Phase 5: harness pronto; enforcement comportamental V2 pendente (HOLD honesto). Phase 8: lane CI adicionada; smoke de binário V2 pendente. Phase 20: evidência registrada em `evidence/v3.1/kernel-hardening/implementation-status.json`. Flags de rollout OFF por padrão. **Programa de confiabilidade Phases 21–42 — P21–P25 implementadas (evidência em `evidence/v3.1/runtime-reliability/program-status.json`); P26–P42 code-complete kernel-side/plugin (2026-10-02/03), release gate pendente do operador, sem enforcement ativo** (rastreio por critério em `evidence/v3.1/runtime-reliability/pae-traceability.json`; ver documentos relacionados abaixo).
 **Change class:** `RUNTIME_COMPATIBILITY` + `FEATURE_REEVALUATION` + `AUTHORITY_HARDENING`
 
-**Documentos relacionados (programa Phases 21–42: P21–P25 implementadas; P26–P42 em especificação — não implementar sem o plano addendum revisado 2026-10-01):**
+**Documentos relacionados (programa Phases 21–42: P21–P25 implementadas; P26–P42 code-complete kernel-side/plugin em 2026-10-02/03, conforme o plano addendum revisado 2026-10-01 — nenhuma ativação realizada):**
 
 - `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` — SPEC addendum (bounded execution, watchdog, loop guard, port preflight, MCP safety, AI Memory remoto, Jev consultivo).
 - `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-ADDENDUM.md` — plano das Phases 21–42.
@@ -1314,4 +1314,4 @@ V3.1 Dual-Runtime Kernel Hardening is complete only when:
 17. Feature flags stay conservative by default.
 18. No unrelated router/model/MCP redesign is included.
 
-Continuidade (revisão 2026-10-01): o programa de confiabilidade Phases 21–42 tem Definition of Done própria em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` (Part K, critérios PAE-01–PAE-40 que substituem os RR-01–RR-20 do desenho anterior; P21–P25 implementadas, P26–P42 pendentes); este DoD das fases dual-runtime/kernel permanece inalterado.
+Continuidade (revisão 2026-10-01): o programa de confiabilidade Phases 21–42 tem Definition of Done própria em `ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md` (Part K, critérios PAE-01–PAE-40 que substituem os RR-01–RR-20 do desenho anterior; P21–P25 implementadas e P26–P42 code-complete kernel-side/plugin em 2026-10-02/03, com release gate pendente de evidência do operador — rastreio por critério em `evidence/v3.1/runtime-reliability/pae-traceability.json`); este DoD das fases dual-runtime/kernel permanece inalterado.

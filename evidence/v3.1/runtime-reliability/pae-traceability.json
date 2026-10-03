@@ -1,0 +1,514 @@
+{
+  "record": "v3.1-runtime-reliability-pae-traceability",
+  "date": "2026-10-03",
+  "spec_source": "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md#27-acceptance-criteria",
+  "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-42)",
+  "live_status_file": "evidence/v3.1/runtime-reliability/program-status.json",
+  "legend": {
+    "done-kernel-side": "codigo + suite verde + Reviewer/Security APPROVED no kernel ou plugin. NAO implica ativacao de flag nem prova no binario real do operador.",
+    "done-invariant": "propriedade estrutural verificada e mantida no registry/suites; nada depende de ambiente do operador.",
+    "activation-pending": "componente entregue e invocavel, mas registro/ativacao depende do estado ativo do operador (hooks, AGENTS.md global, default_agent, flags).",
+    "blocked-operator-evidence": "o criterio so se fecha com evidencia que o ambiente do operador produz (binario exato 2.0.18, lane Windows real, deploy VPS). SEM fake-close.",
+    "gap": "string vazia quando o criterio esta fechado; caso contrario, a pendencia restante, honesta e nomeada."
+  },
+  "criteria": [
+    {
+      "id": "PAE-01",
+      "criterion": "a hung worker cannot block its parent indefinitely.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.hung_interrupt (backdated wall com filho real => HARD_TIMEOUT interrupt sob deadline externo real; WATCHDOG_INTERRUPTED + WATCHDOG_SETTLED na telemetria enforce-source)",
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.enforce_path_live",
+        "evidence/v3.1/runtime-reliability/phase25.json#acceptance.hard_timeout_shadow + #acceptance.enforcement_honest_hold",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase26_watchdog_enforcement_slice1",
+        "scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1 339/339 (PS5.1 + PS7)"
+      ],
+      "gap": "Semantic de interrupt PRESENTE e testada no kernel, mas: (1) flag watchdog permanece {enabled:false, shadow:true} - ativacao exige decisao humana com evidencia; (2) interrupt de sessao V2 nativa (runtime API) NAO implementado - a prova do P24 e presenca, nao enforcement; (3) sem Job Objects (BLOCKER conhecido do P22) descendentes criados apos o snapshot CIM escapam da arvore."
+    },
+    {
+      "id": "PAE-02",
+      "criterion": "repeated identical tool loops are interrupted within configured bounds.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase25.json#acceptance.repetition_suffix_semantics (3x identico => STALL_SUSPECTED; 5x => REPEATED_ACTION; ciclos A-B x3 => REPEATED_CYCLE; classificacao vence repeticao)",
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.repeated_soft_hard",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase25_watchdog + #phase26_watchdog_enforcement_slice1",
+        "scripts/v3/lib/OrchestrationRuntimeWatchdog.tests.ps1 80/80; OrchestrationRuntimeWatchdogEnforcement.tests.ps1 339/339 (PS5.1 + PS7)"
+      ],
+      "gap": "Limites vem da policy de runtime_caps/bounded_execution e a execucao real depende de ativacao da flag watchdog (OFF) com evidencia no runtime exato."
+    },
+    {
+      "id": "PAE-03",
+      "criterion": "a short repeated cycle without progress is interrupted.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase25.json#acceptance.no_progress + #acceptance.noprogress_silent_persisted + #acceptance.long_progressing_no_noprogress",
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.no_progress_interrupt + #acceptance.cycle_interrupt",
+        "evidence/v3.1/runtime-reliability/phase25.json#acceptance.bounded_iterator_spared / phase26.json#acceptance.bounded_iterator_spared (12 acoes distintas com marcador de progresso => NONE; filho sobrevive)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase26_watchdog_enforcement_slice1"
+      ],
+      "gap": "Mesma pendencia de PAE-01: enforcement real exige flag watchdog OFF -> ativacao com evidencia; sem Job Objects a arvore tem cobertura por snapshot, nao garantida."
+    },
+    {
+      "id": "PAE-04",
+      "criterion": "partial evidence survives interruption.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.evidence_preserved (enforcement result carrega snapshot de classificacao + caminho do arquivo de telemetria; arquivo existe; conteudo nunca embutido)",
+        "evidence/v3.1/runtime-reliability/phase26.json#fix4 (gates de deadline por stop e pre-terminalizacao com evidencia PENDING parcial)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase26_watchdog_enforcement_slice1 (pos-prazo => FAILED/PENDING parcial retomavel, nunca terminal)"
+      ],
+      "gap": "Follow-ups de retencao multi-dia e lock cross-process ENTREGUES kernel-side em 2026-10-03 (RR-P25-FU1-WATCHDOG-TELEMETRY-HARDENING, FIX1..FIX8: gate cross-process com mutex nomeado bounded + tail-check anti-fragmento + retencao bounded com orcamento por entrada; suite 134/134; reviewer r4 + security r3 APPROVED). Restante: ativacao da flag watchdog (OFF/shadow) com evidencia = decisao humana no runtime exato."
+    },
+    {
+      "id": "PAE-05",
+      "criterion": "deterministic stall retry with unchanged strategy/no new evidence is rejected.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase27.json#acceptance.c02_stall_rejected (STALLED_STRATEGY_REJECTED) + #acceptance.c03_different_strategy_allowed",
+        "evidence/v3.1/runtime-reliability/phase27.json#acceptance.c01_recovery_fingerprint_stable + #acceptance.c17_framing_no_collisions + #acceptance.c20_novelty_auth_consumed (anti-replay via consumed_evidence_refs kernel-owned)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase27_recovery_typed_waits_slice1",
+        "scripts/v3/lib/OrchestrationRecovery.tests.ps1 61/61 (PS5.1 + PS7)"
+      ],
+      "gap": "Refs de evidencia sao atestadas pelo Planner (existencia/frescor nao verificados pelo kernel); fingerprints sao lexicais (sinonimos reais => fingerprints distintos) - HOLD documentado."
+    },
+    {
+      "id": "PAE-06",
+      "criterion": "second material failure requires Debugger.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase27.json#acceptance.c04_debugger_required (DEBUGGER_REQUIRED na 2a falha material; 3a sem novidade => EXHAUSTED)",
+        "evidence/v3.1/runtime-reliability/phase27.json#acceptance.c13_novelty_opens_third",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase27_recovery_typed_waits_slice1"
+      ],
+      "gap": "O kernel REGISTRA e EXIGE o Debugger; o dispatch real do Debugger continua sendo decisao do Planner (wiring comportamental e policy/prompt fora do slice - HOLD declarado em phase27.json#holds)."
+    },
+    {
+      "id": "PAE-07",
+      "criterion": "invalid third attempt becomes EXHAUSTED.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase27.json#acceptance.c05_exhausted",
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.kernel_settlement_gate (auto-exhaustion tambem exige SETTLEMENT_REQUIRED antes de terminalizar)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase27_recovery_typed_waits_slice1"
+      ],
+      "gap": "Typed waits estritos sao opt-in por task (require_typed_waits, default off); enforcement universal exigiria decisao de compatibilidade - HOLD declarado."
+    },
+    {
+      "id": "PAE-08",
+      "criterion": "unknown PIDs are never killed automatically.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.ownership_refused (executable divergente => REFUSED path-mismatch; start skew => REFUSED start-time-mismatch; proprio processo => REFUSED self; filhos intactos; PIDs desconhecidos nunca mortos)",
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.no_identity_advisory (execucao sem identidade sob ENFORCE permanece advisory com WATCHDOG_NO_PROCESS_IDENTITY; sentinela intocada)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase26_watchdog_enforcement_slice1 (WATCHDOG_INTERRUPT_REFUSED caso contrario)",
+        "evidence/v3.1/runtime-reliability/phase23.json#holds (REUSE_NONE: sem reaproveitamento de servico; sem kill de PID desconhecido)"
+      ],
+      "gap": "Ator/fonte sao strings declaradas pelo chamador, sem autenticacao de processo - HOLD documentado e coberto por design (nenhum kill sem prova de ownership)."
+    },
+    {
+      "id": "PAE-09",
+      "criterion": "MCP waits are bounded and repeated outage opens a circuit.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase28.json#acceptance.ac02_bounded_invoke + #acceptance.ac03_circuit_opens + #acceptance.ac04_open_prevents_hammering + #acceptance.ac05_cooldown_rearm",
+        "evidence/v3.1/runtime-reliability/phase28.json#slice2_transport (budgets 30/60/120s; circuito por server/classe/turn; race + cleanup em finally; shadow default que nunca altera admissao)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase28_mcp_safety_slice1 + #phase28_mcp_safety_slice2",
+        "scripts/v3/lib/OrchestrationMcpSafety.tests.ps1 203/203; plugin-mcp-transport 142/142 (PS5.1 + pwsh)"
+      ],
+      "gap": "Enforcement em binario real V2 NAO validado (S2 e shadow por padrao; runMcpGuarded exige integracao explicita no host); V1 parity e observe-only."
+    },
+    {
+      "id": "PAE-10",
+      "criterion": "new OpenCode root sessions default to Planner orchestration without user reminders.",
+      "status": "activation-pending",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase31.json#slice2_startup_wiring / #holds (scripts/runtime/SessionBootstrapContext.ps1: CLI hook-style fail-open TOTAL, parse-only, zero spawn/rede, telemetria metadata-only)",
+        "evidence/v3.1/runtime-reliability/phase31.json (builder S1: secoes project/runtime/capability_health/tasks/pending_waits/jev_status/aimemory_status, byte budget com sequencia unica de descarte)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase31_bootstrap_context_slice1.slice2_startup_wiring",
+        "scripts/runtime/session-bootstrap-context.tests.ps1 43/43; OrchestrationBootstrapContext.tests.ps1 16/16 (PS5.1 + pwsh)"
+      ],
+      "gap": "Componente ENTREGUE e INVOCAVEL, mas NADA registrado: auto-start do plugin, registro em hooks, AGENTS.md global e default_agent sao estado ativo do operador (HOLD declarado em phase31.json#holds). Sem isso nao ha default automatico em sessao root nova."
+    },
+    {
+      "id": "PAE-11",
+      "criterion": "Task state survives root-session replacement.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase32.json#files (modelo de persistencia Task/Run/Seat/Session no kernel; secao bindings opcional backward-compatible com runs de provenance bounded)",
+        "evidence/v3.1/runtime-reliability/phase32.json#holds (kernel e a unica fonte de verdade; indice externo nunca e autoridade)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase32_task_run_session_slice1",
+        "scripts/v3/lib/OrchestrationTaskBindings.tests.ps1 29/29 (PS5.1 + pwsh; CLI nos 2 engines)"
+      ],
+      "gap": "Reconciler V2 nativo permanece HOLD (exige APIs exatas do runtime); integracao com plugin storage/runtime real = fatia 2; coordenacao cross-process de bindings = HOLD (single-writer in-process)."
+    },
+    {
+      "id": "PAE-12",
+      "criterion": "V2 Task\u2194Run\u2194Session bindings can be reconstructed after restart.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase32.json#files (bind/rebind/detach sob o lock CAS existente; single active_execution_owner por task; rebind somente mesma-sessao ou run detached; detach idempotente validando sessao registrada; CLI com 4 subcomandos, ambiguidade => exit 2 fail-closed)",
+        "evidence/v3.1/runtime-reliability/phase33.json#semantics (reconciler deterministico sobre os bindings de P32, caps 200/500 fail-closed, nunca executa probe/processo)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase32_task_run_session_slice1 + #phase33_reconciler_envelope_slice1",
+        "OrchestrationSessionReconciler.tests.ps1 156/156 (PS5.1 + pwsh; matriz adversarial 15x9)"
+      ],
+      "gap": "Reconstrucao usa estados DECLARADOS pelo caller confiavel (probe real de sessao = HOLD) e reconciler V2 nativo = HOLD; coordenacao cross-process continua HOLD (single-writer in-process)."
+    },
+    {
+      "id": "PAE-13",
+      "criterion": "a completed child result is not lost because another child stalls.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase32.json#files (runs com provenance bounded; single active_execution_owner por task; binding start/resultado kernel-owned; transferencia em attach ativo proibida)",
+        "evidence/v3.1/runtime-reliability/phase26.json#acceptance.sibling_intact (interrupcao de um processo verificado nao toca irmaos)",
+        "evidence/v3.1/runtime-reliability/phase27.json#acceptance.c09_duplicate_active_work (DUPLICATE_ACTIVE_WORK com existing_task_id, nunca funde work units)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase32_task_run_session_slice1"
+      ],
+      "gap": "Spawn real de workers e dispatch em sessao real seguem decisao do operador (P38-S2 e record-only por construcao: gate valida shape, nunca autenticidade de proveniencia; DONE/verified_pass permanece kernel-side)."
+    },
+    {
+      "id": "PAE-14",
+      "criterion": "Continuation Envelope resumes work without requiring the entire prior transcript.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase33.json#files (Continuation Envelope bounded 8KB: objective, intent, decisoes, evidencias, estrategias falhadas SEM transcripts, riscos, typed waits, next move; redator COMPARTILHADO em todos os campos string)",
+        "evidence/v3.1/runtime-reliability/phase33.json#semantics (envelope sem dump de transcript; reconciler nunca executa probe/processo)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase33_reconciler_envelope_slice1",
+        "OrchestrationSessionReconciler.tests.ps1 156/156 (PS5.1 + pwsh)"
+      ],
+      "gap": "Registro kernel-side do resultado SESSION_LOST depende do caller (HOLD documentado: sem API de escrita de attempt result reutilizavel identificada sem editar o kernel); reconciler V2 nativo = HOLD."
+    },
+    {
+      "id": "PAE-15",
+      "criterion": "V1 can continue the same Task through a fresh session even without native V2 graph features.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase33.json#files (V1 fresh-session sem fake resume; acoes recomendadas aplicaveis via CLI do P32 pelo caller)",
+        "evidence/v3.1/runtime-reliability/phase32.json#files (seccao bindings opcional backward-compatible)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase33_reconciler_envelope_slice1"
+      ],
+      "gap": "O CONTINUE e kernel-side e nao depende de grafo V2; o que falta e o wiring automatico em sessao V1 real (bootstrap P31-S2 sem registro em hooks = decisao do operador)."
+    },
+    {
+      "id": "PAE-16",
+      "criterion": "closing a session does not falsely mark the Task blocked or failed.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase33.json#semantics (SESSION_LOST: resultado tipado; registro kernel-side do resultado depende do caller; declaracao de missing + proof sem mutar task)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase33_reconciler_envelope_slice1",
+        "OrchestrationSessionReconciler.tests.ps1 156/156 (PS5.1 + pwsh)"
+      ],
+      "gap": "O reconciler NAO marca a task; quem registra e o caller pelo caminho existente (HOLD documentado em phase33.json#holds). Probe real de sessao permanece HOLD."
+    },
+    {
+      "id": "PAE-17",
+      "criterion": "Coder receives a stop condition and change scope.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase37.json#files (contract fields builder: MSC/NBW/RBC/ABE/stop-condition/NON_GOALS/PRESERVE/blast-radius, budget normalizado e sanitizado, caps de cardinalidade)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files#slice2 (contratos de worker com os 9 campos do contrato de delegacao derivados SOMENTE de plan+descriptor declarado; ausente => incomplete+missing_fields sem inventar)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase37_simplicity_discipline_slice1 + #phase38_dispatch_pipeline_slice2",
+        "OrchestrationSimplicityPolicy.tests.ps1 31/31; OrchestrationDispatchPipeline.tests.ps1 201/201 (PS5.1 + pwsh)"
+      ],
+      "gap": "Edicao dos prompts canonicos source/agents e o wiring em dispatch real sao decisao do operador (HOLD declarado em phase37.json#holds e phase38.json#holds; o pipeline e record-only)."
+    },
+    {
+      "id": "PAE-18",
+      "criterion": "unrelated \u201cbonus\u201d changes are rejected or recorded outside the implementation.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase37.json#files (principios NBW e NON_GOALS no contract fields builder; caps de cardinalidade; budget normalizado)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files#slice2 (bundle de despacho deterministico: allowlist fechada de papeis, campos derivados somente do declarado, truncagem UTF-8 com escalada de reducao)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase37_simplicity_discipline_slice1",
+        "OrchestrationSimplicityPolicy.tests.ps1 31/31 (PS5.1 + pwsh)"
+      ],
+      "gap": "Rejicao/registro efetivo depende do prompt canonico e do wiring de dispatch, ambos do operador; fast path de truncagem assume Unicode valido (residual LOW: surrogate orfao em string que ja cabe no cap)."
+    },
+    {
+      "id": "PAE-19",
+      "criterion": "materially exceeded change budget is visible to review.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase37.json#files (ChangeBudget com 4 combinacoes soft/hard x rationale, fronteiras 1x/2x, CHANGE_BUDGET_EXCEEDED; reviewer checklist ASSISTIDA deterministica em 4 categorias)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase37_simplicity_discipline_slice1",
+        "OrchestrationSimplicityPolicy.tests.ps1 31/31 (PS5.1 + pwsh)"
+      ],
+      "gap": "A checklist e ASSISTIDA (deterministica, nao LLM) e depende de wiring no dispatch P38-S2, que e record-only ate ativacao do operador."
+    },
+    {
+      "id": "PAE-20",
+      "criterion": "Tester consumes valid Coder evidence before deciding what to run.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase35.json#files (evidence store: identidade/provenance required, fingerprints SHA-256 com enumeracao bounded, invalidation_conditions allowlist+sanitize+cap ANTES da serializacao, validade por fingerprints/criteria/base-revision/ttl invariante, metricas hits/misses/lock-busy/errors/skipped-invalid)",
+        "evidence/v3.1/runtime-reliability/phase36.json#files (completion gate exige cobertura differential com conjunto COMPLETO de fingerprints com semantica P35; risk desconhecido => L3)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files#slice2 (prefill de evidencia somente de plan.reuse ok; persistencia via New-OrchestrationEvidenceRecord so com store_dir explicito e >=1 invalidation_condition)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase35_evidence_reuse_slice1 + #phase36_adaptive_validation_slice1 + #phase38_dispatch_pipeline_slice2"
+      ],
+      "gap": "Integracao com o dispatch real do Planner e fatia 2/P38 e depende do operador; allowlist efetiva de verified_pass permanece a do kernel (verification-policy.json) - a lib apenas espelha o contrato."
+    },
+    {
+      "id": "PAE-21",
+      "criterion": "equivalent valid checks are not repeated without rationale.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase35.json#files (fingerprints SHA-256 com framing len:valor; query ordenada desc com MaxResults e sem raw content; metricas de hits/misses)",
+        "evidence/v3.1/runtime-reliability/phase36.json#files (differential coverage exigindo conjunto completo de fingerprints; base revision + ttl, default 30d/7d fail-closed)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files (loop deterministico com estagio Reuse antes de dispatch)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase35_evidence_reuse_slice1 + #phase36_adaptive_validation_slice1"
+      ],
+      "gap": "Store e file-based no evidence dir do caller, sem daemon/database; uso no fluxo real depende do wiring P38-S2 (operador). TTL de expiracao e fail-closed por design."
+    },
+    {
+      "id": "PAE-22",
+      "criterion": "Reviewer receives the exact candidate/bundle and applicable rules.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase36.json#files (reviewer bundle deterministico; security coverage ledger confirmed/needs-validation com writer que rejeita confirmed incompleto)",
+        "evidence/v3.1/runtime-reliability/phase37.json#files (reviewer checklist ASSISTIDA deterministica, 4 categorias)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files#slice2 (bundle de despacho com determinismo byte-identico, gate_status em vocabulario fechado sem eco de entrada)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase36_adaptive_validation_slice1 + #phase38_dispatch_pipeline_slice2"
+      ],
+      "gap": "O gate valida SHAPE e consistencia interna, NAO autenticidade de proveniencia: o bundle nunca e autoridade independente e DONE/verified_pass permanece kernel-side (HOLD declarado em phase38.json#holds)."
+    },
+    {
+      "id": "PAE-23",
+      "criterion": "low-risk work is not forced through the full L3 pipeline.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase36.json#files (classificacao L0-L3 consumindo validation-policy.json como autoridade; completion gate com effective_level = max(declarado, reclassificado, minimum_by_risk))",
+        "evidence/v3.1/runtime-reliability/phase38.json#files (fallback conservador C/L2 no loop deterministico; Jev nao-autoritativo; budget record-only)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase36_adaptive_validation_slice1",
+        "OrchestrationValidationPolicy.tests.ps1 35/35 (PS5.1 + pwsh)"
+      ],
+      "gap": "Wiring real no fluxo de dispatch/completion = fatia 2/P38 e depende do operador; o gate de completion do P38-S2 e fail-closed e nunca mais permissivo que o P36."
+    },
+    {
+      "id": "PAE-24",
+      "criterion": "high-risk work cannot silently downgrade required independent validation.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase36.json#files (policy fail-closed: invalida => L3; hard triggers incontornaveis varrendo domain/operation/summary; minimum_by_risk; bypass L1+critical e L2+auth testados)",
+        "evidence/v3.1/runtime-reliability/phase36.json#holds (allowlist de verified_pass permanece a do kernel)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase36_adaptive_validation_slice1",
+        "OrchestrationValidationPolicy.tests.ps1 35/35 (PS5.1 + pwsh)"
+      ],
+      "gap": "Nenhuma: o rebaixamento e barrado no kernel e no gate de completion; permanece o wiring de operador para o fluxo real, sem folga de autoridade."
+    },
+    {
+      "id": "PAE-25",
+      "criterion": "fan-out cannot consume reserved validation/review budget.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase38.json#files (parallel_ok por ownership/separabilidade - nunca so por capacidade)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files#slice2 (no-widen: budget nao reservado => rota minima com withheld_roles; workers declarado vazio => 0 contratos; cap de workers com contador de consumo independente; enumerable sem contagem consome no maximo cap+1)",
+        "evidence/v3.1/runtime-reliability/phase23.json#acceptance.policy_invalid_no_widen + #acceptance.worker_widen_denied",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase38_dispatch_pipeline_slice2 + #phase23_budgets"
+      ],
+      "gap": "Enumerable limita QUANTIDADE consumida, nao duracao de cada operacao (nao e sandbox - HOLD documentado); spawn real de workers e ativacao operacional do despacho = decisao do operador."
+    },
+    {
+      "id": "PAE-26",
+      "criterion": "Jev is available persistently but is not called for every task.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase29.json#semantics (trigger policy deterministica pura; tarefa trivial NUNCA consulta; tool set fechado; budget 30s, probe 10s, circuito 2/300s)",
+        "evidence/v3.1/runtime-reliability/phase29.json#files (bounded invoke reusando o envelope P28, classe advisory, seam sintetica, zero rede)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase29_jev_advisory_slice1 + #phase31_bootstrap_context_slice1.slice2_startup_wiring (secao jev_status no bootstrap)",
+        "OrchestrationJevAdvisory.tests.ps1 73/73 (powershell + pwsh)"
+      ],
+      "gap": "Transporte real Jev (rede) NAO ativado (seam sintetica; zero primitivas de rede no lib); flag jev_advisory {enabled:false, shadow:true} OFF; integracao no fluxo do Planner = P31-S2/P38-S2 e ativacao do operador."
+    },
+    {
+      "id": "PAE-27",
+      "criterion": "Jev cannot grant permission, widen scope or write DONE.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase29.json#semantics (authority guard sempre-nega: kernel deny vence Jev allow; verifier fail vence Jev complete)",
+        "evidence/v3.1/runtime-reliability/phase28.json#acceptance.ac08_authority_guard",
+        "evidence/v3.1/runtime-reliability/phase38.json#files (Jev nao-autoritativo no loop do Planner)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase29_jev_advisory_slice1"
+      ],
+      "gap": "TurnId e declarado pelo chamador sem autenticacao de identidade (disponibilidade atacavel documentada; OPEN nunca libera REQUIRED) - HOLD herdado do P28."
+    },
+    {
+      "id": "PAE-28",
+      "criterion": "Jev unavailable falls back without infinite retry.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase29.json#semantics (criticality optional: JEV_UNAVAILABLE => fallback deterministico; circuito 2 falhas/300s de cooldown)",
+        "evidence/v3.1/runtime-reliability/phase28.json#acceptance.ac06_optional_fallback + #acceptance.ac07_required_blocker (required => MCP_REQUIRED_BLOCKED fail-closed em todos os ramos)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase29_jev_advisory_slice1 + #phase28_mcp_safety_slice1"
+      ],
+      "gap": "O fallback e provado contra seam sintetica; transporte real nao ativado. Locks in-process (coordenacao cross-process = follow-up) e ocupacao por abandono nao-reclaimable limitada por recusa (cap 8)."
+    },
+    {
+      "id": "PAE-29",
+      "criterion": "capability doctor reports health/fallback status without granting authority.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase39.json#files (doctor read-only com probes sinteticos injetaveis; fallback map validando destino existente/suportado; risk_class execution/authority sem health => typed blocker, nunca fallback silencioso; saida sanitizada/bounded/determinista)",
+        "evidence/v3.1/runtime-reliability/phase39.json#files (descriptor com schema validation tipada; platform_support booleano ESTRITO apos bug [bool]\"false\")",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase39_capability_doctor_slice1",
+        "OrchestrationCapabilityDoctor.tests.ps1 38/38 (PS5.1 + pwsh)"
+      ],
+      "gap": "Probes REAIS de health sao HOLD (fatia de transporte); nesta fatia o budget e metadado honesto e o timeout real e HOLD explicito do transporte. Instalacao automatica de capabilities fora de escopo (plan 16.6)."
+    },
+    {
+      "id": "PAE-30",
+      "criterion": "optional semantic code discovery falls back when unsupported/unhealthy.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase39.json#files (semantic discovery OPTIONAL com Windows-unsupported estruturado e routing_hint; fallback orders em source/registry/capability-doctor-policy.json)",
+        "evidence/v3.1/runtime-reliability/phase39.json#holds (jevgrep real: HOLD ate instalado/suportado comprovado)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase39_capability_doctor_slice1",
+        "OrchestrationCapabilityDoctor.tests.ps1 38/38 (PS5.1 + pwsh)"
+      ],
+      "gap": "jevgrep real (binario real) permanece HOLD ate instalado/suportado comprovado - o caminho de fallback e provado, a ferramenta real nao."
+    },
+    {
+      "id": "PAE-31",
+      "criterion": "V2 session hierarchy/provenance is recorded where exact-runtime support is proven.",
+      "status": "blocked-operator-evidence",
+      "evidence": [
+        "source/registry/v2-native-capabilities.json (feature session-hierarchy-provenance: status hold-unproven; as 8 features do registry estao TODAS hold-unproven, com required_evidence e v1_fallback declarados)",
+        "evidence/v3.1/runtime-reliability/phase40.json#slice2_supersession (gating fail-closed: enabled SO com evidencia exact-binary-live valida - feature/pin 2.0.18/scenario exact-match + SHA-256; timestamp RFC3339 com offset obrigatorio; registry ausente/corrompido/escalar => NOT_PROVEN; lib read-only nunca escreve evidencia)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase40_v2_native_gating_slice1",
+        "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1 114/114 (PS5.1 + pwsh)"
+      ],
+      "gap": "BLOQUEADO POR EVIDENCIA DO OPERADOR: TODAS as 8 features do registry v2-native-capabilities.json permanecem hold-unproven. Ativar exige evidencia exact-binary-live no binario 2.0.18 no ambiente do operador (P42). O SHA-256 comprova INTEGRIDADE do conteudo, nao autenticidade do produtor - ownership confiavel do evidence registry e do operador."
+    },
+    {
+      "id": "PAE-32",
+      "criterion": "session-specific permissions never exceed the canonical Task/Planner grant.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase32.json#reviews (security: bindings nao alteram autoridade, CAS sob lock, IDs validados, single-owner sem janela)",
+        "evidence/v3.1/runtime-reliability/phase40.json#files (authority_impact enum fechado none|narrowing, unknown SEM eco de payload hostil; feature session-permission-narrowing hold-unproven com v1_fallback)",
+        "evidence/v3.1/runtime-reliability/phase34.json#files (execution mode B duplamente gated: policy specialist_enabled false default + runtime_caps OFF)",
+        "evidence/v3.1/runtime-reliability/phase38.json#files#slice2 (no-widen: budget nao reservado => rota minima com withheld_roles)",
+        "evidence/v3.1/runtime-reliability/program-status.json#flags.runtime_grant_enforcement {v1:false, v2:false}"
+      ],
+      "gap": "Flag runtime_grant_enforcement permanece {v1:false, v2:false} - ativacao exige decisao humana com evidencia; a feature V2 session-permission-narrowing continua hold-unproven (PAE-31), com fallback V1 declarado."
+    },
+    {
+      "id": "PAE-33",
+      "criterion": "background child completion can be reconciled after parent/runtime restart.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase33.json#files (reconciler deterministico sobre bindings P32 + observacoes declaradas com acoes recomendadas: reattach via CLI, recover-output, inspect-interrupted; nunca probe/kill)",
+        "evidence/v3.1/runtime-reliability/phase32.json#files (reattach resolvendo attached->detached; CLI detach/rebind/detach com 4 subcomandos)",
+        "evidence/v3.1/runtime-reliability/phase41.json#slice2_telemetry_producers (identidade de tentativa via execution_runtime.attempt_n do schema real do kernel; leitura bounded de task records reais)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase33_reconciler_envelope_slice1 + #phase41_evolution_eval_slice1.slice2_telemetry_producers"
+      ],
+      "gap": "Reconciler V2 nativo = HOLD (exige APIs exatas do runtime); estados sao DECLARADOS pelo caller confiavel (probe real de sessao = HOLD); registro kernel-side do SESSION_LOST depende do caller."
+    },
+    {
+      "id": "PAE-34",
+      "criterion": "experimental event-log/snapshot features are auxiliary, not authoritative.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "source/registry/v2-native-capabilities.json (features experimental-policies-hard-deny, snapshots-auxiliary e durable-event-log-replay: TODAS hold-unproven com authority_impact nunca widening e v1_fallback declarado)",
+        "evidence/v3.1/runtime-reliability/phase40.json (gating fail-closed: registry ausente/corrompido/scalar => NOT_PROVEN; authority_impact invalido => unknown sem eco; lib read-only)",
+        "evidence/v3.1/runtime-reliability/phase40.json#slice2_supersession (DECISION-RECORD ONLY: zero escrita, zero habilitacao; veredito e RELACAO entre registros, nao autenticacao do produtor nem autorizacao de rollout; digest ecoado so com forma \\A[0-9a-fA-F]{64}\\z)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase40_v2_native_gating_slice2"
+      ],
+      "gap": "As features continuam hold-unproven (exigem prova no binario 2.0.18) e o wiring de chamada advisory do revisor de supersessao permanece do operador/kernel (fora de escopo). A propriedade AUXILIAR esta garantida por construcao: authority_impact nunca widening."
+    },
+    {
+      "id": "PAE-35",
+      "criterion": "no orchestration policy is promoted from one anecdotal failure.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "source/registry/evolution-policy.json (min_sample_threshold 5, min_distinct_refs 2, promotion_requires review_marker, automatic_promotion false OBRIGATORIO)",
+        "evidence/v3.1/runtime-reliability/phase41.json#files (EVOLUTION_CANDIDATE content-addressed idempotente com threshold min_sample + min_distinct_refs; promocao EXPLICITA one-at-a-time com review marker + verdict pass + enumeracao fail-closed)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase41_evolution_eval_slice1",
+        "OrchestrationEvolutionLoop.tests.ps1 147/147 (mutation-tested por fix; PS5.1 + pwsh)"
+      ],
+      "gap": "A aplicacao efetiva da mudanca promovida NAO existe como automacao: promotion e decision record (applied=false) e o apply segue o fluxo normal de codigo revisado - decisao do operador."
+    },
+    {
+      "id": "PAE-36",
+      "criterion": "an evolution candidate has evidence, evaluation and rollback.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase41.json#files (eval offline baseline/candidate/shadow com direcao/tolerancia/piso e cobertura incompleta => inconclusive; rollback com reason + historico completo; leituras bounded 32KB nos 3 caminhos; TOCTOU eliminado com releitura sob lock; restauracao verificavel)",
+        "evidence/v3.1/runtime-reliability/phase41.json#slice2_telemetry_producers (contadores derivados de fontes REAIS; contador sem fonte real => ausente com razao, nunca fabricado)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase41_evolution_eval_slice1 + #.slice2_telemetry_producers",
+        "OrchestrationEvolutionLoop.tests.ps1 147/147; OrchestrationEvolutionTelemetryProducer.tests.ps1 148/148 (PS5.1 + pwsh)"
+      ],
+      "gap": "Apply da mudanca promovida = fluxo revisado de codigo (decision record, applied=false) - operador. Replay real contra execucoes reais = follow-up."
+    },
+    {
+      "id": "PAE-37",
+      "criterion": "shadow/A-B evaluation can detect regression before promotion.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "source/registry/evolution-policy.json (8 eval targets do plan, tolerancia shadow 0.05, promotion_requires review_marker, automatic_promotion false)",
+        "evidence/v3.1/runtime-reliability/phase41.json#files (eval com direcao/tolerancia/piso; cobertura incompleta => INCONCLUSIVE - nunca promove por falta de dados)",
+        "evidence/v3.1/runtime-reliability/phase41.json#slice2_telemetry_producers (148 asserts; user_interventions e jev_* sem fonte real sao AUSENTES com razao declarada, nunca zero fabricado)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase41_evolution_eval_slice1.slice2_telemetry_producers"
+      ],
+      "gap": "Wiring de chamador em producao do produtor de telemetria = fatia seguinte/decisao do operador; hoje a telemetria e observacional (fixtures/sem produtor em producao) - hold declarado."
+    },
+    {
+      "id": "PAE-38",
+      "criterion": "V1 regression suite remains green.",
+      "status": "done-kernel-side",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/program-status.json#phase24_livehook.suites (plugin enforcement V1 30/30 PASS, V1 intacto; dual-runtime 20/20; typecheck V1+V2+DUAL)",
+        "evidence/v3.1/runtime-reliability/program-status.json#tester_gateway_hardening.suites (agent-translation 116/116 V1/V2 parity; tester-shell-permissions 236/236; test-package-consistency 16/16)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase31_bootstrap_context_slice1 + #phase32_task_run_session_slice1 (kernel 75/75 PS5.1; budget 117/117; recovery 61/61)",
+        "scripts/v3/run-v3-tests.ps1 (gateway fixo, selecao fail-closed por -Name)"
+      ],
+      "gap": "Duas divergencias AMBIENTE-dependentes, nenhuma regressao introduzida por este programa: (1) kernel sob PS7 marca 74/75 com o caso ownership_conflict PRE-EXISTENTE em HEAD limpo, caminho leases-only, registrado nas phases P27/P32 e na divergencia de baseline DE22307F (docs/TROUBLESHOOTING.md); (2) smoke V1 isolado falha por shim global do operador (evidence/v3.1/runtime-reliability/program-status.json#phase21_baseline.suites). V1 nunca foi desabilitado para fazer V2 passar (SPEC §26)."
+    },
+    {
+      "id": "PAE-39",
+      "criterion": "exact pinned V2 real-runtime lane covers watchdog and cross-session scenarios.",
+      "status": "blocked-operator-evidence",
+      "evidence": [
+        "evidence/v3.1/runtime-reliability/phase42.json#honest_counts (harness 41 cenarios: 18 pass-synthetic executando checagens REAIS contra P28-P41; 19 blocked-requires-operator-runtime; 1 blocked-requires-flag-activation; 3 blocked-requires-real-transport - NUNCA fake-pass; checklist 19 passos: 1 shipped, 9 shadow-ready, 8 blocked-activation, 1 blocked-evidence)",
+        "source/registry/e2e-scenarios.json (41 entradas: 40 do plan + invariante sintetica separada do policy-deny)",
+        "evidence/v3.1/runtime-reliability/phase42.json#release_gate (lane V2 Windows real verde, deploy VPS AI Memory, ativacao de flags com evidencia, probes reais, jevgrep real e wirings de fatia 2)",
+        "evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/lane-summary.json (lane real 2026-10-03: preflights RR-E2E-01/02/03 pass-real; lifecycle explicito pass-real; smoke implicito failed-honest 3/3 no dia)",
+        "evidence/v3.1/runtime-reliability/program-status.json#phase42_e2e_manifest_slice1 (SEM FAKE-CLOSE)"
+      ],
+      "gap": "LANE V2 WINDOWS REAL EXECUTADA PARCIALMENTE (2026-10-03, evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/lane-summary.json): preflights reais 3/3 PASS (RR-E2E-01/02/03 convertidos com evidencia real) e ciclo de vida explicito do servico PASS (set/start/status/stop owned, 49374 intocado), mas o debug config apresenta intermitencia caracterizada experimentalmente (7 hangs vs 5 passes no mesmo dia/binario/maquina; stdin, conteudo de config e estado do servico refutados como gatilhos deterministicos nas condicoes testadas; suspeita principal interna ao binario 2.0.18, nao comprovada; debugcfg-hang-investigation.json). Cenarios de watchdog (05-10) e sessao/restart (16-22) exigem integracao de sessao real ainda nao executada; RR-E2E-39 exige o caminho debug config. O commit de closure so ocorre quando o gate passar no ambiente do operador."
+    },
+    {
+      "id": "PAE-40",
+      "criterion": "no generic MCP routing is required to satisfy this SPEC.",
+      "status": "done-invariant",
+      "evidence": [
+        "source/registry/capability-flags.json (mcp_routing.enabled = false - invariante verificada por assert dedicado em scripts/v3/lib/CapabilityFlags.tests.ps1)",
+        "evidence/v3.1/runtime-reliability/phase28.json#acceptance.ac10_mcp_routing_off",
+        "evidence/v3.1/runtime-reliability/phase28.json#slice2_transport (classificacao conservadora por ALLOWLIST FECHADA, sem descoberta automatica; shadow default que NUNCA altera admissao; enforced so com opt-in explicito; V1 observe-only)",
+        "evidence/v3.1/runtime-reliability/program-status.json#invariants + #flags.mcp_routing"
+      ],
+      "gap": ""
+    }
+  ],
+  "summary": {
+    "total_criteria": 40,
+    "by_status": {
+      "done-kernel-side": 36,
+      "done-invariant": 1,
+      "activation-pending": 1,
+      "blocked-operator-evidence": 2
+    },
+    "by_id": {
+      "done-kernel-side": "PAE-01..PAE-09, PAE-11..PAE-16, PAE-17..PAE-25, PAE-26..PAE-30, PAE-32, PAE-33, PAE-34, PAE-35, PAE-36, PAE-37, PAE-38",
+      "done-invariant": "PAE-40",
+      "activation-pending": "PAE-10",
+      "blocked-operator-evidence": "PAE-31, PAE-39"
+    },
+    "closed_with_gap_empty": ["PAE-40"],
+    "reading_rule": "36 criterios done-kernel-side NAO significam 36 criterios ativos: o codigo existe, a suite e verde e o review aprovou, mas nenhuma flag foi ativada e nada foi provado no binario real 2.0.18. O criterio so se fecha no ambiente do operador."
+  },
+  "release_gate_note": {
+    "statement": "PAE-39 e PAE-31 sao BLOCKED-OPERATOR-EVIDENCE; PAE-10 e ACTIVATION-PENDING; e as 36 conclusoes kernel-side dependem de ativacoes que hoje estao todas OFF. O release gate do operador e, portanto: (1) lane V2 Windows real no binario exato 2.0.18 cobrindo watchdog e cross-session (PAE-39; 23 cenarios blocked no manifest do P42); (2) evidencia exact-binary-live para as 8 features de source/registry/v2-native-capabilities.json (PAE-31); (3) ativacoes de flag com evidencia - bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement, runtime_caps - todas OFF hoje; (4) deploy do VPS AI Memory + re-preflight de porta e fechamento dos HOLDs de REUSE; (5) probes reais de health/transporte e jevgrep real; (6) wirings de chamador em producao: P31-S2 (hooks/AGENTS.md global/default_agent), P38-S2 (dispatch), P40-S2 (append/enable), P41-S2 (telemetria).",
+    "no_fake_close": "SEM FAKE-CLOSE: program_concluded permanece false em program-status.json e nenhum item deste gate pode ser marcado fechado por inferencia, por suite sintetica ou por doc. O commit de closure sugerido pelo plan so acontece com evidencia real do operador.",
+    "no_new_flags": "Nenhuma flag de rollout nova ALEM de jev_advisory e criada por este programa. Das 11 flags sugeridas no SPEC ADDENDUM §26, apenas 2 existem no registry: watchdog (pre-existente do V3) e jev_advisory (P29, sancao explicita do plan §6.1, {enabled:false, shadow:true}). As 9 demais - loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor, orchestration_evolution - NAO foram criadas, por design conservador: dependem de primitivas de runtime ainda em HOLD, e criar flag para primitiva inexistente seria um gate vazio. O rollout usa exclusivamente as flags EXISTENTES, todas OFF/shadow."
+  }
+}

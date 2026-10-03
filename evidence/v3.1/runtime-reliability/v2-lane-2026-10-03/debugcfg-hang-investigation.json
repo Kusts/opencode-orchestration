@@ -1,0 +1,47 @@
+{
+  "record": "v3.1-debugcfg-hang-investigation-2026-10-03",
+  "date": "2026-10-03",
+  "question": "Por que `debug config` do V2 2.0.18 trava (TIMEOUT, zero output) na lane Windows?",
+  "method": "Experimentos discriminantes sucessivos em homes isolados (padrao smoke/P22), execucao detached sob restarts do harness, gravacao incremental",
+  "datapoints_debugconfig_2026_10_03": [
+    { "hora": "09:16/09:19/09:20", "run": "smoke 1-3", "config": "19 workers", "servico": "implicito", "stdin": "fechado (SpikeChild)", "resultado": "HANG 30s x3", "arte­fato": "v2-ci-smoke.json (run1; run2 gravada mas comando interrompido), v2-ci-smoke-run3.json" },
+    { "hora": "09:42", "run": "Exp A", "config": "SEM opencode.json", "servico": "RODANDO (start explicito, listener PID 2056, status OK)", "stdin": "invalido (Start-Process)", "resultado": "HANG 60s, zero bytes", "artefato": "debugcfg-exp-a.json (rc de debug config nao capturado; exited=false registrado)" },
+    { "hora": "10:0x", "run": "smoke 4 (detached)", "config": "19 workers", "servico": "implicito", "stdin": "fechado", "resultado": "HANG 30s", "artefato": "v2-ci-smoke-run4.json (porta 61692)" },
+    { "hora": "10:17-10:19", "run": "Exp D2", "config": "19 workers (D1) e 18 workers SEM tester (D2)", "servico": "implicito", "stdin": "fechado", "resultado": "HANG 30s x2 (reproducao real apos corrigir bug de cwd do meu probe)", "artefato": "debugcfg-exp-d2.json" },
+    { "hora": "09:53", "run": "expC v2 (acidental)", "config": "SEM", "servico": "implicito", "stdin": "fechado e NUL", "resultado": "PASS instantaneo x2 (RELATADO NO TRANSCRIPT; artefato NAO preservado - sobrescrito pela v3; captura de output perdida por bug de Substring do probe)", "artefato": "nenhum preservado" },
+    { "hora": "09:55", "run": "expC v3", "config": "SEM", "servico": "implicito", "stdin": "fechado (C0) e NUL (C1)", "resultado": "PASS rc=0 instantaneo x2", "artefato": "debugcfg-exp-c.json (preserva a v3; versoes v1/v2 sobrescritas, nao preservadas)" },
+    { "hora": "10:23", "run": "Exp E", "config": "19 workers (MESMA fixture que travou na D2)", "servico": "implicito (set port executado; 59833 declarado)", "stdin": "herdado", "resultado": "exited ate o 2o sample de captura (<=2s), output completo presente (listagem das fontes de config), stderr vazio, zero sockets abertos; rc NAO capturado pelo probe", "artefato": "debugcfg-exp-e.json" }
+  ],
+  "placar": {
+    "hangs_com_artefato": 7,
+    "passes_com_artefato_preservado": 3,
+    "passes_relacionados_sem_artefato_preservado": 2,
+    "mesmo_binario": "2.0.18 exato",
+    "mesma_maquina": true,
+    "mesmo_dia": true
+  },
+  "hipoteses_refutadas_nas_condicoes_testadas": [
+    { "h": "H-E stdin (pipe fechado sem NUL trava CLIs bun/Node - documentado para debug agents no SpikeProcess)", "refutacao": "Exp C v3: C0 (sem NUL) e C1 (com NUL) passaram identicos; e Exp E passou com stdin herdado", "para_debug_agents": "o achado do SpikeProcess continua valido PARA debug agents; debug config e outro caminho" },
+    { "h": "H-G conteudo da config do tester (catch-all allow + denies de 2026-10-03)", "refutacao": "Exp D2: 18 workers SEM tester travaram identico aos 19 com tester" },
+    { "h": "presenca de config como gatilho deterministico", "refutacao_parcial": "Exp E: passou COM a mesma fixture de 19 workers que travou minutos antes na D2 - presenca de config nao e condicao suficiente; com conjunto de observacoes limitado a este dia" },
+    { "h": "estado do servico como gatilho deterministico", "refutacao_parcial": "travou com servico rodando (Exp A) e sem servico (smoke/D2); passou sem servico (expC/E) - nenhuma combinacao deterministica isolada" },
+    { "h": "startup implicito como causa unica", "refutacao": "Exp A travou com o servico JA RODANDO e saudavel (status OK na mesma janela)" },
+    { "h": "colisao/contecao na porta privada", "refutacao": "portas frescas distintas nas runs do smoke (55345/55426/57816/61692) e probes (59821/59824/59825/59833); travou/passou independente. NOTA: as portas 59831/59832 da Exp D2 eram apenas DECLARADAS (o probe D2 nao executa service set port) e nao entram nesta justificativa" }
+  ],
+  "hipotese_restante_principal": "Comportamento INTERMITENTE observado e caracterizado; suspeita principal (NAO COMPROVADA): caminho interno do binario 2.0.18 no debug config (warmup/client). Os experimentos afastam as causas locais deterministicas especificas listadas acima nas condicoes testadas; interacoes ambientais mais sutis (carga, outras instancias vivas, churn do proprio harness - 5 restarts na sessao) NAO foram excluidas. Causa raiz dentro do binario exige investigacao upstream (fechado, sem fontes aqui).",
+  "o_que_fica_provido": [
+    "os 4 checks iniciais do smoke (pin exato 2.0.18, config 19 workers via AgentTranslator, isolamento XDG, set de porta) passam em TODAS as runs, inclusive as que depois travam no debug config",
+    "o mesmo binario + mesma fixture produziu HANG (30s) e PASS (<=2s) em janelas de minutos: INTERMITENCIA observada; causa NAO determinada",
+    "o servico gerenciado em si sobe/para deterministicamente via start/stop explicito (lifecycle verde)",
+    "para debug agents o cuidado com stdin/NUL do SpikeProcess continua valido (documentado e distinto)"
+  ],
+  "impacto_lane_release_gate": "smoke lane = intermitente por comportamento observado do V2 2.0.18; suspeita principal upstream, nao comprovada; nao e regressao demonstrada do pacote nem do pin. Mitigacoes possiveis (decisao separada): (a) rerun com home fresco quando debug config travar - muda semantica da lane (retry), exige decisao; (b) reportar upstream ao projeto opencode com os datapoints; (c) manter lane honesta ate resolucao",
+  "evidence_files": ["debugcfg-exp-a.json", "debugcfg-exp-c.json", "debugcfg-exp-d.json", "debugcfg-exp-d2.json", "debugcfg-exp-e.json", "v2-ci-smoke.json", "v2-ci-smoke-run2.json", "v2-ci-smoke-run3.json", "v2-ci-smoke-run4.json"],
+  "probe_validade_notas": [
+    "debugcfg-exp-d.json (primeira run da D, 10:08): PROBE INVALIDO como discriminador - o filho nunca iniciou (rc=-3, Started=false, 'nome do diretorio invalido': home sem o dir cwd criado) e o campo verdict_hint errado ('AMBOS_PASSAM') foi rotulagem do meu probe, nao resultado do V2; preservado como registrado, corrigido em 2026-10-03 pelo re-review",
+    "expC v1 (09:51) e v2 (09:53): artefatos NAO preservados (sobrescritos); v2 documentado acima apenas como transcript; v3 (09:55) e o artefato valido da Exp C",
+    "debugcfg-exp-e.json primeira execucao (10:21): Start-Process falhou silenciosamente (-NoNewWindow + -WindowStyle incompativeis); child nunca iniciou; execucao valida e a de 10:23"
+  ],
+  "invariantes_respeitados": "49374 intocado (owner 1872 em todos os snapshots); nenhum PID preexistente/externo terminado; nenhuma flag ativada; config viva intocada",
+  "no_fake_close": true
+}

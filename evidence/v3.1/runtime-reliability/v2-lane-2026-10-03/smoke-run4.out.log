@@ -1,0 +1,6 @@
+[smoke-v2] RepoRoot=D:\projetos\opencode-orchestration
+[smoke-v2] TargetHome=C:\Users\walis\AppData\Local\Temp\oo-v2smoke-home
+[smoke-v2] OpenCodeSpec=@opencode/cli@2.0.18 (versao exata exigida: 2.0.18)
+[smoke-v2] binario: C:\Users\walis\.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe (opencode v2.0.18)
+[smoke-v2] FALHA: debug config: TIMEOUT 30s (servico nao subiu na porta privada?).
+[smoke-v2] evidencia (failed) em evidence\v3.1\runtime-reliability\v2-lane-2026-10-03\v2-ci-smoke-run4.json
