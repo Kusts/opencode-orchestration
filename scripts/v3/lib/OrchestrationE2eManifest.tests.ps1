@@ -104,6 +104,21 @@ function Get-FixtureRow {
     return @($Checklist.steps | Where-Object { [int]$_.step -eq $Step })[0]
 }
 
+# Registry CONTROLADO para os invariantes: deriva da FORMA do registry real (nenhuma
+# folha inventada) e forca cada folha de ativacao para $false, com a perna de shadow
+# no valor pedido. Assim "flag OFF nao entrega nada" e provado num estado CONHECIDO,
+# e nao por leitura do registry vivo (ativado em 2026-10-04, batch cca566f).
+function New-ControlledFlagsJson([bool]$ShadowOn) {
+    $doc = ConvertFrom-Json ([IO.File]::ReadAllText($flagsPath))
+    foreach ($node in @($doc.PSObject.Properties)) {
+        foreach ($leaf in @($node.Value.PSObject.Properties)) {
+            if ($leaf.Name -eq 'shadow') { $node.Value.($leaf.Name) = [bool]$ShadowOn }
+            elseif (@('enabled', 'active', 'v1', 'v2', 'dual_profile') -contains $leaf.Name) { $node.Value.($leaf.Name) = $false }
+        }
+    }
+    return (ConvertTo-Json -InputObject $doc -Depth 24)
+}
+
 # The seam libraries are dot-sourced INSIDE these helpers, never at test scope:
 # loading them globally would make every function visible to the harness, and the
 # missing-library case in A3 depends on those functions being genuinely absent.
@@ -190,6 +205,10 @@ try {
     Assert-That ($rows['RR-E2E-11'].status -eq 'pass-synthetic' -and $rows['RR-E2E-12'].status -eq 'pass-synthetic') 'scenarios 11 and 12 run real synthetic MCP checks'
     Assert-That ($rows['RR-E2E-13'].status -eq 'blocked-requires-transport' -and $rows['RR-E2E-15'].status -eq 'blocked-requires-transport') 'AI Memory remote scenarios stay blocked on real transport'
     Assert-That ($rows['RR-E2E-32'].status -eq 'blocked-requires-flag' -and $rows['RR-E2E-32'].detail -match 'flag is OFF') 'the Jev route scenario stays blocked on flag activation'
+    # Scenario 35 reads the real policy, where semantic discovery is activated on
+    # windows: the row must prove the fallback under an UNHEALTHY probe and must
+    # not depend on the capability being platform-unsupported.
+    Assert-That ($rows['RR-E2E-35'].status -eq 'pass-synthetic' -and $rows['RR-E2E-35'].detail -match 'not blocked' -and $rows['RR-E2E-35'].detail -match 'direct-search') 'scenario 35 proves an unhealthy optional semantic discovery is not blocked and falls back to direct-search'
     Assert-That (@($result.holds).Count -ge 4) 'the harness states its release-gate holds'
 
     # ---------- A3 fail-closed ----------
@@ -264,12 +283,22 @@ try {
     foreach ($s in $checklist.steps) { $stepRows[[int]$s.step] = $s }
     Assert-That ($stepRows[17].status -eq 'blocked-evidence' -and $stepRows[17].proof_present -eq $false) 'V2 native step is blocked on its absent evidence registry'
     Assert-That ($stepRows[17].reason -eq 'proof-artifact-absent') 'V2 native step states the proof artifact is absent'
-    Assert-That ($stepRows[6].status -eq 'blocked-activation' -and $stepRows[6].flag -eq 'watchdog') 'watchdog enforcement step is blocked on the OFF activation flag'
-    Assert-That ($stepRows[5].status -eq 'shadow-ready') 'watchdog shadow step is shadow-ready'
-    Assert-That ($stepRows[4].status -eq 'shadow-ready' -and $stepRows[4].shadow_on -eq $true) 'Jev health-only step is shadow-ready on its shadow leg'
+    # Estado ATIVADO (batch cca566f, 2026-10-04): asserts de estado EXATO, com a
+    # data da ativacao no nome. Drift para qualquer lado falha. O invariant
+    # "nenhuma flag ativa e reportada como ativa sem prova" segue provado adiante,
+    # em fixture com registry CONTROLADO (nao por leitura do registry vivo).
+    Assert-That ($stepRows[6].status -eq 'shipped' -and $stepRows[6].flag -eq 'watchdog' -and $stepRows[6].flag_active -eq $true -and $stepRows[6].reason -eq 'flag-active-with-evidence') 'watchdog enforcement step is shipped on its activated flag with evidence'
+    Assert-That ($stepRows[5].status -eq 'shipped' -and $stepRows[5].shadow_on -eq $false) 'watchdog step ships on the activated flag (shadow leg is off, never shadow-ready)'
+    Assert-That ($stepRows[4].status -eq 'shipped' -and $stepRows[4].shadow_on -eq $false) 'Jev health-only step ships on the activated flag (shadow leg off)'
     Assert-That ($stepRows[1].status -eq 'shipped' -and $null -eq $stepRows[1].flag_active) 'a step with no activation flag reports shipped, not flag-active'
     Assert-That ($stepRows[1].note -match 'real V2 Windows lane result stays pending') 'the shipped port-preflight step keeps its pending-lane note'
-    Assert-That ((@($checklist.steps | Where-Object { $_.flag_active -eq $true })).Count -eq 0) 'no activation flag is reported active'
+    $activatedSteps = @($checklist.steps | Where-Object { $_.flag_active -eq $true } | ForEach-Object { [int]$_.step })
+    Assert-That (($activatedSteps -join ',') -ceq '4,5,6,7,8,9,10,11,12,14,17,18') 'the live registry activates exactly the steps whose flag resolves ON (batch cca566f)'
+    Assert-That (($checklist.counts.shipped -eq 12) -and ($checklist.counts.shadow_ready -eq 0) -and ($checklist.counts.blocked_activation -eq 6) -and ($checklist.counts.blocked_evidence -eq 1)) 'rollout counts partition the 19 steps in the activated state (12/0/6/1)'
+    # INVARIANTE (nao estado): num registry CONTROLADO com toda ativacao OFF, nenhuma
+    # flag e reportada ativa. A prova nao depende do estado vivo.
+    $allOffList = Get-OrchestrationRolloutChecklist -RepoRoot (New-RolloutFixture 'fx-all-off' (New-ControlledFlagsJson $false)) -TimestampUtc $stamp
+    Assert-That (($allOffList.status -eq 'ok') -and ((@($allOffList.steps | Where-Object { $_.flag_active -eq $true })).Count -eq 0)) 'INVARIANT: no activation flag is reported active on a controlled all-OFF registry'
     Assert-That ((@($checklist.steps | Where-Object { $_.lib_present -eq $false })).Count -eq 0) 'every rollout library is present in the repo'
     Assert-That ((@($checklist.steps | Where-Object { $_.evidence_present -eq $false })).Count -eq 0) 'every rollout evidence record is present in the repo'
     Assert-That ((@($checklist.steps | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.note) })).Count -eq 0) 'every rollout step carries its note'
@@ -280,6 +309,11 @@ try {
     [void][IO.Directory]::CreateDirectory($tempRepo)
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'source') -Destination $tempRepo -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts') -Destination $tempRepo -Recurse -Force
+    # Registry CONTROLADO (toda ativacao OFF, perna de shadow ON) no fixture repo:
+    # e o estado conhecido em que os invariantes das linhas abaixo tem de valer.
+    # Sem isto o fixture herdava o registry real (ja ativado em 2026-10-04) e os
+    # invariantes viravam leitura do estado vivo em vez de prova.
+    [IO.File]::WriteAllText((Join-Path $tempRepo 'source/registry/capability-flags.json'), (New-ControlledFlagsJson $true), $utf8)
     $fakeRepo = Join-Path $tempRepo 'source/registry/e2e-scenarios.json'
     $mutated = New-FixtureManifest 'allshadow.json' { param($d) foreach ($s in $d.rollout_steps) { $s.shadow_sufficient = $true; $s.shadow_flag = 'task_kernel' } }
     [IO.File]::Copy($mutated, $fakeRepo, $true)
@@ -335,7 +369,7 @@ try {
     # ---------- A6 no side effects ----------
     $flagsBefore = [IO.File]::ReadAllText($flagsPath)
     $flags = ConvertFrom-Json $flagsBefore
-    Assert-That ($flags.watchdog.enabled -eq $false -and $flags.watchdog.shadow -eq $true) 'watchdog is still OFF with shadow on before the suite'
+    Assert-That ($flags.watchdog.enabled -eq $true -and $flags.watchdog.shadow -eq $false) 'watchdog is activated with no shadow leg before the suite (batch cca566f)'
     $absentPid = 0
     foreach ($candidate in 4180000..4180099) {
         if ($null -eq (Get-Process -Id $candidate -ErrorAction SilentlyContinue)) { $absentPid = $candidate; break }
@@ -446,7 +480,11 @@ try {
     Assert-That ((@($activeList.steps | Where-Object { [string]$_.flag -eq 'capability_router' -and [string]$_.status -in @('shipped', 'shadow-ready') })).Count -eq 0) 'a malformed active leaf promotes no step carrying that flag'
 
     # F1: a malformed shadow leaf can never be read as an ON shadow leg.
-    $shadowFlags = ConvertFrom-Json $realFlagsJson
+    # Registry CONTROLADO (ativacoes OFF) + leaf de shadow ilegivel: com nenhuma
+    # flag ativa, um shipped/shadow-ready so poderia vir da shadow leg. O
+    # registry real esta ativado (batch cca566f), entao herdar dele tornaria o
+    # shipped legitimo (pela flag) e o assert perderia o que prova.
+    $shadowFlags = ConvertFrom-Json (New-ControlledFlagsJson $false)
     $shadowFlags.watchdog.shadow = 'false'
     $shadowList = Get-OrchestrationRolloutChecklist -RepoRoot (New-RolloutFixture 'fx-leaf-shadow' (ConvertTo-Json -InputObject $shadowFlags -Depth 24)) -TimestampUtc $stamp
     $shadowRow = Get-FixtureRow $shadowList 5

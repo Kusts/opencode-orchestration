@@ -31,6 +31,17 @@ function Assert-That($condition, $name, $detail) {
   else { Write-Host "[FAIL] $name -- $detail" }
 }
 
+# Junction-safe delete. Remove-Item -Force numa junction cujo alvo tem filhos
+# TRAVA o processo quando o console e oculto e a saida esta redirecionada
+# (ShouldContinue sem resposta; -ErrorAction nao suprime): foi o que matou esta
+# suite no runner com todos os asserts ja completos. Medido em PS 5.1: hang > 60s
+# contra 4ms para [IO.Directory]::Delete(path, $false), que remove SO o reparse
+# point, sem seguir o alvo e sem prompt.
+function Remove-TestReparse([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return }
+  try { if (Test-Path -LiteralPath $Path) { [IO.Directory]::Delete($Path, $false) } } catch { }
+}
+
 function New-FreePortNow {
   $lis = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
   try {
@@ -600,7 +611,7 @@ try {
   if ($jMade) {
     $jAnc = Test-PreflightNoReparseAncestry -Path (Join-Path $jLink 'x') -Root $profA
     Assert-That (-not [bool]$jAnc.Ok) 'FIX3: ancestry com junction => recusa' ([string]$jAnc.Detail)
-    try { Remove-Item -LiteralPath $jLink -Force -ErrorAction SilentlyContinue } catch { }
+    Remove-TestReparse $jLink
   }
   else {
     Write-Host '[SKIP] junction: privilegio indisponivel (sem claim)'
@@ -656,7 +667,7 @@ try {
     $paiHelpLeak = $false
     try { if (($null -ne $paiHelp.PersistedPath) -and (-not [string]::IsNullOrWhiteSpace([string]$paiHelp.PersistedPath))) { $paiHelpLeak = Test-Path -LiteralPath ([string]$paiHelp.PersistedPath) -PathType Leaf } } catch { $paiHelpLeak = $false }
     Assert-That (-not $paiHelpLeak) 'FINAL: PAI helper sem PersistedPath gravado' 'vazou escrita'
-    try { Remove-Item -LiteralPath $paiLink -Force -ErrorAction SilentlyContinue } catch { }
+    Remove-TestReparse $paiLink
   }
   else {
     Write-Host '[SKIP] PAI junction: privilegio indisponivel (sem claim)'
@@ -678,7 +689,7 @@ try {
   if ($rjMade) {
     $rjSelf = Test-PreflightNoReparseAncestry -Path $rjLink -Root $rjLink
     Assert-That (-not [bool]$rjSelf.Ok) 'FINAL: Path==Root junction => recusa (raiz e reparse)' ([string]$rjSelf.Detail)
-    try { Remove-Item -LiteralPath $rjLink -Force -ErrorAction SilentlyContinue } catch { }
+    Remove-TestReparse $rjLink
   }
   else {
     Write-Host '[SKIP] Root junction: privilegio indisponivel (sem claim)'
@@ -717,7 +728,16 @@ try {
   Assert-That (($libText -like '*Test-PreflightProfileEmptyState*')) 'EMPTY-STATE: prova por perfil presente na lib' 'helper ausente'
 }
 finally {
-  if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
+  if (Test-Path -LiteralPath $base) {
+    # Sweep junction-safe ANTES da remocao recursiva: deleta cada reparse point
+    # encontrado sob a base sem seguir o alvo (a deletao recursiva de uma arvore
+    # com junctions e o caminho classico de travessia de alvo). Um reparse point
+    # remanescente de um teste que nao chegou a limpar tb cai aqui.
+    $pLinks = @()
+    try { $pLinks = @(Get-ChildItem -LiteralPath $base -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue) } catch { $pLinks = @() }
+    foreach ($pLink in $pLinks) { Remove-TestReparse $pLink.FullName }
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 Write-Host "TEST RESULTS: $passed / $total passed"

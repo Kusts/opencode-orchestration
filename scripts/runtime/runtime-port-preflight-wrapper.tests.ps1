@@ -30,6 +30,17 @@ function Assert-That($condition, $name, $detail) {
   else { Write-Host "[FAIL] $name -- $detail" }
 }
 
+# Junction-safe delete. Remove-Item -Force numa junction cujo alvo tem filhos
+# TRAVA o processo quando o console e oculto e a saida esta redirecionada
+# (ShouldContinue sem resposta; -ErrorAction nao suprime): foi o que matou esta
+# suite no runner com todos os asserts ja completos. Medido em PS 5.1: hang > 60s
+# contra 4ms para [IO.Directory]::Delete(path, $false), que remove SO o reparse
+# point, sem seguir o alvo e sem prompt.
+function Remove-TestReparse([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return }
+  try { if (Test-Path -LiteralPath $Path) { [IO.Directory]::Delete($Path, $false) } } catch { }
+}
+
 function New-WTempProfileDir([string]$Root, [int]$MarkerPort) {
   $pd = Join-Path $Root ('prof-' + [guid]::NewGuid().ToString('N'))
   $homeD = Join-Path $pd 'home'
@@ -405,14 +416,23 @@ public static class W14Probe {
       try { $canAfter = [IO.File]::ReadAllText($w14canary, [Text.Encoding]::UTF8) } catch { $canAfter = '' }
       Assert-That (($canAfter -eq $canBefore)) 'w14: canary intacto (zero invocacoes; probe NAO executado)' ('before=[' + $canBefore + '] after=[' + $canAfter + ']')
       Assert-That (-not (Test-Path -LiteralPath $w14absence -PathType Leaf)) 'w14: marker de ausencia intacto (prova independente de nao-execucao)' $w14absence
-      try { Remove-Item -LiteralPath $w14link -Force -ErrorAction SilentlyContinue } catch { }
+      Remove-TestReparse $w14link
     }
   }
 }
 finally {
   if ([bool]$script:unsettled) {
     Write-Host ('[HOLD] runtime unsettled: temp perfil PRESERVADO em ' + $base + ' (' + [string]$script:unsettledDetail + '); evidence: ' + [string]$script:evidenceKeep)
-  } elseif (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
+  } elseif (Test-Path -LiteralPath $base) {
+    # Sweep junction-safe ANTES da remocao recursiva: deleta cada reparse point
+    # encontrado sob a base sem seguir o alvo (a deletao recursiva de uma arvore
+    # com junctions e o caminho classico de travessia de alvo). Um reparse point
+    # remanescente de um teste que nao chegou a limpar tb cai aqui.
+    $wLinks = @()
+    try { $wLinks = @(Get-ChildItem -LiteralPath $base -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue) } catch { $wLinks = @() }
+    foreach ($wLink in $wLinks) { Remove-TestReparse $wLink.FullName }
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 Write-Host ("PASS: " + $passed + " / TOTAL: " + $total)
 if ($passed -ne $total) { exit 1 } else { exit 0 }

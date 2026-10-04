@@ -436,7 +436,7 @@ foreach($verdict in @($singleVerdictReview.verdicts[0],$mixedReview.verdicts[0],
     Assert-That ([bool]$verdict.decision_record_only -and [bool]$verdict.enables_nothing) 'every emitted record claims decision_record_only and enables_nothing'
 }
 $flags=ConvertFrom-Json ([IO.File]::ReadAllText($flagsPath))
-Assert-That ((-not $flags.runtime_support.v2) -and (-not $flags.capability_router.active) -and (-not $flags.capability_router.shadow)) 'the reviewer enables no runtime support and no capability router'
+Assert-That (($flags.runtime_support.v2 -eq $true) -and (-not $flags.capability_router.active) -and (-not $flags.capability_router.shadow)) 'the reviewer still enables nothing by itself: runtime v2 was activated in the registry (2026-10-04) and the capability router stays off'
 Assert-That (([string]$registry.features.PSObject.Properties[$featureId].Value.status) -eq 'hold-unproven') 'a reviewed candidate keeps its declared hold-unproven status'
 $libraryTextNow=[IO.File]::ReadAllText($libraryPath)
 foreach($forbidden in @('WriteAllText','WriteAllBytes','FileMode]::Append','Out-File','Set-Content','Add-Content','New-Item','Remove-Item','Copy-Item','Move-Item','Delete','Rename-Item')){

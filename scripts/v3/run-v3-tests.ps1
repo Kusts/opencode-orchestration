@@ -31,6 +31,45 @@ try {
     Write-Host 'RUNNER FAILED: diretorio v3 nao encontrado.' -ForegroundColor Red
     exit 2
   }
+
+  # Bootstrap: checkout limpo nao traz models.jsonc (gerado, gitignored), mas o
+  # precheck do installer exige o arquivo no repo; sem ele o PRECHECK sai 3 e
+  # derruba as suites de runtime-adapters e de perfil/wrapper v2. Precedente exato:
+  # tests/distribution/run-distribution-tests.ps1 (run 36083266782). Criacao
+  # EXCLUSIVA a prova de corrida: [IO.File]::Copy com overwrite=$false nao
+  # sobrescreve um models.jsonc existente, nem um que surja entre o Test-Path e a
+  # copia; nesse caso o arquivo da corrida e preservado e o runner segue.
+  $repoDir = Split-Path -Parent (Split-Path -Parent $v3)
+  $modelsJsonc = Join-Path $repoDir 'models.jsonc'
+  if (-not (Test-Path -LiteralPath $modelsJsonc -PathType Leaf)) {
+    $modelsExample = Join-Path $repoDir 'models.example.jsonc'
+    if (-not (Test-Path -LiteralPath $modelsExample -PathType Leaf)) {
+      Write-Host 'RUNNER FAILED: models.jsonc ausente e models.example.jsonc indisponivel para bootstrap.' -ForegroundColor Red
+      exit 2
+    }
+    $bootstrapCreated = $false
+    try {
+      # overwrite=$false: se o destino ja existir a copia NAO acontece.
+      [IO.File]::Copy($modelsExample, $modelsJsonc, $false)
+      $bootstrapCreated = $true
+    }
+    catch [System.IO.IOException] {
+      if (Test-Path -LiteralPath $modelsJsonc -PathType Leaf) {
+        Write-Host 'Bootstrap: models.jsonc surgiu durante a corrida; arquivo existente preservado.'
+      }
+      else {
+        Write-Host ('RUNNER FAILED: bootstrap de models.jsonc falhou: ' + $_.Exception.Message) -ForegroundColor Red
+        exit 2
+      }
+    }
+    catch {
+      Write-Host ('RUNNER FAILED: bootstrap de models.jsonc falhou: ' + $_.Exception.Message) -ForegroundColor Red
+      exit 2
+    }
+    if ($bootstrapCreated) {
+      Write-Host 'Bootstrap: models.jsonc ausente no checkout; criado a partir de models.example.jsonc.'
+    }
+  }
   $all = New-Object System.Collections.ArrayList
   foreach ($f in @(Get-ChildItem -File (Join-Path $v3 '*.tests.ps1') -ErrorAction SilentlyContinue)) {
     [void]$all.Add($f)

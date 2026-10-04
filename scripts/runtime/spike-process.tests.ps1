@@ -301,13 +301,13 @@ try {
   try {
     $cmd20 = '$env:TMP | Out-Null; Get-ChildItem Env: | ForEach-Object { Write-Output ($_.Name + [string][char]61 + $_.Value) }'
     $isoKey = 'OO_SYNTH_ISO_' + ([guid]::NewGuid().ToString('N') -replace '-', '')
-    $r20 = Invoke-SpikeChild -FilePath $psExe -ArgumentList @('-NoProfile', '-Command', $cmd20) -EnvSet @{ $isoKey = 'iso-present' } -EnvRemove @() -WorkingDirectory $cwdT -TimeoutMs 30000 -CleanEnvironment
+    $r20 = Invoke-SpikeChild -FilePath $psExe -ArgumentList @('-NoProfile', '-Command', $cmd20) -EnvSet @{ $isoKey = 'iso-present' } -EnvRemove @() -WorkingDirectory $cwdT -TimeoutMs 120000 -CleanEnvironment
     $dump20 = ([string]$r20.Stdout + "`n" + [string]$r20.Stderr)
     $noSynth = ((($dump20 -notmatch 'sk-SYNTHETICSECRET') -and ($dump20 -notmatch 'oo-synthetic-key')) -and (($dump20 -notmatch $synKey) -and ($dump20 -notmatch 'OPENCODE_API_KEY')))
     $hasIso = ($dump20 -match [regex]::Escape($isoKey + '=iso-present'))
     $hasPath = ($dump20 -match '(?m)^PATH=')
-    Assert-That ($noSynth -and $hasIso) 'clean env: sem segredos, com isolamento' ('rc=' + $r20.ExitCode)
-    Assert-That $hasPath 'clean env: PATH de runtime preservado' 'PATH ausente no filho'
+    Assert-That ($noSynth -and $hasIso) 'clean env: sem segredos, com isolamento' ('rc=' + $r20.ExitCode + ' timeout=' + $r20.TimedOut + ' ms=' + $r20.ElapsedMs)
+    Assert-That $hasPath 'clean env: PATH de runtime preservado' ('PATH ausente no filho rc=' + $r20.ExitCode + ' timeout=' + $r20.TimedOut + ' ms=' + $r20.ElapsedMs)
   }
   finally {
     $afterSyn = [Environment]::GetEnvironmentVariable($synKey, 'Process')

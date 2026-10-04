@@ -269,7 +269,7 @@ $help=Get-Help (Resolve-Path (Join-Path $PSScriptRoot 'OrchestrationV2NativeGati
 $description=[string](($help.Description.Text) -join ' ')
 Assert-That ($description -match 'NOT ONE' -and $description -match '17\.10' -and $description -match 'read-only' -and $description -match 'fail-closed') 'synopsis documents the honest HOLD, the exact-binary rule and the read-only contract'
 $flags=ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $repoRoot 'source\registry\capability-flags.json')))
-Assert-That ((-not $flags.runtime_support.v2) -and (-not $flags.capability_router.active) -and (-not $flags.capability_router.shadow)) 'runtime v2 and capability router remain off in the flag registry'
+Assert-That (($flags.runtime_support.v2 -eq $true) -and (-not $flags.capability_router.active) -and (-not $flags.capability_router.shadow)) 'runtime v2 is activated in the registry (2026-10-04) and the capability router stays off: the gate still owns no activation switch'
 
 } finally {
     try {[IO.Directory]::Delete($tempDir,$true)} catch {}

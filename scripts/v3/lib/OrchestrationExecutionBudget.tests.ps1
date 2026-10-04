@@ -184,9 +184,10 @@ try {
     $ob4 = Test-ExecutionBudgetOverride -Budget $bPlanBig -IsPlannerTurn -PolicyPath $repoPolicy -RepoRoot $repo
     Assert-Budget (-not [bool]$ob4.valid) 'planner wall above 5400 rejected'
 
-    # 6. shadow flags: enabled false, shadow true
+    # 6. bounded_execution ATIVADO em 2026-10-04 (batch cca566f): estado exato do
+    # registry real, drift para qualquer lado falha. O enforcement segue OFF.
     $fl = Get-ExecutionBudgetFlagState -FlagsPath $repoFlags -RepoRoot $repo
-    Assert-Budget ((([bool]$fl.enabled -eq $false) -and ([bool]$fl.shadow -eq $true))) 'bounded_execution enabled=false shadow=true'
+    Assert-Budget ((([bool]$fl.enabled -eq $true) -and ([bool]$fl.shadow -eq $false))) 'bounded_execution enabled=true shadow=false (ativada 2026-10-04, decisao do operador)'
     $en = Get-ExecutionBudgetEnforcementState -FlagsPath $repoFlags -RepoRoot $repo
     Assert-Budget (([bool]$en.enforce -eq $false)) 'enforcement stays OFF in phase23 shadow'
 

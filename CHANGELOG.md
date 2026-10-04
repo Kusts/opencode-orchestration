@@ -837,23 +837,65 @@ pendente do operador).
   runner em 2026-10-04 com PASS** (run 37193122170); pendente apenas a
   resolução do flakiness upstream do `debug config` (o smoke implícito
   segue como probe honesto e mantém o job vermelho quando falha).
-- **Ativação** — flags `task_kernel`/`worktree_isolation`/
-  `runtime_grant_enforcement`/`runtime_support.v2`/`watchdog`/
-  `jev_advisory` permanecem OFF; ativar é decisão humana com evidência
+- **Ativação** — em 2026-10-04 o operador ativou `watchdog`/
+  `task_kernel`/`bounded_execution`/`worktree_isolation`/
+  `runtime_support.v2`+`dual_profile`/`jev_advisory` (commit `cca566f`,
+  guards atualizados, holds honestos registrados em
+  `evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json`);
+  `runtime_grant_enforcement{v1,v2}` permanece OFF (doctrine Phase 5:
+  nenhum hard-deny antes de validação comportamental no runtime V2 real);
+  `skill_routing`/`mcp_routing`/`adaptive_ranking` permanecem OFF
+  (doutrina). Ativação continua sendo decisão humana com evidência
   (shadow rollout, Phase 19).
+
+### Fixed
+
+- **4 suítes alinhadas às flags ativadas (2026-10-04, batch `cca566f`)** —
+  `OrchestrationExecutionBudget`, `OrchestrationV2NativeGating`,
+  `OrchestrationV2EvidenceSupersession` e `OrchestrationE2eManifest` ainda
+  afirmavam o estado anterior ao batch (`bounded_execution`/`watchdog`/
+  `runtime_support.v2` OFF) e quebravam no runner. Mesma doutrina do commit
+  `cca566f`: os asserts de **estado** passam a afirmar o estado exato e
+  atual (drift para qualquer lado falha) e os asserts de **invariante** foram
+  preservados, provados em fixture com registry **controlado** (toda ativação
+  OFF) em vez de leitura do registry vivo — nenhum invariante foi removido e o
+  total de asserts subiu.
 
 ### Known issues (pré-existentes, dependentes de ambiente)
 
 - **V3 suite em runner limpo (2026-10-04, primeira execução em CI da
-  história — o CHECK 16 a bloqueava)**: suítes `Installer -Runtime V2
-  -WhatIf` (exit 3 "explicit always wins, sem probe"), `perfil v2/
-  wrapper não criado` e `clean-env PATH` falham no runner GitHub por
-  dependerem do ambiente do operador (perfil V2 provisionado, shims
-  globais). **Pré-existente e não atribuível às ativações de flag**: o
-  run `68a977b` (apenas jev_advisory, `runtime_support.v2=false`)
-  exibe as mesmas falhas. Correção = provisioning do runner (instalar
-  perfil V2 antes da suíte) ou gating honesto estilo `w12` — fatia
-  própria, não feita em haste.
+  história — o CHECK 16 a bloqueava)**: causa-raiz corrigida por causa, não por
+  atribuição ambiental (run `37206287499`):
+  - **PRECHECK exit 3 (`models.jsonc` ausente)** — o arquivo é gerado e
+    gitignored, então checkout limpo não o traz, e o precheck do installer
+    exige a presença dele no repo — isso derrubava as suítes
+    `Installer -Runtime V2
+    -WhatIf`, `perfil v2/wrapper não criado` e as de runtime-adapters. **Fix:**
+    bootstrap idêntico ao precedente do runner de distribution
+    (`tests/distribution/run-distribution-tests.ps1`, run `36083266782`) em
+    `scripts/v3/run-v3-tests.ps1` — cria o arquivo a partir de
+    `models.example.jsonc` **só quando ausente**, com criação **exclusiva à
+    prova de corrida** (`[IO.File]::Copy` com `overwrite=$false`): um
+    `models.jsonc` existente — ou que surja entre o check e a cópia — nunca é
+    sobrescrito e é preservado; sem o example, `RUNNER FAILED` + exit 2. Não é
+    dependência do ambiente do operador nem das ativações de flag.
+  - **TIMEOUT 300s em `runtime-port-preflight` e `-wrapper`** — a causa real
+    não é o `Remove-Item -Recurse` do `finally`: com o `finally` instrumentado
+    ele nunca chega a ser executado. O processo morre na remoção **inline** da
+    junction, o statement logo após o último PASS (`FINAL: PAI helper…` /
+    `w14: marker de ausência…`): `Remove-Item -LiteralPath <junction> -Force`
+    num alvo com filhos **trava** sob console oculto com saída redirecionada
+    (`ShouldContinue` sem resposta; `-ErrorAction` não suprime). Medido em
+    PS 5.1: hang > 60s contra 4ms de `[IO.Directory]::Delete(path, $false)`,
+    que remove só o reparse point, sem seguir o alvo e sem prompt. **Fix:**
+    helper `Remove-TestReparse` nos dois harnesses, nos 4 sites inline, mais um
+    sweep de reparse points antes do `Remove-Item -Recurse` do `finally`
+    (remanescente cai no sweep).
+  - **`clean-env PATH`** — o filho `Get-ChildItem Env:` sob `-CleanEnvironment`
+    não produziu saída alguma no runner: `rc=-1` significa `timedOut=true`
+    (budget de 30s), não filho quebrado. **Fix:** budget 120s + `TimedOut`/
+    `ElapsedMs` no detalhe dos asserts (diagnóstico futuro). Sem mudança de
+    allowlist em `SpikeProcess.ps1` e sem mudança nas condições asseridas.
 
 - 4 suítes V3 (`CapabilityDeferred`, `CapabilityObservability`,
   `CapabilitySkillUtility`, `shadow-route`) falham no invariante
