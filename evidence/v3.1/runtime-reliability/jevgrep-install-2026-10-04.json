@@ -15,15 +15,12 @@
     "probe_2": { "scope": "scripts/v3/lib (2089 chunks)", "result": "0 hits / 2089 errored (1801 circuit_breaker_open, 288 invalid_api_key)", "note": "OPENROUTER_API_KEY (user env, mapped to TYPESAFE_API_KEY) rejected 401 by the TypeSafe provider - different providers" }
   },
   "auth_frontier": {
-    "missing_credential": "TYPESAFE_API_KEY valida para o endpoint do jgrep (user-owned)",
-    "attempts": [
-      "env OPENROUTER_API_KEY do operador => 401 (provedor distinto)",
-      "TYPESAFE_API_KEY do .env do jev-ultrafast (com e sem TYPESAFE_BASE_URL custom, via env e via ~/.config/jgrep/env) => 401 'Cannot authenticate with the server' - a chave e do stack custom do jev-ultrafast, nao do endpoint TypeSafe que o jgrep 0.6.0 usa",
-      "circuit breaker P28-style engajou corretamente em todas as tentativas (1801 opens apos 288 primeiros 401s)"
-    ],
-    "path_to_close": "operador roda 'jgrep init' (interativo: API key + skills) ou atualiza para versao com base-URL custom (ex.: @dzhng/jevgrep 0.8.0); apos a primeira consulta real, fatia de flip windows:true na policy do doctor",
-    "what_works_without_it": "install, CLI, chunking, circuit breaker, bounded execution on Windows",
-    "never_recorded": "any key value (uma interpolacao acidental exibiu o valor no transcript LOCAL desta sessao - recomendada rotacao da chave pelo operador)"
+    "RESOLVED 2026-10-04": "operador indicou a combinacao correta: chave do OpenCode Zen + Jev (systemone). Ferramenta final = @dzhng/jevgrep 0.8.0 (bin jg, suporta --provider opencode com auth automation nao-interativa)",
+    "configured": "jg auth --provider opencode --stdin (zen key via pipe, valor nunca impresso) => 'OpenCode Zen key saved'",
+    "doctor": "jg doctor => 'Jev connection verified through OpenCode Zen' (exit 0)",
+    "real_consult": "jg \"watchdog enforcement that interrupts a hung worker process\" scripts/v3/lib => 13 arquivos relevantes com papeis anotados (implementation/caller/test/fixture/helper) e simbolos name@start-end",
+    "superseded": "jevgrep 0.6.0 (bin jgrep) e a chave do .env do jev-ultrafast ficam para tras: 0.6.0 usa endpoint fixo sem base-URL configuravel, e a chave do .env e do stack custom",
+    "never_recorded": "any key value (uma interpolacao acidental exibiu o valor da chave ANTIGA do .env no transcript LOCAL desta sessao - recomendada rotacao dela pelo operador; a zen key nao foi exposta)"
   },
   "policy_note": {
     "current": "source/registry/capability-doctor-policy.json declares semantic-discovery (provider jevgrep) platform_support.windows=false with honest fallback to direct-search",
