@@ -844,6 +844,17 @@ pendente do operador).
 
 ### Known issues (pré-existentes, dependentes de ambiente)
 
+- **V3 suite em runner limpo (2026-10-04, primeira execução em CI da
+  história — o CHECK 16 a bloqueava)**: suítes `Installer -Runtime V2
+  -WhatIf` (exit 3 "explicit always wins, sem probe"), `perfil v2/
+  wrapper não criado` e `clean-env PATH` falham no runner GitHub por
+  dependerem do ambiente do operador (perfil V2 provisionado, shims
+  globais). **Pré-existente e não atribuível às ativações de flag**: o
+  run `68a977b` (apenas jev_advisory, `runtime_support.v2=false`)
+  exibe as mesmas falhas. Correção = provisioning do runner (instalar
+  perfil V2 antes da suíte) ou gating honesto estilo `w12` — fatia
+  própria, não feita em haste.
+
 - 4 suítes V3 (`CapabilityDeferred`, `CapabilityObservability`,
   `CapabilitySkillUtility`, `shadow-route`) falham no invariante
   "opencode.json vivo inalterado (prefixo DE22307F)" quando o config vivo

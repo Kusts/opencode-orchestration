@@ -43,6 +43,8 @@
     "watchdog: supervision SOMENTE kernel-side; captura de arvore por SNAPSHOT CIM - descendente criado apos o snapshot pode escapar (wiring de Job Objects no enforcement = follow-up; a contencao por job cobre hoje o spawn do smoke lifecycle, nao o enforcement); identidade exata pid+creation, caps fail-closed e recusa de PIDs desconhecidos/49374 inalterados",
     "task_kernel.enabled muda o fluxo de orquestracao: DONE so via kernel; preflight e DONE compliance agora obrigatorios nos fluxos gerenciados",
     "bounded_execution: enforcement proprio da flag ainda retorna enforce=false no ExecutionBudget (OrchestrationExecutionBudget.ps1 ~L645-660); budgets efetivos hoje via watchdog/kernel paths",
-    "cenarios E2E que exigem sessao real do operador (19) continuam blocked-requires-operator"
+    "cenarios E2E que exigem sessao real do operador (19) continuam blocked-requires-operator",
+    "CI 2026-10-04: primeira execucao da V3 suite em runner limpo (pos-fix CHECK 16) expoe suites Installer V2/perfil/wrapper/clean-env dependentes do ambiente do operador - pre-existente (run 68a977b com v2=false mostra o mesmo); correcao = provisioning ou gating honesto (fatia propria)",
+    "jevgrep real (PAE-30): HOLD mantido - ferramenta nao instalada nesta maquina (fallback provado, ferramenta real nao); instalacao e decisao de ambiente do operador"
   ]
 }
