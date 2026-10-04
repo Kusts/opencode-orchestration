@@ -343,8 +343,12 @@ function Write-FailEvidence([string]$Message, $Final = $null) {
   }
 }
 
-function Fail-Smoke([string]$Message) {
-  Write-FailEvidence $Message
+# $Final propaga o resultado JA memoizado de Finalize-Job quando o call site o
+# tem em maos (etapas 7/8, depois do fechamento do job). Sem ele, e o caminho
+# ja existente: Write-FailEvidence com $null chama Finalize-Job, que e memoizado
+# e devolve o mesmo resultado.
+function Fail-Smoke([string]$Message, $Final = $null) {
+  Write-FailEvidence $Message $Final
   $script:exitDone = $true
   exit 1
 }
