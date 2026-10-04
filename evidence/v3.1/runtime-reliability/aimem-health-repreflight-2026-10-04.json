@@ -1,0 +1,46 @@
+{
+  "record": "v3.1-aimem-health-repreflight-2026-10-04",
+  "date": "2026-10-04",
+  "purpose": "Operator evidence for P21/P30 holds: AI Memory health (service level), 49374 identity re-confirmation with fresh preflight, and port re-preflight (P22). Sanitized: no endpoint identity, no tokens, no hosts.",
+  "aimem_service_health": {
+    "instrument": "ai-memory MCP server memory_status (the running service this operator uses)",
+    "workspace": "ferramentas",
+    "project": "opencode-orchestration",
+    "scope_resolved_by": "explicit",
+    "counts": { "pages_latest": 249, "pages_all": 540, "sessions": 347, "observations": 32846, "evidence_rows": 4 },
+    "healthy": true,
+    "note": "service-level health proof; TLS/transport-level probe against the user-owned VPS endpoint NOT exercised here (see transport_probe)"
+  },
+  "port_49374_repreflight": {
+    "instrument": "scripts/runtime/RuntimePortPreflight.ps1 -Port 49374 -Json (read-only; never mutated)",
+    "evidence_file": "evidence/v3.1/runtime-reliability/repreflight-49374-2026-10-04.json",
+    "outcome": "PORT_STALE_OR_UNKNOWN",
+    "should_start": false,
+    "should_reuse": false,
+    "listener_127_0_0_1_49374": { "present": true, "owning_pid": 19736, "query_succeeded": true, "exists": true },
+    "process_identity": { "name": "opencode", "path_under_npm_global_opencode_cli": true, "detail": "opencode.exe from @opencode/cli npm dir => V2 CLI background service (identity corrected 2026-10-03, confirmed fresh 2026-10-04)" },
+    "fail_closed_reason": "expected-name present but NO ownership proof (path/profile) and no health probe; name alone never authorizes reuse",
+    "confirms": "49374 occupied by the V2 CLI background service, NOT AI Memory; fail-closed without ownership+health"
+  },
+  "port_select_free": {
+    "instrument": "scripts/runtime/RuntimePortPreflight.ps1 -SelectFree -CandidatePorts 52000,53000,54444",
+    "evidence_file": "evidence/v3.1/runtime-reliability/repreflight-selectfree-2026-10-04.json",
+    "outcome": "PORT_FREE",
+    "selected_port": 52000,
+    "note": "pending: applied only via service set + proof (REUSE HOLD discipline)"
+  },
+  "transport_probe": {
+    "exercised": true,
+    "instrument": "opencode MCP server 'ai-memory' type=remote (endpoint configured in the operator's user config OUTSIDE the repo; URL never read nor recorded here)",
+    "probe": "memory_status round-trip (workspace=ferramentas, project=opencode-orchestration)",
+    "result": { "ok": true, "latency_ms": 97, "pages_latest": 249, "date": "2026-10-04" },
+    "prior_successes_same_session": ["memory_handoff_list", "memory_status x2"],
+    "auth_note": "credentials held user-side (DPAPI blob at ~/.config/ai-memory/auth.dpapi); auth exercised implicitly by successful authenticated calls; no secret read, printed or recorded",
+    "tls_note": "remote MCP transport exercised from this host; dedicated raw HTTPS health endpoint probe against the VPS not performed separately (the remote MCP round-trip IS the bounded transport check available without exposing identity)"
+  },
+  "holds_status": {
+    "config_user_owned": "policy file outside repo - operator-owned (exists outside repo by design; placeholder public stays empty)",
+    "health_transport_evidence": "service-level done (this file); TLS/transport-level open pending operator policy path",
+    "p22_port_repreflight": "DONE fresh 2026-10-04 (49374 identity confirmed fail-closed; select_free 52000 pending application)"
+  }
+}

@@ -100,7 +100,7 @@
       ],
       "holds": [
         "debug config/agents do V2 2.0.18 instavel sob fixture XDG (HOLD pre-existente)",
-        "migracao AI Memory para VPS pendente (RESOLVIDO 2026-10-03: deploy executado antes de 2026-10-01; restam config user-owned fora do repo + evidencia de health/transporte sem identidade + re-preflight de porta P22); 49374 local segue ocupado (identidade corrigida: servico de fundo do V2 CLI, ver invariants)"
+        "migracao AI Memory para VPS pendente (RESOLVIDO 2026-10-03: deploy executado antes de 2026-10-01; config user-owned fora do repo CONFIRMADA 2026-10-04 (MCP type=remote no config do operador + auth DPAPI); evidencia de health/transporte sem identidade registrada (aimem-health-repreflight-2026-10-04.json: servico saudavel, round-trip 97ms, 49374 re-preflight fail-closed confirmando identidade V2 CLI); 49374 local segue ocupado (identidade corrigida: servico de fundo do V2 CLI, ver invariants)"
       ]
     },
     "phase22_port_preflight": {
