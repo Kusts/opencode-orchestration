@@ -233,7 +233,7 @@ try {
 
     # 4. flag seam: repo flags are shadow (enabled=false, shadow=true) -> register works
     $fr = Get-WatchdogFlagState -FlagsPath $repoFlags -RepoRoot $repo
-    Assert-Watchdog ((-not [bool]$fr.enabled) -and ([bool]$fr.shadow)) 'repo flags watchdog enabled=false shadow=true' ''
+    Assert-Watchdog (([bool]$fr.enabled) -and (-not [bool]$fr.shadow)) 'repo flags watchdog ATIVADA 2026-10-04 (enabled=true shadow=false)' ''
     $gShadow = Get-WatchdogGate -FlagsPath $flagsShadow -RepoRoot $repo
     Assert-Watchdog ($gShadow -ceq 'SHADOW') 'explicit shadow fixture gates SHADOW' ($gShadow)
     $gDis = Get-WatchdogGate -FlagsPath $flagsDisabled -RepoRoot $repo

@@ -1,0 +1,48 @@
+{
+  "record": "v3.1-flag-activation-batch-2026-10-04",
+  "date": "2026-10-04",
+  "purpose": "Operator-authorized activation slice (sequential queue): jev_advisory (already committed 68a977b), watchdog, task_kernel, bounded_execution, worktree_isolation, runtime_support.v2, runtime_support.dual_profile. runtime_grant_enforcement{v1,v2} stays OFF (Phase 5 doctrine: no hard-deny before behavioral validation). skill_routing/mcp_routing/adaptive_ranking stay OFF (doctrine).",
+  "flags_before": {
+    "watchdog": { "enabled": false, "shadow": true },
+    "task_kernel": { "enabled": false, "shadow": true },
+    "bounded_execution": { "enabled": false, "shadow": true },
+    "worktree_isolation": { "enabled": false },
+    "runtime_support": { "v1": true, "v2": false, "dual_profile": false }
+  },
+  "flags_after": {
+    "watchdog": { "enabled": true, "shadow": false },
+    "task_kernel": { "enabled": true, "shadow": false },
+    "bounded_execution": { "enabled": true, "shadow": false },
+    "worktree_isolation": { "enabled": true },
+    "runtime_support": { "v1": true, "v2": true, "dual_profile": true }
+  },
+  "evidence_basis": {
+    "watchdog": "enforcement real P26-S1 (339/339 PS5.1+PS7) + watchdog shadow 134/134 + contencao Job Objects (RR-P22-JOB-OBJECTS, 113 asserts) + lifecycle smoke 2/2 PASS no runner (runs 37193122170/37193571699)",
+    "task_kernel": "kernel 75/75 PS5.1; P23 budgets 117; recovery P27 61/61; DONE so via kernel e o fluxo canonicamente exigido pelo AGENTS.md deste checkout",
+    "bounded_execution": "budgets canonicos P23 (worker 45m, planner 90m, steps 96, soft 3/hard 5), BUDGET_IMMUTABLE/BUDGET_WIDEN_DENIED",
+    "worktree_isolation": "ownership/worktree suites verdes (56/56 PS5.1; 4 fails pwsh = flake pre-existente documentado ownership_conflict, fixtures proprias provam nao-atribuicao a ativacao)",
+    "runtime_support_v2_dual": "dual-runtime 20/20, typecheck V1/V2/DUAL, installer -Runtime V2 provado (distribution 13/13)"
+  },
+  "suites_after_activation_both_engines": {
+    "CapabilityFlags": "26/26 (guarda exige o novo estado exato, incl. bounded_execution.shadow==false; drift para qualquer lado falha)",
+    "OrchestrationRuntimeWatchdog": "134/134",
+    "OrchestrationRuntimeWatchdogEnforcement": "339/339",
+    "OrchestrationTaskKernel": "75/75 (PS5.1); 74/75 pwsh = ownership_conflict pre-existente documentado em program-status",
+    "OrchestrationOwnership": "56/56 (PS5.1); 52/56 pwsh = mesmo flake pre-existente (fixtures proprias: independente da ativacao)",
+    "session_bootstrap_context": "43/43 (w1e allowlist = so as ativadas com registro)",
+    "test_package_consistency": "16/16"
+  },
+  "guards_updated": [
+    "scripts/v3/lib/CapabilityFlags.tests.ps1 (asserts do novo estado canonical; grant_enforcement continua exigido OFF com razao Phase 5)",
+    "scripts/runtime/session-bootstrap-context.tests.ps1 (w1e allowlist)",
+    "scripts/v3/lib/OrchestrationRuntimeWatchdog.tests.ps1 (repo flags guard)",
+    "scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1 (production flag guard)"
+  ],
+  "holds": [
+    "runtime_grant_enforcement{v1,v2} permanece OFF: Phase 5 (precedencia de regras, saved approvals, experimental.policies) segue sem validacao comportamental no runtime V2 real (debug config flaky upstream); nenhum hard-deny shipado antes disso",
+    "watchdog: supervision SOMENTE kernel-side; captura de arvore por SNAPSHOT CIM - descendente criado apos o snapshot pode escapar (wiring de Job Objects no enforcement = follow-up; a contencao por job cobre hoje o spawn do smoke lifecycle, nao o enforcement); identidade exata pid+creation, caps fail-closed e recusa de PIDs desconhecidos/49374 inalterados",
+    "task_kernel.enabled muda o fluxo de orquestracao: DONE so via kernel; preflight e DONE compliance agora obrigatorios nos fluxos gerenciados",
+    "bounded_execution: enforcement proprio da flag ainda retorna enforce=false no ExecutionBudget (OrchestrationExecutionBudget.ps1 ~L645-660); budgets efetivos hoje via watchdog/kernel paths",
+    "cenarios E2E que exigem sessao real do operador (19) continuam blocked-requires-operator"
+  ]
+}

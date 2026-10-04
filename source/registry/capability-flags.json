@@ -25,27 +25,27 @@
                           },
     "runtime_support":  {
                             "v1":  true,
-                            "v2":  false,
-                            "dual_profile":  false
+                            "v2":  true,
+                            "dual_profile":  true
                         },
     "task_kernel":  {
-                        "enabled":  false,
-                        "shadow":  true
+                        "enabled":  true,
+                        "shadow":  false
                     },
     "bounded_execution":  {
-                              "enabled":  false,
-                              "shadow":  true
+                              "enabled":  true,
+                              "shadow":  false
                           },
     "watchdog":  {
-                     "enabled":  false,
-                     "shadow":  true
+                     "enabled":  true,
+                     "shadow":  false
                  },
     "jev_advisory":  {
                          "enabled":  true,
                          "shadow":  false
                      },
     "worktree_isolation":  {
-                               "enabled":  false
+                               "enabled":  true
                            },
     "runtime_grant_enforcement":  {
                                       "v1":  false,

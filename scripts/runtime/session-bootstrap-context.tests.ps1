@@ -141,8 +141,8 @@ try {
         foreach ($p in $doc.capability_health.flags.PSObject.Properties) {
             if ([bool]$p.Value) { $trueFlags += $p.Name }
         }
-        $illegal = @($trueFlags | Where-Object { $_ -notin @('capability_registry', 'runtime_support', 'jev_advisory') })
-        Assert-That ($illegal.Count -eq 0) 'w1e: rollout flags enabled no real repo = so os ativados com registro (jev_advisory ativada 2026-10-04)' ('enabled=' + ($trueFlags -join ','))
+        $illegal = @($trueFlags | Where-Object { $_ -notin @('capability_registry', 'runtime_support', 'jev_advisory', 'watchdog', 'task_kernel', 'bounded_execution', 'worktree_isolation') })
+        Assert-That ($illegal.Count -eq 0) 'w1e: rollout flags habilitadas = so as ativadas com registro (lote 2026-10-04: jev_advisory, watchdog, task_kernel, bounded_execution, worktree_isolation)' ('enabled=' + ($trueFlags -join ','))
         Assert-That ([string]$doc.jev_status.transport -eq 'synthetic-hold' -and [string]$doc.aimemory_status.transport -eq 'unconfigured') 'w1f: jev and ai-memory sections present with honest transports' ('jev=' + [string]$doc.jev_status.transport + ' aimem=' + [string]$doc.aimemory_status.transport)
     }
 

@@ -768,6 +768,29 @@ pendente do operador).
   adaptive_ranking permanecem OFF (doutrina); demais flags seguem
   conservadoras.
 
+- **Lote de ativação de flags (2026-10-04, decisão do operador)** —
+  `watchdog{enabled:true,shadow:false}` (enforcement real P26-S1),
+  `task_kernel{enabled:true,shadow:false}`
+  (DONE só via kernel, 75/75), `bounded_execution{enabled:true}`
+  (budgets 45m/90m), `worktree_isolation{enabled:true}`,
+  `runtime_support.v2/dual_profile:true`. Bateria verde nas duas
+  engines para as suítes afetadas pela ativação (25/25 guarda,
+  134/134, 339/339, consistência 16/16); kernel 75/75 no PS5.1 e
+  ownership 56/56 no PS5.1 — no pwsh, kernel 74/75 e ownership 52/56
+  por `ownership_conflict` **pré-existente documentado** (a suíte usa
+  fixtures próprias de flags; não atribuível à ativação). Guardas
+  exigem o novo estado exato (drift qualquer lado falha), incluindo
+  `bounded_execution.shadow==false`. **Contrato honesto do watchdog
+  ativado**: supervisão kernel-side only; a captura da árvore é por
+  snapshot CIM — descendente criado após o snapshot pode escapar
+  (wiring de Job Objects no enforcement = follow-up; a contenção por
+  job hoje cobre o spawn do smoke lifecycle, não o enforcement);
+  identidade exata, caps fail-closed e recusa de PIDs
+  desconhecidos/49374 inalterados.
+  `runtime_grant_enforcement{v1,v2}` **permanece OFF** (Phase 5:
+  nenhum hard-deny antes da validação comportamental);
+  skill_routing/mcp_routing/adaptive_ranking OFF (doutrina).
+
 ### Pendente (não implementado)
 
 - **Release gate de P26-P42 (runtime reliability)** - o código

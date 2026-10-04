@@ -2363,7 +2363,7 @@ try {
     try { $flagDoc = ($flagText | ConvertFrom-Json) } catch { $flagDoc = $null }
     $wdNode = $null
     try { $wdNode = $flagDoc.watchdog } catch { $wdNode = $null }
-    Assert-Enforce ((($null -ne $wdNode)) -and ([bool]$wdNode.enabled -eq $false) -and ([bool]$wdNode.shadow -eq $true)) 'production watchdog flag still {enabled:false,shadow:true}' ''
+    Assert-Enforce ((($null -ne $wdNode)) -and ([bool]$wdNode.enabled -eq $true) -and ([bool]$wdNode.shadow -eq $false)) 'production watchdog flag ATIVADA 2026-10-04 {enabled:true,shadow:false}' ''
     $sw11.Stop()
     Assert-Enforce (($sw11.Elapsed.TotalSeconds -lt 90)) 'scenario 11 externally bounded' ([string][int]$sw11.Elapsed.TotalSeconds + 's')
 
