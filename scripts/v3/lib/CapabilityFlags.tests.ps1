@@ -38,8 +38,8 @@ try {
         Assert-That (($flags.routing_telemetry.enabled -eq $false)) 'routing_telemetry.enabled == false (inalterado)' ([string]$flags.routing_telemetry.enabled)
         Assert-That (([int]$flags.routing_telemetry.retention_days -eq 30)) 'routing_telemetry.retention_days == 30 (inalterado)' ([string]$flags.routing_telemetry.retention_days)
         Assert-That (($flags.adaptive_ranking.enabled -eq $false)) 'adaptive_ranking.enabled == false (inalterado)' ([string]$flags.adaptive_ranking.enabled)
-        Assert-That (($flags.jev_advisory.enabled -eq $false)) 'jev_advisory.enabled == false (nasce OFF, P29)' ([string]$flags.jev_advisory.enabled)
-        Assert-That (($flags.jev_advisory.shadow -eq $true)) 'jev_advisory.shadow == true (would-consult, P29)' ([string]$flags.jev_advisory.shadow)
+        Assert-That (($flags.jev_advisory.enabled -eq $true)) 'jev_advisory.enabled == true (ativada 2026-10-04, decisao do operador; consultas bounded 30s/circuit, autoridade sempre nao-autoritativa)' ([string]$flags.jev_advisory.enabled)
+        Assert-That (($flags.jev_advisory.shadow -eq $false)) 'jev_advisory.shadow == false (consulta real via transporte bounded; autoridade inalterada)' ([string]$flags.jev_advisory.shadow)
     }
 }
 catch {

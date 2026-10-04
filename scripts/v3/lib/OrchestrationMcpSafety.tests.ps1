@@ -1182,7 +1182,7 @@ try {
     $wantTop = @('adaptive_ranking', 'bounded_execution', 'capability_reconciler', 'capability_registry', 'capability_router', 'jev_advisory', 'mcp_routing', 'routing_telemetry', 'runtime_grant_enforcement', 'runtime_support', 'skill_routing', 'task_kernel', 'version', 'watchdog', 'worktree_isolation')
     $dTop = Compare-Object $topNames $wantTop
     Assert-McpSafety (($null -eq $dTop) -and ($flagsText -notmatch 'mcp_safety') -and ($flagsText -notmatch 'mcp_safety_envelope')) '[AC10] flags shape canonical incl jev_advisory, no other new node' (($topNames -join ','))
-    Assert-McpSafety (((($flags.jev_advisory.enabled -is [bool])) -and ($flags.jev_advisory.enabled -eq $false)) -and ((($flags.jev_advisory.shadow -is [bool])) -and ($flags.jev_advisory.shadow -eq $true))) '[AC10] jev_advisory born OFF with shadow' (([string]$flags.jev_advisory.enabled + '/' + [string]$flags.jev_advisory.shadow))
+    Assert-McpSafety (((($flags.jev_advisory.enabled -is [bool])) -and ($flags.jev_advisory.enabled -eq $true)) -and ((($flags.jev_advisory.shadow -is [bool])) -and ($flags.jev_advisory.shadow -eq $false))) '[AC10] jev_advisory ativada 2026-10-04 (decisao do operador; autoridade sempre nao-autoritativa)' (([string]$flags.jev_advisory.enabled + '/' + [string]$flags.jev_advisory.shadow))
     $stray = @(Get-ChildItem -Path (Join-Path $repo 'plugins') -Recurse -Filter '*McpSafety*' -ErrorAction SilentlyContinue)
     Assert-McpSafety (@($stray).Count -eq 0) '[AC10] no plugin files touched' ([string]@($stray).Count)
 

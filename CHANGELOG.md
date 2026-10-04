@@ -754,6 +754,20 @@ pendente do operador).
   **PASS no runner em 2026-10-04** (run 37193122170); o smoke implícito
   falhou no runner (flaky upstream conhecido).
 
+- **jev_advisory ativada (2026-10-04, decisão do operador)** — primeiro
+  rollout flag do V3.1 a sair de OFF: `enabled:true, shadow:false`;
+  consultas advisory reais pelo envelope P28 (30s, circuito 2/300s,
+  telemetria sanitizada) com autoridade **sempre não-autoritativa**
+  (guard sempre-nega: deny do kernel vence, falha do verifier vence
+  "complete"; Jev nunca concede/widening/modelo/DONE — estrutural).
+  Guardas atualizadas para o novo estado canônico (CapabilityFlags,
+  McpSafety AC10, JevAdvisory R1/T-active/R6, bootstrap w1e); bateria
+  verde nas duas engines (22/22, 73/73, 16/16, 43/43, 203/203,
+  consistência 16/16); transporte real provado (jev_check 831ms via
+  MCP). Reviewer + Security APPROVED. skill_routing/mcp_routing/
+  adaptive_ranking permanecem OFF (doutrina); demais flags seguem
+  conservadoras.
+
 ### Pendente (não implementado)
 
 - **Release gate de P26-P42 (runtime reliability)** - o código

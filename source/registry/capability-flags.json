@@ -41,8 +41,8 @@
                      "shadow":  true
                  },
     "jev_advisory":  {
-                         "enabled":  false,
-                         "shadow":  true
+                         "enabled":  true,
+                         "shadow":  false
                      },
     "worktree_isolation":  {
                                "enabled":  false

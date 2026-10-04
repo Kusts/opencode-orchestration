@@ -108,9 +108,9 @@ try {
     Clear-McpSafetyState
     Clear-JevAdvisoryState
 
-    # ---------- R1: flag born OFF with shadow ----------
+    # ---------- R1: canonical flag ATIVADA (2026-10-04, decisao do operador) ----------
     $canon = Get-JevAdvisoryFlag -FlagsPath $repoFlags
-    Assert-JevAdvisory (([bool]$canon.found) -and (-not [bool]$canon.enabled) -and ([bool]$canon.shadow) -and ([string]$canon.mode -ceq 'shadow')) '[R1] canonical flag born OFF (enabled=false, shadow=true)' (([string]$canon.enabled + '/' + [string]$canon.shadow + '/' + [string]$canon.mode))
+    Assert-JevAdvisory (([bool]$canon.found) -and ([bool]$canon.enabled) -and (-not [bool]$canon.shadow) -and ([string]$canon.mode -ceq 'active')) '[R1] canonical flag active (enabled=true, shadow=false)' (([string]$canon.enabled + '/' + [string]$canon.shadow + '/' + [string]$canon.mode))
     $flagText = [IO.File]::ReadAllText($repoFlags, [Text.UTF8Encoding]::new($false))
     $flagDoc = ($flagText | ConvertFrom-Json)
     Assert-JevAdvisory (($flagDoc.mcp_routing.enabled -eq $false)) '[R1] mcp_routing stays OFF' ([string]$flagDoc.mcp_routing.enabled)
@@ -310,17 +310,17 @@ try {
     Assert-JevAdvisory (([string]$trivial.status -ceq 'JEV_NOT_TRIGGERED') -and (-not [bool]$trivial.consulted) -and ([string]$trivial.trigger_reason -ceq 'trivial-local-never-consults')) '[T-trivial] trivial task does not consult' ([string]$trivial.status)
     Assert-JevAdvisory ((Get-JevHits -Path $marker11) -eq 0) '[T-trivial] trivial runs 0 probes' ([string](Get-JevHits -Path $marker11))
 
-    # ---------- uncertain route would-consults in shadow, never calls ----------
+    # ---------- uncertain route consults for real (ativada 2026-10-04) ----------
     Clear-McpSafetyState
     $marker12 = Join-Path $tempRoot 'hits12.txt'
     $markProbe12 = [scriptblock]::Create("[IO.File]::AppendAllText('$marker12', 'hit;'); 'ran'")
     $shadow = Invoke-JevAdvisoryCall -Tool 'jev_decide' -TurnId 'turn-jevt-9' -Descriptor $consultDesc -Probe $markProbe12 -PolicyPath $repoJevPolicy -FlagsPath $repoFlags -McpPolicyPath $repoMcpPolicy -TelemetryRoot $teleRoot -ApiKey $goodKey
-    Assert-JevAdvisory (([string]$shadow.status -ceq 'JEV_WOULD_CONSULT') -and ([bool]$shadow.would_consult) -and (-not [bool]$shadow.consulted) -and ([string]$shadow.trigger_reason -ceq 'route-uncertain') -and ([string]$shadow.mode -ceq 'shadow')) '[T-shadow] uncertain route would-consults in shadow' (([string]$shadow.status + '/' + [string]$shadow.trigger_reason))
-    Assert-JevAdvisory ((Get-JevHits -Path $marker12) -eq 0) '[T-shadow] shadow runs 0 probes' ([string](Get-JevHits -Path $marker12))
+    Assert-JevAdvisory (([string]$shadow.status -ceq 'JEV_ADVISORY_OK') -and ([bool]$shadow.consulted) -and ([string]$shadow.trigger_reason -ceq 'route-uncertain') -and ([string]$shadow.mode -ceq 'active')) '[T-active] uncertain route consults for real (advisory-only)' (([string]$shadow.status + '/' + [string]$shadow.trigger_reason))
+    Assert-JevAdvisory ((Get-JevHits -Path $marker12) -eq 1) '[T-active] active mode runs exactly 1 probe' ([string](Get-JevHits -Path $marker12))
 
     # ---------- R6: evidence sanitized, fingerprinted, bounded ----------
     $evText = Get-JevEvidenceText -Dir $teleRoot
-    Assert-JevAdvisory (($evText -match 'JEV_WOULD_CONSULT') -and ($evText -match 'route-uncertain') -and ($evText -match '"mode":"shadow"')) '[R6] would-consult plus reason plus mode recorded' ''
+    Assert-JevAdvisory (($evText -match 'JEV_ADVISORY_OK') -and ($evText -match 'route-uncertain') -and ($evText -match '"mode":"active"')) '[R6] consult plus reason plus mode recorded' ''
     Assert-JevAdvisory ((($evText -notmatch 'SYNTHETICSECRET')) -and ($evText -match 'input_hash')) '[R6] evidence carries input hash, no canary value' ''
     $h1 = Get-JevAdvisoryInputHash -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc
     Assert-JevAdvisory (($h1 -cmatch '^[0-9a-f]{64}$')) '[R6] input hash is 64-hex' ($h1)
