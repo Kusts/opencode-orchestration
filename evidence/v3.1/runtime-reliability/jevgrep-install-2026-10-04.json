@@ -1,0 +1,29 @@
+{
+  "record": "v3.1-jevgrep-install-evidence-2026-10-04",
+  "date": "2026-10-04",
+  "purpose": "PAE-30 (jevgrep real): operator-authorized installation and execution proof on Windows. Sanitized: no API keys recorded.",
+  "installed": {
+    "package": "jevgrep@0.6.0 (npm global, canonical package; bin name = jgrep)",
+    "description": "Semantic grep: describe the code you want in English, get file:line hits. Powered by TypeSafe Jev. No index, no embeddings, no dependencies.",
+    "command": "jgrep",
+    "installed_on": "windows (this machine), operator-authorized"
+  },
+  "execution_proof": {
+    "runs": true,
+    "help": "jgrep 0.6.0 - semantic grep powered by Jev (init/query/--diff/--rows/--tests/--json/-C/-a/-t)",
+    "probe_1": { "scope": "repo inteiro (5511 chunks)", "result": "0 hits / 5511 errored (5223 circuit_breaker_open, 288 invalid_api_key 401)", "note": "binary WORKS on Windows: scanned chunks, attempted provider calls, circuit breaker engaged exactly as designed" },
+    "probe_2": { "scope": "scripts/v3/lib (2089 chunks)", "result": "0 hits / 2089 errored (1801 circuit_breaker_open, 288 invalid_api_key)", "note": "OPENROUTER_API_KEY (user env, mapped to TYPESAFE_API_KEY) rejected 401 by the TypeSafe provider - different providers" }
+  },
+  "auth_frontier": {
+    "missing_credential": "TYPESAFE_API_KEY (user-owned; only the operator can provide)",
+    "what_works_without_it": "install, CLI, chunking, circuit breaker, bounded execution on Windows",
+    "what_needs_it": "actual semantic consults (provider calls)",
+    "never_recorded": "any key value; OpenRouter key value not printed nor stored"
+  },
+  "policy_note": {
+    "current": "source/registry/capability-doctor-policy.json declares semantic-discovery (provider jevgrep) platform_support.windows=false with honest fallback to direct-search",
+    "observation": "the real tool v0.6.0 RUNS on Windows (chunking/execution proven); only provider auth is missing",
+    "next_slice": "obtain TYPESAFE_API_KEY (operator) -> prove real consult -> update policy windows:true + doctor suite assertions (activation-style slice with reviews)"
+  },
+  "pae30_status": "HOLD parcialmente fechado: instalado+executavel comprovados (era 'ate instalado/suportado comprovado'); consultas semanticas reais aguardam TYPESAFE_API_KEY do operador; flip de policy windows:true e fatia seguinte"
+}
