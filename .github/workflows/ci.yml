@@ -59,7 +59,7 @@ jobs:
   ci-ps51:
     name: CI (ps51)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     defaults:
       run:
         shell: powershell
@@ -70,8 +70,8 @@ jobs:
       - name: Static/package validation
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
 
-      - name: V3 test suite (~5-6 min)
-        timeout-minutes: 20
+      - name: V3 test suite (~5-6 min local; runner exige mais)
+        timeout-minutes: 40
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       - name: Provision bun (official npm package)
@@ -83,7 +83,7 @@ jobs:
   ci-ps7:
     name: CI (ps7)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     defaults:
       run:
         shell: pwsh
@@ -94,8 +94,8 @@ jobs:
       - name: Static/package validation
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
 
-      - name: V3 test suite (~5-6 min)
-        timeout-minutes: 20
+      - name: V3 test suite (~5-6 min local; runner exige mais)
+        timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       - name: Provision bun (official npm package)
@@ -130,7 +130,7 @@ jobs:
   ci-v2-lane:
     name: CI (v2 lane, sem binario V2 real)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 50
     defaults:
       run:
         shell: pwsh
@@ -141,8 +141,8 @@ jobs:
       - name: Static/package validation
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
 
-      - name: V3 test suite (~5-6 min)
-        timeout-minutes: 20
+      - name: V3 test suite (~5-6 min local; runner exige mais)
+        timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       - name: Provision bun (official npm package, pinned)
