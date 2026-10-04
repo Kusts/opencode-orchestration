@@ -8,3 +8,6 @@
 *.tmpl text eol=lf
 *.yml text eol=lf
 *.txt text eol=lf
+# Artefatos de dist sao byte-estaveis: o sidecar .sha256 casa com os bytes do
+# blob; traducao de EOL no checkout (autocrlf) quebraria o hash (CHECK 16).
+plugins/dist/** -text

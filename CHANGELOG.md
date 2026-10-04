@@ -12,8 +12,9 @@ Fases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel) **implementadas, revisa
 (Reviewer + Security Reviewer) e corrigidas**; Phase 5 entrega só o harness
 (enforcement comportamental V2 pendente), Phase 8 tem o smoke de binário V2
 wired no job `ci-smoke-opencode-v2` via lifecycle explícito do serviço
-gerenciado (padrão P22, **3/3 PASS local** em 2026-10-03; primeira execução
-real no runner pendente do push do operador); evidência completa em
+gerenciado (padrão P22; **3/3 PASS local** em 2026-10-03 e **PASS no
+runner** em 2026-10-04 — GitHub Actions run 37193122170; smoke implícito
+segue flaky upstream); evidência completa em
 `evidence/v3.1/kernel-hardening/implementation-status.json`.
 
 Programa **V3.1 — Runtime Reliability, Loop Recovery & Jev MCP
@@ -77,8 +78,10 @@ especificação e plano em
   r2: 5 MEDIUM; r3: 6 MEDIUM; r4: 3 MEDIUM; r5: fechado). HOLDs honestos:
   (a) janela create→assign (sem `CREATE_SUSPENDED` via .NET) — descendente
   nascido nessa janela fica fora do job; (b) veredito E2E no binário V2
-  real pendente da primeira execução no runner (release gate do operador);
-  (c) wiring do job no **enforcement** do watchdog = follow-up (P26 segue
+  real **executado no runner em 2026-10-04** (run 37193122170: PASS do
+  ciclo com atribuição comprovada no start; serviço encerrou antes do
+  fechamento — backstop não exercitado sob carga); (c) wiring do job no
+  **enforcement** do watchdog = follow-up (P26 segue
   flag off; a árvore CIM ainda não consome o job); (d) `-FaultInject*` são
   parâmetros de teste, não ligados por nenhum caminho de produção; (e)
   prova de breakaway é por query de flags (sem spawn negativo real);
@@ -595,8 +598,13 @@ especificação e plano em
   v2-ci-smoke-lifecycle*.json` (inclui sumário honesto das 5 execuções,
   2 falhas iniciais por bugs do PRÓPRIO script — contrato de observação e
   semântica inconclusive — sem fake-close). O caminho implícito (debug
-  config) segue flaky upstream e fora deste path; wiring do passo no job
-  CI aguarda primeira execução no runner.
+  config) segue flaky upstream e fora deste path; o passo roda no job CI e
+  deu **PASS no runner** em 2026-10-04 (run 37193122170).
+- **Fix CI CHECK 16 (2026-10-04)** — `.gitattributes` passa a marcar
+  `plugins/dist/**` como `-text`: o sidecar `.sha256` verifica os bytes do
+  blob, e a tradução de EOL no checkout do runner (autocrlf) quebrava o
+  hash em CI (15/16) apesar de 16/16 local. Sem mudança de conteúdo no
+  bundle.
 - **Correção de registro (2026-10-03): AI Memory do operador já remoto**
   — a migração do AI Memory PROD do operador para servidor próprio foi
   **executada** antes de 2026-10-01 (registros anteriores diziam
@@ -743,7 +751,8 @@ pendente do operador).
   `ci-smoke-opencode-v2`, **antes** do smoke implícito (`debug
   paths/config/agents`), que segue flaky upstream
   (`debugcfg-hang-investigation.json`) e foi mantido como probe honesto;
-  primeira execução real no runner pendente do push do operador.
+  **PASS no runner em 2026-10-04** (run 37193122170); o smoke implícito
+  falhou no runner (flaky upstream conhecido).
 
 ### Pendente (não implementado)
 
@@ -782,14 +791,15 @@ pendente do operador).
   ativada; `program-status.json` mantém o detalhamento por fase.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
   saved approvals e `experimental.policies` contra o runtime V2 real
-  (requer resolver o travamento do `debug` V2 e/ou evidência do job
-  `ci-smoke-opencode-v2` já wired (primeira execução no runner, pendente
-  de push)). Nenhum hard-deny é shipado antes disso.
+  (requer resolver o travamento do `debug` V2; evidência de runner existe
+  desde 2026-10-04 — o caminho de lifecycle é estável, o implícito segue
+  flaky)). Nenhum hard-deny é shipado antes disso.
 - **Phase 8 (smoke V2 em CI)** — instalação oficial do V2 no Windows
   (`@opencode/cli@2.0.18` via npm + postinstall) provada localmente e
-  smoke de lifecycle wired no job `ci-smoke-opencode-v2`; pendente apenas a
-  primeira execução real no runner (push do operador) e a resolução do
-  flakiness upstream do `debug config`.
+  smoke de lifecycle wired no job `ci-smoke-opencode-v2`; **executado no
+  runner em 2026-10-04 com PASS** (run 37193122170); pendente apenas a
+  resolução do flakiness upstream do `debug config` (o smoke implícito
+  segue como probe honesto e mantém o job vermelho quando falha).
 - **Ativação** — flags `task_kernel`/`worktree_isolation`/
   `runtime_grant_enforcement`/`runtime_support.v2`/`watchdog`/
   `jev_advisory` permanecem OFF; ativar é decisão humana com evidência

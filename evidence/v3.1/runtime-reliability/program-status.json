@@ -148,7 +148,7 @@
       "reviews": "Reviewer APPROVED r5 + Security Reviewer APPROVED r4/r5 (5 rounds: r1 = 9 findings com 3 HIGH; r2 = 5 MEDIUM; r3 = 6 MEDIUM; r4 = reviewer 3 MEDIUM + security APPROVED; r5 = reviewer APPROVED + security APPROVED final)",
       "holds": [
         "(a) janela create->assign (sem CREATE_SUSPENDED via .NET): descendente nascido nessa janela fica fora do job",
-        "(b) veredito E2E no binario V2 real pendente da primeira execucao no runner - release gate do operador; nada rodado em CI ate o push",
+        "(b) veredito E2E no binario V2 real: EXECUTADO no runner 2026-10-04 (GitHub Actions run 37193122170, job ci-smoke-opencode-v2): PASS do ciclo set/start/status/settlement no binario exato 2.0.18 com atribuicao comprovada no start (gate PASS exige JobAssigned) e memoizacao K1 observada em producao; ressalva honesta: servico encerrou antes do fechamento (membros 0), backstop nao exercitado sob carga; smoke implicito (debug config) segue flaky upstream",
         "(c) wiring do job no ENFORCEMENT do watchdog = follow-up; P26 segue flag watchdog {enabled:false,shadow:true} e a arvore CIM do enforcement nao consome o job",
         "(d) switches -FaultInject* sao parametros de teste, nao ligados por nenhum caminho de producao",
         "(e) prova de breakaway e por query de flags (sem spawn negativo real)",
