@@ -40,7 +40,15 @@
         chamador, recusa sobrescrita (sentinela), remocao confinada a base;
       - parada de servico com gates (Invoke-SpikeServiceStopIfOwned): so para
         servico provado (isolamento + porta configurada + warmup) e verificado
-        no mesmo endpoint privado via status; nunca toca servico global.
+        no mesmo endpoint privado via status; nunca toca servico global;
+      - RR-P22-JOB-OBJECTS: Invoke-SpikeChild aceita -JobObject OPCIONAL
+        (objeto da lib RuntimeJobObject). Presente => o filho e atribuido ao
+        job imediatamente apos o start e o resultado carrega JobAssigned /
+        JobNote. Ausente => comportamento IDENTICO ao anterior (JobAssigned
+        =false, JobNote ='' em todos os retornos, shape estavel para todos os
+        chamadores). A lib nao e carregada por este arquivo: sem ela e sem
+        -JobObject nada muda; com -JobObject e sem lib => falha honesta
+        (JobAssigned=false, JobNote com o motivo), nunca excecao.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -191,7 +199,8 @@ function Invoke-SpikeChild {
     [int]$OutputCapChars = 65536,
     [int]$DrainMs = 5000,
     [switch]$CleanEnvironment,
-    [switch]$StdinNul
+    [switch]$StdinNul,
+    [object]$JobObject = $null
   )
   $started = [System.DateTime]::UtcNow
   $viaCmd = $false
@@ -212,6 +221,7 @@ function Invoke-SpikeChild {
           Started = $false; ElapsedMs = 0; ExecPath = $FilePath
           ViaCmd = $false; ShimResolved = $false; DrainIncomplete = $false
           StdoutTruncated = $false; StderrTruncated = $false
+          JobAssigned = $false; JobNote = ''
           Note = 'shim .cmd irresoluvel com meta-char no caminho: recusado sem executar'
         }
       }
@@ -222,6 +232,7 @@ function Invoke-SpikeChild {
             Started = $false; ElapsedMs = 0; ExecPath = $FilePath
             ViaCmd = $false; ShimResolved = $false; DrainIncomplete = $false
             StdoutTruncated = $false; StderrTruncated = $false
+            JobAssigned = $false; JobNote = ''
             Note = 'shim .cmd irresoluvel com arg com shell-meta: recusado sem executar'
           }
         }
@@ -238,6 +249,7 @@ function Invoke-SpikeChild {
         Started = $false; ElapsedMs = 0; ExecPath = $execPath
         ViaCmd = $false; ShimResolved = $shimResolved; DrainIncomplete = $false
         StdoutTruncated = $false; StderrTruncated = $false
+        JobAssigned = $false; JobNote = ''
         Note = 'StdinNul com meta-char no caminho: recusado sem executar'
       }
     }
@@ -248,6 +260,7 @@ function Invoke-SpikeChild {
           Started = $false; ElapsedMs = 0; ExecPath = $execPath
           ViaCmd = $false; ShimResolved = $shimResolved; DrainIncomplete = $false
           StdoutTruncated = $false; StderrTruncated = $false
+          JobAssigned = $false; JobNote = ''
           Note = 'StdinNul com arg com shell-meta: recusado sem executar'
         }
       }
@@ -328,7 +341,29 @@ function Invoke-SpikeChild {
       Started = $false; ElapsedMs = 0; ExecPath = $execPath
       ViaCmd = $viaCmd; ShimResolved = $shimResolved; DrainIncomplete = $false
       StdoutTruncated = $false; StderrTruncated = $false
+      JobAssigned = $false; JobNote = ''
       Note = ('start falhou: ' + $_.Exception.Message)
+    }
+  }
+  # RR-P22-JOB-OBJECTS: atribuicao AO JOB imediatamente apos o start, quando o
+  # chamador pediu -JobObject. Membership e por arvore de criacao, entao o
+  # neto criado depois daqui entra no job. A lib nao e carregada aqui: sem
+  # -JobObject o bloco inteiro e pulado (comportamento anterior intacto).
+  $jobAssigned = $false
+  $jobNote = ''
+  if ($null -ne $JobObject) {
+    if ($null -eq (Get-Command -Name 'Add-RuntimeJobProcess' -ErrorAction SilentlyContinue)) {
+      $jobNote = 'lib RuntimeJobObject.ps1 nao carregada: sem atribuicao (fail-closed)'
+    }
+    else {
+      $jobAdd = Add-RuntimeJobProcess -Job $JobObject -Process $p
+      if ([bool]$jobAdd.Ok) {
+        $jobAssigned = $true
+        $jobNote = 'atribuido ao job (pid ' + [int]$jobAdd.Pid + ')'
+      }
+      else {
+        $jobNote = ('atribuicao falhou: api=' + [string]$jobAdd.Api + ' ' + [string]$jobAdd.Reason)
+      }
     }
   }
   try { $p.StandardInput.Close() } catch { }
@@ -393,6 +428,8 @@ function Invoke-SpikeChild {
     DrainIncomplete = (-not ($oDone -and $eDone))
     StdoutTruncated = $oTrunc
     StderrTruncated = $eTrunc
+    JobAssigned = $jobAssigned
+    JobNote = $jobNote
     Note = ''
   }
 }

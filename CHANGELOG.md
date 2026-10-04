@@ -49,8 +49,40 @@ especificação e plano em
   registro do diagnóstico de então — identidade do listener corrigida em
   2026-10-03, ver P21 acima);
   AI Memory **nunca** mutado. HOLDs: `REUSE`, wrapper produtivo
-  `UNVERIFIED` (exit 2 sem schema exato), cleanup de descendants sem
-  prova, set/start nativo só com `RR_P22_RUN_NATIVE=1`.
+  `UNVERIFIED` (exit 2 sem schema exato), cleanup de descendants entregue
+  pela fatia Job Objects (ver bullet próprio), set/start nativo só com
+  `RR_P22_RUN_NATIVE=1`.
+- **P22 — fatia Job Objects (cleanup de descendants à prova de escape,
+  2026-10-04)** — `scripts/runtime/lib/RuntimeJobObject.ps1` (P/Invoke
+  compatível com PS5.1): job com **somente** `KILL_ON_JOB_CLOSE` (0x2000),
+  breakaway negado por omissão de `BREAKAWAY_OK`/`SILENT_BREAKAWAY_OK`,
+  atribuição **exclusivamente** por handle retido do spawn próprio (nunca
+  `OpenProcess` por PID; recusa do próprio host), query de membros bounded
+  (lista parcial no overflow, contadores reais do SO), settlement por
+  deadline absoluto com espera `min(poll, restante)` e falha de API
+  devolvendo resultado estruturado (sem exceção); `Invoke-SpikeChild` com
+  `-JobObject` opcional (caminho legado inalterado);
+  `smoke-opencode-v2-lifecycle.ps1` com contenção fail-closed (job criado
+  e validado **antes** do `service start`; PASS exige atribuição
+  comprovada; `Finalize-Job` memoizada: observar membros → fechar job →
+  stop gracioso gated → snapshot `49374` por último, com backstop
+  explícito vs kill-on-close distintos na evidência). Suíte
+  `scripts/runtime/runtime-job-object.tests.ps1` **113 asserts**
+  (47→73→88→104→113), 5 runs verdes (PS5.1 3x, PS7 2x), discriminantes-
+  chave provados por mutação; regressões verdes nas duas engines
+  (SpikeProcess 51/51, wrapper 33/33 — PS7 31/31 + 2 SKIP de ambiente,
+  watchdog 134/134, enforcement 339/339, consistência 16/16); tester
+  independente `candidate_pass`, sem resíduo de processos/probes. Reviewer
+  **APPROVED r5** + Security **APPROVED r4/r5** (r1: 9 findings com 3 HIGH;
+  r2: 5 MEDIUM; r3: 6 MEDIUM; r4: 3 MEDIUM; r5: fechado). HOLDs honestos:
+  (a) janela create→assign (sem `CREATE_SUSPENDED` via .NET) — descendente
+  nascido nessa janela fica fora do job; (b) veredito E2E no binário V2
+  real pendente da primeira execução no runner (release gate do operador);
+  (c) wiring do job no **enforcement** do watchdog = follow-up (P26 segue
+  flag off; a árvore CIM ainda não consome o job); (d) `-FaultInject*` são
+  parâmetros de teste, não ligados por nenhum caminho de produção; (e)
+  prova de breakaway é por query de flags (sem spawn negativo real);
+  (f) pré-existente: `taskkill` por PID no timeout de `Invoke-SpikeChild`.
 - **P23 done-record-only** — orçamentos canônicos no kernel
   (`phase23.json`): 5 perfis com defaults exatos (worker 45m, planner
   90m, steps 96, soft 3 / hard 5), role defaults, sem ampliação
@@ -745,7 +777,8 @@ pendente do operador).
 - **HOLDs estruturais mantidos em P22–P41** — (d) `execute.before` sem
   via sem-modelo provada; evento `session.updated` não observado;
   `REUSE` de porta em produção; reconciler V2 nativo; interrupt de
-  sessão V2 nativa; ausência de Job Objects na P22. Nenhuma flag
+  sessão V2 nativa; janela create→assign do job e wiring do job no
+  enforcement do watchdog (follow-up P26, flag off). Nenhuma flag
   ativada; `program-status.json` mantém o detalhamento por fase.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
   saved approvals e `experimental.policies` contra o runtime V2 real

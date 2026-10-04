@@ -127,8 +127,32 @@
       "holds": [
         "REUSE HOLD: nenhum ShouldReuse true em producao; PORT_OWNED_BY_EXPECTED_SERVICE nao emitido",
         "PORT_CONFIGURATION_UNVERIFIED: wrapper produtivo bloqueia (exit 2) sem schema exato pending",
-        "descendants sem cleanup provado (sem job objects): Kill() so encerra filho direto — BLOCKER explicito",
+        "descendants: cleanup provado pela fatia Job Objects (RR-P22-JOB-OBJECTS, ver phase22_job_objects); HOLD residual = janela create->assign (sem CREATE_SUSPENDED via .NET)",
         "set/start nativo real SOMENTE com RR_P22_RUN_NATIVE=1; default sem mutacao"
+      ]
+    },
+    "phase22_job_objects": {
+      "status": "done-code",
+      "task_id": "RR-P22-JOB-OBJECTS (+FIX1..FIX4)",
+      "evidence": [
+        "scripts/runtime/lib/RuntimeJobObject.ps1",
+        "scripts/runtime/runtime-job-object.tests.ps1"
+      ],
+      "evidence_note": "Nao ha evidence JSON nesta fatia (a prova e a propria suite in-tree + o codigo); nenhum arquivo em evidence/ foi criado ou alterado por esta fatia, e nenhuma evidencia imutavel foi tocada.",
+      "summary": "Job Objects para cleanup de descendants a prova de escape (follow-up P22 do BLOCKER 'descendants sem cleanup provado'): lib PowerShell P/Invoke compativel com PS5.1 (scripts/runtime/lib/RuntimeJobObject.ps1) com job configurado SOMENTE com KILL_ON_JOB_CLOSE (0x2000) - breakaway negado por omissao de BREAKAWAY_OK/SILENT_BREAKAWAY_OK; atribuicao EXCLUSIVAMENTE por handle retido do spawn proprio (nunca OpenProcess por PID; recusa do proprio host); query de membros bounded (lista parcial no overflow, contadores reais do SO); settlement por deadline absoluto com espera min(poll, restante); falha de API devolve resultado estruturado (sem excecao). Invoke-SpikeChild aceita -JobObject opcional (caminho legado inalterado). smoke-opencode-v2-lifecycle.ps1 com contencao fail-closed: job criado e validado ANTES do service start e PASS exige atribuicao comprovada; Finalize-Job memoizada (observar membros -> fechar job -> stop gracil GATED -> snapshot 49374 por ultimo) com backstop explicito vs kill-on-close distintos na evidencia. ZERO claim de execucao E2E: o veredito no binario V2 real depende da primeira execucao no runner (release gate do operador, ate o push).",
+      "suites": [
+        "scripts/runtime/runtime-job-object.tests.ps1 113 asserts (47 -> 73 -> 88 -> 104 -> 113), 5 runs verdes: PS5.1 3x, PS7 2x; discriminantes-chave provados por mutacao",
+        "regressoes nas duas engines: SpikeProcess 51/51; wrapper 33/33 (PS7 31/31 + 2 SKIP de ambiente); watchdog 134/134; enforcement 339/339; consistencia 16/16",
+        "tester independente: candidate_pass, zero residuo de processos/probes"
+      ],
+      "reviews": "Reviewer APPROVED r5 + Security Reviewer APPROVED r4/r5 (5 rounds: r1 = 9 findings com 3 HIGH; r2 = 5 MEDIUM; r3 = 6 MEDIUM; r4 = reviewer 3 MEDIUM + security APPROVED; r5 = reviewer APPROVED + security APPROVED final)",
+      "holds": [
+        "(a) janela create->assign (sem CREATE_SUSPENDED via .NET): descendente nascido nessa janela fica fora do job",
+        "(b) veredito E2E no binario V2 real pendente da primeira execucao no runner - release gate do operador; nada rodado em CI ate o push",
+        "(c) wiring do job no ENFORCEMENT do watchdog = follow-up; P26 segue flag watchdog {enabled:false,shadow:true} e a arvore CIM do enforcement nao consome o job",
+        "(d) switches -FaultInject* sao parametros de teste, nao ligados por nenhum caminho de producao",
+        "(e) prova de breakaway e por query de flags (sem spawn negativo real)",
+        "(f) follow-up pre-existente: taskkill por PID no timeout de Invoke-SpikeChild (SpikeProcess, PID proprio com objeto retido)"
       ]
     },
     "phase23_budgets": {
@@ -248,7 +272,7 @@
       "holds": [
         "flag watchdog permanece {enabled:false,shadow:true}; ativacao exige decisao humana com evidencia",
         "interrupt de sessao V2 nativa (runtime API) nao implementado neste slice (prova P24 e presenca, nao enforcement)",
-        "sem Job Objects (BLOCKER conhecido da P22): spawn pos-snapshot e orfao de filho morto antes do snapshot escapam; over-exclusao conservadora no gone-path; variante substituto-PID sem teste direto (coberta indiretamente por fail-closed de prova ausente + identidades exatas)",
+        "lib Job Objects + spawn path P22 entregues (RR-P22-JOB-OBJECTS; ver phase22_job_objects), mas o ENFORCEMENT desta phase (arvore CIM) AINDA nao consome o job - follow-up, flag watchdog {enabled:false,shadow:true}; spawn pos-snapshot e orfao de filho morto antes do snapshot seguem sem cobertura por job no enforcement; over-exclusao conservadora no gone-path mantida; variante substituto-PID sem teste direto (coberta indiretamente por fail-closed de prova ausente + identidades exatas)",
         "chamada CIM individual sob timeout do WMI; lock de telemetria in-process; ator/fonte sao strings declaradas pelo chamador (sem autenticacao de processo)"
       ]
     },

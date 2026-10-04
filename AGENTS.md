@@ -93,7 +93,9 @@ verdes; Phase 5 = só harness (enforcement comportamental V2 em HOLD honesto);
 Phase 8 = lane CI com smoke de binário V2 COMPROVADO via lifecycle explícito
 (2026-10-03, 3/3 PASS, path local; wiring no job ci-smoke-opencode-v2 feito — evidência real do runner pendente do primeiro push); Runtime Reliability P21 done
 (baseline + fixtures 17/17), P22 parcial-HOLD (preflight + wrapper
-condicionado + E2E nativo; REUSE HOLD), P23 done-record-only (budgets,
+condicionado + E2E nativo; REUSE HOLD) + fatia Job Objects done-code
+(RR-P22-JOB-OBJECTS; cleanup de descendants à prova de escape; wiring no
+enforcement = follow-up), P23 done-record-only (budgets,
 sem enforcement), P24 parcial (plugin V2 event.subscribe + live-hook;
 d sem-modelo e updated NOT-VERIFIED); P25 done-shadow (RuntimeWatchdog
 lib shadow puro: fingerprints sanitizados len:valor, repetição da policy,

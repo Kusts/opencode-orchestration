@@ -38,11 +38,48 @@
          49374; apenas fatos allowlisted na evidencia) => service stop owned
          (rc=0) => settlement (sem listener, por deadline; terminacao do
          processo NAO e afirmada).
+      5b. RR-P22-JOB-OBJECTS (backstop bounded de arvore): um Job Object com
+         SOMENTE JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE e criado ANTES do
+         service start (fail-closed: criacao/inspeccao de flags falha =>
+         evidencia failed + exit 1 ANTES de iniciar o servico). O processo do
+         proprio `service start` e atribuido ao job (membership por arvore de
+         criacao, via handle do proprio spawn; a lib nao aceita atribuicao por
+         PID). O stop PRIMARY continua sendo gracil, via CLI owned
+         (Invoke-SpikeServiceStopIfOwned intocado); se o settlement (ausencia
+         do listener) NAO ocorrer dentro do deadline => Stop-RuntimeJobObject
+         como backstop e nova observacao, com job_backstop=true na evidencia.
+         O job so pode conter o processo que este proprio smoke iniciou
+         (um unico spawn recebe -JobObject): nenhum PID externo e membro e,
+         por isso, nunca e terminado.
+      5c. FIX1/F6: PASS exige atribuicao comprovada (JobAssigned=true do
+         service start). Atribuicao nao provada => smoke FALHA (evidence +
+         exit 1) mesmo com o cleanup gracil tendo ocorrido: o smoke existe para
+         provar o caminho de contencao, entao um verde sem backstop provado
+         seria enganoso.
+      5d. FIX1/F7 + FIX2/G5 + FIX3/H-F + FIX4/K1: uma rotina UNICA e MEMOIZADA,
+         Finalize-Job, roda ANTES de QUALQUER escrita de evidencia em TODOS os
+         caminhos de saida (veredito ok, Fail-Smoke e excecao). Sequencia na
+         PRIMEIRA (e unica) execucao: observar membros => fechar o job
+         (CloseHandle com KILL_ON_JOB_CLOSE) => stop GRACIL GATED
+         (Invoke-SpikeServiceStopIfOwned, com os gates de ownership EXATOS de
+         sempre; nunca stop sem gates) => observar 49374 pela ultima vez. O stop
+         gracil vem DEPOIS do fechamento porque o caso relevante e o servico
+         FORA do job (assign falhou ou janela pre-assign), onde o job nao o
+         alcanca. Chamadas subsequentes (inclusive o `finally`) devolvem o
+         resultado MEMORIZADO sem executar nada: nao ha segunda rodada de stop
+         apos a evidencia, e um stop que falhou fica registrado como
+         final_stop.stopped=false sem retry. Assim job_close_kill/
+         job_object_closed, final_stop e port49374_owner_after refletem o que
+         aconteceu de fato, nunca um flag assumido nem leitura anterior a
+         terminacao. A evidencia distingue `job_backstop` (TerminateJobObject
+         explicito) de `job_close_kill` (kill-on-close do fechamento), e AMBAS as
+         evidencias (principal e sidecar) carregam o snapshot pos-close.
       6. Invariantes: porta 49374 com o MESMO owner (ou ausente) nos
          snapshots antes/depois via QuerySucceeded/Exists/OwningPID (consulta
          inconclusiva => invariante falha, sem adivinhacao); nenhum PID
          preexistente ou externo terminado (stop e via CLI do servico,
-         gated por Invoke-SpikeServiceStopIfOwned).
+         gated por Invoke-SpikeServiceStopIfOwned; o backstop so alcanca o
+         job do proprio smoke).
       7. Excecoes inesperadas => evidencia failed com date dinamico + exit 1
          (bloco catch dedicado); falha ao gravar evidencia => melhor esforco
          em arquivo sidecar e exit 1.
@@ -92,6 +129,7 @@ try {
   . (Join-Path $RepoRoot 'scripts\runtime\lib\SpikeProcess.ps1')
   . (Join-Path $RepoRoot 'scripts\runtime\lib\AgentTranslator.ps1')
   . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimePortPreflight.ps1')
+  . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeJobObject.ps1')
 }
 catch {
   $bootstrapFailed = $true
@@ -155,6 +193,12 @@ $script:isolationOk = $false
 $script:portConfigured = $false
 $script:startAttempted = $false
 $script:exitDone = $false
+$script:svcJob = $null
+$script:jobBackstop = $false
+$script:jobDetail = ''
+$script:jobClosed = $false
+# FIX4/K1: resultado memoizado da finalizacao (uma unica execucao por run).
+$script:finalResult = $null
 
 function Write-SmokeJsonAtomic($Object, [string]$TargetPath) {
   $parent = Split-Path -Parent $TargetPath
@@ -188,8 +232,83 @@ function Get-Listener49374Fact {
   return 'NONE'
 }
 
-function Write-FailEvidence([string]$Message) {
+function Finalize-Job {
+  # FIX2/G5 + FIX3/H-F + FIX4/K1: finalizacao MEMOIZADA, executada UMA VEZ por
+  # execucao, em TODOS os caminhos de saida (ok, falha e excecao), ANTES de
+  # qualquer escrita de evidencia.
+  # Sequencia (so na PRIMEIRA chamada): observar membros -> fechar o job
+  # (resultado REAL) -> stop GRACIL GATED -> observar 49374 pela ULTIMA vez.
+  # O stop gracil roda DEPOIS do fechamento porque o caso relevante e o servico
+  # FORA do job (assign falhou / janela pre-assign): ai o job nao o alcanca e o
+  # stop CLI e a unica parada legitima. As gates de ownership sao as MESMAS de
+  # sempre (Invoke-SpikeServiceStopIfOwned: isolamento + porta + warmup + endpoint
+  # privado confirmado) - nunca stop sem gates.
+  # K1: chamadas subsequentes devolvem o resultado MEMORIZADO e nao executam
+  # NADA. Sem isso, o `finally` rodava um segundo stop gracil DEPOIS da evidencia
+  # principal (se o 1o stop falhasse e o 2o tivesse exito, port49374_owner_after
+  # da evidencia precederia a ultima acao destrutiva). Stop que falhou fica
+  # registrado como final_stop.stopped=false e ponto: sem retry pos-evidencia.
+  if ($null -ne $script:finalResult) {
+    Write-Host ('[smoke-v2-lifecycle] finalizacao ja executada (memoizada): ' + [string]$script:finalResult.CloseReason)
+    return $script:finalResult
+  }
+  $r = [ordered]@{ Members = -1; CloseOk = $false; CloseReason = 'nao executado'; StopAttempted = $false; Stopped = $false; StopReason = 'nao tentado (gates)'; Port49374After = '' }
+  if ($null -ne $script:svcJob) {
+    $mc = $null
+    try { $mc = Get-RuntimeJobMemberPids -Job $script:svcJob } catch { $mc = $null }
+    if (($null -ne $mc) -and [bool]$mc.Ok) { $r.Members = [int]$mc.Count }
+    try {
+      $jc = Close-RuntimeJobObject -Job $script:svcJob
+      $r.CloseOk = [bool]$jc.Ok
+      $r.CloseReason = [string]$jc.Reason
+      $script:jobClosed = [bool]$jc.Ok
+    }
+    catch {
+      $r.CloseOk = $false
+      $r.CloseReason = ('fechamento lancou excecao: ' + $_.Exception.Message)
+      $script:jobClosed = $false
+    }
+    # Kill-on-close e assincrono no SO: janela curta antes da proxima acao.
+    try { Start-Sleep -Milliseconds 500 } catch { }
+  }
+  else {
+    $r.CloseReason = 'job nao criado nesta execucao (nada a fechar)'
+  }
+  # Stop OWNED e GATED: mesma condicao e mesmo helper de sempre; o helper
+  # verifica o endpoint privado ANTES de parar (nunca para servico de outra
+  # execucao; nunca kill de PID).
+  if ((-not [string]::IsNullOrWhiteSpace($script:binaryUsed)) -and $script:isolationOk -and $script:portConfigured -and $script:portUsed -gt 0 -and $script:startAttempted) {
+    try {
+      $cl = Invoke-SpikeServiceStopIfOwned -FilePath $script:binaryUsed -EnvSet $isoEnv -EnvRemove $isoRemove -WorkingDirectory $cwdT -IsolationProved $script:isolationOk -PortConfigured $script:portConfigured -Port $script:portUsed -WarmupAttempted $script:startAttempted -TimeoutMs 30000 -CleanEnvironment -StdinNul
+      $r.StopAttempted = [bool]$cl.Attempted
+      $r.Stopped = [bool]$cl.Stopped
+      $r.StopReason = [string]$cl.Reason
+      Write-Host ('[smoke-v2-lifecycle] final stop: ' + [string]$cl.Reason)
+    }
+    catch {
+      $r.StopAttempted = $false
+      $r.Stopped = $false
+      $r.StopReason = ('excecao no stop final: ' + $_.Exception.Message)
+    }
+  }
+  $r.Port49374After = Get-Listener49374Fact
+  # Memoiza ANTES de devolver: qualquer chamada posterior (inclusive o
+  # `finally`) recebe este exato resultado sem reexecutar nada.
+  $script:finalResult = $r
+  return $r
+}
+
+function Write-FailEvidence([string]$Message, $Final = $null) {
   Write-Host ('[smoke-v2-lifecycle] FALHA: ' + $Message)
+  # FIX3/H-F: a evidencia de FALHA so e escrita DEPOIS da sequencia final
+  # completa. Importante quando o servico NAO esta no job (assign falhou ou
+  # janela pre-assign): o job sozinho nao o encerra, e o stop GRACIL GATED
+  # (Invoke-SpikeServiceStopIfOwned, com os gates de ownership exatos de
+  # sempre) precisa rodar ANTES da leitura final de 49374 e da escrita.
+  # Finalize-Job faz: fechar job => stop gracil gated => observar 49374.
+  # O diagnostico original e preservado em fail_detail.
+  $fin = $Final
+  if ($null -eq $fin) { $fin = Finalize-Job }
   $failed = [ordered]@{
     smoke = 'v2-ci-smoke-lifecycle'
     date = Get-SmokeEvidenceDate
@@ -197,12 +316,22 @@ function Write-FailEvidence([string]$Message) {
     binary = $script:binaryUsed
     expected_version = $ExpectedVersion
     service_port = $script:portUsed
+    job_backstop = $script:jobBackstop
+    job_close_kill = [bool]$fin.CloseOk
+    job_object_closed = [bool]$fin.CloseOk
+    job_members_before_close = [int]$fin.Members
+    job_close_reason = [string]$fin.CloseReason
+    job_backstop_detail = $script:jobDetail
+    final_stop = [ordered]@{ attempted = [bool]$fin.StopAttempted; stopped = [bool]$fin.Stopped; reason = [string]$fin.StopReason }
     port49374_owner_before = $script:owner49374Before
-    port49374_owner_after = Get-Listener49374Fact
+    port49374_owner_after = [string]$fin.Port49374After
     checks = @($script:smokeChecks)
     notes = @($script:smokeNotes)
     fail_detail = $Message
   }
+  # FIX3/H-F: o sidecar da falha tambem carrega o snapshot POS-CLOSE.
+  $failSidecar = $EvidencePath + '.cleanup.json'
+  try { Write-SmokeJsonAtomic $failed $failSidecar } catch { }
   try {
     Write-SmokeJsonAtomic $failed $EvidencePath
     Write-Host ('[smoke-v2-lifecycle] evidencia (failed) em ' + $EvidencePath)
@@ -452,11 +581,37 @@ try {
   $script:portConfigured = $true
   Add-SmokeCheck 'service_port_configured' $true ('cmd: <bin> service set port => ' + $freePort + ' (rc=0)')
 
-  $sst = Invoke-SpikeChild -FilePath $binaryUsed -ArgumentList @('service', 'start') -EnvSet $isoEnv -EnvRemove $isoRemove -WorkingDirectory $cwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
+  # ---- 5a. job object do backstop: criado ANTES do start (fail-closed) ----
+  # Membership de Job Object e por ARVORE DE CRIACAO: cobre o descendente
+  # criado depois do snapshot da arvore e o orfao (filho morto antes do
+  # snapshot), que o walk por ParentProcessId perde. Limites: SOMENTE
+  # KILL_ON_JOB_CLOSE; BREAKAWAY_OK/SILENT_BREAKAWAY_OK NAO sao setados, logo
+  # um filho dentro do job nao cria processo fora dele.
+  $svcJob = New-RuntimeJobObject
+  $script:svcJob = $svcJob
+  if (-not [bool]$svcJob.Ok) {
+    Fail-Smoke ('job object do backstop NAO criado (fail-closed ANTES de iniciar o servico): api=' + [string]$svcJob.Api + ' reason=' + [string]$svcJob.Reason)
+  }
+  $jobFlags = Get-RuntimeJobLimitFlags -Job $svcJob
+  if ((-not [bool]$jobFlags.Ok) -or (-not [bool]$jobFlags.KillOnClose)) {
+    Fail-Smoke ('job object sem KILL_ON_JOB_CLOSE provado (fail-closed ANTES de iniciar o servico): ok=' + [string]$jobFlags.Ok + ' kill_on_close=' + [string]$jobFlags.KillOnClose + ' reason=' + [string]$jobFlags.Reason)
+  }
+  $script:jobDetail = ('criado antes do start; limit_flags=0x' + ([uint32]$jobFlags.LimitFlags).ToString('x') + ' breakaway_ok=' + [string]$jobFlags.BreakawayOk + ' silent_breakaway_ok=' + [string]$jobFlags.SilentBreakawayOk)
+  Add-SmokeCheck 'job_object_created_before_start' $true $script:jobDetail
+
+  $sst = Invoke-SpikeChild -FilePath $binaryUsed -ArgumentList @('service', 'start') -EnvSet $isoEnv -EnvRemove $isoRemove -WorkingDirectory $cwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob
   $script:startAttempted = $true
   if ([bool]$sst.TimedOut) { Fail-Smoke 'service start: TIMEOUT 30s.' }
   if ([int]$sst.ExitCode -ne 0) { Fail-Smoke ('service start: exit ' + $sst.ExitCode + ' (esperado 0).') }
+  $assignedStart = [bool]$sst.JobAssigned
   Add-SmokeCheck 'service_start_explicit' $true 'cmd: <bin> service start (rc=0; -CleanEnvironment)'
+  Add-SmokeCheck 'job_object_assign_reported' $assignedStart ('service start atribuido ao job do backstop: job_assigned=' + $assignedStart + ' nota=' + [string]$sst.JobNote)
+  # FIX1/F6: o smoke existe para PROVAR o caminho de contencao. PASS exige
+  # atribuicao comprovada: sem JobAssigned=true o backstop nao esta provado e o
+  # verde seria enganoso, mesmo com o cleanup gracil tendo ocorrido.
+  if (-not $assignedStart) {
+    Fail-Smoke ('atribuicao ao job NAO comprovada (JobAssigned=false; nota=' + [string]$sst.JobNote + '): o backstop de arvore nao esta provado, entao o smoke FALHA mesmo com o stop gracil tendo ocorrido.')
+  }
 
   # Listener observado como FATO (contrato exato da lib; SEM claim OWNED/REUSE).
   # Modo presence: ausencia conclusiva NAO encerra (bind tardio continua na janela).
@@ -487,23 +642,60 @@ try {
   Add-SmokeCheck 'service_stop_owned' $true 'cmd: <bin> service stop (rc=0; sem kill de PID)'
 
   # ---- 6. settlement: ausencia CONCLUSIVA do listener (terminacao NAO afirmada) ----
+  # Stop PRIMARY ja e gracil (CLI owned, acima). Se o settlement NAO ocorrer
+  # dentro do deadline, o job deste smoke vira BACKSTOP bounded: TerminateJob
+  # + polling do member list ate um deadline proprio. O job SO pode conter o
+  # processo que este proprio smoke iniciou (um unico spawn recebeu
+  # -JobObject), logo nenhum PID externo e alcancado.
   $settleObs = Wait-PrivateListener -ExePath $binaryUsed -Port $freePort -Env $isoEnv -EnvRem $isoRemove -WorkDir $cwdT -DeadlineSeconds 30 -Mode absence
   $settled = [bool]$settleObs.Absent
-  Add-SmokeCheck 'service_settlement' $settled ('apos stop (deadline 30s): ausente_conclusiva=' + [bool]$settleObs.Absent + ' ainda_presente=' + [bool]$settleObs.Seen + ' consultas_inconclusivas=' + [int]$settleObs.InconclusiveCount + ' (terminacao do processo NAO afirmada)')
+  $membersBefore = Get-RuntimeJobMemberPids -Job $svcJob
+  $settleDetail = ('apos stop gracil (deadline 30s): ausente_conclusiva=' + [bool]$settleObs.Absent + ' ainda_presente=' + [bool]$settleObs.Seen + ' consultas_inconclusivas=' + [int]$settleObs.InconclusiveCount + ' job_membros=' + [int]$membersBefore.Count + ' (terminacao do processo NAO afirmada)')
+  if (-not $settled) {
+    # Backstop bounded: terminate do job + settlement proprio.
+    $script:jobBackstop = $true
+    $stopJob = Stop-RuntimeJobObject -Job $svcJob -TimeoutMs 15000
+    $script:jobDetail = $script:jobDetail + '; backstop terminate ok=' + [string]$stopJob.Ok + ' settled=' + [string]$stopJob.Settled + ' restantes=' + [int]$stopJob.Remaining + ' elapsed_ms=' + [long]$stopJob.ElapsedMs + ' polls=' + [int]$stopJob.PollCount + ' reason=' + [string]$stopJob.Reason
+    Write-Host ('[smoke-v2-lifecycle] backstop de job: ' + [string]$stopJob.Reason)
+    # Re-observa o listener apos o backstop (deadline proprio, sem claim).
+    $postObs = Wait-PrivateListener -ExePath $binaryUsed -Port $freePort -Env $isoEnv -EnvRem $isoRemove -WorkDir $cwdT -DeadlineSeconds 20 -Mode absence
+    $settleDetail = $settleDetail + '; backstop_job=true pos_backstop_ausente_conclusiva=' + [bool]$postObs.Absent + ' (job encerra SO o processo iniciado por este smoke)'
+    if ([bool]$postObs.Absent) {
+      # Backstop DEPOIS do stop gracil: o listener sumiu. Registrado como
+      # settlement por backstop, honesto e explicito (nao como stop gracil).
+      $settled = $true
+    }
+  }
+  Add-SmokeCheck 'service_settlement' $settled $settleDetail
   if (-not $settled) {
     $why = 'listener AINDA presente dentro do deadline'
     if (-not $settleObs.Seen) { $why = 'nenhuma consulta conclusiva dentro do deadline (sobrecarga?)' }
-    Fail-Smoke ('settlement: ' + $why + ' na porta ' + $freePort + ' apos stop.')
+    Fail-Smoke ('settlement: ' + $why + ' na porta ' + $freePort + ' apos stop' + $(if ($script:jobBackstop) { ' E apos backstop do job' } else { '' }) + '.')
   }
 
-  # ---- 7. invariante 49374: snapshot DEPOIS igual ao ANTES ----
-  $owner49374After = Get-Listener49374Fact
+  # ---- 7. FIX1/F7 + FIX2/G5: finalizar o job ANTES do veredito ----
+  # Finalize-Job observa membros, fecha o job (CloseHandle + KILL_ON_JOB_CLOSE
+  # encerra o que sobrou no job deste smoke) e so DEPOIS re-observa 49374.
+  # Mesma rotina usada no caminho de falha, entao nao ha divergencia de
+  # semantica: a evidencia (ok ou failed) carrega o resultado REAL do
+  # fechamento, nunca um flag assumido.
+  $fin = Finalize-Job
+  $membersBeforeClose = [int]$fin.Members
+  $jobCloseOk = [bool]$fin.CloseOk
+  Write-Host ('[smoke-v2-lifecycle] membros antes do fechamento: ' + [string]$membersBeforeClose + '; fechado ok=' + [string]$jobCloseOk)
+  Add-SmokeCheck 'job_object_closed' $jobCloseOk ('CloseRuntimeJobObject final: ok=' + $jobCloseOk + ' membros_antes=' + [string]$membersBeforeClose + ' motivo=' + [string]$fin.CloseReason + ' detalhe=' + [string]$script:jobDetail)
+  if (-not $jobCloseOk) {
+    Fail-Smoke ('fechamento do job NAO confirmado (ok=' + $jobCloseOk + ' motivo=' + [string]$fin.CloseReason + '): backstop final sem prova, smoke FALHA.') $fin
+  }
+
+  # ---- 8. invariante 49374: snapshot DEPOIS, observado no Finalize-Job ----
+  $owner49374After = [string]$fin.Port49374After
   $invariantOk = (($owner49374After -eq $script:owner49374Before) -and ($owner49374After -ne 'QUERY_FAILED'))
-  Add-SmokeCheck 'port49374_untouched' $invariantOk ('owner antes=' + $script:owner49374Before + ' depois=' + $owner49374After + ' (nunca iniciada nem alterada; QUERY_FAILED falha o invariante)')
-  if (-not $invariantOk) { Fail-Smoke ('invariante 49374: antes=' + $script:owner49374Before + ' depois=' + $owner49374After) }
+  Add-SmokeCheck 'port49374_untouched' $invariantOk ('owner antes=' + $script:owner49374Before + ' depois=' + $owner49374After + ' (nunca iniciada nem alterada; leitura pos-fechamento do job; QUERY_FAILED falha o invariante)')
+  if (-not $invariantOk) { Fail-Smoke ('invariante 49374: antes=' + $script:owner49374Before + ' depois=' + $owner49374After) $fin }
 
   [void]$smokeNotes.Add('caminho implicito de startup (debug config) NAO tentado aqui: flake upstream caracterizado no 2.0.18 (debugcfg-hang-investigation.json); este smoke prova o ciclo explicito do servico gerenciado (padrao P22).')
-  [void]$smokeNotes.Add('nenhum PID preexistente ou externo terminado; stop e via CLI do servico; home isolado EXCLUSIVO em TEMP; ambiente dos filhos limpo (-CleanEnvironment); nenhuma flag ativada.')
+  [void]$smokeNotes.Add('nenhum PID preexistente ou externo terminado; stop PRIMARY e via CLI do servico; o backstop de Job Object (se acionado) alcanca SOMENTE o job deste smoke, que contem apenas o processo de `service start` iniciado aqui; home isolado EXCLUSIVO em TEMP; ambiente dos filhos limpo (-CleanEnvironment); nenhuma flag ativada.')
 
   $pass = [ordered]@{
     smoke = 'v2-ci-smoke-lifecycle'
@@ -515,6 +707,12 @@ try {
     service_port = $freePort
     preflight_outcome = $pfOutcome
     listener_observed = [ordered]@{ pid = [string]$obs.Pid; name = [string]$obs.Name; path_prefix_match = [bool]$obs.PathMatch }
+    job_backstop = $script:jobBackstop
+    job_close_kill = $jobCloseOk
+    job_object_closed = $script:jobClosed
+    job_members_before_close = $membersBeforeClose
+    job_backstop_detail = $script:jobDetail
+    final_stop = [ordered]@{ attempted = [bool]$fin.StopAttempted; stopped = [bool]$fin.Stopped; reason = [string]$fin.StopReason }
     port49374_owner_before = $script:owner49374Before
     port49374_owner_after = $owner49374After
     isolation = 'XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos (so PATH/SystemRoot/ComSpec/PATHEXT/TEMP/TMP/PSModulePath); cwd no TargetHome; stdin fechado'
@@ -536,25 +734,21 @@ catch {
   throw
 }
 finally {
-  # Stop OWNED e gated: so tenta se isolamento provado + porta configurada +
-  # start tentado; o helper verifica o endpoint privado ANTES de parar
-  # (nunca para servico de outra execucao; nunca kill de PID).
-  if ((-not [string]::IsNullOrWhiteSpace($script:binaryUsed)) -and $script:isolationOk -and $script:portConfigured -and $script:portUsed -gt 0) {
-    try {
-      $cl = Invoke-SpikeServiceStopIfOwned -FilePath $script:binaryUsed -EnvSet $isoEnv -EnvRemove $isoRemove -WorkingDirectory $cwdT -IsolationProved $script:isolationOk -PortConfigured $script:portConfigured -Port $script:portUsed -WarmupAttempted $script:startAttempted -TimeoutMs 30000 -CleanEnvironment -StdinNul
-      Write-Host ('[smoke-v2-lifecycle] cleanup: ' + [string]$cl.Reason)
-      $sidecar = $EvidencePath + '.cleanup.json'
-      try {
-        Write-SmokeJsonAtomic ([ordered]@{ smoke = 'v2-ci-smoke-lifecycle'; date = (Get-SmokeEvidenceDate); cleanup = [ordered]@{ attempted = [bool]$cl.Attempted; stopped = [bool]$cl.Stopped; reason = [string]$cl.Reason } }) $sidecar
-      }
-      catch { }
-    }
-    catch {
-      $sidecar = $EvidencePath + '.cleanup.json'
-      try {
-        Write-SmokeJsonAtomic ([ordered]@{ smoke = 'v2-ci-smoke-lifecycle'; date = (Get-SmokeEvidenceDate); cleanup = [ordered]@{ attempted = $false; stopped = $false; reason = ('excecao no cleanup: ' + $_.Exception.Message) } }) $sidecar
-      }
-      catch { }
-    }
+  # FIX3/H-F + FIX4/K1: rede de seguranca para paths inesperados (excecao antes
+  # da finalizacao). Finalize-Job e MEMOIZADO: se ja rodou (caminho feliz ou
+  # falha), aqui NADA e executado - em especial NENHUM segundo stop gracil
+  # depois da evidencia principal. O sidecar registra o resultado memorizado com
+  # o snapshot pos-close.
+  $finFinally = $null
+  try { $finFinally = Finalize-Job } catch { $finFinally = $null }
+  $sidecar = $EvidencePath + '.cleanup.json'
+  $sidecarObj = [ordered]@{
+    smoke = 'v2-ci-smoke-lifecycle'
+    date = (Get-SmokeEvidenceDate)
+    cleanup = [ordered]@{ attempted = [bool]$finFinally.StopAttempted; stopped = [bool]$finFinally.Stopped; reason = [string]$finFinally.StopReason }
+    job = [ordered]@{ close_kill = [bool]$finFinally.CloseOk; close_reason = [string]$finFinally.CloseReason; members_before_close = [int]$finFinally.Members }
+    port49374_owner_after = [string]$finFinally.Port49374After
   }
+  try { Write-SmokeJsonAtomic $sidecarObj $sidecar } catch { }
+  Write-Host ('[smoke-v2-lifecycle] final (finally): job closed=' + [string]$finFinally.CloseOk + '; stop=' + [string]$finFinally.StopReason + '; 49374_after=' + [string]$finFinally.Port49374After)
 }
