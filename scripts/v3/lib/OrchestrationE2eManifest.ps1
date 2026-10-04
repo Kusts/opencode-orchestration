@@ -625,17 +625,41 @@ function Invoke-E2eCheckCapabilityWindowsUnsupported {
     if (-not $dep.available) { return (New-E2eCheckResult $false $dep.reason) }
     try {
         $policy = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $C.RepoRoot 'source/registry/capability-doctor-policy.json')))
+        # The real policy now declares semantic discovery SUPPORTED on windows, so
+        # this scenario keeps its check id and proves the other half of the same
+        # criterion: an OPTIONAL capability whose probe reports unhealthy neither
+        # blocks the task nor loses its declared fallback. The probe stays
+        # synthetic and injectable, and only semantic-discovery fails: a probe
+        # that failed every capability would collapse the whole report into the
+        # all-optional-unavailable degraded mode, where no fallback survives.
         # No -Clock callback is handed to the doctor: this harness reads only the
         # capability verdict below, never a doctor timestamp, so injecting one
         # would buy no determinism and would keep a scriptblock seam alive.
-        $report = Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform windows -Probe { param($name, $budget) throw 'probe-must-not-run' }
+        $report = Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform windows -Probe {
+            param($name, $budget)
+            if ([string]$name -eq 'semantic-discovery') {
+                return @{ health = 'unavailable'; elapsed_seconds = 0; detail = 'Synthetic semantic discovery probe failed.' }
+            }
+            return @{ health = 'healthy'; elapsed_seconds = 0; detail = 'Synthetic probe healthy.' }
+        }
         $semantic = $report.capabilities.'semantic-discovery'
-        if ([string]$semantic.health -ne 'unsupported') { return (New-E2eCheckResult $false ('health:' + (Get-E2eSafeText $semantic.health 24))) }
-        $fb = Get-OrchestrationCapabilityFallback -Capability 'semantic-discovery' -Health unsupported -Policy $policy -Platform 'windows'
+        # Exactly the value the injected failing probe maps to, so this row also
+        # proves the probe was honored instead of the platform short-circuiting it.
+        if ([string]$semantic.health -ne 'unavailable') { return (New-E2eCheckResult $false ('health:' + (Get-E2eSafeText $semantic.health 24))) }
+        # Optional + authority none + unhealthy is never a blocker: it must not
+        # surface CAPABILITY_REQUIRED_BLOCKED or CAPABILITY_SECURITY_HEALTH_BLOCKED.
+        if ([bool]$semantic.required_blocker -or -not [string]::IsNullOrEmpty([string]$semantic.blocker_type)) {
+            return (New-E2eCheckResult $false ('blocker:' + (Get-E2eSafeText $semantic.blocker_type 32)))
+        }
+        if (-not [bool]$semantic.fallback_available) { return (New-E2eCheckResult $false 'optional-unhealthy-capability-has-no-fallback') }
+        # The fallback is resolved from the OBSERVED health, so this asserts the
+        # real semantic of Get-OrchestrationCapabilityFallback and names the first
+        # declared destination in the reported detail.
+        $fb = Get-OrchestrationCapabilityFallback -Capability 'semantic-discovery' -Health ([string]$semantic.health) -Policy $policy -Platform 'windows'
         if (-not [bool]$fb.use_fallback -or [string]$fb.fallback_to -ne 'direct-search') {
             return (New-E2eCheckResult $false ('fallback:' + (Get-E2eSafeText $fb.fallback_to 32)))
         }
-        return (New-E2eCheckResult $true 'optional semantic discovery reports unsupported on windows and falls back')
+        return (New-E2eCheckResult $true 'optional semantic discovery unhealthy on windows: not blocked, falls back to direct-search')
     } catch { return (New-E2eCheckResult $false ('throw:' + (Get-E2eSafeText $_.Exception.Message 80))) }
 }
 

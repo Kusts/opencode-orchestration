@@ -32,7 +32,7 @@
       "health": "unknown",
       "provider": "jevgrep",
       "fallback_order": ["direct-search", "degraded-mode"],
-      "platform_support": {"windows": false, "linux": true, "macos": true},
+      "platform_support": {"windows": true, "linux": true, "macos": true},
       "risk_class": {"authority": "none"},
       "health_probe": {"probe_budget_metadata": 2, "synthetic_only": true},
       "optional": true,

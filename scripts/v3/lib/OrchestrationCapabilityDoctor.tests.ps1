@@ -14,7 +14,9 @@ $overBudget=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform linux
 Assert-That ($overBudget.capabilities.jev.health -eq 'unavailable') 'probe result beyond declared budget fails closed'
 $unhealthy=Get-OrchestrationCapabilityFallback -Capability 'ai-memory' -Health unavailable -Policy $policy
 Assert-That ($unhealthy.use_fallback -and $unhealthy.fallback_to -eq 'local-project-search') 'unhealthy optional primary has explicit fallback'
-$unsupported=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform windows -Clock $clock -Probe {throw 'probe must not run'}
+$windowsUnsupportedPolicy=Copy-Policy $policy
+$windowsUnsupportedPolicy.capabilities.'semantic-discovery'.platform_support.windows=$false
+$unsupported=Invoke-OrchestrationCapabilityDoctor -Policy $windowsUnsupportedPolicy -Platform windows -Clock $clock -Probe {throw 'probe must not run'}
 Assert-That ($unsupported.capabilities.'semantic-discovery'.health -eq 'unsupported') 'Windows semantic discovery unsupported without throwing'
 $unsupportedFallback=Get-OrchestrationCapabilityFallback -Capability 'semantic-discovery' -Health unsupported -Policy $policy
 Assert-That ($unsupportedFallback.use_fallback -and $unsupportedFallback.fallback_to -eq 'direct-search') 'unsupported platform falls back explicitly'
@@ -88,7 +90,7 @@ Assert-That ($doctorDescription -match 'METADATA ONLY' -and $doctorDescription -
 # F3: fallback destination must exist and be supported on the platform
 $requiredUnsupported=Get-OrchestrationCapabilityFallback -Capability 'semantic-discovery' -Health unsupported -Policy $policy -Platform 'windows' -Required
 Assert-That ($requiredUnsupported.blocked -and $requiredUnsupported.blocker_type -eq 'CAPABILITY_REQUIRED_BLOCKED' -and -not $requiredUnsupported.use_fallback) 'required plus unsupported capability returns typed blocker'
-$requiredUnsupportedReport=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform windows -Clock $clock -RequiredCapabilities @('semantic-discovery') -Probe {param($name,$budget) @{health='healthy';detail='ok'}}
+$requiredUnsupportedReport=Invoke-OrchestrationCapabilityDoctor -Policy $windowsUnsupportedPolicy -Platform windows -Clock $clock -RequiredCapabilities @('semantic-discovery') -Probe {param($name,$budget) @{health='healthy';detail='ok'}}
 Assert-That ($requiredUnsupportedReport.capabilities.'semantic-discovery'.required_blocker -and $requiredUnsupportedReport.capabilities.'semantic-discovery'.blocker_type -eq 'CAPABILITY_REQUIRED_BLOCKED') 'doctor surfaces the typed blocker for a required unsupported capability'
 $ghostPolicy=Copy-Policy $policy
 $ghostPolicy.capabilities.'ai-memory'.fallback_order=@('ghost-provider','degraded-mode')
@@ -96,6 +98,7 @@ $ghostFallback=Get-OrchestrationCapabilityFallback -Capability 'ai-memory' -Heal
 Assert-That (-not $ghostFallback.use_fallback -and $null -eq $ghostFallback.fallback_to -and $ghostFallback.degraded_mode -and $ghostFallback.fallback_rejected_reason -eq 'fallback-destination-unknown') 'nonexistent fallback destination yields no fallback'
 $platformPolicy=Copy-Policy $policy
 $platformPolicy.capabilities.'ai-memory'.fallback_order=@('semantic-discovery','degraded-mode')
+$platformPolicy.capabilities.'semantic-discovery'.platform_support.windows=$false
 $unsupportedDestination=Get-OrchestrationCapabilityFallback -Capability 'ai-memory' -Health unavailable -Policy $platformPolicy -Platform 'windows'
 Assert-That (-not $unsupportedDestination.use_fallback -and $null -eq $unsupportedDestination.fallback_to -and $unsupportedDestination.fallback_rejected_reason -eq 'fallback-destination-unsupported') 'fallback destination unsupported on the platform yields no fallback'
 $supportedDestination=Get-OrchestrationCapabilityFallback -Capability 'ai-memory' -Health unavailable -Policy $platformPolicy -Platform 'linux'
@@ -133,5 +136,28 @@ $parsedStamp=[DateTimeOffset]::MinValue
 Assert-That ([DateTimeOffset]::TryParse($invalidClock.generated_at,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::RoundtripKind,[ref]$parsedStamp) -and $invalidClock.generated_at -ne 'not-a-timestamp') 'invalid clock yields the default stamp without throwing'
 $throwingClock=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform linux -Clock { throw 'clock failure' } -Probe {param($name,$budget) @{health='healthy';detail='ok'}}
 Assert-That (-not [string]::IsNullOrWhiteSpace($throwingClock.generated_at)) 'throwing clock falls back to the default stamp without throwing'
+
+# PAE-30 closure: the real policy declares jevgrep semantic discovery supported on
+# Windows. Every assert below reads the repository policy through its real relative
+# path, so reverting platform_support.windows to false fails here rather than passing
+# on a synthetic in-memory policy that still says false.
+$realPolicyPath=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\source\registry\capability-doctor-policy.json'))
+Assert-That (Test-Path -LiteralPath $realPolicyPath) 'the real capability doctor policy resolves from the repository path'
+$realPolicy=ConvertFrom-Json ([IO.File]::ReadAllText($realPolicyPath))
+$realWindowsSupport=$realPolicy.capabilities.'semantic-discovery'.platform_support.windows
+Assert-That ($realWindowsSupport -is [bool] -and $realWindowsSupport -eq $true) 'real policy declares semantic discovery supported on windows as a strict boolean'
+$realSemantic=$realPolicy.capabilities.'semantic-discovery'
+Assert-That ($realSemantic.platform_support.linux -eq $true -and $realSemantic.platform_support.macos -eq $true) 'real policy leaves semantic discovery supported on linux and macos'
+$realOrder=@($realSemantic.fallback_order)
+Assert-That ((ConvertTo-Json $realOrder -Compress) -ceq '["direct-search","degraded-mode"]') 'real policy keeps the semantic discovery fallback order intact'
+$realDestinationsOk=$true
+foreach($destination in $realPolicy.fallback_destinations.PSObject.Properties){$support=$destination.Value.platform_support.windows;if(-not($support -is [bool] -and $support -eq $true)){$realDestinationsOk=$false}}
+Assert-That ($realDestinationsOk) 'every declared fallback destination stays supported on windows'
+$realWindowsReport=Invoke-OrchestrationCapabilityDoctor -Policy $realPolicy -Platform windows -Clock $clock -Probe {param($name,$budget) @{health='healthy';detail='ok'}}
+$realWindowsSemantic=$realWindowsReport.capabilities.'semantic-discovery'
+Assert-That ($realWindowsSemantic.health -eq 'healthy' -and -not $realWindowsSemantic.required_blocker -and $null -eq $realWindowsSemantic.blocker_type -and $null -eq $realWindowsSemantic.schema_error) 'real policy reports semantic discovery supported and unblocked on windows'
+Assert-That ($realWindowsReport.capabilities.'semantic-discovery'.provider -eq 'jevgrep' -and -not $realWindowsReport.degraded_mode) 'real policy exposes the jevgrep provider on windows without degraded mode'
+$realFallback=Get-OrchestrationCapabilityFallback -Capability 'semantic-discovery' -Health unavailable -Policy $realPolicy -Platform 'windows'
+Assert-That ($realFallback.use_fallback -and $realFallback.fallback_to -eq 'direct-search' -and $null -eq $realFallback.fallback_rejected_reason) 'real policy still falls back from an unavailable primary to the first declared destination on windows'
 
 Write-Output "PASS: $passed assertions"
