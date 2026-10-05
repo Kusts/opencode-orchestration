@@ -1,7 +1,8 @@
 {
   "version": 1,
   "runtime": "v2",
-  "pin": "2.0.18",
+  "pin": "2.0.23",
+  "pin_note": "This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); it was bumped to the current canonical V2 pin on 2026-10-05 (previously two minor releases behind). The 8 features remain hold-unproven: no exact-binary-live evidence has been collected, and collection plus validation is operator-owned by design (see evidence_contract.writer_contract).",
   "activation_rule": "A candidate is enabled only by a valid exact-binary-live evidence record; a declaration in this file is never an enabler (plan 17.10: do not enable a feature if exact-binary behavior is not proven).",
   "evidence_contract": {
     "registry_path": "evidence/v3.1/runtime-reliability/v2-native-evidence.json",
@@ -18,7 +19,7 @@
     "session-hierarchy-provenance": {
       "feature_id": "session-hierarchy-provenance",
       "description": "Native root/family/parent session provenance reported by the V2 runtime (plan 17.2).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "session-hierarchy-provenance-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "session-hierarchy-provenance-exact-binary"},
       "v1_fallback": {"mode": "kernel-side-equivalent"},
       "authority_impact": "none",
       "status": "hold-unproven"
@@ -26,7 +27,7 @@
     "session-permission-narrowing": {
       "feature_id": "session-permission-narrowing",
       "description": "Session-specific permissions rendered from the Dispatch Contract narrowing only; child authority never exceeds the Planner/Task grant (plan 17.3).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "session-permission-narrowing-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "session-permission-narrowing-exact-binary"},
       "v1_fallback": {"mode": "kernel-side-equivalent"},
       "authority_impact": "narrowing",
       "status": "hold-unproven"
@@ -34,7 +35,7 @@
     "experimental-policies-hard-deny": {
       "feature_id": "experimental-policies-hard-deny",
       "description": "experimental.policies hard-deny invariants where the exact API proves deny wins over an ordinary allow; authority only tightens (plan 17.4).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "experimental-policies-hard-deny-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "experimental-policies-hard-deny-exact-binary"},
       "v1_fallback": {"mode": "kernel-side-equivalent"},
       "authority_impact": "narrowing",
       "status": "hold-unproven"
@@ -42,7 +43,7 @@
     "native-step-limits": {
       "feature_id": "native-step-limits",
       "description": "Native step limits derived from the canonical execution budgets instead of a duplicated local counter (plan 17.5).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "native-step-limits-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "native-step-limits-exact-binary"},
       "v1_fallback": {"mode": "kernel-side-equivalent"},
       "authority_impact": "narrowing",
       "status": "hold-unproven"
@@ -50,7 +51,7 @@
     "background-subagents-bounded": {
       "feature_id": "background-subagents-bounded",
       "description": "Background subagents with bounded concurrency while the kernel/reconciler keeps owning restart reconciliation (plan 17.6).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "background-subagents-bounded-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "background-subagents-bounded-exact-binary"},
       "v1_fallback": {"mode": "kernel-side-equivalent"},
       "authority_impact": "narrowing",
       "status": "hold-unproven"
@@ -58,7 +59,7 @@
     "plugin-storage-index": {
       "feature_id": "plugin-storage-index",
       "description": "Plugin storage used as a rebuildable runtime-only index, never as authoritative state (plan 17.7).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "plugin-storage-index-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "plugin-storage-index-exact-binary"},
       "v1_fallback": {"mode": "none"},
       "authority_impact": "none",
       "status": "hold-unproven"
@@ -66,7 +67,7 @@
     "snapshots-auxiliary": {
       "feature_id": "snapshots-auxiliary",
       "description": "Snapshots as auxiliary evidence/recovery material that never overrides Git or worktree state (plan 17.8).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "snapshots-auxiliary-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "snapshots-auxiliary-exact-binary"},
       "v1_fallback": {"mode": "none"},
       "authority_impact": "none",
       "status": "hold-unproven"
@@ -74,7 +75,7 @@
     "durable-event-log-replay": {
       "feature_id": "durable-event-log-replay",
       "description": "Durable session event log used as experimental secondary replay only; its absence never breaks task recovery (plan 17.9).",
-      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.18", "scenario": "durable-event-log-replay-exact-binary"},
+      "required_evidence": {"type": "exact-binary-live", "runtime": "v2", "pin": "2.0.23", "scenario": "durable-event-log-replay-exact-binary"},
       "v1_fallback": {"mode": "fresh-session"},
       "authority_impact": "none",
       "status": "hold-unproven"

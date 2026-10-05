@@ -15,13 +15,13 @@ try {
 function New-EvidenceFile {
     param([string]$Name,[object[]]$Records)
     $path=Join-Path $script:tempDir $Name
-    $doc=[ordered]@{schema_version=1;runtime='v2';pin='2.0.18';records=@($Records)}
+    $doc=[ordered]@{schema_version=1;runtime='v2';pin='2.0.23';records=@($Records)}
     [IO.File]::WriteAllText($path,(ConvertTo-Json -InputObject $doc -Depth 20),[Text.Encoding]::UTF8)
     return $path
 }
 function New-ProvenRecord {
     param([string]$FeatureId,[string]$Scenario,[hashtable]$Override=@{},[string]$DigestOverride='')
-    $record=[ordered]@{feature_id=$FeatureId;type='exact-binary-live';runtime='v2';pin='2.0.18';scenario=$Scenario;verified_at='2026-10-02T12:00:00Z';verified_by='livehook-v2.tests.ps1'}
+    $record=[ordered]@{feature_id=$FeatureId;type='exact-binary-live';runtime='v2';pin='2.0.23';scenario=$Scenario;verified_at='2026-10-02T12:00:00Z';verified_by='livehook-v2.tests.ps1'}
     foreach($key in $Override.Keys){if($key -cne 'record_hash'){$record[$key]=$Override[$key]}}
     $hash=Get-OrchestrationV2NativeEvidenceHash ([pscustomobject]$record)
     if($DigestOverride){$hash=$DigestOverride}
@@ -39,16 +39,16 @@ $holdCount=0;$fallbackCount=0;$impactOk=$true
 foreach($name in $expectedFeatures){
     $entry=$registry.features.PSObject.Properties[$name].Value
     if($entry.status -eq 'hold-unproven'){$holdCount++}
-    if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq 'exact-binary-live' -and [string]$entry.required_evidence.runtime -ceq 'v2' -and [string]$entry.required_evidence.pin -ceq '2.0.18'){$holdCount++}
+    if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq 'exact-binary-live' -and [string]$entry.required_evidence.runtime -ceq 'v2' -and [string]$entry.required_evidence.pin -ceq '2.0.23'){$holdCount++}
     if([string]$entry.required_evidence.scenario -match '^[a-z0-9][a-z0-9-]{2,63}$'){$fallbackCount++}
     if([string]$entry.v1_fallback.mode -in @('none','fresh-session','kernel-side-equivalent')){$fallbackCount++}
     if([string]$entry.authority_impact -notin @('none','narrowing')){$impactOk=$false}
     if($entry.PSObject.Properties.Name -contains 'enabled'){$impactOk=$false}
 }
-Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) 'every candidate is hold-unproven with exact-binary-live/v2/2.0.18 requirements'
+Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) 'every candidate is hold-unproven with exact-binary-live/v2/2.0.23 requirements'
 Assert-That ($fallbackCount -eq ($expectedFeatures.Count*2)) 'every candidate declares a scenario and a v1_fallback.mode from the closed enum'
 Assert-That $impactOk 'authority_impact is none/narrowing only and no candidate carries an enabled key'
-Assert-That ($registry.runtime -ceq 'v2' -and $registry.pin -ceq '2.0.18' -and $registry.PSObject.Properties.Name -notcontains 'enabled') 'registry declares no global activation switch'
+Assert-That ($registry.runtime -ceq 'v2' -and $registry.pin -ceq '2.0.23' -and $registry.PSObject.Properties.Name -notcontains 'enabled') 'registry declares no global activation switch'
 Assert-That ([bool]$registry.evidence_contract.append_only -and [string]$registry.evidence_contract.hash_algorithm -ceq 'sha256-canonical-json') 'evidence contract declares append-only sha256-canonical-json'
 Assert-That ($registry.evidence_contract.registry_path -ceq 'evidence/v3.1/runtime-reliability/v2-native-evidence.json') 'evidence contract declares the append-only registry path'
 
@@ -221,8 +221,8 @@ $offsetResult=Get-OrchestrationV2NativeFeature -feature_id $target -evidence_reg
 Assert-That ($offsetResult.enabled -and $offsetResult.evidence.verified_at -eq '2026-10-02T12:00:00.0000000Z') 'instant is normalized to UTC round-trip form'
 $allFields=@(($first.PSObject.Properties.Name)+@($first.evidence.PSObject.Properties.Name)) -join ','
 Assert-That ($allFields -eq 'feature_id,enabled,status,reason,detail,authority_impact,declared_status,v1_fallback_mode,scenario,evidence,verified_at,verified_by,record_hash') 'output shape is fixed'
-$typedInstant=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.18';scenario=$scenario;verified_at=([DateTime]'2026-10-02T12:00:00Z');verified_by='livehook-v2.tests.ps1'}
-$textInstant=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.18';scenario=$scenario;verified_at='2026-10-02T12:00:00Z';verified_by='livehook-v2.tests.ps1'}
+$typedInstant=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.23';scenario=$scenario;verified_at=([DateTime]'2026-10-02T12:00:00Z');verified_by='livehook-v2.tests.ps1'}
+$textInstant=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.23';scenario=$scenario;verified_at='2026-10-02T12:00:00Z';verified_by='livehook-v2.tests.ps1'}
 Assert-That ((Get-OrchestrationV2NativeEvidenceHash ([pscustomobject]$typedInstant)) -ceq (Get-OrchestrationV2NativeEvidenceHash ([pscustomobject]$textInstant))) 'typed and text instants hash identically (PS7 auto-converts ISO JSON to DateTime)'
 
 # ---------- F1: a rejected authority_impact is never echoed ----------
@@ -245,9 +245,9 @@ Assert-That ((-not $wideningResult.enabled) -and $wideningResult.reason -eq 'aut
 $zonePath=New-EvidenceFile -Name 'zone.json' -Records @((New-ProvenRecord -FeatureId $target -Scenario $scenario -Override @{verified_at='2026-10-02T21:00:00+09:00'}))
 $zoneResult=Get-OrchestrationV2NativeFeature -feature_id $target -evidence_registry_path $zonePath
 Assert-That ($zoneResult.enabled -and $zoneResult.evidence.verified_at -eq '2026-10-02T12:00:00.0000000Z' -and $zoneResult.evidence.record_hash -ceq $enabled.evidence.record_hash) 'the same instant under a different offset verifies to the same digest'
-$unspecified=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.18';scenario=$scenario;verified_at=([DateTime]::SpecifyKind([DateTime]'2026-10-02 12:00:00',[DateTimeKind]::Unspecified));verified_by='livehook-v2.tests.ps1'}
+$unspecified=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.23';scenario=$scenario;verified_at=([DateTime]::SpecifyKind([DateTime]'2026-10-02 12:00:00',[DateTimeKind]::Unspecified));verified_by='livehook-v2.tests.ps1'}
 Assert-That ((Get-OrchestrationV2NativeEvidenceHash ([pscustomobject]$unspecified)) -eq '') 'Kind Unspecified instant yields no digest'
-$wallClock=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.18';scenario=$scenario;verified_at=[DateTime]'2026-10-02 12:00:00';verified_by='livehook-v2.tests.ps1'}
+$wallClock=[ordered]@{feature_id=$target;type='exact-binary-live';runtime='v2';pin='2.0.23';scenario=$scenario;verified_at=[DateTime]'2026-10-02 12:00:00';verified_by='livehook-v2.tests.ps1'}
 Assert-That ((Get-OrchestrationV2NativeEvidenceHash ([pscustomobject]$wallClock)) -eq '') 'wall-clock DateTime without offset yields no digest'
 
 # ---------- F3: records must be an array in its original type ----------
