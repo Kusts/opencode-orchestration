@@ -16,9 +16,14 @@ correta; sem commit/install/escrita global salvo pedido explícito.
 - Permissões (normativo p/ shell): `docs/PERMISSIONS.md`. Segurança:
   `docs/SECURITY.md` + `SECURITY.md`. Governança/ownership: `docs/GOVERNANCE.md`.
 - Programa ativo V3.1: `docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`
-  e `docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-PLAN.md`; status vivo em
-  `CHANGELOG.md` (`[Unreleased]`) e
-  `evidence/v3.1/kernel-hardening/implementation-status.json`.
+  e `docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-PLAN.md`. **Status vivo**
+  = `CHANGELOG.md` (`[Unreleased]`) +
+  `evidence/v3.1/runtime-reliability/program-status.json` + os registries
+  `source/registry/*` (flags e pins).
+  `evidence/v3.1/kernel-hardening/implementation-status.json` é um
+  **snapshot datado de 2026-09-29**, não status vivo.
+- Pins de runtime/tools (fonte única): `source/registry/runtime-versions.json`
+  (loader fail-closed `scripts/runtime/lib/RuntimeVersions.ps1`).
 - Troubleshooting (inclui divergência de baseline `DE22307F`):
   `docs/TROUBLESHOOTING.md`.
 
@@ -94,21 +99,36 @@ Phase 8 = lane CI com smoke de binário V2 COMPROVADO via lifecycle explícito
 (2026-10-04: PASS no runner — GitHub Actions run 37193122170; smoke
 implícito segue flaky upstream); Runtime Reliability P21 done
 (baseline + fixtures 17/17), P22 parcial-HOLD (preflight + wrapper
-condicionado + E2E nativo; REUSE HOLD) + fatia Job Objects done-code
-(RR-P22-JOB-OBJECTS; cleanup de descendants à prova de escape; wiring no
-enforcement = follow-up), P23 done-record-only (budgets,
-sem enforcement), P24 parcial (plugin V2 event.subscribe + live-hook;
+condicionado + E2E nativo; REUSE HOLD — nenhum claim OWNED) + fatia Job
+Objects done-code (RR-P22-JOB-OBJECTS; cleanup de descendants à prova de
+escape; wiring no enforcement ENTREGUE em 2026-10-05 — ver P26 abaixo),
+P23 done-record-only (budgets; `bounded_execution` ON desde 2026-10-04,
+mas o `ExecutionBudget` ainda devolve `enforce=false` — HOLD honesto, não
+alegar enforcement), P24 parcial (plugin V2 event.subscribe + live-hook;
 d sem-modelo e updated NOT-VERIFIED); P25 done-shadow (RuntimeWatchdog
-lib shadow puro: fingerprints sanitizados len:valor, repetição da policy,
+lib shadow: fingerprints sanitizados len:valor, repetição da policy,
 HARD_TIMEOUT/NO_PROGRESS/REPEATED_ACTION/CYCLE/BUDGET_NEAR_LIMIT em
 shadow, JSONL bounded com lock in-process e cap fail-closed, identidade
-obrigatória, watchdog{enabled:false, shadow:true}, enabled=true =>
-WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED; watchdog 134/134 PS5.1+PS7 (80
+obrigatória; watchdog 134/134 PS5.1+PS7 (80
 base + follow-up 2026-10-03: gate cross-process + retenção multi-dia
 bounded, FIX1..FIX8), kernel
 75/75, consistência 16/16; reviewer APPROVED (REV4) + security APPROVED
-(SEC3); follow-ups de telemetria ENTREGUES 2026-10-03; interrupt
- real = Phase 26); Waves A–E do programa revisado (2026-10-01;
+(SEC3); follow-ups de telemetria ENTREGUES 2026-10-03), P26 com a
+interrupção real entregue (identidade exata pid+creation-ticks, prova de
+vida coletada na validação, kill pelo handle pinado da instância
+verificada, árvore por snapshot CIM com caps fail-closed, seam
+`SETTLEMENT_REQUIRED` no kernel) e o watchdog **ATIVADO** pelo operador em
+2026-10-04 (`{enabled:true, shadow:false}`), com o backstop de Job Object
+ligado ao caminho de enforcement em 2026-10-05 (P26-JOB-WIRING: raiz
+verificada anexada a um job anônimo antes do snapshot +
+`TerminateJobObject` como backstop depois do kill CIM — fecha o escape de
+descendente pós-snapshot; HOLDs residuais honestos: janela
+gate→`TerminateJobObject` nativo, preempção entre checagem e chamada,
+descendentes pré-attach cobertos só pelo kill CIM).
+`WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` continua sendo o token do registro
+**sem binding de processo provado** em modo ENFORCE (HOLD honesto:
+identidade/ownership não prováveis ⇒ recusa, nunca kill de PID
+desconhecido); Waves A–E do programa revisado (2026-10-01;
   PAE-01-PAE-40 substituem RR-01-RR-20) **code-complete e commitadas
   2026-10-02/03** (P28 S1+S2, P29 S1, P30 S1, P31 S1+S2, P32, P33 S1,
   P34, P35, P36, P37, P38 S1+S2, P39, P40 S1+S2, P41 S1+S2, P42
@@ -117,27 +137,69 @@ bounded, FIX1..FIX8), kernel
   `evidence/v3.1/runtime-reliability/program-status.json`; matriz
   PAE-01-PAE-40 em
   `evidence/v3.1/runtime-reliability/pae-traceability.json`; docs
-  reconciliadas em 2026-10-03);
-  **release gate pendente de evidência do operador**: lane V2 Windows
-  real, AI Memory remoto do operador já em PROD (restam config
-  user-owned local fora do repo + evidência de health/transporte sem
-  identidade no repo), ativações de flag com evidência, probes
-  reais, jevgrep real, wirings de chamador em produção (P31-S2, P38-S2,
-  P40-S2 append/enable, P41-S2 telemetria);
-flags de rollout nascem OFF
-(shadow, ativação só com evidência). Não ativar `skill_routing`,
+  reconciliadas em 2026-10-05);
+  **release gate pendente de evidência do operador**: evidência V2-native
+  no **pin vigente** (gating P40 exige exact-binary-live do pin atual);
+  cenários cross-session 16..22 (sessão real + restart); wirings de
+  chamador restantes (registro do hook de arranque P31-S2, spawn real do
+  despacho P38-S2 — record-only por decisão, produtor de telemetria
+  P41-S2, append/enable do revisor P40-S2 — decisão do operador); probes
+  reais de transporte contra endpoint real (inclui o probe HTTPS dedicado
+  do AI Memory, separado do round-trip MCP já provado). A lane V2 Windows
+  real RR-E2E-04..10 **não é mais pendência**: 7/7 `pass-real` no runner
+  em 2026-10-05 (run `37376248759`, push `4cfb26a`: step da lane verde;
+  primeiro em `RUNNER_TEMP`/`TEMP` + gate `clean_tree_within_lane_scopes`,
+  commit `7b527d8`) — fecha o P0 do `COMPLETION_GATE_FAILED` anterior. No
+  mesmo run os demais jobs passaram (ps51 com o teto novo de 60m, ps7,
+  lane v2, smoke v1) e o job `ci-smoke-opencode-v2` teve uma única falha:
+  o step final `Smoke test with real OpenCode V2` (smoke implícito) com
+  `debug config: TIMEOUT 30s` — flake upstream documentado
+  (`debugcfg-hang-investigation.json`), formalizado como observação com
+  `continue-on-error: true` (HOLD explícito da Etapa I: a falha continua
+  visível em log/anotação, não derruba o gate). **Não alegar "CI
+  totalmente verde"**: o job V2 segue carregando esse probe observacional.
+  **Já fechado** (não repetir como pendência): ativações de flag com
+  evidência (lote 2026-10-04), jevgrep real (instalado + consult semântico
+  em 2026-10-04; o flip de policy `platform_support.windows=true` e os
+  asserts do doctor já estão na base — `source/registry/capability-doctor-policy.json`
+  e `OrchestrationE2eManifest.tests.ps1`: resta só probe real contra
+  endpoint real, coberto pela pendência genérica acima), config
+  user-owned do AI Memory confirmada em 2026-10-04 e round-trip remoto
+  autenticado comprovado (`aimem-health-repreflight-2026-10-04.json`), e
+  o wiring do chamador Jev no Planner loop
+  (P38-S2, commit `4cfb26a`, advisory-only);
+flags de rollout nascem OFF **por política** (shadow; ativação é decisão
+humana com evidência, nunca inferência — o lote do operador de 2026-10-04
+ativou 6 flags com evidência registrada). Não ativar `skill_routing`,
 `mcp_routing`, `adaptive_ranking`; não criar V4/daemon/database.
 
 ## Flags conservadoras + prova em runtime exato
 
-Flags em `source/registry/capability-flags.json` nascem `false`
-(`capability_router.shadow/active`, `skill_routing`, `mcp_routing`,
-`adaptive_ranking`; kernel: `task_kernel`, `worktree_isolation`,
-`runtime_grant_enforcement`). Nenhum claim de enforcement além do testado:
-V1 validado `1.18.32`, V2 `2.0.18`; evidência viva em
-`evidence/v3.1/kernel-hardening/runtime-binding.json`. Qualquer ativação de
-flag ou claim de enforcement exige teste no runtime exato + decisão humana
+**Política**: flags nascem OFF/shadow e a ativação é decisão humana com
+evidência. Estado vivo (não duplicar aqui):
+`source/registry/capability-flags.json`. **Ativas** (lote do operador
+2026-10-04, `evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json`):
+`runtime_support.v1/v2/dual_profile`, `task_kernel`, `bounded_execution`,
+`watchdog`, `jev_advisory`, `worktree_isolation`. **OFF** por doutrina ou
+Phase 5: `capability_router.shadow/active`, `skill_routing`, `mcp_routing`,
+`adaptive_ranking`, `routing_telemetry`, `capability_reconciler`,
+`runtime_grant_enforcement{v1,v2}` (nenhum hard-deny antes da validação
+comportamental no runtime V2 real).
+
+**Pins**: fonte única `source/registry/runtime-versions.json`
+(`runtimes.v1/v2`, `plugins.v1/v2`, `tools.bun`; loader fail-closed
+`scripts/runtime/lib/RuntimeVersions.ps1`, sem fallback para literal);
+`source/registry/runtimes.json` é registro de descritores/histórico, não o
+pin. Evidência viva em `evidence/v3.1/kernel-hardening/runtime-binding.json`
++ `evidence/v3.1/runtime-reliability/`. Qualquer ativação de flag, bump de
+pin ou claim de enforcement exige suíte no runtime exato + decisão humana
 com evidência.
+
+HOLDs honestos em vigor: `bounded_execution` ligada mas o `ExecutionBudget`
+ainda devolve `enforce=false` (orçamentos efetivos hoje via watchdog/kernel
+— não alegar enforcement); `Phase 5` (enforcement comportamental V2) segue
+HOLD com `runtime_grant_enforcement` OFF; `REUSE` da P22 continua HOLD
+(nenhum claim OWNED).
 
 ## Validação (comandos reais, PS 5.1 e PS7)
 

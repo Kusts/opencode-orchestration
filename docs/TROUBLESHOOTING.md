@@ -1,16 +1,22 @@
 # Troubleshooting
 
-## Programa Phases 21-42 (revisão 2026-10-01) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; pendências de ativação/evidência do operador)
+## Programa Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; flags de rollout ativas desde 2026-10-04; release gate pendente do operador)
 
 Estado vivo em
-`evidence/v3.1/runtime-reliability/program-status.json`. O que já tem
-diagnóstico real (P21–P22) e o que segue manual:
+`evidence/v3.1/runtime-reliability/program-status.json`; flags em
+`source/registry/capability-flags.json`; pins em
+`source/registry/runtime-versions.json`. O que já tem diagnóstico real
+(P21–P22) e o que segue manual:
 
 - **V2 trava no startup / timeout opaco do serviço (Windows)**: causa
   provável é colisão de porta — o serviço gerenciado V2 usa por padrão
-  `127.0.0.1:49374`, mesma porta do AI Memory local (P21 confirmou:
-  listener Docker saudável + clientes `cloudflared`/opencode V1).
-  Diagnóstico determinístico disponível (P22):
+  `127.0.0.1:49374`, **mesma porta do serviço de fundo do próprio V2 CLI**
+  (`opencode.exe serve --service` do npm global, respawnado a cada
+  sessão/restart). **Identidade corrigida em 2026-10-03: `49374` NÃO é
+  AI Memory** — o AI Memory do operador roda remoto (PROD); o registro
+  original de P21 (listener Docker + clientes `cloudflared`/opencode V1)
+  permanece em `baseline.json` como histórico. O processo local nunca é
+  mutado por aqui. Diagnóstico determinístico disponível (P22):
   `scripts/runtime/RuntimePortPreflight.ps1` — outcomes `PORT_FREE`,
   `PORT_OCCUPIED_*`, `PORT_WINDOWS_EXCLUDED`, etc.; exit **0** =
   `PORT_FREE` (start autorizado), **2** = fail-closed, **1** = erro de
@@ -22,35 +28,67 @@ diagnóstico real (P21–P22) e o que segue manual:
   `service set/stop/restart` brutos nunca são encaminhados (só via
   helper protegido com prova de empty-state). `REUSE` de porta segue
   em HOLD — porta ocupada, mesmo pelo serviço esperado, não autoriza
-  reaproveitamento automático.
+  reaproveitamento automático (nenhum claim OWNED é emitido).
 - **Ranges de porta excluídos/reservados do Windows**: a preflight
   cobre o caso (`PORT_WINDOWS_EXCLUDED`); escolha outra porta livre
   fora do range (o fluxo provado usa `opencode service set port
   <porta>` + recheck, como no E2E nativo em perfil isolado).
 - **Child/worker travado sem retorno (retry budget nunca consome)**:
-  o kernel atual só escala após falha retornada; execução que nunca
-  retorna não chega a Debugger/`EXHAUSTED`. Há detecção em shadow
-  (P25: RuntimeWatchdog lib, suíte 80/80) e fixtures de baseline (P21,
-  `evidence/v3.1/runtime-reliability/fixtures/`, 17/17), mas não há
-  enforcement de watchdog/loop guard (P26 pendente): interrompa
+  o kernel só escala após falha retornada, mas o caminho de interrupção
+  real existe e está **ativo**: RuntimeWatchdog (P25) + enforcement do
+  P26 (identidade exata `pid`+creation-ticks, prova de vida, kill pelo
+  handle pinado, árvore CIM com caps fail-closed, seam
+  `SETTLEMENT_REQUIRED`), flag `watchdog` ativada pelo operador em
+  2026-10-04 e backstop de Job Object ligado ao enforcement em
+  2026-10-05 (attach da raiz verificada antes do snapshot +
+  `TerminateJobObject` depois do kill CIM) — evidência real 7/7
+  `pass-real` em `evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/`,
+  local e **no runner** (run `37376248759`, 2026-10-05).
+  HOLDs honestos que restam: janela gate→`TerminateJobObject` nativo,
+  preempção entre checagem e chamada, descendentes pré-attach cobertos
+  só pelo kill CIM, e
+  `WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` para registro **sem binding de
+  processo provado** (identidade/ownership não prováveis ⇒ recusa, nunca
+  kill de PID desconhecido). Se o kernel recusar o settlement, interrompa
   manualmente e re-despache com escopo reduzido/estratégia nova;
   preserve evidência parcial à mão.
-- **Orçamentos sem enforcement (P23 record-only)**: os budgets
-  canônicos (5 perfis) estão registrados e validados, mas nada impõe
-  interrupção — trate estouro manualmente até a Phase 26, quando os
-  budgets passam a ser enforceáveis.
-- **MCP indisponível prende a orquestração em retries**: sem circuit
-  breaker (Phase 28 pendente) — pare de chamar o MCP problemático
-  manualmente; indisponibilidade de MCP consultivo nunca equivale a
-  aprovação.
-- **AI Memory remoto indisponível**: comportamento planejado
-   (`MEMORY_UNAVAILABLE` limitado, sem retry infinito — Phase 30
-   pendente); hoje, falha de memória não deve travar trabalho não
-  relacionado — siga sem a memória quando seguro e registre o blocker.
-  O listener local `127.0.0.1:49374` **nunca** foi mutado pelo programa
-  (migração para VPS planejada, não executada).
-- **Jev indisponível**: comportamento planejado (`JEV_UNAVAILABLE`
-   limitado, Phase 29 pendente); Jev é consultivo e nunca substitui
+- **Orçamentos**: os budgets canônicos (5 perfis) estão registrados e
+  validados (P23, record-only) e a flag `bounded_execution` foi ativada
+  em 2026-10-04 — mas o `ExecutionBudget` **continua devolvendo
+  `enforce=false`**: não alegue enforcement de budget. Os limites
+  efetivos hoje vêm do watchdog/kernel (deadline compartilhado,
+  interrupt); estouro de budget ainda exige tratamento manual.
+- **MCP indisponível prende a orquestração em retries**: resolvido no
+  kernel (P28-S1: envelope bounded + circuit breaker por
+  `(server, capability, turn)`, 2 falhas abrem o circuito, cooldown
+  contado da conclusão, half-open com probe único; `optional` ⇒
+  `MCP_UNAVAILABLE` + `fallback_continue`, `required` ⇒
+  `MCP_REQUIRED_BLOCKED` fail-closed). O transporte do plugin segue em
+  **shadow default** (observa, não altera admissão sem opt-in explícito)
+  e `mcp_routing` permanece OFF. Indisponibilidade de MCP consultivo
+  nunca equivale a aprovação.
+- **AI Memory remoto indisponível**: o `OrchestrationAiMemoryRemote`
+  (P30) trata a dependência como remota — `AIMEMORY_UNCONFIGURED`
+  (optional continua, required bloqueia tipado) e **nunca** fallback
+  silencioso para o `127.0.0.1:49374` local. O AI Memory PROD do
+  operador **já roda em servidor remoto próprio** (deploy executado
+  antes de 2026-10-01; config user-owned **confirmada** em 2026-10-04 e
+  round-trip remoto autenticado com serviço
+  saudável, 97 ms em
+  `aimem-health-repreflight-2026-10-04.json`); o que resta nomeado é
+  apenas o probe HTTPS dedicado contra o endpoint, separado do
+  round-trip MCP; o endpoint é
+  **user-owned** e cada operador configura o seu em policy local fora do
+  repo. Falha de memória não deve travar trabalho não relacionado —
+  siga sem ela quando seguro e registre o blocker.
+- **Jev indisponível**: entregue (P29-S1 advisory + P29-S2 transporte
+  HTTP real kernel-side), flag `jev_advisory` **ativa** desde 2026-10-04
+  e wiring do chamador no Planner loop entregue em 2026-10-05 (P38-S2):
+  `JEV_UNAVAILABLE` ⇒ fallback determinístico, sem retry infinito, e o
+  resultado é `recommendation_only` (`authoritative=false`). Credencial
+  só por nome de env (`JEV_BASE_URL`/`JEV_MODEL`/`JEV_API_KEY`);
+  `JEV_BASE_URL` ausente ⇒ `JEV_TRANSPORT_NOT_CONFIGURED` e nenhuma
+  chamada de rede. Jev é consultivo e nunca substitui
   verifier/Reviewer/Security Reviewer/DONE do kernel.
 
 ## Plugin não carrega
@@ -63,8 +101,10 @@ Sintoma: nenhum mandato `[orchestration-enforcement:v1]` na sessão.
    instale a do seu runtime e reinicie o OpenCode:
    ```powershell
    cd ~/.config/opencode
-    bun add @opencode-ai/plugin@1.18.32   # runtime V1
-    # ou: bun add @opencode/plugin@2.0.18 # runtime V2
+    # Use o spec do registry canônico de pins (source/registry/runtime-versions.json
+    # => plugins.v1.spec / plugins.v2.spec), não um número digitado à mão:
+    bun add <plugins.v1.spec>   # runtime V1
+    # ou: bun add <plugins.v2.spec> # runtime V2
     # ou: npm install <spec> --prefix ~/.config/opencode
    ```
 2. Confira que `.config/opencode/plugins/orchestration-enforcement.js`
@@ -100,8 +140,17 @@ Para gerar (opt-in):
 powershell -NoProfile -File scripts\v3\build-capability-registry.ps1
 ```
 
-Flags em `source/registry/capability-flags.json` nascem todas `false` —
-roteamento assistido só com ativação humana explícita.
+Flags em `source/registry/capability-flags.json`: **política** = nascem
+OFF/shadow e a ativação é decisão humana com evidência (nunca inferência).
+Estado atual: **ativas** `runtime_support.v1/v2/dual_profile`,
+`task_kernel`, `bounded_execution`, `watchdog`, `jev_advisory`,
+`worktree_isolation` (lote do operador em 2026-10-04, evidência em
+`evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json`);
+**OFF** `capability_router.shadow/active`, `skill_routing`, `mcp_routing`,
+`adaptive_ranking`, `routing_telemetry`, `capability_reconciler` e
+`runtime_grant_enforcement{v1,v2}` (Phase 5 — nenhum hard-deny antes da
+validação comportamental no runtime V2 real). Roteamento assistido e
+MCP genérico seguem desligados.
 
 ## models.jsonc inválido
 
@@ -118,8 +167,14 @@ Corrija, rode `.\install.ps1 -WhatIf` e depois `.\install.ps1`.
 ## OpenCode atualizou — e agora?
 
 Política de suporte: as linhas **OpenCode V1.x** (pacote npm
-`opencode-ai`, CI valida com **1.18.32**) e **OpenCode V2** (pacote
-`@opencode/cli`, validado com **2.0.18**) são suportadas (programa V3.1).
+`opencode-ai`) e **OpenCode V2** (pacote `@opencode/cli`) são suportadas
+(programa V3.1). Os pins exatos que o CI instala e as suítes exigem estão
+no **registry canônico** `source/registry/runtime-versions.json` (leia
+`runtimes.v1.spec` / `runtimes.v2.spec`; loader fail-closed
+`scripts/runtime/lib/RuntimeVersions.ps1`) — não fixe números neste doc:
+o bump de pin é edição de um arquivo + revalidação no runtime exato.
+(Números antigos citados em notas datadas — `1.18.32`/`2.0.18` — são
+histórico da evidência em que apareceram.)
 O `install.ps1 -Runtime Auto` detecta a geração pelo probe; explícito
 (`-Runtime V1`/`-Runtime V2`) sempre vence. Uma versão **mais nova e ainda
 não testada** de qualquer linha pode ser "esperadamente compatível", mas

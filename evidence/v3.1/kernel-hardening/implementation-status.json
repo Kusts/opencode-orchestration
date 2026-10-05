@@ -1,6 +1,7 @@
 {
   "version": 1,
   "date": "2026-09-29",
+  "snapshot_note": "SNAPSHOT DATADO de 2026-09-29 — NAO e status vivo. O status vivo do programa esta em evidence/v3.1/runtime-reliability/program-status.json (atualizado 2026-10-05), em CHANGELOG.md ([Unreleased]) e nos registries canonicos source/registry/capability-flags.json (flags) e source/registry/runtime-versions.json (pins). Os campos 'phases' e 'suites' abaixo descrevem o ponto de 2026-09-29 e sao preservados como registro; o 'flags_state' foi corrigido em 2026-10-05 para apontar o registry canonico (ver nota flags_state). Pins citados neste arquivo (1.18.32/2.0.18) sao os historicos do congelamento; o pin vigente vive em runtime-versions.json.",
   "program": "Orchestration V3.1 Dual-Runtime Kernel Hardening",
   "repository_head": "340b485 (master, pos docs 340b485; implementacao nao commitada neste ponto)",
   "spec": "docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md",
@@ -53,9 +54,21 @@
     "Provisionador V2 executa postinstall.mjs explicitamente apos npm --ignore-scripts (mecanismo pre-existente, opt-in, sem pin por digest)"
   ],
   "flags_state": {
-    "runtime_support": { "v1": true, "v2": false, "dual_profile": false },
-    "task_kernel": { "enabled": false, "shadow": true },
-    "worktree_isolation": { "enabled": false },
-    "runtime_grant_enforcement": { "v1": false, "v2": false }
+    "source": "source/registry/capability-flags.json (FONTE CANONICA — este bloco e uma copia de convenience; em divergencia, o registry vence)",
+    "updated": "2026-10-05",
+    "state_at_snapshot_2026_09_29": {
+      "runtime_support": { "v1": true, "v2": false, "dual_profile": false },
+      "task_kernel": { "enabled": false, "shadow": true },
+      "worktree_isolation": { "enabled": false },
+      "runtime_grant_enforcement": { "v1": false, "v2": false }
+    },
+    "runtime_support": { "v1": true, "v2": true, "dual_profile": true },
+    "task_kernel": { "enabled": true, "shadow": false },
+    "bounded_execution": { "enabled": true, "shadow": false },
+    "watchdog": { "enabled": true, "shadow": false },
+    "jev_advisory": { "enabled": true, "shadow": false },
+    "worktree_isolation": { "enabled": true },
+    "runtime_grant_enforcement": { "v1": false, "v2": false },
+    "change_note": "2026-10-05: valores atualizados apos o lote de ativacao do operador (2026-10-04, evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json) e apos o registry unico de pins. runtime_grant_enforcement segue OFF por doutrina Phase 5 (enforcement comportamental V2 sem validacao no runtime real). bounded_execution esta ON mas o ExecutionBudget ainda devolve enforce=false (HOLD honesto, nao alegar enforcement de budget)."
   }
 }

@@ -1,7 +1,8 @@
 {
   "record": "v3.1-runtime-reliability-program-status",
-  "date": "2026-10-03",
-  "revision": "2026-10-03 (doc reconciliation: correcao do bloco flags contra source/registry/capability-flags.json, entrada P40 fatia 2 e matriz de rastreabilidade PAE-01–PAE-40; base 2026-10-02: fechamento FIX6–FIX10 do P28-S1 + P40-S2 decision-record + P41-S2; base 2026-10-01: P26–P42 substitui design P26–P33; PAE-01–PAE-40 substitui RR-01–RR-20; sessao autonoma 2026-10-03: P25-FU1 telemetria watchdog (gate cross-process + retencao multi-dia, FIX1..FIX8), paridade EOF do produtor P41-S2 e data dinamica no smoke V2)",
+  "date": "2026-10-05",
+  "status_live_note": "STATUS VIVO do programa. Registro datado/imutavel continua em evidence/v3.1/runtime-reliability/phaseNN.json e evidence/v3.1/kernel-hardening/implementation-status.json (snapshot 2026-09-29). Autoridade de flags = source/registry/capability-flags.json; de pins = source/registry/runtime-versions.json.",
+  "revision": "2026-10-05 (reconciliacao documental com a verdade operacional: flags contra o registry canonico apos o lote de ativacao de 2026-10-04; pins via runtime-versions.json; P29-S2 transporte HTTP real, P38-S2 wiring do chamador Jev entregue (commit 4cfb26a), P26-JOB-WIRING backstop do watchdog, lane real RR-E2E-04..10 7/7 pass-real LOCAL, CI run 37366406568 com falha de infra e bump de timeout ps51 50m->60m (2c4a7cb); CI run 37376248759 (push 4cfb26a) OBSERVADO: lane real RR-E2E-04..10 7/7 pass-real NO RUNNER (fecha o P0 do COMPLETION_GATE_FAILED) e a unica falha do job ci-smoke-opencode-v2 foi o smoke implicito flaky (debug config TIMEOUT 30s), formalizado como observacao continue-on-error (HOLD explicito da Etapa I); HEAD desta reconciliacao = 4cfb26a. Base 2026-10-03: doc reconciliation do bloco flags, entrada P40 fatia 2 e matriz PAE-01-PAE-40; base 2026-10-02: FIX6-FIX10 do P28-S1 + P40-S2 + P41-S2; base 2026-10-01: P26-P42 substitui design P26-P33; sessao autonoma 2026-10-03: P25-FU1 telemetria watchdog, paridade EOF P41-S2 e data dinamica no smoke V2)",
   "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-42)",
   "program_concluded": false,
   "spec_addenda": [
@@ -10,14 +11,33 @@
     "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md"
   ],
   "pins": {
-    "opencode_v1": "1.18.32 (pacote opencode-ai; plugin @opencode-ai/plugin@1.18.32)",
-    "opencode_v2": "2.0.18 (pacote @opencode/cli; plugin @opencode/plugin@2.0.18)",
-    "note": "Observados em campo 1.18.33 (global V1) e v2.0.19 (canal do usuario); validacao vale para os pins exatos. Ver evidence/v3.1/runtime-reliability/baseline.json."
+    "opencode_v1": "1.18.34 (pacote opencode-ai; plugin @opencode-ai/plugin@1.18.34)",
+    "opencode_v2": "2.0.23 (pacote @opencode/cli; plugin @opencode/plugin@2.0.23)",
+    "source": "source/registry/runtime-versions.json (FONTE UNICA dos pins; loader fail-closed scripts/runtime/lib/RuntimeVersions.ps1, sem fallback para literal). Bump = editar so esse arquivo + revalidacao no runtime exato.",
+    "historical_pins": "1.18.32/2.0.18 continuam citados em evidence/ e em notas datadas como o binario historico em que a prova foi feita (ex.: lane 2026-10-03/04, phase24 live-hook, baseline.json). Nenhum registro historico foi reescrito.",
+    "note": "Validacao vale para os pins exatos do registry. Ver evidence/v3.1/runtime-reliability/baseline.json (pins historicos) e o registry para o pin vigente."
   },
   "flags": {
     "source": "source/registry/capability-flags.json",
+    "state_updated": "2026-10-05",
     "all_off": false,
-    "all_off_note": "all_off=false NAO indica flag de rollout V3.1 ligada: capability_registry.enabled=true e runtime_support.v1=true sao pre-existentes do V3 (fora do rollout V3.1). TODAS as flags de rollout/shadow do programa V3.1 permanecem OFF/shadow: capability_router{shadow:false,active:false}, skill_routing=false, mcp_routing=false, adaptive_ranking=false, routing_telemetry=false, capability_reconciler=false, watchdog={enabled:false,shadow:true}, task_kernel={enabled:false,shadow:true}, bounded_execution={enabled:false,shadow:true}, jev_advisory={enabled:false,shadow:true}, worktree_isolation=false, runtime_grant_enforcement={v1:false,v2:false}, runtime_support.v2=false e runtime_support.dual_profile=false. Regra espelhada pelo builder P31 S1 (capability_registry.enabled=true => all_off=false); nenhuma flag foi ativada por este programa.",
+    "all_off_note": "ESTADO ATUAL (2026-10-05, conferido contra source/registry/capability-flags.json): ATIVAS por decisao do operador com evidencia - runtime_support{v1:true,v2:true,dual_profile:true}, task_kernel{enabled:true,shadow:false}, bounded_execution{enabled:true,shadow:false}, watchdog{enabled:true,shadow:false}, jev_advisory{enabled:true,shadow:false}, worktree_isolation{enabled:true}. OFF por doutrina ou Phase 5: capability_router{shadow:false,active:false}, skill_routing=false, mcp_routing=false, adaptive_ranking=false, routing_telemetry=false, capability_reconciler=false, runtime_grant_enforcement{v1:false,v2:false} (Phase 5: enforcement comportamental V2 sem validacao no runtime real => nenhum hard-deny). capability_registry.enabled=true e pre-existente do V3. all_off=false nao significa 'tudo ligado': ele reflete os valores acima (o builder P31 S1 espelha capability_registry.enabled=true). Acao de ativacao: evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json (commit cca566f).",
+    "prior_state_note_2026_10_03": "ESTADO ANTERIOR (vigente ate o lote de 2026-10-04; preservado como registro datado): 'all_off=false NAO indica flag de rollout V3.1 ligada: capability_registry.enabled=true e runtime_support.v1=true sao pre-existentes do V3 (fora do rollout V3.1). TODAS as flags de rollout/shadow do programa V3.1 permanecem OFF/shadow: capability_router{shadow:false,active:false}, skill_routing=false, mcp_routing=false, adaptive_ranking=false, routing_telemetry=false, capability_reconciler=false, watchdog={enabled:false,shadow:true}, task_kernel={enabled:false,shadow:true}, bounded_execution={enabled:false,shadow:true}, jev_advisory={enabled:false,shadow:true}, worktree_isolation=false, runtime_grant_enforcement={v1:false,v2:false}, runtime_support.v2=false e runtime_support.dual_profile=false. Regra espelhada pelo builder P31 S1 (capability_registry.enabled=true => all_off=false); nenhuma flag foi ativada por este programa.'",
+    "flags_state_history": [
+      {
+        "date": "2026-10-03",
+        "state": "programa inteiro OFF/shadow (baseline herdado do V3)"
+      },
+      {
+        "date": "2026-10-04",
+        "state": "jev_advisory ativada (commit 68a977b) e lote de 6 flags ativado pelo operador (commit cca566f): watchdog, task_kernel, bounded_execution, worktree_isolation, runtime_support.v2+dual_profile",
+        "evidence": "evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json"
+      },
+      {
+        "date": "2026-10-05",
+        "state": "sem mudanca de flag; mudanca de comportamento em P29-S2 (transporte HTTP real), P38-S2 (wiring do chamador) e P26-JOB-WIRING (backstop de Job Object no enforcement)"
+      }
+    ],
     "capability_registry": {
       "enabled": true
     },
@@ -43,27 +63,30 @@
     },
     "runtime_support": {
       "v1": true,
-      "v2": false,
-      "dual_profile": false
+      "v2": true,
+      "dual_profile": true
     },
     "task_kernel": {
-      "enabled": false,
-      "shadow": true
+      "enabled": true,
+      "shadow": false
     },
     "bounded_execution": {
-      "enabled": false,
-      "shadow": true
+      "enabled": true,
+      "shadow": false,
+      "enforcement_hold": "ExecutionBudget ainda devolve enforce=false (HOLD honesto): a flag esta ON, mas o enforcement proprio dela NAO existe; orcamentos efetivos hoje vem do watchdog/kernel. Nao alegar enforcement de budget."
     },
     "watchdog": {
-      "enabled": false,
-      "shadow": true
+      "enabled": true,
+      "shadow": false,
+      "enforcement_note": "caminho de interrupcao real entregue (P26) e backstop de Job Object ligado ao enforcement em 2026-10-05 (P26-JOB-WIRING). WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED permanece como token do registro SEM binding de processo provado em modo ENFORCE (identidade/ownership nao provaveis => recusa, nunca kill)."
     },
     "jev_advisory": {
-      "enabled": false,
-      "shadow": true
+      "enabled": true,
+      "shadow": false,
+      "enforcement_note": "advisory-only por construcao: guard de autoridade sempre-nega; falha => fallback deterministico. Probe contra endpoint real com chave real = evidencia operator-owned (exact-runtime)."
     },
     "worktree_isolation": {
-      "enabled": false
+      "enabled": true
     },
     "runtime_grant_enforcement": {
       "v1": false,
@@ -75,14 +98,15 @@
     "growth": "20/20 PASS (2026-10-01, baseline P21) => 22/22 PASS (2026-10-02)",
     "cause": "commit 25a549f (P29 slice 1, 2026-10-02) adicionou exatamente 2 asserts ao suite - jev_advisory.enabled == false (nasce OFF, P29) e jev_advisory.shadow == true (would-consult, P29) - e a flag jev_advisory {enabled:false, shadow:true} ao registry. Diff conferido: scripts/v3/lib/CapabilityFlags.tests.ps1 +2 linhas.",
     "not_bounded_execution": "CORRECAO de leitura divergente: bounded_execution NAO causou o crescimento. A flag bounded_execution ja existia no registry antes de 2026-10-02 (commit 4a996b2) e continua SEM assert dedicado no suite - a suite cobre runtime_support, task_kernel, worktree_isolation, runtime_grant_enforcement, version, capability_registry, capability_reconciler, capability_router, skill_routing, mcp_routing, routing_telemetry, adaptive_ranking e jev_advisory. bounded_execution permanece validada por outras suites (ex.: kernel/task-kernel.tests.ps1 e os gates de orcamento do P23).",
-    "classification": "GROWTH, NAO REGRESSAO: mais asserts, todos verdes, nenhum assert removido ou afrouxado entre 2026-10-01 e 2026-10-02."
+    "classification": "GROWTH, NAO REGRESSAO: mais asserts, todos verdes, nenhum assert removido ou afrouxado entre 2026-10-01 e 2026-10-02.",
+    "state_2026_10_04": "APOS O LOTE DE ATIVACAO: CapabilityFlags 26/26 nas duas engines (flag-activation-batch-2026-10-04.json). Os asserts de estado passaram a exigir o novo estado exato (drift para qualquer lado falha, incl. bounded_execution.shadow==false); os asserts de invariante foram preservados em fixture com registry controlado. Registro 22/22 acima permanece como estado datado de 2026-10-02."
   },
   "pae_traceability": {
     "file": "evidence/v3.1/runtime-reliability/pae-traceability.json",
     "spec_source": "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md#27-acceptance-criteria",
     "created": "2026-10-03",
     "coverage": "PAE-01..PAE-40, uma entrada por criterio aceito, com status, evidencia real e gap restante.",
-    "no_new_flags_note": "As 9 flags sugeridas no SPEC ADDENDUM §26 que NAO foram criadas no registry por design conservador sao: loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor e orchestration_evolution. Das 11 flags listadas em §26, apenas 2 existem: watchdog (pre-existente do V3) e jev_advisory (criada no P29 com sancao explicita do plan §6.1). O rollout deste programa NAO introduziu flag nova alem de jev_advisory; o comportamento novo e gated pelas flags EXISTENTES bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement e runtime_caps, todas OFF/shadow. Nenhuma flag concede autoridade (SPEC §26).",
+    "no_new_flags_note": "As 9 flags sugeridas no SPEC ADDENDUM §26 que NAO foram criadas no registry por design conservador sao: loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor e orchestration_evolution. Das 11 flags listadas em §26, apenas 2 existem: watchdog (pre-existente do V3) e jev_advisory (criada no P29 com sancao explicita do plan §6.1). O rollout deste programa NAO introduziu flag nova alem de jev_advisory; o comportamento novo e gated pelas flags EXISTENTES bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement e runtime_caps, todas OFF/shadow. Nenhuma flag concede autoridade (SPEC §26). [ATUALIZACAO 2026-10-04/05: 'todas OFF/shadow' describes o estado ate o lote de ativacao; hoje 6 flags estao ATIVAS com evidencia - ver flags.all_off_note e flag-activation-batch-2026-10-04.json. A afirmação 'nenhuma flag nova além de jev_advisory' e 'nenhuma flag concede autoridade' continua valendo.]",
     "honesty_note": "Status da matriz = estado da evidencia hoje. 'done-kernel-side' significa codigo+suite+review aprovados no kernel/plugin, NAOativacao e NAO prova no binario real do operador; 'blocked-operator-evidence' significa que o criterio depende de evidencia que so o ambiente do operador pode produzir (sem fake-close)."
   },
   "phases": {
@@ -149,7 +173,7 @@
       "holds": [
         "(a) janela create->assign (sem CREATE_SUSPENDED via .NET): descendente nascido nessa janela fica fora do job",
         "(b) veredito E2E no binario V2 real: EXECUTADO no runner 2026-10-04 (GitHub Actions run 37193122170, job ci-smoke-opencode-v2): PASS do ciclo set/start/status/settlement no binario exato 2.0.18 com atribuicao comprovada no start (gate PASS exige JobAssigned) e memoizacao K1 observada em producao; ressalva honesta: servico encerrou antes do fechamento (membros 0), backstop nao exercitado sob carga; smoke implicito (debug config) segue flaky upstream",
-        "(c) wiring do job no ENFORCEMENT do watchdog = follow-up; P26 segue flag watchdog {enabled:false,shadow:true} e a arvore CIM do enforcement nao consome o job",
+        "(c) wiring do job no ENFORCEMENT do watchdog = follow-up; P26 segue flag watchdog {enabled:false,shadow:true} e a arvore CIM do enforcement nao consome o job [RESOLVIDO 2026-10-04/2026-10-05: flag watchdog ativada pelo operador em 2026-10-04 e o enforcement passou a consumir o job em 2026-10-05 (RR-P26-JOB-WIRING, contrato A: attach da raiz verificada antes do snapshot + TerminateJobObject como backstop depois do kill CIM; suites enforcement 421/421 e job-object 132/132 nos dois engines; HOLDs residuais honestos: janela gate->TerminateJobObject nativo, preemptao entre checagem e chamada, descendentes pre-attach cobertos so pelo kill CIM, dependencia opcional da lib => refused:job-lib-unavailable)]",
         "(d) switches -FaultInject* sao parametros de teste, nao ligados por nenhum caminho de producao",
         "(e) prova de breakaway e por query de flags (sem spawn negativo real)",
         "(f) follow-up pre-existente: taskkill por PID no timeout de Invoke-SpikeChild (SpikeProcess, PID proprio com objeto retido)"
@@ -225,7 +249,7 @@
         "scripts/test-package-consistency.ps1 16/16 OK"
       ],
       "holds": [
-        "WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED: enabled=true retorna o hold sem armazenar (interrupt real e Phase 26)",
+        "WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED: enabled=true retorna o hold sem armazenar (interrupt real e Phase 26) [PARCIALMENTE RESOLVIDO: o interrupt real existe (Phase 26, P26-S1) e a flag watchdog foi ativada em 2026-10-04; o token permanece como estado do registro SEM binding de processo provado em modo ENFORCE - ver phase26_watchdog_enforcement_slice1 e a nota de 2026-10-05]",
         "squatting do mutex nomeado: processo hostil pode forcar lock-busy (300ms/evento) => perda de telemetria best-effort; telemetria NUNCA e prova de execucao/autorizacao",
         "retencao sem cursor: prefixo hostil/nao-apagavel pode impedir progresso (observavel via no_progress); cursor e follow-up se enforcement ativar",
         "reparse em ANCESTRAL do root de telemetria e aliases junction/subst nao sao resolvidos (caller confiavel controla a root)"
@@ -270,7 +294,7 @@
       ],
       "reviews": "Reviewer APPROVED + Security Reviewer APPROVED no FIX6 (6 rounds de correcao: FIX1..FIX6 com findings de review/seguranca resolvidos e revalidados a cada round)",
       "holds": [
-        "flag watchdog permanece {enabled:false,shadow:true}; ativacao exige decisao humana com evidencia",
+        "flag watchdog permanece {enabled:false,shadow:true}; ativacao exige decisao humana com evidencia [RESOLVIDO 2026-10-04: decisao do operador, flag watchdog {enabled:true,shadow:false}, evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json]",
         "interrupt de sessao V2 nativa (runtime API) nao implementado neste slice (prova P24 e presenca, nao enforcement)",
         "lib Job Objects + spawn path P22 entregues (RR-P22-JOB-OBJECTS; ver phase22_job_objects). RR-P26-JOB-WIRING (2026-10-05): o ENFORCEMENT do caminho normal agora CONSOME o job - a raiz verificada e atribuida a um job anonimo SEM KILL_ON_JOB_CLOSE ANTES do snapshot (seam Attach-RuntimeJobVerifiedProcess: handle retido pelo chamador, liveness + identidade re-verificadas, nunca OpenProcess por PID, recusa host-self e identidade ausente/divergente, resultado estruturado fail-closed), o TerminateJobObject roda como backstop DEPOIS do kill da arvore verificada e o handle fecha POR ULTIMO (close inerte por design: um REFUSED que nao matou nada nunca pode matar o processo que ele reporta como nao morto); spawn pos-snapshot passa a ser coberto quando o attach e aceito, provado por descendente criado durante a janela de kill que NAO estava no snapshot e morreu so pelo backstop (controle negativo D-2: o MESMO cenario com o attach recusado deixa o tardio VIVO apos o settlement, com settlement byte-identico na projecao sem job_*, ou seja, o unico discriminante e a vida do tardio); evidencia bounded nos registros (job_attach/job_attached/job_kill_applied/job_settled/job_members_remaining/job_close_applied/job_close_note - o fechamento do handle entra no registro para absence de leak verificavel por leitura). Residuais honestos: attach recusado (job indisponivel, atribuicao recusada ou deadline ja expirado) => notao 'refused:<motivo>' e cobertura CIM EXATA de antes; descendentes pre-attach e orfao de filho morto antes do snapshot seguem cobertos so pelo kill CIM de identidade verificada; o settlement do job nunca vira criterio de terminal (o deadline compartilhado pode ja estar gasto no backstop, e um rebaixamento de terminal ali seria um terminal falso), portanto falha do Terminate com o settlement CIM completo mantem a MESMA classificacao de antes. RR-P26-JOB-WIRING-FIX1 (2 achados HIGH do review, provos por JOB47/JOB48): HIGH-1 o deadline e REVALIDADO imediatamente antes do ato letal - prazo vencido nao chama TerminateJobObject (o SO nao respeita o nosso prazo), o handle fecha inerte, a nota bounded job_skip=deadline-expired explica, e o descendente tardio SOBREVIVE nesse caso (identico ao pre-wiring); HIGH-2/FIX2 o que alimenta a decisao terminal e o BOOLEANO job_kill_applied (TerminateJobObject ok), que NUNCA vira contagem - KilledCount e killed_count seguem sendo so o contador real do kill CIM; com ele, interrupted e Get-WatchdogTerminalAction nunca dizem nada interrompido depois de um ato letal (raiz que sai sozinha depois do snapshot deixando so o tardio => interrupted=true + ALREADY_EXITED, sem REFUSED falso). A lista de membros do job e fotografada antes do Terminate e a diferenca observada e publicada como job_members_reduction (OBSERVACAO SEM CAUSALIDADE: os kills do CIM sao assincronos e a espera vem depois do backstop, portanto a reducao tambem inclui processos ja mortos pelo CIM e saidas naturais; nada a trata como autoria). JANELAS RESIDUAIS ACEITAS (nao-fixaveis sem mudar API nativa, sem claim de atomicidade): (a) entre o gate de prazo e a chamada, TerminateJobObject nao recebe deadline, entao um Terminate iniciado dentro do prazo pode concluir depois dele; (b) preempcao do processo entre a checagem e a chamada; gone-path e recusa de stop da raiz nao consomem o job; over-exclusao conservadora no gone-path mantida; variante substituto-PID sem teste direto (coberta indiretamente por fail-closed de prova ausente + identidades exatas)",
         "chamada CIM individual sob timeout do WMI; lock de telemetria in-process; ator/fonte sao strings declaradas pelo chamador (sem autenticacao de processo)"
@@ -323,7 +347,7 @@
       ],
       "reviews": "Reviewer APPROVED round 3 + Security APPROVED (sem HIGH/CRITICAL)",
       "holds": [
-        "transporte real Jev (rede) NÃO ativado (seam sintética; zero primitivas de rede no lib)",
+        "transporte real Jev (rede) NÃO ativado (seam sintética; zero primitivas de rede no lib) [RESOLVIDO 2026-10-05: transporte HTTP real kernel-side entregue na fatia 2 (RR-P29-S2 / P29-S2, commit 9650624; https ou loopback, endpoint/modelo user-owned por env, tokens fechados de falha, falha nunca vira advisory OK) e o wiring do chamador no Planner loop entregue em P38-S2 (commit 4cfb26a). HOLD residual honesto: probe contra endpoint REAL com chave real segue evidencia operator-owned (exact-runtime), como na doutrina de ativacao de flags]",
         "ativação da flag é decisão humana com evidência; integração no fluxo do Planner é fatia 2 (P31/P38)"
       ]
     },
@@ -466,8 +490,8 @@
       "status": "done-code-fix2",
       "reviews": "reviewer APPROVED r3 + security APPROVED r3",
       "holds": [
-        "execucao real do plano: operador/fatia 2",
-        "wiring session: P31 fatia 2"
+        "execucao real do plano: operador/fatia 2 [ATUALIZACAO 2026-10-05: o wiring do chamador Jev no Planner loop foi ENTREGUE (RR-P38-S2 caller wiring, commit 4cfb26a) - uma chamada Invoke-JevAdvisoryCall quando Test-JevAdvisoryTrigger responde should_consult=true e a flag existe, resultado jev_advisory_result com authoritative=false/recommendation_only=true, falha => fallback deterministico sem excecao/retry, provado byte-a-byte que o resultado nao altera rota/decisao nem escreve DONE; suites PlannerLoop 36, JevAdvisory 159/159, DispatchPipeline 201, E2eManifest 197, TaskKernel 75/75, consistency 16/16. O spawn real de workers continua decisao do operador (pipeline record-only).]",
+        "wiring session: P31 fatia 2 [RESOLVIDO quanto ao componente: RR-P31-S2-STARTUP-WIRING entregue (SessionBootstrapContext.ps1, fail-open, 43/43). O REGISTRO do hook no arranque real continua decisao do operador (nao e delegavel). O wiring do advisory JEV no Planner loop e um item distinto e foi entregue em 2026-10-05 (P38-S2, ver phase38_planner_loop_slice1).]"
       ],
       "suites": [
         "OrchestrationPlannerLoop.tests.ps1 21/21 (powershell + pwsh)"
@@ -498,7 +522,7 @@
       "reviews": "reviewer APPROVED r3 + security APPROVED r1. Jev consultivo: 2.93/3",
       "holds": [
         "probes reais: HOLD (fatia de transporte)",
-        "jevgrep real: HOLD",
+        "jevgrep real: HOLD [PARCIALMENTE RESOLVIDO 2026-10-04: jevgrep instalado e executado no Windows com consult semantico real comprovado (jg 0.8.0 via OpenCode Zen) - evidence/v3.1/runtime-reliability/jevgrep-install-2026-10-04.json. HOLD residual: o flip de policy capability-doctor-policy.json platform_support.windows=true e as asserts do doctor sao fatia de ativacao seguinte]",
         "instalacao automatica fora de escopo"
       ],
       "suites": [
@@ -614,13 +638,15 @@
   "activation_pending": {
     "renamed_from": "not_started (renomeado em 2026-10-03): o nome era enganoso - nenhuma phase do programa esta 'not started'; todas as fatias estao CODE-COMPLETE no kernel/plugin com suite verde e review APPROVED. O que resta sao ATIVACOES e EVIDENCIAS do operador. program_concluded permanece false ate o release gate real passar (sem fake-close).",
     "phases_26_42": "Programa V3.1 Runtime Reliability CODE-COMPLETE nas fatias kernel-side/plugin (2026-10-02/03): P26 S1, P27 S1, P28 S1+S2, P29 S1, P30 S1, P31 S1+S2 (startup wiring entregue; ativação é do operador), P32, P33 S1, P34, P35, P36, P37, P38 S1+S2 (dispatch integration kernel-side entregue), P39, P40 S1+S2 (revisor de supersessão de evidências entregue, decision-record only), P41 S1+S2 (produtores de telemetria entregues, observacionais), P42 fatia 1 - todas com suites verdes, reviewer + security APPROVED e HOLDs explicitos. Pendencias de ATIVACAO/EVIDENCIA do operador: lane V2 Windows real (E2E) - EXECUTADA PARCIALMENTE em 2026-10-03 (preflights reais de porta 3/3 verdes - RR-E2E-01/02/03 convertidos com evidencia real; ciclo de vida explicito do servico verde - set/start/status/stop owned, 49374 intocado; startup implicito via debug config apresenta INTERMITENCIA caracterizada experimentalmente (7 hangs vs 5 passes no mesmo dia, debugcfg-hang-investigation.json; stdin, conteudo de config e estado do servico refutados como gatilhos deterministicos nas condicoes testadas; suspeita principal interna ao binario 2.0.18, NAO comprovada); cenarios de watchdog/sessao/restart exigem integracao de sessao real; evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/lane-summary.json), AI Memory remoto do operador JA EM PROD (restam config user-owned local fora do repo + evidencia de health/transporte sem identidade no repo) + re-preflight de porta, ativacao de flags com evidencia, probes reais de health/transporte, jevgrep real, wiring de chamador em producao para o produtor P41, para o bundle de dispatch P38-S2 e para o revisor de supersessao P40-S2 (append/enable).",
+    "update_2026_10_05": "O paragrafo acima e o registro de 2026-10-03 (preservado). Estado vigente: ver current_state_2026_10_05 e release_gate_pending_2026_10_05. Fechado desde entao: lote de ativacao de flags com evidencia (2026-10-04), jevgrep real instalado+executado (2026-10-04), evidencia de health/transporte do AI Memory (2026-10-04, config user-owned confirmada + round-trip remoto autenticado comprovado), transporte HTTP do Jev (P29-S2) e wiring do chamador no Planner (P38-S2) em 2026-10-05, lane de watchdog RR-E2E-04..10 7/7 pass-real local (2026-10-05) e OBSERVADA NO RUNNER em 2026-10-05 (run 37376248759, push 4cfb26a: step da lane verde, fecha o P0).",
     "explicit_holds": [
       "P28-S1: TurnId nao autenticado; ativacao de flag = decisao humana",
       "P28-S2: enforcement em binario real nao validado (shadow default)",
       "P30/P22 ATUALIZADO 2026-10-03: migracao do AI Memory do operador para servidor remoto proprio JA EXECUTADA; restam config user-owned local (fora do repo) + evidencia de health/transporte sem registrar identidade no repo; REUSE so com essa evidencia",
       "P40: todas as 8 features hold-unproven",
       "P41: apply via fluxo revisado; telemetria sem produtor",
-      "P42: release gate real pendente do ambiente do operador - SEM FAKE-CLOSE (lane V2 real executada parcialmente 2026-10-03: preflights reais + ciclo de vida explicito verdes, startup implicito debug config RED 3/3 no dia, historico PASS em 09-30)"
+      "P42: release gate real pendente do ambiente do operador - SEM FAKE-CLOSE (lane V2 real executada parcialmente 2026-10-03: preflights reais + ciclo de vida explicito verdes, startup implicito debug config RED 3/3 no dia, historico PASS em 09-30)",
+      "ATUALIZADO 2026-10-05 (lista vigente em release_gate_pending_2026_10_05 e resolved/open holds em current_state_2026_10_05): 'ativacao de flags com evidencia' e 'jevgrep real' SAO FECHADOS; a lane de watchdog RR-E2E-04..10 foi convertida 7/7 pass-real LOCAL e OBSERVADA 7/7 NO RUNNER (run 37376248759, push 4cfb26a; lane 04..10 FECHADA - o que resta nao e a lane); o wiring do chamador Jev no Planner (P38-S2) foi ENTREGUE; permanecem abertos: evidencia V2-native no pin vigente, cenarios cross-session 16..22, probes reais de endpoint (inclusive o probe HTTPS dedicado do AI Memory, separado do round-trip MCP ja provado), wirings de chamador P31-S2/P38-S2-spawn/P41-S2/P40-S2 e Phase 5/runtime_grant_enforcement OFF"
     ]
   },
   "v2_real_lane_2026_10_03": {
@@ -633,12 +659,62 @@
     "script_date_fix_2026_10_03": "campo date do smoke-opencode-v2.ps1 era hardcoded '2026-09-30' (nota script_note acima) e agora e carimbado do relogio na escrita; os artefatos desta lane permanecem como registro historico do que rodou (sem reescrita de evidencia)",
     "lifecycle_smoke_2026_10_03": "NOVO path de smoke de binario V2 COMPROVADO: scripts/ci/smoke-opencode-v2-lifecycle.ps1 (ciclo de vida explicito do servico gerenciado, padrao P22) — 3/3 PASS no binario exato 2.0.18 (portas 49339/49635/57173), 49374 intocada (owner 1872 estavel), reviewer APPROVED r3 + security APPROVED r3, evidencia em evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle*.json; reduz a dependencia do release gate em relacao ao caminho implicito flaky (debug config), que segue BLOCKER upstream para RR-E2E-39"
   },
+  "current_state_2026_10_05": {
+    "date": "2026-10-05",
+    "repository_head": "4cfb26a (wiring do chamador Jev no Planner loop, P38-S2)",
+    "delivered_today_or_recent": [
+      "RR-P29-S2 (2026-10-05, commit 9650624): transporte HTTP real kernel-side do Jev advisory (OrchestrationJevAdvisory.ps1, New-JevAdvisoryHttpProbe). Evidencia: evidence/v3.1/runtime-reliability/phase29-transport-s2.json. Suites: OrchestrationJevAdvisory 159/159 (PS5.1 + pwsh), McpSafety 203/203, CapabilityFlags 26/26, consistency 16/16.",
+      "RR-P26-JOB-WIRING (2026-10-05, commit 5a65528): backstop de Job Object ligado ao enforcement do watchdog (attach-side, contrato A). Enforcement 421/421 e job-object 132/132 nas duas engines; watchdog 134/134 intacto; consistency 16/16.",
+      "Lane real RR-E2E-04..10 (2026-10-05, commits a72181d + a1ac776): 7/7 pass-real LOCAL na execucao 3 com arvore limpa (execucao 3 = run final com o codice definitivo). Evidencia: evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/ (lane-summary no_fake_close=true; 49374 intocado). Classificacoes do registry NAO foram alteradas.",
+      "Fix de contaminacao do checkout (2026-10-05, commit 7b527d8): a evidencia do smoke de lifecycle V2 passou a ser efemera por default (RUNNER_TEMP -> TEMP -> GetTempPath) e a lane real ganhou o gate clean_tree_within_lane_scopes antes de qualquer cenario. Root cause do COMPLETION_GATE_FAILED no runner: o smoke escrevia em arquivo TRACKED dentro do checkout, fora dos write scopes do cenario 04 => verifier allowlisted pulado (skipped-out-of-scope) => sem verified_pass => kernel recusava o complete.",
+      "Pins migrados para o registry canonico (2026-10-05, commit 23d58dd): source/registry/runtime-versions.json + loader fail-closed RuntimeVersions.ps1; consumidores e o workflow de CI resolvem os pins por ele (nenhum literal no workflow).",
+      "RR-P38-S2 caller wiring (2026-10-05, commit 4cfb26a): o Planner loop chama o advisory JEV uma unica vez quando Test-JevAdvisoryTrigger responde should_consult=true e a flag existe; resultado tipado jev_advisory_result com authoritative=false/recommendation_only=true; falha => fallback deterministico (sem excecao, sem retry, sem inventar recommendation); provado por comparacao byte-a-byte com/sem advisory que o resultado nao altera rota/decisao nem escreve DONE. Suites: PlannerLoop 36, JevAdvisory 159/159, DispatchPipeline 201, E2eManifest 197, TaskKernel 75/75, consistency 16/16."
+    ],
+    "ci_observation_2026_10_05": {
+      "run_37366406568": "COMPLETION_GATE_FAILED na lane real do job ci-smoke-opencode-v2: causa raiz = contaminacao do checkout pelo smoke de lifecycle (ver fix 7b527d8), nao falha de codigo do watchdog.",
+      "run_37357757971": "mesmo padrao de falha de infraestrutura antes do fix 7b527d8.",
+      "infra_note": "No mesmo dia houve falha de infra de runners nao adquiridos e o job ps51 estourou o teto de 50m com a suite V3 em PS 5.1 em runner lento (ps7 identico passou em 21m55s no mesmo push); bump defensivo do teto anti-hang para 60m (commit 2c4a7cb), sem alterar step nem ordem.",
+      "pending": "ATUALIZADO 2026-10-05 apos o run 37376248759 (push 4cfb26a): OBSERVADO. Job ci-smoke-opencode-v2 com steps 'Smoke lifecycle explicito' VERDE e 'Lane real dos cenarios RR-E2E-04..10' VERDE (7/7 pass-real NO RUNNER, fecha o P0); os outros 4 jobs (ps51 com o teto novo de 60m, ps7, lane v2, smoke v1) PASSARAM. Unica falha do job V2: step final 'Smoke test with real OpenCode V2' (smoke implicito) com 'debug config: TIMEOUT 30s' = flake upstream documentado (debugcfg-hang-investigation.json), formalizado como observacao com continue-on-error: true (HOLD explicito da Etapa I; a falha continua visivel em log/anotacao, nao derruba o gate). Nao descrever o CI como 'totalmente verde': o job V2 segue com esse probe observacional. Pendencias que permanecem: evidencia V2-native no pin vigente e cenarios cross-session 16..22."
+    },
+    "resolved_holds_2026_10_05": [
+      "flag watchdog OFF/shadow => ATIVADA 2026-10-04 (decisao do operador com evidencia).",
+      "wiring do Job Object no enforcement => ENTREGUE 2026-10-05 (P26-JOB-WIRING); HOLDs residuais do backstop permanecem documentados.",
+      "transporte real do Jev (rede) => ENTREGUE 2026-10-05 (P29-S2) + chamador no Planner (P38-S2); resta probe contra endpoint real (operator-owned).",
+      "jevgrep real => RESOLVIDO 2026-10-04/05 (instalado + consult semantico real; o flip de policy platform_support.windows=true e as asserts do doctor JA ESTAO NA BASE: source/registry/capability-doctor-policy.json e OrchestrationE2eManifest.tests.ps1, que exige fallback com probe unhealthy). Nao resta nenhuma ativacao de jevgrep: o que sobra e o probe real contra endpoint real, coberto pela pendencia generica de transporte.",
+      "ativacoes de flag com evidencia e config+health/transporte do AI Memory => FECHADOS (flag-activation-batch-2026-10-04.json; aimem-health-repreflight-2026-10-04.json: config user-owned CONFIRMADA 2026-10-04 + round-trip remoto autenticado comprovado, 97ms). Pendencia nomeada do AI Memory: apenas o probe HTTPS dedicado, separado do round-trip MCP.",
+      "lane real RR-E2E-04..10 => FECHADA 2026-10-05 (7/7 pass-real local e 7/7 pass-real NO RUNNER, run 37376248759)."
+    ],
+    "open_holds_2026_10_05": [
+      "Phase 5 / runtime_grant_enforcement{v1,v2}: OFF por doutrina, sem validacao comportamental no runtime V2 real.",
+      "bounded_execution: flag ON, porem ExecutionBudget ainda devolve enforce=false (orcamentos efetivos via watchdog/kernel).",
+      "P22 REUSE: HOLD, nenhum claim OWNED emitido.",
+      "Watchdog: supervision kernel-side; captura de arvore por snapshot CIM; descendentes pre-attach e orfaos cobertos so pelo kill CIM; janela gate->TerminateJobObject nativa."
+    ]
+  },
+  "release_gate_pending_2026_10_05": {
+    "note": "Lista unica e vigente de pendencias do release gate (substitui a lista de 2026-10-03 sem apagar o historico em activation_pending). Itens FECHADOS nao repetem aqui.",
+    "pending": [
+      "Evidencia V2-native no pin vigente: o gating P40 exige exact-binary-live do pin atual (registry runtime-versions.json); as 8 features seguem hold-unproven.",
+      "Cenarios cross-session RR-E2E-16..22: exigem sessao real do operador + restart; fora do escopo da lane de watchdog.",
+      "Probes reais de transporte contra endpoint real (P28-S2 no binario V2 real; JEV com chave real, operator-owned exact-runtime). Para o AI Memory o round-trip MCP autenticado JA esta provado (2026-10-04): o item especifico que resta e o probe HTTPS dedicado contra o endpoint, separado do round-trip MCP.",
+      "Wirings de chamador restantes: registro do hook de arranque P31-S2 no arranque real; spawn real do despacho P38-S2 (o pipeline e record-only por decisao); produtor de telemetria P41-S2 em producao; append/enable do registro de supersessao P40-S2 (decisao do operador).",
+      "RR-E2E-32 (contrato advisory-only): influenciar rota real exige decisao de produto, nao flip de flag (flag ON e wiring P38-S2 entregues 2026-10-05; invariante advisory-only provado em teste). RR-E2E-33: kernel-side provado (tarefa trivial nunca consulta Jev, zero probes em OrchestrationPlannerLoop.tests); o turno real de runtime segue operator-owned.",
+      "Smoke implicito (debug config) segue flaky upstream; desde 2026-10-05 e OBSERVACAO com continue-on-error: true (HOLD explicito da Etapa I - a falha continua visivel em log/anotacao e nao derruba o gate). O job V2 nao e 'totalmente verde': mantem esse probe observacional."
+    ],
+    "closed_2026_10_04_05": [
+      "Ativacoes de flag com evidencia (lote 2026-10-04).",
+      "jevgrep real instalado + consult semantico (2026-10-04); flip de policy platform_support.windows=true e asserts do doctor ja presentes na base (nao e pendencia).",
+      "Config user-owned do AI Memory remoto confirmada (2026-10-04) e round-trip remoto autenticado comprovado (aimem-health-repreflight-2026-10-04.json); resta apenas o probe HTTPS dedicado, separado do round-trip MCP.",
+      "Wiring do chamador Jev no Planner loop (P38-S2, 2026-10-05).",
+      "Lane real RR-E2E-04..10 no runner: 7/7 pass-real (run 37376248759, push 4cfb26a, 2026-10-05) - fecha o P0 do COMPLETION_GATE_FAILED por contaminacao do checkout."
+    ]
+  },
   "invariants": [
     "ai-memory nunca mutado (ATUALIZACAO 2026-10-03: o AI Memory PROD do operador ja roda em servidor remoto proprio — cutover executado antes de 2026-10-01; o endpoint e USER-OWNED e deliberadamente NAO registrado neste repo publico; SOBRE o listener local 127.0.0.1:49374: nao e AI Memory — e o servico de fundo do V2 CLI (opencode.exe serve --service do npm global) que o harness RESPAWN a cada sessao/restart (3 geracoes observadas em 2026-10-03: stop owned e efemero por construcao); desativacao duravel exigiria mudanca na config global do opencode do operador, fora deste repo; o processo permanece intocado por aqui)",
     "roteamento MCP generico segue desligado",
-    "nenhuma flag de rollout NOVA criada alem de jev_advisory (P29, com sancao explicita do plan §6.1, {enabled:false, shadow:true}); as 9 flags sugeridas no SPEC ADDENDUM §26 que dependem de primitiva ausente (loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor, orchestration_evolution) NAO foram criadas - ver pae_traceability.no_new_flags_note; nenhuma flag foi ativada por este programa",
+    "nenhuma flag de rollout NOVA criada alem de jev_advisory (P29, com sancao explicita do plan §6.1); as 9 flags sugeridas no SPEC ADDENDUM §26 que dependem de primitiva ausente (loop_guard, mcp_safety, persistent_bootstrap, cross_session_binding, execution_mode_router, evidence_reuse, adaptive_validation, capability_doctor, orchestration_evolution) NAO foram criadas - ver pae_traceability.no_new_flags_note [ATUALIZACAO 2026-10-04: jev_advisory foi a PRIMEIRA a sair de OFF e 5 outras flags foram ativadas no mesmo lote (flag-activation-batch-2026-10-04.json); em 2026-10-05 nenhuma flag NOVA foi criada. 'nenhuma flag foi ativada por este programa' descreve o estado ate 2026-10-04 e nao descreve mais o estado vivo]",
     "tester: negação da operação principal encerra a rota; uma única reformulação auxiliar só quando o segmento auxiliar é o único negado e a validação principal está autorizada separadamente",
     "requisitos dos addenda de SPEC/PLAN nao alterados por este status",
-    "nenhuma feature nova entra por flag: o comportamento novo e gated pelas flags EXISTENTES bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement e runtime_caps, todas OFF/shadow (SPEC §26: nenhuma flag concede autoridade)"
+    "nenhuma feature nova entra por flag: o comportamento novo e gated pelas flags EXISTENTES bounded_execution, watchdog, task_kernel, jev_advisory, runtime_grant_enforcement e runtime_caps (SPEC §26: nenhuma flag concede autoridade) [ATUALIZACAO 2026-10-04/05: 'todas OFF/shadow' era o estado ate o lote de ativacao; hoje 6 flags estao ATIVAS com evidencia e runtime_grant_enforcement segue OFF por Phase 5 — ver flags.all_off_note]"
   ]
 }

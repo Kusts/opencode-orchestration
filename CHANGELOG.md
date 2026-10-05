@@ -8,6 +8,39 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Wiring do chamador Jev no Planner loop (P38-S2 caller wiring,
+  2026-10-05, commit `4cfb26a`)** — fecha a fatia de integração do Jev no
+  fluxo do Planner: quando `Test-JevAdvisoryTrigger` responde
+  `should_consult=true` **e** a flag `jev_advisory` existe, o loop faz
+  **uma** chamada `Invoke-JevAdvisoryCall` (tool `jev_decide`, policy e
+  flags canônicos, `TurnId` por hash, pass-through opcional de `-Probe` e
+  budget) e anexa `jev_advisory_result` tipado ao plan record com
+  `authoritative=false` / `recommendation_only=true`. Falha em qualquer
+  ramo (credencial ausente, timeout, circuito aberto, shadow, disabled) ⇒
+  **fallback determinístico**, sem exceção, sem retry, sem inventar
+  recommendation; o resultado nunca altera rota/decisão nem escreve `DONE`
+  — a consulta acontece **após** a construção do dispatch e a não-efetividade
+  é provada por comparação byte-a-byte com/sem advisory. Sanitização de
+  egress (review r1/r2/r3): redação de `Authorization: Bearer` e de
+  `sk-`/`token`/`secret`/`password`/`key` **antes** de qualquer corte,
+  remoção do **home real** do processo (replace literal case-insensitive
+  com espaços, dedupe `USERPROFILE`/`HOME`/`$HOME`, skip de drive root;
+  fallback genérico consome nome com espaços) antes do cap, e `-State`
+  derivado do objetivo **bruto** (o cap de 500 do record nunca fragmenta
+  paths no egress); caps documentados (100k guard DoS / 600 egresso);
+  contrato C1–C4 com decisão do security (paths custom = texto do
+  operador, sem garantia de forma; proibido: segredo e home real,
+  inteiros ou fragmentados). Testes: 21 baseline + 9 de wiring
+  (T1–T7 + advisory-only/no-DONE) + NT1/NT2a/NT2b/NT3a/NT3b/NT3c de
+  fronteira com auto-check de straddle e prova de mutação (ordem
+  invertida falha em NT2b; strip depois do cap falha em NT3a). Suítes:
+  `OrchestrationPlannerLoop` **36**, `OrchestrationJevAdvisory`
+  **159/159**, `OrchestrationDispatchPipeline` **201**,
+  `OrchestrationE2eManifest` **197**, `OrchestrationTaskKernel`
+  **75/75**, consistency **16/16**. Flag `jev_advisory` já ATIVA desde
+  2026-10-04 (nada foi ativado por esta fatia); `runtime_grant_enforcement`
+  segue OFF (Phase 5).
+
 - **Transporte HTTP real do Jev advisory (P29-S2, kernel-side)** —
   `OrchestrationJevAdvisory.ps1` ganha o probe HTTP real (`New-JevAdvisoryHttpProbe`,
   scriptblock autocontido para o envelope P28): `POST {JEV_BASE_URL}` com
@@ -47,6 +80,13 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   edição de **um** arquivo (+ re-validação no runtime exato).
 
 ### Changed
+
+- **Teto anti-hang do job `ps51` no CI elevado de 50m para 60m**
+  (2026-10-05, commit `2c4a7cb`): o run `37366406568` estourou *"The job
+  has exceeded the maximum execution time of 50m0s"* com a suíte V3 em
+  PS 5.1 em runner lento (o job `ps7`, idêntico, passou em 21m55s no mesmo
+  push). Bump **defensivo** do teto; nenhum step, ordem ou timeout de step
+  foi alterado.
 
 - **Contaminação do working tree quebrava o RR-E2E-04 no CI**
   (`COMPLETION_GATE_FAILED`) — *root cause*: o job `ci-smoke-opencode-v2` roda
@@ -353,7 +393,12 @@ especificação e plano em
   seam minimo no kernel (`Set-/Confirm-OrchestrationTaskWatchdogSettlement`,
   `SETTLEMENT_REQUIRED` em complete/cancel, CLI
   `watchdog-interrupt`/`watchdog-settle`); flag
-  `watchdog{enabled:false, shadow:true}` **inalterada**; registro sem
+  `watchdog{enabled:false, shadow:true}` **inalterada** *[estado da fatia;
+  ATUALIZADO 2026-10-04: o operador ativou a flag
+  (`{enabled:true,shadow:false}`, `cca566f`) e em 2026-10-05 o enforcement
+  passou a consumir o Job Object — ver bullets próprios. O registro sem
+  binding em ENFORCE mantém o HOLD honesto (`WATCHDOG_ENFORCEMENT_
+  NOT_IMPLEMENTED` como token dessa condição, não da flag)]*; registro sem
   binding em ENFORCE mantem o HOLD honesto P25. Suite nova **339/339**
   (PS5.1 + PS7, so filhos efemeros proprios; TODOS os cenarios de
   risco sob harness de deadline real via Start-Job/Wait-Job-Timeout
@@ -461,7 +506,10 @@ especificação e plano em
   kernel-side (`scripts/v3/lib/OrchestrationJevAdvisory.ps1`,
   `source/registry/jev-advisory-policy.json`): flag
   `jev_advisory {enabled:false, shadow:true}` nasce **OFF** (sanção
-  do plan §6.1); policy canônica com tool set fechado
+  do plan §6.1) *[estado da fatia; ATUALIZADO 2026-10-04: flag ATIVA
+  `{enabled:true,shadow:false}` — `68a977b`/`cca566f`; transporte real em
+  P29-S2 e wiring do chamador em P38-S2 entregues em 2026-10-05, ver
+  bullets no topo]*; policy canônica com tool set fechado
   (check/gate/score/decide), budget 30s, probe 10s, circuito
   2/300s, criticality optional (`JEV_UNAVAILABLE` ⇒ fallback
   determinístico, nunca bloqueia), credencial só como **nome de
@@ -740,11 +788,20 @@ especificação e plano em
   exclusion `permission_change` — mudança de permissão não é delegada a
   workers).
 Revisões Reviewer + Security Reviewer encerradas com **APPROVED parcial
-por fase** (HOLDs registrados). Todas as flags de rollout seguem
-**OFF/shadow** (`source/registry/capability-flags.json`; única exceção,
-pré-existente do V3: `capability_registry.enabled=true`); nenhuma flag de
-rollout nova além de `jev_advisory` (P29, com sanção explícita do plan
-addendum §6.1, OFF/shadow);
+por fase** (HOLDs registrados). **Estado atual das flags** (fonte
+canônica `source/registry/capability-flags.json`): **ATIVAS** por decisão
+do operador com evidência — `runtime_support.v1/v2/dual_profile`,
+`task_kernel`, `bounded_execution`, `watchdog`, `jev_advisory` e
+`worktree_isolation` (lote de 2026-10-04, ver bullets acima;
+`capability_registry.enabled=true` é pré-existente do V3);
+**OFF/shadow** — `capability_router.shadow/active`, `skill_routing`,
+`mcp_routing`, `adaptive_ranking`, `routing_telemetry`,
+`capability_reconciler` e `runtime_grant_enforcement{v1,v2}` (doutrina
+Phase 5: nenhum hard-deny antes da validação comportamental no runtime
+V2 real). A frase original desta seção ("todas as flags de rollout seguem
+OFF/shadow") descrevia o estado até 2026-10-04 e foi substituída pelo
+estado vivo; nenhuma flag de rollout **nova** foi criada além de
+`jev_advisory` (P29, com sanção explícita do plan addendum §6.1);
 roteamento MCP genérico segue desligado; critérios `PAE-01`–`PAE-40`
 rastreados na matriz
 `evidence/v3.1/runtime-reliability/pae-traceability.json`, pendentes
@@ -754,9 +811,13 @@ pendente do operador).
 
 ### Added
 
-- **Suporte dual-runtime**: OpenCode **V1** (`opencode-ai`, validado
-  **1.18.32**) e OpenCode **V2** (`@opencode/cli`, validado **2.0.18**),
-  ambos com comando `opencode`.
+- **Suporte dual-runtime**: OpenCode **V1** (pacote npm `opencode-ai`) e
+  OpenCode **V2** (pacote `@opencode/cli`), ambos com comando `opencode`.
+  Os pins exatos são lidos do **registry canônico**
+  `source/registry/runtime-versions.json` (loader fail-closed
+  `scripts/runtime/lib/RuntimeVersions.ps1`) — este changelog não fixa
+  números; `1.18.32`/`2.0.18` abaixo são os pins do congelamento
+  histórico e da evidência que os citam.
   - Registry de runtimes (`source/registry/runtimes.json`: descritores v1/v2
     com dialeto de config/permissões, pacote de plugin, chaves geridas e
     raiz de render) + detecção determinística
@@ -824,10 +885,12 @@ pendente do operador).
     conferido antes de remover.
   - Observabilidade: 14 tipos de evento novos (29 total) e dimensão
     runtime (`runtime_id/generation/version/profile`) opcional e
-    sanitizada; flags de rollout conservadoras
-    (`task_kernel` desligado+shadow, `worktree_isolation` e
+    sanitizada; flags de rollout conservadoras por **política** (nascem
+    OFF/shadow; ativação é decisão humana com evidência — nesse
+    congelamento `task_kernel` desligado+shadow, `worktree_isolation` e
     `runtime_grant_enforcement` desligados, `runtime_support.v2` off até
-    ativação com evidência).
+    ativação com evidência; **estado vigente**: ver
+    `source/registry/capability-flags.json` e o lote de 2026-10-04).
 - **Revisões independentes**: Reviewer + Security Reviewer emitiram
   `CHANGES_REQUIRED` com 15 findings válidos (concorrência CAS/lease,
   auto-atestação de DONE, evidência claimed, `--force` implícito, união
@@ -933,7 +996,10 @@ pendente do operador).
   explícito na evidência; decisão de contrato Jev X), 10 sibling ileso
   com hang morto. Wired no job `ci-smoke-opencode-v2` após o smoke de
   lifecycle (passo 10 min; job 15→25 min; vermelho honesto, sem
-  continue-on-error). Evidência: `evidence/v3.1/runtime-reliability/
+  continue-on-error **na lane** — o smoke implícito do mesmo job passou a
+  ser observação com `continue-on-error: true` depois, ver *Fixed*;
+  lane 7/7 `pass-real` verde no runner em 2026-10-05, run
+  `37376248759`). Evidência: `evidence/v3.1/runtime-reliability/
   v2-lane-2026-10-04/` (lane-summary `no_fake_close:true`; log de
   diagnóstico com as 3 execuções). Classificações do registry
   **inalteradas** (descrevem o que a prova exige; a lane forneceu a
@@ -961,16 +1027,38 @@ pendente do operador).
   de sessão/restart (16..22) continuam exigindo integração de sessão
   real; evidência em
   `evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/` e
-  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/`), config
+  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/` — o **re-run em
+  runner limpo foi OBSERVADO em 2026-10-05** (run `37376248759`, push
+  `4cfb26a`): step `Smoke lifecycle explicito` verde e step `Lane real
+  dos cenarios RR-E2E-04..10` verde, 7/7 `pass-real` **no runner**; o
+  `COMPLETION_GATE_FAILED` anterior era contaminação do checkout (fix
+  `7b527d8`, ver *Fixed*). No mesmo run o step final `Smoke test with
+  real OpenCode V2` (smoke implícito) falhou com `debug config: TIMEOUT
+  30s` — flake upstream documentado
+  (`debugcfg-hang-investigation.json`), formalizado como observação
+  `continue-on-error: true`; portanto o job V2 **não é "totalmente
+  verde"**, ele carrega um probe observacional), config
   user-owned local do endpoint de AI Memory **remota já em PROD** (deploy
-  do VPS de AI Memory executado pelo operador; restam a configuração fora
-  do repo e a evidência de health/transporte sem registrar identidade no
-  repo) e o re-preflight de porta P22, ativações de flag com evidência
-  (decisão humana), probes reais de health/transporte, jevgrep real e
-  wirings de chamador em
-  produção (produtor de telemetria P41, append/enable do revisor de
-  supersessão P40-S2, spawn real do despacho P38, hooks de arranque
-  P31). Checklist em `evidence/v3.1/runtime-reliability/phase42.json`;
+  do VPS de AI Memory executado pelo operador; a config user-owned foi
+  **confirmada em 2026-10-04** e o round-trip remoto autenticado
+  comprovado em `aimem-health-repreflight-2026-10-04.json`; resta apenas
+  o probe HTTPS dedicado, separado do round-trip MCP, e nenhuma
+  identidade do servidor no repo) e o re-preflight de porta P22,
+  **evidência V2-native no pin
+  vigente** (o gating P40 exige `exact-binary-live` do binário do pin
+  atual; as 8 features seguem `hold-unproven`) e probes reais contra
+  endpoint real (JEV com chave real é operator-owned). **Fechados desde
+  2026-10-04 e portanto fora desta lista**: ativações de flag com
+  evidência, `jevgrep` real (instalado + consult semântico; o flip de
+  policy `platform_support.windows=true` e as asserts do doctor já estão
+  na base — resta só probe real contra endpoint real, já listado acima) e
+  a config + o round-trip do AI Memory; **fechado em 2026-10-05**: a lane
+  RR-E2E-04..10 no runner e o wiring do
+  chamador Jev no Planner loop (P38-S2) — restam os wirings de P31-S2
+  (registro no arranque real), P38-S2 (spawn real do despacho, record-only
+  por decisão), P41-S2 (produtor em produção) e P40-S2 (append/enable,
+  decisão do operador).
+  Checklist em `evidence/v3.1/runtime-reliability/phase42.json`;
   estado por fase em `program-status.json`; rastreio por critério em
   `pae-traceability.json`.
 - **HOLDs estruturais mantidos em P22–P41** — (d) `execute.before` sem
@@ -986,11 +1074,15 @@ pendente do operador).
   desde 2026-10-04 — o caminho de lifecycle é estável, o implícito segue
   flaky)). Nenhum hard-deny é shipado antes disso.
 - **Phase 8 (smoke V2 em CI)** — instalação oficial do V2 no Windows
-  (`@opencode/cli@2.0.18` via npm + postinstall) provada localmente e
+  (spec resolvida do registry `source/registry/runtime-versions.json`; a
+  prova local de 2026-10-03/04 usou o pin histórico `@opencode/cli@2.0.18`)
+  provada localmente e
   smoke de lifecycle wired no job `ci-smoke-opencode-v2`; **executado no
-  runner em 2026-10-04 com PASS** (run 37193122170); pendente apenas a
-  resolução do flakiness upstream do `debug config` (o smoke implícito
-  segue como probe honesto e mantém o job vermelho quando falha).
+  runner em 2026-10-04 com PASS** (run 37193122170); o flakiness upstream
+  do `debug config` permanece (flake documentado em
+  `debugcfg-hang-investigation.json`) e o smoke implícito foi formalizado
+  como **observação com `continue-on-error: true`** (HOLD explícito: a
+  falha continua visível em log/anotação, mas não derruba o gate).
 - **Ativação** — em 2026-10-04 o operador ativou `watchdog`/
   `task_kernel`/`bounded_execution`/`worktree_isolation`/
   `runtime_support.v2`+`dual_profile`/`jev_advisory` (commit `cca566f`,
@@ -1014,6 +1106,36 @@ pendente do operador).
   preservados, provados em fixture com registry **controlado** (toda ativação
   OFF) em vez de leitura do registry vivo — nenhum invariante foi removido e o
   total de asserts subiu.
+
+- **RR-E2E-04 no runner: `COMPLETION_GATE_FAILED` por contaminação do
+  checkout (2026-10-05, commit `7b527d8`)** — causa-raiz e correção estão
+  descritas em *Changed* acima (evidência do lifecycle smoke passou a ser
+  efêmera em `RUNNER_TEMP`/`TEMP`/`GetTempPath()` e a lane real ganhou o
+  gate fail-closed `clean_tree_within_lane_scopes` antes de qualquer
+  cenário). Nenhum scope foi ampliado, nenhuma assertion removida, nenhum
+  retry e nenhuma action nova no workflow. **Estado atual desta
+  pendência**: FECHADA — o re-run em runner limpo foi observado no run
+  `37376248759` (2026-10-05, push `4cfb26a`): `Smoke lifecycle explicito`
+  e `Lane real dos cenarios RR-E2E-04..10` verdes, 7/7 `pass-real` no
+  runner; os outros 4 jobs (ps51 com o teto novo de 60m, ps7, lane v2,
+  smoke v1) passaram. A única falha do job `ci-smoke-opencode-v2` foi o
+  step final `Smoke test with real OpenCode V2` (smoke implícito) com
+  `debug config: TIMEOUT 30s` — flake upstream, tratado abaixo.
+
+- **Smoke implícito (`debug config`) do job `ci-smoke-opencode-v2` vira
+  observação (2026-10-05, commit "ci: smoke implicito V2 vira
+  observacional")** — o step `Smoke test with real OpenCode V2` passou a
+  rodar com `continue-on-error: true`, formalizando o HOLD explícito da
+  Etapa I: a intermitência do `debug config` é flake **upstream** do
+  binário (7 hangs vs 5 passes no mesmo dia/binário/máquina —
+  `debugcfg-hang-investigation.json`; stdin, conteúdo da config e estado
+  do serviço refutados como gatilho determinístico), não regressão deste
+  pacote. A falha continua **visível** em log e anotação do run — só não
+  derruba mais o gate. Nenhum outro step, ordem, timeout, escopo ou
+  verificador foi alterado, e a prova do caminho estável segue sendo o
+  smoke de lifecycle explícito + a lane real RR-E2E-04..10 (verde no
+  runner em 2026-10-05). **Não descrever o CI como "totalmente verde"**:
+  o job V2 segue carregando esse probe observacional.
 
 ### Known issues (pré-existentes, dependentes de ambiente)
 

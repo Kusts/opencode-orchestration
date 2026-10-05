@@ -143,6 +143,11 @@ e devolve ao Planner. Retorno compacto (`TASK_ID`, `STATUS`,
   determinístico — nada quebra.
 - **Safe-by-default**: toda flag de roteamento nasce `false`; ativação é
   decisão humana explícita com registro (gate-closure), nunca inferência.
+  A mesma doutrina vale para as flags de rollout do V3.1 (nascem
+  OFF/shadow); o que existe hoje é o **lote autorizado pelo operador em
+  2026-10-04** — 6 flags ativadas com evidência registrada
+  (`evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json`),
+  com `runtime_grant_enforcement{v1,v2}` deliberadamente OFF (Phase 5).
 - **V3 em maintenance mode**: sem V4, sem novas phases/flags/frameworks.
   Reabre só por bug observado, capability nova do runtime, telemetria
   recorrente `WRONG`/`SUBOPTIMAL`/`BYPASS`, mudança de modelo/runtime ou
@@ -156,11 +161,20 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
 (`docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`):
 
 - **Registry de runtimes** (`source/registry/runtimes.json`): descritores
-  `opencode-v1` (validado 1.18.32) e `opencode-v2` (validado 2.0.18) com
-  dialeto de config/permissões, pacote de plugin, chaves geridas e raiz de
-  render. Detecção determinística (`scripts/runtime/`):
+  `opencode-v1` e `opencode-v2` com dialeto de config/permissões, pacote de
+  plugin, chaves geridas e raiz de render. Detecção determinística
+  (`scripts/runtime/`):
   `RuntimeAdapters.ps1` (probe, geração, fail-closed) +
   `detect-opencode-runtime.ps1`.
+- **Pins de runtime/tool — fonte única canônica**:
+  `source/registry/runtime-versions.json` (`runtimes.v1/v2`,
+  `plugins.v1/v2`, `tools.bun`) com loader fail-closed
+  `scripts/runtime/lib/RuntimeVersions.ps1`
+  (`Get-OrchestrationRuntimeVersion`, sem fallback para literal: registry
+  ausente/ilegível/inválido ⇒ throw). Bump de versão = editar **só** esse
+  arquivo + revalidação no runtime exato; smokes, perfis, typecheck e o
+  workflow de CI resolvem os pins por ele. `runtimes.json` guarda os
+  descritores (e a história), não o pin.
 - **Render nativo por geração**: `templates/opencode.v1.json.tmpl`
   (`agent`/`permission`/`task`/`subagent_depth`) e
   `templates/opencode.v2.json.tmpl` (`agents`/`permissions` ordenadas
@@ -189,20 +203,39 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
   telemetria (29 tipos) com dimensão runtime.
 - **Pendente** (honesto): enforcement **comportamental** V2
   (`experimental.policies`, precedência de regras no runtime real) —
-  spike travou em `debug config/agents` do V2 2.0.18 (HOLD registrado em
-  `evidence/v3.1/kernel-hardening/runtime-binding.json`); smoke de
-  binário V2 na lane CI `ci-v2-lane`; ativação das flags
-  (`task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
-  nascem OFF — shadow rollout, ativação é decisão humana com evidência).
+  spike travou em `debug config/agents` do V2 (HOLD registrado em
+  `evidence/v3.1/kernel-hardening/runtime-binding.json`; binário histórico
+  do spike citado como `2.0.18` no próprio spike); smoke de
+  binário V2 na lane CI — lifecycle **PASS no runner** em 2026-10-04
+  (run 37193122170), lane real de watchdog **7/7 `pass-real` no runner**
+  em 2026-10-05 (run `37376248759`); o smoke implícito (`debug config`,
+  flake upstream) virou observação `continue-on-error` e o job V2 segue
+  com esse probe observacional, não "totalmente verde"; flags:
+  `task_kernel`, `watchdog`, `bounded_execution`, `worktree_isolation`,
+  `runtime_support.v2/dual_profile` e `jev_advisory` **ativadas** em
+  2026-10-04 com evidência, enquanto `runtime_grant_enforcement{v1,v2}`
+  segue OFF (Phase 5 — nenhum hard-deny antes da validação
+  comportamental).
 
-## Confiabilidade de runtime (V3.1 Phases 21-42 (revisão 2026-10-01) - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; release gate pendente do operador)
+## Confiabilidade de runtime (V3.1 Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05) - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; release gate pendente do operador)
 
 **Status 2026-10-02/03:** programa **code-complete** nas fatias
 kernel-side/plugin — Waves A–E implementadas via ciclo
 coder → tester → reviewer (+ security) com APPROVED por slice.
+**Atualização 2026-10-05 (reconciliação documental):** flags de rollout
+ativadas pelo operador em 2026-10-04; transporte HTTP real do Jev (P29-S2)
+e wiring do chamador no Planner loop (P38-S2) entregues; backstop de Job
+Object ligado ao enforcement do watchdog (P26-JOB-WIRING); lane real
+RR-E2E-04..10 **7/7 `pass-real` no runner** (run `37376248759`, 2026-10-05)
+e no mesmo run o smoke implícito falhou com `debug config: TIMEOUT 30s`
+(flake upstream) e foi formalizado como observação
+`continue-on-error: true`; pins migrados para o registry
+canônico `source/registry/runtime-versions.json`; o que resta é evidência
+do operador (release gate), não código.
 Bibliotecas novas em `scripts/v3/lib/`:
 `OrchestrationMcpSafety` (envelope bounded + circuit breaker),
-`OrchestrationJevAdvisory` (Jev como advisory, flag OFF),
+`OrchestrationJevAdvisory` (Jev como advisory, flag `jev_advisory` — ativa
+desde 2026-10-04),
 `OrchestrationAiMemoryRemote` (dependência remota bounded),
 `OrchestrationBootstrapContext`, bindings CAS dentro de
 `OrchestrationTaskKernel` (sem lib própria), `OrchestrationSessionReconciler`
@@ -226,7 +259,10 @@ planejado em [Plan addendum](specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-PLAN-A
 com execução descrita em [Implementation prompt](specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-IMPLEMENTATION-PROMPT.md):
 
 - **P21 done (baseline)**: pins V1/V2 presentes, listener `49374`
-  identificado como AI Memory local (Docker, saudável); fixtures de
+  diagnosticado por PID (Docker/ssh; registro da então — **identidade
+  corrigida em 2026-10-03**: `49374` **não é AI Memory**, é o serviço de
+  fundo do V2 CLI, `opencode.exe serve --service` do npm global, respawnado
+  a cada sessão/restart; nunca mutado aqui); fixtures de
   watchdog **17/17 PASS** (PS5.1 e PS7), record-only, sem enforcement
   (`evidence/v3.1/runtime-reliability/baseline.json` + `fixtures/`).
 - **P22 parcial-HOLD (port/process preflight)**: preflight
@@ -263,8 +299,11 @@ com execução descrita em [Implementation prompt](specs/ORCHESTRATION-V3.1-RUNT
   `BUDGET_NEAR_LIMIT` em modo shadow (would-interrupt, execução
   intacta, sem task record), telemetria JSONL bounded com lock
   in-process e cap fail-closed, identidade obrigatória, flag
-  `watchdog{enabled:false, shadow:true}`; `enabled=true` retorna
-  `WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED`. Suítes: watchdog
+  `watchdog{enabled:false, shadow:true}` **naquela fatia**; `enabled=true`
+  sem binding de processo provado retorna
+  `WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` (esse é o token do registro sem
+  binding, não o estado atual da flag — ver subsection seguinte).
+  Suítes: watchdog
   **80/80** (PS5.1 + PS7), kernel **75/75**, consistência **16/16**;
   reviews Reviewer **APPROVED** (REV4) + Security **APPROVED**
   (SEC3). Follow-ups documentados: lock cross-process, retenção
@@ -274,8 +313,11 @@ com execução descrita em [Implementation prompt](specs/ORCHESTRATION-V3.1-RUNT
 ### Capacidades entregues em P26–P42 (kernel-side/plugin, 2026-10-02/03)
 
 As subseções abaixo registram o que existe no código e seus limites
-honestos. Nenhuma delas implica ativação: todas as flags seguem OFF e o
-release gate depende de evidência do ambiente do operador.
+honestos. O que elas descrevem é **capacidade entregue**, não autorização:
+as flags de rollout do programa foram **ativadas em 2026-10-04** pelo
+operador com evidência registrada (exceto
+`runtime_grant_enforcement{v1,v2}`, que segue OFF por doutrina Phase 5), e
+o release gate continua dependente de evidência do ambiente do operador.
 
 #### Watchdog: shadow + caminho de enforcement (P25/P26)
 
@@ -319,9 +361,19 @@ Jev entra como **consultivo** com tool set fechado, budget 30s, probe
 10s, circuito 2/300s e criticality `optional` (`JEV_UNAVAILABLE` ⇒
 fallback determinístico). O guard de autoridade é sempre-nega: deny do
 kernel vence allow do Jev e falha do verifier vence "complete" do Jev.
-Flag `jev_advisory{enabled:false, shadow:true}` nasce OFF. Limites:
-transporte real (rede) não ativado (seam sintética, zero primitivas de
-rede). Evidência: `evidence/v3.1/runtime-reliability/phase29.json`.
+A flag nasceu OFF/shadow e foi **ativada pelo operador em 2026-10-04**
+(`{enabled:true, shadow:false}`, decisão com evidência). **Atualização
+2026-10-05:** o transporte **HTTP real** kernel-side foi entregue na
+fatia 2 (P29-S2 — `POST` no endpoint user-owned por env, https ou
+loopback, cap de leitura, tokens fechados de falha, **falha nunca vira
+advisory OK**) e o **wiring do chamador no Planner loop** foi entregue
+em P38-S2 (commit `4cfb26a`: uma chamada quando o trigger diz
+`should_consult=true`, resultado anexado como
+`authoritative=false`/`recommendation_only=true`, falha ⇒ fallback
+determinístico). Limites restantes: probe contra endpoint real com chave
+real é evidência operator-owned (exact-runtime), e o Jev nunca concede
+autoridade (guard sempre-nega). Evidência: `phase29.json`,
+`phase29-transport-s2.json`.
 
 #### AI Memory remoto como dependência (P30)
 
@@ -331,8 +383,16 @@ HTTPS obrigatório antes de transporte real, retrieval 60s / health 10s,
 circuito reusando o envelope P28 e modo **remote-only por config**.
 Limites: ausência de config ⇒ `AIMEMORY_UNCONFIGURED` (optional
 continua, required bloqueia tipado) e **nunca** fallback silencioso para
-o listener local `49374`; deploy do VPS e fechamento dos HOLDs de
-`REUSE` são infraestrutura do operador. Evidência:
+o listener local `49374` (que **não é AI Memory**: é o serviço de fundo
+do V2 CLI). Estado real: o AI Memory PROD do operador **já roda em
+servidor remoto próprio** (deploy executado pelo operador antes de
+2026-10-01; config user-owned fora do repo **confirmada** em 2026-10-04
+e round-trip remoto autenticado comprovado com serviço saudável,
+97 ms — `aimem-health-repreflight-2026-10-04.json`, sem
+identidade do servidor no repo). Pendência honesta restante: apenas o
+probe HTTPS dedicado contra o endpoint, separado do round-trip MCP
+(`aimem-health-repreflight-2026-10-04.json`: `tls_note`);
+`REUSE` da P22 continua HOLD. Evidência:
 `evidence/v3.1/runtime-reliability/phase30.json`.
 
 #### Bootstrap context e wiring de arranque (P31)
@@ -430,22 +490,31 @@ kernel-side; spawn real de workers é decisão do operador. Evidência:
 Descritores de capacidade com schema validation tipada (booleano
 estrito) e doctor **read-only** com probes sintéticos injetáveis (budget
 é metadado honesto, não medição real), fallback que valida o destino e
-`risk_class` execution/authority sem health ⇒ typed blocker. Limites:
-probes reais e jevgrep real em HOLD (fatia de transporte), instalação
-automática fora de escopo. Evidência:
-`evidence/v3.1/runtime-reliability/phase39.json`.
+`risk_class` execution/authority sem health ⇒ typed blocker.
+**Atualização 2026-10-04:** o **jevgrep real** foi instalado e executado
+com consult semântico comprovado (`jg` sobre OpenCode Zen;
+`evidence/v3.1/runtime-reliability/jevgrep-install-2026-10-04.json`).
+Limites: o **flip de policy** `platform_support.windows=true` e as
+asserts do doctor já estão na base (`capability-doctor-policy.json`;
+`OrchestrationE2eManifest.tests.ps1` exige fallback com probe unhealthy) —
+resta apenas probe real de transporte contra endpoint real
+(operator-owned) e instalação automática fora de escopo.
+Evidência: `evidence/v3.1/runtime-reliability/phase39.json`.
 
 #### Gating de capacidades nativas do V2 (P40)
 
 Registry data-driven das 8 features candidatas, **todas hold-unproven**,
 com `required_evidence` e `v1_fallback`; gating estritamente fail-closed
 (`enabled` só com evidência `exact-binary-live` validada: feature, pin
-2.0.18, scenario exact-match + SHA-256 e timestamp RFC3339 com offset). A
+exato do registry canônico `source/registry/runtime-versions.json`
+(`2.0.18` na fatia original), scenario exact-match + SHA-256 e timestamp
+RFC3339 com offset). A
 fatia 2 acrescenta o revisor de supersessão de evidências
 (`OrchestrationV2EvidenceSupersession.ps1`), **decision-record only** (zero
 escrita, zero habilitação). Limites: toda ativação exige prova no binário
-2.0.18 no ambiente do operador, e o append/enable do registro é decisão
-dele. Evidência: `evidence/v3.1/runtime-reliability/phase40.json`.
+do pin vigente no ambiente do operador, e o append/enable do registro é
+decisão dele. Evidência:
+`evidence/v3.1/runtime-reliability/phase40.json`.
 
 #### Evolution loop e telemetria observacional (P41)
 
@@ -461,7 +530,8 @@ de mudança promovida (fluxo revisado) são do operador. Evidência:
 `evidence/v3.1/runtime-reliability/phase41.json`.
 
 ### Mecanismos-alvo do programa (desenho vigente; as capacidades P26–P42
-já existem em código, sem ativação)
+já existem em código e foram ativadas em 2026-10-04 com evidência, exceto
+`runtime_grant_enforcement`)
 
 - **Execução limitada (bounded execution)**: todo attempt ativo passa a
   ter orçamento canônico (`execution_budget`: steps, wall-clock,
@@ -481,8 +551,14 @@ já existem em código, sem ativação)
   geral 120s) + circuit breaker (2 falhas consecutivas abrem o circuito);
   roteamento MCP genérico segue desligado.
 - **AI Memory remoto**: tratado como dependência remota com health check
-  limitado e `MEMORY_UNAVAILABLE` limitado — migração do listener local
-  `127.0.0.1:49374` para VPS planejada, **não executada**.
+  limitado e `MEMORY_UNAVAILABLE` limitado. A migração para servidor
+  próprio do operador foi **executada** (AI Memory PROD remoto; o
+  `127.0.0.1:49374` local **não é AI Memory** — é o serviço de fundo do
+  V2 CLI, respawnado a cada sessão/restart, nunca mutado aqui); a config
+  user-owned fora do repo está **confirmada** (2026-10-04) e o
+  round-trip remoto autenticado foi comprovado
+  (`aimem-health-repreflight-2026-10-04.json`); resta só o probe HTTPS
+  dedicado, separado do round-trip MCP, e nenhuma identidade no repo.
 - **Jev advisory**: somente consultivo (`jev_advisory` ATIVA em
   2026-10-04, decisão do operador, commit `cca566f`), nunca autoriza
   ações, concede permissões, sobrescreve Reviewer/Security
@@ -494,9 +570,12 @@ já existem em código, sem ativação)
   pergunta enviada: type igual e choice dentro das criteria; gate
   limitado a allow|confirm|block), tokens fechados de falha (nenhum
   advisory OK em 3xx/5xx/401/malformed/truncado), budget/circuito pelo
-  envelope P28 (advisory 30s, circuito 2/300s); probe contra endpoint
-  REAL com chave real segue evidência operator-owned (exact-runtime,
-  mesma doutrina da ativação de flags).
+  envelope P28 (advisory 30s, circuito 2/300s); wiring do chamador no
+  Planner loop entregue em 2026-10-05 (P38-S2, commit `4cfb26a`) — uma
+  chamada quando o trigger é determinístico, resultado
+  `recommendation_only`, falha ⇒ fallback determinístico; probe contra
+  endpoint REAL com chave real segue evidência operator-owned
+  (exact-runtime, mesma doutrina da ativação de flags).
 - **Programa P26–P42 (revisão 2026-10-01)**: as capacidades listadas
   acima (persistent bootstrap, reconciler + continuation envelope,
   execution modes, evidence reuse, validação adaptativa, capability
@@ -512,15 +591,24 @@ hard-deny antes de validação comportamental no runtime V2 real);
 `skill_routing`/`mcp_routing`/`adaptive_ranking` seguem OFF (doutrina);
 o enforcement
 comportamental V2 (Phase 5) depende do runtime real; AI Memory remoto
-em PROD (deploy do operador) com config user-owned fora do repo; o
-release gate (lane V2 Windows real - executada
-parcialmente em 2026-10-03: preflights reais e ciclo de vida explícito
-do serviço verdes; `debug config` com intermitência caracterizada
-experimentalmente (7 hangs vs 5 passes no mesmo dia; suspeita principal
-interna ao binário 2.0.18, não comprovada;
-`debugcfg-hang-investigation.json`); deploy do VPS,
-probes
-reais, jevgrep real e wirings de chamador em produção) depende de
+em PROD (deploy do operador) com config user-owned fora do repo
+confirmada em 2026-10-04 e round-trip remoto autenticado comprovado
+(`aimem-health-repreflight-2026-10-04.json`; resta só o probe HTTPS
+dedicado, separado do round-trip MCP); o
+release gate (**RR-E2E-04..10 7/7 `pass-real` no runner** em 2026-10-05,
+run `37376248759` — lane fechada após o fix de contaminação do checkout
+`7b527d8`; preflights reais e ciclo de vida
+explícito do serviço verdes desde 2026-10-03/04; `debug config` com
+intermitência caracterizada experimentalmente (7 hangs vs 5 passes no
+mesmo dia; suspeita principal interna ao binário histórico 2.0.18, não
+comprovada; `debugcfg-hang-investigation.json`) — no run de 2026-10-05 ele
+falhou com `TIMEOUT 30s` e foi formalizado como observação
+`continue-on-error: true`, então o job V2 continua carregando um probe
+observacional e não é "totalmente verde"); evidência V2-native no
+pin vigente; cenários cross-session 16..22; probes reais contra endpoint
+real; wirings de chamador restantes — P31-S2 (registro no arranque real),
+P38-S2 (spawn real do despacho, record-only por decisão), P41-S2
+(produtor em produção) e P40-S2 (append/enable, decisão do operador)) depende de
 evidência do operador; revisões Reviewer + Security Reviewer com APPROVED
 por slice (HOLDs registrados); critérios `PAE-01`–`PAE-40` rastreados em
 `evidence/v3.1/runtime-reliability/pae-traceability.json`, pendentes de
