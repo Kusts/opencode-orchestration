@@ -26,11 +26,15 @@
 # Tres jobs: ci-ps51/ci-ps7 (suites V3 + distribution, engines ps51/pwsh),
 # ci-smoke-opencode (OpenCode V1 REAL num home isolado + typecheck do plugin
 # contra a API real @opencode-ai/plugin@1.18.32) e ci-v2-lane (package
-# consistency + V3 + distribution + typecheck V1/V2/dual sem binario V2 real —
-# lane que nao instala o binario V2; o exercicio do binario V2 real vive no job
-# ci-smoke-opencode-v2, que roda o smoke de ciclo de vida explicito do servico
-# gerenciado (scripts/ci/smoke-opencode-v2-lifecycle.ps1, padrao P22, 3/3 PASS
-# local em 2026-10-03; primeira execucao real no runner so ocorre no push).
+# consistency + V3 + distribution + typecheck V1/V2/dual COM o perfil V2 pinado
+# (@opencode/cli@2.0.18) provisionado antes das distribution suites: a suite
+# live-hook-v2.tests.ps1 resolve o binario de forma portavel em
+# %USERPROFILE%\.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe
+# e tem GATE bloqueante de versao exata por design (RR-P24-REV-FIX HIGH), que
+# NUNCA vira skip. O exercicio do binario V2 real de servico gerenciado vive no
+# job ci-smoke-opencode-v2, que roda o smoke de ciclo de vida explicito
+# (scripts/ci/smoke-opencode-v2-lifecycle.ps1, padrao P22, 3/3 PASS local em
+# 2026-10-03; primeira execucao real no runner so ocorre no push).
 # Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
 # Tres jobs explicitos (ci-ps51/ci-ps7/smoke) mais a lane ci-v2-lane em vez de
 # matriz: steps.shell NAO aceita contexts/expressoes (actionlint). Pipeline: package consistency ->
@@ -79,6 +83,9 @@ jobs:
         timeout-minutes: 40
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
+      - name: Provision OpenCode V2 profile (pinned, official npm package)
+        run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
+
       - name: Distribution suites (13 suites, install transacional)
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
 
@@ -102,6 +109,9 @@ jobs:
       - name: V3 test suite (~5-6 min local; runner exige mais)
         timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
+
+      - name: Provision OpenCode V2 profile (pinned, official npm package)
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
 
       - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
@@ -130,7 +140,7 @@ jobs:
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/typecheck-plugin.ps1
 
   ci-v2-lane:
-    name: CI (v2 lane, sem binario V2 real)
+    name: CI (v2 lane, perfil V2 provisionado)
     runs-on: windows-latest
     timeout-minutes: 50
     defaults:
@@ -149,6 +159,9 @@ jobs:
       - name: V3 test suite (~5-6 min local; runner exige mais)
         timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
+
+      - name: Provision OpenCode V2 profile (pinned, official npm package)
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
 
       - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
