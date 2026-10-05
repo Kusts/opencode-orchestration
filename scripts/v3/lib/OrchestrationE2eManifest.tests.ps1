@@ -10,6 +10,8 @@
          blocked scenario carries one.
       A2 honest execution: the runnable subset really runs and passes; blocked
          scenarios stay blocked and are never executed; blocked is never pass.
+         The operator-runtime block (16..22, 32, 33) is asserted PER ID against
+         the registry, so a silent reclassification cannot pass on the counts.
          The real V2 policy deny (39) stays blocked while the offline gating
          invariant (41) is its own separate row.
       A3 fail-closed: a missing library turns every runnable scenario into
@@ -183,8 +185,8 @@ try {
     Assert-That ($result.counts.total -eq 41) 'harness reports exactly 41 scenarios'
     Assert-That ($result.counts.pass_synthetic -eq 18) 'all 18 runnable-synthetic scenarios really pass'
     Assert-That ($result.counts.failed_synthetic -eq 0) 'no runnable-synthetic scenario failed'
-    Assert-That ($result.counts.blocked_requires_operator -eq 19) '19 scenarios blocked on the operator runtime'
-    Assert-That ($result.counts.blocked_requires_flag -eq 1) '1 scenario blocked on flag activation'
+    Assert-That ($result.counts.blocked_requires_operator -eq 20) '20 scenarios blocked on the operator runtime'
+    Assert-That ($result.counts.blocked_requires_flag -eq 0) 'no scenario is blocked on flag activation (the last one, RR-E2E-32, moved to the operator runtime)'
     Assert-That ($result.counts.blocked_requires_transport -eq 3) '3 scenarios blocked on real transport'
     Assert-That ((($result.counts.pass_synthetic + $result.counts.failed_synthetic + $result.counts.blocked_requires_operator + $result.counts.blocked_requires_flag + $result.counts.blocked_requires_transport) -eq 41)) 'status counts partition all 41 scenarios'
 
@@ -204,7 +206,26 @@ try {
     Assert-That ($rows['RR-E2E-40'].status -eq 'pass-synthetic' -and $rows['RR-E2E-40'].detail -match 'nothing killed') 'scenario 40 proves an unknown PID is never killed'
     Assert-That ($rows['RR-E2E-11'].status -eq 'pass-synthetic' -and $rows['RR-E2E-12'].status -eq 'pass-synthetic') 'scenarios 11 and 12 run real synthetic MCP checks'
     Assert-That ($rows['RR-E2E-13'].status -eq 'blocked-requires-transport' -and $rows['RR-E2E-15'].status -eq 'blocked-requires-transport') 'AI Memory remote scenarios stay blocked on real transport'
-    Assert-That ($rows['RR-E2E-32'].status -eq 'blocked-requires-flag' -and $rows['RR-E2E-32'].detail -match 'flag is OFF') 'the Jev route scenario stays blocked on flag activation'
+    Assert-That ($rows['RR-E2E-32'].status -eq 'blocked-requires-operator' -and $rows['RR-E2E-32'].detail -match 'advisory-only contract' -and $rows['RR-E2E-32'].detail -match 'not a flag flip') 'the Jev route scenario is blocked on the advisory-only contract, not on a flag activation'
+    Assert-That ($rows['RR-E2E-33'].status -eq 'blocked-requires-operator' -and $rows['RR-E2E-33'].detail -match 'never consults Jev' -and $rows['RR-E2E-33'].detail -match 'operator-owned') 'the obvious-task Jev scenario is blocked on the real runtime turn, with the kernel-side proof stated'
+    # Per-ID honesty for the operator-runtime block. The aggregate counts say HOW
+    # MANY rows are blocked; these asserts say WHICH ones, so a silent
+    # reclassification (or a row quietly turned into a pass) cannot keep passing
+    # on the counts alone. Each id is asserted against the registry itself, so a
+    # registry and a report that drift apart fail here.
+    $operatorBlockedIds = @('RR-E2E-16', 'RR-E2E-17', 'RR-E2E-18', 'RR-E2E-19', 'RR-E2E-20', 'RR-E2E-21', 'RR-E2E-22', 'RR-E2E-32', 'RR-E2E-33')
+    $registryRows = @{}
+    foreach ($s in $manifest.scenarios) { $registryRows[[string]$s.scenario_id] = $s }
+    foreach ($id in $operatorBlockedIds) {
+        Assert-That ($registryRows.ContainsKey($id)) ('scenario ' + $id + ' is declared in the registry')
+        Assert-That ($registryRows[$id].classification -eq 'requires-operator-runtime') ('scenario ' + $id + ' is classified requires-operator-runtime in the registry')
+        Assert-That ($rows.ContainsKey($id)) ('scenario ' + $id + ' has its own report row')
+        Assert-That ([string]$rows[$id].status -eq 'blocked-requires-operator') ('scenario ' + $id + ' is reported blocked on the operator runtime')
+        Assert-That ([string]$rows[$id].detail -ceq [string]$registryRows[$id].required_activation) ('scenario ' + $id + ' reports its declared required activation verbatim as the blocked detail')
+        Assert-That ([string]$rows[$id].classification -eq 'requires-operator-runtime') ('scenario ' + $id + ' carries the operator-runtime classification into the report')
+    }
+    Assert-That ((@($result.scenarios | Where-Object { $operatorBlockedIds -contains [string]$_.scenario_id })).Count -eq $operatorBlockedIds.Count) 'every operator-blocked id appears exactly once in the report'
+    Assert-That ((@($result.scenarios | Where-Object { $operatorBlockedIds -contains [string]$_.scenario_id -and [string]$_.status -ne 'blocked-requires-operator' })).Count -eq 0) 'no operator-blocked id is ever reported as a pass of any kind or as an executed check'
     # Scenario 35 reads the real policy, where semantic discovery is activated on
     # windows: the row must prove the fallback under an UNHEALTHY probe and must
     # not depend on the capability being platform-unsupported.

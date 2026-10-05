@@ -1445,7 +1445,7 @@ function Write-LaneSummary([string]$Status, [string]$Verdict) {
       still_blocked = @(
         'RR-E2E-01..03 (portas): nao pertencem a esta lane; provedores na lane de 2026-10-03',
         'RR-E2E-16..22 (persistencia/restart): exigem sessao real + restart; fora do escopo desta lane',
-        'RR-E2E-32 (flag): ativacao de flag e decisao do operador (nao delegavel)'
+        'RR-E2E-32 (contrato advisory-only): influenciar rota real exige decisao de produto (flag ON e wiring P38-S2 entregues; invariante advisory-only provado)'
       )
     }
     verdict = (Get-LaneSafeText -Text $Verdict -MaxChars 1200)
