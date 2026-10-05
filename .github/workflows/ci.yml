@@ -301,4 +301,13 @@ jobs:
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/watchdog-real-lane-v2.ps1
 
       - name: Smoke test with real OpenCode V2 (isolated home, private server)
+        # HOLD explicito (Etapa I): probe OBSERVACIONAL do comportamento upstream
+        # flaky conhecido (debug config: 7 hangs vs 5 passes no binario pinado no
+        # mesmo dia; debugcfg-hang-investigation.json; suspeita interna ao
+        # binario, nao comprovada). Mantido por politica (nunca removido/alterado)
+        # e NUNCA skip silencioso: roda sempre e a falha aparece no log/anotacao
+        # (run 37376248759: debug config TIMEOUT 30s), mas o gate do job sao os
+        # steps anteriores: install pinado, lifecycle explicito (P22) e a lane
+        # real RR-E2E-04..10 7/7. Nao representa regressao do pacote.
+        continue-on-error: true
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2.ps1
