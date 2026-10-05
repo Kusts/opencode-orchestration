@@ -25,7 +25,21 @@
   "credential_source": {
     "type": "env",
     "name": "JEV_API_KEY",
-    "note": "name of the user-owned environment variable only; never a credential value; real transport is HOLD in this slice"
+    "note": "name of the user-owned environment variable only; never a credential value; the real transport reads this variable inside the envelope probe runspace"
+  },
+  "transport": {
+    "mode": "user-owned-env",
+    "base_url_env": "JEV_BASE_URL",
+    "model_env": "JEV_MODEL",
+    "default_model": "jev-latest",
+    "timeout_seconds": 30,
+    "fail_closed": [
+      "base-url-absent",
+      "base-url-invalid",
+      "model-invalid",
+      "http-remote-rejected"
+    ],
+    "note": "env variable NAMES only, never values: JEV_BASE_URL is required and must be an absolute https URL, or an absolute http URL ONLY on a loopback host (127.0.0.1, localhost, [::1]) so the Bearer key is never sent in clear to a remote host; JEV_MODEL is optional; there is no key-prefix routing (the kernel requires an explicit base URL), redirects are never followed and absent or invalid configuration yields a structured JEV_TRANSPORT_NOT_CONFIGURED that never blocks the task"
   },
   "authority": {
     "mode": "advisory-only",

@@ -483,25 +483,37 @@ já existem em código, sem ativação)
 - **AI Memory remoto**: tratado como dependência remota com health check
   limitado e `MEMORY_UNAVAILABLE` limitado — migração do listener local
   `127.0.0.1:49374` para VPS planejada, **não executada**.
-- **Jev MCP**: somente consultivo e opt-in (`jev_advisory` OFF), nunca
-  autoriza ações, concede permissões, sobrescreve Reviewer/Security
+- **Jev advisory**: somente consultivo (`jev_advisory` ATIVA em
+  2026-10-04, decisão do operador, commit `cca566f`), nunca autoriza
+  ações, concede permissões, sobrescreve Reviewer/Security
   Reviewer/verificação/DONE; indisponibilidade retorna `JEV_UNAVAILABLE`
-  limitado sem retry infinito.
+  limitado sem retry infinito. Transporte HTTP real kernel-side
+  (P29-S2, 2026-10-05): https-ou-loopback obrigatório, endpoint/modelo
+  user-owned por env (`JEV_BASE_URL`/`JEV_MODEL` — só nomes no
+  registry), projeção tipada fechada por tool (decide ancorado na
+  pergunta enviada: type igual e choice dentro das criteria; gate
+  limitado a allow|confirm|block), tokens fechados de falha (nenhum
+  advisory OK em 3xx/5xx/401/malformed/truncado), budget/circuito pelo
+  envelope P28 (advisory 30s, circuito 2/300s); probe contra endpoint
+  REAL com chave real segue evidência operator-owned (exact-runtime,
+  mesma doutrina da ativação de flags).
 - **Programa P26–P42 (revisão 2026-10-01)**: as capacidades listadas
   acima (persistent bootstrap, reconciler + continuation envelope,
   execution modes, evidence reuse, validação adaptativa, capability
   doctor, evolution e E2E/release) existem em código desde 2026-10-02/03.
 
-Limites honestos: o código existe, a **ativação** não. Nenhuma flag foi
-ligada — `watchdog`, `mcp_routing`, `jev_advisory`, `task_kernel`,
-`worktree_isolation` e `runtime_grant_enforcement` seguem OFF em
-`source/registry/capability-flags.json` (nenhuma flag de rollout nova
-além de `jev_advisory`, criada no P29 com sanção do plan addendum §6.1);
-o watchdog
-permanece shadow, o transporte MCP em shadow default e o enforcement
-comportamental V2 (Phase 5) depende do runtime real; AI Memory nunca foi
-mutado (listener local mantido, migração ao VPS planejada e não
-executada); o release gate (lane V2 Windows real - executada
+Limites honestos: flags de rollout ativadas pelo operador em 2026-10-04
+(commit `cca566f`, evidência e holds em
+`evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json`):
+`jev_advisory`, `watchdog`, `task_kernel`, `bounded_execution`,
+`worktree_isolation` e `runtime_support.v2`+`dual_profile`.
+`runtime_grant_enforcement{v1,v2}` segue OFF (doutrina Phase 5: nenhum
+hard-deny antes de validação comportamental no runtime V2 real);
+`skill_routing`/`mcp_routing`/`adaptive_ranking` seguem OFF (doutrina);
+o enforcement
+comportamental V2 (Phase 5) depende do runtime real; AI Memory remoto
+em PROD (deploy do operador) com config user-owned fora do repo; o
+release gate (lane V2 Windows real - executada
 parcialmente em 2026-10-03: preflights reais e ciclo de vida explícito
 do serviço verdes; `debug config` com intermitência caracterizada
 experimentalmente (7 hangs vs 5 passes no mesmo dia; suspeita principal

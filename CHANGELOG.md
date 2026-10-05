@@ -8,6 +8,35 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Transporte HTTP real do Jev advisory (P29-S2, kernel-side)** —
+  `OrchestrationJevAdvisory.ps1` ganha o probe HTTP real (`New-JevAdvisoryHttpProbe`,
+  scriptblock autocontido para o envelope P28): `POST {JEV_BASE_URL}` com
+  `Bearer {JEV_API_KEY}` e body `{model,state,questions}` no mapeamento exato do
+  jev-mcp (`jev_check`/`jev_score`/`jev_decide`/`jev_gate`). Config user-owned
+  fail-closed por env (`JEV_BASE_URL` obrigatória — ausente ⇒
+  `JEV_TRANSPORT_NOT_CONFIGURED` determinístico; `JEV_MODEL` default
+  `jev-latest`; só os **nomes** no registry, node `transport` com validação
+  fail-closed), https obrigatório com http apenas loopback (resolver **e**
+  probe), `AllowAutoRedirect=false`, cap de leitura 262144 sobre comprimento
+  declarado **ou** acumulado, tokens fechados de falha
+  (`jev-transport-*`) — **falha nunca vira advisory OK**: status fora de
+  200-299, 401/403/5xx, JSON malformado, corpo truncado e timeout resultam em
+  `JEV_UNAVAILABLE` com `fallback_continue=true` (401/403 ⇒
+  `JEV_AUTH_REJECTED` no branch existente do envelope). Projeção tipada
+  fechada por tool: decide ancorado na pergunta **enviada** (type igual,
+  case-sensitive; `choice` restrita às criteria enviadas), gate restrito a
+  `allow|confirm|block`, `usage` só numérico, `model` da API descartado;
+  `OutputSummary` tipado com fallback legado byte-idêntico. Probe explícito
+  do chamador continua vencendo; sem `State` ⇒ `INVALID_REQUEST` estruturado
+  (wiring do Planner é a fatia P38-S2). Probe contra endpoint REAL com chave
+  real segue evidência operator-owned (exact-runtime). Task kernel
+  `rr-p29-jev-transport-s2b` DONE (rev 32): verification `verified_pass`,
+  reviewer APPROVED r3+r4, security APPROVED r3, residuals registrados.
+  Suítes: `OrchestrationJevAdvisory` **159/159** (PS 5.1 + pwsh; 73 asserts
+  slice-1 preservados, insert-only), McpSafety 203/203, CapabilityFlags
+  26/26, consistency 16/16. Evidência:
+  `evidence/v3.1/runtime-reliability/phase29-transport-s2.json`.
+
 - **Registry único de pins de runtime/tool** `source/registry/runtime-versions.json`
   (`runtimes.v1/v2`, `plugins.v1/v2`, `tools.bun`, campos `package`/`version`/`spec`)
   + loader fail-closed `scripts/runtime/lib/RuntimeVersions.ps1`

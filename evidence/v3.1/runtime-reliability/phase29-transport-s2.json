@@ -1,0 +1,41 @@
+{
+  "record": "v3.1-runtime-reliability-phase29-transport-s2",
+  "date": "2026-10-05",
+  "phase": "P29 slice 2: real Jev HTTP transport (plan addendum section 6 tasks 2-3; closes the pae-traceability gap 'Transporte real Jev (rede) NAO ativado (seam sintetica)')",
+  "task_id": "rr-p29-jev-transport-s2b",
+  "kernel": "DONE (rev 32) - verification verified_pass sobre a arvore final; reviewer APPROVED r3+r4; security APPROVED r3; residual risks registrados no task record",
+  "files": [
+    "scripts/v3/lib/OrchestrationJevAdvisory.ps1 (+1048/-12: Resolve-JevAdvisoryTransportConfig, ConvertTo-JevAdvisoryWireRequest, New-JevAdvisoryHttpProbe (scriptblock autocontido, HttpWebRequest, AllowAutoRedirect=false, cap 262144 sobre comprimento declarado OU acumulado, tokens fechados jev-transport-*), Test-JevAdvisoryLoopbackHost, node transport no Assert-JevAdvisoryPolicyJson (fail-closed), branch -Probe ausente do Invoke-JevAdvisoryCall substituido (+ -State/-ToolArgs)",
+    "scripts/v3/lib/OrchestrationJevAdvisory.tests.ps1 (+564/-3, insert-only: 73 asserts slice-1 preservados; HttpListener loopback efemero, canario sk-SYNTHETICSECRET; 159 asserts totais)",
+    "source/registry/jev-advisory-policy.json (+15/-1: node transport com NOMES de env apenas - base_url_env/model_env; note de credential atualizada)"
+  ],
+  "semantics": [
+    "wire: POST {JEV_BASE_URL} Bearer {JEV_API_KEY}, body {model,state,questions} - mapeamento exato do jev-mcp src/index.js para jev_check/jev_score/jev_decide/jev_gate",
+    "config user-owned fail-closed: JEV_BASE_URL obrigatoria (ausente => JEV_TRANSPORT_NOT_CONFIGURED, fallback deterministico); JEV_MODEL default jev-latest; SEM routing por prefixo de chave; https obrigatorio, http somente loopback (resolver E probe)",
+    "probe autocontido em runscape do envelope P28 (class advisory, budget 30s, circuito 2/300s); HttpWebRequest.Timeout = budget efetivo + 500ms (wall-clock autoritativo e o envelope); probe explicito do chamador sempre vence; sem State => INVALID_REQUEST estruturado (nada inventado - wiring do Planner e P38-S2)",
+    "falha NUNCA e sucesso: tokens fechados (auth-401/server-5xx/server-3xx/malformed/network/network-read/timeout/not-configured) => envelope classifica => JEV_UNAVAILABLE com fallback_continue=true; auth => JEV_AUTH_REJECTED no branch existente de envResult nao-OK; status fora de 200-299 rejeitado antes do parse",
+    "projecao tipada fechada por tool: check {probability,likely}; score {score,confidence,legend numerico}; gate 5 campos com choice em allow|confirm|block; decide ancorado na pergunta ENVIADA (type igual case-sensitive, choice dentro das criteria enviadas, usage so numerico, model da API descartado); OutputSummary tipado com fallback legado byte-identico",
+    "evidencia: redacao len:valor e cap 1MB fail-closed intactos; nenhum caminho novo escreve key/URL em evidencia/telemetria (auditado security r2/r3)"
+  ],
+  "suites": [
+    "OrchestrationJevAdvisory.tests.ps1 159/159 (powershell + pwsh)",
+    "OrchestrationMcpSafety.tests.ps1 203/203 (powershell + pwsh)",
+    "CapabilityFlags.tests.ps1 26/26",
+    "test-package-consistency 16/16",
+    "git diff --check limpo; ASCII-only; LF"
+  ],
+  "reviews": [
+    "reviewer r1/r2 CHANGES_REQUIRED (falso sucesso em falha HTTP; deadline fixa; response de erro aberta; 3xx com JSON; leitura como EOF) - todos corrigidos e re-verificados",
+    "security r1/r2 CHANGES_REQUIRED (http remoto com Bearer; projecao com texto livre da API; decide sem ancoragem na pergunta enviada) - todos corrigidos",
+    "reviewer r4 APPROVED (delta decide; condicao fixture score-as-choice atendida com controle por mutacao provando a type-guard)",
+    "security r3 APPROVED (statica; mesma condicao de fixture atendida)"
+  ],
+  "holds": [
+    "probe contra endpoint REAL com chave real NAO exercitado: evidencia exact-runtime operator-owned (mesma doutrina da ativacao de flags); testes ficam em 127.0.0.1",
+    "wiring do chamador Planner = P38-S2 (transporte callable, nada o invoca em producao ainda)",
+    "credential_source.value nao rejeitado pelo validador (pre-existente, LOW/NOTE; transporte ignora o valor e le env)",
+    "transport.mode declarativo nao validado nem consumido (pre-existente, inerte)",
+    "classe other do envelope (auth/server/malformed) fecha circuito sem contar consecutivas - semantica P28, sem retry automatico introduzido"
+  ],
+  "no_fake_close": "release gate do programa permanece PENDING; este slice fecha apenas o gap de transporte kernel-side do PAE rastreado em pae-traceability (jev advisory transport)"
+}
