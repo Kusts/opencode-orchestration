@@ -57,6 +57,21 @@
 # workers via AgentTranslator + servidor privado (service set port) em ambos.
 # Mandatorio (exit 1 em runtime ausente/errado, load ou timeout; nunca skip
 # silencioso).
+#
+# Contaminacao do working tree neste job (RR-E2E-04 / COMPLETION_GATE_FAILED):
+# a evidencia do smoke de lifecycle e' EFEMERA por default
+# ($RUNNER_TEMP\oo-v2lifecycle-evidence\..., fora do checkout; persistente
+# apenas com -EvidencePath explicito), entao o working tree chega LIMPO a lane
+# real. Antes, o default escrevia em
+# evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle.json (TRACKED) e essa
+# modificacao fora do write scope da lane fazia o scope check do cenario 04
+# responder skipped-out-of-scope => verified_pass=false =>
+# COMPLETION_GATE_FAILED. A lane real agora tem, ademais, um gate INICIAL
+# fail-closed de arvore limpa (clean_tree_within_lane_scopes: mesmo
+# Test-OrchestrationWriteScope e mesmos write scopes do cenario 04, untracked
+# contando) que bloqueia ANTES de qualquer cenario, com os paths
+# contaminantes no artefato, se um step anterior deixar o checkout sujo. Steps,
+# ordem, timeouts e conjunto de acoes seguem inalterados.
 
 name: CI
 
@@ -272,9 +287,15 @@ jobs:
       - name: Install OpenCode V2 (pinned, official npm package)
         run: npm install -g "$env:V2_SPEC"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; opencode --version
 
+      # Evidencia EFEMERA por default ($RUNNER_TEMP, fora do checkout): este
+      # step nao pode sujar o working tree, senao a lane real abaixo bloqueia no
+      # gate inicial de arvore limpa.
       - name: Smoke lifecycle explicito do servico V2 (padrao P22, path comprovado local 2026-10-03)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2-lifecycle.ps1
 
+      # Gate inicial fail-closed de arvore limpa dentro dos write scopes da lane
+      # (mesmo scope check do cenario 04): bloqueia antes de qualquer cenario se
+      # um step anterior contaminar o checkout.
       - name: Lane real dos cenarios RR-E2E-04..10 (watchdog + kernel, processos reais)
         timeout-minutes: 10
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/watchdog-real-lane-v2.ps1

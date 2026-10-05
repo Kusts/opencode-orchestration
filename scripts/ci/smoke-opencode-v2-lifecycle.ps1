@@ -88,6 +88,9 @@
     Evidencia JSON 1:1 com os passos (so fatos observados, sem stdout/stderr
     bruto). O campo `date` e o carimbo da execucao (data do relogio na
     escrita da evidencia, formato yyyy-MM-dd), nunca um literal do script.
+    Default da evidencia e EFEMERO e FORA do checkout (RUNNER_TEMP/TEMP,
+    ver .PARAMETER EvidencePath): outputs do smoke nunca sujam o working
+    tree. Evidencia persistente exige -EvidencePath explicito.
 
     Sem chamadas pagas, sem credenciais no ambiente dos filhos, sem modelo/
     API, sem rede (alem do listener local do proprio servico). Timeout ou
@@ -107,8 +110,17 @@
     Binario V2 explicito (.exe ou shim resolvivel; opcional; CI usa o PATH
     apos npm install -g).
 .PARAMETER EvidencePath
-    JSON de evidencia. Default:
-    evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle.json no repo.
+    JSON de evidencia. Default EFEMERO e FORA do repo:
+    $env:RUNNER_TEMP\oo-v2lifecycle-evidence\v2-ci-smoke-lifecycle.json
+    (CI), senao $env:TEMP, senao [IO.Path]::GetTempPath(). Assim o output
+    deste smoke NUNCA contamina o checkout: em CI a evidencia ia antes para
+    evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle.json (arquivo
+    TRACKED) e essa modificacao fora do write scope da lane real fazia o
+    verificador do cenario 04 responder skipped-out-of-scope
+    (verified_pass=false => COMPLETION_GATE_FAILED). Evidencia PERSISTENTE
+    ainda e possivel e continua sendo via -EvidencePath explicito (ex.: manter
+    o arquivo commitado localmente). O sidecar .cleanup.json segue ao
+    lado do path resolvido.
 #>
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -197,7 +209,17 @@ if ([string]::IsNullOrWhiteSpace($TargetHome)) {
   $TargetHome = Join-Path $baseHome ('oo-v2lifecycle-' + $runId)
 }
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
-  $EvidencePath = Join-Path $RepoRoot 'evidence\v3.1\kernel-hardening\v2-ci-smoke-lifecycle.json'
+  # Evidencia EFEMERA por default e FORA do repo (RUNNER_TEMP -> TEMP ->
+  # GetTempPath). O default anterior apontava para
+  # evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle.json, que e TRACKED:
+  # no CI isso modificava o checkout e contaminava o scope check do cenario 04
+  # da lane real (verificador => skipped-out-of-scope => verified_pass=false =>
+  # COMPLETION_GATE_FAILED). -EvidencePath explicito continua vencendo, para
+  # quem quiser coletar evidencia persistente no repo.
+  $baseEv = $env:RUNNER_TEMP
+  if ([string]::IsNullOrWhiteSpace($baseEv)) { $baseEv = $env:TEMP }
+  if ([string]::IsNullOrWhiteSpace($baseEv)) { $baseEv = [IO.Path]::GetTempPath() }
+  $EvidencePath = Join-Path (Join-Path $baseEv 'oo-v2lifecycle-evidence') 'v2-ci-smoke-lifecycle.json'
 }
 
 $smokeChecks = New-Object System.Collections.ArrayList

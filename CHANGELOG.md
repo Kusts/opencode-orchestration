@@ -48,6 +48,30 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ### Changed
 
+- **Contaminação do working tree quebrava o RR-E2E-04 no CI**
+  (`COMPLETION_GATE_FAILED`) — *root cause*: o job `ci-smoke-opencode-v2` roda
+  `smoke-opencode-v2-lifecycle.ps1` **antes** da lane real, e esse smoke gravava
+  por default em `evidence/v3.1/kernel-hardening/v2-ci-smoke-lifecycle.json`
+  (+ sidecar `.cleanup.json`), arquivos **TRACKED**. A modificação ficava fora dos
+  write scopes do cenário 04, então `Test-OrchestrationWriteScope` respondia com
+  paths fora de escopo, o verificador allowlisted era pulado
+  (`skipped-out-of-scope`), `verified_pass=false` e o kernel recusava o
+  `complete` do gate de DONE. *Correção*: (1) a evidência do smoke de lifecycle
+  passou a ser **efêmera por default**, fora do checkout
+  (`$RUNNER_TEMP\oo-v2lifecycle-evidence\...`, com `$env:TEMP` e
+  `[IO.Path]::GetTempPath()` como fallbacks); `-EvidencePath` explícito continua
+  vencendo para quem quiser coletar evidência persistente no repo, e nenhum
+  outro comportamento do smoke mudou (gates, Job Object, ciclo de vida, exit
+  codes); (2) a lane real ganhou o gate **inicial**
+  `clean_tree_within_lane_scopes`, fail-closed, que reusa
+  `Test-OrchestrationWriteScope` com **os mesmos** write scopes do cenário 04
+  (untracked contando, como o verificador) e bloqueia **antes de qualquer
+  cenário**, listando no artefato os paths contaminantes, quando um step anterior
+  suja o checkout — ou quando o scope check não é comprovável. A lista de write
+  scopes virou variável única (`$script:laneWriteScopes`) consumida pelo gate e
+  pelo cenário 04, sem mudança de contrato no cenário; nada de retry, nada de
+  assertion removida, **write scopes não ampliados** e **nenhuma action nova no
+  workflow** (steps, ordem e timeouts intactos).
 - Consumidores passaram a ler o pin do registry (override explícito por parâmetro
   preservado: `-OpenCodeSpec`/`-ExpectedVersion`): smokes `smoke-opencode.ps1`,
   `smoke-opencode-v2.ps1`, `smoke-opencode-v2-lifecycle.ps1`,

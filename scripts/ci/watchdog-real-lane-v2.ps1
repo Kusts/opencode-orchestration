@@ -10,7 +10,14 @@
 
     Fluxo (padrao lifecycle-smoke, scripts/ci/smoke-opencode-v2-lifecycle.ps1):
       0. Gates de lane (fail-closed, TODOS antes de qualquer cenario):
-         binario V2 EXATO (pin do registry unico
+         arvore LIMPA dentro dos write scopes desta lane
+         (clean_tree_within_lane_scopes: EXATAMENTE o mesmo mecanismo do
+         cenario 04, Test-OrchestrationWriteScope, com untracked contando;
+         fora de escopo OU scope check nao comprovaravel => lane BLOCKED
+         com os paths contaminantes, porque um step anterior do job que
+         sujou o checkout faria o cenario 04 virar
+         skipped-out-of-scope => verified_pass=false =>
+         COMPLETION_GATE_FAILED), binario V2 EXATO (pin do registry unico
          source/registry/runtime-versions.json), home isolado EXCLUSIVO em TEMP,
          snapshot da porta 49374 ANTES (leitura pura), gate do watchdog
          ENFORCE lido do registro canonico (nenhuma flag escrita),
@@ -36,7 +43,9 @@
          evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/watchdog/ e
          lane-summary.json no mesmo padrao do precedente de 2026-10-03
          (converted_to_real_evidence SO para o que passou de fato; resto
-         partial/blocked/failed com causa; no_fake_close=true).
+         partial/blocked/failed com causa; no_fake_close=true). A evidencia
+         do smoke de lifecycle que roda ANTES desta lane e' EFEMERA por
+         default (fora do checkout), entao a arvore chega limpa ao gate 0.
 
     Cenarios (source/registry/e2e-scenarios.json, ordinals 4-10):
       04 Worker normal completion: task real do kernel (CLI), tentativa real,
@@ -155,6 +164,15 @@ function Write-LaneText([string]$Text) {
   Write-Host ('[wd-lane] ' + $Text)
 }
 
+# Write scopes desta lane (FONTE UNICA). O gate inicial
+# clean_tree_within_lane_scopes e o cenario 04 consomem EXATAMENTE esta lista:
+# um unico contrato de escopo, sem lista paralela que possa divergir.
+$script:laneWriteScopes = @(
+  'scripts/ci/watchdog-real-lane-v2.ps1',
+  'evidence/v3.1/runtime-reliability/v2-lane-2026-10-04',
+  '.github/workflows/ci.yml'
+)
+
 function Add-LaneGate([string]$Name, [bool]$Passed, [string]$Detail) {
   # F2(b): saneia o detail NO PONTO MAIS CEDO possivel. Assim lane-summary.json,
   # o estado $script:Lane e lane-run.json herdam o texto limpo, sem depender de
@@ -200,6 +218,18 @@ function Get-LaneSafePath([string]$Path) {
   if ((-not [string]::IsNullOrWhiteSpace($lane)) -and ($p.StartsWith($lane, [StringComparison]::OrdinalIgnoreCase))) {
     $rel = $p.Substring($lane.Length).TrimStart('\', '/')
     return ('<lane-home>/' + ($rel -replace '\\', '/'))
+  }
+  # Path RELATIVO (sem raiz): as libs do repo (ex.: Get-VerifierNormalizedPath)
+  # devolvem paths relativos ao repo com barra '/'. Nenhum prefixo de raiz
+  # absoluta casa, entao antes do fallback <external> tratamos como repo-relative;
+  # o fallback descartaria o diretorio e viraria <external>/<leaf>, perdendo o
+  # diagnostico (ex.: 'CHANGELOG.md' virava '<external>/CHANGELOG.md').
+  $isRooted = $true
+  try { $isRooted = [IO.Path]::IsPathRooted($p) } catch { $isRooted = $true }
+  if ((-not $isRooted) -and (-not [string]::IsNullOrWhiteSpace($p))) {
+    $relPath = ($p -replace '\\', '/').TrimStart('/')
+    if ([string]::IsNullOrWhiteSpace($relPath)) { return '<repo>' }
+    return ('<repo>/' + $relPath)
   }
   return ('<external>/' + [IO.Path]::GetFileName($p))
 }
@@ -929,19 +959,14 @@ function Invoke-Scenario04 {
   $verifierDetail = ''
   $scopeOut = @()
   try {
-    . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationVerifier.ps1')
-    $scope = Test-OrchestrationWriteScope -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes @(
-      'scripts/ci/watchdog-real-lane-v2.ps1',
-      'evidence/v3.1/runtime-reliability/v2-lane-2026-10-04',
-      '.github/workflows/ci.yml'
-    )
+    if ($null -eq (Get-Command -Name 'Test-OrchestrationWriteScope' -ErrorAction SilentlyContinue)) {
+      . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationVerifier.ps1')
+    }
+    $scope = Test-OrchestrationWriteScope -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes
     $scopeOut = @($scope.out_of_scope)
     if (@($scope.out_of_scope).Count -eq 0) {
-      $vr = Invoke-OrchestrationVerifier -TaskId $tid -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes @(
-        'scripts/ci/watchdog-real-lane-v2.ps1',
-        'evidence/v3.1/runtime-reliability/v2-lane-2026-10-04',
-        '.github/workflows/ci.yml'
-      ) -ProfileNames @('package-consistency') -AcceptanceCriteria @($criterion)
+      $vr = Invoke-OrchestrationVerifier -TaskId $tid -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes `
+        -ProfileNames @('package-consistency') -AcceptanceCriteria @($criterion)
       $verifierStatus = [string]$vr.status
       $verifierDetail = ([string]$vr.reason)
       if ([string]$vr.status -ceq 'verified_pass') {
@@ -1544,16 +1569,51 @@ try {
   Write-LaneText ('TargetHome=' + $TargetHome)
   Write-LaneText ('host=' + $script:hostExe + ' (workers sao filhos DIRETOS deste processo: parentage CIM-proven exigido pela lib)')
 
-  # ---- gate 1: binario exato ----------------------------------------------
-  try {
-    $res = Resolve-LaneBinary $BinaryPath $PinnedVersion
-    $script:binaryUsed = [string]$res['Path']
-    $script:Lane['binary'] = $script:binaryUsed
-    $script:Lane['version_line'] = [string]$res['VersionLine']
-    Add-LaneGate 'version_exact' $true ('binario exato ' + $PinnedVersion + ' (pin); obtido: ' + [string]$res['VersionLine'])
-    Write-LaneText ('binario: ' + $script:binaryUsed + ' (' + [string]$res['VersionLine'] + ')')
+  # ---- gate 0: arvore limpa dentro dos write scopes da lane ----------------
+  # Mes EXATO mecanismo do cenario 04 (Test-OrchestrationWriteScope: git diff
+  # HEAD + git status --porcelain --untracked-files=all, untracked conta). Nao
+  # substituido por git status cru de proposito: a evidencia desta lane
+  # (evidence/.../v2-lane-2026-10-04) e' in-scope, entao um check ingenuo
+  # bloquearia a segunda execucao local. Fail-closed: modificacao fora de
+  # escopo deixada por um step ANTERIOR do job (ex.: evidencia TRACKED do
+  # smoke de lifecycle) faria o verificador do cenario 04 responder
+  # skipped-out-of-scope => verified_pass=false => COMPLETION_GATE_FAILED.
+  # Detectamos isso AQUI, antes de qualquer cenario rodar.
+  if ([string]::IsNullOrWhiteSpace([string]$script:Lane.gate.failed)) {
+    try {
+      if ($null -eq (Get-Command -Name 'Test-OrchestrationWriteScope' -ErrorAction SilentlyContinue)) {
+        . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationVerifier.ps1')
+      }
+      $scope0 = Test-OrchestrationWriteScope -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes
+      $out0 = @($scope0.out_of_scope)
+      if (-not [bool]$scope0.ok) {
+        Add-LaneGate 'clean_tree_within_lane_scopes' $false ('scope check nao comprovaravel (fail-closed): ok=' + [string]$scope0.ok + ' status=' + [string]$scope0.status + ' error=' + [string]$scope0.error)
+      }
+      elseif ($out0.Count -gt 0) {
+        $dirty = (@($out0 | ForEach-Object { Get-LaneSafePath ([string]$_) }) -join ', ')
+        Add-LaneGate 'clean_tree_within_lane_scopes' $false ('working tree com mudancas FORA do write scope desta lane (' + $out0.Count + ' path(s)): ' + $dirty + ' - um step anterior do job contaminou o checkout; os write scopes desta lane nao foram ampliados para esconder isso')
+      }
+      else {
+        Add-LaneGate 'clean_tree_within_lane_scopes' $true ('0 fora de escopo; ' + @($scope0.in_scope).Count + ' in-scope; ' + @($scope0.dirty_untracked).Count + ' untracked in-scope')
+      }
+    }
+    catch { Add-LaneGate 'clean_tree_within_lane_scopes' $false (Get-LaneSafeError $_) }
   }
-  catch { Add-LaneGate 'version_exact' $false (Get-LaneSafeError $_) }
+
+  # ---- gate 1: binario exato ----------------------------------------------
+  # Mesmo guard dos gates 2..8: depois de um gate anterior falhar, nenhum gate
+  # seguinte roda (evidencia nao registra check verde apos o bloqueio).
+  if ([string]::IsNullOrWhiteSpace([string]$script:Lane.gate.failed)) {
+    try {
+      $res = Resolve-LaneBinary $BinaryPath $PinnedVersion
+      $script:binaryUsed = [string]$res['Path']
+      $script:Lane['binary'] = $script:binaryUsed
+      $script:Lane['version_line'] = [string]$res['VersionLine']
+      Add-LaneGate 'version_exact' $true ('binario exato ' + $PinnedVersion + ' (pin); obtido: ' + [string]$res['VersionLine'])
+      Write-LaneText ('binario: ' + $script:binaryUsed + ' (' + [string]$res['VersionLine'] + ')')
+    }
+    catch { Add-LaneGate 'version_exact' $false (Get-LaneSafeError $_) }
+  }
 
   # ---- gate 2: porta 49374 ANTES (leitura pura) ---------------------------
   if ([string]::IsNullOrWhiteSpace([string]$script:Lane.gate.failed)) {
