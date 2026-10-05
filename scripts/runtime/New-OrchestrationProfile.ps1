@@ -51,6 +51,42 @@ try {
 }
 catch { }
 
+# RR-P22-JOB-OBJECTS: containment de ARVORE no timeout de Invoke-P7Process. Sem
+# esta lib o unico primitivo seria matar so o root (cmd.exe), o que ORFA o filho
+# real e mantem handles abertos - pior que o antigo /T, nao apenas diferente.
+# Carrega uma vez se ausente; falha de carga e neutra (o fallback honesto por
+# handle do proprio spawn continua valendo). Nao pode lancar no load.
+try {
+  if (-not (Get-Command -Name 'New-RuntimeJobObject' -ErrorAction SilentlyContinue)) {
+    $P7JobCandidate = ''
+    try { $P7JobCandidate = (Join-Path $PSScriptRoot 'lib\RuntimeJobObject.ps1') } catch { $P7JobCandidate = '' }
+    if ((-not [string]::IsNullOrWhiteSpace($P7JobCandidate)) -and (Test-Path -LiteralPath $P7JobCandidate -PathType Leaf)) {
+      # Mesma walk de ancestry do preflight acima: nenhum reparse point em
+      # nenhum ancestral existente antes de carregar codigo.
+      $jobOk = $true
+      try {
+        $jobCursor = ([IO.Path]::GetFullPath($P7JobCandidate)).TrimEnd('\')
+        while (-not [string]::IsNullOrWhiteSpace($jobCursor)) {
+          if (Test-Path -LiteralPath $jobCursor) {
+            try {
+              $jobAttrs = (Get-Item -Force -LiteralPath $jobCursor -ErrorAction Stop).Attributes
+              if (($jobAttrs -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $jobOk = $false; break }
+            }
+            catch { $jobOk = $false; break }
+          }
+          $jobParent = $jobCursor
+          try { $jobParent = (Split-Path -Parent $jobCursor) } catch { break }
+          if ([string]::IsNullOrWhiteSpace($jobParent) -or ($jobParent -eq $jobCursor)) { break }
+          $jobCursor = $jobParent.TrimEnd('\')
+        }
+      }
+      catch { $jobOk = $false }
+      if ($jobOk) { . $P7JobCandidate }
+    }
+  }
+}
+catch { }
+
 function Get-P7Engine {
   if ($PSVersionTable.PSEdition -eq 'Core') { return 'pwsh' }
   return 'powershell'
@@ -189,12 +225,42 @@ function Invoke-P7Process {
         try { $psi.EnvironmentVariables[[string]$k] = [string]$EnvTable[$k] } catch { }
       }
     }
+    # RR-P22-JOB-OBJECTS: job criado ANTES do start e filho (cmd /s /c) atribuido
+    # logo apos o spawn pelo handle do spawn PROPRIO; no timeout a arvore morre
+    # por KILL_ON_JOB_CLOSE (descendentes por heranca, mais forte que /T por
+    # arvore). Cleanup NUNCA por arvore de PID historico. Sem a lib carregada ou sem
+    # atribuicao provada o fallback e $p.Kill() no handle do proprio spawn
+    # (root-only: descendentes podem escapar, sem claim de tree kill).
+    $pJob = $null
+    $pJobAssigned = $false
+    $pJobNote = ''
+    try {
+      if (Get-Command -Name 'New-RuntimeJobObject' -ErrorAction SilentlyContinue) {
+        # ANONIMO por chamada (sem -Name => CreateJobObjectW com nome nulo): nome
+        # fixo FARIA CreateJobObjectW abrir um job preexistente e o stop de uma
+        # chamada mataria filhos de outra. isolamento por handle.
+        $pJob = New-RuntimeJobObject
+        if ([bool]$pJob.Ok) { $pJobNote = 'job anonimo criado antes do start' }
+        else { $pJobNote = ('job nao criado: ' + [string]$pJob.Reason) }
+      }
+      else { $pJobNote = 'lib RuntimeJobObject.ps1 nao carregada: fallback root-only' }
+    }
+    catch { $pJobNote = 'falha ao criar o job: ' + [string]$_.Exception.Message; $pJob = $null }
     try {
       $p = [System.Diagnostics.Process]::Start($psi)
     }
     catch {
       $res.Output = ('processo nao iniciou (' + $File + '): ' + $_.Exception.Message)
+      try { [void](Close-RuntimeJobObject -Job $pJob) } catch { }
       return $res
+    }
+    if ($null -ne $pJob -and [bool]$pJob.Ok) {
+      try {
+        $pAdd = Add-RuntimeJobProcess -Job $pJob -Process $p
+        if ([bool]$pAdd.Ok) { $pJobAssigned = $true; $pJobNote = $pJobNote + ' | filho atribuido ao job' }
+        else { $pJobNote = $pJobNote + ' | atribuicao falhou: ' + [string]$pAdd.Reason }
+      }
+      catch { $pJobNote = $pJobNote + ' | atribuicao lancou: ' + [string]$_.Exception.Message }
     }
     $finished = $false
     try {
@@ -202,16 +268,25 @@ function Invoke-P7Process {
     }
     catch {
       $res.Output = ('falha no wait: ' + $_.Exception.Message)
+      try { [void](Close-RuntimeJobObject -Job $pJob) } catch { }
       return $res
     }
     if (-not $finished) {
       $res.TimedOut = $true
-      try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { }
+      if ($pJobAssigned) {
+        try { [void](Stop-RuntimeJobObject -Job $pJob -TimeoutMs 15000) } catch { }
+      }
+      else {
+        try { $p.Kill() } catch { }
+      }
+      try { [void](Close-RuntimeJobObject -Job $pJob) } catch { }
       try { $p.WaitForExit(10000) } catch { }
-      $res.Output = ('timeout apos ' + $TimeoutMs + 'ms')
+      $res.Output = ('timeout apos ' + $TimeoutMs + 'ms (' + $pJobNote + ')')
     }
     else {
       try { $res.ExitCode = $p.ExitCode } catch { $res.ExitCode = -1 }
+      # Sucesso: fecha o job (idempotente) sem matar nada.
+      try { [void](Close-RuntimeJobObject -Job $pJob) } catch { }
     }
     try { $p.Close() } catch { }
     try {

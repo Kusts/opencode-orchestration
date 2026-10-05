@@ -354,6 +354,180 @@ try {
   $logged3 = ''
   if (Test-Path -LiteralPath $gateLog -PathType Leaf) { $logged3 = [IO.File]::ReadAllText($gateLog) }
   Assert-That (((-not [bool]$g3.Stopped) -and ($logged3.Contains('service status')) -and (-not ($logged3.Contains('service stop'))))) 'stop: status sem endpoint => stop ausente' ('stopped=' + $g3.Stopped + ' reason=' + [string]$g3.Reason)
+
+  # --- 23. RR-P22-JOB-OBJECTS follow-up: timeout NUNCA por taskkill/PID ---
+  # 23a. Com job: a ARVORE morre (neto incluido, por heranca) e TreeKill='job'.
+  # O neto existe de verdade (PID real em hand-off), nao um claim.
+  $jobLib = Join-Path $PSScriptRoot 'lib\RuntimeJobObject.ps1'
+  $hasJobLib = (Test-Path -LiteralPath $jobLib -PathType Leaf)
+  if ($hasJobLib) { . $jobLib }
+  $mk = 'SPIKETK-' + [guid]::NewGuid().ToString('N')
+  $netPidFile = Join-Path $base ('net-' + $mk + '.pid')
+  $sigFile = Join-Path $base ('sig-' + $mk)
+  $childFile = Join-Path $base ('child-' + $mk + '.ps1')
+  $childLines = @(
+    'param([string]$NetPidFile, [string]$SignalFile, [string]$Marker)',
+    '$psi = New-Object System.Diagnostics.ProcessStartInfo',
+    ('$psi.FileName = "' + ($psExe -replace '\\', '\\') + '"'),
+    '$psi.Arguments = ''-NoProfile -Command "Start-Sleep -Seconds 60 # '' + $Marker + ''"''',
+    '$psi.UseShellExecute = $false',
+    '$psi.CreateNoWindow = $true',
+    '$net = [System.Diagnostics.Process]::Start($psi)',
+    '[IO.File]::WriteAllText($NetPidFile, [string]$net.Id)',
+    'while (-not (Test-Path -LiteralPath $SignalFile)) { Start-Sleep -Milliseconds 200 }',
+    'Start-Sleep -Seconds 60'
+  )
+  [IO.File]::WriteAllText($childFile, (($childLines -join "`r`n") + "`r`n"), (New-Object Text.UTF8Encoding $false))
+  $job = $null
+  # Anonimo, como as libs de producao agora fazem (nome fixo abriria job compartilhado).
+  if ($hasJobLib) { $job = New-RuntimeJobObject }
+  $t23 = $null
+  $netPid = 0
+  try {
+    Assert-That ([bool]$job.Ok) '23: job criado para o teste de arvore' ([string]$job.Reason)
+    $t23 = Invoke-SpikeChild -FilePath $psExe -ArgumentList @('-NoProfile', '-File', $childFile, '-NetPidFile', $netPidFile, '-SignalFile', $sigFile, '-Marker', $mk) -WorkingDirectory $cwdT -TimeoutMs 9000 -JobObject $job
+    Assert-That ([bool]$t23.JobAssigned) '23: filho atributo ao job antes do spawn do neto' ('note=' + [string]$t23.JobNote)
+    Assert-That ([bool]$t23.TimedOut) '23: timeout real do filho' ('timeout=' + $t23.TimedOut + ' ms=' + $t23.ElapsedMs)
+    Assert-That ([string]$t23.TreeKill -eq 'job') '23: TreeKill=job (kill-on-close cobre a arvore, nao PID historico)' ('tree=' + [string]$t23.TreeKill + ' note=' + [string]$t23.JobNote)
+    $netPid = 0
+    $deadlineNet = [DateTime]::UtcNow.AddSeconds(15)
+    while ([DateTime]::UtcNow -lt $deadlineNet) {
+      if (Test-Path -LiteralPath $netPidFile -PathType Leaf) {
+        try { $netPid = [int]([IO.File]::ReadAllText($netPidFile)) } catch { $netPid = 0 }
+        if ($netPid -gt 0) { break }
+      }
+      Start-Sleep -Milliseconds 150
+    }
+    Assert-That ($netPid -gt 0) '23: neto existiu de verdade (PID real em hand-off)' ('net_pid=' + $netPid)
+    $leftNet = @(Get-ProcByMarker $mk)
+    Assert-That ($leftNet.Count -eq 0) '23: neto morto pelo job (heranca provada, nao /T)' ('restantes=' + $leftNet.Count + ' net_pid=' + $netPid)
+  }
+  finally {
+    try { [void](Close-RuntimeJobObject -Job $job) } catch { }
+    Stop-ProcByMarker $mk
+  }
+
+  # 23b. SEM job: fallback root-only pelo handle do spawn PROPRIO. O filho e
+  # root sem descendente, entao root morto e o unico fato que se prova; nenhum
+  # claim de tree kill e feito.
+  $mk2 = 'SPIKEROOT-' + [guid]::NewGuid().ToString('N')
+  $r23b = Invoke-SpikeChild -FilePath $psExe -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Seconds 60 # ' + $mk2)) -WorkingDirectory $cwdT -TimeoutMs 3000
+  Assert-That (([bool]$r23b.TimedOut) -and ([string]$r23b.TreeKill -eq 'root-only')) '23: sem job => TreeKill=root-only (fallback honesto)' ('tree=' + [string]$r23b.TreeKill + ' timeout=' + $r23b.TimedOut)
+  Assert-That ((-not [bool]$r23b.JobAssigned) -and ([string]$r23b.JobNote -eq '')) '23: sem -JobObject nada de job e criado' ('assigned=' + $r23b.JobAssigned + ' note=' + [string]$r23b.JobNote)
+  $leftRoot = @(Get-ProcByMarker $mk2)
+  Assert-That ($leftRoot.Count -eq 0) '23: root encerrado pelo handle do spawn proprio' ('restantes=' + $leftRoot.Count)
+
+  # 23c. GUARDA: a lib de producao nao pode voltar a matar por PID historico.
+  # NAO-VACUOSO: leitura falha => FAIL honesto. Sem esta exigencia uma lib
+  # ausente/ilegivel devolveria string vazia e o -notmatch passaria por engano.
+  function Read-LibText([string]$Path, [string]$Label) {
+    $body = ''
+    $readOk = $false
+    $why = ''
+    try {
+      if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { $why = 'arquivo ausente' }
+      else {
+        $body = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+        $readOk = ($body.Length -gt 0)
+        if (-not $readOk) { $why = 'conteudo vazio' }
+      }
+    }
+    catch { $why = ('leitura falhou: ' + [string]$_.Exception.Message) }
+    Assert-That $readOk ('GUARD-LEITURA: ' + $Label + ' lida e nao vazia (guard nao pode ser vacuo)') ('motivo=' + $why + ' len=' + $body.Length)
+    return $body
+  }
+  $spikeLibText = Read-LibText (Join-Path $PSScriptRoot 'lib\SpikeProcess.ps1') 'SpikeProcess.ps1'
+  Assert-That (($spikeLibText -notmatch '(?i)taskkill')) 'GUARD: SpikeProcess.ps1 nunca usa taskkill (kill por handle/job)' ('len=' + $spikeLibText.Length)
+  $verifierLibText = Read-LibText (Join-Path (Split-Path -Parent $PSScriptRoot) 'v3\lib\OrchestrationVerifier.ps1') 'OrchestrationVerifier.ps1'
+  Assert-That (($verifierLibText -notmatch '(?i)taskkill')) 'GUARD: OrchestrationVerifier.ps1 nunca usa taskkill' ('len=' + $verifierLibText.Length)
+  $profileLibText = Read-LibText (Join-Path $PSScriptRoot 'New-OrchestrationProfile.ps1') 'New-OrchestrationProfile.ps1'
+  Assert-That (($profileLibText -notmatch '(?i)taskkill')) 'GUARD: New-OrchestrationProfile.ps1 nunca usa taskkill' ('len=' + $profileLibText.Length)
+
+  # 23d. ISOLAMENTO entre jobs: o timeout de um filho NAO pode matar o filho de
+  # outro job. Este e o teste que pega nome de job FIXO (CreateJobObjectW abriria
+  # o job preexistente e os dois filhos cairiam no mesmo job).
+  $mkA = 'SPIKEISOA-' + [guid]::NewGuid().ToString('N')
+  $mkB = 'SPIKEISOB-' + [guid]::NewGuid().ToString('N')
+  $markerB = Join-Path $base ('iso-b-' + $mkB + '.marker')
+  $jobA = $null
+  $jobB = $null
+  $rA = $null
+  $procB = $null
+  # SEAM DE TESTE (nunca setado no CI): se a variavel de ambiente abaixo
+  # apontar um nome, os DOIS jobs sao criados COM esse nome fixo, reproduzindo
+  # o bug original (CreateJobObjectW ABRE o job preexistente e os dois filhos
+  # caem no mesmo job). Existe para o controle negativo do bloco 23d provar que
+  # o teste pega a regressao; a lib de producao segue anonima.
+  $sharedJobName = [Environment]::GetEnvironmentVariable('SPIKE_TEST_SHARED_JOB_NAME', 'Process')
+  try {
+    if ($hasJobLib) {
+      if ([string]::IsNullOrWhiteSpace($sharedJobName)) {
+        # Anonimo, como as libs de producao fazem.
+        $jobA = New-RuntimeJobObject
+        $jobB = New-RuntimeJobObject
+      }
+      else {
+        $jobA = New-RuntimeJobObject -Name $sharedJobName
+        $jobB = New-RuntimeJobObject -Name $sharedJobName
+      }
+    }
+    Assert-That (([bool]$jobA.Ok) -and ([bool]$jobB.Ok)) '23: dois jobs criados (anonimos por padrao)' ('a=' + [string]$jobA.Ok + ' b=' + [string]$jobB.Ok + ' nome_compartilhado=' + [string]$sharedJobName)
+    # B e spawnado DIRETO (nao via Invoke-SpikeChild) para que o teste controle
+    # o momento: B precisa estar VIVO quando A estourar o timeout. B dorme ~6s,
+    # imprime 'iso-b-ok' e grava o marker SO no fim.
+    $bPsi = New-Object System.Diagnostics.ProcessStartInfo
+    $bPsi.FileName = $psExe
+    $bCmd = ('Start-Sleep -Seconds 6; Write-Output ''iso-b-ok''; [IO.File]::WriteAllText(''' + $markerB + ''', ''done'') # ' + $mkB)
+    $bPsi.Arguments = '-NoProfile -Command "' + $bCmd + '"'
+    $bPsi.UseShellExecute = $false
+    $bPsi.RedirectStandardOutput = $true
+    $bPsi.RedirectStandardError = $true
+    $bPsi.CreateNoWindow = $true
+    $bPsi.WorkingDirectory = $cwdT
+    $procB = [System.Diagnostics.Process]::Start($bPsi)
+    $bPid = [int]$procB.Id
+    if ($null -ne $jobB -and [bool]$jobB.Ok) {
+      [void](Add-RuntimeJobProcess -Job $jobB -Process $procB)
+    }
+    Assert-That (-not (Test-Path -LiteralPath $markerB -PathType Leaf)) '23: B vivo e marker de B ainda ausente' ('pid=' + $bPid)
+    # A estoura o timeout (3s) e morre pelo SEU job.
+    $rA = Invoke-SpikeChild -FilePath $psExe -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Seconds 60 # ' + $mkA)) -WorkingDirectory $cwdT -TimeoutMs 3000 -JobObject $jobA
+    Assert-That (([bool]$rA.TimedOut) -and ([string]$rA.TreeKill -eq 'job')) '23: A estoura o timeout e mata pelo seu job' ('tree=' + [string]$rA.TreeKill + ' timeout=' + $rA.TimedOut)
+    # PROVA DO ISOLAMENTO: se A e B dividissem o job, o Terminate de A teria
+    # matado B e o marker NUNCA apareceria. B ainda tem de estar vivo.
+    $bAlive = (-not $procB.HasExited)
+    $markerAbsent = (-not (Test-Path -LiteralPath $markerB -PathType Leaf))
+    Assert-That ($bAlive -and $markerAbsent) '23: isolamento REAL: B continua VIVO depois do stop de A' ('b_vivo=' + $bAlive + ' marker_ausente=' + $markerAbsent + ' pid=' + $bPid)
+    # B termina sozinho: espera bounded e o marker tem de aparecer.
+    $bDone = $false
+    $bDeadline = [DateTime]::UtcNow.AddSeconds(12)
+    while ([DateTime]::UtcNow -lt $bDeadline) {
+      if (Test-Path -LiteralPath $markerB -PathType Leaf) { $bDone = $true; break }
+      if ($procB.HasExited) { break }
+      Start-Sleep -Milliseconds 200
+    }
+    try { $null = $procB.WaitForExit(10000) } catch { }
+    $bOut = ''
+    try { $bOut = [string]$procB.StandardOutput.ReadToEnd() } catch { $bOut = '' }
+    $bCode = -1
+    try { $bCode = [int]$procB.ExitCode } catch { $bCode = -1 }
+    Assert-That (($bDone) -and ($bCode -eq 0) -and ($bOut -match 'iso-b-ok')) '23: B completou SO depois do stop de A (marker + exit 0 + stdout)' ('marker=' + [string]$bDone + ' rc=' + $bCode + ' out=[' + $bOut.Trim() + ']')
+    $leftA = @(Get-ProcByMarker $mkA)
+    Assert-That ($leftA.Count -eq 0) '23: stop de A nao deixou residuo' ('restantes_a=' + $leftA.Count)
+  }
+  finally {
+    try { [void](Close-RuntimeJobObject -Job $jobA) } catch { }
+    try { [void](Close-RuntimeJobObject -Job $jobB) } catch { }
+    # Cleanup de B pelo HANDLE do nosso proprio spawn (Kill no .NET Process),
+    # nunca por arvore de PID. B ja terminou em Pass; o guard cobre so o caso
+    # de orfao por falha do teste.
+    if ($null -ne $procB) {
+      try { if (-not $procB.HasExited) { $procB.Kill(); [void]$procB.WaitForExit(8000) } } catch { }
+      try { $procB.Close(); $procB.Dispose() } catch { }
+    }
+    # A tambem nao passa por arvore de PID: o Close do job A e o backstop
+    # (KILL_ON_JOB_CLOSE) e ja cobre o filho de A.
+  }
 }
 finally {
   if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

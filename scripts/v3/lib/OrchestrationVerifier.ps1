@@ -46,6 +46,22 @@ if (Test-Path -LiteralPath $verifierSanitizePath -PathType Leaf) {
     . $verifierSanitizePath
 }
 
+# RR-P22-JOB-OBJECTS: containment de ARVORE no timeout. Sem esta lib o unico
+# primitivo disponivel seria matar so o root (cmd.exe), o que ORFA o filho real e
+# deixa handles abertos (log travado) - comportamento PIOR que o antigo /T, nao
+# apenas diferente. Carrega uma vez se ausente; falha de carga e neutra (o
+# fallback honesto por handle continua valendo). Nao pode lancar no load.
+try {
+    if (-not (Get-Command -Name 'New-RuntimeJobObject' -ErrorAction SilentlyContinue)) {
+        $verifierJobLib = ''
+        try { $verifierJobLib = (Join-Path $PSScriptRoot '..\..\runtime\lib\RuntimeJobObject.ps1') } catch { $verifierJobLib = '' }
+        if ((-not [string]::IsNullOrWhiteSpace($verifierJobLib)) -and (Test-Path -LiteralPath $verifierJobLib -PathType Leaf)) {
+            . $verifierJobLib
+        }
+    }
+}
+catch { }
+
 # ---------- path helpers ----------
 
 function Get-VerifierRepoRoot {
@@ -358,17 +374,66 @@ function Invoke-OrchestrationValidationProfile {
             $psi.CreateNoWindow = $true
             $psi.WorkingDirectory = $root
             try { $psi.EnvironmentVariables['PSModulePath'] = "$env:windir\System32\WindowsPowerShell\v1.0\Modules" } catch { }
-            $p = [System.Diagnostics.Process]::Start($psi)
-            $finished = $p.WaitForExit($timeout * 1000)
-            if (-not $finished) {
-                $timedOut = $true
-                try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { }
-                try { $p.WaitForExit(10000) } catch { }
+            # RR-P22-JOB-OBJECTS: o job e criado ANTES do start e o filho (cmd /c)
+            # e atribuido logo apos o spawn pelo handle do spawn PROPRIO. No
+            # timeout, a arvore morre por KILL_ON_JOB_CLOSE (descendentes por
+            # heranca, mais forte que arvore-por-PID). Cleanup NUNCA por arvore de PID
+            # historico. Sem a lib carregada ou sem atribuicao provada, o fallback
+            # e $p.Kill() no handle do proprio spawn (root-only: descendentes
+            # podem escapar, sem claim de tree kill).
+            $vJob = $null
+            $vJobAssigned = $false
+            $vJobNote = ''
+            $p = $null
+            try {
+                # ANONIMO por chamada (sem -Name => CreateJobObjectW com nome
+                # nulo): um nome fixo FARIA CreateJobObjectW ABRIR um job
+                # preexistente de mesmo nome, e TerminateJobObject de uma
+                # chamada mataria os filhos de outra. isolamento por handle.
+                try {
+                    if (Get-Command -Name 'New-RuntimeJobObject' -ErrorAction SilentlyContinue) {
+                        $vJob = New-RuntimeJobObject
+                        if ([bool]$vJob.Ok) { $vJobNote = 'job anonimo criado antes do start' }
+                        else { $vJobNote = ('job nao criado: ' + [string]$vJob.Reason) }
+                    }
+                    else { $vJobNote = 'lib RuntimeJobObject.ps1 nao carregada: fallback root-only' }
+                }
+                catch { $vJobNote = 'falha ao criar o job: ' + [string]$_.Exception.Message; $vJob = $null }
+                $p = [System.Diagnostics.Process]::Start($psi)
+                if ($null -ne $vJob -and [bool]$vJob.Ok) {
+                    try {
+                        $vAdd = Add-RuntimeJobProcess -Job $vJob -Process $p
+                        if ([bool]$vAdd.Ok) { $vJobAssigned = $true; $vJobNote = $vJobNote + ' | filho atribuido ao job' }
+                        else { $vJobNote = $vJobNote + ' | atribuicao falhou: ' + [string]$vAdd.Reason }
+                    }
+                    catch { $vJobNote = $vJobNote + ' | atribuicao lancou: ' + [string]$_.Exception.Message }
+                }
+                $finished = $p.WaitForExit($timeout * 1000)
+                if (-not $finished) {
+                    $timedOut = $true
+                    if ($vJobAssigned) {
+                        try { [void](Stop-RuntimeJobObject -Job $vJob -TimeoutMs 15000) } catch { }
+                    }
+                    else {
+                        try { $p.Kill() } catch { }
+                    }
+                    try { $p.WaitForExit(10000) } catch { }
+                }
+                else {
+                    $code = $p.ExitCode
+                }
             }
-            else {
-                $code = $p.ExitCode
+            finally {
+                # OWNERSHIP: TODO caminho de saida fecha o job e libera o handle
+                # do processo, inclusive excecao (start/wait/exitcode). Sem
+                # isto o job vazava e um KILL_ON_JOB_CLOSE orfao continuava vivo
+                # depois do veredito. Idempotente nos dois primitivos.
+                try { [void](Close-RuntimeJobObject -Job $vJob) } catch { }
+                if ($null -ne $p) {
+                    try { $p.Close() } catch { }
+                    try { $p.Dispose() } catch { }
+                }
             }
-            try { $p.Close() } catch { }
             try {
                 if (Test-Path -LiteralPath $logFile -PathType Leaf) {
                     $raw = [IO.File]::ReadAllText($logFile, [Text.Encoding]::UTF8)

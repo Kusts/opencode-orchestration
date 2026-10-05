@@ -49,6 +49,12 @@
         chamadores). A lib nao e carregada por este arquivo: sem ela e sem
         -JobObject nada muda; com -JobObject e sem lib => falha honesta
         (JobAssigned=false, JobNote com o motivo), nunca excecao.
+      - TreeKill (novo): no TIMEOUT, cleanup NUNCA por arvore de PID historico.
+        Com atribuicao provada a arvore morre por KILL_ON_JOB_CLOSE
+        (descendentes por heranca, mais forte que /T) => TreeKill='job'. Sem
+        job, so o root e encerrado pelo handle do spawn PROPRIO =>
+        TreeKill='root-only' (descendentes podem escapar; sem claim de tree
+        kill). TreeKill='none' quando nao houve timeout ou o start falhou.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -221,7 +227,7 @@ function Invoke-SpikeChild {
           Started = $false; ElapsedMs = 0; ExecPath = $FilePath
           ViaCmd = $false; ShimResolved = $false; DrainIncomplete = $false
           StdoutTruncated = $false; StderrTruncated = $false
-          JobAssigned = $false; JobNote = ''
+          JobAssigned = $false; JobNote = ''; TreeKill = 'none'
           Note = 'shim .cmd irresoluvel com meta-char no caminho: recusado sem executar'
         }
       }
@@ -232,7 +238,7 @@ function Invoke-SpikeChild {
             Started = $false; ElapsedMs = 0; ExecPath = $FilePath
             ViaCmd = $false; ShimResolved = $false; DrainIncomplete = $false
             StdoutTruncated = $false; StderrTruncated = $false
-            JobAssigned = $false; JobNote = ''
+            JobAssigned = $false; JobNote = ''; TreeKill = 'none'
             Note = 'shim .cmd irresoluvel com arg com shell-meta: recusado sem executar'
           }
         }
@@ -249,7 +255,7 @@ function Invoke-SpikeChild {
         Started = $false; ElapsedMs = 0; ExecPath = $execPath
         ViaCmd = $false; ShimResolved = $shimResolved; DrainIncomplete = $false
         StdoutTruncated = $false; StderrTruncated = $false
-        JobAssigned = $false; JobNote = ''
+        JobAssigned = $false; JobNote = ''; TreeKill = 'none'
         Note = 'StdinNul com meta-char no caminho: recusado sem executar'
       }
     }
@@ -260,7 +266,7 @@ function Invoke-SpikeChild {
           Started = $false; ElapsedMs = 0; ExecPath = $execPath
           ViaCmd = $false; ShimResolved = $shimResolved; DrainIncomplete = $false
           StdoutTruncated = $false; StderrTruncated = $false
-          JobAssigned = $false; JobNote = ''
+          JobAssigned = $false; JobNote = ''; TreeKill = 'none'
           Note = 'StdinNul com arg com shell-meta: recusado sem executar'
         }
       }
@@ -341,7 +347,7 @@ function Invoke-SpikeChild {
       Started = $false; ElapsedMs = 0; ExecPath = $execPath
       ViaCmd = $viaCmd; ShimResolved = $shimResolved; DrainIncomplete = $false
       StdoutTruncated = $false; StderrTruncated = $false
-      JobAssigned = $false; JobNote = ''
+      JobAssigned = $false; JobNote = ''; TreeKill = 'none'
       Note = ('start falhou: ' + $_.Exception.Message)
     }
   }
@@ -376,8 +382,27 @@ function Invoke-SpikeChild {
   }
   $elapsed = [long]([System.DateTime]::UtcNow - $started).TotalMilliseconds
   $timedOut = (-not $done)
+  $treeKill = 'none'
   if ($timedOut) {
-    try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { }
+    # RR-P22-JOB-OBJECTS: cleanup NUNCA por arvore de PID historico.
+    # COM atribuicao provada, a arvore morre por KILL_ON_JOB_CLOSE: os
+    # descendentes integrados por heranca (neto incluido) morrem junto, o que e
+    # MAIS FORTE que /T por PID. SEM job, so o root pelo handle do spawn PROPRIO
+    # e encerrado e isso e rotulado honestamente: descendentes podem escapar e
+    # nao ha claim de tree kill.
+    if ($jobAssigned) {
+      $treeKill = 'job'
+      try {
+        $jobStop = Stop-RuntimeJobObject -Job $JobObject -TimeoutMs 15000
+        if (-not [bool]$jobStop.Ok) { $jobNote = $jobNote + ' | stop do job falhou: ' + [string]$jobStop.Reason }
+      }
+      catch { $jobNote = $jobNote + ' | stop do job lancou: ' + [string]$_.Exception.Message }
+      try { [void](Close-RuntimeJobObject -Job $JobObject) } catch { }
+    }
+    else {
+      $treeKill = 'root-only'
+      try { $p.Kill() } catch { }
+    }
     Start-Sleep -Milliseconds 1500
     try { [void]$p.WaitForExit(2000) } catch { }
   }
@@ -430,6 +455,7 @@ function Invoke-SpikeChild {
     StderrTruncated = $eTrunc
     JobAssigned = $jobAssigned
     JobNote = $jobNote
+    TreeKill = $treeKill
     Note = ''
   }
 }
