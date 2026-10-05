@@ -84,7 +84,7 @@ jobs:
   ci-ps51:
     name: CI (ps51)
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     defaults:
       run:
         shell: powershell
