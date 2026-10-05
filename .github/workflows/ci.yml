@@ -11,9 +11,11 @@
 # aborta. Essa tolerancia e do install.ps1 em runtime, nao do CI.
 #
 # Gate plugin-enforcement (obrigatorio no CI): bun e provisionado via npm
-# (pacote oficial mantido pela Oven) em ambos os jobs antes das distribution
-# suites; a suite plugin-enforcement.tests.ps1 falha (NOT OK + exit 1) se bun
-# estiver ausente - nao ha mais skip condicional de bun no CI. O harness usa
+# (pacote oficial mantido pela Oven) em todos os jobs que executam as suites V3/
+# distribution, antes delas (plugin-dual-runtime.tests.ps1 roda dentro da V3
+# suite e falha sem bun); a suite plugin-enforcement.tests.ps1 falha (NOT OK +
+# exit 1) se bun estiver ausente - nao ha mais skip condicional de bun no CI.
+# O job ci-smoke-opencode-v2 nao usa bun. O harness usa
 # import type (apagado em runtime), por isso o CI nao asserta node_modules
 # nem depende de rede de plugin fora do provisionamento de bun.
 #
@@ -70,12 +72,12 @@ jobs:
       - name: Static/package validation
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
 
+      - name: Provision bun (official npm package)
+        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
+
       - name: V3 test suite (~5-6 min local; runner exige mais)
         timeout-minutes: 40
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
-
-      - name: Provision bun (official npm package)
-        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: Distribution suites (13 suites, install transacional)
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
@@ -94,12 +96,12 @@ jobs:
       - name: Static/package validation
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
 
+      - name: Provision bun (official npm package)
+        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
+
       - name: V3 test suite (~5-6 min local; runner exige mais)
         timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
-
-      - name: Provision bun (official npm package)
-        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
@@ -141,12 +143,12 @@ jobs:
       - name: Static/package validation
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/test-package-consistency.ps1
 
+      - name: Provision bun (official npm package, pinned)
+        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
+
       - name: V3 test suite (~5-6 min local; runner exige mais)
         timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
-
-      - name: Provision bun (official npm package, pinned)
-        run: npm install -g bun@1.3.14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
