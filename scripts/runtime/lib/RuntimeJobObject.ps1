@@ -34,6 +34,23 @@
         lib atribuir (e depois encerrar) um processo TERCEIRO. Handle
         indisponivel => recusa estruturada {Ok=false; Reason}. O processo
         ATUAL (o host desta lib) e SEMPRE recusado.
+      - Attach-RuntimeJobVerifiedProcess (RR-P26-JOB-WIRING): mesma
+        atribuicao por handle retido, porem para uma instancia JA PROVADA
+        pelo chamador (o enforcement do watchdog, que fixou identidade +
+        liveness na propria instancia pinada). Re-verifica barato ANTES do
+        Assign: liveness (HasExited) e identidade (ticks de criacao UTC da
+        MESMA instancia, com tolerancia explicita; default 0 = exata).
+        NUNCA OpenProcess por PID (delega a atribuicao real ao
+        Add-RuntimeJobProcess, cujo contrato fica INTACTO), recusa host-self
+        e recusa identidade ausente/divergente. Falha => resultado
+        estruturado {Ok=false; Reason}, o enforcement segue pelo caminho CIM
+        de sempre (fail-closed, nunca fail-open).
+      - New-RuntimeJobObject -NoKillOnClose: cria o job SEM
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, entao Close e INERTE e o unico
+        ato letal passa a ser TerminateJobObject. Default (sem switch)
+        inalterado: KILL_ON_JOB_CLOSE com close letal. Usado pelo
+        enforcement para que um REFUSED (nada morto) nunca mate o processo
+        que ele reporta como nao morto.
       - Get-RuntimeJobMemberPids: QueryInformationJobObject
         (JobObjectBasicProcessIdList) com enumeracao BOUNDED. O cap e
         PARAMETRO (default 256). Excesso do cap => lista PARCIAL dos slots
@@ -338,7 +355,15 @@ function Get-RuntimeJobHandle {
 
 function New-RuntimeJobObject {
   # Cria o job e seta SOMENTE KILL_ON_JOB_CLOSE. Breakaway NAO e habilitado.
-  param([string]$Name = '')
+  # -NoKillOnClose (RR-P26-JOB-WIRING): cria o job SEM
+  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, ou seja, Close-RuntimeJobObject passa
+  # a ser INERTE e a UNICA acao letal da lib e TerminateJobObject. O default
+  # (sem o switch) permanece EXATAMENTE o de sempre: KILL_ON_JOB_CLOSE com
+  # close letal. Quem usa o switch e o enforcement do watchdog, porque um
+  # REFUSED (nada morto, deadline/tree recusado) NUNCA pode matar o processo
+  # que ele reporta como nao morto: ali o Terminate e o unico ato letal, e ele
+  # so roda no caminho que de fato matou.
+  param([string]$Name = '', [switch]$NoKillOnClose)
   $res = @{ Ok = $false; Handle = [IntPtr]::Zero; Closed = $true; Reason = ''; Api = ''; LimitFlags = [uint32]0; KillOnClose = $false; Name = '' }
   if (-not [string]::IsNullOrWhiteSpace($Name)) {
     if ($Name -notmatch '\A[A-Za-z0-9_\-\.\\]+\z') {
@@ -369,7 +394,9 @@ function New-RuntimeJobObject {
     return $res
   }
   $setOk = $false
-  try { $setOk = [bool][RuntimeJobNative]::SetLimits($h, [uint32]0x00002000) }
+  $limitFlags = [uint32]0x00002000
+  if ($NoKillOnClose) { $limitFlags = [uint32]0 }
+  try { $setOk = [bool][RuntimeJobNative]::SetLimits($h, $limitFlags) }
   catch {
     $res.Handle = $h
     $res.Closed = $false
@@ -382,16 +409,21 @@ function New-RuntimeJobObject {
     try { $err2 = [int][RuntimeJobNative]::LastError() } catch { $err2 = -1 }
     try { [void][RuntimeJobNative]::Close($h) } catch { }
     $res.Api = 'SetInformationJobObject'
-    $res.Reason = ('SetInformationJobObject(KILL_ON_JOB_CLOSE) falhou (win32=' + $err2 + '); handle fechado, job inexistente')
+    $res.Reason = ('SetInformationJobObject falhou (win32=' + $err2 + '); handle fechado, job inexistente')
     return $res
   }
   $res.Ok = $true
   $res.Handle = $h
   $res.Closed = $false
-  $res.LimitFlags = [uint32]0x00002000
-  $res.KillOnClose = $true
+  $res.LimitFlags = $limitFlags
+  $res.KillOnClose = (($limitFlags -band [uint32]0x00002000) -eq [uint32]0x00002000)
   $res.Api = ''
-  $res.Reason = 'job criado com KILL_ON_JOB_CLOSE; breakaway NAO habilitado'
+  if ($NoKillOnClose) {
+    $res.Reason = 'job criado SEM KILL_ON_JOB_CLOSE (close inerte; unico ato letal e TerminateJobObject); breakaway NAO habilitado'
+  }
+  else {
+    $res.Reason = 'job criado com KILL_ON_JOB_CLOSE; breakaway NAO habilitado'
+  }
   $res.Name = [string]$Name
   return $res
 }
@@ -495,6 +527,101 @@ function Add-RuntimeJobProcess {
   $res.Ok = $true
   $res.Reason = 'processo atribuido ao job via handle do spawn proprio (membership por arvore de criacao; imune a PID-reuse)'
   return $res
+}
+
+function Attach-RuntimeJobVerifiedProcess {
+  # RR-P26-JOB-WIRING: AssignProcessToJobObject para uma instancia JA
+  # PROVADA pelo CHAMADOR (o enforcement do watchdog), com re-verificacao
+  # barata ANTES da atribuicao. Diferencas para Add-RuntimeJobProcess
+  # (que permanece INTACTO e e o caminho de spawn proprio):
+  #   - exige a IDENTIDADE (ticks de criacao em UTC) que o chamador provou:
+  #     o seam compara com o StartTime lido da MESMA instancia pinada; sem
+  #     identidade informada => recusa fail-closed (nada e atribuido).
+  #   - exige LIVENESS pela propria instancia (HasExited -eq $false): uma
+  #     instancia morta nao entra em job (atribuir um processo que ja saiu seria atribuicao sem prova).
+  #   - NUNCA abre handle por PID: a atribuicao real e delegada ao
+  #     Add-RuntimeJobProcess, que usa o handle JA retido do .NET (imune a
+  #     PID-reuse). Sem OpenProcess, sem Get-Process por PID.
+  #   - recusa o processo ATUAL (host) antes de qualquer API.
+  # Resultado estruturado, NUNCA excecao atravessando a seam; nada aqui e
+  # fail-open (Ok=true so com AssignProcessToJobObject confirmado).
+  param(
+    [Parameter(Mandatory = $true)]$Job,
+    $Instance = $null,
+    [long]$ExpectedCreationTicks = 0,
+    [long]$ToleranceTicks = 0
+  )
+  $res = @{ Ok = $false; Pid = 0; Api = ''; Reason = ''; ViaManagedHandle = $false; InstanceLive = $false; IdentityVerified = $false }
+  try {
+    $hv = Get-RuntimeJobHandle -Job $Job
+    if (-not [bool]$hv.Ok) { $res.Api = 'AssignProcessToJobObject'; $res.Reason = [string]$hv.Reason; return $res }
+    if ($null -eq $Instance) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = 'recusado: atribuicao verificada exige a instancia System.Diagnostics.Process provada pelo chamador (nunca PID nu)'
+      return $res
+    }
+    if (-not ($Instance -is [System.Diagnostics.Process])) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = ('recusado: -Instance deve ser System.Diagnostics.Process (obtido ' + $Instance.GetType().FullName + '); PID nu nunca atribui')
+      return $res
+    }
+    $targetPid = 0
+    try { $targetPid = [int]$Instance.Id } catch { $targetPid = 0 }
+    if ($targetPid -gt 0) { $res.Pid = $targetPid }
+    if (($targetPid -le 0) -or ($targetPid -eq [int]$PID)) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = 'recusado: o processo atual (host) jamais entra em job (matar o host nao e contencao)'
+      return $res
+    }
+    if ([long]$ExpectedCreationTicks -le 0) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = 'recusado: identidade nao informada (ExpectedCreationTicks<=0); provavel divergencia de identidade, sem atribuicao'
+      return $res
+    }
+    $exited = $false
+    try { $exited = [bool]$Instance.HasExited } catch { $exited = $true }
+    if ($exited) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = 'recusado: instancia provada ja saiu (liveness pela propria instancia falhou); sem atribuicao'
+      return $res
+    }
+    $res.InstanceLive = $true
+    $liveTicks = 0
+    try { $liveTicks = ([long](([DateTime]$Instance.StartTime).ToUniversalTime().Ticks)) } catch { $liveTicks = 0 }
+    if ($liveTicks -le 0) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = 'recusado: creation-time ilegivel na instancia provada; sem atribuicao'
+      return $res
+    }
+    $skew = ($liveTicks - [long]$ExpectedCreationTicks)
+    if ($skew -lt 0) { $skew = -$skew }
+    if ($skew -gt [long]$ToleranceTicks) {
+      $res.Api = 'AssignProcessToJobObject'
+      $res.Reason = ('recusado: divergencia de identidade (instancia provada difere da identidade esperada em ' + $skew + ' ticks, tolerancia ' + [long]$ToleranceTicks + '); sem atribuicao')
+      return $res
+    }
+    $res.IdentityVerified = $true
+    # Delegacao: a atribuicao real continua sendo a de Add-RuntimeJobProcess
+    # (handle retido do spawn proprio). Este seam NAO abre handle por PID.
+    $add = Add-RuntimeJobProcess -Job $Job -Process $Instance
+    $res.Ok = [bool]$add.Ok
+    $res.Api = [string]$add.Api
+    $res.Reason = [string]$add.Reason
+    $res.ViaManagedHandle = [bool]$add.ViaManagedHandle
+    if ([bool]$add.Ok) {
+      $res.Reason = ('processo verificado atribuido ao job via handle retido da instancia provada (membership por arvore de criacao; imune a PID-reuse); ' + [string]$add.Reason)
+    }
+    else {
+      $res.IdentityVerified = $false
+    }
+    return $res
+  }
+  catch {
+    $res.Ok = $false
+    $res.Api = 'AssignProcessToJobObject'
+    $res.Reason = ('excecao na seam (convertida): ' + $_.Exception.Message)
+    return $res
+  }
 }
 
 function Get-RuntimeJobMemberPids {

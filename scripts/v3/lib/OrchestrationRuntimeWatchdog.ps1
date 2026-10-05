@@ -76,8 +76,12 @@
         paths (late breach => WATCHDOG_DEADLINE_EXCEEDED); the gone
         path attributes descendants to the registered generation
         ONLY (exact identities from the last verified set, or
-        creations not newer than lastAliveProof, else EXCLUDED); no
-        Job Objects, P22 follow-up). When the root already left (gone at ownership, or
+        creations not newer than lastAliveProof, else EXCLUDED); the normal
+        path additionally attaches the verified root to an anonymous
+        Job Object before the snapshot (RR-P26-JOB-WIRING) so that
+        post-attach spawns, invisible to the CIM walk, are covered by
+        the job backstop; the attach is fail-closed and a refusal runs
+        the CIM-only path unchanged. When the root already left (gone at ownership, or
         between ownership and stop) the verified descendant set is
         still liquidated and ALREADY_EXITED is returned only after the
         whole set exits, else WATCHDOG_INTERRUPT_FAILED with settlement
@@ -195,6 +199,15 @@ if (Test-Path -LiteralPath $watchdogBudgetPath -PathType Leaf) {
 $watchdogObservabilityPath = Join-Path $PSScriptRoot 'CapabilityObservability.ps1'
 if (Test-Path -LiteralPath $watchdogObservabilityPath -PathType Leaf) {
     . $watchdogObservabilityPath
+}
+# RR-P26-JOB-WIRING: backstop de Job Object no enforcement (opcional, mesmo
+# padrao das libs acima). Ausente => job_backstop indisponivel e o caminho
+# CIM-ONLY de hoje roda identico, com a nota 'refused:job-lib-unavailable'.
+$watchdogJobObjectPath = Join-Path $PSScriptRoot '..\..\runtime\lib\RuntimeJobObject.ps1'
+$script:WatchdogJobLibReady = $false
+if (Test-Path -LiteralPath $watchdogJobObjectPath -PathType Leaf) {
+    . $watchdogJobObjectPath
+    $script:WatchdogJobLibReady = [bool]((Get-Command New-RuntimeJobObject -ErrorAction SilentlyContinue) -ne $null)
 }
 
 $script:WatchdogExecutions = @{}
@@ -1556,9 +1569,12 @@ function Get-WatchdogChildProcesses {
         level per call; the interrupt descends recursively with a bounded
         depth cap. tree_enum_failure (test-only) or any CIM/parameter
         error returns @{ok=$false} (callers fail closed, never settled).
-        LIMITATION (no Job Objects, P22 follow-up): processes spawned
-        after the snapshot, or that break the parent link, escape
-        coverage. Never throws.
+        LIMITATION (CIM-only, one level per call; RR-P26-JOB-WIRING):
+        processes spawned after the snapshot, or that break the parent
+        link, are invisible HERE; the enforcement covers the former with
+        the job backstop when the attach succeeded (see
+        Get-WatchdogVerifiedProcessTree and Invoke-WatchdogProcessInterrupt).
+        Never throws.
     #>
     [CmdletBinding()]
     param([int]$ProcessId, [string]$FaultInject = '')
@@ -2243,9 +2259,14 @@ function Get-WatchdogVerifiedProcessTree {
         the caller (included descendants on success) or closed via
         Close-WatchdogProcessHandle (excluded candidates always;
         everything accumulated when the operation fails closed).
-        LIMITATION (no Job Objects, P22 follow-up): descendants
-        spawned after this snapshot escape coverage. Never throws,
-        never kills anything.
+        LIMITATION (CIM-only view of THIS walk, RR-P26-JOB-WIRING):
+        descendants spawned after this snapshot are invisible to the
+        CIM walk. When the caller attached the verified root to a Job
+        Object BEFORE calling here, such descendants are covered by the
+        job backstop (membership by creation tree); when the attach was
+        refused or the deadline had already expired they remain
+        uncovered by the walk, exactly as before this wiring. Never
+        throws, never kills anything.
     #>
     [CmdletBinding()]
     param([int]$RootProcessId, $RootInstance = $null, [long]$RootCreationTicks = 0, $DeadlineUtc = $null, [long]$AttributionProofTicks = 0, $AttributionIdentities = $null, [string]$FaultInject = '')
@@ -2603,18 +2624,27 @@ function Get-WatchdogTerminalAction {
         expired with nothing killed (caller stores REFUSED as
         WATCHDOG_DEADLINE_EXCEEDED). Fail-closed on error. Never
         throws.
+        RR-P26-JOB-WIRING-FIX2: -LethalApplied e um BOOLEANO separado
+        ("um ato letal autorizado foi aplicado": TerminateJobObject
+        retornou ok). Ele NUNCA vira contagem - nao soma em KilledCount, nao
+        aparece em killed_count: quem entra como quantidade continua sendo o
+        contador real do kill CIM. Com ele: 'partial' quando o prazo
+        expirou E houve kill CIM OU ato letal do job; 'refuse' somente quando
+        o contador real e 0 E o booleano e falso; 'proceed' com prazo vivo.
     #>
     [CmdletBinding()]
-    param($DeadlineUtc, [int]$KilledCount = 0)
+    param($DeadlineUtc, [int]$KilledCount = 0, [switch]$LethalApplied)
     $k = 0
     try {
         try { $k = ([int]$KilledCount) } catch { $k = 0 }
         if (-not (Test-WatchdogDeadlineExceeded -DeadlineUtc $DeadlineUtc)) { return 'proceed' }
         if ($k -gt 0) { return 'partial' }
+        if ([bool]$LethalApplied) { return 'partial' }
         return 'refuse'
     }
     catch {
         if ($k -gt 0) { return 'partial' }
+        if ([bool]$LethalApplied) { return 'partial' }
         return 'refuse'
     }
 }
@@ -2660,16 +2690,22 @@ function New-WatchdogPartialFailure {
         SETTLED/ALREADY_EXITED, and never a REFUSED claiming nothing
         was killed. Emits WATCHDOG_INTERRUPT_FAILED through the same
         enforce writer. Never throws.
+        RR-P26-JOB-WIRING-FIX2: -LethalApplied e o BOOLEANO do ato letal
+        autorizado aplicado (TerminateJobObject ok). Ele muda APENAS o
+        campo interrupted (para que o registro nunca afirme 'nada
+        interrompido' depois de um ato letal) e NUNCA entra em killed_count,
+        que segue sendo o contador real do kill CIM.
     #>
     [CmdletBinding()]
-    param($Execution, [string]$TaskId = '', [int]$AttemptN = 0, [string]$Classification = '', [int]$ElapsedSeconds = 0, [int]$Steps = 0, [string]$TelemetryRoot = '', [string]$RepoRoot = '', [int]$KilledCount = 0, [int]$ExcludedCount = 0, [string]$Detail = '')
+    param($Execution, [string]$TaskId = '', [int]$AttemptN = 0, [string]$Classification = '', [int]$ElapsedSeconds = 0, [int]$Steps = 0, [string]$TelemetryRoot = '', [string]$RepoRoot = '', [int]$KilledCount = 0, [int]$ExcludedCount = 0, [string]$Detail = '', [switch]$LethalApplied)
     try {
         $tid = ([string]$TaskId).Trim()
         $cls = ([string]$Classification).Trim().ToUpperInvariant()
         $teleFile = Get-WatchdogTelemetryFile -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
         $wPart = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_INTERRUPT_FAILED' -TaskId $tid -AttemptN ([int]$AttemptN) -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
+        $interruptedPart = (([int]$KilledCount -gt 0) -or [bool]$LethalApplied)
         $settlePart = [ordered]@{
-            engaged = $true; interrupted = ([int]$KilledCount -gt 0); settlement = 'PENDING'
+            engaged = $true; interrupted = [bool]$interruptedPart; settlement = 'PENDING'
             partial = $true; killed_count = ([int]$KilledCount)
             classification = $cls; telemetry_file = $teleFile; telemetry_written = [bool]$wPart.ok; tree_excluded = ([int]$ExcludedCount)
         }
@@ -2682,6 +2718,286 @@ function New-WatchdogPartialFailure {
         })
     }
     catch { return (New-WatchdogError -Code 'WATCHDOG_INTERRUPT_FAILED') }
+}
+
+function ConvertTo-WatchdogJobNote {
+    <#
+    .SYNOPSIS
+        Nota estruturada BOUNDED e sanitizada (RR-P26-JOB-WIRING) para o
+        campo job_attach: apenas um rotulo fechado ('attached' ou
+        'refused:<motivo>') mais um motivo curto do SO, filtrado para
+        [A-Za-z0-9_ ;:.()+-=/], espacos colapsados e teto de 160 chars.
+        NUNCA carrega payload livre (caminho, comando, dado). Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Prefix = '', [string]$Reason = '')
+    $p = ([string]$Prefix).Trim()
+    if ([string]::IsNullOrWhiteSpace($p)) { $p = 'refused' }
+    $r = ''
+    try { $r = [regex]::Replace(([string]$Reason), '[^A-Za-z0-9_ ;:\.\(\)\-\+=/]', ' ') } catch { $r = '' }
+    try { $r = [regex]::Replace($r, '\s+', ' ').Trim() } catch { }
+    if ([string]::IsNullOrWhiteSpace($r)) { return $p }
+    $note = ($p + ':' + $r)
+    if ($note.Length -gt 160) { $note = $note.Substring(0, 160) }
+    return $note
+}
+
+function Close-WatchdogJobBackstop {
+    <#
+    .SYNOPSIS
+        Fecha o handle do job do backstop (RR-P26-JOB-WIRING), idempotente e
+        SEM efeito letal: o job do enforcement e criado com -NoKillOnClose,
+        logo um REFUSED (nada morto) NUNCA mata o processo que ele reporta
+        como nao morto. O unico ato letal do caminho e o
+        TerminateJobObject de Complete-WatchdogJobBackstop. Roda em TODOS os
+        caminhos de saida (finally), entao nao ha handle vazado: o fato
+        do fechamento (job_close_applied + job_close_note) entra no
+        registro de settlement, para que a ausencia de leak seja verificavel
+        por leitura. Never throws.
+    #>
+    [CmdletBinding()]
+    param($State)
+    try {
+        if (($null -eq $State) -or ($null -eq $State.job)) { return }
+        $r = $null
+        try { $r = Close-RuntimeJobObject -Job $State.job } catch { $r = $null }
+        if ($null -ne $r) {
+            try { $State.close_applied = [bool]$r.Ok } catch { }
+            # Nota curta e VERDADEIRA: nao reaproveitamos o texto canned da lib
+            # (que descreve KILL_ON_JOB_CLOSE e nao se aplica a este job sem
+            # a flag). No sucesso o fato e o proprio booleano; no motivo de
+            # recusa a nota carrega o motivo sanitizado e bounded.
+            try {
+                if ([bool]$r.Ok) { $State.close_note = 'close:handle-fechado' }
+                else { $State.close_note = ConvertTo-WatchdogJobNote -Prefix 'close:recusado' -Reason ([string]$r.Reason) }
+            }
+            catch { }
+        }
+    }
+    catch { }
+}
+
+function New-WatchdogJobBackstop {
+    <#
+    .SYNOPSIS
+        RR-P26-JOB-WIRING attach-side: cria o job SEM KILL_ON_JOB_CLOSE e
+        atribui a RAIZ VERIFICADA (instancia pinada do proprio enforcement,
+        com identidade provada) ANTES do snapshot da arvore, de modo que todo
+        spawn POS-attach (inclusive durante a janela de kill) entra no job por
+        heranca de criacao. O attach re-verifica barato (liveness +
+        identidade) e NUNCA abre handle por PID (seam
+        Attach-RuntimeJobVerifiedProcess).
+        Recusa => resultado estruturado COM NOTA e o caller segue pelo
+        caminho CIM-ONLY de hoje, sem mudanca de comportamento:
+          - deadline ja expirado => nenhum attach (a semantica de recusa e
+            preservada: nada foi morto nem preparado);
+          - job indisponivel/criacao/atribuicao recusada => 'refused:<motivo>';
+          - $script:WatchdogTreeTestOverride.job_attach_refuse (TEST-ONLY,
+            ausente em producao) => 'refused:test-hook', para exercitar o
+            fallback sem depender de um refusal do SO.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param($Instance, [long]$ExpectedCreationTicks = 0, $DeadlineUtc = $null)
+    $st = @{ attached = $false; job = $null; note = 'skipped'; kill_applied = $false; settled = $false; members_remaining = -1; members_before = -1; members_reduction = -1; skip = ''; close_applied = $false; close_note = '' }
+    try {
+        if (-not [bool]$script:WatchdogJobLibReady) { $st.note = 'refused:job-lib-unavailable'; return $st }
+        if ((Get-Command Attach-RuntimeJobVerifiedProcess -ErrorAction SilentlyContinue) -eq $null) { $st.note = 'refused:job-seam-missing'; return $st }
+        if (Test-WatchdogDeadlineExceeded -DeadlineUtc $DeadlineUtc) { $st.note = 'refused:deadline-expired'; return $st }
+        $forced = $false
+        try {
+            $ovj = $script:WatchdogTreeTestOverride
+            if (($null -ne $ovj) -and ($ovj -is [System.Collections.IDictionary]) -and $ovj.Contains('job_attach_refuse')) {
+                try { $forced = [bool]$ovj['job_attach_refuse'] } catch { $forced = $false }
+            }
+        }
+        catch { }
+        if ($forced) { $st.note = 'refused:test-hook'; return $st }
+        $job = $null
+        try { $job = New-RuntimeJobObject -NoKillOnClose } catch { $job = $null }
+        if (($null -eq $job) -or (-not [bool]$job.Ok)) {
+            $st.note = ConvertTo-WatchdogJobNote -Prefix 'refused:create' -Reason ([string]$job.Reason)
+            return $st
+        }
+        $st.job = $job
+        $att = $null
+        try {
+            $att = Attach-RuntimeJobVerifiedProcess -Job $job -Instance $Instance -ExpectedCreationTicks ([long]$ExpectedCreationTicks)
+        }
+        catch { $att = $null }
+        if (($null -eq $att) -or (-not [bool]$att.Ok)) {
+            Close-WatchdogJobBackstop -State $st
+            $st.job = $null
+            $st.note = ConvertTo-WatchdogJobNote -Prefix 'refused:attach' -Reason ([string]$att.Reason)
+            return $st
+        }
+        $st.attached = $true
+        $st.note = 'attached'
+        return $st
+    }
+    catch {
+        $st.attached = $false
+        $st.note = 'refused:internal'
+        Close-WatchdogJobBackstop -State $st
+        $st.job = $null
+        return $st
+    }
+}
+
+function Complete-WatchdogJobBackstop {
+    <#
+    .SYNOPSIS
+        RR-P26-JOB-WIRING kill-side backstop: TerminateJobObject (UNICO ato
+        letal) + settlement BOUNDED pela lista de membros + Close POR ULTIMO.
+        Orcena o caminho do enforcement: snapshot -> kill da arvore
+        verificada -> Terminate -> settlement bounded -> Close. O Terminate
+        alcanca descendentes criados DEPOIS do snapshot (invisiveis ao kill
+        CIM); os descendentes PRE-attach seguem cobertos pelo kill CIM de
+        identidade verificada.
+        O settlement do job e EVIDENCIA, nunca criterio: a classificacao
+        terminal continua exatamente a de hoje (mesmo settlement required),
+        porque o deadline compartilhado pode ja estar gasto neste ponto e um
+        rebaixamento de SETTLED por causa do poll seria um terminal falso.
+        O budget do poll e limitado (min(restante do deadline, teto) e nunca
+        dorme alem do deadline absoluto) para nao roubar a janela da espera
+        de saida existente. Never throws.
+        RR-P26-JOB-WIRING-FIX1 (2 achados HIGH do review):
+        HIGH-1: o deadline compartilhado e REVALIDADO IMEDIATAMENTE antes do
+        ato letal. Stop-RuntimeJobObject dispara TerminateJobObject ANTES de
+        olhar o prazo do proprio polling, entao budget=0 nao impedia a morte:
+        prazo expirado NAO autoriza kill. Expirado => nenhum Terminate, handle
+        fechado INERTEMENTE, job_kill_applied=false e a nota bounded
+        job_skip='deadline-expired' (o descendente criado depois do snapshot
+        SOBREVIVE nesse caso, igual ao comportamento pre-wiring); o caller
+        segue as regras de deadline ja existentes (partial com evidencia ou
+        REFUSED), sem estado novo.
+        HIGH-2 (FIX2): o que alimenta a decisao terminal e o BOOLEANO
+        kill_applied (TerminateJobObject retornou ok), NUNCA uma contagem:
+        nao soma em KilledCount e nao aparece em killed_count, que seguem
+        sendo so o contador real do kill CIM. A lista de membros e
+        fotografada antes do Terminate e a diferenca observada vira
+        members_reduction (job_members_reduction no registro) - OBSERVACAO
+        SEM CAUSALIDADE: os kills do CIM sao assincronos e a espera vem
+        depois do backstop, portanto a reducao inclui processos que o CIM ja
+        tinha matado e tambem saidas naturais; nenhum consumidor a trata como
+        autoria.
+        JANELAS RESIDUAIS ACEITAS (nao-fixaveis sem mudar API nativa, sem
+        claim de atomicidade): (a) entre o gate de prazo e a chamada, a API
+        TerminateJobObject NAO recebe deadline - um Terminate que comeca
+        dentro do prazo pode concluir depois dele; (b) preempcao do processo
+        entre a checagem e a chamada (o processo pode sair/mudar nesse
+        intervalo, e o SO decide). O gate de prazo reduz a janela, nao a
+        elimina.
+    #>
+    [CmdletBinding()]
+    param($State, $DeadlineUtc = $null)
+    try {
+        if (($null -eq $State) -or (-not [bool]$State.attached) -or ($null -eq $State.job)) { return }
+        # RR-P26-JOB-WIRING-FIX1 HIGH-2 (fotografia): membros VIVOS no job
+        # imediatamente antes do ato letal. Query bounded e somente-leitura;
+        # um handle fechado seria a unica razao de ela falhar.
+        $mBefore = $null
+        try { $mBefore = Get-RuntimeJobMemberPids -Job $State.job } catch { $mBefore = $null }
+        if (($null -ne $mBefore) -and [bool]$mBefore.Ok) {
+            try { $State.members_before = [int]$mBefore.Assigned } catch { }
+        }
+        # RR-P26-JOB-WIRING-FIX1 HIGH-1: revalidacao do deadline compartilhado
+        # IMEDIATAMENTE antes do ato letal. Stop-RuntimeJobObject chama
+        # TerminateJobObject ANTES de olhar o prazo do proprio polling, logo
+        # budget=0 NAO impedia a morte. Expirado => nenhum Terminate, o handle
+        # fecha INERTEMENTE, job_kill_applied=false e a nota bounded
+        # job_skip='deadline-expired' diz o porque (o descendente criado depois
+        # do snapshot SOBREVIVE, igual ao comportamento pre-wiring); o caller
+        # segue as regras de deadline existentes (partial com evidencia ou
+        # REFUSED), nunca um estado novo.
+        if (Test-WatchdogDeadlineExceeded -DeadlineUtc $DeadlineUtc) {
+            $State.skip = 'deadline-expired'
+            Close-WatchdogJobBackstop -State $State
+            return
+        }
+        $budget = 0
+        try { $budget = [int](($DeadlineUtc - [DateTime]::UtcNow).TotalMilliseconds) } catch { $budget = 0 }
+        if ($budget -lt 0) { $budget = 0 }
+        if ($budget -gt 1000) { $budget = 1000 }
+        $stop = $null
+        try { $stop = Stop-RuntimeJobObject -Job $State.job -TimeoutMs ([int]$budget) -PollMs 50 } catch { $stop = $null }
+        if ($null -ne $stop) {
+            try { $State.kill_applied = [bool]$stop.Terminated } catch { }
+            try { $State.settled = [bool]$stop.Settled } catch { }
+        }
+        $m = $null
+        try { $m = Get-RuntimeJobMemberPids -Job $State.job } catch { $m = $null }
+        if (($null -ne $m) -and [bool]$m.Ok) {
+            try { $State.members_remaining = [int]$m.Assigned } catch { }
+        }
+        # RR-P26-JOB-WIRING-FIX2 (OBSERVACAO, sem causalidade): quantos
+        # membros desapareceram da lista do job entre a foto e o fim do
+        # settlement. NAO e contagem de mortos pelo backstop: os kills do CIM
+        # sao assincronos (.Kill() sem espera; a espera vem DEPOIS do
+        # backstop), logo processos ja mortos pelo CIM ainda aparecem na foto
+        # e a saida deles entra nesta reducao; saidas naturais tambem. Por
+        # isso o nome e members_reduction e nenhum consumidor trata isso como
+        # autoria. O que decide o ramo terminal e o BOOLEANO kill_applied
+        # (TerminateJobObject retornou ok), que nunca vira contagem.
+        $beforeCount = -1
+        try { $beforeCount = [int]$State.members_before } catch { $beforeCount = -1 }
+        $afterCount = -1
+        try { $afterCount = [int]$State.members_remaining } catch { $afterCount = -1 }
+        if (($beforeCount -ge 0) -and ($afterCount -ge 0)) {
+            $dropCount = ([int]$beforeCount - [int]$afterCount)
+            if ($dropCount -lt 0) { $dropCount = 0 }
+            try { $State.members_reduction = [int]$dropCount } catch { }
+        }
+        Close-WatchdogJobBackstop -State $State
+    }
+    catch { }
+}
+
+function Add-WatchdogJobRecord {
+    <#
+    .SYNOPSIS
+        Acrescenta os campos BOUNDED e sanitizados do backstop de Job Object
+        (RR-P26-JOB-WIRING) ao registro de settlement (dicionario vivo: a
+        mutacao e vista pelo leitor) e/ou ao resultado (PSCustomObject via
+        Add-Member -Force). Campos: job_attach (nota fechada),
+        job_attached, job_kill_applied, job_settled, job_members_remaining
+        (-1 = consulta inconclusiva/desconhecido), job_close_applied e
+        job_close_note (o fechamento do handle do job entra no registro como
+        FATO observavel, para que "sem handle vazado" seja verificavel por
+        leitura e nao apenas por leitura do codigo), e os campos do FIX1:
+        job_skip (bounded; 'deadline-expired' quando o backstop foi pulado
+        por prazo, vazio quando rodou), job_members_before e
+        job_members_reduction (OBSERVACAO SEM CAUSALIDADE: reducao observada
+        da lista de membros do job; kills do CIM ainda pendentes e saidas
+        naturais entram nela; -1 = desconhecido). NENHUM campo
+        existente e lido, removido ou reescrito aqui, entao leitores antigos
+        seguem identicos. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record, $State)
+    try {
+        if (($null -eq $Record) -or ($null -eq $State)) { return }
+        $pairs = [ordered]@{
+            job_attach            = [string]$State.note
+            job_attached          = [bool]$State.attached
+            job_kill_applied      = [bool]$State.kill_applied
+            job_settled           = [bool]$State.settled
+            job_members_remaining = [int]$State.members_remaining
+            job_skip              = [string]$State.skip
+            job_members_before    = [int]$State.members_before
+            job_members_reduction = [int]$State.members_reduction
+            job_close_applied     = [bool]$State.close_applied
+            job_close_note        = [string]$State.close_note
+        }
+        if ($Record -is [System.Collections.IDictionary]) {
+            foreach ($k in @($pairs.Keys)) { $Record[$k] = $pairs[$k] }
+            return
+        }
+        foreach ($k in @($pairs.Keys)) {
+            try { $Record | Add-Member -NotePropertyName $k -NotePropertyValue $pairs[$k] -Force } catch { }
+        }
+    }
+    catch { }
 }
 
 function Invoke-WatchdogProcessInterrupt {
@@ -2723,7 +3039,57 @@ function Invoke-WatchdogProcessInterrupt {
         references the evaluation snapshot + the telemetry FILE, never
         its content). Refusals and failures are structured results,
         never exceptions, never retry loops. -FaultInject is a
-        test-only seam (closed set, default absent). Never throws.
+        test-only seam (closed set, default absent).
+        RR-P26-JOB-WIRING (normal path only; the gone path keeps the
+        CIM-only shape because there is no live root to attach): after
+        the identity/ownership gates pass and BEFORE the tree snapshot,
+        with the shared deadline re-checked live, an anonymous job
+        WITHOUT KILL_ON_JOB_CLOSE is created and the verified root
+        instance is attached through Attach-RuntimeJobVerifiedProcess
+        (handle retained by the caller, liveness + identity
+        re-verified, never OpenProcess by PID, host-self refused). The
+        attach makes every spawn AFTER it job member by creation-tree
+        inheritance, which the verified-tree snapshot cannot see. A
+        refused attach (job unavailable, attach refused, deadline
+        already expired) records a bounded note job_attach=
+        'refused:<motivo>' and runs the CIM-ONLY path with ZERO change
+        of behavior. When attached: the snapshot and the verified
+        descendant kill run as before, THEN TerminateJobObject (the one
+        lethal act, reaching post-snapshot descendants), THEN the
+        bounded job settlement (member list under the shared deadline,
+        never sleeping past it) and CloseHandle LAST. The close is
+        deliberately NON-lethal so a REFUSED that killed nothing can
+        never kill the process it reports as not killed. The job outcome
+        is EVIDENCE, not a criterion: the terminal classification still
+        requires the same settlement as before (job_settled /
+        job_members_remaining are recorded, never a new terminal, never
+        a false terminal; job_close_applied/job_close_note publish the
+        handle close). RR-P26-JOB-WIRING-FIX1: (HIGH-1) the shared deadline
+        is revalidated IMMEDIATELY before the backstop's lethal act, so an
+        expired deadline never reaches TerminateJobObject (the job is closed
+        inertly and job_skip='deadline-expired' says why; the late descendant
+        survives exactly as before this wiring, and the existing
+        partial/REFUSED deadline rules apply unchanged); (HIGH-2, FIX2) the
+        terminal decision is fed by the BOOLEAN job_kill_applied
+        (TerminateJobObject returned ok), never by a count: KilledCount and
+        killed_count remain the real CIM-kill count, so neither
+        Get-WatchdogTerminalAction nor the interrupted semantics can say
+        "nothing interrupted" after a lethal job act (for example a root
+        that exited on its own leaving only a post-snapshot descendant).
+        job_members_reduction is the observed drop in the job member list
+        (before vs after), published as OBSERVATION WITHOUT CAUSALITY: CIM
+        kills are asynchronous and their wait happens after the backstop, so
+        already-CIM-killed processes and natural exits also land in that
+        number. ACCEPTED RESIDUAL WINDOWS (not fixable without a native API
+        change; no atomicity claim): (a) TerminateJobObject takes no
+        deadline, so a Terminate started inside the deadline may land after
+        it; (b) the target process can be preempted between the check and
+        the call.
+        Residual: a descendant spawned before the
+        attach and a descendant of a root that exited before the stop
+        stay covered only by the CIM-verified kill, and a Terminate that
+        fails with an already-settled CIM set still reports the same
+        settlement as before (evidence only). Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -2983,6 +3349,13 @@ function Invoke-WatchdogProcessInterrupt {
         $opDeadline = ([DateTime]::UtcNow.AddMilliseconds([double][int]$script:WatchdogSettleWaitMs))
         $held = New-Object System.Collections.ArrayList
         [void]$held.Add($rootInst)
+        # RR-P26-JOB-WIRING: attach-side ANTES do snapshot, com deadline vivo
+        # re-checado. A identidade (ticks UTC) e lida da MESMA instancia
+        # pinada que o ownership provou; recusa => nota + caminho CIM-ONLY
+        # EXATAMENTE como hoje (nenhuma mudanca de comportamento).
+        $jobTicks = 0
+        try { $jobTicks = ([long](([DateTime]$rootInst.StartTime).ToUniversalTime().Ticks)) } catch { $jobTicks = 0 }
+        $jobState = New-WatchdogJobBackstop -Instance $rootInst -ExpectedCreationTicks ([long]$jobTicks) -DeadlineUtc $opDeadline
         try {
             $tree = Get-WatchdogVerifiedProcessTree -RootProcessId ([int]$pidWant) -RootInstance $rootInst -DeadlineUtc $opDeadline -FaultInject $fi
             if (-not [bool]$tree.ok) {
@@ -3056,14 +3429,31 @@ function Invoke-WatchdogProcessInterrupt {
             $descRes = Stop-WatchdogVerifiedDescendants -Descendants @($tree.descendants) -FaultInject $fi -DeadlineUtc $opDeadline
             foreach ($kk in @($descRes.killed)) { [void]$killed.Add($kk) }
             $descendantFailed = ([bool]$descRes.failed)
+            # RR-P26-JOB-WIRING: backstop pos-kill. O Terminate e o unico ato
+            # letal e alcanca os descendentes criados DEPOIS do snapshot
+            # (invisiveis ao kill CIM). O settlement terminal e o de hoje.
+            Complete-WatchdogJobBackstop -State $jobState -DeadlineUtc $opDeadline
+            # RR-P26-JOB-WIRING-FIX2: o backstop pode ter alcancado membros que o
+            # kill CIM nao alcancou (nascidos depois do snapshot). O que
+            # alimenta a decisao terminal e o BOOLEANO do ato letal aplicado
+            # (TerminateJobObject ok) - NUNCA uma contagem: killedCount segue
+            # sendo exatamente o contador real do kill CIM e e ele que vai
+            # para KilledCount/killed_count. Logica: partial com prazo
+            # expirado quando houve kill CIM OU ato letal do job; REFUSED
+            # somente quando o contador real e 0 E o booleano e falso;
+            # interrupted true quando houve qualquer um dos dois.
+            $jobLethalApplied = $false
+            try { $jobLethalApplied = [bool]$jobState.kill_applied } catch { $jobLethalApplied = $false }
+            $killedCount = ([int](@($killed).Count))
+            $actAny = (($killedCount -gt 0) -or [bool]$jobLethalApplied)
             $wInt = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_INTERRUPTED' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
             $remainMs = ([int](($opDeadline - [DateTime]::UtcNow).TotalMilliseconds))
             if ($remainMs -lt 0) { $remainMs = 0 }
             if ($remainMs -gt 30000) { $remainMs = 30000 }
             $wait = Wait-WatchdogProcessTreeExit -Instances ([object[]]$killed.ToArray()) -TimeoutMs ([int]$remainMs)
             $pastDue = Test-WatchdogDeadlineExceeded -DeadlineUtc $opDeadline
-            if (([bool]$pastDue) -and ((@($killed).Count) -gt 0)) {
-                return (New-WatchdogPartialFailure -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -KilledCount ([int](@($killed).Count)) -ExcludedCount ([int]$texcl) -Detail 'interrupt partial: deadline expired after kill(s); remainder pending')
+            if (([bool]$pastDue) -and ([bool]$actAny)) {
+                return (New-WatchdogPartialFailure -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -KilledCount ([int]$killedCount) -LethalApplied:$jobLethalApplied -ExcludedCount ([int]$texcl) -Detail 'interrupt partial: deadline expired after kill(s); remainder pending')
             }
             if ([bool]$pastDue) {
                 $wPast = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_INTERRUPT_REFUSED' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
@@ -3079,14 +3469,14 @@ function Invoke-WatchdogProcessInterrupt {
             if ([bool]$rootGoneEarly) {
                 if ((-not $descendantFailed) -and ([bool]$wait.exited)) {
                     $wAlr = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_SETTLED' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
-                    $termAlr = Get-WatchdogTerminalAction -DeadlineUtc $opDeadline -KilledCount ([int](@($killed).Count))
+                    $termAlr = Get-WatchdogTerminalAction -DeadlineUtc $opDeadline -KilledCount ([int]$killedCount) -LethalApplied:$jobLethalApplied
                     if ($termAlr -ceq 'partial') {
-                        return (New-WatchdogPartialFailure -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -KilledCount ([int](@($killed).Count)) -ExcludedCount ([int]$texcl) -Detail 'settlement crossed the deadline after kill(s); remainder pending')
+                        return (New-WatchdogPartialFailure -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -KilledCount ([int]$killedCount) -LethalApplied:$jobLethalApplied -ExcludedCount ([int]$texcl) -Detail 'settlement crossed the deadline after kill(s); remainder pending')
                     }
                     if ($termAlr -ceq 'refuse') {
                         return (New-WatchdogDeadlineRefusal -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -ExcludedCount ([int]$texcl))
                     }
-                    $earlyInterrupted = ((@($killed).Count) -gt 0)
+                    $earlyInterrupted = [bool]$actAny
                     $settleAlr = [ordered]@{
                         engaged = $true; interrupted = [bool]$earlyInterrupted; settlement = 'ALREADY_EXITED'
                         classification = $cls; telemetry_file = $teleFile; telemetry_written = [bool]$wAlr.ok; tree_excluded = ([int]$texcl)
@@ -3100,6 +3490,7 @@ function Invoke-WatchdogProcessInterrupt {
                         telemetry_file = $teleFile; reason = 'WATCHDOG_PROCESS_GONE'; tree_excluded = ([int]$texcl)
                     }
                     if ([int]$texcl -gt 0) { $resAlr | Add-Member -NotePropertyName 'exclusion' -NotePropertyValue 'WATCHDOG_TREE_EXCLUDED' -Force }
+                    Add-WatchdogJobRecord -Record $resAlr -State $jobState
                     return $resAlr
                 }
                 $wEarlyPend = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_INTERRUPT_FAILED' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
@@ -3114,9 +3505,9 @@ function Invoke-WatchdogProcessInterrupt {
             }
             if (([bool]$wait.exited) -and (-not $descendantFailed)) {
                 $wSet = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_SETTLED' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
-                $termSet = Get-WatchdogTerminalAction -DeadlineUtc $opDeadline -KilledCount ([int](@($killed).Count))
+                $termSet = Get-WatchdogTerminalAction -DeadlineUtc $opDeadline -KilledCount ([int]$killedCount) -LethalApplied:$jobLethalApplied
                 if ($termSet -ceq 'partial') {
-                    return (New-WatchdogPartialFailure -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -KilledCount ([int](@($killed).Count)) -ExcludedCount ([int]$texcl) -Detail 'settlement crossed the deadline after kill(s); remainder pending')
+                    return (New-WatchdogPartialFailure -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -KilledCount ([int]$killedCount) -LethalApplied:$jobLethalApplied -ExcludedCount ([int]$texcl) -Detail 'settlement crossed the deadline after kill(s); remainder pending')
                 }
                 if ($termSet -ceq 'refuse') {
                     return (New-WatchdogDeadlineRefusal -Execution $Execution -TaskId $tid -AttemptN ([int]$attemptN) -Classification $cls -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -ExcludedCount ([int]$texcl))
@@ -3134,6 +3525,7 @@ function Invoke-WatchdogProcessInterrupt {
                     telemetry_file = $teleFile; tree_excluded = ([int]$texcl)
                 }
                 if ([int]$texcl -gt 0) { $resOk | Add-Member -NotePropertyName 'exclusion' -NotePropertyValue 'WATCHDOG_TREE_EXCLUDED' -Force }
+                Add-WatchdogJobRecord -Record $resOk -State $jobState
                 return $resOk
             }
             $wStill = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_INTERRUPT_FAILED' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
@@ -3148,6 +3540,15 @@ function Invoke-WatchdogProcessInterrupt {
             return $stillErr
         }
         finally {
+            # RR-P26-JOB-WIRING: fecha o handle do job (inerte, idempotente) em
+            # TODOS os caminhos de saida e carimba o registro de settlement ja
+            # persistido com a evidencia do backstop (o registro e um dicionario
+            # vivo, entao a mutacao e vista pelo leitor). Depois, os handles de
+            # processo.
+            Close-WatchdogJobBackstop -State $jobState
+            $storedJob = $null
+            try { $storedJob = $Execution['enforcement'] } catch { $storedJob = $null }
+            Add-WatchdogJobRecord -Record $storedJob -State $jobState
             foreach ($hh in @($held.ToArray())) { Close-WatchdogProcessHandle -Instance $hh }
         }
     }

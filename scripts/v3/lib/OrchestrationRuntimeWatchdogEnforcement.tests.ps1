@@ -166,6 +166,47 @@
          REFUSED, kills nothing, stamps no late proof.
      34. FIX6-1c producer without proof_at => INVALID, never a binding
          with now() (stub producer, table stays empty).
+    RR-P26-JOB-WIRING (backstop de Job Object no enforcement, 2026-10-05):
+     35. JOB43 escape pos-snapshot FECHADO: a raiz verificada e atribuida ao
+         job antes do snapshot; um descendente criado DEPOIS do snapshot
+         (hook test-only pre_kill_delay_ms + arquivo de sinal observado pelo
+         proprio filho da raiz) NAO consta de last_verified_tree (prova de que
+         o kill CIM nao alcancava ele) e mesmo assim MORRE pelo
+         TerminateJobObject; a arvore verificada morre pelo caminho CIM de
+         sempre; job_members_remaining=0 e a evidencia do job fica no
+         registro de settlement.
+     36. JOB44 attach RECUSADO (hook test-only job_attach_refuse) => nota
+         'refused:<motivo>', nenhum job kill, settlement gravado IDENTICO ao
+         do run com attach (comparacao de todos os campos sem job_*) e
+         sentinel nao relacionado intacto nos dois runs.
+     37. JOB45 guards: nenhum taskkill nas duas libs; o enforcement nunca
+         referencia o 49374 (a lib de job mantem a promessa no contrato);
+         wiring presente; PID desconhecido => recusa estruturada no gone-path
+         SEM tocar no job (nada morto).
+     38. JOB43+ close-record: job_close_applied/job_close_note publicados no
+         resultado E no registro de settlement (fechamento do handle como
+         fato verificavel por leitura, sem leak silencioso).
+     39. JOB46 D-2 CONTROLE NEGATIVO do discriminante: o MESMO cenario do
+         JOB43 com o attach recusado => o descendente tardio (nascido depois
+         do snapshot, ausente de last_verified_tree) SOBREVIVE ao settlement
+         e segue vivo 2s depois, com settlement byte-identico ao do caso
+         positivo na projecao sem job_*. Logo, no JOB43 quem o matou foi o
+         backstop do job, nao o kill CIM. O cleanup do sobrevivente e pelo
+         handle do job de teste (kill-on-close), nunca taskkill por PID.
+     40. JOB47 FIX1 HIGH-1 (adversarial): o prazo expira ENTRE o kill CIM e o
+         backstop (stop_delay_ms com orcamento curto) => nenhum
+         TerminateJobObject, handle fechado INERTEMENTE, nota bounded
+         job_skip='deadline-expired', membros vivos registrados, o descendente
+         tardio SOBREVIVE (igual ao pre-wiring) e a classificacao de deadline
+         ja existente (FAILED/PENDING partial, nunca terminal). Cleanup do
+         sobrevivente pelo handle do job de teste.
+     41. JOB48 FIX1 HIGH-2 (adversarial): a raiz sai sozinha DEPOIS do snapshot
+         deixando SO o descendente tardio; a premissa "killed CIM = 0" e
+         PROVADA (todo PID do snapshot verificado morto depois do interrupt),
+         o booleano do ato letal do job entra na decisao (nunca como
+         contagem: KilledCount segue 0) e ainda assim
+         interrupted=true + ALREADY_EXITED (nenhum REFUSED falso depois de um
+         ato letal).
 #>
 [CmdletBinding()]
 param()
@@ -203,6 +244,66 @@ function Write-EnforceFixture {
     [IO.File]::WriteAllText($Path, $lf, [Text.UTF8Encoding]::new($false))
 }
 
+function Read-EnforcePidFile {
+    <#
+    .SYNOPSIS
+        Bounded read of a PID a test's OWN child wrote to disk (the child
+        writes the real PID it created; we never invent one). Returns 0
+        when the file never appears with a bare integer. Never throws.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path, [int]$TimeoutMs = 20000)
+    $budget = [int]$TimeoutMs
+    if ($budget -lt 0) { $budget = 0 }
+    if ($budget -gt 60000) { $budget = 60000 }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt [long]$budget) {
+        $txt = ''
+        try { if (Test-Path -LiteralPath $Path -PathType Leaf) { $txt = ([IO.File]::ReadAllText($Path)).Trim() } } catch { $txt = '' }
+        if ($txt -match '^\d+$') { return [int]$txt }
+        Start-Sleep -Milliseconds 150
+    }
+    return 0
+}
+
+function Get-EnforceSettlementShape {
+    <#
+    .SYNOPSIS
+        Canonical projection of a stored enforcement record with the job_*
+        keys REMOVED (RR-P26-JOB-WIRING): lets a test prove that an
+        attach-refused run stores exactly the same settlement as a run with
+        the attach, i.e. the fallback is behavior-identical and the only
+        difference is the added backstop evidence. Never throws.
+    #>
+    param($Exec)
+    $acc = ''
+    try {
+        $enf = $Exec['enforcement']
+        if (($null -eq $enf) -or (-not ($enf -is [System.Collections.IDictionary]))) { return '<none>' }
+        $keys = @()
+        foreach ($k in @($enf.Keys)) { $keys += ([string]$k) }
+        $keys = @($keys | Where-Object { (-not ([string]$_).StartsWith('job_')) } | Sort-Object)
+        foreach ($k in $keys) { $acc += ([string]$k + '=' + [string]$enf[$k] + ';') }
+        return $acc
+    }
+    catch { return '<err>' }
+}
+
+function ConvertTo-EnforceArg {
+    <#
+    .SYNOPSIS
+        Start-Process -ArgumentList does NOT quote array elements on PS 5.1
+        nor on PS7 (measured on both engines), so a temp path containing a
+        space is split and the child fails to start. This quotes the value
+        when it needs quoting and leaves it untouched otherwise, identical
+        on both engines. Never throws.
+    #>
+    param([string]$Value)
+    $v = [string]$Value
+    if (($v.Length -gt 1) -and ($v.StartsWith('"')) -and ($v.EndsWith('"'))) { return $v }
+    if ($v.Contains(' ')) { return ('"' + $v + '"') }
+    return $v
+}
+
 function New-EnforceBudget {
     param([int]$Steps, [int]$Wall, [int]$NoProg)
     return [ordered]@{
@@ -232,6 +333,24 @@ function Start-EnforceShortChild {
     $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Milliseconds ' + [string]$SleepMs)) -WindowStyle Hidden -PassThru
     [void]$script:enfChildren.Add($p)
     return $p
+}
+
+function Test-EnforcePidAlive {
+    <#
+    .SYNOPSIS
+        Liveness por PID de um descendente PROPRIO rastreado por este arquivo
+        (uso unico: o descendente tardio, cujo PID o filho escreveu em disco).
+        NUNCA e alvo de kill por PID aqui: o encerramento usa o handle do job
+        de teste (ou Stop-EnforceSafety, que recebe o System.Diagnostics.
+        Process). Never throws.
+    #>
+    param([int]$ProcessId)
+    if ([int]$ProcessId -lt 1) { return $false }
+    try {
+        $live = Get-Process -Id ([int]$ProcessId) -ErrorAction Stop
+        return ($null -ne $live)
+    }
+    catch { return $false }
 }
 
 function Test-EnforceAlive {
@@ -2352,7 +2471,450 @@ try {
     $sw42.Stop()
     Assert-Enforce (($sw42.Elapsed.TotalSeconds -lt 90)) 'scenario 42 externally bounded' ([string][int]$sw42.Elapsed.TotalSeconds + 's')
 
-    # 11. frozen-file guards: P25 HOLD text and production flags untouched.
+    # 43. RR-P26-JOB-WIRING: o escape pos-snapshot FICA FECHADO. A raiz
+    #     verificada e atribuida ao job ANTES do snapshot; um descendente
+    #     criado DEPOIS do snapshot (durante a janela do pre-kill gate, via
+    #     o hook test-only pre_kill_delay_ms + um arquivo de sinal que o
+    #     PROPRIO filho da raiz observa) nao existe no conjunto verificado e
+    #     so pode morrer pelo TerminateJobObject. Prova de que nao foi o kill
+    #     CIM: o PID tardio NAO esta em last_verified_tree.
+    $sw43 = [System.Diagnostics.Stopwatch]::StartNew()
+    $shell43 = Get-EnforceShell
+    $sig43 = Join-Path $tempRoot 'job43-signal.txt'
+    $first43 = Join-Path $tempRoot 'job43-first.txt'
+    $late43 = Join-Path $tempRoot 'job43-late.txt'
+    $root43 = Join-Path $tempRoot 'job43-root.ps1'
+    $sigScript43 = Join-Path $tempRoot 'job43-signal.ps1'
+    Write-EnforceFixture -Path $sigScript43 -Text "param([string]`$Sig)`nStart-Sleep -Seconds 4`n[IO.File]::WriteAllText(`$Sig,'go')`n"
+    $root43Body = @'
+param([string]$Shell, [string]$First, [string]$Late, [string]$Signal)
+$p1 = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
+[IO.File]::WriteAllText($First, [string]$p1.Id)
+$limit = [DateTime]::UtcNow.AddSeconds(40)
+while ([DateTime]::UtcNow -lt $limit) {
+  if (Test-Path -LiteralPath $Signal -PathType Leaf) { break }
+  Start-Sleep -Milliseconds 200
+}
+if (Test-Path -LiteralPath $Signal -PathType Leaf) {
+  $p2 = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
+  [IO.File]::WriteAllText($Late, [string]$p2.Id)
+}
+Start-Sleep -Seconds 120
+'@
+    Write-EnforceFixture -Path $root43 -Text $root43Body
+    $sigWriter43 = $null
+    $root43Proc = $null
+    $firstPid43 = 0
+    $latePid43 = 0
+    $saveWait43 = [int]$script:WatchdogSettleWaitMs
+    try {
+        $root43Proc = Start-Process -FilePath $shell43 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $root43), '-Shell', (ConvertTo-EnforceArg $shell43), '-First', (ConvertTo-EnforceArg $first43), '-Late', (ConvertTo-EnforceArg $late43), '-Signal', (ConvertTo-EnforceArg $sig43)) -WindowStyle Hidden -PassThru
+        $firstPid43 = Read-EnforcePidFile -Path $first43 -TimeoutMs 20000
+        Assert-Enforce (([int]$firstPid43 -gt 0) -and (Test-EnforceAlive -Proc $root43Proc)) 'JOB43 tree formed (root + first child)' ('first=' + [string][int]$firstPid43)
+        $b43 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
+        $r43 = Register-EnforceBound -TaskId 'wd-job-late' -SessionId 'wd-job-sess-late' -Child $root43Proc -Budget $b43 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -RepoRoot $repo
+        Assert-Enforce ([bool]$r43.ok) 'JOB43 register bound' ([string]$r43.error)
+        # Sinalizador: escrita do arquivo DEPOIS do snapshot (o pre-kill gate
+        # segura a janela) e ANTES do stop da raiz.
+        $sigWriter43 = Start-Process -FilePath $shell43 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $sigScript43), '-Sig', (ConvertTo-EnforceArg $sig43)) -WindowStyle Hidden -PassThru
+        $script:WatchdogSettleWaitMs = 20000
+        $script:WatchdogTreeTestOverride = @{ pre_kill_delay_ms = 8000 }
+        $exec43 = $script:WatchdogExecutions['wd-job-late']
+        $int43 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-job-late' -Execution $exec43 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+        Assert-Enforce (([bool]$int43.ok) -and ([string]$int43.settlement -ceq 'SETTLED') -and ([bool]$int43.interrupted)) 'JOB43 interrupt settles the verified tree' ([string]$int43.error + '/' + [string]$int43.settlement)
+        Assert-Enforce ([bool]$int43.job_attached) 'JOB43 verified root attached to the job before the snapshot' ([string]$int43.job_attach)
+        Assert-Enforce (([string]$int43.job_attach -ceq 'attached') -and ([bool]$int43.job_kill_applied)) 'JOB43 TerminateJobObject applied as backstop' ([string]$int43.job_attach)
+        $latePid43 = Read-EnforcePidFile -Path $late43 -TimeoutMs 5000
+        Assert-Enforce ([int]$latePid43 -gt 0) 'JOB43 late descendant really spawned during the kill window' ('late=' + [string][int]$latePid43)
+        $snap43 = @($exec43['last_verified_tree'])
+        $snapPids43 = @()
+        foreach ($s43 in $snap43) { try { $snapPids43 += [int]$s43.process_id } catch { } }
+        Assert-Enforce ((-not ($snapPids43 -contains [int]$latePid43))) 'JOB43 late descendant was NOT in the verified snapshot (kill CIM could not have targeted it)' ('snapshot=' + ($snapPids43 -join ',') + ' late=' + [string][int]$latePid43)
+        Assert-Enforce (($snapPids43 -contains [int]$firstPid43)) 'JOB43 pre-attach child IS in the verified snapshot' ('snapshot=' + ($snapPids43 -join ','))
+        $lateGone43 = $false
+        $swLate43 = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($swLate43.ElapsedMilliseconds -lt 10000) {
+            $lp43 = $null
+            try { $lp43 = Get-Process -Id ([int]$latePid43) -ErrorAction Stop } catch { $lp43 = $null }
+            if ($null -eq $lp43) { $lateGone43 = $true; break }
+            Start-Sleep -Milliseconds 200
+        }
+        Assert-Enforce $lateGone43 'JOB43 late descendant post-snapshot DIED by the job backstop' ('late=' + [string][int]$latePid43)
+        Assert-Enforce ((-not (Test-EnforceAlive -Proc $root43Proc))) 'JOB43 root gone' ''
+        $firstGone43 = $false
+        try { $fp43 = Get-Process -Id ([int]$firstPid43) -ErrorAction Stop; $firstGone43 = ($null -ne $fp43) } catch { $firstGone43 = $false }
+        Assert-Enforce (-not $firstGone43) 'JOB43 pre-attach child gone (CIM-verified kill)' ''
+        Assert-Enforce (([int]$int43.job_members_remaining -eq 0) -and ([bool]$int43.job_settled)) 'JOB43 bounded job settlement drained' ('remaining=' + [string][int]$int43.job_members_remaining)
+        Assert-Enforce (([bool]$int43.job_close_applied) -and ([string]$int43.job_close_note -match 'close:')) 'JOB43 close do handle do job publicado no resultado (sem leak observavel)' ('note=' + [string]$int43.job_close_note)
+        $rec43 = $exec43['enforcement']
+        Assert-Enforce (($rec43 -is [System.Collections.IDictionary]) -and ([bool]$rec43['job_attached']) -and ([string]$rec43['job_attach'] -ceq 'attached')) 'JOB43 stored settlement carries the bounded job evidence' ([string]$rec43['job_attach'])
+        Assert-Enforce (($rec43 -is [System.Collections.IDictionary]) -and ([bool]$rec43['job_close_applied'])) 'JOB43 stored settlement prova o fechamento do handle do job' ('note=' + [string]$rec43['job_close_note'])
+        $shapeAttach43 = Get-EnforceSettlementShape -Exec $exec43
+    }
+    catch {
+        Assert-Enforce $false 'JOB43 scenario ran without unexpected error' ([string]$_)
+    }
+    finally {
+        $script:WatchdogTreeTestOverride = $null
+        $script:WatchdogSettleWaitMs = [int]$saveWait43
+        Stop-EnforceSafety -Proc $sigWriter43
+        Stop-EnforceSafety -Proc $root43Proc
+        Stop-EnforceSafetyId -ProcessId $firstPid43
+        Stop-EnforceSafetyId -ProcessId $latePid43
+    }
+    $sw43.Stop()
+    Assert-Enforce (($sw43.Elapsed.TotalSeconds -lt 90)) 'scenario 43 externally bounded' ([string][int]$sw43.Elapsed.TotalSeconds + 's')
+
+    # 44. RR-P26-JOB-WIRING attach RECUSADO => fallback CIM com settlement
+    #     IDENTICO ao do run com attach (a unica diferenca no registro sao as
+    #     chaves job_*, evidencia do backstop). Sentinel nao relacionado
+    #     intacto nos dois runs.
+    $sw44 = [System.Diagnostics.Stopwatch]::StartNew()
+    $shell44 = Get-EnforceShell
+    $noSig44 = Join-Path $tempRoot 'job44-signal-never.txt'
+    # Sentinel Nao relacionado: vive ate o fim da suite (registrado em
+    # $script:enfChildren); o scenario 45 ainda o usa como prova de que o
+    # PID desconhecido nao matou nada.
+    $sentinel44 = Start-EnforceChild -SleepSeconds 120
+    $shapeAttach44 = ''
+    try {
+        foreach ($mode in @('attach', 'refused')) {
+            $firstFile = Join-Path $tempRoot ('job44-first-' + [string]$mode + '.txt')
+            $rootFile = Join-Path $tempRoot ('job44-root-' + [string]$mode + '.ps1')
+            Write-EnforceFixture -Path $rootFile -Text $root43Body
+            $rootProc = $null
+            $childPid = 0
+            $task44 = ('wd-job-' + [string]$mode)
+            try {
+                $rootProc = Start-Process -FilePath $shell44 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $rootFile), '-Shell', (ConvertTo-EnforceArg $shell44), '-First', (ConvertTo-EnforceArg $firstFile), '-Late', (ConvertTo-EnforceArg $firstFile), '-Signal', (ConvertTo-EnforceArg $noSig44)) -WindowStyle Hidden -PassThru
+                $childPid = Read-EnforcePidFile -Path $firstFile -TimeoutMs 20000
+                Assert-Enforce ([int]$childPid -gt 0) ('JOB44 ' + [string]$mode + ' tree formed') ('child=' + [string][int]$childPid)
+                $b44 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
+                $r44 = Register-EnforceBound -TaskId $task44 -SessionId ('wd-job-sess-' + [string]$mode) -Child $rootProc -Budget $b44 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -RepoRoot $repo
+                Assert-Enforce ([bool]$r44.ok) ('JOB44 ' + [string]$mode + ' register bound') ([string]$r44.error)
+                if ([string]$mode -ceq 'refused') { $script:WatchdogTreeTestOverride = @{ job_attach_refuse = $true } }
+                $exec44 = $script:WatchdogExecutions[$task44]
+                $int44 = Invoke-WatchdogProcessInterrupt -TaskId $task44 -Execution $exec44 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+                $script:WatchdogTreeTestOverride = $null
+                Assert-Enforce (([bool]$int44.ok) -and ([string]$int44.settlement -ceq 'SETTLED') -and ([bool]$int44.interrupted)) ('JOB44 ' + [string]$mode + ' settles the verified tree') ([string]$int44.error + '/' + [string]$int44.settlement)
+                if ([string]$mode -ceq 'refused') {
+                    Assert-Enforce (((-not [bool]$int44.job_attached)) -and (([string]$int44.job_attach).StartsWith('refused:')) -and (-not [bool]$int44.job_kill_applied)) 'JOB44 refused attach => structured note, no job kill' ([string]$int44.job_attach)
+                }
+                else {
+                    Assert-Enforce ([bool]$int44.job_attached) 'JOB44 attached run attached the job' ([string]$int44.job_attach)
+                }
+                $childAlive44 = $false
+                try { $cp44 = Get-Process -Id ([int]$childPid) -ErrorAction Stop; $childAlive44 = ($null -ne $cp44) } catch { $childAlive44 = $false }
+                Assert-Enforce (-not $childAlive44) ('JOB44 ' + [string]$mode + ' child killed either way') ('child=' + [string][int]$childPid)
+                Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) ('JOB44 ' + [string]$mode + ' unrelated sentinel intact') ''
+                $shape = Get-EnforceSettlementShape -Exec $exec44
+                if ([string]$mode -ceq 'attach') { $shapeAttach44 = $shape }
+                else { Assert-Enforce ($shape -ceq $shapeAttach44) 'JOB44 stored settlement identical apart from job_* evidence' ('attach=' + $shapeAttach44 + ' refused=' + $shape) }
+            }
+            finally {
+                $script:WatchdogTreeTestOverride = $null
+                Stop-EnforceSafety -Proc $rootProc
+                Stop-EnforceSafetyId -ProcessId $childPid
+            }
+        }
+    }
+    catch {
+        Assert-Enforce $false 'JOB44 scenario ran without unexpected error' ([string]$_)
+    }
+    $sw44.Stop()
+    Assert-Enforce (($sw44.Elapsed.TotalSeconds -lt 90)) 'scenario 44 externally bounded' ([string][int]$sw44.Elapsed.TotalSeconds + 's')
+
+    # 45. RR-P26-JOB-WIRING guards: nenhum taskkill nas libs (o job lib mantem
+    # a promessa de nunca ler o 49374 no proprio contrato), o wiring existe,
+    # e um PID desconhecido nunca chega ao caminho do job.
+    $sw45 = [System.Diagnostics.Stopwatch]::StartNew()
+    $jobLib45 = ''
+    try { $jobLib45 = ([IO.File]::ReadAllText((Join-Path $repo 'scripts\runtime\lib\RuntimeJobObject.ps1'), [Text.Encoding]::UTF8)) } catch { $jobLib45 = '' }
+    $wdLib45 = ''
+    try { $wdLib45 = ([IO.File]::ReadAllText($libPath, [Text.Encoding]::UTF8)) } catch { $wdLib45 = '' }
+    Assert-Enforce ((-not ($wdLib45 -match '(?i)taskkill')) -and (-not ($jobLib45 -match '(?i)taskkill'))) 'JOB45 no taskkill anywhere in the enforcement or the job lib' ''
+    Assert-Enforce (($wdLib45 -notmatch '49374') -and ($jobLib45 -match 'Nao le 49374')) 'JOB45 enforcement never touches the AI Memory port 49374; the job lib keeps that promise in its own contract' ''
+    Assert-Enforce (($wdLib45.Contains('Attach-RuntimeJobVerifiedProcess')) -and ($wdLib45.Contains('New-RuntimeJobObject -NoKillOnClose'))) 'JOB45 enforcement wires the verified attach through the non-lethal job seam' ''
+    $unknown45 = @{ process = [ordered]@{ process_id = 999999; process_path = 'C:\nope\nope.exe'; parent_process_id = ([int]$PID); process_start_time = ((Get-Date).ToUniversalTime().ToString('o')) } }
+    $int45 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-job-unknown' -Execution $unknown45 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+    Assert-Enforce (([string]$int45.error -ceq 'WATCHDOG_INTERRUPT_REFUSED') -and (-not ($int45.PSObject.Properties.Name -contains 'job_attach'))) 'JOB45 unknown PID => structured refusal on the gone path, job wiring never engaged' ([string]$int45.error)
+    Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) 'JOB45 unknown PID killed nothing (sentinel intact)' ''
+    $sw45.Stop()
+    Assert-Enforce (($sw45.Elapsed.TotalSeconds -lt 90)) 'scenario 45 externally bounded' ([string][int]$sw45.Elapsed.TotalSeconds + 's')
+
+    # 46. RR-P26-JOB-WIRING D-2: CONTROLE NEGATIVO do discriminante. Mesmo
+    #     cenario do JOB43 (descendente criado DEPOIS do snapshot, durante a
+    #     janela do pre-kill gate) porem com o attach RECUSADO => caminho
+    #     CIM-only => o descendente tardio SOBREVIVE ao settlement. E o que
+    #     prova que, no JOB43, quem matou o tardio foi o backstop do job e
+    #     nao o kill CIM (unico discriminante = a vida do tardio; o
+    #     settlement gravado e byte-identico ao do caso positivo na projecao
+    #     sem job_*). O cleanup do sobrevivente e pelo HANDLE do job de teste,
+    #     nunca taskkill por PID solto.
+    $sw46 = [System.Diagnostics.Stopwatch]::StartNew()
+    $shell46 = Get-EnforceShell
+    $sig46 = Join-Path $tempRoot 'job46-signal.txt'
+    $first46 = Join-Path $tempRoot 'job46-first.txt'
+    $late46 = Join-Path $tempRoot 'job46-late.txt'
+    $root46 = Join-Path $tempRoot 'job46-root.ps1'
+    $sigScript46 = Join-Path $tempRoot 'job46-signal.ps1'
+    Write-EnforceFixture -Path $sigScript46 -Text "param([string]`$Sig)`nStart-Sleep -Seconds 4`n[IO.File]::WriteAllText(`$Sig,'go')`n"
+    Write-EnforceFixture -Path $root46 -Text $root43Body
+    $sigWriter46 = $null
+    $root46Proc = $null
+    $firstPid46 = 0
+    $latePid46 = 0
+    $saveWait46 = [int]$script:WatchdogSettleWaitMs
+    try {
+        $root46Proc = Start-Process -FilePath $shell46 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $root46), '-Shell', (ConvertTo-EnforceArg $shell46), '-First', (ConvertTo-EnforceArg $first46), '-Late', (ConvertTo-EnforceArg $late46), '-Signal', (ConvertTo-EnforceArg $sig46)) -WindowStyle Hidden -PassThru
+        $firstPid46 = Read-EnforcePidFile -Path $first46 -TimeoutMs 20000
+        Assert-Enforce (([int]$firstPid46 -gt 0) -and (Test-EnforceAlive -Proc $root46Proc)) 'JOB46 negative tree formed (root + first child)' ('first=' + [string][int]$firstPid46)
+        $b46 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
+        $r46 = Register-EnforceBound -TaskId 'wd-job-late-neg' -SessionId 'wd-job-sess-late-neg' -Child $root46Proc -Budget $b46 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -RepoRoot $repo
+        Assert-Enforce ([bool]$r46.ok) 'JOB46 negative register bound' ([string]$r46.error)
+        $sigWriter46 = Start-Process -FilePath $shell46 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $sigScript46), '-Sig', (ConvertTo-EnforceArg $sig46)) -WindowStyle Hidden -PassThru
+        $script:WatchdogSettleWaitMs = 20000
+        $script:WatchdogTreeTestOverride = @{ pre_kill_delay_ms = 8000; job_attach_refuse = $true }
+        $exec46 = $script:WatchdogExecutions['wd-job-late-neg']
+        $int46 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-job-late-neg' -Execution $exec46 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+        $script:WatchdogTreeTestOverride = $null
+        Assert-Enforce ((([string]$int46.job_attach).StartsWith('refused:')) -and (-not [bool]$int46.job_attached)) 'JOB46 negative: attach recusado com nota fechada' ([string]$int46.job_attach)
+        Assert-Enforce (-not [bool]$int46.job_kill_applied) 'JOB46 negative: nenhum TerminateJobObject (CIM-only de verdade)' ''
+        Assert-Enforce (([bool]$int46.ok) -and ([string]$int46.settlement -ceq 'SETTLED') -and ([bool]$int46.interrupted)) 'JOB46 negative: mesmo settlement terminal de sempre (SETTLED)' ([string]$int46.error + '/' + [string]$int46.settlement)
+        $latePid46 = Read-EnforcePidFile -Path $late46 -TimeoutMs 5000
+        Assert-Enforce ([int]$latePid46 -gt 0) 'JOB46 negative: descendente tardio realmente nasceu na janela' ('late=' + [string][int]$latePid46)
+        $snapPids46 = @()
+        foreach ($s46 in @($exec46['last_verified_tree'])) { try { $snapPids46 += [int]$s46.process_id } catch { } }
+        Assert-Enforce ((-not ($snapPids46 -contains [int]$latePid46))) 'JOB46 negative: o tardio tambem nao estava no snapshot verificado' ('snapshot=' + ($snapPids46 -join ','))
+        Assert-Enforce (Test-EnforcePidAlive -ProcessId $latePid46) 'JOB46 DISCRIMINANTE: sem o job o tardio SOBREVIVE ao settlement (o kill CIM nao o alcancou)' ('late=' + [string][int]$latePid46)
+        Start-Sleep -Milliseconds 2000
+        Assert-Enforce (Test-EnforcePidAlive -ProcessId $latePid46) 'JOB46 negative: tardio segue vivo 2s depois (so o backstop o mataria)' ('late=' + [string][int]$latePid46)
+        Assert-Enforce ((-not (Test-EnforceAlive -Proc $root46Proc))) 'JOB46 negative: raiz e arvore verificada mortas pelo caminho CIM de sempre' ''
+        $cleanupJob46 = New-RuntimeJobObject
+        $lateProc46 = $null
+        $lateTicks46 = 0
+        try { $lateProc46 = Get-Process -Id ([int]$latePid46) -ErrorAction Stop } catch { $lateProc46 = $null }
+        if ($null -ne $lateProc46) { try { $lateTicks46 = [long](([DateTime]$lateProc46.StartTime).ToUniversalTime().Ticks) } catch { $lateTicks46 = 0 } }
+        $att46 = Attach-RuntimeJobVerifiedProcess -Job $cleanupJob46 -Instance $lateProc46 -ExpectedCreationTicks ([long]$lateTicks46)
+        Assert-Enforce ([bool]$att46.Ok) 'JOB46 cleanup: sobrevivente atribuido ao job de teste com identidade re-verificada' ([string]$att46.Reason)
+        $cl46 = Close-RuntimeJobObject -Job $cleanupJob46
+        Assert-Enforce ([bool]$cl46.Ok) 'JOB46 cleanup: job de teste fechado (kill-on-close, sem taskkill por PID)' ([string]$cl46.Reason)
+        $swGone46 = [System.Diagnostics.Stopwatch]::StartNew()
+        $gone46 = $false
+        while ($swGone46.ElapsedMilliseconds -lt 10000) {
+            if (-not (Test-EnforcePidAlive -ProcessId $latePid46)) { $gone46 = $true; break }
+            Start-Sleep -Milliseconds 200
+        }
+        Assert-Enforce $gone46 'JOB46 cleanup: sobrevivente encerrado pelo handle do job de teste' ('late=' + [string][int]$latePid46)
+        $shapeNeg46 = Get-EnforceSettlementShape -Exec $exec46
+        Assert-Enforce ($shapeNeg46 -ceq $shapeAttach43) 'JOB46 negative: settlement byte-identico ao positivo na projecao sem job_*' ('pos=' + $shapeAttach43 + ' neg=' + $shapeNeg46)
+    }
+    catch {
+        Assert-Enforce $false 'JOB46 scenario ran without unexpected error' ([string]$_)
+    }
+    finally {
+        $script:WatchdogTreeTestOverride = $null
+        $script:WatchdogSettleWaitMs = [int]$saveWait46
+        Stop-EnforceSafety -Proc $sigWriter46
+        Stop-EnforceSafety -Proc $root46Proc
+        Stop-EnforceSafetyId -ProcessId $firstPid46
+        Stop-EnforceSafetyId -ProcessId $latePid46
+    }
+    $sw46.Stop()
+    Assert-Enforce (($sw46.Elapsed.TotalSeconds -lt 90)) 'scenario 46 externally bounded' ([string][int]$sw46.Elapsed.TotalSeconds + 's')
+
+    # 47. RR-P26-JOB-WIRING-FIX1 HIGH-1 (adversarial): o prazo expira ENTRE o
+    #     kill CIM e o backstop (o hook stop_delay_ms segura a janela ate o
+    #     prazo estourar). O TerminateJobObject NAO pode rodar com prazo
+    #     vencido => sem morte pelo job, o descendente tardio SOBREVIVE (como
+    #     antes do wiring), handle fechado INERTEMENTE, nota bounded
+    #     job_skip='deadline-expired' e a classacao de deadline ja existente
+    #     (FAILED/PENDING partial, nunca terminal).
+    $sw47 = [System.Diagnostics.Stopwatch]::StartNew()
+    $shell47 = Get-EnforceShell
+    $sig47 = Join-Path $tempRoot 'job47-signal.txt'
+    $first47 = Join-Path $tempRoot 'job47-first.txt'
+    $second47 = Join-Path $tempRoot 'job47-second.txt'
+    $late47 = Join-Path $tempRoot 'job47-late.txt'
+    $root47 = Join-Path $tempRoot 'job47-root.ps1'
+    $sigScript47 = Join-Path $tempRoot 'job47-signal.ps1'
+    Write-EnforceFixture -Path $sigScript47 -Text "param([string]`$Sig)`nStart-Sleep -Seconds 2`n[IO.File]::WriteAllText(`$Sig,'go')`n"
+    $root47Body = @'
+param([string]$Shell, [string]$First, [string]$Second, [string]$Late, [string]$Signal)
+$a = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
+[IO.File]::WriteAllText($First, [string]$a.Id)
+$b = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
+[IO.File]::WriteAllText($Second, [string]$b.Id)
+$limit = [DateTime]::UtcNow.AddSeconds(40)
+while ([DateTime]::UtcNow -lt $limit) {
+  if (Test-Path -LiteralPath $Signal -PathType Leaf) { break }
+  Start-Sleep -Milliseconds 200
+}
+if (Test-Path -LiteralPath $Signal -PathType Leaf) {
+  $c = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
+  [IO.File]::WriteAllText($Late, [string]$c.Id)
+}
+Start-Sleep -Seconds 120
+'@
+    Write-EnforceFixture -Path $root47 -Text $root47Body
+    $sigWriter47 = $null
+    $root47Proc = $null
+    $firstPid47 = 0
+    $secondPid47 = 0
+    $latePid47 = 0
+    $saveWait47 = [int]$script:WatchdogSettleWaitMs
+    try {
+        $root47Proc = Start-Process -FilePath $shell47 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $root47), '-Shell', (ConvertTo-EnforceArg $shell47), '-First', (ConvertTo-EnforceArg $first47), '-Second', (ConvertTo-EnforceArg $second47), '-Late', (ConvertTo-EnforceArg $late47), '-Signal', (ConvertTo-EnforceArg $sig47)) -WindowStyle Hidden -PassThru
+        $firstPid47 = Read-EnforcePidFile -Path $first47 -TimeoutMs 20000
+        $secondPid47 = Read-EnforcePidFile -Path $second47 -TimeoutMs 20000
+        Assert-Enforce (([int]$firstPid47 -gt 0) -and ([int]$secondPid47 -gt 0)) 'JOB47 tree formed (root + 2 verified children)' ('first=' + [string][int]$firstPid47 + ' second=' + [string][int]$secondPid47)
+        $b47 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
+        $r47 = Register-EnforceBound -TaskId 'wd-job-deadline' -SessionId 'wd-job-sess-deadline' -Child $root47Proc -Budget $b47 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -RepoRoot $repo
+        Assert-Enforce ([bool]$r47.ok) 'JOB47 register bound' ([string]$r47.error)
+        $sigWriter47 = Start-Process -FilePath $shell47 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $sigScript47), '-Sig', (ConvertTo-EnforceArg $sig47)) -WindowStyle Hidden -PassThru
+        $script:WatchdogSettleWaitMs = 9000
+        $script:WatchdogTreeTestOverride = @{ pre_kill_delay_ms = 4000; stop_delay_ms = 10000 }
+        $exec47 = $script:WatchdogExecutions['wd-job-deadline']
+        $int47 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-job-deadline' -Execution $exec47 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+        $script:WatchdogTreeTestOverride = $null
+        # No caminho partial o resultado e um erro sem os campos de job; a
+        # evidencia vive no registro de settlement (mesmo dicionario do
+        # JOB43), entao e de la que o skip e lido.
+        $rec47job = $exec47['enforcement']
+        Assert-Enforce (($rec47job -is [System.Collections.IDictionary]) -and ([string]$rec47job['settlement'] -ceq 'PENDING')) 'JOB47 HIGH-1: registro persistido em PENDING (nunca SETTLED com prazo vencido)' ([string]$rec47job['settlement'])
+        Assert-Enforce ([bool]$rec47job['job_attached']) 'JOB47 attach aconteceu antes do prazo estourar (o skip e do backstop, nao do attach)' ([string]$rec47job['job_attach'])
+        Assert-Enforce ((-not [bool]$rec47job['job_kill_applied'])) 'JOB47 HIGH-1: nenhum TerminateJobObject com o prazo vencido' ('skip=' + [string]$rec47job['job_skip'])
+        Assert-Enforce (([string]$rec47job['job_skip'] -ceq 'deadline-expired')) 'JOB47 HIGH-1: nota bounded honesta do skip por prazo' ([string]$rec47job['job_skip'])
+        Assert-Enforce ([bool]$rec47job['job_close_applied']) 'JOB47 HIGH-1: handle do job fechado inertemente (sem leak)' ''
+        Assert-Enforce (([int]$rec47job['job_members_before'] -ge 1)) 'JOB47 HIGH-1: membros vivos no job no momento do skip (evidencia auditavel)' ('before=' + [string][int]$rec47job['job_members_before'])
+        Assert-Enforce (([string]$int47.error -ceq 'WATCHDOG_INTERRUPT_FAILED') -and ([bool]$int47.partial)) 'JOB47 HIGH-1: classificacao de deadline ja existente (FAILED/PENDING partial, nao terminal)' ([string]$int47.error)
+        $s47b = Get-OrchestrationWatchdogSettlement -TaskId 'wd-job-deadline' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+        Assert-Enforce (([string]$s47b.settlement -ceq 'PENDING')) 'JOB47 HIGH-1: settlement consultavel em PENDING' ([string]$s47b.settlement)
+        $latePid47 = Read-EnforcePidFile -Path $late47 -TimeoutMs 5000
+        Assert-Enforce ([int]$latePid47 -gt 0) 'JOB47 HIGH-1: descendente tardio nasceu na janela pos-snapshot' ('late=' + [string][int]$latePid47)
+        $snapPids47 = @()
+        foreach ($s47c in @($exec47['last_verified_tree'])) { try { $snapPids47 += [int]$s47c.process_id } catch { } }
+        Assert-Enforce ((-not ($snapPids47 -contains [int]$latePid47))) 'JOB47 HIGH-1: o tardio nao estava no snapshot verificado' ('snapshot=' + ($snapPids47 -join ','))
+        Start-Sleep -Milliseconds 1500
+        Assert-Enforce (Test-EnforcePidAlive -ProcessId $latePid47) 'JOB47 HIGH-1: o tardio SOBREVIVE (o job nao matou ninguem com prazo vencido)' ('late=' + [string][int]$latePid47)
+        Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) 'JOB47 HIGH-1: sentinel nao relacionado intacto' ''
+        $cleanupJob47 = New-RuntimeJobObject
+        $lateProc47 = $null
+        $lateTicks47 = 0
+        try { $lateProc47 = Get-Process -Id ([int]$latePid47) -ErrorAction Stop } catch { $lateProc47 = $null }
+        if ($null -ne $lateProc47) { try { $lateTicks47 = [long](([DateTime]$lateProc47.StartTime).ToUniversalTime().Ticks) } catch { $lateTicks47 = 0 } }
+        $att47 = Attach-RuntimeJobVerifiedProcess -Job $cleanupJob47 -Instance $lateProc47 -ExpectedCreationTicks ([long]$lateTicks47)
+        Assert-Enforce ([bool]$att47.Ok) 'JOB47 cleanup: sobrevivente atribuido ao job de teste com identidade re-verificada' ([string]$att47.Reason)
+        [void](Close-RuntimeJobObject -Job $cleanupJob47)
+        $swGone47 = [System.Diagnostics.Stopwatch]::StartNew()
+        $gone47 = $false
+        while ($swGone47.ElapsedMilliseconds -lt 10000) {
+            if (-not (Test-EnforcePidAlive -ProcessId $latePid47)) { $gone47 = $true; break }
+            Start-Sleep -Milliseconds 200
+        }
+        Assert-Enforce $gone47 'JOB47 cleanup: sobrevivente encerrado pelo handle do job de teste' ('late=' + [string][int]$latePid47)
+    }
+    catch {
+        Assert-Enforce $false 'JOB47 scenario ran without unexpected error' ([string]$_)
+    }
+    finally {
+        $script:WatchdogTreeTestOverride = $null
+        $script:WatchdogSettleWaitMs = [int]$saveWait47
+        Stop-EnforceSafety -Proc $sigWriter47
+        Stop-EnforceSafety -Proc $root47Proc
+        Stop-EnforceSafetyId -ProcessId $firstPid47
+        Stop-EnforceSafetyId -ProcessId $secondPid47
+        Stop-EnforceSafetyId -ProcessId $latePid47
+    }
+    $sw47.Stop()
+    Assert-Enforce (($sw47.Elapsed.TotalSeconds -lt 90)) 'scenario 47 externally bounded' ([string][int]$sw47.Elapsed.TotalSeconds + 's')
+
+# 48. RR-P26-JOB-WIRING-FIX1 HIGH-2 (adversarial): a raiz sai sozinha
+    #     DEPOIS do snapshot, deixando SO o descendente tardio. O kill CIM nao
+    #     tem alvo nenhum (killed=0) e so o backstop do job mata o tardio =>
+    #     interrupted=true e a contagem efetiva inclui o delta medido. Sem
+    #     REFUSED falso depois de um ato letal.
+    $sw48 = [System.Diagnostics.Stopwatch]::StartNew()
+    $shell48 = Get-EnforceShell
+    $sig48 = Join-Path $tempRoot 'job48-signal.txt'
+    $late48 = Join-Path $tempRoot 'job48-late.txt'
+    $root48 = Join-Path $tempRoot 'job48-root.ps1'
+    $sigScript48 = Join-Path $tempRoot 'job48-signal.ps1'
+    Write-EnforceFixture -Path $sigScript48 -Text "param([string]`$Sig)`nStart-Sleep -Seconds 5`n[IO.File]::WriteAllText(`$Sig,'go')`n"
+    $root48Body = @'
+param([string]$Shell, [string]$Late, [string]$Signal)
+$limit = [DateTime]::UtcNow.AddSeconds(40)
+while ([DateTime]::UtcNow -lt $limit) {
+  if (Test-Path -LiteralPath $Signal -PathType Leaf) { break }
+  Start-Sleep -Milliseconds 200
+}
+if (Test-Path -LiteralPath $Signal -PathType Leaf) {
+  $c = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 120') -WindowStyle Hidden -PassThru
+  [IO.File]::WriteAllText($Late, [string]$c.Id)
+}
+Start-Sleep -Milliseconds 400
+'@
+    Write-EnforceFixture -Path $root48 -Text $root48Body
+    $sigWriter48 = $null
+    $root48Proc = $null
+    $latePid48 = 0
+    $saveWait48 = [int]$script:WatchdogSettleWaitMs
+    try {
+        $root48Proc = Start-Process -FilePath $shell48 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $root48), '-Shell', (ConvertTo-EnforceArg $shell48), '-Late', (ConvertTo-EnforceArg $late48), '-Signal', (ConvertTo-EnforceArg $sig48)) -WindowStyle Hidden -PassThru
+        $b48 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
+        $r48 = Register-EnforceBound -TaskId 'wd-job-onlyjob' -SessionId 'wd-job-sess-onlyjob' -Child $root48Proc -Budget $b48 -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -RepoRoot $repo
+        Assert-Enforce ([bool]$r48.ok) 'JOB48 register bound' ([string]$r48.error)
+        $sigWriter48 = Start-Process -FilePath $shell48 -ArgumentList @('-NoProfile', '-File', (ConvertTo-EnforceArg $sigScript48), '-Sig', (ConvertTo-EnforceArg $sig48)) -WindowStyle Hidden -PassThru
+        $script:WatchdogSettleWaitMs = 25000
+        $script:WatchdogTreeTestOverride = @{ pre_kill_delay_ms = 8000 }
+        $exec48 = $script:WatchdogExecutions['wd-job-onlyjob']
+        $int48 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-job-onlyjob' -Execution $exec48 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+        $script:WatchdogTreeTestOverride = $null
+        Assert-Enforce ([bool]$int48.job_attached) 'JOB48 raiz verificada atribuida ao job antes do snapshot' ([string]$int48.job_attach)
+        $latePid48 = Read-EnforcePidFile -Path $late48 -TimeoutMs 5000
+        Assert-Enforce ([int]$latePid48 -gt 0) 'JOB48 tardio nasceu na janela pos-snapshot' ('late=' + [string][int]$latePid48)
+        $snapPids48 = @()
+        foreach ($s48 in @($exec48['last_verified_tree'])) { try { $snapPids48 += [int]$s48.process_id } catch { } }
+        Assert-Enforce ((-not ($snapPids48 -contains [int]$latePid48))) 'JOB48 o tardio e pos-snapshot (fora do conjunto verificado)' ('snapshot=' + ($snapPids48 -join ',') + ' late=' + [string][int]$latePid48)
+        Assert-Enforce (([string]$int48.error -eq '') -and ([string]$int48.settlement -ceq 'ALREADY_EXITED')) 'JOB48 raiz saiu sozinha => ALREADY_EXITED (nenhum REFUSED falso)' ([string]$int48.error + '/' + [string]$int48.settlement)
+        # Premissa do cenario, provada e nao presumida: todo PID do snapshot
+        # verificado esta morto depois do interrupt, logo o kill CIM NAO teve
+        # alvo vivo (killed CIM = 0) e o interrupted=true so pode vir do job.
+        $snapAlive48 = @()
+        foreach ($sp48 in @($snapPids48)) {
+            if ([int]$sp48 -lt 1) { continue }
+            if (Test-EnforcePidAlive -ProcessId ([int]$sp48)) { $snapAlive48 += [int]$sp48 }
+        }
+        Assert-Enforce ((@($snapAlive48)).Count -eq 0) 'JOB48 premissa: nenhum PID do snapshot verificado sobreviveu (kill CIM = 0)' ('vivos=' + ($snapAlive48 -join ','))
+        Assert-Enforce ([bool]$int48.interrupted) 'JOB48 FIX2: interrupted=true com contador CIM = 0 (o booleano do ato letal basta; KilledCount segue 0)' ('interrupted=' + [string][bool]$int48.interrupted)
+        Assert-Enforce ([bool]$int48.job_kill_applied) 'JOB48 FIX2: ato letal autorizado aplicado (booleano TerminateJobObject ok; nunca vira contagem)' ('skip=' + [string]$int48.job_skip)
+        Assert-Enforce (([int]$int48.job_members_reduction -ge 0)) 'JOB48 FIX2: reducao de membros do job observada e publicada SEM claim de autoria/causa' ('reducao=' + [string][int]$int48.job_members_reduction + ' before=' + [string][int]$int48.job_members_before)
+        Assert-Enforce (([string]$int48.job_skip -eq '') -and ([int]$int48.job_members_before -ge 1)) 'JOB48 FIX2: sem skip (o prazo estava vivo) e havia membro vivo no job' ('skip=' + [string]$int48.job_skip)
+        $swDead48 = [System.Diagnostics.Stopwatch]::StartNew()
+        $lateGone48 = $false
+        while ($swDead48.ElapsedMilliseconds -lt 10000) {
+            if (-not (Test-EnforcePidAlive -ProcessId $latePid48)) { $lateGone48 = $true; break }
+            Start-Sleep -Milliseconds 200
+        }
+        Assert-Enforce $lateGone48 'JOB48 o tardio nao sobreviveu (observacao: ato letal do job aplicado e unico alvo vivo; reducao observada em job_members_reduction sem claim de autoria)' ('late=' + [string][int]$latePid48)
+        $rec48 = $exec48['enforcement']
+        Assert-Enforce (($rec48 -is [System.Collections.IDictionary]) -and ([bool]$rec48['interrupted']) -and ([string]$rec48['settlement'] -ceq 'ALREADY_EXITED')) 'JOB48 registro persistido: interrupted=true + ALREADY_EXITED' ([string]$rec48['settlement'])
+        Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) 'JOB48 sentinel nao relacionado intacto' ''
+    }
+    catch {
+        Assert-Enforce $false 'JOB48 scenario ran without unexpected error' ([string]$_)
+    }
+    finally {
+        $script:WatchdogTreeTestOverride = $null
+        $script:WatchdogSettleWaitMs = [int]$saveWait48
+        Stop-EnforceSafety -Proc $sigWriter48
+        Stop-EnforceSafety -Proc $root48Proc
+        Stop-EnforceSafetyId -ProcessId $latePid48
+    }
+    $sw48.Stop()
+    Assert-Enforce (($sw48.Elapsed.TotalSeconds -lt 90)) 'scenario 48 externally bounded' ([string][int]$sw48.Elapsed.TotalSeconds + 's')
+
+# 11. frozen-file guards: P25 HOLD text and production flags untouched.
     $sw11 = [System.Diagnostics.Stopwatch]::StartNew()
     $oldText = ''
     try { $oldText = ([IO.File]::ReadAllText($oldWatchdogTests, [Text.Encoding]::UTF8)) } catch { $oldText = '' }

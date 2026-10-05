@@ -30,6 +30,18 @@
           filho PROPRIO morto pelo handle retido, sem residuo.
       T11 (K2) atribuicao INJETADA falha => nenhum spawn de descendente fora do
           job (sinal nunca escrito), filho sai com codigo 3, residuo zero.
+      T12 (RR-P26-JOB-WIRING) seam Attach-RuntimeJobVerifiedProcess: recusa
+          host-self, instancia nula/tipo errado, identidade ausente e
+          identidade DIVERGENTE (nenhuma atribuicao ocorre em nenhuma recusa,
+          provado pela member list vazia); aceita um processo REAL proprio
+          (liveness + identidade re-verificadas, atribuicao pelo handle
+          retido) e o membro consta da lista do job.
+      T12b -NoKillOnClose: o job e criado SEM KILL_ON_JOB_CLOSE e o Close
+          passa a ser INERTE (o membro sobrevive), enquanto o job padrao
+          continua encerrando o membro ao fechar. E o que permite ao
+          enforcement do watchdog reportar um REFUSED sem matar o processo
+          que ele afirma nao ter morto. Instancia Morta => recusa por
+          liveness; job vazio => Terminate/Close limpos.
 
     FIX1 (reviewer + security-reviewer):
       F1 contrato publico SEM atribuicao por PID: Add-RuntimeJobProcess exige
@@ -952,6 +964,107 @@ try {
   $verdictInconclusive = ([bool]$inconclusive10.QuerySucceeded) -and (@($inconclusive10.Found).Count -eq 0)
   Assert-That ((-not [bool]$inconclusive10.QuerySucceeded)) 'K3: consulta fora do bound => inconclusiva' ('ok=' + [string]$inconclusive10.QuerySucceeded + ' timed_out=' + [string]$inconclusive10.TimedOut)
   Assert-That ((-not $verdictInconclusive) -and $verdictGood) 'K3: inconclusiva REPROVA o veredito de ausencia (so conclusiva aprova)' ('verdict_inconclusiva=' + [string]$verdictInconclusive + ' verdict_conclusiva=' + [string]$verdictGood)
+# --- T12 (RR-P26-JOB-WIRING): seam Attach-RuntimeJobVerifiedProcess ---
+  # Recusa o host, instancia morta, identidade divergente/ausente e job
+  # invalido (sempre resultado estruturado, nunca excecao); aceita um
+  # processo REAL proprio (identidade provada) e o membro aparece na lista.
+  # T12b: -NoKillOnClose torna o close INERTE (o unico ato letal passa a ser
+  # TerminateJobObject), que e o que permite ao enforcement reportar um
+  # REFUSED sem matar o processo que ele diz nao ter morto.
+  $m12 = 'JOBT12-' + [guid]::NewGuid().ToString('N')
+  $job12 = New-RuntimeJobObject
+  $p12 = $null
+  try {
+    $psi12 = New-Object System.Diagnostics.ProcessStartInfo
+    $psi12.FileName = $psExe
+    $psi12.Arguments = '-NoProfile -Command "Start-Sleep -Seconds 60 # ' + $m12 + '"'
+    $psi12.UseShellExecute = $false
+    $psi12.CreateNoWindow = $true
+    $p12 = [System.Diagnostics.Process]::Start($psi12)
+    Start-Sleep -Milliseconds 400
+    $ticks12 = [long](([DateTime]$p12.StartTime).ToUniversalTime().Ticks)
+    $host12 = Get-Process -Id $PID
+    $hostTicks12 = [long](([DateTime]$host12.StartTime).ToUniversalTime().Ticks)
+    $self12 = Attach-RuntimeJobVerifiedProcess -Job $job12 -Instance $host12 -ExpectedCreationTicks $hostTicks12
+    Assert-That ((-not [bool]$self12.Ok) -and ([string]$self12.Reason -match 'host')) 'T12: o host (processo atual) e SEMPRE recusado' ('reason=' + [string]$self12.Reason)
+    $null12 = Attach-RuntimeJobVerifiedProcess -Job $job12 -Instance $null -ExpectedCreationTicks $ticks12
+    Assert-That ((-not [bool]$null12.Ok) -and ([string]$null12.Reason -match 'nunca PID nu')) 'T12: instancia nula recusada (nenhum caminho por PID)' ('reason=' + [string]$null12.Reason)
+    $type12 = Attach-RuntimeJobVerifiedProcess -Job $job12 -Instance 4242 -ExpectedCreationTicks $ticks12
+    Assert-That ((-not [bool]$type12.Ok) -and ([string]$type12.Reason -match 'System.Diagnostics.Process')) 'T12: tipo errado recusado' ('reason=' + [string]$type12.Reason)
+    $noId12 = Attach-RuntimeJobVerifiedProcess -Job $job12 -Instance $p12 -ExpectedCreationTicks 0
+    Assert-That ((-not [bool]$noId12.Ok) -and ([string]$noId12.Reason -match 'identidade nao informada')) 'T12: identidade ausente => recusa fail-closed' ('reason=' + [string]$noId12.Reason)
+    $div12 = Attach-RuntimeJobVerifiedProcess -Job $job12 -Instance $p12 -ExpectedCreationTicks ($ticks12 + 600000000)
+    Assert-That ((-not [bool]$div12.Ok) -and (-not [bool]$div12.IdentityVerified) -and ([string]$div12.Reason -match 'divergencia de identidade')) 'T12: identidade divergente => recusa (sem atribuicao)' ('reason=' + [string]$div12.Reason)
+    $mem12a = Get-RuntimeJobMemberPids -Job $job12
+    Assert-That (([bool]$mem12a.Ok) -and ([int]$mem12a.Count -eq 0)) 'T12: nenhuma atribuicao ocorreu nas recusas' ('count=' + [string]$mem12a.Count)
+    $ok12 = Attach-RuntimeJobVerifiedProcess -Job $job12 -Instance $p12 -ExpectedCreationTicks $ticks12
+    Assert-That (([bool]$ok12.Ok) -and ([bool]$ok12.InstanceLive) -and ([bool]$ok12.IdentityVerified) -and ([bool]$ok12.ViaManagedHandle) -and ([int]$ok12.Pid -eq [int]$p12.Id)) 'T12: processo real proprio atribuido pela identidade provada (handle retido)' ('reason=' + [string]$ok12.Reason)
+    $mem12b = Get-RuntimeJobMemberPids -Job $job12
+    Assert-That (([bool]$mem12b.Ok) -and (@($mem12b.Pids) -contains [int]$p12.Id)) 'T12: o membro atribuido consta da lista do job' ('pids=' + (@($mem12b.Pids) -join ','))
+    $cl12 = Close-RuntimeJobObject -Job $job12
+    Assert-That (Wait-PidGone ([int]$p12.Id) 20000) 'T12: job padrao (kill-on-close) encerrou o membro ao fechar' ('pid=' + $p12.Id)
+    Assert-That ([bool]$cl12.Ok) 'T12: fechamento ok' ([string]$cl12.Reason)
+  }
+  finally {
+    [void](Close-RuntimeJobObject -Job $job12)
+    if ($null -ne $p12) { try { if (-not $p12.HasExited) { $p12.Kill(); [void]$p12.WaitForExit(10000) } } catch { } }
+    try { if ($null -ne $p12) { $p12.Close(); $p12.Dispose() } } catch { }
+    $t12clean = [bool](Wait-MarkerGone -Marker $m12 -TimeoutMs 20000 -RetainedProc $p12)
+    Assert-That $t12clean 'T12: sem residuo apos o caso' ('marker=' + $m12 + ' limpo=' + [string]$t12clean)
+  }
+
+  $job12b = New-RuntimeJobObject -NoKillOnClose
+  $p12b = $null
+  try {
+    Assert-That (([bool]$job12b.Ok) -and (-not [bool]$job12b.KillOnClose) -and ([uint32]$job12b.LimitFlags -eq [uint32]0)) 'T12b: -NoKillOnClose cria o job sem KILL_ON_JOB_CLOSE' ('reason=' + [string]$job12b.Reason)
+    $psi12b = New-Object System.Diagnostics.ProcessStartInfo
+    $psi12b.FileName = $psExe
+    $psi12b.Arguments = '-NoProfile -Command "Start-Sleep -Seconds 60 # ' + $m12 + '-b"'
+    $psi12b.UseShellExecute = $false
+    $psi12b.CreateNoWindow = $true
+    $p12b = [System.Diagnostics.Process]::Start($psi12b)
+    Start-Sleep -Milliseconds 400
+    $ticks12b = [long](([DateTime]$p12b.StartTime).ToUniversalTime().Ticks)
+    $ok12b = Attach-RuntimeJobVerifiedProcess -Job $job12b -Instance $p12b -ExpectedCreationTicks $ticks12b
+    Assert-That ([bool]$ok12b.Ok) 'T12b: membro atribuido no job sem kill-on-close' ('reason=' + [string]$ok12b.Reason)
+    $cl12b = Close-RuntimeJobObject -Job $job12b
+    Start-Sleep -Milliseconds 600
+    Assert-That (Test-PidAlive ([int]$p12b.Id)) 'T12b: close INERTE: o membro sobrevive (so Terminate e letal)' ('pid=' + $p12b.Id + ' closed=' + [string]$cl12b.Closed)
+  }
+  finally {
+    if ($null -ne $p12b) { try { if (-not $p12b.HasExited) { $p12b.Kill(); [void]$p12b.WaitForExit(10000) } } catch { } }
+    try { if ($null -ne $p12b) { $p12b.Close(); $p12b.Dispose() } } catch { }
+    $t12bclean = [bool](Wait-MarkerGone -Marker ($m12 + '-b') -TimeoutMs 20000 -RetainedProc $p12b)
+    Assert-That $t12bclean 'T12b: sem residuo apos o caso inerte' ('limpo=' + [string]$t12bclean)
+  }
+
+  # Instancia MORTA: liveness pela propria instancia recusa antes da API.
+  $job12c = New-RuntimeJobObject -NoKillOnClose
+  $p12c = $null
+  try {
+    $psi12c = New-Object System.Diagnostics.ProcessStartInfo
+    $psi12c.FileName = $psExe
+    $psi12c.Arguments = '-NoProfile -Command "Start-Sleep -Milliseconds 300 # ' + $m12 + '-c"'
+    $psi12c.UseShellExecute = $false
+    $psi12c.CreateNoWindow = $true
+    $p12c = [System.Diagnostics.Process]::Start($psi12c)
+    $ticks12c = [long](([DateTime]$p12c.StartTime).ToUniversalTime().Ticks)
+    [void]$p12c.WaitForExit(15000)
+    $dead12c = Attach-RuntimeJobVerifiedProcess -Job $job12c -Instance $p12c -ExpectedCreationTicks $ticks12c
+    Assert-That ((-not [bool]$dead12c.Ok) -and (-not [bool]$dead12c.InstanceLive) -and ([string]$dead12c.Reason -match 'ja saiu')) 'T12: instancia provada morta => recusa por liveness (nada atribuido)' ('reason=' + [string]$dead12c.Reason)
+  }
+  finally {
+    try { if ($null -ne $p12c) { $p12c.Close(); $p12c.Dispose() } } catch { }
+    $stop12c = Stop-RuntimeJobObject -Job $job12c -TimeoutMs 2000 -PollMs 50
+    Assert-That ([bool]$stop12c.Ok) 'T12: job vazio termina limpo (fail-closed sem membro)' ('reason=' + [string]$stop12c.Reason)
+    [void](Close-RuntimeJobObject -Job $job12c)
+  }
+
+  # Guarda de texto: a lib nunca usa taskkill por PID nem toca o 49374.
+  $libText12 = ''
+  try { $libText12 = ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\RuntimeJobObject.ps1'), [Text.Encoding]::UTF8)) } catch { $libText12 = '' }
+  Assert-That (($libText12.Length -gt 0) -and (-not ($libText12 -match '(?i)taskkill'))) 'T12: a lib nunca usa taskkill (kill so por handle/job)' ('len=' + [string]$libText12.Length)
+  Assert-That ($libText12 -match 'Nao le 49374') 'T12: a lib declara no contrato que nunca le o 49374' ''
 }
 finally {
   # FIX4/K4: o TEMP do probe CIM e removido no teardown EXTERNO da suite, para
