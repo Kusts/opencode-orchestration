@@ -283,10 +283,24 @@ P25 entrega a biblioteca em modo shadow puro; P26 entrega o caminho de
 interrupção real (identidade exata `pid`+creation-ticks, prova de vida
 coletada na validação, kill pelo handle pinado da instância verificada,
 árvore via snapshot CIM com caps fail-closed e seam `SETTLEMENT_REQUIRED`
-no kernel). Flag `watchdog{enabled:false, shadow:true}` inalterada.
-Limites: interrupt de sessão V2 nativa (runtime API) não implementado,
-sem Job Objects (BLOCKER conhecido da P22) e ator/fonte são strings
-declaradas pelo chamador. Evidência:
+no kernel). **Atualização 2026-10-04/05:** a flag `watchdog` foi ativada
+pelo operador (lote 2026-10-04, `enabled:true, shadow:false`); o
+enforcement consumiu o Job Object da P22 (contrato A, "attach-side"):
+job anônimo `-NoKillOnClose` criado após os gates de identidade e
+atribuído à raiz verificada ANTES do snapshot (seam
+`Attach-RuntimeJobVerifiedProcess` — handle caller-proven, nunca
+`OpenProcess` por PID), kill CIM de descendentes verificados seguido de
+`TerminateJobObject` como backstop (fecha o escape de spawn
+pós-snapshot), revalidação de deadline imediatamente antes do ato letal,
+fallback CIM-only fail-closed com `job_attach=refused:*` quando o attach
+é recusado, e decisão terminal que separa ato letal aplicado (booleano)
+de contagem de mortos (só CIM). Limites residuais (HOLDs honestos):
+janela gate→`TerminateJobObject` nativo (API sem deadline), preempção
+entre checagem e chamada, descendentes pré-attach cobertos só pelo kill
+CIM, interrupt de sessão V2 nativa (runtime API) não implementado, e
+ator/fonte seguem strings declaradas pelo chamador. Cenários reais
+RR-E2E-04..10 provados 7/7 `pass-real` na lane
+`evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/`. Evidência:
 `evidence/v3.1/runtime-reliability/phase25.json`, `phase26.json`.
 
 #### MCP safety e transporte (P28)

@@ -796,6 +796,62 @@ pendente do operador).
   nenhum hard-deny antes da validação comportamental);
   skill_routing/mcp_routing/adaptive_ranking OFF (doutrina).
 
+- **Wiring de Job Objects no enforcement do watchdog (Tarefa 5a, contrato
+  A, 2026-10-05)** — decisão de contrato fechada (consulta Jev consultiva;
+  alternativa token-crossing do spawner descartada: o "spawner" de
+  produção é o runtime, não código kernel). Job anônimo
+  `-NoKillOnClose` criado **após** os gates de identidade/ownership e
+  atribuído à raiz verificada **antes** do snapshot (novo seam
+  `Attach-RuntimeJobVerifiedProcess` na lib P22: handle caller-proven com
+  identidade re-verificada, nunca `OpenProcess` por PID, recusa
+  host-self; `Add-RuntimeJobProcess` original intacto). Kill CIM de
+  descendentes verificados seguido de `TerminateJobObject` **backstop** —
+  fecha o escape documentado de descendente pós-snapshot (qualquer filho
+  nascido pós-attach é membro). Revalidação de deadline **imediatamente
+  antes** do ato letal (expirado ⇒ skip + close inerte +
+  `job_skip='deadline-expired'`); attach recusado ⇒ fallback CIM-only
+  fail-closed com `job_attach=refused:*` (settlement byte-idêntico ao
+  caminho sem job, JOB44); decisão terminal separa **ato letal aplicado**
+  (booleano `-LethalApplied`) de **contagem de mortos** (só contador CIM;
+  `job_members_reduction` é observação sem causalidade — kills CIM
+  assíncronos entram no delta). Testes adversariais JOB43 (escape
+  fechado, tardio fora do snapshot morto) + JOB46 (controle negativo:
+  attach recusado ⇒ tardio **sobrevive** — discriminante provado) +
+  JOB47 (deadline expira entre CIM e backstop ⇒ nenhum Terminate, tardio
+  vivo, PENDING nunca terminal) + JOB48 (raiz sai pós-snapshot ⇒
+  `interrupted=true` sem REFUSED falso). **HOLDs residuais honestos**:
+  janela gate→`TerminateJobObject` (API nativa sem deadline), preempção
+  entre checagem e chamada, descendentes pré-attach cobertos só pelo kill
+  CIM, dependência opcional da lib (ausente ⇒ `refused:job-lib-unavailable`).
+  Suítes nas duas engines: enforcement **421/421** (era 339), job-object
+  **132/132** (era 113), watchdog **134/134** intacto, consistência
+  **16/16**. Reviewer **APPROVED** (3 rodadas) + Security **APPROVED**
+  (3 rodadas; r1: 2 HIGH — ato letal pós-deadline e kills do job fora da
+  decisão terminal — corrigidos e provados).
+- **Lane real RR-E2E-04..10 (Tarefa 3, 2026-10-05)** — novo harness
+  `scripts/ci/watchdog-real-lane-v2.ps1` (padrão lifecycle-smoke): gate
+  de binário exato 2.0.18, home isolado TEMP, ciclo de vida explícito do
+  serviço (set/start/status/stop owned, **49374 intocado** antes/depois),
+  spawns próprios contidos por Job Object, ambiente mínimo nos workers,
+  tasks reais do kernel (`task-kernel.ps1`; flag `task_kernel` ativa),
+  workers = processos reais com comportamento controlado, **1 tentativa
+  por cenário**, deadlines curtos fornecidos pelo chamador (budgets
+  `BUDGET_IMMUTABLE` do kernel intocados). Resultado final (execução 3,
+  árvore limpa): **7/7 `pass-real`** — 04 completion normal com terminal
+  DONE real do kernel (verifier allowlisted in-scope), 05 HARD_TIMEOUT,
+  06 NO_PROGRESS, 07 REPEATED_ACTION, 08 REPEATED_CYCLE, 09 interrupt
+  real + não-settlement injetado via seam test-only documentado (rotulo
+  explícito na evidência; decisão de contrato Jev X), 10 sibling ileso
+  com hang morto. Wired no job `ci-smoke-opencode-v2` após o smoke de
+  lifecycle (passo 10 min; job 15→25 min; vermelho honesto, sem
+  continue-on-error). Evidência: `evidence/v3.1/runtime-reliability/
+  v2-lane-2026-10-04/` (lane-summary `no_fake_close:true`; log de
+  diagnóstico com as 3 execuções). Classificações do registry
+  **inalteradas** (descrevem o que a prova exige; a lane forneceu a
+  execução real). Seguem fora do escopo desta lane, honestos:
+  RR-E2E-01..03 (portas — lane 2026-10-03), RR-E2E-16..22 (sessão real +
+  restart), RR-E2E-32 (flag, decisão do operador).
+
 ### Pendente (não implementado)
 
 - **Release gate de P26-P42 (runtime reliability)** - o código
@@ -810,10 +866,13 @@ pendente do operador).
   da config e estado do serviço refutados como gatilhos determinísticos
   nas condições testadas; suspeita principal: caminho interno do binário
   2.0.18, **não comprovada** -
-  `debugcfg-hang-investigation.json`) e os cenários de
-  watchdog/sessão/
-  restart exigem integração de sessão real; evidência em
-  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/`), config
+  `debugcfg-hang-investigation.json`); os cenários de **watchdog
+  RR-E2E-04..10 foram convertidos para evidência real em 2026-10-05**
+  (lane dedicada, 7/7 pass-real — ver bullet próprio acima) e os cenários
+  de sessão/restart (16..22) continuam exigindo integração de sessão
+  real; evidência em
+  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-03/` e
+  `evidence/v3.1/runtime-reliability/v2-lane-2026-10-04/`), config
   user-owned local do endpoint de AI Memory **remota já em PROD** (deploy
   do VPS de AI Memory executado pelo operador; restam a configuração fora
   do repo e a evidência de health/transporte sem registrar identidade no
@@ -828,9 +887,10 @@ pendente do operador).
 - **HOLDs estruturais mantidos em P22–P41** — (d) `execute.before` sem
   via sem-modelo provada; evento `session.updated` não observado;
   `REUSE` de porta em produção; reconciler V2 nativo; interrupt de
-  sessão V2 nativa; janela create→assign do job e wiring do job no
-  enforcement do watchdog (follow-up P26, flag off). Nenhuma flag
-  ativada; `program-status.json` mantém o detalhamento por fase.
+  sessão V2 nativa; janela create→assign do job (spawn path do smoke) e
+  janelas residuais do backstop no enforcement (gate→terminate nativo e
+  preempção — documentadas; wiring **entregue** em 2026-10-05, ver
+  bullet próprio). `program-status.json` mantém o detalhamento por fase.
 - **Phase 5 (comportamental)** — validar precedência de regras ordenadas,
   saved approvals e `experimental.policies` contra o runtime V2 real
   (requer resolver o travamento do `debug` V2; evidência de runner existe
