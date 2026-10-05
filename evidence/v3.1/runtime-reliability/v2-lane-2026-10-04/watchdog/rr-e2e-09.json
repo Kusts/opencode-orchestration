@@ -5,14 +5,14 @@
     "date":  "2026-10-05",
     "lane":  "v3.1-watchdog-real-lane-v2",
     "executor":  "RR-E2E-LANE-04-10 (coder worker)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "attempts":  1,
     "status":  "pass-real",
     "cause":  "",
     "observed":  {
                      "task_id":  "rr-e2e-09-interrupt-failure",
-                     "worker_pid":  12316,
+                     "worker_pid":  15556,
                      "job_assigned":  true,
                      "budget":  {
                                     "profile":  "fast",
@@ -42,7 +42,7 @@
                                               "detail":  "",
                                               "classification":  "HARD_TIMEOUT",
                                               "elapsed_s":  0,
-                                              "real_deadline_wait_ms":  5202
+                                              "real_deadline_wait_ms":  5372
                                           },
                      "settlement":  {
                                         "settlement":  "FAILED",
@@ -61,7 +61,7 @@
                        {
                            "name":  "worker_job_containment_proved",
                            "passed":  true,
-                           "detail":  "atribuido ao job da lane (pid 12316)"
+                           "detail":  "atribuido ao job da lane (pid 15556)"
                        },
                        {
                            "name":  "no_enforcement_before_injected_interrupt",
@@ -86,7 +86,7 @@
                        {
                            "name":  "owned_worker_survived_failed_interrupt",
                            "passed":  true,
-                           "detail":  "PID 12316 vivo apos o interrupt que nao assentou (prova de que nada foi morto)"
+                           "detail":  "PID 15556 vivo apos o interrupt que nao assentou (prova de que nada foi morto)"
                        }
                    ],
     "notes":  [

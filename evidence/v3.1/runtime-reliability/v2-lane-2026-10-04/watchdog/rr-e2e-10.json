@@ -5,7 +5,7 @@
     "date":  "2026-10-05",
     "lane":  "v3.1-watchdog-real-lane-v2",
     "executor":  "RR-E2E-LANE-04-10 (coder worker)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "attempts":  1,
     "status":  "pass-real",
@@ -13,12 +13,12 @@
     "observed":  {
                      "task_id":  "rr-e2e-10-sibling",
                      "hanging_child":  {
-                                           "pid":  4484,
+                                           "pid":  11144,
                                            "mode":  "hang",
                                            "job_assigned":  true
                                        },
                      "completing_child":  {
-                                              "pid":  12320,
+                                              "pid":  3204,
                                               "mode":  "sleeper-6s",
                                               "job_assigned":  true
                                           },
@@ -60,7 +60,7 @@
                        {
                            "name":  "two_real_children_spawned",
                            "passed":  true,
-                           "detail":  "hang pid=4484 job=True; sibling pid=12320 job=True"
+                           "detail":  "hang pid=11144 job=True; sibling pid=3204 job=True"
                        },
                        {
                            "name":  "watchdog_execution_bound_to_real_child",
@@ -80,7 +80,7 @@
                        {
                            "name":  "hanging_child_dead_after_interrupt",
                            "passed":  true,
-                           "detail":  "PID 4484 morto apos o interrupt"
+                           "detail":  "PID 11144 morto apos o interrupt"
                        },
                        {
                            "name":  "sibling_never_killed_by_watchdog",

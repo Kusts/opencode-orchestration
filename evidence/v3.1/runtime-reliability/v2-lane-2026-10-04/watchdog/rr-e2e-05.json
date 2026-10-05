@@ -5,14 +5,14 @@
     "date":  "2026-10-05",
     "lane":  "v3.1-watchdog-real-lane-v2",
     "executor":  "RR-E2E-LANE-04-10 (coder worker)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "attempts":  1,
     "status":  "pass-real",
     "cause":  "",
     "observed":  {
                      "task_id":  "rr-e2e-05-hard-hang",
-                     "worker_pid":  9448,
+                     "worker_pid":  10796,
                      "job_assigned":  true,
                      "budget":  {
                                     "profile":  "fast",
@@ -34,7 +34,7 @@
                                         "classification":  "HARD_TIMEOUT",
                                         "interrupted":  true,
                                         "elapsed_s":  4,
-                                        "elapsed_observed_ms":  4056,
+                                        "elapsed_observed_ms":  4691,
                                         "enforcement_reason":  ""
                                     },
                      "settlement":  {
@@ -54,7 +54,7 @@
                        {
                            "name":  "worker_job_containment_proved",
                            "passed":  true,
-                           "detail":  "atribuido ao job da lane (pid 9448)"
+                           "detail":  "atribuido ao job da lane (pid 10796)"
                        },
                        {
                            "name":  "real_deadline_crossed",
@@ -79,7 +79,7 @@
                        {
                            "name":  "hanging_pid_dead",
                            "passed":  true,
-                           "detail":  "PID 9448 observado morto apos o interrupt (resolucao fresca por PID)"
+                           "detail":  "PID 10796 observado morto apos o interrupt (resolucao fresca por PID)"
                        }
                    ],
     "notes":  [

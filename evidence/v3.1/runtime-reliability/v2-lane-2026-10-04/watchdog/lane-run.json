@@ -1,10 +1,11 @@
 {
     "lane":  "v3.1-watchdog-real-lane-v2",
     "date":  "2026-10-05",
-    "started_at":  "2026-10-05T03:25:31.2554528Z",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "started_at":  "2026-10-05T05:44:53.1330563Z",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "gate":  {
+                 "failed":  "",
                  "checks":  [
                                 {
                                     "name":  "version_exact",
@@ -19,7 +20,7 @@
                                 {
                                     "name":  "watchdog_gate_enforce",
                                     "passed":  true,
-                                    "detail":  "gate lido de D:\\projetos\\opencode-orchestration\\source\\registry\\capability-flags.json =\u003e ENFORCE (nenhuma flag escrita)"
+                                    "detail":  "gate lido de \u003crepo\u003e\\source\\registry\\capability-flags.json =\u003e ENFORCE (nenhuma flag escrita)"
                                 },
                                 {
                                     "name":  "config_19_workers_built",
@@ -39,12 +40,12 @@
                                 {
                                     "name":  "port_preflight_free",
                                     "passed":  true,
-                                    "detail":  "preflight P22 na porta 50367 =\u003e PORT_FREE should_start=True"
+                                    "detail":  "preflight P22 na porta 64514 =\u003e PORT_FREE should_start=True"
                                 },
                                 {
                                     "name":  "service_port_configured",
                                     "passed":  true,
-                                    "detail":  "service set port 50367; rc=0"
+                                    "detail":  "service set port 64514; rc=0"
                                 },
                                 {
                                     "name":  "service_start_explicit",
@@ -54,12 +55,12 @@
                                 {
                                     "name":  "service_start_job_assigned",
                                     "passed":  true,
-                                    "detail":  "spawn do service start atribuido ao job da lane: atribuido ao job (pid 5192)"
+                                    "detail":  "spawn do service start atribuido ao job da lane: atribuido ao job (pid 3464)"
                                 },
                                 {
                                     "name":  "service_listener_observed",
                                     "passed":  true,
-                                    "detail":  "listener privado observado (deadline 30s); pid=6516 inconclusivas=0"
+                                    "detail":  "listener privado observado (deadline 30s); pid=9912 inconclusivas=0"
                                 },
                                 {
                                     "name":  "service_stop_owned",
@@ -71,16 +72,16 @@
                                     "passed":  true,
                                     "detail":  "ausencia conclusiva do listener apos stop (deadline 30s); inconclusivas=0"
                                 }
-                            ],
-                 "failed":  ""
+                            ]
              },
     "scenarios":  [
 
                   ],
     "blocked_reason":  "",
-    "lane_status":  "incompleta",
-    "verdict":  "lane incompleta: RR-E2E-04=partial (task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1)) | RR-E2E-05=pass-real | RR-E2E-06=pass-real | RR-E2E-07=pass-real | RR-E2E-08=pass-real | RR-E2E-09=pass-real | RR-E2E-10=pass-real",
+    "lane_status":  "ok",
+    "verdict":  "lane ok: RR-E2E-04=pass-real | RR-E2E-05=pass-real | RR-E2E-06=pass-real | RR-E2E-07=pass-real | RR-E2E-08=pass-real | RR-E2E-09=pass-real | RR-E2E-10=pass-real",
     "converted_to_real_evidence":  [
+                                       "RR-E2E-04",
                                        "RR-E2E-05",
                                        "RR-E2E-06",
                                        "RR-E2E-07",

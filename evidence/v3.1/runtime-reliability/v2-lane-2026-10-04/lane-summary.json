@@ -3,15 +3,16 @@
     "date":  "2026-10-05",
     "lane_dir_note":  "diretorio datado contratado para esta lane (v2-lane-2026-10-04); o campo date e o carimbo REAL da execucao lido do relogio, nunca um literal do script",
     "executor":  "RR-E2E-LANE-04-10 (harness scripts/ci/watchdog-real-lane-v2.ps1)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_exact":  "opencode v2.0.18",
-    "lane_status":  "incompleta",
+    "lane_status":  "ok",
     "invariants":  [
                        "49374 intocado: owner ANTES=1668 DEPOIS=1668; mesma leitura nos dois snapshots (QuerySucceeded obrigatoria); nunca iniciada nem alterada por esta lane",
                        "nenhum PID preexistente ou externo terminado: os unicos alvos possiveis de parada sao os filhos PROPRIOS desta lane (spawns do harness atribuidos ao Job Object da lane) e o servico V2 parado por CLI owned com os gates de ownership",
                        "nenhuma flag ativada: o gate do watchdog foi LIDO do registro canonico (watchdog enabled=true shadow=false); o harness nao escreve flags",
                        "budgets do kernel intocados e record-only: set-budget nunca foi chamado; os orcamentos curtos usados no watchdog sao os da execucao supervisionada (spikes do harness), nao os das tasks do kernel",
-                       "telemetria do watchdog escrita num diretorio TEMP isolado desta execucao (cache do repo intocado) e copiada sanitizeada para o diretorio de evidencia"
+                       "telemetria do watchdog escrita num diretorio TEMP isolado desta execucao (cache do repo intocado) e copiada sanitizeada para o diretorio de evidencia",
+                       "workers com ambiente MINIMO (PATH, TEMP, TMP, SystemRoot, Windir, ComSpec, PATHEXT, PSModulePath + o estritamente necessario); nenhuma credencial/variavel do ambiente do operador e herdada"
                    ],
     "gate":  {
                  "failed":  "",
@@ -29,7 +30,7 @@
                                 {
                                     "name":  "watchdog_gate_enforce",
                                     "passed":  true,
-                                    "detail":  "gate lido de D:\\projetos\\opencode-orchestration\\source\\registry\\capability-flags.json =\u003e ENFORCE (nenhuma flag escrita)"
+                                    "detail":  "gate lido de \u003crepo\u003e\\source\\registry\\capability-flags.json =\u003e ENFORCE (nenhuma flag escrita)"
                                 },
                                 {
                                     "name":  "config_19_workers_built",
@@ -49,12 +50,12 @@
                                 {
                                     "name":  "port_preflight_free",
                                     "passed":  true,
-                                    "detail":  "preflight P22 na porta 50367 =\u003e PORT_FREE should_start=True"
+                                    "detail":  "preflight P22 na porta 64514 =\u003e PORT_FREE should_start=True"
                                 },
                                 {
                                     "name":  "service_port_configured",
                                     "passed":  true,
-                                    "detail":  "service set port 50367; rc=0"
+                                    "detail":  "service set port 64514; rc=0"
                                 },
                                 {
                                     "name":  "service_start_explicit",
@@ -64,12 +65,12 @@
                                 {
                                     "name":  "service_start_job_assigned",
                                     "passed":  true,
-                                    "detail":  "spawn do service start atribuido ao job da lane: atribuido ao job (pid 5192)"
+                                    "detail":  "spawn do service start atribuido ao job da lane: atribuido ao job (pid 3464)"
                                 },
                                 {
                                     "name":  "service_listener_observed",
                                     "passed":  true,
-                                    "detail":  "listener privado observado (deadline 30s); pid=6516 inconclusivas=0"
+                                    "detail":  "listener privado observado (deadline 30s); pid=9912 inconclusivas=0"
                                 },
                                 {
                                     "name":  "service_stop_owned",
@@ -81,7 +82,9 @@
                                     "passed":  true,
                                     "detail":  "ausencia conclusiva do listener apos stop (deadline 30s); inconclusivas=0"
                                 }
-                            ]
+                            ],
+                 "policy_path":  "\u003crepo\u003e/source/registry/execution-budget-policy.json",
+                 "flags_path":  "\u003crepo\u003e/source/registry/capability-flags.json"
              },
     "job_backstop":  {
                          "close_kill":  true,
@@ -91,7 +94,7 @@
     "final_stop":  {
                        "attempted":  false,
                        "stopped":  false,
-                       "reason":  "status sem endpoint privado 127.0.0.1:50367: stop ausente (nao-owned)"
+                       "reason":  "status sem endpoint privado 127.0.0.1:64514: stop ausente (nao-owned)"
                    },
     "port49374_owner_before":  "1668",
     "port49374_owner_after":  "1668",
@@ -101,127 +104,221 @@
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  116
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  470
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  139
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  467
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  140
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  471
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  174
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  471
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  174
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  485
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  142
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  483
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  139
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  482
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
+                                 "domain_error":  "",
+                                 "stdout_len":  108
+                             },
+                             {
+                                 "action":  "-Action",
+                                 "exit_code":  0,
+                                 "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
+                                 "ok":  true,
+                                 "domain_error":  "",
+                                 "stdout_len":  481
+                             },
+                             {
+                                 "action":  "-Action",
+                                 "exit_code":  0,
+                                 "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
+                                 "ok":  true,
+                                 "domain_error":  "",
                                  "stdout_len":  140
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
-                                 "stdout_len":  490
-                             },
-                             {
-                                 "action":  "-Action",
-                                 "exit_code":  6,
-                                 "timed_out":  false,
-                                 "ok":  true,
-                                 "stdout_len":  202
+                                 "domain_error":  "",
+                                 "stdout_len":  489
                              },
                              {
                                  "action":  "-Action",
                                  "exit_code":  0,
                                  "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
                                  "ok":  true,
-                                 "stdout_len":  490
+                                 "domain_error":  "",
+                                 "stdout_len":  110
+                             },
+                             {
+                                 "action":  "-Action",
+                                 "exit_code":  0,
+                                 "timed_out":  false,
+                                 "json_parsed":  true,
+                                 "exit_ok":  true,
+                                 "domain_ok":  true,
+                                 "ok":  true,
+                                 "domain_error":  "",
+                                 "stdout_len":  485
                              }
                          ],
     "results":  [
@@ -229,10 +326,10 @@
                         "scenario":  "RR-E2E-04",
                         "ordinal":  4,
                         "title":  "Worker normal completion",
-                        "status":  "partial",
-                        "cause":  "task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1)",
+                        "status":  "pass-real",
+                        "cause":  "",
                         "evidence":  "watchdog/rr-e2e-04.json",
-                        "assertions_passed":  8,
+                        "assertions_passed":  10,
                         "assertions_total":  10
                     },
                     {
@@ -298,6 +395,7 @@
                 ],
     "scenario_conversion":  {
                                 "converted_to_real_evidence":  [
+                                                                   "RR-E2E-04",
                                                                    "RR-E2E-05",
                                                                    "RR-E2E-06",
                                                                    "RR-E2E-07",
@@ -306,7 +404,7 @@
                                                                    "RR-E2E-10"
                                                                ],
                                 "not_converted":  [
-                                                      "RR-E2E-04: partial (task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1))"
+
                                                   ],
                                 "still_blocked":  [
                                                       "RR-E2E-01..03 (portas): nao pertencem a esta lane; provedores na lane de 2026-10-03",
@@ -314,6 +412,6 @@
                                                       "RR-E2E-32 (flag): ativacao de flag e decisao do operador (nao delegavel)"
                                                   ]
                             },
-    "verdict":  "lane incompleta: RR-E2E-04=partial (task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1)) | RR-E2E-05=pass-real | RR-E2E-06=pass-real | RR-E2E-07=pass-real | RR-E2E-08=pass-real | RR-E2E-09=pass-real | RR-E2E-10=pass-real",
+    "verdict":  "lane ok: RR-E2E-04=pass-real | RR-E2E-05=pass-real | RR-E2E-06=pass-real | RR-E2E-07=pass-real | RR-E2E-08=pass-real | RR-E2E-09=pass-real | RR-E2E-10=pass-real",
     "no_fake_close":  true
 }

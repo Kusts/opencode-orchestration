@@ -5,14 +5,14 @@
     "date":  "2026-10-05",
     "lane":  "v3.1-watchdog-real-lane-v2",
     "executor":  "RR-E2E-LANE-04-10 (coder worker)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "attempts":  1,
     "status":  "pass-real",
     "cause":  "",
     "observed":  {
                      "task_id":  "rr-e2e-08-repeated-cycle",
-                     "worker_pid":  4792,
+                     "worker_pid":  684,
                      "worker_mode":  "cycle",
                      "job_assigned":  true,
                      "budget":  {
@@ -34,7 +34,7 @@
                      "action_source":  "jsonl escrito pelo proprio processo worker (acoes reais)",
                      "classification":  "REPEATED_CYCLE",
                      "interrupted":  true,
-                     "elapsed_observed_ms":  2361,
+                     "elapsed_observed_ms":  2974,
                      "settlement":  {
                                         "settlement":  "SETTLED",
                                         "interrupted":  true
@@ -51,7 +51,7 @@
                        {
                            "name":  "worker_job_containment_proved",
                            "passed":  true,
-                           "detail":  "atribuido ao job da lane (pid 4792)"
+                           "detail":  "atribuido ao job da lane (pid 684)"
                        },
                        {
                            "name":  "real_actions_observed_from_worker",
@@ -71,7 +71,7 @@
                        {
                            "name":  "worker_pid_dead",
                            "passed":  true,
-                           "detail":  "PID 4792 observado morto apos o interrupt"
+                           "detail":  "PID 684 observado morto apos o interrupt"
                        }
                    ],
     "notes":  [

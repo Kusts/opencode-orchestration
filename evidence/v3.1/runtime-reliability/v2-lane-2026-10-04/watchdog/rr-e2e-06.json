@@ -5,14 +5,14 @@
     "date":  "2026-10-05",
     "lane":  "v3.1-watchdog-real-lane-v2",
     "executor":  "RR-E2E-LANE-04-10 (coder worker)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "attempts":  1,
     "status":  "pass-real",
     "cause":  "",
     "observed":  {
                      "task_id":  "rr-e2e-06-no-progress",
-                     "worker_pid":  7416,
+                     "worker_pid":  5348,
                      "job_assigned":  true,
                      "budget":  {
                                     "profile":  "fast",
@@ -35,7 +35,7 @@
                                         "interrupted":  true,
                                         "since_progress_s":  4,
                                         "steps":  0,
-                                        "elapsed_observed_ms":  3995
+                                        "elapsed_observed_ms":  3554
                                     },
                      "settlement":  {
                                         "settlement":  "SETTLED",
@@ -53,7 +53,7 @@
                        {
                            "name":  "worker_job_containment_proved",
                            "passed":  true,
-                           "detail":  "atribuido ao job da lane (pid 7416)"
+                           "detail":  "atribuido ao job da lane (pid 5348)"
                        },
                        {
                            "name":  "worker_alive_without_progress",
@@ -73,7 +73,7 @@
                        {
                            "name":  "stalled_pid_dead",
                            "passed":  true,
-                           "detail":  "PID 7416 observado morto apos o interrupt"
+                           "detail":  "PID 5348 observado morto apos o interrupt"
                        }
                    ],
     "notes":  [

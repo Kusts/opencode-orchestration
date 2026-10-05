@@ -5,11 +5,11 @@
     "date":  "2026-10-05",
     "lane":  "v3.1-watchdog-real-lane-v2",
     "executor":  "RR-E2E-LANE-04-10 (coder worker)",
-    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "binary":  "\u003cexternal\u003e/opencode.exe",
     "version_line":  "opencode v2.0.18",
     "attempts":  1,
-    "status":  "partial",
-    "cause":  "task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1)",
+    "status":  "pass-real",
+    "cause":  "",
     "observed":  {
                      "task_id":  "rr-e2e-04-worker-normal",
                      "tasks_dir_is_temp":  true,
@@ -27,41 +27,47 @@
                                        },
                      "worker":  {
                                     "mode":  "complete",
-                                    "pid":  1400,
+                                    "pid":  3384,
                                     "ready":  false,
                                     "job_assigned":  true,
                                     "exited":  true,
                                     "exit_code":  0,
                                     "elapsed_ms":  1
                                 },
+                     "candidate_pass_recorded":  true,
                      "record_result":  {
                                            "exit_code":  0,
                                            "ok":  true,
+                                           "domain_error":  "",
                                            "status":  "candidate_pass"
                                        },
                      "verifier":  {
-                                      "status":  "skipped-out-of-scope",
-                                      "reason":  "working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1",
+                                      "status":  "verified_pass",
+                                      "reason":  "",
                                       "out_of_scope":  [
-                                                           "evidence/v3.1/runtime-reliability/program-status.json",
-                                                           "scripts/runtime/lib/RuntimeJobObject.ps1",
-                                                           "scripts/runtime/runtime-job-object.tests.ps1",
-                                                           "scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1",
-                                                           "scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1"
+
                                                        ],
                                       "allowlisted_profile":  "package-consistency"
                                   },
+                     "verify":  {
+                                    "exit_code":  0,
+                                    "ok":  true,
+                                    "domain_error":  ""
+                                },
                      "complete":  {
-                                      "exit_code":  6,
+                                      "exit_code":  0,
                                       "ok":  true,
-                                      "error":  "COMPLETION_GATE_FAILED",
+                                      "domain_error":  "",
                                       "reasons":  [
-                                                      "verification-not-passed",
-                                                      "criterion-evidence-missing:0"
+                                                      null
                                                   ],
-                                      "final_state":  "REVIEWING",
-                                      "final_revision":  8
-                                  }
+                                      "final_state":  "DONE",
+                                      "final_revision":  10
+                                  },
+                     "mandatory_failed":  [
+
+                                          ],
+                     "worker_exit_code":  0
                  },
     "assertions":  [
                        {
@@ -92,7 +98,7 @@
                        {
                            "name":  "kernel_candidate_pass_recorded",
                            "passed":  true,
-                           "detail":  "record-result candidate_pass; rc=0"
+                           "detail":  "record-result candidate_pass; rc=0 domain_error="
                        },
                        {
                            "name":  "kernel_reaching_state_reviewing",
@@ -101,8 +107,8 @@
                        },
                        {
                            "name":  "verified_pass_from_allowlisted_verifier",
-                           "passed":  false,
-                           "detail":  "verifier allowlisted real (profile package-consistency) =\u003e status=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1"
+                           "passed":  true,
+                           "detail":  "verifier allowlisted real (profile package-consistency) =\u003e status=verified_pass "
                        },
                        {
                            "name":  "kernel_review_recorded",
@@ -111,8 +117,8 @@
                        },
                        {
                            "name":  "kernel_terminal_done_via_complete",
-                           "passed":  false,
-                           "detail":  "Complete-OrchestrationTask real; estado final=REVIEWING; reasons=verification-not-passed;criterion-evidence-missing:0"
+                           "passed":  true,
+                           "detail":  "Complete-OrchestrationTask real; rc=0; domain_error=; estado final=DONE; reasons="
                        }
                    ],
     "notes":  [

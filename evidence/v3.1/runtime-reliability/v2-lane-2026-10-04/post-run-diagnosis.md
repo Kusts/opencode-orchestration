@@ -57,4 +57,18 @@ limpa) revalida os 7 cenarios com o codigo final e deve converter 04 (o
 blocker do verifier some em arvore limpa); seus artefatos substituem os
 atuais neste diretorio e a secao abaixo sera atualizada.
 
-## Execucao 3 (pos-commit, arvore limpa) — PENDENTE
+## Execucao 3 (2026-10-05 ~02:45, pos-commit, arvore limpa, codigo final v3) — LANE COMPLETA
+
+Veredito: **pass-real 04,05,06,07,08,09,10 (7/7)** | `lane_status` ok |
+`converted_to_real_evidence = [RR-E2E-04..RR-E2E-10]` | `not_converted` vazio |
+`no_fake_close` true | 49374 intocado (1668 -> 1668) | exit 0.
+
+- **04 fechou como previsto**: com a arvore limpa (codigo ja commitado) o
+  verifier allowlisted rodou dentro do escopo — task real, attempt real,
+  worker real exit 0, review real, terminal DONE real, 10/10 assertions.
+- Hipotese da 3a execucao confirmada (causa ambiental da arvore suja, nao
+  defeito de codigo); os artefatos deste diretorio sao a saida REAL desta
+  execucao final e substituem os das execucoes 1-2.
+- Cenarios fora do escopo desta lane (honestos): RR-E2E-01..03 (portas —
+  evidencia na lane de 2026-10-03), RR-E2E-16..22 (sessao real + restart),
+  RR-E2E-32 (ativacao de flag = decisao do operador).
