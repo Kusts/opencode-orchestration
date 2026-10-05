@@ -14,6 +14,37 @@
 - O isolamento de compatibilidade via variável de ambiente (ex.: `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`) é um
   recurso opcional do control plane externo, fora desta distribuição; sem ele o OpenCode funciona normalmente.
 
+## Escopo ai-memory desta instalação — OpenCode é cliente MCP estático
+
+Regra obrigatória para este runtime, com precedência sobre a orientação genérica
+de escolher o escopo conforme o suporte do cliente:
+
+<!-- Prosa portada de agent-config/source/adapters/opencode.md (dono canônico segundo test_marker_contracts.py) em 2026-10-04; manter em sincronia ao editar lá. -->
+1. Toda chamada ai-memory com escopo de projeto (`memory_query`,
+   `memory_read_page`, `memory_recent`, `memory_briefing`, `memory_explore`,
+   `memory_write_page`, `memory_delete_page`, `memory_status`,
+   `memory_read_session_observations`, handoffs, feedback, lint, forget-sweep)
+   DEVE passar `workspace` e `project` juntos. A regra é limitada ao que o
+   schema de cada ferramenta declara: ver as exceções no item 4.
+2. Os valores vêm do `.ai-memory.toml` mais próximo do diretório do projeto em
+   que a sessão está trabalhando — nunca do nome da pasta, nunca do "último
+   projeto ativo" do servidor.
+3. Projeto sem `.ai-memory.toml`: crie um (`workspace` + `project`, regex
+   `^[a-z0-9][a-z0-9._-]*$`, sem espaços ou maiúsculas) antes de usar a
+   memória dele.
+4. Exceções, por schema e não por conveniência:
+   - `global=true` (busca cross-project) e escritas com `scope: "global"`
+     (preferências permanentes do usuário) seguem sem escopo.
+   - `memory_message_send` não recebe `workspace`/`project`: nomeie o
+     destinatário em `to_workspace`/`to_project` e o remetente em
+     `from_workspace`/`from_project`.
+   - `memory_consolidate` não recebe escopo algum. Passe um `session_id`
+     explícito vindo de uma fonte nativa de sessão; omiti-lo consolida a última
+     sessão concluída do projeto resolvido, o que é exatamente o fallback
+     previous-slot que esta política existe para evitar.
+   - Nunca envie um campo que a ferramenta não declare, nem o apresente como
+     prova de escopo aplicado.
+
 ## Orquestração OpenCode (implementação do runtime)
 
 A política global acima usa nomes abstratos de papéis. Este adapter é a

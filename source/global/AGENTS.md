@@ -49,6 +49,14 @@ usuário ou ampliar materialmente o escopo.
 - Resolva primeiro o projeto e o diretório de trabalho atuais.
 - Use ai-memory, quando disponível/configurado, para continuidade operacional, sempre começando pelo projeto
   atual; amplie quando os resultados locais forem ausentes ou insuficientes.
+<!-- Prosa portada de agent-config/source/global/AGENTS.md (dono canônico segundo test_marker_contracts.py) em 2026-10-04; manter em sincronia ao editar lá. -->
+- Respeite o schema real de cada ferramenta antes de montar a chamada: a regra
+  do par explícito tem exceções declaradas. `memory_message_send` nomeia o
+  destinatário em `to_workspace`/`to_project` e o remetente em
+  `from_workspace`/`from_project`. `memory_consolidate` não aceita escopo algum;
+  em cliente estático ela exige `session_id` explícito, porque omitir consolida
+  a última sessão concluída do projeto resolvido. Nunca envie um campo que a
+  ferramenta não declare esperando, e nunca o use como prova de escopo.
 - Use o vault de conhecimento pessoal (opcional) para conhecimento deliberado e cruzado quando
   trouxer valor; ele não é obrigatório para tarefas triviais.
 - Use a web para fatos que possam ter mudado e para fontes primárias quando a
