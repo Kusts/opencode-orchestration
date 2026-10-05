@@ -81,8 +81,50 @@ if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
 $PackageVersion = '1.1.0'
-$OpenCodePluginSpecV1 = '@opencode-ai/plugin@1.18.32'
-$OpenCodePluginSpecV2 = '@opencode/plugin@2.0.18'
+
+# RR-VERSIONS-REGISTRY: os specs de plugin sao PINS e vem do registry unico
+# (source/registry/runtime-versions.json) via loader fail-closed. Bump de
+# versao = editar SO o registry (mais re-validacao no runtime exato), nunca
+# este arquivo.
+# Caminho resolvido pelo $RepoRoot (= $PSScriptRoot por padrao, ja resolvido
+# acima), NUNCA pelo cwd: o instalador roda a partir do repo root mas tambem
+# de uma copia do repo (eol-checkout) e de qualquer cwd.
+# Fail-closed SEM fallback para literal: loader ausente, registry ausente,
+# ilegivel ou inconsistente => instalacao ABORTADA antes de qualquer escrita.
+# Um pin adivinhado e pior que um pin ausente (o manifest grabaria um spec
+# errado silenciosamente).
+$RuntimeVersionsLib = Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1'
+if (-not (Test-Path -LiteralPath $RuntimeVersionsLib -PathType Leaf)) {
+  Write-Host ('[install] Loader de runtime versions ausente: ' + $RuntimeVersionsLib) -ForegroundColor Red
+  Write-Host 'Nenhuma escrita realizada. Execute o instalador a partir de um checkout completo do pacote.' -ForegroundColor Red
+  exit 3
+}
+. $RuntimeVersionsLib
+# RR-VERSIONS-REGISTRY-FIX2: pre-resolve TODAS as entradas de que o modo
+# escolhido vai precisar, ANTES de qualquer escrita. Registry parcialmente
+# invalido (ex.: plugin_v2 quebrado, v1 ok) abortava o install no meio, depois
+# de ja ter escrito o perfil/dialeto da geracao valida => mutacao parcial.
+# Modo => entradas exigidas: Both => v1+v2+plugin_v1+plugin_v2;
+# V1 => v1+plugin_v1; V2 => v2+plugin_v2. Auto ainda nao foi sondado aqui
+# (o probe e posterior) e pode virar V1 OU V2 => pre-resolve o superset, que
+# e o unico caminho honesto sem escrita.
+$requiredPins = @()
+if (($Runtime -eq 'Both') -or ($Runtime -eq 'Auto')) { $requiredPins = @('v1', 'v2', 'plugin_v1', 'plugin_v2') }
+elseif ($Runtime -eq 'V1') { $requiredPins = @('v1', 'plugin_v1') }
+elseif ($Runtime -eq 'V2') { $requiredPins = @('v2', 'plugin_v2') }
+try {
+  $resolvedPins = @{}
+  foreach ($pinNameX in $requiredPins) {
+    $resolvedPins[$pinNameX] = (Get-OrchestrationRuntimeVersion -Name $pinNameX -RepoRoot $RepoRoot)
+  }
+  $OpenCodePluginSpecV1 = [string]$resolvedPins['plugin_v1'].spec
+  $OpenCodePluginSpecV2 = [string]$resolvedPins['plugin_v2'].spec
+}
+catch {
+  Write-Host ('[install] Falha ao resolver os pins de runtime/plugin no registry para -Runtime ' + $Runtime + ' (abortado): ' + $_.Exception.Message) -ForegroundColor Red
+  Write-Host 'Nenhuma escrita realizada. Sem fallback para versao literal (fail-closed).' -ForegroundColor Red
+  exit 3
+}
 $OpenCodePluginSpec = $OpenCodePluginSpecV1
 $MarkStart = '<!-- opencode-orchestration:start -->'
 $MarkEnd = '<!-- opencode-orchestration:end -->'

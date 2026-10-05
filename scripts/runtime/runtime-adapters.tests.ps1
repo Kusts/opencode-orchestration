@@ -2,6 +2,14 @@ $ErrorActionPreference = 'Stop'
 $lib = Join-Path $PSScriptRoot 'lib\RuntimeAdapters.ps1'
 . $lib
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+# Pins vem do registry unico (source/registry/runtime-versions.json), nunca de
+# literal neste arquivo de teste. Fixtures sinteticas de versao nao mudam.
+. (Join-Path $repoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$pinV1 = Get-OrchestrationRuntimeVersion -Name v1 -RepoRoot $repoRoot
+$pinV2 = Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $repoRoot
+$pinPluginV1 = Get-OrchestrationRuntimeVersion -Name plugin_v1 -RepoRoot $repoRoot
+$pinPluginV2 = Get-OrchestrationRuntimeVersion -Name plugin_v2 -RepoRoot $repoRoot
+$pinBun = Get-OrchestrationRuntimeVersion -Name bun -RepoRoot $repoRoot
 $repoRegistry = Join-Path $repoRoot 'source\registry\runtimes.json'
 $installPs1 = Join-Path $repoRoot 'install.ps1'
 $psExe = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -74,9 +82,73 @@ try {
   Assert-That ($threwBad) 'Read-RuntimeRegistry malformado lanca' 'nao lancou'
   Assert-That ($msgBad -like '*ilegivel*') 'Read-RuntimeRegistry malformado: erro claro' $msgBad
 
+  # --- RuntimeVersions: registry unico + fail-closed (sem fallback literal) ---
+  $pinShaped = $true
+  foreach ($pinCase in @($pinV1, $pinV2, $pinPluginV1, $pinPluginV2, $pinBun)) {
+    if (([string]$pinCase.spec -cne ([string]$pinCase.package + '@' + [string]$pinCase.version)) -or [string]::IsNullOrWhiteSpace([string]$pinCase.version)) { $pinShaped = $false }
+  }
+  Assert-That $pinShaped 'RuntimeVersions: spec == package@version em todos os pins' 'campo divergente/vazio'
+  $pinRoot = Join-Path $base 'sem-registry'
+  New-Item -ItemType Directory -Path $pinRoot -Force | Out-Null
+  $pinThrewMissing = $false
+  $pinMsgMissing = ''
+  try { Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $pinRoot | Out-Null } catch { $pinThrewMissing = $true; $pinMsgMissing = $_.Exception.Message }
+  Assert-That (($pinThrewMissing) -and ($pinMsgMissing -like '*ausente*')) 'RuntimeVersions: registry ausente lanca (fail-closed, sem default)' $pinMsgMissing
+  $pinBadRoot = Join-Path $base 'bad-versions'
+  Write-Fixture -Path (Join-Path $pinBadRoot 'source\registry\runtime-versions.json') -Text '{ nao e json'
+  $pinThrewBad = $false
+  $pinMsgBad = ''
+  try { Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $pinBadRoot | Out-Null } catch { $pinThrewBad = $true; $pinMsgBad = $_.Exception.Message }
+  Assert-That (($pinThrewBad) -and ($pinMsgBad -like '*ilegivel*')) 'RuntimeVersions: JSON invalido lanca (fail-closed)' $pinMsgBad
+  $pinDriftRoot = Join-Path $base 'drift-versions'
+  Write-Fixture -Path (Join-Path $pinDriftRoot 'source\registry\runtime-versions.json') -Text '{"schema_version":1,"runtimes":{"v2":{"package":"@opencode/cli","version":"2.0.23","spec":"@opencode/cli@1.0.0"}}}'
+  $pinThrewDrift = $false
+  $pinMsgDrift = ''
+  try { Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $pinDriftRoot | Out-Null } catch { $pinThrewDrift = $true; $pinMsgDrift = $_.Exception.Message }
+  Assert-That (($pinThrewDrift) -and ($pinMsgDrift -like '*inconsistente*')) 'RuntimeVersions: spec divergente do par lanca (drift)' $pinMsgDrift
+  $pinThrewName = $false
+  try { Get-OrchestrationRuntimeVersion -Name 'v9' -RepoRoot $repoRoot | Out-Null } catch { $pinThrewName = $true }
+  Assert-That $pinThrewName 'RuntimeVersions: nome desconhecido recusado' 'aceitou nome invalido'
+
+  # RR-VERSIONS-REGISTRY-FIX3: semver ESTRITO. '01.2.3'/'1.02.3' (zero a
+  # esquerda), '1.2.3-..' (prerelease vazio) e "1.2.3`n" (LF final, que '^...$'
+  # em .NET aceitaria) nao sao pins revisados => fail closed. 'latest'/'1.x'
+  # ja eram barrados pelo formato fechado do FIX2 e seguem barrados.
+  # RR-VERSIONS-REGISTRY-FIX4: \d em .NET casa digito UNICODE (categoria Nd),
+  # nao so '0'-'9' -- entao '1' + U+0662 + '.2.3' e '1.2.3-1' + U+0662
+  # (arabic-indic digit) casavam na regex como se fossem pins revisados, o
+  # mesmo buraco que '^...$' abria com LF final. Montado por code point para o
+  # .ps1 continuar ASCII: PS 5.1 le .ps1 sem BOM como ANSI e corromperia um
+  # literal UTF-8, fazendo o teste passar pelo motivo errado. O host ve de fato
+  # U+0662 em PS 5.1 e pwsh.
+  $badUnicodeDigit = [string][char]0x0662
+  $badPinIdx = 0
+  foreach ($badVer in @('01.2.3', '1.02.3', '1.2.3-..', "1.2.3`n", 'latest', '1.x', ('1' + $badUnicodeDigit + '.2.3'), ('1.2.3-1' + $badUnicodeDigit))) {
+    $badPinIdx++
+    $badRoot = Join-Path $base ('bad-ver-' + $badPinIdx)
+    $badJson = '{"schema_version":1,"runtimes":{"v2":{"package":"@opencode/cli","version":"' + ($badVer -replace "`n", '\n') + '","spec":"@opencode/cli@' + ($badVer -replace "`n", '\n') + '"}}}'
+    Write-Fixture -Path (Join-Path $badRoot 'source\registry\runtime-versions.json') -Text $badJson
+    $badThrew = $false
+    $badMsg = ''
+    try { Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $badRoot | Out-Null } catch { $badThrew = $true; $badMsg = $_.Exception.Message }
+    $badLabel = ($badVer -replace "`n", '\n')
+    Assert-That (($badThrew) -and ($badMsg -like '*fora do semver exato*')) "RuntimeVersions: version '$badLabel' rejeitada (semver estrito)" $badMsg
+  }
+  # Controle positivo: o pin real do registry e um prerelease valido tem de
+  # passar pela MESMA regex (a correcao nao pode virar faz-tudo-negativo).
+  foreach ($goodVer in @('2.0.23', '2.0.23-beta.1')) {
+    $goodRoot = Join-Path $base ('ok-ver-' + ($goodVer -replace '[^a-zA-Z0-9]', '-'))
+    $goodJson = '{"schema_version":1,"runtimes":{"v2":{"package":"@opencode/cli","version":"' + $goodVer + '","spec":"@opencode/cli@' + $goodVer + '"}}}'
+    Write-Fixture -Path (Join-Path $goodRoot 'source\registry\runtime-versions.json') -Text $goodJson
+    $goodGot = ''
+    $goodOk = $false
+    try { $goodGot = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $goodRoot).version; $goodOk = ($goodGot -ceq $goodVer) } catch { $goodOk = $false }
+    Assert-That $goodOk "RuntimeVersions: version '$goodVer' aceita (controle positivo)" $goodGot
+  }
+
   # --- Get-RuntimeDescriptor ---
   $d1 = Get-RuntimeDescriptor -Registry $reg -RuntimeId 'opencode-v1'
-  Assert-That ([string]$d1.plugin_dependency_spec -eq '@opencode-ai/plugin@1.18.32') 'Get-RuntimeDescriptor opencode-v1 ok' ([string]$d1.plugin_dependency_spec)
+  Assert-That ([string]$d1.plugin_dependency_spec -eq [string]$pinPluginV1.Spec) 'Get-RuntimeDescriptor opencode-v1 ok (pin do registry)' ([string]$d1.plugin_dependency_spec)
   $threwNoId = $false
   try { Get-RuntimeDescriptor -Registry $reg -RuntimeId 'nao-existe' | Out-Null } catch { $threwNoId = $true }
   Assert-That ($threwNoId) 'Get-RuntimeDescriptor ausente lanca' 'nao lancou'
@@ -181,9 +253,9 @@ try {
   # --- Get-RuntimeAdapterView ---
   $v1 = Get-RuntimeAdapterView -Registry $reg -RuntimeId 'opencode-v1'
   Assert-That ([string]$v1.TemplatePath -eq 'templates/opencode.v1.json.tmpl') 'AdapterView v1 TemplatePath' ([string]$v1.TemplatePath)
-  Assert-That ([string]$v1.PluginDependencySpec -eq '@opencode-ai/plugin@1.18.32') 'AdapterView v1 PluginDependencySpec' ([string]$v1.PluginDependencySpec)
+  Assert-That ([string]$v1.PluginDependencySpec -eq [string]$pinPluginV1.Spec) 'AdapterView v1 PluginDependencySpec (pin do registry)' ([string]$v1.PluginDependencySpec)
   $v2 = Get-RuntimeAdapterView -Registry $reg -RuntimeId 'opencode-v2'
-  Assert-That ([string]$v2.PluginDependencySpec -eq '@opencode/plugin@2.0.18') 'AdapterView v2 PluginDependencySpec' ([string]$v2.PluginDependencySpec)
+  Assert-That ([string]$v2.PluginDependencySpec -eq [string]$pinPluginV2.Spec) 'AdapterView v2 PluginDependencySpec (pin do registry)' ([string]$v2.PluginDependencySpec)
   Assert-That ((@($v2.ManagedConfigKeys).Count -gt 0) -and (-not [string]::IsNullOrWhiteSpace([string]$v2.RendererRoot))) 'AdapterView v2 keys+renderer' ([string]$v2.RendererRoot)
   $threwView = $false
   try { Get-RuntimeAdapterView -Registry $reg -RuntimeId 'nao-existe' | Out-Null } catch { $threwView = $true }

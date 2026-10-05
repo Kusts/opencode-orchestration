@@ -2,14 +2,16 @@
 .SYNOPSIS
     Smoke test do pacote com OpenCode V2 REAL num home isolado (Phase 8, V3.1).
 .DESCRIPTION
-    Pinned: OpenCode V2 exato (npm @opencode/cli@2.0.18; default via
+    Pinned: OpenCode V2 exato, pin do registry unico
+    (source/registry/runtime-versions.json, entrada runtimes.v2; default via
     -OpenCodeSpec; comparado por igualdade de versao, nao so major 2).
-    Instalacao no CI via `npm install -g @opencode/cli@2.0.18` (passo do
+    Instalacao no CI via `npm install -g <spec do registry>` (passo do
     workflow) + postinstall oficial; este script NAO provisiona: sem binario
     exato e MANDATORIO falhar (exit 1, nunca skip silencioso).
 
     Fluxo (tudo em TEMP isolado; config global do usuario intocada):
-      1. Resolve o binario (explicito ou PATH) e exige `--version` == 2.0.18.
+      1. Resolve o binario (explicito ou PATH) e exige `--version` == pin do
+         registry (igualdade de versao, nao so major 2).
       2. Constroi opencode.json com os 19 workers canonicos via
          scripts/runtime/lib/AgentTranslator.ps1 (mesmas funcoes dos testes
          de paridade) + build primario + experimental.subagent_depth=1.
@@ -36,7 +38,9 @@
     $env:TEMP\oo-v2smoke-home fora do CI.
 .PARAMETER OpenCodeSpec
     Spec npm esperada (igualdade de versao; a instalacao global e feita pelo
-    workflow ou pelo dev). Default: @opencode/cli@2.0.18.
+    workflow ou pelo dev). Vazio (default) = pin do registry unico
+    source/registry/runtime-versions.json (runtimes.v2); valor explicito =
+    override do pin.
 .PARAMETER BinaryPath
     Binario V2 explicito (opcional; CI usa o PATH apos npm install -g).
 .PARAMETER EvidencePath
@@ -46,7 +50,7 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
   [string]$TargetHome = '',
-  [string]$OpenCodeSpec = '@opencode/cli@2.0.18',
+  [string]$OpenCodeSpec = '',
   [string]$BinaryPath = '',
   [string]$EvidencePath = ''
 )
@@ -61,6 +65,12 @@ $lib = Join-Path $RepoRoot 'scripts\runtime\lib\SpikeProcess.ps1'
 . $lib
 $translator = Join-Path $RepoRoot 'scripts\runtime\lib\AgentTranslator.ps1'
 . $translator
+# Pin: registry unico (fail-closed); -OpenCodeSpec explicito sobrepoe.
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$RegistryPinV2 = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Version
+if ([string]::IsNullOrWhiteSpace($OpenCodeSpec)) {
+  $OpenCodeSpec = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Spec
+}
 
 if ([string]::IsNullOrWhiteSpace($TargetHome)) {
   $baseHome = $env:RUNNER_TEMP
@@ -72,7 +82,7 @@ if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
   $EvidencePath = Join-Path $RepoRoot 'evidence\v3.1\kernel-hardening\v2-ci-smoke.json'
 }
 
-$ExpectedVersion = '2.0.18'
+$ExpectedVersion = $RegistryPinV2
 $m = [regex]::Match($OpenCodeSpec, '(\d+)\.(\d+)\.(\d+)')
 if ($m.Success) {
   $ExpectedVersion = $m.Groups[1].Value + '.' + $m.Groups[2].Value + '.' + $m.Groups[3].Value

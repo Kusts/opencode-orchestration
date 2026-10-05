@@ -10,7 +10,8 @@
 
     Fluxo (padrao lifecycle-smoke, scripts/ci/smoke-opencode-v2-lifecycle.ps1):
       0. Gates de lane (fail-closed, TODOS antes de qualquer cenario):
-         binario V2 EXATO (2.0.18 pinado), home isolado EXCLUSIVO em TEMP,
+         binario V2 EXATO (pin do registry unico
+         source/registry/runtime-versions.json), home isolado EXCLUSIVO em TEMP,
          snapshot da porta 49374 ANTES (leitura pura), gate do watchdog
          ENFORCE lido do registro canonico (nenhuma flag escrita),
          ciclo de vida EXPLICITO do servico V2 (set/start/status/stop owned +
@@ -77,7 +78,9 @@
 .PARAMETER TargetHome
     Home isolado EXCLUSIVO desta execucao. Default: TEMP\oo-wdlane-<run-id>.
 .PARAMETER OpenCodeSpec
-    Spec npm esperada (igualdade de versao). Default: @opencode/cli@2.0.18.
+    Spec npm esperada (igualdade de versao). Vazio (default) = pin do
+    registry unico source/registry/runtime-versions.json (runtimes.v2);
+    valor explicito = override (divergente do pin e recusado).
 .PARAMETER BinaryPath
     Binario V2 explicito (.exe). Opcional.
 .PARAMETER EvidenceRoot
@@ -89,7 +92,7 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
   [string]$TargetHome = '',
-  [string]$OpenCodeSpec = '@opencode/cli@2.0.18',
+  [string]$OpenCodeSpec = '',
   [string]$BinaryPath = '',
   [string]$EvidenceRoot = '',
   [string]$ScenarioFilter = '04,05,06,07,08,09,10'
@@ -858,7 +861,7 @@ function Invoke-Scenario04 {
   $create = Invoke-KernelCli -LaneArgs @(
     '-Action', 'create', '-TaskId', $tid, '-Objective', 'prove a real worker attempt completes normally under a real kernel task',
     '-Actor', 'planner', '-ActorIdentitySource', 'explicit-cli',
-    '-RuntimeId', 'opencode-v2', '-RuntimeGeneration', '2', '-RuntimeProfile', 'v2', '-RuntimeVersion', '2.0.18',
+    '-RuntimeId', 'opencode-v2', '-RuntimeGeneration', '2', '-RuntimeProfile', 'v2', '-RuntimeVersion', $PinnedVersion,
     '-TasksDir', $tasksDir, '-AcceptanceCriteria', $criterion,
     '-WriteScopes', 'scripts/ci/watchdog-real-lane-v2.ps1'
   )
@@ -1440,12 +1443,23 @@ try {
   . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimePortPreflight.ps1')
   . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeJobObject.ps1')
   . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationRuntimeWatchdog.ps1')
+  . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
   $script:repoPolicy = Join-Path $RepoRoot 'source\registry\execution-budget-policy.json'
   $script:repoFlags = Join-Path $RepoRoot 'source\registry\capability-flags.json'
 }
 catch { $script:bootstrapError = (Get-LaneSafeError $_) }
 
-$PinnedVersion = '2.0.18'
+# Pin da lane: registry unico (fail-closed; sem literal). -OpenCodeSpec
+# explicito sobrepoe e, divergente do pin, e recusado.
+$PinnedVersion = ''
+if ([string]::IsNullOrWhiteSpace($script:bootstrapError)) {
+  try {
+    $pinV2 = Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot
+    $PinnedVersion = [string]$pinV2.Version
+    if ([string]::IsNullOrWhiteSpace($OpenCodeSpec)) { $OpenCodeSpec = [string]$pinV2.Spec }
+  }
+  catch { $script:bootstrapError = (Get-LaneSafeError $_) }
+}
 $m = [regex]::Match($OpenCodeSpec, '(\d+)\.(\d+)\.(\d+)')
 if ($m.Success -and (($m.Groups[1].Value + '.' + $m.Groups[2].Value + '.' + $m.Groups[3].Value) -ne $PinnedVersion)) {
   if ([string]::IsNullOrWhiteSpace($script:bootstrapError)) {

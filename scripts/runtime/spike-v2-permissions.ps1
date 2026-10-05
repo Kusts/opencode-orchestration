@@ -18,13 +18,16 @@
     com isolamento total por processo (XDG_CONFIG/DATA/STATE/CACHE + HOME/
     USERPROFILE no run-child, OPENCODE_CONFIG* removido do filho, clean env
     com allowlist de runtime do SO em todas as sondas, cwd no run-child;
-    stdin fechado). Versao exigida exata (linha 'opencode v2.0.18'; mismatch
-    bloqueia servico/config). Subprocesso via scripts/runtime/lib/SpikeProcess.ps1
+    stdin fechado). Versao exigida exata = pin do registry unico
+    (source/registry/runtime-versions.json, runtimes.v2; linha
+    'opencode v<pin>'; mismatch bloqueia servico/config).
+    Subprocesso via scripts/runtime/lib/SpikeProcess.ps1
     (exit code verdadeiro, drenos limitados com deadline, timeout com
     diagnostico parcial, sem tocar o env do pai; shim .cmd resolvido para o
     .exe real quando possivel).
 
-    Achado exato (2.0.18, 2026-09-30): `debug config`/`debug agents` exigem o
+    Achado exato (binario pinado em 2.0.18, 2026-09-30; historico):
+    `debug config`/`debug agents` exigem o
     background service (`serve --service`), que escuta na porta fixa
     127.0.0.1:49374; porta ocupada => o servico falha em loop e o CLI trava
     sem saida. O harness configura UMA porta livre por ambiente
@@ -54,7 +57,8 @@
     disponivel (explicito/manifest/PATH) ou grava skipped. Sem este switch,
     quando nenhum binario V2 e resolvido o harness tenta UMA vez o
     provisionamento opt-in do repo (scripts/runtime/new-opencode-profile.ps1
-    -RuntimeId opencode-v2 -ProvisionRuntime, baixa @opencode/cli@2.0.18 para
+    -RuntimeId opencode-v2 -ProvisionRuntime, baixa o pin do registry
+    (source/registry/runtime-versions.json) para
     DENTRO do perfil, sem tocar o global); falha de rede/npm grava skipped
     com o motivo e sai 0 (nunca falha o harness por falta de rede).
 .PARAMETER WhatIf
@@ -71,6 +75,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'lib\SpikeProcess.ps1')
+# Gate de versao exata: pin do registry unico (fail-closed; sem literal).
+. (Join-Path $PSScriptRoot 'lib\RuntimeVersions.ps1')
+$PinnedVersionV2 = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Version
+$PinnedSpecV2 = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Spec
+$pinSpecNote = ('baixa ' + $PinnedSpecV2 + ' no perfil')
 
 if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
   $ProfileRoot = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles'
@@ -187,7 +196,7 @@ if ($WhatIf) {
   if ($SkipProvision) { Write-Host '[PROVISION] SkipProvision: sem tentativa de rede/npm.' }
   else { Write-Host '[PROVISION] sem binario resolvido: tenta 1x scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime (opt-in, rede/npm; falha grava skipped).' }
   Write-Host '[FIXTURE] temp XDG+HOME root com opencode/opencode.json (V2: agents/permissions ordenadas, experimental.subagent_depth=1) + agents/*.md de registro'
-  Write-Host '[RUN] --version (exato 2.0.18, gate) | debug paths (isolamento) | service set port <livre> | debug config warmup (fontes) | service status (servidor privado) | debug agents ate 3x (load da fixture) | service stop com gates (owned)'
+  Write-Host ('[RUN] --version (exato ' + $PinnedVersionV2 + ', gate) | debug paths (isolamento) | service set port <livre> | debug config warmup (fontes) | service status (servidor privado) | debug agents ate 3x (load da fixture) | service stop com gates (owned)')
   Write-Host ('[EVIDENCE] ' + $EvidencePath)
   Write-Host '[MANUAL] behavioral_permission_enforcement fica manual_checklist_pending (5 passos)'
   exit 0
@@ -206,7 +215,7 @@ if (($null -eq $resolved) -and (-not $SkipProvision)) {
       status = 'skipped'
       reason = 'provision_script_missing'
       detail = ('new-opencode-profile.ps1 nao encontrado: ' + $provScript)
-      how_to_run = 'powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, baixa @opencode/cli@2.0.18 no perfil); depois re-execute este spike'
+      how_to_run = ('powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, ' + $pinSpecNote + '); depois re-execute este spike')
     }
     Write-SpikeJsonAtomic $skipped $EvidencePath
     Write-Host '[spike] SKIPPED: script de provisionamento ausente. Evidencia escrita.'
@@ -232,7 +241,7 @@ if (($null -eq $resolved) -and (-not $SkipProvision)) {
       status = 'skipped'
       reason = 'provision_timeout'
       detail = 'provisionamento V2 excedeu 300s (rede instavel ou indisponivel); partial log tail: ' + (($provText -split "`r?`n" | Select-Object -Last 5) -join ' | ')
-      how_to_run = 'powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, baixa @opencode/cli@2.0.18 no perfil); depois re-execute este spike'
+      how_to_run = ('powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, ' + $pinSpecNote + '); depois re-execute este spike')
     }
     Write-SpikeJsonAtomic $skipped $EvidencePath
     Write-Host '[spike] SKIPPED: provisionamento timeout (rede?). Evidencia escrita.'
@@ -255,7 +264,7 @@ if (($null -eq $resolved) -and (-not $SkipProvision)) {
       status = 'skipped'
       reason = $reason
       detail = ('new-opencode-profile.ps1 -ProvisionRuntime saiu com exit ' + $provProc.ExitCode + '; tail: ' + ((($provText -split "`r?`n" | Select-Object -Last 5) -join ' | ')))
-      how_to_run = 'powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, baixa @opencode/cli@2.0.18 no perfil); depois re-execute este spike'
+      how_to_run = ('powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, ' + $pinSpecNote + '); depois re-execute este spike')
     }
     Write-SpikeJsonAtomic $skipped $EvidencePath
     Write-Host ('[spike] SKIPPED: provisionamento falhou (exit ' + $provProc.ExitCode + '). Evidencia escrita.')
@@ -268,7 +277,7 @@ if ($null -eq $resolved) {
     date = '2026-09-30'
     status = 'skipped'
     reason = 'v2_binary_unavailable'
-    how_to_run = 'powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, baixa @opencode/cli@2.0.18 no perfil); depois re-execute este spike'
+    how_to_run = ('powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime  # opt-in (rede, ' + $pinSpecNote + '); depois re-execute este spike')
   }
   Write-SpikeJsonAtomic $skipped $EvidencePath
   Write-Host '[spike] SKIPPED: nenhum binario V2 (explicit/manifest/PATH). Evidencia escrita.'
@@ -290,7 +299,8 @@ if (-not [bool]$runChild.Created) {
     binary = $binary
     binary_source = [string]$resolved.Source
     version = ''
-    version_exact_2_0_18 = $false
+    pinned_version = $PinnedVersionV2
+    version_exact_pin = $false
     service_port = 0
     checks = @(@{ name = 'run_child'; passed = $false; detail = [string]$runChild.Reason })
     notes = @('Raiz por-run nao criada; nada executado.')
@@ -331,9 +341,9 @@ try {
   $vr = Invoke-SpikeChild -FilePath $binary -ArgumentList @('--version') -EnvSet $isoEnv -EnvRemove $isoRemove -WorkingDirectory $cwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
   $verText = ($vr.Stdout + "`n" + $vr.Stderr).Trim()
   $verFirst = (([string]$verText -split "`r?`n" | Select-Object -First 1)).Trim()
-  $isExact = (((-not [bool]$vr.TimedOut) -and ([int]$vr.ExitCode -eq 0)) -and (Test-SpikeExactVersion -Text $verText -Version '2.0.18'))
+  $isExact = (((-not [bool]$vr.TimedOut) -and ([int]$vr.ExitCode -eq 0)) -and (Test-SpikeExactVersion -Text $verText -Version $PinnedVersionV2))
   if ($isExact -and [string]::IsNullOrWhiteSpace($verFirst)) { $verFirst = $verText }
-  [void]$checks.Add([ordered]@{ name = 'version_exact_2_0_18'; passed = $isExact; detail = ('cmd: <bin> --version (isolado, clean env); rc=' + $vr.ExitCode + '; timeout=' + $vr.TimedOut + '; out=' + $verFirst) })
+  [void]$checks.Add([ordered]@{ name = 'version_exact_pin'; passed = $isExact; detail = ('cmd: <bin> --version (isolado, clean env); pin=' + $PinnedVersionV2 + '; rc=' + $vr.ExitCode + '; timeout=' + $vr.TimedOut + '; out=' + $verFirst) })
 
   $dp = Invoke-SpikeChild -FilePath $binary -ArgumentList @('debug', 'paths') -EnvSet $isoEnv -EnvRemove $isoRemove -WorkingDirectory $cwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
   $dpText = $dp.Stdout + "`n" + $dp.Stderr
@@ -345,7 +355,7 @@ try {
 
   if (-not $isoProved) {
     if (-not $isExact) {
-      [void]$notes.Add('Versao exata 2.0.18 nao provada: nenhuma operacao de servico/config apos este ponto (fail closed).')
+      [void]$notes.Add(('Versao exata ' + $PinnedVersionV2 + ' (pin do registry) nao provada: nenhuma operacao de servico/config apos este ponto (fail closed).'))
     }
     else {
       [void]$notes.Add('Isolamento nao provado: checks dependentes de servidor NAO executados contra config global (fail closed).')
@@ -425,7 +435,8 @@ try {
     binary = $binary
     binary_source = [string]$resolved.Source
     version = $verFirst
-    version_exact_2_0_18 = $isExact
+    pinned_version = $PinnedVersionV2
+    version_exact_pin = $isExact
     service_port = $freePort
     isolation = 'XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no run-child; OPENCODE_CONFIG* removido do filho; clean env (allowlist SO) em todas as sondas; cwd no run-child; stdin fechado; exit code real do processo'
     checks = @($checks)

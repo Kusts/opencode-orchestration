@@ -12,6 +12,15 @@ Fail closed: sem prova de isolamento, Both nao instala.
 
 $ErrorActionPreference = 'Stop'
 
+# Pins de runtime/versao vivem em UM registry commitado
+# (source/registry/runtime-versions.json); este modulo nunca escreve versao
+# como literal. Falha de leitura aqui = fail-closed (nada e provisionado).
+$P7VersionsLib = Join-Path $PSScriptRoot 'lib\RuntimeVersions.ps1'
+if (-not (Test-Path -LiteralPath $P7VersionsLib -PathType Leaf)) {
+  throw 'P7-PROFILE-FAIL: loader de versoes ausente (scripts/runtime/lib/RuntimeVersions.ps1); pin deve vir de source/registry/runtime-versions.json.'
+}
+. $P7VersionsLib
+
 # Preflight lib preload em escopo de biblioteca (fix RR-P22-FIX1 finding 6):
 # dot-source AQUI no top-level do modulo, nunca dentro de funcao (senao as
 # funcoes somem com o escopo local ao retornar). Import-P7Preflight abaixo
@@ -367,6 +376,15 @@ function Test-P7Isolation {
 }
 
 function Get-P7RegistrySpec([string]$RepoRoot, [string]$RuntimeId) {
+  # O pin vivo vem do registry UNICO de versoes (fail-closed); runtimes.json
+  # continua sendo consultado so para provar que o RuntimeId existe e tem
+  # suporte (papel declarativo, sem pin).
+  $pinName = ''
+  if ($RuntimeId -eq 'opencode-v1') { $pinName = 'v1' }
+  elseif ($RuntimeId -eq 'opencode-v2') { $pinName = 'v2' }
+  else {
+    throw ('P7-PROFILE-FAIL: RuntimeId sem pin no registry de versoes: ' + [string]$RuntimeId)
+  }
   $regPath = Join-Path $RepoRoot 'source\registry\runtimes.json'
   if (-not (Test-Path -LiteralPath $regPath -PathType Leaf)) {
     throw ('P7-PROFILE-FAIL: registry ausente: ' + $regPath)
@@ -378,10 +396,26 @@ function Get-P7RegistrySpec([string]$RepoRoot, [string]$RuntimeId) {
     throw ('P7-PROFILE-FAIL: registry ilegivel: ' + $_.Exception.Message)
   }
   $node = $reg.runtimes.$RuntimeId
-  if (($null -eq $node) -or [string]::IsNullOrWhiteSpace([string]$node.cli_package) -or [string]::IsNullOrWhiteSpace([string]$node.validated_version)) {
-    throw ('P7-PROFILE-FAIL: registry sem cli_package/validated_version para ' + $RuntimeId)
+  if (($null -eq $node) -or [string]::IsNullOrWhiteSpace([string]$node.cli_package)) {
+    throw ('P7-PROFILE-FAIL: registry sem cli_package para ' + $RuntimeId)
   }
-  return ([string]$node.cli_package + '@' + [string]$node.validated_version)
+  $sup = $false
+  try { if ($null -ne $node.supported) { $sup = [bool]$node.supported } } catch { $sup = $false }
+  if (-not $sup) {
+    throw ('P7-PROFILE-FAIL: runtime sem suporte (supported=false): ' + $RuntimeId)
+  }
+  # Falha do loader propaga (mensagem explicita; sem fallback literal).
+  return [string](Get-OrchestrationRuntimeVersion -Name $pinName -RepoRoot $RepoRoot).Spec
+}
+
+function Get-P7PinnedVersion {
+  param([string]$RepoRoot = '', [int]$Generation = 2)
+  $pinName = ''
+  if ($Generation -eq 1) { $pinName = 'v1' }
+  elseif ($Generation -eq 2) { $pinName = 'v2' }
+  else { throw ('P7-PROFILE-FAIL: geracao sem pin no registry de versoes: ' + [string]$Generation) }
+  # Fail-closed: erro do loader propaga (sem fallback literal).
+  return [string](Get-OrchestrationRuntimeVersion -Name $pinName -RepoRoot $RepoRoot).Version
 }
 
 function Test-P7NetworkSignature([string]$Output) {
@@ -539,7 +573,7 @@ function Write-P7PreflightLibCopy {
 }
 
 function Write-P7Wrapper {
-  param([string]$ProfileRoot = '', [string]$Profile = '', [string]$RuntimeId = '', [int]$Generation = 0)
+  param([string]$RepoRoot = '', [string]$ProfileRoot = '', [string]$Profile = '', [string]$RuntimeId = '', [int]$Generation = 0)
   $binDir = Join-Path $ProfileRoot 'bin'
   if (-not (Test-Path -LiteralPath $binDir -PathType Container)) {
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
@@ -633,6 +667,10 @@ catch {
 $ErrorActionPreference = 'Stop'
 $ProfileTag = '{PROFILE}'
 $WantedGeneration = {GENERATION}
+# Pin exato desta geracao, resolvido do registry unico de versoes na geracao
+# do wrapper (source/registry/runtime-versions.json). A lib standalone
+# RuntimePortPreflight recusa ExpectedVersion vazio.
+$PinnedVersionW = '{PINNED_VERSION}'
 $BinDirW = $PSScriptRoot
 $ProfileRootW = Split-Path -Parent $BinDirW
 $ProfileDirW = Join-Path $ProfileRootW $ProfileTag
@@ -758,8 +796,10 @@ function Get-WrapperMajor([string]$Text) {
   return [int]$m.Groups[1].Value
 }
 
-function Test-WrapperExact2018([string]$Text) {
-  try { return [regex]::IsMatch([string]$Text, '(?m)^opencode v2\.0\.18\s*$') } catch { return $false }
+function Test-WrapperExactPin([string]$Text) {
+  # Regex derivada do pin resolvido do registry na geracao do wrapper
+  # ({PINNED_VERSION}); nada de literal de versao no wrapper.
+  try { return [regex]::IsMatch([string]$Text, ('(?m)^opencode v' + [regex]::Escape($PinnedVersionW) + '\s*$')) } catch { return $false }
 }
 
 $homeDirW = Join-Path $ProfileDirW 'home'
@@ -945,7 +985,7 @@ if ($WantedGeneration -eq 2) {
   $selBaseW = @{ XDG_CONFIG_HOME = $configRootW }
   $rvW = $null
   try {
-    $rvW = Resolve-PreflightNativeExe -ProfileDir $ProfileDirW -Candidates @($candsW) -ExpectedVersion '2.0.18' -EnvTable $selBaseW -TimeoutMs 15000
+    $rvW = Resolve-PreflightNativeExe -ProfileDir $ProfileDirW -Candidates @($candsW) -ExpectedVersion $PinnedVersionW -EnvTable $selBaseW -TimeoutMs 15000
   }
   catch {
     Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado: resolve do binario exato falhou (fail-closed).') -ForegroundColor Red
@@ -954,7 +994,7 @@ if ($WantedGeneration -eq 2) {
   if (($null -eq $rvW) -or (-not [bool]$rvW.Ok) -or [string]::IsNullOrWhiteSpace([string]$rvW.Exe)) {
     $rdW = ''
     try { $rdW = [string]$rvW.Detail } catch { $rdW = '' }
-    Write-Host ('[wrapper ' + $ProfileTag + '] nenhum binario exato 2.0.18 sob o pacote (sem PATH; shim .cmd resolve para .exe central): ' + $rdW) -ForegroundColor Red
+    Write-Host ('[wrapper ' + $ProfileTag + '] nenhum binario exato (pin ' + $PinnedVersionW + ') sob o pacote (sem PATH; shim .cmd resolve para .exe central): ' + $rdW) -ForegroundColor Red
     Write-Host 'Provisione o binario do perfil (rede, opt-in):' -ForegroundColor Red
     Write-Host ('  powershell -NoProfile -File scripts\runtime\new-opencode-profile.ps1 -RuntimeId {RUNTIME_ID} -ProvisionRuntime') -ForegroundColor Red
     exit 6
@@ -1011,7 +1051,7 @@ $gateW = $null
 if ($WantedGeneration -eq 2) {
   if ($isStartW) {
     try {
-      $gateW = Ensure-PreflightConfiguredPort -ProfileDir $ProfileDirW -ExplicitPort $ServicePort -ChosenBinary $chosenW -TimeoutMs 15000
+      $gateW = Ensure-PreflightConfiguredPort -ProfileDir $ProfileDirW -ExplicitPort $ServicePort -ChosenBinary $chosenW -TimeoutMs 15000 -ExpectedVersion $PinnedVersionW
     }
     catch {
       Write-Host ('[wrapper ' + $ProfileTag + '] startup bloqueado (blocker; fail-closed).') -ForegroundColor Red
@@ -1192,6 +1232,9 @@ exit $codeW
   $tmpl = $tmpl.Replace('{PROFILE}', $Profile)
   $tmpl = $tmpl.Replace('{RUNTIME_ID}', $RuntimeId)
   $tmpl = $tmpl.Replace('{GENERATION}', [string]$Generation)
+  # Pin resolvido do registry unico de versoes no momento da geracao; a lib
+  # standalone exige ExpectedVersion explicito (fail-closed quando vazio).
+  $tmpl = $tmpl.Replace('{PINNED_VERSION}', (Get-P7PinnedVersion -RepoRoot $RepoRoot -Generation $Generation))
   [IO.File]::WriteAllText($wrapperPath, (($tmpl -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd() + "`n"), (New-Object Text.UTF8Encoding $false))
   return $wrapperPath
 }
@@ -1287,6 +1330,23 @@ function New-OrchestrationProfile {
   }
   Assert-P7PathUnder $homeDir $ProfileRoot 'home do perfil'
   Assert-P7PathUnder $runtimeDir $ProfileRoot 'runtime do perfil'
+  # RR-VERSIONS-REGISTRY-FIX2: com -ProvisionRuntime, o spec do runtime e
+  # resolvido e validado AQUI, antes de criar diretorios e antes do install do
+  # perfil. Sem esta pre-validacao, um registry parcialmente invalido era
+  # descoberto dentro de Install-P7RuntimeBinary (depois de mkdir + install),
+  # deixando perfil/config meio provisioned. Falha aqui => throw, zero escrita.
+  if ($ProvisionRuntime) {
+    $preProvisionSpec = ''
+    try {
+      $preProvisionSpec = Get-P7RegistrySpec $RepoRoot $RuntimeId
+    }
+    catch {
+      throw ('P7-PROVISION: spec do runtime nao resolvido no registry antes de qualquer escrita: ' + $_.Exception.Message)
+    }
+    if ([string]::IsNullOrWhiteSpace($preProvisionSpec)) {
+      throw 'P7-PROVISION: spec do runtime vazio apos resolucao (pre-validacao, nenhuma escrita realizada).'
+    }
+  }
   $installScript = Join-Path $RepoRoot 'install.ps1'
   if (-not (Test-Path -LiteralPath $installScript -PathType Leaf)) {
     throw ('P7-PROFILE-FAIL: install.ps1 ausente no RepoRoot: ' + $installScript)
@@ -1368,7 +1428,7 @@ function New-OrchestrationProfile {
       }
       $partialLib = ''
       try { $partialLib = Write-P7PreflightLibCopy -RepoRoot $RepoRoot -ProfileDir $profileDir } catch { $partialLib = '' }
-      $partialWrapper = Write-P7Wrapper -ProfileRoot $ProfileRoot -Profile $profile -RuntimeId $RuntimeId -Generation $gen
+      $partialWrapper = Write-P7Wrapper -RepoRoot $RepoRoot -ProfileRoot $ProfileRoot -Profile $profile -RuntimeId $RuntimeId -Generation $gen
       $partial = New-P7ProfileManifestObject -Profile $profile -RuntimeId $RuntimeId -Generation $gen -HomeDir $homeDir -ConfigRoot $configRoot -RuntimeDir $runtimeDir -InstallManifest $installManifest -WrapperPath $partialWrapper -ProvisionedNode $null -RepoRoot $RepoRoot -ServicePortNode $partialSvcNode -PreflightLibPath $partialLib
       Write-P7JsonAtomic $partial $manifestPath
       throw
@@ -1431,7 +1491,7 @@ function New-OrchestrationProfile {
   # (marcador de sucesso), escrito de forma atomica. Lib ausente => perfil
   # recusado (wrapper bloquearia startup sem gate).
   $preflightLibCopy = Write-P7PreflightLibCopy -RepoRoot $RepoRoot -ProfileDir $profileDir
-  $wrapperPath = Write-P7Wrapper -ProfileRoot $ProfileRoot -Profile $profile -RuntimeId $RuntimeId -Generation $gen
+  $wrapperPath = Write-P7Wrapper -RepoRoot $RepoRoot -ProfileRoot $ProfileRoot -Profile $profile -RuntimeId $RuntimeId -Generation $gen
   $provNode = $null
   if ($provisioned) {
     $provNode = [ordered]@{ binary_path = $binaryPath; version = $versionLine; provenance = $provenance }

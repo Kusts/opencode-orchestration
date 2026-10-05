@@ -32,6 +32,12 @@
       - ownership: .exe only (shim .cmd nunca prova); reparse ancestry em
         persist/tmp, config/state/data/cache, marker/profile; sem fallback
         lexical (TEMP nao e prova de confinamento).
+    Pin de versao (RR-VERSIONS-REGISTRY): esta lib e COPIADA para os perfis e
+    por isso permanece STANDALONE (nunca dot-source de outra lib). Por isso
+    NAO existe default de versao aqui: -ExpectedVersion vazio e recusado
+    (fail-closed) e o pin tem de chegar do registry unico
+    (source/registry/runtime-versions.json) via o chamador (wrapper gerado em
+    New-OrchestrationProfile). Nunca reintroduzir literal de pin nesta lib.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -1370,7 +1376,7 @@ function Invoke-PreflightServiceSetPort {
     [string[]]$EnvRemove = @(),
     [string]$WorkingDirectory = '',
     [int]$TimeoutMs = 30000,
-    [string]$ExpectedVersion = '2.0.18',
+    [string]$ExpectedVersion = '',
     [bool]$RequireExactVersion = $true,
     [string]$ProfileDir = '',
     [string]$ExpectedBinaryPath = ''
@@ -1378,6 +1384,10 @@ function Invoke-PreflightServiceSetPort {
   Assert-PreflightPort -Port $Port
   if ([string]::IsNullOrWhiteSpace($BinaryPath)) {
     return @{ Ok = $false; Output = 'binario vazio (mutacao recusada).' }
+  }
+  # Pin exato nunca vem de literal desta lib (standalone): ausente = fail-closed.
+  if ($RequireExactVersion -and [string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+    return @{ Ok = $false; Output = 'expected version vazia; pin deve vir do registry via chamador (mutacao recusada).' }
   }
   if (-not $BinaryPath.ToLowerInvariant().EndsWith('.exe')) {
     return @{ Ok = $false; Output = ('binario deve ser .exe (mutacao recusada; sem shell/cmd): ' + $BinaryPath) }
@@ -1456,7 +1466,7 @@ function Invoke-PreflightServiceSetPort {
   if ($RequireExactVersion) {
     $rx = '(?m)^opencode v' + [regex]::Escape($ExpectedVersion) + '\s*$'
     if (-not ([regex]::IsMatch([string]$ver.Output, $rx))) {
-      return @{ Ok = $false; Output = ('versao exata ' + $ExpectedVersion + ' nao confirmada; service set port recusado (prova 2.0.18 exigida). Obtido: ' + (([string]$ver.Output -split "`r?`n" | Select-Object -First 1))) }
+      return @{ Ok = $false; Output = ('versao exata ' + $ExpectedVersion + ' nao confirmada; service set port recusado (prova de versao exata exigida; pin do registry). Obtido: ' + (([string]$ver.Output -split "`r?`n" | Select-Object -First 1))) }
     }
   }
   $free = Get-PreflightListener -Port $Port
@@ -1467,7 +1477,8 @@ function Invoke-PreflightServiceSetPort {
     return @{ Ok = $false; Output = ('porta ' + $Port + ' ocupada (PID ' + $free.OwningPID + '); service set port recusado sem matar PID') }
   }
   # RR-P22-NATIVE-IMPLEMENT (substitui gate global FIX2): 'debug config' no
-  # 2.0.18 inicia serve --service (efeito de start). Warmup/start/status
+  # binario V2 de pin 2.0.18 inicia serve --service (efeito de start).
+  # Warmup/start/status
   # pos-set REMOVIDOS deste helper: nenhuma chamada que possa parar/iniciar
   # servico. O gate global na porta nativa 49374 foi REMOVIDO por ser indevido:
   # 49374 ocupada por outro servico/processo (ex. ssh port-forward) nao pode
@@ -1511,7 +1522,7 @@ function Resolve-PreflightNativeExe {
   param(
     [string]$ProfileDir = '',
     [string[]]$Candidates = @(),
-    [string]$ExpectedVersion = '2.0.18',
+    [string]$ExpectedVersion = '',
     $EnvTable = $null,
     [int]$TimeoutMs = 15000
   )
@@ -1521,6 +1532,10 @@ function Resolve-PreflightNativeExe {
   $diag = New-Object System.Collections.ArrayList
   if ([string]::IsNullOrWhiteSpace($ProfileDir)) {
     return @{ Ok = $false; Exe = ''; Version = ''; Detail = 'ProfileDir vazio (resolve recusado).' }
+  }
+  # Pin exato nunca vem de literal desta lib (standalone): ausente = recusado.
+  if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+    return @{ Ok = $false; Exe = ''; Version = ''; Detail = 'expected version vazia; pin deve vir do registry via chamador (resolve recusado).' }
   }
   $mv = Test-PreflightProfileManifestV2 -ProfileDir $ProfileDir
   if (-not [bool]$mv.Ok) {
@@ -1793,7 +1808,8 @@ function Ensure-PreflightConfiguredPort {
     $NativeGetOverride = $null,
     $NativeConfigOverride = $null,
     $SetPortRunnerOverride = $null,
-    $ResolveOverride = $null
+    $ResolveOverride = $null,
+    [string]$ExpectedVersion = ''
   )
   # RR-P22-WRAPPER: gate central do wrapper V2 (lib; sem inline duplicado).
   # Marker pending SOZINHO nunca autoriza: exige get+service.json==desired
@@ -1936,13 +1952,13 @@ function Ensure-PreflightConfiguredPort {
     else {
       $cands = New-Object System.Collections.ArrayList
       if (-not [string]::IsNullOrWhiteSpace($ChosenBinary)) { [void]$cands.Add($ChosenBinary) }
-      $rv = Resolve-PreflightNativeExe -ProfileDir $ProfileDir -Candidates @($cands) -ExpectedVersion '2.0.18' -EnvTable $baseTable -TimeoutMs $TimeoutMs
+      $rv = Resolve-PreflightNativeExe -ProfileDir $ProfileDir -Candidates @($cands) -ExpectedVersion $ExpectedVersion -EnvTable $baseTable -TimeoutMs $TimeoutMs
       if (-not [bool]$rv.Ok) {
         [void]$diag.Add([string]$rv.Detail)
-        return (& $block ('binario exato 2.0.18 indisponivel sob o pacote (sem PATH): ' + [string]$rv.Detail) 'NATIVE_PORT_CONFIGURATION_HOLD')
+        return (& $block ('binario exato indisponivel sob o pacote (sem PATH; pin ' + $ExpectedVersion + '): ' + [string]$rv.Detail) 'NATIVE_PORT_CONFIGURATION_HOLD')
       }
       $resolvedExe = [string]$rv.Exe
-      [void]$diag.Add(('exe exato 2.0.18: ' + $resolvedExe))
+      [void]$diag.Add(('exe exato do pin: ' + $resolvedExe))
     }
     $getRes = $null
     if ($null -ne $NativeGetOverride) {
@@ -1978,7 +1994,7 @@ function Ensure-PreflightConfiguredPort {
         try { $setRes = (& $SetPortRunnerOverride) } catch { $setRes = @{ Ok = $false; Output = 'set override falhou.' } }
       }
       else {
-        $setRes = Invoke-PreflightServiceSetPort -BinaryPath $resolvedExe -Port $desired -EnvTable $baseTable -ProfileDir $ProfileDir -TimeoutMs $TimeoutMs -ExpectedVersion '2.0.18' -RequireExactVersion $true
+        $setRes = Invoke-PreflightServiceSetPort -BinaryPath $resolvedExe -Port $desired -EnvTable $baseTable -ProfileDir $ProfileDir -TimeoutMs $TimeoutMs -ExpectedVersion $ExpectedVersion -RequireExactVersion $true
       }
       if (-not [bool]$setRes.Ok) {
         [void]$diag.Add([string]$setRes.Output)
@@ -2039,7 +2055,7 @@ function Ensure-PreflightConfiguredPort {
         Env = $effCheck
         Desired = $desired
         Outcome = [string]$pf.Outcome
-        Detail = ('configuration-verified + PORT_FREE em ' + $desired + ' (marker pending desired; sem claim applied; exe exato 2.0.18; mesmo env final).')
+        Detail = ('configuration-verified + PORT_FREE em ' + $desired + ' (marker pending desired; sem claim applied; exe exato do pin ' + $ExpectedVersion + '; mesmo env final).')
         Diagnostics = @($diag)
         Hold = ''
       }
@@ -2081,11 +2097,16 @@ function Test-PreflightConfiguredPort {
     $NativeGetOverride = $null,
     $NativeConfigOverride = $null,
     $SetPortRunnerOverride = $null,
-    $ResolveOverride = $null
+    $ResolveOverride = $null,
+    # RR-P22-WRAPPER-FIX2: o pin nao nasce nesta lib. Ausente => o resolver
+    # central recusa (fail-closed, mensagem explicita), nunca adivinha.
+    [string]$ExpectedVersion = ''
   )
   # Alias de nome alternativo para Ensure-PreflightConfiguredPort (tolerancia
   # de chamada do wrapper/testes). Central unica; sem logica duplicada.
+  # O pin E ACEITO e ENCAMINHADO (alias inutilizavel sem isso desde o
+  # endurecimento do resolver); ausencia continua fail-closed.
   $exR = $null
   if ($null -ne $ExcludedRangesOverride) { $exR = $ExcludedRangesOverride }
-  return (Ensure-PreflightConfiguredPort -ProfileDir $ProfileDir -ExplicitPort $ExplicitPort -ChosenBinary $ChosenBinary -TimeoutMs $TimeoutMs -ListenerOverride $ListenerOverride -ExcludedRangesOverride $exR -ExcludedQueryAvailableOverride $ExcludedQueryAvailableOverride -NativeGetOverride $NativeGetOverride -NativeConfigOverride $NativeConfigOverride -SetPortRunnerOverride $SetPortRunnerOverride -ResolveOverride $ResolveOverride)
+  return (Ensure-PreflightConfiguredPort -ProfileDir $ProfileDir -ExplicitPort $ExplicitPort -ChosenBinary $ChosenBinary -TimeoutMs $TimeoutMs -ListenerOverride $ListenerOverride -ExcludedRangesOverride $exR -ExcludedQueryAvailableOverride $ExcludedQueryAvailableOverride -NativeGetOverride $NativeGetOverride -NativeConfigOverride $NativeConfigOverride -SetPortRunnerOverride $SetPortRunnerOverride -ResolveOverride $ResolveOverride -ExpectedVersion $ExpectedVersion)
 }

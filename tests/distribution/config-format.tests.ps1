@@ -13,6 +13,12 @@ function Assert($Cond, [string]$Name) {
   else { $script:fail += 1; Write-Host ("NOT OK - " + $Name) }
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# RR-VERSIONS-REGISTRY: a versao do stub abaixo e o PIN real do plugin (o
+# comentario afirma isso), entao vem do registry unico em vez de envelhecer
+# como literal apos um bump. O stub so existe para evitar rede; nenhuma
+# assercao compara a versao.
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$pluginV1Version = (Get-OrchestrationRuntimeVersion -Name plugin_v1 -RepoRoot $RepoRoot).Version
 $utf8 = New-Object Text.UTF8Encoding $false
 
 function New-TestHome([string]$Tag) {
@@ -21,7 +27,7 @@ function New-TestHome([string]$Tag) {
   $plugDir = Join-Path $h '.config\opencode\node_modules\@opencode-ai\plugin'
   New-Item -ItemType Directory -Path $plugDir -Force | Out-Null
   # Pin local da dependencia: evita tentativa de rede (best-effort) nos testes.
-  [IO.File]::WriteAllText((Join-Path $plugDir 'package.json'), '{"name":"@opencode-ai/plugin","version":"1.18.32"}', $utf8)
+  [IO.File]::WriteAllText((Join-Path $plugDir 'package.json'), ('{"name":"@opencode-ai/plugin","version":"' + $pluginV1Version + '"}'), $utf8)
   return $h
 }
 

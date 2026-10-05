@@ -6,6 +6,42 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Adicionado
+
+- **Registry único de pins de runtime/tool** `source/registry/runtime-versions.json`
+  (`runtimes.v1/v2`, `plugins.v1/v2`, `tools.bun`, campos `package`/`version`/`spec`)
+  + loader fail-closed `scripts/runtime/lib/RuntimeVersions.ps1`
+  (`Get-OrchestrationRuntimeVersion -Name v1|v2|plugin_v1|plugin_v2|bun`; resolve o
+  repo root pela própria localização, funciona de qualquer cwd; **sem fallback para
+  literal** — registry ausente/ilegível/JSON inválido/entrada vazia ou `spec`
+  divergente de `package@version` ⇒ `throw` com motivo). Bump de versão passa a ser
+  edição de **um** arquivo (+ re-validação no runtime exato).
+
+### Changed
+
+- Consumidores passaram a ler o pin do registry (override explícito por parâmetro
+  preservado: `-OpenCodeSpec`/`-ExpectedVersion`): smokes `smoke-opencode.ps1`,
+  `smoke-opencode-v2.ps1`, `smoke-opencode-v2-lifecycle.ps1`,
+  `watchdog-real-lane-v2.ps1`, `typecheck-plugin.ps1` (`plugin_v1`/`plugin_v2`),
+  `spike-v2-permissions.ps1` (gate de versão exata), `RuntimeAdapters.ps1`
+  (`plugin_dependency_spec`/`PluginDependencySpec`) e
+  `New-OrchestrationProfile.ps1` (spec de provisionamento e pin do wrapper gerado).
+  `RuntimePortPreflight.ps1` permanece **standalone** (é copiada para os perfis):
+  perdeu o default `'2.0.18'` de `-ExpectedVersion` e agora **recusa valor vazio**
+  (fail-closed), com mensagem genérica e sem pin literal.
+- Pins atuais refletem o uso real: **V2 = `@opencode/cli@2.0.23`**, **V1 =
+  `opencode-ai@1.18.34`**, plugins `@opencode-ai/plugin@1.18.34` /
+  `@opencode/plugin@2.0.23` (versões confirmadas no npm em 2026-10-05),
+  `bun@1.3.14` (mantido). `.github/workflows/ci.yml` resolve os pins do registry
+  (`GITHUB_ENV`: `V1_SPEC`, `V2_SPEC`, `PLUGIN_V1_SPEC`, `PLUGIN_V2_SPEC`,
+  `BUN_VERSION`) e instala por eles — nenhuma versão de pacote digitada no workflow.
+- **Registros históricos de evidência permanecem intactos** (`2.0.18`/`1.18.32` em
+  `evidence/`, `source/registry/runtimes.json` e notas datadas que citam o binário
+  histórico continuam citando-o como histórico). Sem reescrita de histórico.
+- Testes alinhados ao registry (asserts de spec e de binário real sem literal);
+  fixtures sintéticas de versão continuam intactas e, com o host local em `2.0.18`,
+  os pontos que exigem o pin `2.0.23` seguem como **SKIP honesto** (nunca FAIL).
+
 Programa **V3.1 — Dual-Runtime Kernel Hardening** em andamento
 (especificação e plano em `docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-*`).
 Fases 0–4, 6–7 (dual-runtime) e 9–19 (Task Kernel) **implementadas, revisadas

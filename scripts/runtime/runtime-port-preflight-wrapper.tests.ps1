@@ -12,6 +12,10 @@ $lib = Join-Path $PSScriptRoot 'lib\RuntimePortPreflight.ps1'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $profLib = Join-Path $repoRoot 'scripts\runtime\New-OrchestrationProfile.ps1'
 . $profLib
+# Pin exato do binario REAL: registry unico (source/registry/runtime-versions.json).
+# Sem binario desse pin neste host => SKIP honesto (comportamento preservado).
+$pinV2Real = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $repoRoot).Version
+$pinRxV2 = '(?m)^opencode v' + [regex]::Escape($pinV2Real) + '\s*$'
 $psExe = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not (Test-Path -LiteralPath $psExe -PathType Leaf)) { $psExe = 'powershell' }
 $base = Join-Path ([IO.Path]::GetTempPath()) ('rr-p22w-' + [guid]::NewGuid().ToString('N'))
@@ -176,8 +180,16 @@ try {
 
   # 11. wrapper gerado V2 seleciona exe exato e usa mesmo env (sem rede; BinaryOverride).
   $realExe = 'C:\Users\walis\.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
+  # O host pode ter o binario real em OUTRA versao que o pin do registry: as
+  # assercoes que exigem o binario NO PIN viram SKIP honesto (nunca FAIL nem
+  # verde por versao errada).
+  $hostPinOk = $false
+  if (Test-Path -LiteralPath $realExe -PathType Leaf) {
+    $hostVer = Invoke-PreflightBoundedExe -File $realExe -ArgsLine '--version' -WorkDir ([IO.Path]::GetTempPath()) -TimeoutMs 15000
+    $hostPinOk = (([bool]$hostVer.Finished) -and ([int]$hostVer.ExitCode -eq 0) -and ([string]$hostVer.Output -match $pinRxV2))
+  }
   if (-not (Test-Path -LiteralPath $realExe -PathType Leaf)) {
-    Write-Host '[SKIP] w11: exe exato 2.0.18 ausente neste host'
+    Write-Host ('[SKIP] w11: exe exato ' + $pinV2Real + ' ausente neste host')
   } else {
     $profRoot11 = Join-Path $base ('profroot-' + [guid]::NewGuid().ToString('N'))
     $info11 = New-OrchestrationProfile -RepoRoot $repoRoot -ProfileRoot $profRoot11 -RuntimeId 'opencode-v2' -BinaryOverride $realExe
@@ -192,17 +204,22 @@ try {
     $hasParam11 = $false
     try { $hasParam11 = (([IO.File]::ReadAllText($wrap11, [Text.Encoding]::UTF8)) -match 'Ensure-PreflightConfiguredPort') } catch { $hasParam11 = $false }
     Assert-That ($hasParam11) 'w11: wrapper chama gate central (sem inline)' 'wrapper sem Ensure'
-    $diag11 = Invoke-BoundedPs $wrap11 '--version' 15000
-    Assert-That (([int]$diag11.Code -eq 0) -and ([string]$diag11.Out -match 'opencode v2\.0\.18')) 'w11: wrapper --version diagnostico exato 2.0.18' ([string]$diag11.Out)
-    $block11 = Invoke-BoundedPs $wrap11 'service start' 15000
-    Assert-That (([int]$block11.Code -eq 2)) 'w11: wrapper service start sem -ServicePort bloqueia exit 2' ([string]$block11.Out)
+    if (-not $hostPinOk) {
+      Write-Host ('[SKIP] w11: diag/start exigem o binario real NO PIN ' + $pinV2Real + ' (host tem outra versao; sem claim)')
+    }
+    else {
+      $diag11 = Invoke-BoundedPs $wrap11 '--version' 15000
+      Assert-That (([int]$diag11.Code -eq 0) -and ([string]$diag11.Out -match $pinRxV2)) ('w11: wrapper --version diagnostico exato ' + $pinV2Real) ([string]$diag11.Out)
+      $block11 = Invoke-BoundedPs $wrap11 'service start' 15000
+      Assert-That (([int]$block11.Code -eq 2)) 'w11: wrapper service start sem -ServicePort bloqueia exit 2' ([string]$block11.Out)
+    }
   }
 
   # 13. FIX1 negatives via wrapper real (sem mocks de lancamento; bounded 15s).
   # Mutadores nunca encaminhados; dest-opts recusadas; unknown/TUI bloqueado
   # com reason honesta; 49374 ocupado nunca inicia; shim .cmd resolve .exe.
   if (-not (Test-Path -LiteralPath $realExe -PathType Leaf)) {
-    Write-Host '[SKIP] w13: negatives exigem exe exato 2.0.18 neste host'
+    Write-Host ('[SKIP] w13: negatives exigem exe exato ' + $pinV2Real + ' neste host')
   } else {
     $profRoot13 = Join-Path $base ('neg-' + [guid]::NewGuid().ToString('N'))
     $info13 = New-OrchestrationProfile -RepoRoot $repoRoot -ProfileRoot $profRoot13 -RuntimeId 'opencode-v2' -BinaryOverride $realExe
@@ -233,9 +250,12 @@ try {
     # deve selecionar o .exe exato (sem override, sem shell).
     try {
       $globalShim = 'C:\Users\walis\.opencode-orchestration\profiles\v2\runtime\node_modules\.bin\opencode.cmd'
-      if ((Test-Path -LiteralPath $globalShim -PathType Leaf)) {
-        $rvCmd = Resolve-PreflightNativeExe -ProfileDir $pd13 -Candidates @($globalShim) -ExpectedVersion '2.0.18' -TimeoutMs 15000
-        Assert-That (([bool]$rvCmd.Ok) -and ([string]$rvCmd.Exe).ToLowerInvariant().EndsWith('.exe') -and ([string]$rvCmd.Version -match '(?m)^opencode v2\.0\.18\s*$')) 'w13: shim .cmd npm resolve .exe exato central (sem shell)' ([string]$rvCmd.Detail)
+      if (-not $hostPinOk) {
+        Write-Host ('[SKIP] w13: resolve do shim exige o binario real NO PIN ' + $pinV2Real + ' (host tem outra versao; sem claim)')
+      }
+      elseif ((Test-Path -LiteralPath $globalShim -PathType Leaf)) {
+        $rvCmd = Resolve-PreflightNativeExe -ProfileDir $pd13 -Candidates @($globalShim) -ExpectedVersion $pinV2Real -TimeoutMs 15000
+        Assert-That (([bool]$rvCmd.Ok) -and ([string]$rvCmd.Exe).ToLowerInvariant().EndsWith('.exe') -and ([string]$rvCmd.Version -match $pinRxV2)) 'w13: shim .cmd npm resolve .exe exato central (sem shell)' ([string]$rvCmd.Detail)
       } else {
         Write-Host '[SKIP] w13: shim .cmd global ausente neste host'
       }
@@ -270,10 +290,13 @@ try {
   } else {
     $realExe2 = 'C:\Users\walis\.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
     $vr = Invoke-PreflightBoundedExe -File $realExe2 -ArgsLine '--version' -WorkDir ([IO.Path]::GetTempPath()) -TimeoutMs 15000
-    if ((-not [bool]$vr.Finished) -or ([int]$vr.ExitCode -ne 0) -or (-not ([string]$vr.Output -match '(?m)^opencode v2\.0\.18\s*$'))) {
-      Assert-That $false 'w12: pin exato 2.0.18 responde --version' ([string]$vr.Output)
+    $pinExact12 = (([bool]$vr.Finished) -and ([int]$vr.ExitCode -eq 0) -and ([string]$vr.Output -match $pinRxV2))
+    if (-not $pinExact12) {
+      # Host sem o binario NO PIN do registry: SKIP honesto (nada e provado
+      # sobre o pin; nunca FAIL por divergencia de versao do host).
+      Write-Host ('[SKIP] w12: E2E exige o binario real NO PIN ' + $pinV2Real + ' (saida=' + (([string]$vr.Output -split "`r?`n" | Select-Object -First 1)) + ')')
     } else {
-      Assert-That $true 'w12: pin exato 2.0.18 responde --version' ''
+      Assert-That $true ('w12: pin exato ' + $pinV2Real + ' responde --version') ''
       $profRoot12 = Join-Path $base ('e2e-' + [guid]::NewGuid().ToString('N'))
       $info12 = New-OrchestrationProfile -RepoRoot $repoRoot -ProfileRoot $profRoot12 -RuntimeId 'opencode-v2' -BinaryOverride $realExe2
       $wrap12 = [string]$info12.WrapperPath

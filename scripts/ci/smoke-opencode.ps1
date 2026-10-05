@@ -2,7 +2,9 @@
 .SYNOPSIS
     Smoke test do pacote com OpenCode V1 REAL num home isolado.
 .DESCRIPTION
-    Pinned: OpenCode V1 (npm opencode-ai@1.18.32; default via -OpenCodeSpec).
+    Pinned: OpenCode V1, pin do registry unico
+    (source/registry/runtime-versions.json, entrada runtimes.v1). O default de
+    -OpenCodeSpec vem desse registry; -OpenCodeSpec explicito sobrepoe.
     V2 (pacote @opencode-ai/cli, comando opencode2) NAO e suportado.
 
     Fluxo:
@@ -28,12 +30,14 @@
     $env:TEMP\oo-smoke-home fora do CI.
 .PARAMETER OpenCodeSpec
     Spec npm do OpenCode esperado (so documental/verificacao de major; a
-    instalacao global e feita pelo workflow ou pelo dev).
+    instalacao global e feita pelo workflow ou pelo dev). Vazio (default) =
+    pin do registry unico source/registry/runtime-versions.json (runtimes.v1);
+    valor explicito = override do pin.
 #>
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
   [string]$TargetHome = '',
-  [string]$OpenCodeSpec = 'opencode-ai@1.18.32'
+  [string]$OpenCodeSpec = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +46,12 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
   $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+
+# Pin: registry unico (fail-closed); -OpenCodeSpec explicito sobrepoe.
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+if ([string]::IsNullOrWhiteSpace($OpenCodeSpec)) {
+  $OpenCodeSpec = [string](Get-OrchestrationRuntimeVersion -Name v1 -RepoRoot $RepoRoot).Spec
+}
 
 if ([string]::IsNullOrWhiteSpace($TargetHome)) {
   $baseHome = $env:RUNNER_TEMP

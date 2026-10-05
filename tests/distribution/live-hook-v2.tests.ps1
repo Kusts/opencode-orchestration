@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
     RR-P24-LIVEHOOK fase 24 fatia 2: live-hook verification T2/T3 no binario
-    exato @opencode/cli 2.0.18 provisionado.
+    exato do PIN V2 vigente (@opencode/cli, via
+    source/registry/runtime-versions.json). Perfil local em versao anterior ao
+    pin => gate de versao reprova honestamente antes de qualquer service op.
 .DESCRIPTION
-    T3 (SDK em-processo) quando o pacote @opencode/sdk 2.0.18 existir nos
-    node_modules provisionados; sem rede, sem install: ausente => [SKIP]
-    honesto. T2: perfil TEMP isolado (XDG_*+HOME/USERPROFILE confinados,
-    OPENCODE_CONFIG* removidos do filho), install -TargetHome no temp home
-    (nunca home global), fixture ESM em <config>/plugins que grava eventos
-    no JSONL do temp, service V2 em porta alternativa livre verificada
+    T3 (SDK em-processo) quando o pacote @opencode/sdk na versao do pin
+    existir nos node_modules provisionados; sem rede, sem install: ausente
+    => [SKIP] honesto. T2: perfil TEMP isolado (XDG_*+HOME/USERPROFILE
+    confinados, OPENCODE_CONFIG* removidos do filho), install -TargetHome no
+    temp home (nunca home global), fixture ESM em <config>/plugins que grava
+    eventos no JSONL do temp, service V2 em porta alternativa livre verificada
     (nunca 49374; excluded ranges validados), start unico bounded, trigger
     de sessao via api autenticada do perfil sem modelo pago, stop owned + settlement.
     Todos os filhos via Invoke-PreflightBoundedExe (timeout externo +
@@ -29,6 +31,16 @@ function Hold([string]$Text) { $script:hold += 1; Write-Host ("[HOLD] " + $Text)
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimePortPreflight.ps1')
+
+# RR-VERSIONS-REGISTRY: o pin exato do binario V2 vem do registry unico
+# (source/registry/runtime-versions.json) via loader fail-closed. Este gate
+# existe justamente para reprovar quando o binario provisionado NAO e o pin
+# vigente (ex.: perfil local em versao antiga apos um bump) -- sem literal
+# duplicado aqui, que envelheceria em silencio. Loader/registry ausente =>
+# throw (fail-closed): nao existe versao default neste harness.
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$pin = (Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Version
+$ExpectedVersionLine = ('opencode v' + $pin)
 
 $ProvisionedExe = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
 $SdkPkg = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\sdk\package.json'
@@ -54,12 +66,13 @@ $VersionGateOk = $false
 $ConfGateOk = $false
 $ServiceAttempted = $false
 $exeOk = (Test-Path -LiteralPath $ProvisionedExe -PathType Leaf) -and $ProvisionedExe.ToLowerInvariant().EndsWith('.exe')
-Assert ($exeOk) 'binario provisionado 2.0.18 existe (.exe)'
+Assert ($exeOk) ('binario provisionado ' + $ExpectedVersionLine + ' existe (.exe)')
 $ver = Invoke-PreflightBoundedExe -File $ProvisionedExe -ArgsLine '--version' -WorkDir ([IO.Path]::GetTempPath()) -TimeoutMs 15000
 $verLine = ''
 try { $verLine = (([string]$ver.Output -split "`r?`n" | Where-Object { $_ -match '\S' } | Select-Object -First 1)).Trim() } catch { $verLine = '' }
-$VersionGateOk = (([bool]$ver.Finished) -and ([int]$ver.ExitCode -eq 0) -and ($verLine -eq 'opencode v2.0.18'))
-Assert ($VersionGateOk) 'versao exata opencode v2.0.18'
+# Igualdade EXATA mantida: 'opencode v<pin>' por -eq (substring nao vale).
+$VersionGateOk = (([bool]$ver.Finished) -and ([int]$ver.ExitCode -eq 0) -and ($verLine -eq $ExpectedVersionLine))
+Assert ($VersionGateOk) ('versao exata ' + $ExpectedVersionLine)
 if (-not $VersionGateOk) { Fail-Preserve ('gate versao exata reprovado (obtido: ' + $verLine + '); abortando antes de service ops') }
 
 # S0b: 49374 intacto antes ----------------------------------------------------
@@ -185,7 +198,7 @@ try {
 # RR-P24-REV-FIX: exige gates de versao+confinamento; sem eles, nunca toca servico.
 if ((-not $Failed) -and $VersionGateOk -and $ConfGateOk -and ($Alt -ne 0)) {
   $ServiceAttempted = $true
-  $setRes = Invoke-PreflightServiceSetPort -BinaryPath $ProvisionedExe -Port $Alt -EnvTable $EffEnv -ProfileDir $ProfileDir -ExpectedBinaryPath $ProvisionedExe -WorkingDirectory $HomeT -TimeoutMs 30000
+  $setRes = Invoke-PreflightServiceSetPort -BinaryPath $ProvisionedExe -Port $Alt -EnvTable $EffEnv -ProfileDir $ProfileDir -ExpectedBinaryPath $ProvisionedExe -WorkingDirectory $HomeT -TimeoutMs 30000 -ExpectedVersion $pin
   Assert (([bool]$setRes.Ok)) 'service set port alternativo (desired/pending)'
   if (-not [bool]$setRes.Ok) { Fail-Preserve ('set port: ' + [string]$setRes.Output) }
   else {

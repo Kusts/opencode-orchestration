@@ -20,6 +20,14 @@ function Assert($Cond, [string]$Name) {
   else { $script:fail += 1; Write-Host ("NOT OK - " + $Name) }
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# RR-VERSIONS-REGISTRY: os plugin_dependency esperados nos manifests vem do
+# registry unico (source/registry/runtime-versions.json), igual ao install.ps1
+# -- sem literal aqui que envelheceria em silencio apos um bump.
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$pluginSpecV1 = (Get-OrchestrationRuntimeVersion -Name plugin_v1 -RepoRoot $RepoRoot).Spec
+$pluginSpecV2 = (Get-OrchestrationRuntimeVersion -Name plugin_v2 -RepoRoot $RepoRoot).Spec
+# O shim (k2) simula um BINARIO v1 no PATH: versao do runtime, nao do plugin.
+$runtimeV1Version = (Get-OrchestrationRuntimeVersion -Name v1 -RepoRoot $RepoRoot).Version
 $utf8 = New-Object Text.UTF8Encoding $false
 $homes = New-Object System.Collections.ArrayList
 
@@ -93,7 +101,7 @@ $mA = ([IO.File]::ReadAllText((Join-Path $hA '.opencode-orchestration\manifest.j
 Assert ($mA.package_version -eq '1.1.0') 'a: manifest package_version 1.1.0'
 Assert ($mA.runtime.id -eq 'opencode-v2') 'a: manifest runtime.id v2'
 Assert ([int]$mA.runtime.generation -eq 2) 'a: manifest runtime.generation 2'
-Assert ($mA.plugin_dependency -eq '@opencode/plugin@2.0.18') 'a: manifest plugin_dependency V2'
+Assert ($mA.plugin_dependency -eq $pluginSpecV2) 'a: manifest plugin_dependency V2'
 Assert (-not (Test-Path -LiteralPath (Join-Path $ocA 'node_modules') -PathType Container)) 'a: sem node_modules no TargetHome (install offline)'
 
 # (b) fresh V1 (regression guard) ---------------------------------------------
@@ -109,7 +117,7 @@ Assert (($null -eq ($jB.agent.build | Get-Member -Name 'model' -ErrorAction Sile
 $mB = ([IO.File]::ReadAllText((Join-Path $hB '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
 Assert ($mB.package_version -eq '1.1.0') 'b: manifest package_version 1.1.0'
 Assert ($mB.runtime.id -eq 'opencode-v1') 'b: manifest runtime.id v1'
-Assert ($mB.plugin_dependency -eq '@opencode-ai/plugin@1.18.32') 'b: manifest plugin_dependency V1'
+Assert ($mB.plugin_dependency -eq $pluginSpecV1) 'b: manifest plugin_dependency V1'
 Assert (-not (Test-Path -LiteralPath (Join-Path $ocB 'node_modules') -PathType Container)) 'b: sem node_modules no TargetHome (install offline)'
 $mdB = [IO.File]::ReadAllText((Join-Path $ocB 'AGENTS.md'), [Text.Encoding]::UTF8)
 Assert ($mdB.Contains('Adaptador OpenCode') -and (-not $mdB.Contains('Adaptador OpenCode V2'))) 'b: AGENTS.md com adapter V1'
@@ -325,7 +333,7 @@ $hK2 = New-TestHome 'k2' 'V2'
 $shimK2 = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-shimv1-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $shimK2 -Force | Out-Null
 [void]$homes.Add($shimK2)
-[IO.File]::WriteAllText((Join-Path $shimK2 'opencode.cmd'), ("@echo off`n" + 'echo 1.18.32' + "`n"), $utf8)
+[IO.File]::WriteAllText((Join-Path $shimK2 'opencode.cmd'), ("@echo off`n" + 'echo ' + $runtimeV1Version + "`n"), $utf8)
 $oldK2 = $env:PATH
 try {
   $env:PATH = $shimK2 + ';' + $env:PATH

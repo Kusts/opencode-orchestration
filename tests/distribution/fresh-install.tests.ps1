@@ -7,6 +7,11 @@ function Assert($Cond, [string]$Name) {
   else { $script:fail += 1; Write-Host ("NOT OK - " + $Name) }
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# RR-VERSIONS-REGISTRY: o plugin_dependency esperado no manifest vem do
+# registry unico (source/registry/runtime-versions.json), igual ao install.ps1
+# -- sem literal aqui que envelheceria em silencio apos um bump.
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$pluginSpecV1 = (Get-OrchestrationRuntimeVersion -Name plugin_v1 -RepoRoot $RepoRoot).Spec
 $TmpHome = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-fresh-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $TmpHome -Force | Out-Null
 try {
@@ -123,7 +128,7 @@ try {
   if (Test-Path -LiteralPath $mf -PathType Leaf) {
     $m = ([IO.File]::ReadAllText($mf, [Text.Encoding]::UTF8)) | ConvertFrom-Json
     Assert ($m.package_version -eq '1.1.0') 'manifest package_version'
-    Assert ($m.plugin_dependency -eq '@opencode-ai/plugin@1.18.32') 'manifest plugin_dependency'
+    Assert ($m.plugin_dependency -eq $pluginSpecV1) 'manifest plugin_dependency'
     Assert ($m.runtime.id -eq 'opencode-v1') 'manifest runtime.id v1'
     Assert ([int]$m.runtime.generation -eq 1) 'manifest runtime.generation 1'
     Assert ($m.runtime.profile -eq 'v1') 'manifest runtime.profile v1'

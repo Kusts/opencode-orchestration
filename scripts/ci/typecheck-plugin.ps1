@@ -2,10 +2,12 @@
 .SYNOPSIS
     Typecheck dual-runtime do plugin contra as APIs REAIS V1 e V2.
 .DESCRIPTION
-    Tres trilhas, cada uma num workdir temporario com deps reais via bun:
-      V1:   @opencode-ai/plugin@1.18.32 + typescript@5 + @types/node@22
+    Tres trilhas, cada uma num workdir temporario com deps reais via bun
+    (os pins de plugin vem do registry unico
+    source/registry/runtime-versions.json, nunca de literal aqui):
+      V1:   plugins.v1 + typescript@5 + @types/node@22
             compila shared/*.ts + v1.ts (adapter V1 + nucleo puro).
-      V2:   @opencode/plugin@2.0.18 + typescript@5 + @types/node@22
+      V2:   plugins.v2 + typescript@5 + @types/node@22
             compila shared/*.ts + v2.ts (adapter V2 + nucleo puro).
       DUAL: ambos os pacotes + typescript@5 + @types/node@22
             compila plugins/orchestration-enforcement.ts (o dual-export
@@ -38,8 +40,10 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
-$V1Spec = '@opencode-ai/plugin@1.18.32'
-$V2Spec = '@opencode/plugin@2.0.18'
+# Pins de plugin: registry unico (fail-closed; sem literal neste script).
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$V1Spec = [string](Get-OrchestrationRuntimeVersion -Name plugin_v1 -RepoRoot $RepoRoot).Spec
+$V2Spec = [string](Get-OrchestrationRuntimeVersion -Name plugin_v2 -RepoRoot $RepoRoot).Spec
 $TypescriptSpec = 'typescript@5'
 $TypesNodeSpec = '@types/node@22'
 

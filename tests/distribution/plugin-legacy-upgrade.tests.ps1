@@ -12,6 +12,11 @@ function Assert($Cond, [string]$Name) {
   else { $script:fail += 1; Write-Host ("NOT OK - " + $Name) }
 }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+# RR-VERSIONS-REGISTRY: o stub da dependencia abaixo declara ser a versao
+# pinada, entao vem do registry unico (evita rede; nenhuma assercao compara a
+# versao -- o "legacy" deste teste e o arquivo .ts pre-bundle, nao o pacote).
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
+$pluginV1Version = (Get-OrchestrationRuntimeVersion -Name plugin_v1 -RepoRoot $RepoRoot).Version
 $TmpHome = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-legacy-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $TmpHome -Force | Out-Null
 try {
@@ -21,7 +26,7 @@ try {
   # Stub da dependencia do plugin (versao pinada => sem tentativa de rede).
   $depDir = Join-Path $ocDir 'node_modules\@opencode-ai\plugin'
   New-Item -ItemType Directory -Path $depDir -Force | Out-Null
-  [IO.File]::WriteAllText((Join-Path $depDir 'package.json'), '{"name":"@opencode-ai/plugin","version":"1.18.32"}', (New-Object Text.UTF8Encoding $false))
+  [IO.File]::WriteAllText((Join-Path $depDir 'package.json'), ('{"name":"@opencode-ai/plugin","version":"' + $pluginV1Version + '"}'), (New-Object Text.UTF8Encoding $false))
   # Legado pre-bundle + arquivos do usuario.
   $legacyContent = "// legado pre-bundle do usuario (fake)`nexport const legacy = 1;`n"
   $legacyPath = Join-Path $plugDir 'orchestration-enforcement.ts'
@@ -91,7 +96,7 @@ try {
     New-Item -ItemType Directory -Path $plugCas -Force | Out-Null
     $depCas = Join-Path $ocCas 'node_modules\@opencode-ai\plugin'
     New-Item -ItemType Directory -Path $depCas -Force | Out-Null
-    [IO.File]::WriteAllText((Join-Path $depCas 'package.json'), '{"name":"@opencode-ai/plugin","version":"1.18.32"}', (New-Object Text.UTF8Encoding $false))
+    [IO.File]::WriteAllText((Join-Path $depCas 'package.json'), ('{"name":"@opencode-ai/plugin","version":"' + $pluginV1Version + '"}'), (New-Object Text.UTF8Encoding $false))
     $legacyCasContent = "// legado pre-bundle (cas)`nexport const legacy = 1;`n"
     $legacyCasPath = Join-Path $plugCas 'orchestration-enforcement.ts'
     [IO.File]::WriteAllText($legacyCasPath, $legacyCasContent, (New-Object Text.UTF8Encoding $false))

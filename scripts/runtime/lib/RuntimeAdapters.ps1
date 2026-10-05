@@ -12,6 +12,31 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Pins de versao NAO vivem nesta lib: vivem em UM registry commitado
+# (source/registry/runtime-versions.json), lido pelo loader abaixo. Esta lib
+# NUNCA e copiada para perfis (ao contrario de RuntimePortPreflight), logo o
+# dot-source por $PSScriptRoot e seguro e explicito.
+$RuntimeVersionsLib = Join-Path $PSScriptRoot 'RuntimeVersions.ps1'
+if (-not (Test-Path -LiteralPath $RuntimeVersionsLib -PathType Leaf)) {
+  throw ('lib de versoes ausente (pin de plugin vem de source/registry/runtime-versions.json): ' + $RuntimeVersionsLib)
+}
+. $RuntimeVersionsLib
+
+function Get-RuntimePluginPinName([string]$RuntimeId = '') {
+  if ([string]$RuntimeId -ceq 'opencode-v1') { return 'plugin_v1' }
+  if ([string]$RuntimeId -ceq 'opencode-v2') { return 'plugin_v2' }
+  throw ('sem pin de plugin no registry de versoes para o runtime: ' + [string]$RuntimeId)
+}
+
+function Get-RuntimePluginDependencySpec {
+  param([string]$RuntimeId = '')
+  if ([string]::IsNullOrWhiteSpace($RuntimeId)) {
+    throw 'runtime descriptor ausente (RuntimeId vazio) para o pin de plugin.'
+  }
+  $pinName = Get-RuntimePluginPinName -RuntimeId $RuntimeId
+  return [string](Get-OrchestrationRuntimeVersion -Name $pinName).Spec
+}
+
 function Read-RuntimeRegistry {
   param([string]$RegistryPath = '')
   if ([string]::IsNullOrWhiteSpace($RegistryPath)) {
@@ -56,7 +81,16 @@ function Get-RuntimeDescriptor {
   if (-not $sup) {
     throw ('runtime descriptor sem suporte (supported=false): ' + $RuntimeId)
   }
-  return $d
+  # Cópia rasa com o pin de plugin resolvido do registry UNICO de versoes
+  # (runtimes.json continua sendo a declaracao de runtime/validacao
+  # historica; o pin vivo vem de runtime-versions.json). Cópia para nao mutar
+  # o objeto do registry recebido pelo chamador.
+  $view = [ordered]@{}
+  foreach ($p in @($d.PSObject.Properties)) {
+    $view[[string]$p.Name] = $p.Value
+  }
+  $view['plugin_dependency_spec'] = Get-RuntimePluginDependencySpec -RuntimeId $RuntimeId
+  return [pscustomobject]$view
 }
 
 function Get-RuntimeFromVersionOutput {
@@ -321,7 +355,8 @@ function Get-RuntimeAdapterView {
   $keys = @()
   $rend = ''
   try { if ($null -ne $d.template) { $tpl = [string]$d.template } } catch { $tpl = '' }
-  try { if ($null -ne $d.plugin_dependency_spec) { $spec = [string]$d.plugin_dependency_spec } } catch { $spec = '' }
+  # Pin de plugin: registry UNICO de versoes (fail-closed; nunca literal).
+  try { $spec = Get-RuntimePluginDependencySpec -RuntimeId $RuntimeId } catch { $spec = ''; [void]$missing.Add('plugin_dependency_spec (registry de versoes)') }
   try { if ($null -ne $d.config_roots) { $roots = @($d.config_roots) } } catch { $roots = @() }
   try { if ($null -ne $d.smoke_command) { $smoke = [string]$d.smoke_command } } catch { $smoke = '' }
   try { if ($null -ne $d.managed_config_keys) { $keys = @($d.managed_config_keys) } } catch { $keys = @() }

@@ -16,6 +16,10 @@ $lib = Join-Path $PSScriptRoot 'lib\RuntimePortPreflight.ps1'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $profLib = Join-Path $repoRoot 'scripts\runtime\New-OrchestrationProfile.ps1'
 . $profLib
+# Pin exato do binario REAL: registry unico (source/registry/runtime-versions.json).
+# Sem binario desse pin neste host => SKIP honesto (comportamento preservado).
+$pinV2Real = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $repoRoot).Version
+$pinRxV2 = '(?m)^opencode v' + [regex]::Escape($pinV2Real) + '\s*$'
 $cli = Join-Path $PSScriptRoot 'RuntimePortPreflight.ps1'
 $psExe = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not (Test-Path -LiteralPath $psExe -PathType Leaf)) { $psExe = 'powershell' }
@@ -273,7 +277,7 @@ try {
   try { New-OrchestrationProfile -RepoRoot $repoRoot -ProfileRoot (Join-Path $base 'prof bad2') -RuntimeId 'opencode-v2' -ServicePort 70000 | Out-Null } catch { $threwSvcRange = $true }
   Assert-That ($threwSvcRange) 'ServicePort fora do range rejeitada antes de escrita' 'nao rejeitou'
 
-  # --- 15. nativo 2.0.18: pin --version read-only sempre; set SOMENTE opt-in ---
+  # --- 15. nativo (pin do registry): --version read-only sempre; set SOMENTE opt-in ---
   # RR-P22-FIX2: default nunca executa service set/start (sem mutacao, sem
   # debug config que inicia serve). Set real exige RR_P22_RUN_NATIVE=1.
   $v2bin = ''
@@ -291,18 +295,18 @@ try {
     if (Test-Path -LiteralPath $v2exeGuess -PathType Leaf) { $v2exeOnly = $v2exeGuess }
   }
   if ([string]::IsNullOrWhiteSpace($v2exeOnly)) {
-    Write-Host '[SKIP] pin 2.0.18 e set-port nativo: binario .exe exato ausente (sem claim)'
-    Assert-That $true 'SKIP nativo (sem binario 2.0.18 .exe)' 'skip honesto'
+    Write-Host ('[SKIP] pin ' + $pinV2Real + ' e set-port nativo: binario .exe exato ausente (sem claim)')
+    Assert-That $true ('SKIP nativo (sem binario ' + $pinV2Real + ' .exe)') 'skip honesto'
   }
   else {
     # Pin read-only: --version exato, nunca set/start.
     $vvCheck = Invoke-PreflightBoundedExe -File $v2exeOnly -ArgsLine '--version' -TimeoutMs 30000
-    $pinExact = (([regex]::IsMatch([string]$vvCheck.Output, '(?m)^opencode v2\.0\.18\s*$')) -and ([int]$vvCheck.ExitCode -eq 0))
+    $pinExact = (([regex]::IsMatch([string]$vvCheck.Output, $pinRxV2)) -and ([int]$vvCheck.ExitCode -eq 0))
     if ($pinExact) {
-      Assert-That $true 'pin 2.0.18 --version exato (read-only; sem set/start)' (([string]$vvCheck.Output -split "`r?`n" | Select-Object -First 1))
+      Assert-That $true ('pin ' + $pinV2Real + ' --version exato (read-only; sem set/start)') (([string]$vvCheck.Output -split "`r?`n" | Select-Object -First 1))
     }
     else {
-      Write-Host '[SKIP] pin 2.0.18 nao provado neste binario (sem claim; sem set)'
+      Write-Host ('[SKIP] pin ' + $pinV2Real + ' nao provado neste binario (sem claim; sem set)')
       Assert-That $true 'SKIP pin (versao nao provada; set nao executado)' 'skip honesto'
     }
     if ([string]$env:RR_P22_RUN_NATIVE -eq '1') {
@@ -327,7 +331,7 @@ try {
           New-Item -ItemType Directory -Path $setCwd -Force | Out-Null
           $setPort = New-FreePortNow
           $envT = @{ XDG_CONFIG_HOME = $setCfg }
-          $setRes = Invoke-PreflightServiceSetPort -BinaryPath $v2exeOnly -Port $setPort -EnvTable $envT -WorkingDirectory $setCwd -TimeoutMs 30000 -ExpectedVersion '2.0.18' -RequireExactVersion $true -ProfileDir $setProfDir -ExpectedBinaryPath $v2exeOnly
+          $setRes = Invoke-PreflightServiceSetPort -BinaryPath $v2exeOnly -Port $setPort -EnvTable $envT -WorkingDirectory $setCwd -TimeoutMs 30000 -ExpectedVersion $pinV2Real -RequireExactVersion $true -ProfileDir $setProfDir -ExpectedBinaryPath $v2exeOnly
           Assert-That ([bool]$setRes.Ok) ('service set port opt-in ' + $setPort + ' (pending; sem warmup/start)') ([string]$setRes.Output)
           if ([bool]$setRes.Ok) {
             $pendFile = Join-Path $setProfDir 'service-port.json'

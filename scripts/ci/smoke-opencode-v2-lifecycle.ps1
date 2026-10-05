@@ -8,19 +8,20 @@
     (set port -> start -> status -> stop owned -> settlement).
 
     Diferenca propositiva para scripts/ci/smoke-opencode-v2.ps1: este smoke
-    NAO tenta o caminho implicito de startup (debug config), que apresenta
-    intermitencia caracterizada experimentalmente no binario 2.0.18
-    (7 hangs vs 5 passes no mesmo dia; debugcfg-hang-investigation.json;
-    suspeita principal interna ao binario, nao comprovada). Aqui o servico e
-    iniciado EXPLICITAMENTE via `service start`, o caminho que se mostrou
-    estavel na lane real.
+    NAO tenta o caminho implicito de startup (debug config), que apresentou
+    intermitencia caracterizada experimentalmente no binario V2 pinado em
+    2.0.18 (historico; 7 hangs vs 5 passes no mesmo dia;
+    debugcfg-hang-investigation.json; suspeita principal interna ao binario,
+    nao comprovada). Aqui o servico e iniciado EXPLICITAMENTE via
+    `service start`, o caminho que se mostrou estavel na lane real.
 
     Fluxo (home isolado EXCLUSIVO por execucao em TEMP; config global do
     usuario intocada; ambiente dos filhos LIMPO via -CleanEnvironment,
     mantendo apenas PATH/SystemRoot/ComSpec/PATHEXT/TEMP/TMP/PSModulePath):
       1. Resolve o binario (explicito, PATH com shim resolvido para .exe, ou
          binario do perfil V2) e exige versao EXATA via Test-SpikeExactVersion
-         (regex ^opencode v2.0.18$; substring NAO vale).
+         contra o pin do registry (regex ^opencode v<pin>$; substring NAO
+         vale).
       2. Constroi opencode.json com os 19 workers canonicos via
          scripts/runtime/lib/AgentTranslator.ps1.
       3. Isolamento: debug paths resolve config dentro do TargetHome.
@@ -99,7 +100,9 @@
     (CI) ou $env:TEMP\oo-v2lifecycle-<run-id> fora do CI, EXCLUSIVO por
     execucao. Se informado explicitamente e ja existir, FALHA (sem reuso).
 .PARAMETER OpenCodeSpec
-    Spec npm esperada (igualdade de versao). Default: @opencode/cli@2.0.18.
+    Spec npm esperada (igualdade de versao). Vazio (default) = pin do
+    registry unico source/registry/runtime-versions.json (runtimes.v2);
+    valor explicito = override do pin (divergente do pin e recusado, SEC4).
 .PARAMETER BinaryPath
     Binario V2 explicito (.exe ou shim resolvivel; opcional; CI usa o PATH
     apos npm install -g).
@@ -110,7 +113,7 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
   [string]$TargetHome = '',
-  [string]$OpenCodeSpec = '@opencode/cli@2.0.18',
+  [string]$OpenCodeSpec = '',
   [string]$BinaryPath = '',
   [string]$EvidencePath = ''
 )
@@ -130,14 +133,27 @@ try {
   . (Join-Path $RepoRoot 'scripts\runtime\lib\AgentTranslator.ps1')
   . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimePortPreflight.ps1')
   . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeJobObject.ps1')
+  . (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
 }
 catch {
   $bootstrapFailed = $true
   $bootstrapMsg = $_.Exception.Message
 }
 
-# Versao OBRIGATORIA desta lane: fixada; spec divergente e recusada (SEC4).
-$PinnedVersion = '2.0.18'
+# Versao OBRIGATORIA desta lane: pin do registry unico (fail-closed); spec
+# divergente e recusada (SEC4).
+$PinnedVersion = ''
+if (-not $bootstrapFailed) {
+  try {
+    $pinV2 = Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot
+    $PinnedVersion = [string]$pinV2.Version
+    if ([string]::IsNullOrWhiteSpace($OpenCodeSpec)) { $OpenCodeSpec = [string]$pinV2.Spec }
+  }
+  catch {
+    $bootstrapFailed = $true
+    $bootstrapMsg = $_.Exception.Message
+  }
+}
 $ExpectedVersion = $PinnedVersion
 $m = [regex]::Match($OpenCodeSpec, '(\d+)\.(\d+)\.(\d+)')
 if ($m.Success -and (($m.Groups[1].Value + '.' + $m.Groups[2].Value + '.' + $m.Groups[3].Value) -ne $PinnedVersion)) {
@@ -698,7 +714,7 @@ try {
   Add-SmokeCheck 'port49374_untouched' $invariantOk ('owner antes=' + $script:owner49374Before + ' depois=' + $owner49374After + ' (nunca iniciada nem alterada; leitura pos-fechamento do job; QUERY_FAILED falha o invariante)')
   if (-not $invariantOk) { Fail-Smoke ('invariante 49374: antes=' + $script:owner49374Before + ' depois=' + $owner49374After) $fin }
 
-  [void]$smokeNotes.Add('caminho implicito de startup (debug config) NAO tentado aqui: flake upstream caracterizado no 2.0.18 (debugcfg-hang-investigation.json); este smoke prova o ciclo explicito do servico gerenciado (padrao P22).')
+  [void]$smokeNotes.Add('caminho implicito de startup (debug config) NAO tentado aqui: flake upstream caracterizado no binario 2.0.18 (historico; debugcfg-hang-investigation.json); este smoke prova o ciclo explicito do servico gerenciado (padrao P22).')
   [void]$smokeNotes.Add('nenhum PID preexistente ou externo terminado; stop PRIMARY e via CLI do servico; o backstop de Job Object (se acionado) alcanca SOMENTE o job deste smoke, que contem apenas o processo de `service start` iniciado aqui; home isolado EXCLUSIVO em TEMP; ambiente dos filhos limpo (-CleanEnvironment); nenhuma flag ativada.')
 
   $pass = [ordered]@{
