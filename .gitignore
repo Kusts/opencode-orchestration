@@ -5,6 +5,7 @@ evidence/*
 !evidence/release-readiness/
 !evidence/v3.1/
 cache/
+evidence/v3.1/runtime-reliability/phase24-livehook.jsonl
 *.bak*
 generated/
 .opencode/

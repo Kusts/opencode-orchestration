@@ -1,8 +1,0 @@
-{"ts":"2026-10-01T10:38:34.348Z","kind":"BOOT","id":"rr-p24-livehook-fixture"}
-{"ts":"2026-10-01T10:38:34.349Z","kind":"FEATURES","eventSubscribe":"function","sessionHook":"function","toolHook":"function","sessionInterrupt":"function","sessionWait":"function"}
-{"ts":"2026-10-01T10:38:34.350Z","kind":"SUBSCRIBED"}
-{"ts":"2026-10-01T10:38:34.350Z","kind":"CONTEXT_REGISTERED"}
-{"ts":"2026-10-01T10:38:34.351Z","kind":"TOOL_REGISTERED"}
-{"ts":"2026-10-01T10:38:34.846Z","kind":"EVENT","type":"session.created","session":"ses_f08f498c4ffeJL1uAGnDg9Rg2w"}
-{"kind":"TRIGGER","session":"ses_f08f498c4ffeJL1uAGnDg9Rg2w","ts":"2026-10-01T07:38:34.8935817-03:00"}
-{"ts":"2026-10-01T10:38:36.643Z","kind":"CONTEXT_FIRED","session":"ses_f08f498c4ffeJL1uAGnDg9Rg2w"}

@@ -102,7 +102,12 @@ especificação e plano em
    **22/22** (10c + 10c-controle com discriminação), V1 **30/30**,
    live-hook PS5.1 **35/0 HOLD 1** (trigger real com session==trigger,
    match=True) / PS7 **23/0 HOLD 4**; REV-FIX com 3 findings +
-    TRIGGER-FIX com 4 findings corrigidos.
+    TRIGGER-FIX com 4 findings corrigidos. Follow-up 2026-10-04: o JSONL
+   de evidência do live-hook (`phase24-livehook.jsonl`) é **reescrito a
+   cada execução da suite** (cópia sanitizada do run) e passou a ser
+   **untracked** (estado local de runtime; o snapshot histórico de 8
+   linhas de 2026-10-01 permanece atestado em `phase24.json` e
+   `docs/ARCHITECTURE.md`).
 - **P25 done-shadow** — RuntimeWatchdog lib shadow puro
   (`scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1`, `phase25.json`):
   registra execução, fingerprints sanitizados por campo com framing
