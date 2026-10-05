@@ -1,0 +1,82 @@
+{
+    "scenario":  "RR-E2E-06",
+    "ordinal":  6,
+    "title":  "No-progress stall",
+    "date":  "2026-10-05",
+    "lane":  "v3.1-watchdog-real-lane-v2",
+    "executor":  "RR-E2E-LANE-04-10 (coder worker)",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_line":  "opencode v2.0.18",
+    "attempts":  1,
+    "status":  "pass-real",
+    "cause":  "",
+    "observed":  {
+                     "task_id":  "rr-e2e-06-no-progress",
+                     "worker_pid":  7416,
+                     "job_assigned":  true,
+                     "budget":  {
+                                    "profile":  "fast",
+                                    "step_budget":  64,
+                                    "wall_clock_seconds":  600,
+                                    "no_progress_seconds":  4,
+                                    "repeated_action_soft_limit":  3,
+                                    "repeated_action_hard_limit":  5,
+                                    "cycle_repeat_limit":  3,
+                                    "provider_retry_limit":  2
+                                },
+                     "registered":  {
+                                        "ok":  true,
+                                        "error":  "",
+                                        "enforced":  true
+                                    },
+                     "deadline_seconds":  4,
+                     "evaluation":  {
+                                        "classification":  "NO_PROGRESS",
+                                        "interrupted":  true,
+                                        "since_progress_s":  4,
+                                        "steps":  0,
+                                        "elapsed_observed_ms":  3995
+                                    },
+                     "settlement":  {
+                                        "settlement":  "SETTLED",
+                                        "interrupted":  true
+                                    },
+                     "pid_gone_after_interrupt":  true,
+                     "telemetry_copy":  "watchdog-telemetry-06.jsonl"
+                 },
+    "assertions":  [
+                       {
+                           "name":  "watchdog_execution_bound_to_real_child",
+                           "passed":  true,
+                           "detail":  "ok=True error="
+                       },
+                       {
+                           "name":  "worker_job_containment_proved",
+                           "passed":  true,
+                           "detail":  "atribuido ao job da lane (pid 7416)"
+                       },
+                       {
+                           "name":  "worker_alive_without_progress",
+                           "passed":  true,
+                           "detail":  "no_progress_seconds=4; since_progress_s real=4; steps=0"
+                       },
+                       {
+                           "name":  "classification_no_progress",
+                           "passed":  true,
+                           "detail":  "classificacao real=NO_PROGRESS"
+                       },
+                       {
+                           "name":  "interrupt_engaged",
+                           "passed":  true,
+                           "detail":  "interrupted=True"
+                       },
+                       {
+                           "name":  "stalled_pid_dead",
+                           "passed":  true,
+                           "detail":  "PID 7416 observado morto apos o interrupt"
+                       }
+                   ],
+    "notes":  [
+
+              ]
+}

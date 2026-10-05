@@ -1,0 +1,80 @@
+{
+    "scenario":  "RR-E2E-08",
+    "ordinal":  8,
+    "title":  "Repeated short cycle",
+    "date":  "2026-10-05",
+    "lane":  "v3.1-watchdog-real-lane-v2",
+    "executor":  "RR-E2E-LANE-04-10 (coder worker)",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_line":  "opencode v2.0.18",
+    "attempts":  1,
+    "status":  "pass-real",
+    "cause":  "",
+    "observed":  {
+                     "task_id":  "rr-e2e-08-repeated-cycle",
+                     "worker_pid":  4792,
+                     "worker_mode":  "cycle",
+                     "job_assigned":  true,
+                     "budget":  {
+                                    "profile":  "fast",
+                                    "step_budget":  64,
+                                    "wall_clock_seconds":  600,
+                                    "no_progress_seconds":  600,
+                                    "repeated_action_soft_limit":  3,
+                                    "repeated_action_hard_limit":  5,
+                                    "cycle_repeat_limit":  3,
+                                    "provider_retry_limit":  2
+                                },
+                     "registered":  {
+                                        "ok":  true,
+                                        "error":  "",
+                                        "enforced":  true
+                                    },
+                     "actions_fed":  6,
+                     "action_source":  "jsonl escrito pelo proprio processo worker (acoes reais)",
+                     "classification":  "REPEATED_CYCLE",
+                     "interrupted":  true,
+                     "elapsed_observed_ms":  2361,
+                     "settlement":  {
+                                        "settlement":  "SETTLED",
+                                        "interrupted":  true
+                                    },
+                     "pid_gone_after_interrupt":  true,
+                     "telemetry_copy":  "watchdog-telemetry-8.jsonl"
+                 },
+    "assertions":  [
+                       {
+                           "name":  "watchdog_execution_bound_to_real_child",
+                           "passed":  true,
+                           "detail":  "ok=True error="
+                       },
+                       {
+                           "name":  "worker_job_containment_proved",
+                           "passed":  true,
+                           "detail":  "atribuido ao job da lane (pid 4792)"
+                       },
+                       {
+                           "name":  "real_actions_observed_from_worker",
+                           "passed":  true,
+                           "detail":  "acoes reais lidas do log do processo worker e alimentadas ao avaliador: 6"
+                       },
+                       {
+                           "name":  "classification_repeated_cycle",
+                           "passed":  true,
+                           "detail":  "classificacao real=REPEATED_CYCLE (esperada=REPEATED_CYCLE)"
+                       },
+                       {
+                           "name":  "interrupt_engaged",
+                           "passed":  true,
+                           "detail":  "interrupted=True"
+                       },
+                       {
+                           "name":  "worker_pid_dead",
+                           "passed":  true,
+                           "detail":  "PID 4792 observado morto apos o interrupt"
+                       }
+                   ],
+    "notes":  [
+
+              ]
+}

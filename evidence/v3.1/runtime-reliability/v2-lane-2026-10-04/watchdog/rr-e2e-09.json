@@ -1,0 +1,96 @@
+{
+    "scenario":  "RR-E2E-09",
+    "ordinal":  9,
+    "title":  "Interrupt failure",
+    "date":  "2026-10-05",
+    "lane":  "v3.1-watchdog-real-lane-v2",
+    "executor":  "RR-E2E-LANE-04-10 (coder worker)",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_line":  "opencode v2.0.18",
+    "attempts":  1,
+    "status":  "pass-real",
+    "cause":  "",
+    "observed":  {
+                     "task_id":  "rr-e2e-09-interrupt-failure",
+                     "worker_pid":  12316,
+                     "job_assigned":  true,
+                     "budget":  {
+                                    "profile":  "fast",
+                                    "step_budget":  64,
+                                    "wall_clock_seconds":  4,
+                                    "no_progress_seconds":  4,
+                                    "repeated_action_soft_limit":  3,
+                                    "repeated_action_hard_limit":  5,
+                                    "cycle_repeat_limit":  3,
+                                    "provider_retry_limit":  2
+                                },
+                     "registered":  {
+                                        "ok":  true,
+                                        "error":  "",
+                                        "enforced":  true
+                                    },
+                     "injection":  "nao-settlement injetado (seam de teste); interrupt e deadline reais",
+                     "fault_inject_token":  "stop_failure",
+                     "enforcement_already_engaged_before_injection":  false,
+                     "pre_eval":  {
+                                      "classification":  "HARD_TIMEOUT (deadline real do registro, sem avaliador ENFORCE)",
+                                      "elapsed_s":  5
+                                  },
+                     "interrupt_result":  {
+                                              "ok":  false,
+                                              "error":  "WATCHDOG_INTERRUPT_FAILED",
+                                              "detail":  "",
+                                              "classification":  "HARD_TIMEOUT",
+                                              "elapsed_s":  0,
+                                              "real_deadline_wait_ms":  5202
+                                          },
+                     "settlement":  {
+                                        "settlement":  "FAILED",
+                                        "interrupted":  false,
+                                        "classification":  "HARD_TIMEOUT"
+                                    },
+                     "worker_still_alive":  true,
+                     "telemetry_copy":  "watchdog-telemetry-09.jsonl"
+                 },
+    "assertions":  [
+                       {
+                           "name":  "watchdog_execution_bound_to_real_child",
+                           "passed":  true,
+                           "detail":  "ok=True error="
+                       },
+                       {
+                           "name":  "worker_job_containment_proved",
+                           "passed":  true,
+                           "detail":  "atribuido ao job da lane (pid 12316)"
+                       },
+                       {
+                           "name":  "no_enforcement_before_injected_interrupt",
+                           "passed":  true,
+                           "detail":  "nenhum interrupt real consumido antes da injecao: enforcement=False"
+                       },
+                       {
+                           "name":  "real_deadline_crossed_without_injected_clock",
+                           "passed":  true,
+                           "detail":  "wall=4; elapsed_s real lido do registro da execucao=5"
+                       },
+                       {
+                           "name":  "interrupt_failure_reported_structured",
+                           "passed":  true,
+                           "detail":  "erro estruturado=WATCHDOG_INTERRUPT_FAILED; detalhe="
+                       },
+                       {
+                           "name":  "no_settlement_truthful",
+                           "passed":  true,
+                           "detail":  "settlement=FAILED (PENDING/REFUSED: nao-settlement injetado pelo seam da lib)"
+                       },
+                       {
+                           "name":  "owned_worker_survived_failed_interrupt",
+                           "passed":  true,
+                           "detail":  "PID 12316 vivo apos o interrupt que nao assentou (prova de que nada foi morto)"
+                       }
+                   ],
+    "notes":  [
+                  "nao-settlement injetado (seam de teste); interrupt e deadline reais: o token stop_failure pertence ao conjunto fechado de FaultInject da propria lib do watchdog e simula a recusa do SO no stop; o harness nao forjou relogio nem resultado.",
+                  "o worker que sobreviveu e reapeado pelo backstop do Job Object da lane (spawn proprio), registrado como cleanup do harness, nunca como interrupt do watchdog."
+              ]
+}

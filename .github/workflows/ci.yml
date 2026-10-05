@@ -172,7 +172,7 @@ jobs:
   ci-smoke-opencode-v2:
     name: CI (smoke opencode v2 real)
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         shell: pwsh
@@ -185,6 +185,10 @@ jobs:
 
       - name: Smoke lifecycle explicito do servico V2 (padrao P22, path comprovado local 2026-10-03)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2-lifecycle.ps1
+
+      - name: Lane real dos cenarios RR-E2E-04..10 (watchdog + kernel, processos reais)
+        timeout-minutes: 10
+        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/watchdog-real-lane-v2.ps1
 
       - name: Smoke test with real OpenCode V2 (isolated home, private server)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/ci/smoke-opencode-v2.ps1

@@ -1,0 +1,94 @@
+{
+    "scenario":  "RR-E2E-10",
+    "ordinal":  10,
+    "title":  "Sibling completes while one child hangs",
+    "date":  "2026-10-05",
+    "lane":  "v3.1-watchdog-real-lane-v2",
+    "executor":  "RR-E2E-LANE-04-10 (coder worker)",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_line":  "opencode v2.0.18",
+    "attempts":  1,
+    "status":  "pass-real",
+    "cause":  "",
+    "observed":  {
+                     "task_id":  "rr-e2e-10-sibling",
+                     "hanging_child":  {
+                                           "pid":  4484,
+                                           "mode":  "hang",
+                                           "job_assigned":  true
+                                       },
+                     "completing_child":  {
+                                              "pid":  12320,
+                                              "mode":  "sleeper-6s",
+                                              "job_assigned":  true
+                                          },
+                     "budget":  {
+                                    "profile":  "fast",
+                                    "step_budget":  64,
+                                    "wall_clock_seconds":  12,
+                                    "no_progress_seconds":  12,
+                                    "repeated_action_soft_limit":  3,
+                                    "repeated_action_hard_limit":  5,
+                                    "cycle_repeat_limit":  3,
+                                    "provider_retry_limit":  2
+                                },
+                     "registered":  {
+                                        "ok":  true,
+                                        "error":  "",
+                                        "enforced":  true
+                                    },
+                     "sibling":  {
+                                     "exited":  true,
+                                     "exit_code":  0,
+                                     "elapsed_ms":  0,
+                                     "alive_while_hang_alive":  true,
+                                     "gone_before_interrupt":  true
+                                 },
+                     "hang":  {
+                                  "alive_before_interrupt":  true,
+                                  "gone_after_interrupt":  true,
+                                  "classification":  "HARD_TIMEOUT",
+                                  "interrupted":  true
+                              },
+                     "settlement":  {
+                                        "settlement":  "SETTLED",
+                                        "interrupted":  true
+                                    },
+                     "telemetry_copy":  "watchdog-telemetry-10.jsonl"
+                 },
+    "assertions":  [
+                       {
+                           "name":  "two_real_children_spawned",
+                           "passed":  true,
+                           "detail":  "hang pid=4484 job=True; sibling pid=12320 job=True"
+                       },
+                       {
+                           "name":  "watchdog_execution_bound_to_real_child",
+                           "passed":  true,
+                           "detail":  "ok=True error="
+                       },
+                       {
+                           "name":  "sibling_completed_normally_while_hang_alive",
+                           "passed":  true,
+                           "detail":  "sibling exit=0; hang vivo no mesmo instante=True"
+                       },
+                       {
+                           "name":  "hanging_child_classified_hard_timeout",
+                           "passed":  true,
+                           "detail":  "classificacao real=HARD_TIMEOUT"
+                       },
+                       {
+                           "name":  "hanging_child_dead_after_interrupt",
+                           "passed":  true,
+                           "detail":  "PID 4484 morto apos o interrupt"
+                       },
+                       {
+                           "name":  "sibling_never_killed_by_watchdog",
+                           "passed":  true,
+                           "detail":  "sibling saiu por conta propria (exit 0) ANTES do interrupt e nunca foi morto pelo watchdog"
+                       }
+                   ],
+    "notes":  [
+                  "o watchdog foi registrado apenas no child em hang; o sibling saiu por conta propria e sua saida normal (exit 0) e anterior ao interrupt."
+              ]
+}

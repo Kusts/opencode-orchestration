@@ -1,0 +1,92 @@
+{
+    "lane":  "v3.1-watchdog-real-lane-v2",
+    "date":  "2026-10-05",
+    "started_at":  "2026-10-05T03:25:31.2554528Z",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_line":  "opencode v2.0.18",
+    "gate":  {
+                 "checks":  [
+                                {
+                                    "name":  "version_exact",
+                                    "passed":  true,
+                                    "detail":  "binario exato 2.0.18 (pin); obtido: opencode v2.0.18"
+                                },
+                                {
+                                    "name":  "port49374_snapshot_before",
+                                    "passed":  true,
+                                    "detail":  "leitura pura antes da lane: 1668"
+                                },
+                                {
+                                    "name":  "watchdog_gate_enforce",
+                                    "passed":  true,
+                                    "detail":  "gate lido de D:\\projetos\\opencode-orchestration\\source\\registry\\capability-flags.json =\u003e ENFORCE (nenhuma flag escrita)"
+                                },
+                                {
+                                    "name":  "config_19_workers_built",
+                                    "passed":  true,
+                                    "detail":  "opencode.json gerado via AgentTranslator com 19 workers"
+                                },
+                                {
+                                    "name":  "lane_job_object",
+                                    "passed":  true,
+                                    "detail":  "job da lane com KILL_ON_JOB_CLOSE provado: ok=True kill_on_close=True"
+                                },
+                                {
+                                    "name":  "isolation_paths",
+                                    "passed":  true,
+                                    "detail":  "debug paths no home isolado; rc=0 timeout=False"
+                                },
+                                {
+                                    "name":  "port_preflight_free",
+                                    "passed":  true,
+                                    "detail":  "preflight P22 na porta 50367 =\u003e PORT_FREE should_start=True"
+                                },
+                                {
+                                    "name":  "service_port_configured",
+                                    "passed":  true,
+                                    "detail":  "service set port 50367; rc=0"
+                                },
+                                {
+                                    "name":  "service_start_explicit",
+                                    "passed":  true,
+                                    "detail":  "service start explicito; rc=0 job_assigned=True"
+                                },
+                                {
+                                    "name":  "service_start_job_assigned",
+                                    "passed":  true,
+                                    "detail":  "spawn do service start atribuido ao job da lane: atribuido ao job (pid 5192)"
+                                },
+                                {
+                                    "name":  "service_listener_observed",
+                                    "passed":  true,
+                                    "detail":  "listener privado observado (deadline 30s); pid=6516 inconclusivas=0"
+                                },
+                                {
+                                    "name":  "service_stop_owned",
+                                    "passed":  true,
+                                    "detail":  "service stop owned; rc=0"
+                                },
+                                {
+                                    "name":  "service_settlement",
+                                    "passed":  true,
+                                    "detail":  "ausencia conclusiva do listener apos stop (deadline 30s); inconclusivas=0"
+                                }
+                            ],
+                 "failed":  ""
+             },
+    "scenarios":  [
+
+                  ],
+    "blocked_reason":  "",
+    "lane_status":  "incompleta",
+    "verdict":  "lane incompleta: RR-E2E-04=partial (task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1)) | RR-E2E-05=pass-real | RR-E2E-06=pass-real | RR-E2E-07=pass-real | RR-E2E-08=pass-real | RR-E2E-09=pass-real | RR-E2E-10=pass-real",
+    "converted_to_real_evidence":  [
+                                       "RR-E2E-05",
+                                       "RR-E2E-06",
+                                       "RR-E2E-07",
+                                       "RR-E2E-08",
+                                       "RR-E2E-09",
+                                       "RR-E2E-10"
+                                   ],
+    "no_fake_close":  true
+}

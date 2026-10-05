@@ -1,0 +1,123 @@
+{
+    "scenario":  "RR-E2E-04",
+    "ordinal":  4,
+    "title":  "Worker normal completion",
+    "date":  "2026-10-05",
+    "lane":  "v3.1-watchdog-real-lane-v2",
+    "executor":  "RR-E2E-LANE-04-10 (coder worker)",
+    "binary":  "C:\\Users\\walis\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "version_line":  "opencode v2.0.18",
+    "attempts":  1,
+    "status":  "partial",
+    "cause":  "task real nao atingiu DONE: verification-not-passed;criterion-evidence-missing:0 (verifier=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1)",
+    "observed":  {
+                     "task_id":  "rr-e2e-04-worker-normal",
+                     "tasks_dir_is_temp":  true,
+                     "kernel_calls":  [
+
+                                      ],
+                     "create":  {
+                                    "exit_code":  0,
+                                    "ok":  true
+                                },
+                     "start_attempt":  {
+                                           "exit_code":  0,
+                                           "ok":  true,
+                                           "error":  ""
+                                       },
+                     "worker":  {
+                                    "mode":  "complete",
+                                    "pid":  1400,
+                                    "ready":  false,
+                                    "job_assigned":  true,
+                                    "exited":  true,
+                                    "exit_code":  0,
+                                    "elapsed_ms":  1
+                                },
+                     "record_result":  {
+                                           "exit_code":  0,
+                                           "ok":  true,
+                                           "status":  "candidate_pass"
+                                       },
+                     "verifier":  {
+                                      "status":  "skipped-out-of-scope",
+                                      "reason":  "working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1",
+                                      "out_of_scope":  [
+                                                           "evidence/v3.1/runtime-reliability/program-status.json",
+                                                           "scripts/runtime/lib/RuntimeJobObject.ps1",
+                                                           "scripts/runtime/runtime-job-object.tests.ps1",
+                                                           "scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1",
+                                                           "scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1"
+                                                       ],
+                                      "allowlisted_profile":  "package-consistency"
+                                  },
+                     "complete":  {
+                                      "exit_code":  6,
+                                      "ok":  true,
+                                      "error":  "COMPLETION_GATE_FAILED",
+                                      "reasons":  [
+                                                      "verification-not-passed",
+                                                      "criterion-evidence-missing:0"
+                                                  ],
+                                      "final_state":  "REVIEWING",
+                                      "final_revision":  8
+                                  }
+                 },
+    "assertions":  [
+                       {
+                           "name":  "kernel_task_created",
+                           "passed":  true,
+                           "detail":  "task-kernel.ps1 -Action create (tasks dir TEMP); rc=0"
+                       },
+                       {
+                           "name":  "kernel_transition_PLANNING",
+                           "passed":  true,
+                           "detail":  "rc=0"
+                       },
+                       {
+                           "name":  "kernel_transition_IMPLEMENTING",
+                           "passed":  true,
+                           "detail":  "rc=0"
+                       },
+                       {
+                           "name":  "kernel_attempt_started",
+                           "passed":  true,
+                           "detail":  "start-attempt real; rc=0 error="
+                       },
+                       {
+                           "name":  "real_worker_process_completed",
+                           "passed":  true,
+                           "detail":  "processo real do harness, exit=0 (termino normal real)"
+                       },
+                       {
+                           "name":  "kernel_candidate_pass_recorded",
+                           "passed":  true,
+                           "detail":  "record-result candidate_pass; rc=0"
+                       },
+                       {
+                           "name":  "kernel_reaching_state_reviewing",
+                           "passed":  true,
+                           "detail":  "transicoes reais VALIDATING/REVIEWING; rc=0/0"
+                       },
+                       {
+                           "name":  "verified_pass_from_allowlisted_verifier",
+                           "passed":  false,
+                           "detail":  "verifier allowlisted real (profile package-consistency) =\u003e status=skipped-out-of-scope working tree com mudancas fora do write scope desta lane: evidence/v3.1/runtime-reliability/program-status.json, scripts/runtime/lib/RuntimeJobObject.ps1, scripts/runtime/runtime-job-object.tests.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdog.ps1, scripts/v3/lib/OrchestrationRuntimeWatchdogEnforcement.tests.ps1"
+                       },
+                       {
+                           "name":  "kernel_review_recorded",
+                           "passed":  true,
+                           "detail":  "review approved; rc=0"
+                       },
+                       {
+                           "name":  "kernel_terminal_done_via_complete",
+                           "passed":  false,
+                           "detail":  "Complete-OrchestrationTask real; estado final=REVIEWING; reasons=verification-not-passed;criterion-evidence-missing:0"
+                       }
+                   ],
+    "notes":  [
+                  "verified_pass do gate de DONE veio de verifier allowlisted real; nenhum status foi forjado pelo harness.",
+                  "budgets do kernel intactos (record-only): o harness nunca chamou set-budget.",
+                  "a task real do kernel carrega UM write scope representativo da lane: o roteamento acotado via cmd.exe recusa o separador | e o binder do PowerShell recusa o parametro repetido, entao o array completo nao atravessa a CLI. O escopo que decide o verified_pass (gate do verifier) e conferido in-process com a lista COMPLETA dos paths da lane."
+              ]
+}
