@@ -28,6 +28,8 @@ permission:
     "rm -rf *": ask
     "Remove-Item *-Recurse*": ask
     "dropdb *": deny
+    "Format-Volume*": deny
+    "diskpart*": deny
   task: deny
 orchestration:
   build_delegable: true
