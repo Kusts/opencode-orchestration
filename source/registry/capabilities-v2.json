@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-06",
+  "note": "Registry curado estatico de capabilities (Fase 2A fatia 2). Declarativo apenas: nunca habilita routing dinamico (capability-flags.json continua com router/skill/mcp/adaptive OFF) e nunca adiciona MCPs. status.desired = intencao; status.observed = snapshot inicial da auditoria 2026-10-06 (repo + config viva do operador); verdade por maquina via scripts/v3/capability-healthcheck.ps1. MCPs novos/opcionais nunca nascem como installed.",
+  "status_values": {
+    "DECLARED": "declarado no pacote/catalogo, presenca ainda nao sondada",
+    "DISCOVERED": "conhecido; presenca varia por maquina e e decidida pelo healthcheck",
+    "INSTALLED": "presente (arquivo/config/CLI), saude ainda nao verificada",
+    "ACTIVE": "presente e verificado (repo-evidente ou sondado nesta maquina)",
+    "CANDIDATE": "proposto, nao adotado; probe decide por maquina"
+  },
+  "activation_modes": {
+    "always": "carregado em todo run (planner, enforcement, runtime)",
+    "on-demand": "usado somente quando a tarefa exige (contrato do Planner)",
+    "advisory-only": "evidencia consultiva; nunca decide, nunca executa",
+    "candidate": "sem ativacao; avaliacao futura"
+  },
+  "capabilities": [
+    {
+      "id": "planner",
+      "description": "Planner build: unico control plane (decide, decompoe, integra, encerra). Blocos build/title nos templates V1/V2.",
+      "type": "planner",
+      "runtime": { "v2": true, "note": "agents.build mode primary no dialeto V2" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "bloco build presente nos templates V1 (17 blocos) e V2 (17 blocos)" },
+      "risk": { "level": "medium", "reason": "autoridade de orquestracao; nao executa shell direto" },
+      "activation": { "mode": "always", "note": "default_agent=build" },
+      "healthcheck": { "probe": "repo-file", "target": "templates/opencode.v2.json.tmpl", "command": "Test-Path templates/opencode.v2.json.tmpl", "timeout_seconds": 10 }
+    },
+    {
+      "id": "planning-advisors",
+      "description": "Papeis advisory de planning (requirements-analyst, architect, engineering-advisor, product-designer, skeptic): read-only, no maximo 1 por subtarefa.",
+      "type": "agents",
+      "runtime": { "v2": true, "note": "planning-only: .md sem bloco nos templates, via allowlist do build" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "4 .md planning-only presentes em source/agents" },
+      "risk": { "level": "low", "reason": "read-only, advisory; decisao final do Planner" },
+      "activation": { "mode": "on-demand", "note": "triggers deterministicos do adapter; nunca por rito" },
+      "healthcheck": { "probe": "repo-dir", "target": "source/agents", "expect_files": ["requirements-analyst.md", "engineering-advisor.md", "product-designer.md", "skeptic.md"], "command": "4 .md planning-only presentes em source/agents", "timeout_seconds": 10 }
+    },
+    {
+      "id": "core-agents",
+      "description": "Workers centrais de implementacao/validacao (coder, tester, reviewer, debugger, security-reviewer + 10 especialistas de dominio).",
+      "type": "agents",
+      "runtime": { "v2": true, "note": "15 workers com bloco nos templates + permissoes V2 nativas" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "15 .md de workers + blocos nos templates V1/V2 com paridade verificada" },
+      "risk": { "level": "medium", "reason": "escrevem codigo/shell sob contrato; escopo limitado por task/grants" },
+      "activation": { "mode": "on-demand", "note": "ciclo coder -> tester -> reviewer via Planner" },
+      "healthcheck": { "probe": "repo-dir", "target": "source/agents", "expect_files": ["coder.md", "tester.md", "reviewer.md", "debugger.md", "security-reviewer.md", "architect.md"], "command": "workers .md presentes em source/agents", "timeout_seconds": 10 }
+    },
+    {
+      "id": "core-skills",
+      "description": "Skills nucleares distribuidas (hybrid-development, dispatching-parallel-agents, subagent-driven-development, verification-before-completion, using-superpowers).",
+      "type": "skills",
+      "runtime": { "v2": true, "note": "skills sao tecnica/intencao; carregamento pela via nativa do runtime" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "5 SKILL.md presentes em skills-core e referenciadas pelo instalador" },
+      "risk": { "level": "low", "reason": "tecnica reutilizavel; sem autoridade sobre policy/permissoes" },
+      "activation": { "mode": "on-demand", "note": "carregadas pelo gatilho da tarefa, nunca por rito" },
+      "healthcheck": { "probe": "repo-dir", "target": "skills-core", "expect_files": ["hybrid-development/SKILL.md", "dispatching-parallel-agents/SKILL.md", "subagent-driven-development/SKILL.md", "verification-before-completion/SKILL.md", "using-superpowers/SKILL.md"], "command": "5 SKILL.md presentes em skills-core", "timeout_seconds": 10 }
+    },
+    {
+      "id": "orchestration-enforcement",
+      "description": "Plugin de enforcement da orquestracao (bundle autocontido + sidecar .sha256) com watchdog e kernel.",
+      "type": "plugin",
+      "runtime": { "v2": true, "note": "plugin V2 @opencode/plugin@2.0.23; bundle verificado por sidecar" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "bundle + sidecar presentes; checker item 16 verde; flags task_kernel/watchdog/bounded_execution ON" },
+      "risk": { "level": "medium", "reason": "guarda autoridade; falha fecha (fail-closed), nunca amplia permissao" },
+      "activation": { "mode": "always", "note": "watchdog ATIVO pelo operador em 2026-10-04" },
+      "healthcheck": { "probe": "repo-file", "target": "plugins/dist/orchestration-enforcement.js", "integrity_sidecar": "plugins/dist/orchestration-enforcement.js.sha256", "command": "Test-Path bundle + sidecar .sha256 casa com Get-FileHash", "timeout_seconds": 15 }
+    },
+    {
+      "id": "ai-memory",
+      "description": "MCP de memoria de projeto (historico, decisoes, handoffs). Endpoint remoto user-owned; ausencia nunca faz fallback local.",
+      "type": "mcp",
+      "runtime": { "v2": true, "note": "transporte via config user-owned; policy em ai-memory-remote-policy.json" },
+      "managed_by": "user",
+      "declared_by": "package-policy",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "Phase 2A closure: token rotacionado (old sha12 != new sha12), memory_status PASS apos boot limpo 20:48:27Z; probe dedicado TLS/401 fail-closed" },
+      "risk": { "level": "low", "reason": "memory.* = low na risk_policy; dado nao-confiavel, nunca instrucao" },
+      "activation": { "mode": "on-demand", "note": "opcional por padrao; required bloqueia tipado quando ausente" },
+      "healthcheck": { "probe": "mcp-config", "target": "ai-memory", "env_names": ["AI_MEMORY_AUTH_TOKEN"], "command": "chave mcp.ai-memory na config + env AI_MEMORY_AUTH_TOKEN presente (nome apenas, nunca valor)", "timeout_seconds": 10 }
+    },
+    {
+      "id": "context7",
+      "description": "MCP de documentacao atualizada de bibliotecas/frameworks (query-docs apos resolve-library-id).",
+      "type": "mcp",
+      "runtime": { "v2": true, "note": "somente leitura de docs; sem escrita" },
+      "managed_by": "user",
+      "declared_by": "user-config",
+      "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "chave mcp presente na config viva do operador" },
+      "risk": { "level": "low", "reason": "leitura de documentacao; sem side-effect" },
+      "activation": { "mode": "on-demand", "note": "fatos que podem ter mudado / fontes primarias" },
+      "healthcheck": { "probe": "mcp-config", "target": "context7", "env_names": [], "command": "chave mcp.context7 presente na config viva", "timeout_seconds": 10 }
+    },
+    {
+      "id": "jev",
+      "description": "Fonte consultiva de avaliacao (jev_check/jev_gate/jev_decide). Saida e dado a confrontar com source/, nunca autoridade.",
+      "type": "mcp",
+      "runtime": { "v2": true, "note": "advisory-only; policy em jev-advisory-policy.json" },
+      "managed_by": "user",
+      "declared_by": "package-policy",
+      "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "chave mcp presente na config viva; flag jev_advisory ON; chamada P38-S2 advisory-only" },
+      "risk": { "level": "low", "reason": "advisory-only; kernel/verifier/reviewer/security sempre vencem" },
+      "activation": { "mode": "advisory-only", "note": "somente quando o usuario pedir; nunca edita policy por si so" },
+      "healthcheck": { "probe": "mcp-config", "target": "jev", "env_names": ["JEV_BASE_URL", "JEV_API_KEY"], "command": "chave mcp.jev na config + env JEV_BASE_URL/JEV_API_KEY presentes (nomes apenas, nunca valores)", "timeout_seconds": 10 }
+    },
+    {
+      "id": "opencode-runtime",
+      "description": "CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.0.23).",
+      "type": "runtime",
+      "runtime": { "v2": true, "note": "pin V2 2.0.23 via loader fail-closed RuntimeVersions.ps1" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "pins + loader presentes; CLI responde nesta maquina" },
+      "risk": { "level": "medium", "reason": "executa tudo; seguranca vem de permissoes/grants, nao do binario" },
+      "activation": { "mode": "always", "note": "smoke opencode --version antes de uso real" },
+      "healthcheck": { "probe": "command", "target": "opencode", "command": "opencode --version", "timeout_seconds": 15 }
+    },
+    {
+      "id": "git",
+      "description": "Controle de versao do checkout (branches, worktrees, rollback).",
+      "type": "cli",
+      "runtime": { "v2": true, "note": "agnostico ao runtime; exigido para leases/worktrees do kernel" },
+      "managed_by": "user",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "repo e git; CLI responde nesta maquina" },
+      "risk": { "level": "medium", "reason": "mutacao de arvore; destrutivas (reset --hard/clean) exigem confirmacao" },
+      "activation": { "mode": "on-demand", "note": "operacoes reversiveis sem confirmacao; destrutivas com" },
+      "healthcheck": { "probe": "command", "target": "git", "command": "git --version", "timeout_seconds": 15 }
+    },
+    {
+      "id": "github-cli",
+      "description": "CLI gh para issues/PRs/runs (report, triagem, publicacao com pedido explicito).",
+      "type": "cli",
+      "runtime": { "v2": true, "note": "agnostico ao runtime" },
+      "managed_by": "user",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "CLI responde nesta maquina; publicacao so com pedido explicito" },
+      "risk": { "level": "medium", "reason": "side-effect externo (issues/PRs); leitura local por padrao" },
+      "activation": { "mode": "on-demand", "note": "leitura/diagnostico local; publicar exige pedido explicito" },
+      "healthcheck": { "probe": "command", "target": "gh", "command": "gh --version", "timeout_seconds": 15 }
+    },
+    {
+      "id": "playwright-cli",
+      "description": "Automacao/validacao web via navegador/Playwright (fluxos locais, evidencias, formularios de teste).",
+      "type": "tool",
+      "runtime": { "v2": true, "note": "skill presente no catalogo do runtime; sessao real via authenticated-browser quando preciso" },
+      "managed_by": "user",
+      "declared_by": "catalog",
+      "status": { "desired": "DECLARED", "observed": "DISCOVERED", "observed_at": "2026-10-06", "observed_note": "skill conhecida no catalogo; sem dependencia no pacote; presenca decidida pelo probe por maquina" },
+      "risk": { "level": "medium", "reason": "browser.automation = medium na risk_policy" },
+      "activation": { "mode": "on-demand", "note": "validar fluxos web locais; sessao real so quando a tarefa depender dela" },
+      "healthcheck": { "probe": "command", "target": "playwright", "command": "Get-Command playwright (ausente = nao-instalado, sem falha)", "timeout_seconds": 15 }
+    },
+    {
+      "id": "docker",
+      "description": "Containers para diagnostico/isolamento (ex.: diagnostico por PID). Sem dependencia do pacote.",
+      "type": "cli",
+      "runtime": { "v2": true, "note": "agnostico ao runtime" },
+      "managed_by": "user",
+      "declared_by": "catalog",
+      "status": { "desired": "CANDIDATE", "observed": "DISCOVERED", "observed_at": "2026-10-06", "observed_note": "CLI presente nesta maquina, mas sem dependencia do pacote; presenca decidida pelo probe por maquina" },
+      "risk": { "level": "high", "reason": "infraestrutura/deployment = high na risk_policy quando mutar" },
+      "activation": { "mode": "candidate", "note": "sem ativacao; avaliacao futura com pedido explicito" },
+      "healthcheck": { "probe": "command", "target": "docker", "command": "docker --version (ausente = nao-instalado, sem falha)", "timeout_seconds": 15 }
+    }
+  ]
+}
