@@ -22,7 +22,7 @@
       "evidence": {
         "shape": "default export object { id: \"ai-memory-opencode2\", setup } (source lines 563-565, 698)",
         "load": "opencode.log loading-plugin lines 2026-10-06T19:37:59Z, zero LoadError lines for this target; clean boot 2026-10-06T20:48:27Z (server PID 15948), strict whole-run plugin-healthcheck PASS load_errors 0",
-        "hook_smoke": "memory_status PASS apos boot limpo (new token, sem 401/403); legacy ai-memory.ts ausente da raiz ativa"
+        "hook_smoke": "plugin load PASS (v2_object, zero LoadError, legacy ausente, sem token inline); entrega: nenhum backlog/erro pós-boot; MCP memory_status PASS é transporte independente, não prova de hooks"
       }
     },
     "ai-memory-hooks-v1": {

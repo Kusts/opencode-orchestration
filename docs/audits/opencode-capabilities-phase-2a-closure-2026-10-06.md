@@ -444,9 +444,10 @@ timestamps BRT = UTC-3):
 - `plugin list`: `orchestration-enforcement` present as a local plugin;
   server log shows `loading plugin` + watcher resubscribe with zero new
   `LoadError` after remediation (§4); clean boot 20:48:27Z strict PASS (§12).
-- AI Memory MCP healthy after rotation (memory_status PASS, no 401/403);
-  hooks deliver (ai-memory-opencode2 loaded/healthy, legacy absent, no
-  inline token).
+- AI Memory MCP healthy after rotation (memory_status PASS, no 401/403 —
+  transporte independente, não prova de hooks);
+  hooks: ai-memory-opencode2 load PASS (v2_object, zero LoadError, legacy
+  ausente, sem token inline), nenhum backlog/erro pós-boot.
 - Capability healthcheck: 12 OK + 1 MISS jev (§12).
 
 ## 17. Security Verification
