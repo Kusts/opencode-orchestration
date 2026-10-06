@@ -1,0 +1,26 @@
+{
+    "scenario_id":  "RR-E2E-22",
+    "status":  "blocked",
+    "detail":  "superficie de comandos do V1 indisponivel; nada e inferido",
+    "proofs":  [
+                   {
+                       "proof":  "v1-isolated-install",
+                       "ok":  true,
+                       "detail":  "cmd: npm install --prefix \u003cTargetHome\u003e/v1-runtime opencode-ai@1.18.34 rc=0 out=added 3 packages in 18s  npm warn install-scripts 1 package has install scripts not yet covered by allowScripts: npm warn install-scripts   opencode-ai@1.18.34"
+                   },
+                   {
+                       "proof":  "v1-binary-pinned-found",
+                       "ok":  true,
+                       "detail":  "path-sanitizado, versao=1.18.34"
+                   },
+                   {
+                       "proof":  "v1-no-native-resume-observed",
+                       "ok":  false,
+                       "detail":  "--help indisponivel (timedout=True rc=-1); ausencia NAO observada"
+                   }
+               ],
+    "coverage":  [
+
+                 ],
+    "at":  "2026-10-06T08:15:02.7242217Z"
+}

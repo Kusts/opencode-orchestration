@@ -1,0 +1,574 @@
+{
+    "lane":  "session-real-lane-v2",
+    "purpose":  "V3.1 closure: RR-E2E-16..22 runtime-real + V2-native capability probes",
+    "date":  "2026-10-06",
+    "started_at":  "2026-10-06T08:09:04.3705802Z",
+    "finished_at":  "2026-10-06T08:15:07.8526241Z",
+    "status":  "ok-with-blocked",
+    "reason":  "cenarios blocked (motivos nos rows)",
+    "runtime_pin":  "2.0.23",
+    "binary":  "~\\AppData\\Roaming\\npm\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "service_port":  61210,
+    "scenarios":  [
+                      {
+                          "scenario_id":  "RR-E2E-16",
+                          "status":  "pass-real",
+                          "detail":  "cadeia completa provada em runtime real",
+                          "proofs":  [
+                                         {
+                                             "proof":  "real-session-created",
+                                             "ok":  true,
+                                             "detail":  "id=ses_eefbd9801ffe6Y6kMVcVF0i3oP"
+                                         },
+                                         {
+                                             "proof":  "task-transitioned-active",
+                                             "ok":  true,
+                                             "detail":  "DISCOVERING-\u003ePLANNING"
+                                         },
+                                         {
+                                             "proof":  "session-bound",
+                                             "ok":  true,
+                                             "detail":  "run=lane16-run root=ses_eefbd9801ffe6Y6kMVcVF0i3oP"
+                                         },
+                                         {
+                                             "proof":  "session-present-before-close",
+                                             "ok":  true,
+                                             "detail":  "probe=present"
+                                         },
+                                         {
+                                             "proof":  "session-closed-real",
+                                             "ok":  true,
+                                             "detail":  "DELETE /api/session/{id} rc=0"
+                                         },
+                                         {
+                                             "proof":  "absence-proven-after-close",
+                                             "ok":  true,
+                                             "detail":  "probe=absent"
+                                         },
+                                         {
+                                             "proof":  "absent-from-list",
+                                             "ok":  true,
+                                             "detail":  "listado=False"
+                                         },
+                                         {
+                                             "proof":  "task-persisted",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING rev=3 exit=0 timedout=False out={      \"acceptance_criteria\":  null,      \"active_wait\":  null,      \"actor\":  \"session-lane\",      \"attempt_budget\":  3,      \"attempts\":  null,      \"base_revision\":  \"\",      \"bindings\":  {                       \"active_execution_owner\":  \"ses_eefbd9"
+                                         },
+                                         {
+                                             "proof":  "no-false-completion",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING (nao-terminal)"
+                                         },
+                                         {
+                                             "proof":  "binding-record-preserved",
+                                             "ok":  true,
+                                             "detail":  "status=attached"
+                                         },
+                                         {
+                                             "proof":  "recovery-rebind",
+                                             "ok":  true,
+                                             "detail":  "root=ses_eefbd7bfbffe055hzu9NGxN4IZ"
+                                         },
+                                         {
+                                             "proof":  "recovery-state-intact",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "required_activation: root session real fechada com task ativa - exercitado",
+                                           "task persistida / sem conclusao falsa / recuperacao - provado"
+                                       ],
+                          "at":  "2026-10-06T08:09:22.1530414Z"
+                      },
+                      {
+                          "scenario_id":  "RR-E2E-17",
+                          "status":  "pass-real",
+                          "detail":  "stop owned + settlement + start + estado preservado + reconciliador consumiu observacao real",
+                          "proofs":  [
+                                         {
+                                             "proof":  "task-active-bound",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING root=ses_eefbd6796ffeTkc3uI88W9uUEO"
+                                         },
+                                         {
+                                             "proof":  "restart-stop-owned",
+                                             "ok":  true,
+                                             "detail":  "rc=0"
+                                         },
+                                         {
+                                             "proof":  "restart-settlement-observed",
+                                             "ok":  true,
+                                             "detail":  "absente_conclusiva=True inconclusivas=0"
+                                         },
+                                         {
+                                             "proof":  "restart-start-owned",
+                                             "ok":  true,
+                                             "detail":  "rc=0 job=True"
+                                         },
+                                         {
+                                             "proof":  "restart-listener-observed",
+                                             "ok":  true,
+                                             "detail":  "presenca=True"
+                                         },
+                                         {
+                                             "proof":  "task-state-preserved",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING rev=3"
+                                         },
+                                         {
+                                             "proof":  "task-bytes-unchanged",
+                                             "ok":  true,
+                                             "detail":  "sha256_igual=True"
+                                         },
+                                         {
+                                             "proof":  "session-after-restart-observed",
+                                             "ok":  true,
+                                             "detail":  "observado=running probe=present"
+                                         },
+                                         {
+                                             "proof":  "bindings-read-for-reconciler",
+                                             "ok":  true,
+                                             "detail":  "runs=1 gb_exit=0"
+                                         },
+                                         {
+                                             "proof":  "reconciler-matches-real-observation",
+                                             "ok":  true,
+                                             "detail":  "observado=running acao=reattach/ses_eefbd6796ffeTkc3uI88W9uUEO rows=1 actions=1 runs_in=1 obs_in=1 root_in=ses_eefbd6796ffeTkc3uI88W9uUEO probed=False"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "comportamento apos restart real: task persistida + observacao real reconciliada"
+                                       ],
+                          "at":  "2026-10-06T08:09:31.3232441Z"
+                      },
+                      {
+                          "scenario_id":  "RR-E2E-18",
+                          "status":  "blocked",
+                          "detail":  "perna running runtime-real; perna completed bloqueada sem modelo (provas parciais gravadas; plano lista as duas pernas como testes distintos)",
+                          "proofs":  [
+                                         {
+                                             "proof":  "child-created-real",
+                                             "ok":  true,
+                                             "detail":  "child=ses_eefbd33d8ffeIdB56pnyNR16tP parent=ses_eefbd401effe7JQEtxDusMHEpP"
+                                         },
+                                         {
+                                             "proof":  "child-provenance-native",
+                                             "ok":  true,
+                                             "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_eefbd401effe7JQEtxDusMHEpP"
+                                         },
+                                         {
+                                             "proof":  "child-bound-to-task",
+                                             "ok":  true,
+                                             "detail":  "run=lane18-child-run parent_provenance=ses_eefbd401effe7JQEtxDusMHEpP exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
+                                         },
+                                         {
+                                             "proof":  "restart-real",
+                                             "ok":  true,
+                                             "detail":  "stop+settlement+start+listener"
+                                         },
+                                         {
+                                             "proof":  "child-observed-after-restart",
+                                             "ok":  true,
+                                             "detail":  "child=ses_eefbd33d8ffeIdB56pnyNR16tP observado=running"
+                                         },
+                                         {
+                                             "proof":  "reconciler-child-action-correct",
+                                             "ok":  true,
+                                             "detail":  "observado=running"
+                                         },
+                                         {
+                                             "proof":  "task-intact-after-restart",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         },
+                                         {
+                                             "proof":  "synthetic-endpoint-attempt",
+                                             "ok":  true,
+                                             "detail":  "POST /synthetic rc=1 (observacao; status nao convertido em saude)"
+                                         },
+                                         {
+                                             "proof":  "completed-leg-recovered",
+                                             "ok":  false,
+                                             "detail":  "BLOCKED sem modelo: sem mensagens de resposta (sem modelo, o runtime nao produz turn completo)"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "exercitado: child real (parentID) + restart real + reconciliacao com observacao real",
+                                           "perna completed-session: so observavel com turn de modelo; plano Â§10 (persistence) lista como perna distinta de \"running child reattached\" (exercitada aqui em runtime real)"
+                                       ],
+                          "at":  "2026-10-06T08:09:43.7699964Z"
+                      },
+                      {
+                          "scenario_id":  "RR-E2E-19",
+                          "status":  "pass-real",
+                          "detail":  "ausencia real provada; nenhuma ausencia desconhecida vira sucesso",
+                          "proofs":  [
+                                         {
+                                             "proof":  "child-created-and-bound",
+                                             "ok":  true,
+                                             "detail":  "child=ses_eefbd002bffebi4q0lxIJG7F4s bind_exit=0 err="
+                                         },
+                                         {
+                                             "proof":  "restart-real-before-absence",
+                                             "ok":  true,
+                                             "detail":  "stop+settlement+start+listener"
+                                         },
+                                         {
+                                             "proof":  "absence-proven-by-probe",
+                                             "ok":  true,
+                                             "detail":  "probe=absent apos restart real (consulta conclusiva decide; falha e inconclusiva e NUNCA ausencia)"
+                                         },
+                                         {
+                                             "proof":  "absent-from-session-list",
+                                             "ok":  true,
+                                             "detail":  "listado=False"
+                                         },
+                                         {
+                                             "proof":  "reconciler-classifies-missing",
+                                             "ok":  true,
+                                             "detail":  "status=missing"
+                                         },
+                                         {
+                                             "proof":  "session-lost-requires-absence-proof",
+                                             "ok":  true,
+                                             "detail":  "requires_absence_proof=True"
+                                         },
+                                         {
+                                             "proof":  "session-lost-attempt-shaped",
+                                             "ok":  true,
+                                             "detail":  "status=SESSION_LOST task_state_mutated=false"
+                                         },
+                                         {
+                                             "proof":  "unknown-absence-never-success",
+                                             "ok":  true,
+                                             "detail":  "error=SESSION_LOST_NOT_PROVEN"
+                                         },
+                                         {
+                                             "proof":  "task-not-falsely-completed",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "ausencia PROVADA por probe conclusivo + classificacao missing + SESSION_LOST com prova"
+                                       ],
+                          "at":  "2026-10-06T08:09:56.2444852Z"
+                      },
+                      {
+                          "scenario_id":  "RR-E2E-20",
+                          "status":  "pass-real",
+                          "detail":  "envelope consumido por processo fresco + substituicao real com retomada correta",
+                          "proofs":  [
+                                         {
+                                             "proof":  "old-session-closed-proven",
+                                             "ok":  true,
+                                             "detail":  "probe=absent"
+                                         },
+                                         {
+                                             "proof":  "envelope-from-real-state",
+                                             "ok":  true,
+                                             "detail":  "task_id=lane20"
+                                         },
+                                         {
+                                             "proof":  "envelope-persisted",
+                                             "ok":  true,
+                                             "detail":  "path dentro do TargetHome isolado"
+                                         },
+                                         {
+                                             "proof":  "replacement-session-real",
+                                             "ok":  true,
+                                             "detail":  "id=ses_eefbcc76cffectFNOT4D3CJxFE"
+                                         },
+                                         {
+                                             "proof":  "envelope-injection-attempt",
+                                             "ok":  true,
+                                             "detail":  "POST /synthetic rc=0 (observacao; plano Â§10 permite fallback \"supply on next Planner turn\")"
+                                         },
+                                         {
+                                             "proof":  "envelope-received-by-replacement",
+                                             "ok":  true,
+                                             "detail":  "injecao_runtime_native=False; fallback do plano Â§10 (supply on next Planner turn) e o desenho quando injecao nao suportada"
+                                         },
+                                         {
+                                             "proof":  "envelope-consumed-by-fresh-process",
+                                             "ok":  true,
+                                             "detail":  "mode=reconciler-required task_id=lane20"
+                                         },
+                                         {
+                                             "proof":  "retomada-rebind-replacement",
+                                             "ok":  true,
+                                             "detail":  "root=ses_eefbcc76cffectFNOT4D3CJxFE"
+                                         },
+                                         {
+                                             "proof":  "retomada-binding-correct",
+                                             "ok":  true,
+                                             "detail":  "root_now=ses_eefbcc76cffectFNOT4D3CJxFE"
+                                         },
+                                         {
+                                             "proof":  "retomada-state-correct",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "cadeia: sessao antiga -\u003e estado persistido -\u003e envelope -\u003e processo fresco consome -\u003e sessao substituta real retoma"
+                                       ],
+                          "at":  "2026-10-06T08:10:14.4362476Z"
+                      },
+                      {
+                          "scenario_id":  "RR-E2E-21",
+                          "status":  "pass-real",
+                          "detail":  "estado e historico preservados atraves da substituicao real",
+                          "proofs":  [
+                                         {
+                                             "proof":  "task-has-worker-result",
+                                             "ok":  true,
+                                             "detail":  "candidate_pass=True exit=0"
+                                         },
+                                         {
+                                             "proof":  "session-replacement-real",
+                                             "ok":  true,
+                                             "detail":  "old=ses_eefbc9ae5ffernB7nilSFu5RYh new=ses_eefbc6be9ffedU0VjaULV050Yg"
+                                         },
+                                         {
+                                             "proof":  "state-preserved",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING-\u003ePLANNING"
+                                         },
+                                         {
+                                             "proof":  "history-preserved",
+                                             "ok":  true,
+                                             "detail":  "worker_result_preservado=True attempts=1"
+                                         },
+                                         {
+                                             "proof":  "no-false-terminal",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "substituicao real: substituto re-le o mesmo estado (state/objective/history) sem mutacao indevida"
+                                       ],
+                          "at":  "2026-10-06T08:10:33.7116940Z"
+                      },
+                      {
+                          "scenario_id":  "RR-E2E-22",
+                          "status":  "blocked",
+                          "detail":  "superficie de comandos do V1 indisponivel; nada e inferido",
+                          "proofs":  [
+                                         {
+                                             "proof":  "v1-isolated-install",
+                                             "ok":  true,
+                                             "detail":  "cmd: npm install --prefix \u003cTargetHome\u003e/v1-runtime opencode-ai@1.18.34 rc=0 out=added 3 packages in 18s  npm warn install-scripts 1 package has install scripts not yet covered by allowScripts: npm warn install-scripts   opencode-ai@1.18.34"
+                                         },
+                                         {
+                                             "proof":  "v1-binary-pinned-found",
+                                             "ok":  true,
+                                             "detail":  "path-sanitizado, versao=1.18.34"
+                                         },
+                                         {
+                                             "proof":  "v1-no-native-resume-observed",
+                                             "ok":  false,
+                                             "detail":  "--help indisponivel (timedout=True rc=-1); ausencia NAO observada"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-06T08:15:02.7242217Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  5,
+                            "fail":  0,
+                            "blocked":  2
+                        },
+    "capability_probes":  [
+                              {
+                                  "capability":  "session-hierarchy-provenance",
+                                  "probe":  "create child com parentID + GET child",
+                                  "command_config":  "POST /api/session {\"parentID\":\"\u003croot\u003e\"}; GET /api/session/{child}",
+                                  "expected":  "child expÃµe provenance do parent nativamente",
+                                  "observed":  "GET ok=True parentID=",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "nada observado",
+                                  "fail_mode":  "n/a",
+                                  "note":  "provenance nÃ£o confirmada no response (campo pode existir em outra forma)",
+                                  "at":  "2026-10-06T08:15:03.2598305Z"
+                              },
+                              {
+                                  "capability":  "session-permission-narrowing",
+                                  "probe":  "shell permitido vs shell sob deny (overlay de config + permissions por sessao)",
+                                  "command_config":  "agents.build.permissions deny-overlay; POST /api/session {\"permissions\":[{\"action\":\"shell\",\"resource\":\"cmd /c echo DeniedProbe*\",\"effect\":\"deny\"}]}",
+                                  "expected":  "deny recusa o comando marcado (config e/ou por-sessao)",
+                                  "observed":  "overlay: deny NAO recusou via POST /shell (rc=0); por-sessao: create-com-permissions aceito (id retornado); shell sob deny por-sessao recusado=False",
+                                  "classification":  "unsupported",
+                                  "policy_honored":  "nao honrado em nenhum caminho observado",
+                                  "policy_ignored":  "deny do overlay ignorado no caminho /shell",
+                                  "fail_mode":  "fail-open observado via /shell",
+                                  "note":  "resultado real; gating kernel-side continua obrigatorio",
+                                  "at":  "2026-10-06T08:15:05.4743444Z"
+                              },
+                              {
+                                  "capability":  "experimental-policies-hard-deny",
+                                  "probe":  "config sem experimental.policies ativo",
+                                  "command_config":  "lane opencode.json: experimental = {subagent_depth:1} apenas",
+                                  "expected":  "sÃ³ Ã© possÃ­vel provar hard-deny com polÃ­tica experimental declarada e violada",
+                                  "observed":  "lane nÃ£o declara experimental.policies; probe de violaÃ§Ã£o exigiria config de polÃ­tica especÃ­fica do pin",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "n/a",
+                                  "fail_mode":  "n/a",
+                                  "note":  "nÃ£o inventado: sem polÃ­tica declarada nÃ£o hÃ¡ deny a observar; probe especÃ­fico fica para coleta com config operator-owned",
+                                  "at":  "2026-10-06T08:15:05.4781905Z"
+                              },
+                              {
+                                  "capability":  "native-step-limits",
+                                  "probe":  "limites nativos de passo",
+                                  "command_config":  "n/a nesta lane",
+                                  "expected":  "step limit nativo derivado de budget",
+                                  "observed":  "execuÃ§Ã£o de passos requer inferÃªncia de modelo (provider ausente no ambiente da lane)",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "n/a",
+                                  "fail_mode":  "n/a",
+                                  "note":  "nÃ£o decidÃ­vel sem modelo; nenhum resultado inferido",
+                                  "at":  "2026-10-06T08:15:05.4802226Z"
+                              },
+                              {
+                                  "capability":  "background-subagents-bounded",
+                                  "probe":  "subagents em background com concorrencia limitada",
+                                  "command_config":  "n/a nesta lane",
+                                  "expected":  "spawn bounded observÃ¡vel",
+                                  "observed":  "spawn de subagente requer inferÃªncia de modelo (provider ausente)",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "n/a",
+                                  "fail_mode":  "n/a",
+                                  "note":  "nÃ£o decidÃ­vel sem modelo; limites continuam kernel-side",
+                                  "at":  "2026-10-06T08:15:05.4812292Z"
+                              },
+                              {
+                                  "capability":  "plugin-storage-index",
+                                  "probe":  "storage de plugin sob XDG isolado",
+                                  "command_config":  "idem",
+                                  "expected":  "storage presente apÃ³s uso",
+                                  "observed":  "nenhum dir plugin/storage encontrado",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "n/a",
+                                  "fail_mode":  "n/a",
+                                  "note":  "sem atividade de plugin nesta lane; nada inferido",
+                                  "at":  "2026-10-06T08:15:05.4903627Z"
+                              },
+                              {
+                                  "capability":  "snapshots-auxiliary",
+                                  "probe":  "snapshot dirs",
+                                  "command_config":  "idem",
+                                  "expected":  "snapshot materializado",
+                                  "observed":  "nenhum dir snapshot encontrado",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "n/a",
+                                  "fail_mode":  "n/a",
+                                  "note":  "sem atividade que dispare snapshot; nada inferido",
+                                  "at":  "2026-10-06T08:15:05.5032741Z"
+                              },
+                              {
+                                  "capability":  "durable-event-log-replay",
+                                  "probe":  "arquivos de evento",
+                                  "command_config":  "idem",
+                                  "expected":  "log persistido",
+                                  "observed":  "nenhum arquivo de evento localizado",
+                                  "classification":  "ambiguous",
+                                  "policy_honored":  "n/a",
+                                  "policy_ignored":  "n/a",
+                                  "fail_mode":  "n/a",
+                                  "note":  "formato de persistÃªncia pode ser DB interno; nada inferido",
+                                  "at":  "2026-10-06T08:15:05.5129569Z"
+                              }
+                          ],
+    "probes_skipped":  false,
+    "checks":  [
+                   {
+                       "check":  "version_exact",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.23"
+                   },
+                   {
+                       "check":  "config_19_workers_built",
+                       "ok":  true,
+                       "detail":  "opencode.json da lane com 19 workers + overlay deny shell marker (probe narrowing)"
+                   },
+                   {
+                       "check":  "isolation_paths",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "check":  "port_preflight_free",
+                       "ok":  true,
+                       "detail":  "porta 61210 =\u003e PORT_FREE should_start=true"
+                   },
+                   {
+                       "check":  "service_port_configured",
+                       "ok":  true,
+                       "detail":  "service set port =\u003e 61210"
+                   },
+                   {
+                       "check":  "job_object_created_before_start",
+                       "ok":  true,
+                       "detail":  "limit_flags=0x2000"
+                   },
+                   {
+                       "check":  "service_start_explicit_job_assigned",
+                       "ok":  true,
+                       "detail":  "service start rc=0; job_assigned=true; nota=atribuido ao job (pid 6760)"
+                   },
+                   {
+                       "check":  "service_listener_observed",
+                       "ok":  true,
+                       "detail":  "listener porta 61210 observado (fato P22)"
+                   },
+                   {
+                       "check":  "rest_auth_from_service_json",
+                       "ok":  true,
+                       "detail":  "password lida de service.json do perfil isolado (valor nunca logado)"
+                   },
+                   {
+                       "check":  "openapi_real_parsed",
+                       "ok":  true,
+                       "detail":  "spec real carregada (paths disponiveis)"
+                   },
+                   {
+                       "check":  "service_stop_owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "check":  "service_settlement",
+                       "ok":  true,
+                       "detail":  "ausencia conclusiva do listener apos stop owned"
+                   },
+                   {
+                       "check":  "job_object_closed",
+                       "ok":  true,
+                       "detail":  "reason=handle fechado (KILL_ON_JOB_CLOSE: membros remanescentes encerrados pelo SO)"
+                   },
+                   {
+                       "check":  "port49374_untouched",
+                       "ok":  true,
+                       "detail":  "antes=opencode:11280 depois=opencode:11280"
+                   }
+               ],
+    "notes":  [
+                  "probes V2-native sao observacionais: nenhum registro de v2-native-evidence.json foi escrito aqui"
+              ],
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane",
+    "port49374_owner_before":  "opencode:11280",
+    "port49374_owner_after":  "opencode:11280"
+}

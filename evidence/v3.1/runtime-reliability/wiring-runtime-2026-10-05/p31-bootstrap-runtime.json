@@ -1,0 +1,33 @@
+{
+    "wiring":  "P31-S2",
+    "component":  "scripts/runtime/SessionBootstrapContext.ps1",
+    "claim":  "component executes in real runtime (parse-only, fail-open); REGISTRATION into real startup path stays operator-owned",
+    "at":  "2026-10-06T00:16:37.9628763Z",
+    "powershell":  "5.1.26100.9444",
+    "exit_code":  0,
+    "stdout_parseable":  true,
+    "envelope_status":  "envelope-emitido",
+    "notes":  [
+
+              ],
+    "project_id":  "opencode-orchestration",
+    "truncated":  false,
+    "flags_seen":  [
+                       "version=False",
+                       "capability_registry=True",
+                       "capability_reconciler=False",
+                       "capability_router=False",
+                       "skill_routing=False",
+                       "mcp_routing=False",
+                       "routing_telemetry=False",
+                       "adaptive_ranking=False",
+                       "runtime_support=False",
+                       "task_kernel=True",
+                       "bounded_execution=True",
+                       "watchdog=True",
+                       "jev_advisory=True",
+                       "worktree_isolation=True",
+                       "runtime_grant_enforcement=False"
+                   ],
+    "runtime_executed":  true
+}

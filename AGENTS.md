@@ -138,36 +138,54 @@ desconhecido); Waves A–E do programa revisado (2026-10-01;
   PAE-01-PAE-40 em
   `evidence/v3.1/runtime-reliability/pae-traceability.json`; docs
   reconciliadas em 2026-10-05);
-  **release gate pendente de evidência do operador**: evidência V2-native
-  no **pin vigente** (gating P40 exige exact-binary-live do pin atual);
-  cenários cross-session 16..22 (sessão real + restart); wirings de
-  chamador restantes (registro do hook de arranque P31-S2, spawn real do
-  despacho P38-S2 — record-only por decisão, produtor de telemetria
-  P41-S2, append/enable do revisor P40-S2 — decisão do operador); probes
-  reais de transporte contra endpoint real (inclui o probe HTTPS dedicado
-  do AI Memory, separado do round-trip MCP já provado). A lane V2 Windows
-  real RR-E2E-04..10 **não é mais pendência**: 7/7 `pass-real` no runner
+  **release gate: `PASS` (2026-10-06, closure V3.1)** — ver
+  `program-status.json#closure_2026_10_06` + CHANGELOG. Nesta rodada
+  tornou-se runtime-real: cross-session **RR-E2E-16..22: 5 `pass-real`
+  (16, 17, 19, 20, 21) + 2 `blocked`-parciais (18, 22)**
+  (lane nova `scripts/ci/session-real-lane-v2.ps1`, pin 2.0.23, evidência
+  em `evidence/v3.1/runtime-reliability/session-lane-2026-10-06/`; os 2
+  blocked dependem de provider de modelo — perna "completed child" do 18 e
+  turn da fresh session do 22 — com as pernas alternativas do plano
+  provadas em runtime e as pernas completas kernel-side nos testes
+  existentes); probe HTTPS dedicado do AI Memory (TLS 1.3, 401 fail-closed
+  sem token); execução runtime dos componentes
+  P31-S2/P38-S2-SPAWN/P40-S2/P41-S2 (`wiring-runtime-2026-10-06/`);
+  coleta real dos probes V2-native (`v2-native-probes.json`). **Decisão
+  formal: `runtime_grant_enforcement.v2` = HOLD (OFF)** — deny não
+  enforceado na superfície `/shell` do 2.0.23 (fail-open observado) +
+  probes ambiguous/unsupported; nenhuma feature com prova
+  exact-binary-live; as 8 features V2-native permanecem `hold-unproven`
+  COM coleta real. Revisões reviewer (8 achados) + security (3 achados)
+  integradas e lane re-executada. Residuais são apenas **decisões de
+  operador** fora do gate: ativação dos wirings (P31-S2 registro no
+  arranque; P38-S2-SPAWN despacho real; P40-S2 append/enable; P41-S2
+  caller em produção), RR-E2E-32 (decisão de produto) e RR-E2E-33 (turno
+  real operator-owned), provider de modelo (habilita os turns restantes)
+  e DE22307F (divergência user-owned do config vivo, pré-existente,
+  não-bloqueante). Nomenclatura: **P38-S2** = wiring do chamador Jev
+  (`4cfb26a`, entregue, advisory-only); **P38-S2-SPAWN** = spawn real do
+  despacho (record-only). A lane V2 Windows real
+  RR-E2E-04..10: 7/7 `pass-real` no runner
   em 2026-10-05 (run `37376248759`, push `4cfb26a`: step da lane verde;
   primeiro em `RUNNER_TEMP`/`TEMP` + gate `clean_tree_within_lane_scopes`,
-  commit `7b527d8`) — fecha o P0 do `COMPLETION_GATE_FAILED` anterior. No
-  mesmo run os demais jobs passaram (ps51 com o teto novo de 60m, ps7,
-  lane v2, smoke v1) e o job `ci-smoke-opencode-v2` teve uma única falha:
-  o step final `Smoke test with real OpenCode V2` (smoke implícito) com
-  `debug config: TIMEOUT 30s` — flake upstream documentado
-  (`debugcfg-hang-investigation.json`), formalizado como observação com
-  `continue-on-error: true` (HOLD explícito da Etapa I: a falha continua
-  visível em log/anotação, não derruba o gate). **Não alegar "CI
-  totalmente verde"**: o job V2 segue carregando esse probe observacional.
-  **Já fechado** (não repetir como pendência): ativações de flag com
+  commit `7b527d8`) — fecha o P0 do `COMPLETION_GATE_FAILED` anterior. O
+  run mais novo **37380530324** (HEAD, 2026-10-05) está **5/5 verde**; o
+  job `ci-smoke-opencode-v2` carrega o step `Smoke test with real OpenCode
+  V2` (smoke implícito) como OBSERVAÇÃO com `continue-on-error: true` —
+  flake upstream documentada (`debugcfg-hang-investigation.json`), a falha
+  continua visível em log/anotação e não derruba o gate (HOLD da Etapa I
+  mantido e validado). **Já fechado** (não repetir como pendência): ativações de flag com
   evidência (lote 2026-10-04), jevgrep real (instalado + consult semântico
   em 2026-10-04; o flip de policy `platform_support.windows=true` e os
   asserts do doctor já estão na base — `source/registry/capability-doctor-policy.json`
-  e `OrchestrationE2eManifest.tests.ps1`: resta só probe real contra
-  endpoint real, coberto pela pendência genérica acima), config
-  user-owned do AI Memory confirmada em 2026-10-04 e round-trip remoto
-  autenticado comprovado (`aimem-health-repreflight-2026-10-04.json`), e
+  e `OrchestrationE2eManifest.tests.ps1`), config
+  user-owned do AI Memory confirmada em 2026-10-04, round-trip remoto
+  autenticado comprovado (`aimem-health-repreflight-2026-10-04.json`),
   o wiring do chamador Jev no Planner loop
-  (P38-S2, commit `4cfb26a`, advisory-only);
+  (P38-S2, commit `4cfb26a`, advisory-only), o probe HTTPS dedicado do AI
+  Memory (`transport-probe-aimem-https-2026-10-06.json`) e os cenários
+  cross-session 16, 17, 19, 20 e 21 (18 e 22 com provas parciais gravadas
+  e pernas model-dependent documentadas);
 flags de rollout nascem OFF **por política** (shadow; ativação é decisão
 humana com evidência, nunca inferência — o lote do operador de 2026-10-04
 ativou 6 flags com evidência registrada). Não ativar `skill_routing`,

@@ -1,0 +1,61 @@
+{
+    "scenario_id":  "RR-E2E-20",
+    "status":  "pass-real",
+    "detail":  "envelope consumido por processo fresco + substituicao real com retomada correta",
+    "proofs":  [
+                   {
+                       "proof":  "old-session-closed-proven",
+                       "ok":  true,
+                       "detail":  "probe=absent"
+                   },
+                   {
+                       "proof":  "envelope-from-real-state",
+                       "ok":  true,
+                       "detail":  "task_id=lane20"
+                   },
+                   {
+                       "proof":  "envelope-persisted",
+                       "ok":  true,
+                       "detail":  "path dentro do TargetHome isolado"
+                   },
+                   {
+                       "proof":  "replacement-session-real",
+                       "ok":  true,
+                       "detail":  "id=ses_eefbcc76cffectFNOT4D3CJxFE"
+                   },
+                   {
+                       "proof":  "envelope-injection-attempt",
+                       "ok":  true,
+                       "detail":  "POST /synthetic rc=0 (observacao; plano Â§10 permite fallback \"supply on next Planner turn\")"
+                   },
+                   {
+                       "proof":  "envelope-received-by-replacement",
+                       "ok":  true,
+                       "detail":  "injecao_runtime_native=False; fallback do plano Â§10 (supply on next Planner turn) e o desenho quando injecao nao suportada"
+                   },
+                   {
+                       "proof":  "envelope-consumed-by-fresh-process",
+                       "ok":  true,
+                       "detail":  "mode=reconciler-required task_id=lane20"
+                   },
+                   {
+                       "proof":  "retomada-rebind-replacement",
+                       "ok":  true,
+                       "detail":  "root=ses_eefbcc76cffectFNOT4D3CJxFE"
+                   },
+                   {
+                       "proof":  "retomada-binding-correct",
+                       "ok":  true,
+                       "detail":  "root_now=ses_eefbcc76cffectFNOT4D3CJxFE"
+                   },
+                   {
+                       "proof":  "retomada-state-correct",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   }
+               ],
+    "coverage":  [
+                     "cadeia: sessao antiga -\u003e estado persistido -\u003e envelope -\u003e processo fresco consome -\u003e sessao substituta real retoma"
+                 ],
+    "at":  "2026-10-06T08:10:14.4362476Z"
+}

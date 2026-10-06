@@ -1,0 +1,31 @@
+{
+    "probe":  "aimem-https-dedicated-transport",
+    "date":  "2026-10-06",
+    "endpoint":  "https://[REDACTED-HOST]:443/mcp",
+    "endpoint_note":  "caminho registrado sem query/credenciais; host user-owned fora do repo",
+    "tls_note":  "o handshake com callback permissivo prova protocolo/latencia/validade temporal do certificado; NAO prova confianca de cadeia/hostname (isso e do cliente MCP real, cujo round-trip autenticado ja foi provado em 2026-10-04)",
+    "config_source":  "user-owned ~/.config/opencode/opencode.json (mcp.ai-memory.url; valor nunca logado por completo)",
+    "checks":  [
+                   {
+                       "check":  "tls-handshake",
+                       "ok":  true,
+                       "detail":  "protocolo=Tls13 latencia_ms=369 cert_subject=CN=[REDACTED] cert_notafter=2026-12-24 tls12_ou_maior=True"
+                   },
+                   {
+                       "check":  "tls-cert-valid-now",
+                       "ok":  true,
+                       "detail":  "validade atual ok; notAfter=2026-12-24"
+                   },
+                   {
+                       "check":  "mcp-post",
+                       "ok":  true,
+                       "detail":  "http_status=401 latencia_ms=991 server_respondeu=true (observacao real; status nao convertido em saude)"
+                   },
+                   {
+                       "check":  "http-get",
+                       "ok":  true,
+                       "detail":  "http_status=404 latencia_ms=928 server_respondeu=true (observacao real; status nao convertido em saude)"
+                   }
+               ],
+    "at":  "2026-10-06T08:04:42.0234999Z"
+}

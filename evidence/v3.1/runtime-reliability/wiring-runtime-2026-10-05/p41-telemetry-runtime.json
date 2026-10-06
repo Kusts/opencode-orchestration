@@ -1,0 +1,21 @@
+{
+    "wiring":  "P41-S2",
+    "component":  "scripts/v3/lib/OrchestrationEvolutionTelemetryProducer.ps1 Invoke-OrchestrationTelemetryProduction",
+    "claim":  "producer executes against REAL kernel task records and emits one bounded observation-only JSONL line consumed by the slice-1 reader",
+    "at":  "2026-10-06T00:16:37.9628763Z",
+    "producer_ok":  true,
+    "producer_status":  "ok",
+    "written":  true,
+    "observation_only":  true,
+    "line_bytes":  1643,
+    "counters":  [
+                     "@{tester_duplication_events=0; tester_rounds=0; tool_loop_tasks=0; tasks=2; wall_time_s=13148; reviewer_findings=0; reviewer_rounds=1; budget_exceeded_tasks=0}"
+                 ],
+    "unavailable_counters":  [
+                                 "@{user_interventions=no-real-source:human-intervention-signal-not-recorded; jev_useful_calls=no-real-source:jev-outcome-signal-not-recorded; jev_calls=no-real-source:jev-call-events-not-recorded; evidence_reused=no-source-configured; evidence_available=no-source-configured}"
+                             ],
+    "jsonl_files":  1,
+    "reader_status":  "ok",
+    "reader_consumed":  true,
+    "runtime_executed":  true
+}

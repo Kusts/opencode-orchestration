@@ -217,7 +217,7 @@ A orquestração é canônica; a sintaxe de cada geração é adaptação
   segue OFF (Phase 5 — nenhum hard-deny antes da validação
   comportamental).
 
-## Confiabilidade de runtime (V3.1 Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05) - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; release gate pendente do operador)
+## Confiabilidade de runtime (V3.1 Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05; closure 2026-10-06: release gate PASS com residuais operator-owned) - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin com provas runtime-real nas lanes 04..10 e 16..22)
 
 **Status 2026-10-02/03:** programa **code-complete** nas fatias
 kernel-side/plugin — Waves A–E implementadas via ciclo
@@ -316,8 +316,10 @@ As subseções abaixo registram o que existe no código e seus limites
 honestos. O que elas descrevem é **capacidade entregue**, não autorização:
 as flags de rollout do programa foram **ativadas em 2026-10-04** pelo
 operador com evidência registrada (exceto
-`runtime_grant_enforcement{v1,v2}`, que segue OFF por doutrina Phase 5), e
-o release gate continua dependente de evidência do ambiente do operador.
+`runtime_grant_enforcement{v1,v2}`, que segue OFF — HOLD sustentado por
+evidência real na closure 2026-10-06: deny não enforceado na superfície
+`/shell` do 2.0.23), e o release gate foi decidido `PASS` em 2026-10-06
+com residuais exclusivamente operator-owned.
 
 #### Watchdog: shadow + caminho de enforcement (P25/P26)
 
@@ -593,27 +595,39 @@ o enforcement
 comportamental V2 (Phase 5) depende do runtime real; AI Memory remoto
 em PROD (deploy do operador) com config user-owned fora do repo
 confirmada em 2026-10-04 e round-trip remoto autenticado comprovado
-(`aimem-health-repreflight-2026-10-04.json`; resta só o probe HTTPS
-dedicado, separado do round-trip MCP); o
-release gate (**RR-E2E-04..10 7/7 `pass-real` no runner** em 2026-10-05,
-run `37376248759` — lane fechada após o fix de contaminação do checkout
-`7b527d8`; preflights reais e ciclo de vida
-explícito do serviço verdes desde 2026-10-03/04; `debug config` com
+(`aimem-health-repreflight-2026-10-04.json`) **e probe HTTPS dedicado
+real** (`transport-probe-aimem-https-2026-10-06.json`: TLS 1.3, 401
+fail-closed sem token, host sanitizado); o
+release gate foi **fechado como `PASS` em 2026-10-06** (closure V3.1,
+`program-status.json#closure_2026_10_06`): **RR-E2E-04..10 7/7
+`pass-real` no runner** em 2026-10-05 (run `37376248759`, lane fechada
+após o fix de contaminação `7b527d8`) e **RR-E2E-16..22: 5 `pass-real`
+(16, 17, 19, 20, 21) + 2 `blocked`-parciais (18, 22, model-dependent com
+pernas alternativas provadas em runtime)** em runtime real 2.0.23 (lane
+`scripts/ci/session-real-lane-v2.ps1`, evidência em
+`session-lane-2026-10-06/`); `debug config` com
 intermitência caracterizada experimentalmente (7 hangs vs 5 passes no
 mesmo dia; suspeita principal interna ao binário histórico 2.0.18, não
 comprovada; `debugcfg-hang-investigation.json`) — no run de 2026-10-05 ele
 falhou com `TIMEOUT 30s` e foi formalizado como observação
-`continue-on-error: true`, então o job V2 continua carregando um probe
-observacional e não é "totalmente verde"); evidência V2-native no
-pin vigente; cenários cross-session 16..22; probes reais contra endpoint
-real; wirings de chamador restantes — P31-S2 (registro no arranque real),
-P38-S2 (spawn real do despacho, record-only por decisão), P41-S2
-(produtor em produção) e P40-S2 (append/enable, decisão do operador)) depende de
-evidência do operador; revisões Reviewer + Security Reviewer com APPROVED
+`continue-on-error: true` (validado: o erro segue visível e a lane real
+segue sendo o gate; run `37380530324` 5/5 verde); probes V2-native
+coletados em runtime real (`v2-native-probes.json`: narrowing fail-open
+na superfície `/shell`, demais ambiguous) ⇒ **decisão formal
+`runtime_grant_enforcement.v2` = HOLD (OFF)** e as 8 features permanecem
+`hold-unproven` COM coleta real; wirings com componente runtime-proven e
+ativação operator-owned — P31-S2 (registro no arranque real),
+P38-S2-SPAWN (spawn real do despacho, record-only por decisão; o ID
+P38-S2 designa o wiring do chamador Jev, entregue em `4cfb26a`), P41-S2
+(produtor em produção) e P40-S2 (append/enable, decisão do operador).
+Residuais exclusivamente decisões do operador (ver
+`program-status.json#closure_2026_10_06.release_gate.residual_operator_decisions`).
+Revisões Reviewer + Security Reviewer com APPROVED
 por slice (HOLDs registrados); critérios `PAE-01`–`PAE-40` rastreados em
-`evidence/v3.1/runtime-reliability/pae-traceability.json`, pendentes de
-evidência do operador onde marcados `activation-pending`/
-`blocked-operator-evidence`. Programa **não** concluído.
+`evidence/v3.1/runtime-reliability/pae-traceability.json` (linhas com
+`activation-pending`/`blocked-operator-evidence` históricas foram
+superseded pelo closure de 2026-10-06 onde o item virou prova real ou
+HOLD sustentado — status vivo é `program-status.json`).
 
 ## Ownership model do installer (PACKAGE/USER)
 
