@@ -18,10 +18,11 @@
       "implementation": "ai-memory-opencode2.ts",
       "runtime": { "v1": "unsupported", "v2": "supported" },
       "managed_by": "machine",
-      "status": { "installed": true, "discovered": true, "active": true, "smoke": "pending-restart" },
+      "status": { "installed": true, "discovered": true, "active": true, "smoke": "pass-clean-boot-20261006" },
       "evidence": {
         "shape": "default export object { id: \"ai-memory-opencode2\", setup } (source lines 563-565, 698)",
-        "load": "opencode.log loading-plugin lines 2026-10-06T19:37:59Z, zero LoadError lines for this target"
+        "load": "opencode.log loading-plugin lines 2026-10-06T19:37:59Z, zero LoadError lines for this target; clean boot 2026-10-06T20:48:27Z (server PID 15948), strict whole-run plugin-healthcheck PASS load_errors 0",
+        "hook_smoke": "memory_status PASS apos boot limpo (new token, sem 401/403); legacy ai-memory.ts ausente da raiz ativa"
       }
     },
     "ai-memory-hooks-v1": {

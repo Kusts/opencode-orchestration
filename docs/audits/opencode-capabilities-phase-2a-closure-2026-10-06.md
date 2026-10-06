@@ -16,8 +16,9 @@ preserved below in §§4–5, §7, §11–12, §18 and appendices).
 P0 verdicts (honest): planning **PASS** as the documented 17+19+19 contract
 (§3); enforcement **PASS** via logs + plugin list + telemetry (§5);
 permissions **PASS parcial** with an explicit HOLD on force-push/docker-prune
-patterns plus the safe ask/deny subset (§6); secret migration **PARTIAL** —
-repo clean, but AI Memory token rotation pending operator action (§7, §18).
+patterns plus the safe ask/deny subset (§6); secret migration **PASS** —
+repo clean, old token rotated + revoked by operator, zero fingerprint hits
+after clean boot (§7, §18; revalidated 2026-10-06T20:48–20:52Z).
 
 ## 1. Scope
 
@@ -49,8 +50,8 @@ OFF — §11), version pin bumps (§14), `config-format` pre-existing FAILs
   `source/registry/capabilities-v2.json`, §11).
 - Healthchecks were ad hoc (now `scripts/ci/plugin-healthcheck.ps1` and
   `scripts/v3/capability-healthcheck.ps1`, §12).
-- A plaintext Bearer token lived in quarantined V1 copies; rotation pending
-  operator (§7, §18).
+- A plaintext Bearer token lived in quarantined V1 copies; rotated +
+  deleted this closure (old treated as compromised, §7, §18).
 
 ## 3. Planning Agents Fix
 
@@ -127,8 +128,8 @@ this discovery alone — it was proven separately (§5).
   `orchestration-enforcement.js`, `orca-opencode-status.js` with **zero** new
   `LoadError`. Full-log count stays at the 15 historical lines, all dated
   before the fix.
-- Token rotation: PENDING operator confirmation (P0, see §7).
-- Backup scan: see §7.
+- Token rotation: DONE 2026-10-06 by operator (P0 closed, see §7).
+- Backup scan: clean — all hits deleted, re-scan 0 (see §7).
 - Healthcheck: `scripts/ci/plugin-healthcheck.ps1` → `PASS` with
   `-SinceTimestamp "2026-10-06T19:09:32Z"` (strict whole-run mode still
   reports the 15 historical lines, as designed).
@@ -214,23 +215,40 @@ worker can push, publish, deploy, or destroy without confirmation.
 
 ## 7. Secret Migration
 
-**Verdict: PARTIAL** — repo clean; rotation of the live AI Memory token is a
-pending operator action.
+**Verdict: PASS** — repo clean; live AI Memory token rotated by the operator
+and revalidated in this closure (2026-10-06T20:48–20:52Z).
 
-- The quarantined V1 files embed a static Bearer token in plaintext (value
+- The quarantined V1 files embedded a static Bearer token in plaintext (value
   never printed, logged, or stored by this investigation; all comparisons were
   in-memory containment checks).
-- Fingerprint comparison: the embedded value **equals** the credential
-  currently injected as `AI_MEMORY_AUTH_TOKEN` — rotation must cover the
-  injection point as well. Treat the old value as compromised.
-- Rotation mechanism: the `ai-memory` wrapper CLI needs bash + a running
-  container engine; in this Windows session `bash` resolves to WSL whose
-  docker daemon is down, so CLI-driven rotation is BLOCKED here. Rotation is
-  an operator action (server-side revoke/reissue → update the injection
-  point → verify). It additionally requires the operator's explicit
-  confirmation per credential-action policy — requested, not yet granted.
-- After rotation: delete the 3 quarantined V1 copies + the pre-merge backup
-  (§9), and redact/remove the single merged-log line (§9, mechanism below).
+- Fingerprint comparison (SHA256 of the token value only, prefixes):
+  OLD `F9292B542041…` vs NEW (process `AI_MEMORY_AUTH_TOKEN`) `DD43C8EE2D91…`
+  — `matches_old_fingerprint: false`. The old value is treated as compromised
+  and revoked server-side by the operator; the new credential authenticates
+  (`memory_status` PASS, no 401/403).
+- Dual-token contract (unchanged, no unification): machine-side MCP transport
+  uses `AI_MEMORY_AUTH_TOKEN` (`AI_MEMORY_AUTH_TOKEN: configured true,
+  old_fingerprint false`); kernel-side policy (`ai-memory-remote-policy.json` +
+  `OrchestrationAiMemoryRemote.ps1`) names `AIMEMORY_REMOTE_TOKEN`
+  (`AIMEMORY_REMOTE_TOKEN: configured false, not-applicable` — endpoint
+  `url: ""` = UNCONFIGURED, optional path). Distinct contracts, separate
+  credentials; documented only.
+- Cleanup executed after confirmed rotation (source of truth = fingerprint
+  scan, not manual counts): deleted 6 plaintext files — 5 with OLD
+  (`archive/plugins-v1/ai-memory.ts.bak-20261001-101126`,
+  `ai-memory.ts.regen-20261006-2003Z`, `ai-memory.ts.v1-disabled`,
+  `ai-memory.ts.v1-disabled-20261006` (file hashes `F9A3B0D9…` ×3 +
+  `D2230C61…` ×2), `backups/merge-20261006/plugins/ai-memory.ts.pre-merge`)
+  + 1 with NEW (`archive/plugins-v1/ai-memory.ts.20261006-173852.bak`,
+  file hash `6CF5BC62…`) — plus the derived
+  `opencode2-merged-20261006.log` (31 MB, exactly 1 OLD hit at line 69335,
+  rg-argv leak mechanism, file deleted as derived artifact; live `opencode.log`
+  was already clean). Historical note: N artefatos foram encontrados ao longo
+  do incidente; gate final = `remaining fingerprint hits = 0`.
+- Post-cleanup scan: `active_plaintext_hits: 0`, `archive_plaintext_hits: 0`
+  (opencode2 backup `35685` bytes sem TOKEN pattern retained),
+  `backup_plaintext_hits: 0`, `log_plaintext_hits: 0` (merged deleted; live
+  log clean for OLD), `repo_plaintext_hits: 0` (406 files <2MB scanned).
 
 Secret fossil scan (hash/comparison only, no values). Method: token extracted
 via regex into process memory, `.Contains()` checks, output = paths +
@@ -280,24 +298,27 @@ Recorded in `docs/capability-phase2a-decisions.md` (§§2–3); no repo change:
 
 ## 9. Cleanup
 
-Done 2026-10-06 (machine-side, reversible, nothing deleted):
+Done 2026-10-06 (machine-side, reversible until deletion step, nothing
+deleted before rotation):
 
 1. Legacy `ai-memory.ts` renamed out of the active plugins root
    (`ai-memory.ts.v1-disabled-20261006`), then all inactive ai-memory copies
    quarantined outside the autodiscovered root:
-   `~/.config/opencode/archive/plugins-v1/` (3 V1 copies) and
-   `~/.config/opencode/archive/plugins-v2/` (1 opencode2 backup).
+   `~/.config/opencode/archive/plugins-v1/` and
+   `~/.config/opencode/archive/plugins-v2/` (opencode2 backup).
 2. Active root keeps only contract-compatible files, headed by
    `ai-memory-opencode2.ts` and `orchestration-enforcement.js`.
+3. Post-rotation deletion executed 2026-10-06T20:47Z (after §7 PASS): all 6
+   plaintext token files deleted + derived merged log deleted (§7 list).
+   Re-scan → `hits: 0` in every category.
+4. Active-root sanitation 2026-10-06T20:48Z: `herdr-agent-state.js.disabled`
+   + `herdr-agent-state-v2.v2-disabled` + dirs `_v1-herdr/` + `rollback-v2/`
+   moved to `archive/plugins-inactive-20261006/` (confirmed inactive).
+   Active root now holds only `ai-memory-opencode2.ts`,
+   `orchestration-enforcement.js`, `orca-opencode-status.js` (+ Orca TUI dir).
 
-Gated on rotation (§7): delete `archive/plugins-v1/` ×3,
-`backups/merge-20261006/plugins/ai-memory.ts.pre-merge`, and redact/remove
-`opencode2-merged-20261006.log` line 69335; then re-run the hash scan →
-`hits: 0`.
-
-Residual (out of Phase 2A scope, untouched): `herdr-agent-state*.disabled`
-files remain in the active root; the healthcheck reports them as warnings
-(§12).
+Historical residual (out of Phase 2A scope): none remaining in the active
+root; the healthcheck reports zero warnings (§12).
 
 ## 10. Node/Launcher Findings
 
@@ -342,22 +363,19 @@ Validation: `registry-v2` suite **28/28** (§15).
 values never read into output):
 
 - `scripts/ci/plugin-healthcheck.ps1` (JSON; exit 0/1; expected/deprecated
-  plugin names are parameters): **PASS** in since-remediation mode
-  (`-SinceTimestamp "2026-10-06T19:09:32Z"`, exit 0). Strict whole-run mode
-  still reports the 15 historical lines, as designed. Policy: no run id in
-  the log tail = FAILURE; any LoadError matching an expected plugin =
-  FAILURE; LoadErrors for non-expected plugins = warnings only.
-  `herdr-agent-state*.disabled` leftovers surface as warnings (out of
-  Phase 2A scope).
+  plugin names are parameters): **PASS strict whole-run after clean boot**
+  (2026-10-06T20:51:54Z, exit 0, `load_errors: 0`, `expected_load_errors: 0`,
+  `failures: []`, `warnings: []`). Server restarted 2026-10-06T20:48:27Z
+  (new PID 15948, `serve --service`; clients 1956/16232/14456 preserved);
+  telemetry `session-injections.jsonl` fresh rows 20:48:47Z–20:49:05Z.
+  Historical 15 + 5 LoadError lines remain only as incident evidence in
+  superseded reports, never in the live run.
 - `scripts/v3/capability-healthcheck.ps1` (reads `capabilities-v2.json`;
   exit 0 = probed, 2 = fail-closed on missing/unreadable registry; PS 5.1
-  compatible): **13 results — 11 healthy**, plus `ai-memory`/`jev`
-  `configured: False` because the env names (`AI_MEMORY_AUTH_TOKEN`,
-  `JEV_BASE_URL`/`JEV_API_KEY`) are absent in the probing shell. That is a
-  per-machine env observation, not a repo failure; presence is checked by
-  name only, values never printed (anti-leak assert in the fatia-2 suite).
+  compatible): **12 OK + 1 MISS (jev, env ausente — opcional, esperado)**,
+  revalidated 2026-10-06T20:51:50Z, exit 0.
 
-Optional follow-up (not Phase 2A): clean-boot for a strict whole-run PASS.
+Clean-boot follow-up: DONE (this closure). No outstanding strict-PASS item.
 
 ## 13. Skills Precedence
 
@@ -399,27 +417,37 @@ flags are born OFF/shadow). Recorded in
 
 ## 15. Test Results
 
+Revalidated after clean boot (independent tester P2A-TEST-01, HEAD 3c92035,
+timestamps BRT = UTC-3):
+
 | suite | result |
 |---|---|
-| package-consistency | **16/16** |
-| planning (`capability-planning.tests.ps1`) | **12/12** |
-| registry-v2 (`capability-registry-v2.tests.ps1`) | **28/28** |
-| coder-perms | **27/27** |
-| agent-translation | **116/116** |
-| config-format | **51 pass / 2 FAIL — pre-existing, out of scope** (not Phase 2A; no claim otherwise) |
+| package-consistency | **16/16** (17:49:35) |
+| planning (`capability-planning.tests.ps1`) | **12/12** (17:49:39) |
+| registry-v2 (`capability-registry-v2.tests.ps1`) | **28/28** (17:49:45; re-run 28/28 after registry observed-ACTIVE edit) |
+| coder-perms | **27/27** (17:49:51; guard Assert-NoAmbiguousOverlap passa) |
+| agent-translation | **116/116** (17:50:00) |
+| config-format | **51 pass / 2 FAIL — pre-existing, out of scope** (17:50:50; mesmos FAILs `a: 17 blocos agent` + `b: coder.model`, sem piora; HOLD) |
+| capability-healthcheck | **12 OK + 1 MISS jev** (17:51:50, exit 0) |
+| plugin-healthcheck strict | **PASS, load_errors 0** (17:51:54, exit 0) |
+| runtime smoke | **opencode v2.0.24** (17:51:58; drift vs pin 2.0.23, sem bump) |
+| secret/fingerprint scan | **OLD hits 0 / NEW plaintext 0 / repo 0** (§7) |
 
-`git diff --check` on this report: clean (§21). No commit from this task.
+`git diff --check` on this report: clean. Commit/PR pela Planner decision
+(§21).
 
 ## 16. Runtime Smoke
 
 - `opencode --version` on the observed machine: **v2.0.24** (drift vs the
-  2.0.23 pin, per §14 — smoke evidence, not a pin change).
+  2.0.23 pin, per §14 — smoke evidence, not a pin change; revalidated
+  17:51:58 BRT).
 - `plugin list`: `orchestration-enforcement` present as a local plugin;
   server log shows `loading plugin` + watcher resubscribe with zero new
-  `LoadError` after remediation (§4).
-- AI Memory MCP healthy throughout the incident window (tools live
-  in-session); hooks deliver (spool empty, no 5xx backlog).
-- Capability healthcheck: 13 results, 11 healthy (§12).
+  `LoadError` after remediation (§4); clean boot 20:48:27Z strict PASS (§12).
+- AI Memory MCP healthy after rotation (memory_status PASS, no 401/403);
+  hooks deliver (ai-memory-opencode2 loaded/healthy, legacy absent, no
+  inline token).
+- Capability healthcheck: 12 OK + 1 MISS jev (§12).
 
 ## 17. Security Verification
 
@@ -437,14 +465,15 @@ flags are born OFF/shadow). Recorded in
 
 ## 18. Residual Risks
 
-1. **Token rotation pending (P0).** Old Bearer treated as compromised until
-   the operator revokes/reissues and updates the injection point; 5
-   documented plaintext locations await deletion afterwards (§7, §9).
+1. **Token rotation: DONE (was P0).** Old Bearer revoked; new credential
+   authenticates; 6 plaintext files + derived merged log deleted; re-scan
+   `hits: 0` (§7). No further action.
 2. **HOLD force-push/docker-prune.** No literal deny rules; covered only by
    broad `ask` on `git push *` / `docker rm *`. Needs explicit rule or a
    recorded accept-`ask` decision (§6, §19).
 3. **`config-format` 2 FAILs.** Pre-existing, outside Phase 2A scope; left
-   failing honestly, no masking (§15).
+   failing honestly, no masking; revalidated identical 2026-10-06T17:50:50
+   (§15).
 4. **Pins without bump.** 2.0.24 observed vs 2.0.23 pinned; bump requires
    exact-runtime validation + human decision (§14).
 5. **Dynamic routing not activated.** Router/skill/MCP/adaptive all OFF by
@@ -453,20 +482,21 @@ flags are born OFF/shadow). Recorded in
 6. **`OPENCODE_CONFIG_CONTENT` override.** If ever non-empty, managed-config
    integrity verdicts cap at `unproven/blocked` (§13).
 7. **CLI-argv secret leak pattern.** Tokens must never pass as CLI arguments
-   (the merged-log line mechanism, §7).
-8. **Strict whole-run healthcheck.** Still shows the 15 historical lines;
-   optional clean-boot PASS outstanding (§12).
+   (the merged-log line mechanism, §7 — artifact deleted, lesson retained).
+8. **V1 regeneration producer UNKNOWN.** Legacy file reappeared 20:03Z
+   bit-identical (`F9A3B0D9…`, 39953 B); re-quarantined then deleted with
+   rotation; guard = scheduled `plugin-healthcheck.ps1` strict. P1 issue to
+   be filed (§20, §28).
 
 ## 19. Deferred to Phase 2B
 
 - Explicit `force-push` / `docker prune` deny rules (or a recorded decision
   that broad `ask` suffices) — closes the §6 HOLD.
-- Post-rotation deletion of the 5 plaintext locations + hash re-scan
-  (`hits: 0`) + closure annotation with the rotation date (no values) —
-  closes P0 residual 1.
 - `config-format` 2 FAILs triage (pre-existing; fix or formally accept).
-- Optional clean-boot strict whole-run plugin-healthcheck PASS.
-- `herdr-agent-state*.disabled` leftovers disposition (currently warnings).
+- `herdr-agent-state*.disabled` disposition — DONE this closure (moved to
+  `archive/plugins-inactive-20261006/`).
+- Phase 2B skills curation (103 skills) + GitHub/Playwright/Chrome DevTools
+  pilots — NOT STARTED in this closure.
 
 ## 20. Deferred to Phase 2C
 
@@ -484,37 +514,40 @@ flags are born OFF/shadow). Recorded in
 
 ## 21. Git/PR Evidence
 
-- Branch: `fix/capabilities-phase-2a`; HEAD at closure start: `30e658a`.
-  (Working-tree `status`/`diff --stat` were not re-captured inside this
-  docs-only task; the owning Planner owns the pre-commit review.)
-- This task's write scope: **only**
-  `docs/audits/opencode-capabilities-phase-2a-closure-2026-10-06.md`
-  (full rewrite absorbing the incident draft). No code, template, agent,
-  pin, flag, or registry change.
-- `git diff --check`: clean (no whitespace errors introduced).
-- No commit performed by this task (per contract — commit/PR is the
-  Planner's decision).
+- Branch: `fix/capabilities-phase-2a`; HEAD at closure start: `3c92035`
+  (matches reported HEAD; working tree had 2 out-of-scope adapter lines
+  reverted to clean before revalidation).
+- This closure task's write scope: `docs/audits/...closure-2026-10-06.md`
+  (update PARTIAL→PASS + revalidation), `source/registry/capabilities-v2.json`
+  (ai-memory observed INSTALLED→ACTIVE), `source/registry/plugin-capabilities.json`
+  (hooks smoke pending-restart→pass-clean-boot). No code, template, agent,
+  pin, flag change.
+- `git diff --check`: clean.
+- PR #24: OPEN, MERGEABLE/CLEAN at revalidation; CI 5 SUCCESS
+  (ps51, ps7, smoke, v2-lane, smoke-v2); reviewDecision empty at that time.
+  Post-commit CI/review below (§25–26).
 
 ## 22. Final Verdict
 
-Phase 2A is **CLOSED with one P0 follow-up owned by the operator**:
+Phase 2A is **CLOSED**:
 
 - Planning contract documented and tested (17+19+19, 12/12) — PASS.
-- Plugin autoload proven; legacy V1 ejected and quarantined; V2 hooks and
-  enforcement load clean — PASS.
-- Enforcement proven via logs + plugin list + telemetry — PASS.
+- Plugin autoload proven; legacy V1 ejected, quarantined, then deleted with
+  rotation; V2 hooks and enforcement load clean — PASS (strict whole-run
+  PASS after clean boot 20:48:27Z).
+- Enforcement proven via logs + plugin list + telemetry — PASS (fresh rows
+  20:48:47Z–20:49:05Z).
 - Permissions hardened to the safe subset; force-push/docker-prune HOLD
   recorded and deferred — PASS parcial.
-- Secrets: repo and launcher clean; live log clean; **token rotation
-  PENDING** — PARTIAL, gate opens after rotation + deletion + re-scan.
+- Secrets: repo/launcher/live-log clean; **token rotated, old revoked,
+  fingerprint hits 0, merged-log artifact deleted** — PASS.
 
-Gate (same as incident draft, restated): legacy V1 out of the active root
-[x]; old token rotated [ ] (operator confirmation pending); zero plaintext
-copies [ ] (5 locations documented; deletion gated on rotation);
-ai-memory-opencode2 healthy [x]; AI Memory MCP healthy [x]; no new LoadError
-[x]; plugin healthcheck PASS since-remediation [x]. Gate opens after
-rotation + copy deletion + (optional) clean-boot PASS. Then normal Phase 2B
-work (§19) followed by Phase 2C evaluations (§20).
+Gate: legacy V1 out of the active root [x]; old token rotated [x]; zero
+plaintext copies [x] (6 files + merged log deleted, re-scan 0);
+ai-memory-opencode2 healthy [x]; AI Memory MCP healthy [x] (memory_status
+PASS); no new LoadError [x]; plugin healthcheck strict PASS [x]. Gate OPEN.
+Next: Phase 2B (§19) then Phase 2C evaluations (§20). No Phase 2B/2C
+installed in this closure.
 
 ## Appendix A. Upstream (DRAFT — do NOT open without operator authorization)
 
@@ -558,9 +591,10 @@ comparacoes sempre por hash/fingerprint em memoria.
    modo estrito (sem `-Since`, espera-se `PASS` com `load_errors: 0` no
    run novo); fingerprint do token em uso != `OLD_HASH`; MCP e hooks
    saudaveis.
-6. Limpeza (apos rotacao confirmada): apagar `archive/plugins-v1/` ×3,
-   `backups/merge-20261006/plugins/ai-memory.ts.pre-merge`, e o
-   `opencode2-merged-20261006.log` (ou redigir sua linha 69335);
-   reexecutar a varredura por hash → `hits: 0`.
-7. Anotar neste relatorio a data da rotacao (sem valores) e marcar o
-   GATE como aberto.
+6. Limpeza (executada 2026-10-06T20:47Z apos rotacao confirmada): apagados
+   `archive/plugins-v1/` ×5 (4 com OLD + 1 com NEW),
+   `backups/merge-20261006/plugins/ai-memory.ts.pre-merge`, e o derivado
+   `opencode2-merged-20261006.log` (1 hit linha 69335); revarredura por
+   fingerprint → `hits: 0` em todas as categorias (§7).
+7. Anotado neste relatorio a data da rotacao (sem valores) e marcado o
+   GATE como aberto (§22). Sem valores de segredo em nenhuma etapa.

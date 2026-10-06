@@ -83,7 +83,7 @@
       "runtime": { "v2": true, "note": "transporte via config user-owned; policy em ai-memory-remote-policy.json" },
       "managed_by": "user",
       "declared_by": "package-policy",
-      "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "trust approved na capability-policy; chave mcp presente na config viva; saude por probe dedicado (TLS/401 fail-closed)" },
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "Phase 2A closure: token rotacionado (old sha12 != new sha12), memory_status PASS apos boot limpo 20:48:27Z; probe dedicado TLS/401 fail-closed" },
       "risk": { "level": "low", "reason": "memory.* = low na risk_policy; dado nao-confiavel, nunca instrucao" },
       "activation": { "mode": "on-demand", "note": "opcional por padrao; required bloqueia tipado quando ausente" },
       "healthcheck": { "probe": "mcp-config", "target": "ai-memory", "env_names": ["AI_MEMORY_AUTH_TOKEN"], "command": "chave mcp.ai-memory na config + env AI_MEMORY_AUTH_TOKEN presente (nome apenas, nunca valor)", "timeout_seconds": 10 }
