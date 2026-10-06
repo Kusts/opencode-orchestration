@@ -361,6 +361,49 @@ $outL1 = & $recL -Runtime V1 -GeneratedRoot $genL -UserProfileRoot $hL *>&1 | Ou
 Assert ($LASTEXITCODE -eq 6) 'l: reconcile -Runtime V1 sem fonte => exit 6'
 Assert (-not (Test-Path -LiteralPath (Join-Path $ocL 'AGENTS.md') -PathType Leaf)) 'l: nada escrito sem fonte V1'
 
+# (o) reconcile SAME/DIFFERENT + anti-regressao [{0}] (BUG1) ----------------
+$genO = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-gen-o-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path (Join-Path $genO 'opencode\v2') -Force | Out-Null
+[void]$homes.Add($genO)
+$srcO = @'
+<!-- GENERATED FILE: direct edits will be overwritten. -->
+<!-- Canonical source: source/; regenerate with scripts/render-opencode-config.ps1. -->
+<!-- This file is active only after scripts/reconcile-opencode-config.ps1 applies it. -->
+
+# conteudo de teste reconcile
+linha dois sem tokens
+'@
+[IO.File]::WriteAllText((Join-Path $genO 'opencode\v2\AGENTS.md'), ($srcO.TrimEnd() + "`n"), $utf8)
+$hO = New-TestHome 'o' 'V2'
+$ocO = Join-Path $hO '.config\opencode'
+New-Item -ItemType Directory -Path $ocO -Force | Out-Null
+$divO = "# Notas do usuario`n`n<!-- opencode-orchestration:start -->`nconteudo antigo divergente`n<!-- opencode-orchestration:end -->`n"
+[IO.File]::WriteAllText((Join-Path $ocO 'AGENTS.md'), $divO, $utf8)
+$recO = Join-Path $RepoRoot 'scripts\reconcile-opencode-config.ps1'
+$hashBeforeO = (Get-FileHash -LiteralPath (Join-Path $ocO 'AGENTS.md') -Algorithm SHA256).Hash
+$outDiffO = & $recO -Runtime V2 -GeneratedRoot $genO -UserProfileRoot $hO *>&1 | Out-String
+Assert ($LASTEXITCODE -eq 0) 'o: preview DIFFERENT exit 0'
+Assert ($outDiffO -match '\[DIFFERENT\]') 'o: preview imprime [DIFFERENT]'
+Assert ($outDiffO -notmatch '\[\{0\}\]') 'o: sem literal [{0}] (BUG1)'
+$mO = [regex]::Match($outDiffO, 'current\s+([0-9A-F]{12})\s*;\s*desired\s+([0-9A-F]{12})')
+Assert ($mO.Success -and ($mO.Groups[1].Value -ne $mO.Groups[2].Value)) 'o: current != desired no DIFFERENT'
+$hashAfterPreviewO = (Get-FileHash -LiteralPath (Join-Path $ocO 'AGENTS.md') -Algorithm SHA256).Hash
+Assert ($hashBeforeO -eq $hashAfterPreviewO) 'o: preview nao escreve'
+
+# (p) reconcile desired final == aplicado + SAME seguinte (BUG2) ------------
+$desiredShortO = $mO.Groups[2].Value
+$outApplyO = & $recO -Runtime V2 -GeneratedRoot $genO -UserProfileRoot $hO -Apply *>&1 | Out-String
+Assert ($LASTEXITCODE -eq 0) 'p: apply exit 0'
+Assert ($outApplyO -notmatch '\[\{0\}\]') 'p: apply sem literal [{0}]'
+$fileHashO = (Get-FileHash -LiteralPath (Join-Path $ocO 'AGENTS.md') -Algorithm SHA256).Hash
+Assert ($fileHashO.Substring(0, 12) -eq $desiredShortO) 'p: hash aplicado == desired do preview (BUG2)'
+$outSameO = & $recO -Runtime V2 -GeneratedRoot $genO -UserProfileRoot $hO *>&1 | Out-String
+Assert ($LASTEXITCODE -eq 0) 'p: preview pos-apply exit 0'
+Assert ($outSameO -match '\[SAME\]') 'p: preview seguinte imprime [SAME]'
+Assert ($outSameO -notmatch '\[\{0\}\]') 'p: SAME sem literal [{0}]'
+$hashAfterSameO = (Get-FileHash -LiteralPath (Join-Path $ocO 'AGENTS.md') -Algorithm SHA256).Hash
+Assert ($hashAfterSameO -eq $fileHashO) 'p: preview SAME nao altera arquivo'
+
 # (m) F3: selecao de templates por runtime (unit + estatico) --------------------
 # Carrega as funcoes reais do install.ps1 via AST no escopo do script (sem
 # executar o instalador): FindAll + dot-source em nivel de script, pois

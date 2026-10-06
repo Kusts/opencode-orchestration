@@ -157,6 +157,7 @@ $currentHash = Get-FileHashSafe -Path $targetPath
 $hasMarkers = $false
 $action = 'create'
 $status = 'MISSING'
+$candidate = $null
 if ($null -ne $currentHash) {
     $existing = Read-Utf8 $targetPath
     $hasMarkers = $existing.Contains($markStart) -and $existing.Contains($markEnd)
@@ -179,11 +180,31 @@ if ($null -ne $currentHash) {
     }
 }
 
+# Texto final planejado (mesma construcao do apply): o preview e o apply
+# usam o mesmo $newText, sem reconstrucao divergente. O hash `desired`
+# exibido e o hash do $newText normalizado (Write-Utf8NoBom), nao o hash
+# da fonte bruta com tokens nao resolvidos.
+$newText = $null
+if ($action -eq 'replace-block') {
+    $newText = $candidate
+} elseif ($action -eq 'append-block') {
+    $block = $header.TrimEnd() + "`n" + $markStart + "`n" + $content.TrimEnd() + "`n" + $markEnd + "`n"
+    $newText = $existing.TrimEnd() + "`n`n" + $block.TrimEnd() + "`n"
+} else {
+    $block = $header.TrimEnd() + "`n" + $markStart + "`n" + $content.TrimEnd() + "`n" + $markEnd + "`n"
+    $newText = $block.TrimEnd() + "`n"
+}
+$tmpDesired = [IO.Path]::GetTempFileName()
+try {
+    Write-Utf8NoBom -Path $tmpDesired -Text $newText
+    $desiredFinalHash = (Get-FileHash -LiteralPath $tmpDesired -Algorithm SHA256).Hash
+} finally { Remove-Item -LiteralPath $tmpDesired -Force -ErrorAction SilentlyContinue }
+
 Write-Host '' ; Write-Host '=== OPENCODE CONFIG RECONCILIATION ===' -ForegroundColor Cyan
 if ($Apply) { Write-Host ('MODE: APPLY; COMPONENT: Instructions; RUNTIME: ' + $runtimeLabel) -ForegroundColor Yellow } else { Write-Host ('MODE: PREVIEW; COMPONENT: Instructions; RUNTIME: ' + $runtimeLabel) -ForegroundColor Cyan }
 $shortCurrent = '<none>'
 if ($currentHash) { $shortCurrent = $currentHash.Substring(0, 12) }
-Write-Host ("[{0}] generated/" + $sourceRel + " -> {1} (current {2}; desired {3}; owner {4}; action {5})" -f $status, $targetPath, $shortCurrent, $desiredHash.Substring(0, 12), $owner, $action) -ForegroundColor $(if ($status -eq 'SAME') { 'Green' } else { 'Yellow' })
+Write-Host (("[{0}] generated/" + $sourceRel + " -> {1} (current {2}; desired {3}; owner {4}; action {5})") -f $status, $targetPath, $shortCurrent, $desiredFinalHash.Substring(0, 12), $owner, $action) -ForegroundColor $(if ($status -eq 'SAME') { 'Green' } else { 'Yellow' })
 if ($pendingModelTokens -or $pendingPathTokens) {
     Write-Host 'Plano com tokens pendentes: informe ModelsPath para resolver modelos antes do apply.' -ForegroundColor Yellow
 }
@@ -239,22 +260,8 @@ Write-SafeJson -Path $rollbackPath -Value $rollback
 try {
     $beforeApply = Get-FileHashSafe -Path $targetPath
     if ($beforeApply -ne $currentHash) { throw 'CAS conflict: destino mudou apos o preview.' }
-    $newText = $null
-    if ($action -eq 'replace-block') {
-        $existing = Read-Utf8 $targetPath
-        $pattern = [regex]::Escape($markStart) + '[\s\S]*?' + [regex]::Escape($markEnd)
-        $innerNew = ($markStart + "`n" + $content.TrimEnd() + "`n" + $markEnd)
-        $newText = [regex]::Replace($existing, $pattern, '__OO_BLOCK__').Replace('__OO_BLOCK__', $innerNew)
-        if (-not $newText.Contains('GENERATED FILE')) { $newText = $header.TrimEnd() + "`n" + $newText.TrimStart() }
-        $newText = $newText.TrimEnd() + "`n"
-    } elseif ($action -eq 'append-block') {
-        $existing = (Read-Utf8 $targetPath).TrimEnd()
-        $block = $header.TrimEnd() + "`n" + $markStart + "`n" + $content.TrimEnd() + "`n" + $markEnd + "`n"
-        $newText = $existing + "`n`n" + $block.TrimEnd() + "`n"
-    } else {
-        $block = $header.TrimEnd() + "`n" + $markStart + "`n" + $content.TrimEnd() + "`n" + $markEnd + "`n"
-        $newText = $block.TrimEnd() + "`n"
-    }
+    # $newText ja computado no preview (logica identica); reusar sem reconstruir.
+    if ($null -eq $newText) { throw 'Texto planejado ausente.' }
     $targetParent = Split-Path -Parent $targetPath
     New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
     $tempPath = Join-Path $targetParent ('.' + (Split-Path -Leaf $targetPath) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
