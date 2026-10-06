@@ -249,6 +249,15 @@ and revalidated in this closure (2026-10-06T20:48–20:52Z).
   (opencode2 backup `35685` bytes sem TOKEN pattern retained),
   `backup_plaintext_hits: 0`, `log_plaintext_hits: 0` (merged deleted; live
   log clean for OLD), `repo_plaintext_hits: 0` (406 files <2MB scanned).
+  Extra P1-review sweep (P2A-SEC-01): 3 pre-token copies
+  (`cleanup-archive-20260915/ai-memory.ts.bak-v1-20260914`,
+  `ai-memory.ts.bak-1789331011`, `plugins-backup-20260928-124326/ai-memory.ts`)
+  — sem `const TOKEN` pattern; 176/147/176 long-quoted candidates com
+  `match_old = 0, match_new = 0`; +109 arquivos em cleanup/reconciliation/
+  rollback/loop-removal com `NEW hits = 0`.
+- argv hygiene: o vazamento histórico via `rg.exe` argv foi de sessão anterior
+  (remediado pela deleção do merged log); esta investigação nunca passou
+  valores como argumento CLI — somente comparação/hash em memória.
 
 Secret fossil scan (hash/comparison only, no values). Method: token extracted
 via regex into process memory, `.Contains()` checks, output = paths +
