@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "scope": "OpenCode V2 runtime plugin + MCP capabilities inventory (Phase 2A, 2026-10-06). Declarations here never enable anything; status values require the cited evidence.",
+  "related": "Complements source/registry/capabilities-v2.json (Fase 2A fatia 2 static curated registry: enforcement plugin id via repo-file probe, ai-memory via mcp-config probe). This file adds the machine-live plugin-autoload layer: V2 contract proof, V1-vs-V2 adapter split, active-root policy, and the AI-MEM-V1-20261006 incident evidence.",
+  "active_root_policy": "The OpenCode V2 plugins directory (~/.config/opencode/plugins) is autodiscovered at server boot (plus watcher-triggered rescan on directory change, observed 2026-10-06). It must contain ONLY active, contract-compatible plugins. Forbidden in the active root: backups, V1-contract plugins, *.bak, *.disabled / *.v*-disabled, snapshots, rollback directories, old implementations — even when the current loader ignores a given suffix. Quarantine lives OUTSIDE the autodiscovered root (e.g. ~/.config/opencode/archive/).",
+  "runtime_contract_v2": "Default export must be an object { id, effect | setup }. A bare-function default export (V1 contract) fails load with PluginModule.LoadError / SchemaError(Expected object at [\"default\"]). Proven by incident AI-MEM-V1-20261006.",
+  "regeneration_policy": "Never regenerate with `ai-memory install-hooks --agent opencode` (emits the legacy V1 contract, incompatible with OpenCode >= 2.x). For V2 use ONLY `ai-memory install-hooks --agent opencode2 --apply`, and only when the current V2 file needs it. Upstream issue draft lives in the Phase 2A closure report appendix; do NOT open it without operator authorization.",
+  "capabilities": {
+    "ai-memory-mcp": {
+      "type": "mcp",
+      "managed_by": "machine",
+      "transport": "remote (opencode.json mcp.ai-memory, Bearer {env:AI_MEMORY_AUTH_TOKEN})",
+      "status": { "installed": true, "active": true },
+      "note": "Independent from plugin hooks. Healthy during incident AI-MEM-V1-20261006; the plugin LoadError was NOT an MCP/credential/network outage."
+    },
+    "ai-memory-hooks": {
+      "type": "plugin",
+      "implementation": "ai-memory-opencode2.ts",
+      "runtime": { "v1": "unsupported", "v2": "supported" },
+      "managed_by": "machine",
+      "status": { "installed": true, "discovered": true, "active": true, "smoke": "pending-restart" },
+      "evidence": {
+        "shape": "default export object { id: \"ai-memory-opencode2\", setup } (source lines 563-565, 698)",
+        "load": "opencode.log loading-plugin lines 2026-10-06T19:37:59Z, zero LoadError lines for this target"
+      }
+    },
+    "ai-memory-hooks-v1": {
+      "type": "plugin",
+      "implementation": "ai-memory.ts (install-hooks --agent opencode template)",
+      "status": "DEPRECATED_REMOVED",
+      "status_note": "Legacy V1 bare-function default export; rejected by the V2 loader (15 LoadError occurrences in run 938e8cb0, first 2026-10-06T18:41:55Z). Removed from the active root 2026-10-06; quarantined under archive/plugins-v1/. NEVER active again.",
+      "incident": "AI-MEM-V1-20261006"
+    },
+    "orchestration-enforcement": {
+      "type": "plugin",
+      "implementation": "orchestration-enforcement.js",
+      "plugin_id": "orchestration-enforcement",
+      "status": {
+        "installed": true,
+        "discovered": true,
+        "schema_valid": true,
+        "initialized": true,
+        "hook_executed": true,
+        "healthy": true
+      },
+      "evidence": {
+        "shape": "default export DualExport = { id, setup, server } (object with id+setup; satisfies the V2 schema)",
+        "load": "opencode.log loading-plugin lines for this target incl. 2026-10-06T19:37:59Z, zero LoadError lines",
+        "hook_execution_signal_1": "session-injections.jsonl tool-event rows from live subagent sessions (e.g. 2026-10-06T19:39:15Z)",
+        "hook_execution_signal_2": "loading-plugin + watcher-subscribe with no subsequent failure in the same run"
+      }
+    }
+  }
+}

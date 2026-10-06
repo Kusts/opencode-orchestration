@@ -112,6 +112,28 @@ Sintoma: nenhum mandato `[orchestration-enforcement:v1]` na sessão.
    `.ts` legado é adotado para backup e removido).
 3. Reinicie o OpenCode após instalar dependência ou plugin — carrega no boot.
 
+## Plugin legado V1 rejeitado no runtime V2 (`PluginModule.LoadError`)
+
+Sintoma: `WARN failed to load plugin` para um `.ts` em
+`.config/opencode/plugins/`, causa `SchemaError(Expected object at
+["default"])`. O diretório `plugins/` tem auto-discovery mesmo com
+`"plugin": []` — todo `.ts`/`.js` da raiz é tentado no boot (e em rescan
+do watcher). Arquivos com sufixo `.bak`/`.disabled` são ignorados pelo
+loader, mas **não devem morar na raiz ativa** (ver `active_root_policy`
+em `source/registry/plugin-capabilities.json`).
+
+Causa típica: adaptador gerado para o contrato V1 (default export = função)
+rodando num loader V2 (exige default export = objeto `{ id, effect |
+setup }`) — caso registrado: incidente AI-MEM-V1-20261006, relatório em
+`docs/audits/opencode-capabilities-phase-2a-closure-2026-10-06.md`.
+
+Correção: remova o arquivo legado da raiz ativa (quarentena fora dela,
+ex. `archive/`), mantendo só o adaptador V2; nunca regenere com o
+template V1 (`--agent opencode`), só `--agent opencode2 --apply` quando
+necessário. Valide com `scripts/ci/plugin-healthcheck.ps1`. Se o arquivo
+legado continha token em plaintext, trate como incidente P0 (rotação +
+varredura de backups por hash, sem imprimir valores).
+
 ## Provider rejeita o system prompt (prompt muito longo)
 
 O que o plugin faz: injeta **um** mandato curto (Planner, worker ou neutro)
