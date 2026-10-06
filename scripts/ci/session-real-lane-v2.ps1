@@ -1343,25 +1343,33 @@ try {
                 Set-ScenarioResult 'RR-E2E-22' 'blocked' ('runtime V1 real do pin ' + $wantV1 + ' indisponivel neste host (instalacao operator-owned; rode com -InstallV1IfMissing)') $proofs $coverage
             } else {
                 [void](Add-ScenarioProof $proofs 'v1-binary-pinned-found' $true ('path-sanitizado, versao=' + $wantV1))
+                # REV3: nenhuma chamada de help escapa da janela - a primeira
+                # so executa com >= 5s restantes; retries 1/2 reavaliam o
+                # restante e recebem no maximo esse tempo (fail-closed)
                 $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
-                $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs ([Math]::Max(5000, [Math]::Min(60000, $rem22))) -CleanEnvironment -StdinNul
-                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
-                if ([bool]$help.TimedOut -and ($rem22 -ge 5000)) {
-                    # retry 1: ambiente isolado da lane (help pode consultar config/paths)
-                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs ([Math]::Max(5000, [Math]::Min(120000, $rem22))) -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -CleanEnvironment -StdinNul
+                $help = $null
+                if ($rem22 -ge 5000) {
+                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs ([Math]::Min(60000, $rem22)) -CleanEnvironment -StdinNul
                 }
-                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
-                if ([bool]$help.TimedOut -and ($rem22 -ge 5000)) {
+                if ($null -ne $help) { $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds) }
+                if (($null -ne $help) -and [bool]$help.TimedOut -and ($rem22 -ge 5000)) {
+                    # retry 1: ambiente isolado da lane (help pode consultar config/paths)
+                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs ([Math]::Min(120000, $rem22)) -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -CleanEnvironment -StdinNul
+                }
+                if ($null -ne $help) { $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds) }
+                if (($null -ne $help) -and [bool]$help.TimedOut -and ($rem22 -ge 5000)) {
                     # retry 2 (ultimo): ambiente herdado + cwd isolado; probe read-only
                     # de superficie, sem execucao de scripts; REV2: a denylist
                     # sensivel (token/keys) e aplicada tambem neste caminho
-                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -EnvRemove $script:SensitiveEnvRemove -WorkingDirectory $script:CwdT -StdinNul -TimeoutMs 60000
+                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -EnvRemove $script:SensitiveEnvRemove -WorkingDirectory $script:CwdT -StdinNul -TimeoutMs ([Math]::Min(60000, $rem22))
                 }
-                $helpText = ([string]$help.Stdout + "`n" + [string]$help.Stderr)
+                $helpTimedOut = $(if ($null -ne $help) { [bool]$help.TimedOut } else { $true })
+                $helpRc = $(if ($null -ne $help) { [int]$help.ExitCode } else { -1 })
+                $helpText = $(if ($null -ne $help) { ([string]$help.Stdout + "`n" + [string]$help.Stderr) } else { '' })
                 # fail-closed: help indisponivel NAO e prova negativa
-                $helpUsable = ((-not [bool]$help.TimedOut) -and ([int]$help.ExitCode -eq 0) -and ($helpText.Trim().Length -gt 40))
+                $helpUsable = (($helpTimedOut -eq $false) -and ($helpRc -eq 0) -and ($helpText.Trim().Length -gt 40))
                 if (-not $helpUsable) {
-                    [void](Add-ScenarioProof $proofs 'v1-no-native-resume-observed' $false ('--help indisponivel (timedout=' + [bool]$help.TimedOut + ' rc=' + [int]$help.ExitCode + '); ausencia NAO observada'))
+                    [void](Add-ScenarioProof $proofs 'v1-no-native-resume-observed' $false ('--help indisponivel (timedout=' + $helpTimedOut + ' rc=' + $helpRc + '); ausencia NAO observada'))
                     Set-ScenarioResult 'RR-E2E-22' 'blocked' 'superficie de comandos do V1 indisponivel; nada e inferido' $proofs $coverage
                 } else {
                     # superficie de COMANDOS top-level (linhas 'opencode <cmd>');
