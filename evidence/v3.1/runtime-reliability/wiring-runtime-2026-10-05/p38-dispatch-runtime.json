@@ -1,0 +1,31 @@
+{
+    "wiring":  "P38-S2-SPAWN (dispatch pipeline slice)",
+    "component":  "scripts/v3/lib/OrchestrationDispatchPipeline.ps1 Invoke-OrchestrationDispatchPipeline",
+    "claim":  "pipeline executes and produces a real record-only bundle; NO worker is spawned (record-only by design; spawn real stays operator-owned)",
+    "at":  "2026-10-06T00:16:37.9628763Z",
+    "planner_loop_status":  "ok",
+    "workers_in_plan":  [
+                            "coder",
+                            "tester",
+                            "reviewer"
+                        ],
+    "pipeline_executed":  true,
+    "bundle_summary":  "ok",
+    "contracts_built":  1,
+    "spawned_processes":  0,
+    "bundle_keys":  [
+                        "status",
+                        "record_only",
+                        "spawned",
+                        "network_access",
+                        "bundle",
+                        "bundle_json",
+                        "byte_length",
+                        "byte_cap",
+                        "bounded",
+                        "truncated",
+                        "oversized",
+                        "discard_order"
+                    ],
+    "record_only_invariant":  true
+}

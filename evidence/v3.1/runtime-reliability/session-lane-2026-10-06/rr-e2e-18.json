@@ -1,0 +1,57 @@
+{
+    "scenario_id":  "RR-E2E-18",
+    "status":  "blocked",
+    "detail":  "perna running runtime-real; perna completed bloqueada sem modelo (provas parciais gravadas; plano lista as duas pernas como testes distintos)",
+    "proofs":  [
+                   {
+                       "proof":  "child-created-real",
+                       "ok":  true,
+                       "detail":  "child=ses_eef236435ffe24EZhPkFCSxGg8 parent=ses_eef236f14ffes3Ad0SZNPzAgW5"
+                   },
+                   {
+                       "proof":  "child-provenance-native",
+                       "ok":  true,
+                       "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_eef236f14ffes3Ad0SZNPzAgW5"
+                   },
+                   {
+                       "proof":  "child-bound-to-task",
+                       "ok":  true,
+                       "detail":  "run=lane18-child-run parent_provenance=ses_eef236f14ffes3Ad0SZNPzAgW5 exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
+                   },
+                   {
+                       "proof":  "restart-real",
+                       "ok":  true,
+                       "detail":  "stop+settlement+start+listener"
+                   },
+                   {
+                       "proof":  "child-observed-after-restart",
+                       "ok":  true,
+                       "detail":  "child=ses_eef236435ffe24EZhPkFCSxGg8 observado=running"
+                   },
+                   {
+                       "proof":  "reconciler-child-action-correct",
+                       "ok":  true,
+                       "detail":  "observado=running"
+                   },
+                   {
+                       "proof":  "task-intact-after-restart",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "synthetic-endpoint-attempt",
+                       "ok":  true,
+                       "detail":  "POST /synthetic rc=1 (observacao; status nao convertido em saude)"
+                   },
+                   {
+                       "proof":  "completed-leg-recovered",
+                       "ok":  false,
+                       "detail":  "BLOCKED sem modelo: sem mensagens de resposta (sem modelo, o runtime nao produz turn completo)"
+                   }
+               ],
+    "coverage":  [
+                     "exercitado: child real (parentID) + restart real + reconciliacao com observacao real",
+                     "perna completed-session: so observavel com turn de modelo; plano Â§10 (persistence) lista como perna distinta de \"running child reattached\" (exercitada aqui em runtime real)"
+                 ],
+    "at":  "2026-10-06T10:57:43.2085021Z"
+}

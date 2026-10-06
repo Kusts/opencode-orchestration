@@ -1,0 +1,72 @@
+{
+    "scenario_id":  "RR-E2E-16",
+    "status":  "pass-real",
+    "detail":  "cadeia completa provada em runtime real",
+    "proofs":  [
+                   {
+                       "proof":  "real-session-created",
+                       "ok":  true,
+                       "detail":  "id=ses_eef23c7a9ffevjP1QmzwDcotNO"
+                   },
+                   {
+                       "proof":  "task-transitioned-active",
+                       "ok":  true,
+                       "detail":  "DISCOVERING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "session-bound",
+                       "ok":  true,
+                       "detail":  "run=lane16-run root=ses_eef23c7a9ffevjP1QmzwDcotNO"
+                   },
+                   {
+                       "proof":  "session-present-before-close",
+                       "ok":  true,
+                       "detail":  "probe=present"
+                   },
+                   {
+                       "proof":  "session-closed-real",
+                       "ok":  true,
+                       "detail":  "DELETE /api/session/{id} rc=0"
+                   },
+                   {
+                       "proof":  "absence-proven-after-close",
+                       "ok":  true,
+                       "detail":  "probe=absent"
+                   },
+                   {
+                       "proof":  "absent-from-list",
+                       "ok":  true,
+                       "detail":  "listado=False"
+                   },
+                   {
+                       "proof":  "task-persisted",
+                       "ok":  true,
+                       "detail":  "state=PLANNING rev=3 exit=0 timedout=False out={      \"acceptance_criteria\":  null,      \"active_wait\":  null,      \"actor\":  \"session-lane\",      \"attempt_budget\":  3,      \"attempts\":  null,      \"base_revision\":  \"\",      \"bindings\":  {                       \"active_execution_owner\":  \"ses_eef23c"
+                   },
+                   {
+                       "proof":  "no-false-completion",
+                       "ok":  true,
+                       "detail":  "state=PLANNING (nao-terminal)"
+                   },
+                   {
+                       "proof":  "binding-record-preserved",
+                       "ok":  true,
+                       "detail":  "status=attached"
+                   },
+                   {
+                       "proof":  "recovery-rebind",
+                       "ok":  true,
+                       "detail":  "root=ses_eef23abe1ffetNANhg5haE5TD0"
+                   },
+                   {
+                       "proof":  "recovery-state-intact",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   }
+               ],
+    "coverage":  [
+                     "required_activation: root session real fechada com task ativa - exercitado",
+                     "task persistida / sem conclusao falsa / recuperacao - provado"
+                 ],
+    "at":  "2026-10-06T10:57:22.1296985Z"
+}

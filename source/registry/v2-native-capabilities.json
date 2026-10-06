@@ -2,7 +2,7 @@
   "version": 1,
   "runtime": "v2",
   "pin": "2.0.23",
-  "pin_note": "This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); it was bumped to the current canonical V2 pin on 2026-10-05 (previously two minor releases behind). The 8 features remain hold-unproven: no exact-binary-live evidence has been collected, and collection plus validation is operator-owned by design (see evidence_contract.writer_contract).",
+  "pin_note": "This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); it was bumped to the current canonical V2 pin on 2026-10-05 (previously two minor releases behind). CLOSURE 2026-10-06: real-runtime probe collection ran against 2.0.23 (evidence/v3.1/runtime-reliability/session-lane-2026-10-06/v2-native-probes.json); session-permission-narrowing observed NOT enforced on the /shell surface (fail-open observed there) and the other probes stayed ambiguous without model inference or operator-owned policy config. NO exact-binary-live record exists, so all 8 features remain hold-unproven WITH real collection evidence; runtime_grant_enforcement.v2 stays OFF (sustained HOLD, program-status.json#closure_2026_10_06). Collection plus validation is operator-owned by design (see evidence_contract.writer_contract).",
   "activation_rule": "A candidate is enabled only by a valid exact-binary-live evidence record; a declaration in this file is never an enabler (plan 17.10: do not enable a feature if exact-binary behavior is not proven).",
   "evidence_contract": {
     "registry_path": "evidence/v3.1/runtime-reliability/v2-native-evidence.json",

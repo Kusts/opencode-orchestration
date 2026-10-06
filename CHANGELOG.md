@@ -6,6 +6,136 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fechamento V3.1 (2026-10-06) — prova runtime-real, release gate PASS
+
+- **Lane real de cross-session (`scripts/ci/session-real-lane-v2.ps1`, novo)** —
+  test harness de evidência (não produto), mesmo padrão da lane de watchdog:
+  runtime V2 **2.0.23 exato** (pin vigente), home isolado em TEMP, preflight
+  P22, Job Object com `KILL_ON_JOB_CLOSE` antes do `service start`, stop
+  owned + settlement, password de `service.json` nunca logada, invariante
+  49374 preservada, resultados `pass-real | fail | blocked` (falta de
+  infraestrutura nunca vira PASS; gates de encerramento obrigatórios).
+  Resultado final (após revisão independente — rodada 2, ver abaixo):
+  **3 `pass-real` (16, 17, 19) + 4 `blocked`-parciais (18, 20, 21, 22),
+  0 fail**, com provas parciais ricas gravadas
+  (`evidence/v3.1/runtime-reliability/session-lane-2026-10-06/`):
+  RR-E2E-16 (root session fechada de verdade no meio da task; task
+  persistida; nenhuma conclusão falsa; recuperação por detach+rebind),
+  17 (restart real: stop→settlement→start; task byte-preservada;
+  reconciliador consumiu observação REST real), 19 (restart real antes da
+  ausência; ausência **provada** por probe conclusivo;
+  `mark_SESSION_LOST` exige prova; ausência desconhecida nunca vira
+  sucesso — controle negativo incluído), 20 (`blocked`-parcial: envelope
+  do estado real → processo fresco consome kernel-side → sessão substituta
+  real retoma com rebind; o consumo **PELO Planner substituto** — perna do
+  `required_activation` — exige provider de modelo; tentativa de injeção
+  runtime-native observada, não materializada no pin), 21
+  (`blocked`-parcial: substituição de sessão real + estado/histórico
+  preservados e re-lidos kernel-side; a re-leitura **PELO substituto**
+  exige provider. O claim anterior "`BUDGET_WIDEN_DENIED` provado em
+  runtime" foi corrigido: a lane nunca invoca start-attempt — o invariante
+  é provado kernel-side nos testes do kernel).
+  **RR-E2E-18 blocked-parcial**: perna "running child reattached" do plano
+  §10 provada em runtime real; perna "completed child recovered" bloqueada
+  sem provider de modelo (tentativa `/synthetic` gravada; perna completa
+  kernel-side nos 156 asserts do reconciler, cujo contrato entregue define
+  observações como caller-declared, `probed=false`).
+  **RR-E2E-22 blocked-parcial**: V1 1.18.34 real em prefixo isolado,
+  versão exata observada; a observação da superfície `--help` fica
+  inconclusiva no ambiente bounded (hang caracterizado em 3 variantes,
+  mesma classe do flake `debug config` upstream; "nada é inferido") e,
+  nesse caminho fail-closed, a perna do plano fresh-session não executa
+  (claim anterior de plano "consumido por processo fresco" **corrigido** —
+  não executou na corrida registrada; o construtor `native_resume=false`,
+  que proíbe resume falso, é provado kernel-side nos testes do reconciler);
+  o turn da fresh session exige provider (operator-owned).
+- **Probes V2-native em runtime real (2.0.23)** — coleta observacional
+  completa (`v2-native-probes.json`): `session-permission-narrowing`
+  **unsupported** na superfície `/shell` (deny de config e permissões
+  por-sessão NÃO recusaram o comando marcado — fail-open observado nessa
+  superfície); demais probes ambiguous honestas (modelo ausente, config de
+  política específica do pin, sem arquivos de storage/snapshot/evento sem
+  atividade). **Nenhum registro `exact-binary-live` foi escrito**: as 8
+  features permanecem `hold-unproven` com coleta real registrada.
+- **Decisão formal `runtime_grant_enforcement.v2` = HOLD (OFF)** —
+  sustentada por evidência real (fail-open na superfície `/shell` do
+  2.0.23 + ausência de prova exact-binary-live; RR-E2E-41 offline segue
+  verde). Consulta Jev advisory (jev_decide): HOLD conf. 1.0 — tratada
+  como dado, confrontada com a `activation_rule` do registry.
+- **Probe HTTPS dedicado do AI Memory (real)** —
+  `transport-probe-aimem-https-2026-10-06.json`: TLS 1.3 (369ms), cert
+  válido até 2026-12-24, `POST /mcp` ⇒ **401 sem token** (servidor
+  fail-closed), `GET /` ⇒ 404. Host sanitizado (config user-owned). Fecha o
+  item que restava do transporte (round-trip MCP autenticado já provado em
+  2026-10-04).
+- **Wirings: provas de execução runtime-real dos componentes** —
+  `evidence/v3.1/runtime-reliability/wiring-runtime-2026-10-05/`
+  (referência de diretório corrigida na revisão 2):
+  P31-S2 (bootstrap executado, envelope com flags vivas; **registro** no
+  arranque real segue operator-owned), **P38-S2-SPAWN** (dispatch pipeline
+  executado, bundle real coder/tester/reviewer, zero spawn por decisão —
+  nomenclatura resolvida: *P38-S2* = wiring do chamador Jev entregue em
+  `4cfb26a`; *P38-S2-SPAWN* = spawn real do despacho, record-only),
+  P40-S2 (biblioteca de supersessão verde; append/enable segue decisão do
+  operador), P41-S2 (produtor executado contra 2 task records reais, JSONL
+  observation-only consumido pelo leitor da fatia 1). Classificação:
+  CODE-COMPLETE + RUNTIME-PROVEN (componente) + ativação HOLD
+  operator-owned com evidência.
+- **Revisões integradas** — reviewer (8 achados, 2 HIGH) e
+  security-reviewer (3 achados) devolveram CHANGES REQUIRED na lane
+  inicial; todos integrados (gates de encerramento, classificador de
+  ausência fail-closed, restart real no 19, perna completed honesta no 18,
+  fail-closed de pin/help no 22, denylist de ambiente, sanitização de
+  caminho/hosts, charset de `-V1NpmSpec`); lane re-executada após a
+  integração com o resultado final acima.
+- **Revisão independente rodada 2 (closure do PR)** — reviewer (6 achados:
+  2 HIGH + 4 MEDIUM) e security-reviewer (2 achados: 1 MEDIUM + 1 LOW)
+  devolveram CHANGES REQUIRED sobre o diff de closure; todos tratados:
+  (HIGH) 20/21 realinhados aos `required_activation` do registry — a prova
+  `envelope-received-by-replacement` gravava `ok=true` hardcoded mesmo sem
+  injeção suportada, e a re-leitura do estado era do harness, não do
+  substituto; (HIGH) claim de perna não executada no 22 removido;
+  (MEDIUM) referência de diretório corrigida
+  (`wiring-runtime-2026-10-05/`), claim `BUDGET_WIDEN_DENIED` reescrito
+  como invariante kernel-side, handshake TLS com deadline + `finally` no
+  probe HTTPS, limite do `ScenarioTimeoutSeconds` por **tempo restante**
+  em cada operação pesada do cenário 22 (piso 5s, fail-closed; validado
+  em execução filtrada do cenário em runtime real), denylist
+  `SensitiveEnvRemove` nas chamadas npm e no
+  fallback `--help` do V1; (LOW residual documentado) `mcp-post` do probe
+  segue observacional por desenho. A lane foi **corrigida e re-executada**
+  no runtime real (2.0.23): os artefatos em `session-lane-2026-10-06/`
+  passam a refletir a classificação honesta (**3 `pass-real` + 4
+  `blocked`-parcial, 0 fail**; 14/14 checks de infraestrutura ok). Os
+  artefatos da rodada 1 permanecem no histórico do git (`19c4501`).
+- **DE22307F classificado** — divergência user-owned do config vivo
+  (pré-existente no baseline congelado, documentada em TROUBLESHOOTING),
+  não-regressão, não-bloqueante (CI verde sem config vivo). Re-run
+  sequencial final: PS5.1 e PS7 **50 PASS / 3 FAIL** cada — as 3 falhas em
+  ambos são exatamente o grupo DE22307F; `OrchestrationE2eManifest` (254
+  asserts) verde com os novos `evidence_ref`. Falhas de
+  `CapabilityShadow`/`CapabilityShadowSample` observadas na primeira
+  medição eram artefatos de execução PS5.1+PS7 **em paralelo** (re-run
+  sequencial: verdes).
+- **Smoke implícito V2 validado** — run 37380530324 (HEAD): 5/5 jobs
+  verdes; o erro do smoke implícito continua **visível** (annotation) com
+  `continue-on-error: true`; a lane real segue sendo o gate. Mantido
+  observacional.
+- **Release gate V3.1: `PASS`** — critério: todo item está (a)
+  runtime-real provado, (b) HOLD explícito do desenho **com** evidência
+  que o sustenta, ou (c) decisão humana/externa que o contrato permite fora
+  do gate (ativação dos wirings, RR-E2E-32/33, DE22307F, provider de
+  modelo do operador). **Julgamento divulgado (atualizado na revisão 2)**:
+  os 4 blocked-parcial (perna completed do 18; consumo pelo Planner
+  substituto do 20; re-leitura pelo substituto do 21; turn da fresh
+  session do 22) dependem de provider de modelo — o desenho entregue
+  sustenta o HOLD (contrato caller-declared do reconciler; fresh-session
+  por construção; cadeias kernel-side de 20/21 com sessão substituta real
+  e rebind) e as pernas alternativas do plano foram provadas em runtime;
+  se o operador julgar essas pernas gate-blocking, o gate vira `PENDING`
+  com flip dessas linhas. Resíduos são exclusivamente decisões de
+  operador — ver `program-status.json#closure_2026_10_06`.
+
 ### Adicionado
 
 - **Wiring do chamador Jev no Planner loop (P38-S2 caller wiring,

@@ -1,0 +1,56 @@
+{
+    "scenario_id":  "RR-E2E-19",
+    "status":  "pass-real",
+    "detail":  "ausencia real provada; nenhuma ausencia desconhecida vira sucesso",
+    "proofs":  [
+                   {
+                       "proof":  "child-created-and-bound",
+                       "ok":  true,
+                       "detail":  "child=ses_eef233750ffePtD4uyPtnwBNp6 bind_exit=0 err="
+                   },
+                   {
+                       "proof":  "restart-real-before-absence",
+                       "ok":  true,
+                       "detail":  "stop+settlement+start+listener"
+                   },
+                   {
+                       "proof":  "absence-proven-by-probe",
+                       "ok":  true,
+                       "detail":  "probe=absent apos restart real (consulta conclusiva decide; falha e inconclusiva e NUNCA ausencia)"
+                   },
+                   {
+                       "proof":  "absent-from-session-list",
+                       "ok":  true,
+                       "detail":  "listado=False"
+                   },
+                   {
+                       "proof":  "reconciler-classifies-missing",
+                       "ok":  true,
+                       "detail":  "status=missing"
+                   },
+                   {
+                       "proof":  "session-lost-requires-absence-proof",
+                       "ok":  true,
+                       "detail":  "requires_absence_proof=True"
+                   },
+                   {
+                       "proof":  "session-lost-attempt-shaped",
+                       "ok":  true,
+                       "detail":  "status=SESSION_LOST task_state_mutated=false"
+                   },
+                   {
+                       "proof":  "unknown-absence-never-success",
+                       "ok":  true,
+                       "detail":  "error=SESSION_LOST_NOT_PROVEN"
+                   },
+                   {
+                       "proof":  "task-not-falsely-completed",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   }
+               ],
+    "coverage":  [
+                     "ausencia PROVADA por probe conclusivo + classificacao missing + SESSION_LOST com prova"
+                 ],
+    "at":  "2026-10-06T10:57:53.8161445Z"
+}
