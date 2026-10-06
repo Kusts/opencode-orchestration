@@ -6,7 +6,7 @@
                    {
                        "proof":  "task-active-bound",
                        "ok":  true,
-                       "detail":  "state=PLANNING root=ses_eefbd6796ffeTkc3uI88W9uUEO"
+                       "detail":  "state=PLANNING root=ses_eef2398aaffelMsFeuvKzzmmPj"
                    },
                    {
                        "proof":  "restart-stop-owned",
@@ -51,11 +51,11 @@
                    {
                        "proof":  "reconciler-matches-real-observation",
                        "ok":  true,
-                       "detail":  "observado=running acao=reattach/ses_eefbd6796ffeTkc3uI88W9uUEO rows=1 actions=1 runs_in=1 obs_in=1 root_in=ses_eefbd6796ffeTkc3uI88W9uUEO probed=False"
+                       "detail":  "observado=running acao=reattach/ses_eef2398aaffelMsFeuvKzzmmPj rows=1 actions=1 runs_in=1 obs_in=1 root_in=ses_eef2398aaffelMsFeuvKzzmmPj probed=False"
                    }
                ],
     "coverage":  [
                      "comportamento apos restart real: task persistida + observacao real reconciliada"
                  ],
-    "at":  "2026-10-06T08:09:31.3232441Z"
+    "at":  "2026-10-06T10:57:31.5776553Z"
 }

@@ -1,7 +1,7 @@
 {
     "scenario_id":  "RR-E2E-20",
-    "status":  "pass-real",
-    "detail":  "envelope consumido por processo fresco + substituicao real com retomada correta",
+    "status":  "blocked",
+    "detail":  "parcial provado: envelope do estado real persistido + consumo kernel-side por processo fresco + substituicao real com rebind; consumo PELO Planner substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui",
     "proofs":  [
                    {
                        "proof":  "old-session-closed-proven",
@@ -21,7 +21,7 @@
                    {
                        "proof":  "replacement-session-real",
                        "ok":  true,
-                       "detail":  "id=ses_eefbcc76cffectFNOT4D3CJxFE"
+                       "detail":  "id=ses_eef23086fffeE1vJRWlSadGDQk"
                    },
                    {
                        "proof":  "envelope-injection-attempt",
@@ -30,8 +30,8 @@
                    },
                    {
                        "proof":  "envelope-received-by-replacement",
-                       "ok":  true,
-                       "detail":  "injecao_runtime_native=False; fallback do plano Â§10 (supply on next Planner turn) e o desenho quando injecao nao suportada"
+                       "ok":  false,
+                       "detail":  "injecao_runtime_native=False; consumo pelo Planner substituto (turn) exige provider de modelo - perna nao provada aqui"
                    },
                    {
                        "proof":  "envelope-consumed-by-fresh-process",
@@ -41,12 +41,12 @@
                    {
                        "proof":  "retomada-rebind-replacement",
                        "ok":  true,
-                       "detail":  "root=ses_eefbcc76cffectFNOT4D3CJxFE"
+                       "detail":  "root=ses_eef23086fffeE1vJRWlSadGDQk"
                    },
                    {
                        "proof":  "retomada-binding-correct",
                        "ok":  true,
-                       "detail":  "root_now=ses_eefbcc76cffectFNOT4D3CJxFE"
+                       "detail":  "root_now=ses_eef23086fffeE1vJRWlSadGDQk"
                    },
                    {
                        "proof":  "retomada-state-correct",
@@ -57,5 +57,5 @@
     "coverage":  [
                      "cadeia: sessao antiga -\u003e estado persistido -\u003e envelope -\u003e processo fresco consome -\u003e sessao substituta real retoma"
                  ],
-    "at":  "2026-10-06T08:10:14.4362476Z"
+    "at":  "2026-10-06T10:58:08.4567837Z"
 }

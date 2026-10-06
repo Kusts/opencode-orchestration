@@ -53,7 +53,7 @@ param(
     [string]$ExpectedVersion = '',
     [string]$EvidenceDir = '',
     [string]$TargetHome = '',
-    [int]$ScenarioTimeoutSeconds = 240,
+    [int]$ScenarioTimeoutSeconds = 240, # janela nominal por cenario; enforcement ativo nos pontos pesados (ex.: secao V1 do cenario 22)
     [int]$ApiTimeoutMs = 20000,
     [string[]]$ScenarioFilter = @(),
     [switch]$SkipCapabilityProbes,
@@ -1114,7 +1114,11 @@ try {
                                 }
                             }
                         }
-                        [void](Add-ScenarioProof $proofs 'envelope-received-by-replacement' $true ('injecao_runtime_native=' + $injectionSupported + '; fallback do plano §10 (supply on next Planner turn) e o desenho quando injecao nao suportada'))
+                        # REV2 (fail-closed): a prova segue a realidade - ok apenas
+                        # quando a injecao nativa foi confirmada na sessao
+                        # substituta; sem injecao, o consumo PELO Planner
+                        # substituto (turn) depende de provider de modelo
+                        [void](Add-ScenarioProof $proofs 'envelope-received-by-replacement' $injectionSupported ('injecao_runtime_native=' + $injectionSupported + $(if (-not $injectionSupported) { '; consumo pelo Planner substituto (turn) exige provider de modelo - perna nao provada aqui' } else { '' })))
                         # consumo por processo FRESCO: powershell novo le o envelope persistido e constroi o plano
                         # (script gravado em arquivo: o guard StdinNul recusa -Command com shell-meta)
                         $consumePath = Join-Path $script:EnvelopeDir 'consume-lane20.ps1'
@@ -1145,9 +1149,16 @@ try {
                             [void](Add-ScenarioProof $proofs 'retomada-state-correct' (([bool]$a1.ok) -and ($a1.state -ceq 'PLANNING') -and (-not [bool]$a1.terminal)) ('state=' + $a1.state))
                         }
                         [void]$coverage.Add('cadeia: sessao antiga -> estado persistido -> envelope -> processo fresco consome -> sessao substituta real retoma')
-                        $allOk = $true
-                        foreach ($p in @($proofs)) { if (-not [bool]$p['ok']) { $allOk = $false; break } }
-                        Set-ScenarioResult 'RR-E2E-20' $(if ($allOk) { 'pass-real' } else { 'fail' }) $(if ($allOk) { 'envelope consumido por processo fresco + substituicao real com retomada correta' } else { 'provas com falha' }) $proofs $coverage
+                        # REV2: a perna "replacement Planner session consuming the
+                        # envelope" (required_activation) so vale com injecao nativa
+                        # confirmada; sem ela o cenario e blocked-parcial (as pernas
+                        # kernel-side permanecem provadas), nunca pass-real
+                        $hardFail20 = $false
+                        foreach ($p in @($proofs)) { if (([string]$p['proof'] -cne 'envelope-received-by-replacement') -and (-not [bool]$p['ok'])) { $hardFail20 = $true; break } }
+                        Set-ScenarioResult 'RR-E2E-20' `
+                            $(if ($hardFail20) { 'fail' } elseif ($injectionSupported) { 'pass-real' } else { 'blocked' }) `
+                            $(if ($hardFail20) { 'provas com falha' } elseif ($injectionSupported) { 'envelope recebido pelo Planner substituto em runtime (injecao nativa confirmada)' } else { 'parcial provado: envelope do estado real persistido + consumo kernel-side por processo fresco + substituicao real com rebind; consumo PELO Planner substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui' }) `
+                            $proofs $coverage
                     }
                 }
             }
@@ -1208,10 +1219,14 @@ try {
                     [void](Add-ScenarioProof $proofs 'history-preserved' (($preHasResult -eq $postHasResult) -and ($postHasResult) -and (@($postAttempts).Count -ge @($preAttempts).Count) -and (@($postAttempts).Count -gt 0)) ('worker_result_preservado=' + $postHasResult + ' attempts=' + @($postAttempts).Count))
                     $a1 = New-TaskAssertions -TaskId 'lane21'
                     [void](Add-ScenarioProof $proofs 'no-false-terminal' (-not [bool]$a1.terminal) ('state=' + $a1.state))
-                    [void]$coverage.Add('substituicao real: substituto re-le o mesmo estado (state/objective/history) sem mutacao indevida')
-                    $allOk = $true
-                    foreach ($p in @($proofs)) { if (-not [bool]$p['ok']) { $allOk = $false; break } }
-                    Set-ScenarioResult 'RR-E2E-21' $(if ($allOk) { 'pass-real' } else { 'fail' }) $(if ($allOk) { 'estado e historico preservados atraves da substituicao real' } else { 'provas com falha' }) $proofs $coverage
+                    [void]$coverage.Add('substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) exige provider de modelo e nao e exercitada nesta lane')
+                    # REV2 (fail-closed): o required_activation pede re-leitura PELO
+                    # substituto; o que a lane prova kernel-side e a preservacao do
+                    # estado apos substituicao real - logo o cenario e blocked-parcial
+                    # enquanto a perna do turn nao existir
+                    $hardFail21 = $false
+                    foreach ($p in @($proofs)) { if (-not [bool]$p['ok']) { $hardFail21 = $true; break } }
+                    Set-ScenarioResult 'RR-E2E-21' $(if ($hardFail21) { 'fail' } else { 'blocked' }) $(if ($hardFail21) { 'provas com falha' } else { 'parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui' }) $proofs $coverage
                 }
             }
         } catch {
@@ -1242,6 +1257,9 @@ try {
             }
             if (-not [string]::IsNullOrWhiteSpace($wantV1)) {
                 $v1exe = ''
+                # REV2: deadline nominal do cenario (param ScenarioTimeoutSeconds)
+                # aplicado aos pontos pesados desta secao (install + retries de help)
+                $v1DeadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(60, $ScenarioTimeoutSeconds))
             $v1cands = New-Object System.Collections.ArrayList
             if (-not [string]::IsNullOrWhiteSpace($V1BinaryPath)) {
                 if (Test-Path -LiteralPath $V1BinaryPath -PathType Leaf) { [void]$v1cands.Add($V1BinaryPath) }
@@ -1254,7 +1272,7 @@ try {
             $npmPrefix = ''
             try {
                 if ([string]::IsNullOrWhiteSpace($script:NodeExe)) { throw 'npm-indisponivel' }
-                $np = Invoke-PreflightBoundedExe -File $script:NodeExe -ArgsLine ('"' + $script:NpmCliJs + '" prefix -g') -WorkDir $script:CwdT -EnvTable $script:IsoEnv -EnvRemove $script:IsoRemove -TimeoutMs 20000 -MaxChars 2000
+                $np = Invoke-PreflightBoundedExe -File $script:NodeExe -ArgsLine ('"' + $script:NpmCliJs + '" prefix -g') -WorkDir $script:CwdT -EnvTable $script:IsoEnv -EnvRemove ($script:IsoRemove + $script:SensitiveEnvRemove) -TimeoutMs 20000 -MaxChars 2000
                 if (([bool]$np.Finished) -and ([int]$np.ExitCode -eq 0)) { $npmPrefix = ((([string]$np.Output).Trim()) -split "`r?`n" | Select-Object -First 1) }
             } catch { $npmPrefix = '' }
             if (-not [string]::IsNullOrWhiteSpace($npmPrefix)) {
@@ -1281,13 +1299,15 @@ try {
                 $exact1 = ($vt -cmatch ('(^|\s)(opencode\s+)?v?' + [regex]::Escape($wantV1) + '(\s|$)'))
                 if ($exact1) { $v1exe = $exePath; break }
             }
-            if ([string]::IsNullOrWhiteSpace($v1exe) -and $InstallV1IfMissing -and (-not [string]::IsNullOrWhiteSpace($script:NodeExe))) {
+            $deadlineHit22 = ([DateTime]::UtcNow -ge $v1DeadlineUtc)
+            if ($deadlineHit22) { [void](Add-ScenarioProof $proofs 'scenario-deadline-exceeded' $false ('janela nominal do cenario (' + $ScenarioTimeoutSeconds + 's) esgotada; operacoes pesadas restantes puladas')) }
+            if ([string]::IsNullOrWhiteSpace($v1exe) -and $InstallV1IfMissing -and (-not $deadlineHit22) -and (-not [string]::IsNullOrWhiteSpace($script:NodeExe))) {
                 # Instalacao ISOLADA do pin V1 (prefixo dentro do TargetHome; nada global).
                 $v1Prefix = Join-Path $TargetHome 'v1-runtime'
                 $spec = $V1NpmSpec
                 if ([string]::IsNullOrWhiteSpace($spec)) { $spec = ('opencode-ai@' + $wantV1) }
                 try {
-                    $inst = Invoke-PreflightBoundedExe -File $script:NodeExe -ArgsLine ('"' + $script:NpmCliJs + '" install --prefix "' + $v1Prefix + '" ' + $spec + ' --no-audit --no-fund') -WorkDir $script:CwdT -EnvTable $script:IsoEnv -EnvRemove $script:IsoRemove -TimeoutMs 180000 -MaxChars 20000
+                    $inst = Invoke-PreflightBoundedExe -File $script:NodeExe -ArgsLine ('"' + $script:NpmCliJs + '" install --prefix "' + $v1Prefix + '" ' + $spec + ' --no-audit --no-fund') -WorkDir $script:CwdT -EnvTable $script:IsoEnv -EnvRemove ($script:IsoRemove + $script:SensitiveEnvRemove) -TimeoutMs 180000 -MaxChars 20000
                     $instOk = (([bool]$inst.Finished) -and ([int]$inst.ExitCode -eq 0) -and (-not [bool]$inst.Truncated))
                     [void](Add-ScenarioProof $proofs 'v1-isolated-install' $instOk ('cmd: npm install --prefix <TargetHome>/v1-runtime ' + $spec + ' rc=' + [int]$inst.ExitCode + ' out=' + (Get-LaneSafeText ([string]$inst.Output) 160)))
                     if ($instOk) {
@@ -1315,15 +1335,15 @@ try {
             } else {
                 [void](Add-ScenarioProof $proofs 'v1-binary-pinned-found' $true ('path-sanitizado, versao=' + $wantV1))
                 $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs 60000 -CleanEnvironment -StdinNul
-                if ([bool]$help.TimedOut) {
+                if ([bool]$help.TimedOut -and ([DateTime]::UtcNow -lt $v1DeadlineUtc)) {
                     # retry 1: ambiente isolado da lane (help pode consultar config/paths)
                     $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs 120000 -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -CleanEnvironment -StdinNul
                 }
-                if ([bool]$help.TimedOut) {
+                if ([bool]$help.TimedOut -and ([DateTime]::UtcNow -lt $v1DeadlineUtc)) {
                     # retry 2 (ultimo): ambiente herdado + cwd isolado; probe read-only
-                    # de superficie, sem execucao de scripts (o risco de env ficou no
-                    # npm, que usa denylist propria)
-                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -WorkingDirectory $script:CwdT -StdinNul -TimeoutMs 60000
+                    # de superficie, sem execucao de scripts; REV2: a denylist
+                    # sensivel (token/keys) e aplicada tambem neste caminho
+                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -EnvRemove $script:SensitiveEnvRemove -WorkingDirectory $script:CwdT -StdinNul -TimeoutMs 60000
                 }
                 $helpText = ([string]$help.Stdout + "`n" + [string]$help.Stderr)
                 # fail-closed: help indisponivel NAO e prova negativa
@@ -1369,7 +1389,12 @@ try {
                     [void]$coverage.Add('sessao V1 via server REST nao exercitada nesta lane (escopo: fallback fresh-session; instalacao/sessao completas de V1 seguem operator-owned)')
                     $allOk = $true
                     foreach ($p in @($proofs)) { if (-not [bool]$p['ok']) { $allOk = $false; break } }
-                    Set-ScenarioResult 'RR-E2E-22' $(if ($allOk) { 'pass-real' } else { 'fail' }) $(if ($allOk) { 'V1 real do pin: sem resume nativo; fallback fresh-session provado' } else { 'provas com falha' }) $proofs $coverage
+                    # REV2 (fail-closed): o required_activation integral ("Real V1
+                    # runtime fresh-session continuation") inclui o turn da fresh
+                    # session (provider de modelo). A lane prova o PLANO
+                    # (native_resume=false) e a superficie de comandos; o turn nunca
+                    # e exercitado aqui - pass-real e inalcancavel nesta lane
+                    Set-ScenarioResult 'RR-E2E-22' $(if ($allOk) { 'blocked' } else { 'fail' }) $(if ($allOk) { 'parcial provado: V1 real do pin + superficie sem resume nativo observada + plano fresh-session provado (native_resume=false); o turn da fresh session exige provider de modelo' } else { 'provas com falha' }) $proofs $coverage
                     }
                 }
             }

@@ -15,7 +15,7 @@
                        "policy_ignored":  "nada observado",
                        "fail_mode":  "n/a",
                        "note":  "provenance nÃ£o confirmada no response (campo pode existir em outra forma)",
-                       "at":  "2026-10-06T08:15:03.2598305Z"
+                       "at":  "2026-10-06T11:02:52.4357397Z"
                    },
                    {
                        "capability":  "session-permission-narrowing",
@@ -28,7 +28,7 @@
                        "policy_ignored":  "deny do overlay ignorado no caminho /shell",
                        "fail_mode":  "fail-open observado via /shell",
                        "note":  "resultado real; gating kernel-side continua obrigatorio",
-                       "at":  "2026-10-06T08:15:05.4743444Z"
+                       "at":  "2026-10-06T11:02:54.4041185Z"
                    },
                    {
                        "capability":  "experimental-policies-hard-deny",
@@ -41,7 +41,7 @@
                        "policy_ignored":  "n/a",
                        "fail_mode":  "n/a",
                        "note":  "nÃ£o inventado: sem polÃ­tica declarada nÃ£o hÃ¡ deny a observar; probe especÃ­fico fica para coleta com config operator-owned",
-                       "at":  "2026-10-06T08:15:05.4781905Z"
+                       "at":  "2026-10-06T11:02:54.4062071Z"
                    },
                    {
                        "capability":  "native-step-limits",
@@ -54,7 +54,7 @@
                        "policy_ignored":  "n/a",
                        "fail_mode":  "n/a",
                        "note":  "nÃ£o decidÃ­vel sem modelo; nenhum resultado inferido",
-                       "at":  "2026-10-06T08:15:05.4802226Z"
+                       "at":  "2026-10-06T11:02:54.4067130Z"
                    },
                    {
                        "capability":  "background-subagents-bounded",
@@ -67,7 +67,7 @@
                        "policy_ignored":  "n/a",
                        "fail_mode":  "n/a",
                        "note":  "nÃ£o decidÃ­vel sem modelo; limites continuam kernel-side",
-                       "at":  "2026-10-06T08:15:05.4812292Z"
+                       "at":  "2026-10-06T11:02:54.4097581Z"
                    },
                    {
                        "capability":  "plugin-storage-index",
@@ -80,7 +80,7 @@
                        "policy_ignored":  "n/a",
                        "fail_mode":  "n/a",
                        "note":  "sem atividade de plugin nesta lane; nada inferido",
-                       "at":  "2026-10-06T08:15:05.4903627Z"
+                       "at":  "2026-10-06T11:02:54.4199807Z"
                    },
                    {
                        "capability":  "snapshots-auxiliary",
@@ -93,7 +93,7 @@
                        "policy_ignored":  "n/a",
                        "fail_mode":  "n/a",
                        "note":  "sem atividade que dispare snapshot; nada inferido",
-                       "at":  "2026-10-06T08:15:05.5032741Z"
+                       "at":  "2026-10-06T11:02:54.4260458Z"
                    },
                    {
                        "capability":  "durable-event-log-replay",
@@ -106,7 +106,7 @@
                        "policy_ignored":  "n/a",
                        "fail_mode":  "n/a",
                        "note":  "formato de persistÃªncia pode ser DB interno; nada inferido",
-                       "at":  "2026-10-06T08:15:05.5129569Z"
+                       "at":  "2026-10-06T11:02:54.4310748Z"
                    }
                ],
     "note":  "companheiro de coleta; registros exatos em v2-native-evidence.json so apos decisao do operator"

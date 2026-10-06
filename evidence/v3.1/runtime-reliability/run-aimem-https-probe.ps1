@@ -37,23 +37,30 @@ $uri = [Uri]$url
     # (query pode carregar credenciais em alguns setups)
     $result['endpoint'] = ($uri.Scheme + '://[REDACTED-HOST]:' + $port + $uri.AbsolutePath)
     # 1. TCP+TLS com SslStream: versao do protocolo, certificado (SNI real)
+    $tcp = $null; $ssl = $null
     try {
         $sw = [Diagnostics.Stopwatch]::StartNew()
         $tcp = New-Object Net.Sockets.TcpClient
         $iar = $tcp.BeginConnect($hostName, $port, $null, $null)
         $connected = $iar.AsyncWaitHandle.WaitOne(10000)
-        if (-not $connected) { $tcp.Close(); throw 'tcp-connect-timeout-10s' }
+        if (-not $connected) { throw 'tcp-connect-timeout-10s' }
         $tcp.EndConnect($iar)
         $ssl = New-Object Net.Security.SslStream($tcp.GetStream(), $false, { param($a, $b, $c, $d) return $true })
-        $ssl.AuthenticateAsClient($hostName)
+        # REV2: handshake com deadline - AuthenticateAsClient e sincrono e pode
+        # bloquear indefinidamente contra endpoint que aceita TCP e nao conclui
+        # TLS; o padrao async + Wait(10s) bounda o handshake (fail-closed)
+        $hsTask = $ssl.AuthenticateAsClientAsync($hostName)
+        if (-not $hsTask.Wait(10000)) { throw 'tls-handshake-timeout-10s' }
         $sw.Stop()
         $cert = New-Object Security.Cryptography.X509Certificates.X509Certificate2($ssl.RemoteCertificate)
         $tlsOk = ($ssl.SslProtocol -ge [Security.Authentication.SslProtocols]::Tls12)
         Add-Check 'tls-handshake' $tlsOk ("protocolo=" + [string]$ssl.SslProtocol + " latencia_ms=" + $sw.ElapsedMilliseconds + " cert_subject=" + ($cert.Subject -replace 'CN=[^,]+', 'CN=[REDACTED]') + " cert_notafter=" + $cert.NotAfter.ToString('yyyy-MM-dd') + " tls12_ou_maior=" + $tlsOk)
         Add-Check 'tls-cert-valid-now' (($cert.NotAfter -gt [DateTime]::Now) -and ($cert.NotBefore -lt [DateTime]::Now)) ("validade atual ok; notAfter=" + $cert.NotAfter.ToString('yyyy-MM-dd'))
-        $ssl.Dispose(); $tcp.Close()
     } catch {
         Add-Check 'tls-handshake' $false ('falha: ' + $_.Exception.Message)
+    } finally {
+        if ($null -ne $ssl) { try { $ssl.Dispose() } catch {} }
+        if ($null -ne $tcp) { try { $tcp.Close() } catch {} }
     }
     # 2. HTTP real contra o endpoint MCP (POST com body MCP minimo) + GET no host
     Add-Type -AssemblyName System.Net.Http

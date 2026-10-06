@@ -6,7 +6,7 @@
                    {
                        "proof":  "child-created-and-bound",
                        "ok":  true,
-                       "detail":  "child=ses_eefbd002bffebi4q0lxIJG7F4s bind_exit=0 err="
+                       "detail":  "child=ses_eef233750ffePtD4uyPtnwBNp6 bind_exit=0 err="
                    },
                    {
                        "proof":  "restart-real-before-absence",
@@ -52,5 +52,5 @@
     "coverage":  [
                      "ausencia PROVADA por probe conclusivo + classificacao missing + SESSION_LOST com prova"
                  ],
-    "at":  "2026-10-06T08:09:56.2444852Z"
+    "at":  "2026-10-06T10:57:53.8161445Z"
 }

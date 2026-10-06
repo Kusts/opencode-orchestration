@@ -6,17 +6,17 @@
                    {
                        "proof":  "child-created-real",
                        "ok":  true,
-                       "detail":  "child=ses_eefbd33d8ffeIdB56pnyNR16tP parent=ses_eefbd401effe7JQEtxDusMHEpP"
+                       "detail":  "child=ses_eef236435ffe24EZhPkFCSxGg8 parent=ses_eef236f14ffes3Ad0SZNPzAgW5"
                    },
                    {
                        "proof":  "child-provenance-native",
                        "ok":  true,
-                       "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_eefbd401effe7JQEtxDusMHEpP"
+                       "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_eef236f14ffes3Ad0SZNPzAgW5"
                    },
                    {
                        "proof":  "child-bound-to-task",
                        "ok":  true,
-                       "detail":  "run=lane18-child-run parent_provenance=ses_eefbd401effe7JQEtxDusMHEpP exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
+                       "detail":  "run=lane18-child-run parent_provenance=ses_eef236f14ffes3Ad0SZNPzAgW5 exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
                    },
                    {
                        "proof":  "restart-real",
@@ -26,7 +26,7 @@
                    {
                        "proof":  "child-observed-after-restart",
                        "ok":  true,
-                       "detail":  "child=ses_eefbd33d8ffeIdB56pnyNR16tP observado=running"
+                       "detail":  "child=ses_eef236435ffe24EZhPkFCSxGg8 observado=running"
                    },
                    {
                        "proof":  "reconciler-child-action-correct",
@@ -53,5 +53,5 @@
                      "exercitado: child real (parentID) + restart real + reconciliacao com observacao real",
                      "perna completed-session: so observavel com turn de modelo; plano Â§10 (persistence) lista como perna distinta de \"running child reattached\" (exercitada aqui em runtime real)"
                  ],
-    "at":  "2026-10-06T08:09:43.7699964Z"
+    "at":  "2026-10-06T10:57:43.2085021Z"
 }

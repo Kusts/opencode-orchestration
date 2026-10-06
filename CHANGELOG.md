@@ -15,8 +15,9 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   owned + settlement, password de `service.json` nunca logada, invariante
   49374 preservada, resultados `pass-real | fail | blocked` (falta de
   infraestrutura nunca vira PASS; gates de encerramento obrigatórios).
-  Resultado final: **5 `pass-real` + 2 `blocked`-parciais (18 e 22, com
-  provas parciais ricas gravadas)**
+  Resultado final (após revisão independente — rodada 2, ver abaixo):
+  **3 `pass-real` (16, 17, 19) + 4 `blocked`-parciais (18, 20, 21, 22),
+  0 fail**, com provas parciais ricas gravadas
   (`evidence/v3.1/runtime-reliability/session-lane-2026-10-06/`):
   RR-E2E-16 (root session fechada de verdade no meio da task; task
   persistida; nenhuma conclusão falsa; recuperação por detach+rebind),
@@ -24,22 +25,30 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   reconciliador consumiu observação REST real), 19 (restart real antes da
   ausência; ausência **provada** por probe conclusivo;
   `mark_SESSION_LOST` exige prova; ausência desconhecida nunca vira
-  sucesso — controle negativo incluído), 20 (envelope do estado real →
-  processo fresco consome → sessão substituta real retoma; tentativa de
-  injeção runtime-native observada com fallback do plano §10), 21 (estado
-  e histórico preservados na substituição; `BUDGET_WIDEN_DENIED` provado
-  em runtime para start-attempt por ator não-planner).
+  sucesso — controle negativo incluído), 20 (`blocked`-parcial: envelope
+  do estado real → processo fresco consome kernel-side → sessão substituta
+  real retoma com rebind; o consumo **PELO Planner substituto** — perna do
+  `required_activation` — exige provider de modelo; tentativa de injeção
+  runtime-native observada, não materializada no pin), 21
+  (`blocked`-parcial: substituição de sessão real + estado/histórico
+  preservados e re-lidos kernel-side; a re-leitura **PELO substituto**
+  exige provider. O claim anterior "`BUDGET_WIDEN_DENIED` provado em
+  runtime" foi corrigido: a lane nunca invoca start-attempt — o invariante
+  é provado kernel-side nos testes do kernel).
   **RR-E2E-18 blocked-parcial**: perna "running child reattached" do plano
   §10 provada em runtime real; perna "completed child recovered" bloqueada
   sem provider de modelo (tentativa `/synthetic` gravada; perna completa
   kernel-side nos 156 asserts do reconciler, cujo contrato entregue define
   observações como caller-declared, `probed=false`).
   **RR-E2E-22 blocked-parcial**: V1 1.18.34 real em prefixo isolado,
-  versão exata observada, plano fresh-session (`native_resume=false`)
-  consumido por processo fresco; a observação da superfície `--help` fica
+  versão exata observada; a observação da superfície `--help` fica
   inconclusiva no ambiente bounded (hang caracterizado em 3 variantes,
-  mesma classe do flake `debug config` upstream; "nada é inferido") e o
-  turn da fresh session exige provider (operator-owned).
+  mesma classe do flake `debug config` upstream; "nada é inferido") e,
+  nesse caminho fail-closed, a perna do plano fresh-session não executa
+  (claim anterior de plano "consumido por processo fresco" **corrigido** —
+  não executou na corrida registrada; o construtor `native_resume=false`,
+  que proíbe resume falso, é provado kernel-side nos testes do reconciler);
+  o turn da fresh session exige provider (operator-owned).
 - **Probes V2-native em runtime real (2.0.23)** — coleta observacional
   completa (`v2-native-probes.json`): `session-permission-narrowing`
   **unsupported** na superfície `/shell` (deny de config e permissões
@@ -60,7 +69,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   item que restava do transporte (round-trip MCP autenticado já provado em
   2026-10-04).
 - **Wirings: provas de execução runtime-real dos componentes** —
-  `evidence/v3.1/runtime-reliability/wiring-runtime-2026-10-06/`:
+  `evidence/v3.1/runtime-reliability/wiring-runtime-2026-10-05/`
+  (referência de diretório corrigida na revisão 2):
   P31-S2 (bootstrap executado, envelope com flags vivas; **registro** no
   arranque real segue operator-owned), **P38-S2-SPAWN** (dispatch pipeline
   executado, bundle real coder/tester/reviewer, zero spawn por decisão —
@@ -78,6 +88,24 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   fail-closed de pin/help no 22, denylist de ambiente, sanitização de
   caminho/hosts, charset de `-V1NpmSpec`); lane re-executada após a
   integração com o resultado final acima.
+- **Revisão independente rodada 2 (closure do PR)** — reviewer (6 achados:
+  2 HIGH + 4 MEDIUM) e security-reviewer (2 achados: 1 MEDIUM + 1 LOW)
+  devolveram CHANGES REQUIRED sobre o diff de closure; todos tratados:
+  (HIGH) 20/21 realinhados aos `required_activation` do registry — a prova
+  `envelope-received-by-replacement` gravava `ok=true` hardcoded mesmo sem
+  injeção suportada, e a re-leitura do estado era do harness, não do
+  substituto; (HIGH) claim de perna não executada no 22 removido;
+  (MEDIUM) referência de diretório corrigida
+  (`wiring-runtime-2026-10-05/`), claim `BUDGET_WIDEN_DENIED` reescrito
+  como invariante kernel-side, handshake TLS com deadline + `finally` no
+  probe HTTPS, enforcement do `ScenarioTimeoutSeconds` nos pontos pesados
+  do cenário 22, denylist `SensitiveEnvRemove` nas chamadas npm e no
+  fallback `--help` do V1; (LOW residual documentado) `mcp-post` do probe
+  segue observacional por desenho. A lane foi **corrigida e re-executada**
+  no runtime real (2.0.23): os artefatos em `session-lane-2026-10-06/`
+  passam a refletir a classificação honesta (**3 `pass-real` + 4
+  `blocked`-parcial, 0 fail**; 14/14 checks de infraestrutura ok). Os
+  artefatos da rodada 1 permanecem no histórico do git (`19c4501`).
 - **DE22307F classificado** — divergência user-owned do config vivo
   (pré-existente no baseline congelado, documentada em TROUBLESHOOTING),
   não-regressão, não-bloqueante (CI verde sem config vivo). Re-run
@@ -95,14 +123,16 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   runtime-real provado, (b) HOLD explícito do desenho **com** evidência
   que o sustenta, ou (c) decisão humana/externa que o contrato permite fora
   do gate (ativação dos wirings, RR-E2E-32/33, DE22307F, provider de
-  modelo do operador). **Julgamento divulgado**: os 2 blocked (perna
-  completed do 18; turn da fresh session do 22) dependem de provider de
-  modelo — o desenho entregue sustenta o HOLD (contrato caller-declared do
-  reconciler; fresh-session por construção) e a perna alternativa do plano
-  foi provada em runtime; se o operador julgar essas pernas gate-blocking,
-  o gate vira `PENDING` com flip dessas duas linhas. Resíduos são
-  exclusivamente decisões de operador — ver
-  `program-status.json#closure_2026_10_06`.
+  modelo do operador). **Julgamento divulgado (atualizado na revisão 2)**:
+  os 4 blocked-parcial (perna completed do 18; consumo pelo Planner
+  substituto do 20; re-leitura pelo substituto do 21; turn da fresh
+  session do 22) dependem de provider de modelo — o desenho entregue
+  sustenta o HOLD (contrato caller-declared do reconciler; fresh-session
+  por construção; cadeias kernel-side de 20/21 com sessão substituta real
+  e rebind) e as pernas alternativas do plano foram provadas em runtime;
+  se o operador julgar essas pernas gate-blocking, o gate vira `PENDING`
+  com flip dessas linhas. Resíduos são exclusivamente decisões de
+  operador — ver `program-status.json#closure_2026_10_06`.
 
 ### Adicionado
 

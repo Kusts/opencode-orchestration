@@ -1,7 +1,7 @@
 {
     "scenario_id":  "RR-E2E-21",
-    "status":  "pass-real",
-    "detail":  "estado e historico preservados atraves da substituicao real",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui",
     "proofs":  [
                    {
                        "proof":  "task-has-worker-result",
@@ -11,7 +11,7 @@
                    {
                        "proof":  "session-replacement-real",
                        "ok":  true,
-                       "detail":  "old=ses_eefbc9ae5ffernB7nilSFu5RYh new=ses_eefbc6be9ffedU0VjaULV050Yg"
+                       "detail":  "old=ses_eef22e3b5ffeTRuZ4Z28hKkWcp new=ses_eef22bca0ffen5kPX70IyVxBW4"
                    },
                    {
                        "proof":  "state-preserved",
@@ -30,7 +30,7 @@
                    }
                ],
     "coverage":  [
-                     "substituicao real: substituto re-le o mesmo estado (state/objective/history) sem mutacao indevida"
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) exige provider de modelo e nao e exercitada nesta lane"
                  ],
-    "at":  "2026-10-06T08:10:33.7116940Z"
+    "at":  "2026-10-06T10:58:25.5441432Z"
 }

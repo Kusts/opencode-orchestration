@@ -140,27 +140,33 @@ desconhecido); Waves A–E do programa revisado (2026-10-01;
   reconciliadas em 2026-10-05);
   **release gate: `PASS` (2026-10-06, closure V3.1)** — ver
   `program-status.json#closure_2026_10_06` + CHANGELOG. Nesta rodada
-  tornou-se runtime-real: cross-session **RR-E2E-16..22: 5 `pass-real`
-  (16, 17, 19, 20, 21) + 2 `blocked`-parciais (18, 22)**
+  tornou-se runtime-real: cross-session **RR-E2E-16..22: 3 `pass-real`
+  (16, 17, 19) + 4 `blocked`-parciais (18, 20, 21, 22), 0 fail**
   (lane nova `scripts/ci/session-real-lane-v2.ps1`, pin 2.0.23, evidência
-  em `evidence/v3.1/runtime-reliability/session-lane-2026-10-06/`; os 2
-  blocked dependem de provider de modelo — perna "completed child" do 18 e
-  turn da fresh session do 22 — com as pernas alternativas do plano
+  em `evidence/v3.1/runtime-reliability/session-lane-2026-10-06/`; os 4
+  blocked dependem de provider de modelo — perna "completed child" do 18,
+  consumo pelo Planner substituto do 20, re-leitura pelo substituto do 21
+  e turn da fresh session do 22 — com as pernas alternativas do plano
   provadas em runtime e as pernas completas kernel-side nos testes
-  existentes); probe HTTPS dedicado do AI Memory (TLS 1.3, 401 fail-closed
+  existentes; a revisão independente rodada 2 realinhou 20/21/22 aos
+  `required_activation` do registry e a lane foi corrigida e re-executada
+  — ver CHANGELOG); probe HTTPS dedicado do AI Memory (TLS 1.3, 401 fail-closed
   sem token); execução runtime dos componentes
-  P31-S2/P38-S2-SPAWN/P40-S2/P41-S2 (`wiring-runtime-2026-10-06/`);
+  P31-S2/P38-S2-SPAWN/P40-S2/P41-S2 (`wiring-runtime-2026-10-05/`);
   coleta real dos probes V2-native (`v2-native-probes.json`). **Decisão
   formal: `runtime_grant_enforcement.v2` = HOLD (OFF)** — deny não
   enforceado na superfície `/shell` do 2.0.23 (fail-open observado) +
   probes ambiguous/unsupported; nenhuma feature com prova
   exact-binary-live; as 8 features V2-native permanecem `hold-unproven`
   COM coleta real. Revisões reviewer (8 achados) + security (3 achados)
-  integradas e lane re-executada. Residuais são apenas **decisões de
+  integradas e lane re-executada; revisão rodada 2 (reviewer 6 achados +
+  security 2 achados) integrada com lane re-executada (3 pass-real +
+  4 blocked-parcial). Residuais são apenas **decisões de
   operador** fora do gate: ativação dos wirings (P31-S2 registro no
   arranque; P38-S2-SPAWN despacho real; P40-S2 append/enable; P41-S2
   caller em produção), RR-E2E-32 (decisão de produto) e RR-E2E-33 (turno
-  real operator-owned), provider de modelo (habilita os turns restantes)
+  real operator-owned), provider de modelo (habilita os turns restantes:
+  18/20/21/22)
   e DE22307F (divergência user-owned do config vivo, pré-existente,
   não-bloqueante). Nomenclatura: **P38-S2** = wiring do chamador Jev
   (`4cfb26a`, entregue, advisory-only); **P38-S2-SPAWN** = spawn real do
