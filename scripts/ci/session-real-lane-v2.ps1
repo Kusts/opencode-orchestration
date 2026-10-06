@@ -1185,8 +1185,9 @@ try {
                 $rev1 = [int](Get-JsonProp $tr.json 'revision' '0')
                 $bd = Invoke-KernelCli -KernelArgs @('-Action', 'bind-session', '-TaskId', 'lane21', '-RunId', 'lane21-run', '-SessionId', $sid, '-ExpectedRevision', "$rev1", '-TasksDir', $script:KernelTasksDir, '-RootSessionId', $sid)
                 $rev2 = [int](Get-JsonProp (Get-LaneTask -TaskId 'lane21').json 'revision' -1)
-                # start-attempt e planner/build-only (BUDGET_WIDEN_DENIED provado no
-                # runtime: o kernel recusa ator lane-worker - invariante de autoridade);
+                # start-attempt e planner/build-only; REV2: o invariante
+                # BUDGET_WIDEN_DENIED e provado KERNEL-SIDE nos testes do kernel
+                # (a lane nao invoca start-attempt e nao o exercita em runtime);
                 # a lane registra resultado de worker (permitido) e prova a historia
                 $revR = [int](Get-JsonProp (Get-LaneTask -TaskId 'lane21').json 'revision' -1)
                 $rr = Invoke-KernelCli -KernelArgs @('-Action', 'record-result', '-TaskId', 'lane21', '-WorkerStatus', 'candidate_pass', '-ProducedBy', 'session-lane-coder', '-ExpectedRevision', "$revR", '-ClaimedEvidence', 'lane21/proof', '-TasksDir', $script:KernelTasksDir)
@@ -1207,7 +1208,9 @@ try {
                     $rb = Invoke-KernelCli -KernelArgs @('-Action', 'rebind-session', '-TaskId', 'lane21', '-RunId', 'lane21-run', '-SessionId', [string]$s2.id, '-ExpectedRevision', "$rev4", '-TasksDir', $script:KernelTasksDir)
                     $substOk = ((Test-KernelOk $dt) -and (Test-KernelOk $rb))
                     [void](Add-ScenarioProof $proofs 'session-replacement-real' $substOk ('old=' + $sid + ' new=' + [string]$s2.id))
-                    # releitura pelo substituto: processo kernel fresco le o MESMO registro
+                    # estado re-lido do disco pela lane (kernel-side); a releitura
+                    # PELO substituto (turn do Planner) exige provider de modelo
+                    # e nao e exercitada nesta lane (ver required_activation)
                     $post = (Get-LaneTask -TaskId 'lane21').json
                     $postState = [string](Get-JsonProp $post 'state' '')
                     $postObjective = [string](Get-JsonProp $post 'objective' '')
@@ -1258,7 +1261,8 @@ try {
             if (-not [string]::IsNullOrWhiteSpace($wantV1)) {
                 $v1exe = ''
                 # REV2: deadline nominal do cenario (param ScenarioTimeoutSeconds)
-                # aplicado aos pontos pesados desta secao (install + retries de help)
+                # limita as operacoes pesadas desta secao: cada chamada recebe
+                # no maximo o tempo RESTANTE da janela (piso 5s; fail-closed)
                 $v1DeadlineUtc = [DateTime]::UtcNow.AddSeconds([Math]::Max(60, $ScenarioTimeoutSeconds))
             $v1cands = New-Object System.Collections.ArrayList
             if (-not [string]::IsNullOrWhiteSpace($V1BinaryPath)) {
@@ -1291,7 +1295,9 @@ try {
                     $exePath = $resolved
                 }
                 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { continue }
-                $vr = Invoke-SpikeChild -FilePath $exePath -ArgumentList @('--version') -TimeoutMs 90000 -CleanEnvironment -StdinNul
+                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
+                if ($rem22 -lt 5000) { break }
+                $vr = Invoke-SpikeChild -FilePath $exePath -ArgumentList @('--version') -TimeoutMs ([Math]::Max(5000, [Math]::Min(90000, $rem22))) -CleanEnvironment -StdinNul
                 if ([bool]$vr.TimedOut -or [int]$vr.ExitCode -ne 0) { continue }
                 $vt = ([string]$vr.Stdout + "`n" + [string]$vr.Stderr)
                 # V1 imprime so '1.18.34' (sem o prefixo 'opencode v' do V2);
@@ -1299,15 +1305,16 @@ try {
                 $exact1 = ($vt -cmatch ('(^|\s)(opencode\s+)?v?' + [regex]::Escape($wantV1) + '(\s|$)'))
                 if ($exact1) { $v1exe = $exePath; break }
             }
-            $deadlineHit22 = ([DateTime]::UtcNow -ge $v1DeadlineUtc)
-            if ($deadlineHit22) { [void](Add-ScenarioProof $proofs 'scenario-deadline-exceeded' $false ('janela nominal do cenario (' + $ScenarioTimeoutSeconds + 's) esgotada; operacoes pesadas restantes puladas')) }
+            $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
+            $deadlineHit22 = ($rem22 -lt 15000)
+            if ($deadlineHit22) { [void](Add-ScenarioProof $proofs 'scenario-deadline-exceeded' $false ('janela nominal do cenario (' + $ScenarioTimeoutSeconds + 's) sem tempo util restante; operacoes pesadas restantes puladas')) }
             if ([string]::IsNullOrWhiteSpace($v1exe) -and $InstallV1IfMissing -and (-not $deadlineHit22) -and (-not [string]::IsNullOrWhiteSpace($script:NodeExe))) {
                 # Instalacao ISOLADA do pin V1 (prefixo dentro do TargetHome; nada global).
                 $v1Prefix = Join-Path $TargetHome 'v1-runtime'
                 $spec = $V1NpmSpec
                 if ([string]::IsNullOrWhiteSpace($spec)) { $spec = ('opencode-ai@' + $wantV1) }
                 try {
-                    $inst = Invoke-PreflightBoundedExe -File $script:NodeExe -ArgsLine ('"' + $script:NpmCliJs + '" install --prefix "' + $v1Prefix + '" ' + $spec + ' --no-audit --no-fund') -WorkDir $script:CwdT -EnvTable $script:IsoEnv -EnvRemove ($script:IsoRemove + $script:SensitiveEnvRemove) -TimeoutMs 180000 -MaxChars 20000
+                    $inst = Invoke-PreflightBoundedExe -File $script:NodeExe -ArgsLine ('"' + $script:NpmCliJs + '" install --prefix "' + $v1Prefix + '" ' + $spec + ' --no-audit --no-fund') -WorkDir $script:CwdT -EnvTable $script:IsoEnv -EnvRemove ($script:IsoRemove + $script:SensitiveEnvRemove) -TimeoutMs ([Math]::Max(5000, [Math]::Min(180000, $rem22))) -MaxChars 20000
                     $instOk = (([bool]$inst.Finished) -and ([int]$inst.ExitCode -eq 0) -and (-not [bool]$inst.Truncated))
                     [void](Add-ScenarioProof $proofs 'v1-isolated-install' $instOk ('cmd: npm install --prefix <TargetHome>/v1-runtime ' + $spec + ' rc=' + [int]$inst.ExitCode + ' out=' + (Get-LaneSafeText ([string]$inst.Output) 160)))
                     if ($instOk) {
@@ -1316,7 +1323,9 @@ try {
                             # primeira execucao a frio de um binario novo pode passar de 30s
                             # (scan do antivirus); deadline 90s com uma retry
                             foreach ($attempt in 1, 2) {
-                                $vr = Invoke-SpikeChild -FilePath $candExe -ArgumentList @('--version') -TimeoutMs 90000 -CleanEnvironment -StdinNul
+                                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
+                                if ($rem22 -lt 5000) { break }
+                                $vr = Invoke-SpikeChild -FilePath $candExe -ArgumentList @('--version') -TimeoutMs ([Math]::Max(5000, [Math]::Min(90000, $rem22))) -CleanEnvironment -StdinNul
                                 if ([bool]$vr.TimedOut) { continue }
                                 if ([int]$vr.ExitCode -ne 0) { continue }
                                 $vt = ([string]$vr.Stdout + "`n" + [string]$vr.Stderr)
@@ -1334,12 +1343,15 @@ try {
                 Set-ScenarioResult 'RR-E2E-22' 'blocked' ('runtime V1 real do pin ' + $wantV1 + ' indisponivel neste host (instalacao operator-owned; rode com -InstallV1IfMissing)') $proofs $coverage
             } else {
                 [void](Add-ScenarioProof $proofs 'v1-binary-pinned-found' $true ('path-sanitizado, versao=' + $wantV1))
-                $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs 60000 -CleanEnvironment -StdinNul
-                if ([bool]$help.TimedOut -and ([DateTime]::UtcNow -lt $v1DeadlineUtc)) {
+                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
+                $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs ([Math]::Max(5000, [Math]::Min(60000, $rem22))) -CleanEnvironment -StdinNul
+                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
+                if ([bool]$help.TimedOut -and ($rem22 -ge 5000)) {
                     # retry 1: ambiente isolado da lane (help pode consultar config/paths)
-                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs 120000 -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -CleanEnvironment -StdinNul
+                    $help = Invoke-SpikeChild -FilePath $v1exe -ArgumentList @('--help') -TimeoutMs ([Math]::Max(5000, [Math]::Min(120000, $rem22))) -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -CleanEnvironment -StdinNul
                 }
-                if ([bool]$help.TimedOut -and ([DateTime]::UtcNow -lt $v1DeadlineUtc)) {
+                $rem22 = [int]($v1DeadlineUtc.Subtract([DateTime]::UtcNow).TotalMilliseconds)
+                if ([bool]$help.TimedOut -and ($rem22 -ge 5000)) {
                     # retry 2 (ultimo): ambiente herdado + cwd isolado; probe read-only
                     # de superficie, sem execucao de scripts; REV2: a denylist
                     # sensivel (token/keys) e aplicada tambem neste caminho

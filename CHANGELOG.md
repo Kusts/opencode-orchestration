@@ -98,8 +98,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   (MEDIUM) referência de diretório corrigida
   (`wiring-runtime-2026-10-05/`), claim `BUDGET_WIDEN_DENIED` reescrito
   como invariante kernel-side, handshake TLS com deadline + `finally` no
-  probe HTTPS, enforcement do `ScenarioTimeoutSeconds` nos pontos pesados
-  do cenário 22, denylist `SensitiveEnvRemove` nas chamadas npm e no
+  probe HTTPS, limite do `ScenarioTimeoutSeconds` por **tempo restante**
+  em cada operação pesada do cenário 22 (piso 5s, fail-closed; validado
+  em execução filtrada do cenário em runtime real), denylist
+  `SensitiveEnvRemove` nas chamadas npm e no
   fallback `--help` do V1; (LOW residual documentado) `mcp-post` do probe
   segue observacional por desenho. A lane foi **corrigida e re-executada**
   no runtime real (2.0.23): os artefatos em `session-lane-2026-10-06/`
