@@ -27,6 +27,13 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
 | `bun` ou `npm` — dependência do plugin (`@opencode-ai/plugin@1.18.32` no V1; `@opencode/plugin@2.0.18` no V2) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
 
+## Versionamento
+
+- Versão atual: `0.1.0-dev` (ver `VERSION`); o epoch SemVer conta a partir de `0.1.0`.
+- A tag `v1.0` é legada — anterior ao versionamento formal — e preservada como histórico.
+- `V3` / `V3.1` / `Pxx` são programas internos históricos, não versões do pacote.
+- Índice SPEC/PLAN/ADR em [docs/specs/INDEX.md](docs/specs/INDEX.md); histórico de mudanças em [CHANGELOG.md](CHANGELOG.md).
+
 ## Instalar
 
 ```powershell

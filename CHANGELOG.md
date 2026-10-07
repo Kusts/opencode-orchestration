@@ -6,6 +6,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 14 v0.1.0 (2026-10-07) — Documentation Reconciliation
+
+- README: seção Versionamento (epoch, tag legacy, V3/V3.1 históricos).
+- `docs/specs/INDEX.md`: índice active/historical dos 8 docs.
+- Sem documentação ativa descrevendo TRIVIAL_DIRECT como caminho normal
+  (restam apenas referências históricas marcadas). Tester PASS; Reviewer
+  APPROVED.
+
 ### Fase 13 v0.1.0 (2026-10-07) — Telemetry + Golden Workflows
 
 - `OrchestrationTelemetry.ps1`: reuse_rate, goals por estado (validados
