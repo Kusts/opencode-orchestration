@@ -84,6 +84,30 @@ if (($null -ne $prof) -and ($null -ne $reg)) {
   }
   Assert ($errs.Count -eq 0) 'schema + refs MCP/agents + regra APPROVED/PILOT' ($errs -join ' | ')
 
+  # Contrato de agentes (Fase 2C REV1): agents do profile devem estar na uniao
+  # dos agents declarados por seus MCPs (profile nao amplia acesso alem da capability).
+  $capAgents = @{}
+  foreach ($c in @($reg.capabilities)) {
+    $ca = @()
+    try { foreach ($a in @($c.agents)) { $ca += [string]$a } } catch { $ca = @() }
+    $capAgents[[string]$c.id] = $ca
+  }
+  $ctErrs = New-Object System.Collections.ArrayList
+  foreach ($p in $profiles) {
+    $profId = [string]$p.id
+    $union = New-Object System.Collections.ArrayList
+    foreach ($m in @($p.mcps)) {
+      $mid = [string]$m
+      if ($capAgents.ContainsKey($mid)) {
+        foreach ($a in @($capAgents[$mid])) { if (-not $union.Contains($a)) { [void]$union.Add($a) } }
+      }
+    }
+    foreach ($a in @($p.agents)) {
+      if (-not $union.Contains([string]$a)) { [void]$ctErrs.Add(($profId + ': agent fora do contrato das capabilities: ' + [string]$a)) }
+    }
+  }
+  Assert ($ctErrs.Count -eq 0) 'profile agents subset dos agents das capabilities' ($ctErrs -join ' | ')
+
   # Nenhum MCP global desnecessario: APPROVED restrito ao nucleo + browser stack 2C; pilotos sao opt-in.
   # Fase 2C (decisao do operador 2026-10-07): testing APPROVED com playwright-mcp + chrome-devtools-mcp full.
   $approvedMcps = New-Object System.Collections.ArrayList

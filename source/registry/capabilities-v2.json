@@ -87,6 +87,8 @@
       "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "Phase 2A closure: token rotacionado (old sha12 != new sha12), memory_status PASS apos boot limpo 20:48:27Z; probe dedicado TLS/401 fail-closed" },
       "risk": { "level": "low", "reason": "memory.* = low na risk_policy; dado nao-confiavel, nunca instrucao" },
       "activation": { "mode": "on-demand", "note": "opcional por padrao; required bloqueia tipado quando ausente" },
+      "profiles": ["memory"],
+      "agents": ["build"],
       "healthcheck": { "probe": "mcp-path", "target": "servers.ai-memory", "env_names": ["AI_MEMORY_AUTH_TOKEN"], "command": "caminho mcp.servers.ai-memory na config + env AI_MEMORY_AUTH_TOKEN presente (nome apenas, nunca valor)", "timeout_seconds": 10 }
     },
     {
@@ -99,6 +101,8 @@
       "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "chave mcp presente na config viva do operador" },
       "risk": { "level": "low", "reason": "leitura de documentacao; sem side-effect" },
       "activation": { "mode": "on-demand", "note": "fatos que podem ter mudado / fontes primarias" },
+      "profiles": ["core", "research"],
+      "agents": ["build", "coder", "researcher", "frontend-engineer", "backend-engineer", "docs-manager", "architect", "engineering-advisor"],
       "healthcheck": { "probe": "mcp-config", "target": "context7", "env_names": [], "command": "chave mcp.context7 presente na config viva", "timeout_seconds": 10 }
     },
     {
@@ -111,6 +115,8 @@
       "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "chave mcp presente na config viva; flag jev_advisory ON; chamada P38-S2 advisory-only" },
       "risk": { "level": "low", "reason": "advisory-only; kernel/verifier/reviewer/security sempre vencem" },
       "activation": { "mode": "advisory-only", "note": "somente quando o usuario pedir; nunca edita policy por si so" },
+      "profiles": ["research"],
+      "agents": ["researcher", "architect", "engineering-advisor"],
       "healthcheck": { "probe": "mcp-config", "target": "jev", "env_names": ["OPENCODE_ZEN_API_KEY"], "command": "chave mcp.jev na config + env OPENCODE_ZEN_API_KEY presente (nome apenas, nunca valor; JEV_BASE_URL e literal na config viva)", "timeout_seconds": 10 }
     },
     {
@@ -135,6 +141,9 @@
       "status": { "desired": "CANDIDATE", "observed": "CANDIDATE", "observed_at": "2026-10-07", "observed_note": "Phase 2B pilot: config draft em source/registry/mcp-profiles.json (profile core-dev, opt-in); nao instalado nesta maquina" },
       "risk": { "level": "medium", "reason": "write tools = external.side-effect; repos publicos sao vetor de prompt-injection (lockdown mitiga parcial)" },
       "activation": { "mode": "candidate", "note": "opt-in por profile core-dev; github_*:false global + allow por agente" },
+      "profiles": ["core-dev"],
+      "agents": ["reviewer", "tester", "coder"],
+      "fallback": "gh CLI (default pontual)",
       "healthcheck": { "probe": "mcp-config", "target": "github", "env_names": ["GITHUB_PERSONAL_ACCESS_TOKEN"], "command": "chave mcp.github na config + env GITHUB_PERSONAL_ACCESS_TOKEN presente (nomes apenas, nunca valores)", "timeout_seconds": 10 }
     },
     {
@@ -148,10 +157,10 @@
       "risk": { "level": "medium", "reason": "browser.automation = medium; browser_evaluate/run_code_unsafe executam JS na pagina; nunca security boundary" },
       "activation": { "mode": "on-demand", "note": "opt-in por profile testing; nunca global; --isolated + --headless sempre" },
       "profiles": ["testing"],
-      "agents": ["tester", "frontend-engineer", "debugger"],
+      "agents": ["tester", "frontend-engineer", "debugger", "reviewer", "backend-engineer"],
       "skills": ["playwright-cli"],
       "tools": { "count_default": 25, "count_note": "25 tools listadas via tools/list em 2026-10-07 (browser_close/resize/console_messages/handle_dialog/emulate_media/evaluate/file_upload/drop/find/fill_form/press_key/type/navigate/navigate_back/network_requests/network_request/run_code_unsafe/take_screenshot/snapshot/click/drag/hover/select_option/tabs/wait_for); caps vision/pdf/devtools ampliam sob demanda", "measured_at": "2026-10-07" },
-      "permissions": { "read": "allow", "evaluate_run_code": "ask (somente paginas do escopo da tarefa)", "auth_session": "deny (perfil pessoal; usar --isolated + storage-state de teste)" },
+      "permissions": { "read": "allow", "evaluate": "ask (somente paginas do escopo da tarefa)", "run_code_unsafe": "deny (RCE no processo do servidor; excecao so com autorizacao explicita, ambiente descartavel sem credenciais)", "auth_session": "deny (perfil pessoal; usar --isolated + storage-state de teste)" },
       "conflicts": ["chrome-devtools-mcp: sobreposicao parcial (navegacao/screenshot); contrato: Playwright=comportamento/E2E, DevTools=diagnostico/runtime"],
       "fallback": "Playwright CLI 1.60 + skill playwright-cli (RECOMMENDED P1)",
       "healthcheck": { "probe": "mcp-config", "target": "playwright", "env_names": [], "command": "chave mcp.playwright presente na config viva", "timeout_seconds": 10 }
@@ -190,7 +199,7 @@
       "skills": [],
       "skills_note": "nenhuma skill Supabase no catalogo 2B (105); avaliar upstream Supabase Agent Skills antes de adotar; cobrir Postgres/RLS/auth/storage/migrations/edge functions quando adotadas",
       "tools": { "count_note": "reads: list_tables/list_extensions/list_migrations/query_logs/get_advisors/get_project_url/get_publishable_keys/types/list_edge_functions/search_docs; writes sob ask: apply_migration/deploy_edge_function/branch ops", "measured_at": "2026-10-07" },
-      "permissions": { "read": "allow (com read_only + project_ref)", "dev_write": "allow/ask", "migration_apply": "ask", "production_write": "ask", "drop_delete_destructive": "deny/strong ask" },
+      "permissions": { "read": "allow (com read_only + project_ref)", "dev_write": "ask", "migration_apply": "ask (ambiente nao-produtivo, diff revisado)", "production_write": "deny", "drop_delete_destructive": "deny" },
       "conflicts": ["neon-mcp: nunca carregar Supabase + Neon no mesmo projeto (usar somente o do projeto)"],
       "fallback": "Supabase CLI + psql/SQL direto + Management API via curl",
       "healthcheck": { "probe": "mcp-config", "target": "supabase", "env_names": ["SUPABASE_ACCESS_TOKEN"], "command": "chave mcp.supabase na config + env SUPABASE_ACCESS_TOKEN presente (nomes apenas, nunca valores)", "timeout_seconds": 10 }
@@ -380,7 +389,7 @@
       "agents": ["backend-engineer", "reviewer", "security-reviewer"],
       "skills": [],
       "tools": { "count_note": "stripe_api_read + stripe_api_write + stripe_analytics + docs; secret/restricted sem tag Agent rejeitados (401 apos 2026-10-31)", "measured_at": "2026-10-07" },
-      "permissions": { "read": "allow", "create_test_data": "allow/ask", "subscription_change": "ask", "refund": "ask", "payout": "strong ask", "delete_destructive": "deny" },
+      "permissions": { "read": "allow", "create_test_data": "allow (sandbox) / ask (conta real)", "subscription_change": "deny (excecao so via contrato separado + aprovacao humana)", "refund": "deny (excecao so via contrato separado + approval token 24h)", "payout": "deny (excecao so via contrato separado + aprovacao humana)", "delete_destructive": "deny" },
       "conflicts": [],
       "fallback": "Stripe CLI/SDK/Dashboard",
       "healthcheck": { "probe": "mcp-config", "target": "stripe", "env_names": [], "command": "chave mcp.stripe presente na config viva (auth OAuth/Agent key em runtime, sem env fixo)", "timeout_seconds": 10 }
@@ -415,7 +424,7 @@
       "risk": { "level": "low", "reason": "read-only; atencao a PII em eventos + quota da API" },
       "activation": { "mode": "candidate", "note": "sem ativacao; read-only inicialmente quando pilotar" },
       "profiles": ["growth-google"],
-      "agents": ["requirements-analyst", "frontend-engineer"],
+      "agents": ["requirements-analyst", "frontend-engineer", "researcher"],
       "skills": [],
       "tools": { "count_default": 7, "count_note": "get_account_summaries/get_property_details/list_google_ads_links/run_report/run_funnel_report/run_realtime_report/get_custom_dimensions_and_metrics", "measured_at": "2026-10-07" },
       "permissions": { "read": "allow" },
@@ -434,10 +443,10 @@
       "risk": { "level": "medium", "reason": "dado de spend sensivel; risco futuro se escrita for adicionada (nunca alterar midia paga sem policy)" },
       "activation": { "mode": "candidate", "note": "sem ativacao; leitura/analise primeiro" },
       "profiles": ["growth-google"],
-      "agents": ["requirements-analyst", "researcher"],
+      "agents": ["requirements-analyst", "researcher", "frontend-engineer"],
       "skills": [],
       "tools": { "count_default": 3, "count_note": "list_accessible_customers/search (GAQL)/get_resource_metadata; escrita inexistente nesta release", "measured_at": "2026-10-07" },
-      "permissions": { "read": "allow", "campaign_analysis": "allow", "recommendation_generation": "allow", "budget_change": "ask", "campaign_change": "ask", "pause_delete": "ask/deny conforme risco" },
+      "permissions": { "read": "allow", "campaign_analysis": "allow", "recommendation_generation": "allow", "budget_change": "deny (release atual sem escrita; reavaliar se escrita for adicionada)", "campaign_change": "deny (idem)", "pause_delete": "deny (idem)" },
       "conflicts": [],
       "fallback": "client libs GAQL diretas; hospedados write-capable (Porter/Ryze) so CANDIDATE",
       "healthcheck": { "probe": "mcp-config", "target": "google-ads", "env_names": ["GOOGLE_APPLICATION_CREDENTIALS"], "command": "chave mcp.google-ads na config + env GOOGLE_APPLICATION_CREDENTIALS presente (nomes apenas, nunca valores)", "timeout_seconds": 10 }
