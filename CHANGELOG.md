@@ -6,6 +6,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fases 10+11 v0.1.0 (2026-10-07) — Checkpoint e EvidenceRef
+
+- `OrchestrationGoalCheckpoint.ps1`: checkpoints determinísticos,
+  save/load atômico, resume fail-closed (store inverificável recusa).
+- `OrchestrationEvidenceRef.ps1`: refs validadas, handoffs compactos com
+  caps, raw-payload rejeitado (recursivo + ciclos), tipos estritos.
+- Suites 36+59. Tester PASS; Reviewer APPROVED.
+
 ### Fases 7+8+9 v0.1.0 (2026-10-07) — Promotion, Progress, TDR
 
 - `OrchestrationGoalPromotion.ps1`: scoring explicável (threshold 3;
