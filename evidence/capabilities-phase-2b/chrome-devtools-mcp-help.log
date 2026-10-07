@@ -1,0 +1,81 @@
+(node:3572) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Options:
+      --categoryInput                          Set to false to exclude tools related to input.  [boolean] [default: true]
+      --categoryNavigation                     Set to false to exclude tools related to navigation.  [boolean] [default: true]
+      --categoryEmulation                      Set to false to exclude tools related to emulation.  [boolean] [default: true]
+      --categoryPerformance                    Set to false to exclude tools related to performance.  [boolean] [default: true]
+      --categoryNetwork                        Set to false to exclude tools related to network.  [boolean] [default: true]
+      --categoryDebugging                      Set to false to exclude tools related to debugging.  [boolean] [default: true]
+      --categoryExtensions                     Set to true to include tools related to extensions. Note: This feature is currently only supported with a pipe connection. autoConnect, browserUrl, and wsEndpoint are not supported with this feature until 149 will be released.  [boolean]
+      --categoryExperimentalThirdParty         Set to true to enable third-party developer tools exposed by the inspected page itself  [boolean]
+      --categoryMemory                         Set to false to exclude tools related to memory.  [boolean] [default: true]
+      --categoryExperimentalWebmcp             Set to true to enable debugging WebMCP tools. Requires Chrome 150+ with the following flag: `--enable-features=WebMCP`  [boolean]
+      --categoryPwa                            Set to true to include tools for automating Progressive Web Apps (install, launch, uninstall, and OS state). This feature is only supported with a pipe connection; autoConnect, browserUrl, and wsEndpoint are not supported.  [boolean]
+      --autoConnect                            If specified, automatically connects to a browser (Chrome 144+) running locally from the user data directory identified by the channel param (default channel is stable). Requires the remote debugging server to be started in the Chrome instance via chrome://inspect/#remote-debugging.  [boolean] [default: false]
+  -u, --browserUrl                             Connect to a running, debuggable Chrome instance (e.g. `http://127.0.0.1:9222`). For more details see: https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md#connecting-to-a-running-chrome-instance.  [string]
+  -w, --wsEndpoint                             WebSocket endpoint to connect to a running Chrome instance (e.g., ws://127.0.0.1:9222/devtools/browser/<id>). Alternative to --browserUrl.  [string]
+      --wsHeaders                              Custom headers for WebSocket connection in JSON format (e.g., '{"Authorization":"Bearer token"}'). Only works with --wsEndpoint.  [string]
+      --headless                               Whether to run in headless (no UI) mode.  [boolean] [default: false]
+  -e, --executablePath                         Path to custom Chrome executable.  [string]
+      --isolated                               If specified, creates a temporary user-data-dir that is automatically cleaned up after the browser is closed. Defaults to false.  [boolean]
+      --userDataDir                            Path to the user data directory for Chrome. Default is $HOME/.cache/chrome-devtools-mcp/chrome-profile$CHANNEL_SUFFIX_IF_NON_STABLE  [string]
+      --channel                                Specify a different Chrome channel that should be used. The default is the stable channel version.  [string] [choices: "canary", "dev", "beta", "stable"]
+      --proxyServer                            Proxy server configuration for Chrome passed as --proxy-server when launching the browser. See https://www.chromium.org/developers/design-documents/network-settings/ for details.  [string]
+      --chromeArg                              Additional arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.  [array]
+      --ignoreDefaultChromeArg                 Explicitly disable default arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.  [array]
+      --logFile                                Path to a file to write debug logs to. Set the env variable `NODE_DEBUG` to `*` to enable verbose logs. Useful for submitting bug reports.  [string]
+      --viewport                               Initial viewport size for the Chrome instances started by the server. For example, `1280x720`. In headless mode, max size is 3840x2160px.  [string]
+      --acceptInsecureCerts                    If enabled, ignores errors relative to self-signed and expired certificates. Use with caution.  [boolean]
+      --pageIdRouting                          Require pageId on page-scoped tools and route requests by page ID (useful for concurrent agent sessions). Use --no-page-id-routing to disable.  [boolean] [default: true]
+      --experimentalDevtools                   Whether to enable automation over DevTools targets  [boolean]
+      --experimentalVision                     Whether to enable coordinate-based tools such as click_at(x,y). Usually requires a computer-use model able to produce accurate coordinates by looking at screenshots.  [boolean]
+      --memoryDebugging, --experimentalMemory  Whether to enable memory debugging tools.  [boolean] [default: false]
+      --experimentalStructuredContent          Whether to output structured formatted content.  [boolean] [default: false]
+      --experimentalIncludeAllPages            Whether to include all kinds of pages such as webviews or background pages as pages.  [boolean]
+      --experimentalScreencast                 Exposes experimental screencast tools (requires ffmpeg). Install ffmpeg https://www.ffmpeg.org/download.html and ensure it is available in the MCP server PATH.  [boolean]
+      --experimentalFfmpegPath                 Path to ffmpeg executable for screencast recording.  [string]
+      --experimentalScreencastFps              Frames per second to use for screencast recording. Lower values can reduce memory pressure on pages that produce frames faster than ffmpeg can encode them.  [number]
+      --blockedUrlPattern                      Restricts browser's network access by blocking specified URL patterns (uses https://urlpattern.spec.whatwg.org/). Silently detaches from targets with blocked URLs upon connection, and blocks runtime requests (including navigations and subresources). Accepts an array of patterns.  [array]
+      --allowedUrlPattern                      Restricts browser's network access by allowing only specified URL patterns (uses https://urlpattern.spec.whatwg.org/). Requires Chrome 149+. Silently detaches from targets with unallowed URLs upon connection, and blocks runtime requests (including navigations and subresources). Accepts an array of patterns.  [array]
+      --performanceCrux                        Set to false to disable sending URLs from performance traces to CrUX API to get field performance data.  [boolean] [default: true]
+      --usageStatistics                        Set to false to opt-out of usage statistics collection. Google collects usage data to improve the tool, handled under the Google Privacy Policy (https://policies.google.com/privacy). This is independent from Chrome browser metrics. Disabled if `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS` or `CI` env variables are set.  [boolean] [default: true]
+      --javascriptEvaluation                   Set to false to disable JavaScript execution. When disabled, evaluation tools (evaluate_script and slim evaluate) are disabled, the initScript parameter in navigate_page is turned off, and navigating to javascript:, data:, or vbscript: URLs is disallowed.  [boolean] [default: true]
+      --sourceMaps                             Whether to enable source maps in DevTools. Use --no-source-maps to disable.  [boolean] [default: true]
+      --screenshotFormat                       Override the default output format used by take_screenshot when the caller does not specify one. JPEG and WebP are ~3-5x smaller than PNG, which reduces transfer and storage size. To reduce context size use --screenshotMaxWidth / --screenshotMaxHeight, since image tokens scale with dimensions rather than encoded bytes. Unset preserves the existing default ("png").  [string] [choices: "jpeg", "png", "webp"]
+      --screenshotQuality                      Override the default compression quality (0-100) used by take_screenshot for JPEG and WebP when the caller does not specify one. Lower values mean smaller files. Ignored for PNG. Unset preserves the Puppeteer default.  [number]
+      --screenshotMaxWidth                     Maximum width in pixels for screenshots. If the captured image is wider, it is downscaled (preserving aspect ratio) before being returned. Reduces context size in AI conversations. Unset means no resize.  [number]
+      --screenshotMaxHeight                    Maximum height in pixels for screenshots. If the captured image is taller, it is downscaled (preserving aspect ratio) before being returned. Can be combined with --screenshot-max-width; the smaller scale factor wins. Unset means no resize.  [number]
+      --slim                                   Exposes a "slim" set of 3 tools covering navigation, script execution and screenshots only. Useful for basic browser tasks.  [boolean]
+      --redactNetworkHeaders                   If true, redacts some of the network headers considered sensitive before returning to the client.  [boolean] [default: false]
+      --allowUnrestrictedPaths                 If set, disables the default path restriction that applies when the MCP client does not negotiate the roots capability. By default, file-writing tools are restricted to the OS temp directory when no roots are configured. Use this only when connecting a trusted local client that does not implement MCP roots and requires access to paths outside the temp directory.  [deprecated: Use --workspace=/ instead.] [boolean] [default: false]
+      --filesystemRoot, --workspace            A directory that filesystem tools are allowed to access. May be specified more than once.  [array] [default: OS temp directory]
+      --config                                 Path to JSON configuration file  [string]
+      --help                                   Show help  [boolean]
+      --version                                Show version number  [boolean]
+
+Examples:
+  npx chrome-devtools-mcp@latest --browserUrl http://127.0.0.1:9222                                                                       Connect to an existing browser instance via HTTP
+  npx chrome-devtools-mcp@latest --wsEndpoint ws://127.0.0.1:9222/devtools/browser/abc123                                                 Connect to an existing browser instance via WebSocket
+  npx chrome-devtools-mcp@latest --wsEndpoint ws://127.0.0.1:9222/devtools/browser/abc123 --wsHeaders '{"Authorization":"Bearer token"}'  Connect via WebSocket with custom headers
+  npx chrome-devtools-mcp@latest --channel beta                                                                                           Use Chrome Beta installed on this system
+  npx chrome-devtools-mcp@latest --channel canary                                                                                         Use Chrome Canary installed on this system
+  npx chrome-devtools-mcp@latest --channel dev                                                                                            Use Chrome Dev installed on this system
+  npx chrome-devtools-mcp@latest --channel stable                                                                                         Use stable Chrome installed on this system
+  npx chrome-devtools-mcp@latest --logFile /tmp/log.txt                                                                                   Save logs to a file
+  npx chrome-devtools-mcp@latest --help                                                                                                   Print CLI options
+  npx chrome-devtools-mcp@latest --viewport 1280x720                                                                                      Launch Chrome with the initial viewport size of 1280x720px
+  npx chrome-devtools-mcp@latest --chrome-arg='--no-sandbox' --chrome-arg='--disable-setuid-sandbox'                                      Launch Chrome without sandboxes. Use with caution.
+  npx chrome-devtools-mcp@latest --ignore-default-chrome-arg='--disable-extensions'                                                       Disable the default arguments provided by Puppeteer. Use with caution.
+  npx chrome-devtools-mcp@latest --no-category-emulation                                                                                  Disable tools in the emulation category
+  npx chrome-devtools-mcp@latest --no-category-performance                                                                                Disable tools in the performance category
+  npx chrome-devtools-mcp@latest --no-category-network                                                                                    Disable tools in the network category
+  npx chrome-devtools-mcp@latest --user-data-dir=/tmp/user-data-dir                                                                       Use a custom user data directory
+  npx chrome-devtools-mcp@latest --auto-connect                                                                                           Connect to a stable Chrome instance (Chrome 144+) running instead of launching a new instance
+  npx chrome-devtools-mcp@latest --auto-connect --channel=canary                                                                          Connect to a canary Chrome instance (Chrome 144+) running instead of launching a new instance
+  npx chrome-devtools-mcp@latest --no-usage-statistics                                                                                    Do not send usage statistics https://github.com/ChromeDevTools/chrome-devtools-mcp#usage-statistics.
+  npx chrome-devtools-mcp@latest --no-performance-crux                                                                                    Disable CrUX (field data) integration in performance tools.
+  npx chrome-devtools-mcp@latest --no-source-maps                                                                                         Disable source maps in DevTools.
+  npx chrome-devtools-mcp@latest --no-javascript-evaluation                                                                               Disable JavaScript execution (disables evaluation tools, initScript in navigate_page, and navigating to javascript:, data:, or vbscript: URLs).
+  npx chrome-devtools-mcp@latest --slim                                                                                                   Only 3 tools: navigation, JavaScript execution and screenshot
+EXIT:0
