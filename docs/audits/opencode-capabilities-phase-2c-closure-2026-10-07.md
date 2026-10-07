@@ -217,8 +217,14 @@ Gateway→servidor avulso.
   runtime eval, network, perf), Playwright 5/6 (navigate, snapshot,
   screenshot, console, network; form-fill com arg-shape do snapshot —
   residual menor, não gap).
-- Full suites (`run-v3-tests`, distribution, consistency): a executar no CI
-  do PR; locais das suites 2C acima verdes.
+- Full suites (`run-v3-tests`, distribution, consistency): distribution completa
+  12 PASS / 7 FAIL / 1 SKIP nesta máquina; 6 FAILs (config-format,
+  config-preservation, fresh-install, planner-model, profile-isolation,
+  uninstall) **reproduzidos identicamente em worktree limpa de master
+  `e8e6876` — pré-existentes de ambiente, sem regressão 2C**; o 7º FAIL
+  (mcp-profiles no run) foi artefato de leitura mid-edit (assert novo sem os
+  agents ainda commitados) — árvore final passa 8/8 isolado. CI do PR dá o
+  veredito final.
 
 ## 33. Residuals
 
