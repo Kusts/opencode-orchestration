@@ -4,6 +4,7 @@ evidence/*
 !evidence/distribution-hardening/
 !evidence/release-readiness/
 !evidence/v3.1/
+!evidence/capabilities-phase-2b/
 cache/
 evidence/v3.1/runtime-reliability/phase24-livehook.jsonl
 *.bak*
