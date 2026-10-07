@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "generated": "2026-10-07",
+  "note": "Phase 2D shadow corpus. Positive (P1-P5), negative (N1-N5), conflict (C1), ambiguity (A1). Offline, no network, no credentials. Fixture dirs are created under %TEMP% by the test; fixture keys: empty, supabase, terraform.",
+  "cases": [
+    {
+      "id": "P1-frontend-bug",
+      "task": "Fix frontend bug in checkout Button component, stacktrace on click, css layout breaks",
+      "task_class": "debugging",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["debugger"],
+        "profiles": ["testing"],
+        "mcps": ["chrome-devtools-mcp"],
+        "skills": ["systematic-debugging"],
+        "risk": "MEDIUM",
+        "confidence": "HIGH",
+        "reason_codes": ["BROWSER_RUNTIME_DEBUG"]
+      },
+      "not_expected": { "profiles": ["database-supabase", "database-neon"], "mcps": ["stripe-mcp", "supabase-mcp"], "caps": [] }
+    },
+    {
+      "id": "P2-supabase-migration",
+      "task": "Create supabase migration to alter orders schema with ddl change",
+      "task_class": "migration",
+      "project": { "stack": "supabase" },
+      "fixture": "supabase",
+      "expected": {
+        "agents": ["database-engineer"],
+        "profiles": ["database-supabase"],
+        "mcps": ["supabase-mcp"],
+        "skills": ["verification-before-completion"],
+        "risk": "HIGH",
+        "confidence": "HIGH",
+        "reason_codes": ["PROJECT_USES_SUPABASE", "TASK_REQUIRES_DATABASE"]
+      },
+      "not_expected": { "profiles": ["database-neon"], "mcps": ["neon-mcp", "stripe-mcp"], "caps": [] }
+    },
+    {
+      "id": "P3-research-compare",
+      "task": "Research and compare state libraries using official docs and benchmark numbers",
+      "task_class": "research",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["researcher"],
+        "profiles": ["research"],
+        "mcps": ["jev"],
+        "skills": ["verification-before-completion"],
+        "risk": "LOW",
+        "confidence": "HIGH",
+        "reason_codes": ["LIBRARY_DOCS_REQUIRED"]
+      },
+      "not_expected": { "profiles": ["testing", "database-supabase"], "mcps": ["playwright-mcp", "supabase-mcp"], "caps": [] }
+    },
+    {
+      "id": "P4-rename-trivial",
+      "task": "Rename typo in trivial helper, cosmetic fix",
+      "task_class": "trivial",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["coder"],
+        "profiles": [],
+        "mcps": [],
+        "skills": ["verification-before-completion"],
+        "risk": "LOW",
+        "confidence": "HIGH",
+        "reason_codes": []
+      },
+      "not_expected": { "profiles": ["testing", "research"], "mcps": ["playwright-mcp", "chrome-devtools-mcp", "context7"], "caps": [] }
+    },
+    {
+      "id": "P5-e2e-flow",
+      "task": "Validate checkout e2e fluxo web with playwright navigation across formulario steps",
+      "task_class": "testing",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["tester"],
+        "profiles": ["testing"],
+        "mcps": ["playwright-mcp"],
+        "skills": ["test-driven-development", "verification-before-completion"],
+        "risk": "MEDIUM",
+        "confidence": "HIGH",
+        "reason_codes": ["BROWSER_E2E_REQUIRED"]
+      },
+      "not_expected": { "profiles": ["database-supabase"], "mcps": ["supabase-mcp", "stripe-mcp"], "caps": [] }
+    },
+    {
+      "id": "N1-stripe-frontend-bug",
+      "task": "Fix frontend bug in checkout button layout, stripe element renders blank, css alignment off",
+      "task_class": "debugging",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["debugger"],
+        "profiles": [],
+        "mcps": [],
+        "skills": ["systematic-debugging"],
+        "risk": "CRITICAL",
+        "confidence": "HIGH",
+        "reason_codes": []
+      },
+      "not_expected": { "profiles": ["testing"], "mcps": ["stripe-mcp", "playwright-mcp", "supabase-mcp"], "caps": ["payments", "stripe"] }
+    },
+    {
+      "id": "N2-docs-only",
+      "task": "Read library docs for version-specific framework behavior guide",
+      "task_class": "documentation",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["researcher"],
+        "profiles": ["core"],
+        "mcps": ["context7"],
+        "skills": ["test-driven-development"],
+        "risk": "LOW",
+        "confidence": "HIGH",
+        "reason_codes": ["LIBRARY_DOCS_REQUIRED"]
+      },
+      "not_expected": { "profiles": ["testing"], "mcps": ["chrome-devtools-mcp", "playwright-mcp"], "caps": [] }
+    },
+    {
+      "id": "N3-neon-only",
+      "task": "Create neon migration to alter ledger schema with ddl change",
+      "task_class": "migration",
+      "project": { "stack": "neon" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["database-engineer"],
+        "profiles": ["database-neon"],
+        "mcps": ["neon-mcp"],
+        "skills": ["verification-before-completion"],
+        "risk": "HIGH",
+        "confidence": "HIGH",
+        "reason_codes": ["PROJECT_USES_NEON", "TASK_REQUIRES_DATABASE"]
+      },
+      "not_expected": { "profiles": ["database-supabase"], "mcps": ["supabase-mcp"], "caps": [] }
+    },
+    {
+      "id": "N4-terraform-css-bug",
+      "task": "Fix css layout bug in header component alignment",
+      "task_class": "debugging",
+      "project": { "stack": "" },
+      "fixture": "terraform",
+      "expected": {
+        "agents": ["debugger"],
+        "profiles": [],
+        "mcps": [],
+        "skills": ["systematic-debugging"],
+        "risk": "LOW",
+        "confidence": "HIGH",
+        "reason_codes": []
+      },
+      "not_expected": { "profiles": [], "mcps": ["terraform-mcp"], "caps": ["iac", "terraform"] }
+    },
+    {
+      "id": "N5-analytics-only",
+      "task": "Summarize analytics dashboard numbers for weekly report",
+      "task_class": "analysis",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["coder"],
+        "profiles": [],
+        "mcps": [],
+        "skills": ["verification-before-completion"],
+        "risk": "LOW",
+        "confidence": "HIGH",
+        "reason_codes": []
+      },
+      "not_expected": { "profiles": [], "mcps": ["google-ads-mcp"], "caps": ["google-ads", "ads"] }
+    },
+    {
+      "id": "C1-supabase-neon-conflict",
+      "task": "Migrate supabase and neon postgres schema with ddl migration",
+      "task_class": "migration",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["database-engineer"],
+        "profiles": [],
+        "mcps": [],
+        "skills": ["verification-before-completion"],
+        "risk": "HIGH",
+        "confidence": "AMBIGUOUS",
+        "reason_codes": ["TASK_REQUIRES_DATABASE"]
+      },
+      "not_expected": { "profiles": ["database-supabase", "database-neon"], "mcps": ["supabase-mcp", "neon-mcp"], "caps": [] }
+    },
+    {
+      "id": "A1-empty-ambiguous",
+      "task": "",
+      "task_class": "",
+      "project": { "stack": "" },
+      "fixture": "empty",
+      "expected": {
+        "agents": ["coder"],
+        "profiles": [],
+        "mcps": [],
+        "skills": ["verification-before-completion"],
+        "risk": "LOW",
+        "confidence": "AMBIGUOUS",
+        "reason_codes": ["AMBIGUOUS"]
+      },
+      "not_expected": { "profiles": ["testing", "database-supabase"], "mcps": ["playwright-mcp", "supabase-mcp"], "caps": [] }
+    }
+  ]
+}
