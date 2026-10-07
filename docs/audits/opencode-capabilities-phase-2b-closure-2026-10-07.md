@@ -170,6 +170,13 @@ de baixo risco para rodada própria. Sem mudança de comportamento na 2B.
 | capability-registry-v2 (atualizada p/ 17 + mcp-path + leak names) | 32/32 |
 | package-consistency | 16/16 (inalterado) |
 | config-format | 51/1 com 2 FAILs preexistentes (fora de escopo, §20 item 3 das decisions) |
+| runner distribution local (20 suites) | 13 PASS / 6 FAIL / 1 SKIP — os 6 FAILs reproduzidos
+  idênticos no master puro `d3f2d24` (worktree limpa): config-format (2),
+  config-preservation (2), fresh-install (8), planner-model (1), uninstall
+  (harness V1 Add-Member null), profile-isolation (d) — este último só com o
+  binário probe local obsoleto v2.0.18 (sem probe, SKIP; com probe, mesmo FAIL
+  no master). Zero regressões da 2B; donos: issue #21 (dialeto V1) + estado
+  local do cache. |
 
 ## 23. Security
 
