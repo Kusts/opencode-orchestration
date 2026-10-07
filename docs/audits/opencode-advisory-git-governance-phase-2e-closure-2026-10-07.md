@@ -147,7 +147,9 @@ Reais e honestos: (a) threshold 90% não atingido = INSUFFICIENT_REAL_WORLD_DATA
 - Branch `feat/advisory-validation-git-governance-phase-2e` de `master` (`226248e`).
 - Nenhum push em `master` nesta fase. Arquivos: `docs/github-lifecycle-policy.md` (novo), `docs/GOVERNANCE.md` (edit, seção), `scripts/v3/protect-master.ps1` (novo), `scripts/v3/protect-master.tests.ps1` (novo), `scripts/v3/lib/CapabilityRealWorldPhase2E.tests.ps1` (novo), `evidence/capabilities-phase-2e/` (13 resolver JSONs + ledger `real-world-pilots-2026-10-07.json`), `.gitignore` (edit, exceção), este closure (novo).
 - `git diff --check` limpo. Contagem de seções: 30 `##` + título.
-- PR/CI/merge: pendente decisão do operador (push/PR não executados nesta sessão); closure preparado na branch para inclusão no PR antes do merge, conforme §19 (PR ainda não aberto nesta sessão).
+- PR #31 (`Phase 2E: Real-World Advisory Validation + Git Governance Hardening`), base `master`, head `feat/advisory-validation-git-governance-phase-2e`. Commits: `1bc76d4` feat(advisory) + `0f623ed` docs(policy) + `eafefe1` test(policy) + `33d7693` docs closure + `f088075` fix (5 Codex P2 + 2 internal R4, com replies nas 5 threads).
+- CI: run `37658762595` no SHA `33d7693` com 1 FAIL flake (`FIX3-1 late-deadline`, suite watchdog, sem relação com a fase) — classificado por rerun do mesmo SHA (5/5 SUCCESS) + ps51 verde no mesmo SHA; run `37666177282` no SHA `f088075` 5/5 SUCCESS (`CI (ps51)`, `CI (ps7)`, `CI (smoke opencode real)`, `CI (v2 lane, perfil V2 provisionado)`, `CI (smoke opencode v2 real)`).
+- Review: bot Codex COMMENTED com 5 achados P2, todos corrigidos em `f088075` com replies; reviewer interno APPROVED; tester PASS. Merge `--merge` (método padrão §policy) em `75ca52e`. Registro pós-merge feito neste follow-up docs PR, nunca via commit direto (prova da policy §19/§22).
 
 ## 30. Final Verdict
 
