@@ -6,6 +6,16 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 13 v0.1.0 (2026-10-07) — Telemetry + Golden Workflows
+
+- `OrchestrationTelemetry.ps1`: reuse_rate, goals por estado (validados
+  pelo contrato do kernel), decisions honestamente não-persistidos,
+  truncamento sinalizado.
+- `OrchestrationGoldenWorkflows.tests.ps1`: 15/15 GWs fim-a-fim com libs
+  reais (single-worker, bug, reuse hit/miss, Jev, SPEC+PLAN Goal, wave,
+  repair, stagnation, rotation, escalation, model-deny, delivery, budget).
+- Suites 55+69. Tester PASS; Reviewer APPROVED.
+
 ### Fase 12 v0.1.0 (2026-10-07) — GitHub Delivery Continuation
 
 - `delivery-policy.json` + `OrchestrationDelivery.ps1`: elegibilidade de
