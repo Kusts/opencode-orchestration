@@ -41,7 +41,7 @@ catch {
 if ($null -ne $reg) {
   Assert (([string]$reg.schema_version) -ceq '1') 'registry schema_version == 1' ('obtido: ' + [string]$reg.schema_version)
   $caps = @($reg.capabilities)
-  $expectedIds = @('planner', 'planning-advisors', 'core-agents', 'core-skills', 'orchestration-enforcement', 'ai-memory', 'context7', 'jev', 'skills-catalog', 'github-mcp', 'playwright-mcp', 'chrome-devtools-mcp', 'opencode-runtime', 'git', 'github-cli', 'playwright-cli', 'docker')
+  $expectedIds = @('planner', 'planning-advisors', 'core-agents', 'core-skills', 'orchestration-enforcement', 'ai-memory', 'context7', 'jev', 'skills-catalog', 'github-mcp', 'playwright-mcp', 'chrome-devtools-mcp', 'supabase-mcp', 'neon-mcp', 'postman-mcp', 'figma-mcp', 'posthog-mcp', 'docker-mcp-gateway', 'terraform-mcp', 'cloudflare-mcp', 'grafana-mcp', 'n8n-mcp', 'stripe-mcp', 'hubspot-mcp', 'ga-mcp', 'google-ads-mcp', 'dataforseo-mcp', 'opencode-runtime', 'git', 'github-cli', 'playwright-cli', 'docker')
   Assert ($caps.Count -eq $expectedIds.Count) ('registry tem ' + $expectedIds.Count + ' capabilities') ('obtido: ' + $caps.Count)
 
   $ids = @($caps | ForEach-Object { [string]$_.id })
@@ -51,7 +51,7 @@ if ($null -ne $reg) {
     Assert ($ids -contains $e) ('id presente: ' + $e)
   }
 
-  $allowedStatus = @('DECLARED', 'INSTALLED', 'DISCOVERED', 'ACTIVE', 'CANDIDATE')
+  $allowedStatus = @('DECLARED', 'INSTALLED', 'DISCOVERED', 'ACTIVE', 'CANDIDATE', 'PROJECT_ONLY')
   $allowedRisk = @('low', 'medium', 'high', 'critical', 'unknown')
   $allowedModes = @('always', 'on-demand', 'advisory-only', 'candidate')
   $allowedProbes = @('repo-file', 'repo-dir', 'command', 'mcp-config', 'mcp-path')
@@ -115,16 +115,42 @@ if ($null -ne $reg) {
   Assert ($refErrs.Count -eq 0) 'schema + refs validas (runtime.v2, status, risk, activation, healthcheck)' ($refErrs -join ' | ')
 
   # Honestidade: opcionais/novos/pilotos nunca nascem installed/active.
+  # Fase 2C: regra estendida aos 15 MCPs de dominio (CANDIDATE/PROJECT_ONLY com observed CANDIDATE).
+  $optionalIds = @('playwright-cli', 'docker', 'github-mcp', 'playwright-mcp', 'chrome-devtools-mcp', 'supabase-mcp', 'neon-mcp', 'postman-mcp', 'figma-mcp', 'posthog-mcp', 'docker-mcp-gateway', 'terraform-mcp', 'cloudflare-mcp', 'grafana-mcp', 'n8n-mcp', 'stripe-mcp', 'hubspot-mcp', 'ga-mcp', 'google-ads-mcp', 'dataforseo-mcp')
   $honErrs = New-Object System.Collections.ArrayList
   foreach ($c in $caps) {
     $cid = [string]$c.id
     $obs = ''
     try { $obs = [string]$c.status.observed } catch { $obs = '' }
-    if (((($cid -ceq 'playwright-cli') -or ($cid -ceq 'docker')) -and (($obs -ceq 'INSTALLED') -or ($obs -ceq 'ACTIVE'))) -or ((($cid -ceq 'github-mcp') -or ($cid -ceq 'playwright-mcp') -or ($cid -ceq 'chrome-devtools-mcp')) -and (($obs -ceq 'INSTALLED') -or ($obs -ceq 'ACTIVE')))) {
+    if (($optionalIds -contains $cid) -and (($obs -ceq 'INSTALLED') -or ($obs -ceq 'ACTIVE'))) {
       [void]$honErrs.Add(($cid + ': opcional/piloto com observed INSTALLED/ACTIVE (proibido; usar DISCOVERED/DECLARED/CANDIDATE)'))
     }
   }
   Assert ($honErrs.Count -eq 0) 'sem claim installed/active para opcionais e pilotos' ($honErrs -join ' | ')
+
+  # Deny-default (Fase 2C SEC1, endurecido REV2): cada campo critico deve
+  # comecar com 'deny'. Verifica valor por campo, nao mera presenca de 'deny'.
+  $denyMap = @{
+    'playwright-mcp' = @('run_code_unsafe')
+    'supabase-mcp'   = @('production_write', 'drop_delete_destructive')
+    'neon-mcp'       = @('complete_migration_prod', 'delete_reset_restore')
+    'terraform-mcp'  = @('destroy')
+    'stripe-mcp'     = @('subscription_change', 'refund', 'payout', 'delete_destructive')
+    'google-ads-mcp' = @('budget_change', 'campaign_change', 'pause_delete')
+    'dataforseo-mcp' = @('bulk_unlimited')
+  }
+  $denyErrs = New-Object System.Collections.ArrayList
+  foreach ($c in $caps) {
+    $cid = [string]$c.id
+    if ($denyMap.ContainsKey($cid)) {
+      foreach ($f in @($denyMap[$cid])) {
+        $v = ''
+        try { $v = [string]$c.permissions.$f } catch { $v = '' }
+        if (-not $v.StartsWith('deny')) { [void]$denyErrs.Add(($cid + '.' + $f + ' sem deny-default: [' + $v + ']')) }
+      }
+    }
+  }
+  Assert ($denyErrs.Count -eq 0) 'deny-default por campo em permissions sensiveis' ($denyErrs -join ' | ')
 }
 
 # Healthcheck: executa -Json e valida envelope.
@@ -169,7 +195,7 @@ if ($null -ne $env) {
   }
   # Sem vazamento de secrets: valores de env sensiveis jamais aparecem no output.
   $leakErrs = New-Object System.Collections.ArrayList
-  foreach ($n in @('AI_MEMORY_AUTH_TOKEN', 'JEV_API_KEY', 'JEV_BASE_URL', 'OPENCODE_ZEN_API_KEY', 'GITHUB_PERSONAL_ACCESS_TOKEN')) {
+  foreach ($n in @('AI_MEMORY_AUTH_TOKEN', 'JEV_API_KEY', 'JEV_BASE_URL', 'OPENCODE_ZEN_API_KEY', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'NEON_API_KEY', 'POSTMAN_API_KEY', 'TFE_TOKEN', 'CLOUDFLARE_API_TOKEN', 'GRAFANA_SERVICE_ACCOUNT_TOKEN', 'N8N_MCP_ACCESS_TOKEN', 'GOOGLE_APPLICATION_CREDENTIALS', 'DATAFORSEO_LOGIN', 'DATAFORSEO_PASSWORD')) {
     $val = [System.Environment]::GetEnvironmentVariable($n)
     if (-not [string]::IsNullOrWhiteSpace($val)) {
       if ($hcJson.Contains($val)) { [void]$leakErrs.Add(('valor de ' + $n + ' presente no output')) }
