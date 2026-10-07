@@ -284,6 +284,23 @@ try{
     # The record is advisory evidence only: no DONE, no authority anywhere.
     $t7Names=@($t1.plan.PSObject.Properties | ForEach-Object { $_.Name })
     Assert-PL (($t7Names -contains 'jev_advisory_result') -and ($t7Names -notcontains 'done') -and (-not [bool]$t1.plan.jev_advisory.authoritative) -and ([string]$t1.plan.jev_advisory.kernel_authority -ceq 'planner/kernel')) 'jev-wiring-advisory-only-no-done'
+    # ---------- Fase 3 (Reuse-First): default store + explicit store ----------
+    $f3StoreRoot=Join-Path ([IO.Path]::GetTempPath()) ('v3-pl-reuse-'+[guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $f3StoreRoot -Force | Out-Null
+    try{
+        $f3NoStore=Invoke-OrchestrationPlannerLoop @{objective='Reuse default store';risk='low'} @{timestamp=$now}
+        Assert-PL ($f3NoStore.status -eq 'ok' -and [string]$f3NoStore.plan.reuse.status -ceq 'ok' -and [string]$f3NoStore.plan.reuse.store -ceq 'default' -and [string]$f3NoStore.plan.reuse.remaining -ceq 'unknown-pending-dispatch') 'reuse-default-store-ok'
+        $f3Explicit=Invoke-OrchestrationPlannerLoop @{objective='Reuse explicit store';risk='low'} @{timestamp=$now;store_dir=$f3StoreRoot}
+        Assert-PL ($f3Explicit.status -eq 'ok' -and [string]$f3Explicit.plan.reuse.status -ceq 'ok' -and [string]$f3Explicit.plan.reuse.store -ceq 'explicit') 'reuse-explicit-store-ok'
+        Assert-PL ([string]$f3NoStore.plan_json -notmatch 'evidence-store-not-requested') 'reuse-not-requested-gone-from-normal-path'
+        $f3FileAsStore=Join-Path $f3StoreRoot 'file-as-store';[IO.File]::WriteAllText($f3FileAsStore,'x')
+        $f3StoreDown=Invoke-OrchestrationPlannerLoop @{objective='Reuse store down';risk='low'} @{timestamp=$now;store_dir=$f3FileAsStore}
+        Assert-PL ($f3StoreDown.status -eq 'ok' -and [string]$f3StoreDown.plan.reuse.status -ceq 'unavailable') 'reuse-store-down-unavailable'
+        Assert-PL ([string]$f3StoreDown.plan.reuse.reason -ceq 'reuse-store-query-failed') 'reuse-store-down-query-failed-reason'
+    }
+    finally{
+        try{Remove-Item -LiteralPath $f3StoreRoot -Recurse -Force -ErrorAction SilentlyContinue}catch{}
+    }
 }
 finally{
     try{Remove-Item -LiteralPath $plTemp -Recurse -Force -ErrorAction SilentlyContinue}catch{}

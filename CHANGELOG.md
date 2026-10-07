@@ -6,6 +6,24 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 3 v0.1.0 (2026-10-07) — Reuse-First obrigatório
+
+- **Reuse query obrigatória**: PlannerLoop resolve StoreDir automaticamente
+  (`cache/`, local-only) — `evidence-store-not-requested` só com lib
+  ausente; falha de consulta => `unavailable` (distinguível de miss via
+  `QueryError`), fail-open preservado.
+- **Invalidação completa**: hit/miss/stale/provenance/criteria-drift/
+  base-drift/env-drift + novo tipo `revoked`; TTL robusto em PS 5.1 e
+  pwsh 7 (normalização UTC). Reviewer: APPROVED.
+- Residual: hardening provenance/hash mismatch (Fase 11).
+
+### Fase 2 v0.1.0 (2026-10-07) — Autonomy Envelope + Stop Policy
+
+- `autonomy-policy.json`: 19 ações auto-autorizadas, 9 boundaries, 6 stop
+  reasons, 6 denied (declarativo; enforcement nas Fases 5/6).
+- `OrchestrationAutonomy.ps1`: funções puras fail-closed; suite 69 asserts.
+- Jev validou pr_open/rerun_ci/new_session como auto. Reviewer: APPROVED.
+
 ### Fase 1 v0.1.0 (2026-10-07) — Universal Orchestration preflight migration
 
 - **Nova taxonomia** (`SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
