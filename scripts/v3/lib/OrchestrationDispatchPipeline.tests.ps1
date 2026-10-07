@@ -339,7 +339,8 @@ try {
     $rp=Invoke-OrchestrationDispatchPipeline $reuseLoop.plan @{task_id='T-5'} @{timestamp=$now}
     Assert-DP ($rp.bundle.evidence_prefill.status -eq 'ok' -and $rp.bundle.evidence_prefill.count -eq 1 -and [string]$rp.bundle.evidence_prefill.results[0].summary -notmatch 'SYNTHETICSECRET|token=bad|evil\.com') 'ac5-prefill-sanitized-from-plan'
     $noReuse=Invoke-OrchestrationDispatchPipeline $nobudget.plan @{task_id='T-5'} @{timestamp=$now}
-    Assert-DP ($noReuse.bundle.evidence_prefill.status -eq 'unavailable' -and -not [string]::IsNullOrWhiteSpace([string]$noReuse.bundle.evidence_prefill.reason)) 'ac5-no-reuse-no-prefill'
+    Assert-DP ([string]$noReuse.bundle.evidence_prefill.status -eq 'ok' -and [int]$noReuse.bundle.evidence_prefill.count -eq 0) 'ac5-mandatory-reuse-miss-not-unavailable'
+    Assert-DP ([string]$sg.bundle.evidence_prefill.status -eq 'unavailable' -and -not [string]::IsNullOrWhiteSpace([string]$sg.bundle.evidence_prefill.reason)) 'ac5-no-reuse-no-prefill'
     Assert-DP ($rig.status -eq 'ok' -and $nb.status -eq 'ok') 'ac2-ac3-normal-route-is-ok'
 
     # ---- AC6 hostile input: canaries redacted, status valid, unknown roles rejected.

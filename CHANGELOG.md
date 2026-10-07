@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 5 v0.1.0 (2026-10-07) — Objective Continuation Kernel
+
+- `OrchestrationObjectiveController.ps1`: next-move puro (CONTINUE/RETRY/
+  REPLAN/DELEGATE/ROTATE_CONTEXT/COMPLETE), precedência fail-closed,
+  COMPLETE só com stop válido, sem estado user-return; tipos estritos.
+- Hook aditivo no DispatchPipeline (record-only); ac5 atualizado para a
+  semântica Reuse-First (miss ok count 0 vs bare plan unavailable).
+- Suites: controller 67, dispatch 202. Tester PASS; Reviewer APPROVED.
+
 ### Fase 4 v0.1.0 (2026-10-07) — Decision Provider + Jev
 
 - `OrchestrationDecisionProvider.ps1`: Rules -> Jev (admission utilitária,
