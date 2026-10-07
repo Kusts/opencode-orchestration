@@ -116,9 +116,12 @@ function Test-OrchestrationDoneCompliance {
         Porta de DONE: verificacao POS-execucao. A pre-decision (MULTI_WORKER,
         PERSISTENT_GOAL, DETERMINISTIC_FALLBACK) apenas planeja; somente esta
         funcao, chamada com a participacao real observada, pode atestar
-        compliance. Trabalho trivial exige o ExecutionShape observado
-        SINGLE_WORKER; tokens DIRECT_* legados sao rejeitados como
-        NON_COMPLIANT_DEPRECATED_DIRECT (fail-closed).
+        compliance. Trabalho trivial exige Decision SINGLE_WORKER, o
+        ExecutionShape observado SINGLE_WORKER e participacao observada
+        maior que zero; classe fora de trivial/non_trivial e falha
+        fechada (NON_COMPLIANT_INVALID_TASK_CLASS). Tokens DIRECT_*
+        legados sao rejeitados como NON_COMPLIANT_DEPRECATED_DIRECT
+        (fail-closed).
     #>
     [CmdletBinding()]
     param(
@@ -132,18 +135,29 @@ function Test-OrchestrationDoneCompliance {
     try {
         $c = ([string]$TaskClass).Trim().ToLowerInvariant()
         $d = ([string]$Decision).Trim().ToUpperInvariant()
-        if ($d -ceq 'BLOCKED') { return 'ORCHESTRATION_POLICY_BYPASS' }
-        if ($c -cne 'non_trivial') {
+        # TDR-F1-11: classe desconhecida (vazia ou fora de trivial/non_trivial)
+        # e falha fechada antes de qualquer outro ramo.
+        if (($c -cne 'trivial') -and ($c -cne 'non_trivial')) { return 'NON_COMPLIANT_INVALID_TASK_CLASS' }
+        if ($c -ceq 'trivial') {
             $dr = ([string]$DirectReason).Trim()
             if (-not [string]::IsNullOrWhiteSpace($dr)) {
                 if ($dr -like 'DIRECT_*') { return 'NON_COMPLIANT_DEPRECATED_DIRECT' }
                 return 'NON_COMPLIANT_INVALID_DIRECT_REASON'
             }
+            # TDR-F1-11: ramo trivial exige Decision SINGLE_WORKER (vazia cai aqui).
+            if ($d -cne 'SINGLE_WORKER') { return 'NON_COMPLIANT_INVALID_DECISION' }
             $shape = ([string]$ExecutionShape).Trim()
             if ([string]::IsNullOrWhiteSpace($shape)) { return 'NON_COMPLIANT_MISSING_DIRECT_REASON' }
-            if ($shape -ieq 'SINGLE_WORKER') { return 'COMPLIANT' }
+            if ($shape -ieq 'SINGLE_WORKER') {
+                # TDR-F1-11: trivial tambem exige participacao observada.
+                $tn = 0
+                try { $tn = [int]$ActualWorkerParticipation } catch { $tn = 0 }
+                if ($tn -le 0) { return 'ORCHESTRATION_POLICY_BYPASS' }
+                return 'COMPLIANT'
+            }
             return 'NON_COMPLIANT_DEPRECATED_DIRECT'
         }
+        if ($d -ceq 'BLOCKED') { return 'ORCHESTRATION_POLICY_BYPASS' }
         if ($d -ceq 'DETERMINISTIC_FALLBACK') {
             if ($DeterministicOwnerExecuted) { return 'COMPLIANT' }
             return 'ORCHESTRATION_POLICY_BYPASS'
@@ -347,6 +361,7 @@ function Get-OrchestrationPreflight {
         }
 
         $checkMulti = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision MULTI_WORKER -ActualWorkerParticipation <actual_workers>'
+        $checkSingle = 'Test-OrchestrationDoneCompliance -TaskClass trivial -Decision SINGLE_WORKER -ExecutionShape SINGLE_WORKER -ActualWorkerParticipation <actual_workers>'
         $checkGoal = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision PERSISTENT_GOAL -ActualWorkerParticipation <actual_workers>'
         $checkFallback = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision DETERMINISTIC_FALLBACK -DeterministicOwnerExecuted $<owner_ran>'
 
@@ -386,8 +401,12 @@ function Get-OrchestrationPreflight {
         $goalExplicit = (($tt -ceq 'goal') -or ($tt -ceq 'persistent-goal'))
         $goalSpecPlan = $false
         try {
+            # TDR-F1-12: word-boundary para nao casar substrings
+            # ('plant'/'planilha' nao sao 'plan'; 'special' nao e 'spec').
             $blobGoal = Convert-OrchestrationNormalizedText -Text $obj
-            if ($blobGoal.Contains('spec') -and ($blobGoal.Contains('plan') -or $blobGoal.Contains('fases') -or $blobGoal.Contains('phases') -or $blobGoal.Contains('implementacao completa') -or $blobGoal.Contains('implement complete'))) { $goalSpecPlan = $true }
+            $hasSpec = ($blobGoal -match '\bspec\b')
+            $hasPlan = (($blobGoal -match '\bplan\b') -or ($blobGoal -match '\bplans\b') -or ($blobGoal -match '\bfases\b') -or ($blobGoal -match '\bphases\b') -or ($blobGoal.Contains('implementacao completa')) -or ($blobGoal.Contains('implement complete')) -or ($blobGoal -match '\bgoal\b'))
+            if ($hasSpec -and $hasPlan) { $goalSpecPlan = $true }
         }
         catch { $goalSpecPlan = $false }
 
@@ -416,7 +435,7 @@ function Get-OrchestrationPreflight {
         if ($isTrivial) {
             $swAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
             if (@($swAgents).Count -eq 0) { $swAgents = @('coder') }
-            return (& $mkResult 'SINGLE_WORKER' 'trivial' '' @($swAgents) '' 'OK')
+            return (& $mkResult 'SINGLE_WORKER' 'trivial' '' @($swAgents) '' 'OK' $checkSingle)
         }
 
         $agents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)

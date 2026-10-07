@@ -72,6 +72,15 @@ try {
     $r5c = Get-OrchestrationPreflight -Objective 'implementar SPEC e PLAN em 3 fases' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write'
     Assert-That (([string]$r5c.orchestration_decision -ceq 'PERSISTENT_GOAL') -and ([string]$r5c.fallback_reason -ceq 'goal_promotion_spec_plan')) '5c spec+plan phases => PERSISTENT_GOAL' ($r5c | ConvertTo-Json -Compress)
 
+    # 5d) word-boundary: 'planilha'/'plant' nao promovem a goal (TDR-F1-12)
+    $r5d = Get-OrchestrationPreflight -Objective 'inspecionar planilha de custos' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$r5d.orchestration_decision -ceq 'SINGLE_WORKER') '5d planilha lookup => SINGLE_WORKER' ($r5d | ConvertTo-Json -Compress)
+    $r5e = Get-OrchestrationPreflight -Objective 'inspect plant labels' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$r5e.orchestration_decision -ceq 'SINGLE_WORKER') '5e plant labels lookup => SINGLE_WORKER' ($r5e | ConvertTo-Json -Compress)
+
+    # 5f) SINGLE_WORKER carrega post_execution_check trivial com participacao (FIX-03)
+    Assert-That (([string]$r1.post_execution_check -like '*TaskClass trivial*') -and ([string]$r1.post_execution_check -like '*ActualWorkerParticipation*')) '5f SINGLE_WORKER post check exige participacao' ([string]$r1.post_execution_check)
+
     # 6) security-sensitive => DETERMINISTIC_FALLBACK (never BLOCKED)
     $r6 = Get-OrchestrationPreflight -Objective 'audit authentication and authorization, fix jwt session handling' -TaskType 'review' -Domain 'security' -Risk 'high' -ReadWrite 'write'
     Assert-That ([string]$r6.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') '6 security => DETERMINISTIC_FALLBACK' ($r6 | ConvertTo-Json -Compress)
@@ -123,8 +132,14 @@ try {
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'non_trivial' -Decision 'DETERMINISTIC_FALLBACK' -DeterministicOwnerExecuted $false) -ceq 'ORCHESTRATION_POLICY_BYPASS') '15 FALLBACK owner not run => BYPASS' 'expected bypass'
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'non_trivial' -Decision 'DETERMINISTIC_FALLBACK' -DeterministicOwnerExecuted $true) -ceq 'COMPLIANT') '15 FALLBACK owner ran => COMPLIANT' 'expected compliant'
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'non_trivial' -Decision 'BLOCKED') -ceq 'ORCHESTRATION_POLICY_BYPASS') '15 BLOCKED => BYPASS' 'expected bypass'
-    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER') -ceq 'COMPLIANT') '15 trivial SINGLE_WORKER shape => COMPLIANT' 'expected compliant'
-    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'single_worker') -ceq 'COMPLIANT') '15 trivial shape case-insensitive => COMPLIANT' 'expected compliant'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 0) -ceq 'ORCHESTRATION_POLICY_BYPASS') '15 trivial SINGLE_WORKER zero-worker => BYPASS' 'expected bypass'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1) -ceq 'COMPLIANT') '15 trivial SINGLE_WORKER shape+worker => COMPLIANT' 'expected compliant'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'single_worker' -ActualWorkerParticipation 1) -ceq 'COMPLIANT') '15 trivial shape case-insensitive => COMPLIANT' 'expected compliant'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass '' -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1) -ceq 'NON_COMPLIANT_INVALID_TASK_CLASS') '15 empty TaskClass => INVALID_TASK_CLASS' 'expected invalid class'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'x' -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1) -ceq 'NON_COMPLIANT_INVALID_TASK_CLASS') '15 unknown TaskClass => INVALID_TASK_CLASS' 'expected invalid class'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision '' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1) -ceq 'NON_COMPLIANT_INVALID_DECISION') '15 trivial empty Decision => INVALID_DECISION' 'expected invalid decision'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'MULTI_WORKER' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1) -ceq 'NON_COMPLIANT_INVALID_DECISION') '15 trivial wrong Decision => INVALID_DECISION' 'expected invalid decision'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -DirectReason 'nota qualquer' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1) -ceq 'NON_COMPLIANT_INVALID_DIRECT_REASON') '15 trivial non-DIRECT reason => INVALID_DIRECT_REASON' 'expected invalid reason'
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -DirectReason 'DIRECT_COSMETIC_NO_LOGIC') -ceq 'NON_COMPLIANT_DEPRECATED_DIRECT') '15 trivial legacy DIRECT_* => NON_COMPLIANT_DEPRECATED_DIRECT' 'expected deprecated'
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'MULTI_WORKER') -ceq 'NON_COMPLIANT_DEPRECATED_DIRECT') '15 trivial wrong shape => NON_COMPLIANT_DEPRECATED_DIRECT' 'expected deprecated'
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER') -ceq 'NON_COMPLIANT_MISSING_DIRECT_REASON') '15 trivial with nothing => NON_COMPLIANT_MISSING_*' 'expected missing'

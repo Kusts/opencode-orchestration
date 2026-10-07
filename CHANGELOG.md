@@ -6,6 +6,22 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 1 v0.1.0 (2026-10-07) — Universal Orchestration preflight migration
+
+- **Nova taxonomia** (`SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
+  `DETERMINISTIC_FALLBACK`, `BLOCKED`): `TRIVIAL_DIRECT` removido como
+  caminho operacional; `SINGLE_WORKER` retorna 1 cheap worker
+  (lookup/read → explorer); `DELEGATED` renomeado para `MULTI_WORKER`;
+  `PERSISTENT_GOAL` com promoção determinística (explícita + marcadores
+  SPEC+PLAN com word-boundary).
+- **DONE gate endurecido (review findings REV-01/SEC-01 corrigidos)**:
+  compliance trivial exige `Decision=SINGLE_WORKER` + `ExecutionShape`
+  + participação observada > 0; tokens `DIRECT_*` legados rejeitados
+  fail-closed (`NON_COMPLIANT_DEPRECATED_DIRECT`); classes/decisões
+  inválidas rejeitadas. Reviewer + Security Reviewer: APPROVED.
+- Residuais: `trivial_direct` em `CapabilityAcceptance:799` /
+  `OutcomeValidation:128` (harness, Fase 2 decide); typecheck TS real via CI.
+
 ### Epoch v0.1.0 (2026-10-07)
 
 - **Novo epoch SemVer a partir de `0.1.0`** (`VERSION`: `0.1.0-dev`) —
