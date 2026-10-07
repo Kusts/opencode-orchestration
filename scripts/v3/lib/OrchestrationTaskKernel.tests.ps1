@@ -81,7 +81,7 @@ try {
     $t = New-TaskKernelTestRoot
     [void]$roots.Add($t.root)
     $r = New-OrchestrationTask -TaskId 'round-trip-001' -Objective 'Migrate the cache layer' -TaskType 'implementation' `
-        -Risk 'medium' -ParentTaskId 'parent-001' -TraceId 'trace-abc' -OrchestrationDecision 'DELEGATED' -Actor 'planner' `
+        -Risk 'medium' -ParentTaskId 'parent-001' -TraceId 'trace-abc' -OrchestrationDecision 'MULTI_WORKER' -Actor 'planner' `
         -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.0.18' -BaseRevision 'abc123' `
         -ReadScopes @('src/a', 'src/b') -WriteScopes @('src/a') -Grants @('fs.read', 'fs.write') `
         -AcceptanceCriteria @('cache migrates', 'tests green') -ExpectedArtifacts @('src/a/cache.js') `

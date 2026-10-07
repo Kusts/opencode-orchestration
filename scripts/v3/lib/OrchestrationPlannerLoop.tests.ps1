@@ -14,7 +14,7 @@ $now='2026-10-02T12:00:00Z'
 try {
 foreach($n in @('JEV_API_KEY','JEV_BASE_URL','JEV_MODEL')){$script:PLSavedEnv[$n]=[System.Environment]::GetEnvironmentVariable($n);[System.Environment]::SetEnvironmentVariable($n,$null)}
 # 1. Small change takes minimum C/L1 route.
-$small=Invoke-OrchestrationPlannerLoop @{objective='Localized typo fix';summary='Localized';risk='low';localized=$true;trivial_direct=$false;task_shape='small_localized';validation_budget_available=$true} @{timestamp=$now}
+$small=Invoke-OrchestrationPlannerLoop @{objective='Localized typo fix';summary='Localized';risk='low';localized=$true;single_worker=$false;task_shape='small_localized';validation_budget_available=$true} @{timestamp=$now}
 Assert-PL ($small.status -eq 'ok' -and $small.plan.validation.level -eq 'L1' -and $small.plan.execution_mode.mode -eq 'C' -and @($small.plan.dispatch_plan.workers).Count -eq 1) 'small-minimum-route'
 # 2. Ambiguous/high risk raises rigor.
 $risky=Invoke-OrchestrationPlannerLoop @{objective='Investigate credentials failure';summary='Ambiguous credentials';risk='high';risk_triggers=@('credentials');uncertainty='high';task_shape='multi_step'} @{timestamp=$now}

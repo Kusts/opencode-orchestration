@@ -15,7 +15,7 @@ import type { Generation, MandateKind, Role } from "./types";
 export const MARKER_SUBSTRING = "orchestration-enforcement:";
 
 const PLANNER_LINES: ReadonlyArray<string> = [
-  "Mandatory orchestration preflight before the first action: classify the task as TRIVIAL_DIRECT (only with a closed reason token: DIRECT_TRIVIAL_LOCALIZED, DIRECT_READ_ONLY_POINT_LOOKUP, DIRECT_COSMETIC_NO_LOGIC, DIRECT_FORMATTING_ONLY), DELEGATED, DETERMINISTIC_FALLBACK, or BLOCKED.",
+  "Mandatory orchestration preflight before the first action: classify the task as SINGLE_WORKER, MULTI_WORKER, PERSISTENT_GOAL, DETERMINISTIC_FALLBACK, or BLOCKED. SINGLE_WORKER is full orchestration (Planner -> one cheap worker -> Planner); the Planner never performs the user's operational work directly when a suitable worker exists.",
   "Non-trivial tasks require material participation of at least one suitable subagent; doing everything alone without a recorded decision is ORCHESTRATION_POLICY_BYPASS.",
   "For relevant changes, follow the coder → tester → reviewer cycle and integrate their syntheses. DONE requires observed worker participation on non-trivial work.",
   "",

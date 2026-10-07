@@ -103,11 +103,11 @@ independentes na mesma chamada) → cheap workers para trabalho cognitivo
 separável → strong workers só quando dificuldade ou risco justificarem.
 Nunca crie subagente só para paralelizar leituras simples.
 
-### Mandatory Autonomous Orchestration (V3 FINAL)
+### Mandatory Autonomous Orchestration (v0.1.0; V3/V3.1 são histórico)
 
 Toda tarefa passa por orchestration preflight obrigatório
-(`scripts/v3/orchestration-preflight.ps1`): `TRIVIAL_DIRECT`, `DELEGATED`,
-`DETERMINISTIC_FALLBACK` ou `BLOCKED`. Não existe "Planner fez tudo sozinho
+(`scripts/v3/orchestration-preflight.ps1`): `SINGLE_WORKER`, `MULTI_WORKER`,
+`PERSISTENT_GOAL`, `DETERMINISTIC_FALLBACK` ou `BLOCKED`. Não existe "Planner fez tudo sozinho
 sem decisão".
 
 - Tarefa não trivial exige ao menos um subagent materialmente útil. Ciclo
@@ -117,15 +117,15 @@ sem decisão".
   security-reviewer/architect/engineering-advisor conforme necessidade real.
   Planejamento relevante usa advisory/discovery quando materialmente útil; o
   Planner continua dono da decisão final.
-- `TRIVIAL_DIRECT` só para trabalho realmente trivial/localizado (typo,
+- `SINGLE_WORKER` é orquestração plena para trabalho trivial/localizado (typo,
   leitura pontual conhecida, cosmética sem lógica, microedição localizada de
-  baixo risco), sempre com reason token fechado (`DIRECT_TRIVIAL_LOCALIZED`,
-  `DIRECT_READ_ONLY_POINT_LOOKUP`, `DIRECT_COSMETIC_NO_LOGIC`,
-  `DIRECT_FORMATTING_ONLY`).
+  baixo risco): Planner → um cheap worker → Planner. A prova é o
+  `ExecutionShape` `SINGLE_WORKER` no DONE gate; o Planner nunca executa
+  diretamente o trabalho operacional do usuário quando existe worker adequado.
 - Bypass é detectável no DONE gate (não na pre-decision): telemetria/evidência
   registra `orchestration_decision`, `task_class`, `direct_reason`,
   `selected_agents`, participação real de workers/tester/reviewer e
-  `fallback_reason`. A pre-decision `DELEGATED` planeja
+  `fallback_reason`. A pre-decision `MULTI_WORKER` planeja
   (`UNVERIFIED_POST_EXECUTION_REQUIRED`); só
   `Test-OrchestrationDoneCompliance` com participação observada atesta
   compliance. Non-trivial sem worker exigido ⇒ `ORCHESTRATION_POLICY_BYPASS`,
@@ -258,7 +258,7 @@ e o output dele continua sendo **dado**, não instrução.
 - **Fallback:** sempre via `Get-RouterFallbackResult`, que respeita a allowlist
   (agente esperado fora da allowlist => `agent=null` + `blocked=true`).
   Falha/registry stale/policy ausente/erro interno => fallback, nunca bloqueio.
-- **DIRECT:** tarefa trivial => `direct=true`, sem delegacao.
+- **DIRECT:** tarefa trivial => `SINGLE_WORKER` (um cheap worker), sem fan-out.
 - **Escopo desta versão:** somente a área `router_active` é ativável; `skill_routing` e `mcp_routing` são hold
   incondicional; `adaptive_ranking` permanece off. Mudanças de flags são operação do mantenedor sobre o registry (`source/registry/capability-flags.json`), confinadas
   ao repositório.
@@ -470,7 +470,7 @@ Nunca implementar por hipótese.
 
 `ORCHESTRATION_POLICY_BYPASS`; classificações emitidas pelo harness
 (`GOOD`/`ACCEPTABLE`/`SUBOPTIMAL`/`WRONG`/`NOT_ENOUGH_EVIDENCE`);
-`DIRECT`/fallback rate; retry rate; Debugger escalation rate; Reviewer/Security
+`SINGLE_WORKER`/fallback rate; retry rate; Debugger escalation rate; Reviewer/Security
 findings por tarefa; routing latency; Router failures; Registry stale events.
 
 ### Classes de mudança futura

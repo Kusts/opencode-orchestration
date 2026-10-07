@@ -6,7 +6,7 @@ $passed=0
 function Assert-That {param([bool]$Condition,[string]$Name);if(-not $Condition){throw "FAIL: $Name"};$script:passed++}
 $l1=Get-OrchestrationValidationLevel @{localized=$true;risk='low'} $policy
 Assert-That ($l1.level -eq 'L1' -and $l1.required_roles.Count -eq 1 -and $l1.required_roles[0] -eq 'coder') 'L1 avoids tester and reviewer'
-Assert-That ((Get-OrchestrationValidationLevel @{trivial_direct=$true;risk='low'} $policy).level -eq 'L0') 'L0 trivial level'
+Assert-That ((Get-OrchestrationValidationLevel @{single_worker=$true;risk='low'} $policy).level -eq 'L0') 'L0 trivial level'
 $l2=Get-OrchestrationValidationLevel @{risk='medium'} $policy
 Assert-That ($l2.level -eq 'L2' -and $l2.required_roles -contains 'tester' -and $l2.required_roles -contains 'reviewer') 'L2 independent validation'
 $hostile=Get-OrchestrationValidationLevel @{localized=$true;risk='low';risk_triggers=@('payments')} $policy
@@ -20,7 +20,7 @@ $custom=ConvertFrom-Json '{"levels":{"L0":{"required_roles":["coder"]},"L1":{"re
 Assert-That ((Get-OrchestrationValidationLevel @{risk='low'} $custom).level -eq 'L2') 'descriptor rules in supplied policy are authoritative'
 $unavailable=Get-OrchestrationValidationLevel @{risk='low'} @{levels=@{}}
 Assert-That ($unavailable.level -eq 'L3' -and $unavailable.status -eq 'policy-unavailable') 'malformed policy fails closed'
-Assert-That ((Get-OrchestrationValidationLevel @{risk='unknown';trivial_direct=$true} $policy).level -eq 'L3') 'unknown risk fails closed to L3'
+Assert-That ((Get-OrchestrationValidationLevel @{risk='unknown';single_worker=$true} $policy).level -eq 'L3') 'unknown risk fails closed to L3'
 $textTriggers=Get-OrchestrationValidationLevel @{risk='low';domain='auth';operation='payments transfer';summary='production'} $policy
 Assert-That ($textTriggers.level -eq 'L3' -and $textTriggers.triggers.Count -ge 3) 'multiple textual triggers are detected'
 $current=@{a='1'};$coverage=Test-OrchestrationEvidenceCoverage @(@{status='confirmed';source_fingerprints=@{a='1'};created_at='2026-10-02T00:00:00Z'}) $current -Now '2026-10-02T00:00:00Z'

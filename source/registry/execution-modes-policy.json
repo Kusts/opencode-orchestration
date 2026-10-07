@@ -12,5 +12,6 @@
   },
   "fallbacks": {
     "B": { "mode": "C", "when": ["specialist_enabled=false", "runtime_capability=false"], "record": ["fallback_from=B", "policy_gated=specialist-off"] }
-  }
+  },
+  "v010_note": "Modes A/B/C are dispatch mechanisms, orthogonal to the v0.1.0 execution shapes (SINGLE_WORKER~=C one-shot, MULTI_WORKER~=A pipeline, PERSISTENT_GOAL requires future capability; B stays OFF)."
 }

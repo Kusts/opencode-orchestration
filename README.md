@@ -12,7 +12,7 @@ delega a workers especializados sem pedir permissão a cada passo.
 
 Um único Planner (`build`, herda o modelo da sessão) + 19 workers delegáveis
 em pools cheap/strong, com preflight obrigatório de orquestração
-(`TRIVIAL_DIRECT`, `DELEGATED`, `DETERMINISTIC_FALLBACK` ou `BLOCKED` antes
+(`SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`, `DETERMINISTIC_FALLBACK` ou `BLOCKED` antes
 da primeira ação), ciclo `coder → tester → reviewer` e um plugin de
 enforcement que injeta o mandato de orquestração em toda sessão e grava
 telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

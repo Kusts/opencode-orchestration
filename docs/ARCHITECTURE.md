@@ -13,8 +13,9 @@ divergência, o `source/` vence.
                     └────────────┬────────────┘
                                  │ preflight obrigatório
                     ┌────────────┴────────────┐
-                    │  TRIVIAL_DIRECT /       │
-                    │  DELEGATED /            │
+                    │  SINGLE_WORKER /        │
+                    │  MULTI_WORKER /         │
+                    │  PERSISTENT_GOAL /      │
                     │  DETERMINISTIC_FALLBACK │
                     │  / BLOCKED              │
                     └────────────┬────────────┘
@@ -68,15 +69,16 @@ vivem só nos `.md` + allowlist do `build` (by design — ver check 3 de
 `scripts/test-package-consistency.ps1`). `agent.build.model` nunca existe:
 o Planner herda o modelo da sessão.
 
-## Mandatory Preflight (4 estados)
+## Mandatory Preflight (5 estados; v0.1.0 — V3/V3.1 são histórico)
 
 Toda tarefa passa pelo preflight **antes** da primeira ação
 (`scripts/v3/orchestration-preflight.ps1`, lib em `scripts/v3/lib/`):
 
 | Estado | Significado |
 |---|---|
-| `TRIVIAL_DIRECT` | Só com reason token fechado (`DIRECT_TRIVIAL_LOCALIZED`, `DIRECT_READ_ONLY_POINT_LOOKUP`, `DIRECT_COSMETIC_NO_LOGIC`, `DIRECT_FORMATTING_ONLY`). Texto livre não é bypass válido. |
-| `DELEGATED` | Pré-decisão que planeja (`UNVERIFIED_POST_EXECUTION_REQUIRED`); compliance só no DONE gate. |
+| `SINGLE_WORKER` | Orquestração plena do trivial (Planner → um cheap worker → Planner); prova via `ExecutionShape` `SINGLE_WORKER` no DONE gate. Tokens `DIRECT_*` legados (pré-v0.1.0) são rejeitados. |
+| `MULTI_WORKER` | Pré-decisão que planeja (`UNVERIFIED_POST_EXECUTION_REQUIRED`); compliance só no DONE gate. |
+| `PERSISTENT_GOAL` | Pré-decisão para goals persistentes/spec+plan (`UNVERIFIED_POST_EXECUTION_REQUIRED`); compliance só no DONE gate. |
 | `DETERMINISTIC_FALLBACK` | Router/registry indisponível, stale, exceção, timeout ou resposta malformada — nunca execução solitária. |
 | `BLOCKED` | Não prosseguir; devolver ao usuário. |
 
