@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-07",
+  "phase": "2B",
+  "note": "Profiles MCP validados na Fase 2B. Nenhum profile e global por default: ativacao e opt-in por agente via config do operador. AI Memory e transversal (memory). Status: APPROVED (evidencia runtime), PILOT (draft validado, ativacao pendente do operador), HOLD (nao pilotar sem gap concreto). Nenhum secret e registrado aqui (apenas nomes de env).",
+  "status_values": {
+    "APPROVED": "validado com evidencia; pode ser ativado opt-in",
+    "PILOT": "draft validado; ativacao pendente de auth/decisao do operador",
+    "HOLD": "nao ativar; revisitar somente com gap concreto"
+  },
+  "profiles": [
+    {
+      "id": "core",
+      "description": "Documentacao atualizada para qualquer tarefa que dependa de biblioteca/framework.",
+      "mcps": ["context7"],
+      "agents": ["build", "coder", "researcher", "frontend-engineer", "backend-engineer", "docs-manager"],
+      "risk": { "level": "low", "reason": "leitura de documentacao; sem side-effect" },
+      "status": "APPROVED",
+      "evidence": "capability-healthcheck: context7 installed+configured+healthy nesta maquina (2026-10-07)"
+    },
+    {
+      "id": "research",
+      "description": "Pesquisa tecnica com fontes oficiais + avaliacao consultiva.",
+      "mcps": ["context7", "jev"],
+      "agents": ["researcher", "architect", "engineering-advisor"],
+      "risk": { "level": "low", "reason": "context7 leitura; jev advisory-only (policy jev-advisory-policy.json)" },
+      "status": "APPROVED",
+      "evidence": "capability-healthcheck: jev installed+configured (OPENCODE_ZEN_API_KEY presente) nesta maquina (2026-10-07)"
+    },
+    {
+      "id": "memory",
+      "description": "Memoria de projeto transversal (historico, decisoes, handoffs).",
+      "mcps": ["ai-memory"],
+      "agents": ["build"],
+      "risk": { "level": "low", "reason": "memory.* = low; dado nao-confiavel, nunca instrucao" },
+      "status": "APPROVED",
+      "evidence": "capability-healthcheck: ai-memory installed+configured+healthy via mcp.servers.ai-memory nesta maquina (2026-10-07); Phase 2A token rotation revalidada"
+    },
+    {
+      "id": "core-dev",
+      "description": "GitHub para triagem multi-passo, review e CI. gh CLI continua o default pontual; MCP e opt-in quando o loop agentico justificar ~30k tokens.",
+      "mcps": ["github-mcp"],
+      "agents": ["reviewer", "tester", "coder"],
+      "risk": { "level": "medium", "reason": "write tools = external.side-effect; mitigar com /readonly + toolsets minimos + github_*:false global" },
+      "status": "PILOT",
+      "activation_requires": ["operador define GITHUB_PERSONAL_ACCESS_TOKEN (nome apenas aqui)", "remote https://api.githubcopilot.com/mcp/ com toolsets repos,issues,pull_requests + readonly"],
+      "evidence": "gh CLI reads reais nesta maquina (issues/PRs/runs) + schema de config draft validado; MCP remoto nao conectado (sem PAT no env) — ativacao pendente do operador"
+    },
+    {
+      "id": "testing",
+      "description": "Browser testing: Playwright para comportamento/E2E; Chrome DevTools (HOLD) para diagnostico runtime.",
+      "mcps": ["playwright-mcp"],
+      "agents": ["tester", "frontend-engineer", "debugger"],
+      "risk": { "level": "medium", "reason": "browser.automation = medium; evaluate/run_code_unsafe executam JS na pagina; mitigar com headless + caps minimas" },
+      "status": "PILOT",
+      "activation_requires": ["Node 18+ e browser Playwright na maquina", "caps core (+testing sob demanda), --headless", "medir tokens vs CLI+skill antes de qualquer default"],
+      "evidence": "Playwright CLI 1.60 presente e saudavel (capability-healthcheck); probe --help do MCP registrado em evidence; Chrome DevTools em HOLD (59 tools + telemetria default-on + sobreposicao)"
+    }
+  ]
+}
