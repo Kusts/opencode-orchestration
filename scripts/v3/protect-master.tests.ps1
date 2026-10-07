@@ -49,6 +49,56 @@ try {
     Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push --all rejected fail-closed' ("got $($r.Verdict)/$($r.ReasonCode)")
     $r = Test-GitOperationAllowed -CommandLine 'git push origin --mirror' -CurrentBranch 'feat/x'
     Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push --mirror rejected fail-closed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin --branches' -CurrentBranch 'feat/x'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push --branches rejected fail-closed (--all alias)' ("got $($r.Verdict)/$($r.ReasonCode)")
+
+    # (a2) HEAD/bare push resolving to master rejected on master or unknown branch
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin HEAD' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push HEAD on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin HEAD:master' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push HEAD:master on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin +HEAD' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push +HEAD on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin HEAD' -CurrentBranch ''
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push HEAD on unknown branch rejected fail-closed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin HEAD' -CurrentBranch 'feat/x'
+    Assert-That ($r.Allowed -and ($r.ReasonCode -ceq 'OK_FEATURE_BRANCH')) 'push HEAD on feature branch allowed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git push origin HEAD:master' -CurrentBranch 'feat/x'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_PUSH')) 'push HEAD:master from feature branch rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+
+    # (a3) history writes on master rejected, allowed on feature branches
+    $r = Test-GitOperationAllowed -CommandLine 'git merge feat/x' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'merge on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git cherry-pick abc1234' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'cherry-pick on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git revert HEAD' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'revert on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git rebase master' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'rebase on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git reset --hard HEAD~1' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'reset on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git am 0001-fix.patch' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'am on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git merge feat/y' -CurrentBranch 'feat/x'
+    Assert-That ($r.Allowed -and ($r.ReasonCode -ceq 'OK_FEATURE_BRANCH')) 'merge on feature branch allowed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git cherry-pick abc1234' -CurrentBranch 'feat/x'
+    Assert-That ($r.Allowed -and ($r.ReasonCode -ceq 'OK_FEATURE_BRANCH')) 'cherry-pick on feature branch allowed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git reset --hard HEAD~1' -CurrentBranch 'feat/x'
+    Assert-That ($r.Allowed -and ($r.ReasonCode -ceq 'OK_FEATURE_BRANCH')) 'reset on feature branch allowed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git merge feat/y' -CurrentBranch ''
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'UNKNOWN_BRANCH')) 'merge on unknown branch denied fail-closed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git "merge" feat/x' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'quoted merge on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine "git 'merge' feat/x" -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'single-quoted merge on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git "cherry-pick" abc1234' -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'quoted cherry-pick on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine "git 'cherry-pick' abc1234" -CurrentBranch 'master'
+    Assert-That ((-not $r.Allowed) -and ($r.ReasonCode -ceq 'DIRECT_MASTER_COMMIT')) 'single-quoted cherry-pick on master rejected' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine 'git "merge" feat/y' -CurrentBranch 'feat/x'
+    Assert-That ($r.Allowed -and ($r.ReasonCode -ceq 'OK_FEATURE_BRANCH')) 'quoted merge on feature branch allowed' ("got $($r.Verdict)/$($r.ReasonCode)")
+    $r = Test-GitOperationAllowed -CommandLine "git 'merge' feat/y" -CurrentBranch 'feat/x'
+    Assert-That ($r.Allowed -and ($r.ReasonCode -ceq 'OK_FEATURE_BRANCH')) 'single-quoted merge on feature branch allowed' ("got $($r.Verdict)/$($r.ReasonCode)")
 
     # (b) force push rejected
     $r = Test-GitOperationAllowed -CommandLine 'git push --force origin master' -CurrentBranch 'feat/x'

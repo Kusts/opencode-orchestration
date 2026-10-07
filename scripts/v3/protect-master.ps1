@@ -18,12 +18,19 @@
       (a) direct commit on master (current branch is master + commit op)
       (b) push to origin master / refs/heads/master (DIRECT_MASTER_PUSH);
           surrounding single/double quotes are stripped before matching
-          (ex: "master" matches master); --all and --mirror are denied
-          fail-closed (may update master; push explicit refspecs instead)
-      (c) force push (--force / --force-with-lease / -f / +refspec) that
+          (ex: "master" matches master); --all, --mirror and --branches
+          are denied fail-closed (--branches is an --all alias and may
+          update master; push explicit refspecs instead)
+      (c) push of HEAD/bare while on master or unknown branch
+          (`git push origin HEAD`, `HEAD:master`, `+HEAD`) denied as
+          DIRECT_MASTER_PUSH (HEAD resolves to master)
+      (d) force push (--force / --force-with-lease / -f / +refspec) that
           touches master (FORCE_PUSH); force with no explicit target while
           on master (or on an unknown branch) is also denied
-      (d) delete of master (`--delete master` or `:master` refspec)
+      (e) delete of master (`--delete master` or `:master` refspec)
+      (f) history writes while on master: merge, cherry-pick, revert,
+          rebase, reset, am (DIRECT_MASTER_COMMIT; use a feature
+          branch + PR)
     Allowed: checkout/pull/log/status/fetch/diff (OK_READONLY), feature
     branch pushes and other well-formed local workflow commands
     (OK_FEATURE_BRANCH). There is intentionally NO docs-only exemption:
@@ -106,6 +113,16 @@ function Test-PushTokenIsPlusMasterRefspec {
   return $false
 }
 
+function Test-PushTokenIsBareHead {
+  [CmdletBinding()]
+  param([string]$Token)
+  if ([string]::IsNullOrWhiteSpace($Token)) { return $false }
+  $t = Get-StrippedGitToken -Token $Token
+  if ($t -ceq 'HEAD') { return $true }
+  if ($t -ceq '+HEAD') { return $true }
+  return $false
+}
+
 function Test-GitOperationAllowed {
   <#
   .SYNOPSIS
@@ -133,7 +150,7 @@ function Test-GitOperationAllowed {
     $t = $tokens[$i]
     if (($t -ceq '-C') -or ($t -ceq '-c')) { $i += 2; continue }
     if ($t.StartsWith('-')) { $i++; continue }
-    $sub = $t.ToLowerInvariant()
+    $sub = (Get-StrippedGitToken -Token $t).ToLowerInvariant()
     break
   }
   if ([string]::IsNullOrWhiteSpace($sub)) {
@@ -158,20 +175,22 @@ function Test-GitOperationAllowed {
       $nt = Get-StrippedGitToken -Token $t
       if (($nt -ceq '--force') -or ($nt -ceq '-f') -or ($nt -ceq '--force-with-lease') -or ($nt -cmatch '\A--force-with-lease=.*\Z')) { $forceFlag = $true }
       if (($nt -ceq '--delete') -or ($nt -ceq '-d')) { $deleteFlag = $true }
-      if (($nt -ceq '--all') -or ($nt -ceq '--mirror')) { $broadFlag = $true }
+      if (($nt -ceq '--all') -or ($nt -ceq '--mirror') -or ($nt -ceq '--branches')) { $broadFlag = $true }
     }
     $positionals = @($rest | Where-Object { -not (Get-StrippedGitToken -Token $_).StartsWith('-') })
     $anyMaster = $false
     $deleteMasterRefspec = $false
     $plusMaster = $false
+    $bareHead = $false
     foreach ($p in $positionals) {
       if (Test-PushTokenTargetsMaster -Token $p) { $anyMaster = $true }
       if (Test-PushTokenIsDeleteMasterRefspec -Token $p) { $deleteMasterRefspec = $true }
       if (Test-PushTokenIsPlusMasterRefspec -Token $p) { $plusMaster = $true }
+      if (Test-PushTokenIsBareHead -Token $p) { $bareHead = $true }
     }
     $implicitRisky = (([string]::IsNullOrWhiteSpace($branch)) -or ($branch -ceq 'master'))
     if ($broadFlag) {
-      return (New-GitGuardResult -Allowed $false -ReasonCode 'DIRECT_MASTER_PUSH' -Message 'push --all/--mirror denied fail-closed: may update protected branch master; push explicit refspecs instead')
+      return (New-GitGuardResult -Allowed $false -ReasonCode 'DIRECT_MASTER_PUSH' -Message 'push --all/--mirror/--branches denied fail-closed (--branches is an --all alias and may update protected branch master; push explicit refspecs instead)')
     }
     if ($deleteMasterRefspec) {
       return (New-GitGuardResult -Allowed $false -ReasonCode 'DELETE_PROTECTED' -Message 'deleting refs/heads/master via refspec is blocked')
@@ -181,6 +200,9 @@ function Test-GitOperationAllowed {
     }
     if ($plusMaster) {
       return (New-GitGuardResult -Allowed $false -ReasonCode 'FORCE_PUSH' -Message 'force-push refspec touching master is blocked')
+    }
+    if ($bareHead -and $implicitRisky) {
+      return (New-GitGuardResult -Allowed $false -ReasonCode 'DIRECT_MASTER_PUSH' -Message 'push of HEAD while on master/unknown branch resolves to protected branch master; push an explicit feature-branch refspec instead')
     }
     if ($forceFlag -and $anyMaster) {
       return (New-GitGuardResult -Allowed $false -ReasonCode 'FORCE_PUSH' -Message 'force push touching protected branch master is blocked')
@@ -195,6 +217,16 @@ function Test-GitOperationAllowed {
       return (New-GitGuardResult -Allowed $false -ReasonCode 'DIRECT_MASTER_PUSH' -Message 'push with implicit target while on master/unknown branch is blocked fail-closed')
     }
     return (New-GitGuardResult -Allowed $true -ReasonCode 'OK_FEATURE_BRANCH' -Message 'push does not touch protected branch master')
+  }
+  $historyWrites = @('merge', 'cherry-pick', 'revert', 'rebase', 'reset', 'am')
+  if ($historyWrites -ccontains $sub) {
+    if ($branch -ceq 'master') {
+      return (New-GitGuardResult -Allowed $false -ReasonCode 'DIRECT_MASTER_COMMIT' -Message ('git {0} on master rewrites protected history; use a feature branch + PR' -f $sub))
+    }
+    if ([string]::IsNullOrWhiteSpace($branch)) {
+      return (New-GitGuardResult -Allowed $false -ReasonCode 'UNKNOWN_BRANCH' -Message 'current branch unknown; history write denied fail-closed')
+    }
+    return (New-GitGuardResult -Allowed $true -ReasonCode 'OK_FEATURE_BRANCH' -Message ('git {0} on branch "{1}" is allowed' -f $sub, $branch))
   }
   $readOnly = @('checkout', 'pull', 'fetch', 'log', 'status', 'diff', 'show', 'rev-parse', 'clone')
   if ($readOnly -ccontains $sub) {
