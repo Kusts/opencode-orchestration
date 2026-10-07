@@ -154,7 +154,7 @@
       "managed_by": "user",
       "declared_by": "package-policy",
       "status": { "desired": "ACTIVE", "observed": "CANDIDATE", "observed_at": "2026-10-07", "observed_note": "Phase 2C APPROVED com tarefa real via npx (0.0.83, 25 tools, navigate+snapshot+screenshot+console+network OK); ativacao opt-in no user-config pendente do operador" },
-      "risk": { "level": "medium", "reason": "browser.automation = medium; browser_evaluate/run_code_unsafe executam JS na pagina; nunca security boundary" },
+      "risk": { "level": "medium", "reason": "browser.automation = medium; browser_evaluate executa JS na pagina; browser_run_code_unsafe e RCE no processo do servidor (deny default); nunca security boundary" },
       "activation": { "mode": "on-demand", "note": "opt-in por profile testing; nunca global; --isolated + --headless sempre" },
       "profiles": ["testing"],
       "agents": ["tester", "frontend-engineer", "debugger", "reviewer", "backend-engineer"],

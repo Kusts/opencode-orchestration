@@ -2,8 +2,8 @@
 
 Fonte canônica: `source/registry/mcp-profiles.json` (schema 1, 19 profiles).
 Evidência browser: `evidence/capabilities-phase-2c/browser-real-tasks-2026-10-07.json`.
-Testes: `tests/distribution/mcp-profiles.tests.ps1` (7/7),
-`tests/distribution/capability-registry-v2.tests.ps1` (47/47).
+Testes: `tests/distribution/mcp-profiles.tests.ps1` (8/8),
+`tests/distribution/capability-registry-v2.tests.ps1` (48/48).
 
 ## Profiles
 

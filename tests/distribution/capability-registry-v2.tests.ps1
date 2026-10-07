@@ -128,20 +128,29 @@ if ($null -ne $reg) {
   }
   Assert ($honErrs.Count -eq 0) 'sem claim installed/active para opcionais e pilotos' ($honErrs -join ' | ')
 
-  # Deny-default (Fase 2C SEC1): writes financeiros/destrutivos e RCE exigem deny no permissions.
+  # Deny-default (Fase 2C SEC1, endurecido REV2): cada campo critico deve
+  # comecar com 'deny'. Verifica valor por campo, nao mera presenca de 'deny'.
+  $denyMap = @{
+    'playwright-mcp' = @('run_code_unsafe')
+    'supabase-mcp'   = @('production_write', 'drop_delete_destructive')
+    'neon-mcp'       = @('complete_migration_prod', 'delete_reset_restore')
+    'terraform-mcp'  = @('destroy')
+    'stripe-mcp'     = @('subscription_change', 'refund', 'payout', 'delete_destructive')
+    'google-ads-mcp' = @('budget_change', 'campaign_change', 'pause_delete')
+    'dataforseo-mcp' = @('bulk_unlimited')
+  }
   $denyErrs = New-Object System.Collections.ArrayList
   foreach ($c in $caps) {
     $cid = [string]$c.id
-    $pj = ''
-    try { $pj = ($c.permissions | ConvertTo-Json -Compress -Depth 5) } catch { $pj = '' }
-    if ((@('stripe-mcp', 'terraform-mcp', 'supabase-mcp', 'neon-mcp', 'google-ads-mcp', 'dataforseo-mcp') -contains $cid) -and (-not $pj.Contains('deny'))) {
-      [void]$denyErrs.Add(($cid + ': permissions sem deny para operacao financeira/destrutiva'))
-    }
-    if (($cid -ceq 'playwright-mcp') -and (-not $pj.Contains('run_code_unsafe'))) {
-      [void]$denyErrs.Add('playwright-mcp: permissions sem clausula run_code_unsafe=deny')
+    if ($denyMap.ContainsKey($cid)) {
+      foreach ($f in @($denyMap[$cid])) {
+        $v = ''
+        try { $v = [string]$c.permissions.$f } catch { $v = '' }
+        if (-not $v.StartsWith('deny')) { [void]$denyErrs.Add(($cid + '.' + $f + ' sem deny-default: [' + $v + ']')) }
+      }
     }
   }
-  Assert ($denyErrs.Count -eq 0) 'deny-default em permissions sensiveis' ($denyErrs -join ' | ')
+  Assert ($denyErrs.Count -eq 0) 'deny-default por campo em permissions sensiveis' ($denyErrs -join ' | ')
 }
 
 # Healthcheck: executa -Json e valida envelope.
