@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "resolver_version": "2d-shadow-1",
+  "updated": "2026-10-07",
+  "mode": "shadow",
+  "note": "Phase 2D SHADOW ONLY. Declarativo: nunca ativa routing (capability-flags.json permanece OFF). Resolver deterministico le este arquivo; mesma entrada -> mesma saida.",
+  "task_classes": [
+    "implementation",
+    "migration",
+    "analysis",
+    "research",
+    "debugging",
+    "validation",
+    "review",
+    "documentation",
+    "planning",
+    "design",
+    "testing",
+    "trivial"
+  ],
+  "reason_codes": [
+    "PROJECT_USES_SUPABASE",
+    "PROJECT_USES_NEON",
+    "TASK_REQUIRES_DATABASE",
+    "BROWSER_E2E_REQUIRED",
+    "BROWSER_RUNTIME_DEBUG",
+    "NETWORK_DEBUG",
+    "PERFORMANCE_TRACE",
+    "CONSOLE_DIAGNOSTICS",
+    "DOM_INSPECTION",
+    "LIBRARY_DOCS_REQUIRED",
+    "VERSION_SPECIFIC_API",
+    "UNKNOWN_FRAMEWORK_BEHAVIOR",
+    "RISK_PRODUCTION_WRITE",
+    "AMBIGUOUS"
+  ],
+  "stack_detectors": [
+    { "marker": "package.json", "stack": "node", "signal": "node-project" },
+    { "marker": "pnpm-lock.yaml", "stack": "node", "signal": "pnpm-workspace" },
+    { "marker": "bun.lock", "stack": "node", "signal": "bun-runtime" },
+    { "marker": "requirements.txt", "stack": "python", "signal": "python-project" },
+    { "marker": "pyproject.toml", "stack": "python", "signal": "python-packaged" },
+    { "marker": "docker-compose.yml", "stack": "containers", "signal": "compose-services" },
+    { "marker": "supabase", "stack": "supabase", "signal": "supabase-project" },
+    { "marker": "prisma", "stack": "prisma", "signal": "prisma-schema" },
+    { "marker": "drizzle", "stack": "drizzle", "signal": "drizzle-orm" },
+    { "marker": "terraform", "stack": "terraform", "signal": "iac-terraform" },
+    { "marker": "wrangler.toml", "stack": "cloudflare", "signal": "workers-project" },
+    { "marker": "vercel.json", "stack": "vercel", "signal": "vercel-deploy" }
+  ],
+  "stack_detector_note": "Marker sozinho nunca prova stack de banco: supabase/ exige evidencia concreta (diretorio supabase/ com config ou migrations + referencia em codigo ou compose). README string sozinha nunca conta como evidencia.",
+  "profile_rules": [
+    { "profile": "core", "status": "APPROVED", "when": "task depende de biblioteca ou framework (docs atuais)", "suggest": "direct" },
+    { "profile": "research", "status": "APPROVED", "when": "pesquisa tecnica com fontes oficiais", "suggest": "direct" },
+    { "profile": "memory", "status": "APPROVED", "when": "historico, decisoes ou handoffs do projeto", "suggest": "direct" },
+    { "profile": "testing", "status": "APPROVED", "when": "E2E, comportamento browser ou diagnostico runtime", "suggest": "direct" },
+    { "profile": "database-supabase", "status": "PILOT", "when": "projeto usa Supabase", "suggest": "pilot", "requires": ["evidencia de projeto (marker supabase/ + referencia concreta)", "marca pilot registrada na saida"] },
+    { "profile": "database-neon", "status": "PILOT", "when": "projeto usa Neon/Postgres com branching", "suggest": "pilot", "requires": ["evidencia de projeto (config ou dependencia Neon + referencia concreta)", "marca pilot registrada na saida"] },
+    { "profile": "backend", "status": "PILOT", "when": "API discovery com ganho real sobre curl/OpenAPI", "suggest": "pilot", "requires": ["evidencia de projeto", "marca pilot registrada na saida"] },
+    { "profile": "frontend", "status": "PILOT", "when": "handoff design-to-code com projeto Figma real", "suggest": "pilot", "requires": ["evidencia de projeto", "marca pilot registrada na saida"] }
+  ],
+  "agent_rules": [
+    { "when": "database migration ou schema change", "agent": "database-engineer", "keywords": ["migration", "migrate", "schema", "ddl", "prisma migrate", "supabase migration"] },
+    { "when": "API implementation ou endpoint", "agent": "backend-engineer", "keywords": ["api", "endpoint", "rest", "route", "controller"] },
+    { "when": "browser E2E ou fluxo web", "agent": "tester", "keywords": ["e2e", "playwright", "fluxo web", "formulario", "navegacao"] },
+    { "when": "runtime browser bug ou flaky", "agent": "debugger", "keywords": ["bug", "stacktrace", "flaky", "runtime", "console error"] },
+    { "when": "UI implementation ou estados", "agent": "frontend-engineer", "keywords": ["ui", "frontend", "component", "layout", "css"] },
+    { "when": "architecture boundary ou protocolo", "agent": "architect", "keywords": ["architecture", "boundary", "protocol", "adr", "migration plan"] },
+    { "when": "requirements ambiguity ou acceptance criteria", "agent": "requirements-analyst", "keywords": ["requisito", "ambiguo", "criterio", "acceptance", "caso de uso"] },
+    { "when": "research compare ou external docs", "agent": "researcher", "keywords": ["research", "compare", "docs", "benchmark", "oficial"] },
+    { "when": "simple rename ou trivial localized edit", "agent": "coder", "keywords": ["rename", "typo", "cosmetico", "trivial"] }
+  ],
+  "skill_rules": [
+    { "when": "bug dificil com hipotese falsificavel", "skill": "systematic-debugging" },
+    { "when": "feature com testes comportamentais", "skill": "test-driven-development" },
+    { "when": "validacao final antes de done", "skill": "verification-before-completion" }
+  ],
+  "skill_policy": {
+    "max_skills": 3,
+    "only_active_from_catalog": true,
+    "note": "Somente ids com status ACTIVE em skills-catalog.json; outros sao ignorados."
+  },
+  "mcp_rules": [
+    { "when": "browser E2E", "mcp": "playwright-mcp" },
+    { "when": "runtime ou performance diagnostics", "mcp": "chrome-devtools-mcp" },
+    { "when": "library docs", "mcp": "context7" },
+    { "when": "external research evaluation", "mcp": "jev" },
+    { "when": "project memory", "mcp": "ai-memory" }
+  ],
+  "risk_model": {
+    "levels": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+    "triggers": [
+      { "level": "LOW", "when": "read docs ou leitura sem side-effect" },
+      { "level": "LOW", "when": "edit source localizado reversivel" },
+      { "level": "MEDIUM", "when": "edit source amplo ou browser automation" },
+      { "level": "HIGH", "when": "DB migration" },
+      { "level": "HIGH", "when": "production deploy" },
+      { "level": "CRITICAL", "when": "financial mutation (refund, payout, cobranca)" }
+    ],
+    "default": "MEDIUM"
+  },
+  "exclusive_groups": [
+    { "id": "database-stack", "members": ["database-supabase", "database-neon"], "rule": "nunca carregar Supabase + Neon no mesmo projeto; usar somente o do projeto" }
+  ],
+  "fallbacks": [
+    { "mcp": "playwright-mcp", "fallback": "Playwright CLI 1.60 + skill playwright-cli" },
+    { "mcp": "github-mcp", "fallback": "gh CLI" },
+    { "mcp": "chrome-devtools-mcp", "fallback": "playwright diagnostics + browser logs" },
+    { "mcp": "supabase-mcp", "fallback": "Supabase CLI + psql/SQL direto + Management API via curl" },
+    { "mcp": "neon-mcp", "fallback": "Neon CLI (neon init/mcp/inspect db) + psql + Management API via curl" },
+    { "mcp": "context7", "fallback": "official docs via direct fetch (Invoke-WebRequest/curl) + pinned version guide" },
+    { "mcp": "jev", "fallback": "manual research via official docs + advisory note (no automated browser eval)" },
+    { "mcp": "ai-memory", "fallback": "local notes + file handoff (markdown) in repo" }
+  ],
+  "deny_rules": [
+    "financial write sem policy/approval continua CRITICAL + deny (override nunca bypassa)",
+    "production write sem autorizacao explicita continua deny",
+    "README string sozinha nunca e evidencia de stack"
+  ]
+}
