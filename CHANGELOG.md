@@ -6,6 +6,16 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fases 7+8+9 v0.1.0 (2026-10-07) — Promotion, Progress, TDR
+
+- `OrchestrationGoalPromotion.ps1`: scoring explicável (threshold 3;
+  SPEC+PLAN promove; Jev consultado no desenho).
+- `OrchestrationGoalProgress.ps1`: delta evidência-based, stagnation com
+  saturação, `STRATEGY_CHANGE_REQUIRED` em 3 stalls; tipos estritos.
+- `OrchestrationTechnicalDecision.ps1`: records com id determinístico
+  (serialização inequívoca len:valor), revalidação para hydration.
+- Suites 16+22+21. Tester PASS; Reviewer APPROVED.
+
 ### Fase 6 v0.1.0 (2026-10-07) — Goal Kernel persistente
 
 - `OrchestrationGoalKernel.ps1`: CRUD + CAS real (lock->read->check->
