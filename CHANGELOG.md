@@ -6,6 +6,27 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Epoch v0.1.0 (2026-10-07)
+
+- **Novo epoch SemVer a partir de `0.1.0`** (`VERSION`: `0.1.0-dev`) —
+  inicia o programa Universal Autonomous Orchestration; a tag `v1.0`
+  existente é preservada como **legacy** (histórico do pacote anterior),
+  sem reescrita de histórico.
+- **V3/V3.1 como programas históricos** — especificações, planos e
+  evidências V3/V3.1 permanecem intactos e consultáveis; o fechamento
+  V3.1 (release gate PASS, 2026-10-06) abaixo é preservado sem remoção
+  nem reordenação.
+- **SPEC/PLAN/ADR v0.1.0 em `docs/specs/`** —
+  `UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-SPEC.md`,
+  `UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-PLAN.md` e
+  `UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-ADR.md` (autoritativos para
+  o novo epoch; semântica de preflight/kernel/grants/flags inalterada
+  nesta fase).
+- **Fase 0 em implementação nesta branch** (`phase-0-baseline.json` em
+  `evidence/v0.1.0/`) — versionamento formal + baseline conhecido;
+  issues #21/#25 registradas como `to_classify` (sem alegação de
+  resolução).
+
 ### Fechamento V3.1 (2026-10-06) — prova runtime-real, release gate PASS
 
 - **Lane real de cross-session (`scripts/ci/session-real-lane-v2.ps1`, novo)** —
