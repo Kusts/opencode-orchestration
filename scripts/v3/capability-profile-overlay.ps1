@@ -134,16 +134,23 @@ foreach ($g in $groups) {
     }
 }
 
-$mcps = New-Object System.Collections.Generic.List[string]
-$map = @{
-    'core' = @('context7'); 'research' = @('context7', 'jev'); 'memory' = @('ai-memory')
-    'testing' = @('playwright-mcp', 'chrome-devtools-mcp')
-    'database-supabase' = @('supabase-mcp'); 'database-neon' = @('neon-mcp')
-    'backend' = @('postman-mcp'); 'frontend' = @('figma-mcp')
+# P2-2 FIX: MCPs derivados do registry (mcp-profiles.json), nunca de mapa
+# parcial hardcoded. Todo profile aceito resolve seus MCPs; novo profile no
+# registry funciona sem patch aqui.
+$mcpMap = @{}
+try {
+    foreach ($p in @($mcpDoc.profiles)) {
+        $profId = ([string]$p.id).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($profId)) { continue }
+        $ms = @(@($p.mcps) | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $mcpMap[$profId] = @($ms)
+    }
 }
+catch { }
+$mcps = New-Object System.Collections.Generic.List[string]
 foreach ($p in $profileArr) {
-    if ($map.ContainsKey($p)) {
-        foreach ($m in @($map[$p])) {
+    if ($mcpMap.ContainsKey($p)) {
+        foreach ($m in @($mcpMap[$p])) {
             if ($mcps -cnotcontains $m) { $mcps.Add($m) }
         }
     }

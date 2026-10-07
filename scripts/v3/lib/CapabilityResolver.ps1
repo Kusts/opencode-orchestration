@@ -136,6 +136,21 @@ function Get-ProjectContext {
             $found = $false
             try { $found = Test-Path -LiteralPath $candidate } catch { $found = $false }
             if ($found) {
+                # P2-1 FIX: marker sozinho nunca prova stack de banco. Um diretorio
+                # supabase/ vazio (ou so com README) nao conta: exige evidencia
+                # concreta via Test-Path (config/migrations/sql/functions). Vide
+                # source/registry/capability-routing.json (stack_detector_note).
+                if ($marker -ceq 'supabase') {
+                    $isDir = $false
+                    try { $isDir = Test-Path -LiteralPath $candidate -PathType Container } catch { $isDir = $false }
+                    if ($isDir) {
+                        $hasEv = $false
+                        foreach ($e in @('config.toml', 'config.json', 'migrations', 'seed.sql', 'schema.sql', 'functions')) {
+                            try { if (Test-Path -LiteralPath (Join-Path $candidate $e)) { $hasEv = $true; break } } catch { }
+                        }
+                        if (-not $hasEv) { continue }
+                    }
+                }
                 if (-not [string]::IsNullOrWhiteSpace($stack)) {
                     if ($stacks -cnotcontains $stack) { $stacks.Add($stack) }
                 }
@@ -269,7 +284,10 @@ function Invoke-CapabilityResolve {
         $needsMemory = (Test-ResolverBlobHas -Blob $blob -Words @('memory', 'historico', 'handoff', 'decisao'))
         $isAmbiguous = [string]::IsNullOrWhiteSpace($task)
         $isFinancial = (Test-ResolverBlobHas -Blob $blob -Words @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial'))
-        $isProd = (Test-ResolverBlobHas -Blob $blob -Words @('production', 'producao', 'deploy', 'release'))
+        # P2-4 FIX: token 'release' isolado nao e escrita em producao (ex.:
+        # "review release notes"). RISK_PRODUCTION_WRITE exige contexto de
+        # producao/deploy/escrita. Vide risk_model (production deploy).
+        $isProd = (Test-ResolverBlobHas -Blob $blob -Words @('production', 'producao', 'deploy'))
         $isMigration = (Test-ResolverBlobHas -Blob $blob -Words @('migration', 'migrate', 'ddl'))
         # reason codes (PROJECT_USES_* exige prova de projeto; mencao textual sozinha nao prova)
         if ($proofSupabase -and $needsDb) { if ($codes -cnotcontains 'PROJECT_USES_SUPABASE') { $codes.Add('PROJECT_USES_SUPABASE') } }

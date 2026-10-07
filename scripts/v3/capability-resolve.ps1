@@ -219,6 +219,22 @@ try {
         }
         catch { }
     }
+    # P2-3 FIX: o resolver decide sobre a classe sanitizada, nunca sobre o
+    # valor bruto. Classe invalida entra como '' (sem sinal) para nao injetar
+    # o token sintetico 'unknown' no blob; o publicado segue 'unknown'.
+    try {
+        $forResolver = $taskClass
+        if ($classInvalid) { $forResolver = '' }
+        if ($resolveInput -is [System.Collections.IDictionary]) {
+            $resolveInput['task_class'] = $forResolver
+            $resolveInput['task_type'] = $forResolver
+        }
+        else {
+            $resolveInput | Add-Member -NotePropertyName 'task_class' -NotePropertyValue $forResolver -Force
+            $resolveInput | Add-Member -NotePropertyName 'task_type' -NotePropertyValue $forResolver -Force
+        }
+    }
+    catch { }
     $result = $null
     try { $result = Invoke-CapabilityResolve -TaskInput $resolveInput -RoutingPath $RoutingPath }
     catch { $result = $null }

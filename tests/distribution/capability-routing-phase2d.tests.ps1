@@ -144,6 +144,16 @@ foreach ($d in @($fxEmpty, $fxSupabase, $fxTerraform)) {
 }
 [IO.File]::WriteAllText((Join-Path $fxSupabase 'package.json'), '{"name":"fx-supabase"}', [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Path (Join-Path $fxSupabase 'supabase') -Force | Out-Null
+# P2-1: fixture supabase com evidencia concreta (config + migrations), nunca dir vazio
+[IO.File]::WriteAllText((Join-Path (Join-Path $fxSupabase 'supabase') 'config.toml'), '[project]', [Text.UTF8Encoding]::new($false))
+$fxSupaMig = Join-Path (Join-Path $fxSupabase 'supabase') 'migrations'
+New-Item -ItemType Directory -Path $fxSupaMig -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $fxSupaMig '0001_init.sql'), 'create table t (id int);', [Text.UTF8Encoding]::new($false))
+# P2-1: fixture controle com supabase/ vazio (sem evidencia) -> nunca prova banco
+$fxSupabaseEmpty = Join-Path $tempBase 'phase2d-fx-supabase-empty'
+if (Test-Path -LiteralPath $fxSupabaseEmpty) { Remove-Item -LiteralPath $fxSupabaseEmpty -Recurse -Force -ErrorAction SilentlyContinue }
+New-Item -ItemType Directory -Path $fxSupabaseEmpty -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $fxSupabaseEmpty 'supabase') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $fxTerraform 'terraform') -Force | Out-Null
 [IO.File]::WriteAllText((Join-Path $fxTerraform 'package.json'), '{"name":"fx-terraform"}', [Text.UTF8Encoding]::new($false))
 
@@ -156,6 +166,18 @@ Assert (@($ctxSup.signals) -ccontains 'supabase-project') 'stack detection: sign
 Assert (@($ctxSup.evidence) -ccontains 'marker:supabase') 'stack detection: evidence marker:supabase presente'
 $ctxTf = Get-ProjectContext -ProjectRoot $fxTerraform
 Assert (@($ctxTf.stacks) -ccontains 'terraform') 'project detection: terraform/ detecta stack terraform'
+
+# --- P2-1 FIX: supabase/ vazio nao prova stack de banco ---
+$ctxSupEmpty = Get-ProjectContext -ProjectRoot $fxSupabaseEmpty
+Assert ((@($ctxSupEmpty.stacks) -cnotcontains 'supabase')) 'P2-1 supabase vazio sem stack supabase'
+$rmSupEmpty = $null
+try { $rmSupEmpty = Invoke-CapabilityResolve -TaskInput @{ task = 'Create migration to alter orders schema with ddl change'; task_class = 'migration'; project = @{ stack = '' }; projectRoot = $fxSupabaseEmpty } } catch { $rmSupEmpty = $null }
+Assert ($null -ne $rmSupEmpty) 'P2-1 supabase vazio resolve sem throw'
+if ($null -ne $rmSupEmpty) {
+  Assert ((@($rmSupEmpty.profiles) -cnotcontains 'database-supabase')) 'P2-1 supabase vazio sem profile database-supabase'
+  Assert ((@($rmSupEmpty.mcps) -cnotcontains 'supabase-mcp')) 'P2-1 supabase vazio sem supabase-mcp'
+  Assert (([string]$rmSupEmpty.confidence) -ceq 'AMBIGUOUS') 'P2-1 supabase vazio confidence AMBIGUOUS'
+}
 
 $fxMap = @{ 'empty' = $fxEmpty; 'supabase' = $fxSupabase; 'terraform' = $fxTerraform }
 $resolved = @{}
@@ -507,6 +529,58 @@ Assert ($ovUCode -eq 2) 'overlay id desconhecido exit 2' ('exit=' + $ovUCode)
 Assert ($ovU -cmatch 'desconhecido') 'overlay id desconhecido erro claro'
 Remove-Item -LiteralPath $ovRevDir -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- P2-2 FIX: todo profile aceito deriva MCPs do registry ---
+$oldEapP2 = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$ovProd = & powershell -NoProfile -ExecutionPolicy Bypass -File $overlayPath -Profiles 'product' -SessionId 'phase2d-P' -OutDir $ovDir 2>&1 | Out-String
+$ovProdCode = $LASTEXITCODE
+$ovCoreDev = & powershell -NoProfile -ExecutionPolicy Bypass -File $overlayPath -Profiles 'core-dev' -SessionId 'phase2d-CD' -OutDir $ovDir 2>&1 | Out-String
+$ovCoreDevCode = $LASTEXITCODE
+$ovBackend = & powershell -NoProfile -ExecutionPolicy Bypass -File $overlayPath -Profiles 'backend' -SessionId 'phase2d-BE' -OutDir $ovDir 2>&1 | Out-String
+$ovBackendCode = $LASTEXITCODE
+$ErrorActionPreference = $oldEapP2
+Assert ($ovProdCode -eq 0) 'P2-2 overlay product exit 0' ('exit=' + $ovProdCode)
+$joProd = $null; try { $joProd = $ovProd | ConvertFrom-Json } catch { $joProd = $null }
+Assert (($null -ne $joProd) -and ((@($joProd.mcps) -ccontains 'posthog-mcp'))) 'P2-2 overlay product deriva posthog-mcp'
+Assert ($ovCoreDevCode -eq 0) 'P2-2 overlay core-dev exit 0' ('exit=' + $ovCoreDevCode)
+$joCD = $null; try { $joCD = $ovCoreDev | ConvertFrom-Json } catch { $joCD = $null }
+Assert (($null -ne $joCD) -and ((@($joCD.mcps) -ccontains 'github-mcp'))) 'P2-2 overlay core-dev deriva github-mcp'
+Assert ($ovBackendCode -eq 0) 'P2-2 overlay backend exit 0' ('exit=' + $ovBackendCode)
+$joBE = $null; try { $joBE = $ovBackend | ConvertFrom-Json } catch { $joBE = $null }
+Assert (($null -ne $joBE) -and ((@($joBE.mcps) -ccontains 'postman-mcp'))) 'P2-2 overlay backend deriva postman-mcp'
+
+# --- P2-3 FIX: classe invalida nao contamina a decisao ---
+$badClassTask = Join-Path $tempBase 'phase2d-badclass-task.json'
+[IO.File]::WriteAllText($badClassTask, '{"task_id":"BC-1","task":"read docs overview","task_class":"production","project":{"stack":""}}', [Text.UTF8Encoding]::new($false))
+$badClassStd = ''
+$badClassCode = -1
+try {
+  $badClassStd = & powershell -NoProfile -ExecutionPolicy Bypass -File $cliPath -TaskFile $badClassTask -ProjectRoot $fxEmpty -NoTelemetry 2>&1 | Out-String
+  $badClassCode = $LASTEXITCODE
+} catch { $badClassStd = $_.Exception.Message }
+Assert ($badClassCode -eq 0) 'P2-3 classe invalida CLI exit 0' ('exit=' + $badClassCode)
+$bcJ = $null; try { $bcJ = $badClassStd | ConvertFrom-Json } catch { $bcJ = $null }
+Assert (($null -ne $bcJ) -and (([string]$bcJ.task_class) -ceq 'unknown')) 'P2-3 classe invalida publica unknown'
+if ($null -ne $bcJ) {
+  Assert (([string]$bcJ.risk) -cne 'HIGH') 'P2-3 classe invalida sem HIGH fantasma' ('obtido: ' + [string]$bcJ.risk)
+  Assert ((@($bcJ.reason_codes) -cnotcontains 'RISK_PRODUCTION_WRITE')) 'P2-3 classe invalida sem RISK_PRODUCTION_WRITE'
+  Assert (([string]$bcJ.permissions.recommendation) -ceq 'allow') 'P2-3 classe invalida perm allow'
+}
+Remove-Item -LiteralPath $badClassTask -Force -ErrorAction SilentlyContinue
+
+# --- P2-4 FIX: release isolado nao e escrita em producao ---
+$relTask = Join-Path $tempBase 'phase2d-release-task.json'
+[IO.File]::WriteAllText($relTask, '{"task_id":"REL-1","task":"review release notes for docs update","task_class":"documentation","project":{"stack":""}}', [Text.UTF8Encoding]::new($false))
+$relStd = ''
+try { $relStd = & powershell -NoProfile -ExecutionPolicy Bypass -File $cliPath -TaskFile $relTask -ProjectRoot $fxEmpty -NoTelemetry 2>&1 | Out-String } catch { $relStd = '' }
+$rj = $null; try { $rj = $relStd | ConvertFrom-Json } catch { $rj = $null }
+Assert (($null -ne $rj) -and (([string]$rj.risk) -ceq 'LOW')) 'P2-4 release isolado risk LOW' ('obtido: ' + [string]$rj.risk)
+if ($null -ne $rj) {
+  Assert ((@($rj.reason_codes) -cnotcontains 'RISK_PRODUCTION_WRITE')) 'P2-4 release isolado sem RISK_PRODUCTION_WRITE'
+  Assert (([string]$rj.permissions.recommendation) -ceq 'allow') 'P2-4 release isolado perm allow'
+}
+Remove-Item -LiteralPath $relTask -Force -ErrorAction SilentlyContinue
+
 $resArr = New-Object System.Collections.ArrayList
 foreach ($c in @($corpus.cases)) {
   $r = $resolved[[string]$c.id]
@@ -559,6 +633,7 @@ if ($null -ne $rp) {
 
 Remove-Item -LiteralPath $fxEmpty -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $fxSupabase -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $fxSupabaseEmpty -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $fxTerraform -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $ovDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $detTask -Force -ErrorAction SilentlyContinue
