@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-10-07T07:30:00Z",
+  "phase": "2B",
+  "github": {
+    "mcp_package": "github/github-mcp-server (Go, oficial)",
+    "transport_recommended": "remote https://api.githubcopilot.com/mcp/ com toolsets repos,issues,pull_requests + readonly",
+    "auth_env_names_only": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+    "installed": false,
+    "connected": false,
+    "connection_blocker": "sem PAT no env (decisao do operador); nenhum secret extraido do keyring",
+    "equivalence_evidence": {
+      "gh_auth": "Kusts, scopes gist/read:org/repo/workflow",
+      "gh_issue_list": "10 issues abertas listadas (incl #25 ai-memory.ts, #21 V1-dialect)",
+      "gh_pr_list": "PR #24 MERGED, #23 OPEN, #22/#18 MERGED",
+      "gh_run_list": "master push 37537266567 failure (job CI v2-lane); PR #24 checks success"
+    },
+    "context_cost": { "default_5_toolsets": "52 tools ~30.3k tokens", "all": "~101-102 tools ~64.6k tokens", "pilot_filter": "3 toolsets + readonly (menor que default)" },
+    "verdict": "PILOT-APPROVED (opt-in profile core-dev; reviewer/tester/coder; github_*:false global)"
+  },
+  "playwright": {
+    "mcp_package": "@playwright/mcp (oficial Microsoft)",
+    "probe": "npx --yes @playwright/mcp@latest --help exit 0; --version 0.0.83",
+    "installed": "discoverable via npx (nao instalado no projeto)",
+    "connected": false,
+    "connection_note": "nenhum browser lançado neste piloto; --help/--version apenas (read-only)",
+    "cli_baseline": "Playwright CLI presente e saudavel (capability-healthcheck playwright-cli OK)",
+    "skill_baseline": "playwright-cli RECOMMENDED P1 no catalogo (escada nativa->Playwright->authenticated-browser)",
+    "context_cost": { "tools": "70+ (core 24 sempre-ativas + caps opcionais)", "tokens": "UNVERIFIED (sem numero oficial); maior que CLI+skill por design (snapshots+schemas)" },
+    "verdict": "PILOT-APPROVED (opt-in profile testing; tester/frontend-engineer; headless + caps minimas; medir vs CLI antes de default)"
+  },
+  "chrome_devtools": {
+    "mcp_package": "chrome-devtools-mcp (oficial Google)",
+    "probe": "npx --yes chrome-devtools-mcp@latest --help exit 0; --version 1.10.1; category flags confirmam filtragem por categoria",
+    "installed": "discoverable via npx (nao instalado no projeto)",
+    "connected": false,
+    "tool_count": "59 na tool-reference oficial (10+6+2+3+2+9+14+5+2+2+4); modo --slim = 3 tools",
+    "telemetry_default_on": true,
+    "opt_outs_names_only": ["CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS", "CI"],
+    "overlap": "grande com Playwright em automacao (click/fill/navigate/screenshot/console/network); divisao: Playwright=comportamento/E2E, DevTools=diagnostico runtime",
+    "verdict": "HOLD (sobreposicao + 59 tools + telemetria default-on; revisitar via --slim sob debugger se gap de perf/memoria se confirmar)"
+  }
+}

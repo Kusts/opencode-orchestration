@@ -41,7 +41,7 @@ catch {
 if ($null -ne $reg) {
   Assert (([string]$reg.schema_version) -ceq '1') 'registry schema_version == 1' ('obtido: ' + [string]$reg.schema_version)
   $caps = @($reg.capabilities)
-  $expectedIds = @('planner', 'planning-advisors', 'core-agents', 'core-skills', 'orchestration-enforcement', 'ai-memory', 'context7', 'jev', 'opencode-runtime', 'git', 'github-cli', 'playwright-cli', 'docker')
+  $expectedIds = @('planner', 'planning-advisors', 'core-agents', 'core-skills', 'orchestration-enforcement', 'ai-memory', 'context7', 'jev', 'skills-catalog', 'github-mcp', 'playwright-mcp', 'chrome-devtools-mcp', 'opencode-runtime', 'git', 'github-cli', 'playwright-cli', 'docker')
   Assert ($caps.Count -eq $expectedIds.Count) ('registry tem ' + $expectedIds.Count + ' capabilities') ('obtido: ' + $caps.Count)
 
   $ids = @($caps | ForEach-Object { [string]$_.id })
@@ -54,7 +54,7 @@ if ($null -ne $reg) {
   $allowedStatus = @('DECLARED', 'INSTALLED', 'DISCOVERED', 'ACTIVE', 'CANDIDATE')
   $allowedRisk = @('low', 'medium', 'high', 'critical', 'unknown')
   $allowedModes = @('always', 'on-demand', 'advisory-only', 'candidate')
-  $allowedProbes = @('repo-file', 'repo-dir', 'command', 'mcp-config')
+  $allowedProbes = @('repo-file', 'repo-dir', 'command', 'mcp-config', 'mcp-path')
   $refErrs = New-Object System.Collections.ArrayList
   foreach ($c in $caps) {
     $cid = [string]$c.id
@@ -114,17 +114,17 @@ if ($null -ne $reg) {
   }
   Assert ($refErrs.Count -eq 0) 'schema + refs validas (runtime.v2, status, risk, activation, healthcheck)' ($refErrs -join ' | ')
 
-  # Honestidade: opcionais/novos nunca nascem installed.
+  # Honestidade: opcionais/novos/pilotos nunca nascem installed/active.
   $honErrs = New-Object System.Collections.ArrayList
   foreach ($c in $caps) {
     $cid = [string]$c.id
     $obs = ''
     try { $obs = [string]$c.status.observed } catch { $obs = '' }
-    if ((($cid -ceq 'playwright-cli') -or ($cid -ceq 'docker')) -and ($obs -ceq 'INSTALLED')) {
-      [void]$honErrs.Add(($cid + ': opcional/novo com observed INSTALLED (proibido; usar DISCOVERED/DECLARED/CANDIDATE)'))
+    if (((($cid -ceq 'playwright-cli') -or ($cid -ceq 'docker')) -and (($obs -ceq 'INSTALLED') -or ($obs -ceq 'ACTIVE'))) -or ((($cid -ceq 'github-mcp') -or ($cid -ceq 'playwright-mcp') -or ($cid -ceq 'chrome-devtools-mcp')) -and (($obs -ceq 'INSTALLED') -or ($obs -ceq 'ACTIVE')))) {
+      [void]$honErrs.Add(($cid + ': opcional/piloto com observed INSTALLED/ACTIVE (proibido; usar DISCOVERED/DECLARED/CANDIDATE)'))
     }
   }
-  Assert ($honErrs.Count -eq 0) 'sem claim installed para opcionais/novos (playwright-cli, docker)' ($honErrs -join ' | ')
+  Assert ($honErrs.Count -eq 0) 'sem claim installed/active para opcionais e pilotos' ($honErrs -join ' | ')
 }
 
 # Healthcheck: executa -Json e valida envelope.
@@ -169,7 +169,7 @@ if ($null -ne $env) {
   }
   # Sem vazamento de secrets: valores de env sensiveis jamais aparecem no output.
   $leakErrs = New-Object System.Collections.ArrayList
-  foreach ($n in @('AI_MEMORY_AUTH_TOKEN', 'JEV_API_KEY', 'JEV_BASE_URL')) {
+  foreach ($n in @('AI_MEMORY_AUTH_TOKEN', 'JEV_API_KEY', 'JEV_BASE_URL', 'OPENCODE_ZEN_API_KEY', 'GITHUB_PERSONAL_ACCESS_TOKEN')) {
     $val = [System.Environment]::GetEnvironmentVariable($n)
     if (-not [string]::IsNullOrWhiteSpace($val)) {
       if ($hcJson.Contains($val)) { [void]$leakErrs.Add(('valor de ' + $n + ' presente no output')) }
