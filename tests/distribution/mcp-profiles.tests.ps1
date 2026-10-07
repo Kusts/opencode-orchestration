@@ -84,14 +84,15 @@ if (($null -ne $prof) -and ($null -ne $reg)) {
   }
   Assert ($errs.Count -eq 0) 'schema + refs MCP/agents + regra APPROVED/PILOT' ($errs -join ' | ')
 
-  # Nenhum MCP global desnecessario: so context7/jev/ai-memory sao APPROVED; pilotos sao opt-in.
+  # Nenhum MCP global desnecessario: APPROVED restrito ao nucleo + browser stack 2C; pilotos sao opt-in.
+  # Fase 2C (decisao do operador 2026-10-07): testing APPROVED com playwright-mcp + chrome-devtools-mcp full.
   $approvedMcps = New-Object System.Collections.ArrayList
   foreach ($p in @($profiles | Where-Object { [string]$_.status -ceq 'APPROVED' })) {
     foreach ($m in @($p.mcps)) { if (-not $approvedMcps.Contains([string]$m)) { [void]$approvedMcps.Add([string]$m) } }
   }
-  $expectedApproved = @('context7', 'jev', 'ai-memory')
+  $expectedApproved = @('context7', 'jev', 'ai-memory', 'playwright-mcp', 'chrome-devtools-mcp')
   $d = Compare-Object $approvedMcps $expectedApproved
-  Assert (($null -eq $d)) 'APPROVED restrito a context7/jev/ai-memory' ((($d | ForEach-Object { $_.InputObject }) -join ','))
+  Assert (($null -eq $d)) 'APPROVED restrito ao nucleo + browser stack 2C' ((($d | ForEach-Object { $_.InputObject }) -join ','))
 }
 
 Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "updated": "2026-10-07",
-  "phase": "2B",
-  "note": "Profiles MCP validados na Fase 2B. Nenhum profile e global por default: ativacao e opt-in por agente via config do operador. AI Memory e transversal (memory). Status: APPROVED (evidencia runtime), PILOT (draft validado, ativacao pendente do operador), HOLD (nao pilotar sem gap concreto). Nenhum secret e registrado aqui (apenas nomes de env).",
+  "phase": "2C",
+  "note": "Profiles MCP validados na Fase 2B. Nenhum profile e global por default: ativacao e opt-in por agente via config do operador. AI Memory e transversal (memory). Status: APPROVED (evidencia runtime), PILOT (draft validado, ativacao pendente do operador), HOLD (nao pilotar sem gap concreto). Nenhum secret e registrado aqui (apenas nomes de env). Fase 2C: testing APPROVED (browser stack com tarefa real); 14 novos profiles PILOT por dominio (ativacao pendente de projeto/credencial).",
   "status_values": {
     "APPROVED": "validado com evidencia; pode ser ativado opt-in",
     "PILOT": "draft validado; ativacao pendente de auth/decisao do operador",
@@ -48,13 +48,153 @@
     },
     {
       "id": "testing",
-      "description": "Browser testing: Playwright para comportamento/E2E; Chrome DevTools (HOLD) para diagnostico runtime.",
-      "mcps": ["playwright-mcp"],
-      "agents": ["tester", "frontend-engineer", "debugger"],
-      "risk": { "level": "medium", "reason": "browser.automation = medium; evaluate/run_code_unsafe executam JS na pagina; mitigar com headless + caps minimas" },
+      "description": "Browser testing APPROVED Fase 2C: Playwright para comportamento/E2E + Chrome DevTools COMPLETO (sem --slim) para diagnostico runtime. Contrato: Playwright=comportamento/automacao, DevTools=diagnostico/observabilidade.",
+      "mcps": ["playwright-mcp", "chrome-devtools-mcp"],
+      "agents": ["tester", "frontend-engineer", "debugger", "reviewer", "backend-engineer"],
+      "risk": { "level": "medium", "reason": "browser.automation = medium; evaluate/run_code_unsafe e evaluate_script restritos ao escopo; --isolated + --headless + opt-outs de telemetria/CrUX sempre" },
+      "status": "APPROVED",
+      "activation_requires": ["opt-in no user-config (nunca global)", "Node 18+ e Chrome/Playwright browsers na maquina", "DevTools full somente com profile ativo (custo aceito pelo operador)"],
+      "evidence": "Phase 2C tarefa real via npx (2026-10-07): Playwright 0.0.83 (25 tools; navigate+snapshot+screenshot+console+network OK) + chrome-devtools 1.10.1 (30 tools full; navigate+console warn/error+DOM+runtime eval+network+perf trace OK); evidence/capabilities-phase-2c/browser-real-tasks-2026-10-07.json"
+    },
+    {
+      "id": "database-supabase",
+      "description": "Supabase (Postgres/RLS/auth/storage/migrations/edge functions) somente em projetos Supabase, com read_only + project_ref; nunca junto com Neon.",
+      "mcps": ["supabase-mcp"],
+      "agents": ["database-engineer", "backend-engineer", "security-reviewer", "debugger"],
+      "risk": { "level": "high", "reason": "execute_sql arbitrario + operacoes com custo; nunca em producao sem ask" },
       "status": "PILOT",
-      "activation_requires": ["Node 18+ e browser Playwright na maquina", "caps core (+testing sob demanda), --headless", "medir tokens vs CLI+skill antes de qualquer default"],
-      "evidence": "Playwright CLI 1.60 presente e saudavel (capability-healthcheck); probe --help do MCP registrado em evidence; Chrome DevTools em HOLD (59 tools + telemetria default-on + sobreposicao)"
+      "activation_requires": ["projeto Supabase + SUPABASE_ACCESS_TOKEN do operador (nome apenas aqui)", "pilot em ambiente nao-produtivo com ?read_only=true"],
+      "evidence": "Phase 2C.1 pesquisado (fontes oficiais); sem tarefa real (sem projeto/credencial) — ativacao pendente"
+    },
+    {
+      "id": "database-neon",
+      "description": "Neon/Postgres com database branching (testes/migrations/previews isoladas) somente em projetos Neon; nunca junto com Supabase.",
+      "mcps": ["neon-mcp"],
+      "agents": ["database-engineer", "backend-engineer", "debugger"],
+      "risk": { "level": "high", "reason": "run_sql + complete_migration/delete/reset destrutivos; fluxo prepare_* em branch temporaria" },
+      "status": "PILOT",
+      "activation_requires": ["projeto Neon + NEON_API_KEY do operador (nome apenas aqui)", "readonly + projectId sempre"],
+      "evidence": "Phase 2C.1 pesquisado (fontes oficiais); sem tarefa real (sem projeto/credencial) — ativacao pendente"
+    },
+    {
+      "id": "backend",
+      "description": "Postman para API discovery/collections somente com ganho real sobre curl/OpenAPI; Full/Enterprise nunca default.",
+      "mcps": ["postman-mcp"],
+      "agents": ["backend-engineer", "tester"],
+      "risk": { "level": "medium", "reason": "writes colaborativos quebram contrato do time; deletes/env compartilhado sob deny" },
+      "status": "PILOT",
+      "activation_requires": ["POSTMAN_API_KEY do operador (nome apenas aqui)", "benchmark vs curl/OpenAPI antes de adotar; config Minimal/Code"],
+      "evidence": "Phase 2C.1 pesquisado (fontes oficiais); sem comparativo runtime — ativacao pendente"
+    },
+    {
+      "id": "frontend",
+      "description": "Figma para design context/components/tokens/handoff design-to-code; nunca para backend/database.",
+      "mcps": ["figma-mcp"],
+      "agents": ["product-designer", "frontend-engineer", "reviewer"],
+      "risk": { "level": "medium", "reason": "write-to-canvas polui arquivos; leitura de contexto segura" },
+      "status": "PILOT",
+      "activation_requires": ["projeto com Figma + OAuth do operador", "write-to-canvas sob ask"],
+      "evidence": "Phase 2C.2 pesquisado (fontes oficiais); sem handoff real — ativacao pendente"
+    },
+    {
+      "id": "product",
+      "description": "PostHog para analytics/eventos/funnels/flags/experiments/errors; separado de frontend para nao misturar responsabilidades.",
+      "mcps": ["posthog-mcp"],
+      "agents": ["product-designer", "frontend-engineer", "backend-engineer"],
+      "risk": { "level": "medium", "reason": "escrita de flag/experimento afeta prod; leitura com PII sob escopo" },
+      "status": "PILOT",
+      "activation_requires": ["projeto com PostHog + OAuth do operador"],
+      "evidence": "Phase 2C.2 pesquisado (fontes oficiais); sem tarefa real — ativacao pendente"
+    },
+    {
+      "id": "infra",
+      "description": "Docker MCP Gateway como INFRA DE EXECUCAO opcional (catalogo/profiles/lifecycle/secrets); nao substitui Registry/policy.",
+      "mcps": ["docker-mcp-gateway"],
+      "agents": ["infra-engineer", "debugger"],
+      "risk": { "level": "high", "reason": "docker.sock + pull arbitrario; ativar no catalogo != autorizar uso" },
+      "status": "PILOT",
+      "activation_requires": ["pilot comparativo vs arquitetura atual", "troca de catalogo/profile versionada"],
+      "evidence": "Phase 2C.3 pesquisado (fontes oficiais); sem pilot — ativacao pendente"
+    },
+    {
+      "id": "iac",
+      "description": "Terraform somente com uso real de IaC; default so toolset registry (leitura); operacoes sob deny/ask.",
+      "mcps": ["terraform-mcp"],
+      "agents": ["infra-engineer", "reviewer"],
+      "risk": { "level": "high", "reason": "apply/destroy + delete_workspace destrutivos" },
+      "status": "PILOT",
+      "activation_requires": ["uso real de IaC + TFE_TOKEN do operador (nome apenas aqui)", "ENABLE_TF_OPERATIONS=false salvo tarefa explicita"],
+      "evidence": "Phase 2C.3 pesquisado (fontes oficiais); sem uso validado — ativacao pendente"
+    },
+    {
+      "id": "cloud",
+      "description": "Cloudflare (Workers/DNS/Pages/R2/D1/logs) somente com ganho nos projetos atuais; writes protegidos.",
+      "mcps": ["cloudflare-mcp"],
+      "agents": ["infra-engineer", "backend-engineer"],
+      "risk": { "level": "high", "reason": "mutacao DNS/Workers/Zero Trust com blast radius" },
+      "status": "PILOT",
+      "activation_requires": ["projeto Cloudflare + CLOUDFLARE_API_TOKEN escopo minimo do operador (nome apenas aqui)"],
+      "evidence": "Phase 2C.3 pesquisado (fontes oficiais); skills cloudflare* ja no catalogo; MCP sem pilot — ativacao pendente"
+    },
+    {
+      "id": "observability",
+      "description": "Grafana para metrics/logs/dashboards/alerts/incident investigation.",
+      "mcps": ["grafana-mcp"],
+      "agents": ["infra-engineer", "debugger", "tester"],
+      "risk": { "level": "medium", "reason": "alerting/incidents mutam observabilidade; leitura pode onerar datasources prod" },
+      "status": "PILOT",
+      "activation_requires": ["instancia Grafana + GRAFANA_SERVICE_ACCOUNT_TOKEN do operador (nome apenas aqui)"],
+      "evidence": "Phase 2C.3 pesquisado (fontes oficiais); sem instancia — ativacao pendente"
+    },
+    {
+      "id": "automation",
+      "description": "n8n (stack recorrente) para workflow discovery/inspection/execution/logs; alteracoes destrutivas nunca irrestritas.",
+      "mcps": ["n8n-mcp"],
+      "agents": ["automation-engineer", "reviewer"],
+      "risk": { "level": "high", "reason": "execute_workflow dispara automacoes reais; edicao sobrescreve workflow (oferta BETA)" },
+      "status": "PILOT",
+      "activation_requires": ["instancia n8n + N8N_MCP_ACCESS_TOKEN do operador (nome apenas aqui)"],
+      "evidence": "Phase 2C.4 pesquisado (fontes oficiais); sem instancia — ativacao pendente"
+    },
+    {
+      "id": "payments",
+      "description": "Stripe somente em projetos com pagamentos; read-only default; nenhuma acao financeira silenciosa.",
+      "mcps": ["stripe-mcp"],
+      "agents": ["backend-engineer", "reviewer", "security-reviewer"],
+      "risk": { "level": "critical", "reason": "escrita move dinheiro; refunds/payouts sob ask + approval humano" },
+      "status": "PILOT",
+      "activation_requires": ["projeto com pagamentos + OAuth/Agent key do operador", "sandbox primeiro"],
+      "evidence": "Phase 2C.4 pesquisado (fontes oficiais); sem projeto — ativacao pendente"
+    },
+    {
+      "id": "sales",
+      "description": "HubSpot para CRM (contacts/companies/deals/tickets/pipeline); writes sob policy, bulk sob deny.",
+      "mcps": ["hubspot-mcp"],
+      "agents": ["backend-engineer", "automation-engineer"],
+      "risk": { "level": "medium", "reason": "escrita polui funil" },
+      "status": "PILOT",
+      "activation_requires": ["conta HubSpot + OAuth do operador", "scopes read-only default"],
+      "evidence": "Phase 2C.4 pesquisado (fontes oficiais); sem conta — ativacao pendente"
+    },
+    {
+      "id": "growth-google",
+      "description": "Google Analytics (read-only) + Google Ads (read-only) para traffic/conversion/funnels/attribution; midia paga nunca alterada sem policy.",
+      "mcps": ["ga-mcp", "google-ads-mcp"],
+      "agents": ["requirements-analyst", "frontend-engineer", "researcher"],
+      "risk": { "level": "medium", "reason": "spend sensivel; ofertas experimental/read-only" },
+      "status": "PILOT",
+      "activation_requires": ["propriedade GA/conta Ads + GOOGLE_APPLICATION_CREDENTIALS do operador (nome apenas aqui)"],
+      "evidence": "Phase 2C.5 pesquisado (fontes oficiais); sem propriedade — ativacao pendente"
+    },
+    {
+      "id": "growth-seo",
+      "description": "DataForSEO (preferencia sobre Ahrefs) para keywords/SERP/competitors/backlinks; pay-per-call com budgets.",
+      "mcps": ["dataforseo-mcp"],
+      "agents": ["requirements-analyst", "researcher"],
+      "risk": { "level": "medium", "reason": "queima de creditos sem teto; nunca instalar Ahrefs tambem sem necessidade" },
+      "status": "PILOT",
+      "activation_requires": ["conta DataForSEO + DATAFORSEO_LOGIN/PASSWORD do operador (nomes apenas aqui)", "budgets + ask para bulk"],
+      "evidence": "Phase 2C.5 pesquisado (fontes oficiais); sem conta — ativacao pendente"
     }
   ]
 }
