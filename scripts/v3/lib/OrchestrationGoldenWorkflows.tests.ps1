@@ -91,10 +91,14 @@ $gw05 = Invoke-OrchestrationDecision -QuestionId 'gw05-routing' -QuestionType 'r
 Assert-GWThat (([string]$gw05.source -ceq 'jev') -and ([string]$gw05.decision -ceq 'coder')) 'GW-05 clean probe advice is jev-sourced'
 Assert-GWThat ((-not [bool]$gw05.blocked) -and (-not [bool]$gw05.fallback_used)) 'GW-05 jev advice never blocks and uses no fallback'
 # --- GW-06: throwing Probe => honest escalation, still never blocked.
+# Mapeamento: GW-06 => SPEC Sec24 item 24 (Jev indisponivel/falha => fallback honesto planner-escalation, nunca bloqueia; a Probe e a unica borda sintetrica, sem rede/processo).
 $gwProbeThrow = { param($ctx) throw 'gw06-probe-timeout' }
 $gw06 = Invoke-OrchestrationDecision -QuestionId 'gw06-routing' -QuestionType 'routing' -Alternatives @('coder', 'tester') -State @{ task = 'route-build' } -Risk 'low' -AllowJev $true -JevProbe $gwProbeThrow
 Assert-GWThat (([string]$gw06.source -ceq 'planner-escalation') -and ([string]$gw06.reason -ceq 'jev-failed-escalation')) 'GW-06 throwing probe escalates honestly'
 Assert-GWThat ((-not [bool]$gw06.blocked)) 'GW-06 escalation never blocks'
+$gw06b = Invoke-OrchestrationDecision -QuestionId 'gw06b-routing' -QuestionType 'routing' -Alternatives @('coder', 'tester') -State @{ task = 'route-build' } -Risk 'low' -AllowJev $true -JevProbe $null
+Assert-GWThat (([string]$gw06b.source -ceq 'planner-escalation') -and ([string]$gw06b.reason -ceq 'jev-unavailable-escalation')) 'GW-06 null probe escalates as unavailable'
+Assert-GWThat ((-not [bool]$gw06b.blocked)) 'GW-06 unavailable escalation never blocks'
 # --- GW-07: SPEC+PLAN promotes to persistent-goal; goal runs the DRAFT->ACTIVE cycle to COMPLETED.
 # Mapeamento: GW-07 => SPEC Sec24 itens 9/20 (SPEC+PLAN executado ate a conclusao: promotion -> DRAFT -> ACTIVE -> tasks+progress -> COMPLETED).
 $gw07promo = Test-OrchestrationGoalPromotion -Signals @{ has_spec_plan = $true }

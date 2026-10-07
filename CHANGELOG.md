@@ -6,6 +6,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 15 v0.1.0 (2026-10-07, parcial) — Release harness
+
+- `scripts/ci/ObjectiveRunner.harness.ps1` (TEST HARNESS, não produto):
+  driver determinístico Goal+controller fim-a-fim (S1-S5+S7-S8).
+- Fecha itens §24 7-9,12,13,21,24 em nível lib/harness; execução real de
+  agentes (Debugger) permanece limitação declarada.
+- Suite runner 57 asserts. Tester PASS; Reviewer APPROVED.
+
 ### Fase 14 v0.1.0 (2026-10-07) — Documentation Reconciliation
 
 - README: seção Versionamento (epoch, tag legacy, V3/V3.1 históricos).
