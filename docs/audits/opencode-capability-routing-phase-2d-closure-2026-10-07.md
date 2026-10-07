@@ -200,3 +200,53 @@ sessão + shadow 12/12 + Advisory-ready. Arquitetura final: **ADVISORY**
 (contrato pronto e validado; execução permanece Shadow até decisão do operador).
 Princípio atendido: menos ativação desnecessária + mais contexto + mais
 segurança + mais previsibilidade.
+
+## PR #28 Review Findings Closure
+
+Review Codex (bot `chatgpt-codex-connector`) sobre o HEAD `c354a6e`:
+COMPLETED com 4 findings P2, todos endereçados em commit corretivo separado,
+sem reescrita de histórico e sem squash.
+
+```text
+original reviewed SHA: c354a6e
+findings: 4 P2 (todos endereçados, 0 pendentes)
+fix commit: 4a1acbe6e2b1e1964c58e7f5396fd55af5fa633d
+  ("fix(routing): address PR #28 review findings", 4 arquivos, +125/-9)
+CI final: run 37650051106, 5/5 SUCCESS no SHA 4a1acbe
+  (ps51, ps7, smoke V1, smoke V2, v2-lane)
+review final: 4/4 threads Codex respondidas e resolvidas; 0 unresolved
+security: deterministic fallback (ver abaixo) — PASS
+merge commit: c6c15d7a21a3f78e8680dd20fa653b61ae68519f
+  (2026-10-07 17:02:17 UTC, método merge commit, sem auto-merge)
+```
+
+| Finding | Fix | Test | Final |
+|---|---|---|---|
+| Supabase false proof (dir `supabase/` vazio virava stack/prova) | `Get-ProjectContext` exige evidência concreta (`config.toml`/`config.json`/`migrations`/`seed.sql`/`schema.sql`/`functions`); dir vazio é ignorado | Fixture controle `supabase/` vazio → sem stack, sem `database-supabase`, AMBIGUOUS; com `config.toml`+`migrations/` → stack `supabase` | PASS |
+| Partial profile MCP map (mapa hardcoded parcial; `product`→`mcps: []`) | Overlay deriva MCPs de `source/registry/mcp-profiles.json` (`$mcpDoc.profiles`); nenhum mapa hardcoded | `product`→`posthog-mcp`, `core-dev`→`github-mcp`, `testing`→`playwright-mcp`+`chrome-devtools-mcp`, `backend`→`postman-mcp` | PASS |
+| Raw task_class (valor bruto fora da allowlist influenciava risk/agent/profile) | `capability-resolve.ps1` sobrescreve `task_class`/`task_type` no `$resolveInput` com o valor sanitizado (vazio se inválido) antes de `Invoke-CapabilityResolve`; publicado segue `unknown` | `task_class: "production"` em tarefa read-docs → publica `unknown`, risk LOW, sem `RISK_PRODUCTION_WRITE`, perm `allow` | PASS |
+| release false-prod (`review release notes` virava HIGH/deny) | `$isProd` exige `production`/`producao`/`deploy`; token `release` isolado não conta | `review release notes` → LOW/`allow` sem `RISK_PRODUCTION_WRITE`; `deploy production hotfix` → HIGH + `RISK_PRODUCTION_WRITE` + `deny` | PASS |
+
+Notas de auditoria (sem alterar fatos históricos acima):
+
+- Contagens atualizadas pós-fix: phase2d **372/0** (§23 registra 353/0 do
+  baseline c354a6e — fato histórico preservado); registry 48/0, profiles 8/0,
+  skills 18/0, planning 12/0, package-consistency 16/0, `git diff --check`
+  limpo. Shadow corpus **12/12 agreement, 0 over/under-activation,
+  0 critical errors** (`shadow-results-2026-10-07.json` inalterado).
+- CI: primeira execução no novo SHA deu 4/5 (v2-lane falhou em 1 assert
+  FIX4-2b do `OrchestrationRuntimeWatchdogEnforcement` — teste de kill de
+  processo timing-sensível, arquivo fora do delta, flaky pré-existente já
+  documentado em `program-status.json`; ps51/ps7/smokes passaram com o
+  delta). `gh run rerun --failed` → **5/5 SUCCESS** no mesmo SHA. Nenhum
+  resultado do SHA anterior foi reutilizado.
+- Review: re-request ao bot Codex indisponível via API (não é collaborator,
+  HTTP 422) e nenhum auto re-review foi disparado pelo push; subagents
+  reviewer/security-reviewer atingiram limite de uso. Fallback determinístico
+  aplicado e registrado: inspeção integral do diff c354a6e..4a1acbe, provas
+  explícitas por finding (seção acima), verificação de ausência de scope
+  creep (sem Active Mode, sem flags, sem pins, sem permission engine) e
+  tester independente PASS. Threads Codex: 4/4 respondidas com evidência e
+  marcadas resolved via GraphQL.
+- Arquitetura final permanece **SHADOW + ADVISORY-ready**; flags de routing
+  continuam OFF; Active Mode segue decisão futura de operador.
