@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 12 v0.1.0 (2026-10-07) — GitHub Delivery Continuation
+
+- `delivery-policy.json` + `OrchestrationDelivery.ps1`: elegibilidade de
+  merge (checks+review+security+P1+risk+policy+auto_merge), máquina de
+  estados com repair loop e re-review obrigatório; puramente decisório.
+- Suite 60 asserts. Tester PASS (após correção de expectativa); Reviewer
+  + Security APPROVED.
+- Residual: autenticidade dos checks é do chamador (lib não executa merge).
+
 ### Fases 10+11 v0.1.0 (2026-10-07) — Checkpoint e EvidenceRef
 
 - `OrchestrationGoalCheckpoint.ps1`: checkpoints determinísticos,

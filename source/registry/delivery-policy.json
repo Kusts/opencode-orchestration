@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "require_pr": true,
+  "direct_push": "deny",
+  "force_push": "deny",
+  "deletion_protected": true,
+  "required_checks": [
+    "CI (ps51)",
+    "CI (ps7)",
+    "CI (smoke opencode real)",
+    "CI (v2 lane, perfil V2 provisionado)",
+    "CI (smoke opencode v2 real)"
+  ],
+  "review": {
+    "internal_reviewer": "required",
+    "security_reviewer_on": ["auth", "credentials", "grants", "permissions", "infra", "security-sensitive"]
+  },
+  "findings_loop": "finding->repair->re-review (sem prompt ao usuario)",
+  "auto_merge": {
+    "allowed": true,
+    "requires": ["policy_ok", "risk_low_or_medium", "all_checks_green", "reviewer_approved", "no_unresolved_p1"]
+  },
+  "terminal_states": ["MERGED", "DELIVERY_BLOCKED", "CANCELLED"],
+  "notes": "declarativo; merge real e autoridade externa (humano/bot); este lib decide elegibilidade, nunca executa merge"
+}
