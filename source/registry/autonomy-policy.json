@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "auto_authorized": [
+    "delegate_workers",
+    "research",
+    "memory_evidence_query",
+    "jev_consult",
+    "edit_refactor",
+    "test_build",
+    "debug_local",
+    "branch_create",
+    "worktree_create",
+    "commit",
+    "pr_open",
+    "findings_repair",
+    "ci_rerun",
+    "replan",
+    "strategy_switch",
+    "next_wave",
+    "checkpoint",
+    "session_rotate",
+    "goal_resume"
+  ],
+  "authority_boundaries": {
+    "PRODUCT_INTENT_AMBIGUITY": {
+      "description": "User intent is ambiguous or admits materially different interpretations; proceeding would guess the product decision.",
+      "examples": ["conflicting requirements with no acceptance criteria", "feature request open to incompatible readings"]
+    },
+    "IRREVERSIBLE_REAL_DATA_ACTION": {
+      "description": "Irreversible deletion or mutation of real data with no reliable recovery path.",
+      "examples": ["drop production table", "purge real user data"]
+    },
+    "UNAUTHORIZED_PRODUCTION_ACTION": {
+      "description": "Destructive or mutating production action not explicitly authorized in the current request.",
+      "examples": ["production deploy without explicit approval", "restart of production services"]
+    },
+    "EXTERNAL_COST_OR_PURCHASE": {
+      "description": "Any payment, purchase, subscription, or usage that incurs external cost.",
+      "examples": ["buy a license", "subscribe to a paid plan"]
+    },
+    "CREATE_ROTATE_REVOKE_CREDENTIAL": {
+      "description": "Creation, rotation, or revocation of credentials, secrets, or access tokens.",
+      "examples": ["issue a new API key", "rotate a signing secret"]
+    },
+    "EXTERNAL_COMMUNICATION_AS_USER": {
+      "description": "Outbound communication sent externally in the user's name.",
+      "examples": ["send email as the user", "post a public comment as the user"]
+    },
+    "MATERIAL_SCOPE_EXPANSION": {
+      "description": "Expansion of the requested scope in a material way beyond the current objective.",
+      "examples": ["add an unrequested subsystem", "redefine the objective mid-flight"]
+    },
+    "POLICY_DENIED": {
+      "description": "Action explicitly denied by the applicable project, global, or environment policy.",
+      "examples": ["policy_denied_reasons match: scope_exceeded", "policy_denied_reasons match: production_unauthorized"]
+    },
+    "REQUIRED_EXTERNAL_INPUT_UNAVAILABLE": {
+      "description": "Required external input (human, provider, or system) is unavailable and no authorized alternative exists.",
+      "examples": ["mandatory approval never arrives", "required external service stays down with no fallback"]
+    }
+  },
+  "terminal_stop_reasons": [
+    "OBJECTIVE_COMPLETED",
+    "HUMAN_AUTHORITY_REQUIRED",
+    "EXTERNAL_BLOCKER_WITH_NO_ALTERNATIVE",
+    "GOAL_HARD_BUDGET_EXHAUSTED",
+    "POLICY_BLOCKED",
+    "CANCELLED"
+  ],
+  "policy_denied_reasons": [
+    "scope_exceeded",
+    "production_unauthorized",
+    "destructive_unauthorized",
+    "credential_unavailable",
+    "cost_unauthorized",
+    "communication_unauthorized"
+  ],
+  "notes": "Declarative contract only. Enforcement is wired in later phases; the kernel remains the authority. Unknown inputs fail closed to Denied."
+}
