@@ -1,0 +1,1107 @@
+{
+  "generated_at": "2026-10-07T10:19:56.9780673Z",
+  "agents_total": 103,
+  "opencode_total": 7,
+  "rows": [
+    {
+      "id": "adversarial-challenger",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\adversarial-challenger",
+      "skill_present": true,
+      "bytes": 3626,
+      "sha256": "D21957E3CC7A8A5D86E151AF43A2A927450C711D19901049E6FB99B2A3A2AD5C",
+      "description_head": "description: Testa uma mudanÃ§a contra casos de borda, abusos plausÃ­veis e falhas de integraÃ§Ã£o. Use antes de concluir mudanÃ§as de risco mÃ©dio ou alto, especialmente em autenticaÃ§Ã£o, dados, con"
+    },
+    {
+      "id": "agent-instructions-writing",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\agent-instructions-writing",
+      "skill_present": true,
+      "bytes": 2254,
+      "sha256": "CADF89D0E68D8C1A32E87BE630EEF00B513D6E9CEA2AF41A6C809E4967DEBD03",
+      "description_head": "description: Use to create or revise AGENTS.md, CLAUDE.md, runtime adapters, and agent-facing instruction routing. For SKILL.md authoring use writing-skills; skip ordinary application documentation."
+    },
+    {
+      "id": "agents-sdk",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\agents-sdk",
+      "skill_present": true,
+      "bytes": 12415,
+      "sha256": "A4D20A03A5EADDEF61012A91A9418C7598295D41BC02B21F545FE951B8283157",
+      "description_head": "description: Build AI agents on Cloudflare Workers using the Agents SDK. Load when creating stateful agents, durable workflows, real-time WebSocket apps, scheduled tasks, MCP servers, chat application"
+    },
+    {
+      "id": "ai-memory-durable-pages",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ai-memory-durable-pages",
+      "skill_present": true,
+      "bytes": 5276,
+      "sha256": "FD7C958A6F8657328B739DEB949C0E6B8AC2F971808DDBA2BAC80B834F411E2B",
+      "description_head": "description: \"Use this skill for any explicit wiki mutation in ai-memory: saving durable or time-bounded project knowledge, recording a rule or annotation, updating a note, or deleting a memory page. "
+    },
+    {
+      "id": "ai-memory-handoff",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ai-memory-handoff",
+      "skill_present": true,
+      "bytes": 4416,
+      "sha256": "388AB623E6A39929864E3A972E54C65CB20BBCE9281C3AE5869BCB93A3419E2A",
+      "description_head": "description: \"Use this skill for any request whose goal is session continuity across agents or time: finding a pending handoff, resuming previous work, saving next-session context, wrapping up, or dis"
+    },
+    {
+      "id": "ai-memory-learning-maintenance",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ai-memory-learning-maintenance",
+      "skill_present": true,
+      "bytes": 4716,
+      "sha256": "D3F3A03C8306C220F075A52642B9ED4AF7109A8D8C7A9C87631197A6334E095E",
+      "description_head": "description: \"Use this skill for any ai-memory knowledge-base maintenance request: consolidating observations, reviewing session lessons, proposing durable learnings, auditing or linting the wiki, fin"
+    },
+    {
+      "id": "ai-memory-messaging",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 4120,
+      "sha256": "7A86BDD78E947372EBBA0CBBEB3EC3B16F54AB23EF8A64B854F2F9DD4AF0D9C1",
+      "description_head": "description: \"Use this skill for cross-project agent-to-agent messaging: sending a request to another project's inbox, checking or popping this project's inbox, or retracting a message you sent. Trigg"
+    },
+    {
+      "id": "ai-memory-retrieval",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ai-memory-retrieval",
+      "skill_present": true,
+      "bytes": 7191,
+      "sha256": "F08A5A784F395D2AB1D10594718C95C46484CD6122B731A0A648F3E4A40C03CC",
+      "description_head": "description: \"Use this skill for any request whose goal is read-only retrieval from ai-memory: project history, prior context, decisions, rules, gotchas, recent activity, full wiki pages, or status/br"
+    },
+    {
+      "id": "ai-memory-routing-install",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ai-memory-routing-install",
+      "skill_present": true,
+      "bytes": 3602,
+      "sha256": "3188484CDB944782BADB25E7749D33B7AB336D913A3A72AAFB1A9E548B579614",
+      "description_head": "description: \"Use this skill for any request to install, refresh, repair, inspect, or remove ai-memory's agent-facing routing: managed instruction snippets, Agent Skills, CLAUDE.md/AGENTS.md integrati"
+    },
+    {
+      "id": "algorithmic-art",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\algorithmic-art",
+      "skill_present": true,
+      "bytes": 21372,
+      "sha256": "729AC0309208D3DAEF21863EA63AE11B84C8F31797D875B2FBC9AC504A6D84BB",
+      "description_head": "description: Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, fl"
+    },
+    {
+      "id": "appsec-elite-auditor",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\appsec-elite-auditor",
+      "skill_present": true,
+      "bytes": 3777,
+      "sha256": "21E49081A39442CD97B9B7DEDB955D541AD00ED276E305244B936D0B4AFB36D4",
+      "description_head": "description: Audita seguranÃ§a de aplicaÃ§Ãµes e mudanÃ§as sensÃ­veis com evidÃªncias tÃ©cnicas. Use quando o usuÃ¡rio pedir uma revisÃ£o de seguranÃ§a, antes de expor autenticaÃ§Ã£o, autorizaÃ§Ã£o, p"
+    },
+    {
+      "id": "ast-skeletonizer",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ast-skeletonizer",
+      "skill_present": true,
+      "bytes": 3721,
+      "sha256": "08B9F09A5E0C6116376DBE140F7A728D29D5B92F7F370FD89860F31C17E7C959",
+      "description_head": "description: Extract structural code skeletons (classes, methods, signatures, interfaces, docstrings with function bodies replaced by '...') using AST inspection to understand large codebases using ~9"
+    },
+    {
+      "id": "authenticated-browser",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\authenticated-browser",
+      "skill_present": true,
+      "bytes": 3550,
+      "sha256": "1EE3B8DB0A5270C8BDC3CF7B8956235FEA5E5D08A30ACFDDF03D64E6010F2E76",
+      "description_head": "description: Use when a task must interact with a signed-in website, an existing browser profile, MFA/CAPTCHA handoff, or visible browser UI. Choose the least disruptive authenticated-browser capabili"
+    },
+    {
+      "id": "book-to-skill",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\book-to-skill",
+      "skill_present": true,
+      "bytes": 37218,
+      "sha256": "8D2CFE00485A035FBA685AEB6D53DF571D8E7A020A6564505C2E09E150352C00",
+      "description_head": "description: \"Converts books and documents (PDF, EPUB, DOCX, HTML, Markdown, plain text, RTF, MOBI/AZW with Calibre) into structured agent skills, extracting frameworks, mental models, principles, tec"
+    },
+    {
+      "id": "brainstorming",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\brainstorming",
+      "skill_present": true,
+      "bytes": 2755,
+      "sha256": "3E99A24E0BB9C9FCFB5D92F026C4680F1CC2026E8E5EEB03DFFAE385C8F437AE",
+      "description_head": "description: \"Use when unresolved product, scope, or architecture decisions could materially change the solution. Do not use as an interview or approval gate for a clear, bounded request.\""
+    },
+    {
+      "id": "brand-guidelines",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\brand-guidelines",
+      "skill_present": true,
+      "bytes": 3521,
+      "sha256": "51AC1B62800C2358889AD08E65C5793FFB55ADCE8C2539462066006F93203B0C",
+      "description_head": "description: Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visu"
+    },
+    {
+      "id": "canvas-design",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\canvas-design",
+      "skill_present": true,
+      "bytes": 13205,
+      "sha256": "152BEF405EABC65D7BA81E0490479279E2ED403B05B093C752EC3EDAE91CA470",
+      "description_head": "description: Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piec"
+    },
+    {
+      "id": "claude-api",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\claude-api",
+      "skill_present": true,
+      "bytes": 35163,
+      "sha256": "28E099394812B0975E200DDBAEF7C8070E8E76ABD919726CE2CC61130CF362C3",
+      "description_head": "description: \"Build, debug, and optimize Claude API / Anthropic SDK apps. Apps built with this skill should include prompt caching. Also handles migrating existing Claude API code between Claude model"
+    },
+    {
+      "id": "cloudflare",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\cloudflare",
+      "skill_present": true,
+      "bytes": 8930,
+      "sha256": "C050ED81FF3A75D06C4E926E9C4385C3EA3F782A63F53EEC59776BD1F40D48BC",
+      "description_head": "description: Comprehensive Cloudflare platform skill covering Workers, Pages, storage (KV, D1, R2), AI (Workers AI, Vectorize, Agents SDK), feature flags (Flagship), networking (Tunnel, Spectrum), sec"
+    },
+    {
+      "id": "cloudflare-email-service",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\cloudflare-email-service",
+      "skill_present": true,
+      "bytes": 8058,
+      "sha256": "EB449DA9650AB51926C1E4DD9478A81AC683A13262F9EBEB9255D3B6579979B2",
+      "description_head": "description: Send and receive transactional emails with Cloudflare Email Service (Email Sending + Email Routing). Use when building email sending (Workers binding or REST API), email routing, Agents S"
+    },
+    {
+      "id": "cloudflare-one",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\cloudflare-one",
+      "skill_present": true,
+      "bytes": 23600,
+      "sha256": "D73F8565A428CAF63EF01CF52E05612512EF80FD4F61AA8ECF75B76C6665C27B",
+      "description_head": "description: \"Guides Cloudflare One Zero Trust and SASE work across Access, Gateway, WARP, Tunnel, Cloudflare WAN, DLP, CASB, device posture, and identity. Use when designing, configuring, troubleshoo"
+    },
+    {
+      "id": "cloudflare-one-migrations",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\cloudflare-one-migrations",
+      "skill_present": true,
+      "bytes": 13615,
+      "sha256": "CFFF0FCD66D4E5790EC025606CD15560F1A5A6334AF782F74C505907B2E3B311",
+      "description_head": "description: Plans migrations from Zscaler ZIA/ZPA, Palo Alto, legacy VPN, SWG, or SASE stacks to Cloudflare One. Use for migration assessments, policy mapping, rollout plans, and parity/gap analysis."
+    },
+    {
+      "id": "code-craftsman",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\code-craftsman",
+      "skill_present": true,
+      "bytes": 3653,
+      "sha256": "92F8F2D9F44DA13759CEB79F277A3EB8354D6EFE82AED45681C0F1441248E823",
+      "description_head": "description: Melhora a qualidade de cÃ³digo com critÃ©rios proporcionais de clareza, coesÃ£o, interfaces, testes e manutenÃ§Ã£o. Use ao implementar, refatorar, endurecer ou revisar cÃ³digo quando disc"
+    },
+    {
+      "id": "codebase-design",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\codebase-design",
+      "skill_present": true,
+      "bytes": 2926,
+      "sha256": "40203837E20216BBD503D31D74D8C79929EDC09B6986257F08CDE1C9F3A81B57",
+      "description_head": "description: \"Use when designing or reviewing module boundaries, caller contracts, hidden complexity, or testability. Do not use to impose terminology, introduce speculative abstractions, or gate a tr"
+    },
+    {
+      "id": "computer-use",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 2211,
+      "sha256": "2839933FD35216845461466403E6061488005F6DF57126D0CD0F769EA45753F3",
+      "description_head": "description: >-"
+    },
+    {
+      "id": "copy-persuasao-br",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\copy-persuasao-br",
+      "skill_present": true,
+      "bytes": 6231,
+      "sha256": "70B96B25D1E5F7C78A8AE49B6B1100C00E886933C31936541AFB138C27F8E4B5",
+      "description_head": "description: Copywriting e neuromarketing em pt-BR do vault â€” 38 aulas de um curso de copy, 71 fichas de livros de copywriting e persuasÃ£o, e 150 aulas de uma sÃ©rie acadÃªmica de neurociÃªncia do "
+    },
+    {
+      "id": "decision-map",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\decision-map",
+      "skill_present": true,
+      "bytes": 3570,
+      "sha256": "03CD6403EF356C92A7F666F021886A2B6567AC5998E41E38263B1AB8A44E9BBD",
+      "description_head": "description: Map and resolve decision uncertainty for a large, foggy effort that may span sessions. Use when the route to an agreed destination is unclear; do not use for a well-scoped feature."
+    },
+    {
+      "id": "decision-prototype",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\decision-prototype",
+      "skill_present": true,
+      "bytes": 3449,
+      "sha256": "E781AF66DD928D321420E78C18600235E097A72A24D45DA002509454E79A655A",
+      "description_head": "description: Build a bounded throwaway prototype to resolve one material design uncertainty when conversation or static inspection cannot settle behavior, interface shape, feasibility, or a visual cho"
+    },
+    {
+      "id": "design-an-interface",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\design-an-interface",
+      "skill_present": true,
+      "bytes": 2888,
+      "sha256": "4BD7311CD560E975D8D11B720E0DA02139A45F94F41C0F6184B328A66DCC078A",
+      "description_head": "description: \"Use when comparing genuinely different API or module shapes, or when asked to design it twice. Do not use for cosmetic renaming, visual UI design, or a settled interface with no material"
+    },
+    {
+      "id": "design-fundamentals",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\design-fundamentals",
+      "skill_present": true,
+      "bytes": 14484,
+      "sha256": "109F48390AEBF4D7161E3F5BDF85195A74F3EB710860B50BC32352F3B8F467C0",
+      "description_head": "description: Uniifica princÃ­pios de design, anÃ¡lise visual de pÃ¡ginas e design de interfaces. Inclui extraÃ§Ã£o de design de pÃ¡ginas reais, princÃ­pios de Linear/Notion/Stripe, design systems, tok"
+    },
+    {
+      "id": "dispatching-parallel-agents",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\dispatching-parallel-agents",
+      "skill_present": true,
+      "bytes": 2331,
+      "sha256": "751AD62979BC44BD622E88B32CE903296A35A5E0FA7B8683CB7436DFA5A40575",
+      "description_head": "description: Use for two or more independent tasks when supported parallel delegation saves time without shared-state conflicts. Skip dependent steps, overlapping edits, and simple inspections."
+    },
+    {
+      "id": "doc-coauthoring",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\doc-coauthoring",
+      "skill_present": true,
+      "bytes": 3395,
+      "sha256": "83CA6B6D6B6F5AD48D518717A3E97433A6C6A4BF259946A7231438FD35916040",
+      "description_head": "description: Coautora documentos tÃ©cnicos, propostas, especificaÃ§Ãµes, RFCs e decisÃµes com contexto, estrutura e revisÃ£o orientada ao leitor. Use quando o usuÃ¡rio quiser elaborar ou melhorar um d"
+    },
+    {
+      "id": "document-artifacts",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\document-artifacts",
+      "skill_present": true,
+      "bytes": 3239,
+      "sha256": "4F20D66640828E25558D08F34605101F68958EE95E384D127200BF9F9BA62DC0",
+      "description_head": "description: Cria, lê e edita documentos estruturados, incluindo Word e formatos equivalentes, usando a capacidade nativa disponível no runtime. Use quando o artefato principal for um documento profis"
+    },
+    {
+      "id": "domain-aware-brainstorming",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\domain-aware-brainstorming",
+      "skill_present": true,
+      "bytes": 3451,
+      "sha256": "AE60603360A09B6874985A59D222C9B479FC5DB0FA168AB604CB57421ECF4C25",
+      "description_head": "description: Add repository glossary and ADR awareness to brainstorming when domain terminology or boundaries are load-bearing. Do not use for a change already clear and well scoped."
+    },
+    {
+      "id": "domain-language",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\domain-language",
+      "skill_present": true,
+      "bytes": 3501,
+      "sha256": "69C9A0D770D5FF27416C23584FEFA99239267515A7C2DF50D3D3B6E1456D5A4B",
+      "description_head": "description: Resolve termos de domÃ­nio vagos ou sobrecarregados e mantÃ©m glossÃ¡rio e ADRs pontuais. Use quando discussÃµes de produto ou cÃ³digo confundirem conceitos como conta, cliente, assinatur"
+    },
+    {
+      "id": "durable-objects",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\durable-objects",
+      "skill_present": true,
+      "bytes": 6052,
+      "sha256": "9CCD41284C4930B96E6662D1C7E0CF3309DD35574D1190A87101A219E77C0A61",
+      "description_head": "description: Create and review Cloudflare Durable Objects. Use when building stateful coordination (chat rooms, multiplayer games, booking systems), implementing RPC methods, SQLite storage, alarms, W"
+    },
+    {
+      "id": "edit-article",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\edit-article",
+      "skill_present": true,
+      "bytes": 3239,
+      "sha256": "0E3BAAE155568A0C85A212580126514E702DEC49358725F92CC10F10C2C3A304",
+      "description_head": "description: Edit and improve articles by restructuring sections, improving clarity, and tightening prose. Use when user wants to edit, revise, or improve an article draft."
+    },
+    {
+      "id": "executing-plans",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\executing-plans",
+      "skill_present": true,
+      "bytes": 2807,
+      "sha256": "3E34CDE69D0BE4AC1550160F1387916164F5FD2AE61A0EA3DAC4A688442AC891",
+      "description_head": "description: \"Use when carrying out an existing implementation plan while tracking dependencies, evidence, and deviations. Do not use to invent a planning prerequisite for direct work or to obey an ob"
+    },
+    {
+      "id": "ffuf-skill",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ffuf-skill",
+      "skill_present": true,
+      "bytes": 3499,
+      "sha256": "64F905B020F6CB616FDA2200FF7EECD5A67A0F47301A53084408BA157648E95C",
+      "description_head": "description: Usa ffuf para enumeraÃ§Ã£o e fuzzing web em avaliaÃ§Ãµes autorizadas. Use quando o usuÃ¡rio pedir explicitamente pentest, enumeraÃ§Ã£o de conteÃºdo ou teste de parÃ¢metros em um alvo sob "
+    },
+    {
+      "id": "finishing-a-development-branch",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\finishing-a-development-branch",
+      "skill_present": true,
+      "bytes": 3334,
+      "sha256": "879069C3DA17A3506CEAABD4C73B77ADBFE580CF1C9F334C5134C270C37AE8B7",
+      "description_head": "description: Finalizar uma branch quando a implementaÃ§Ã£o terminou, verificando o resultado e escolhendo integraÃ§Ã£o, PR, preservaÃ§Ã£o ou limpeza conforme a autorizaÃ§Ã£o existente."
+    },
+    {
+      "id": "frontend-design",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\frontend-design",
+      "skill_present": true,
+      "bytes": 5613,
+      "sha256": "E17D2229FB07300933F5BE51E0B6BD86EB335C0F154FFF12FE2093851D1D25BD",
+      "description_head": "description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (e"
+    },
+    {
+      "id": "github-triage",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\github-triage",
+      "skill_present": true,
+      "bytes": 3391,
+      "sha256": "9AD3B43277353A2DAE8B38440194E04CD84DE1052AD64B1B86B9E131590FC963",
+      "description_head": "description: Analisa, organiza e transforma issues, bugs e solicitaÃ§Ãµes do GitHub em trabalho acionÃ¡vel. Use quando o usuÃ¡rio pedir triagem de issues, bugs ou fluxo de tickets; leitura e diagnÃ³st"
+    },
+    {
+      "id": "herdr",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\herdr",
+      "skill_present": true,
+      "bytes": 11267,
+      "sha256": "61DEA6A2541C687548165D5368BBF52B311BA4E86138588949FA975E7174A742",
+      "description_head": "description: \"Control Herdr, a terminal multiplexer for coding agents. Use only when the user explicitly mentions Herdr or asks to use Herdr to inspect or control panes, tabs, workspaces, commands, or"
+    },
+    {
+      "id": "hero-visual-prompt-generator",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\hero-visual-prompt-generator",
+      "skill_present": true,
+      "bytes": 5814,
+      "sha256": "667E93C65F3967EFCA8D8CC76781775B225DCBC3FD11A01E69CBB4227E55A365",
+      "description_head": "description: Generate premium AI image and video prompts for landing page hero sections with cinematic commercial quality for Nano Banana, FreePik AI, Google Veo Flow, Runway ML and Pika Labs."
+    },
+    {
+      "id": "hybrid-development",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\hybrid-development",
+      "skill_present": true,
+      "bytes": 8436,
+      "sha256": "16776C450385F20DA1FDC96C3E8C053E72DB246E0508B2AFB43C8474FA9026CD",
+      "description_head": "description: Use to route non-trivial implementation, refactoring, debugging, or engineering review through the shared development method. Also use when explicitly requested. Skip casual questions, si"
+    },
+    {
+      "id": "impeccable",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\impeccable",
+      "skill_present": true,
+      "bytes": 11813,
+      "sha256": "E7EE8E5E4A5810E43FEB3F83F5785BCD219250E90B4D07DC2368E5F87E6825E3",
+      "description_head": "description: Use when the user wants to design, redesign, shape, critique, audit, polish, clarify, distill, harden, optimize, adapt, animate, colorize, extract, or otherwise improve a frontend interfa"
+    },
+    {
+      "id": "internal-comms",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\internal-comms",
+      "skill_present": true,
+      "bytes": 3645,
+      "sha256": "7883992061735D58AAEDBC292927A04B0824641E7E47F39C593460DD208FA6D7",
+      "description_head": "description: A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of"
+    },
+    {
+      "id": "loops-workflow-improvement",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\loops-workflow-improvement",
+      "skill_present": true,
+      "bytes": 3331,
+      "sha256": "C6EB53D0D5421D08B2753EEBA817FA3C01258D453FD6716719E702FEB81EB36B",
+      "description_head": "description: Melhora um processo de desenvolvimento por ciclos curtos de observaÃ§Ã£o, ajuste e evidÃªncia. Use quando o usuÃ¡rio quiser evoluir como o trabalho Ã© produzido ao longo de vÃ¡rias entreg"
+    },
+    {
+      "id": "maestri",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 6495,
+      "sha256": "B6FA4EE50982A191340DBA7E0C6343FEAD7C941E07E885843658ED81BD400F01",
+      "description_head": "description: Send messages to connected AI agents on the Maestri canvas and get their responses. Also read and write connected sticky notes. Use when the user's intent is to collaborate with another a"
+    },
+    {
+      "id": "maestri-manager",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 15298,
+      "sha256": "385FE1E74680C9DA36B6A8C9D4FBC25D94D5286E2EF0A3401D88F7088FFC3867",
+      "description_head": "description: Create and connect agent terminals on the Maestri canvas, manage agent roles, send push notifications. Use when the user asks to assemble a team, delegate parallel work, or spin up additi"
+    },
+    {
+      "id": "maestri-portal",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 6844,
+      "sha256": "88E490F9F4BF81415FF4934EA9E1ED606BC526CD050AA50F0880BA7CB0916BDA",
+      "description_head": "description: Use a browser portal on the Maestri canvas to navigate the web, interact with pages, fill forms, and inspect content. Use when the user asks to browse a URL, test a web UI, or interact wi"
+    },
+    {
+      "id": "maestri-portal-devices",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 4131,
+      "sha256": "19E17BCA858BEDF8ACBA986B319DE9D89BF53387357997377BCAFC0511BD287A",
+      "description_head": "description: Drive an Android emulator or physical Android phone on the Maestri canvas. Tap, type, screenshot, read the accessibility tree, and launch apps. Use when the user asks to run or test a mob"
+    },
+    {
+      "id": "maestri-routines",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 4847,
+      "sha256": "7E12FEBE139F929DDACB584FEE9148277A1387F2C35D0C90568395E415FCAC3B",
+      "description_head": "description: Manage scheduled routines on the Maestri canvas (recurring commands and reminders). Use to schedule a command or recurring prompt for an agent, automate a timed task, set a reminder, or l"
+    },
+    {
+      "id": "maestri-workspace",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 5937,
+      "sha256": "7CB56B9AC73DB4B018224A91198EF6CC688BCB1C622ABDFDA96B0974D1FBA7DA",
+      "description_head": "description: Create new Maestri workspaces and floors from the command line, optionally cloning an existing workspace as a starting point. Use when the user asks to provision, spin up, or scaffold a n"
+    },
+    {
+      "id": "mcp-builder",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\mcp-builder",
+      "skill_present": true,
+      "bytes": 10511,
+      "sha256": "4AB2919D8D8C9AB92787499DC36EB364F7ACD122A8FFE6FF9357AFA1DAD00451",
+      "description_head": "description: Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to inte"
+    },
+    {
+      "id": "orca-autonomous-development",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\orca-autonomous-development",
+      "skill_present": false,
+      "bytes": null,
+      "sha256": null,
+      "description_head": null
+    },
+    {
+      "id": "orca-cli",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 4150,
+      "sha256": "6DCBD69045C74787BE3385198750C67223709C5FA63A2BA3CFBBE0403E1219F5",
+      "description_head": "description: >-"
+    },
+    {
+      "id": "orca-emulator",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\orca-emulator",
+      "skill_present": true,
+      "bytes": 14149,
+      "sha256": "1F93BD77EE12573C3E26D1823BA8202828DF022FF1485C665F4B9C1C43F3DC12",
+      "description_head": "description: 'Control a mobile (iOS) emulator / simulator stream from inside Orca using the `orca` CLI. Use for taps, gestures, typing, hardware buttons, camera injection, permissions, accessibility t"
+    },
+    {
+      "id": "orca-emulator-android",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\orca-emulator-android",
+      "skill_present": true,
+      "bytes": 10938,
+      "sha256": "3BF1BAB2088B7D016E7058C591676F336B38177D18F09EE9E03F688205267FE0",
+      "description_head": "description: 'Control an Android emulator / device from inside Orca using the `orca` CLI. Use for listing/booting AVDs, taps, swipes, typing, hardware buttons (incl. Back and Recents), rotation, app i"
+    },
+    {
+      "id": "orca-linear",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\orca-linear",
+      "skill_present": true,
+      "bytes": 13303,
+      "sha256": "AB5F3999A585B1878BADA62FA45DFA98817EBBFC86FE78C53EC865D9F6C711FE",
+      "description_head": "description: 'Use Orca''s Linear CLI through `orca linear ...` commands to read linked ticket context with `orca linear issue --current --full --json`, post completion updates, move work forward throu"
+    },
+    {
+      "id": "orca-per-workspace-env",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\orca-per-workspace-env",
+      "skill_present": true,
+      "bytes": 48349,
+      "sha256": "C1C4F9183CB1D9DB10D63A0B5D4A9DD3820AB23CC2E4DE0968DA47CD6664B252",
+      "description_head": "description: 'Set up, review, debug, or validate Orca per-workspace environment recipes â€” on-demand, disposable runtimes (cloud sandboxes, VMs, or local) created fresh for each workspace. Covers fir"
+    },
+    {
+      "id": "orca-team",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\orca-team",
+      "skill_present": true,
+      "bytes": 15137,
+      "sha256": "127714F5BA01E08D5E7408B78D23A37E373083CC96698CD5203EBAC9EB7AFF7B",
+      "description_head": "description: Coordena durante a sessão uma equipe Orca com Planner no terminal de invocação e Coder, Review, Advisor e Suporte definidos pelo usuário, sem fixar agentes ou modelos. Prioriza qualidade "
+    },
+    {
+      "id": "orchestration",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 3671,
+      "sha256": "CD1B364BF35781BAD06BF75AB1766AFA8D6CEC69CB2060529691D89871A2098A",
+      "description_head": "description: >-"
+    },
+    {
+      "id": "playwright-cli",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\playwright-cli",
+      "skill_present": true,
+      "bytes": 3499,
+      "sha256": "831D7B64221C9F0EB3E5C4D4683C144EEF1BA1DC97AB3131AF2D2BFBD143ECB1",
+      "description_head": "description: Testa e automatiza aplicaÃ§Ãµes web com o navegador ou Playwright disponÃ­vel no runtime. Use para validar fluxos web locais, capturar evidÃªncias, preencher formulÃ¡rios de teste e inves"
+    },
+    {
+      "id": "presentation-artifacts",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\presentation-artifacts",
+      "skill_present": true,
+      "bytes": 3360,
+      "sha256": "6852F660A5B5A446ADFC1DFF47532DB3C1A2B608E3AC2B2EF684BE6D26707EE2",
+      "description_head": "description: Cria, lê e edita apresentações e decks usando a capacidade nativa disponível no runtime. Use quando o artefato principal for slides, PowerPoint ou apresentação equivalente."
+    },
+    {
+      "id": "receiving-code-review",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\receiving-code-review",
+      "skill_present": true,
+      "bytes": 2208,
+      "sha256": "01BED4E37CCE4C21FFF5F2FF8779B3A455546A311ED8DADA01710148C72AD18A",
+      "description_head": "description: Use when evaluating review feedback before changing code, especially disputed or ambiguous findings. Skip when no review feedback exists; do not manufacture an approval round."
+    },
+    {
+      "id": "repo-doc",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\repo-doc",
+      "skill_present": true,
+      "bytes": 4927,
+      "sha256": "322620C3502A4810D93AADA55C729A7A6A9DC67E450147F45F9B026BA7D0C220",
+      "description_head": "description: Analisa cÃ³digo e arquitetura de um repositÃ³rio e produz documentaÃ§Ã£o navegÃ¡vel no padrÃ£o Obsidian do Segundo CÃ©rebro. Use quando o usuÃ¡rio pedir para documentar, explicar ou extra"
+    },
+    {
+      "id": "requesting-code-review",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\requesting-code-review",
+      "skill_present": true,
+      "bytes": 2429,
+      "sha256": "714530CF5B570DAF51C557CD95EEA01C696F9C850212CB86D3127DB0864D76FF",
+      "description_head": "description: Use to request or structure review of meaningful changes before integration, or when review is requested. Skip mandatory reviewer rituals for trivial edits."
+    },
+    {
+      "id": "resolving-merge-conflicts",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\resolving-merge-conflicts",
+      "skill_present": true,
+      "bytes": 3521,
+      "sha256": "52182BB3413D4A46229E8600C0363D97C9745454137B8D42CDE1E48374E2A771",
+      "description_head": "description: \"Use when you need to resolve an in-progress git merge/rebase conflict.\""
+    },
+    {
+      "id": "sandbox-sdk",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\sandbox-sdk",
+      "skill_present": true,
+      "bytes": 5947,
+      "sha256": "6BB6866EE2FC3F71F90EDFC94B66A2FF2490DEC0E0327EE5BE57946295B7DBB6",
+      "description_head": "description: Build sandboxed applications for secure code execution. Load when building AI code execution, code interpreters, CI/CD systems, interactive dev environments, or executing untrusted code. "
+    },
+    {
+      "id": "sb-capture",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\sb-capture",
+      "skill_present": true,
+      "bytes": 3898,
+      "sha256": "2C3821DEFF696D8F35B09C976BF5A9547EF3A0CE558C1CE36CB9CBB6CDA20904",
+      "description_head": "description: Registra no Segundo CÃ©rebro uma decisÃ£o ou aprendizado realmente durÃ¡vel. Use apÃ³s resolver um problema nÃ£o Ã³bvio, fechar uma decisÃ£o com alternativas ou quando o usuÃ¡rio pedir ex"
+    },
+    {
+      "id": "sb-curate",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\sb-curate",
+      "skill_present": true,
+      "bytes": 3559,
+      "sha256": "15E57177F31CC686427DB27B303F4454AB66EE91FDD988B068230EFB78617C00",
+      "description_head": "description: MantÃ©m a saÃºde do Segundo CÃ©rebro com diagnÃ³stico, higiene, quarentena, lint e reindexaÃ§Ã£o. Use quando o usuÃ¡rio pedir limpeza do vault ou quando buscas retornarem ruÃ­do, caminhos"
+    },
+    {
+      "id": "sb-search",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\sb-search",
+      "skill_present": true,
+      "bytes": 3922,
+      "sha256": "94AD09D29B56FD2D16DBBDC300EDCF5458436AFAC01DF7FA2DCC2452DF9C5215",
+      "description_head": "description: Pesquisa o vault Segundo CÃ©rebro para recuperar decisÃµes, erros, padrÃµes e conhecimento antes de uma decisÃ£o relevante. Use quando o usuÃ¡rio pedir consulta ao vault, quando um proble"
+    },
+    {
+      "id": "scrapling-official",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\scrapling-official",
+      "skill_present": true,
+      "bytes": 3496,
+      "sha256": "AA7601DFB55BA5DDB18B7EE4098C74BFC1732DFB98F4A94361945CC96E457F03",
+      "description_head": "description: Extrai conteÃºdo web com Scrapling quando uma coleta programÃ¡tica autorizada exige renderizaÃ§Ã£o, navegaÃ§Ã£o ou adaptaÃ§Ã£o a pÃ¡ginas dinÃ¢micas. Use depois de avaliar se pesquisa web"
+    },
+    {
+      "id": "second-brain",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\second-brain",
+      "skill_present": true,
+      "bytes": 3595,
+      "sha256": "ACD34F4D615B981AE3AA64CF9D2D9703681CB789423778EA6C990471A4C0C498",
+      "description_head": "description: Orienta o uso do vault Obsidian Segundo CÃ©rebro e encaminha para busca, captura, curadoria ou documentaÃ§Ã£o de repositÃ³rios. Use quando a tarefa mencionar o vault, a base de conhecimen"
+    },
+    {
+      "id": "setup-pre-commit",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\setup-pre-commit",
+      "skill_present": true,
+      "bytes": 3377,
+      "sha256": "169CE4269369984304218091C2C8AB9EC9C74C7A93592B5E142501D63EE666A0",
+      "description_head": "description: Configura verificaÃ§Ãµes prÃ©-commit adequadas Ã  stack e aos comandos jÃ¡ existentes do repositÃ³rio. Use quando o usuÃ¡rio pedir hooks de commit, formataÃ§Ã£o, lint, tipos ou testes ant"
+    },
+    {
+      "id": "skill-discovery",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\skill-discovery",
+      "skill_present": true,
+      "bytes": 3090,
+      "sha256": "227314E34F9CECA3C1157BFB5D89A1279E9DA89A7ABC71E69227631D8125D5AC",
+      "description_head": "description: Localiza capacidades e skills já disponíveis nos runtimes antes de instalar algo novo. Use quando o usuário perguntar se existe uma skill para uma tarefa, pedir descoberta de ferramentas "
+    },
+    {
+      "id": "spreadsheet-artifacts",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\spreadsheet-artifacts",
+      "skill_present": true,
+      "bytes": 3246,
+      "sha256": "AF321B0E5AAB0ED722F83D80B332947E36E77F00724ECC3D76CB85CADE40A882",
+      "description_head": "description: Cria, lê, analisa e edita planilhas e dados tabulares usando a capacidade nativa disponível no runtime. Use quando o resultado principal for XLSX, CSV, TSV ou planilha equivalente."
+    },
+    {
+      "id": "standards-spec-review",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\standards-spec-review",
+      "skill_present": true,
+      "bytes": 2340,
+      "sha256": "A0AEDD29F7DB6BCAEDB288264E0AEF5792FFAFBA34A3B42F722CFE6A6A5B8396",
+      "description_head": "description: Use only when the user explicitly requests review against both requirements or an approved specification AND repository coding standards. Do not use for ordinary review or completion chec"
+    },
+    {
+      "id": "subagent-driven-development",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\subagent-driven-development",
+      "skill_present": true,
+      "bytes": 2059,
+      "sha256": "6E1AC6CDCFABFD41BE02D62A8669004B5F17312884DCA644DA4C7B0FC7E13B11",
+      "description_head": "description: Use to execute a bounded implementation plan when supported delegation adds useful specialization or independent review. Skip routine solo work and plans without separable ownership."
+    },
+    {
+      "id": "systematic-debugging",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\systematic-debugging",
+      "skill_present": true,
+      "bytes": 2167,
+      "sha256": "A97BDB98F05DF3B187B50C6C87B2A027F14584273E923225EA6BFA7DED831915",
+      "description_head": "description: Use for bugs, failing checks, or unexpected behavior requiring diagnosis. Skip ordinary feature implementation and changes with no failure to investigate."
+    },
+    {
+      "id": "test-driven-development",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\test-driven-development",
+      "skill_present": true,
+      "bytes": 1955,
+      "sha256": "B2C3682E825A0E792E5E592D29CE6C0473FD499ED800213CAE91345D512720D2",
+      "description_head": "description: Use for meaningful testable behavior or regressions where test-first work improves confidence. Skip prose, trivial declarative edits, and disposable experiments."
+    },
+    {
+      "id": "theme-factory",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\theme-factory",
+      "skill_present": true,
+      "bytes": 4310,
+      "sha256": "BC48781DA5A5903740A5BE7C9C60F4524DE2A7F3B9B48AD58B059E9E062C2A21",
+      "description_head": "description: Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc. There are 10 pre-set themes with colors/fonts that you can apply to a"
+    },
+    {
+      "id": "tight-feedback-debugging",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\tight-feedback-debugging",
+      "skill_present": true,
+      "bytes": 2147,
+      "sha256": "90F424317C7605D98B355DD51BE42F0D7FC33A1EBF1F5362BF95CF816916C546",
+      "description_head": "description: Use alongside systematic debugging for hard, intermittent, flaky, or performance bugs needing a faster reproduction loop. Skip simple failures already covered by a useful focused check."
+    },
+    {
+      "id": "to-issues",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\to-issues",
+      "skill_present": true,
+      "bytes": 3069,
+      "sha256": "CB46687BD2007A42EA79954201C5D3BD031DD24404C718C9AC4DF2E4C040F9BD",
+      "description_head": "description: \"Use when decomposing a specification, PRD, or plan into implementable tickets with testable outcomes and dependencies. Do not split a simple change mechanically or publish issues by defa"
+    },
+    {
+      "id": "to-prd",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\to-prd",
+      "skill_present": true,
+      "bytes": 2865,
+      "sha256": "655CFC12E28815D84C3A871C6243C40BBD6105BFBD1314349E8D9C4E4217DD86",
+      "description_head": "description: \"Use when asked to synthesize a PRD or product specification from existing context. Do not use as a mandatory discovery interview, a technical implementation plan, or authorization to pub"
+    },
+    {
+      "id": "to-questionnaire",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\to-questionnaire",
+      "skill_present": true,
+      "bytes": 4190,
+      "sha256": "20ED4B194AABDC9197AEC5F763D986C5050299A4627CD106C6EC73DB0BAB500E",
+      "description_head": "description: Create an asynchronous questionnaire when a named decision owner holds information that the user and agent cannot obtain from the project or available sources."
+    },
+    {
+      "id": "trafego-pago-br",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\trafego-pago-br",
+      "skill_present": true,
+      "bytes": 5392,
+      "sha256": "C7EBF3F6628FC85147BCD355B6DBD2318322491D60BD3DB85105180B597B3682",
+      "description_head": "description: TrÃ¡fego pago e gestÃ£o de mÃ­dia em pt-BR do vault â€” 354 aulas transcritas de uma comunidade brasileira de gestores de trÃ¡fego, cobrindo Google Ads e Meta Ads, mais 40 fichas de livro"
+    },
+    {
+      "id": "triage-issue",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\triage-issue",
+      "skill_present": true,
+      "bytes": 3106,
+      "sha256": "EF50D53682D9467FCBC3FCBCFA1703FE498315F051B2E53A6210CAE706961BD0",
+      "description_head": "description: Investiga um bug ou issue para chegar a uma hipótese de causa, reprodução e plano de correção. Use quando o usuário relatar um problema ou pedir triagem; criar ou alterar uma issue extern"
+    },
+    {
+      "id": "turnstile-spin",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\turnstile-spin",
+      "skill_present": true,
+      "bytes": 15117,
+      "sha256": "9CF632D7DC1B45B45DF2F956C064DE03D51B905EC8817DEC35912B88A35B1A5D",
+      "description_head": "description: Set up Cloudflare Turnstile end-to-end in a project — scan the codebase, create the widget via the Cloudflare API, deploy the managed siteverify Worker, write the frontend snippets, valid"
+    },
+    {
+      "id": "ui-libraries-curator",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\ui-libraries-curator",
+      "skill_present": true,
+      "bytes": 7887,
+      "sha256": "156DD51D120A004ADFEC55AB0A04111792A01877470161EBD7A54FBB689B9017",
+      "description_head": "description: Curadoria e roteador inteligente de 16 bibliotecas premium de componentes UI (shadcn/ui, React, Tailwind, Framer Motion) â€” ReUI, Aceternity, Magic UI, Skiper UI, Cult UI, HeroUI, Eldora"
+    },
+    {
+      "id": "using-git-worktrees",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\using-git-worktrees",
+      "skill_present": true,
+      "bytes": 3257,
+      "sha256": "5617383CF9EC0A942F25E22963B68A5F2F13FA4C0BE3FD759A2B6AF67CBE51FB",
+      "description_head": "description: Criar ou usar worktree Git quando isolamento de branch, concorrÃªncia ou proteÃ§Ã£o do checkout atual trouxer benefÃ­cio concreto."
+    },
+    {
+      "id": "using-superpowers",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\using-superpowers",
+      "skill_present": true,
+      "bytes": 676,
+      "sha256": "81FF182997A61972410BBE5C11DFAC13ECC5A64E29313BC4F2A69AF03C9C819D",
+      "description_head": "description: Use only for explicit invocation or a legacy reference to using-superpowers. Never activate automatically for development tasks."
+    },
+    {
+      "id": "vendas-br",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\vendas-br",
+      "skill_present": true,
+      "bytes": 5517,
+      "sha256": "5087FA57A72331A1A8159C72581E0D81BF268C0AF11B6FC4949344EC65933C43",
+      "description_head": "description: Material de vendas consultivas e prospecÃ§Ã£o B2B em pt-BR do vault â€” 665 aulas transcritas (VENDE-C, MÃ¡quina de ProspecÃ§Ã£o, Thiago Concer) e 80 fichas de livros de vendas e negociaÃ"
+    },
+    {
+      "id": "verification-before-completion",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\verification-before-completion",
+      "skill_present": true,
+      "bytes": 2184,
+      "sha256": "8171B95C6DAE77822BA5F63E4FF5BDC05BB7978F0B36BDBCEBBEEB0468137610",
+      "description_head": "description: Use before claiming work complete, fixed, passing, or ready to integrate. Skip unrelated check suites and ceremonial verification for conversational answers."
+    },
+    {
+      "id": "watch",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\watch",
+      "skill_present": true,
+      "bytes": 21846,
+      "sha256": "62C7881001C81866D4D6B42A47D6C0FEF4D496E48C08A4424D03F92B30546AF4",
+      "description_head": "description: Watch a video (URL or local path). Downloads with yt-dlp, extracts auto-scaled frames with ffmpeg, pulls the transcript from captions (or Whisper API fallback), and hands the result to Cl"
+    },
+    {
+      "id": "web-artifacts-builder",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\web-artifacts-builder",
+      "skill_present": true,
+      "bytes": 4327,
+      "sha256": "84E17950437464CA1E7EC9F3EFFBF0C9EA7538CC60919DB038DEF3A0011233EE",
+      "description_head": "description: Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requirin"
+    },
+    {
+      "id": "web-perf",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\web-perf",
+      "skill_present": true,
+      "bytes": 9543,
+      "sha256": "5E1F30E1A5145C38B4A26A19C66B75CC04BAA4BEF8F7BFDE5E4A4021C979B92A",
+      "description_head": "description: Analyzes web performance using Chrome DevTools MCP. Measures Core Web Vitals (LCP, INP, CLS) and supplementary metrics (FCP, TBT, Speed Index), identifies render-blocking resources, netwo"
+    },
+    {
+      "id": "wizard",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\wizard",
+      "skill_present": true,
+      "bytes": 5409,
+      "sha256": "2DB41764B7221CE477B8B440F3D766E321445BE6D45DE28BAF35E93AF6BE21D7",
+      "description_head": "description: Generate an interactive bash wizard that walks a human through steps only they can perform. Use when provisioning infrastructure, setting up credentials or CI secrets, walking an unfamili"
+    },
+    {
+      "id": "workers-best-practices",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\workers-best-practices",
+      "skill_present": true,
+      "bytes": 7218,
+      "sha256": "5173B912C26F770559AF898B5005E308A5CA69540FF9836318370133359FEE51",
+      "description_head": "description: Reviews and authors Cloudflare Workers code against production best practices. Load when writing new Workers, reviewing Worker code, configuring wrangler.jsonc, or checking for common Wor"
+    },
+    {
+      "id": "wrangler",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\wrangler",
+      "skill_present": true,
+      "bytes": 20411,
+      "sha256": "76B2D3B765933C68E389885090E6D8CB37CEC2B1A3FCF2BF481B201668F12B94",
+      "description_head": "description: Cloudflare Workers CLI for deploying, developing, and managing Workers, KV, R2, D1, Vectorize, Hyperdrive, Workers AI, Containers, Queues, Workflows, Pipelines, and Secrets Store. Load be"
+    },
+    {
+      "id": "writing-plans",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\writing-plans",
+      "skill_present": true,
+      "bytes": 2903,
+      "sha256": "5BAEF2855A52358BC67D968E58C9926A4A591524C6534BB8A5AB9B6D418B7208",
+      "description_head": "description: \"Use when implementation needs an executable technical plan because of dependencies, risk, or session boundaries, or when explicitly requested. Do not require a plan for a straightforward"
+    },
+    {
+      "id": "writing-skills",
+      "root": "agents",
+      "kind": "junction",
+      "target": "C:\\Users\\walis\\agent-config\\skills\\global\\writing-skills",
+      "skill_present": true,
+      "bytes": 2334,
+      "sha256": "71133CC181039FD1C9FF080447100E3DC34184A5F67DCDBFB04B08FA24A9A00E",
+      "description_head": "description: Use to create, adapt, or review reusable SKILL.md techniques and their triggers. Do not use for ordinary code changes or to impose a development workflow on every conversation."
+    },
+    {
+      "id": "autoresearch",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 7938,
+      "sha256": "E5B6271BAD24BCDAE68408143176CF6B2A0663E0109E9BD0DAABD2E7DF16C47F",
+      "also_in_agents": false
+    },
+    {
+      "id": "dispatching-parallel-agents",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 2331,
+      "sha256": "751AD62979BC44BD622E88B32CE903296A35A5E0FA7B8683CB7436DFA5A40575",
+      "also_in_agents": true
+    },
+    {
+      "id": "hybrid-development",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 8411,
+      "sha256": "A3B7C6284659E84AB73080B87DC176B80FC8BB9D88C9757AE0C7106BBE8ECCC6",
+      "also_in_agents": true
+    },
+    {
+      "id": "jev-ultrafast",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 2426,
+      "sha256": "4E61D52D3C678A0514E3A86F77AAB1E84924DEA4C9A8F0896B6680A5EC953D65",
+      "also_in_agents": false
+    },
+    {
+      "id": "subagent-driven-development",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 2059,
+      "sha256": "6E1AC6CDCFABFD41BE02D62A8669004B5F17312884DCA644DA4C7B0FC7E13B11",
+      "also_in_agents": true
+    },
+    {
+      "id": "using-superpowers",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 676,
+      "sha256": "81FF182997A61972410BBE5C11DFAC13ECC5A64E29313BC4F2A69AF03C9C819D",
+      "also_in_agents": true
+    },
+    {
+      "id": "verification-before-completion",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 2184,
+      "sha256": "8171B95C6DAE77822BA5F63E4FF5BDC05BB7978F0B36BDBCEBBEEB0468137610",
+      "also_in_agents": true
+    }
+  ]
+}
