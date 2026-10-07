@@ -104,20 +104,24 @@ Conteúdo correto, procedimento errado: é exatamente o caso que as seções 1 e
 docs PR. Este incidente é a evidência motivadora desta policy, registrado
 aqui sem reescrever o histórico.
 
-## 11. Branch protection recomendado (ruleset)
+## 11. Branch protection de `master` (aplicado)
 
-Conjunto recomendado para o ruleset de `master` — **RECOMENDADO, não
-aplicado**: aplicação via admin/API somente se autorizada pelo operador:
+Conjunto recomendado para `master` — **APLICADO em 2026-10-07** via API
+clássica de branch protection, com autorização explícita do operador:
 
-- `direct_push`: deny (todos, sem bypass salvo break-glass auditado)
-- `force_push`: deny
-- `deletion`: deny
-- `require_pull_request`: true
-- `required_checks`: os 5 CIs reais da seção 4
-- `require_conversation_resolution`: true
-
-Nenhuma proteção foi aplicada por esta policy; a lista acima é especificação
-para decisão do operador.
+- `direct_push`: deny (via `required_pull_request_reviews` + `strict` checks)
+- `force_push`: deny (`allow_force_pushes: false`)
+- `deletion`: deny (`allow_deletions: false`)
+- `require_pull_request`: true (`dismiss_stale_reviews: true`,
+  `require_code_owner_reviews: false` — sem CODEOWNERS no repo,
+  `required_approving_review_count: 0` — mantenedor solo; CI + threads
+  continuam obrigatórios)
+- `required_checks`: `strict: true` + os 5 CIs reais da seção 4
+- `require_conversation_resolution`: true (`enabled: true`)
+- `required_linear_history`: false (merge commit é o método padrão, §6)
+- `enforce_admins`: false — bypass de admin preservado como caminho
+  break-glass (§9), com trilha de auditoria post-hoc; nunca atalho de
+  conveniência.
 
 ## 12. Capability `github-lifecycle` (por referência)
 
