@@ -94,3 +94,21 @@ Detalhes e classes de mudança (`BUGFIX`, `RUNTIME_COMPATIBILITY`,
 `MODEL_POLICY_CHANGE`, `ROUTING_POLICY_CHANGE`, `AUTHORITY_CHANGE`,
 `FEATURE_REEVALUATION`) em [ARCHITECTURE](ARCHITECTURE.md). Nunca
 implementar por hipótese.
+
+## GitHub Lifecycle
+
+Source of truth: [github-lifecycle-policy](github-lifecycle-policy.md).
+Nenhum commit direto em `master` — tudo entra via PR com os 5 checks do
+workflow `CI` verdes no HEAD (`CI (ps51)`, `CI (ps7)`,
+`CI (smoke opencode real)`, `CI (v2 lane, perfil V2 provisionado)`,
+`CI (smoke opencode v2 real)`).
+
+Método de merge padrão é **merge commit**, sem squash nem reescrita salvo
+decisão explícita registrada no PR (praticado no PR #28: fix `4a1acbe` em
+commit separado, merge `c6c15d7`).
+
+Review distingue GitHub required review (gate externo, insubstituível) de
+internal subagent review (`reviewer`/`security-reviewer`), Codex bot
+(consultivo) e deterministic fallback. Regra anti-fabricação: sem evidência
+observável, classifica-se `REVIEW_FALLBACK`, nunca `REVIEW_APPROVED` nem
+`PASS` inventado.
