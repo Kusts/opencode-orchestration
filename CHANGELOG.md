@@ -6,6 +6,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 4 v0.1.0 (2026-10-07) — Decision Provider + Jev
+
+- `OrchestrationDecisionProvider.ps1`: Rules -> Jev (admission utilitária,
+  sem veto por task-class) -> Planner escalation; envelope fechado, Jev
+  nunca decide sozinho (gate local descarta overreach/model/done).
+- Issue #19: model/provider-override negado (incl. `Muse`); `trivial_local`
+  substituído por admission; Jev indisponível nunca bloqueia.
+- Reviewer + Security: APPROVED (2 HIGH + 2 MEDIUM + SEC-01 corrigidos).
+- Desvio honesto do PLAN: PlannerLoop/JevAdvisory intocados (contratos de
+  segurança aprovados); wiring na Fase 5.
+
 ### Fase 3 v0.1.0 (2026-10-07) — Reuse-First obrigatório
 
 - **Reuse query obrigatória**: PlannerLoop resolve StoreDir automaticamente
