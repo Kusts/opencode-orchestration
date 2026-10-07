@@ -200,8 +200,14 @@ Grafana, Jina, Composio, Pipedream. Ativações de wiring pendentes do operador
 
 ## 26. Git/PR Evidence
 
-Branch `feat/capabilities-phase-2b` ← `d3f2d24`; commits por responsabilidade;
-PR + CI + review registrados ao fechar (seção preenchida no merge).
+- Base: `d3f2d24` (master pós-PR #24); branch `feat/capabilities-phase-2b`;
+  HEAD `bacc41f` (8 commits por responsabilidade, push limpo, tree limpa).
+- PR #26 (base master, MERGEABLE): 5 jobs CI (ps51, ps7, smoke V1/V2, v2-lane).
+- Review independente: reviewer + security-reviewer CHANGES_REQUIRED →
+  4 findings integrados com evidência (gate de hashes vinculado + caminho
+  negativo provado; present exige SKILL.md legível; cobertura exata vs
+  inventário também no CI; claim do `ask` corrigido para fail-ask honesto).
+- Merge: registrar resultado CI + hash de merge aqui ao fechar.
 
 ## 27. Final Verdict
 
