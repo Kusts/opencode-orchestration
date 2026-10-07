@@ -10,8 +10,11 @@
       . ./protect-master.ps1
       Test-GitOperationAllowed -CommandLine 'git push origin master' -CurrentBranch 'feat/x'
     Guard processual/opt-in: classifica sem executar; nao esta instalado
-    como git hook; enforcement remoto (branch protection) pendente de
-    autorizacao do operador.
+    como git hook. Complementa (defense-in-depth) a branch protection
+    remota de `master`, ATIVA desde 2026-10-07 (PR + 5 checks strict +
+    conversation resolution + force/delete deny; `enforce_admins: false`,
+    ou seja, o guard local tambem nao vincula admins — break-glass
+    auditado, nunca atalho).
     CLI mode (classify one command; exit 0 = ALLOW, exit 1 = DENY):
       powershell -NoProfile -File protect-master.ps1 -CommandLine 'git push origin master' [-CurrentBranch 'feat/x']
     Denied patterns (fail-closed):
