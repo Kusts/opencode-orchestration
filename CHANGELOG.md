@@ -4,6 +4,26 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.1.0] — 2026-10-07 — Universal Autonomous Orchestration (Autonomous Core)
+
+Branch `feat/universal-autonomous-orchestration-v0.1.0` (12 commits desde
+`414c81e` + fechamento). Epoch SemVer formal: tag histórica `v1.0`
+preservada como legacy; V3/V3.1 como programas internos históricos.
+
+Entregas PR-A…PR-L: SPEC/PLAN/ADR; preflight `SINGLE_WORKER`/`MULTI_WORKER`
+/`PERSISTENT_GOAL` com DONE fail-closed; Autonomy Envelope + stops;
+Reuse-First; DecisionProvider/Jev (#19); ObjectiveController + hook;
+Goal Kernel (CAS); promotion/progress/TDR; checkpoint/EvidenceRef;
+delivery gate; telemetry + 15 Golden; docs; harness S1-S8.
+
+Evidência: `evidence/v0.1.0/release-0.1.0.json`. Full suite 64/73 (3 FAILs
+pré-existentes DE22307F, machine-local); distribuição 14/21 ambos os lados
+(sem regressão; falhas ambientais + flaky classificadas); security
+APPROVED; reviewer APPROVED por fase.
+
+Residuais operador/CI: smokes V1/V2 exact-runtime, 5 checks do PR,
+issue #25, green-run de distribuição no CI.
+
 ## [Unreleased]
 
 ### Fase 15 v0.1.0 (2026-10-07, parcial) — Release harness

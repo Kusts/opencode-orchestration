@@ -29,7 +29,7 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 ## Versionamento
 
-- Versão atual: `0.1.0-dev` (ver `VERSION`); o epoch SemVer conta a partir de `0.1.0`.
+- Versão atual: `0.1.0` (ver `VERSION`); tag `v0.1.0` marca esta release.
 - A tag `v1.0` é legada — anterior ao versionamento formal — e preservada como histórico.
 - `V3` / `V3.1` / `Pxx` são programas internos históricos, não versões do pacote.
 - Índice SPEC/PLAN/ADR em [docs/specs/INDEX.md](docs/specs/INDEX.md); histórico de mudanças em [CHANGELOG.md](CHANGELOG.md).
