@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Fase 6 v0.1.0 (2026-10-07) — Goal Kernel persistente
+
+- `OrchestrationGoalKernel.ps1`: CRUD + CAS real (lock->read->check->
+  write), lifecycle com transições fechadas, tasks, next-move via
+  controller, store em `cache/goal-store`; TaskKernel intocado.
+- Suite 87 asserts (lifecycle, CAS com barreira N=20, identidade
+  case-insensitive, TTL-safe). Tester PASS; Reviewer APPROVED.
+- Residual: Savelast-writer-wins (Update-CAS é o caminho normatizado).
+
 ### Fase 5 v0.1.0 (2026-10-07) — Objective Continuation Kernel
 
 - `OrchestrationObjectiveController.ps1`: next-move puro (CONTINUE/RETRY/
