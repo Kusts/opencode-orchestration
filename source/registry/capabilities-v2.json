@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-06",
-  "note": "Registry curado estatico de capabilities (Fase 2A fatia 2). Declarativo apenas: nunca habilita routing dinamico (capability-flags.json continua com router/skill/mcp/adaptive OFF) e nunca adiciona MCPs. status.desired = intencao; status.observed = snapshot inicial da auditoria 2026-10-06 (repo + config viva do operador); verdade por maquina via scripts/v3/capability-healthcheck.ps1. MCPs novos/opcionais nunca nascem como installed.",
+  "updated": "2026-10-07",
+  "note": "Registry curado estatico de capabilities (Fase 2A fatia 2 + Fase 2B: catalogo de skills, probe mcp-path, pilotos MCP como CANDIDATE). Declarativo apenas: nunca habilita routing dinamico (capability-flags.json continua com router/skill/mcp/adaptive OFF) e nunca adiciona MCPs. status.desired = intencao; status.observed = snapshot inicial da auditoria 2026-10-06 (repo + config viva do operador) com revisao 2B em 2026-10-07 (ai-memory resolvido via mcp.servers.ai-memory; jev via OPENCODE_ZEN_API_KEY); verdade por maquina via scripts/v3/capability-healthcheck.ps1. MCPs novos/opcionais nunca nascem como installed.",
   "status_values": {
     "DECLARED": "declarado no pacote/catalogo, presenca ainda nao sondada",
     "DISCOVERED": "conhecido; presenca varia por maquina e e decidida pelo healthcheck",
@@ -86,7 +86,7 @@
       "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "Phase 2A closure: token rotacionado (old sha12 != new sha12), memory_status PASS apos boot limpo 20:48:27Z; probe dedicado TLS/401 fail-closed" },
       "risk": { "level": "low", "reason": "memory.* = low na risk_policy; dado nao-confiavel, nunca instrucao" },
       "activation": { "mode": "on-demand", "note": "opcional por padrao; required bloqueia tipado quando ausente" },
-      "healthcheck": { "probe": "mcp-config", "target": "ai-memory", "env_names": ["AI_MEMORY_AUTH_TOKEN"], "command": "chave mcp.ai-memory na config + env AI_MEMORY_AUTH_TOKEN presente (nome apenas, nunca valor)", "timeout_seconds": 10 }
+      "healthcheck": { "probe": "mcp-path", "target": "servers.ai-memory", "env_names": ["AI_MEMORY_AUTH_TOKEN"], "command": "caminho mcp.servers.ai-memory na config + env AI_MEMORY_AUTH_TOKEN presente (nome apenas, nunca valor)", "timeout_seconds": 10 }
     },
     {
       "id": "context7",
@@ -110,7 +110,55 @@
       "status": { "desired": "ACTIVE", "observed": "INSTALLED", "observed_at": "2026-10-06", "observed_note": "chave mcp presente na config viva; flag jev_advisory ON; chamada P38-S2 advisory-only" },
       "risk": { "level": "low", "reason": "advisory-only; kernel/verifier/reviewer/security sempre vencem" },
       "activation": { "mode": "advisory-only", "note": "somente quando o usuario pedir; nunca edita policy por si so" },
-      "healthcheck": { "probe": "mcp-config", "target": "jev", "env_names": ["JEV_BASE_URL", "JEV_API_KEY"], "command": "chave mcp.jev na config + env JEV_BASE_URL/JEV_API_KEY presentes (nomes apenas, nunca valores)", "timeout_seconds": 10 }
+      "healthcheck": { "probe": "mcp-config", "target": "jev", "env_names": ["OPENCODE_ZEN_API_KEY"], "command": "chave mcp.jev na config + env OPENCODE_ZEN_API_KEY presente (nome apenas, nunca valor; JEV_BASE_URL e literal na config viva)", "timeout_seconds": 10 }
+    },
+    {
+      "id": "skills-catalog",
+      "description": "Catalogo curado de skills (Fase 2B): 105 entradas classificadas (CORE/RECOMMENDED/DOMAIN/PERSONAL/...), precedencia later-wins e shadow_table com hashes.",
+      "type": "skills",
+      "runtime": { "v2": true, "note": "skills sao tecnica/intencao; carregamento pela via nativa do runtime" },
+      "managed_by": "control-plane",
+      "declared_by": "package",
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-07", "observed_note": "source/registry/skills-catalog.json presente; scripts/v3/skills-healthcheck.ps1 verdict PASS nesta maquina" },
+      "risk": { "level": "low", "reason": "tecnica reutilizavel; sem autoridade sobre policy/permissoes" },
+      "activation": { "mode": "on-demand", "note": "carregadas pelo gatilho da tarefa, nunca por rito" },
+      "healthcheck": { "probe": "repo-file", "target": "source/registry/skills-catalog.json", "command": "Test-Path source/registry/skills-catalog.json", "timeout_seconds": 10 }
+    },
+    {
+      "id": "github-mcp",
+      "description": "Piloto Fase 2B: GitHub MCP oficial (github/github-mcp-server, remoto read-only com toolsets repos/issues/pull_requests) para triagem multi-passo e CI; gh CLI continua o default pontual.",
+      "type": "mcp",
+      "runtime": { "v2": true, "note": "remote https://api.githubcopilot.com/mcp/ com toolset filter; auth via {env:GITHUB_PERSONAL_ACCESS_TOKEN}, operador-owned" },
+      "managed_by": "user",
+      "declared_by": "package-policy",
+      "status": { "desired": "CANDIDATE", "observed": "CANDIDATE", "observed_at": "2026-10-07", "observed_note": "Phase 2B pilot: config draft em source/registry/mcp-profiles.json (profile core-dev, opt-in); nao instalado nesta maquina" },
+      "risk": { "level": "medium", "reason": "write tools = external.side-effect; repos publicos sao vetor de prompt-injection (lockdown mitiga parcial)" },
+      "activation": { "mode": "candidate", "note": "opt-in por profile core-dev; github_*:false global + allow por agente" },
+      "healthcheck": { "probe": "mcp-config", "target": "github", "env_names": ["GITHUB_PERSONAL_ACCESS_TOKEN"], "command": "chave mcp.github na config + env GITHUB_PERSONAL_ACCESS_TOKEN presente (nomes apenas, nunca valores)", "timeout_seconds": 10 }
+    },
+    {
+      "id": "playwright-mcp",
+      "description": "Piloto Fase 2B: Playwright MCP oficial (@playwright/mcp, local headless, caps minimas) para E2E comportamental; CLI+skill continua alternativa de menor custo.",
+      "type": "mcp",
+      "runtime": { "v2": true, "note": "local stdio npx @playwright/mcp@latest --headless; 70+ tools, caps core (+testing sob demanda)" },
+      "managed_by": "user",
+      "declared_by": "package-policy",
+      "status": { "desired": "CANDIDATE", "observed": "CANDIDATE", "observed_at": "2026-10-07", "observed_note": "Phase 2B pilot: config draft em source/registry/mcp-profiles.json (profile testing, opt-in); nao instalado nesta maquina" },
+      "risk": { "level": "medium", "reason": "browser.automation = medium; browser_evaluate/run_code_unsafe executam JS na pagina" },
+      "activation": { "mode": "candidate", "note": "opt-in por profile testing (tester, frontend-engineer); medir tokens vs CLI+skill antes de default" },
+      "healthcheck": { "probe": "mcp-config", "target": "playwright", "env_names": [], "command": "chave mcp.playwright presente na config viva", "timeout_seconds": 10 }
+    },
+    {
+      "id": "chrome-devtools-mcp",
+      "description": "Piloto Fase 2B em HOLD: Chrome DevTools MCP (59 tools, telemetria on-by-default) para diagnostico runtime; sobreposicao com Playwright exige gap concreto de perf/memoria.",
+      "type": "mcp",
+      "runtime": { "v2": true, "note": "local stdio npx chrome-devtools-mcp@latest --headless --slim; Chrome-only" },
+      "managed_by": "user",
+      "declared_by": "package-policy",
+      "status": { "desired": "CANDIDATE", "observed": "CANDIDATE", "observed_at": "2026-10-07", "observed_note": "Phase 2B veredito HOLD: sem instalacao; revisitar via --slim se gap de perf/memoria se confirmar" },
+      "risk": { "level": "medium", "reason": "acesso total ao browser vivo; telemetria on-by-default + CrUX; heapsnapshots pesadas" },
+      "activation": { "mode": "candidate", "note": "HOLD; se ativado: --slim + --no-usage-statistics sob debugger, opt-in" },
+      "healthcheck": { "probe": "mcp-config", "target": "chrome-devtools", "env_names": [], "command": "chave mcp.chrome-devtools presente na config viva", "timeout_seconds": 10 }
     },
     {
       "id": "opencode-runtime",

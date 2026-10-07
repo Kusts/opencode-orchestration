@@ -19,6 +19,8 @@
                     (opencode.jsonc preferido, senao opencode.json, somente
                     leitura); configured = env_names presentes (nomes apenas).
                     healthy = installed -and configured. Sem rede.
+      mcp-path    - caminho pontilhado sob mcp.* (ex. servers.ai-memory);
+                    mesma semantica de configured/healthy do mcp-config.
 
     Exit: 0 = sondagem concluida (mesmo com capabilities ausentes/doentes);
     2 = fail-closed (registry ausente/ilegivel). PS 5.1 compativel.
@@ -176,6 +178,43 @@ function Invoke-VersionProbe {
   }
 }
 
+function Get-UserMcpPathConfigured {
+  <#
+  .SYNOPSIS
+      Verifica presenca de um caminho pontilhado sob mcp.* na config viva
+      (somente leitura). Ex.: path 'servers.ai-memory' resolve
+      mcp.servers.'ai-memory'. Retorna @{ found; path; unreadable } como
+      Get-UserMcpConfigured.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$McpPath)
+  $cfgDir = Join-Path $HOME '.config\opencode'
+  $unreadable = @()
+  foreach ($leaf in @('opencode.jsonc', 'opencode.json')) {
+    $full = Join-Path $cfgDir $leaf
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+    try {
+      $raw = Strip-JsoncComments -Text (Read-Utf8Text -Path $full)
+      $doc = $raw | ConvertFrom-Json
+      $node = $doc.mcp
+      $ok = ($null -ne $node)
+      if ($ok) {
+        foreach ($seg in @(([string]$McpPath -split '\.'))) {
+          if (($null -ne $node) -and ($null -ne $node.PSObject.Properties[$seg])) { $node = $node.$seg }
+          else { $ok = $false; break }
+        }
+      }
+      if ($ok) { return @{ found = $true; path = $leaf; unreadable = $unreadable } }
+      return @{ found = $false; path = $leaf; unreadable = $unreadable }
+    }
+    catch {
+      $unreadable += $leaf
+      continue
+    }
+  }
+  return @{ found = $false; path = ''; unreadable = $unreadable }
+}
+
 function Get-UserMcpConfigured {
   <#
   .SYNOPSIS
@@ -304,6 +343,29 @@ foreach ($cap in @($reg.capabilities)) {
   }
   elseif ($probe -ceq 'mcp-config') {
     $mc = Get-UserMcpConfigured -McpName $target
+    $installed = [bool]$mc.found
+    $envNames = @()
+    try { foreach ($e in @($cap.healthcheck.env_names)) { $envNames += [string]$e } } catch { $envNames = @() }
+    $present = @()
+    $absent = @()
+    foreach ($n in $envNames) {
+      # Presenca por NOME apenas; o valor jamais e lido para output.
+      if ([string]::IsNullOrWhiteSpace([System.Environment]::GetEnvironmentVariable($n))) { $absent += $n }
+      else { $present += $n }
+    }
+    if ($envNames.Count -eq 0) { $configured = $installed }
+    else { $configured = ($installed -and ($absent.Count -eq 0)) }
+    $healthy = ($installed -and $configured)
+    $detail = 'mcp.' + $target + ' na config: ' + [string]$mc.path
+    if (@($mc.unreadable).Count -gt 0) {
+      $detail = $detail + '; config ilegivel (sem fallback silencioso): ' + ((@($mc.unreadable)) -join ',')
+    }
+    if ($envNames.Count -gt 0) {
+      $detail = $detail + '; env presentes: ' + $present.Count + '; ausentes: ' + ($absent -join ',')
+    }
+  }
+  elseif ($probe -ceq 'mcp-path') {
+    $mc = Get-UserMcpPathConfigured -McpPath $target
     $installed = [bool]$mc.found
     $envNames = @()
     try { foreach ($e in @($cap.healthcheck.env_names)) { $envNames += [string]$e } } catch { $envNames = @() }
