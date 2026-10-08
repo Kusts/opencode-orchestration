@@ -86,4 +86,48 @@ $r1 = New-TDDecision @{ GoalId = "X`nY"; TaskId = 'Z' }
 $r2 = New-TDDecision @{ GoalId = 'X'; TaskId = "Y`nZ" }
 Assert-TDThat ([bool]$r1.ok -and [bool]$r2.ok) 'newline variants build ok'
 Assert-TDThat (([string]$r1.decision.decision_id -cne [string]$r2.decision.decision_id)) 'newline across fields does not collide'
+# --- Identity fields are required at creation.
+$ni = New-TDDecision @{ GoalId = '   ' }
+Assert-TDThat ((-not [bool]$ni.ok) -and ([string]$ni.reason -ceq 'invalid-goal-id')) 'empty goal id is rejected'
+$ni = New-TDDecision @{ TaskId = '' }
+Assert-TDThat ((-not [bool]$ni.ok) -and ([string]$ni.reason -ceq 'invalid-task-id')) 'empty task id is rejected'
+$ni = New-TDDecision @{ Risk = '   ' }
+Assert-TDThat ((-not [bool]$ni.ok) -and ([string]$ni.reason -ceq 'invalid-risk')) 'empty risk is rejected'
+$ni = New-TDDecision @{ DecidedBy = '' }
+Assert-TDThat ((-not [bool]$ni.ok) -and ([string]$ni.reason -ceq 'invalid-decided-by')) 'empty decided-by is rejected'
+# --- Revalidation recomputes the decision id (tamper/cross-goal fail).
+$goodRec = (New-TDDecision).decision
+$vg = Test-OrchestrationTechnicalDecisionValid -Decision $goodRec
+Assert-TDThat ([bool]$vg.ok) 'untampered record revalidates'
+$zeroed = @{}
+foreach ($p in @($goodRec.PSObject.Properties)) { $zeroed[$p.Name] = $p.Value }
+$zeroed['decision_id'] = '0000000000000000'
+$vz = Test-OrchestrationTechnicalDecisionValid -Decision $zeroed
+Assert-TDThat ((-not [bool]$vz.ok) -and ([string]$vz.reason -ceq 'decision-id-mismatch')) 'zeroed id with valid fields fails revalidation'
+$moved = @{}
+foreach ($p in @($goodRec.PSObject.Properties)) { $moved[$p.Name] = $p.Value }
+$moved['goal_id'] = 'G-999'
+$vm = Test-OrchestrationTechnicalDecisionValid -Decision $moved
+Assert-TDThat ((-not [bool]$vm.ok) -and ([string]$vm.reason -ceq 'decision-id-mismatch')) 'record moved to another goal fails revalidation'
+$noId = @{}
+foreach ($p in @($goodRec.PSObject.Properties)) { $noId[$p.Name] = $p.Value }
+$noId.Remove('decision_id')
+$vn = Test-OrchestrationTechnicalDecisionValid -Decision $noId
+Assert-TDThat ((-not [bool]$vn.ok) -and ([string]$vn.reason -ceq 'decision-id-mismatch')) 'record without id fails revalidation'
+# --- Strict hydration: legacy record with empty identity fails even with a matching hash.
+$legacy = @{}
+foreach ($p in @($goodRec.PSObject.Properties)) { $legacy[$p.Name] = $p.Value }
+$legacy['goal_id'] = ''
+$legacy['decision_id'] = (Get-TDDecisionId -GoalId '' -TaskId ([string]$legacy['task_id']) -Question ([string]$legacy['question']) -Alternatives ([string[]]$legacy['alternatives']) -Selected ([string]$legacy['selected']) -Rationale ([string]$legacy['rationale']) -EvidenceRefs ([string[]]$legacy['evidence_refs']) -Risk ([string]$legacy['risk']) -Reversibility ([string]$legacy['reversibility']) -DecidedBy ([string]$legacy['decided_by']))
+$vl = Test-OrchestrationTechnicalDecisionValid -Decision $legacy
+Assert-TDThat ((-not [bool]$vl.ok) -and ([string]$vl.reason -ceq 'invalid-goal-id')) 'legacy record with empty identity fails revalidation even with matching hash'
+$legacyTask = @{}
+foreach ($p in @($goodRec.PSObject.Properties)) { $legacyTask[$p.Name] = $p.Value }
+$legacyTask['decided_by'] = '   '
+$legacyTask['decision_id'] = (Get-TDDecisionId -GoalId ([string]$legacyTask['goal_id']) -TaskId ([string]$legacyTask['task_id']) -Question ([string]$legacyTask['question']) -Alternatives ([string[]]$legacyTask['alternatives']) -Selected ([string]$legacyTask['selected']) -Rationale ([string]$legacyTask['rationale']) -EvidenceRefs ([string[]]$legacyTask['evidence_refs']) -Risk ([string]$legacyTask['risk']) -Reversibility ([string]$legacyTask['reversibility']) -DecidedBy '   ')
+$vt = Test-OrchestrationTechnicalDecisionValid -Decision $legacyTask
+Assert-TDThat ((-not [bool]$vt.ok) -and ([string]$vt.reason -ceq 'invalid-decided-by')) 'legacy record with blank decided-by fails revalidation even with matching hash'
+# --- Intact record with identity revalidates under strict hydration (regression).
+$vi = Test-OrchestrationTechnicalDecisionValid -Decision $goodRec
+Assert-TDThat ([bool]$vi.ok) 'intact record with identity revalidates under strict hydration'
 Write-Output "PASS OrchestrationTechnicalDecision: $passed assertions"

@@ -87,10 +87,31 @@ finally { try { Remove-Item -LiteralPath $store -Recurse -Force -ErrorAction Sto
 # --- Resume: goal present => resumable with a full resume plan.
 $goalDir = New-GCTempDir
 try {
-    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1"}', [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1","revision":3}', [Text.UTF8Encoding]::new($false))
     $r = Test-OrchestrationCheckpointResume -Checkpoint $c -GoalStoreDir $goalDir
     Assert-GCThat ([bool]$r.resumable -and (@($r.reasons).Count -eq 0)) 'goal present resumes'
     Assert-GCThat ([bool]$r.resume_plan['hydrate_goal'] -and [bool]$r.resume_plan['revalidate_decisions'] -and [bool]$r.resume_plan['recompute_next_move']) 'resume plan hydrates revalidates and recomputes'
+    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1","revision":5}', [Text.UTF8Encoding]::new($false))
+    $rStale = Test-OrchestrationCheckpointResume -Checkpoint $c -GoalStoreDir $goalDir
+    Assert-GCThat ((-not [bool]$rStale.resumable) -and (@($rStale.reasons) -contains 'stale-goal-revision')) 'stale revision does not resume'
+    Assert-GCThat ((-not [bool]$rStale.resume_plan['hydrate_goal']) -and (-not [bool]$rStale.resume_plan['revalidate_decisions']) -and (-not [bool]$rStale.resume_plan['recompute_next_move'])) 'stale resume carries no active plan'
+    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1"}', [Text.UTF8Encoding]::new($false))
+    $rNoRev = Test-OrchestrationCheckpointResume -Checkpoint $c -GoalStoreDir $goalDir
+    Assert-GCThat ((-not [bool]$rNoRev.resumable) -and (@($rNoRev.reasons) -contains 'goal-unreadable')) 'live goal without revision never resumes'
+    # --- base_revision matrix: both sides declare and diverge => stale.
+    $gBase = New-GCTestGoal; $gBase['base_revision'] = 'base-1'
+    $cBase = New-OrchestrationGoalCheckpoint -GoalRecord $gBase
+    Assert-GCThat (($null -ne $cBase) -and ([string]$cBase['base_revision'] -ceq 'base-1')) 'checkpoint preserves declared base_revision'
+    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1","revision":3,"base_revision":"base-2"}', [Text.UTF8Encoding]::new($false))
+    $rBase = Test-OrchestrationCheckpointResume -Checkpoint $cBase -GoalStoreDir $goalDir
+    Assert-GCThat ((-not [bool]$rBase.resumable) -and (@($rBase.reasons) -contains 'stale-base-revision')) 'divergent base_revision on both sides does not resume'
+    # --- base_revision matrix: only one side declares => no false negative.
+    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1","revision":3,"base_revision":"base-9"}', [Text.UTF8Encoding]::new($false))
+    $rLiveOnly = Test-OrchestrationCheckpointResume -Checkpoint $c -GoalStoreDir $goalDir
+    Assert-GCThat ([bool]$rLiveOnly.resumable) 'base_revision declared only live still resumes'
+    [IO.File]::WriteAllText((Join-Path $goalDir 'ut.goal=1.json'), '{"goal_id":"UT.goal:1","revision":3}', [Text.UTF8Encoding]::new($false))
+    $rCkptOnly = Test-OrchestrationCheckpointResume -Checkpoint $cBase -GoalStoreDir $goalDir
+    Assert-GCThat ([bool]$rCkptOnly.resumable) 'base_revision declared only in checkpoint still resumes'
 }
 finally { try { Remove-Item -LiteralPath $goalDir -Recurse -Force -ErrorAction Stop } catch { } }
 # --- Resume: goal absent => not resumable with a reason.

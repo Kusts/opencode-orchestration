@@ -27,7 +27,10 @@
     mirroring OrchestrationGoalKernel / OrchestrationEvidenceStore.
 
     This lib never reads or writes real sessions and never touches the
-    reconciler; resume only checks Goal store presence (structural).
+    reconciler; resume only checks Goal store presence plus a live
+    goal-revision match (structural). A checkpoint whose goal_revision
+    differs from the live Goal revision is stale and never hydrates;
+    a declared base_revision is compared only when both sides carry one.
 #>
 [CmdletBinding()]
 param()
@@ -517,6 +520,22 @@ function Test-OrchestrationCheckpointResume {
                     $graw = ConvertFrom-Json ([IO.File]::ReadAllText($gpath, [Text.Encoding]::UTF8))
                     $ggid = [string](Get-GCValue $graw 'goal_id' '')
                     if ($ggid -ine $gid) { [void]$reasons.Add('goal-unreadable') }
+                    else {
+                        $liveRevRaw = Get-GCValue $graw 'revision' $null
+                        if ($liveRevRaw -is [array]) { [void]$reasons.Add('goal-unreadable') }
+                        else {
+                            $liveRev = Get-GCLong $liveRevRaw -1
+                            if ($liveRev -lt 1) { [void]$reasons.Add('goal-unreadable') }
+                            elseif ($liveRev -ne $rev) { [void]$reasons.Add('stale-goal-revision') }
+                            else {
+                                $liveBase = [string](Get-GCValue $graw 'base_revision' '')
+                                $ckptBase = [string]$rec['base_revision']
+                                if ((-not [string]::IsNullOrWhiteSpace($liveBase)) -and (-not [string]::IsNullOrWhiteSpace($ckptBase)) -and ($liveBase -cne $ckptBase)) {
+                                    [void]$reasons.Add('stale-base-revision')
+                                }
+                            }
+                        }
+                    }
                 }
                 catch { [void]$reasons.Add('goal-unreadable') }
             }

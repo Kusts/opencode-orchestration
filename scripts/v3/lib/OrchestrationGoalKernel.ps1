@@ -596,6 +596,9 @@ function Update-OrchestrationGoal {
         if ($null -eq $rec) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
         }
+        if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+            return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; goal = $null }
+        }
         if ([long]$rec['revision'] -ne [long]$ExpectedRevision) {
             return [pscustomobject]@{ ok = $false; reason = 'revision-conflict'; goal = $null }
         }
@@ -761,6 +764,9 @@ function Add-OrchestrationGoalTask {
         if ($null -eq $rec) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
         }
+        if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+            return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; goal = $null }
+        }
         $tid = ([string]$TaskId).Trim()
         if (-not (Test-GKGoalId $tid)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-task-id'; goal = $null }
@@ -787,6 +793,9 @@ function Complete-OrchestrationGoalTask {
         $rec = Copy-GKGoalRecord $Goal
         if ($null -eq $rec) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
+        }
+        if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+            return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; goal = $null }
         }
         $tid = ([string]$TaskId).Trim()
         if (-not (Test-GKGoalId $tid)) {

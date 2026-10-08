@@ -19,9 +19,18 @@
     Validation: question/selected/rationale must be non-empty,
     selected MUST appear in alternatives (else
     'selected-not-in-alternatives'), reversibility must be one of
-    high|medium|low (else 'invalid-reversibility').
+    high|medium|low (else 'invalid-reversibility'). Identity is
+    required at creation: goal_id, task_id, risk and decided_by must
+    be non-empty (else 'invalid-goal-id' / 'invalid-task-id' /
+    'invalid-risk' / 'invalid-decided-by').
     Test-OrchestrationTechnicalDecisionValid revalidates a record for
-    hydration with the same rules without generating an id.
+    hydration with the same rules without generating an id, including
+    the strict identity check (empty goal_id, task_id, risk or
+    decided_by fails with the same creation reason even when the
+    stored hash matches), then recomputes the decision_id from the
+    stored fields and compares it to the stored id (else
+    'decision-id-mismatch'), so a tampered or cross-goal record never
+    revalidates.
 #>
 [CmdletBinding()]
 param()
@@ -177,6 +186,32 @@ function Test-TDDecisionFields {
     }
 }
 
+function Test-TDIdentity {
+    param($GoalId, $TaskId, $Risk, $DecidedBy)
+    try {
+        $gid = ([string]$GoalId).Trim()
+        $tid = ([string]$TaskId).Trim()
+        $risk = ([string]$Risk).Trim()
+        $by = ([string]$DecidedBy).Trim()
+        if ([string]::IsNullOrWhiteSpace($gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; goal_id = $gid; task_id = $tid; risk = $risk; decided_by = $by }
+        }
+        if ([string]::IsNullOrWhiteSpace($tid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-task-id'; goal_id = $gid; task_id = $tid; risk = $risk; decided_by = $by }
+        }
+        if ([string]::IsNullOrWhiteSpace($risk)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-risk'; goal_id = $gid; task_id = $tid; risk = $risk; decided_by = $by }
+        }
+        if ([string]::IsNullOrWhiteSpace($by)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-decided-by'; goal_id = $gid; task_id = $tid; risk = $risk; decided_by = $by }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; goal_id = $gid; task_id = $tid; risk = $risk; decided_by = $by }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-decision'; goal_id = ''; task_id = ''; risk = ''; decided_by = '' }
+    }
+}
+
 function Get-TDStamp {
     try { return ([DateTime]::UtcNow.ToString('o')) } catch { return '' }
 }
@@ -209,10 +244,14 @@ function New-OrchestrationTechnicalDecision {
         if (-not [bool]$v.ok) {
             return [pscustomobject]@{ ok = $false; reason = [string]$v.reason; decision = $null }
         }
-        $gid = ([string]$GoalId).Trim()
-        $tid = ([string]$TaskId).Trim()
-        $risk = ([string]$Risk).Trim()
-        $by = ([string]$DecidedBy).Trim()
+        $ident = Test-TDIdentity -GoalId $GoalId -TaskId $TaskId -Risk $Risk -DecidedBy $DecidedBy
+        if (-not [bool]$ident.ok) {
+            return [pscustomobject]@{ ok = $false; reason = [string]$ident.reason; decision = $null }
+        }
+        $gid = [string]$ident.goal_id
+        $tid = [string]$ident.task_id
+        $risk = [string]$ident.risk
+        $by = [string]$ident.decided_by
         $id = Get-TDDecisionId -GoalId $gid -TaskId $tid -Question ([string]$v.question) -Alternatives ([string[]]$v.alternatives) -Selected ([string]$v.selected) -Rationale ([string]$v.rationale) -EvidenceRefs ([string[]]$v.evidence_refs) -Risk $risk -Reversibility ([string]$v.reversibility) -DecidedBy $by
         if ([string]::IsNullOrWhiteSpace($id)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-decision'; decision = $null }
@@ -257,6 +296,18 @@ function Test-OrchestrationTechnicalDecisionValid {
         $v = Test-TDDecisionFields -Question (Get-TDField $Decision 'question') -Alternatives (Get-TDField $Decision 'alternatives') -Selected (Get-TDField $Decision 'selected') -Rationale (Get-TDField $Decision 'rationale') -EvidenceRefs (Get-TDField $Decision 'evidence_refs') -Reversibility (Get-TDField $Decision 'reversibility')
         if (-not [bool]$v.ok) {
             return [pscustomobject]@{ ok = $false; reason = [string]$v.reason }
+        }
+        $ident = Test-TDIdentity -GoalId (Get-TDField $Decision 'goal_id') -TaskId (Get-TDField $Decision 'task_id') -Risk (Get-TDField $Decision 'risk') -DecidedBy (Get-TDField $Decision 'decided_by')
+        if (-not [bool]$ident.ok) {
+            return [pscustomobject]@{ ok = $false; reason = [string]$ident.reason }
+        }
+        $storedId = [string](Get-TDField $Decision 'decision_id')
+        if ([string]::IsNullOrWhiteSpace($storedId)) {
+            return [pscustomobject]@{ ok = $false; reason = 'decision-id-mismatch' }
+        }
+        $reId = Get-TDDecisionId -GoalId ([string]$ident.goal_id) -TaskId ([string]$ident.task_id) -Question ([string]$v.question) -Alternatives ([string[]]$v.alternatives) -Selected ([string]$v.selected) -Rationale ([string]$v.rationale) -EvidenceRefs ([string[]]$v.evidence_refs) -Risk ([string]$ident.risk) -Reversibility ([string]$v.reversibility) -DecidedBy ([string]$ident.decided_by)
+        if ([string]::IsNullOrWhiteSpace($reId) -or ($storedId -cne $reId)) {
+            return [pscustomobject]@{ ok = $false; reason = 'decision-id-mismatch' }
         }
         return [pscustomobject]@{ ok = $true; reason = '' }
     }

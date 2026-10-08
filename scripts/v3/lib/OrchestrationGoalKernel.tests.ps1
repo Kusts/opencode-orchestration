@@ -189,6 +189,30 @@ $c1 = Complete-OrchestrationGoalTask -Goal $a2.goal -TaskId 'CODER-V010-PHASE6'
 Assert-GKThat ([bool]$c1.ok -and (@($c1.goal['active_tasks']).Count -eq 1) -and (@($c1.goal['completed_tasks']).Count -eq 1) -and ([long]$c1.goal['revision'] -eq ($r0 + 3))) 'TASK complete 1 leaves active 1 completed 1'
 $miss = Complete-OrchestrationGoalTask -Goal $c1.goal -TaskId 'GHOST-1'
 Assert-GKThat ((-not [bool]$miss.ok) -and ([string]$miss.reason -ceq 'task-not-found')) 'TASK completing unknown task rejected'
+# --- TERMINAL: task ops and CAS updates refuse COMPLETED/EXHAUSTED/CANCELLED.
+$termPaths = @{
+    'COMPLETED' = @('ACTIVE', 'COMPLETED')
+    'EXHAUSTED' = @('ACTIVE', 'BUDGET_LIMITED', 'EXHAUSTED')
+    'CANCELLED' = @('CANCELLED')
+}
+foreach ($termState in @('COMPLETED', 'EXHAUSTED', 'CANCELLED')) {
+    $tg = (New-OrchestrationGoal -GoalId ('GK-TERM-' + $termState) -Objective 'terminal').goal
+    foreach ($st in @($termPaths[$termState])) { $tg = (Set-OrchestrationGoalState -Goal $tg -ToState $st).goal }
+    $tgRev = [long]$tg['revision']
+    $ta = Add-OrchestrationGoalTask -Goal $tg -TaskId 'GK-TERM-T1'
+    Assert-GKThat ((-not [bool]$ta.ok) -and ([string]$ta.reason -ceq 'terminal-goal')) ("TERMINAL add refused on $termState")
+    $tc = Complete-OrchestrationGoalTask -Goal $tg -TaskId 'GK-TERM-T1'
+    Assert-GKThat ((-not [bool]$tc.ok) -and ([string]$tc.reason -ceq 'terminal-goal')) ("TERMINAL complete refused on $termState")
+    $svT = Save-OrchestrationGoal -Goal $tg -StoreDir $GKStore
+    Assert-GKThat ([bool]$svT.ok) ("TERMINAL seed $termState saves ok")
+    $tu = Update-OrchestrationGoal -GoalId ('GK-TERM-' + $termState) -ExpectedRevision $tgRev -Fields @{ objective = 'mutated' } -StoreDir $GKStore
+    Assert-GKThat ((-not [bool]$tu.ok) -and ([string]$tu.reason -ceq 'terminal-goal')) ("TERMINAL CAS update refused on $termState")
+    $td = Get-OrchestrationGoal -GoalId ('GK-TERM-' + $termState) -StoreDir $GKStore
+    Assert-GKThat ([bool]$td.ok -and ([long]$td.goal['revision'] -eq $tgRev) -and ([string]$td.goal['objective'] -ceq 'terminal')) ("TERMINAL refused update on $termState wrote nothing")
+}
+$ntG = (New-OrchestrationGoal -GoalId 'GK-NONTERM' -Objective 'open').goal
+$ntA = Add-OrchestrationGoalTask -Goal $ntG -TaskId 'GK-NT-T1'
+Assert-GKThat ([bool]$ntA.ok) 'TERMINAL non-terminal add still ok'
 # --- NEXT-MOVE: delegation to the controller, never throws.
 $noCtl = Get-OrchestrationGoalNextMove -Goal $gt -ControllerPath (Join-Path $GKStore 'no-such-controller.ps1')
 Assert-GKThat ((-not [bool]$noCtl.ok) -and ([string]$noCtl.reason -ceq 'controller-unavailable') -and ($null -eq $noCtl.next_move)) 'NEXT absent controller returns no next_move without throw'
