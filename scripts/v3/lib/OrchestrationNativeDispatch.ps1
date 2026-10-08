@@ -733,19 +733,55 @@ function Test-NDPostLockFencing {
 function Test-NDReconcileKernelProof {
     <#
     .SYNOPSIS
-        Prova kernel-side para reconciliacao de sucesso (R3). Fail-closed.
+        Prova kernel-side vinculada para reconciliacao de sucesso (R3 + FIX3-S1). Fail-closed.
     .DESCRIPTION
-        Sucesso reconciliado exige evidencia VERIFICAVEL no kernel, nunca
-        booleans declarados no Outcome: a task existe no store, sem erro,
-        com revisao avancada alem da esperada pre-dispatch (alguma escrita
-        do kernel liquidou o worker-result), e o evidence_id existe como
-        arquivo no evidence store. Qualquer duvida recusa. Nunca lanca.
+        Sucesso reconciliado exige prova VINCULADA, nunca booleans
+        declarados no Outcome e nunca artefatos alheios:
+          (a) o worker_result persistido no kernel para a task existe e
+              tem status + claimed_evidence iguais (campo a campo) ao
+              resultado declarado no Outcome; transicao de revisao sem
+              worker-result nao satisfaz;
+          (b) a evidencia existe no store E esta vinculada a task/key do
+              recibo: evidence.task_id confere com a task do recibo
+              (provenance.kernel_task_ref confere quando legivel - o
+              store redige padroes de segredo), e run_id ou
+              source_fingerprints['dispatch-intent'] confere com a
+              idempotency_key ou o fingerprint do recibo; evidencia de
+              outro despacho nao satisfaz.
+        Outcome inventado com artefatos alheios e recusado com razao
+        explicita. Quando aceita, devolve os valores kernel-side
+        (worker_status / worker_claimed_evidence) para o chamador
+        persistir a verdade do kernel, nunca copiar o declarado sem
+        comparacao. Nunca lanca.
     #>
     [CmdletBinding()]
-    param([string]$TaskId = '', [long]$ExpectedRevision = 0, [string]$EvidenceId = '', [string]$TasksDir = '', [string]$FlagsPath = '', [string]$EvidenceStoreDir = '', [string]$RepoRoot = '')
+    param(
+        [string]$TaskId = '',
+        [long]$ExpectedRevision = 0,
+        [string]$EvidenceId = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$EvidenceStoreDir = '',
+        [string]$RepoRoot = '',
+        [string]$DeclaredStatus = '',
+        [string[]]$DeclaredClaimedEvidence = @(),
+        [string]$IdempotencyKey = '',
+        [string]$IntentFingerprint = ''
+    )
     try {
         $tid = ([string]$TaskId).Trim()
         if ([string]::IsNullOrWhiteSpace($tid) -or ([long]$ExpectedRevision -lt 1)) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+        }
+        # FIX3-S1: sem o resultado declarado e o vinculo do recibo nao
+        # ha como comparar campo a campo; recusa fail-closed.
+        $decStatus = ([string]$DeclaredStatus).Trim().ToLowerInvariant()
+        if (@('candidate_pass', 'failed', 'blocked') -cnotcontains $decStatus) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+        }
+        $key = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+        $fp = ([string]$IntentFingerprint).Trim().ToLowerInvariant()
+        if (($key -cnotmatch '^[a-f0-9]{32}$') -or ($fp -cnotmatch '^[a-f0-9]{32}$')) {
             return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
         }
         $tCmd = Get-Command Get-OrchestrationTask -ErrorAction SilentlyContinue
@@ -770,6 +806,33 @@ function Test-NDReconcileKernelProof {
         if ([long](Get-NDValue $task 'revision' -1) -le [long]$ExpectedRevision) {
             return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
         }
+        # (a) worker_result kernel-side existe e confere campo a campo
+        # com o declarado. Revisao avancada por outra via (p.ex.
+        # verification) sem worker-result nao satisfaz.
+        $kwr = Get-NDValue $task 'worker_result' $null
+        if ($null -eq $kwr) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-worker-result-missing' }
+        }
+        $kStatus = ([string](Get-NDValue $kwr 'status' '')).Trim().ToLowerInvariant()
+        if ($kStatus -cne $decStatus) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-worker-result-mismatch' }
+        }
+        foreach ($r in @($DeclaredClaimedEvidence)) {
+            if (-not (Test-NDCriterionRef $r)) {
+                return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+            }
+        }
+        $kSorted = @(Get-NDSortedOrdinal -Items @((Get-NDValue $kwr 'claimed_evidence' @())))
+        $dSorted = @(Get-NDSortedOrdinal -Items @($DeclaredClaimedEvidence))
+        if (@($kSorted).Count -ne @($dSorted).Count) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-worker-result-mismatch' }
+        }
+        for ($i = 0; $i -lt @($kSorted).Count; $i++) {
+            if (([string]$kSorted[$i]) -cne ([string]$dSorted[$i])) {
+                return [pscustomobject]@{ ok = $false; reason = 'reconcile-worker-result-mismatch' }
+            }
+        }
+        # (b) evidencia vinculada a task/key do recibo, nunca alheia.
         $eid = ([string]$EvidenceId).Trim().ToLowerInvariant()
         if ($eid -cnotmatch '^[a-f0-9]{32}$') {
             return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-missing' }
@@ -786,13 +849,179 @@ function Test-NDReconcileKernelProof {
         if ([string]::IsNullOrWhiteSpace($evDir)) {
             return [pscustomobject]@{ ok = $false; reason = 'reconcile-verify-unavailable' }
         }
-        if (-not (Test-Path -LiteralPath (Join-Path $evDir ($eid + '.json')) -PathType Leaf)) {
+        $evPath = Join-Path $evDir ($eid + '.json')
+        if (-not (Test-Path -LiteralPath $evPath -PathType Leaf)) {
             return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-missing' }
         }
-        return [pscustomobject]@{ ok = $true; reason = '' }
+        $ev = $null
+        try { $ev = ConvertFrom-Json ([IO.File]::ReadAllText($evPath, [Text.Encoding]::UTF8)) }
+        catch { $ev = $null }
+        if ($null -eq $ev) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-missing' }
+        }
+        if (([string](Get-NDValue $ev 'task_id' '')).Trim() -cne $tid) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-unbound' }
+        }
+        # provenance.kernel_task_ref confere quando legivel: o store
+        # redige valores com padrao de segredo (p.ex. 'task-' casa
+        # 'sk-'), entao ref redigida nao pode exigir igualdade - a
+        # task ja esta vinculada por evidence.task_id acima.
+        $evProv = Get-NDValue $ev 'provenance' $null
+        $evKref = ([string](Get-NDValue $evProv 'kernel_task_ref' '')).Trim()
+        if (([string]$evKref -cnotmatch '\[REDACTED') -and ($evKref -cne $tid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-unbound' }
+        }
+        $evRun = (([string](Get-NDValue $ev 'run_id' '')).Trim().ToLowerInvariant())
+        $evDisp = ''
+        try {
+            $evSf = Get-NDValue $ev 'source_fingerprints' $null
+            if ($evSf -is [System.Collections.IDictionary]) {
+                if ($evSf.Contains('dispatch-intent')) { $evDisp = (([string]$evSf['dispatch-intent']).Trim().ToLowerInvariant()) }
+            }
+            else {
+                $pp = $evSf.PSObject.Properties['dispatch-intent']
+                if ($null -ne $pp) { $evDisp = (([string]$pp.Value).Trim().ToLowerInvariant()) }
+            }
+        }
+        catch { $evDisp = '' }
+        if ((($evRun -cne $key) -and ($evDisp -cne $key)) -and ($evDisp -cne $fp)) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-unbound' }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; worker_status = $kStatus; worker_claimed_evidence = [string[]]$kSorted }
     }
     catch {
         return [pscustomobject]@{ ok = $false; reason = 'reconcile-verify-unavailable' }
+    }
+}
+
+function Test-NDDuplicateReadIdentity {
+    <#
+    .SYNOPSIS
+        Vincula a leitura idempotente de recibo settled a Authorization (FIX3-S2). Fail-closed, sem vazar.
+    .DESCRIPTION
+        Antes de devolver o resultado de um recibo settled, confere a
+        identidade da Authorization contra a identidade persistida no
+        recibo (goal/owner/generation + task pertence ao goal, mesmo
+        padrao do Confirm):
+          - goal_id divergente (cross-goal) sempre recusa;
+          - mesma identidade (goal/owner/generation) permite a leitura;
+          - takeover (mesmo goal, owner/generation novos com ownership
+            viva + worker_result kernel-side presente e igual campo a
+            campo ao do recibo) permite a leitura com prova.
+        Sem prova, recusa. O veredito nunca inclui conteudo do recibo:
+        recusas usam uma razao unica e nao revelam worker_result nem
+        evidence_id. Nenhuma ampliacao de autoridade: leitura do
+        resultado ja persistido para o dono vivo do mesmo goal. Nunca
+        lanca.
+    #>
+    [CmdletBinding()]
+    param($Receipt = $null, $Authorization = $null, [string]$GoalStoreDir = '', [string]$TasksDir = '', [string]$RepoRoot = '')
+    try {
+        if (($null -eq $Receipt) -or ($null -eq $Authorization)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $recGoal = ([string](Get-NDValue $Receipt 'goal_id' '')).Trim()
+        $authGoal = ([string](Get-NDValue $Authorization 'goal_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($recGoal) -or ($recGoal -cne $authGoal)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $recTask = ([string](Get-NDValue $Receipt 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($recTask)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $goalCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
+        $ownCmd = Get-Command Test-OrchestrationGoalOwnership -ErrorAction SilentlyContinue
+        if (($null -eq $goalCmd) -or ($null -eq $ownCmd)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $slot = $null
+        try { $slot = Get-OrchestrationGoal -GoalId $recGoal -StoreDir $GoalStoreDir }
+        catch { $slot = $null }
+        if (($null -eq $slot) -or (-not [bool](Get-NDValue $slot 'ok' $false))) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $goal = Get-NDValue $slot 'goal' $null
+        if ($null -eq $goal) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $inGoal = $false
+        try {
+            foreach ($t in @((Get-NDValue $goal 'active_tasks' @()))) {
+                if ($recTask -ceq ([string]$t)) { $inGoal = $true; break }
+            }
+            if (-not $inGoal) {
+                foreach ($t in @((Get-NDValue $goal 'completed_tasks' @()))) {
+                    if ($recTask -ceq ([string]$t)) { $inGoal = $true; break }
+                }
+            }
+        }
+        catch {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        if (-not $inGoal) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $recOwner = ([string](Get-NDValue $Receipt 'owner' '')).Trim()
+        $recGen = [long](Get-NDValue $Receipt 'ownership_generation' 0)
+        $authOwner = ([string](Get-NDValue $Authorization 'owner' '')).Trim()
+        $authGen = [long](Get-NDValue $Authorization 'generation' 0)
+        if (([string]::IsNullOrWhiteSpace($recOwner)) -or ([string]::IsNullOrWhiteSpace($authOwner)) -or ($recGen -lt 1) -or ($authGen -lt 1)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        if (($recOwner -ceq $authOwner) -and ($recGen -eq $authGen)) {
+            return [pscustomobject]@{ ok = $true; reason = ''; takeover = $false }
+        }
+        # Takeover: novo owner vivo do mesmo goal + prova kernel-side de
+        # que o worker_result do recibo corresponde a verdade do kernel.
+        $chk = $null
+        try { $chk = Test-OrchestrationGoalOwnership -Goal $goal -OwnerId $authOwner -Generation $authGen }
+        catch { $chk = $null }
+        if (($null -eq $chk) -or (-not [bool](Get-NDValue $chk 'ok' $false)) -or (-not [bool](Get-NDValue $chk 'held' $false))) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $tCmd = Get-Command Get-OrchestrationTask -ErrorAction SilentlyContinue
+        if ($null -eq $tCmd) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $task = $null
+        try { $task = Get-OrchestrationTask -TaskId $recTask -TasksDir $TasksDir -RepoRoot $RepoRoot }
+        catch { $task = $null }
+        if ($null -eq $task) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $isErr = $false
+        try {
+            if ($task -is [System.Collections.IDictionary]) { $isErr = $task.Contains('error') }
+            else { $isErr = ($null -ne $task.PSObject.Properties['error']) }
+        }
+        catch { $isErr = $true }
+        if ($isErr) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $kwr = Get-NDValue $task 'worker_result' $null
+        $swr = Get-NDValue $Receipt 'worker_result' $null
+        if (($null -eq $kwr) -or ($null -eq $swr)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $ks = ([string](Get-NDValue $kwr 'status' '')).Trim().ToLowerInvariant()
+        $ss = ([string](Get-NDValue $swr 'status' '')).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($ks) -or ($ks -cne $ss)) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        $kc = @(Get-NDSortedOrdinal -Items @((Get-NDValue $kwr 'claimed_evidence' @())))
+        $sc = @(Get-NDSortedOrdinal -Items @((Get-NDValue $swr 'claimed_evidence' @())))
+        if (@($kc).Count -ne @($sc).Count) {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
+        for ($i = 0; $i -lt @($kc).Count; $i++) {
+            if (([string]$kc[$i]) -cne ([string]$sc[$i])) {
+                return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+            }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; takeover = $true }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
     }
 }
 
@@ -810,9 +1039,10 @@ function Confirm-OrchestrationDispatchReconciliation {
         R3: a Authorization e conferida contra a identidade persistida no
         recibo sob lock (goal_id/owner/generation iguais ao despacho
         original). goal_id divergente (cross-goal) sempre recusa. SUCESSO
-        (Outcome.ok=$true) so e registrado com prova verificavel
-        kernel-side (task com revisao avancada no kernel + evidence_id
-        existente no store); booleans declarados no Outcome nunca sao
+        (Outcome.ok=$true) so e registrado com prova vinculada
+        kernel-side (worker_result persistido no kernel com status/refs
+        iguais ao declarado + evidencia vinculada a task/key do recibo);
+        booleans declarados no Outcome nunca sao
         prova, e outcome inventado e recusado. FALHA externa apurada
         (Outcome.ok=$false) pode liquidar como falha, sem alegar sucesso.
 
@@ -904,14 +1134,21 @@ function Confirm-OrchestrationDispatchReconciliation {
                 }
             }
             if ([bool]$outOk) {
-                # R3: sucesso so com prova kernel-side verificavel; vale
-                # para o owner original e para takeover com autorizacao
-                # viva (admitida acima). Sem prova, recusa - inclusive
-                # quando a identidade diverge (takeover sem prova).
+                # R3 + FIX3-S1: sucesso so com prova kernel-side VINCULADA;
+                # vale para o owner original e para takeover com
+                # autorizacao viva (admitida acima). Sem prova, recusa -
+                # inclusive quando a identidade diverge (takeover sem
+                # prova). O recibo settled persiste os valores lidos do
+                # kernel pela prova, nunca copia o declarado sem
+                # comparacao campo a campo.
                 $evId = ([string](Get-NDValue $Outcome 'evidence_id' '')).Trim().ToLowerInvariant()
-                $proof = Test-NDReconcileKernelProof -TaskId $recTask -ExpectedRevision $recRev -EvidenceId $evId -TasksDir $TasksDir -FlagsPath $FlagsPath -EvidenceStoreDir $EvidenceStoreDir -RepoRoot $RepoRoot
+                $proof = Test-NDReconcileKernelProof -TaskId $recTask -ExpectedRevision $recRev -EvidenceId $evId -TasksDir $TasksDir -FlagsPath $FlagsPath -EvidenceStoreDir $EvidenceStoreDir -RepoRoot $RepoRoot -DeclaredStatus ([string](Get-NDValue $outWorker 'status' '')) -DeclaredClaimedEvidence @((Get-NDValue $outWorker 'claimed_evidence' @())) -IdempotencyKey $key -IntentFingerprint $fp
                 if (-not [bool](Get-NDValue $proof 'ok' $false)) {
                     return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $proof 'reason' 'reconcile-unverifiable')) -Admitted $true -ExecutorCalls 0)
+                }
+                $wOut = [pscustomobject][ordered]@{
+                    status = ([string](Get-NDValue $proof 'worker_status' ''))
+                    claimed_evidence = [string[]]@((Get-NDValue $proof 'worker_claimed_evidence' @()))
                 }
                 $settled = [ordered]@{
                     schema_version = 1; idempotency_key = $key; phase = 'settled'
@@ -1080,7 +1317,16 @@ function Invoke-OrchestrationNativeDispatch {
                 if ([string]::IsNullOrWhiteSpace($storedFp) -or ($storedFp -cne $fingerprint)) {
                     return (New-NDDispatchEnvelope -Ok $false -Reason 'idempotency-key-collision' -Admitted $true -Intent $intent -ExecutorCalls 0)
                 }
-                return (New-NDDispatchEnvelope -Ok ([bool](Get-NDValue $existing 'ok' $false)) -Reason 'idempotent-duplicate' -Admitted $true -Duplicate $true -ExecutorCalls 0 -Intent $intent -WorkerResult (Get-NDValue $existing 'worker_result' $null) -KernelOk ([bool](Get-NDValue $existing 'kernel_ok' $false)) -KernelReason ([string](Get-NDValue $existing 'kernel_reason' '')) -EvidenceCreated ([bool](Get-NDValue $existing 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $existing 'evidence_id' '')))
+                # FIX3-S2: antes de devolver o resultado settled, vincula
+                # a Authorization a identidade persistida no recibo. A
+                # recusa nao devolve conteudo do recibo (sem oracle).
+                $dupId = Test-NDDuplicateReadIdentity -Receipt $existing -Authorization $Authorization -GoalStoreDir $GoalStoreDir -TasksDir $TasksDir -RepoRoot $RepoRoot
+                if (-not [bool](Get-NDValue $dupId 'ok' $false)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'duplicate-identity-mismatch' -Admitted $true -ExecutorCalls 0 -Intent $intent)
+                }
+                $dupReason = 'idempotent-duplicate'
+                if ([bool](Get-NDValue $dupId 'takeover' $false)) { $dupReason = 'idempotent-duplicate-takeover' }
+                return (New-NDDispatchEnvelope -Ok ([bool](Get-NDValue $existing 'ok' $false)) -Reason $dupReason -Admitted $true -Duplicate $true -ExecutorCalls 0 -Intent $intent -WorkerResult (Get-NDValue $existing 'worker_result' $null) -KernelOk ([bool](Get-NDValue $existing 'kernel_ok' $false)) -KernelReason ([string](Get-NDValue $existing 'kernel_reason' '')) -EvidenceCreated ([bool](Get-NDValue $existing 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $existing 'evidence_id' '')))
             }
             $reconciled = $false
             if (($null -ne $existing) -and ([string](Get-NDValue $existing 'phase' '') -ceq 'pending')) {
@@ -1102,10 +1348,10 @@ function Invoke-OrchestrationNativeDispatch {
                 $reconciled = $true
             }
             # F1: admissao viva ANTES de qualquer efeito novo. Recibos
-            # settled com fingerprint igual retornam acima sem admissao
-            # (nenhum efeito novo; a revisao da task avancou de proposito
-            # no primeiro dispatch). Replay de pending e efeito novo e
-            # passa pela admissao.
+            # settled com fingerprint igual retornam acima apos vinculo
+            # de identidade com o recibo (FIX3-S2; nenhum efeito novo, a
+            # revisao da task avancou de proposito no primeiro dispatch).
+            # Replay de pending e efeito novo e passa pela admissao.
             $liveGoal = $null
             try {
                 $gidLive = ([string](Get-NDValue $Authorization 'goal_id' '')).Trim()

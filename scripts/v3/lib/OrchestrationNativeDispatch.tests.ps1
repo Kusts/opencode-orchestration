@@ -396,6 +396,172 @@ try {
         $rKconf = Invoke-OrchestrationNativeDispatch -Intent $kconfIntent.intent -Executor $kconfSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rKconf.ok) -and ([string]$rKconf.reason -like 'kernel:CAS_CONFLICT') -and ([int]$rKconf.executor_calls -eq 1))) '[R6] kernel/persistence failure accounts the executed effect' (([string]$rKconf.reason) + ' calls=' + [string]$rKconf.executor_calls)
 
+        # ---------- FIX3-S1: prova vinculada (kernel worker_result + evidencia da task/key) ----------
+        function New-FIX3Evidence {
+            param([string]$Task, [string]$Key)
+            return [ordered]@{
+                task_id = $Task; run_id = $Key; worker_id = 'coder'
+                provenance = @{ created_by = 'coder'; kernel_task_ref = $Task }
+                base_revision = 'rev-a'; criteria_hash = 'crit-a'
+                source_fingerprints = @{ 'dispatch-intent' = $Key }
+                diff_hash = ''; scope = @('src/a.ps1'); command = 'native-dispatch'
+                environment = @{ runtime = 'native-dispatch'; version = '1' }
+                result = @{ summary = 'worker:candidate_pass'; raw_ref = '' }
+                assumptions = @()
+                invalidation_conditions = @(
+                    @{ type = 'base-revision'; require_same = $true }
+                )
+                created_at = ([DateTime]::UtcNow.ToString('o'))
+            }
+        }
+        function New-FIX3Pending {
+            param([string]$Task, [string]$Key, [string]$Fp)
+            $stuck = [ordered]@{ schema_version = 1; idempotency_key = $Key; phase = 'pending'; task_id = $Task; agent = 'coder'; owner = 'planner-1'; goal_id = 'nd-goal-1'; ownership_generation = $script:genText; task_expected_revision = 1; intent_fingerprint = $Fp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+            [IO.File]::WriteAllText((Join-Path $script:receiptDirText ($Key + '.json')), (ConvertTo-Json -InputObject $stuck -Compress), [Text.UTF8Encoding]::new($false))
+        }
+        $script:receiptDirText = $receiptDir
+        # (i) revisao avancada SEM worker-result + evidencia vinculada existente => recusado
+        New-NDKernelTask -Id 'nd-task-s1a'
+        $s1aKey = Get-NativeDispatchHash32 'fix3-s1a-scenario'
+        $s1aIntent = New-NDIntent -Task 'nd-task-s1a' -Key $s1aKey
+        New-FIX3Pending -Task 'nd-task-s1a' -Key $s1aKey -Fp (Get-NDIntentFingerprint -Intent $s1aIntent.intent)
+        $s1aVer = Set-OrchestrationTaskVerification -TaskId 'nd-task-s1a' -VerifierEvidenceJson ([pscustomobject]@{ status = 'verified_pass'; evidence = @(); command_classes = @() }) -Passed $true -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$s1aVer.ok) '[FIX3-S1] revision advanced without worker-result' ([string]$s1aVer.error)
+        $s1aEv = New-OrchestrationEvidenceRecord -Evidence (New-FIX3Evidence -Task 'nd-task-s1a' -Key $s1aKey) -StoreDir $evDir
+        Assert-ND ([bool]$s1aEv.created) '[FIX3-S1] bound evidence recorded' ([string]$s1aEv.reason)
+        $s1aOutcome = @{ ok = $true; reason = 'invented-no-worker-result'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'invented'; evidence_created = $true; evidence_id = ([string]$s1aEv.record.evidence_id) }
+        $rS1a = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $s1aKey -Outcome $s1aOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (((-not [bool]$rS1a.ok) -and ([string]$rS1a.reason -ceq 'reconcile-worker-result-missing'))) '[FIX3-S1] revision without worker-result refused despite bound evidence' ([string]$rS1a.reason)
+        # (i-b) worker-result kernel-side DIVERGENTE do declarado => recusado
+        New-NDKernelTask -Id 'nd-task-s1b'
+        $s1bKey = Get-NativeDispatchHash32 'fix3-s1b-scenario'
+        $s1bIntent = New-NDIntent -Task 'nd-task-s1b' -Key $s1bKey
+        New-FIX3Pending -Task 'nd-task-s1b' -Key $s1bKey -Fp (Get-NDIntentFingerprint -Intent $s1bIntent.intent)
+        $s1bW = Set-OrchestrationTaskWorkerResult -TaskId 'nd-task-s1b' -Status 'failed' -ClaimedEvidence @('criterion:1') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$s1bW.ok) '[FIX3-S1] divergent kernel worker-result landed' ([string]$s1bW.error)
+        $s1bEv = New-OrchestrationEvidenceRecord -Evidence (New-FIX3Evidence -Task 'nd-task-s1b' -Key $s1bKey) -StoreDir $evDir
+        Assert-ND ([bool]$s1bEv.created) '[FIX3-S1] bound evidence recorded for divergent case' ([string]$s1bEv.reason)
+        $s1bOutcome = @{ ok = $true; reason = 'invented-divergent'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'invented'; evidence_created = $true; evidence_id = ([string]$s1bEv.record.evidence_id) }
+        $rS1b = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $s1bKey -Outcome $s1bOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (((-not [bool]$rS1b.ok) -and ([string]$rS1b.reason -ceq 'reconcile-worker-result-mismatch'))) '[FIX3-S1] divergent declared result refused without field copy' ([string]$rS1b.reason)
+        # (ii) evidencia valida mas de OUTRA task/key => recusado
+        New-NDKernelTask -Id 'nd-task-s1c'
+        $s1cKey = Get-NativeDispatchHash32 'fix3-s1c-scenario'
+        $s1cIntent = New-NDIntent -Task 'nd-task-s1c' -Key $s1cKey
+        New-FIX3Pending -Task 'nd-task-s1c' -Key $s1cKey -Fp (Get-NDIntentFingerprint -Intent $s1cIntent.intent)
+        $s1cW = Set-OrchestrationTaskWorkerResult -TaskId 'nd-task-s1c' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$s1cW.ok) '[FIX3-S1] matching kernel worker-result landed' ([string]$s1cW.error)
+        $s1cOutcome = @{ ok = $true; reason = 'invented-foreign-evidence'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'invented'; evidence_created = $true; evidence_id = $evIdExt }
+        $rS1c = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $s1cKey -Outcome $s1cOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (((-not [bool]$rS1c.ok) -and ([string]$rS1c.reason -ceq 'reconcile-evidence-unbound'))) '[FIX3-S1] foreign evidence refused despite matching kernel result' ([string]$rS1c.reason)
+        $s1cRec = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $receiptDir ($s1cKey + '.json')), [Text.Encoding]::UTF8))
+        Assert-ND (([string]$s1cRec.phase -ceq 'pending')) '[FIX3-S1] refused foreign-evidence receipt stays pending' ([string]$s1cRec.phase)
+        # (iii) caminho feliz: prova vinculada real => aceito, recibo espelha o kernel
+        New-NDKernelTask -Id 'nd-task-s1d'
+        $s1dKey = Get-NativeDispatchHash32 'fix3-s1d-scenario'
+        $s1dIntent = New-NDIntent -Task 'nd-task-s1d' -Key $s1dKey
+        New-FIX3Pending -Task 'nd-task-s1d' -Key $s1dKey -Fp (Get-NDIntentFingerprint -Intent $s1dIntent.intent)
+        $s1dW = Set-OrchestrationTaskWorkerResult -TaskId 'nd-task-s1d' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$s1dW.ok) '[FIX3-S1] happy-path kernel write landed' ([string]$s1dW.error)
+        $s1dEv = New-OrchestrationEvidenceRecord -Evidence (New-FIX3Evidence -Task 'nd-task-s1d' -Key $s1dKey) -StoreDir $evDir
+        Assert-ND ([bool]$s1dEv.created) '[FIX3-S1] happy-path evidence recorded' ([string]$s1dEv.reason)
+        $s1dOutcome = @{ ok = $true; reason = 'effect-verified-externally'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'externally-confirmed'; evidence_created = $true; evidence_id = ([string]$s1dEv.record.evidence_id) }
+        $rS1d = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $s1dKey -Outcome $s1dOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (([bool]$rS1d.ok -and [bool]$rS1d.reconciled)) '[FIX3-S1] linked proof accepted' ([string]$rS1d.reason)
+        $s1dRec = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $receiptDir ($s1dKey + '.json')), [Text.Encoding]::UTF8))
+        $s1dTask = Get-OrchestrationTask -TaskId 'nd-task-s1d' -TasksDir $tasksDir
+        $s1dKw = Get-NDValue $s1dTask 'worker_result' $null
+        Assert-ND (([string]$s1dRec.worker_result.status -ceq [string](Get-NDValue $s1dKw 'status' ''))) '[FIX3-S1] settled receipt mirrors kernel status' ([string]$s1dRec.worker_result.status)
+        Assert-ND (((( @($s1dRec.worker_result.claimed_evidence | Sort-Object) -join ',')) -ceq (((@((Get-NDValue $s1dKw 'claimed_evidence' @()) | Sort-Object)) -join ',')))) '[FIX3-S1] settled receipt mirrors kernel refs' ((@($s1dRec.worker_result.claimed_evidence) -join ','))
+        Assert-ND (([string]$s1dRec.evidence_id -ceq ([string]$s1dEv.record.evidence_id))) '[FIX3-S1] settled receipt binds the proven evidence' ([string]$s1dRec.evidence_id)
+
+        # ---------- FIX3-S2: duplicata settled vincula a Authorization antes de devolver ----------
+        # (i) mesmo owner/goal => duplicata devolve o conteudo, sem novo efeito
+        $s2state = @{ calls = 0 }
+        $s2spy = { param($i) $s2state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rS2i = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $s2spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rS2i.duplicate -and ([int]$rS2i.executor_calls -eq 0) -and ([int]$s2state.calls -eq 0))) '[FIX3-S2] same owner/goal duplicate returns with no new effect' ('calls=' + [string]$s2state.calls)
+        Assert-ND (([string]$rS2i.worker_result.status -ceq 'candidate_pass')) '[FIX3-S2] duplicate returns the stored worker status' ([string]$rS2i.worker_result.status)
+        Assert-ND (((@($rS2i.worker_result.claimed_evidence) -join ',') -ceq 'criterion:0')) '[FIX3-S2] duplicate returns the stored refs' ((@($rS2i.worker_result.claimed_evidence) -join ','))
+        Assert-ND (([string]$rS2i.evidence_id -ceq [string]$rOk.evidence_id)) '[FIX3-S2] duplicate returns the stored evidence id' ([string]$rS2i.evidence_id)
+        # (ii) goal B lendo recibo do goal A => recusado, sem vazar
+        $s2g = New-OrchestrationGoal -GoalId 'nd-goal-s2b' -Objective 'goal estranho' -Criteria @('criterio-a') -StoreDir $goalDir
+        $s2a = Set-OrchestrationGoalState -Goal $s2g.goal -ToState 'ACTIVE'
+        $s2s = Save-OrchestrationGoal -Goal $s2a.goal -StoreDir $goalDir
+        $s2o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-s2b' -OwnerId 'planner-9' -ExpectedRevision ([long]$s2s.revision) -StoreDir $goalDir
+        Assert-ND ([bool]$s2o.ok) '[FIX3-S2] foreign goal owned' ([string]$s2o.reason)
+        $authS2b = @{ explicit_allow = $true; goal_id = 'nd-goal-s2b'; owner = 'planner-9'; generation = [long]$s2o.ownership['generation']; source = 'planner' }
+        $s2xstate = @{ calls = 0 }
+        $s2xspy = { param($i) $s2xstate.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rS2ii = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $s2xspy -Authorization $authS2b -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rS2ii.ok) -and ([string]$rS2ii.reason -ceq 'duplicate-identity-mismatch') -and ([int]$s2xstate.calls -eq 0) -and (-not [bool]$rS2ii.duplicate))) '[FIX3-S2] cross-goal duplicate read refused' ([string]$rS2ii.reason)
+        Assert-ND (($null -eq $rS2ii.worker_result)) '[FIX3-S2] refused cross-goal read leaks no worker result' ''
+        Assert-ND (([string]$rS2ii.evidence_id -ceq '')) '[FIX3-S2] refused cross-goal read leaks no evidence id' ([string]$rS2ii.evidence_id)
+        # (iii) takeover legitimo documentado: novo owner vivo do mesmo goal + prova => permitido
+        $t2g = New-OrchestrationGoal -GoalId 'nd-goal-take2' -Objective 'takeover leitura' -Criteria @('criterio-a') -StoreDir $goalDir
+        $t2a = Set-OrchestrationGoalState -Goal $t2g.goal -ToState 'ACTIVE'
+        $t2s = Save-OrchestrationGoal -Goal $t2a.goal -StoreDir $goalDir
+        $t2o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take2' -OwnerId 'planner-1' -ExpectedRevision ([long]$t2s.revision) -StoreDir $goalDir -LeaseTtlMs 500
+        Assert-ND ([bool]$t2o.ok) '[FIX3-S2] takeover goal owned with short lease' ([string]$t2o.reason)
+        $t2gen = [long]$t2o.ownership['generation']
+        $ct2 = New-OrchestrationTask -TaskId 'nd-task-take2' -Objective 'obj take2' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$ct2.ok) '[FIX3-S2] takeover kernel task created' ([string]$ct2.error)
+        $slotT2 = Get-OrchestrationGoal -GoalId 'nd-goal-take2' -StoreDir $goalDir
+        $addT2 = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-take2' -TaskId 'nd-task-take2' -ExpectedRevision ([long]$slotT2.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $t2gen
+        Assert-ND ([bool]$addT2.ok) '[FIX3-S2] takeover task attached' ([string]$addT2.reason)
+        $t2Key = Get-NativeDispatchHash32 'fix3-s2-takeover-read'
+        $t2Intent = New-OrchestrationDispatchIntent -TaskId 'nd-task-take2' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0', 'criterion:1') -IdempotencyKey $t2Key -Owner 'planner-1' -OwnershipGeneration $t2gen -BaseRevision 'rev-a'
+        Assert-ND ([bool]$t2Intent.ok) '[FIX3-S2] takeover intent built' ([string]$t2Intent.reason)
+        $authT2 = @{ explicit_allow = $true; goal_id = 'nd-goal-take2'; owner = 'planner-1'; generation = $t2gen; source = 'planner' }
+        $t2state = @{ calls = 0 }
+        $t2spy = { param($i) $t2state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rT2 = Invoke-OrchestrationNativeDispatch -Intent $t2Intent.intent -Executor $t2spy -Authorization $authT2 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rT2.ok -and ([int]$t2state.calls -eq 1))) '[FIX3-S2] first dispatch settles before takeover' ([string]$rT2.reason)
+        Start-Sleep -Milliseconds 1200
+        $tow2 = Takeover-OrchestrationGoalOwnership -GoalId 'nd-goal-take2' -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$tow2.ok) '[FIX3-S2] ownership taken over' ([string]$tow2.reason)
+        $authT2b = @{ explicit_allow = $true; goal_id = 'nd-goal-take2'; owner = 'planner-2'; generation = [long]$tow2.ownership['generation']; source = 'planner' }
+        $t2bstate = @{ calls = 0 }
+        $t2bspy = { param($i) $t2bstate.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rT2b = Invoke-OrchestrationNativeDispatch -Intent $t2Intent.intent -Executor $t2bspy -Authorization $authT2b -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rT2b.duplicate -and ([int]$t2bstate.calls -eq 0) -and ([string]$rT2b.reason -ceq 'idempotent-duplicate-takeover'))) '[FIX3-S2] legitimate takeover reads the settled duplicate with proof' ([string]$rT2b.reason)
+        Assert-ND (([string]$rT2b.worker_result.status -ceq 'candidate_pass')) '[FIX3-S2] takeover duplicate carries the proven result' ([string]$rT2b.worker_result.status)
+        Assert-ND (([string]$rT2b.evidence_id -ceq [string]$rT2.evidence_id)) '[FIX3-S2] takeover duplicate preserves the evidence id' ([string]$rT2b.evidence_id)
+        # (iv) takeover sem prova kernel-side (recibo de falha, sem worker_result) => recusado
+        $t3g = New-OrchestrationGoal -GoalId 'nd-goal-take3' -Objective 'takeover sem prova' -Criteria @('criterio-a') -StoreDir $goalDir
+        $t3a = Set-OrchestrationGoalState -Goal $t3g.goal -ToState 'ACTIVE'
+        $t3s = Save-OrchestrationGoal -Goal $t3a.goal -StoreDir $goalDir
+        $t3o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take3' -OwnerId 'planner-1' -ExpectedRevision ([long]$t3s.revision) -StoreDir $goalDir -LeaseTtlMs 500
+        Assert-ND ([bool]$t3o.ok) '[FIX3-S2] proofless goal owned with short lease' ([string]$t3o.reason)
+        $t3gen = [long]$t3o.ownership['generation']
+        $ct3 = New-OrchestrationTask -TaskId 'nd-task-take3' -Objective 'obj take3' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$ct3.ok) '[FIX3-S2] proofless kernel task created' ([string]$ct3.error)
+        $slotT3 = Get-OrchestrationGoal -GoalId 'nd-goal-take3' -StoreDir $goalDir
+        $addT3 = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-take3' -TaskId 'nd-task-take3' -ExpectedRevision ([long]$slotT3.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $t3gen
+        Assert-ND ([bool]$addT3.ok) '[FIX3-S2] proofless task attached' ([string]$addT3.reason)
+        $t3Key = Get-NativeDispatchHash32 'fix3-s2-takeover-noproof'
+        $t3Intent = New-OrchestrationDispatchIntent -TaskId 'nd-task-take3' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0', 'criterion:1') -IdempotencyKey $t3Key -Owner 'planner-1' -OwnershipGeneration $t3gen -BaseRevision 'rev-a'
+        $authT3 = @{ explicit_allow = $true; goal_id = 'nd-goal-take3'; owner = 'planner-1'; generation = $t3gen; source = 'planner' }
+        $evilT3 = { param($i) return @{ status = 'verified_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rT3 = Invoke-OrchestrationNativeDispatch -Intent $t3Intent.intent -Executor $evilT3 -Authorization $authT3 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rT3.ok) -and ([string]$rT3.reason -ceq 'status-not-allowed-from-worker'))) '[FIX3-S2] proofless receipt settles as failure' ([string]$rT3.reason)
+        Start-Sleep -Milliseconds 1200
+        $tow3 = Takeover-OrchestrationGoalOwnership -GoalId 'nd-goal-take3' -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$tow3.ok) '[FIX3-S2] proofless ownership taken over' ([string]$tow3.reason)
+        $authT3b = @{ explicit_allow = $true; goal_id = 'nd-goal-take3'; owner = 'planner-2'; generation = [long]$tow3.ownership['generation']; source = 'planner' }
+        $t3bstate = @{ calls = 0 }
+        $t3bspy = { param($i) $t3bstate.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rT3b = Invoke-OrchestrationNativeDispatch -Intent $t3Intent.intent -Executor $t3bspy -Authorization $authT3b -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rT3b.ok) -and ([string]$rT3b.reason -ceq 'duplicate-identity-mismatch') -and ([int]$t3bstate.calls -eq 0))) '[FIX3-S2] takeover without kernel proof refused' ([string]$rT3b.reason)
+        Assert-ND (($null -eq $rT3b.worker_result)) '[FIX3-S2] refused takeover read leaks no worker result' ''
+        Assert-ND (([string]$rT3b.evidence_id -ceq '')) '[FIX3-S2] refused takeover read leaks no evidence id' ([string]$rT3b.evidence_id)
+
         # ---------- hygiene ----------
         $ndPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'
         $ndText = [IO.File]::ReadAllText($ndPath, [Text.UTF8Encoding]::new($false))
