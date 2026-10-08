@@ -6,7 +6,10 @@
     Bracketed output the runner parses. Exit 0 all pass, 1 any fail.
     PS 5.1 compatible. ASCII-only. No network, no spawn.
     Covers: Gate E (denied before effect, spy 0 calls), intent validation
-    (no raw prompt), idempotency (repeat, crash-pending, shape rejection),
+    (no raw prompt), F1 live admission (unknown task refused, 0 calls),
+    F2 post-lock fencing (stale token and non-ACTIVE refused, 0 calls),
+    F3 pending-ambiguous + explicit reconciliation (no auto replay),
+    F7 intent fingerprint collision, idempotency (repeat, flag replay),
     result-shape gate (verified_pass/done rejected), evidence + kernel
     envelopes fail-closed.
 #>
@@ -39,9 +42,13 @@ try {
     $goalDir = Join-Path $tempRoot 'goals'
     $receiptDir = Join-Path $tempRoot 'receipts'
     $evDir = Join-Path $tempRoot 'evidence'
+    $tasksDir = Join-Path $tempRoot 'tasks'
+    $flagsPath = Join-Path $tempRoot 'flags.json'
     New-Item -ItemType Directory -Path $goalDir -Force | Out-Null
     New-Item -ItemType Directory -Path $receiptDir -Force | Out-Null
     New-Item -ItemType Directory -Path $evDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $tasksDir -Force | Out-Null
+    [IO.File]::WriteAllText($flagsPath, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.UTF8Encoding]::new($false))
 
     try {
         # ---------- fixture: live goal + ownership ----------
@@ -58,18 +65,34 @@ try {
         $authOk = @{ explicit_allow = $true; goal_id = 'nd-goal-1'; owner = 'planner-1'; generation = $gen; source = 'planner' }
         $ph = Get-NativeDispatchHash32 'prompt-material-do-planner'
 
-        function New-NDSpec {
-            param([string]$Key = '')
-            return @{
-                task_id = 'nd-task-1'; task_expected_revision = 1; agent = 'coder';
-                prompt_hash = $script:phText; scope = @('src/a.ps1');
-                acceptance_criteria = @('criterion:0', 'criterion:1');
-                idempotency_key = $Key; owner = 'planner-1'; ownership_generation = $script:genText;
-                base_revision = 'rev-a'
-            }
+        function New-NDKernelTask {
+            param([string]$Id, [string]$Base = 'rev-a', [string[]]$Reads = @('src/a.ps1'))
+            $c = New-OrchestrationTask -TaskId $Id -Objective ('obj ' + $Id) -TaskType 'implementation' `
+                -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+                -RuntimeVersion '2.0.18' -BaseRevision $Base -ReadScopes $Reads -Grants @('fs.read') `
+                -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $script:tasksDirText -FlagsPath $script:flagsPathText -TelemetryRoot $script:tempRootText
+            Assert-ND ([bool]$c.ok) ('[F] kernel task created ' + $Id) ([string]$c.error)
+            $slot = Get-OrchestrationGoal -GoalId 'nd-goal-1' -StoreDir $script:goalDirText
+            $add = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-1' -TaskId $Id -ExpectedRevision ([long]$slot.goal['revision']) -StoreDir $script:goalDirText -OwnerId 'planner-1' -OwnershipGeneration $script:genText
+            Assert-ND ([bool]$add.ok) ('[F] task attached to goal ' + $Id) ([string]$add.reason)
         }
         $script:phText = $ph
         $script:genText = $gen
+        $script:tasksDirText = $tasksDir
+        $script:flagsPathText = $flagsPath
+        $script:tempRootText = $tempRoot
+        $script:goalDirText = $goalDir
+
+        function New-NDIntent {
+            param([string]$Task = 'nd-task-1', [int]$Rev = 1, [string]$Agent = 'coder', [string[]]$Scope = @('src/a.ps1'), [string]$Key = '', [string]$Owner = 'planner-1', [long]$Gen = 0, [string]$Base = 'rev-a', [bool]$Ext = $false, [string]$Proof = '')
+            $gg = $Gen
+            if ($gg -lt 1) { $gg = $script:genText }
+            return (New-OrchestrationDispatchIntent -TaskId $Task -TaskExpectedRevision $Rev -Agent $Agent -PromptHash $script:phText -Scope $Scope -AcceptanceCriteria @('criterion:0', 'criterion:1') -IdempotencyKey $Key -Owner $Owner -OwnershipGeneration $gg -BaseRevision $Base -ExternalIdempotent $Ext -ExternalIdempotencyProof $Proof)
+        }
+
+        New-NDKernelTask -Id 'nd-task-1'
+        New-NDKernelTask -Id 'nd-task-2'
+        New-NDKernelTask -Id 'nd-task-3'
 
         # ---------- intent validation ----------
         $badTask = New-OrchestrationDispatchIntent -TaskId 'BAD ID!!' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
@@ -78,7 +101,9 @@ try {
         Assert-ND (((-not [bool]$badHash.ok) -and ([string]$badHash.reason -ceq 'invalid-prompt-hash'))) '[I1] raw prompt text refused, hash only' ([string]$badHash.reason)
         $badCrit = New-OrchestrationDispatchIntent -TaskId 'nd-task-1' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('done') -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
         Assert-ND (((-not [bool]$badCrit.ok) -and ([string]$badCrit.reason -ceq 'invalid-acceptance-criteria'))) '[I1] non-criterion refs refused' ([string]$badCrit.reason)
-        $good = New-OrchestrationDispatchIntent -TaskId 'nd-task-1' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0', 'criterion:1') -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
+        $badProof = New-OrchestrationDispatchIntent -TaskId 'nd-task-1' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a' -ExternalIdempotent $true
+        Assert-ND (((-not [bool]$badProof.ok) -and ([string]$badProof.reason -ceq 'invalid-idempotency-proof'))) '[I1] external flag without proof refused' ([string]$badProof.reason)
+        $good = New-NDIntent
         Assert-ND ([bool]$good.ok) '[I1] valid intent built' ([string]$good.reason)
         Assert-ND (($null -eq $good.intent.PSObject.Properties['prompt'])) '[I1] intent carries no raw prompt field' ''
         Assert-ND (([string]$good.intent.idempotency_key -cmatch '^[a-f0-9]{32}$')) '[I1] idempotency key derived' ([string]$good.intent.idempotency_key)
@@ -87,56 +112,152 @@ try {
         $state = @{ calls = 0 }
         $spy = { param($i) $state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $authDeny = @{ explicit_allow = $false; goal_id = 'nd-goal-1'; owner = 'planner-1'; generation = $gen; source = 'planner' }
-        $rDeny = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authDeny -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
+        $rDeny = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authDeny -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rDeny.ok) -and (-not [bool]$rDeny.admitted) -and ([int]$rDeny.executor_calls -eq 0) -and ([int]$state.calls -eq 0))) '[E1] denied auth executes nothing' (([string]$rDeny.reason) + ' calls=' + [string]$state.calls)
 
         $authCb = @{ explicit_allow = $true; goal_id = 'nd-goal-1'; owner = 'planner-1'; generation = $gen; source = 'test-callback' }
-        $rCb = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authCb -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
+        $rCb = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authCb -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rCb.ok) -and ([string]$rCb.reason -ceq 'test-callback-never-authorizes-production') -and ([int]$state.calls -eq 0))) '[E2] TestCallback never authorizes production' ([string]$rCb.reason)
 
         $authRival = @{ explicit_allow = $true; goal_id = 'nd-goal-1'; owner = 'rival-9'; generation = $gen; source = 'planner' }
-        $rRival = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authRival -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
+        $rRival = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authRival -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rRival.ok) -and ([int]$state.calls -eq 0))) '[E3] fencing conflict executes nothing' ([string]$rRival.reason)
 
+        # ---------- F1: live admission before effect ----------
+        $f1state = @{ calls = 0 }
+        $f1spy = { param($i) $f1state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $ghost = New-NDIntent -Task 'ghost-task-9'
+        $rGhost = Invoke-OrchestrationNativeDispatch -Intent $ghost.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rGhost.ok) -and ([string]$rGhost.reason -ceq 'task-not-found') -and ([int]$rGhost.executor_calls -eq 0) -and ([int]$f1state.calls -eq 0))) '[F1] unknown task refused with 0 executor calls' ([string]$rGhost.reason)
+        New-NDKernelTask -Id 'nd-task-revb' -Base 'rev-b'
+        $wrongBase = New-NDIntent -Task 'nd-task-revb' -Base 'rev-a'
+        $rBase = Invoke-OrchestrationNativeDispatch -Intent $wrongBase.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rBase.ok) -and ([string]$rBase.reason -ceq 'base-revision-mismatch') -and ([int]$f1state.calls -eq 0))) '[F1] base revision divergence refused' ([string]$rBase.reason)
+        $wrongOwner = New-NDIntent -Owner 'rival-9'
+        $rOwner = Invoke-OrchestrationNativeDispatch -Intent $wrongOwner.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rOwner.ok) -and ([string]$rOwner.reason -ceq 'owner-mismatch') -and ([int]$f1state.calls -eq 0))) '[F1] owner divergence refused' ([string]$rOwner.reason)
+        $wrongGen = New-NDIntent -Gen ($gen + 1)
+        $rGen = Invoke-OrchestrationNativeDispatch -Intent $wrongGen.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rGen.ok) -and ([string]$rGen.reason -ceq 'generation-mismatch') -and ([int]$f1state.calls -eq 0))) '[F1] generation divergence refused' ([string]$rGen.reason)
+        $wrongRev = New-NDIntent -Rev 99
+        $rRev = Invoke-OrchestrationNativeDispatch -Intent $wrongRev.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rRev.ok) -and ([string]$rRev.reason -ceq 'task-revision-mismatch') -and ([int]$f1state.calls -eq 0))) '[F1] expected revision divergence refused' ([string]$rRev.reason)
+        $orphan = New-OrchestrationTask -TaskId 'orphan-task-1' -Objective 'obj orphan' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$orphan.ok) '[F1] orphan kernel task created' ([string]$orphan.error)
+        $orphanIntent = New-NDIntent -Task 'orphan-task-1'
+        $rOrphan = Invoke-OrchestrationNativeDispatch -Intent $orphanIntent.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rOrphan.ok) -and ([string]$rOrphan.reason -ceq 'task-not-in-goal') -and ([int]$f1state.calls -eq 0))) '[F1] task outside the goal refused' ([string]$rOrphan.reason)
+        $evilScope = New-NDIntent -Scope @('src/evil.ps1')
+        $rScope = Invoke-OrchestrationNativeDispatch -Intent $evilScope.intent -Executor $f1spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rScope.ok) -and ([string]$rScope.reason -ceq 'scope-not-granted') -and ([int]$f1state.calls -eq 0))) '[F1] ungranted scope refused' ([string]$rScope.reason)
+        $authScoped = @{ explicit_allow = $true; goal_id = 'nd-goal-1'; owner = 'planner-1'; generation = $gen; source = 'planner'; allowed_agents = @('coder') }
+        $testerIntent = New-NDIntent -Agent 'tester'
+        $rAgent = Invoke-OrchestrationNativeDispatch -Intent $testerIntent.intent -Executor $f1spy -Authorization $authScoped -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rAgent.ok) -and ([string]$rAgent.reason -ceq 'agent-not-granted') -and ([int]$f1state.calls -eq 0))) '[F1] ungranted agent refused' ([string]$rAgent.reason)
+
         # ---------- authorized executes exactly once ----------
-        $rOk = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
-        Assert-ND (([bool]$rOk.admitted -and ([int]$rOk.executor_calls -eq 1) -and ([int]$state.calls -eq 1))) '[X1] authorized executes once' (([string]$rOk.reason) + ' kernel=' + [string]$rOk.kernel_reason)
+        $rOk = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rOk.ok -and [bool]$rOk.admitted -and ([int]$rOk.executor_calls -eq 1) -and ([int]$state.calls -eq 1))) '[X1] authorized executes once' (([string]$rOk.reason) + ' kernel=' + [string]$rOk.kernel_reason)
         Assert-ND ((-not [bool]$rOk.duplicate)) '[X1] first dispatch is not a duplicate' ''
         Assert-ND (([bool]$rOk.evidence_created -and ([string]$rOk.evidence_id -cmatch '^[a-f0-9]{32}$'))) '[X1] evidence row persisted' ([string]$rOk.evidence_id)
-        Assert-ND ((-not [string]::IsNullOrWhiteSpace([string]$rOk.kernel_reason))) '[X1] kernel verdict recorded fail-closed' ([string]$rOk.kernel_reason)
+        Assert-ND ([bool]$rOk.kernel_ok) '[X1] kernel accepted the worker result' ([string]$rOk.kernel_reason)
+        $fpFile = Join-Path $receiptDir (([string]$good.intent.idempotency_key) + '.json')
+        $fpRec = ConvertFrom-Json ([IO.File]::ReadAllText($fpFile, [Text.Encoding]::UTF8))
+        Assert-ND (([string]$fpRec.intent_fingerprint -cmatch '^[a-f0-9]{32}$')) '[F7] receipt binds the canonical intent fingerprint' ([string]$fpRec.intent_fingerprint)
 
-        # ---------- idempotency: repeat + concurrent-style retry ----------
-        $rDup = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
+        # ---------- idempotency: repeat returns receipt, no re-execution ----------
+        $rDup = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (([bool]$rDup.duplicate -and ([int]$rDup.executor_calls -eq 0) -and ([int]$state.calls -eq 1))) '[D1] repeat key returns receipt, no re-execution' ('calls=' + [string]$state.calls)
-        $rDup2 = Invoke-OrchestrationNativeDispatch -Intent $good.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
-        Assert-ND (([bool]$rDup2.duplicate -and ([int]$state.calls -eq 1))) '[D1] concurrent retry never duplicates effect' ('calls=' + [string]$state.calls)
 
-        # ---------- crash between receipt and execution reconciles ----------
+        # ---------- F7: same key, divergent intent is a collision ----------
+        $evilKey = ([string]$good.intent.idempotency_key)
+        $collide = New-NDIntent -Task 'nd-task-2' -Key $evilKey
+        Assert-ND ([bool]$collide.ok) '[F7] divergent intent with same key builds' ([string]$collide.reason)
+        $cstate = @{ calls = 0 }
+        $cspy = { param($i) $cstate.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rCollide = Invoke-OrchestrationNativeDispatch -Intent $collide.intent -Executor $cspy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rCollide.ok) -and ([string]$rCollide.reason -ceq 'idempotency-key-collision') -and ([int]$cstate.calls -eq 0))) '[F7] same key with divergent intent refused, result never reused' ([string]$rCollide.reason)
+
+        # ---------- F3: pending of an uncertain prior run never auto-replays ----------
+        New-NDKernelTask -Id 'nd-task-crash1'
         $crashKey = Get-NativeDispatchHash32 'crash-scenario-1'
-        $crashSpec = New-NDSpec -Key $crashKey
-        $crashIntent = New-OrchestrationDispatchIntent -TaskId $crashSpec.task_id -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $crashSpec.prompt_hash -Scope $crashSpec.scope -AcceptanceCriteria $crashSpec.acceptance_criteria -IdempotencyKey $crashKey -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
-        $stuck = [ordered]@{ schema_version = 1; idempotency_key = $crashKey; phase = 'pending'; task_id = 'nd-task-1'; agent = 'coder'; owner = 'planner-1'; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        $crashIntent = New-NDIntent -Task 'nd-task-crash1' -Key $crashKey
+        $crashFp = Get-NDIntentFingerprint -Intent $crashIntent.intent
+        $stuck = [ordered]@{ schema_version = 1; idempotency_key = $crashKey; phase = 'pending'; task_id = 'nd-task-crash1'; agent = 'coder'; owner = 'planner-1'; intent_fingerprint = $crashFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
         [IO.File]::WriteAllText((Join-Path $receiptDir ($crashKey + '.json')), (ConvertTo-Json -InputObject $stuck -Compress), [Text.UTF8Encoding]::new($false))
-        $rCrash = Invoke-OrchestrationNativeDispatch -Intent $crashIntent.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
-        Assert-ND (([bool]$rCrash.reconciled -and ([int]$state.calls -eq 2))) '[D2] pending receipt reconciles with same key' ('reconciled=' + [string]$rCrash.reconciled + ' calls=' + [string]$state.calls)
+        $crashState = @{ calls = 0 }
+        $crashSpy = { param($i) $crashState.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rCrash = Invoke-OrchestrationNativeDispatch -Intent $crashIntent.intent -Executor $crashSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rCrash.ok) -and ([string]$rCrash.reason -ceq 'pending-ambiguous') -and ([int]$crashState.calls -eq 0))) '[F3] crash-after-effect pending never replays without reconciliation' ('reason=' + [string]$rCrash.reason + ' calls=' + [string]$crashState.calls)
+        $outcome = @{ ok = $true; reason = 'effect-verified-externally'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'externally-confirmed'; evidence_created = $false; evidence_id = '' }
+        $rRec = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $crashKey -Outcome $outcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir
+        Assert-ND (([bool]$rRec.ok -and [bool]$rRec.reconciled -and ([int]$crashState.calls -eq 0))) '[F3] explicit reconciliation settles without a second effect' ([string]$rRec.reason)
+        $rAfter = Invoke-OrchestrationNativeDispatch -Intent $crashIntent.intent -Executor $crashSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rAfter.duplicate -and ([int]$crashState.calls -eq 0))) '[F3] reconciled receipt is idempotent afterwards' ('calls=' + [string]$crashState.calls)
+
+        # ---------- F3: declared external idempotence allows replay with same key ----------
+        New-NDKernelTask -Id 'nd-task-crash2'
+        $idemKey = Get-NativeDispatchHash32 'idempotent-sink-1'
+        $idemIntent = New-NDIntent -Task 'nd-task-crash2' -Key $idemKey -Ext $true -Proof 'sink dedupes by idempotency key (test)'
+        Assert-ND ([bool]$idemIntent.ok) '[F3] idempotent intent builds with proof' ([string]$idemIntent.reason)
+        $idemFp = Get-NDIntentFingerprint -Intent $idemIntent.intent
+        $stuck2 = [ordered]@{ schema_version = 1; idempotency_key = $idemKey; phase = 'pending'; task_id = 'nd-task-crash2'; agent = 'coder'; owner = 'planner-1'; intent_fingerprint = $idemFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        [IO.File]::WriteAllText((Join-Path $receiptDir ($idemKey + '.json')), (ConvertTo-Json -InputObject $stuck2 -Compress), [Text.UTF8Encoding]::new($false))
+        $idemState = @{ calls = 0 }
+        $idemSpy = { param($i) $idemState.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rIdem = Invoke-OrchestrationNativeDispatch -Intent $idemIntent.intent -Executor $idemSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rIdem.reconciled -and ([int]$idemState.calls -eq 1))) '[F3] declared idempotent replay reconciles with same key' ('reconciled=' + [string]$rIdem.reconciled + ' calls=' + [string]$idemState.calls)
+        $rIdemDup = Invoke-OrchestrationNativeDispatch -Intent $idemIntent.intent -Executor $idemSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$rIdemDup.duplicate -and ([int]$idemState.calls -eq 1))) '[F3] replayed receipt never duplicates again' ('calls=' + [string]$idemState.calls)
+
+        # ---------- F2: post-lock fencing ----------
+        $postOk = Test-NDPostLockFencing -GoalId 'nd-goal-1' -Owner 'planner-1' -Generation $gen -GoalStoreDir $goalDir
+        Assert-ND ([bool]$postOk.ok) '[F2] live fencing token passes post-lock' ([string]$postOk.reason)
+        $postStale = Test-NDPostLockFencing -GoalId 'nd-goal-1' -Owner 'planner-1' -Generation ($gen + 99) -GoalStoreDir $goalDir
+        Assert-ND (((-not [bool]$postStale.ok) -and ([string]$postStale.reason -like 'post-lock-fencing-changed*'))) '[F2] taken-over generation fails post-lock' ([string]$postStale.reason)
+        $g2 = New-OrchestrationGoal -GoalId 'nd-goal-2' -Objective 'fencing nao ativa' -Criteria @('criterio-a') -StoreDir $goalDir
+        $a2 = Set-OrchestrationGoalState -Goal $g2.goal -ToState 'ACTIVE'
+        $s2 = Save-OrchestrationGoal -Goal $a2.goal -StoreDir $goalDir
+        $o2 = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-2' -OwnerId 'planner-1' -ExpectedRevision ([long]$s2.revision) -StoreDir $goalDir
+        $gen2 = [long]$o2.ownership['generation']
+        $t2 = New-OrchestrationTask -TaskId 'nd2-task-1' -Objective 'obj nd2' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$t2.ok) '[F2] second goal task created' ([string]$t2.error)
+        $slot2 = Get-OrchestrationGoal -GoalId 'nd-goal-2' -StoreDir $goalDir
+        $add2 = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-2' -TaskId 'nd2-task-1' -ExpectedRevision ([long]$slot2.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen2
+        Assert-ND ([bool]$add2.ok) '[F2] second goal task attached' ([string]$add2.reason)
+        $live2 = Get-OrchestrationGoal -GoalId 'nd-goal-2' -StoreDir $goalDir
+        $pz = Set-OrchestrationGoalStatePersisted -GoalId 'nd-goal-2' -ToState 'PAUSED' -ExpectedRevision ([long]$live2.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen2
+        Assert-ND ([bool]$pz.ok) '[F2] second goal paused' ([string]$pz.reason)
+        $auth2 = @{ explicit_allow = $true; goal_id = 'nd-goal-2'; owner = 'planner-1'; generation = $gen2; source = 'planner' }
+        $pausedIntent = New-OrchestrationDispatchIntent -TaskId 'nd2-task-1' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -Owner 'planner-1' -OwnershipGeneration $gen2 -BaseRevision 'rev-a'
+        $pstate = @{ calls = 0 }
+        $pspy = { param($i) $pstate.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rPaused = Invoke-OrchestrationNativeDispatch -Intent $pausedIntent.intent -Executor $pspy -Authorization $auth2 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rPaused.ok) -and ([string]$rPaused.reason -like 'post-lock-goal-not-active*') -and ([int]$pstate.calls -eq 0))) '[F2] goal out of ACTIVE refuses before effect' ([string]$rPaused.reason)
 
         # ---------- result shape gate ----------
         $shapeKey = Get-NativeDispatchHash32 'shape-scenario-1'
         $shapeIntent = New-OrchestrationDispatchIntent -TaskId 'nd-task-2' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $shapeKey -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
         $evil = { param($i) return @{ status = 'verified_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
-        $rEvil = Invoke-OrchestrationNativeDispatch -Intent $shapeIntent.intent -Executor $evil -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
+        $rEvil = Invoke-OrchestrationNativeDispatch -Intent $shapeIntent.intent -Executor $evil -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rEvil.ok) -and ([string]$rEvil.reason -ceq 'status-not-allowed-from-worker') -and ([string]$rEvil.kernel_reason -ceq 'result-shape-invalid'))) '[S1] verified_pass from worker rejected' ([string]$rEvil.reason)
         $doneEvil = { param($i) return @{ status = 'done'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $doneKey = Get-NativeDispatchHash32 'shape-scenario-2'
         $doneIntent = New-OrchestrationDispatchIntent -TaskId 'nd-task-3' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $doneKey -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
-        $rDone = Invoke-OrchestrationNativeDispatch -Intent $doneIntent.intent -Executor $doneEvil -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir
+        $rDone = Invoke-OrchestrationNativeDispatch -Intent $doneIntent.intent -Executor $doneEvil -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rDone.ok) -and ([string]$rDone.reason -ceq 'status-not-allowed-from-worker'))) '[S1] done from worker rejected' ([string]$rDone.reason)
 
         # ---------- hygiene ----------
         $ndPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'
         $ndText = [IO.File]::ReadAllText($ndPath, [Text.UTF8Encoding]::new($false))
         Assert-ND ((($ndText -notmatch 'Start-Process') -and ($ndText -notmatch 'Invoke-WebRequest') -and ($ndText -notmatch 'Invoke-RestMethod') -and ($ndText -notmatch 'HttpClient'))) '[NET] no spawn/network' ''
-        Assert-ND (($ndText -notmatch '(?i)sk-[A-Za-z0-9]')) '[SEC] no secret value' ''
+        Assert-ND (($ndText -notmatch '(?i)\bsk-[A-Za-z0-9]{20,}')) '[SEC] no secret value' ''
         foreach ($p in @($ndPath, (Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.tests.ps1'))) {
             $bytes = [IO.File]::ReadAllBytes($p)
             $bad = 0

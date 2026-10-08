@@ -23,15 +23,21 @@
 
     Guarda-corpo central (Gate E): acao autorizada executa; acao nao
     autorizada e impedida ANTES de qualquer efeito externo. O Executor e
-    invocado UMA vez e somente apos autorizacao admitida + recibo
-    persistido. `-TestCallback` nunca e prova de producao.
+    invocado UMA vez e somente apos autorizacao admitida + admissao viva
+    do kernel (F1) + recibo persistido + re-checagem de fencing pos-lock
+    (F2). `-TestCallback` nunca e prova de producao.
 
     Idempotencia: recibo `<ReceiptDir>/<idempotency_key>.json` escrito
     como `pending` ANTES do Executor e atualizado para `settled` depois.
-    Re-dispatch da mesma key retorna o recibo existente sem re-executar.
-    Crash entre recibo e execucao = recibo pending -> reconciliacao segura
-    (re-executa com a mesma key; o lock de recibo serializa tentativas
-    concorrentes, nunca ha duplo efeito externo sem reconciliacao).
+    O recibo vincula o fingerprint canonico do Intent completo (F7):
+    re-dispatch da mesma key com Intent divergente e recusado como
+    colisao, sem reutilizar resultado e sem executar. Recibo `pending`
+    de execucao anterior incerta NUNCA da replay automatico (F3):
+    retorna `pending-ambiguous` e exige reconciliacao externa explicita
+    via `Confirm-OrchestrationDispatchReconciliation`; replay so quando
+    o Intent declara `external_idempotent=$true` com prova documentada
+    (efeito externo idempotente pela mesma key). Falha ao persistir
+    `settled` e erro explicito, nunca silencioso.
 
     Holds preservados: `dispatchWorker/waitForSettlement/
     requestPlannerContinuation/cancelAuthorizedExecution` continuam em HOLD
@@ -150,7 +156,9 @@ function New-OrchestrationDispatchIntent {
         [string]$IdempotencyKey = '',
         [string]$Owner = '',
         [long]$OwnershipGeneration = 0,
-        [string]$BaseRevision = ''
+        [string]$BaseRevision = '',
+        [bool]$ExternalIdempotent = $false,
+        [string]$ExternalIdempotencyProof = ''
     )
     try {
         $tid = ([string]$TaskId).Trim()
@@ -211,6 +219,13 @@ function New-OrchestrationDispatchIntent {
         elseif ($key -cnotmatch '^[a-f0-9]{32}$') {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-idempotency-key'; intent = $null }
         }
+        $extProof = ([string]$ExternalIdempotencyProof).Trim()
+        if ([bool]$ExternalIdempotent) {
+            if ([string]::IsNullOrWhiteSpace($extProof) -or ($extProof.Length -gt 240)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-idempotency-proof'; intent = $null }
+            }
+        }
+        else { $extProof = '' }
         $intent = [pscustomobject][ordered]@{
             schema_version       = 1
             task_id              = $tid
@@ -223,6 +238,8 @@ function New-OrchestrationDispatchIntent {
             owner                = $own
             ownership_generation = [long]$OwnershipGeneration
             base_revision        = $base
+            external_idempotent  = [bool]$ExternalIdempotent
+            external_idempotency_proof = $extProof
             created_at           = ([DateTime]::UtcNow.ToString('o'))
         }
         return [pscustomobject]@{ ok = $true; reason = ''; intent = $intent }
@@ -427,6 +444,324 @@ function Write-NDReceipt {
     catch { return $false }
 }
 
+function Get-NDIntentFingerprint {
+    <#
+    .SYNOPSIS
+        Fingerprint canonico do Intent completo (F7). Qualquer divergencia
+        de task/owner/generation/agent/scopes/prompt-hash/base-revision ou
+        expected-revision muda o fingerprint; a mesma idempotency_key com
+        fingerprint distinto e colisao, nunca reutilizacao.
+    #>
+    [CmdletBinding()]
+    param($Intent = $null)
+    try {
+        $scopes = @((Get-NDValue $Intent 'scope' @()) | ForEach-Object { ([string]$_).Trim() })
+        $material = (([string](Get-NDValue $Intent 'task_id' '')) + '|' `
+            + ([string](Get-NDValue $Intent 'owner' '')) + '|' `
+            + [string]([long](Get-NDValue $Intent 'ownership_generation' 0)) + '|' `
+            + ([string](Get-NDValue $Intent 'agent' '')) + '|' `
+            + ($scopes -join '|') + '|' `
+            + ([string](Get-NDValue $Intent 'prompt_hash' '')) + '|' `
+            + ([string](Get-NDValue $Intent 'base_revision' '')) + '|' `
+            + [string]([long](Get-NDValue $Intent 'task_expected_revision' 0)))
+        return (Get-NativeDispatchHash32 $material)
+    }
+    catch { return '' }
+}
+
+function Test-NDLiveTaskAdmission {
+    <#
+    .SYNOPSIS
+        Admissao pre-efeito contra o kernel vivo (F1). Fail-closed.
+    .DESCRIPTION
+        Valida ANTES de qualquer efeito: a task existe no TaskKernel e nao
+        esta em estado terminal; a revisao esperada e o base_revision do
+        Intent conferem com o registro vivo; owner/generation do Intent
+        conferem com a Authorization; o dono atual da task confere com a
+        Authorization; a task pertence ao goal da Authorization (active_tasks
+        do goal vivo); cada scope do Intent esta nos read/write scopes da
+        task; quando a Authorization declara allowed_agents/allowed_scopes,
+        o agent e os scopes do Intent estao contidos neles. Qualquer
+        divergencia recusa com 0 calls do Executor. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param($Intent = $null, $Authorization = $null, $Goal = $null, [string]$TasksDir = '', [string]$FlagsPath = '', [string]$RepoRoot = '')
+    try {
+        $tCmd = Get-Command Get-OrchestrationTask -ErrorAction SilentlyContinue
+        if ($null -eq $tCmd) {
+            return [pscustomobject]@{ ok = $false; reason = 'taskkernel-unavailable' }
+        }
+        $tid = ([string](Get-NDValue $Intent 'task_id' '')).Trim()
+        $task = $null
+        try { $task = Get-OrchestrationTask -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot }
+        catch { $task = $null }
+        if ($null -eq $task) {
+            return [pscustomobject]@{ ok = $false; reason = 'task-read-failed' }
+        }
+        $errCode = ''
+        try {
+            if ($task -is [System.Collections.IDictionary]) {
+                if ($task.Contains('error')) { $errCode = ([string]$task['error']) }
+            }
+            else {
+                $ep = $task.PSObject.Properties['error']
+                if ($null -ne $ep) { $errCode = ([string]$ep.Value) }
+            }
+        }
+        catch { $errCode = '' }
+        if (-not [string]::IsNullOrWhiteSpace($errCode)) {
+            if ($errCode -ceq 'NOT_FOUND') {
+                return [pscustomobject]@{ ok = $false; reason = 'task-not-found' }
+            }
+            if ($errCode -ceq 'KERNEL_DISABLED') {
+                return [pscustomobject]@{ ok = $false; reason = 'taskkernel-disabled' }
+            }
+            return [pscustomobject]@{ ok = $false; reason = ('task-read-failed:' + $errCode) }
+        }
+        $termCmd = Get-Command Test-TaskKernelTerminalState -ErrorAction SilentlyContinue
+        $tState = ([string](Get-NDValue $task 'state' '')).Trim().ToUpperInvariant()
+        $isTerminal = $false
+        try {
+            if ($null -ne $termCmd) { $isTerminal = [bool](Test-TaskKernelTerminalState -State $tState) }
+            else { $isTerminal = (@('DONE', 'EXHAUSTED', 'CANCELLED') -ccontains $tState) }
+        }
+        catch { $isTerminal = $true }
+        if ($isTerminal) {
+            return [pscustomobject]@{ ok = $false; reason = 'task-terminal' }
+        }
+        if ([long](Get-NDValue $task 'revision' -1) -ne [long](Get-NDValue $Intent 'task_expected_revision' 0)) {
+            return [pscustomobject]@{ ok = $false; reason = 'task-revision-mismatch' }
+        }
+        if (([string](Get-NDValue $task 'base_revision' '')) -cne ([string](Get-NDValue $Intent 'base_revision' ''))) {
+            return [pscustomobject]@{ ok = $false; reason = 'base-revision-mismatch' }
+        }
+        $authOwner = ([string](Get-NDValue $Authorization 'owner' '')).Trim()
+        $authGen = [long](Get-NDValue $Authorization 'generation' 0)
+        if (([string](Get-NDValue $Intent 'owner' '')) -cne $authOwner) {
+            return [pscustomobject]@{ ok = $false; reason = 'owner-mismatch' }
+        }
+        if ([long](Get-NDValue $Intent 'ownership_generation' 0) -ne $authGen) {
+            return [pscustomobject]@{ ok = $false; reason = 'generation-mismatch' }
+        }
+        if (([string](Get-NDValue $task 'current_owner' '')) -cne $authOwner) {
+            return [pscustomobject]@{ ok = $false; reason = 'task-owner-mismatch' }
+        }
+        if ($null -eq $Goal) {
+            return [pscustomobject]@{ ok = $false; reason = 'goal-unavailable' }
+        }
+        $inActive = $false
+        $inCompleted = $false
+        try {
+            foreach ($t in @((Get-NDValue $Goal 'active_tasks' @()))) {
+                if ($tid -ceq ([string]$t)) { $inActive = $true; break }
+            }
+            foreach ($t in @((Get-NDValue $Goal 'completed_tasks' @()))) {
+                if ($tid -ceq ([string]$t)) { $inCompleted = $true; break }
+            }
+        }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'goal-unavailable' } }
+        if ($inCompleted) {
+            return [pscustomobject]@{ ok = $false; reason = 'task-already-completed' }
+        }
+        if (-not $inActive) {
+            return [pscustomobject]@{ ok = $false; reason = 'task-not-in-goal' }
+        }
+        $granted = @()
+        try {
+            $granted = @(@((Get-NDValue $task 'read_scopes' @())) + @((Get-NDValue $task 'write_scopes' @())))
+        }
+        catch { $granted = @() }
+        foreach ($s in @((Get-NDValue $Intent 'scope' @()))) {
+            $needle = ([string]$s)
+            $found = $false
+            foreach ($g in @($granted)) {
+                if ($needle -ceq ([string]$g)) { $found = $true; break }
+            }
+            if (-not $found) {
+                return [pscustomobject]@{ ok = $false; reason = 'scope-not-granted' }
+            }
+        }
+        $allowedAgents = @((Get-NDValue $Authorization 'allowed_agents' @()))
+        if (@($allowedAgents).Count -gt 0) {
+            $agent = ([string](Get-NDValue $Intent 'agent' ''))
+            $aFound = $false
+            foreach ($a in @($allowedAgents)) {
+                if ($agent -ceq ([string]$a)) { $aFound = $true; break }
+            }
+            if (-not $aFound) {
+                return [pscustomobject]@{ ok = $false; reason = 'agent-not-granted' }
+            }
+        }
+        $allowedScopes = @((Get-NDValue $Authorization 'allowed_scopes' @()))
+        if (@($allowedScopes).Count -gt 0) {
+            foreach ($s in @((Get-NDValue $Intent 'scope' @()))) {
+                $needle = ([string]$s)
+                $sFound = $false
+                foreach ($g in @($allowedScopes)) {
+                    if ($needle -ceq ([string]$g)) { $sFound = $true; break }
+                }
+                if (-not $sFound) {
+                    return [pscustomobject]@{ ok = $false; reason = 'scope-not-granted' }
+                }
+            }
+        }
+        return [pscustomobject]@{ ok = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'admission-internal-error' }
+    }
+}
+
+function Test-NDPostLockFencing {
+    <#
+    .SYNOPSIS
+        Re-checagem de fencing IMEDIATAMENTE antes do efeito (F2).
+    .DESCRIPTION
+        Rele o goal vivo do store sob o lock do recibo e exige: goal
+        legivel, estado exatamente ACTIVE e fencing owner+generation com
+        lease valido. Takeover, lease expirado ou saida de ACTIVE recusa
+        sem executar. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$GoalId = '', [string]$Owner = '', [long]$Generation = 0, [string]$GoalStoreDir = '')
+    try {
+        $gid = ([string]$GoalId).Trim()
+        $own = ([string]$Owner).Trim()
+        if ([string]::IsNullOrWhiteSpace($gid) -or [string]::IsNullOrWhiteSpace($own) -or ([long]$Generation -lt 1)) {
+            return [pscustomobject]@{ ok = $false; reason = 'post-lock-invalid-token' }
+        }
+        $goalCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
+        $ownCmd = Get-Command Test-OrchestrationGoalOwnership -ErrorAction SilentlyContinue
+        if (($null -eq $goalCmd) -or ($null -eq $ownCmd)) {
+            return [pscustomobject]@{ ok = $false; reason = 'post-lock-check-unavailable' }
+        }
+        $slot = $null
+        try { $slot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir }
+        catch { $slot = $null }
+        if (($null -eq $slot) -or (-not [bool](Get-NDValue $slot 'ok' $false))) {
+            $why = 'post-lock-goal-unreadable'
+            try { if (-not [string]::IsNullOrWhiteSpace([string](Get-NDValue $slot 'reason' ''))) { $why = ('post-lock-goal-unreadable:' + [string](Get-NDValue $slot 'reason' '')) } } catch { }
+            return [pscustomobject]@{ ok = $false; reason = $why }
+        }
+        $goal = Get-NDValue $slot 'goal' $null
+        $state = ''
+        try { $state = (([string](Get-NDValue $goal 'state' '')).Trim().ToUpperInvariant()) } catch { $state = '' }
+        if ($state -cne 'ACTIVE') {
+            return [pscustomobject]@{ ok = $false; reason = ('post-lock-goal-not-active:' + $state) }
+        }
+        $chk = $null
+        try { $chk = Test-OrchestrationGoalOwnership -Goal $goal -OwnerId $own -Generation ([long]$Generation) }
+        catch { $chk = $null }
+        if (($null -eq $chk) -or (-not [bool](Get-NDValue $chk 'ok' $false)) -or (-not [bool](Get-NDValue $chk 'held' $false))) {
+            $why = 'post-lock-fencing-changed'
+            try { if (($null -ne $chk) -and (-not [string]::IsNullOrWhiteSpace([string](Get-NDValue $chk 'reason' '')))) { $why = ('post-lock-fencing-changed:' + [string](Get-NDValue $chk 'reason' '')) } } catch { }
+            return [pscustomobject]@{ ok = $false; reason = $why }
+        }
+        return [pscustomobject]@{ ok = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'post-lock-internal-error' }
+    }
+}
+
+function Confirm-OrchestrationDispatchReconciliation {
+    <#
+    .SYNOPSIS
+        Reconciliacao externa explicita de recibo pending (F3). Sem efeito.
+    .DESCRIPTION
+        Converte um recibo `pending` em `settled` a partir de evidencia
+        liquidada fornecida pelo chamador autorizado (que verificou por
+        fora se o efeito ocorreu). Exige a mesma Authorization admitida do
+        dispatch; nunca invoca o Executor (0 calls por construcao). Falha
+        ao persistir e erro explicito, nunca silencioso. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$IdempotencyKey = '',
+        $Outcome = $null,
+        $Authorization = $null,
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$GoalStoreDir = '',
+        [int]$LockTimeoutMs = 60000
+    )
+    try {
+        $key = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+        if ($key -cnotmatch '^[a-f0-9]{32}$') {
+            return (New-NDDispatchEnvelope -Ok $false -Reason 'invalid-idempotency-key' -ExecutorCalls 0)
+        }
+        if ($null -eq $Outcome) {
+            return (New-NDDispatchEnvelope -Ok $false -Reason 'outcome-missing' -ExecutorCalls 0)
+        }
+        $outOk = Get-NDValue $Outcome 'ok' $null
+        if (($null -eq $outOk) -or ($outOk -isnot [bool])) {
+            return (New-NDDispatchEnvelope -Ok $false -Reason 'outcome-invalid' -ExecutorCalls 0)
+        }
+        $outWorker = Get-NDValue $Outcome 'worker_result' $null
+        if (($null -ne $outWorker) -and [bool]$outOk) {
+            $shape = Test-OrchestrationDispatchResultShape -Result $outWorker
+            if (-not [bool](Get-NDValue $shape 'ok' $false)) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'invalid-outcome-shape' -ExecutorCalls 0)
+            }
+        }
+        $dir = Get-OrchestrationDispatchReceiptDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-dir-unresolvable' -ExecutorCalls 0)
+        }
+        $auth = Test-NativeDispatchAuthorization -Authorization $Authorization -GoalStoreDir $GoalStoreDir -ActivationLogDir $dir
+        if (-not [bool](Get-NDValue $auth 'admitted' $false)) {
+            return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $auth 'reason' 'authorization-denied')) -ExecutorCalls 0)
+        }
+        $lock = Open-NDReceiptLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return (New-NDDispatchEnvelope -Ok $false -Reason 'lock-busy' -Admitted $true -ExecutorCalls 0)
+        }
+        try {
+            $existing = Read-NDReceipt -Dir $dir -Key $key
+            if ($null -eq $existing) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-not-found' -Admitted $true -ExecutorCalls 0)
+            }
+            if ([string](Get-NDValue $existing 'phase' '') -ceq 'settled') {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'already-settled' -Admitted $true -ExecutorCalls 0)
+            }
+            if ([string](Get-NDValue $existing 'phase' '') -cne 'pending') {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-invalid' -Admitted $true -ExecutorCalls 0)
+            }
+            $fp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
+            $wOut = $null
+            if ($null -ne $outWorker) {
+                $wOut = [pscustomobject][ordered]@{
+                    status = ([string](Get-NDValue $outWorker 'status' ''))
+                    claimed_evidence = [string[]]@((Get-NDValue $outWorker 'claimed_evidence' @()))
+                }
+            }
+            $settled = [ordered]@{
+                schema_version = 1; idempotency_key = $key; phase = 'settled'
+                ok = [bool]$outOk; reason = ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally'))
+                task_id = ([string](Get-NDValue $existing 'task_id' ''))
+                agent = ([string](Get-NDValue $existing 'agent' ''))
+                owner = ([string](Get-NDValue $existing 'owner' ''))
+                intent_fingerprint = $fp
+                reconciled = $true
+                worker_result = $wOut
+                kernel_ok = [bool](Get-NDValue $Outcome 'kernel_ok' $false)
+                kernel_reason = ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-externally'))
+                evidence_created = [bool](Get-NDValue $Outcome 'evidence_created' $false)
+                evidence_id = ([string](Get-NDValue $Outcome 'evidence_id' ''))
+                settled_at = ([DateTime]::UtcNow.ToString('o'))
+            }
+            if (-not (Write-NDReceipt -Dir $dir -Receipt $settled)) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -ExecutorCalls 0)
+            }
+            return (New-NDDispatchEnvelope -Ok ([bool]$outOk) -Reason ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally')) -Admitted $true -Reconciled $true -ExecutorCalls 0 -WorkerResult $wOut -KernelOk ([bool](Get-NDValue $Outcome 'kernel_ok' $false)) -KernelReason ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-externally')) -EvidenceCreated ([bool](Get-NDValue $Outcome 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $Outcome 'evidence_id' '')))
+        }
+        finally { try { $lock.Dispose() } catch { } }
+    }
+    catch {
+        return (New-NDDispatchEnvelope -Ok $false -Reason 'reconcile-internal-error' -ExecutorCalls 0)
+    }
+}
+
 function New-NDDispatchEnvelope {
     param([bool]$Ok = $false, [string]$Reason = '', [bool]$Admitted = $false, [bool]$Duplicate = $false, [bool]$Reconciled = $false, [int]$ExecutorCalls = 0, $Intent = $null, $WorkerResult = $null, [bool]$KernelOk = $false, [string]$KernelReason = '', [bool]$EvidenceCreated = $false, [string]$EvidenceId = '')
     return [pscustomobject][ordered]@{
@@ -450,13 +785,18 @@ function Invoke-OrchestrationNativeDispatch {
     .SYNOPSIS
         Despacha UM worker via Executor injetado, com recibo idempotente.
     .DESCRIPTION
-        Ordem fixa: (a) autorizacao -> (b) recibo pending -> (c) Executor UMA
-        vez (unico ponto de efeito externo) -> (d) validacao de forma ->
-        (e) evidence row -> (f) kernel. O lock de recibo e mantido durante
-        todo o despacho para serializar tentativas concorrentes. Crash entre
-        (b) e (c) deixa recibo pending: o proximo dispatch da mesma key
-        reconcilia (re-executa com a mesma key, nunca duplica sem
-        reconciliacao). Nunca lanca.
+        Ordem fixa: (a) autorizacao -> (b) admissao viva do kernel (F1:
+        task existe e nao-terminal, pertence ao goal, revisoes/fencing/
+        grants conferem; divergencia recusa com 0 calls) -> (c) lock do
+        recibo -> (d) vinculo de Intent (F7: mesma key com fingerprint
+        distinto = colisao, sem reuso e sem efeito) -> (e) pending
+        ambiguo (F3: sem replay automatico; exige reconciliacao externa
+        ou flag external_idempotent com prova) -> (f) recibo pending ->
+        (g) fencing pos-lock (F2: releitura IMEDIATA antes do efeito) ->
+        (h) Executor UMA vez (unico ponto de efeito externo) ->
+        (i) validacao de forma -> (j) evidence row -> (k) kernel ->
+        (l) recibo settled (falha de persistencia = erro explicito).
+        O lock de recibo e mantido durante todo o despacho. Nunca lanca.
     #>
     [CmdletBinding()]
     param(
@@ -484,7 +824,9 @@ function Invoke-OrchestrationNativeDispatch {
             -IdempotencyKey ([string](Get-NDValue $realIntent 'idempotency_key' '')) `
             -Owner ([string](Get-NDValue $realIntent 'owner' '')) `
             -OwnershipGeneration ([long](Get-NDValue $realIntent 'ownership_generation' 0)) `
-            -BaseRevision ([string](Get-NDValue $realIntent 'base_revision' ''))
+            -BaseRevision ([string](Get-NDValue $realIntent 'base_revision' '')) `
+            -ExternalIdempotent ([bool](Get-NDValue $realIntent 'external_idempotent' $false)) `
+            -ExternalIdempotencyProof ([string](Get-NDValue $realIntent 'external_idempotency_proof' ''))
         if (-not [bool](Get-NDValue $check 'ok' $false)) {
             return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $check 'reason' 'invalid-intent')))
         }
@@ -509,6 +851,10 @@ function Invoke-OrchestrationNativeDispatch {
         if (($null -eq $Executor) -or ($Executor -isnot [scriptblock])) {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'executor-required' -Admitted $true -Intent $intent -ExecutorCalls 0)
         }
+        $fingerprint = Get-NDIntentFingerprint -Intent $intent
+        if ([string]::IsNullOrWhiteSpace($fingerprint)) {
+            return (New-NDDispatchEnvelope -Ok $false -Reason 'intent-fingerprint-failed' -Admitted $true -Intent $intent -ExecutorCalls 0)
+        }
         $lock = Open-NDReceiptLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
         if ($null -eq $lock) {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'lock-busy' -Admitted $true -Intent $intent -ExecutorCalls 0)
@@ -516,11 +862,40 @@ function Invoke-OrchestrationNativeDispatch {
         try {
             $existing = Read-NDReceipt -Dir $dir -Key $key
             if (($null -ne $existing) -and ([string](Get-NDValue $existing 'phase' '') -ceq 'settled')) {
+                $storedFp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
+                if ([string]::IsNullOrWhiteSpace($storedFp) -or ($storedFp -cne $fingerprint)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'idempotency-key-collision' -Admitted $true -Intent $intent -ExecutorCalls 0)
+                }
                 return (New-NDDispatchEnvelope -Ok ([bool](Get-NDValue $existing 'ok' $false)) -Reason 'idempotent-duplicate' -Admitted $true -Duplicate $true -ExecutorCalls 0 -Intent $intent -WorkerResult (Get-NDValue $existing 'worker_result' $null) -KernelOk ([bool](Get-NDValue $existing 'kernel_ok' $false)) -KernelReason ([string](Get-NDValue $existing 'kernel_reason' '')) -EvidenceCreated ([bool](Get-NDValue $existing 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $existing 'evidence_id' '')))
             }
             $reconciled = $false
             if (($null -ne $existing) -and ([string](Get-NDValue $existing 'phase' '') -ceq 'pending')) {
+                $storedFp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
+                if ([string]::IsNullOrWhiteSpace($storedFp) -or ($storedFp -cne $fingerprint)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'idempotency-key-collision' -Admitted $true -Intent $intent -ExecutorCalls 0)
+                }
+                if (-not [bool](Get-NDValue $intent 'external_idempotent' $false)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'pending-ambiguous' -Admitted $true -Intent $intent -ExecutorCalls 0)
+                }
                 $reconciled = $true
+            }
+            # F1: admissao viva ANTES de qualquer efeito novo. Recibos
+            # settled com fingerprint igual retornam acima sem admissao
+            # (nenhum efeito novo; a revisao da task avancou de proposito
+            # no primeiro dispatch). Replay de pending e efeito novo e
+            # passa pela admissao.
+            $liveGoal = $null
+            try {
+                $gidLive = ([string](Get-NDValue $Authorization 'goal_id' '')).Trim()
+                $gslot = Get-OrchestrationGoal -GoalId $gidLive -StoreDir $GoalStoreDir
+                if (($null -ne $gslot) -and [bool](Get-NDValue $gslot 'ok' $false)) {
+                    $liveGoal = Get-NDValue $gslot 'goal' $null
+                }
+            }
+            catch { $liveGoal = $null }
+            $admit = Test-NDLiveTaskAdmission -Intent $intent -Authorization $Authorization -Goal $liveGoal -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+            if (-not [bool](Get-NDValue $admit 'ok' $false)) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $admit 'reason' 'admission-denied')) -Admitted $true -Reconciled $reconciled -Intent $intent -ExecutorCalls 0)
             }
             $pending = [ordered]@{
                 schema_version  = 1
@@ -529,11 +904,33 @@ function Invoke-OrchestrationNativeDispatch {
                 task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                 agent           = ([string](Get-NDValue $intent 'agent' ''))
                 owner           = ([string](Get-NDValue $intent 'owner' ''))
+                intent_fingerprint = $fingerprint
+                external_idempotent = [bool](Get-NDValue $intent 'external_idempotent' $false)
                 reconciled      = [bool]$reconciled
                 created_at      = ([DateTime]::UtcNow.ToString('o'))
             }
             if (-not (Write-NDReceipt -Dir $dir -Receipt $pending)) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -Intent $intent -ExecutorCalls 0)
+            }
+            $post = Test-NDPostLockFencing -GoalId ([string](Get-NDValue $Authorization 'goal_id' '')) -Owner ([string](Get-NDValue $Authorization 'owner' '')) -Generation ([long](Get-NDValue $Authorization 'generation' 0)) -GoalStoreDir $GoalStoreDir
+            if (-not [bool](Get-NDValue $post 'ok' $false)) {
+                $postWhy = ([string](Get-NDValue $post 'reason' 'post-lock-fencing-changed'))
+                $refused = [ordered]@{
+                    schema_version  = 1; idempotency_key = $key; phase = 'settled'
+                    ok              = $false; reason = $postWhy
+                    task_id         = ([string](Get-NDValue $intent 'task_id' ''))
+                    agent           = ([string](Get-NDValue $intent 'agent' ''))
+                    owner           = ([string](Get-NDValue $intent 'owner' ''))
+                    intent_fingerprint = $fingerprint
+                    reconciled      = [bool]$reconciled
+                    worker_result   = $null; kernel_ok = $false; kernel_reason = $postWhy
+                    evidence_created = $false; evidence_id = ''
+                    settled_at      = ([DateTime]::UtcNow.ToString('o'))
+                }
+                if (-not (Write-NDReceipt -Dir $dir -Receipt $refused)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls 0 -Intent $intent -KernelReason $postWhy)
+                }
+                return (New-NDDispatchEnvelope -Ok $false -Reason $postWhy -Admitted $true -Reconciled $reconciled -ExecutorCalls 0 -Intent $intent -KernelReason $postWhy)
             }
             $calls = 0
             $rawResult = $null
@@ -548,12 +945,15 @@ function Invoke-OrchestrationNativeDispatch {
                     task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                     agent           = ([string](Get-NDValue $intent 'agent' ''))
                     owner           = ([string](Get-NDValue $intent 'owner' ''))
+                    intent_fingerprint = $fingerprint
                     reconciled      = [bool]$reconciled
                     worker_result   = $null; kernel_ok = $false; kernel_reason = 'executor-failed'
                     evidence_created = $false; evidence_id = ''
                     settled_at      = ([DateTime]::UtcNow.ToString('o'))
                 }
-                try { [void](Write-NDReceipt -Dir $dir -Receipt $failed) } catch { }
+                if (-not (Write-NDReceipt -Dir $dir -Receipt $failed)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-persist-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'executor-failed')
+                }
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'executor-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent)
             }
             $shape = Test-OrchestrationDispatchResultShape -Result $rawResult
@@ -564,12 +964,15 @@ function Invoke-OrchestrationNativeDispatch {
                     task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                     agent           = ([string](Get-NDValue $intent 'agent' ''))
                     owner           = ([string](Get-NDValue $intent 'owner' ''))
+                    intent_fingerprint = $fingerprint
                     reconciled      = [bool]$reconciled
                     worker_result   = $null; kernel_ok = $false; kernel_reason = 'result-shape-invalid'
                     evidence_created = $false; evidence_id = ''
                     settled_at      = ([DateTime]::UtcNow.ToString('o'))
                 }
-                try { [void](Write-NDReceipt -Dir $dir -Receipt $bad) } catch { }
+                if (-not (Write-NDReceipt -Dir $dir -Receipt $bad)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-persist-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'result-shape-invalid')
+                }
                 return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $shape 'reason' 'invalid-result')) -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'result-shape-invalid')
             }
             $status = ([string](Get-NDValue $shape 'status' ''))
@@ -647,13 +1050,16 @@ function Invoke-OrchestrationNativeDispatch {
                 task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                 agent           = ([string](Get-NDValue $intent 'agent' ''))
                 owner           = ([string](Get-NDValue $intent 'owner' ''))
+                intent_fingerprint = $fingerprint
                 reconciled      = [bool]$reconciled
                 worker_result   = @{ status = $status; claimed_evidence = @($claimed) }
                 kernel_ok       = [bool]$kOk; kernel_reason = $kWhy
                 evidence_created = [bool]$evCreated; evidence_id = $evId
                 settled_at      = ([DateTime]::UtcNow.ToString('o'))
             }
-            try { [void](Write-NDReceipt -Dir $dir -Receipt $settled) } catch { }
+            if (-not (Write-NDReceipt -Dir $dir -Receipt $settled)) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-persist-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -WorkerResult $workerOut -KernelOk $kOk -KernelReason $kWhy -EvidenceCreated $evCreated -EvidenceId $evId)
+            }
             return (New-NDDispatchEnvelope -Ok $settledOk -Reason $settledReason -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -WorkerResult $workerOut -KernelOk $kOk -KernelReason $kWhy -EvidenceCreated $evCreated -EvidenceId $evId)
         }
         finally { try { $lock.Dispose() } catch { } }

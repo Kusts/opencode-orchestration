@@ -129,6 +129,27 @@ try {
         $tRev = Test-OrchestrationReuseCandidate -Record $madeRev.record -Current @{ current_source_fingerprints = $fps; current_base_revision = 'rev-a'; current_criteria_hash = 'crit-a'; current_env = $envNow; now = $now.ToString('o') } -ReuseClass 'service-response'
         Assert-ReuseWiring (((-not [bool]$tRev.reusable) -and (@($tRev.reasons) -contains 'revoked'))) '[R3] revoked means no reuse' ((@($tRev.reasons) -join ','))
 
+        # ---------- F6: canonical presence suppresses the legacy copy of the same ID ----------
+        $rootF6 = Join-Path $tempRoot 'f6root'
+        $legF6 = Join-Path (Join-Path $rootF6 'cache') 'reuse-store'
+        $canonF6 = Join-Path (Join-Path $rootF6 'cache') 'evidence-store'
+        New-Item -ItemType Directory -Path $legF6 -Force | Out-Null
+        $legSeed = New-RWRecordInput -RunId 'f6-1' -StoreDir $legF6 -ExpiresAt $future
+        $legMade = New-OrchestrationEvidenceRecord $legSeed $legF6
+        Assert-ReuseWiring ([bool]$legMade.created) '[F6] legacy record stored' ([string]$legMade.reason)
+        $eidF6 = ([string]$legMade.record.evidence_id)
+        $fpsF6 = @{'src/a.ps1' = 'sha-a'}
+        $envF6 = @{ runtime = 'pwsh'; version = '7' }
+        $hitLeg = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fpsF6 -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envF6 -Now $now.ToString('o') -ReuseClass 'service-response' -RepoRoot $rootF6
+        Assert-ReuseWiring ([bool]$hitLeg.reused) '[F6] legacy-only copy is a candidate' ([string]$hitLeg.decision)
+        New-Item -ItemType Directory -Path $canonF6 -Force | Out-Null
+        $canonText = [IO.File]::ReadAllText((Join-Path $legF6 ($eidF6 + '.json')), [Text.Encoding]::UTF8)
+        $canonRec = ConvertFrom-Json $canonText
+        $canonRec.invalidation_conditions = @(@{ type = 'revoked'; revoked_by = 'operator-1' })
+        [IO.File]::WriteAllText((Join-Path $canonF6 ($eidF6 + '.json')), (ConvertTo-Json -InputObject $canonRec -Depth 20 -Compress), [Text.UTF8Encoding]::new($false))
+        $hitSup = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fpsF6 -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envF6 -Now $now.ToString('o') -ReuseClass 'service-response' -RepoRoot $rootF6
+        Assert-ReuseWiring (((-not [bool]$hitSup.reused) -and ([string]$hitSup.decision -ceq 'reexecute') -and (@($hitSup.reasons) -contains 'canonical-supersedes-legacy'))) '[F6] canonical revoked presence suppresses the legacy copy' ((@($hitSup.reasons) -join ','))
+
         # ---------- R4: missing provenance => no reuse ----------
         $storeB = Join-Path $tempRoot 'store-b'
         New-Item -ItemType Directory -Path $storeB -Force | Out-Null

@@ -16,7 +16,10 @@
     `Invoke-OrchestrationObjectiveStep` executa UM passo da maquina
     (reconcile -> next-move -> dispatch OU intent para o Planner -> ou
     finalizacao) e sempre persiste checkpoint via GoalCheckpoint existente.
-    Sem busy polling, sem loop interno infinito.
+    Sem busy polling, sem loop interno infinito. Finalizacao: goal ja
+    COMPLETED e reconhecido sem mutacao (idempotente); ACTIVE com
+    criterios verificados so conclui via Set-OrchestrationGoalStatePersisted
+    (CAS com fencing, nunca so em memoria) - F4.
 
     `Invoke-OrchestrationAutonomousObjective` e um driver LIMITADO que repete
     steps ate COMPLETE/BLOCKED/EXHAUSTED ou esgotar MaxSteps/Budget. Cada
@@ -181,7 +184,10 @@ function Invoke-OrchestrationObjectiveStep {
         [string]$GoalStoreDir = '',
         [string]$EvidenceStoreDir = '',
         [string]$ReceiptDir = '',
-        [string]$RepoRoot = ''
+        [string]$RepoRoot = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$ControllerPath = ''
     )
     try {
         $watchdog = Get-ALWatchdogReference
@@ -194,7 +200,10 @@ function Invoke-OrchestrationObjectiveStep {
             return (New-ALStepEnvelope -Ok $false -Action 'invalid' -Reason 'controller-unavailable' -Goal $Goal -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
         }
         $moveSlot = $null
-        try { $moveSlot = Get-OrchestrationGoalNextMove -Goal $Goal }
+        try {
+            if ([string]::IsNullOrWhiteSpace(([string]$ControllerPath).Trim())) { $moveSlot = Get-OrchestrationGoalNextMove -Goal $Goal }
+            else { $moveSlot = Get-OrchestrationGoalNextMove -Goal $Goal -ControllerPath ([string]$ControllerPath).Trim() }
+        }
         catch { $moveSlot = $null }
         if (($null -eq $moveSlot) -or (-not [bool](Get-ALValue $moveSlot 'ok' $false))) {
             $why = 'next-move-failed'
@@ -207,24 +216,55 @@ function Invoke-OrchestrationObjectiveStep {
         if ($moveName -ceq 'COMPLETE') {
             $stop = (([string](Get-ALValue $move 'stop_reason' '')).Trim().ToUpperInvariant())
             if ($stop -ceq 'OBJECTIVE_COMPLETED') {
-                $gate = Test-ObjectiveCompletionAllowed -Goal $Goal
-                if (-not [bool](Get-ALValue $gate 'allowed' $false)) {
-                    $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
-                    return (New-ALStepEnvelope -Ok $true -Action 'blocked' -Reason ([string](Get-ALValue $gate 'reason' 'criteria-unverified')) -Goal $Goal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
-                }
-                $finCmd = Get-Command Set-OrchestrationGoalState -ErrorAction SilentlyContinue
-                $final = $Goal
-                if ($null -ne $finCmd) {
-                    $finSlot = $null
-                    try { $finSlot = Set-OrchestrationGoalState -Goal $Goal -ToState 'COMPLETED' } catch { $finSlot = $null }
-                    if (($null -eq $finSlot) -or (-not [bool](Get-ALValue $finSlot 'ok' $false))) {
-                        $why = 'finalize-failed'
-                        try { if (-not [string]::IsNullOrWhiteSpace([string](Get-ALValue $finSlot 'reason' ''))) { $why = ([string](Get-ALValue $finSlot 'reason' '')) } } catch { }
-                        $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
-                        return (New-ALStepEnvelope -Ok $false -Action 'blocked' -Reason $why -Goal $Goal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                # F4: reconhecimento idempotente de terminal vs conclusao
+                # persistida. Goal ja COMPLETED -> completed sem mutacao.
+                # ACTIVE com criterios satisfeitos -> transicao CAS via
+                # Set-OrchestrationGoalStatePersisted (nunca so em memoria).
+                $liveGoal = $Goal
+                $gidLive = ([string](Get-ALValue $Goal 'goal_id' '')).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($gidLive)) {
+                    try {
+                        $gCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
+                        if ($null -ne $gCmd) {
+                            $gs = Get-OrchestrationGoal -GoalId $gidLive -StoreDir $GoalStoreDir
+                            if (($null -ne $gs) -and [bool](Get-ALValue $gs 'ok' $false)) {
+                                $liveGoal = Get-ALValue $gs 'goal' $Goal
+                            }
+                        }
                     }
-                    $final = Get-ALValue $finSlot 'goal' $Goal
+                    catch { $liveGoal = $Goal }
                 }
+                $liveState = (([string](Get-ALValue $liveGoal 'state' '')).Trim().ToUpperInvariant())
+                if ($liveState -ceq 'COMPLETED') {
+                    $ckpt = Save-ALStepCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $true -Action 'completed' -Reason 'already-completed-idempotent' -Goal $liveGoal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                }
+                $gate = Test-ObjectiveCompletionAllowed -Goal $liveGoal
+                if (-not [bool](Get-ALValue $gate 'allowed' $false)) {
+                    $ckpt = Save-ALStepCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $true -Action 'blocked' -Reason ([string](Get-ALValue $gate 'reason' 'criteria-unverified')) -Goal $liveGoal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                }
+                $ownId = ([string](Get-ALValue $Authorization 'owner' '')).Trim()
+                $ownGen = [long](Get-ALValue $Authorization 'generation' 0)
+                if ([string]::IsNullOrWhiteSpace($gidLive) -or [string]::IsNullOrWhiteSpace($ownId) -or ($ownGen -lt 1)) {
+                    $ckpt = Save-ALStepCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $false -Action 'blocked' -Reason 'completion-auth-missing' -Goal $liveGoal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                }
+                $persistCmd = Get-Command Set-OrchestrationGoalStatePersisted -ErrorAction SilentlyContinue
+                if ($null -eq $persistCmd) {
+                    $ckpt = Save-ALStepCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $false -Action 'blocked' -Reason 'completion-persist-unavailable' -Goal $liveGoal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                }
+                $liveRev = [long](Get-ALValue $liveGoal 'revision' 0)
+                $finSlot = $null
+                try { $finSlot = Set-OrchestrationGoalStatePersisted -GoalId $gidLive -ToState 'COMPLETED' -ExpectedRevision $liveRev -StoreDir $GoalStoreDir -OwnerId $ownId -OwnershipGeneration $ownGen } catch { $finSlot = $null }
+                if (($null -eq $finSlot) -or (-not [bool](Get-ALValue $finSlot 'ok' $false))) {
+                    $why = 'finalize-failed'
+                    try { if (-not [string]::IsNullOrWhiteSpace([string](Get-ALValue $finSlot 'reason' ''))) { $why = ('finalize-failed:' + [string](Get-ALValue $finSlot 'reason' '')) } } catch { }
+                    $ckpt = Save-ALStepCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $false -Action 'blocked' -Reason $why -Goal $liveGoal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                }
+                $final = Get-ALValue $finSlot 'goal' $liveGoal
                 $ckpt = Save-ALStepCheckpoint -Goal $final -CheckpointDir $CheckpointDir
                 return (New-ALStepEnvelope -Ok $true -Action 'completed' -Reason 'objective-completed-verified' -Goal $final -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
             }
@@ -256,7 +296,9 @@ function Invoke-OrchestrationObjectiveStep {
                     -IdempotencyKey ([string](Get-ALValue $spec 'idempotency_key' '')) `
                     -Owner ([string](Get-ALValue $spec 'owner' '')) `
                     -OwnershipGeneration ([long](Get-ALValue $spec 'ownership_generation' 0)) `
-                    -BaseRevision ([string](Get-ALValue $spec 'base_revision' ''))
+                    -BaseRevision ([string](Get-ALValue $spec 'base_revision' '')) `
+                    -ExternalIdempotent ([bool](Get-ALValue $spec 'external_idempotent' $false)) `
+                    -ExternalIdempotencyProof ([string](Get-ALValue $spec 'external_idempotency_proof' ''))
             }
             catch { $intentSlot = $null }
             if (($null -eq $intentSlot) -or (-not [bool](Get-ALValue $intentSlot 'ok' $false))) {
@@ -272,7 +314,7 @@ function Invoke-OrchestrationObjectiveStep {
             }
             $disp = $null
             try {
-                $disp = Invoke-OrchestrationNativeDispatch -Intent $intent -Executor $Executor -Authorization $Authorization -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir
+                $disp = Invoke-OrchestrationNativeDispatch -Intent $intent -Executor $Executor -Authorization $Authorization -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -TasksDir $TasksDir -FlagsPath $FlagsPath
             }
             catch { $disp = $null }
             if ($null -eq $disp) {
@@ -296,7 +338,10 @@ function Invoke-OrchestrationAutonomousObjective {
         Driver LIMITADO: repete steps ate COMPLETE/BLOCKED/EXHAUSTED ou budget.
     .DESCRIPTION
         -MaxSteps limita o numero de steps; -MaxDispatches limita despachos
-        com efeito. Rele o Goal vivo a cada step quando -GoalId +
+        com efeito (F5: saldo verificado ANTES do dispatch; 0 = zero
+        efeitos; so executor_calls >= 1 consome budget; dispatch
+        malsucedido/recusado interrompe com erro explicito, nunca avanca
+        silenciosamente para ok=true exhausted). Rele o Goal vivo a cada step quando -GoalId +
         -GoalStoreDir sao dados (multifase); senao usa -Goal em memoria.
         Resume: com -ResumeCheckpointId, valida via
         Test-OrchestrationCheckpointResume antes de avancar (recibos impedem
@@ -317,7 +362,10 @@ function Invoke-OrchestrationAutonomousObjective {
         [string]$ResumeCheckpointId = '',
         [string]$EvidenceStoreDir = '',
         [string]$ReceiptDir = '',
-        [string]$RepoRoot = ''
+        [string]$RepoRoot = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$ControllerPath = ''
     )
     try {
         $watchdog = Get-ALWatchdogReference
@@ -360,7 +408,15 @@ function Invoke-OrchestrationAutonomousObjective {
         $ckptIds = New-Object System.Collections.ArrayList
         $lastAction = ''
         $lastReason = ''
+        # F5: saldo verificado ANTES de cada dispatch; MaxDispatches=0
+        # significa zero efeitos (retorno imediato, sem steps).
+        if ($budget -le 0) {
+            return [pscustomobject][ordered]@{ ok = $true; outcome = 'exhausted'; reason = 'dispatch-budget-zero'; steps_taken = 0; dispatches = 0; checkpoints = @(); watchdog = $watchdog }
+        }
         for ($i = 1; $i -le $steps; $i++) {
+            if ($dispatched -ge $budget) {
+                return [pscustomobject][ordered]@{ ok = $true; outcome = 'exhausted'; reason = 'dispatch-budget-spent'; steps_taken = $taken; dispatches = $dispatched; checkpoints = @($ckptIds.ToArray()); watchdog = $watchdog }
+            }
             if (-not [string]::IsNullOrWhiteSpace($gid)) {
                 $slot = $null
                 try { $slot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $slot = $null }
@@ -375,15 +431,27 @@ function Invoke-OrchestrationAutonomousObjective {
                 try { $stepSpec = & $DispatchSpec $taken $liveGoal } catch { $stepSpec = $null }
                 $spec = $stepSpec
             }
-            $step = Invoke-OrchestrationObjectiveStep -Goal $liveGoal -CheckpointDir $CheckpointDir -Executor $Executor -Authorization $Authorization -DispatchSpec $spec -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot
+            $step = Invoke-OrchestrationObjectiveStep -Goal $liveGoal -CheckpointDir $CheckpointDir -Executor $Executor -Authorization $Authorization -DispatchSpec $spec -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -TasksDir $TasksDir -FlagsPath $FlagsPath -ControllerPath $ControllerPath
             $taken = $i
             $cid = ([string](Get-ALValue $step 'checkpoint_id' ''))
             if (-not [string]::IsNullOrWhiteSpace($cid)) { [void]$ckptIds.Add($cid) }
             $action = ([string](Get-ALValue $step 'action' 'invalid'))
             $lastAction = $action
             $lastReason = ([string](Get-ALValue $step 'reason' ''))
-            if (($action -ceq 'dispatched') -and (-not [bool](Get-ALValue (Get-ALValue $step 'dispatch' $null) 'duplicate' $false))) {
-                $dispatched++
+            if ($action -ceq 'dispatched') {
+                # F5: so efeito real (executor_calls >= 1) consome budget;
+                # duplicata idempotente (0 calls) nao consome. Dispatch
+                # malsucedido/recusado interrompe o driver com erro
+                # explicito: nunca avanca silenciosamente para ok=true.
+                $d = Get-ALValue $step 'dispatch' $null
+                if (($null -eq $d) -or (-not [bool](Get-ALValue $d 'ok' $false))) {
+                    $why = 'dispatch-failed'
+                    try { if (($null -ne $d) -and (-not [string]::IsNullOrWhiteSpace([string](Get-ALValue $d 'reason' '')))) { $why = ('dispatch-failed:' + [string](Get-ALValue $d 'reason' '')) } } catch { }
+                    return [pscustomobject][ordered]@{ ok = $false; outcome = 'blocked'; reason = $why; steps_taken = $taken; dispatches = $dispatched; checkpoints = @($ckptIds.ToArray()); watchdog = $watchdog }
+                }
+                if ([int](Get-ALValue $d 'executor_calls' 0) -ge 1) {
+                    $dispatched++
+                }
             }
             if ($action -ceq 'completed') {
                 return [pscustomobject][ordered]@{ ok = $true; outcome = 'completed'; reason = $lastReason; steps_taken = $taken; dispatches = $dispatched; checkpoints = @($ckptIds.ToArray()); watchdog = $watchdog }
@@ -394,16 +462,7 @@ function Invoke-OrchestrationAutonomousObjective {
             if ($action -ceq 'dispatch_intent') {
                 return [pscustomobject][ordered]@{ ok = $true; outcome = 'awaits-planner'; reason = $lastReason; steps_taken = $taken; dispatches = $dispatched; checkpoints = @($ckptIds.ToArray()); dispatch_intent = (Get-ALValue $step 'dispatch_intent' $null); watchdog = $watchdog }
             }
-            if ($dispatched -ge $budget -and $budget -gt 0) {
-                $bState = ''
-                try {
-                    if (-not [string]::IsNullOrWhiteSpace($gid)) {
-                        $rs = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir
-                        $bState = (([string](Get-ALValue (Get-ALValue $rs 'goal' $null) 'state' '')))
-                    }
-                    else { $bState = (([string](Get-ALValue $liveGoal 'state' ''))) }
-                }
-                catch { $bState = '' }
+            if ($dispatched -ge $budget) {
                 return [pscustomobject][ordered]@{ ok = $true; outcome = 'exhausted'; reason = 'dispatch-budget-spent'; steps_taken = $taken; dispatches = $dispatched; checkpoints = @($ckptIds.ToArray()); watchdog = $watchdog }
             }
         }

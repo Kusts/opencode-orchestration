@@ -405,9 +405,36 @@ function Find-OrchestrationReusableWork {
                     catch { }
                 }
             }
+            # F6: precedencia por evidence_id ANTES da filtragem de
+            # validade. Presenca canonica (mesmo invalida/revogada)
+            # suprime a copia legada do mesmo ID: enumera os IDs
+            # canonicos por nome de arquivo + evidence_id parseado.
+            $canonIds = @{}
+            try {
+                if ([string]::IsNullOrWhiteSpace($explicit)) {
+                    $canonFiles = @(Get-ChildItem -LiteralPath $canon -Filter '*.json' -File -ErrorAction SilentlyContinue | Select-Object -First 2000)
+                    foreach ($cf in @($canonFiles)) {
+                        try {
+                            $stem = [IO.Path]::GetFileNameWithoutExtension($cf.Name)
+                            if ($stem -cmatch '^[a-f0-9]{32}$') { $canonIds[$stem] = $true }
+                            if ($cf.Length -le 32768) {
+                                $pr = ConvertFrom-Json ([IO.File]::ReadAllText($cf.FullName, [Text.Encoding]::UTF8))
+                                $pid2 = ([string](Get-RWFieldValue $pr 'evidence_id' '')).Trim()
+                                if ($pid2 -cmatch '^[a-f0-9]{32}$') { $canonIds[$pid2] = $true }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            $canonSuppressed = 0
             $hits = @()
             $hitDirs = @{}
             foreach ($eid in @($merged.Keys)) {
+                $fromLegacy = $false
+                try { $fromLegacy = ((-not [string]::IsNullOrWhiteSpace($legacy)) -and ([string]$merged[$eid].dir -ceq $legacy)) } catch { $fromLegacy = $false }
+                if ($fromLegacy -and $canonIds.Contains($eid)) { $canonSuppressed++; continue }
                 $hits += @($merged[$eid].hit)
                 $hitDirs[$eid] = $merged[$eid].dir
             }
@@ -452,6 +479,7 @@ function Find-OrchestrationReusableWork {
             }
             catch { $dropReasons.Add('candidate-check-failed') | Out-Null }
         }
+        if ($canonSuppressed -gt 0) { $dropReasons.Add('canonical-supersedes-legacy') | Out-Null }
         if (@($kept.ToArray()).Count -gt 0) {
             return (New-OrchestrationReuseEnvelope -Reused $true -Decision 'reuse-candidate' -Candidates @($kept.ToArray()) -Reasons @() -StoreDir $dir -ReuseClass $cls)
         }
