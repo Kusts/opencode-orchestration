@@ -23,8 +23,7 @@ tag anotada `v0.1.1` → `301ab59` (mensagem da tag com veredito PARTIAL).
   timing provado); master verde — run `37814554039` success 5/5 (runs
   informados pelo Planner; sem verificação local neste escopo — rede
   proibida).
-- **Lane com provider (2026-10-08):** 4 `pass-real` (16/17/19/20) + 3
-  `blocked`, 0 fail (`session-lane-2026-10-08/`, 62.860 bytes, 9 arquivos);
+- **Lane com provider (2026-10-08):** 3 `pass-real` (16/17/19) + 20 blocked sob critério enrijecido (canário novo sem role assistant/tool; P1 do bot confirmado; re-run 2026-10-08 `evidence/v3.1/runtime-reliability/session-lane-2026-10-08-rerun20/lane-summary.json`, veredito `blocked`, `canary_new=True role_post=False`) + 18/21/22 `blocked`, 0 fail (corrida original `session-lane-2026-10-08/`, 62.860 bytes, 9 arquivos — registro sob critério anterior, sem reescrita de histórico);
   18/21 `blocked` terminal-documentado — model-turn opt-in recusa
   sistemática rc=1/timedout=False (não flake; rerun `...-rerun1821/`,
   21.424 bytes, 0/0/2 confirma; pernas kernel-side provadas); 22 `blocked`
@@ -41,7 +40,7 @@ tag anotada `v0.1.1` → `301ab59` (mensagem da tag com veredito PARTIAL).
 - **Ativações — nada a ligar:** watchdog/jev já ON; enforcement OFF
   (fail-open observado — HOLD honesto); routing (`skill`/`mcp`/`adaptive`)
   OFF por doutrina.
-- **Veredito: PARTIAL CLOSURE** — runtime-real parcial 4/7 + enforcement
+- **Veredito: PARTIAL CLOSURE** — runtime-real parcial 3/7 (+ 20 blocked sob critério enrijecido, re-run 2026-10-08) + enforcement
   HOLD + routing OFF; sem alegar FINAL.
 
 ## [0.1.0] — 2026-10-07 — Universal Autonomous Orchestration (Autonomous Core)
@@ -65,6 +64,50 @@ Residuais operador/CI: smokes V1/V2 exact-runtime, 5 checks do PR,
 issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
+
+### Revisão BOTREV-01 dos findings do PR #44 (2026-10-08, CODER-BOTREV-01)
+
+Disposição no mérito dos 5 findings do bot sobre a lane `session-lane-2026-10-08/`:
+
+- **B1 (RR-20, VALIDO+CORRIGIDO):** a perna model-turn aceitava match de
+  substring sem snapshot antes/depois e sem papel de resposta — eco tardio
+  da injeção `/synthetic` ou do próprio prompt poderia contar. O harness
+  (`scripts/ci/session-real-lane-v2.ps1`) agora exige: snapshot pré-turn +
+  canário exclusivo da execução (id da sessão substituta, ausente antes e
+  presente depois) + `role` assistant/tool depois (`how=` gravado na prova
+  `envelope-received-by-replacement`). **Consequência honesta:** o
+  `pass-real` do 20 registrado na corrida 2026-10-08 foi concedido sob o
+  critério anterior e cai para **INCONCLUSIVO até re-run** (não é mais
+  alegado; a seção `[0.1.1]` abaixo permanece como registro da corrida, sem
+  reescrita de histórico). Sem re-run nesta task (validação = parse/diff,
+  sem execução da lane).
+- **B2 (RR-21, VALIDO+CORRIGIDO):** a checagem exigia apenas substring
+  estática `lane21`. Agora exige canário exclusivo (id da nova sessão) +
+  token do estado persistido (`state` pré-substituição) + papel de resposta.
+  Cenário segue `blocked` (model-turn rc=1 sistemático, confirmado no rerun
+  `...-rerun1821/`); sem re-run necessário.
+- **B3 (contenção do model-turn, VALIDO+CORRIGIDO):** `Invoke-LaneModelTurn`
+  (pernas 18/20/21) agora cria Job Object próprio com `KILL_ON_JOB_CLOSE`
+  provado; `rc=0` sem atribuição comprovada não conta como `ok`; job
+  indisponível recusa o turn (fail-closed). Contenção registrada como
+  `job=` nas provas `model-turn-attempt`.
+- **B4 (status vivo, VALIDO-PARCIAL):** `program-status.json` é
+  canonicamente status-vivo (`status_live_note`) e estava parado no closure
+  2026-10-06 enquanto já existe lane 2026-10-08 — dessincronia real.
+  Sincronizado via chave datada `update_2026_10_08`, **sem** reescrever o
+  bloco datado do closure; o veredito honesto pós-B1 é 16/17/19
+  confirmados + 20 INCONCLUSIVO-pendente-rerun (não `pass-real`).
+- **B5 (claim Jev, VALIDO+CORRIGIDO):** conclusão de
+  `jev-transport-live-2026-10-08.json` reclassificada para *live-transport
+  proof (binary-independent)* — o transporte é HTTPS direto e não passa
+  pelo CLI opencode, logo o pin 2.0.23 não se aplica; nota de ambiente
+  preservada.
+- **Atualização re-run20 (2026-10-08):** o re-run do RR-20 com o harness
+  enrijecido (B1) resultou em `blocked` —
+  `evidence/v3.1/runtime-reliability/session-lane-2026-10-08-rerun20/lane-summary.json`
+  (`canary_new=True role_post=False`; P1 do bot confirmado). Veredito
+  final: 3 `pass-real` (16/17/19) + 20 blocked sob critério enrijecido;
+  PARTIAL mantido, sem alegar além.
 
 ### Plano corretivo Autonomous Core (2026-10-08)
 

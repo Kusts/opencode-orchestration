@@ -1,0 +1,71 @@
+{
+    "scenario_id":  "RR-E2E-20",
+    "status":  "blocked",
+    "detail":  "parcial provado: envelope do estado real persistido + consumo kernel-side por processo fresco + substituicao real com rebind; consumo PELO Planner substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui",
+    "proofs":  [
+                   {
+                       "proof":  "old-session-closed-proven",
+                       "ok":  true,
+                       "detail":  "probe=absent"
+                   },
+                   {
+                       "proof":  "envelope-from-real-state",
+                       "ok":  true,
+                       "detail":  "task_id=lane20"
+                   },
+                   {
+                       "proof":  "envelope-persisted",
+                       "ok":  true,
+                       "detail":  "path dentro do TargetHome isolado"
+                   },
+                   {
+                       "proof":  "replacement-session-real",
+                       "ok":  true,
+                       "detail":  "id=ses_ee30780cfffeh0ZFWVRBGEkFrG"
+                   },
+                   {
+                       "proof":  "envelope-injection-attempt",
+                       "ok":  true,
+                       "detail":  "POST /synthetic rc=0 (observacao; plano Â§10 permite fallback \"supply on next Planner turn\")"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=0 timedout=False job=True"
+                   },
+                   {
+                       "proof":  "turn-novelty-detail",
+                       "ok":  true,
+                       "detail":  "canary_new=True role_post=False job=True"
+                   },
+                   {
+                       "proof":  "envelope-received-by-replacement",
+                       "ok":  false,
+                       "detail":  "injecao_runtime_native=False how=unproven; consumo pelo Planner substituto (turn) exige provider de modelo - perna nao provada aqui"
+                   },
+                   {
+                       "proof":  "envelope-consumed-by-fresh-process",
+                       "ok":  true,
+                       "detail":  "mode=reconciler-required task_id=lane20"
+                   },
+                   {
+                       "proof":  "retomada-rebind-replacement",
+                       "ok":  true,
+                       "detail":  "root=ses_ee30780cfffeh0ZFWVRBGEkFrG"
+                   },
+                   {
+                       "proof":  "retomada-binding-correct",
+                       "ok":  true,
+                       "detail":  "root_now=ses_ee30780cfffeh0ZFWVRBGEkFrG"
+                   },
+                   {
+                       "proof":  "retomada-state-correct",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   }
+               ],
+    "coverage":  [
+                     "cadeia: sessao antiga -\u003e estado persistido -\u003e envelope -\u003e processo fresco consome -\u003e sessao substituta real retoma"
+                 ],
+    "at":  "2026-10-08T19:23:40.3161428Z"
+}

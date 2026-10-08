@@ -44,6 +44,6 @@
     "command_note": "comando sem segredos; executado em diretorio isolado",
     "output": "PROBE-OK"
   },
-  "conclusion": "transporte real Jev operator-owned COM prova exact-runtime 2026-10-08 (JEV_ADVISORY_OK, consulted=True, fallback_continue=False); pernas model-dependent da lane destravadas",
+  "conclusion": "transporte real Jev operator-owned COM prova live-transport 2026-10-08 (JEV_ADVISORY_OK, consulted=True, fallback_continue=False), binary-independent (via HTTPS direta, sem passar pelo CLI opencode; pin 2.0.23 NAO aplicavel); pernas model-dependent da lane destravadas",
   "secret_audit": "nenhum valor de segredo nesta evidencia; apenas NOMES de variaveis de ambiente em maiusculas"
 }

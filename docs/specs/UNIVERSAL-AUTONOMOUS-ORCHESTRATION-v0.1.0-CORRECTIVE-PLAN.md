@@ -355,7 +355,7 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 - **CI master verde:** run `37814554039` success 5/5 (idem).
 - **PR #41 MERGED** 2026-10-08T17:10:50Z (merge `301ab59`, verificado
   localmente via `git cat-file`: tag anotada `v0.1.1` → `301ab59`).
-- **Lane com provider:** 16/17/19/20 `pass-real`; 18/21 `blocked`
+- **Lane com provider:** 3 `pass-real` (16/17/19) + 20 blocked sob critério enrijecido (canário novo sem role assistant/tool; P1 do bot confirmado; re-run 2026-10-08 `evidence/v3.1/runtime-reliability/session-lane-2026-10-08-rerun20/lane-summary.json`, veredito `blocked`, `canary_new=True role_post=False`); 18/21 `blocked`
   terminal-documentado (model-turn opt-in `OPENCODE_GO_API_KEY` recusa
   sistemática rc=1/timedout=False nas duas corridas — não flake; pernas
   kernel-side provadas); 22 `blocked` (install V1 1.18.34 OK, `--help`
@@ -364,7 +364,9 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
   kernel-side obrigatório). Evidência:
   `evidence/v3.1/runtime-reliability/session-lane-2026-10-08/` (62.860
   bytes, 9 arquivos, 14/14 checks ok) +
-  `...-rerun1821/` (21.424 bytes, 4 arquivos, 0/0/2) — JSONs 14/14 parse
+  `...-rerun1821/` (21.424 bytes, 4 arquivos, 0/0/2) +
+  `...-rerun20/` (`session-lane-2026-10-08-rerun20/lane-summary.json`,
+  RR-20 `blocked`, `canary_new=True role_post=False`) — JSONs 14/14 parse
   OK; auditoria de segredos limpa (só falso positivo `sk-*` em nomes de
   proof `task-*`).
 - **Jev transporte real OK** (`JEV_ADVISORY_OK`, consulted, sem fallback)
@@ -383,5 +385,5 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
   `runtime_grant_enforcement` OFF (motivo: fail-open observado na `/shell`
   do 2.0.23 — HOLD honesto, sem prova exact-binary-live);
   `skill_routing`/`mcp_routing`/`adaptive_ranking` OFF (motivo: doutrina).
-- **Veredito final: PARTIAL CLOSURE** (runtime-real parcial 4/7 +
+- **Veredito final: PARTIAL CLOSURE** (runtime-real parcial 3/7 + 20 blocked sob critério enrijecido, re-run 2026-10-08 +
   enforcement HOLD + routing OFF). Não é FINAL.
