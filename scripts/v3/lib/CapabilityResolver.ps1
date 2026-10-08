@@ -196,6 +196,19 @@ function Test-ResolverBlobHas {
     return $false
 }
 
+function Test-ResolverBlobHasExact {
+    [CmdletBinding()]
+    param([string]$Blob, [string[]]$Words)
+    if ([string]::IsNullOrWhiteSpace($Blob)) { return $false }
+    $tokens = @($Blob -split '[^a-z0-9]+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    foreach ($w in @($Words)) {
+        $kw = Convert-ResolverNorm -Text ([string]$w)
+        if ([string]::IsNullOrWhiteSpace($kw)) { continue }
+        if ($tokens -ccontains $kw) { return $true }
+    }
+    return $false
+}
+
 function Get-ResolverField {
     [CmdletBinding()]
     param($Node, [string]$Field)
@@ -272,22 +285,101 @@ function Invoke-CapabilityResolve {
         $ctxStacks = @()
         if ($null -ne $ctx) { try { $ctxStacks = @($ctx.stacks) } catch { $ctxStacks = @() } }
         $blob = Convert-ResolverNorm -Text (([string]$task) + ' ' + $taskClass + ' ' + $riskCtx + ' ' + $projStack + ' ' + (($ctxStacks | ForEach-Object { "$_" }) -join ' '))
+        # 2F-FIX-DEBUGGER-R5R6 (plano sec. 10.3): sinais de risco
+        # (isFinancial/isProd e as excecoes doc/logs-read) sao calculados sobre
+        # o TEXTO DA TAREFA. task_class/stack (metadata) NAO alimentam mencao
+        # nem excecao: nao podem fornecer sinais que rebaixem risco.
+        # risk_context explicito so pode ELEVAR (OR), nunca rebaixar.
+        # $blob acima segue inalterado para os demais sinais (agentes, skills,
+        # perfis, capabilities): la meta-dado continua valendo como hint.
+        $riskText = Convert-ResolverNorm -Text ([string]$task)
+        $riskCtxText = Convert-ResolverNorm -Text ([string]$riskCtx)
+        $riskTokens = @($riskText -split '[^a-z0-9]+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         $mentionSupabase = (Test-ResolverBlobHas -Blob $blob -Words @('supabase'))
         $mentionNeon = (Test-ResolverBlobHas -Blob $blob -Words @('neon'))
         $proofSupabase = (($ctxStacks -ccontains 'supabase') -or ($projStack -ceq 'supabase'))
         $proofNeon = (($ctxStacks -ccontains 'neon') -or ($projStack -ceq 'neon'))
         $provenDb = ($proofSupabase -or $proofNeon)
         $needsDb = (Test-ResolverBlobHas -Blob $blob -Words @('database', 'sql', 'migration', 'migrate', 'schema', 'postgres', 'banco'))
-        $needsE2E = (Test-ResolverBlobHas -Blob $blob -Words @('e2e', 'playwright', 'fluxo web', 'formulario', 'navegacao'))
+        $needsE2E = (Test-ResolverBlobHas -Blob $blob -Words @('e2e', 'playwright', 'fluxo web', 'formulario', 'navegacao', 'checkout flow'))
         $needsRuntimeDbg = (Test-ResolverBlobHas -Blob $blob -Words @('console', 'runtime', 'flaky', 'stacktrace', 'perf', 'network', 'dom'))
         $needsDocs = (Test-ResolverBlobHas -Blob $blob -Words @('docs', 'library', 'framework', 'version', 'api reference'))
         $needsMemory = (Test-ResolverBlobHas -Blob $blob -Words @('memory', 'historico', 'handoff', 'decisao'))
         $isAmbiguous = [string]::IsNullOrWhiteSpace($task)
-        $isFinancial = (Test-ResolverBlobHas -Blob $blob -Words @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial'))
+        # 2F-FIX-DEBUGGER-R5R6: mencao financeira sozinha nao basta para
+        # CRITICAL quando a intencao e exclusivamente documental (ex.:
+        # document Stripe refund procedure -> LOW + allow). Sem sinal
+        # documental, mencao continua CRITICAL (conservador: N1 segue
+        # CRITICAL). Regra REAL (plano 10.3; sem alegar compreensao
+        # semantica, apenas forma textual fechada):
+        # (1) verbo de execucao inequivoco em QUALQUER posicao veta a excecao
+        #     documental (tokens exatos; 'refund' fica FORA do veto: ambiguo,
+        #     fica sob clausula + alvo);
+        # (2) o texto e dividido em clausulas por 'and'/'then'/';' e a excecao
+        #     vale SOMENTE se TODA clausula com mencao financeira contiver
+        #     verbo documental proprio (document/explain/describe/draft/write
+        #     + flexoes; 'procedure' sozinho NAO conta: e substantivo);
+        # (3) alvo operacional (customer/payment/invoice/subscription/card/
+        #     order + plural) tambem veta.
+        $isFinancialMention = (Test-ResolverBlobHas -Blob $riskText -Words @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial'))
+        $isFinancialMentionCtx = (Test-ResolverBlobHas -Blob $riskCtxText -Words @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial'))
+        $finExecVeto = (Test-ResolverBlobHasExact -Blob $riskText -Words @('execute', 'executes', 'executed', 'executing', 'process', 'processes', 'processed', 'processing', 'perform', 'performs', 'performed', 'performing', 'run', 'runs', 'running', 'initiate', 'initiates', 'initiated', 'initiating', 'approve', 'approves', 'approved', 'approving', 'confirm', 'confirms', 'confirmed', 'confirming', 'submit', 'submits', 'submitted', 'submitting', 'transfer', 'transfers', 'transferred', 'transferring', 'charge', 'charges', 'charged', 'charging', 'pay', 'pays', 'paid', 'paying', 'payout', 'payouts'))
+        $finDocVerbWords = @('document', 'documents', 'documented', 'documenting', 'explain', 'explains', 'explained', 'explaining', 'describe', 'describes', 'described', 'describing', 'draft', 'drafts', 'drafted', 'drafting', 'write', 'writes', 'writing', 'written')
+        $finMentionWords = @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial')
+        $isFinancialOpTarget = (Test-ResolverBlobHasExact -Blob $riskText -Words @('customer', 'customers', 'payment', 'payments', 'invoice', 'invoices', 'subscription', 'subscriptions', 'card', 'cards', 'order', 'orders'))
+        # 2F-FIX-CLAUSE-SEPARATORS (plano 10.4): separadores de clausula
+        # ampliados de 'and'/'then'/';' para incluir '.', ',', ':', '!?',
+        # 'but' e quebra de linha. Clausulas VAZIAS apos o split sao
+        # ignoradas: ponto final isolado ('document Stripe refund
+        # procedure.') nao cria clausula e a excecao segue valendo (LOW).
+        # FRONTEIRA (faz valer no codigo): a excecao documental so vale em
+        # clausula UNICA com mencao financeira, verbo documental proprio,
+        # sem exec-veto (R5) e sem alvo operacional. Mencao financeira
+        # distribuida em 2+ clausulas nao-vazias => algum contexto sem
+        # verbo documental proprio => CRITICAL + deny (conservador; nao ha
+        # alegacao semantica, apenas forma textual fechada). 'or'/'with'
+        # ficam FORA dos separadores (residual documentado no plano).
+        $finClauseSplitRx = '\b(?:and|then|but)\b|[.,:;!?\r\n]+'
+        $finClauses = @($riskText -split $finClauseSplitRx | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $finDocClausesOk = ($finClauses.Count -eq 1)
+        if ($finDocClausesOk) {
+            $cl = [string]$finClauses[0]
+            if (-not (Test-ResolverBlobHas -Blob $cl -Words $finMentionWords)) { $finDocClausesOk = $false }
+            elseif (-not (Test-ResolverBlobHasExact -Blob $cl -Words $finDocVerbWords)) { $finDocClausesOk = $false }
+        }
+        $finDocException = ($isFinancialMention -and $finDocClausesOk -and (-not $finExecVeto) -and (-not $isFinancialOpTarget))
+        $isFinancial = (($isFinancialMention -and (-not $finDocException)) -or $isFinancialMentionCtx)
         # P2-4 FIX: token 'release' isolado nao e escrita em producao (ex.:
         # "review release notes"). RISK_PRODUCTION_WRITE exige contexto de
         # producao/deploy/escrita. Vide risk_model (production deploy).
-        $isProd = (Test-ResolverBlobHas -Blob $blob -Words @('production', 'producao', 'deploy'))
+        # 2F: leitura de logs de producao/deploy (read + deployment logs) nao e
+        # escrita em producao: LOW + allow, sem RISK_PRODUCTION_WRITE. Qualquer
+        # outra mencao a production/deploy continua HIGH + deny (conservador).
+        # 2F-FIX-DEBUGGER-R5R6 (plano 10.3): a excecao de logs-read vale por
+        # FORMA TEXTUAL FECHADA sobre o texto da tarefa: TODO token do texto
+        # precisa ser verbo de leitura, descritor (production/producao/
+        # deployment/prod), 'logs' ou filler (artigos/preposicoes/listados).
+        # Qualquer token de conteudo fora da forma => sem excecao => HIGH +
+        # deny + RISK_PRODUCTION_WRITE. 'deployment' e descritor (nao flexao
+        # de deploy); 'release' NAO e descritor da forma (sem ele a forma nao
+        # casa; 'review release notes' continua LOW por nao ter mencao de
+        # producao).
+        $isProdMention = (Test-ResolverBlobHas -Blob $riskText -Words @('production', 'producao', 'deploy'))
+        $isProdMentionCtx = (Test-ResolverBlobHas -Blob $riskCtxText -Words @('production', 'producao', 'deploy'))
+        $logsReadVerbs = @('read', 'reads', 'reading', 'review', 'reviews', 'reviewing', 'lookup', 'lookups', 'analyze', 'analyzes', 'analyzed', 'analyzing', 'summarize', 'summarizes', 'summarized', 'summarizing', 'show', 'shows', 'showed', 'showing', 'list', 'lists', 'listed', 'listing', 'view', 'views', 'viewed', 'viewing', 'monitor', 'monitors', 'monitored', 'monitoring', 'check', 'checks', 'checked', 'checking', 'tail', 'tails', 'tailed', 'tailing', 'fetch', 'fetches', 'fetched', 'fetching', 'get', 'gets', 'gotten', 'getting', 'display', 'displays', 'displayed', 'displaying')
+        $logsDescriptors = @('production', 'producao', 'deployment', 'prod')
+        $logsFillers = @('the', 'a', 'an', 'of', 'for', 'to', 'in', 'on', 'from', 'with', 'and', 'last', 'latest', 'recent', 'first', 'app', 'application', 'service', 'server', 'lines')
+        $logsFormAllowed = @($logsReadVerbs + $logsDescriptors + $logsFillers + @('logs'))
+        $logsFormShaped = ($riskTokens.Count -gt 0)
+        foreach ($t in $riskTokens) { if ($logsFormAllowed -cnotcontains $t) { $logsFormShaped = $false; break } }
+        $isProdLogsRead = ($logsFormShaped -and (Test-ResolverBlobHasExact -Blob $riskText -Words $logsReadVerbs) -and (Test-ResolverBlobHasExact -Blob $riskText -Words $logsDescriptors) -and (Test-ResolverBlobHasExact -Blob $riskText -Words @('logs')))
+        # defesa em profundidade: verbo de mutacao em producao (flexoes por
+        # token exato; nunca prefixo que case com 'deployment'; 'release' fora
+        # da lista para preservar 'review release notes'). Com a forma fechada
+        # acima, qualquer mutacao ja quebra a forma; a lista segue como veto
+        # redundante e explicito.
+        $isProdMutation = (Test-ResolverBlobHasExact -Blob $riskText -Words @('deploy', 'deploys', 'deployed', 'deploying', 'delete', 'deletes', 'deleted', 'deleting', 'truncate', 'truncates', 'truncated', 'truncating', 'destroy', 'destroys', 'destroyed', 'destroying', 'drop', 'drops', 'dropped', 'dropping', 'update', 'updates', 'updated', 'updating', 'upgrade', 'upgrades', 'upgraded', 'upgrading', 'publish', 'publishes', 'published', 'publishing', 'rollout', 'rollouts', 'restart', 'restarts', 'restarted', 'restarting', 'scale', 'scales', 'scaled', 'scaling', 'stop', 'stops', 'stopped', 'stopping', 'start', 'starts', 'started', 'starting', 'reboot', 'reboots', 'rebooted', 'rebooting', 'push', 'pushes', 'pushed', 'pushing', 'apply', 'applies', 'applied', 'applying', 'trigger', 'triggers', 'triggered', 'triggering', 'migrate', 'migrates', 'migrated', 'migrating'))
+        $isProd = (($isProdMention -and (-not ($isProdLogsRead -and (-not $isProdMutation)))) -or $isProdMentionCtx)
         $isMigration = (Test-ResolverBlobHas -Blob $blob -Words @('migration', 'migrate', 'ddl'))
         # reason codes (PROJECT_USES_* exige prova de projeto; mencao textual sozinha nao prova)
         if ($proofSupabase -and $needsDb) { if ($codes -cnotcontains 'PROJECT_USES_SUPABASE') { $codes.Add('PROJECT_USES_SUPABASE') } }
@@ -329,7 +421,7 @@ function Invoke-CapabilityResolve {
         catch { }
         if ([string]::IsNullOrWhiteSpace($selected)) { $selected = 'coder' }
         # user override wins when safe
-        $allowedAgents = @('coder', 'tester', 'reviewer', 'debugger', 'frontend-engineer', 'backend-engineer', 'database-engineer', 'architect', 'researcher', 'requirements-analyst', 'security-reviewer')
+        $allowedAgents = @('coder', 'tester', 'reviewer', 'debugger', 'docs-manager', 'frontend-engineer', 'backend-engineer', 'database-engineer', 'architect', 'researcher', 'requirements-analyst', 'security-reviewer')
         if (-not [string]::IsNullOrWhiteSpace($reqAgent)) {
             if ($allowedAgents -ccontains $reqAgent) {
                 $safeOverride = $true
@@ -345,7 +437,8 @@ function Invoke-CapabilityResolve {
         $agents.Add($selected) | Out-Null
         # skills: deterministic by task_class/task
         $wantSkills = New-Object System.Collections.Generic.List[string]
-        if ((Test-ResolverBlobHas -Blob $blob -Words @('bug', 'debug', 'flaky', 'dificil', 'stacktrace'))) { $wantSkills.Add('systematic-debugging') | Out-Null }
+        # 2F: 'failing/fail' conta como debug (sinal de investigacao).
+        if ((Test-ResolverBlobHas -Blob $blob -Words @('bug', 'debug', 'flaky', 'dificil', 'stacktrace', 'fail'))) { $wantSkills.Add('systematic-debugging') | Out-Null }
         if ((Test-ResolverBlobHas -Blob $blob -Words @('feature', 'test', 'spec', 'tdd'))) { $wantSkills.Add('test-driven-development') | Out-Null }
         if ((Test-ResolverBlobHas -Blob $blob -Words @('valid', 'done', 'final', 'review'))) { $wantSkills.Add('verification-before-completion') | Out-Null }
         if ($wantSkills.Count -eq 0) { $wantSkills.Add('verification-before-completion') | Out-Null }
