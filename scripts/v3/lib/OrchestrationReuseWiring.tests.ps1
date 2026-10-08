@@ -72,9 +72,13 @@ try {
         $v = Get-OrchestrationReuseWiringVersion
         Assert-ReuseWiring (([int]$v.schema_version -eq 1) -and ([string]$v.phase -ceq 'PR-4')) '[W0] wiring version schema 1 phase PR-4' ''
 
-        # ---------- default store dir: automatic, local-only, caller-free ----------
+        # ---------- default store dir: automatic, canonical evidence-store (Fase F) ----------
         $auto = Get-OrchestrationReuseDefaultStoreDir -StoreDir '' -RepoRoot $tempRoot
-        Assert-ReuseWiring (((-not [string]::IsNullOrWhiteSpace($auto)) -and ($auto -like '*reuse-store') -and (Test-Path -LiteralPath $auto -PathType Container))) '[W1] default store_dir resolves under local cache and is created' $auto
+        Assert-ReuseWiring (((-not [string]::IsNullOrWhiteSpace($auto)) -and ($auto -like '*evidence-store') -and (Test-Path -LiteralPath $auto -PathType Container))) '[W1] default store_dir resolves to canonical evidence-store and is created' $auto
+        $canon = Get-OrchestrationReuseCanonicalStoreDir -RepoRoot $tempRoot
+        Assert-ReuseWiring (($auto -ceq $canon)) '[W1] default equals canonical dir' $auto
+        $leg = Get-OrchestrationReuseLegacyStoreDir -RepoRoot $tempRoot
+        Assert-ReuseWiring (($leg -like '*reuse-store')) '[W1] legacy dir resolves to reuse-store (read fallback only)' $leg
         $explicit = Get-OrchestrationReuseDefaultStoreDir -StoreDir $storeA -RepoRoot $tempRoot
         Assert-ReuseWiring (($explicit -ceq $storeA)) '[W1] explicit store_dir wins' $explicit
         $unresolvable = Get-OrchestrationReuseDefaultStoreDir -StoreDir '' -RepoRoot ''

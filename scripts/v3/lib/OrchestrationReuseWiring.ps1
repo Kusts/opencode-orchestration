@@ -11,8 +11,14 @@
     Hardening rules (CORRECTIVE-PLAN Fase 3, PR-4):
 
       - store_dir default automatico: resolved under the repo-local
-        cache (cache/reuse-store) when the caller passes none; the
-        store is local-only, never remote.
+        cache (cache/evidence-store, canonico da Fase F) when the caller
+        passes none; the store is local-only, never remote.
+        Fase F (unificacao): o canonico e cache/evidence-store (default de
+        Get-OrchestrationEvidenceDefaultStoreDir). LEITURA tem fallback para
+        o legado cache/reuse-store (escaneia ambos, canonico vence em
+        colisao de evidence_id); ESCRITA e so no canonico (este modulo nao
+        escreve evidence, apenas resolve o default para o canonico e nunca
+        apaga o legado; dados existentes sao preservados).
       - TTL default por classe, nunca um TTL global arbitrario:
         content-fingerprint (content immutable, addressed by
         fingerprint) requires no TTL condition; service-response
@@ -82,14 +88,32 @@ function Get-OrchestrationReuseRepoRoot {
     catch { return '' }
 }
 
-function Get-OrchestrationReuseDefaultStoreDir {
+function Get-OrchestrationReuseCanonicalStoreDir {
+    # Fase F: canonico = cache/evidence-store (mesmo default de
+    # Get-OrchestrationEvidenceDefaultStoreDir). Com -RepoRoot, resolve sob
+    # ele (testavel sem tocar a arvore do repo); sem ele, delega ao default
+    # canonico do EvidenceStore. Nunca lanca; escrita e so no canonico.
     [CmdletBinding()]
-    param([string]$StoreDir = '', [string]$RepoRoot = '')
+    param([string]$RepoRoot = '')
     try {
-        if (-not [string]::IsNullOrWhiteSpace($StoreDir)) { return ([string]$StoreDir).Trim() }
-        $root = Get-OrchestrationReuseRepoRoot -RepoRoot $RepoRoot
-        if ([string]::IsNullOrWhiteSpace($root)) { return '' }
-        $dir = Join-Path (Join-Path $root 'cache') 'reuse-store'
+        $root = ([string]$RepoRoot).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($root)) {
+            $dir = Join-Path (Join-Path $root 'cache') 'evidence-store'
+            try {
+                if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+                    [void][IO.Directory]::CreateDirectory($dir)
+                }
+            }
+            catch { return '' }
+            return $dir
+        }
+        $evCmd = Get-Command Get-OrchestrationEvidenceDefaultStoreDir -ErrorAction SilentlyContinue
+        if ($null -ne $evCmd) {
+            try { return ([string](Get-OrchestrationEvidenceDefaultStoreDir)) } catch { return '' }
+        }
+        $fb = Get-OrchestrationReuseRepoRoot -RepoRoot ''
+        if ([string]::IsNullOrWhiteSpace($fb)) { return '' }
+        $dir = Join-Path (Join-Path $fb 'cache') 'evidence-store'
         try {
             if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
                 [void][IO.Directory]::CreateDirectory($dir)
@@ -97,6 +121,29 @@ function Get-OrchestrationReuseDefaultStoreDir {
         }
         catch { return '' }
         return $dir
+    }
+    catch { return '' }
+}
+
+function Get-OrchestrationReuseLegacyStoreDir {
+    # Fase F: legado = cache/reuse-store, somente leitura (fallback).
+    # Nunca cria o diretorio (nao ressuscita o legado em escrita).
+    [CmdletBinding()]
+    param([string]$RepoRoot = '')
+    try {
+        $root = Get-OrchestrationReuseRepoRoot -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($root)) { return '' }
+        return (Join-Path (Join-Path $root 'cache') 'reuse-store')
+    }
+    catch { return '' }
+}
+
+function Get-OrchestrationReuseDefaultStoreDir {
+    [CmdletBinding()]
+    param([string]$StoreDir = '', [string]$RepoRoot = '')
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($StoreDir)) { return ([string]$StoreDir).Trim() }
+        return (Get-OrchestrationReuseCanonicalStoreDir -RepoRoot $RepoRoot)
     }
     catch { return '' }
 }
@@ -293,10 +340,16 @@ function Find-OrchestrationReusableWork {
     try {
         $cls = ([string]$ReuseClass).Trim().ToLowerInvariant()
         if ([string]::IsNullOrWhiteSpace($cls)) { $cls = [string]$script:ReuseWiringDefaultClass }
-        $dir = Get-OrchestrationReuseDefaultStoreDir -StoreDir $StoreDir -RepoRoot $RepoRoot
-        if ([string]::IsNullOrWhiteSpace($dir)) {
+        $explicit = ([string]$StoreDir).Trim()
+        $canon = ''
+        $legacy = ''
+        if (-not [string]::IsNullOrWhiteSpace($explicit)) { $canon = $explicit }
+        else { $canon = Get-OrchestrationReuseCanonicalStoreDir -RepoRoot $RepoRoot }
+        if ([string]::IsNullOrWhiteSpace($canon)) {
             return (New-OrchestrationReuseEnvelope -Reused $false -Decision 'reexecute' -Candidates @() -Reasons @('store-dir-unresolvable-reexecute') -StoreDir '' -ReuseClass $cls)
         }
+        if ([string]::IsNullOrWhiteSpace($explicit)) { $legacy = Get-OrchestrationReuseLegacyStoreDir -RepoRoot $RepoRoot }
+        $dir = $canon
         if (-not $script:ReuseWiringTtlSeconds.Contains($cls)) {
             return (New-OrchestrationReuseEnvelope -Reused $false -Decision 'reexecute' -Candidates @() -Reasons @('unknown-class-no-reuse') -StoreDir $dir -ReuseClass $cls)
         }
@@ -314,6 +367,7 @@ function Find-OrchestrationReusableWork {
         if ($max -lt 1) { $max = 1 }
         if ($max -gt 100) { $max = 100 }
         $hits = $null
+        $hitDirs = @{}
         $missBefore = @{}
         try {
             $mbCmd = Get-Command Get-OrchestrationEvidenceMetrics -ErrorAction SilentlyContinue
@@ -331,7 +385,32 @@ function Find-OrchestrationReusableWork {
             if ($fps -is [System.Collections.IDictionary]) {
                 foreach ($k in @($fps.Keys)) { $fpsTable[[string]$k] = ([string]$fps[[string]$k]) }
             }
-            $hits = Find-ReusableOrchestrationEvidence $dir $Scope $fpsTable ([string]$CurrentBaseRevision) ([string]$CurrentCriteriaHash) $envNow $nowText $max
+            # Fase F: escaneia canonico + legado (quando sem StoreDir
+            # explicito); canonico vence em colisao de evidence_id; o
+            # legado nunca e escrito, apenas lido (dados preservados).
+            $scanDirs = @($canon)
+            if ((-not [string]::IsNullOrWhiteSpace($legacy)) -and ($legacy -cne $canon) -and (Test-Path -LiteralPath $legacy -PathType Container)) {
+                $scanDirs = @($legacy, $canon)
+            }
+            $merged = @{}
+            foreach ($sdir in @($scanDirs)) {
+                $part = $null
+                try { $part = Find-ReusableOrchestrationEvidence $sdir $Scope $fpsTable ([string]$CurrentBaseRevision) ([string]$CurrentCriteriaHash) $envNow $nowText $max } catch { $part = $null }
+                foreach ($h in @($part)) {
+                    try {
+                        $eid = ([string](Get-RWFieldValue $h 'evidence_id' '')).Trim()
+                        if ([string]::IsNullOrWhiteSpace($eid)) { continue }
+                        $merged[$eid] = @{ hit = $h; dir = $sdir }
+                    }
+                    catch { }
+                }
+            }
+            $hits = @()
+            $hitDirs = @{}
+            foreach ($eid in @($merged.Keys)) {
+                $hits += @($merged[$eid].hit)
+                $hitDirs[$eid] = $merged[$eid].dir
+            }
         }
         catch { $hits = $null }
         if ($null -eq $hits) {
@@ -353,7 +432,9 @@ function Find-OrchestrationReusableWork {
                 if ($eid -notmatch '^[a-f0-9]{32}$') { $dropReasons.Add('candidate-id-invalid') | Out-Null; continue }
                 $full = $null
                 try {
-                    $fp = Join-Path $dir ($eid + '.json')
+                    $srcDir = $dir
+                    try { if ($hitDirs.Contains($eid)) { $srcDir = ([string]$hitDirs[$eid]) } } catch { $srcDir = $dir }
+                    $fp = Join-Path $srcDir ($eid + '.json')
                     if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) { $dropReasons.Add('candidate-record-missing') | Out-Null; continue }
                     $full = ([IO.File]::ReadAllText($fp, [Text.Encoding]::UTF8) | ConvertFrom-Json)
                 }
