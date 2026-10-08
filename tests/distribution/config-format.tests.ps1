@@ -61,7 +61,7 @@ function Get-JsoncFixture() {
 # ---- (a) home sem config -> cria opencode.json trimmed -----------------------
 $TmpA = New-TestHome 'a'
 try {
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpA 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpA -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'a: install exit 0'
   $ocA = Join-Path $TmpA '.config\opencode'
   Assert (Test-Path -LiteralPath (Join-Path $ocA 'opencode.json') -PathType Leaf) 'a: opencode.json criado'
@@ -83,7 +83,7 @@ try {
   $ocB = Join-Path $TmpB '.config\opencode'
   [IO.File]::WriteAllText((Join-Path $ocB 'opencode.jsonc'), (Get-JsoncFixture), $utf8)
   # *>&1 (nao 2>&1): plano/AVISOs saem via Write-Host (information stream).
-  $outB = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpB *>&1 | Out-String
+  $outB = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpB -Runtime V1 *>&1 | Out-String
   Assert ($LASTEXITCODE -eq 0) 'b: install exit 0'
   Assert (-not (Test-Path -LiteralPath (Join-Path $ocB 'opencode.json') -PathType Leaf)) 'b: opencode.json NAO criado (alvo e o jsonc)'
   $rawB = [IO.File]::ReadAllText((Join-Path $ocB 'opencode.jsonc'), [Text.Encoding]::UTF8)
@@ -116,7 +116,7 @@ try {
   [IO.File]::WriteAllText((Join-Path $ocC 'opencode.json'), $jsonSentinel, $utf8)
   [IO.File]::WriteAllText((Join-Path $ocC 'opencode.jsonc'), (Get-JsoncFixture), $utf8)
   $hashBefore = (Get-FileHash -LiteralPath (Join-Path $ocC 'opencode.json') -Algorithm SHA256).Hash
-  $outC = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpC *>&1 | Out-String
+  $outC = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpC -Runtime V1 *>&1 | Out-String
   Assert ($LASTEXITCODE -eq 0) 'c: install exit 0'
   $hashAfter = (Get-FileHash -LiteralPath (Join-Path $ocC 'opencode.json') -Algorithm SHA256).Hash
   Assert ($hashBefore -eq $hashAfter) 'c: opencode.json intacto (byte/hash-exato)'
@@ -133,7 +133,7 @@ $TmpD = New-TestHome 'd'
 try {
   $ocD = Join-Path $TmpD '.config\opencode'
   [IO.File]::WriteAllText((Join-Path $ocD 'opencode.jsonc'), (Get-JsoncFixture), $utf8)
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpD 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpD -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'd: install exit 0'
   $outD = & (Join-Path $RepoRoot 'uninstall.ps1') -TargetHome $TmpD *>&1 | Out-String
   Assert ($LASTEXITCODE -eq 0) 'd: uninstall exit 0'
@@ -160,7 +160,7 @@ try {
   $ocE1 = Join-Path $TmpE1 '.config\opencode'
   $e1 = '{' + "`n" + '  "a": 1, // comentario de linha' + "`n" + '}' + "`n"
   [IO.File]::WriteAllText((Join-Path $ocE1 'opencode.jsonc'), $e1, $utf8)
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE1 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE1 -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'e1: install exit 0 (virgula + // antes de })'
   $je1 = ([IO.File]::ReadAllText((Join-Path $ocE1 'opencode.jsonc'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert ($je1.a -eq 1) 'e1: chave preservada apos strip duas fases'
@@ -174,7 +174,7 @@ try {
   $ocE2 = Join-Path $TmpE2 '.config\opencode'
   $e2 = '{' + "`n" + '  "a": [1, 2, /* bloco */ ]' + "`n" + '}' + "`n"
   [IO.File]::WriteAllText((Join-Path $ocE2 'opencode.jsonc'), $e2, $utf8)
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE2 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE2 -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'e2: install exit 0 (virgula + /* bloco */ antes de ])'
   $je2 = ([IO.File]::ReadAllText((Join-Path $ocE2 'opencode.jsonc'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert ((@($je2.a)).Count -eq 2 -and (@($je2.a))[1] -eq 2) 'e2: array preservado apos strip duas fases'
@@ -194,7 +194,7 @@ try {
     '}'
   )
   [IO.File]::WriteAllText((Join-Path $ocE3 'opencode.jsonc'), (($e3lines -join "`n") + "`n"), $utf8)
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE3 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE3 -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'e3: install exit 0 (virgula apos bloco multiline + trailing)'
   $je3 = ([IO.File]::ReadAllText((Join-Path $ocE3 'opencode.jsonc'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert (($je3.a -eq 1) -and ($je3.b -eq 2)) 'e3: chaves preservadas apos bloco multiline'
@@ -213,7 +213,7 @@ try {
     '}'
   )
   [IO.File]::WriteAllText((Join-Path $ocE4 'opencode.jsonc'), (($e4lines -join "`n") + "`n"), $utf8)
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE4 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpE4 -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'e4: install exit 0 (marcadores dentro de string)'
   $je4 = ([IO.File]::ReadAllText((Join-Path $ocE4 'opencode.jsonc'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert ($je4.s1 -eq 'a // b') 'e4: // dentro de string intacto'
@@ -229,7 +229,7 @@ finally {
 $TmpF = New-TestHome 'f'
 try {
   $ocF = Join-Path $TmpF '.config\opencode'
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpF 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpF -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'f: install exit 0 (cria opencode.json)'
   Assert (Test-Path -LiteralPath (Join-Path $ocF 'opencode.json') -PathType Leaf) 'f: opencode.json criado pelo install'
   $manF = ([IO.File]::ReadAllText((Join-Path $TmpF '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json

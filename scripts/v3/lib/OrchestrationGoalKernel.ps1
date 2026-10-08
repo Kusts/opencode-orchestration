@@ -5,8 +5,15 @@
     Dot-sourceable library (no execution on load). Pure store + transition
     helpers, fail-closed, PS 5.1 compatible, ASCII-only. Never throws on
     operational paths: every failure returns an object with ok=$false and a
-    machine-readable reason. No network, no process, no grants, no leases,
+    machine-readable reason. No network, no process, no grants,
     no verification.
+
+    GK-OWN (AUTHORITY_CHANGE ARC-PR2-01 D1/D2/D4): optional ownership
+    authority co-persisted WITH the revision under the same '.goal.lock'
+    (Acquire/Renew/Takeover allocate the fencing generation; the claimant
+    never mints it). Productive Update mutations validate fencing at
+    COMMIT with the CAS; blind Save never writes a managed record.
+    Records without ownership keep the legacy path (compat).
 
     TDR-F6-01: Goal record (ordered): schema_version=1, goal_id
     (^[A-Za-z0-9._:-]{1,64}$), objective, criteria @(), verification_surfaces
@@ -172,10 +179,11 @@ function Get-GKGoalStamp {
     try { return ([DateTime]::UtcNow.ToString('o')) } catch { return '' }
 }
 
-# Canonical instant reader: dates are stored as ISO 'o' strings, but
-# ConvertFrom-Json on PS7+ hydrates them into [DateTime]. Canonicalize
-# both shapes back to 'o' so a save/load roundtrip is byte-identical on
-# either engine. Unspecified-kind dates fail closed to '' (invalid).
+# Canonical instant reader: every accepted shape is normalized to a
+# UTC ISO 'o' string so a save/load roundtrip is byte-identical on
+# either engine (PS5.1 vs PS7 ConvertFrom-Json hydration differs).
+# Unspecified-kind dates and strings without provable offset fail
+# closed to '' (invalid): callers turn '' into a denial, never data.
 function Get-GKGoalInstant {
     param($Value)
     try {
@@ -188,7 +196,10 @@ function Get-GKGoalInstant {
         }
         $s = ([string]$Value).Trim()
         if ([string]::IsNullOrWhiteSpace($s)) { return '' }
-        return $s
+        $parsed = [DateTime]::MinValue
+        if (-not [DateTime]::TryParse($s, [ref]$parsed)) { return '' }
+        if ($parsed.Kind -eq [DateTimeKind]::Unspecified) { return '' }
+        return $parsed.ToUniversalTime().ToString('o')
     }
     catch { return '' }
 }
@@ -295,6 +306,16 @@ function ConvertTo-GKGoalRecord {
             checkpoint_revision    = [long]$ckpt
             created_at             = $created
             updated_at             = $updated
+        }
+        # GK-OWN (D1): optional ownership node co-persisted with the
+        # revision. Absent = unmanaged legacy record (compat path).
+        # Present = managed record; validated structurally here, gated
+        # semantically (owner+generation+live lease) at commit.
+        $rawOwn = Get-GKGoalValue $Goal 'ownership' $null
+        if ($null -ne $rawOwn) {
+            $ownNode = ConvertTo-GKGoalOwnership $rawOwn
+            if ($null -eq $ownNode) { return $null }
+            $rec['ownership'] = $ownNode
         }
         return $rec
     }
@@ -472,7 +493,59 @@ function Save-OrchestrationGoal {
             return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; goal_id = [string]$rec['goal_id']; revision = [long]$rec['revision'] }
         }
         try {
-            # Last-writer-wins by design for direct writes; CAS callers use Update-OrchestrationGoal.
+            # GK-OWN (D2 frontier): blind last-writer-wins never touches a
+            # managed record (no overwrite, no old-generation restore, no
+            # CAS bypass) and never mints ownership implicitly. Managed
+            # writes go through Update-...+fencing (CAS) and the ownership
+            # lifecycle through Acquire/Renew/Takeover below. Unmanaged
+            # records keep the legacy path (compat).
+            $probePath = Get-GKGoalFilePath -StoreDir $dir -GoalId ([string]$rec['goal_id'])
+            $incomingManaged = ($null -ne (Get-GKGoalValue $rec 'ownership' $null))
+            $diskManaged = $false
+            $diskKnown = $false
+            $diskExists = ((-not [string]::IsNullOrWhiteSpace($probePath)) -and (Test-Path -LiteralPath $probePath -PathType Leaf))
+            if ($diskExists) {
+                # H2 fail-closed (REV-GK-02): ANY failure to prove the
+                # existing record denies without writing, and a blocked
+                # read NEVER reaches Move-Item. A read blocked by an OS
+                # lock (e.g. a concurrent holder) denies here as
+                # goal-write-failed (transient; preserves WRITEFAIL
+                # compat), not invalid-record. Only a successfully-read
+                # but unprovable record (corrupt JSON, structural,
+                # identity) denies below as invalid-record.
+                $diskReadBlocked = $false
+                $diskText = $null
+                try { $diskText = [IO.File]::ReadAllText($probePath, [Text.Encoding]::UTF8) }
+                catch { $diskReadBlocked = $true }
+                if ($diskReadBlocked) {
+                    return [pscustomobject]@{ ok = $false; reason = 'goal-write-failed'; goal_id = [string]$rec['goal_id']; revision = [long]$rec['revision'] }
+                }
+                try {
+                    $diskRaw = ConvertFrom-Json $diskText
+                    $diskRec = ConvertTo-GKGoalRecord $diskRaw
+                    if (($null -ne $diskRec) -and ([string]$diskRec['goal_id'] -ieq ([string]$rec['goal_id']))) {
+                        $diskKnown = $true
+                        $diskManaged = ($null -ne (Get-GKGoalValue $diskRec 'ownership' $null))
+                    }
+                }
+                catch { $diskKnown = $false }
+            }
+            # H2 fail-closed: an existing file whose unmanaged
+            # condition is NOT proven (corrupt JSON, structurally
+            # invalid record, divergent identity) denies as
+            # invalid-record without writing. Only a proven-unmanaged
+            # record (or no file at all) reaches the legacy path.
+            if ($diskExists -and (-not $diskKnown)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal_id = [string]$rec['goal_id']; revision = [long]$rec['revision'] }
+            }
+            if ($diskKnown -and $diskManaged) {
+                return [pscustomobject]@{ ok = $false; reason = 'managed-goal-use-update'; goal_id = [string]$rec['goal_id']; revision = [long]$rec['revision'] }
+            }
+            if ($incomingManaged) {
+                return [pscustomobject]@{ ok = $false; reason = 'ownership-via-acquire'; goal_id = [string]$rec['goal_id']; revision = [long]$rec['revision'] }
+            }
+            # Last-writer-wins by design for direct writes of UNMANAGED
+            # records; CAS callers use Update-OrchestrationGoal.
             $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
             if (-not [bool]$w.ok) {
                 return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; goal_id = [string]$rec['goal_id']; revision = [long]$rec['revision'] }
@@ -531,7 +604,9 @@ function Update-OrchestrationGoal {
         [Parameter(Mandatory = $true)][long]$ExpectedRevision,
         $Fields = @{},
         [string]$StoreDir = '',
-        [int]$LockTimeoutMs = 500
+        [int]$LockTimeoutMs = 500,
+        [string]$OwnerId = '',
+        [long]$OwnershipGeneration = 0
     )
     try {
         $gid = ([string]$GoalId).Trim()
@@ -554,6 +629,9 @@ function Update-OrchestrationGoal {
             if ($protected -ccontains $n) {
                 if ($n -ceq 'state') {
                     return [pscustomobject]@{ ok = $false; reason = 'state-via-transition'; goal = $null }
+                }
+                if ($n -ceq 'ownership') {
+                    return [pscustomobject]@{ ok = $false; reason = 'ownership-via-acquire'; goal = $null }
                 }
                 if ($n -ceq 'active_tasks' -or $n -ceq 'completed_tasks') {
                     return [pscustomobject]@{ ok = $false; reason = 'tasks-via-task-ops'; goal = $null }
@@ -601,6 +679,17 @@ function Update-OrchestrationGoal {
         }
         if ([long]$rec['revision'] -ne [long]$ExpectedRevision) {
             return [pscustomobject]@{ ok = $false; reason = 'revision-conflict'; goal = $null }
+        }
+        # GK-OWN (D2): managed productive mutations require fencing at
+        # COMMIT under this same lock. Revision may advance during the
+        # lease (generation != revision); only owner+generation+live
+        # lease gate. Unmanaged records with no claimant stay on the
+        # legacy path (compat); a managed record never admits an
+        # ungated write and a legacy record never gains ownership here
+        # (no implicit conversion; use Acquire-*).
+        $ownGate = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+        if (-not [bool]$ownGate.admitted) {
+            return [pscustomobject]@{ ok = $false; reason = [string]$ownGate.reason; goal = $null }
         }
         $stamp = Get-GKGoalStamp
         $criteriaTouched = $false
@@ -652,8 +741,14 @@ function Update-OrchestrationGoal {
                     if ($sat -lt 0 -or $tot -lt 0 -or $sat -gt $tot) {
                         return [pscustomobject]@{ ok = $false; reason = 'invalid-progress'; goal = $null }
                     }
-                    $at = [string](Get-GKGoalValue $v 'updated_at' '')
-                    if ([string]::IsNullOrWhiteSpace($at)) { $at = $stamp }
+                    $rawAt = [string](Get-GKGoalValue $v 'updated_at' '')
+                    if ([string]::IsNullOrWhiteSpace($rawAt)) { $at = $stamp }
+                    else {
+                        $at = Get-GKGoalInstant $rawAt
+                        if ([string]::IsNullOrWhiteSpace($at)) {
+                            return [pscustomobject]@{ ok = $false; reason = 'invalid-progress'; goal = $null }
+                        }
+                    }
                     $rec['progress'] = [ordered]@{ satisfied = [long]$sat; total = [long]$tot; updated_at = $at }
                     $progressTouched = $true
                 }
@@ -714,6 +809,14 @@ function Update-OrchestrationGoal {
         if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
         }
+        # M2 commit frontier: revalidate fencing immediately before the
+        # write under the SAME lock (post-Fields/pre-write). A lease
+        # that lapsed between preparation and persistence denies here,
+        # even if it was live at the pre-mutation gate above.
+        $commitRe = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+        if (-not [bool]$commitRe.admitted) {
+            return [pscustomobject]@{ ok = $false; reason = [string]$commitRe.reason; goal = $null }
+        }
         # Persist under the SAME lock acquired above (never re-acquire).
         $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
         if (-not [bool]$w.ok) {
@@ -727,6 +830,294 @@ function Update-OrchestrationGoal {
     }
     catch {
         return [pscustomobject]@{ ok = $false; reason = 'invalid-fields'; goal = $null }
+    }
+}
+
+# M1 persisted CAS task/state operations (ARC follow-up): the
+# in-memory Set/Add/Complete helpers above never touch the store, and
+# Update-OrchestrationGoal refuses state/active_tasks/completed_tasks,
+# so a managed cycle had no persistible path except blind Save (which
+# rightly refuses managed records). These three Persisted variants
+# close the cycle: lock -> read -> CAS revision -> fencing gate ->
+# domain mutation -> pre-write re-gate (M2) -> atomic write under the
+# SAME lock. Never throws; every failure is ok=$false + reason.
+function Set-OrchestrationGoalStatePersisted {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$GoalId,
+        [Parameter(Mandatory = $true)][string]$ToState,
+        [Parameter(Mandatory = $true)][long]$ExpectedRevision,
+        [string]$StoreDir = '',
+        [int]$LockTimeoutMs = 500,
+        [string]$OwnerId = '',
+        [long]$OwnershipGeneration = 0
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (-not (Test-GKGoalId $gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; goal = $null }
+        }
+        $to = ([string]$ToState).Trim().ToUpperInvariant()
+        if (@(Get-OrchestrationGoalStates) -cnotcontains $to) {
+            return [pscustomobject]@{ ok = $false; reason = 'unknown-state'; goal = $null }
+        }
+        $expRev = Get-GKGoalLong $ExpectedRevision -1
+        if ($expRev -lt 1) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-expected-revision'; goal = $null }
+        }
+        $dir = Get-OrchestrationGoalStoreDir -StoreDir $StoreDir
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-store-dir'; goal = $null }
+        }
+        $lock = Open-GKGoalLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; goal = $null }
+        }
+        try {
+            $path = Get-GKGoalFilePath -StoreDir $dir -GoalId $gid
+            if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                return [pscustomobject]@{ ok = $false; reason = 'goal-not-found'; goal = $null }
+            }
+            try { $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)) }
+            catch {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            $rec = ConvertTo-GKGoalRecord $raw
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            if ([string]$rec['goal_id'] -ine $gid) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            $rec = Copy-GKGoalRecord $rec
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+                return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; goal = $null }
+            }
+            if ([long]$rec['revision'] -ne $expRev) {
+                return [pscustomobject]@{ ok = $false; reason = 'revision-conflict'; goal = $null }
+            }
+            $ownGate = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+            if (-not [bool]$ownGate.admitted) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$ownGate.reason; goal = $null }
+            }
+            $from = [string]$rec['state']
+            if (-not (Test-OrchestrationGoalTransition -From $from -To $to)) {
+                return [pscustomobject]@{ ok = $false; reason = 'illegal-transition'; goal = $null }
+            }
+            $rec['state'] = $to
+            $rec['revision'] = [long]$rec['revision'] + 1
+            $rec['updated_at'] = Get-GKGoalStamp
+            if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
+            }
+            $commitRe = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+            if (-not [bool]$commitRe.admitted) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$commitRe.reason; goal = $null }
+            }
+            $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
+            if (-not [bool]$w.ok) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; goal = $null }
+            }
+            return [pscustomobject]@{ ok = $true; reason = ''; goal = $rec }
+        }
+        finally {
+            try { $lock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
+    }
+}
+
+function Add-OrchestrationGoalTaskPersisted {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$GoalId,
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][long]$ExpectedRevision,
+        [string]$StoreDir = '',
+        [int]$LockTimeoutMs = 500,
+        [string]$OwnerId = '',
+        [long]$OwnershipGeneration = 0
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (-not (Test-GKGoalId $gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; goal = $null }
+        }
+        $tid = ([string]$TaskId).Trim()
+        if (-not (Test-GKGoalId $tid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-task-id'; goal = $null }
+        }
+        $expRev = Get-GKGoalLong $ExpectedRevision -1
+        if ($expRev -lt 1) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-expected-revision'; goal = $null }
+        }
+        $dir = Get-OrchestrationGoalStoreDir -StoreDir $StoreDir
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-store-dir'; goal = $null }
+        }
+        $lock = Open-GKGoalLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; goal = $null }
+        }
+        try {
+            $path = Get-GKGoalFilePath -StoreDir $dir -GoalId $gid
+            if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                return [pscustomobject]@{ ok = $false; reason = 'goal-not-found'; goal = $null }
+            }
+            try { $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)) }
+            catch {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            $rec = ConvertTo-GKGoalRecord $raw
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            if ([string]$rec['goal_id'] -ine $gid) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            $rec = Copy-GKGoalRecord $rec
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+                return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; goal = $null }
+            }
+            if ([long]$rec['revision'] -ne $expRev) {
+                return [pscustomobject]@{ ok = $false; reason = 'revision-conflict'; goal = $null }
+            }
+            $ownGate = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+            if (-not [bool]$ownGate.admitted) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$ownGate.reason; goal = $null }
+            }
+            foreach ($t in @(@($rec['active_tasks']) + @($rec['completed_tasks']))) {
+                if ($tid -ceq [string]$t) {
+                    return [pscustomobject]@{ ok = $false; reason = 'duplicate-task'; goal = $null }
+                }
+            }
+            $rec['active_tasks'] = @(@($rec['active_tasks']) + @($tid))
+            $rec['revision'] = [long]$rec['revision'] + 1
+            $rec['updated_at'] = Get-GKGoalStamp
+            if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
+            }
+            $commitRe = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+            if (-not [bool]$commitRe.admitted) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$commitRe.reason; goal = $null }
+            }
+            $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
+            if (-not [bool]$w.ok) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; goal = $null }
+            }
+            return [pscustomobject]@{ ok = $true; reason = ''; goal = $rec }
+        }
+        finally {
+            try { $lock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
+    }
+}
+
+function Complete-OrchestrationGoalTaskPersisted {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$GoalId,
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][long]$ExpectedRevision,
+        [string]$StoreDir = '',
+        [int]$LockTimeoutMs = 500,
+        [string]$OwnerId = '',
+        [long]$OwnershipGeneration = 0
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (-not (Test-GKGoalId $gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; goal = $null }
+        }
+        $tid = ([string]$TaskId).Trim()
+        if (-not (Test-GKGoalId $tid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-task-id'; goal = $null }
+        }
+        $expRev = Get-GKGoalLong $ExpectedRevision -1
+        if ($expRev -lt 1) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-expected-revision'; goal = $null }
+        }
+        $dir = Get-OrchestrationGoalStoreDir -StoreDir $StoreDir
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-store-dir'; goal = $null }
+        }
+        $lock = Open-GKGoalLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; goal = $null }
+        }
+        try {
+            $path = Get-GKGoalFilePath -StoreDir $dir -GoalId $gid
+            if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                return [pscustomobject]@{ ok = $false; reason = 'goal-not-found'; goal = $null }
+            }
+            try { $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)) }
+            catch {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            $rec = ConvertTo-GKGoalRecord $raw
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            if ([string]$rec['goal_id'] -ine $gid) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            $rec = Copy-GKGoalRecord $rec
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; goal = $null }
+            }
+            if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+                return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; goal = $null }
+            }
+            if ([long]$rec['revision'] -ne $expRev) {
+                return [pscustomobject]@{ ok = $false; reason = 'revision-conflict'; goal = $null }
+            }
+            $ownGate = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+            if (-not [bool]$ownGate.admitted) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$ownGate.reason; goal = $null }
+            }
+            $found = $false
+            $rest = New-Object System.Collections.ArrayList
+            foreach ($t in @($rec['active_tasks'])) {
+                if (-not $found -and ($tid -ceq [string]$t)) { $found = $true }
+                else { [void]$rest.Add([string]$t) }
+            }
+            if (-not $found) {
+                return [pscustomobject]@{ ok = $false; reason = 'task-not-found'; goal = $null }
+            }
+            $rec['active_tasks'] = [string[]]$rest.ToArray()
+            $rec['completed_tasks'] = @(@($rec['completed_tasks']) + @($tid))
+            $rec['revision'] = [long]$rec['revision'] + 1
+            $rec['updated_at'] = Get-GKGoalStamp
+            if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
+            }
+            $commitRe = Test-GKGoalCommitOwnership -Record $rec -OwnerId $OwnerId -OwnershipGeneration $OwnershipGeneration
+            if (-not [bool]$commitRe.admitted) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$commitRe.reason; goal = $null }
+            }
+            $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
+            if (-not [bool]$w.ok) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; goal = $null }
+            }
+            return [pscustomobject]@{ ok = $true; reason = ''; goal = $rec }
+        }
+        finally {
+            try { $lock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; goal = $null }
     }
 }
 
@@ -895,5 +1286,539 @@ function Get-OrchestrationGoalNextMove {
     }
     catch {
         return [pscustomobject]@{ ok = $false; reason = 'next-move-failed'; next_move = $null }
+    }
+}
+
+# ------------------------------------------------------------------
+# GK-OWN ownership authority (ARC-PR2-01 D1/D2/D4).
+#
+# Ownership is an optional node of the goal record itself, persisted
+# WITH the revision under the same '.goal.lock' as the CAS path:
+#   ownership = @{ owner_id; generation; acquired_at; expires_at;
+#                  lease_ttl_ms; updated_at }
+# The fencing generation is ALLOCATED by this authority (fresh
+# acquire = 1, takeover = predecessor + 1, renew = unchanged); the
+# claimant never supplies it for allocation. Goal revision may
+# advance during a lease (generation != revision).
+# Fail-closed throughout: invalid/missing lease in an existing
+# record means NO ownership; a legacy record without ownership
+# never gains it implicitly (only explicit Acquire converts).
+# Terminal goals admit no new ownership (reads still serve
+# reconcile/settlement of a prior effect); new dispatch is refused.
+# ------------------------------------------------------------------
+
+function Get-GKGoalCanonicalOwner {
+    param([string]$Value)
+    try { return (([string]$Value).Trim().ToLowerInvariant()) }
+    catch { return '' }
+}
+
+function Test-GKGoalOwnerId {
+    param([string]$Value)
+    try {
+        $v = ([string]$Value).Trim()
+        if ([string]::IsNullOrWhiteSpace($v)) { return $false }
+        return ($v -cmatch '^[A-Za-z0-9._:-]{1,128}$')
+    }
+    catch { return $false }
+}
+
+function Test-GKGoalOwnerIdentityHold {
+    # True when both owner spellings are non-empty, canonically equal
+    # (Trim + ToLowerInvariant) but not ordinal-equal: a case-divergent
+    # spelling is HOLD (never merged, never a rival conflict).
+    param([string]$Stored = '', [string]$Requested = '')
+    try {
+        $s = [string]$Stored
+        $r = [string]$Requested
+        if ([string]::IsNullOrWhiteSpace($s) -or [string]::IsNullOrWhiteSpace($r)) { return $false }
+        if ((Get-GKGoalCanonicalOwner $s) -cne (Get-GKGoalCanonicalOwner $r)) { return $false }
+        return ($s -cne $r)
+    }
+    catch { return $false }
+}
+
+function Get-GKGoalNowUtc {
+    try { return [DateTime]::UtcNow } catch { return ([DateTime]::MinValue) }
+}
+
+function Get-GKGoalLeaseInstant {
+    param($Value)
+    try {
+        if ($null -eq $Value) { return $null }
+        if ($Value -is [DateTimeOffset]) { return ([DateTimeOffset]$Value).UtcDateTime }
+        if ($Value -is [DateTime]) {
+            $dt = [DateTime]$Value
+            if ($dt.Kind -eq [DateTimeKind]::Unspecified) { return $null }
+            return $dt.ToUniversalTime()
+        }
+        $s = ([string]$Value).Trim()
+        if ([string]::IsNullOrWhiteSpace($s)) { return $null }
+        $parsed = [DateTime]::MinValue
+        if (-not [DateTime]::TryParse($s, [ref]$parsed)) { return $null }
+        if ($parsed.Kind -eq [DateTimeKind]::Unspecified) { return $null }
+        return $parsed.ToUniversalTime()
+    }
+    catch { return $null }
+}
+
+function ConvertTo-GKGoalOwnership {
+    # Structural validation of an ownership node. Lease instants are
+    # canonicalized via Get-GKGoalInstant (valid = UTC ISO 'o', even
+    # when hydrated as [DateTime]/[DateTimeOffset] on PS7+; invalid or
+    # missing = ''): an unparseable/missing lease stays a semantic
+    # denial ('invalid-lease'), never a record rejection, so reads
+    # stay available for reconcile/settlement.
+    param($Value)
+    try {
+        if ($null -eq $Value) { return $null }
+        $oid = [string](Get-GKGoalValue $Value 'owner_id' '')
+        if (-not (Test-GKGoalOwnerId $oid)) { return $null }
+        $gen = Get-GKGoalLong (Get-GKGoalValue $Value 'generation' $null) -1
+        if ($gen -lt 1) { return $null }
+        $ttl = Get-GKGoalLong (Get-GKGoalValue $Value 'lease_ttl_ms' $null) -1
+        if ($ttl -lt 0) { $ttl = [long]0 }
+        return [ordered]@{
+            owner_id     = ([string]$oid).Trim()
+            generation   = [long]$gen
+            acquired_at  = [string](Get-GKGoalInstant (Get-GKGoalValue $Value 'acquired_at' ''))
+            expires_at   = [string](Get-GKGoalInstant (Get-GKGoalValue $Value 'expires_at' ''))
+            lease_ttl_ms = [long]$ttl
+            updated_at   = [string](Get-GKGoalInstant (Get-GKGoalValue $Value 'updated_at' ''))
+        }
+    }
+    catch { return $null }
+}
+
+function Test-OrchestrationGoalOwnership {
+    # Pure fencing check (no IO): the caller holds iff the record
+    # carries the same owner spelling (ordinal), the same generation,
+    # and a parseable unexpired lease. Never throws.
+    [CmdletBinding()]
+    param($Goal = $null, [string]$OwnerId = '', [long]$Generation = 0, $Now = $null)
+    try {
+        $raw = Get-GKGoalValue $Goal 'ownership' $null
+        if ($null -eq $raw) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'no-ownership' }
+        }
+        $node = ConvertTo-GKGoalOwnership $raw
+        if ($null -eq $node) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'invalid-lease' }
+        }
+        $oid = ([string]$OwnerId).Trim()
+        if (-not (Test-GKGoalOwnerId $oid)) {
+            return [pscustomobject]@{ ok = $false; held = $false; reason = 'invalid-owner' }
+        }
+        $gen = Get-GKGoalLong $Generation -1
+        if ($gen -lt 1) {
+            return [pscustomobject]@{ ok = $false; held = $false; reason = 'invalid-generation' }
+        }
+        $storedOwner = [string]$node['owner_id']
+        $storedGen = [long]$node['generation']
+        if (Test-GKGoalOwnerIdentityHold $storedOwner $oid) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'identity-hold-case-divergence' }
+        }
+        if ($storedOwner -cne $oid) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'owner-conflict' }
+        }
+        if ($storedGen -ne $gen) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'owner-obsolete' }
+        }
+        $exp = Get-GKGoalLeaseInstant ([string]$node['expires_at'])
+        if ($null -eq $exp) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'invalid-lease' }
+        }
+        $nowUtc = $null
+        try {
+            if ($null -ne $Now) {
+                if ($Now -is [DateTime]) { $nowUtc = ([DateTime]$Now).ToUniversalTime() }
+                else { $nowUtc = Get-GKGoalLeaseInstant $Now }
+            }
+            if ($null -eq $nowUtc) { $nowUtc = Get-GKGoalNowUtc }
+        }
+        catch { $nowUtc = Get-GKGoalNowUtc }
+        if ($nowUtc -ge $exp) {
+            return [pscustomobject]@{ ok = $true; held = $false; reason = 'owner-lease-expired' }
+        }
+        return [pscustomobject]@{ ok = $true; held = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; held = $false; reason = 'invalid-owner' }
+    }
+}
+
+function Test-GKGoalCommitOwnership {
+    # Commit gate for Update-OrchestrationGoal (no IO; caller holds the
+    # store lock and already passed terminal + CAS checks). Unmanaged
+    # record + no claimant = legacy path (compat). Managed record
+    # without claimant, or claimant without managed record, is an
+    # explicit denial (never a silent bypass, never implicit
+    # conversion). Otherwise the fencing token must be held.
+    param($Record = $null, [string]$OwnerId = '', [long]$OwnershipGeneration = 0)
+    try {
+        $managed = ($null -ne (Get-GKGoalValue $Record 'ownership' $null))
+        $claimant = ((-not [string]::IsNullOrWhiteSpace(([string]$OwnerId).Trim())) -or ((Get-GKGoalLong $OwnershipGeneration -1) -ge 1))
+        if ((-not $managed) -and (-not $claimant)) {
+            return [pscustomobject]@{ admitted = $true; reason = '' }
+        }
+        if ($managed -and (-not $claimant)) {
+            return [pscustomobject]@{ admitted = $false; reason = 'ownership-required' }
+        }
+        if ((-not $managed) -and $claimant) {
+            return [pscustomobject]@{ admitted = $false; reason = 'no-ownership' }
+        }
+        $t = Test-OrchestrationGoalOwnership -Goal $Record -OwnerId $OwnerId -Generation $OwnershipGeneration
+        if (-not [bool]$t.ok) {
+            return [pscustomobject]@{ admitted = $false; reason = [string]$t.reason }
+        }
+        if (-not [bool]$t.held) {
+            return [pscustomobject]@{ admitted = $false; reason = [string]$t.reason }
+        }
+        return [pscustomobject]@{ admitted = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject]@{ admitted = $false; reason = 'invalid-owner' }
+    }
+}
+
+function Acquire-OrchestrationGoalOwnership {
+    # Explicit conversion of an UNMANAGED record to managed: compares
+    # the REAL revision under .goal.lock, validates state/identity,
+    # and ALLOCATES generation 1. Never throws.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$GoalId,
+        [Parameter(Mandatory = $true)][string]$OwnerId,
+        [Parameter(Mandatory = $true)][long]$ExpectedRevision,
+        [string]$StoreDir = '',
+        [int]$LockTimeoutMs = 500,
+        [long]$LeaseTtlMs = 60000
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (-not (Test-GKGoalId $gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; ownership = $null; revision = [long]0 }
+        }
+        $oid = ([string]$OwnerId).Trim()
+        if (-not (Test-GKGoalOwnerId $oid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-owner'; ownership = $null; revision = [long]0 }
+        }
+        $expRev = Get-GKGoalLong $ExpectedRevision -1
+        if ($expRev -lt 1) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-expected-revision'; ownership = $null; revision = [long]0 }
+        }
+        if ($LeaseTtlMs -le 0) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-lease-ttl'; ownership = $null; revision = [long]0 }
+        }
+        $dir = Get-OrchestrationGoalStoreDir -StoreDir $StoreDir
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-store-dir'; ownership = $null; revision = [long]0 }
+        }
+        $lock = Open-GKGoalLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; ownership = $null; revision = [long]0 }
+        }
+        try {
+            $path = Get-GKGoalFilePath -StoreDir $dir -GoalId $gid
+            if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                return [pscustomobject]@{ ok = $false; reason = 'goal-not-found'; ownership = $null; revision = [long]0 }
+            }
+            try { $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)) }
+            catch {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            $rec = ConvertTo-GKGoalRecord $raw
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            if ([string]$rec['goal_id'] -ine $gid) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+                return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; ownership = $null; revision = [long]0 }
+            }
+            # Ownership before revision: a managed record denies a fresh
+            # acquire as a conflict whatever the claimant revision is, so
+            # concurrent acquirers converge on a single winner.
+            $existing = Get-GKGoalValue $rec 'ownership' $null
+            if ($null -ne $existing) {
+                $node = ConvertTo-GKGoalOwnership $existing
+                if ($null -eq $node) {
+                    return [pscustomobject]@{ ok = $false; reason = 'invalid-lease'; ownership = $null; revision = [long]0 }
+                }
+                $exp = Get-GKGoalLeaseInstant ([string]$node['expires_at'])
+                if (($null -ne $exp) -and ((Get-GKGoalNowUtc) -ge $exp)) {
+                    return [pscustomobject]@{ ok = $false; reason = 'lease-expired-use-takeover'; ownership = $null; revision = [long]0 }
+                }
+                return [pscustomobject]@{ ok = $false; reason = 'owner-conflict'; ownership = $null; revision = [long]0 }
+            }
+            if ([long]$rec['revision'] -ne $expRev) {
+                return [pscustomobject]@{ ok = $false; reason = 'revision-conflict'; ownership = $null; revision = [long]0 }
+            }
+            $rec = Copy-GKGoalRecord $rec
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            $stamp = Get-GKGoalStamp
+            $expiresAt = ([DateTime]::UtcNow.AddMilliseconds([long]$LeaseTtlMs)).ToString('o')
+            $own = [ordered]@{
+                owner_id     = $oid
+                generation   = [long]1
+                acquired_at  = $stamp
+                expires_at   = $expiresAt
+                lease_ttl_ms = [long]$LeaseTtlMs
+                updated_at   = $stamp
+            }
+            $rec['ownership'] = $own
+            $rec['revision'] = [long]$rec['revision'] + 1
+            $rec['updated_at'] = $stamp
+            if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; ownership = $null; revision = [long]0 }
+            }
+            $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
+            if (-not [bool]$w.ok) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; ownership = $null; revision = [long]0 }
+            }
+            return [pscustomobject]@{ ok = $true; reason = ''; ownership = $own; revision = [long]$rec['revision'] }
+        }
+        finally {
+            try { $lock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-owner'; ownership = $null; revision = [long]0 }
+    }
+}
+
+function Renew-OrchestrationGoalOwnership {
+    # Same holder, same generation, live lease: refreshes the lease
+    # (generation and owner spelling unchanged). Never throws.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$GoalId,
+        [Parameter(Mandatory = $true)][string]$OwnerId,
+        [Parameter(Mandatory = $true)][long]$Generation,
+        [string]$StoreDir = '',
+        [int]$LockTimeoutMs = 500,
+        [long]$LeaseTtlMs = 60000
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (-not (Test-GKGoalId $gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; ownership = $null; revision = [long]0 }
+        }
+        $oid = ([string]$OwnerId).Trim()
+        if (-not (Test-GKGoalOwnerId $oid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-owner'; ownership = $null; revision = [long]0 }
+        }
+        $gen = Get-GKGoalLong $Generation -1
+        if ($gen -lt 1) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-generation'; ownership = $null; revision = [long]0 }
+        }
+        if ($LeaseTtlMs -le 0) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-lease-ttl'; ownership = $null; revision = [long]0 }
+        }
+        $dir = Get-OrchestrationGoalStoreDir -StoreDir $StoreDir
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-store-dir'; ownership = $null; revision = [long]0 }
+        }
+        $lock = Open-GKGoalLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; ownership = $null; revision = [long]0 }
+        }
+        try {
+            $path = Get-GKGoalFilePath -StoreDir $dir -GoalId $gid
+            if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                return [pscustomobject]@{ ok = $false; reason = 'goal-not-found'; ownership = $null; revision = [long]0 }
+            }
+            try { $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)) }
+            catch {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            $rec = ConvertTo-GKGoalRecord $raw
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            if ([string]$rec['goal_id'] -ine $gid) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+                return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; ownership = $null; revision = [long]0 }
+            }
+            $existing = Get-GKGoalValue $rec 'ownership' $null
+            if ($null -eq $existing) {
+                return [pscustomobject]@{ ok = $false; reason = 'no-ownership'; ownership = $null; revision = [long]0 }
+            }
+            $node = ConvertTo-GKGoalOwnership $existing
+            if ($null -eq $node) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-lease'; ownership = $null; revision = [long]0 }
+            }
+            if (Test-GKGoalOwnerIdentityHold ([string]$node['owner_id']) $oid) {
+                return [pscustomobject]@{ ok = $false; reason = 'identity-hold-case-divergence'; ownership = $null; revision = [long]0 }
+            }
+            if ([string]$node['owner_id'] -cne $oid) {
+                return [pscustomobject]@{ ok = $false; reason = 'owner-conflict'; ownership = $null; revision = [long]0 }
+            }
+            if ([long]$node['generation'] -ne $gen) {
+                return [pscustomobject]@{ ok = $false; reason = 'owner-obsolete'; ownership = $null; revision = [long]0 }
+            }
+            $exp = Get-GKGoalLeaseInstant ([string]$node['expires_at'])
+            if ($null -eq $exp) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-lease'; ownership = $null; revision = [long]0 }
+            }
+            if ((Get-GKGoalNowUtc) -ge $exp) {
+                return [pscustomobject]@{ ok = $false; reason = 'owner-lease-expired'; ownership = $null; revision = [long]0 }
+            }
+            $rec = Copy-GKGoalRecord $rec
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            $stamp = Get-GKGoalStamp
+            $refreshed = Copy-GKGoalOwnershipNode $node
+            if ($null -eq $refreshed) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-lease'; ownership = $null; revision = [long]0 }
+            }
+            $refreshed['expires_at'] = ([DateTime]::UtcNow.AddMilliseconds([long]$LeaseTtlMs)).ToString('o')
+            $refreshed['lease_ttl_ms'] = [long]$LeaseTtlMs
+            $refreshed['updated_at'] = $stamp
+            $rec['ownership'] = $refreshed
+            $rec['revision'] = [long]$rec['revision'] + 1
+            $rec['updated_at'] = $stamp
+            if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; ownership = $null; revision = [long]0 }
+            }
+            $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
+            if (-not [bool]$w.ok) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; ownership = $null; revision = [long]0 }
+            }
+            return [pscustomobject]@{ ok = $true; reason = ''; ownership = $refreshed; revision = [long]$rec['revision'] }
+        }
+        finally {
+            try { $lock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-owner'; ownership = $null; revision = [long]0 }
+    }
+}
+
+function Copy-GKGoalOwnershipNode {
+    param($Node)
+    try {
+        $valid = ConvertTo-GKGoalOwnership $Node
+        if ($null -eq $valid) { return $null }
+        return [ordered]@{
+            owner_id     = [string]$valid['owner_id']
+            generation   = [long]$valid['generation']
+            acquired_at  = [string]$valid['acquired_at']
+            expires_at   = [string]$valid['expires_at']
+            lease_ttl_ms = [long]$valid['lease_ttl_ms']
+            updated_at   = [string]$valid['updated_at']
+        }
+    }
+    catch { return $null }
+}
+
+function Takeover-OrchestrationGoalOwnership {
+    # Supremacy after PROVABLE expiry: requires a parseable expired
+    # lease and ALLOCATES predecessor + 1 to the new holder. A live
+    # lease, a missing/invalid lease, or a divergent spelling HOLD the
+    # record (never throws).
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$GoalId,
+        [Parameter(Mandatory = $true)][string]$OwnerId,
+        [string]$StoreDir = '',
+        [int]$LockTimeoutMs = 500,
+        [long]$LeaseTtlMs = 60000
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (-not (Test-GKGoalId $gid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-goal-id'; ownership = $null; revision = [long]0 }
+        }
+        $oid = ([string]$OwnerId).Trim()
+        if (-not (Test-GKGoalOwnerId $oid)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-owner'; ownership = $null; revision = [long]0 }
+        }
+        if ($LeaseTtlMs -le 0) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-lease-ttl'; ownership = $null; revision = [long]0 }
+        }
+        $dir = Get-OrchestrationGoalStoreDir -StoreDir $StoreDir
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-store-dir'; ownership = $null; revision = [long]0 }
+        }
+        $lock = Open-GKGoalLock -Dir $dir -LockTimeoutMs $LockTimeoutMs
+        if ($null -eq $lock) {
+            return [pscustomobject]@{ ok = $false; reason = 'lock-busy'; ownership = $null; revision = [long]0 }
+        }
+        try {
+            $path = Get-GKGoalFilePath -StoreDir $dir -GoalId $gid
+            if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                return [pscustomobject]@{ ok = $false; reason = 'goal-not-found'; ownership = $null; revision = [long]0 }
+            }
+            try { $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)) }
+            catch {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            $rec = ConvertTo-GKGoalRecord $raw
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            if ([string]$rec['goal_id'] -ine $gid) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            if (@(Get-OrchestrationGoalTerminalStates) -ccontains ([string]$rec['state'])) {
+                return [pscustomobject]@{ ok = $false; reason = 'terminal-goal'; ownership = $null; revision = [long]0 }
+            }
+            $existing = Get-GKGoalValue $rec 'ownership' $null
+            if ($null -eq $existing) {
+                return [pscustomobject]@{ ok = $false; reason = 'no-ownership-use-acquire'; ownership = $null; revision = [long]0 }
+            }
+            $node = ConvertTo-GKGoalOwnership $existing
+            if ($null -eq $node) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-lease'; ownership = $null; revision = [long]0 }
+            }
+            if (Test-GKGoalOwnerIdentityHold ([string]$node['owner_id']) $oid) {
+                return [pscustomobject]@{ ok = $false; reason = 'identity-hold-case-divergence'; ownership = $null; revision = [long]0 }
+            }
+            $exp = Get-GKGoalLeaseInstant ([string]$node['expires_at'])
+            if ($null -eq $exp) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-lease'; ownership = $null; revision = [long]0 }
+            }
+            if ((Get-GKGoalNowUtc) -lt $exp) {
+                return [pscustomobject]@{ ok = $false; reason = 'owner-conflict'; ownership = $null; revision = [long]0 }
+            }
+            $rec = Copy-GKGoalRecord $rec
+            if ($null -eq $rec) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-record'; ownership = $null; revision = [long]0 }
+            }
+            $stamp = Get-GKGoalStamp
+            $next = [ordered]@{
+                owner_id     = $oid
+                generation   = ([long]$node['generation'] + 1)
+                acquired_at  = $stamp
+                expires_at   = ([DateTime]::UtcNow.AddMilliseconds([long]$LeaseTtlMs)).ToString('o')
+                lease_ttl_ms = [long]$LeaseTtlMs
+                updated_at   = $stamp
+            }
+            $rec['ownership'] = $next
+            $rec['revision'] = [long]$rec['revision'] + 1
+            $rec['updated_at'] = $stamp
+            if ($null -eq (ConvertTo-GKGoalRecord $rec)) {
+                return [pscustomobject]@{ ok = $false; reason = 'invalid-goal'; ownership = $null; revision = [long]0 }
+            }
+            $w = Write-GKGoalRecordAtomic -Dir $dir -Rec $rec
+            if (-not [bool]$w.ok) {
+                return [pscustomobject]@{ ok = $false; reason = [string]$w.reason; ownership = $null; revision = [long]0 }
+            }
+            return [pscustomobject]@{ ok = $true; reason = ''; ownership = $next; revision = [long]$rec['revision'] }
+        }
+        finally {
+            try { $lock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-owner'; ownership = $null; revision = [long]0 }
     }
 }

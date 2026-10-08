@@ -16,7 +16,7 @@ try {
   [IO.File]::WriteAllText((Join-Path $ocDir 'AGENTS.md'), "# Notas do usuario`n`nConteudo fora dos markers que deve sobreviver.`n", (New-Object Text.UTF8Encoding $false))
 
   # Install limpo ------------------------------------------------------------
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'install exit 0'
   $mf = Join-Path $TmpHome '.opencode-orchestration\manifest.json'
   Assert (Test-Path -LiteralPath $mf -PathType Leaf) 'manifest criado pelo install'

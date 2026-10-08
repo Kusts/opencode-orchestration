@@ -10,6 +10,9 @@
 | [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-SPEC.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-SPEC.md) | active | SPEC v0.1.0 — Universal Autonomous Orchestration (em implementação nesta branch) |
 | [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-PLAN.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-PLAN.md) | active | Plano de implementação v0.1.0 (em implementação nesta branch) |
 | [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-ADR.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-ADR.md) | active | ADR pack v0.1.0 (em implementação nesta branch) |
+| [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-CORRECTIVE-PLAN.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-CORRECTIVE-PLAN.md) | active | Plano corretivo Autonomous Core Runtime Closure (Fases 0–8) |
+| [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-OBJECTIVE-RUNTIME-CONTRACT.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-OBJECTIVE-RUNTIME-CONTRACT.md) | active | Contrato de runtime do executor produtivo mínimo (opção B) |
+| [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-WIRING-MATRIX.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-WIRING-MATRIX.md) | active | Matriz componente → arquivo → estágio → gap para runtime-proven |
 
 Nota: os documentos `historical` pertencem ao programa V3.1, encerrado com
 closure `PASS` em 2026-10-06 — não são reescritos. Em caso de divergência,

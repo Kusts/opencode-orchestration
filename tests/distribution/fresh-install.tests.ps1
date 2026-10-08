@@ -16,7 +16,7 @@ $TmpHome = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-fresh-' + [guid]::NewGuid
 New-Item -ItemType Directory -Path $TmpHome -Force | Out-Null
 try {
   New-Item -ItemType Directory -Path (Join-Path $TmpHome '.config\opencode\node_modules\@opencode-ai\plugin') -Force | Out-Null
-  $out = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome 2>&1
+  $out = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome -Runtime V1 2>&1
   $code = $LASTEXITCODE
   Assert ($code -eq 0) 'install exit 0'
   $ocDir = Join-Path $TmpHome '.config\opencode'

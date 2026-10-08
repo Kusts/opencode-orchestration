@@ -26,6 +26,52 @@ issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
 
+### Plano corretivo Autonomous Core (2026-10-08)
+
+- Plano corretivo Autonomous Core documentado (3 docs); Fase 0 em validação; sem behavior change.
+- **PR-1 — AdapterContract (Fase 1, ACTIVE-lib):**
+  `scripts/v3/lib/OrchestrationRuntimeAdapterContract.ps1` + tests —
+  suite **148 PASS** (10 ops × V1/V2, matriz sem VERIFIED, HOLD tipado
+  fail-closed). Nenhum claim runtime-real.
+- **PR-2 — Executor restrito v6 (Fase 2, ACTIVE-restrito/HOLD-produtivo):**
+  `scripts/v3/lib/OrchestrationObjectiveRuntime.ps1` + tests — suite
+  **175 PASS** (5 rounds review + security); produtivo HOLD até gate
+  GoalKernel. Sem spawn/rede próprios.
+- **PR-3 — Promotion wiring (Fases 5–6, ACTIVE):**
+  `scripts/v3/lib/OrchestrationGoalPromotionWiring.ps1` + tests — suite
+  **29 PASS**.
+- **PR-4 — Decision + Reuse wiring (Fases 4/6, ACTIVE):**
+  `scripts/v3/lib/OrchestrationDecisionWiring.ps1` (**28 PASS**) +
+  `scripts/v3/lib/OrchestrationReuseWiring.ps1` (**31 PASS**, ttl default
+  por classe — AR-10 parcial).
+- **PR-5 — Autonomy wiring (Fases 5–6, ACTIVE):**
+  `scripts/v3/lib/OrchestrationAutonomyWiring.ps1` + tests — suite
+  **54 PASS** (quota, budget ledger, envelope, stops fechados).
+- **PR-6 — E2E harness + telemetry (Fase 7, TEST-HARNESS):**
+  `scripts/v3/lib/OrchestrationCorrectiveE2E.tests.ps1` — **119 PASS**
+  (E2E-01..E2E-15 harness-level, gates G1–G8) +
+  `scripts/v3/lib/OrchestrationObjectiveTelemetry.ps1`
+  (TEST-HARNESS-SUPPORT, sem suite própria; não é ACTIVE produtivo);
+  runtime-real BLOCKED sem provider.
+- **PR-7 — Fechamento documental (Fase 8, em curso):** plano §8 + matriz +
+  este changelog; flags intocadas, tag `v0.1.0` preservada, veredito final
+  do Planner.
+- **Encerramento PARTIAL (2026-10-08, PR-7 documental — sem behavior
+  change):** suites novas **175/148/65/28/31/54/29/119** PASS
+  (PS5.1+PS7); Enforcement **421**; full-V3 **72 PASS + 3 DE22307F + 6
+  SKIP**. Reviews: PR-2 (5 rounds) + PR-3..PR-6 finais
+  **APPROVED-WITH-HOLD-RESIDUALS**, security finais idem, **zero HIGH
+  efetivo**. Gates: distribution **14/21 NO-GO** — 6 FAILs triados (5
+  PRE-EXISTENTE dialeto V1-vs-Auto→V2 de `a445202`/2026-09-28 + 1
+  INCONCLUSIVO/ambiental profile-isolation; diff não toca installer).
+  CI HEAD + PR #41 pendentes; runtime-real BLOCKED sem provider;
+  aquisição produtiva HOLD até gate GoalKernel. HOLDs residuais: budget
+  cross-process, telemetria concorrente/inputs não-controlados, seams
+  caller-provided (não-autoridade), redactor heurístico,
+  `runtime_grant_enforcement` OFF. Próximos passos (operador): corrigir
+  fixtures V1 (`-Runtime V1`) + profile-isolation; CI HEAD; PR #41 +
+  merge; gate GoalKernel; ativações com evidência.
+
 ### Fase 15 v0.1.0 (2026-10-07, parcial) — Release harness
 
 - `scripts/ci/ObjectiveRunner.harness.ps1` (TEST HARNESS, não produto):

@@ -11,7 +11,7 @@ $TmpHome = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-plan-' + [guid]::NewGuid(
 New-Item -ItemType Directory -Path $TmpHome -Force | Out-Null
 try {
   New-Item -ItemType Directory -Path (Join-Path $TmpHome '.config\opencode\node_modules\@opencode-ai\plugin') -Force | Out-Null
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'fresh exit 0'
   $ocDir = Join-Path $TmpHome '.config\opencode'
   $jsonPath = Join-Path $ocDir 'opencode.json'
@@ -22,7 +22,7 @@ try {
   Assert ($j.agent.title.model -eq $models.planner) 'title.model = planner'
   $j.agent.build | Add-Member -NotePropertyName 'model' -NotePropertyValue 'legacy/model' -Force
   [IO.File]::WriteAllText($jsonPath, ((($j | ConvertTo-Json -Depth 32).TrimEnd()) + "`n"), (New-Object Text.UTF8Encoding $false))
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 're-run exit 0'
   $j2 = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert (($null -eq ($j2.agent.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue))) 'build.model pre-existente removido'
