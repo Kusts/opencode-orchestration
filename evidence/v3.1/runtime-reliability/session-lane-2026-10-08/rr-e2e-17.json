@@ -1,0 +1,61 @@
+{
+    "scenario_id":  "RR-E2E-17",
+    "status":  "pass-real",
+    "detail":  "stop owned + settlement + start + estado preservado + reconciliador consumiu observacao real",
+    "proofs":  [
+                   {
+                       "proof":  "task-active-bound",
+                       "ok":  true,
+                       "detail":  "state=PLANNING root=ses_ee3538888ffetgBZHEjdOIlFPg"
+                   },
+                   {
+                       "proof":  "restart-stop-owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "proof":  "restart-settlement-observed",
+                       "ok":  true,
+                       "detail":  "absente_conclusiva=True inconclusivas=0"
+                   },
+                   {
+                       "proof":  "restart-start-owned",
+                       "ok":  true,
+                       "detail":  "rc=0 job=True"
+                   },
+                   {
+                       "proof":  "restart-listener-observed",
+                       "ok":  true,
+                       "detail":  "presenca=True"
+                   },
+                   {
+                       "proof":  "task-state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING rev=3"
+                   },
+                   {
+                       "proof":  "task-bytes-unchanged",
+                       "ok":  true,
+                       "detail":  "sha256_igual=True"
+                   },
+                   {
+                       "proof":  "session-after-restart-observed",
+                       "ok":  true,
+                       "detail":  "observado=running probe=present"
+                   },
+                   {
+                       "proof":  "bindings-read-for-reconciler",
+                       "ok":  true,
+                       "detail":  "runs=1 gb_exit=0"
+                   },
+                   {
+                       "proof":  "reconciler-matches-real-observation",
+                       "ok":  true,
+                       "detail":  "observado=running acao=reattach/ses_ee3538888ffetgBZHEjdOIlFPg rows=1 actions=1 runs_in=1 obs_in=1 root_in=ses_ee3538888ffetgBZHEjdOIlFPg probed=False"
+                   }
+               ],
+    "coverage":  [
+                     "comportamento apos restart real: task persistida + observacao real reconciliada"
+                 ],
+    "at":  "2026-10-08T18:00:36.0207122Z"
+}

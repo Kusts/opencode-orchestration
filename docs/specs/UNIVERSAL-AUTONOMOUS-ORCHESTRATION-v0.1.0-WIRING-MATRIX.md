@@ -39,6 +39,10 @@ E2E manifest, lanes 2026-10-05/06).
 | CorrectiveE2E (PR-6) | `scripts/v3/lib/OrchestrationCorrectiveE2E.tests.ps1` | TEST-HARNESS | 119 asserts PASS (2026-10-08), E2E-01..E2E-15 harness-level, gates G1–G8 | runtime-real V1/V2/dual/PS5.1/PS7 BLOCKED sem provider (Fase 7/G7) |
 | GoalKernel ownership (PR-6b) | `scripts/v3/lib/OrchestrationGoalKernel.ps1`, `scripts/v3/lib/OrchestrationGoalKernelOwnership.tests.ps1` | ACTIVE / HOLD-produtivo | ownership autoritativo (CAS+geração+lease); 115 asserts novas + 103 existentes verdes; AUTHORITY_CHANGE com review+security | produtivo HOLD até ativação operator-owned com evidência (Fase 2/G2) |
 | ProductiveActivation (PR-6b) | `scripts/v3/lib/OrchestrationProductiveActivation.ps1` | PRONTO E REVISADO / HOLD default | 133 asserts; bindings pré-efeito + live-only (K1/K2 fechados); review/security finais; opt-in `-Productive` | executor default HOLD; dispatch produtivo só sob opt-in explícito |
+| Lane com provider 2026-10-08 | `evidence/v3.1/runtime-reliability/session-lane-2026-10-08/` (62.860B, 9 arq.) + `...-rerun1821/` (21.424B, 4 arq.) + `...-rerun20/` (`session-lane-2026-10-08-rerun20/lane-summary.json`, RR-20 `blocked`, `canary_new=True role_post=False`) + `scripts/ci/session-real-lane-v2.ps1` (`-ModelKeyEnvName` opt-in auditado) | PARCIAL-runtime-real 3/7 (+20 blocked-critério-novo) | 16/17/19 pass-real; 20 blocked sob critério enrijecido (canário novo sem role assistant/tool; P1 do bot confirmado; re-run 2026-10-08); 18/21 blocked (model-turn rc=1 sistemático, não flake; kernel-side provado); 22 blocked (V1 install OK + `--help` timeout); probes 7 ambiguous + 1 unsupported (fail-open `/shell`) | pernas completed 18/21 + planner-consumption 20 + fresh-turn 22 (provider/model operator-owned) |
+| Ativações 2026-10-08 | `source/registry/capability-flags.json` (intocado) | DECISÃO — nada a ligar | watchdog/jev já ON; enforcement OFF (fail-open observado — HOLD); routing OFF (doutrina) | — |
+| Tag v0.1.1 | tag anotada → `301ab59` (merge PR #41) | PUBLICADO-PARTIAL | PR #41 MERGED 2026-10-08T17:10:50Z; mensagem da tag com veredito PARTIAL | — |
+| CI merge | runs `37807694673` (PR success pós-rerun, flake timing) + `37814554039` (master 5/5) — info Planner | VERDE | gate G0 fechado | — |
 
 Adendo PR-7 (2026-10-08): linhas PR-1–PR-6b acima; estágios `ACTIVE-lib`,
 `ACTIVE-restrito/HOLD-produtivo` e `TEST-HARNESS` são desenho/honestidade,
@@ -55,3 +59,8 @@ PR #41 OPEN com head em `ea8d768`; CI run `37807439121` IN_PROGRESS
 Nota: caminhos de arquivo acima seguem o layout `scripts/v3/lib/` vigente;
 se um componente ainda não existir como arquivo próprio, o estágio vale para
 a capacidade descrita no addendum, e a Fase correspondente o materializa.
+
+Adendo final (2026-10-08, pós-merge + re-run20): linhas lane/ativação/tag/CI-merge
+acima registram o estado final real — PARTIAL CLOSURE (runtime-real parcial
+3/7 + 20 blocked sob critério enrijecido, re-run `...-rerun20/` + enforcement HOLD + routing OFF); sem alegar FINAL. Detalhe em
+CORRECTIVE-PLAN §8 "Estado final".

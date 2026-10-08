@@ -44,6 +44,22 @@
 #     filhos; OPENCODE_PASSWORD lido de service.json e usado apenas como env
 #     dos filhos, nunca logado; nenhum PID externo e terminado (o Job Object
 #     so contem o processo do service start desta lane); 49374 recusada.
+#     Opt-in de modelo (operator-owned, harness-only): -ModelKeyEnvName
+#     recebe o NOME de uma variavel de ambiente (nunca o valor; default ''
+#     = desligado, comportamento atual intacto). Quando preenchido E a env
+#     existir no chamador, o valor e repassado pontualmente (passthrough)
+#     SOMENTE aos filhos 'opencode run' das pernas model-dependent 18/20/21,
+#     via EnvSet isolado; logs e telemetria registram apenas o NOME e
+#     Get-LaneSafeText tambem redige padroes NOME=valor. Env ausente/vazia
+#     => pernas seguem blocked (fail-closed; nenhum PASS forjado). Ex.
+#     operator-owned: -ModelKeyEnvName 'OPENCODE_GO_API_KEY' com o modelo
+#     opencode-go/muse-spark-1.3-contributor (verificado em 2026-10-08).
+#     Cada turn 'opencode run' roda em Job Object proprio com KILL_ON_JOB_CLOSE
+#     (contencao provada da arvore com a model-key no ambiente; rc=0 sem
+#     atribuicao comprovada nao conta como ok; job indisponivel => turn
+#     recusado, fail-closed).
+#     O turn da fresh session V1 (22) segue operator-owned, sem mudanca de
+#     veredito nesta lane.
 #     PowerShell 5.1 compativel; ASCII-only.
 #>
 [CmdletBinding()]
@@ -60,9 +76,20 @@ param(
     [string]$V1BinaryPath = '',
     [switch]$InstallV1IfMissing,
     [string]$V1NpmSpec = '',
-    [int]$KernelTimeoutMs = 90000
+    [int]$KernelTimeoutMs = 90000,
+    [string]$ModelKeyEnvName = ''
 )
 $ErrorActionPreference = 'Stop'
+
+# ---------- opt-in de model-key (operator-owned; NOME apenas, nunca valor) ----------
+# Validacao estrita do NOME (charset de env; ate 64 chars). Nome invalido ou
+# vazio => opt-in desligado (fail-closed; pernas model-dependent seguem blocked).
+$script:ModelKeyEnvNameClean = ''
+try {
+    $candKeyName = ([string]$ModelKeyEnvName).Trim()
+    if (($candKeyName.Length -gt 0) -and ($candKeyName.Length -le 64) -and ($candKeyName -cmatch '^[A-Za-z_][A-Za-z0-9_]*$')) { $script:ModelKeyEnvNameClean = $candKeyName }
+    $candKeyName = ''
+} catch { $script:ModelKeyEnvNameClean = '' }
 
 # ---------- bootstrap ----------
 function Get-LaneRepoRoot {
@@ -101,6 +128,14 @@ function Get-LaneSafeText {
         $v = [string]$Value
         $v = $v -replace '(?i)sk-[A-Za-z0-9_-]+', '[REDACTED]'
         $v = $v -replace '(?i)(password|token|secret|authorization)\s*[=:]\s*[^\s,;"]+', '$1=[REDACTED]'
+        try {
+            # opt-in: redige tambem padroes NOME=valor da env configurada
+            # (registra-se apenas o NOME; o valor nunca transita em strings de log)
+            if (-not [string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean)) {
+                $escKeyName = [regex]::Escape($script:ModelKeyEnvNameClean)
+                $v = $v -replace ('(?i)' + $escKeyName + '\s*[=:]\s*[^\s,;"]+'), ($script:ModelKeyEnvNameClean + '=[REDACTED]')
+            }
+        } catch { }
         $v = $v -replace '(?i)https?://[^\s"]+', '[REDACTED-URL]'
         $v = $v -replace '[\x00-\x1f]', ' '
         $v = $v.Trim()
@@ -204,11 +239,95 @@ function New-LaneSummary([string]$Status, [string]$Reason) {
         scenario_counts      = [ordered]@{ pass_real = $pass; fail = $fail; blocked = $blocked }
         capability_probes    = $probe
         probes_skipped       = [bool]$SkipCapabilityProbes
+        model_key_env        = (Get-LaneModelKeyLogToken)
         checks               = @($script:LaneChecks)
         notes                = @($script:LaneNotes)
         isolation            = 'XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado'
         job_backstop         = 'Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane'
         port49374_owner_before = $script:owner49374Before
+    }
+}
+
+# ---------- model-key opt-in: helpers (NOME em logs; valor so em EnvSet) ----------
+function Get-LaneModelKeyLogToken {
+    # Token para logs/telemetria: contem apenas o NOME configurado, nunca o valor.
+    if ([string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean)) { return 'model-key-env=<unset>' }
+    return ('model-key-env=' + $script:ModelKeyEnvNameClean)
+}
+function Test-LaneModelKeyAvailable {
+    # Fail-closed: true somente com NOME valido E valor presente no chamador.
+    try {
+        if ([string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean)) { return $false }
+        $val = [Environment]::GetEnvironmentVariable($script:ModelKeyEnvNameClean, 'Process')
+        return (-not [string]::IsNullOrWhiteSpace($val))
+    } catch { return $false }
+}
+function Get-LaneModelChildEnv {
+    # Passthrough pontual: copia do env base + valor da model-key, SOMENTE para
+    # filhos 'opencode run' das pernas 18/20/21. O valor nunca e serializado
+    # em string de log; quem loga usa Get-LaneModelKeyLogToken (NOME apenas).
+    [CmdletBinding()] param($BaseEnv = $null)
+    $out = @{}
+    try {
+        if ($null -ne $BaseEnv) { foreach ($k in @($BaseEnv.Keys)) { $out[[string]$k] = [string]$BaseEnv[$k] } }
+    } catch { }
+    try {
+        if (Test-LaneModelKeyAvailable) {
+            $out[$script:ModelKeyEnvNameClean] = [Environment]::GetEnvironmentVariable($script:ModelKeyEnvNameClean, 'Process')
+        }
+    } catch { }
+    return $out
+}
+function Invoke-LaneModelTurn {
+    # Turn de modelo bounded via filho 'opencode run --session' (conecta no
+    # service isolado da lane). So executa com model-key disponivel; fora
+    # disso retorna attempted=false e a perna segue blocked (fail-closed).
+    # BOTREV-01/B3: o filho roda em Job Object proprio com KILL_ON_JOB_CLOSE
+    # (contencao provada da arvore com a model-key no ambiente); job
+    # indisponivel => turn recusado (fail-closed), nunca sem contencao.
+    [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000)
+    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; job_assigned = $false; job_note = ''; reason = '' }
+    try {
+        if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
+        if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
+        if ([string]::IsNullOrWhiteSpace($Model)) { $Model = 'opencode-go/muse-spark-1.3-contributor' }
+        $safePrompt = (([string]$Prompt) -replace '[&|<>\^%!"''();$`\{\}\[\]\r\n]', '-').Trim()
+        if ([string]::IsNullOrWhiteSpace($safePrompt)) { $safePrompt = 'lane-model-turn-probe' }
+        if ($safePrompt.Length -gt 200) { $safePrompt = $safePrompt.Substring(0, 200) }
+        $turnJob = $null
+        try { $turnJob = New-RuntimeJobObject } catch { $turnJob = $null }
+        if (($null -eq $turnJob) -or (-not [bool]$turnJob.Ok)) { $res.reason = 'job object do turn indisponivel (fail-closed; turn recusado sem contencao provada)'; return $res }
+        $turnFlags = $null
+        try { $turnFlags = Get-RuntimeJobLimitFlags -Job $turnJob } catch { $turnFlags = $null }
+        if (($null -eq $turnFlags) -or (-not [bool]$turnFlags.Ok) -or (-not [bool]$turnFlags.KillOnClose)) {
+            try { [void](Close-RuntimeJobObject -Job $turnJob) } catch { }
+            $res.reason = 'job do turn sem KILL_ON_JOB_CLOSE provado (fail-closed; turn recusado)'
+            return $res
+        }
+        $modelEnv = Get-LaneModelChildEnv -BaseEnv $script:IsoEnv
+        $modelRemove = @($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { $_ -cne $script:ModelKeyEnvNameClean }))
+        $res.attempted = $true
+        $r = $null
+        try {
+            $r = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('run', '--session', $SessionId, '--model', $Model, $safePrompt) -EnvSet $modelEnv -EnvRemove $modelRemove -WorkingDirectory $script:CwdT -TimeoutMs $TimeoutMs -CleanEnvironment -StdinNul -JobObject $turnJob
+        } finally {
+            try { [void](Close-RuntimeJobObject -Job $turnJob) } catch { }
+        }
+        if ($null -eq $r) { $res.reason = 'spawn do turn sem resultado (fail-closed)'; return $res }
+        $res.exit = [int]$r.ExitCode
+        $res.timedout = [bool]$r.TimedOut
+        $res.job_assigned = [bool]$r.JobAssigned
+        $res.job_note = [string]$r.JobNote
+        $so = Get-LaneSafeText (([string]$r.Stdout + "`n" + [string]$r.Stderr)) 160
+        $res.out_chars = $so.Length
+        $res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))
+        if ((-not [bool]$r.JobAssigned) -and ($res.ok -eq $false) -and ([int]$r.ExitCode -eq 0) -and (-not [bool]$r.TimedOut)) {
+            $res.reason = 'turn rc=0 mas atribuicao ao job NAO comprovada (contencao nao provada; resultado nao conta como ok)'
+        }
+        return $res
+    } catch {
+        $res.reason = (Get-LaneSafeText $_.Exception.Message 160)
+        return $res
     }
 }
 
@@ -549,6 +668,11 @@ try {
     $dpText = ([string]$dp.Stdout + "`n" + [string]$dp.Stderr)
     if (-not ($dpText.Contains($xdg) -or $dpText.Contains(($xdg -replace '\\', '/')))) { Fail-Lane 'debug paths: config nao resolve dentro do home isolado.' }
     Add-LaneCheck 'isolation_paths' $true 'cmd: <bin> debug paths (isolado); config resolve no TargetHome'
+    if ((-not [string]::IsNullOrWhiteSpace([string]$ModelKeyEnvName)) -and ([string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean))) {
+        Add-LaneNote '-ModelKeyEnvName rejeitado (charset de env); opt-in desligado, pernas model-dependent seguem blocked'
+    } elseif (-not [string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean)) {
+        Add-LaneNote (('model-key opt-in ativo (' + (Get-LaneModelKeyLogToken) + '); passthrough pontual SOMENTE aos filhos opencode run das pernas 18/20/21'))
+    }
 
     # ---------- 4. porta + invariante 49374 ----------
     $script:owner49374Before = 'QUERY_FAILED'
@@ -946,7 +1070,33 @@ try {
                             }
                             [void](Add-ScenarioProof $proofs 'completed-leg-recovered' $recoverOk ('acao=recover-output; ' + $completionEvidence))
                         } else {
-                            [void](Add-ScenarioProof $proofs 'completed-leg-recovered' $false ('BLOCKED sem modelo: ' + $completionEvidence))
+                            $modelRecovered18 = $false
+                            $modelDetail18 = ('BLOCKED sem modelo (' + (Get-LaneModelKeyLogToken) + '): ' + $completionEvidence)
+                            if (Test-LaneModelKeyAvailable) {
+                                $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000
+                                [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
+                                if ([bool]$turn18.ok) {
+                                    $msg18b = Invoke-Api -Method 'GET' -Path ('/api/session/' + $childId + '/message')
+                                    if ([bool]$msg18b.ok) {
+                                        $body18b = [string]$msg18b.body
+                                        if (($body18b -match '"role"\s*:\s*"assistant"') -or ($body18b -match '"role"\s*:\s*"tool"')) {
+                                            $obsC2 = @(, @{ session_id = $childId; observed = 'completed'; binding_session_id = $childId; last_seen = (Get-LaneTimestampUtc) })
+                                            $recC2 = Get-Reconciliation -Runs $runs -Observations $obsC2
+                                            foreach ($act in @(Get-JsonProp $recC2 'recommended_actions' @())) {
+                                                if ([string](Get-JsonProp $act 'action' '') -ceq 'recover-output') { $modelRecovered18 = $true }
+                                            }
+                                            $modelDetail18 = ('acao=recover-output via model-turn opt-in (' + (Get-LaneModelKeyLogToken) + '); completion observada runtime-native')
+                                        } else {
+                                            $modelDetail18 = ('model-turn rc=0 mas sem mensagem de resposta observavel (' + (Get-LaneModelKeyLogToken) + ')')
+                                        }
+                                    } else {
+                                        $modelDetail18 = ('model-turn rc=0 mas GET message indisponivel: exit=' + [int]$msg18b.exit + ' (' + (Get-LaneModelKeyLogToken) + ')')
+                                    }
+                                } else {
+                                    $modelDetail18 = ('model-turn opt-in falhou: rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' (' + (Get-LaneModelKeyLogToken) + '); perna segue blocked')
+                                }
+                            }
+                            [void](Add-ScenarioProof $proofs 'completed-leg-recovered' $modelRecovered18 $modelDetail18)
                         }
                         [void]$coverage.Add('exercitado: child real (parentID) + restart real + reconciliacao com observacao real')
                         [void]$coverage.Add('perna completed-session: so observavel com turn de modelo; plano §10 (persistence) lista como perna distinta de "running child reattached" (exercitada aqui em runtime real)')
@@ -954,6 +1104,7 @@ try {
                         $completedLegOk = $false
                         foreach ($p in @($proofs)) {
                             if ([string]$p['proof'] -ceq 'completed-leg-recovered') { $completedLegOk = [bool]$p['ok']; continue }
+                            if ([string]$p['proof'] -ceq 'model-turn-attempt') { continue }
                             if (-not [bool]$p['ok']) { $allOk = $false }
                         }
                         Set-ScenarioResult 'RR-E2E-18' $(if ($allOk -and $completedLegOk) { 'pass-real' } elseif ($allOk) { 'blocked' } else { 'fail' }) $(if ($allOk -and $completedLegOk) { 'child real reconciliado apos restart real, incluindo perna completed' } elseif ($allOk) { 'perna running runtime-real; perna completed bloqueada sem modelo (provas parciais gravadas; plano lista as duas pernas como testes distintos)' } else { 'provas com falha' }) $proofs $coverage
@@ -1104,6 +1255,7 @@ try {
                         # into the new Planner session; otherwise supply on next Planner
                         # turn" - tentativa bounded de injecao runtime-native (texto compacto)
                         $injectionSupported = $false
+                        $recvHow20 = 'unproven'
                         if ([bool]$srepl.ok) {
                             $inj = Invoke-Api -Method 'POST' -Path ('/api/session/' + [string]$srepl.id + '/synthetic') -Data '{"text":"RECOVERY lane20: task=lane20 state=PLANNING next=resume via envelope lane20-envelope.json"}'
                             [void](Add-ScenarioProof $proofs 'envelope-injection-attempt' $true ('POST /synthetic rc=' + [int]$inj.exit + ' (observacao; plano §10 permite fallback "supply on next Planner turn")'))
@@ -1111,6 +1263,32 @@ try {
                                 $msgRepl = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$srepl.id + '/message')
                                 if ([bool]$msgRepl.ok -and ($msgRepl.body -match 'RECOVERY lane20')) {
                                     $injectionSupported = $true
+                                    $recvHow20 = 'synthetic-echo'
+                                }
+                            }
+                            if ((-not $injectionSupported) -and (Test-LaneModelKeyAvailable)) {
+                                # BOTREV-01/B1: snapshot pre-turn + canario exclusivo da
+                                # execucao (id da sessao substituta). So conta mensagem
+                                # NOVA com papel de resposta: canario ausente antes e
+                                # presente depois, com role assistant/tool depois. Eco
+                                # tardio da injecao /synthetic ou do proprio prompt nao
+                                # conta (fail-closed => blocked, nunca pass forjado).
+                                $preTurn20 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$srepl.id + '/message')
+                                $preBody20 = $(if ([bool]$preTurn20.ok) { [string]$preTurn20.body } else { '' })
+                                $canary20 = ('lane20-' + [string]$srepl.id)
+                                $canaryEsc20 = [regex]::Escape($canary20)
+                                $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000
+                                [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
+                                if ([bool]$turn20.ok) {
+                                    $msgRepl2 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$srepl.id + '/message')
+                                    $postBody20 = $(if ([bool]$msgRepl2.ok) { [string]$msgRepl2.body } else { '' })
+                                    $canaryNew20 = (([bool]$msgRepl2.ok) -and (($preBody20 -notmatch $canaryEsc20) -and ($postBody20 -match $canaryEsc20)))
+                                    $rolePost20 = (([bool]$msgRepl2.ok) -and (($postBody20 -match '"role"\s*:\s*"assistant"') -or ($postBody20 -match '"role"\s*:\s*"tool"')))
+                                    if ($canaryNew20 -and $rolePost20) {
+                                        $injectionSupported = $true
+                                        $recvHow20 = 'model-turn-novel(canary_new+role_post)'
+                                    }
+                                    [void](Add-ScenarioProof $proofs 'turn-novelty-detail' $true ('canary_new=' + $canaryNew20 + ' role_post=' + $rolePost20 + ' job=' + [bool]$turn20.job_assigned))
                                 }
                             }
                         }
@@ -1118,7 +1296,7 @@ try {
                         # quando a injecao nativa foi confirmada na sessao
                         # substituta; sem injecao, o consumo PELO Planner
                         # substituto (turn) depende de provider de modelo
-                        [void](Add-ScenarioProof $proofs 'envelope-received-by-replacement' $injectionSupported ('injecao_runtime_native=' + $injectionSupported + $(if (-not $injectionSupported) { '; consumo pelo Planner substituto (turn) exige provider de modelo - perna nao provada aqui' } else { '' })))
+                        [void](Add-ScenarioProof $proofs 'envelope-received-by-replacement' $injectionSupported ('injecao_runtime_native=' + $injectionSupported + ' how=' + $recvHow20 + $(if (-not $injectionSupported) { '; consumo pelo Planner substituto (turn) exige provider de modelo - perna nao provada aqui' } else { '' })))
                         # consumo por processo FRESCO: powershell novo le o envelope persistido e constroi o plano
                         # (script gravado em arquivo: o guard StdinNul recusa -Command com shell-meta)
                         $consumePath = Join-Path $script:EnvelopeDir 'consume-lane20.ps1'
@@ -1154,7 +1332,7 @@ try {
                         # confirmada; sem ela o cenario e blocked-parcial (as pernas
                         # kernel-side permanecem provadas), nunca pass-real
                         $hardFail20 = $false
-                        foreach ($p in @($proofs)) { if (([string]$p['proof'] -cne 'envelope-received-by-replacement') -and (-not [bool]$p['ok'])) { $hardFail20 = $true; break } }
+                        foreach ($p in @($proofs)) { if (([string]$p['proof'] -cne 'envelope-received-by-replacement') -and ([string]$p['proof'] -cne 'model-turn-attempt') -and (-not [bool]$p['ok'])) { $hardFail20 = $true; break } }
                         Set-ScenarioResult 'RR-E2E-20' `
                             $(if ($hardFail20) { 'fail' } elseif ($injectionSupported) { 'pass-real' } else { 'blocked' }) `
                             $(if ($hardFail20) { 'provas com falha' } elseif ($injectionSupported) { 'envelope recebido pelo Planner substituto em runtime (injecao nativa confirmada)' } else { 'parcial provado: envelope do estado real persistido + consumo kernel-side por processo fresco + substituicao real com rebind; consumo PELO Planner substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui' }) `
@@ -1222,14 +1400,43 @@ try {
                     [void](Add-ScenarioProof $proofs 'history-preserved' (($preHasResult -eq $postHasResult) -and ($postHasResult) -and (@($postAttempts).Count -ge @($preAttempts).Count) -and (@($postAttempts).Count -gt 0)) ('worker_result_preservado=' + $postHasResult + ' attempts=' + @($postAttempts).Count))
                     $a1 = New-TaskAssertions -TaskId 'lane21'
                     [void](Add-ScenarioProof $proofs 'no-false-terminal' (-not [bool]$a1.terminal) ('state=' + $a1.state))
-                    [void]$coverage.Add('substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) exige provider de modelo e nao e exercitada nesta lane')
+                    [void]$coverage.Add('substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel')
                     # REV2 (fail-closed): o required_activation pede re-leitura PELO
-                    # substituto; o que a lane prova kernel-side e a preservacao do
-                    # estado apos substituicao real - logo o cenario e blocked-parcial
-                    # enquanto a perna do turn nao existir
+                    # substituto; sem model-key opt-in a lane prova kernel-side e o
+                    # cenario e blocked-parcial; com opt-in, um turn 'opencode run'
+                    # bounded e tentado na sessao substituta e o pass-real exige
+                    # resposta observavel do substituto (nunca forjado)
+                    $substituteTurnOk21 = $false
+                    if (Test-LaneModelKeyAvailable) {
+                        # BOTREV-01/B2: canario exclusivo da execucao (id da nova
+                        # sessao) + token do estado persistido (state pre-substituicao)
+                        # + papel de resposta. Substring estatica 'lane21' sozinha
+                        # nao prova releitura PELO substituto (fail-closed).
+                        $canary21 = ('lane21-' + [string]$s2.id)
+                        $canaryEsc21 = [regex]::Escape($canary21)
+                        $stateEsc21 = [regex]::Escape($preState)
+                        $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt ('RECOVERY-' + $canary21 + '-read-task-lane21-report-state-objective-history') -TimeoutMs 180000
+                        [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
+                        if ([bool]$turn21.ok) {
+                            $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message')
+                            $body21 = [string]$msg21.body
+                            $canaryHit21 = (([bool]$msg21.ok) -and ($body21 -match $canaryEsc21))
+                            $stateTok21 = (((-not [string]::IsNullOrWhiteSpace($preState))) -and ([bool]$msg21.ok) -and ($body21 -match $stateEsc21))
+                            if (([bool]$msg21.ok) -and (($body21 -match '"role"\s*:\s*"assistant"') -or ($body21 -match '"role"\s*:\s*"tool"')) -and $canaryHit21 -and $stateTok21) {
+                                $substituteTurnOk21 = $true
+                            }
+                            [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $substituteTurnOk21 ('resposta do substituto observada=' + $substituteTurnOk21 + ' canary=' + $canaryHit21 + ' state_tok=' + $stateTok21 + ' job=' + [bool]$turn21.job_assigned + ' (' + (Get-LaneModelKeyLogToken) + ')'))
+                        } else {
+                            [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $false ('model-turn falhou: rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
+                        }
+                    }
                     $hardFail21 = $false
-                    foreach ($p in @($proofs)) { if (-not [bool]$p['ok']) { $hardFail21 = $true; break } }
-                    Set-ScenarioResult 'RR-E2E-21' $(if ($hardFail21) { 'fail' } else { 'blocked' }) $(if ($hardFail21) { 'provas com falha' } else { 'parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo - required_activation integral nao exercitado aqui' }) $proofs $coverage
+                    foreach ($p in @($proofs)) {
+                        $pn21 = [string]$p['proof']
+                        if (($pn21 -ceq 'model-turn-attempt') -or ($pn21 -ceq 'substitute-reread-turn')) { continue }
+                        if (-not [bool]$p['ok']) { $hardFail21 = $true; break }
+                    }
+                    Set-ScenarioResult 'RR-E2E-21' $(if ($hardFail21) { 'fail' } elseif ($substituteTurnOk21) { 'pass-real' } else { 'blocked' }) $(if ($hardFail21) { 'provas com falha' } elseif ($substituteTurnOk21) { 'substituicao real + estado preservado + releitura observavel PELO substituto via model-turn opt-in (runtime real)' } else { 'parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in' }) $proofs $coverage
                 }
             }
         } catch {

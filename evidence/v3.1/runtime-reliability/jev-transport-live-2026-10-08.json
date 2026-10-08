@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "record": "jev-transport-live",
+  "task_id": "CODER-JEVEV-01",
+  "date": "2026-10-08",
+  "transport": {
+    "base_url": "https://opencode.ai/zen/v1/systemone",
+    "base_url_note": "URL completa sem query string e sem credenciais; nenhum segredo embutido na URL",
+    "host": "opencode.ai",
+    "mechanism": "Invoke-JevAdvisoryCall Tool=jev_check via envelope P28 + transporte HTTP built-in (HttpWebRequest, scriptblock autocontido P29-S2)",
+    "credential_ref": "OPENCODE_GO_API_KEY (NOME da variavel de ambiente apenas; valor nunca registrado, logado ou incluído nesta evidencia)"
+  },
+  "model": "jev-1.13-free",
+  "model_env_ref": "JEV_MODEL (nome apenas)",
+  "base_url_env_ref": "JEV_BASE_URL (nome apenas)",
+  "result": {
+    "status": "JEV_ADVISORY_OK",
+    "consulted": true,
+    "fallback_continue": false
+  },
+  "fail_closed_observed": [
+    {
+      "token": "JEV_NOT_TRIGGERED",
+      "condition": "sem descriptor (tentativa anterior, sem rede)"
+    },
+    {
+      "token": "JEV_ENVELOPE_UNAVAILABLE",
+      "condition": "sem McpSafety dot-sourced (tentativa anterior, sem rede)"
+    },
+    {
+      "token": "JEV_UNAVAILABLE",
+      "condition": "sem JEV_API_KEY no env (tentativa anterior — prova de fail-closed)"
+    }
+  ],
+  "fail_closed_note": "as 3 tentativas anteriores falharam fechado sem rede; nenhuma mascarou falha como sucesso",
+  "environment": {
+    "binary": "opencode local v2.0.25",
+    "pin": "2.0.23",
+    "divergence": "binario local (2.0.25) diverge do pin registrado (2.0.23); divergencia registrada, sem claim de conformidade de versao",
+    "at": "2026-10-08 (runtime)"
+  },
+  "model_probe": {
+    "command": "opencode run --model opencode-go/muse-spark-1.3-contributor",
+    "command_note": "comando sem segredos; executado em diretorio isolado",
+    "output": "PROBE-OK"
+  },
+  "conclusion": "transporte real Jev operator-owned COM prova live-transport 2026-10-08 (JEV_ADVISORY_OK, consulted=True, fallback_continue=False), binary-independent (via HTTPS direta, sem passar pelo CLI opencode; pin 2.0.23 NAO aplicavel); pernas model-dependent da lane destravadas",
+  "secret_audit": "nenhum valor de segredo nesta evidencia; apenas NOMES de variaveis de ambiente em maiusculas"
+}
