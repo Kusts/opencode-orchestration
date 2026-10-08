@@ -4,6 +4,46 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.1.1] — 2026-10-08 — Autonomous Core Runtime Closure (PARTIAL)
+
+Fechamento corretivo JOB44 + programa PR-1..PR-6 (+PR-6b) sobre a base
+`closure/v0.1.1-job44-stable-core`. Merge PR #41 em `301ab59`
+(2026-10-08T17:10:50Z — verificado localmente: commit 14:10:49 -0300);
+tag anotada `v0.1.1` → `301ab59` (mensagem da tag com veredito PARTIAL).
+
+- **JOB44:** comparador `Get-EnforceSettlementShape` convertido em allowlist
+  do núcleo estável; `job_*` + observações voláteis excluídos como
+  diferença intencional.
+- **Programa PR-1..PR-6 + PR-6b:** AdapterContract (148), executor restrito
+  (175), promotion (29), decision (28) + reuse (31, ttl default por classe),
+  autonomy (54), E2E harness (119) + GoalKernel ownership gate (115 novas)
+  + ativação produtiva opt-in `-Productive` (133 asserts); reviews finais,
+  zero HIGH efetivo; flags intocadas.
+- **Gate CI:** PR verde — run `37807694673` success após rerun (flake de
+  timing provado); master verde — run `37814554039` success 5/5 (runs
+  informados pelo Planner; sem verificação local neste escopo — rede
+  proibida).
+- **Lane com provider (2026-10-08):** 4 `pass-real` (16/17/19/20) + 3
+  `blocked`, 0 fail (`session-lane-2026-10-08/`, 62.860 bytes, 9 arquivos);
+  18/21 `blocked` terminal-documentado — model-turn opt-in recusa
+  sistemática rc=1/timedout=False (não flake; rerun `...-rerun1821/`,
+  21.424 bytes, 0/0/2 confirma; pernas kernel-side provadas); 22 `blocked`
+  (install V1 1.18.34 OK + `--help` timeout; nada inferido). Probes:
+  7 ambiguous + 1 unsupported (`session-permission-narrowing`, fail-open
+  via `/shell`; gating kernel-side obrigatório).
+- **Jev transporte real OK:** `jev-transport-live-2026-10-08.json`
+  (2.155 bytes; `JEV_ADVISORY_OK`, consulted, sem fallback) + model probe
+  `PROBE-OK`; apenas NOMES de env, nenhum valor de segredo.
+- **Harness opt-in auditado:** `-ModelKeyEnvName` em
+  `scripts/ci/session-real-lane-v2.ps1` (NOME apenas, charset+64chars,
+  default desligado; passthrough pontual só aos filhos `opencode run`
+  18/20/21; logs com NOME + redação `NOME=valor`; fail-closed).
+- **Ativações — nada a ligar:** watchdog/jev já ON; enforcement OFF
+  (fail-open observado — HOLD honesto); routing (`skill`/`mcp`/`adaptive`)
+  OFF por doutrina.
+- **Veredito: PARTIAL CLOSURE** — runtime-real parcial 4/7 + enforcement
+  HOLD + routing OFF; sem alegar FINAL.
+
 ## [0.1.0] — 2026-10-07 — Universal Autonomous Orchestration (Autonomous Core)
 
 Branch `feat/universal-autonomous-orchestration-v0.1.0` (12 commits desde

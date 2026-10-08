@@ -1,0 +1,113 @@
+{
+  "lane": "session-real-lane-v2",
+  "purpose": "V2-native capability probes (observational; no evidence records written)",
+  "pin": "2.0.23",
+  "date": "2026-10-08",
+  "probes": [
+    {
+      "capability": "session-hierarchy-provenance",
+      "probe": "create child com parentID + GET child",
+      "command_config": "POST /api/session {\"parentID\":\"<root>\"}; GET /api/session/{child}",
+      "expected": "child expõe provenance do parent nativamente",
+      "observed": "GET ok=True parentID=",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "nada observado",
+      "fail_mode": "n/a",
+      "note": "provenance não confirmada no response (campo pode existir em outra forma)",
+      "at": "2026-10-08T18:20:49.2213896Z"
+    },
+    {
+      "capability": "session-permission-narrowing",
+      "probe": "shell permitido vs shell sob deny (overlay de config + permissions por sessao)",
+      "command_config": "agents.build.permissions deny-overlay; POST /api/session {\"permissions\":[{\"action\":\"shell\",\"resource\":\"cmd /c echo DeniedProbe*\",\"effect\":\"deny\"}]}",
+      "expected": "deny recusa o comando marcado (config e/ou por-sessao)",
+      "observed": "overlay: deny NAO recusou via POST /shell (rc=0); por-sessao: create-com-permissions aceito (id retornado); shell sob deny por-sessao recusado=False",
+      "classification": "unsupported",
+      "policy_honored": "nao honrado em nenhum caminho observado",
+      "policy_ignored": "deny do overlay ignorado no caminho /shell",
+      "fail_mode": "fail-open observado via /shell",
+      "note": "resultado real; gating kernel-side continua obrigatorio",
+      "at": "2026-10-08T18:20:53.0871398Z"
+    },
+    {
+      "capability": "experimental-policies-hard-deny",
+      "probe": "config sem experimental.policies ativo",
+      "command_config": "lane opencode.json: experimental = {subagent_depth:1} apenas",
+      "expected": "só é possível provar hard-deny com política experimental declarada e violada",
+      "observed": "lane não declara experimental.policies; probe de violação exigiria config de política específica do pin",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "n/a",
+      "fail_mode": "n/a",
+      "note": "não inventado: sem política declarada não há deny a observar; probe específico fica para coleta com config operator-owned",
+      "at": "2026-10-08T18:20:53.0885613Z"
+    },
+    {
+      "capability": "native-step-limits",
+      "probe": "limites nativos de passo",
+      "command_config": "n/a nesta lane",
+      "expected": "step limit nativo derivado de budget",
+      "observed": "execução de passos requer inferência de modelo (provider ausente no ambiente da lane)",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "n/a",
+      "fail_mode": "n/a",
+      "note": "não decidível sem modelo; nenhum resultado inferido",
+      "at": "2026-10-08T18:20:53.0895610Z"
+    },
+    {
+      "capability": "background-subagents-bounded",
+      "probe": "subagents em background com concorrencia limitada",
+      "command_config": "n/a nesta lane",
+      "expected": "spawn bounded observável",
+      "observed": "spawn de subagente requer inferência de modelo (provider ausente)",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "n/a",
+      "fail_mode": "n/a",
+      "note": "não decidível sem modelo; limites continuam kernel-side",
+      "at": "2026-10-08T18:20:53.0904764Z"
+    },
+    {
+      "capability": "plugin-storage-index",
+      "probe": "storage de plugin sob XDG isolado",
+      "command_config": "idem",
+      "expected": "storage presente após uso",
+      "observed": "nenhum dir plugin/storage encontrado",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "n/a",
+      "fail_mode": "n/a",
+      "note": "sem atividade de plugin nesta lane; nada inferido",
+      "at": "2026-10-08T18:20:53.1079729Z"
+    },
+    {
+      "capability": "snapshots-auxiliary",
+      "probe": "snapshot dirs",
+      "command_config": "idem",
+      "expected": "snapshot materializado",
+      "observed": "nenhum dir snapshot encontrado",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "n/a",
+      "fail_mode": "n/a",
+      "note": "sem atividade que dispare snapshot; nada inferido",
+      "at": "2026-10-08T18:20:53.1221263Z"
+    },
+    {
+      "capability": "durable-event-log-replay",
+      "probe": "arquivos de evento",
+      "command_config": "idem",
+      "expected": "log persistido",
+      "observed": "nenhum arquivo de evento localizado",
+      "classification": "ambiguous",
+      "policy_honored": "n/a",
+      "policy_ignored": "n/a",
+      "fail_mode": "n/a",
+      "note": "formato de persistência pode ser DB interno; nada inferido",
+      "at": "2026-10-08T18:20:53.1302406Z"
+    }
+  ],
+  "note": "companheiro de coleta; registros exatos em v2-native-evidence.json so apos decisao do operator"
+}

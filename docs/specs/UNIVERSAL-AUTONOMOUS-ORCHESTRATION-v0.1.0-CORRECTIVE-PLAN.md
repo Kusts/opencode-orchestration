@@ -268,7 +268,7 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 
 | PR | Fase(s) | Entrega | Status | Evidência |
 |---|---|---|---|---|
-| PR-0 | Fase 0 | JOB44 fix + addendum PARTIAL + closure PR-1..PR-6 | ENTREGUE (push OK; CI em curso) | commit `ea8d768` (29 arquivos +12524/-24); PR #41 OPEN com head em `ea8d768`; CI run `37807439121` IN_PROGRESS (anterior `37775340487` success em `dea2b40`) |
+| PR-0 | Fase 0 | JOB44 fix + addendum PARTIAL + closure PR-1..PR-6 | ENTREGUE (merge `301ab59`, tag `v0.1.1`) | PR #41 MERGED 2026-10-08T17:10:50Z; CI PR run `37807694673` success após rerun (flake de timing provado); CI master run `37814554039` success 5/5 (runs info Planner, sem verificação local) |
 | PR-1 | Fase 1 | AdapterContract | ACTIVE-lib | `scripts/v3/lib/OrchestrationRuntimeAdapterContract.ps1` + tests — **148 PASS**; matriz sem VERIFIED |
 | PR-2 | Fase 2 | Executor restrito v6 (ObjectiveRuntime) | ACTIVE-restrito / HOLD-produtivo até gate GoalKernel | `scripts/v3/lib/OrchestrationObjectiveRuntime.ps1` + tests — **175 PASS**; 5 rounds review + security |
 | PR-3 | Fases 5–6 | Promotion wiring | ACTIVE | `scripts/v3/lib/OrchestrationGoalPromotionWiring.ps1` + tests — **29 PASS** |
@@ -280,11 +280,12 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 
 ### Gates G0–G8 (evidência + pendências)
 
-- **G0 — ENTREGUE (CI em curso):** commit `ea8d768` + push OK na branch
-  `closure/v0.1.1-job44-stable-core`; PR #41 OPEN com head em `ea8d768`;
-  CI run `37807439121` IN_PROGRESS (anterior `37775340487` success em
-  `dea2b40`); distribution **GO 21/21** (20 PASS + 1 SKIP live-hook-v2
-  ambiental); full-V3 **72 PASS + 3 DE22307F + 6 SKIP**.
+- **G0 — ENTREGUE (merge + tag):** PR #41 MERGED 2026-10-08T17:10:50Z
+  (merge `301ab59`, verificado localmente) + tag anotada `v0.1.1` →
+  `301ab59`; CI PR run `37807694673` success após rerun (flake de timing
+  provado); CI master run `37814554039` success 5/5; distribution **GO
+  21/21** (20 PASS + 1 SKIP live-hook-v2 ambiental); full-V3 **72 PASS +
+  3 DE22307F + 6 SKIP**.
 - **G1 — LIB-VERDE:** contrato + matriz (PR-1, 148 PASS), nenhum VERIFIED sem
   prova; runtime-real BLOCKED sem provider.
 - **G2 — RESTRITO:** executor (PR-2, 175 PASS, 5 rounds + security);
@@ -311,10 +312,10 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 - **Veredito: PARTIAL CLOSURE.** Base/contrato/matriz avançam em nível
   lib/harness; wiring produtivo segue HOLD honesto. Não é FINAL nem
   runtime-real: nenhum número abaixo é prova exact-binary-live.
-- **Commit/push/PR/CI:** `ea8d768` (29 arquivos +12524/-24) + push OK na
-  branch `closure/v0.1.1-job44-stable-core`; PR #41 OPEN com head em
-  `ea8d768`; CI run `37807439121` IN_PROGRESS (anterior `37775340487`
-  success em `dea2b40`).
+- **Commit/merge/PR/CI/tag:** histórico `ea8d768` (29 arquivos +12524/-24)
+  + `1b02f63` na branch `closure/v0.1.1-job44-stable-core`; PR #41 MERGED
+  2026-10-08T17:10:50Z (merge `301ab59`); tag anotada `v0.1.1` → `301ab59`;
+  CI PR run `37807694673` success após rerun; CI master `37814554039` 5/5.
 - **Evidência lib/harness (PS5.1+PS7):** suites novas **133 / 175 / 115 /
   103 GoalKernel / 103 / 65 / 28 / 31 / 54 / 29 / 119** PASS;
   distribution **GO 21/21** (20 PASS + 1 SKIP live-hook-v2 ambiental);
@@ -342,6 +343,45 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 - **HOLDs residuais:** budget cross-process; telemetria
   concorrente/inputs não-controlados; seams caller-provided
   (não-autoridade); redactor heurístico; `runtime_grant_enforcement` OFF.
-- **Próximos passos (operador):** CI verde no HEAD ⇒ merge PR #41
-  (observar evolução de escopo v0.1.1→programa; renomear ou novo PR) +
-  tag; provider para runtime-real; ativações somente com evidência.
+- **Próximos passos (operador):** provider para runtime-real das pernas
+  18/21-completed + 22 fresh-turn; ativações somente com evidência;
+  `v0.1.0` preservada.
+
+### Estado final (2026-10-08, pós-merge — sem behavior change)
+
+- **CI PR verde:** run `37807694673` success após rerun (flake de timing
+  provado; run informado pelo Planner, sem verificação local — rede
+  proibida neste escopo).
+- **CI master verde:** run `37814554039` success 5/5 (idem).
+- **PR #41 MERGED** 2026-10-08T17:10:50Z (merge `301ab59`, verificado
+  localmente via `git cat-file`: tag anotada `v0.1.1` → `301ab59`).
+- **Lane com provider:** 16/17/19/20 `pass-real`; 18/21 `blocked`
+  terminal-documentado (model-turn opt-in `OPENCODE_GO_API_KEY` recusa
+  sistemática rc=1/timedout=False nas duas corridas — não flake; pernas
+  kernel-side provadas); 22 `blocked` (install V1 1.18.34 OK, `--help`
+  timeout; nada inferido). Probes 7 ambiguous + 1 unsupported
+  (`session-permission-narrowing`, fail-open via `/shell`; gating
+  kernel-side obrigatório). Evidência:
+  `evidence/v3.1/runtime-reliability/session-lane-2026-10-08/` (62.860
+  bytes, 9 arquivos, 14/14 checks ok) +
+  `...-rerun1821/` (21.424 bytes, 4 arquivos, 0/0/2) — JSONs 14/14 parse
+  OK; auditoria de segredos limpa (só falso positivo `sk-*` em nomes de
+  proof `task-*`).
+- **Jev transporte real OK** (`JEV_ADVISORY_OK`, consulted, sem fallback)
+  + model turn `PROBE-OK`
+  (`evidence/v3.1/runtime-reliability/jev-transport-live-2026-10-08.json`,
+  2.155 bytes; só NOMES de env, nenhum valor).
+- **Harness opt-in auditado:** `-ModelKeyEnvName`
+  (`scripts/ci/session-real-lane-v2.ps1`, +162/-9 vs HEAD: NOME apenas com
+  charset `^[A-Za-z_][A-Za-z0-9_]*$` + 64 chars, default `''` desligado com
+  comportamento intacto; passthrough pontual só aos filhos `opencode run`
+  18/20/21 via EnvSet isolado; logs/telemetria só com NOME + redação
+  `NOME=valor` em `Get-LaneSafeText`; env ausente/vazia ⇒ blocked
+  fail-closed) — incluído no stage.
+- **Ativações — nada a ligar:** watchdog `{enabled:true,shadow:false}` e
+  `jev_advisory` já ON (motivo: ativos desde 2026-10-04, inalterados);
+  `runtime_grant_enforcement` OFF (motivo: fail-open observado na `/shell`
+  do 2.0.23 — HOLD honesto, sem prova exact-binary-live);
+  `skill_routing`/`mcp_routing`/`adaptive_ranking` OFF (motivo: doutrina).
+- **Veredito final: PARTIAL CLOSURE** (runtime-real parcial 4/7 +
+  enforcement HOLD + routing OFF). Não é FINAL.

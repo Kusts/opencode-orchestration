@@ -1,0 +1,46 @@
+{
+    "scenario_id":  "RR-E2E-21",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+    "proofs":  [
+                   {
+                       "proof":  "task-has-worker-result",
+                       "ok":  true,
+                       "detail":  "candidate_pass=True exit=0"
+                   },
+                   {
+                       "proof":  "session-replacement-real",
+                       "ok":  true,
+                       "detail":  "old=ses_ee352be3cffeRiMZaZCVz5qyRT new=ses_ee35299c5ffeYrnA66TO68Il0D"
+                   },
+                   {
+                       "proof":  "state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "history-preserved",
+                       "ok":  true,
+                       "detail":  "worker_result_preservado=True attempts=1"
+                   },
+                   {
+                       "proof":  "no-false-terminal",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=1 timedout=False"
+                   },
+                   {
+                       "proof":  "substitute-reread-turn",
+                       "ok":  false,
+                       "detail":  "model-turn falhou: rc=1 timedout=False"
+                   }
+               ],
+    "coverage":  [
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                 ],
+    "at":  "2026-10-08T18:01:36.6535853Z"
+}
