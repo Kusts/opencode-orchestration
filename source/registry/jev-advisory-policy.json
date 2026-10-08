@@ -54,5 +54,51 @@
       "write-done"
     ],
     "note": "jev output is advisory evidence only; kernel, verifier, reviewer and security always win"
+  },
+  "decision_provider": {
+    "question_types": [
+      "routing",
+      "specialist",
+      "continue",
+      "parallel",
+      "evidence",
+      "risk",
+      "hypothesis",
+      "alternative"
+    ],
+    "max_alternatives": 8,
+    "min_confidence": 0.5,
+    "high_risk_no_jev": true,
+    "authority_reserved_keywords": [
+      "grant",
+      "permission",
+      "scope",
+      "model",
+      "provider",
+      "variant",
+      "production",
+      "destructive",
+      "secret",
+      "credential",
+      "done",
+      "approve",
+      "verifier",
+      "reviewer",
+      "security"
+    ],
+    "model_override_keywords": [
+      "model",
+      "provider",
+      "variant",
+      "llm",
+      "gpt",
+      "Muse",
+      "sonnet",
+      "opus",
+      "haiku",
+      "select-model"
+    ],
+    "planner_escalation_on_unavailable": true,
+    "note": "additive Phase 4 section (SPEC v0.1.0 PR-E): mirrors the TDR-F4 admission and filter constants used by OrchestrationDecisionProvider.ps1; no existing node was altered and version stays 1"
   }
 }

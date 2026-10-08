@@ -38,10 +38,10 @@ Assert-That (($missing.Count -eq 0) -and ($extra.Count -eq 0) -and ($listed.Coun
 $anchorFiles = @()
 foreach ($f in @($pluginIndex, (Join-Path $pluginDir 'v1.ts'), (Join-Path $pluginDir 'v2.ts'))) {
   $t = [IO.File]::ReadAllText($f)
-  if ($t.Contains('TRIVIAL_DIRECT')) { $anchorFiles += (Split-Path -Leaf $f) }
+  if ($t.Contains('SINGLE_WORKER')) { $anchorFiles += (Split-Path -Leaf $f) }
 }
 $mandateText = [IO.File]::ReadAllText((Join-Path $sharedDir 'mandate.ts'))
-Assert-That (($anchorFiles.Count -eq 0) -and $mandateText.Contains('TRIVIAL_DIRECT')) 'mandato em fonte unica (shared/mandate.ts)' ("ancora fora do shared: [$($anchorFiles -join ',')]")
+Assert-That (($anchorFiles.Count -eq 0) -and $mandateText.Contains('SINGLE_WORKER')) 'mandato em fonte unica (shared/mandate.ts)' ("ancora fora do shared: [$($anchorFiles -join ',')]")
 # marcadores das duas geracoes derivam do mesmo construtor.
 Assert-That ($mandateText.Contains('generation') -and $mandateText.Contains(':worker')) 'mandate.ts parametriza geracao (v1/v2 + :worker)' 'sem marker parametrizado'
 

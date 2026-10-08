@@ -814,7 +814,7 @@ function Invoke-E2eScenarioCheck {
     switch ($Check) {
         'mcp-healthy' { return (Invoke-E2eCheckMcpHealthy $Context) }
         'mcp-circuit' { return (Invoke-E2eCheckMcpCircuit $Context) }
-        'level-l0' { return (Invoke-E2eCheckLevel $Context 'level-l0' 'L0' @{ trivial_direct = $true; risk = 'low' }) }
+        'level-l0' { return (Invoke-E2eCheckLevel $Context 'level-l0' 'L0' @{ single_worker = $true; risk = 'low' }) }
         'level-l1' { return (Invoke-E2eCheckLevel $Context 'level-l1' 'L1' @{ localized = $true; risk = 'low' }) }
         'level-l2' { return (Invoke-E2eCheckLevel $Context 'level-l2' 'L2' @{ risk = 'medium' }) }
         'level-l3' { return (Invoke-E2eCheckLevel $Context 'level-l3' 'L3' @{ risk = 'high'; risk_triggers = @('auth') } 'auth') }

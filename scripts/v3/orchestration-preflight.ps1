@@ -1,6 +1,6 @@
 <#!
 .SYNOPSIS
-    Mandatory orchestration preflight CLI: trivial/direct vs delegated vs deterministic fallback.
+    Mandatory orchestration preflight CLI: single-worker vs multi-worker vs persistent-goal vs deterministic fallback.
 .DESCRIPTION
     Thin CLI over lib/OrchestrationPreflight.ps1. Reads a task inline
     (-Objective/-TaskType/-Domain/-Risk/-ReadWrite/-SecondaryDomains) or

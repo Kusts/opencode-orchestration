@@ -11,7 +11,11 @@
     and never a widening of the plan (no extra worker and no parallelism the
     plan did not declare). The only library calls are the P36 completion gate
     and the P35 evidence writer; both are lazy dot-sourced behind Test-Path and
-    both fail closed with a typed reason when unavailable.
+    both fail closed with a typed reason when unavailable. An optional
+    additive Phase 5 hook (-ObjectiveStatus on
+    Test-OrchestrationDispatchCompletion) appends a record-only next_move
+    from the pure continuation controller without touching completion
+    authority; absent or invalid input leaves the verdict byte-identical.
 
     Worker contract fields are derived from the plan record and the declared
     descriptor only, with this precedence: per-role descriptor override
@@ -824,9 +828,13 @@ function Test-OrchestrationDispatchCompletion {
         New-OrchestrationEvidenceRecord only when completion is allowed AND a
         store_dir was supplied AND the declared evidence input (including its
         invalidation conditions) is complete; the store_dir path is used
-        verbatim, sanitization applies to the reported value only.
+        verbatim, sanitization applies to the reported value only. The
+        optional -ObjectiveStatus carries a post-settlement objective
+        snapshot: when present and valid, the pure continuation controller
+        verdict is attached as next_move (record-only, completion authority
+        untouched); otherwise the verdict is byte-identical.
     #>
-    [CmdletBinding()] param($Bundle,[string[]]$CompletedRoles,$Options=$null)
+    [CmdletBinding()] param($Bundle,[string[]]$CompletedRoles,$Options=$null,$ObjectiveStatus=$null)
     $o=$Options;if($null -eq $o){$o=@{}}
     $b=$Bundle
     $inner=Read-DP $Bundle 'bundle' $null
@@ -1038,6 +1046,29 @@ function Test-OrchestrationDispatchCompletion {
             persistence=[pscustomobject]$persistence
             generated_at=(Get-DPFirstText @($b) @('generated_at') 80)
         }
+        # --- Phase 5 additive hook (TDR-F5-03): optional post-settlement
+        # next-move annotation. Present and valid -ObjectiveStatus attaches
+        # the pure controller verdict as next_move. Absent, non-object,
+        # invalid, unavailable or failing input leaves the verdict
+        # byte-identical: allowed/reason authority is never touched here.
+        $nextMove=$null
+        try {
+            if (Test-DPObject $ObjectiveStatus) {
+                $ocLib=Join-Path $PSScriptRoot 'OrchestrationObjectiveController.ps1'
+                if (Test-Path -LiteralPath $ocLib) {
+                    . $ocLib
+                    $ocStatusOk=$false
+                    try { $ocStatusOk=[bool](Test-OrchestrationObjectiveStatus -Status $ObjectiveStatus) } catch { $ocStatusOk=$false }
+                    if ($ocStatusOk) {
+                        try {
+                            $ocMove=Get-OrchestrationNextMove -Status $ObjectiveStatus
+                            if (($null -ne $ocMove) -and (-not [string]::IsNullOrWhiteSpace([string]$ocMove.move))) { $nextMove=$ocMove }
+                        } catch { $nextMove=$null }
+                    }
+                }
+            }
+        } catch { $nextMove=$null }
+        if ($null -ne $nextMove) { $verdict['next_move']=$nextMove }
         return [pscustomobject]$verdict
     } catch {
         return [pscustomobject]@{schema_version=1;status='blocked';allowed=$false;reason='dispatch-completion-failed';record_only=$true;gate_status='unavailable';gate_reason='dispatch-completion-failed';gate_verifiable=$false;effective_level='L3';required_roles=@();unknown_required_roles=0;completed_roles=@();unknown_completed_roles=0;missing_roles=@();completion_policy=(Unavailable-DP 'dispatch-completion-failed');evidence_input=[pscustomobject]@{complete=$false;missing_fields=@();invalid_fields=@('dispatch-completion-failed');invalidation_conditions_status='unknown';invalidation_conditions_reason='';invalidation_conditions_count=0};persistence=[pscustomobject]@{attempted=$false;created=$false;reason='dispatch-completion-failed';evidence_id='';store_declared=$false;store_dir_display=''};generated_at='';gate_shape_error='dispatch-completion-failed'}

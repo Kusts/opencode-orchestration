@@ -1,10 +1,11 @@
 <#!
 .SYNOPSIS
-    V3 mandatory orchestration preflight (canonical): trivial/direct vs delegated vs deterministic fallback.
+    V3 mandatory orchestration preflight (canonical): single-worker vs multi-worker vs persistent-goal vs deterministic fallback.
 .DESCRIPTION
     Dot-sourceable library (no execution on load). Decides BEFORE any
-    delegation whether the Planner may act directly (trivial) or must
-    delegate (non-trivial), or must take a deterministic fallback
+    delegation whether the Planner must delegate to one cheap worker
+    (single-worker trivial), to multiple workers (non-trivial), or to a
+    persistent goal owner, or must take a deterministic fallback
     (underspecified task, hard exclusion, unhealthy router, stale
     registry). Never executes MCP, never loads skills, never changes
     authority/allowlist/permissions/flags/registry. Telemetry uses
@@ -12,12 +13,14 @@
     on operational paths (fail-safe => DETERMINISTIC_FALLBACK).
 
     Contract split (review-hardened):
-      - PRE-decision (Get-OrchestrationPreflight): plans only. DELEGATED
-        carries bypass_verdict=UNVERIFIED_POST_EXECUTION_REQUIRED and a
-        post_execution_check hint; it never attests compliance.
+      - PRE-decision (Get-OrchestrationPreflight): plans only. MULTI_WORKER
+        and PERSISTENT_GOAL carry
+        bypass_verdict=UNVERIFIED_POST_EXECUTION_REQUIRED and a
+        post_execution_check hint; they never attest compliance.
       - POST-verdict (Test-OrchestrationDoneCompliance): the DONE gate,
         called with OBSERVED worker participation / deterministic-owner
-        execution. Only COMPLIANT here allows a compliant DONE claim.
+        execution (and, for trivial work, the observed ExecutionShape).
+        Only COMPLIANT here allows a compliant DONE claim.
       - Health inputs ($RouterHealthy/$RegistryFresh/$RegistryOk) are
         produced by the executor layer (Invoke-CapabilityAcceptance),
         which owns timeout/exception/malformed-response handling and
@@ -77,24 +80,16 @@ function Test-OrchestrationKeyword {
 function Get-OrchestrationDirectTokens {
     [CmdletBinding()]
     param()
-    return @(
-        'DIRECT_TRIVIAL_LOCALIZED',
-        'DIRECT_READ_ONLY_POINT_LOOKUP',
-        'DIRECT_COSMETIC_NO_LOGIC',
-        'DIRECT_FORMATTING_ONLY'
-    )
+    # v0.1.0: deprecated, fail-closed.
+    return @()
 }
 
 function Test-OrchestrationDirectReason {
     [CmdletBinding()]
     param([string]$Reason)
-    try {
-        $s = ([string]$Reason).Trim()
-        if ([string]::IsNullOrWhiteSpace($s)) { return $false }
-        $allowed = @(Get-OrchestrationDirectTokens)
-        foreach ($a in $allowed) { if ($s -ceq $a) { return $true } }
-    }
-    catch { }
+    # v0.1.0: deprecated, fail-closed. Any input (including legacy
+    # DIRECT_* tokens) returns $false; trivial work is proven by
+    # ExecutionShape SINGLE_WORKER in Test-OrchestrationDoneCompliance.
     return $false
 }
 
@@ -118,9 +113,15 @@ function Test-OrchestrationBypass {
 function Test-OrchestrationDoneCompliance {
     <#
     .SYNOPSIS
-        Porta de DONE: verificacao POS-execucao. A pre-decision (DELEGATED,
-        DETERMINISTIC_FALLBACK) apenas planeja; somente esta funcao, chamada
-        com a participacao real observada, pode atestar compliance.
+        Porta de DONE: verificacao POS-execucao. A pre-decision (MULTI_WORKER,
+        PERSISTENT_GOAL, DETERMINISTIC_FALLBACK) apenas planeja; somente esta
+        funcao, chamada com a participacao real observada, pode atestar
+        compliance. Trabalho trivial exige Decision SINGLE_WORKER, o
+        ExecutionShape observado SINGLE_WORKER e participacao observada
+        maior que zero; classe fora de trivial/non_trivial e falha
+        fechada (NON_COMPLIANT_INVALID_TASK_CLASS). Tokens DIRECT_*
+        legados sao rejeitados como NON_COMPLIANT_DEPRECATED_DIRECT
+        (fail-closed).
     #>
     [CmdletBinding()]
     param(
@@ -128,17 +129,35 @@ function Test-OrchestrationDoneCompliance {
         [string]$Decision = '',
         [int]$ActualWorkerParticipation = 0,
         [bool]$DeterministicOwnerExecuted = $false,
-        [string]$DirectReason = ''
+        [string]$DirectReason = '',
+        [string]$ExecutionShape = ''
     )
     try {
         $c = ([string]$TaskClass).Trim().ToLowerInvariant()
         $d = ([string]$Decision).Trim().ToUpperInvariant()
-        if ($d -ceq 'BLOCKED') { return 'ORCHESTRATION_POLICY_BYPASS' }
-        if ($c -cne 'non_trivial') {
-            if ([string]::IsNullOrWhiteSpace($DirectReason)) { return 'NON_COMPLIANT_MISSING_DIRECT_REASON' }
-            if (-not (Test-OrchestrationDirectReason -Reason $DirectReason)) { return 'NON_COMPLIANT_INVALID_DIRECT_REASON' }
-            return 'COMPLIANT'
+        # TDR-F1-11: classe desconhecida (vazia ou fora de trivial/non_trivial)
+        # e falha fechada antes de qualquer outro ramo.
+        if (($c -cne 'trivial') -and ($c -cne 'non_trivial')) { return 'NON_COMPLIANT_INVALID_TASK_CLASS' }
+        if ($c -ceq 'trivial') {
+            $dr = ([string]$DirectReason).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($dr)) {
+                if ($dr -like 'DIRECT_*') { return 'NON_COMPLIANT_DEPRECATED_DIRECT' }
+                return 'NON_COMPLIANT_INVALID_DIRECT_REASON'
+            }
+            # TDR-F1-11: ramo trivial exige Decision SINGLE_WORKER (vazia cai aqui).
+            if ($d -cne 'SINGLE_WORKER') { return 'NON_COMPLIANT_INVALID_DECISION' }
+            $shape = ([string]$ExecutionShape).Trim()
+            if ([string]::IsNullOrWhiteSpace($shape)) { return 'NON_COMPLIANT_MISSING_DIRECT_REASON' }
+            if ($shape -ieq 'SINGLE_WORKER') {
+                # TDR-F1-11: trivial tambem exige participacao observada.
+                $tn = 0
+                try { $tn = [int]$ActualWorkerParticipation } catch { $tn = 0 }
+                if ($tn -le 0) { return 'ORCHESTRATION_POLICY_BYPASS' }
+                return 'COMPLIANT'
+            }
+            return 'NON_COMPLIANT_DEPRECATED_DIRECT'
         }
+        if ($d -ceq 'BLOCKED') { return 'ORCHESTRATION_POLICY_BYPASS' }
         if ($d -ceq 'DETERMINISTIC_FALLBACK') {
             if ($DeterministicOwnerExecuted) { return 'COMPLIANT' }
             return 'ORCHESTRATION_POLICY_BYPASS'
@@ -265,20 +284,6 @@ function Test-OrchestrationArchitectureDecision {
     catch { return $false }
 }
 
-function Get-OrchestrationDirectReasonToken {
-    [CmdletBinding()]
-    param([string]$Objective = '', [string]$TaskType = '')
-    try {
-        $blob = Convert-OrchestrationNormalizedText -Text (([string]$Objective) + ' ' + ([string]$TaskType))
-        if ($blob.Contains('format')) { return 'DIRECT_FORMATTING_ONLY' }
-        if ((Test-OrchestrationKeyword -Blob $blob -Words @('typo', 'cosmet', 'cosmetic', 'typos'))) { return 'DIRECT_COSMETIC_NO_LOGIC' }
-        $tt = ([string]$TaskType).Trim().ToLowerInvariant()
-        if (($tt -ceq 'lookup') -or ($tt -ceq 'read') -or (Test-OrchestrationKeyword -Blob $blob -Words @('lookup', 'point lookup', 'leitura pontual', 'small read', 'where defined', 'where is'))) { return 'DIRECT_READ_ONLY_POINT_LOOKUP' }
-        return 'DIRECT_TRIVIAL_LOCALIZED'
-    }
-    catch { return 'DIRECT_TRIVIAL_LOCALIZED' }
-}
-
 function Get-OrchestrationSelectedAgents {
     [CmdletBinding()]
     param(
@@ -295,6 +300,10 @@ function Get-OrchestrationSelectedAgents {
         $blob = Convert-OrchestrationNormalizedText -Text (([string]$TaskType) + ' ' + ([string]$Domain) + ' ' + $secBlob + ' ' + ([string]$Objective))
         # Explicit work-type first: keywords never override structured signals.
         if ($tt -ceq 'review') { return @('reviewer') }
+        # v0.1.0: trivial work-types resolve to the single worker, so the
+        # SINGLE_WORKER gate never returns an empty selected_agents.
+        if (($tt -ceq 'lookup') -or ($tt -ceq 'read')) { return @('explorer') }
+        if (($tt -ceq 'cosmetic') -or ($tt -ceq 'formatting') -or ($tt -ceq 'trivial')) { return @('coder') }
         if ((Test-OrchestrationKeyword -Blob $blob -Words @('research', 'pesquisa'))) { return @('researcher') }
         if ((Test-OrchestrationKeyword -Blob $blob -Words @('discovery', 'exploration', 'exploracao', 'codebase', 'impacto'))) {
             if (($tt -ceq 'discovery') -or ($tt -ceq 'exploration') -or ($dom -ceq 'exploration') -or ($dom -ceq 'discovery')) { return @('explorer') }
@@ -351,7 +360,9 @@ function Get-OrchestrationPreflight {
             }
         }
 
-        $checkDelegated = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision DELEGATED -ActualWorkerParticipation <actual_workers>'
+        $checkMulti = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision MULTI_WORKER -ActualWorkerParticipation <actual_workers>'
+        $checkSingle = 'Test-OrchestrationDoneCompliance -TaskClass trivial -Decision SINGLE_WORKER -ExecutionShape SINGLE_WORKER -ActualWorkerParticipation <actual_workers>'
+        $checkGoal = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision PERSISTENT_GOAL -ActualWorkerParticipation <actual_workers>'
         $checkFallback = 'Test-OrchestrationDoneCompliance -TaskClass non_trivial -Decision DETERMINISTIC_FALLBACK -DeterministicOwnerExecuted $<owner_ran>'
 
         if ($PSBoundParameters.ContainsKey('Allowlist')) {
@@ -383,6 +394,30 @@ function Get-OrchestrationPreflight {
             return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'vague_task_underspecified' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
         }
 
+        # v0.1.0: goal promotion AFTER hard exclusions/router/vague and
+        # BEFORE the trivial gate (a goal outranks trivial). Explicit
+        # goal task-types promote directly; a spec+plan objective promotes
+        # via keyword, in the same keyword style as this file.
+        $goalExplicit = (($tt -ceq 'goal') -or ($tt -ceq 'persistent-goal'))
+        $goalSpecPlan = $false
+        try {
+            # TDR-F1-12: word-boundary para nao casar substrings
+            # ('plant'/'planilha' nao sao 'plan'; 'special' nao e 'spec').
+            $blobGoal = Convert-OrchestrationNormalizedText -Text $obj
+            $hasSpec = ($blobGoal -match '\bspec\b')
+            $hasPlan = (($blobGoal -match '\bplan\b') -or ($blobGoal -match '\bplans\b') -or ($blobGoal -match '\bfases\b') -or ($blobGoal -match '\bphases\b') -or ($blobGoal.Contains('implementacao completa')) -or ($blobGoal.Contains('implement complete')) -or ($blobGoal -match '\bgoal\b'))
+            if ($hasSpec -and $hasPlan) { $goalSpecPlan = $true }
+        }
+        catch { $goalSpecPlan = $false }
+
+        if ($goalExplicit -or $goalSpecPlan) {
+            $goalAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
+            if (@($goalAgents).Count -eq 0) { $goalAgents = @('coder') }
+            $goalReason = 'goal_promotion_spec_plan'
+            if ($goalExplicit) { $goalReason = 'goal_promotion_explicit' }
+            return (& $mkResult 'PERSISTENT_GOAL' 'non_trivial' '' @($goalAgents) $goalReason 'UNVERIFIED_POST_EXECUTION_REQUIRED' $checkGoal)
+        }
+
         $isTrivial = $false
         try {
             $lenOk = (($objTrim.Length -gt 0) -and ($objTrim.Length -le 140))
@@ -398,15 +433,16 @@ function Get-OrchestrationPreflight {
         catch { $isTrivial = $false }
 
         if ($isTrivial) {
-            $tok = Get-OrchestrationDirectReasonToken -Objective $obj -TaskType $tt
-            return (& $mkResult 'TRIVIAL_DIRECT' 'trivial' $tok @() '' 'OK')
+            $swAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
+            if (@($swAgents).Count -eq 0) { $swAgents = @('coder') }
+            return (& $mkResult 'SINGLE_WORKER' 'trivial' '' @($swAgents) '' 'OK' $checkSingle)
         }
 
         $agents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
         if (@($agents).Count -eq 0) { $agents = @('coder') }
         # Pre-decision only plans: compliance requires the post-execution
         # DONE gate (Test-OrchestrationDoneCompliance) with observed workers.
-        return (& $mkResult 'DELEGATED' 'non_trivial' '' @($agents) '' 'UNVERIFIED_POST_EXECUTION_REQUIRED' $checkDelegated)
+        return (& $mkResult 'MULTI_WORKER' 'non_trivial' '' @($agents) '' 'UNVERIFIED_POST_EXECUTION_REQUIRED' $checkMulti)
     }
     catch {
         return [PSCustomObject]@{

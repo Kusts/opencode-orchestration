@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "states": [
+    "DRAFT",
+    "ACTIVE",
+    "PAUSED",
+    "BLOCKED",
+    "BUDGET_LIMITED",
+    "COMPLETED",
+    "EXHAUSTED",
+    "CANCELLED"
+  ],
+  "terminal": [
+    "COMPLETED",
+    "EXHAUSTED",
+    "CANCELLED"
+  ],
+  "transitions": {
+    "DRAFT": ["ACTIVE", "CANCELLED"],
+    "ACTIVE": ["PAUSED", "BLOCKED", "BUDGET_LIMITED", "COMPLETED", "EXHAUSTED", "CANCELLED"],
+    "PAUSED": ["ACTIVE", "CANCELLED"],
+    "BLOCKED": ["ACTIVE", "CANCELLED"],
+    "BUDGET_LIMITED": ["ACTIVE", "EXHAUSTED", "CANCELLED"],
+    "COMPLETED": [],
+    "EXHAUSTED": [],
+    "CANCELLED": []
+  },
+  "budget_fields": ["soft_cap", "hard_cap", "spent"],
+  "notes": "Goal is the logical parent of Tasks; TaskKernel remains the execution authority; Goal Kernel does not duplicate grants, leases, or verification."
+}

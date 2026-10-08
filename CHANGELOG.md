@@ -4,7 +4,164 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.1.0] — 2026-10-07 — Universal Autonomous Orchestration (Autonomous Core)
+
+Branch `feat/universal-autonomous-orchestration-v0.1.0` (12 commits desde
+`414c81e` + fechamento). Epoch SemVer formal: tag histórica `v1.0`
+preservada como legacy; V3/V3.1 como programas internos históricos.
+
+Entregas PR-A…PR-L: SPEC/PLAN/ADR; preflight `SINGLE_WORKER`/`MULTI_WORKER`
+/`PERSISTENT_GOAL` com DONE fail-closed; Autonomy Envelope + stops;
+Reuse-First; DecisionProvider/Jev (#19); ObjectiveController + hook;
+Goal Kernel (CAS); promotion/progress/TDR; checkpoint/EvidenceRef;
+delivery gate; telemetry + 15 Golden; docs; harness S1-S8.
+
+Evidência: `evidence/v0.1.0/release-0.1.0.json`. Full suite 64/73 (3 FAILs
+pré-existentes DE22307F, machine-local); distribuição 14/21 ambos os lados
+(sem regressão; falhas ambientais + flaky classificadas); security
+APPROVED; reviewer APPROVED por fase.
+
+Residuais operador/CI: smokes V1/V2 exact-runtime, 5 checks do PR,
+issue #25, green-run de distribuição no CI.
+
 ## [Unreleased]
+
+### Fase 15 v0.1.0 (2026-10-07, parcial) — Release harness
+
+- `scripts/ci/ObjectiveRunner.harness.ps1` (TEST HARNESS, não produto):
+  driver determinístico Goal+controller fim-a-fim (S1-S5+S7-S8).
+- Fecha itens §24 7-9,12,13,21,24 em nível lib/harness; execução real de
+  agentes (Debugger) permanece limitação declarada.
+- Suite runner 57 asserts. Tester PASS; Reviewer APPROVED.
+
+### Fase 14 v0.1.0 (2026-10-07) — Documentation Reconciliation
+
+- README: seção Versionamento (epoch, tag legacy, V3/V3.1 históricos).
+- `docs/specs/INDEX.md`: índice active/historical dos 8 docs.
+- Sem documentação ativa descrevendo TRIVIAL_DIRECT como caminho normal
+  (restam apenas referências históricas marcadas). Tester PASS; Reviewer
+  APPROVED.
+
+### Fase 13 v0.1.0 (2026-10-07) — Telemetry + Golden Workflows
+
+- `OrchestrationTelemetry.ps1`: reuse_rate, goals por estado (validados
+  pelo contrato do kernel), decisions honestamente não-persistidos,
+  truncamento sinalizado.
+- `OrchestrationGoldenWorkflows.tests.ps1`: 15/15 GWs fim-a-fim com libs
+  reais (single-worker, bug, reuse hit/miss, Jev, SPEC+PLAN Goal, wave,
+  repair, stagnation, rotation, escalation, model-deny, delivery, budget).
+- Suites 55+69. Tester PASS; Reviewer APPROVED.
+
+### Fase 12 v0.1.0 (2026-10-07) — GitHub Delivery Continuation
+
+- `delivery-policy.json` + `OrchestrationDelivery.ps1`: elegibilidade de
+  merge (checks+review+security+P1+risk+policy+auto_merge), máquina de
+  estados com repair loop e re-review obrigatório; puramente decisório.
+- Suite 60 asserts. Tester PASS (após correção de expectativa); Reviewer
+  + Security APPROVED.
+- Residual: autenticidade dos checks é do chamador (lib não executa merge).
+
+### Fases 10+11 v0.1.0 (2026-10-07) — Checkpoint e EvidenceRef
+
+- `OrchestrationGoalCheckpoint.ps1`: checkpoints determinísticos,
+  save/load atômico, resume fail-closed (store inverificável recusa).
+- `OrchestrationEvidenceRef.ps1`: refs validadas, handoffs compactos com
+  caps, raw-payload rejeitado (recursivo + ciclos), tipos estritos.
+- Suites 36+59. Tester PASS; Reviewer APPROVED.
+
+### Fases 7+8+9 v0.1.0 (2026-10-07) — Promotion, Progress, TDR
+
+- `OrchestrationGoalPromotion.ps1`: scoring explicável (threshold 3;
+  SPEC+PLAN promove; Jev consultado no desenho).
+- `OrchestrationGoalProgress.ps1`: delta evidência-based, stagnation com
+  saturação, `STRATEGY_CHANGE_REQUIRED` em 3 stalls; tipos estritos.
+- `OrchestrationTechnicalDecision.ps1`: records com id determinístico
+  (serialização inequívoca len:valor), revalidação para hydration.
+- Suites 16+22+21. Tester PASS; Reviewer APPROVED.
+
+### Fase 6 v0.1.0 (2026-10-07) — Goal Kernel persistente
+
+- `OrchestrationGoalKernel.ps1`: CRUD + CAS real (lock->read->check->
+  write), lifecycle com transições fechadas, tasks, next-move via
+  controller, store em `cache/goal-store`; TaskKernel intocado.
+- Suite 87 asserts (lifecycle, CAS com barreira N=20, identidade
+  case-insensitive, TTL-safe). Tester PASS; Reviewer APPROVED.
+- Residual: Savelast-writer-wins (Update-CAS é o caminho normatizado).
+
+### Fase 5 v0.1.0 (2026-10-07) — Objective Continuation Kernel
+
+- `OrchestrationObjectiveController.ps1`: next-move puro (CONTINUE/RETRY/
+  REPLAN/DELEGATE/ROTATE_CONTEXT/COMPLETE), precedência fail-closed,
+  COMPLETE só com stop válido, sem estado user-return; tipos estritos.
+- Hook aditivo no DispatchPipeline (record-only); ac5 atualizado para a
+  semântica Reuse-First (miss ok count 0 vs bare plan unavailable).
+- Suites: controller 67, dispatch 202. Tester PASS; Reviewer APPROVED.
+
+### Fase 4 v0.1.0 (2026-10-07) — Decision Provider + Jev
+
+- `OrchestrationDecisionProvider.ps1`: Rules -> Jev (admission utilitária,
+  sem veto por task-class) -> Planner escalation; envelope fechado, Jev
+  nunca decide sozinho (gate local descarta overreach/model/done).
+- Issue #19: model/provider-override negado (incl. `Muse`); `trivial_local`
+  substituído por admission; Jev indisponível nunca bloqueia.
+- Reviewer + Security: APPROVED (2 HIGH + 2 MEDIUM + SEC-01 corrigidos).
+- Desvio honesto do PLAN: PlannerLoop/JevAdvisory intocados (contratos de
+  segurança aprovados); wiring na Fase 5.
+
+### Fase 3 v0.1.0 (2026-10-07) — Reuse-First obrigatório
+
+- **Reuse query obrigatória**: PlannerLoop resolve StoreDir automaticamente
+  (`cache/`, local-only) — `evidence-store-not-requested` só com lib
+  ausente; falha de consulta => `unavailable` (distinguível de miss via
+  `QueryError`), fail-open preservado.
+- **Invalidação completa**: hit/miss/stale/provenance/criteria-drift/
+  base-drift/env-drift + novo tipo `revoked`; TTL robusto em PS 5.1 e
+  pwsh 7 (normalização UTC). Reviewer: APPROVED.
+- Residual: hardening provenance/hash mismatch (Fase 11).
+
+### Fase 2 v0.1.0 (2026-10-07) — Autonomy Envelope + Stop Policy
+
+- `autonomy-policy.json`: 19 ações auto-autorizadas, 9 boundaries, 6 stop
+  reasons, 6 denied (declarativo; enforcement nas Fases 5/6).
+- `OrchestrationAutonomy.ps1`: funções puras fail-closed; suite 69 asserts.
+- Jev validou pr_open/rerun_ci/new_session como auto. Reviewer: APPROVED.
+
+### Fase 1 v0.1.0 (2026-10-07) — Universal Orchestration preflight migration
+
+- **Nova taxonomia** (`SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
+  `DETERMINISTIC_FALLBACK`, `BLOCKED`): `TRIVIAL_DIRECT` removido como
+  caminho operacional; `SINGLE_WORKER` retorna 1 cheap worker
+  (lookup/read → explorer); `DELEGATED` renomeado para `MULTI_WORKER`;
+  `PERSISTENT_GOAL` com promoção determinística (explícita + marcadores
+  SPEC+PLAN com word-boundary).
+- **DONE gate endurecido (review findings REV-01/SEC-01 corrigidos)**:
+  compliance trivial exige `Decision=SINGLE_WORKER` + `ExecutionShape`
+  + participação observada > 0; tokens `DIRECT_*` legados rejeitados
+  fail-closed (`NON_COMPLIANT_DEPRECATED_DIRECT`); classes/decisões
+  inválidas rejeitadas. Reviewer + Security Reviewer: APPROVED.
+- Residuais: `trivial_direct` em `CapabilityAcceptance:799` /
+  `OutcomeValidation:128` (harness, Fase 2 decide); typecheck TS real via CI.
+
+### Epoch v0.1.0 (2026-10-07)
+
+- **Novo epoch SemVer a partir de `0.1.0`** (`VERSION`: `0.1.0-dev`) —
+  inicia o programa Universal Autonomous Orchestration; a tag `v1.0`
+  existente é preservada como **legacy** (histórico do pacote anterior),
+  sem reescrita de histórico.
+- **V3/V3.1 como programas históricos** — especificações, planos e
+  evidências V3/V3.1 permanecem intactos e consultáveis; o fechamento
+  V3.1 (release gate PASS, 2026-10-06) abaixo é preservado sem remoção
+  nem reordenação.
+- **SPEC/PLAN/ADR v0.1.0 em `docs/specs/`** —
+  `UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-SPEC.md`,
+  `UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-PLAN.md` e
+  `UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-ADR.md` (autoritativos para
+  o novo epoch; semântica de preflight/kernel/grants/flags inalterada
+  nesta fase).
+- **Fase 0 em implementação nesta branch** (`phase-0-baseline.json` em
+  `evidence/v0.1.0/`) — versionamento formal + baseline conhecido;
+  issues #21/#25 registradas como `to_classify` (sem alegação de
+  resolução).
 
 ### Fechamento V3.1 (2026-10-06) — prova runtime-real, release gate PASS
 

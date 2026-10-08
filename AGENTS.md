@@ -48,9 +48,11 @@ Toda tarefa não trivial passa por preflight **antes** da primeira ação:
 powershell -NoProfile -File scripts\v3\orchestration-preflight.ps1
 ```
 
-Estados: `TRIVIAL_DIRECT` (só com token fechado `DIRECT_TRIVIAL_LOCALIZED`,
-`DIRECT_READ_ONLY_POINT_LOOKUP`, `DIRECT_COSMETIC_NO_LOGIC` ou
-`DIRECT_FORMATTING_ONLY`), `DELEGATED`, `DETERMINISTIC_FALLBACK`, `BLOCKED`.
+Estados: `SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
+`DETERMINISTIC_FALLBACK`, `BLOCKED` (v0.1.0: `TRIVIAL_DIRECT`/`DELEGATED`
+migrados — `SINGLE_WORKER` e orquestracao completa via 1 cheap worker;
+compliance de trivial exige `ExecutionShape=SINGLE_WORKER`, tokens
+`DIRECT_*` legados sao rejeitados fail-closed).
 Sem worker útil em tarefa não trivial ⇒ `ORCHESTRATION_POLICY_BYPASS`, sem
 `DONE` compliant. Router/registry unhealthy ⇒ fallback determinístico, nunca
 execução solitária.

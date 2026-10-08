@@ -12,7 +12,7 @@ delega a workers especializados sem pedir permissão a cada passo.
 
 Um único Planner (`build`, herda o modelo da sessão) + 19 workers delegáveis
 em pools cheap/strong, com preflight obrigatório de orquestração
-(`TRIVIAL_DIRECT`, `DELEGATED`, `DETERMINISTIC_FALLBACK` ou `BLOCKED` antes
+(`SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`, `DETERMINISTIC_FALLBACK` ou `BLOCKED` antes
 da primeira ação), ciclo `coder → tester → reviewer` e um plugin de
 enforcement que injeta o mandato de orquestração em toda sessão e grava
 telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -26,6 +26,13 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | V1 **e** V2 na mesma máquina | ✅ Via perfis isolados (`.\install.ps1 -Runtime Both`); fail-closed sem binários provados. |
 | Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
 | `bun` ou `npm` — dependência do plugin (`@opencode-ai/plugin@1.18.32` no V1; `@opencode/plugin@2.0.18` no V2) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
+
+## Versionamento
+
+- Versão atual: `0.1.0` (ver `VERSION`); tag `v0.1.0` marca esta release.
+- A tag `v1.0` é legada — anterior ao versionamento formal — e preservada como histórico.
+- `V3` / `V3.1` / `Pxx` são programas internos históricos, não versões do pacote.
+- Índice SPEC/PLAN/ADR em [docs/specs/INDEX.md](docs/specs/INDEX.md); histórico de mudanças em [CHANGELOG.md](CHANGELOG.md).
 
 ## Instalar
 

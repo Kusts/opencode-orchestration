@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "levels": {
-    "L0": { "required_roles": ["coder"], "description": "trivial direct; existing TRIVIAL_DIRECT policy applies" },
+    "L0": { "required_roles": ["coder"], "description": "single-worker trivial; SINGLE_WORKER orchestration with cheap worker applies" },
     "L1": { "required_roles": ["coder"], "description": "low-risk localized change; focused self-validation" },
     "L2": { "required_roles": ["coder", "tester", "reviewer"], "description": "normal engineering change; independent validation" },
     "L3": { "required_roles": ["coder", "tester", "reviewer", "security-reviewer"], "description": "high-risk or cross-cutting change" }
@@ -10,7 +10,7 @@
   "minimum_level_by_risk": { "low": "L0", "medium": "L2", "high": "L3", "critical": "L3" },
   "max_coverage_age_days": 30,
   "descriptor_rules": [
-    { "when": { "trivial_direct": true }, "level": "L0" },
+    { "when": { "single_worker": true }, "level": "L0" },
     { "when": { "localized": true, "risk": "low" }, "level": "L1" },
     { "when": { "risk": "medium" }, "level": "L2" },
     { "when": { "risk": "high" }, "level": "L3" }
