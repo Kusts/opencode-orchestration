@@ -150,6 +150,16 @@ try {
         $hitSup = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fpsF6 -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envF6 -Now $now.ToString('o') -ReuseClass 'service-response' -RepoRoot $rootF6
         Assert-ReuseWiring (((-not [bool]$hitSup.reused) -and ([string]$hitSup.decision -ceq 'reexecute') -and (@($hitSup.reasons) -contains 'canonical-supersedes-legacy'))) '[F6] canonical revoked presence suppresses the legacy copy' ((@($hitSup.reasons) -join ','))
 
+        # ---------- R5: precedencia canonica por ID com verificacao direta ----------
+        Assert-ReuseWiring ([bool](Test-RWCanonicalIdPresence -CanonicalDir $canonF6 -EvidenceId $eidF6)) '[R5] direct canonical file check hits the counterpart' $eidF6
+        Assert-ReuseWiring ((-not [bool](Test-RWCanonicalIdPresence -CanonicalDir $canonF6 -EvidenceId 'ffffffffffffffffffffffffffffffff'))) '[R5] direct check misses absent canonical file' ''
+        Assert-ReuseWiring ((-not [bool](Test-RWCanonicalIdPresence -CanonicalDir '' -EvidenceId $eidF6))) '[R5] direct check fails closed on empty dir' ''
+        # R5: falha de consulta canonica recusa o fallback (fail-closed, nunca reuse)
+        $fileStore = Join-Path $tempRoot 'file-as-store.json'
+        [IO.File]::WriteAllText($fileStore, '{}', [Text.UTF8Encoding]::new($false))
+        $qFail = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fps -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envNow -Now $now.ToString('o') -ReuseClass 'service-response' -StoreDir $fileStore
+        Assert-ReuseWiring (((-not [bool]$qFail.reused) -and ([string]$qFail.decision -ceq 'reexecute') -and (@($qFail.reasons) -contains 'store-query-failed-reexecute'))) '[R5] failed store query fails closed, never reuses' ((@($qFail.reasons) -join ','))
+
         # ---------- R4: missing provenance => no reuse ----------
         $storeB = Join-Path $tempRoot 'store-b'
         New-Item -ItemType Directory -Path $storeB -Force | Out-Null

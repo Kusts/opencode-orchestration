@@ -186,14 +186,35 @@ try {
         $crashKey = Get-NativeDispatchHash32 'crash-scenario-1'
         $crashIntent = New-NDIntent -Task 'nd-task-crash1' -Key $crashKey
         $crashFp = Get-NDIntentFingerprint -Intent $crashIntent.intent
-        $stuck = [ordered]@{ schema_version = 1; idempotency_key = $crashKey; phase = 'pending'; task_id = 'nd-task-crash1'; agent = 'coder'; owner = 'planner-1'; intent_fingerprint = $crashFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        $stuck = [ordered]@{ schema_version = 1; idempotency_key = $crashKey; phase = 'pending'; task_id = 'nd-task-crash1'; agent = 'coder'; owner = 'planner-1'; goal_id = 'nd-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = $crashFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
         [IO.File]::WriteAllText((Join-Path $receiptDir ($crashKey + '.json')), (ConvertTo-Json -InputObject $stuck -Compress), [Text.UTF8Encoding]::new($false))
         $crashState = @{ calls = 0 }
         $crashSpy = { param($i) $crashState.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $rCrash = Invoke-OrchestrationNativeDispatch -Intent $crashIntent.intent -Executor $crashSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rCrash.ok) -and ([string]$rCrash.reason -ceq 'pending-ambiguous') -and ([int]$crashState.calls -eq 0))) '[F3] crash-after-effect pending never replays without reconciliation' ('reason=' + [string]$rCrash.reason + ' calls=' + [string]$crashState.calls)
-        $outcome = @{ ok = $true; reason = 'effect-verified-externally'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'externally-confirmed'; evidence_created = $false; evidence_id = '' }
-        $rRec = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $crashKey -Outcome $outcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir
+        # R3: prova honesta externa - escrita real no kernel + evidence
+        # real no store; booleans declarados nunca sao prova.
+        $kext = Set-OrchestrationTaskWorkerResult -TaskId 'nd-task-crash1' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$kext.ok) '[F3] external kernel write landed' ([string]$kext.error)
+        $evInput = [ordered]@{
+            task_id = 'nd-task-crash1'; run_id = $crashKey; worker_id = 'coder'
+            provenance = @{ created_by = 'coder'; kernel_task_ref = 'nd-task-crash1' }
+            base_revision = 'rev-a'; criteria_hash = 'crit-a'
+            source_fingerprints = @{ 'dispatch-intent' = $crashKey }
+            diff_hash = ''; scope = @('src/a.ps1'); command = 'native-dispatch'
+            environment = @{ runtime = 'native-dispatch'; version = '1' }
+            result = @{ summary = 'worker:candidate_pass'; raw_ref = '' }
+            assumptions = @()
+            invalidation_conditions = @(
+                @{ type = 'base-revision'; require_same = $true }
+            )
+            created_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        $evMade = New-OrchestrationEvidenceRecord -Evidence $evInput -StoreDir $evDir
+        Assert-ND ([bool]$evMade.created) '[F3] external evidence recorded' ([string]$evMade.reason)
+        $evIdExt = ([string]$evMade.record.evidence_id)
+        $outcome = @{ ok = $true; reason = 'effect-verified-externally'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'externally-confirmed'; evidence_created = $true; evidence_id = $evIdExt }
+        $rRec = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $crashKey -Outcome $outcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
         Assert-ND (([bool]$rRec.ok -and [bool]$rRec.reconciled -and ([int]$crashState.calls -eq 0))) '[F3] explicit reconciliation settles without a second effect' ([string]$rRec.reason)
         $rAfter = Invoke-OrchestrationNativeDispatch -Intent $crashIntent.intent -Executor $crashSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (([bool]$rAfter.duplicate -and ([int]$crashState.calls -eq 0))) '[F3] reconciled receipt is idempotent afterwards' ('calls=' + [string]$crashState.calls)
@@ -204,7 +225,7 @@ try {
         $idemIntent = New-NDIntent -Task 'nd-task-crash2' -Key $idemKey -Ext $true -Proof 'sink dedupes by idempotency key (test)'
         Assert-ND ([bool]$idemIntent.ok) '[F3] idempotent intent builds with proof' ([string]$idemIntent.reason)
         $idemFp = Get-NDIntentFingerprint -Intent $idemIntent.intent
-        $stuck2 = [ordered]@{ schema_version = 1; idempotency_key = $idemKey; phase = 'pending'; task_id = 'nd-task-crash2'; agent = 'coder'; owner = 'planner-1'; intent_fingerprint = $idemFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        $stuck2 = [ordered]@{ schema_version = 1; idempotency_key = $idemKey; phase = 'pending'; task_id = 'nd-task-crash2'; agent = 'coder'; owner = 'planner-1'; goal_id = 'nd-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = $idemFp; external_idempotent = $true; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
         [IO.File]::WriteAllText((Join-Path $receiptDir ($idemKey + '.json')), (ConvertTo-Json -InputObject $stuck2 -Compress), [Text.UTF8Encoding]::new($false))
         $idemState = @{ calls = 0 }
         $idemSpy = { param($i) $idemState.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
@@ -252,6 +273,128 @@ try {
         $doneIntent = New-OrchestrationDispatchIntent -TaskId 'nd-task-3' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $doneKey -Owner 'planner-1' -OwnershipGeneration $gen -BaseRevision 'rev-a'
         $rDone = Invoke-OrchestrationNativeDispatch -Intent $doneIntent.intent -Executor $doneEvil -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rDone.ok) -and ([string]$rDone.reason -ceq 'status-not-allowed-from-worker'))) '[S1] done from worker rejected' ([string]$rDone.reason)
+
+        # ---------- R1: kernel OFF + task existente recusa com 0 calls ----------
+        $flagsOff = Join-Path $tempRoot 'flags-off.json'
+        [IO.File]::WriteAllText($flagsOff, '{"task_kernel":{"enabled":false,"shadow":false}}', [Text.UTF8Encoding]::new($false))
+        New-NDKernelTask -Id 'nd-task-off1'
+        $offIntent = New-NDIntent -Task 'nd-task-off1'
+        $offState = @{ calls = 0 }
+        $offSpy = { param($i) $offState.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rOff = Invoke-OrchestrationNativeDispatch -Intent $offIntent.intent -Executor $offSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsOff
+        Assert-ND (((-not [bool]$rOff.ok) -and ([string]$rOff.reason -ceq 'taskkernel-disabled') -and ([int]$rOff.executor_calls -eq 0) -and ([int]$offState.calls -eq 0))) '[R1] kernel OFF with pre-created task refuses with 0 calls' ([string]$rOff.reason)
+
+        # ---------- R2: fingerprint canonico cobre todos os campos semanticos ----------
+        $fpOrd1 = Get-NDIntentFingerprint -Intent (New-NDIntent -Scope @('src/a.ps1', 'src/b.ps1')).intent
+        $fpOrd2 = Get-NDIntentFingerprint -Intent (New-NDIntent -Scope @('src/b.ps1', 'src/a.ps1')).intent
+        Assert-ND (($fpOrd1 -ceq $fpOrd2)) '[R2] scope order is canonical, same fingerprint' ($fpOrd1 + ' vs ' + $fpOrd2)
+        $fpAgent = Get-NDIntentFingerprint -Intent (New-NDIntent -Agent 'tester').intent
+        Assert-ND (($fpOrd1 -cne $fpAgent) -and ($fpAgent -cmatch '^[a-f0-9]{32}$')) '[R2] agent divergence changes the fingerprint' ([string]$fpAgent)
+        $fpExtA = Get-NDIntentFingerprint -Intent (New-NDIntent).intent
+        $fpExtB = Get-NDIntentFingerprint -Intent (New-NDIntent -Ext $true -Proof 'sink dedupes (test)').intent
+        Assert-ND (($fpExtA -cne $fpExtB)) '[R2] external idempotence declaration changes the fingerprint' ''
+        # R2: upgrade de idempotencia via novo Intent = colisao recusada
+        $upKey = Get-NativeDispatchHash32 'ext-upgrade-1'
+        $baseA = New-NDIntent -Task 'nd-task-2' -Key $upKey
+        $fpUpA = Get-NDIntentFingerprint -Intent $baseA.intent
+        $stuckUp = [ordered]@{ schema_version = 1; idempotency_key = $upKey; phase = 'pending'; task_id = 'nd-task-2'; agent = 'coder'; owner = 'planner-1'; goal_id = 'nd-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = $fpUpA; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        [IO.File]::WriteAllText((Join-Path $receiptDir ($upKey + '.json')), (ConvertTo-Json -InputObject $stuckUp -Compress), [Text.UTF8Encoding]::new($false))
+        $upB = New-NDIntent -Task 'nd-task-2' -Key $upKey -Ext $true -Proof 'sink dedupes (test)'
+        $upState = @{ calls = 0 }
+        $upSpy = { param($i) $upState.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $rUp = Invoke-OrchestrationNativeDispatch -Intent $upB.intent -Executor $upSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rUp.ok) -and ([string]$rUp.reason -ceq 'idempotency-key-collision') -and ([int]$upState.calls -eq 0))) '[R2] idempotence upgrade via new Intent is a refused collision' ([string]$rUp.reason)
+
+        # ---------- R3: reconciliacao confere identidade; sucesso exige prova kernel-side ----------
+        $xg = New-OrchestrationGoal -GoalId 'nd-goal-3' -Objective 'terceiro goal' -Criteria @('criterio-a') -StoreDir $goalDir
+        $axg = Set-OrchestrationGoalState -Goal $xg.goal -ToState 'ACTIVE'
+        $sxg = Save-OrchestrationGoal -Goal $axg.goal -StoreDir $goalDir
+        $oxg = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-3' -OwnerId 'planner-9' -ExpectedRevision ([long]$sxg.revision) -StoreDir $goalDir
+        Assert-ND ([bool]$oxg.ok) '[R3] third goal owned' ([string]$oxg.reason)
+        $genx = [long]$oxg.ownership['generation']
+        $authX = @{ explicit_allow = $true; goal_id = 'nd-goal-3'; owner = 'planner-9'; generation = $genx; source = 'planner' }
+        New-NDKernelTask -Id 'nd-task-xgoal'
+        $xgKey = Get-NativeDispatchHash32 'xgoal-scenario-1'
+        $xgIntent = New-NDIntent -Task 'nd-task-xgoal' -Key $xgKey
+        $xgFp = Get-NDIntentFingerprint -Intent $xgIntent.intent
+        $stuckXg = [ordered]@{ schema_version = 1; idempotency_key = $xgKey; phase = 'pending'; task_id = 'nd-task-xgoal'; agent = 'coder'; owner = 'planner-1'; goal_id = 'nd-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = $xgFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        [IO.File]::WriteAllText((Join-Path $receiptDir ($xgKey + '.json')), (ConvertTo-Json -InputObject $stuckXg -Compress), [Text.UTF8Encoding]::new($false))
+        $xgOutcome = @{ ok = $true; reason = 'claimed-elsewhere'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'claimed'; evidence_created = $true; evidence_id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
+        $rXg = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $xgKey -Outcome $xgOutcome -Authorization $authX -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (((-not [bool]$rXg.ok) -and ([string]$rXg.reason -ceq 'reconcile-identity-mismatch'))) '[R3] cross-goal reconciliation refused' ([string]$rXg.reason)
+        # R3: outcome inventado (sem escrita no kernel, evidence inexistente) recusado
+        $invOutcome = @{ ok = $true; reason = 'invented'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'invented'; evidence_created = $true; evidence_id = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }
+        $rInv = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $xgKey -Outcome $invOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (((-not [bool]$rInv.ok) -and ([string]$rInv.reason -ceq 'reconcile-unverifiable'))) '[R3] invented outcome refused without kernel-side proof' ([string]$rInv.reason)
+        $stillPending = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $receiptDir ($xgKey + '.json')), [Text.Encoding]::UTF8))
+        Assert-ND (([string]$stillPending.phase -ceq 'pending')) '[R3] refused reconciliation leaves the receipt pending' ([string]$stillPending.phase)
+        # R3: takeover reconcilia com prova kernel-side + autorizacao viva do goal atual
+        $tk = New-OrchestrationGoal -GoalId 'nd-goal-take' -Objective 'takeover' -Criteria @('criterio-a') -StoreDir $goalDir
+        $atk = Set-OrchestrationGoalState -Goal $tk.goal -ToState 'ACTIVE'
+        $stk = Save-OrchestrationGoal -Goal $atk.goal -StoreDir $goalDir
+        $otk = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take' -OwnerId 'planner-1' -ExpectedRevision ([long]$stk.revision) -StoreDir $goalDir -LeaseTtlMs 500
+        Assert-ND ([bool]$otk.ok) '[R3] takeover goal owned with short lease' ([string]$otk.reason)
+        $genTk = [long]$otk.ownership['generation']
+        $ctk = New-OrchestrationTask -TaskId 'nd-task-take1' -Objective 'obj take1' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$ctk.ok) '[R3] takeover kernel task created' ([string]$ctk.error)
+        $slotTk = Get-OrchestrationGoal -GoalId 'nd-goal-take' -StoreDir $goalDir
+        $addTk = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-take' -TaskId 'nd-task-take1' -ExpectedRevision ([long]$slotTk.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $genTk
+        Assert-ND ([bool]$addTk.ok) '[R3] takeover task attached' ([string]$addTk.reason)
+        $tkKey = Get-NativeDispatchHash32 'takeover-scenario-1'
+        $tkIntent = New-OrchestrationDispatchIntent -TaskId 'nd-task-take1' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0', 'criterion:1') -IdempotencyKey $tkKey -Owner 'planner-1' -OwnershipGeneration $genTk -BaseRevision 'rev-a'
+        $tkFp = Get-NDIntentFingerprint -Intent $tkIntent.intent
+        $stuckTk = [ordered]@{ schema_version = 1; idempotency_key = $tkKey; phase = 'pending'; task_id = 'nd-task-take1'; agent = 'coder'; owner = 'planner-1'; goal_id = 'nd-goal-take'; ownership_generation = $genTk; task_expected_revision = 1; intent_fingerprint = $tkFp; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        [IO.File]::WriteAllText((Join-Path $receiptDir ($tkKey + '.json')), (ConvertTo-Json -InputObject $stuckTk -Compress), [Text.UTF8Encoding]::new($false))
+        Start-Sleep -Milliseconds 1200
+        $tow = Takeover-OrchestrationGoalOwnership -GoalId 'nd-goal-take' -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$tow.ok) '[R3] ownership taken over after provable expiry' ([string]$tow.reason)
+        $genTk2 = [long]$tow.ownership['generation']
+        $authTk2 = @{ explicit_allow = $true; goal_id = 'nd-goal-take'; owner = 'planner-2'; generation = $genTk2; source = 'planner' }
+        $ktk = Set-OrchestrationTaskWorkerResult -TaskId 'nd-task-take1' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$ktk.ok) '[R3] takeover external kernel write landed' ([string]$ktk.error)
+        $evTkInput = [ordered]@{
+            task_id = 'nd-task-take1'; run_id = $tkKey; worker_id = 'coder'
+            provenance = @{ created_by = 'coder'; kernel_task_ref = 'nd-task-take1' }
+            base_revision = 'rev-a'; criteria_hash = 'crit-a'
+            source_fingerprints = @{ 'dispatch-intent' = $tkKey }
+            diff_hash = ''; scope = @('src/a.ps1'); command = 'native-dispatch'
+            environment = @{ runtime = 'native-dispatch'; version = '1' }
+            result = @{ summary = 'worker:candidate_pass'; raw_ref = '' }
+            assumptions = @()
+            invalidation_conditions = @(
+                @{ type = 'base-revision'; require_same = $true }
+            )
+            created_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        $evTk = New-OrchestrationEvidenceRecord -Evidence $evTkInput -StoreDir $evDir
+        Assert-ND ([bool]$evTk.created) '[R3] takeover external evidence recorded' ([string]$evTk.reason)
+        $tkOutcome = @{ ok = $true; reason = 'takeover-verified-externally'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'externally-confirmed'; evidence_created = $true; evidence_id = ([string]$evTk.record.evidence_id) }
+        $rTk = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $tkKey -Outcome $tkOutcome -Authorization $authTk2 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+        Assert-ND (([bool]$rTk.ok -and [bool]$rTk.reconciled)) '[R3] new owner reconciles with kernel-side proof and live authorization' ([string]$rTk.reason)
+
+        # ---------- R6: efeito executado e contabilizado mesmo quando falha ----------
+        New-NDKernelTask -Id 'nd-task-throw'
+        $throwKey = Get-NativeDispatchHash32 'throw-scenario-1'
+        $throwIntent = New-NDIntent -Task 'nd-task-throw' -Key $throwKey
+        $thrower = { param($i) throw 'boom-pos-efeito' }.GetNewClosure()
+        $rThrow = Invoke-OrchestrationNativeDispatch -Intent $throwIntent.intent -Executor $thrower -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rThrow.ok) -and ([string]$rThrow.reason -ceq 'executor-failed') -and ([int]$rThrow.executor_calls -eq 1))) '[R6] post-effect exception reports the occurred effect' (([string]$rThrow.reason) + ' calls=' + [string]$rThrow.executor_calls)
+        New-NDKernelTask -Id 'nd-task-kconf'
+        $kconfKey = Get-NativeDispatchHash32 'kconf-scenario-1'
+        $kconfIntent = New-NDIntent -Task 'nd-task-kconf' -Key $kconfKey
+        $kconfTasks = $tasksDir
+        $kconfFlags = $flagsPath
+        $kconfRoot = $tempRoot
+        $kconfSpy = {
+            param($i)
+            $w = Set-OrchestrationTaskWorkerResult -TaskId 'nd-task-kconf' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir $kconfTasks -FlagsPath $kconfFlags -TelemetryRoot $kconfRoot
+            return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
+        }.GetNewClosure()
+        $rKconf = Invoke-OrchestrationNativeDispatch -Intent $kconfIntent.intent -Executor $kconfSpy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$rKconf.ok) -and ([string]$rKconf.reason -like 'kernel:CAS_CONFLICT') -and ([int]$rKconf.executor_calls -eq 1))) '[R6] kernel/persistence failure accounts the executed effect' (([string]$rKconf.reason) + ' calls=' + [string]$rKconf.executor_calls)
 
         # ---------- hygiene ----------
         $ndPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'

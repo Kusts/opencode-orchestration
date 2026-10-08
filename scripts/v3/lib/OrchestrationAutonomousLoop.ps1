@@ -216,23 +216,34 @@ function Invoke-OrchestrationObjectiveStep {
         if ($moveName -ceq 'COMPLETE') {
             $stop = (([string](Get-ALValue $move 'stop_reason' '')).Trim().ToUpperInvariant())
             if ($stop -ceq 'OBJECTIVE_COMPLETED') {
-                # F4: reconhecimento idempotente de terminal vs conclusao
+                # F4+R4: reconhecimento idempotente de terminal vs conclusao
                 # persistida. Goal ja COMPLETED -> completed sem mutacao.
                 # ACTIVE com criterios satisfeitos -> transicao CAS via
                 # Set-OrchestrationGoalStatePersisted (nunca so em memoria).
+                # R4: COMPLETED so e anunciado com leitura canonica viva
+                # bem-sucedida do store; fallback em memoria com leitura
+                # ausente/corrompida bloqueia, nunca anuncia completed.
                 $liveGoal = $Goal
                 $gidLive = ([string](Get-ALValue $Goal 'goal_id' '')).Trim()
-                if (-not [string]::IsNullOrWhiteSpace($gidLive)) {
-                    try {
-                        $gCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
-                        if ($null -ne $gCmd) {
-                            $gs = Get-OrchestrationGoal -GoalId $gidLive -StoreDir $GoalStoreDir
-                            if (($null -ne $gs) -and [bool](Get-ALValue $gs 'ok' $false)) {
-                                $liveGoal = Get-ALValue $gs 'goal' $Goal
-                            }
+                if ([string]::IsNullOrWhiteSpace($gidLive)) {
+                    $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $false -Action 'blocked' -Reason 'goal-id-missing' -Goal $Goal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                }
+                $liveReadOk = $false
+                try {
+                    $gCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
+                    if ($null -ne $gCmd) {
+                        $gs = Get-OrchestrationGoal -GoalId $gidLive -StoreDir $GoalStoreDir
+                        if (($null -ne $gs) -and [bool](Get-ALValue $gs 'ok' $false)) {
+                            $liveGoal = Get-ALValue $gs 'goal' $Goal
+                            $liveReadOk = $true
                         }
                     }
-                    catch { $liveGoal = $Goal }
+                }
+                catch { $liveReadOk = $false }
+                if (-not $liveReadOk) {
+                    $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
+                    return (New-ALStepEnvelope -Ok $false -Action 'blocked' -Reason 'goal-reread-failed' -Goal $Goal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
                 }
                 $liveState = (([string](Get-ALValue $liveGoal 'state' '')).Trim().ToUpperInvariant())
                 if ($liveState -ceq 'COMPLETED') {
@@ -339,9 +350,12 @@ function Invoke-OrchestrationAutonomousObjective {
     .DESCRIPTION
         -MaxSteps limita o numero de steps; -MaxDispatches limita despachos
         com efeito (F5: saldo verificado ANTES do dispatch; 0 = zero
-        efeitos; so executor_calls >= 1 consome budget; dispatch
-        malsucedido/recusado interrompe com erro explicito, nunca avanca
-        silenciosamente para ok=true exhausted). Rele o Goal vivo a cada step quando -GoalId +
+        efeitos; R6: todo dispatch com executor_calls >= 1 e contabilizado
+        em dispatches ANTES de avaliar sucesso - efeito ocorrido e
+        reportado com contagem + razao; so duplicata idempotente com
+        0 calls nao consome budget; dispatch malsucedido/recusado
+        interrompe com erro explicito, nunca avanca silenciosamente
+        para ok=true exhausted). Rele o Goal vivo a cada step quando -GoalId +
         -GoalStoreDir sao dados (multifase); senao usa -Goal em memoria.
         Resume: com -ResumeCheckpointId, valida via
         Test-OrchestrationCheckpointResume antes de avancar (recibos impedem
@@ -439,18 +453,23 @@ function Invoke-OrchestrationAutonomousObjective {
             $lastAction = $action
             $lastReason = ([string](Get-ALValue $step 'reason' ''))
             if ($action -ceq 'dispatched') {
-                # F5: so efeito real (executor_calls >= 1) consome budget;
-                # duplicata idempotente (0 calls) nao consome. Dispatch
-                # malsucedido/recusado interrompe o driver com erro
-                # explicito: nunca avanca silenciosamente para ok=true.
+                # F5+R6: efeito real (executor_calls >= 1) e contabilizado
+                # ANTES de avaliar sucesso: dispatch que executou e falhou
+                # reporta o efeito ocorrido (contagem + razao), nunca
+                # dispatches=0 silencioso. Duplicata idempotente (0 calls)
+                # nao consome budget. Dispatch malsucedido/recusado
+                # interrompe o driver com erro explicito: nunca avanca
+                # silenciosamente para ok=true.
                 $d = Get-ALValue $step 'dispatch' $null
+                $calls = 0
+                try { $calls = [int](Get-ALValue $d 'executor_calls' 0) } catch { $calls = 0 }
+                if ($calls -ge 1) {
+                    $dispatched++
+                }
                 if (($null -eq $d) -or (-not [bool](Get-ALValue $d 'ok' $false))) {
                     $why = 'dispatch-failed'
                     try { if (($null -ne $d) -and (-not [string]::IsNullOrWhiteSpace([string](Get-ALValue $d 'reason' '')))) { $why = ('dispatch-failed:' + [string](Get-ALValue $d 'reason' '')) } } catch { }
                     return [pscustomobject][ordered]@{ ok = $false; outcome = 'blocked'; reason = $why; steps_taken = $taken; dispatches = $dispatched; checkpoints = @($ckptIds.ToArray()); watchdog = $watchdog }
-                }
-                if ([int](Get-ALValue $d 'executor_calls' 0) -ge 1) {
-                    $dispatched++
                 }
             }
             if ($action -ceq 'completed') {

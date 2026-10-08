@@ -35,8 +35,10 @@
     de execucao anterior incerta NUNCA da replay automatico (F3):
     retorna `pending-ambiguous` e exige reconciliacao externa explicita
     via `Confirm-OrchestrationDispatchReconciliation`; replay so quando
-    o Intent declara `external_idempotent=$true` com prova documentada
-    (efeito externo idempotente pela mesma key). Falha ao persistir
+    a declaracao ORIGINAL persistida no recibo e o novo Intent declaram
+    `external_idempotent=$true` com prova documentada (efeito externo
+    idempotente pela mesma key; upgrade de idempotencia via novo Intent
+    muda o fingerprint e e colisao recusada). Falha ao persistir
     `settled` e erro explicito, nunca silencioso.
 
     Holds preservados: `dispatchWorker/waitForSettlement/
@@ -444,26 +446,74 @@ function Write-NDReceipt {
     catch { return $false }
 }
 
+function Get-NDCanonicalField {
+    <#
+    .SYNOPSIS
+        Serializa um campo como nome:comprimento:valor; (R2, nao-ambiguo).
+    .DESCRIPTION
+        Prefixo de comprimento em caracteres elimina ambiguidade mesmo
+        quando o valor contem os delimitadores. ASCII-only no codigo;
+        o valor e opaco (qualquer texto). Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$Name = '', [string]$Value = '')
+    try {
+        $v = ([string]$Value)
+        return ([string]$Name + ':' + [string]$v.Length + ':' + $v + ';')
+    }
+    catch { return ([string]$Name + ':0:;') }
+}
+
+function Get-NDSortedOrdinal {
+    [CmdletBinding()]
+    param($Items = $null)
+    try {
+        $arr = @()
+        foreach ($x in @($Items)) { $arr += @(([string]$x).Trim()) }
+        [Array]::Sort($arr, [System.StringComparer]::Ordinal)
+        return $arr
+    }
+    catch { return @() }
+}
+
 function Get-NDIntentFingerprint {
     <#
     .SYNOPSIS
-        Fingerprint canonico do Intent completo (F7). Qualquer divergencia
-        de task/owner/generation/agent/scopes/prompt-hash/base-revision ou
-        expected-revision muda o fingerprint; a mesma idempotency_key com
-        fingerprint distinto e colisao, nunca reutilizacao.
+        Fingerprint canonico do Intent completo (F7+R2). Qualquer
+        divergencia semantica muda o fingerprint; a mesma idempotency_key
+        com fingerprint distinto e colisao, nunca reutilizacao.
+    .DESCRIPTION
+        Serializacao canonica estruturada v2 (R2): ordem fixa de campos,
+        cada valor com prefixo de comprimento (nao-ambiguo mesmo com
+        delimitadores no valor), listas (scope, acceptance_criteria)
+        ordenadas em ordinal com contagem explicita. Cobre TODOS os campos
+        semanticos: task, owner, generation, agent, scopes, prompt-hash,
+        base-revision, expected-revision, external_idempotent e
+        external_idempotency_proof. Em particular, upgrade de idempotencia
+        (adicionar external_idempotent/proof num reenvio) muda o
+        fingerprint e e recusado como colisao.
     #>
     [CmdletBinding()]
     param($Intent = $null)
     try {
-        $scopes = @((Get-NDValue $Intent 'scope' @()) | ForEach-Object { ([string]$_).Trim() })
-        $material = (([string](Get-NDValue $Intent 'task_id' '')) + '|' `
-            + ([string](Get-NDValue $Intent 'owner' '')) + '|' `
-            + [string]([long](Get-NDValue $Intent 'ownership_generation' 0)) + '|' `
-            + ([string](Get-NDValue $Intent 'agent' '')) + '|' `
-            + ($scopes -join '|') + '|' `
-            + ([string](Get-NDValue $Intent 'prompt_hash' '')) + '|' `
-            + ([string](Get-NDValue $Intent 'base_revision' '')) + '|' `
-            + [string]([long](Get-NDValue $Intent 'task_expected_revision' 0)))
+        $scopes = Get-NDSortedOrdinal -Items @((Get-NDValue $Intent 'scope' @()))
+        $acc = Get-NDSortedOrdinal -Items @((Get-NDValue $Intent 'acceptance_criteria' @()))
+        $extFlag = '0'
+        if ([bool](Get-NDValue $Intent 'external_idempotent' $false)) { $extFlag = '1' }
+        $material = 'ndfp2;'
+        $material += Get-NDCanonicalField -Name 'task' -Value ([string](Get-NDValue $Intent 'task_id' ''))
+        $material += Get-NDCanonicalField -Name 'owner' -Value ([string](Get-NDValue $Intent 'owner' ''))
+        $material += Get-NDCanonicalField -Name 'gen' -Value ([string]([long](Get-NDValue $Intent 'ownership_generation' 0)))
+        $material += Get-NDCanonicalField -Name 'agent' -Value ([string](Get-NDValue $Intent 'agent' ''))
+        $material += Get-NDCanonicalField -Name 'prompt' -Value ([string](Get-NDValue $Intent 'prompt_hash' ''))
+        $material += Get-NDCanonicalField -Name 'base' -Value ([string](Get-NDValue $Intent 'base_revision' ''))
+        $material += Get-NDCanonicalField -Name 'rev' -Value ([string]([long](Get-NDValue $Intent 'task_expected_revision' 0)))
+        $material += Get-NDCanonicalField -Name 'ext' -Value $extFlag
+        $material += Get-NDCanonicalField -Name 'proof' -Value ([string](Get-NDValue $Intent 'external_idempotency_proof' ''))
+        $material += 'acc:' + [string](@($acc).Count) + ';'
+        foreach ($a in @($acc)) { $material += Get-NDCanonicalField -Name 'a' -Value ([string]$a) }
+        $material += 'scope:' + [string](@($scopes).Count) + ';'
+        foreach ($s in @($scopes)) { $material += Get-NDCanonicalField -Name 's' -Value ([string]$s) }
         return (Get-NativeDispatchHash32 $material)
     }
     catch { return '' }
@@ -474,9 +524,11 @@ function Test-NDLiveTaskAdmission {
     .SYNOPSIS
         Admissao pre-efeito contra o kernel vivo (F1). Fail-closed.
     .DESCRIPTION
-        Valida ANTES de qualquer efeito: a task existe no TaskKernel e nao
-        esta em estado terminal; a revisao esperada e o base_revision do
-        Intent conferem com o registro vivo; owner/generation do Intent
+        Valida ANTES de qualquer efeito: a flag efetiva do TaskKernel
+        (R1: kernel OFF recusa com 0 calls mesmo com task existente, pois
+        o kernel nao aceitaria o worker-result); a task existe no
+        TaskKernel e nao esta em estado terminal; a revisao esperada e o
+        base_revision do Intent conferem com o registro vivo; owner/generation do Intent
         conferem com a Authorization; o dono atual da task confere com a
         Authorization; a task pertence ao goal da Authorization (active_tasks
         do goal vivo); cada scope do Intent esta nos read/write scopes da
@@ -487,6 +539,20 @@ function Test-NDLiveTaskAdmission {
     [CmdletBinding()]
     param($Intent = $null, $Authorization = $null, $Goal = $null, [string]$TasksDir = '', [string]$FlagsPath = '', [string]$RepoRoot = '')
     try {
+        # R1: flag efetiva do TaskKernel ANTES de qualquer efeito. Kernel
+        # OFF + task existente recusa com 0 calls: sem kernel vivo nao ha
+        # como liquidar o worker-result, entao admitir seria efeito sem
+        # liquidacao. Fail-closed quando o estado da flag e indeterminavel.
+        $flagCmd = Get-Command Get-TaskKernelFlagState -ErrorAction SilentlyContinue
+        if ($null -eq $flagCmd) {
+            return [pscustomobject]@{ ok = $false; reason = 'taskkernel-unavailable' }
+        }
+        $flags = $null
+        try { $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot }
+        catch { $flags = $null }
+        if (($null -eq $flags) -or (-not [bool](Get-NDValue $flags 'enabled' $false))) {
+            return [pscustomobject]@{ ok = $false; reason = 'taskkernel-disabled' }
+        }
         $tCmd = Get-Command Get-OrchestrationTask -ErrorAction SilentlyContinue
         if ($null -eq $tCmd) {
             return [pscustomobject]@{ ok = $false; reason = 'taskkernel-unavailable' }
@@ -664,16 +730,97 @@ function Test-NDPostLockFencing {
     }
 }
 
+function Test-NDReconcileKernelProof {
+    <#
+    .SYNOPSIS
+        Prova kernel-side para reconciliacao de sucesso (R3). Fail-closed.
+    .DESCRIPTION
+        Sucesso reconciliado exige evidencia VERIFICAVEL no kernel, nunca
+        booleans declarados no Outcome: a task existe no store, sem erro,
+        com revisao avancada alem da esperada pre-dispatch (alguma escrita
+        do kernel liquidou o worker-result), e o evidence_id existe como
+        arquivo no evidence store. Qualquer duvida recusa. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$TaskId = '', [long]$ExpectedRevision = 0, [string]$EvidenceId = '', [string]$TasksDir = '', [string]$FlagsPath = '', [string]$EvidenceStoreDir = '', [string]$RepoRoot = '')
+    try {
+        $tid = ([string]$TaskId).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid) -or ([long]$ExpectedRevision -lt 1)) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+        }
+        $tCmd = Get-Command Get-OrchestrationTask -ErrorAction SilentlyContinue
+        if ($null -eq $tCmd) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-verify-unavailable' }
+        }
+        $task = $null
+        try { $task = Get-OrchestrationTask -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot }
+        catch { $task = $null }
+        if ($null -eq $task) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+        }
+        $isErr = $false
+        try {
+            if ($task -is [System.Collections.IDictionary]) { $isErr = $task.Contains('error') }
+            else { $isErr = ($null -ne $task.PSObject.Properties['error']) }
+        }
+        catch { $isErr = $true }
+        if ($isErr) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+        }
+        if ([long](Get-NDValue $task 'revision' -1) -le [long]$ExpectedRevision) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-unverifiable' }
+        }
+        $eid = ([string]$EvidenceId).Trim().ToLowerInvariant()
+        if ($eid -cnotmatch '^[a-f0-9]{32}$') {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-missing' }
+        }
+        $evDir = ([string]$EvidenceStoreDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($evDir)) {
+            $evDirCmd = Get-Command Get-OrchestrationEvidenceDefaultStoreDir -ErrorAction SilentlyContinue
+            if ($null -eq $evDirCmd) {
+                return [pscustomobject]@{ ok = $false; reason = 'reconcile-verify-unavailable' }
+            }
+            try { $evDir = ([string](Get-OrchestrationEvidenceDefaultStoreDir)) }
+            catch { $evDir = '' }
+        }
+        if ([string]::IsNullOrWhiteSpace($evDir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-verify-unavailable' }
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $evDir ($eid + '.json')) -PathType Leaf)) {
+            return [pscustomobject]@{ ok = $false; reason = 'reconcile-evidence-missing' }
+        }
+        return [pscustomobject]@{ ok = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'reconcile-verify-unavailable' }
+    }
+}
+
 function Confirm-OrchestrationDispatchReconciliation {
     <#
     .SYNOPSIS
-        Reconciliacao externa explicita de recibo pending (F3). Sem efeito.
+        Reconciliacao externa explicita de recibo pending (F3+R3). Sem efeito.
     .DESCRIPTION
-        Converte um recibo `pending` em `settled` a partir de evidencia
-        liquidada fornecida pelo chamador autorizado (que verificou por
-        fora se o efeito ocorreu). Exige a mesma Authorization admitida do
-        dispatch; nunca invoca o Executor (0 calls por construcao). Falha
-        ao persistir e erro explicito, nunca silencioso. Nunca lanca.
+        Converte um recibo `pending` em `settled` a partir de verificacao
+        externa do chamador autorizado (que apurou por fora se o efeito
+        ocorreu). Exige Authorization admitida viva; nunca invoca o
+        Executor (0 calls por construcao). Falha ao persistir e erro
+        explicito, nunca silencioso. Nunca lanca.
+
+        R3: a Authorization e conferida contra a identidade persistida no
+        recibo sob lock (goal_id/owner/generation iguais ao despacho
+        original). goal_id divergente (cross-goal) sempre recusa. SUCESSO
+        (Outcome.ok=$true) so e registrado com prova verificavel
+        kernel-side (task com revisao avancada no kernel + evidence_id
+        existente no store); booleans declarados no Outcome nunca sao
+        prova, e outcome inventado e recusado. FALHA externa apurada
+        (Outcome.ok=$false) pode liquidar como falha, sem alegar sucesso.
+
+        Reconciliacao apos takeover: um novo owner (generation maior, com
+        autorizacao viva do goal atual) pode reconciliar SOMENTE com prova
+        kernel-side + autorizacao viva; sem prova, a divergencia de
+        identidade recusa. O reconciliador fica registrado no recibo
+        (reconciled_by/reconciled_generation).
     #>
     [CmdletBinding()]
     param(
@@ -683,6 +830,9 @@ function Confirm-OrchestrationDispatchReconciliation {
         [string]$ReceiptDir = '',
         [string]$RepoRoot = '',
         [string]$GoalStoreDir = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$EvidenceStoreDir = '',
         [int]$LockTimeoutMs = 60000
     )
     try {
@@ -698,7 +848,12 @@ function Confirm-OrchestrationDispatchReconciliation {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'outcome-invalid' -ExecutorCalls 0)
         }
         $outWorker = Get-NDValue $Outcome 'worker_result' $null
-        if (($null -ne $outWorker) -and [bool]$outOk) {
+        if ([bool]$outOk) {
+            # R3: sucesso exige worker_result presente com forma valida;
+            # a prova kernel-side vem depois, sob lock, contra o recibo.
+            if ($null -eq $outWorker) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'invalid-outcome-shape' -ExecutorCalls 0)
+            }
             $shape = Test-OrchestrationDispatchResultShape -Result $outWorker
             if (-not [bool](Get-NDValue $shape 'ok' $false)) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'invalid-outcome-shape' -ExecutorCalls 0)
@@ -727,6 +882,19 @@ function Confirm-OrchestrationDispatchReconciliation {
             if ([string](Get-NDValue $existing 'phase' '') -cne 'pending') {
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-invalid' -Admitted $true -ExecutorCalls 0)
             }
+            # R3: identidade do recibo contra a Authorization viva.
+            $recGoal = ([string](Get-NDValue $existing 'goal_id' '')).Trim()
+            $authGoal = ([string](Get-NDValue $Authorization 'goal_id' '')).Trim()
+            if ([string]::IsNullOrWhiteSpace($recGoal) -or ($recGoal -cne $authGoal)) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason 'reconcile-identity-mismatch' -Admitted $true -ExecutorCalls 0)
+            }
+            $recOwner = ([string](Get-NDValue $existing 'owner' '')).Trim()
+            $recGen = [long](Get-NDValue $existing 'ownership_generation' 0)
+            $authOwner = ([string](Get-NDValue $Authorization 'owner' '')).Trim()
+            $authGen = [long](Get-NDValue $Authorization 'generation' 0)
+            $takeover = (($recOwner -cne $authOwner) -or ($recGen -ne $authGen))
+            $recTask = ([string](Get-NDValue $existing 'task_id' ''))
+            $recRev = [long](Get-NDValue $existing 'task_expected_revision' 0)
             $fp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
             $wOut = $null
             if ($null -ne $outWorker) {
@@ -735,17 +903,57 @@ function Confirm-OrchestrationDispatchReconciliation {
                     claimed_evidence = [string[]]@((Get-NDValue $outWorker 'claimed_evidence' @()))
                 }
             }
+            if ([bool]$outOk) {
+                # R3: sucesso so com prova kernel-side verificavel; vale
+                # para o owner original e para takeover com autorizacao
+                # viva (admitida acima). Sem prova, recusa - inclusive
+                # quando a identidade diverge (takeover sem prova).
+                $evId = ([string](Get-NDValue $Outcome 'evidence_id' '')).Trim().ToLowerInvariant()
+                $proof = Test-NDReconcileKernelProof -TaskId $recTask -ExpectedRevision $recRev -EvidenceId $evId -TasksDir $TasksDir -FlagsPath $FlagsPath -EvidenceStoreDir $EvidenceStoreDir -RepoRoot $RepoRoot
+                if (-not [bool](Get-NDValue $proof 'ok' $false)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $proof 'reason' 'reconcile-unverifiable')) -Admitted $true -ExecutorCalls 0)
+                }
+                $settled = [ordered]@{
+                    schema_version = 1; idempotency_key = $key; phase = 'settled'
+                    ok = $true; reason = ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally'))
+                    task_id = $recTask
+                    agent = ([string](Get-NDValue $existing 'agent' ''))
+                    owner = $recOwner
+                    goal_id = $recGoal
+                    ownership_generation = $recGen
+                    task_expected_revision = $recRev
+                    intent_fingerprint = $fp
+                    reconciled = $true
+                    reconciled_by = $authOwner
+                    reconciled_generation = $authGen
+                    worker_result = $wOut
+                    kernel_ok = $true
+                    kernel_reason = 'reconciled-kernel-verified'
+                    evidence_created = $true
+                    evidence_id = $evId
+                    settled_at = ([DateTime]::UtcNow.ToString('o'))
+                }
+                if (-not (Write-NDReceipt -Dir $dir -Receipt $settled)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -ExecutorCalls 0)
+                }
+                return (New-NDDispatchEnvelope -Ok $true -Reason ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally')) -Admitted $true -Reconciled $true -ExecutorCalls 0 -WorkerResult $wOut -KernelOk $true -KernelReason 'reconciled-kernel-verified' -EvidenceCreated $true -EvidenceId $evId)
+            }
             $settled = [ordered]@{
                 schema_version = 1; idempotency_key = $key; phase = 'settled'
-                ok = [bool]$outOk; reason = ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally'))
-                task_id = ([string](Get-NDValue $existing 'task_id' ''))
+                ok = $false; reason = ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally'))
+                task_id = $recTask
                 agent = ([string](Get-NDValue $existing 'agent' ''))
-                owner = ([string](Get-NDValue $existing 'owner' ''))
+                owner = $recOwner
+                goal_id = $recGoal
+                ownership_generation = $recGen
+                task_expected_revision = $recRev
                 intent_fingerprint = $fp
                 reconciled = $true
+                reconciled_by = $authOwner
+                reconciled_generation = $authGen
                 worker_result = $wOut
-                kernel_ok = [bool](Get-NDValue $Outcome 'kernel_ok' $false)
-                kernel_reason = ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-externally'))
+                kernel_ok = $false
+                kernel_reason = ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-external-failure'))
                 evidence_created = [bool](Get-NDValue $Outcome 'evidence_created' $false)
                 evidence_id = ([string](Get-NDValue $Outcome 'evidence_id' ''))
                 settled_at = ([DateTime]::UtcNow.ToString('o'))
@@ -753,7 +961,7 @@ function Confirm-OrchestrationDispatchReconciliation {
             if (-not (Write-NDReceipt -Dir $dir -Receipt $settled)) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -ExecutorCalls 0)
             }
-            return (New-NDDispatchEnvelope -Ok ([bool]$outOk) -Reason ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally')) -Admitted $true -Reconciled $true -ExecutorCalls 0 -WorkerResult $wOut -KernelOk ([bool](Get-NDValue $Outcome 'kernel_ok' $false)) -KernelReason ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-externally')) -EvidenceCreated ([bool](Get-NDValue $Outcome 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $Outcome 'evidence_id' '')))
+            return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally')) -Admitted $true -Reconciled $true -ExecutorCalls 0 -WorkerResult $wOut -KernelOk $false -KernelReason ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-external-failure')) -EvidenceCreated ([bool](Get-NDValue $Outcome 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $Outcome 'evidence_id' '')))
         }
         finally { try { $lock.Dispose() } catch { } }
     }
@@ -832,6 +1040,12 @@ function Invoke-OrchestrationNativeDispatch {
         }
         $intent = Get-NDValue $check 'intent' $null
         $key = ([string](Get-NDValue $intent 'idempotency_key' '')).Trim().ToLowerInvariant()
+        # R3: identidade completa do despacho, persistida em todo recibo
+        # (pending e settled) para vincular reconciliacao a goal/task/
+        # owner/generation exatos e permitir prova kernel-side posterior.
+        $ndGoalId = ([string](Get-NDValue $Authorization 'goal_id' '')).Trim()
+        $ndOwnerGen = [long](Get-NDValue $intent 'ownership_generation' 0)
+        $ndTaskRev = [long](Get-NDValue $intent 'task_expected_revision' 0)
         $dir = Get-OrchestrationDispatchReceiptDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($dir)) {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-dir-unresolvable' -Intent $intent)
@@ -874,7 +1088,15 @@ function Invoke-OrchestrationNativeDispatch {
                 if ([string]::IsNullOrWhiteSpace($storedFp) -or ($storedFp -cne $fingerprint)) {
                     return (New-NDDispatchEnvelope -Ok $false -Reason 'idempotency-key-collision' -Admitted $true -Intent $intent -ExecutorCalls 0)
                 }
-                if (-not [bool](Get-NDValue $intent 'external_idempotent' $false)) {
+                # R2: replay de pending consulta a declaracao ORIGINAL
+                # persistida no recibo, nao a do novo Intent. Upgrade de
+                # idempotencia via novo Intent (adicionar
+                # external_idempotent/proof) muda o fingerprint e cai em
+                # colisao acima; aqui, recibo original sem a declaracao
+                # nunca autoriza replay so porque o reenvio declara.
+                $storedExt = [bool](Get-NDValue $existing 'external_idempotent' $false)
+                $newExt = [bool](Get-NDValue $intent 'external_idempotent' $false)
+                if ((-not $storedExt) -or (-not $newExt)) {
                     return (New-NDDispatchEnvelope -Ok $false -Reason 'pending-ambiguous' -Admitted $true -Intent $intent -ExecutorCalls 0)
                 }
                 $reconciled = $true
@@ -904,6 +1126,9 @@ function Invoke-OrchestrationNativeDispatch {
                 task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                 agent           = ([string](Get-NDValue $intent 'agent' ''))
                 owner           = ([string](Get-NDValue $intent 'owner' ''))
+                goal_id         = $ndGoalId
+                ownership_generation = $ndOwnerGen
+                task_expected_revision = $ndTaskRev
                 intent_fingerprint = $fingerprint
                 external_idempotent = [bool](Get-NDValue $intent 'external_idempotent' $false)
                 reconciled      = [bool]$reconciled
@@ -921,6 +1146,9 @@ function Invoke-OrchestrationNativeDispatch {
                     task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                     agent           = ([string](Get-NDValue $intent 'agent' ''))
                     owner           = ([string](Get-NDValue $intent 'owner' ''))
+                    goal_id         = $ndGoalId
+                    ownership_generation = $ndOwnerGen
+                    task_expected_revision = $ndTaskRev
                     intent_fingerprint = $fingerprint
                     reconciled      = [bool]$reconciled
                     worker_result   = $null; kernel_ok = $false; kernel_reason = $postWhy
@@ -945,6 +1173,9 @@ function Invoke-OrchestrationNativeDispatch {
                     task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                     agent           = ([string](Get-NDValue $intent 'agent' ''))
                     owner           = ([string](Get-NDValue $intent 'owner' ''))
+                    goal_id         = $ndGoalId
+                    ownership_generation = $ndOwnerGen
+                    task_expected_revision = $ndTaskRev
                     intent_fingerprint = $fingerprint
                     reconciled      = [bool]$reconciled
                     worker_result   = $null; kernel_ok = $false; kernel_reason = 'executor-failed'
@@ -964,6 +1195,9 @@ function Invoke-OrchestrationNativeDispatch {
                     task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                     agent           = ([string](Get-NDValue $intent 'agent' ''))
                     owner           = ([string](Get-NDValue $intent 'owner' ''))
+                    goal_id         = $ndGoalId
+                    ownership_generation = $ndOwnerGen
+                    task_expected_revision = $ndTaskRev
                     intent_fingerprint = $fingerprint
                     reconciled      = [bool]$reconciled
                     worker_result   = $null; kernel_ok = $false; kernel_reason = 'result-shape-invalid'
@@ -1050,6 +1284,9 @@ function Invoke-OrchestrationNativeDispatch {
                 task_id         = ([string](Get-NDValue $intent 'task_id' ''))
                 agent           = ([string](Get-NDValue $intent 'agent' ''))
                 owner           = ([string](Get-NDValue $intent 'owner' ''))
+                goal_id         = $ndGoalId
+                ownership_generation = $ndOwnerGen
+                task_expected_revision = $ndTaskRev
                 intent_fingerprint = $fingerprint
                 reconciled      = [bool]$reconciled
                 worker_result   = @{ status = $status; claimed_evidence = @($claimed) }

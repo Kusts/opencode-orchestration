@@ -190,7 +190,7 @@ try {
         $failState = @{ calls = 0 }
         $failStub = { param($i) $failState.calls++; return @{ status = 'verified_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $bf = Invoke-OrchestrationAutonomousObjective -GoalId 'al-goal-1' -GoalStoreDir $goalDir -MaxSteps 2 -MaxDispatches 5 -CheckpointDir $ckptDir -Executor $failStub -Authorization $authOk -DispatchSpec $failSpec -EvidenceStoreDir $evDir -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsPath
-        Assert-AL ((([bool](-not [bool]$bf.ok)) -and ([string]$bf.outcome -ceq 'blocked') -and ([string]$bf.reason -like 'dispatch-failed:*') -and ([int]$bf.dispatches -eq 0))) '[F5] failed dispatch blocks, never silent exhausted' ('outcome=' + [string]$bf.outcome + ' reason=' + [string]$bf.reason)
+        Assert-AL ((([bool](-not [bool]$bf.ok)) -and ([string]$bf.outcome -ceq 'blocked') -and ([string]$bf.reason -like 'dispatch-failed:*') -and ([int]$bf.dispatches -eq 1) -and ([int]$failState.calls -eq 1))) '[F5] failed dispatch blocks reporting the occurred effect, never silent exhausted' ('outcome=' + [string]$bf.outcome + ' reason=' + [string]$bf.reason + ' dispatches=' + [string]$bf.dispatches)
 
         # ---------- F5: refused dispatch interrupts the driver explicitly ----------
         $authDeny = @{ explicit_allow = $false; goal_id = 'al-goal-1'; owner = 'planner-1'; generation = $gen; source = 'planner' }
@@ -234,6 +234,23 @@ try {
         $liveFinAfter = (Get-OrchestrationGoal -GoalId 'al-goal-fin' -StoreDir $goalDir).goal
         Assert-AL ((([string]$liveFinAfter['state'] -ceq 'COMPLETED') -and ([long]$liveFinAfter['revision'] -eq ($revFinBefore + 1)))) '[F4] store shows COMPLETED with CAS revision+1' ([string]$liveFinAfter['state'])
         . (Join-Path $PSScriptRoot 'OrchestrationObjectiveController.ps1')
+
+        # ---------- R4: completed exige leitura viva; fallback em memoria bloqueia ----------
+        $gr = New-OrchestrationGoal -GoalId 'al-goal-corrupt' -Objective 'leitura corrompida' -Criteria @('criterio-a') -StoreDir $goalDir
+        $ar = Set-OrchestrationGoalState -Goal $gr.goal -ToState 'ACTIVE'
+        $svr = Save-OrchestrationGoal -Goal $ar.goal -StoreDir $goalDir
+        $ownr = Acquire-OrchestrationGoalOwnership -GoalId 'al-goal-corrupt' -OwnerId 'planner-1' -ExpectedRevision ([long]$svr.revision) -StoreDir $goalDir
+        Assert-AL ([bool]$ownr.ok) '[R4] corrupt-scenario goal owned' ([string]$ownr.reason)
+        $genr = [long]$ownr.ownership['generation']
+        $liver = (Get-OrchestrationGoal -GoalId 'al-goal-corrupt' -StoreDir $goalDir).goal
+        [IO.File]::WriteAllText((Join-Path $goalDir 'al-goal-corrupt.json'), 'nao-json{{{', [Text.UTF8Encoding]::new($false))
+        $authRr = @{ explicit_allow = $true; goal_id = 'al-goal-corrupt'; owner = 'planner-1'; generation = $genr; source = 'planner' }
+        $sCorr = Invoke-OrchestrationObjectiveStep -Goal $liver -CheckpointDir $ckptDir -Authorization $authRr -DispatchSpec $spec0 -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsPath -ControllerPath $ctlPath
+        Assert-AL ((([string]$sCorr.action -ceq 'blocked') -and ([string]$sCorr.reason -ceq 'goal-reread-failed'))) '[R4] corrupt store read blocks, never announces completed' ([string]$sCorr.reason)
+        $emptyStore = Join-Path $tempRoot 'empty-store-nd'
+        New-Item -ItemType Directory -Path $emptyStore -Force | Out-Null
+        $sMiss = Invoke-OrchestrationObjectiveStep -Goal $liver -CheckpointDir $ckptDir -Authorization $authRr -DispatchSpec $spec0 -GoalStoreDir $emptyStore -EvidenceStoreDir $evDir -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsPath -ControllerPath $ctlPath
+        Assert-AL ((([string]$sMiss.action -ceq 'blocked') -and ([string]$sMiss.reason -ceq 'goal-reread-failed'))) '[R4] absent store read blocks, never announces completed' ([string]$sMiss.reason)
 
         # ---------- hygiene ----------
         $alPath = Join-Path $PSScriptRoot 'OrchestrationAutonomousLoop.ps1'

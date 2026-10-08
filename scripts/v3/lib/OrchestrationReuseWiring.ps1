@@ -19,6 +19,11 @@
         colisao de evidence_id); ESCRITA e so no canonico (este modulo nao
         escreve evidence, apenas resolve o default para o canonico e nunca
         apaga o legado; dados existentes sao preservados).
+      - precedencia canonica por ID (F6+R5): presenca canonica (mesmo
+        invalida/revogada) suprime a copia legada do mesmo evidence_id,
+        com verificacao direta do arquivo canonico correspondente alem
+        da enumeracao limitada; falha de consulta/enumeracao canonica e
+        fail-closed (reexecute, nunca reuse do fallback).
       - TTL default por classe, nunca um TTL global arbitrario:
         content-fingerprint (content immutable, addressed by
         fingerprint) requires no TTL condition; service-response
@@ -323,6 +328,23 @@ function Test-OrchestrationReuseCandidate {
     }
 }
 
+function Test-RWCanonicalIdPresence {
+    # R5: verificacao direta de precedencia canonica por evidence_id:
+    # checa o arquivo canonico correspondente (<canon>/<eid>.json) sem
+    # depender so da enumeracao limitada (cap de arquivos/parse). Nunca
+    # lanca; qualquer duvida = ausente (o chamador decide fail-closed).
+    [CmdletBinding()]
+    param([string]$CanonicalDir = '', [string]$EvidenceId = '')
+    try {
+        $eid = ([string]$EvidenceId).Trim()
+        if ($eid -notmatch '^[a-f0-9]{32}$') { return $false }
+        $dir = ([string]$CanonicalDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) { return $false }
+        return (Test-Path -LiteralPath (Join-Path $dir ($eid + '.json')) -PathType Leaf)
+    }
+    catch { return $false }
+}
+
 function Find-OrchestrationReusableWork {
     [CmdletBinding()]
     param(
@@ -393,9 +415,17 @@ function Find-OrchestrationReusableWork {
                 $scanDirs = @($legacy, $canon)
             }
             $merged = @{}
+            # R5: sinal de erro por diretorio. Falha na consulta canonica
+            # e fail-closed (nunca reuse do fallback legado); falha so no
+            # legado permite seguir com o canonico.
+            $canonQueryError = ''
             foreach ($sdir in @($scanDirs)) {
                 $part = $null
-                try { $part = Find-ReusableOrchestrationEvidence $sdir $Scope $fpsTable ([string]$CurrentBaseRevision) ([string]$CurrentCriteriaHash) $envNow $nowText $max } catch { $part = $null }
+                $qerr = $null
+                try { $part = Find-ReusableOrchestrationEvidence $sdir $Scope $fpsTable ([string]$CurrentBaseRevision) ([string]$CurrentCriteriaHash) $envNow $nowText $max ([ref]$qerr) } catch { $part = $null; $qerr = 'reuse-store-query-failed' }
+                if (([string]$sdir -ceq [string]$canon) -and ($null -ne $qerr) -and (-not [string]::IsNullOrWhiteSpace([string]$qerr))) {
+                    $canonQueryError = ([string]$qerr)
+                }
                 foreach ($h in @($part)) {
                     try {
                         $eid = ([string](Get-RWFieldValue $h 'evidence_id' '')).Trim()
@@ -405,14 +435,22 @@ function Find-OrchestrationReusableWork {
                     catch { }
                 }
             }
+            if (-not [string]::IsNullOrWhiteSpace($canonQueryError)) {
+                return (New-OrchestrationReuseEnvelope -Reused $false -Decision 'reexecute' -Candidates @() -Reasons @('store-query-failed-reexecute') -StoreDir $dir -ReuseClass $cls)
+            }
             # F6: precedencia por evidence_id ANTES da filtragem de
             # validade. Presenca canonica (mesmo invalida/revogada)
             # suprime a copia legada do mesmo ID: enumera os IDs
             # canonicos por nome de arquivo + evidence_id parseado.
+            # R5: a enumeracao e limitada (cap/parse); cada hit legado
+            # passa tambem por verificacao direta do arquivo canonico
+            # correspondente, e falha da enumeracao recusa o fallback
+            # (fail-closed), nunca reuse.
             $canonIds = @{}
+            $canonEnumOk = $true
             try {
                 if ([string]::IsNullOrWhiteSpace($explicit)) {
-                    $canonFiles = @(Get-ChildItem -LiteralPath $canon -Filter '*.json' -File -ErrorAction SilentlyContinue | Select-Object -First 2000)
+                    $canonFiles = @(Get-ChildItem -LiteralPath $canon -Filter '*.json' -File -ErrorAction Stop | Select-Object -First 2000)
                     foreach ($cf in @($canonFiles)) {
                         try {
                             $stem = [IO.Path]::GetFileNameWithoutExtension($cf.Name)
@@ -427,7 +465,10 @@ function Find-OrchestrationReusableWork {
                     }
                 }
             }
-            catch { }
+            catch { $canonEnumOk = $false }
+            if (-not $canonEnumOk) {
+                return (New-OrchestrationReuseEnvelope -Reused $false -Decision 'reexecute' -Candidates @() -Reasons @('canonical-enumeration-failed-reexecute') -StoreDir $dir -ReuseClass $cls)
+            }
             $canonSuppressed = 0
             $hits = @()
             $hitDirs = @{}
@@ -435,6 +476,7 @@ function Find-OrchestrationReusableWork {
                 $fromLegacy = $false
                 try { $fromLegacy = ((-not [string]::IsNullOrWhiteSpace($legacy)) -and ([string]$merged[$eid].dir -ceq $legacy)) } catch { $fromLegacy = $false }
                 if ($fromLegacy -and $canonIds.Contains($eid)) { $canonSuppressed++; continue }
+                if ($fromLegacy -and (Test-RWCanonicalIdPresence -CanonicalDir $canon -EvidenceId $eid)) { $canonSuppressed++; continue }
                 $hits += @($merged[$eid].hit)
                 $hitDirs[$eid] = $merged[$eid].dir
             }
