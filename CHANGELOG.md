@@ -56,21 +56,37 @@ issue #25, green-run de distribuição no CI.
 - **PR-7 — Fechamento documental (Fase 8, em curso):** plano §8 + matriz +
   este changelog; flags intocadas, tag `v0.1.0` preservada, veredito final
   do Planner.
+- **PR-6b — GoalKernel ownership gate + ativação produtiva (Fase 2,
+  PRONTO E REVISADO / HOLD-produtivo default):**
+  `scripts/v3/lib/OrchestrationGoalKernel.ps1` (ownership autoritativo
+  CAS+geração+lease; AUTHORITY_CHANGE com review+security) +
+  `OrchestrationGoalKernelOwnership.tests.ps1` (**115 novas**, 103
+  existentes verdes) + `OrchestrationProductiveActivation.ps1`
+  (**133 asserts**, bindings pré-efeito + live-only, K1/K2 fechados,
+  review/security finais) — dispatch produtivo sob opt-in `-Productive`,
+  executor default HOLD.
 - **Encerramento PARTIAL (2026-10-08, PR-7 documental — sem behavior
-  change):** suites novas **175/148/65/28/31/54/29/119** PASS
-  (PS5.1+PS7); Enforcement **421**; full-V3 **72 PASS + 3 DE22307F + 6
-  SKIP**. Reviews: PR-2 (5 rounds) + PR-3..PR-6 finais
-  **APPROVED-WITH-HOLD-RESIDUALS**, security finais idem, **zero HIGH
-  efetivo**. Gates: distribution **14/21 NO-GO** — 6 FAILs triados (5
-  PRE-EXISTENTE dialeto V1-vs-Auto→V2 de `a445202`/2026-09-28 + 1
-  INCONCLUSIVO/ambiental profile-isolation; diff não toca installer).
-  CI HEAD + PR #41 pendentes; runtime-real BLOCKED sem provider;
-  aquisição produtiva HOLD até gate GoalKernel. HOLDs residuais: budget
-  cross-process, telemetria concorrente/inputs não-controlados, seams
-  caller-provided (não-autoridade), redactor heurístico,
-  `runtime_grant_enforcement` OFF. Próximos passos (operador): corrigir
-  fixtures V1 (`-Runtime V1`) + profile-isolation; CI HEAD; PR #41 +
-  merge; gate GoalKernel; ativações com evidência.
+  change):** commit `ea8d768` (29 arquivos +12524/-24) + push OK na
+  branch `closure/v0.1.1-job44-stable-core`; PR #41 OPEN com head em
+  `ea8d768`; CI run `37807439121` IN_PROGRESS (anterior `37775340487`
+  success em `dea2b40`). Suites novas **133/175/115/103 GoalKernel/
+  103/65/28/31/54/29/119** PASS (PS5.1+PS7); distribution **GO 21/21**
+  (20 PASS + 1 SKIP live-hook-v2 ambiental); full-V3 **72 PASS +
+  3 DE22307F + 6 SKIP**. Reviews: PR-2 (5 rounds) + PR-3..PR-6 finais
+  **APPROVED-WITH-HOLD-RESIDUALS** + GoalKernel/ativação com
+  review/security finais, **zero HIGH efetivo**. Flags: nenhuma
+  alteração (`git diff` no registry vazio); `skill`/`mcp`/`adaptive` OFF
+  por doutrina; `runtime_grant_enforcement` OFF sem prova
+  exact-binary-live; watchdog patrocinado pelo operador inalterado.
+  Runtime-real **BLOCKED sem provider** (`JEV_API_KEY`/`JEV_BASE_URL`,
+  `OPENCODE_API_KEY`, `ANTHROPIC_API_KEY` todos UNSET); matriz V1/V2/dual
+  com OpenCode vivo pendente de provider + CI operator-owned.
+  HOLDs residuais: budget cross-process, telemetria
+  concorrente/inputs não-controlados, seams caller-provided
+  (não-autoridade), redactor heurístico. Próximos passos (operador):
+  CI verde no HEAD ⇒ merge PR #41 (observar evolução de escopo
+  v0.1.1→programa; renomear ou novo PR) + tag; provider p/ runtime-real;
+  ativações com evidência.
 
 ### Fase 15 v0.1.0 (2026-10-07, parcial) — Release harness
 

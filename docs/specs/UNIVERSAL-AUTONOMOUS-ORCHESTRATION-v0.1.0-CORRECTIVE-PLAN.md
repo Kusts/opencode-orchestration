@@ -268,23 +268,28 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 
 | PR | Fase(s) | Entrega | Status | Evidência |
 |---|---|---|---|---|
-| PR-0 | Fase 0 | JOB44 fix + addendum PARTIAL | EM VALIDAÇÃO | commits `dea2b40` + `0f91679`; pendentes: CI HEAD, PR #41, full-74, distribution |
+| PR-0 | Fase 0 | JOB44 fix + addendum PARTIAL + closure PR-1..PR-6 | ENTREGUE (push OK; CI em curso) | commit `ea8d768` (29 arquivos +12524/-24); PR #41 OPEN com head em `ea8d768`; CI run `37807439121` IN_PROGRESS (anterior `37775340487` success em `dea2b40`) |
 | PR-1 | Fase 1 | AdapterContract | ACTIVE-lib | `scripts/v3/lib/OrchestrationRuntimeAdapterContract.ps1` + tests — **148 PASS**; matriz sem VERIFIED |
 | PR-2 | Fase 2 | Executor restrito v6 (ObjectiveRuntime) | ACTIVE-restrito / HOLD-produtivo até gate GoalKernel | `scripts/v3/lib/OrchestrationObjectiveRuntime.ps1` + tests — **175 PASS**; 5 rounds review + security |
 | PR-3 | Fases 5–6 | Promotion wiring | ACTIVE | `scripts/v3/lib/OrchestrationGoalPromotionWiring.ps1` + tests — **29 PASS** |
 | PR-4 | Fases 4/6 | Decision + Reuse wiring | ACTIVE | `scripts/v3/lib/OrchestrationDecisionWiring.ps1` (**28 PASS**) + `scripts/v3/lib/OrchestrationReuseWiring.ps1` (**31 PASS**, ttl default por classe) |
 | PR-5 | Fases 5–6 | Autonomy wiring | ACTIVE | `scripts/v3/lib/OrchestrationAutonomyWiring.ps1` + tests — **54 PASS** |
 | PR-6 | Fase 7 | E2E harness + telemetry | TEST-HARNESS | `scripts/v3/lib/OrchestrationCorrectiveE2E.tests.ps1` — **119 PASS** (E2E-01..E2E-15, harness-level, gates G1–G8) + `scripts/v3/lib/OrchestrationObjectiveTelemetry.ps1` (TEST-HARNESS-SUPPORT, sem suite própria; não é ACTIVE produtivo) |
+| PR-6b | Fase 2 | GoalKernel ownership gate (AUTHORITY_CHANGE) + ativação produtiva | PRONTO E REVISADO / HOLD-produtivo default | `scripts/v3/lib/OrchestrationGoalKernel.ps1` (ownership autoritativo CAS+geração+lease) + `OrchestrationGoalKernelOwnership.tests.ps1` (**115 novas**, 103 existentes verdes) + `OrchestrationProductiveActivation.ps1` (**133 asserts**, bindings pré-efeito + live-only, K1/K2 fechados; review/security finais) — dispatch produtivo sob opt-in `-Productive`, executor default HOLD |
 | PR-7 | Fase 8 | Este adendo documental | EM CURSO | plano + matriz + changelog; veredito final é do Planner |
 
 ### Gates G0–G8 (evidência + pendências)
 
-- **G0 — PENDENTE:** JOB44 fix local + addendum PARTIAL gravados; pendentes
-  full-74, distribution, CI HEAD, PR #41.
+- **G0 — ENTREGUE (CI em curso):** commit `ea8d768` + push OK na branch
+  `closure/v0.1.1-job44-stable-core`; PR #41 OPEN com head em `ea8d768`;
+  CI run `37807439121` IN_PROGRESS (anterior `37775340487` success em
+  `dea2b40`); distribution **GO 21/21** (20 PASS + 1 SKIP live-hook-v2
+  ambiental); full-V3 **72 PASS + 3 DE22307F + 6 SKIP**.
 - **G1 — LIB-VERDE:** contrato + matriz (PR-1, 148 PASS), nenhum VERIFIED sem
   prova; runtime-real BLOCKED sem provider.
 - **G2 — RESTRITO:** executor (PR-2, 175 PASS, 5 rounds + security);
-  produtivo HOLD até gate GoalKernel.
+  gate GoalKernel pronto e revisado (PR-6b, 115 novas + 133 ativação);
+  produtivo sob opt-in `-Productive`, executor default HOLD.
 - **G3 — PARCIAL:** recovery kernel-side existente (cenários 16/17/19 da lane
   V3.1 2026-10-06); reconciler produtivo segue HOLD.
 - **G4 — LIB-VERDE:** decision (28) + reuse (31); autoridade consultiva única
@@ -296,31 +301,47 @@ Nenhum número abaixo é runtime-real: são asserts de suite lib/harness.
 - **G7 — HARNESS:** E2E 119 PASS harness-level; runtime-real (V1/V2/dual/
   PS5.1/PS7 com OpenCode vivo) BLOCKED sem provider.
 - **G8 — ABERTO:** este PR-7 registra o estado; veredito (FINAL/PARTIAL/
-  BLOCKED) é do Planner. Pendências consolidadas: full-74, distribution,
-  CI HEAD, PR #41, runtime-real BLOCKED sem provider, gate GoalKernel,
-  ativações operator-owned. Flags intocadas; tag `v0.1.0` preservada.
+  BLOCKED) é do Planner. Pendências consolidadas: CI verde no HEAD
+  (`37807439121`) ⇒ merge PR #41 + tag; runtime-real BLOCKED sem
+  provider; ativações operator-owned com evidência. Flags intocadas;
+  tag `v0.1.0` preservada.
 
 ### Encerramento PARTIAL (2026-10-08, PR-7 documental — sem behavior change)
 
 - **Veredito: PARTIAL CLOSURE.** Base/contrato/matriz avançam em nível
   lib/harness; wiring produtivo segue HOLD honesto. Não é FINAL nem
   runtime-real: nenhum número abaixo é prova exact-binary-live.
-- **Evidência lib/harness (PS5.1+PS7):** suites novas **175 / 148 / 65 /
-  28 / 31 / 54 / 29 / 119** PASS; Enforcement **421**; full-V3 **72 PASS
-  + 3 DE22307F + 6 SKIP**.
+- **Commit/push/PR/CI:** `ea8d768` (29 arquivos +12524/-24) + push OK na
+  branch `closure/v0.1.1-job44-stable-core`; PR #41 OPEN com head em
+  `ea8d768`; CI run `37807439121` IN_PROGRESS (anterior `37775340487`
+  success em `dea2b40`).
+- **Evidência lib/harness (PS5.1+PS7):** suites novas **133 / 175 / 115 /
+  103 GoalKernel / 103 / 65 / 28 / 31 / 54 / 29 / 119** PASS;
+  distribution **GO 21/21** (20 PASS + 1 SKIP live-hook-v2 ambiental);
+  full-V3 **72 PASS + 3 DE22307F + 6 SKIP**.
 - **Reviews:** PR-2 com 5 rounds; PR-3..PR-6 com reviews finais
-  **APPROVED-WITH-HOLD-RESIDUALS**; security finais idem; **zero HIGH
+  **APPROVED-WITH-HOLD-RESIDUALS**; GoalKernel + ativação com
+  review/security finais (activation com bindings pré-efeito + live-only,
+  K1/K2 fechados, 133 asserts); security finais idem; **zero HIGH
   efetivo** (nenhum HIGH aberto ao encerrar).
-- **Gates NO-GO:** distribution **14/21 NO-GO** — 6 FAILs triados
-  (5 PRE-EXISTENTE dialeto V1-vs-Auto→V2 de `a445202`/2026-09-28 + 1
-  INCONCLUSIVO/ambiental profile-isolation; diff não toca installer —
-  `git diff --name-only` vazio nesses paths). CI HEAD + PR #41
-  **pendentes**. Runtime-real **BLOCKED sem provider**. Aquisição
-  produtiva **HOLD até gate GoalKernel**. Flags intocadas; tag `v0.1.0`
-  preservada.
+- **Gate GoalKernel + ativação:** código pronto e revisado; dispatch
+  produtivo sob opt-in `-Productive`; executor default HOLD.
+- **Flags:** nenhuma alteração (`git diff` no registry vazio);
+  `skill_routing`/`mcp_routing`/`adaptive_ranking` OFF por doutrina;
+  `runtime_grant_enforcement` OFF sem prova exact-binary-live; watchdog
+  patrocinado pelo operador inalterado.
+- **Runtime-real: BLOCKED — sem provider** (`JEV_API_KEY`/`JEV_BASE_URL`,
+  `OPENCODE_API_KEY`, `ANTHROPIC_API_KEY` todos UNSET); matriz V1/V2/dual
+  com OpenCode vivo pendente de provider + CI operator-owned.
+- **Gates NO-GO superados desde o rascunho:** distribution saiu de 14/21
+  NO-GO (6 FAILs triados: 5 PRE-EXISTENTE dialeto V1-vs-Auto→V2 de
+  `a445202`/2026-09-28 + 1 INCONCLUSIVO/ambiental profile-isolation) para
+  **GO 21/21** via fixtures de dialeto V1. Aquisição produtiva **HOLD até
+  gate GoalKernel** (agora pronto e revisado, executor default HOLD).
+  Tag `v0.1.0` preservada.
 - **HOLDs residuais:** budget cross-process; telemetria
   concorrente/inputs não-controlados; seams caller-provided
   (não-autoridade); redactor heurístico; `runtime_grant_enforcement` OFF.
-- **Próximos passos (operador):** corrigir fixtures V1 (`-Runtime V1`) +
-  profile-isolation; CI HEAD; PR #41 + merge; gate GoalKernel; ativações
-  somente com evidência.
+- **Próximos passos (operador):** CI verde no HEAD ⇒ merge PR #41
+  (observar evolução de escopo v0.1.1→programa; renomear ou novo PR) +
+  tag; provider para runtime-real; ativações somente com evidência.

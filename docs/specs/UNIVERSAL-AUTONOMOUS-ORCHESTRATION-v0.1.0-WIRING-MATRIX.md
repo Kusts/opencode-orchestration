@@ -37,11 +37,20 @@ E2E manifest, lanes 2026-10-05/06).
 | AutonomyWiring (PR-5) | `scripts/v3/lib/OrchestrationAutonomyWiring.ps1` | ACTIVE | suite 54/54 PASS (2026-10-08); sem rede/spawn/segredo próprios | executor real + ativações operator-owned (Fases 5–6/G5) |
 | ObjectiveTelemetry (PR-6) | `scripts/v3/lib/OrchestrationObjectiveTelemetry.ps1` | TEST-HARNESS-SUPPORT | suporte ao E2E (sem suite própria; não é ACTIVE produtivo) | — |
 | CorrectiveE2E (PR-6) | `scripts/v3/lib/OrchestrationCorrectiveE2E.tests.ps1` | TEST-HARNESS | 119 asserts PASS (2026-10-08), E2E-01..E2E-15 harness-level, gates G1–G8 | runtime-real V1/V2/dual/PS5.1/PS7 BLOCKED sem provider (Fase 7/G7) |
+| GoalKernel ownership (PR-6b) | `scripts/v3/lib/OrchestrationGoalKernel.ps1`, `scripts/v3/lib/OrchestrationGoalKernelOwnership.tests.ps1` | ACTIVE / HOLD-produtivo | ownership autoritativo (CAS+geração+lease); 115 asserts novas + 103 existentes verdes; AUTHORITY_CHANGE com review+security | produtivo HOLD até ativação operator-owned com evidência (Fase 2/G2) |
+| ProductiveActivation (PR-6b) | `scripts/v3/lib/OrchestrationProductiveActivation.ps1` | PRONTO E REVISADO / HOLD default | 133 asserts; bindings pré-efeito + live-only (K1/K2 fechados); review/security finais; opt-in `-Productive` | executor default HOLD; dispatch produtivo só sob opt-in explícito |
 
-Adendo PR-7 (2026-10-08): linhas PR-1–PR-6 acima; estágios `ACTIVE-lib`,
+Adendo PR-7 (2026-10-08): linhas PR-1–PR-6b acima; estágios `ACTIVE-lib`,
 `ACTIVE-restrito/HOLD-produtivo` e `TEST-HARNESS` são desenho/honestidade,
 não promoção a runtime-proven. `runtime_grant_enforcement` segue OFF-HOLD,
-watchdog segue ATIVO-com-HOLD-residual, flags intocadas.
+watchdog segue ATIVO-com-HOLD-residual, flags intocadas (`git diff` no
+registry vazio; `skill_routing`/`mcp_routing`/`adaptive_ranking` OFF por
+doutrina). Commit `ea8d768` (29 arquivos +12524/-24) + push OK;
+PR #41 OPEN com head em `ea8d768`; CI run `37807439121` IN_PROGRESS
+(anterior `37775340487` success em `dea2b40`). Distribution GO 21/21
+(20 PASS + 1 SKIP live-hook-v2 ambiental); full-V3 72 + 3 DE22307F +
+6 SKIP. Runtime-real BLOCKED sem provider (`JEV_API_KEY`/`JEV_BASE_URL`,
+`OPENCODE_API_KEY`, `ANTHROPIC_API_KEY` UNSET). Veredito: PARTIAL CLOSURE.
 
 Nota: caminhos de arquivo acima seguem o layout `scripts/v3/lib/` vigente;
 se um componente ainda não existir como arquivo próprio, o estágio vale para
