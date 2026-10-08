@@ -176,9 +176,11 @@
          sempre; job_members_remaining=0 e a evidencia do job fica no
          registro de settlement.
      36. JOB44 attach RECUSADO (hook test-only job_attach_refuse) => nota
-         'refused:<motivo>', nenhum job kill, settlement gravado IDENTICO ao
-         do run com attach (comparacao de todos os campos sem job_*) e
-         sentinel nao relacionado intacto nos dois runs.
+         'refused:<motivo>', nenhum job kill, NUCLEO DE settlement gravado
+         IDENTICO ao do run com attach (engaged/interrupted/settlement/
+         classification; job_* e observacoes volateis de CIM/telemetria
+         fora da projecao) e sentinel nao relacionado intacto nos dois
+         runs.
      37. JOB45 guards: nenhum taskkill nas duas libs; o enforcement nunca
          referencia o 49374 (a lib de job mantem a promessa no contrato);
          wiring presente; PID desconhecido => recusa estruturada no gone-path
@@ -189,8 +191,9 @@
      39. JOB46 D-2 CONTROLE NEGATIVO do discriminante: o MESMO cenario do
          JOB43 com o attach recusado => o descendente tardio (nascido depois
          do snapshot, ausente de last_verified_tree) SOBREVIVE ao settlement
-         e segue vivo 2s depois, com settlement byte-identico ao do caso
-         positivo na projecao sem job_*. Logo, no JOB43 quem o matou foi o
+         e segue vivo 2s depois, com o NUCLEO DE settlement identico ao do
+         caso positivo (job_* e observacoes volateis de CIM/telemetria fora
+         da projecao). Logo, no JOB43 quem o matou foi o
          backstop do job, nao o kill CIM. O cleanup do sobrevivente e pelo
          handle do job de teste (kill-on-close), nunca taskkill por PID.
      40. JOB47 FIX1 HIGH-1 (adversarial): o prazo expira ENTRE o kill CIM e o
@@ -268,21 +271,37 @@ function Read-EnforcePidFile {
 function Get-EnforceSettlementShape {
     <#
     .SYNOPSIS
-        Canonical projection of a stored enforcement record with the job_*
-        keys REMOVED (RR-P26-JOB-WIRING): lets a test prove that an
-        attach-refused run stores exactly the same settlement as a run with
-        the attach, i.e. the fallback is behavior-identical and the only
-        difference is the added backstop evidence. Never throws.
+        Canonical projection of a stored enforcement record onto the STABLE
+        settlement core (RR-P26-JOB-WIRING, hardened JOB44 2026-10-08): lets
+        a test prove that an attach-refused run reaches exactly the same
+        terminal settlement as a run with the attach, i.e. the fallback is
+        behavior-identical in the stable core and the only INTENDED
+        difference is the added backstop evidence (job_* keys).
+        Allowlist, never denylist: only engaged, interrupted, settlement
+        and classification are compared. Deliberately OUT of the shape:
+        - job_*: backstop evidence, the intended difference (still excluded).
+        - tree_excluded / exclusion: CIM-snapshot observation counting
+          ambient processes proven NON-descendants at that instant (never a
+          kill decision: excluded candidates are correctly NOT killed). Two
+          sequential runs (attach vs refused) legitimately observe different
+          ambient sets (CI ps51 2026-10-08: 2 vs 0) with no change in what
+          was killed. The safety property stays pinned per-run by the
+          child-killed and sentinel-intact asserts, not by cross-run
+          equality of this count.
+        - telemetry_file / telemetry_written: writer observation (daily
+          path, write outcome), not a settlement decision.
+        Never throws.
     #>
     param($Exec)
     $acc = ''
     try {
         $enf = $Exec['enforcement']
         if (($null -eq $enf) -or (-not ($enf -is [System.Collections.IDictionary]))) { return '<none>' }
-        $keys = @()
-        foreach ($k in @($enf.Keys)) { $keys += ([string]$k) }
-        $keys = @($keys | Where-Object { (-not ([string]$_).StartsWith('job_')) } | Sort-Object)
-        foreach ($k in $keys) { $acc += ([string]$k + '=' + [string]$enf[$k] + ';') }
+        foreach ($k in @('engaged', 'interrupted', 'settlement', 'classification')) {
+            $v = ''
+            try { if ($enf.Contains([string]$k)) { $v = [string]$enf[$k] } } catch { $v = '' }
+            $acc += ([string]$k + '=' + $v + ';')
+        }
         return $acc
     }
     catch { return '<err>' }
@@ -2565,10 +2584,13 @@ Start-Sleep -Seconds 120
     $sw43.Stop()
     Assert-Enforce (($sw43.Elapsed.TotalSeconds -lt 90)) 'scenario 43 externally bounded' ([string][int]$sw43.Elapsed.TotalSeconds + 's')
 
-    # 44. RR-P26-JOB-WIRING attach RECUSADO => fallback CIM com settlement
-    #     IDENTICO ao do run com attach (a unica diferenca no registro sao as
-    #     chaves job_*, evidencia do backstop). Sentinel nao relacionado
-    #     intacto nos dois runs.
+    # 44. RR-P26-JOB-WIRING attach RECUSADO => fallback CIM com NUCLEO DE
+    #     SETTLEMENT IDENTICO ao do run com attach (engaged, interrupted,
+    #     settlement, classification; a unica diferenca INTENCIONAL no
+    #     registro sao as chaves job_*, evidencia do backstop; tree_excluded
+    #     / exclusion / telemetry_* sao observacoes volateis do snapshot e
+    #     do writer, fora da comparacao). Sentinel nao relacionado intacto
+    #     nos dois runs.
     $sw44 = [System.Diagnostics.Stopwatch]::StartNew()
     $shell44 = Get-EnforceShell
     $noSig44 = Join-Path $tempRoot 'job44-signal-never.txt'
@@ -2609,7 +2631,7 @@ Start-Sleep -Seconds 120
                 Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) ('JOB44 ' + [string]$mode + ' unrelated sentinel intact') ''
                 $shape = Get-EnforceSettlementShape -Exec $exec44
                 if ([string]$mode -ceq 'attach') { $shapeAttach44 = $shape }
-                else { Assert-Enforce ($shape -ceq $shapeAttach44) 'JOB44 stored settlement identical apart from job_* evidence' ('attach=' + $shapeAttach44 + ' refused=' + $shape) }
+                else { Assert-Enforce ($shape -ceq $shapeAttach44) 'JOB44 stable settlement core identical (job_* evidence + volatile CIM/telemetry observations excluded)' ('attach=' + $shapeAttach44 + ' refused=' + $shape) }
             }
             finally {
                 $script:WatchdogTreeTestOverride = $null
@@ -2647,9 +2669,9 @@ Start-Sleep -Seconds 120
     #     janela do pre-kill gate) porem com o attach RECUSADO => caminho
     #     CIM-only => o descendente tardio SOBREVIVE ao settlement. E o que
     #     prova que, no JOB43, quem matou o tardio foi o backstop do job e
-    #     nao o kill CIM (unico discriminante = a vida do tardio; o
-    #     settlement gravado e byte-identico ao do caso positivo na projecao
-    #     sem job_*). O cleanup do sobrevivente e pelo HANDLE do job de teste,
+    #     nao o kill CIM (unico discriminante = a vida do tardio; o NUCLEO
+    #     DE settlement gravado e identico ao do caso positivo, com job_* e
+    #     observacoes volateis de CIM/telemetria fora da projecao). O cleanup do sobrevivente e pelo HANDLE do job de teste,
     #     nunca taskkill por PID solto.
     $sw46 = [System.Diagnostics.Stopwatch]::StartNew()
     $shell46 = Get-EnforceShell
@@ -2707,7 +2729,7 @@ Start-Sleep -Seconds 120
         }
         Assert-Enforce $gone46 'JOB46 cleanup: sobrevivente encerrado pelo handle do job de teste' ('late=' + [string][int]$latePid46)
         $shapeNeg46 = Get-EnforceSettlementShape -Exec $exec46
-        Assert-Enforce ($shapeNeg46 -ceq $shapeAttach43) 'JOB46 negative: settlement byte-identico ao positivo na projecao sem job_*' ('pos=' + $shapeAttach43 + ' neg=' + $shapeNeg46)
+        Assert-Enforce ($shapeNeg46 -ceq $shapeAttach43) 'JOB46 negative: stable settlement core identical to the positive one (job_* evidence + volatile CIM/telemetry observations excluded)' ('pos=' + $shapeAttach43 + ' neg=' + $shapeNeg46)
     }
     catch {
         Assert-Enforce $false 'JOB46 scenario ran without unexpected error' ([string]$_)
