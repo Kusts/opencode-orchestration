@@ -25,6 +25,9 @@ function Skip([string]$Name, [string]$Why) {
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $utf8 = New-Object Text.UTF8Encoding $false
 . (Join-Path $RepoRoot 'scripts\runtime\New-OrchestrationProfile.ps1')
+# Pin do runtime para o gate do bloco (d): leitura explicita do registry
+# unico (somente leitura; o pin continua canonico em source/).
+. (Join-Path $RepoRoot 'scripts\runtime\lib\RuntimeVersions.ps1')
 
 # (h) fixture: espaco no caminho do perfil root.
 $ProfileRoot = Join-Path ([IO.Path]::GetTempPath()) ('oo p7 profiles ' + [guid]::NewGuid().ToString('N'))
@@ -122,8 +125,28 @@ try {
   Assert (-not (Test-Path -LiteralPath $canary -PathType Leaf)) 'c: canary removido (limpeza)'
 
   # (d) wrapper v2 ---------------------------------------------------------------
+  # Gate de pin-exato: o wrapper exige o binario do pin (fail-closed, exit 6
+  # sem ele). O cache e gitignored e pode estar divergente do pin; sem rede
+  # nao ha como provisionar o binario exato. Divergencia => SKIP honesto
+  # (AMBIENTAL), nunca PASS forcado. Sem divergencia, asserts normais.
   $wrapV2 = Join-Path $ProfileRoot 'bin\opencode-v2.ps1'
   if ($v2bin -ne '') {
+    $v2verD = ''
+    try {
+      $pvD = Invoke-P7Process -File $v2bin -ArgsLine '--version' -TimeoutMs 20000
+      if ([int]$pvD.ExitCode -eq 0) {
+        $mD = [regex]::Match([string]$pvD.Output, '(\d+\.\d+\.\d+)')
+        if ($mD.Success) { $v2verD = $mD.Groups[1].Value }
+      }
+    }
+    catch { $v2verD = '' }
+    $pinV2D = ''
+    try { $pinV2D = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Version } catch { $pinV2D = '' }
+    if (($v2verD -ne '') -and ($pinV2D -ne '') -and ($v2verD -cne $pinV2D)) {
+      Skip 'd: wrapper v2 --version' ('AMBIENTAL: binario V2 em cache ' + $v2verD + ' diverge do pin ' + $pinV2D + ' (cache gitignored, sem rede para provisionar)')
+      Skip 'd: XDG_CONFIG_HOME do pai inalterado apos wrapper' ('AMBIENTAL: pre-requisito (wrapper v2 com pin exato) indisponivel')
+    }
+    else {
     $hadXdg = Test-Path Env:\XDG_CONFIG_HOME
     $oldXdg = $env:XDG_CONFIG_HOME
     $outW = & $wrapV2 -BinaryPath $v2bin --version 2>&1 | Out-String
@@ -134,6 +157,7 @@ try {
     if ($hadXdg -ne $stillHad) { $stillSame = $false }
     elseif ($hadXdg -and ([string]$env:XDG_CONFIG_HOME -cne [string]$oldXdg)) { $stillSame = $false }
     Assert ($stillSame) 'd: XDG_CONFIG_HOME do pai inalterado apos wrapper'
+    }
   }
   else { Skip 'd: wrapper v2 --version' 'binario V2 ausente (cache\v2-probe)' }
 

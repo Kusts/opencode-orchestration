@@ -27,7 +27,7 @@ try {
   }
   [IO.File]::WriteAllText((Join-Path $ocDir 'opencode.json'), ((($pre | ConvertTo-Json -Depth 32).TrimEnd()) + "`n"), (New-Object Text.UTF8Encoding $false))
   [IO.File]::WriteAllText((Join-Path $ocDir 'AGENTS.md'), "# Notas do usuario`n`nConteudo fora dos markers que deve sobreviver.`n", (New-Object Text.UTF8Encoding $false))
-  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome 2>&1
+  $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $TmpHome -Runtime V1 2>&1
   Assert ($LASTEXITCODE -eq 0) 'install exit 0'
   $j = ([IO.File]::ReadAllText((Join-Path $ocDir 'opencode.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert (($j.agent.'junio-custom'.model -eq 'foo/bar') -and ($j.agent.'junio-custom'.permission.bash -eq 'deny')) 'custom agent intacto (DH-02)'
