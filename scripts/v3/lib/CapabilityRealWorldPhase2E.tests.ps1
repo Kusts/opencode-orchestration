@@ -117,10 +117,42 @@ try {
     }
 
     # (a) Resolver outputs vs expectations: agents / profiles / mcps / risk.
+    # 2F CORRECTION (2026-10-08, Fase 2F): as 4 divergencias honestas do 2E
+    # (P1/P3/P11/P12, planner docs-manager/debugger/docs-manager/reviewer)
+    # foram resolvidas advisory-side no resolver refinado. Os JSONs historicos
+    # em evidence/capabilities-phase-2e/ NAO foram alterados (continuam
+    # 2d-shadow-1); estes 4 pilots sao re-resolvidos LIVE a partir do
+    # task_summary/task_class do ledger e comparados aos expects corrigidos.
+    # Os outros 9 continuam comparados aos JSONs historicos (regressao).
+    $lib2F = Join-Path $v3 'lib\CapabilityResolver.ps1'
+    try { . $lib2F } catch { }
+    $live2FDir = Join-Path ([IO.Path]::GetTempPath()) ('phase2e-2f-live-' + [Guid]::NewGuid().ToString('N'))
+    try { New-Item -ItemType Directory -Path $live2FDir -Force | Out-Null } catch { $live2FDir = '' }
+    $live2FIds = @('2E-P1-DOCS', '2E-P3-DEBUG', '2E-P11-DOCS2', '2E-P12-REVIEW')
+    function Get-2FExpectDoc([string]$PilotId) {
+        $live = $null
+        foreach ($p in @($doc.pilots)) {
+            if ([string]$p.id -ceq $PilotId) {
+                try {
+                    $lr = Invoke-CapabilityResolve -TaskInput @{ task = [string]$p.task_summary; task_class = [string]$p.task_class; project = @{ stack = '' }; projectRoot = $script:live2FDir }
+                    if ($null -ne $lr) {
+                        $live = [PSCustomObject]@{
+                            agents_selected = @($lr.agents); profiles_selected = @($lr.profiles)
+                            mcps_selected = @($lr.mcps); risk = [string]$lr.risk.level
+                            mode = [string]$lr.mode; confidence = [string]$lr.confidence
+                            fallbacks = @($lr.fallbacks)
+                        }
+                    }
+                } catch { $live = $null }
+                break
+            }
+        }
+        return $live
+    }
     $expect = @{
-        '2E-P1-DOCS'     = @{ agents = @('researcher'); profiles = @('core'); mcps = @('context7'); risk = 'LOW' }
+        '2E-P1-DOCS'     = @{ agents = @('docs-manager'); profiles = @('core'); mcps = @('context7'); risk = 'LOW' } # 2F: planner=docs-manager (consulta docs)
         '2E-P2-RESEARCH' = @{ agents = @('researcher'); profiles = @('research'); mcps = @('jev'); risk = 'LOW' }
-        '2E-P3-DEBUG'    = @{ agents = @('coder'); profiles = @(); mcps = @(); risk = 'LOW' }
+        '2E-P3-DEBUG'    = @{ agents = @('debugger'); profiles = @(); mcps = @(); risk = 'LOW' } # 2F: failing test -> debugger
         '2E-P4-FRONTEND' = @{ agents = @('frontend-engineer'); profiles = @(); mcps = @(); risk = 'LOW' }
         '2E-P5-BACKEND'  = @{ agents = @('backend-engineer'); profiles = @(); mcps = @(); risk = 'LOW' }
         '2E-P6-TRIVIAL'  = @{ agents = @('coder'); profiles = @(); mcps = @(); risk = 'LOW' }
@@ -128,12 +160,14 @@ try {
         '2E-P8-E2E'      = @{ agents = @('tester'); profiles = @('testing'); mcps = @('playwright-mcp'); risk = 'MEDIUM' }
         '2E-P9-RUNTIME'  = @{ agents = @('debugger'); profiles = @('testing'); mcps = @('chrome-devtools-mcp'); risk = 'MEDIUM' }
         '2E-P10-PERF'    = @{ agents = @('coder'); profiles = @('testing'); mcps = @('chrome-devtools-mcp'); risk = 'MEDIUM' }
-        '2E-P11-DOCS2'   = @{ agents = @('researcher'); profiles = @('core'); mcps = @('context7'); risk = 'LOW' }
-        '2E-P12-REVIEW'  = @{ agents = @('coder'); profiles = @(); mcps = @(); risk = 'LOW' }
+        '2E-P11-DOCS2'   = @{ agents = @('docs-manager'); profiles = @('core'); mcps = @('context7'); risk = 'LOW' } # 2F: planner=docs-manager (setup guide)
+        '2E-P12-REVIEW'  = @{ agents = @('reviewer'); profiles = @(); mcps = @(); risk = 'LOW' } # 2F: review PR -> reviewer
         '2E-P13-CSS'     = @{ agents = @('frontend-engineer'); profiles = @(); mcps = @(); risk = 'LOW' }
     }
     foreach ($rid in @($expect.Keys | Sort-Object)) {
-        $r = Get-ResolverDoc -PilotId $rid
+        $r = $null
+        if ($live2FIds -ccontains $rid) { $r = Get-2FExpectDoc -PilotId $rid }
+        else { $r = Get-ResolverDoc -PilotId $rid }
         Assert-That ($null -ne $r) ("Resolver file exists for $rid") 'Missing or invalid JSON'
         if ($null -ne $r) {
             $e = $expect[$rid]
@@ -155,7 +189,9 @@ try {
 
     # (b) No pilot activates supabase/neon/stripe MCP or database pilot profile without evidence.
     foreach ($rid in @($expect.Keys | Sort-Object)) {
-        $r = Get-ResolverDoc -PilotId $rid
+        $r = $null
+        if ($live2FIds -ccontains $rid) { $r = Get-2FExpectDoc -PilotId $rid }
+        else { $r = Get-ResolverDoc -PilotId $rid }
         if ($null -ne $r) {
             $badMcp = Has-Any -list @($r.mcps_selected) -names @('supabase-mcp','neon-mcp','stripe-mcp')
             Assert-That (-not $badMcp) ("$rid no supabase/neon/stripe MCP") (@($r.mcps_selected) -join ',')
@@ -265,7 +301,12 @@ try {
         }
     }
 }
-finally { }
+finally {     try {
+        if ((-not [string]::IsNullOrWhiteSpace($live2FDir)) -and (Test-Path -LiteralPath $live2FDir)) {
+            Remove-Item -LiteralPath $live2FDir -Force -Recurse -ErrorAction SilentlyContinue
+        }
+    } catch { }
+}
 
 Write-Host "TEST RESULTS: $passed / $total passed"
 if ($passed -ne $total) { exit 1 }

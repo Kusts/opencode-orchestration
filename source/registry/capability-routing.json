@@ -3,7 +3,7 @@
   "resolver_version": "2d-shadow-1",
   "updated": "2026-10-07",
   "mode": "shadow",
-  "note": "Phase 2D SHADOW ONLY. Declarativo: nunca ativa routing (capability-flags.json permanece OFF). Resolver deterministico le este arquivo; mesma entrada -> mesma saida.",
+  "note": "Phase 2D SHADOW ONLY. Declarativo: nunca ativa routing (capability-flags.json permanece OFF). Resolver deterministico le este arquivo; mesma entrada -> mesma saida. Phase 2F (2026-10-08): refinamento de regras sob a mesma linhagem (resolver_version 2d-shadow-1 preservado para o contrato de regressao 2D): reviewer + docs-manager, failing/fail como debug, checkout flow como E2E, excecao documental financeira e de logs de producao. Shadow/advisory preservado; sem MCP novo; sem segunda fonte de verdade (agentes: source/agents/*.md).",
   "task_classes": [
     "implementation",
     "migration",
@@ -62,16 +62,19 @@
   "agent_rules": [
     { "when": "database migration ou schema change", "agent": "database-engineer", "keywords": ["migration", "migrate", "schema", "ddl", "prisma migrate", "supabase migration"] },
     { "when": "API implementation ou endpoint", "agent": "backend-engineer", "keywords": ["api", "endpoint", "rest", "route", "controller"] },
-    { "when": "browser E2E ou fluxo web", "agent": "tester", "keywords": ["e2e", "playwright", "fluxo web", "formulario", "navegacao"] },
-    { "when": "runtime browser bug ou flaky", "agent": "debugger", "keywords": ["bug", "stacktrace", "flaky", "runtime", "console error"] },
+    { "when": "browser E2E ou fluxo web (2F: +checkout flow)", "agent": "tester", "keywords": ["e2e", "playwright", "fluxo web", "formulario", "navegacao", "checkout flow"] },
+    { "when": "runtime browser bug, flaky ou failing test (2F: failing/fail contam como debug)", "agent": "debugger", "keywords": ["bug", "stacktrace", "flaky", "runtime", "console error", "failing", "fail"] },
+    { "when": "code review ou pull request (2F: review vence default coder; antes de architect/docs)", "agent": "reviewer", "keywords": ["review", "pull request"] },
     { "when": "UI implementation ou estados", "agent": "frontend-engineer", "keywords": ["ui", "frontend", "component", "layout", "css"] },
     { "when": "architecture boundary ou protocolo", "agent": "architect", "keywords": ["architecture", "boundary", "protocol", "adr", "migration plan"] },
     { "when": "requirements ambiguity ou acceptance criteria", "agent": "requirements-analyst", "keywords": ["requisito", "ambiguo", "criterio", "acceptance", "caso de uso"] },
+    { "when": "docs internos: setup guide, readme, release notes, lookup, procedure (2F: antes de researcher; consulta/autoria de docs do projeto, nao pesquisa externa)", "agent": "docs-manager", "keywords": ["setup guide", "readme", "user guide", "runbook", "lookup", "document procedure", "procedure", "release notes", "changelog"] },
     { "when": "research compare ou external docs", "agent": "researcher", "keywords": ["research", "compare", "docs", "benchmark", "oficial"] },
     { "when": "simple rename ou trivial localized edit", "agent": "coder", "keywords": ["rename", "typo", "cosmetico", "trivial"] }
   ],
   "skill_rules": [
     { "when": "bug dificil com hipotese falsificavel", "skill": "systematic-debugging" },
+    { "when": "failing/fail conta como debug (2F: sinal de investigacao, ex. failing test)", "skill": "systematic-debugging" },
     { "when": "feature com testes comportamentais", "skill": "test-driven-development" },
     { "when": "validacao final antes de done", "skill": "verification-before-completion" }
   ],
@@ -92,10 +95,12 @@
     "triggers": [
       { "level": "LOW", "when": "read docs ou leitura sem side-effect" },
       { "level": "LOW", "when": "edit source localizado reversivel" },
+      { "level": "LOW", "when": "2F: leitura documental financeira sem execucao (document/procedure/explain + sem execute/process/...) ou leitura de logs de producao/deploy (read + deployment/production logs)" },
       { "level": "MEDIUM", "when": "edit source amplo ou browser automation" },
       { "level": "HIGH", "when": "DB migration" },
       { "level": "HIGH", "when": "production deploy" },
-      { "level": "CRITICAL", "when": "financial mutation (refund, payout, cobranca)" }
+      { "level": "CRITICAL", "when": "financial mutation (refund, payout, cobranca)" },
+      { "level": "CRITICAL", "when": "2F: mencao financeira com verbo de execucao, ou mencao sem sinal documental (conservador: N1 segue CRITICAL)" }
     ],
     "default": "MEDIUM"
   },
@@ -115,6 +120,8 @@
   "deny_rules": [
     "financial write sem policy/approval continua CRITICAL + deny (override nunca bypassa)",
     "production write sem autorizacao explicita continua deny",
-    "README string sozinha nunca e evidencia de stack"
+    "README string sozinha nunca e evidencia de stack",
+    "2F: leitura documental financeira sem verbo de execucao e LOW + allow; mencao financeira sem sinal documental continua CRITICAL + deny (conservador)",
+    "2F: leitura de logs de producao/deploy (read + deployment/production logs) e LOW + allow sem RISK_PRODUCTION_WRITE; qualquer outra mencao a production/deploy continua HIGH + deny"
   ]
 }
