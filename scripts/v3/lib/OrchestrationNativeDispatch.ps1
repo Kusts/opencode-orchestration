@@ -103,6 +103,23 @@
           prova ausencia de vazamento durante a janela residual.
     Atributo ilegivel conta como rejeicao, nunca como ausencia.
 
+    LOCK RETRY + CLEANUP (REV8/F1 + F2 - fechamento dos dois P1): a
+    validacao de identidade do lock AGORA acontece DENTRO de cada
+    tentativa do laco de contencao, imediatamente antes do File.Open.
+    Antes ela era feita UMA vez antes do laco e ficava valendo para todas
+    as tentativas: com o lock contido por outro writer e Start-Sleep
+    entre elas, um namespace trocado nesse intervalo so era conferido na
+    proxima CHAMADA, e a tentativa seguinte criava/abria o lock no alvo
+    substituido. Divergencia recusa na hora com `lock-identity-changed`,
+    sem retry e sem IO no alvo; `lock-busy` passa a ser EXCLUSIVAMENTE
+    contencao real do lock. Na escrita, identidade divergente entre o
+    temporario e o Move NAO faz cleanup pelo caminho invalidado: o
+    Remove-Item seguiria o caminho substituido (diretorio recriado,
+    junction para outro goal) e apagaria la. O temporario fica
+    preservado e a falha e reportada como `receipt-cleanup-deferred`; o
+    catch do Move revalida a identidade ANTES de qualquer cleanup e so
+    remove com identidade valida.
+
     CONFIANCA NA RAIZ: `ReceiptDir` (default ou do chamador) e confiavel
     por ESCOLHA DO CHAMADOR; o contrato exige ownership exclusivo do
     diretorio raiz para o produtor de recibos (raiz compartilhada com
@@ -759,21 +776,58 @@ function Test-OrchestrationDispatchResultShape {
     }
 }
 
-function Open-NDReceiptLock {
-    param([string]$Dir, [int]$LockTimeoutMs = 60000, [string]$Expected = '')
+function Resolve-NDRefusalReason {
+    <#
+    .SYNOPSIS
+        Motivo honesto de uma recusa vinda de um helper por [ref].
+    .DESCRIPTION
+        REV8 (F1/F2): `Open-NDReceiptLock` e `Write-NDReceipt` guardam o
+        contrato de retorno (handle/$null e $true/$false) e comunicam o
+        motivo especifico por `-RefusalReason` (opcional). Sem motivo, o
+        chamador usa o fallback do estado (contention ou escrita). Com
+        motivo, ele e propagado sem traducao - assim `lock-busy`
+        continua sendo EXCLUSIVAMENTE contencao real do lock e nunca
+        esconde namespace trocado durante a espera. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$Refusal = '', [string]$Fallback = 'lock-busy')
     try {
-        # REV7/R1 (S1): o lock e o PRIMEIRO IO no diretorio resolvido.
-        # Namespace alterado (junction, recriado, removido) recusa AQUI,
-        # sem criar nada no alvo.
-        $idChk = Assert-NDDirIdentity -Path $Dir -Expected $Expected
-        if (-not [bool](Get-NDValue $idChk 'ok' $false)) { return $null }
+        if ([string]::IsNullOrWhiteSpace($Refusal)) { return ([string]$Fallback) }
+        return ([string]$Refusal)
+    }
+    catch { return ([string]$Fallback) }
+}
+
+function Open-NDReceiptLock {
+    param([string]$Dir, [int]$LockTimeoutMs = 60000, [string]$Expected = '', [ref]$RefusalReason)
+    try {
+        if ([string]::IsNullOrWhiteSpace($Dir)) { return $null }
         $lockPath = Join-Path $Dir '.dispatch.lock'
         $deadline = [DateTime]::UtcNow.AddMilliseconds([Math]::Max(0, $LockTimeoutMs))
         do {
+            # REV8/F1 (S1): a identidade do diretorio E o ReparsePoint do
+            # caminho do lock sao revalidados DENTRO de cada tentativa,
+            # imediatamente antes do File.Open. A validacao FORA do laco
+            # era reutilizada por todas as tentativas: com o lock contido
+            # e um Start-Sleep entre elas, um namespace trocado nesse
+            # intervalo (ate o deadline de 60s) so era conferido na
+            # proxima CHAMADA da funcao, e a tentativa seguinte abria/criava
+            # o lock no alvo substituido. Agora a divergencia recusa na
+            # hora (lock-identity-changed): sem retry e sem IO no alvo.
+            $idChk = Assert-NDDirIdentity -Path $Dir -Expected $Expected
+            if (-not [bool](Get-NDValue $idChk 'ok' $false)) {
+                if ($null -ne $RefusalReason) { $RefusalReason.Value = 'lock-identity-changed' }
+                return $null
+            }
             try {
                 # REV7/R1 (S1): pre-checagem de ReparsePoint do caminho
-                # do lock antes do Open (Test-Path seguiria o link).
-                if (-not (Test-NDLockPathOpenSafe -Path $lockPath)) { return $null }
+                # do lock antes do Open (Test-Path seguiria o link). Link
+                # no caminho do lock e namespace trocado no nivel do
+                # ARQUIVO: a tentativa recusa, nunca cria no alvo.
+                if (-not (Test-NDLockPathOpenSafe -Path $lockPath)) {
+                    if ($null -ne $RefusalReason) { $RefusalReason.Value = 'lock-identity-changed' }
+                    return $null
+                }
                 return ([IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None))
             }
             catch { Start-Sleep -Milliseconds 10 }
@@ -895,14 +949,17 @@ function Read-NDReceipt {
 }
 
 function Write-NDReceipt {
-    param([string]$Dir, $Receipt, [string]$Expected = '')
+    param([string]$Dir, $Receipt, [string]$Expected = '', [ref]$RefusalReason)
     try {
         $key = ([string](Get-NDValue $Receipt 'idempotency_key' '')).Trim().ToLowerInvariant()
         if ($key -cnotmatch '^[a-f0-9]{32}$') { return $false }
         # REV7/R1 (S1): reassert ANTES de criar temporario. Namespace
         # alterado desde a resolucao recusa sem IO no alvo.
         $idPre = Assert-NDDirIdentity -Path $Dir -Expected $Expected
-        if (-not [bool](Get-NDValue $idPre 'ok' $false)) { return $false }
+        if (-not [bool](Get-NDValue $idPre 'ok' $false)) {
+            if ($null -ne $RefusalReason) { $RefusalReason.Value = ([string](Get-NDValue $idPre 'reason' 'receipt-dir-identity-changed')) }
+            return $false
+        }
         $path = Join-Path $Dir ($key + '.json')
         # F2/REV5: o destino EXATO tem de ser um arquivo regular. Se ja
         # existir algo que nao seja arquivo (diretorio, link), recusar
@@ -922,15 +979,34 @@ function Write-NDReceipt {
         catch { return $false }
         # REV7/R1 (S1): reassert ANTES do Move - o Move e o IO que
         # escreveria no lugar errado se o diretorio foi trocado entre a
-        # criacao do temporario e aqui. A recusa remove apenas o
-        # temporario; nunca toca no destino.
+        # criacao do temporario e aqui.
+        # REV8/F2 (S1): identidade divergente NAO faz cleanup pelo caminho.
+        # O Remove-Item seguiria o caminho substituido (diretorio recriado
+        # ou junction para outro goal) e apagaria la - IO destrutivo no
+        # alvo errado. O temporario fica preservado e a falha e reportada
+        # como receipt-cleanup-deferred; a remocao passa a ser operacao
+        # do operador, com o caminho VALIDADO de novo.
         $idMove = Assert-NDDirIdentity -Path $Dir -Expected $Expected
         if (-not [bool](Get-NDValue $idMove 'ok' $false)) {
-            try { Remove-Item -LiteralPath $tmp -Force -ErrorAction Stop } catch { }
+            if ($null -ne $RefusalReason) { $RefusalReason.Value = 'receipt-cleanup-deferred' }
             return $false
         }
         try { Move-Item -LiteralPath $tmp -Destination $path -Force -ErrorAction Stop }
-        catch { try { Remove-Item -LiteralPath $tmp -Force -ErrorAction Stop } catch { }; return $false }
+        catch {
+            # REV8/F2 (S1): o Move pode ter falhado justamente porque o
+            # namespace foi trocado entre a revalidacao e aqui. Revalidar
+            # a identidade ANTES de qualquer cleanup: divergente preserva
+            # o temporario e reporta receipt-cleanup-deferred; somente com
+            # identidade valida o temporario e removido (best-effort, e
+            # sempre pelo caminho revalidado).
+            $idCatch = Assert-NDDirIdentity -Path $Dir -Expected $Expected
+            if (-not [bool](Get-NDValue $idCatch 'ok' $false)) {
+                if ($null -ne $RefusalReason) { $RefusalReason.Value = 'receipt-cleanup-deferred' }
+                return $false
+            }
+            try { Remove-Item -LiteralPath $tmp -Force -ErrorAction Stop } catch { }
+            return $false
+        }
         # F2/REV5: prova pos-escrita. O destino precisa ser exatamente o
         # arquivo esperado e conter a key deste recibo; qualquer outro
         # resultado (por exemplo o move tendo caido dentro de um
@@ -944,7 +1020,12 @@ function Write-NDReceipt {
         # abertura kernel sem-seguir-link). O reassert pos-Move mantem o
         # claim limitado ao que foi efetivamente observado.
         $idPost = Assert-NDDirIdentity -Path $Dir -Expected $Expected
-        if (-not [bool](Get-NDValue $idPost 'ok' $false)) { return $false }
+        if (-not [bool](Get-NDValue $idPost 'ok' $false)) {
+            # O Move ja ocorreu (nao ha temporario a preservar): a falha
+            # e a identidade divergente no estado final, reportada como tal.
+            if ($null -ne $RefusalReason) { $RefusalReason.Value = ([string](Get-NDValue $idPost 'reason' 'receipt-dir-identity-changed')) }
+            return $false
+        }
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
         if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
         try {
@@ -1715,9 +1796,14 @@ function Confirm-OrchestrationDispatchReconciliation {
         if (-not [string]::IsNullOrWhiteSpace($idWhy)) {
             return (New-NDDispatchEnvelope -Ok $false -Reason $idWhy -Admitted $true -ExecutorCalls 0)
         }
-        $lock = Open-NDReceiptLock -Dir $rDir -LockTimeoutMs $LockTimeoutMs -Expected $rIdent
+        # REV8/F1 (S1): motivo explicito da recusa do lock. Sem motivo a
+        # recusa e contencao real (lock-busy); com motivo, o lock foi
+        # recusado por identidade/namespace trocado DURANTE a espera e o
+        # envelope carrega a razao honesta em vez de simular ocupacao.
+        $lockWhy = ''
+        $lock = Open-NDReceiptLock -Dir $rDir -LockTimeoutMs $LockTimeoutMs -Expected $rIdent -RefusalReason ([ref]$lockWhy)
         if ($null -eq $lock) {
-            return (New-NDDispatchEnvelope -Ok $false -Reason 'lock-busy' -Admitted $true -ExecutorCalls 0)
+            return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $lockWhy -Fallback 'lock-busy') -Admitted $true -ExecutorCalls 0)
         }
         try {
             $read = Read-NDReceipt -Dir $rDir -Key $key -Expected $rIdent
@@ -1811,8 +1897,10 @@ function Confirm-OrchestrationDispatchReconciliation {
                 if (-not [string]::IsNullOrWhiteSpace($idWhyOk)) {
                     return (New-NDDispatchEnvelope -Ok $false -Reason $idWhyOk -Admitted $true -ExecutorCalls 0)
                 }
-                if (-not (Write-NDReceipt -Dir $rDir -Receipt $settled -Expected $rIdent)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -ExecutorCalls 0)
+                # REV8/F2 (S1): motivo explicito da recusa de escrita.
+                $writeWhy = ''
+                if (-not (Write-NDReceipt -Dir $rDir -Receipt $settled -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-write-failed') -Admitted $true -ExecutorCalls 0)
                 }
                 return (New-NDDispatchEnvelope -Ok $true -Reason ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally')) -Admitted $true -Reconciled $true -ExecutorCalls 0 -WorkerResult $wOut -KernelOk $true -KernelReason 'reconciled-kernel-verified' -EvidenceCreated $true -EvidenceId $evId)
             }
@@ -1850,8 +1938,10 @@ function Confirm-OrchestrationDispatchReconciliation {
             if (-not [string]::IsNullOrWhiteSpace($idWhyFail)) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason $idWhyFail -Admitted $true -ExecutorCalls 0)
             }
-            if (-not (Write-NDReceipt -Dir $rDir -Receipt $settled -Expected $rIdent)) {
-                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -ExecutorCalls 0)
+            # REV8/F2 (S1): motivo explicito da recusa de escrita.
+            $writeWhy = ''
+            if (-not (Write-NDReceipt -Dir $rDir -Receipt $settled -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-write-failed') -Admitted $true -ExecutorCalls 0)
             }
             return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $Outcome 'reason' 'reconciled-externally')) -Admitted $true -Reconciled $true -ExecutorCalls 0 -WorkerResult $wOut -KernelOk $false -KernelReason ([string](Get-NDValue $Outcome 'kernel_reason' 'reconciled-external-failure')) -EvidenceCreated ([bool](Get-NDValue $Outcome 'evidence_created' $false)) -EvidenceId ([string](Get-NDValue $Outcome 'evidence_id' '')))
         }
@@ -1997,9 +2087,10 @@ function Invoke-OrchestrationNativeDispatch {
         if ([string]::IsNullOrWhiteSpace($fingerprint)) {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'intent-fingerprint-failed' -Admitted $true -Intent $intent -ExecutorCalls 0)
         }
-        $lock = Open-NDReceiptLock -Dir $rDir -LockTimeoutMs $LockTimeoutMs -Expected $rIdent
+        $lockWhy = ''
+        $lock = Open-NDReceiptLock -Dir $rDir -LockTimeoutMs $LockTimeoutMs -Expected $rIdent -RefusalReason ([ref]$lockWhy)
         if ($null -eq $lock) {
-            return (New-NDDispatchEnvelope -Ok $false -Reason 'lock-busy' -Admitted $true -Intent $intent -ExecutorCalls 0)
+            return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $lockWhy -Fallback 'lock-busy') -Admitted $true -Intent $intent -ExecutorCalls 0)
         }
         try {
             # REV7/R1 (S1): identidade reassertada depois do lock (o lock
@@ -2102,8 +2193,9 @@ function Invoke-OrchestrationNativeDispatch {
             if (-not [string]::IsNullOrWhiteSpace($idWhyPending)) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason $idWhyPending -Admitted $true -Reconciled $reconciled -Intent $intent -ExecutorCalls 0)
             }
-            if (-not (Write-NDReceipt -Dir $rDir -Receipt $pending -Expected $rIdent)) {
-                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -Intent $intent -ExecutorCalls 0)
+            $writeWhy = ''
+            if (-not (Write-NDReceipt -Dir $rDir -Receipt $pending -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-write-failed') -Admitted $true -Intent $intent -ExecutorCalls 0)
             }
             $post = Test-NDPostLockFencing -GoalId ([string](Get-NDValue $Authorization 'goal_id' '')) -Owner ([string](Get-NDValue $Authorization 'owner' '')) -Generation ([long](Get-NDValue $Authorization 'generation' 0)) -GoalStoreDir $GoalStoreDir
             if (-not [bool](Get-NDValue $post 'ok' $false)) {
@@ -2129,8 +2221,9 @@ function Invoke-OrchestrationNativeDispatch {
                 if (-not [string]::IsNullOrWhiteSpace($idWhyRefused)) {
                     return (New-NDDispatchEnvelope -Ok $false -Reason $idWhyRefused -Admitted $true -Reconciled $reconciled -ExecutorCalls 0 -Intent $intent -KernelReason $postWhy)
                 }
-                if (-not (Write-NDReceipt -Dir $rDir -Receipt $refused -Expected $rIdent)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-write-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls 0 -Intent $intent -KernelReason $postWhy)
+                $writeWhy = ''
+                if (-not (Write-NDReceipt -Dir $rDir -Receipt $refused -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-write-failed') -Admitted $true -Reconciled $reconciled -ExecutorCalls 0 -Intent $intent -KernelReason $postWhy)
                 }
                 return (New-NDDispatchEnvelope -Ok $false -Reason $postWhy -Admitted $true -Reconciled $reconciled -ExecutorCalls 0 -Intent $intent -KernelReason $postWhy)
             }
@@ -2162,8 +2255,9 @@ function Invoke-OrchestrationNativeDispatch {
                     evidence_created = $false; evidence_id = ''
                     settled_at      = ([DateTime]::UtcNow.ToString('o'))
                 }
-                if (-not (Write-NDReceipt -Dir $rDir -Receipt $failed -Expected $rIdent)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-persist-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'executor-failed')
+                $writeWhy = ''
+                if (-not (Write-NDReceipt -Dir $rDir -Receipt $failed -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-persist-failed') -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'executor-failed')
                 }
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'executor-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent)
             }
@@ -2190,8 +2284,9 @@ function Invoke-OrchestrationNativeDispatch {
                     evidence_created = $false; evidence_id = ''
                     settled_at      = ([DateTime]::UtcNow.ToString('o'))
                 }
-                if (-not (Write-NDReceipt -Dir $rDir -Receipt $bad -Expected $rIdent)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-persist-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'result-shape-invalid')
+                $writeWhy = ''
+                if (-not (Write-NDReceipt -Dir $rDir -Receipt $bad -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-persist-failed') -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'result-shape-invalid')
                 }
                 return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $shape 'reason' 'invalid-result')) -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -KernelReason 'result-shape-invalid')
             }
@@ -2288,8 +2383,10 @@ function Invoke-OrchestrationNativeDispatch {
             if (-not [string]::IsNullOrWhiteSpace($idWhySettled)) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason $idWhySettled -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -WorkerResult $workerOut -KernelOk $kOk -KernelReason $kWhy -EvidenceCreated $evCreated -EvidenceId $evId)
             }
-            if (-not (Write-NDReceipt -Dir $rDir -Receipt $settled -Expected $rIdent)) {
-                return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-persist-failed' -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -WorkerResult $workerOut -KernelOk $kOk -KernelReason $kWhy -EvidenceCreated $evCreated -EvidenceId $evId)
+            # REV8/F2 (S1): motivo explicito da recusa de escrita.
+            $writeWhy = ''
+            if (-not (Write-NDReceipt -Dir $rDir -Receipt $settled -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
+                return (New-NDDispatchEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-persist-failed') -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -WorkerResult $workerOut -KernelOk $kOk -KernelReason $kWhy -EvidenceCreated $evCreated -EvidenceId $evId)
             }
             return (New-NDDispatchEnvelope -Ok $settledOk -Reason $settledReason -Admitted $true -Reconciled $reconciled -ExecutorCalls $calls -Intent $intent -WorkerResult $workerOut -KernelOk $kOk -KernelReason $kWhy -EvidenceCreated $evCreated -EvidenceId $evId)
         }

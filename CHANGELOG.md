@@ -65,6 +65,55 @@ issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
 
+### Fixes finais do native dispatch loop (REV8 — F1 lock retry + F2 cleanup, 2026-10-09)
+
+Branch `closure/native-dispatch-loop` (@ `99da553`). Dois P1 do review
+independente sobre a rodada REV7/R1+SEC7, ambos no caminho de recibos de
+`scripts/v3/lib/OrchestrationNativeDispatch.ps1`:
+
+- **F1 (REV8 P1 — lock retry reutilizava validação antiga):**
+  `Assert-NDDirIdentity` rodava UMA vez ANTES do `do/while` de
+  `Open-NDReceiptLock`. Com o lock contido e um `Start-Sleep` entre
+  tentativas, a validação anterior era reutilizada por todas elas (até o
+  deadline de 60s): um namespace trocado nesse intervalo só era conferido
+  na chamada seguinte e a tentativa posterior abria/criava o lock no
+  destino substituído. Agora a identidade do diretório **e** o ReparsePoint
+  do caminho do lock são revalidados DENTRO de cada tentativa,
+  imediatamente antes de cada `File.Open`; divergência recusa na hora com
+  `lock-identity-changed`, sem retry e sem IO no alvo.
+- **F2 (REV8 P1 — cleanup pós-invalidação):** quando a identidade deixava
+  de conferir entre o temporário e o `Move-Item`, o cleanup executava
+  `Remove-Item $tmp` pelo caminho invalidado — o que seguiria o caminho
+  substituído e apagaria no alvo errado; idem no catch do Move. Agora a
+  divergência **preserva** o temporário e reporta `receipt-cleanup-deferred`;
+  o catch do Move revalida a identidade ANTES de qualquer cleanup e só
+  remove com identidade válida.
+- **Contratos preservados:** ambos os helpers mantêm o retorno original
+  (`Open-NDReceiptLock` → handle/`$null`; `Write-NDReceipt` → `$true`/`$false`)
+  e ganham parâmetro opcional `-RefusalReason` (`[ref]`, ausente = sem
+  efeito). Callers traduzem o motivo via `Resolve-NDRefusalReason`, de
+  forma que `lock-busy` passa a significar **exclusivamente** contenção
+  real e os fallbacks de envelope (`receipt-write-failed`,
+  `receipt-persist-failed`) seguem iguais quando não há motivo específico.
+  Sem remoção de HOLD, sem ativação de flag, sem edição de
+  kernel/registry/contrato.
+- **Testes (`OrchestrationNativeDispatchReceipts.tests.ps1`, +3 blocos):**
+  RP3e — holder em background com `FileShare.Delete` (contência + troca de
+  namespace viável) troca o diretório por junction **durante** a contenção;
+  a tentativa seguinte recusa com `lock-identity-changed` em tempo muito
+  inferior ao deadline e o alvo substituído não recebe nenhum IO (nenhum
+  lock criado). RP3f — contenção pura mantém motivo vazio (`lock-busy`
+  continua sendo só contenção) e a liberação ainda adquire o lock. RP3g —
+  destino de recibo preso por outro handle (Move falha deterministicamente)
+  + identidade girando em laço apertado: o cleanup é adiado
+  (`receipt-cleanup-deferred`), o temporário é preservado e o destino
+  fica byte-a-byte intacto.
+- **Validação:** PS 5.1 — NativeDispatch 178, Receipts 188, Envelopes 39,
+  AutonomousLoop 47, DispatchIntentSymbol 47, ObjectiveRuntime 175,
+  ProductiveActivation 133, RuntimeAdapterContract 148, package
+  consistency 16/16, `git diff --check` limpo. PS 7 — NativeDispatch 178,
+  Receipts 188, Envelopes 39, RuntimeAdapterContract 148. Zero regressão.
+
 ### Revisão BOTREV-01 dos findings do PR #44 (2026-10-08, CODER-BOTREV-01)
 
 Disposição no mérito dos 5 findings do bot sobre a lane `session-lane-2026-10-08/`:

@@ -685,6 +685,266 @@ try {
         $happyPath = Join-Path (Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-1') ($happyKey + '.json')
         Assert-RX ((Test-Path -LiteralPath $happyPath -PathType Leaf)) '[RP3d] happy path receipt landed on the expected regular file' ''
 
+        # ---------- RP3e (REV8/F1): identidade revalidada em CADA tentativa do lock ----------
+        # Antes do fix, `Assert-NDDirIdentity` rodava UMA vez ANTES do
+        # do/while. Uma falha de abertura (lock contido) seguida de
+        # Start-Sleep reutilizava a validacao antiga por ate 60s: com o
+        # namespace trocado nesse intervalo, a tentativa seguinte
+        # abria/criava o lock no alvo substituido. Aqui o namespace e
+        # trocado DEPOIS de a chamada ja estar dentro do laco (lock contido
+        # por um holder que abriu com FileShare.Delete, o que permite a
+        # substituicao sem derrubar a contencao). A tentativa seguinte tem
+        # de recusar na hora (lock-identity-changed) e nunca criar lock no
+        # alvo. A troca por rename/junction sob FileShare.None seria negada
+        # pelo proprio sistema operacional - por isso o holder usa Delete.
+        $f1a = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-f1-a')
+        $f1b = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-f1-b')
+        $f1State = Resolve-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-f1-b'
+        Assert-RX ([bool]$f1State.ok) '[RP3e] lock fixture resolved' ([string]$f1State.reason)
+        $f1Expect = [string]$f1State.created_utc
+        $f1LockPath = Join-Path $f1b '.dispatch.lock'
+        $f1TargetOk = $false
+        try { New-Item -ItemType Directory -Path $f1a -Force | Out-Null; $f1TargetOk = $true } catch { }
+        if ((-not $f1TargetOk) -or [string]::IsNullOrWhiteSpace($f1Expect)) {
+            Skip-RX 'RP3e lock-retry fixture unavailable in this environment'
+        }
+        else {
+            $f1Acq = New-Object System.Threading.ManualResetEvent($false)
+            $f1Rel = New-Object System.Threading.ManualResetEvent($false)
+            $f1Done = New-Object System.Threading.ManualResetEvent($false)
+            $f1HoldRs = $null; $f1HoldPs = $null; $f1HoldH = $null
+            $f1SwapRs = $null; $f1SwapPs = $null; $f1SwapH = $null
+            try {
+                $f1HoldRs = [runspacefactory]::CreateRunspace(); $f1HoldRs.Open()
+                $f1HoldPs = [powershell]::Create(); $f1HoldPs.Runspace = $f1HoldRs
+                [void]$f1HoldPs.AddScript({
+                    param($lp, $acq, $rel)
+                    $h = $null
+                    try {
+                        $h = [IO.File]::Open($lp, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Delete)
+                        [void]$acq.Set()
+                        [void]$rel.WaitOne(20000)
+                    } catch { } finally { try { if ($null -ne $h) { $h.Dispose() } } catch { } }
+                })
+                [void]$f1HoldPs.AddArgument($f1LockPath)
+                [void]$f1HoldPs.AddArgument($f1Acq)
+                [void]$f1HoldPs.AddArgument($f1Rel)
+                $f1HoldH = $f1HoldPs.BeginInvoke()
+                $f1Held = $false
+                try { $f1Held = $f1Acq.WaitOne(10000) } catch { $f1Held = $false }
+                Assert-RX ([bool]$f1Held) '[RP3e] background holder owns the lock' ''
+                if ([bool]$f1Held) {
+                    # swap: espera a chamada do SUT estar em contencao (~40
+                    # tentativas de 10ms) e so entao troca o namespace.
+                    $f1SwapRs = [runspacefactory]::CreateRunspace(); $f1SwapRs.Open()
+                    $f1SwapPs = [powershell]::Create(); $f1SwapPs.Runspace = $f1SwapRs
+                    [void]$f1SwapPs.AddScript({
+                        param($b, $a, $acq, $done)
+                        try {
+                            try { [void]$acq.WaitOne(10000) } catch { }
+                            try { [System.Threading.Thread]::Sleep(400) } catch { }
+                            try { [IO.Directory]::Delete($b, $true) } catch { }
+                            try { cmd /c mklink /J "$b" "$a" 2>&1 | Out-Null } catch { }
+                        }
+                        finally { try { [void]$done.Set() } catch { } }
+                    })
+                    [void]$f1SwapPs.AddArgument($f1b)
+                    [void]$f1SwapPs.AddArgument($f1a)
+                    [void]$f1SwapPs.AddArgument($f1Acq)
+                    [void]$f1SwapPs.AddArgument($f1Done)
+                    $f1SwapH = $f1SwapPs.BeginInvoke()
+                    $f1Sw = [System.Diagnostics.Stopwatch]::StartNew()
+                    $f1Why = ''
+                    $f1Lock = Open-NDReceiptLock -Dir $f1b -LockTimeoutMs 10000 -Expected $f1Expect -RefusalReason ([ref]$f1Why)
+                    $f1Sw.Stop()
+                    $f1Elapsed = [int]$f1Sw.Elapsed.TotalMilliseconds
+                    # o swap e assincrono: espera ele concluir para inspecionar
+                    # o estado FINAL do namespace (destino fisico intacto).
+                    $f1SwapFinished = $false
+                    try { $f1SwapFinished = $f1Done.WaitOne(15000) } catch { $f1SwapFinished = $false }
+                    $f1IsLink = $false
+                    try { $f1IsLink = (([IO.File]::GetAttributes($f1b) -band [IO.FileAttributes]::ReparsePoint) -ne 0) } catch { }
+                    if ($null -ne $f1Lock) { try { $f1Lock.Dispose() } catch { } }
+                    Assert-RX (($null -eq $f1Lock) -and ($f1Why -ceq 'lock-identity-changed')) '[RP3e] contention plus swapped namespace refuses immediately with lock-identity-changed' ('why=' + $f1Why)
+                    Assert-RX (($f1Elapsed -ge 300) -and ($f1Elapsed -lt 5000)) '[RP3e] refusal is immediate, not the full lock deadline' ('ms=' + [string]$f1Elapsed)
+                    if ([bool]$f1IsLink) {
+                        $f1TargetFiles = @([IO.Directory]::GetFiles($f1a))
+                        Assert-RX ((@($f1TargetFiles).Count -eq 0) -and (@([IO.Directory]::GetDirectories($f1a)).Count -eq 0)) '[RP3e] the substituted target received no IO at all (no lock created there)' ([string]@($f1TargetFiles).Count)
+                    }
+                    else {
+                        Skip-RX 'RP3e substituted-target check unavailable (junction not created by the environment)'
+                    }
+                }
+            }
+            finally {
+                try { [void]$f1Rel.Set() } catch { }
+                try { if (($null -ne $f1HoldPs) -and ($null -ne $f1HoldH)) { $f1HoldPs.EndInvoke($f1HoldH) | Out-Null } } catch { }
+                try { if ($null -ne $f1HoldPs) { $f1HoldPs.Dispose() } } catch { }
+                try { if ($null -ne $f1HoldRs) { $f1HoldRs.Close() } } catch { }
+                try { if ($null -ne $f1HoldRs) { $f1HoldRs.Dispose() } } catch { }
+                try { if ($null -ne $f1SwapPs) { $f1SwapPs.Dispose() } } catch { }
+                try { if ($null -ne $f1SwapRs) { $f1SwapRs.Dispose() } } catch { }
+                try { Remove-RXLink -LinkPath $f1b } catch { }
+            }
+        }
+
+        # ---------- RP3f (REV8/F1): lock-busy continua sendo SO contencao ----------
+        # Contencao pura (lock contido, namespace intacto) NAO pode virar
+        # recusa de identidade: `lock-busy` segue significando exatamente
+        # isso, e a identidade so e recusada quando divergente.
+        $f1BusyState = Resolve-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-f1-busy'
+        $f1BusyExpect = [string]$f1BusyState.created_utc
+        $f1BusyDir = [string]$f1BusyState.dir
+        $f1BusyPath = Join-Path $f1BusyDir '.dispatch.lock'
+        $f1BusyAcq = New-Object System.Threading.ManualResetEvent($false)
+        $f1BusyRel = New-Object System.Threading.ManualResetEvent($false)
+        $f1BusyRs = $null; $f1BusyPs = $null; $f1BusyH = $null
+        try {
+            $f1BusyRs = [runspacefactory]::CreateRunspace(); $f1BusyRs.Open()
+            $f1BusyPs = [powershell]::Create(); $f1BusyPs.Runspace = $f1BusyRs
+            [void]$f1BusyPs.AddScript({
+                param($lp, $acq, $rel)
+                $h = $null
+                try {
+                    $h = [IO.File]::Open($lp, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                    [void]$acq.Set()
+                    [void]$rel.WaitOne(30000)
+                } catch { } finally { try { if ($null -ne $h) { $h.Dispose() } } catch { } }
+            })
+            [void]$f1BusyPs.AddArgument($f1BusyPath)
+            [void]$f1BusyPs.AddArgument($f1BusyAcq)
+            [void]$f1BusyPs.AddArgument($f1BusyRel)
+            $f1BusyH = $f1BusyPs.BeginInvoke()
+            $f1BusyHeld = $false
+            try { $f1BusyHeld = $f1BusyAcq.WaitOne(10000) } catch { $f1BusyHeld = $false }
+            Assert-RX ([bool]$f1BusyHeld) '[RP3f] busy holder owns the lock' ''
+            $f1BusyWhy = ''
+            $f1BusyLock = Open-NDReceiptLock -Dir $f1BusyDir -LockTimeoutMs 400 -Expected $f1BusyExpect -RefusalReason ([ref]$f1BusyWhy)
+            Assert-RX (($null -eq $f1BusyLock) -and ([string]::IsNullOrWhiteSpace($f1BusyWhy))) '[RP3f] pure contention keeps an empty refusal reason (lock-busy stays contention)' ('why=' + $f1BusyWhy)
+            if ($null -ne $f1BusyLock) { try { $f1BusyLock.Dispose() } catch { } }
+            # libera: o mesmo caminho agora adquire o lock (o retry continua
+            # funcionando com as revalidacoes dentro do laco).
+            try { [void]$f1BusyRel.Set() } catch { }
+            $f1OkWhy = ''
+            $f1OkLock = Open-NDReceiptLock -Dir $f1BusyDir -LockTimeoutMs 5000 -Expected $f1BusyExpect -RefusalReason ([ref]$f1OkWhy)
+            Assert-RX (($null -ne $f1OkLock) -and ([string]::IsNullOrWhiteSpace($f1OkWhy))) '[RP3f] released contention still acquires the lock with no refusal reason' ('why=' + $f1OkWhy)
+            if ($null -ne $f1OkLock) { try { $f1OkLock.Dispose() } catch { } }
+        }
+        finally {
+            try { [void]$f1BusyRel.Set() } catch { }
+            try { if (($null -ne $f1BusyPs) -and ($null -ne $f1BusyH)) { $f1BusyPs.EndInvoke($f1BusyH) | Out-Null } } catch { }
+            try { if ($null -ne $f1BusyPs) { $f1BusyPs.Dispose() } } catch { }
+            try { if ($null -ne $f1BusyRs) { $f1BusyRs.Close() } } catch { }
+            try { if ($null -ne $f1BusyRs) { $f1BusyRs.Dispose() } } catch { }
+        }
+
+        # ---------- RP3g (REV8/F2): cleanup preservado apos invalidacao ----------
+        # Quando a identidade deixa de conferir entre o temporario e o Move
+        # (ou no catch do Move), o cleanup NAO pode rodar pelo caminho
+        # invalidado: `Remove-Item $tmp` seguiria o caminho substituido e
+        # apagaria no alvo errado. O temporario e preservado e a falha e
+        # reportada `receipt-cleanup-deferred`. O destino de recibo fica
+        # PRESO (FileShare.None) para tornar a falha do Move deterministica
+        # e provar que nenhum IO acontece no caminho do recibo em nenhuma
+        # das corridas possiveis; a identidade gira num laco apertado para
+        # atingir a janela residual entre as duas revalidacoes.
+        $f2State = Resolve-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-f2-clean'
+        Assert-RX ([bool]$f2State.ok) '[RP3g] cleanup fixture resolved' ([string]$f2State.reason)
+        $f2Dir = [string]$f2State.dir
+        $f2Key = Get-NativeDispatchHash32 'rx-f2-clean-key'
+        $f2Path = Join-Path $f2Dir ($f2Key + '.json')
+        $f2Sentinel = 'DESTINO-PRESERVADO'
+        $f2Ok = $false
+        try { [IO.File]::WriteAllText($f2Path, $f2Sentinel, [Text.UTF8Encoding]::new($false)); $f2Ok = $true } catch { }
+        Assert-RX ([bool]$f2Ok) '[RP3g] destination receipt seeded' ''
+        $f2Int = New-RXIntent -Task 'rx-absent-1' -Key $f2Key
+        $f2Rec = [ordered]@{
+            schema_version = 1; idempotency_key = $f2Key; phase = 'pending'
+            task_id = 'rx-absent-1'; agent = 'coder'; owner = 'planner-1'
+            goal_id = 'rx-goal-f2-clean'; ownership_generation = $gen; task_expected_revision = 1
+            intent_fingerprint = (Get-NDIntentFingerprint -Intent $f2Int.intent)
+            external_idempotent = $false; reconciled = $false
+            created_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        $f2DestAcq = New-Object System.Threading.ManualResetEvent($false)
+        $f2DestRel = New-Object System.Threading.ManualResetEvent($false)
+        $f2FlipStop = New-Object System.Threading.ManualResetEvent($false)
+        $f2DestRs = $null; $f2DestPs = $null; $f2DestH = $null
+        $f2FlipRs = $null; $f2FlipPs = $null; $f2FlipH = $null
+        try {
+            # destino preso: o Move falha sempre, em qualquer corrida.
+            $f2DestRs = [runspacefactory]::CreateRunspace(); $f2DestRs.Open()
+            $f2DestPs = [powershell]::Create(); $f2DestPs.Runspace = $f2DestRs
+            [void]$f2DestPs.AddScript({
+                param($dp, $acq, $rel)
+                $h = $null
+                try {
+                    $h = [IO.File]::Open($dp, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                    [void]$acq.Set()
+                    [void]$rel.WaitOne(60000)
+                } catch { } finally { try { if ($null -ne $h) { $h.Dispose() } } catch { } }
+            })
+            [void]$f2DestPs.AddArgument($f2Path)
+            [void]$f2DestPs.AddArgument($f2DestAcq)
+            [void]$f2DestPs.AddArgument($f2DestRel)
+            $f2DestH = $f2DestPs.BeginInvoke()
+            $f2DestHeld = $false
+            try { $f2DestHeld = $f2DestAcq.WaitOne(10000) } catch { $f2DestHeld = $false }
+            Assert-RX ([bool]$f2DestHeld) '[RP3g] destination is held by another handle (Move fails deterministically)' ''
+            # flipper de identidade: laco apertado muda CreationTimeUtc sem
+            # parar, para atingir a janela entre as revalidacoes.
+            $f2FlipRs = [runspacefactory]::CreateRunspace(); $f2FlipRs.Open()
+            $f2FlipPs = [powershell]::Create(); $f2FlipPs.Runspace = $f2FlipRs
+            [void]$f2FlipPs.AddScript({
+                param($d, $stop)
+                try { while (-not $stop.WaitOne(0)) { try { [IO.Directory]::SetCreationTimeUtc($d, [DateTime]::UtcNow) } catch { }; try { [System.Threading.Thread]::Sleep(2) } catch { } } }
+                catch { }
+            })
+            [void]$f2FlipPs.AddArgument($f2Dir)
+            [void]$f2FlipPs.AddArgument($f2FlipStop)
+            $f2FlipH = $f2FlipPs.BeginInvoke()
+            $f2Deferred = 0
+            $f2WriteOkSeen = $false
+            $f2OtherReason = ''
+            $f2TempPreserved = $false
+            for ($f2i = 0; $f2i -lt 80; $f2i++) {
+                $f2Expect = Get-NDDirCreationTimeUtcTicks -Path $f2Dir
+                if ([string]::IsNullOrWhiteSpace($f2Expect)) { continue }
+                $f2Why = ''
+                $f2Res = Write-NDReceipt -Dir $f2Dir -Receipt $f2Rec -Expected $f2Expect -RefusalReason ([ref]$f2Why)
+                if ([bool]$f2Res) { $f2WriteOkSeen = $true }
+                if ($f2Why -ceq 'receipt-cleanup-deferred') {
+                    $f2Deferred++
+                    $f2Temps = @([IO.Directory]::GetFiles($f2Dir, 'receipt-*.tmp'))
+                    if (@($f2Temps).Count -ge 1) { $f2TempPreserved = $true }
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($f2Why)) { $f2OtherReason = $f2Why }
+                if ($f2Deferred -ge 1) { break }
+            }
+            Assert-RX ($f2Deferred -ge 1) '[RP3g] invalidated identity before cleanup defers the cleanup (receipt-cleanup-deferred)' ('deferred=' + [string]$f2Deferred + ' other=' + $f2OtherReason)
+            Assert-RX ([bool]$f2TempPreserved) '[RP3g] the temporary is preserved, never removed through the invalidated path' ''
+            Assert-RX ((-not [bool]$f2WriteOkSeen)) '[RP3g] a held destination never reports a persisted receipt' ''
+            # solta o destino ANTES de reler: com FileShare.None a leitura
+            # seria negada por compartilhamento, nao pela escrita.
+            try { [void]$f2DestRel.Set() } catch { }
+            try { if (($null -ne $f2DestPs) -and ($null -ne $f2DestH)) { $f2DestPs.EndInvoke($f2DestH) | Out-Null } } catch { }
+            $f2Now = '<unreadable>'
+            try { $f2Now = [IO.File]::ReadAllText($f2Path, [Text.Encoding]::UTF8) } catch { }
+            Assert-RX ($f2Now -ceq $f2Sentinel) '[RP3g] no IO on the receipt path in any race (destination byte-for-byte intact)' ('len=' + [string]$f2Now.Length)
+        }
+        finally {
+            try { [void]$f2DestRel.Set() } catch { }
+            try { [void]$f2FlipStop.Set() } catch { }
+            try { if (($null -ne $f2DestPs) -and ($null -ne $f2DestH)) { $f2DestPs.EndInvoke($f2DestH) | Out-Null } } catch { }
+            try { if ($null -ne $f2DestPs) { $f2DestPs.Dispose() } } catch { }
+            try { if ($null -ne $f2DestRs) { $f2DestRs.Close() } } catch { }
+            try { if ($null -ne $f2DestRs) { $f2DestRs.Dispose() } } catch { }
+            try { if ($null -ne $f2FlipPs) { $f2FlipPs.Dispose() } } catch { }
+            try { if ($null -ne $f2FlipRs) { $f2FlipRs.Close() } } catch { }
+            try { if ($null -ne $f2FlipRs) { $f2FlipRs.Dispose() } } catch { }
+            foreach ($f2t in @([IO.Directory]::GetFiles($f2Dir, 'receipt-*.tmp'))) { try { [IO.File]::Delete($f2t) } catch { } }
+        }
+
         # ---------- hygiene ----------
         $rxPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'
         $rxText = [IO.File]::ReadAllText($rxPath, [Text.UTF8Encoding]::new($false))
