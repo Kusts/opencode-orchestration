@@ -397,7 +397,8 @@ desta revisão:
     aprovou com resíduos TOCTOU/hardlink documentados. Runner V3 completo:
     81 PASS/4 FAIL/6 SKIP; três falhas dependem do hash externo `DE22307F` e
     uma do nome do worktree `-2g`. Os seis skips são ambientais. `git diff
-    --check` limpo. CI GitHub não existe sem PR.
+    --check` limpo. PR #54 aberto; os cinco checks estavam pendentes na última
+    consulta (run 38001327140).
 
 | Gate | Requisito | Depende de | Evidência exigida |
 |------|-----------|------------|-------------------|
@@ -722,10 +723,10 @@ observacional. A suíte 2G deve manter esses números verdes (G6).
   operador**.
 - **Recomendação**: `COLLECT_MORE_REAL_DATA`; **Active segue HOLD**; **flags
   UNCHANGED (OFF)**; **Planner/Kernel authority UNCHANGED**.
-- **Workflow**: implementação, testes e closure locais concluídos. PR/push/merge
-  não foram executados; CI GitHub não afirmado. O pedido de PR permanece etapa
-  de publicação separada nesta execução, pois ainda requer commits e
-  revalidação da base concorrente. Nenhum merge foi realizado.
+- **Workflow**: implementação, testes e closure locais concluídos; commits
+  locais publicados na branch isolada e PR #54 aberto para `master`. Na última
+  consulta, os cinco checks reais do GitHub estavam `pending` (run 38001327140);
+  nenhum CI verde ou merge é afirmado. O merge permanece pendente.
 - **Dívida explícita (não mascarada)**: zero observações reais novas; não há
   contrato de correlação com runtime. O relatório em `evidence/` registra a
   ausência de input (`UNAVAILABLE`), não dados sintéticos. Revisões independentes

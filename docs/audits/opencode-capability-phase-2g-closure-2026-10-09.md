@@ -25,9 +25,9 @@ não uma amostra inventada.
 ```text
 initial master: b38c92bc8b3ab334a9dffad609f3515350336061 (origin/master no fetch inicial)
 branch: feat/capability-advisory-observability-phase-2g
-feature HEAD: `c1139a4` (implementação/evidência; closure entra no commit seguinte)
-PR: não aberto nesta execução
-CI: não executado no GitHub; nenhum PR/HEAD de PR disponível
+feature HEAD: `ffc905578a60d807d32eab039ccf80bc4ea7a18e` (closure local; PR #54 inicial em CI)
+PR: #54 — https://github.com/Kusts/opencode-orchestration/pull/54 (OPEN)
+CI: workflow run 38001327140; os cinco checks reais estavam PENDING na última consulta
 review: Reviewer APPROVED no recorte final de seleção; Security Reviewer APPROVED na revisão final do coletor; Tester validou a suíte e regressões abaixo
 merge commit: N/A
 final master: não revalidado após a concorrência; nenhum merge executado
@@ -187,11 +187,13 @@ alterado pelo trabalho 2G; suítes históricas podem produzir telemetria em
 
 ## Commits, PR e veredito
 
-Commits locais: `2e581d1` (plano) e `c1139a4` (coletor, suíte e relatório).
-Esta closure será adicionada em commit separado antes da publicação. Push, PR,
-CI GitHub e merge ainda não executados no momento desta closure. `origin/master`
-foi revalidado após os commits e continua em `b38c92bc8b3ab334a9dffad609f3515350336061`.
-A outra sessão do Autonomous Core permaneceu isolada; os
+Commits locais: `2e581d1` (plano), `c1139a4` (coletor, suíte e relatório) e
+`ffc9055` (closure). A branch foi publicada e o PR #54 aberto conforme o
+pedido. No momento desta atualização, os checks estão pendentes; qualquer
+mudança neste follow-up documental altera o SHA e poderá iniciar nova execução
+de CI. `origin/master` foi revalidado após os commits e continua em
+`b38c92bc8b3ab334a9dffad609f3515350336061`. Nenhum merge foi executado. A
+outra sessão do Autonomous Core permaneceu isolada; os
 arquivos `source/adapters/opencode.md` e
 `source/adapters/opencode-v2.md` do worktree principal não foram tocados.
 
