@@ -3,7 +3,7 @@
 Branch: `feat/advisory-routing-refinement-2026-10-08` (base `a9550c1`).
 Veredito: **PASS (SHADOW + ADVISORY; Active NÃO promovido; recomendação CONTINUE_ADVISORY)**.
 
-Plano canônico: `docs/plans/CAPABILITY-ROUTING-PHASE-2F-PLAN.md` (§1–§10.4).
+Plano canônico: `docs/plans/CAPABILITY-ROUTING-PHASE-2F-PLAN.md` (§1–§10.5).
 Formato segue o closure 2E (`docs/audits/opencode-advisory-git-governance-phase-2e-closure-2026-10-07.md`).
 
 ## 1. Objetivo e Gates de Conclusão
@@ -22,7 +22,7 @@ nominalmente ("G1..G7"), portanto cada gate é ancorado a um fato verificável
 |------|--------|-----------|
 | G1 — Divergências 2E resolvidas advisory-side (P1/P11 → docs-manager, P3 → debugger, P12 → reviewer) | **PASS** | replay_2e 13/13 (9 preservados + 4 corrigidos); asserts suíte 2F + bloco live 2E |
 | G2 — Override seguro aplicável a `docs-manager` (fecha gap da allowlist) | **PASS** | `$allowedAgents` += `docs-manager` (R8), `scripts/v3/lib/CapabilityResolver.ps1` |
-| G3 — Risco: documental/leitura LOW vs execução/mutação CRITICAL/HIGH, com exceções conservadoras por forma fechada | **PASS** | sinais fin-doc/prod-logs + §10–§10.4; 14 casos mistos + fronteira de cláusulas; 43/43 |
+| G3 — Risco: documental/leitura LOW vs execução/mutação CRITICAL/HIGH, com exceções conservadoras por forma fechada | **PASS** | sinais fin-doc/prod-logs + §10–§10.5; 14 casos mistos + fronteira de cláusulas; 43/43 |
 | G4 — Contenção MCP/skills (browser só em `testing`; supabase/neon só com evidência; 0 MCP novo; skills ≤3, só ACTIVE, `fail`→systematic-debugging) | **PASS** | `not_expected` verificado em 43/43 casos; asserts de contensão |
 | G5 — Corpus e métricas: corpus_2f 43/43; comparables 19/19 (≥ alvo 90%) | **PASS** | `shadow-results`/`shadow-corpus`/`metrics` 2F; asserts `comparables >= 19` e `agreement >= 90%` |
 | G6 — Regressão e consistência verdes | **PASS** | 2E 408/408; 2D 372/0; package-consistency 16/0 (check 9 exige flags routing OFF) |
@@ -56,6 +56,10 @@ nominalmente ("G1..G7"), portanto cada gate é ancorado a um fato verificável
      (`$riskText`/`$riskTokens`), metadata só eleva.
    - **§10.4 (clause-separators)**: fronteira de cláusulas fechada (`. , : ; ! ?`
      `and`/`then`/`but` + newline); cláusula vazia ignorada.
+   - **§10.5 (`2F-FIX-P2-WRITE-VERB`)**: `write` deixa de ser verbo
+     documental financeiro — sozinho não prova intenção documental (pode ser
+     criação de código financeiro); verbo documental próprio passa a ser
+     somente document/explain/describe/draft + flexões.
 
 ## 3. Mudanças (menor mudança defensável)
 
@@ -76,6 +80,8 @@ Modificados (tracked, confirmado por `git diff --name-only`):
   `$finDocException`); sinais de produção (`$isProdMention`, `$logsReadVerbs`
   /`$logsDescriptors`/`$logsFillers`, `$logsFormShaped`, `$isProdLogsRead`,
   `$isProdMutation`); `$allowedAgents` += `docs-manager` (R8); skills += `fail`.
+  Pós-closure (P2, `d4e05cd`): `write`/`writes`/`writing`/`written` removidos
+  de `$finDocVerbWords` (§10.5).
 - `scripts/v3/lib/CapabilityRealWorldPhase2E.tests.ps1` (+55): **somente** os 4
   expects P1/P3/P11/P12 corrigidos, com re-resolução **live** a partir do
   `task_summary`/`task_class` do ledger; os outros 9 pilots continuam comparados
@@ -99,8 +105,9 @@ overlay, JSONs 2E/2D, `master` (sem commit direto; sem force-push).
 ## 4. Histórico de Review
 
 Rastreabilidade: os fixes de cada rodada estão ancorados como apêndices
-versionados do plano (§10–§10.4) e nas suítes; o APPROVED duplo (round4) é o
-estado final. Busca em `evidence/capabilities-phase-2f/` **não** retorna
+versionados do plano (§10–§10.5) e nas suítes; o APPROVED duplo (round4) e o
+APPROVED do round 5 (finding P2, PR #45) são o estado final. Busca em
+`evidence/capabilities-phase-2f/` **não** retorna
 artifact de review/feedback — o registro vivo deste ciclo é o plano + este
 closure (honestidade de procedência).
 
@@ -118,6 +125,17 @@ closure (honestidade de procedência).
   (`2F-FIX-CLAUSE-SEPARATORS`)** fechando a fronteira `.`/`,`.
 - **Round 4** — **APPROVED duplo** (`reviewer` + `security-reviewer`).
   **Tester PASS em todas as rodadas.**
+- **Round 5 (pós-closure, PR #45)** — finding **P2 do Codex**: `write` sozinho
+  satisfazia o conjunto de verbos documentais financeiros
+  (`$finDocVerbWords`), então `write Stripe refund script` e `write financial
+  transaction code` recebiam LOW + allow indevidamente (`write` pode ser
+  criação de CÓDIGO financeiro, não prova intenção documental). Fix **§10.5
+  (`2F-FIX-P2-WRITE-VERB`)**: `write`/`writes`/`writing`/`written` saíram do
+  conjunto (verbo documental próprio = document/explain/describe/draft +
+  flexões); correções em `d4e05cd`, Codex respondido e thread resolvida.
+  **Tester PASS** pós-fix (2F 991/0, +6 asserts `$finWriteVerb`) e
+  **reviewer APPROVED**. Escopo: lista de verbos + 2 regressões + nota no
+  plano; agentes, matcher, flags, Core e JSONs intactos.
 
 ## 5. Métricas Antes/Depois
 
@@ -144,7 +162,7 @@ closure (honestidade de procedência).
 
 | Suíte | Resultado |
 |-------|-----------|
-| `CapabilityRoutingPhase2F.tests.ps1` (2F) | **985 / 0** |
+| `CapabilityRoutingPhase2F.tests.ps1` (2F) | **991 / 0** |
 | `CapabilityRealWorldPhase2E.tests.ps1` (2E) | **408 / 408** |
 | `capability-routing-phase2d.tests.ps1` (2D) | **372 / 0** |
 | `test-package-consistency.ps1` (consistency) | **16 / 0** (total 16) |
@@ -154,6 +172,10 @@ closure (honestidade de procedência).
 | `capability-planning.tests.ps1` (capability-planning) | **12 / 0** |
 
 `git diff --check` limpo (ver §9).
+
+Atualização pós-closure (commit `d4e05cd`, fix P2 do Codex): contagem 2F
+revalidada em 2026-10-08 — **985 → 991 / 0** (+6 asserts do bloco
+`$finWriteVerb`: 2 casos × resolve/risk/perm); demais suítes inalteradas.
 
 ## 7. Riscos Residuais (honestos)
 
@@ -196,21 +218,25 @@ closure (honestidade de procedência).
 
 ## 9. Git / PR / CI
 
-- Branch `feat/advisory-routing-refinement-2026-10-08`; HEAD `a9550c1`; base
-  `a9550c1`. Arquivos novos: `docs/plans/`, `evidence/capabilities-phase-2f/`,
+- Branch `feat/advisory-routing-refinement-2026-10-08`; HEAD `d4e05cd`; base
+  `a9550c1`. Commits: `9a17af2` (refinamento advisory 2F), `df747c3`
+  (closure), `d4e05cd` (fix P2 do Codex, §10.5). Arquivos novos:
+  `docs/plans/`, `evidence/capabilities-phase-2f/`,
   `scripts/v3/lib/CapabilityRoutingPhase2F.tests.ps1`; modificados:
   `.gitignore`, `scripts/v3/lib/CapabilityRealWorldPhase2E.tests.ps1`,
   `scripts/v3/lib/CapabilityResolver.ps1`,
   `source/registry/capability-routing.json`.
 - `git diff --check`: **limpo**.
-- **PR: PENDENTE** (não aberto por esta fase).
-- **CI: PENDENTE** (a executar no PR; nomes reais dos checks conforme a policy
-  de git lifecycle; resultado de SHA anterior nunca reutilizado como prova do
-  SHA atual).
+- **PR: #45 aberto** — finding **P2** do Codex (`write` sozinho como verbo
+  documental financeiro) corrigido em `d4e05cd`; Codex respondido e thread
+  resolvida.
+- **CI: sem evidência nova nesta atualização** (nomes reais dos checks
+  conforme a policy de git lifecycle; resultado de SHA anterior nunca
+  reutilizado como prova do SHA atual).
 - **Merge: PENDENTE** (método `--merge` padrão, sem squash/rewrite).
 
-> Estado PR/CI/merge registrado no momento da escrita; conclusão (abertura do PR,
-> resultado de CI, hash de merge) é responsabilidade do Planner e entra por
+> Estado PR/CI/merge registrado no momento da escrita; conclusão (resultado de
+> CI, hash de merge) é responsabilidade do Planner e entra por
 > follow-up dentro do PR — nunca por commit direto em `master`.
 
 ## 10. Evidência (arquivos)
@@ -223,19 +249,21 @@ closure (honestidade de procedência).
   shadow (`2d-shadow-1`).
 - `evidence/capabilities-phase-2f/metrics-2026-10-08.json` — before/after,
   flags, stability/não-claim.
-- `docs/plans/CAPABILITY-ROUTING-PHASE-2F-PLAN.md` (§1–§10.4).
+- `docs/plans/CAPABILITY-ROUTING-PHASE-2F-PLAN.md` (§1–§10.5).
 
 ## 11. Veredito Final
 
 **Phase 2F: PASS (SHADOW + ADVISORY).** Critérios atendidos: 4 divergências 2E
 resolvidas advisory-side (replay 13/13 = 9 preservados + 4 corrigidos) + exceções
-de risco conservadoras por forma fechada/cláusulas/descontaminação (§10–§10.4,
+de risco conservadoras por forma fechada/cláusulas/descontaminação (§10–§10.5,
 com participação do debugger `2F-DEBUG-EXCEPTIONS`) + contenção MCP/skills
 (0 over-activation/critical/bypass; 0 MCP novo; browser só em `testing`) +
 regressão 2E 408/408, 2D 372/0, consistency 16/0 (+ registry-v2 48, mcp-profiles
 8, skills-catalog 18, capability-planning 12) + corpus 43/43 e comparables
 19/19 (≥ 90%) + flags OFF/Autonomous Core/JSONs 2E/2D intactos + review
-APPROVED duplo (round4) com tester PASS em todas as rodadas. Arquitetura final:
+APPROVED duplo (round4) com tester PASS em todas as rodadas + finding P2 do
+Codex no PR #45 corrigido (§10.5, `d4e05cd`: `write` deixa de ser verbo
+documental financeiro; 2F revalidado 991/0). Arquitetura final:
 **SHADOW + ADVISORY**; **Active HOLD**; recomendação **CONTINUE_ADVISORY**.
 Ressalva mantida: amostra pequena, sem claim de estabilidade produtiva.
-Pendências: PR/CI/merge (a cargo do Planner).
+Pendências: CI/merge (a cargo do Planner; PR #45 já aberto).
