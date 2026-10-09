@@ -62,6 +62,30 @@
     posso durante a espera recusa com `reconcile-ownership-stale` e
     deixa o recibo `pending`.
 
+    Limite honesto do claim F4 (SEC6): `Test-NDReconcileLiveOwnership`
+    cobre takeover OCORRIDO ANTES da releitura (o gate pre-lock e a
+    releitura sob lock provam esse caso). A sequencia releitura ->
+    persistencia NAO e atomica: existe janela residual entre a
+    revalidacao da ownership viva e a escrita do recibo, e o lock do
+    recibo NAO serializa mutacao do goal. Dentro dessa janela, um
+    takeover que aconteca depois da releitura liquida com a autorizacao
+    ja validada; o recibo registra reconciled_by/reconciled_generation
+    para auditoria. Nao ha alegacao de serializacao cross-recurso.
+
+    Reparse points (REV6/SEC6 MEDIA): `Test-Path -PathType Leaf` aceita
+    symlink/junction cujo alvo seja arquivo/diretorio. Nos caminhos de
+    recibo isso seria furo: `<hash-B>` como junction para `<hash-A>`
+    faria B ler e gravar recibos no diretorio fisico de A (quebra F3), e
+    um `<key>.json` linkado para arquivo regular passaria pela prova de
+    "arquivo regular" e leria/escreveria no alvo. Fail-closed
+    (`Test-NDPathWithoutReparsePoint`): subdiretorio de goal com
+    ReparsePoint recusa com `receipt-dir-reparse-point`; entrada de
+    recibo linkada recusa com `receipt-not-regular` sem ler nem seguir o
+    link; a escrita prova pos-escrita PathType Leaf + atributos SEM
+    ReparsePoint + key no conteudo (garante que o efeito nao vazou para
+    fora do destino). Atributo ilegivel conta como rejeicao, nunca como
+    ausencia.
+
     Holds preservados: `dispatchWorker/waitForSettlement/
     requestPlannerContinuation/cancelAuthorizedExecution` continuam em HOLD
     em OrchestrationRuntimeAdapterContract.ps1. Este modulo nao remove
@@ -139,6 +163,96 @@ function Get-OrchestrationDispatchReceiptDir {
     catch { return '' }
 }
 
+function Test-NDPathWithoutReparsePoint {
+    <#
+    .SYNOPSIS
+        $true SOMENTE quando o caminho existe e NAO e reparse point.
+    .DESCRIPTION
+        `Test-Path -PathType Leaf` aceita symlink/junction cujo alvo seja
+        arquivo ou diretorio: o link passa na checagem e o codigo passa a
+        ler/gravar no ALVO, fora do destino esperado. Isso quebraria o
+        isolamento por goal (namespace `<raiz>/<hash-B>` apontando para
+        `<raiz>/<hash-A>`) e a prova de "arquivo regular do recibo".
+
+        Usa `[IO.File]::GetAttributes`, que NAO segue o link: a flag
+        ReparsePoint aparece para symlink E junction. Hard link NAO e
+        reparse point (segundo nome do MESMO arquivo) e segue permitido,
+        mesma decisao do resto do pacote.
+
+        Fail-closed: atributos ilegiveis (permissao, path invalido) e
+        caminho inexistente devolvem $false. Nunca devolve $true por
+        excesso de confianca, e nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$Path = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+        $attrs = [IO.File]::GetAttributes($Path)
+        if (($attrs -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Resolve-NDGoalReceiptDir {
+    <#
+    .SYNOPSIS
+        Resolve o subdiretorio de recibos de UM goal com motivo explicito.
+    .DESCRIPTION
+        Variante com estado de `Get-NDGoalReceiptDir`: devolve
+        @{ok, reason, dir} para o chamador poder recusar com a razao
+        CORRETA em vez de colapsar tudo em `receipt-dir-unresolvable`.
+        Reasons:
+          ''                         resolvido
+          receipt-dir-unresolvable   raiz/goal invalidos ou IO falhou
+          receipt-dir-reparse-point  subdiretorio e link (SEC6/REV6)
+
+        Reforco de seguranca (REV6): se `<raiz>/<hash>` existe e tem o
+        atributo ReparsePoint (symlink/junction, inclusive link pendente
+        cujo alvo nao existe), a resolucao RECUSA antes de qualquer IO -
+        sem ler, sem gravar, sem criar. Sem isso, B apontado para A
+        leria e gravaria recibos no diretorio fisico de A, quebrando o
+        isolamento por goal (F3/REV5). Atributos ilegiveis contam como
+        rejeicao. Depois de criar (ou confirmar) o diretorio, a checagem
+        e repetida para cobrir a corrida entre a checagem e a criacao.
+    #>
+    [CmdletBinding()]
+    param([string]$RootDir = '', [string]$GoalId = '')
+    try {
+        $gid = ([string]$GoalId).Trim()
+        if (([string]::IsNullOrWhiteSpace($RootDir)) -or ([string]::IsNullOrWhiteSpace($gid))) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-dir-unresolvable'; dir = '' }
+        }
+        $sub = Get-NativeDispatchHash32 $gid
+        if ([string]::IsNullOrWhiteSpace($sub)) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-dir-unresolvable'; dir = '' }
+        }
+        $dir = Join-Path $RootDir $sub
+        # (a) entrada ja existente (inclusive link pendente, cujo alvo
+        # nao existe): GetAttributes reconhece o reparse point SEM seguir
+        # o link. Caminho inexistente dispara excecao e cai na criacao
+        # abaixo. Atributos ilegiveis tambem recusam (fail-closed).
+        $attrsRead = $false
+        try { [void][IO.File]::GetAttributes($dir); $attrsRead = $true } catch { $attrsRead = $false }
+        if ($attrsRead -and (-not (Test-NDPathWithoutReparsePoint -Path $dir))) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-dir-reparse-point'; dir = '' }
+        }
+        try {
+            if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+                [void][IO.Directory]::CreateDirectory($dir)
+            }
+        }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'receipt-dir-unresolvable'; dir = '' } }
+        # (b) re-checagem pos-criacao: cobre a corrida entre a checagem
+        # acima e a criacao do diretorio.
+        if (-not (Test-NDPathWithoutReparsePoint -Path $dir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-dir-reparse-point'; dir = '' }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; dir = $dir }
+    }
+    catch { return [pscustomobject]@{ ok = $false; reason = 'receipt-dir-unresolvable'; dir = '' } }
+}
+
 function Get-NDGoalReceiptDir {
     <#
     .SYNOPSIS
@@ -158,22 +272,17 @@ function Get-NDGoalReceiptDir {
         continua preservada: o namespace usa SOMENTE o goal_id, e a
         identidade (owner/generation) continua protegendo duplicata e
         liquidacao. Retorna '' quando nao da para resolver.
+
+        REV6/SEC6: devolve '' tambem quando o subdiretorio existe como
+        reparse point (symlink/junction) - um link direcionaria leitura e
+        gravacao para o diretorio fisico de outro goal. O chamador que
+        precisa da razao exata usa `Resolve-NDGoalReceiptDir`.
     #>
     [CmdletBinding()]
     param([string]$RootDir = '', [string]$GoalId = '')
     try {
-        $gid = ([string]$GoalId).Trim()
-        if (([string]::IsNullOrWhiteSpace($RootDir)) -or ([string]::IsNullOrWhiteSpace($gid))) { return '' }
-        $sub = Get-NativeDispatchHash32 $gid
-        if ([string]::IsNullOrWhiteSpace($sub)) { return '' }
-        $dir = Join-Path $RootDir $sub
-        try {
-            if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
-                [void][IO.Directory]::CreateDirectory($dir)
-            }
-        }
-        catch { return '' }
-        return $dir
+        $state = Resolve-NDGoalReceiptDir -RootDir $RootDir -GoalId $GoalId
+        return ([string](Get-NDValue $state 'dir' ''))
     }
     catch { return '' }
 }
@@ -490,6 +599,8 @@ function Read-NDReceipt {
         novo e legitimo. Entrada existente que nao e arquivo regular
         (diretorio, link) devolve 'receipt-not-regular' (F2/REV5):
         nao e ausencia e nao pode ser sobrescrita com seguranca.
+        REV6/SEC6: link (symlink/junction) recai na MESMA razao e nao e
+        lido nem seguido - o alvo do link nao e confundido com o recibo.
         Qualquer outro ok=$false significa que existe um
         recibo que nao pode ser lido nem confiado, e o chamador DEVE
         recusar com a razao explicita, sem sobrescrever o arquivo e sem
@@ -521,9 +632,16 @@ function Read-NDReceipt {
             # estado que autoriza um dispatch novo.
             return [pscustomobject]@{ ok = $false; reason = 'receipt-absent'; present = $false; receipt = $null }
         }
+        # REV6/SEC6: link NAO e o recibo. `Test-Path -PathType Leaf`
+        # aceita symlink/junction para arquivo regular, e a leitura
+        # seguiria o ALVO (outra goal, outro caminho). Atributos
+        # ilegiveis tambem recusam: fail-closed, nunca ausencia.
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-not-regular'; present = $true; receipt = $null }
+        }
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             # Entrada existente que NAO e arquivo regular (diretorio,
-            # link, pipe). Nao pode ser lida nem sobrescrita com seguranca
+            # pipe). Nao pode ser lida nem sobrescrita com seguranca
             # e NUNCA deve ser confundida com ausencia: recusar com razao
             # explicita, sem tocar na entrada e sem efeito.
             return [pscustomobject]@{ ok = $false; reason = 'receipt-not-regular'; present = $true; receipt = $null }
@@ -580,7 +698,11 @@ function Write-NDReceipt {
         # ANTES de criar temporario: Move-Item -Force sobre um diretorio
         # moveria o temporario para DENTRO dele e devolveria sucesso,
         # deixando o chamador acreditar que persistiu.
+        # REV6/SEC6: idem para symlink/junction - sem a checagem de
+        # reparse point o alvo do link (fora deste diretorio) seria
+        # sobrescrito pelo Move, e o efeito vazaria do destino.
         if (Test-Path -LiteralPath $path) {
+            if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
         }
         $json = ConvertTo-Json -InputObject $Receipt -Depth 20 -Compress
@@ -593,7 +715,11 @@ function Write-NDReceipt {
         # arquivo esperado e conter a key deste recibo; qualquer outro
         # resultado (por exemplo o move tendo caido dentro de um
         # diretorio criado entre a checagem e o move) nao e persistencia.
+        # REV6/SEC6: a prova inclui "atributos SEM ReparsePoint", para
+        # garantir que o destino continua sendo o arquivo regular deste
+        # diretorio e nao um link cujo alvo foi escrito no lugar.
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
         try {
             $back = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
             if ([string]::IsNullOrWhiteSpace($back) -or ($back.IndexOf($key, [StringComparison]::Ordinal) -lt 0)) { return $false }
@@ -1218,6 +1344,22 @@ function Test-NDReconcileLiveOwnership {
         relido agora: se ela nao e mais a viva ATUAL, recusa e o recibo
         fica pending (sem liquidacao). Nunca amplia autoridade: so a
         authorization que continua viva liquida. Nunca lanca.
+
+        DELIMITACAO DO CLAIM (SEC6/REV6 - honestidade de contrato, sem
+        mudanca de comportamento): o que esta funcao PROVA e takeover
+        OCORRIDO ANTES da releitura (expiracao de lease ou tomada de
+        posse acontecida antes desta chamada, inclusive durante a espera
+        pelo lock do recibo). O que ela NAO prova:
+          - a sequencia releitura -> persistencia do recibo NAO e atomica.
+            Ha janela residual entre esta revalidacao e o Write-NDReceipt
+            seguinte; um takeover que aconteca DEPOIS da releitura liquida
+            com a autorizacao ja validada;
+          - o lock do recibo NAO serializa mutacao do goal. Ele serializa
+            apenas acesso ao arquivo do recibo; a escrita do goal
+            (ownership/lease) segue caminho proprio, sem lock compartilhado.
+        Nao ha alegacao de serializacao cross-recurso nem de atomicidade.
+        A trilha de auditoria existe (reconciled_by/reconciled_generation
+        no recibo) para revisar liquidacoes feitas dentro da janela.
     #>
     [CmdletBinding()]
     param($Authorization = $null, [string]$GoalStoreDir = '')
@@ -1272,6 +1414,10 @@ function Confirm-OrchestrationDispatchReconciliation {
         de qualquer persisticao (sucesso e falha). Expiracao de lease ou
         tomada de posso durante a espera pelo lock recusa com
         `reconcile-ownership-stale` e deixa o recibo `pending`.
+        DELIMITACAO (SEC6/REV6): a releitura cobre takeover OCORRIDO
+        ANTES dela. A sequencia releitura -> persistencia nao e atomica
+        (janela residual) e o lock do recibo nao serializa mutacao do
+        goal - detalhe em Test-NDReconcileLiveOwnership.
         Reconciliacao apos takeover: um novo owner (generation maior, com
         autorizacao viva do goal atual) pode reconciliar SOMENTE com prova
         kernel-side + autorizacao viva; sem prova, a divergencia de
@@ -1327,9 +1473,12 @@ function Confirm-OrchestrationDispatchReconciliation {
         # um goal nunca enxerga o recibo de outro: o caminho do goal
         # autorizado nao contem a key e a resposta e receipt-not-found
         # (generico), igual a de uma key inexistente.
-        $rDir = Get-NDGoalReceiptDir -RootDir $dir -GoalId (([string](Get-NDValue $Authorization 'goal_id' '')).Trim())
+        # REV6/SEC6: `receipt-dir-reparse-point` recusa quando o
+        # subdiretorio do goal e um link (ler/gravar sairia do destino).
+        $rState = Resolve-NDGoalReceiptDir -RootDir $dir -GoalId (([string](Get-NDValue $Authorization 'goal_id' '')).Trim())
+        $rDir = [string](Get-NDValue $rState 'dir' '')
         if ([string]::IsNullOrWhiteSpace($rDir)) {
-            return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-dir-unresolvable' -Admitted $true -ExecutorCalls 0)
+            return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $rState 'reason' 'receipt-dir-unresolvable')) -Admitted $true -ExecutorCalls 0)
         }
         $lock = Open-NDReceiptLock -Dir $rDir -LockTimeoutMs $LockTimeoutMs
         if ($null -eq $lock) {
@@ -1575,9 +1724,12 @@ function Invoke-OrchestrationNativeDispatch {
         # de outro goal nao ve a key (ausencia indistinguivel) e cai no
         # caminho normal de admissao. Takeover preservado: namespace so
         # por goal_id.
-        $rDir = Get-NDGoalReceiptDir -RootDir $dir -GoalId $ndGoalId
+        # REV6/SEC6: `receipt-dir-reparse-point` recusa quando o
+        # subdiretorio do goal e um link (ler/gravar sairia do destino).
+        $rState = Resolve-NDGoalReceiptDir -RootDir $dir -GoalId $ndGoalId
+        $rDir = [string](Get-NDValue $rState 'dir' '')
         if ([string]::IsNullOrWhiteSpace($rDir)) {
-            return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-dir-unresolvable' -Admitted $true -Intent $intent -ExecutorCalls 0)
+            return (New-NDDispatchEnvelope -Ok $false -Reason ([string](Get-NDValue $rState 'reason' 'receipt-dir-unresolvable')) -Admitted $true -Intent $intent -ExecutorCalls 0)
         }
         if (($null -eq $Executor) -or ($Executor -isnot [scriptblock])) {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'executor-required' -Admitted $true -Intent $intent -ExecutorCalls 0)

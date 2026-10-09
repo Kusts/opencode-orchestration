@@ -16,6 +16,16 @@
     (owner/generation live == receipt and goal ACTIVE). A takeover or
     lease expiry simulated between authorization and the lock (the
     window that motivated the fix) must refuse without content.
+    RP (REV6/SEC6 reparse points): `Test-Path -PathType Leaf` accepts a
+    symlink/junction whose target is a regular file/directory, so the
+    guard needs the ReparsePoint attribute. Covered with a REAL
+    directory junction `<hash-B>` -> `<hash-A>` (no admin privilege
+    needed) proving goal B cannot read or write receipts of A, and with
+    a real file symlink on `<key>.json` proving the linked target is
+    neither read nor overwritten. Link fixtures are created by
+    `cmd /c mklink` and are explicitly SKIPPED (never faked) where the
+    environment forbids them; cleanup removes ONLY the link, never the
+    target.
 #>
 [CmdletBinding()]
 param()
@@ -25,6 +35,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:passed = 0
 $script:failed = 0
+$script:skipped = 0
 
 function Assert-RX {
     param([bool]$Condition, [string]$Name, [string]$Detail = '')
@@ -37,6 +48,12 @@ function Assert-RX {
         else { Write-Host ("[FAIL] {0} -- {1}" -f $Name, $Detail) }
         $script:failed++
     }
+}
+
+function Skip-RX {
+    param([string]$Name)
+    Write-Host ('[SKIP] ' + $Name)
+    $script:skipped++
 }
 
 try {
@@ -309,6 +326,152 @@ try {
         $okWriteBack = [IO.File]::ReadAllText($okWritePath, [Text.Encoding]::UTF8)
         Assert-RX (($okWriteBack.IndexOf($okWriteKey, [StringComparison]::Ordinal) -ge 0)) '[F2] the persisted file holds the receipt key' ''
 
+        # ---------- RP (REV6 / SEC6 MEDIA): reparse points ----------
+        # `Test-Path -PathType Leaf` aceita symlink/junction para arquivo
+        # ou diretorio. Sem a checagem de ReparsePoint o link passaria e
+        # o codigo leria/gravaria no ALVO. Dois fixtures reais (nunca
+        # fingidos): juncao de diretorio no subdiretorio de um goal e
+        # symlink de arquivo no caminho do recibo. Limpeza remove APENAS
+        # o link, nunca o alvo.
+        function New-RXJunction {
+            param([string]$LinkPath, [string]$TargetPath)
+            try { cmd /c mklink /J "$LinkPath" "$TargetPath" 2>&1 | Out-Null } catch { }
+            if (Test-Path -LiteralPath $LinkPath) { return $true }
+            try { New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath -ErrorAction Stop | Out-Null } catch { return $false }
+            return (Test-Path -LiteralPath $LinkPath)
+        }
+
+        function New-RXFileLink {
+            param([string]$LinkPath, [string]$TargetPath)
+            try { cmd /c mklink "$LinkPath" "$TargetPath" 2>&1 | Out-Null } catch { }
+            if (Test-Path -LiteralPath $LinkPath) { return $true }
+            try { New-Item -ItemType SymbolicLink -Path $LinkPath -Target $TargetPath -ErrorAction Stop | Out-Null } catch { return $false }
+            return (Test-Path -LiteralPath $LinkPath)
+        }
+
+        function Remove-RXLink {
+            param([string]$LinkPath)
+            # Directory.Delete(path, $false) sobre reparse point remove o
+            # LINK; rmdir e o fallback. Remove-Item -Recurse NUNCA e
+            # usado: em PS 5.1 ele pode apagar o CONTEUDO do alvo.
+            try { if (Test-Path -LiteralPath $LinkPath) { [IO.Directory]::Delete($LinkPath, $false) } } catch { }
+            try { if (Test-Path -LiteralPath $LinkPath) { cmd /c rmdir "$LinkPath" 2>&1 | Out-Null } } catch { }
+        }
+
+        function Remove-RXFileLink {
+            param([string]$LinkPath)
+            try { if (Test-Path -LiteralPath $LinkPath) { [IO.File]::Delete($LinkPath) } } catch { }
+            try { if (Test-Path -LiteralPath $LinkPath) { Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue } } catch { }
+        }
+
+        # ---------- RP1: juncao <hash-B> -> <hash-A> (quebra F3) ----------
+        function New-RXLinkFixture {
+            param([string]$GoalId, [string]$TaskId, [string]$KeySeed)
+            $gg = New-OrchestrationGoal -GoalId $GoalId -Objective ('reparse ' + $GoalId) -Criteria @('criterio-a') -StoreDir $goalDir
+            Assert-RX ([bool]$gg.ok) ('[RP1] goal created ' + $GoalId) ([string]$gg.reason)
+            $ga = Set-OrchestrationGoalState -Goal $gg.goal -ToState 'ACTIVE'
+            $gs = Save-OrchestrationGoal -Goal $ga.goal -StoreDir $goalDir
+            Assert-RX ([bool]$gs.ok) ('[RP1] goal active ' + $GoalId) ([string]$gs.reason)
+            $go = Acquire-OrchestrationGoalOwnership -GoalId $GoalId -OwnerId 'planner-1' -ExpectedRevision ([long]$gs.revision) -StoreDir $goalDir -LeaseTtlMs 60000
+            Assert-RX ([bool]$go.ok) ('[RP1] ownership acquired ' + $GoalId) ([string]$go.reason)
+            $ggen = [long]$go.ownership['generation']
+            $ct = New-OrchestrationTask -TaskId $TaskId -Objective ('obj ' + $TaskId) -TaskType 'implementation' `
+                -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+                -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+                -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+            Assert-RX ([bool]$ct.ok) ('[RP1] kernel task created ' + $TaskId) ([string]$ct.error)
+            $slot = Get-OrchestrationGoal -GoalId $GoalId -StoreDir $goalDir
+            $add = Add-OrchestrationGoalTaskPersisted -GoalId $GoalId -TaskId $TaskId -ExpectedRevision ([long]$slot.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $ggen
+            Assert-RX ([bool]$add.ok) ('[RP1] task attached ' + $TaskId) ([string]$add.reason)
+            $kk = Get-NativeDispatchHash32 $KeySeed
+            $intent = New-RXIntent -Task $TaskId -Key $kk -Gen $ggen
+            Assert-RX ([bool]$intent.ok) ('[RP1] intent built ' + $TaskId) ([string]$intent.reason)
+            return @{ goal = $GoalId; gen = $ggen; task = $TaskId; key = $kk; intent = $intent }
+        }
+
+        $rxLinkB = New-RXLinkFixture -GoalId 'rx-goal-link-b' -TaskId 'rx-task-link' -KeySeed 'rx-link-key-1'
+        $physA = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-link-a')
+        $linkB = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-link-b')
+        $junctionOk = $false
+        try {
+            New-Item -ItemType Directory -Path $physA -Force | Out-Null
+            # recibo settled de A, na MESMA key que B vai consultar: se B
+            # lesse atraves da juncao, a resposta seria 'already-settled'.
+            $settledA = [ordered]@{
+                schema_version = 1; idempotency_key = [string]$rxLinkB.key; phase = 'settled'
+                task_id = 'rx-task-link'; agent = 'coder'; owner = 'planner-1'
+                goal_id = 'rx-goal-link-a'; ownership_generation = 1; task_expected_revision = 1
+                intent_fingerprint = (Get-NDIntentFingerprint -Intent $rxLinkB.intent.intent)
+                reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o'))
+            }
+            [IO.File]::WriteAllText((Join-Path $physA ([string]$rxLinkB.key + '.json')), (ConvertTo-Json -InputObject $settledA -Compress), [Text.UTF8Encoding]::new($false))
+            $junctionOk = New-RXJunction -LinkPath $linkB -TargetPath $physA
+        }
+        catch { $junctionOk = $false }
+        if ($junctionOk) {
+            try {
+                $resState = Resolve-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-link-b'
+                Assert-RX (((-not [bool]$resState.ok) -and ([string]$resState.reason -ceq 'receipt-dir-reparse-point') -and ([string]$resState.dir -ceq ''))) '[RP1] junction in the goal receipt subdir is refused' ([string]$resState.reason)
+                Assert-RX (([string](Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-link-b') -ceq '')) '[RP1] string resolver returns empty for a linked subdir' ''
+                Assert-RX ((-not (Test-NDPathWithoutReparsePoint -Path $linkB))) '[RP1] junction is not a path without reparse point' ''
+                Assert-RX ((Test-NDPathWithoutReparsePoint -Path $physA) -and (Test-NDPathWithoutReparsePoint -Path $dirGoal)) '[RP1] regular directories and files pass the reparse guard' ''
+                $linkSpy = New-RXSpy
+                $rLink = Invoke-OrchestrationNativeDispatch -Intent $rxLinkB.intent.intent -Executor $linkSpy.spy -Authorization @{ explicit_allow = $true; goal_id = 'rx-goal-link-b'; owner = 'planner-1'; generation = [long]$rxLinkB.gen; source = 'planner' } -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+                Assert-RX (((-not [bool]$rLink.ok) -and ([string]$rLink.reason -ceq 'receipt-dir-reparse-point') -and ([bool]$rLink.admitted) -and ([int]$rLink.executor_calls -eq 0) -and ([int]$linkSpy.state.calls -eq 0))) '[RP1] dispatch through the junction refuses without reading goal A receipt' ([string]$rLink.reason + ' calls=' + [string]$linkSpy.state.calls)
+                Assert-RX ([string]$rLink.reason -cne 'already-settled') '[RP1] refusal never comes from reading the other goal receipt' ([string]$rLink.reason)
+                Assert-RX (($null -eq $rLink.worker_result) -and ([string]$rLink.evidence_id -ceq '')) '[RP1] junction refusal leaks no receipt content' ''
+                $rLinkC = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey ([string]$rxLinkB.key) -Outcome @{ ok = $true; reason = 'r6-probe'; evidence_id = ''; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } } -Authorization @{ explicit_allow = $true; goal_id = 'rx-goal-link-b'; owner = 'planner-1'; generation = [long]$rxLinkB.gen; source = 'planner' } -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
+                Assert-RX (((-not [bool]$rLinkC.ok) -and ([string]$rLinkC.reason -ceq 'receipt-dir-reparse-point') -and ([int]$rLinkC.executor_calls -eq 0) -and (-not [bool]$rLinkC.reconciled))) '[RP1] Confirm through the junction refuses too' ([string]$rLinkC.reason)
+                # nada vazou para o diretorio FISICO de A
+                $physAFiles = @(Get-ChildItem -LiteralPath $physA -Force -File -ErrorAction SilentlyContinue)
+                Assert-RX ((@($physAFiles).Count -eq 1) -and (@($physAFiles)[0].Name -ceq ([string]$rxLinkB.key + '.json'))) '[RP1] physical directory of A keeps exactly the seeded receipt' ([string]@($physAFiles).Count)
+                Assert-RX ((-not (Test-Path -LiteralPath (Join-Path $physA '.dispatch.lock')))) '[RP1] no lock was created inside the physical directory of A' ''
+                $aBack = [IO.File]::ReadAllText((Join-Path $physA ([string]$rxLinkB.key + '.json')), [Text.Encoding]::UTF8)
+                Assert-RX (($aBack.IndexOf('rx-goal-link-a', [StringComparison]::Ordinal) -ge 0) -and ($aBack.IndexOf('reconciled_by', [StringComparison]::Ordinal) -lt 0)) '[RP1] the receipt of A was not rewritten by goal B' ''
+            }
+            finally { Remove-RXLink -LinkPath $linkB }
+        }
+        else { Skip-RX 'RP1 junction fixture unavailable in this environment' }
+
+        # ---------- RP2: symlink de arquivo no caminho do recibo -------
+        # Aqui o Pre-fix passava: Test-Path -PathType Leaf aceita o link,
+        # a leitura seguiria o alvo e a escrita sobrescreveria o arquivo
+        # FORA do diretorio do goal.
+        New-RXKernelTask -Id 'rx-task-symlink'
+        $symKey = Get-NativeDispatchHash32 'rx-symlink-key-1'
+        $symIntent = New-RXIntent -Task 'rx-task-symlink' -Key $symKey
+        $symTarget = Join-Path $tempRoot 'rx-target-fora-do-namespace.json'
+        $symPath = Join-Path $dirGoal ($symKey + '.json')
+        $symOk = $false
+        try {
+            $symContent = '{"schema_version":1,"idempotency_key":"' + $symKey + '","phase":"settled","task_id":"rx-task-symlink","agent":"coder","owner":"planner-1","goal_id":"rx-goal-1","ownership_generation":' + [string]$gen + ',"task_expected_revision":1,"intent_fingerprint":"' + (Get-NDIntentFingerprint -Intent $symIntent.intent) + '","reconciled":false,"created_at":"o"}'
+            [IO.File]::WriteAllText($symTarget, $symContent, [Text.UTF8Encoding]::new($false))
+            $symOk = New-RXFileLink -LinkPath $symPath -TargetPath $symTarget
+        }
+        catch { $symOk = $false }
+        if ($symOk) {
+            try {
+                $symBefore = [IO.File]::ReadAllBytes($symTarget)
+                Assert-RX ((Test-Path -LiteralPath $symPath -PathType Leaf)) '[RP2] fixture: the symlink still looks like a regular file to PathType Leaf' ''
+                Assert-RX ((-not (Test-NDPathWithoutReparsePoint -Path $symPath))) '[RP2] file symlink is not a path without reparse point' ''
+                $readSym = Read-NDReceipt -Dir $dirGoal -Key $symKey
+                Assert-RX (((-not [bool]$readSym.ok) -and ([string]$readSym.reason -ceq 'receipt-not-regular') -and ([bool]$readSym.present) -and ($null -eq $readSym.receipt))) '[RP2] reading a linked receipt is refused, the target is not the receipt' ([string]$readSym.reason)
+                $symWriteRec = [ordered]@{ schema_version = 1; idempotency_key = $symKey; phase = 'pending'; task_id = 'rx-task-symlink'; agent = 'coder'; owner = 'planner-1'; goal_id = 'rx-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = (Get-NDIntentFingerprint -Intent $symIntent.intent); external_idempotent = $false; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+                Assert-RX ((-not (Write-NDReceipt -Dir $dirGoal -Receipt $symWriteRec))) '[RP2] write refuses a linked destination' ''
+                $symAfter = [IO.File]::ReadAllBytes($symTarget)
+                $symSame = ((@($symAfter).Count -eq @($symBefore).Count))
+                if ($symSame) { for ($i = 0; $i -lt @($symAfter).Count; $i++) { if ([int]$symAfter[$i] -ne [int]$symBefore[$i]) { $symSame = $false; break } } }
+                Assert-RX $symSame '[RP2] the linked target was NOT overwritten (no effect leaked outside)' 'target changed'
+                Assert-RX ((@(Get-ChildItem -LiteralPath $dirGoal -Force -File -Filter '*.tmp' -ErrorAction SilentlyContinue).Count -eq 0)) '[RP2] refused write left no temp behind' ''
+                $symSpy = New-RXSpy
+                $rSym = Invoke-OrchestrationNativeDispatch -Intent $symIntent.intent -Executor $symSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+                Assert-RX (((-not [bool]$rSym.ok) -and ([string]$rSym.reason -ceq 'receipt-not-regular') -and ([int]$rSym.executor_calls -eq 0) -and ([int]$symSpy.state.calls -eq 0))) '[RP2] dispatch on a linked receipt refuses with 0 calls' ([string]$rSym.reason + ' calls=' + [string]$symSpy.state.calls)
+                Assert-RX (($null -eq $rSym.worker_result) -and ([string]$rSym.evidence_id -ceq '')) '[RP2] linked receipt refusal leaks no content' ''
+            }
+            finally { Remove-RXFileLink -LinkPath $symPath }
+        }
+        else { Skip-RX 'RP2 file symlink fixture unavailable in this environment' }
+
         # ---------- R2a: goal left ACTIVE refuses the settled duplicate ----------
         New-RXKernelTask -Id 'rx-task-pause'
         $pauseKey = Get-NativeDispatchHash32 'rx-pause-1'
@@ -408,7 +571,7 @@ try {
     }
 
     Write-Host ''
-    Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (0 skipped)')
+    Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (' + $script:skipped + ' skipped)')
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)
     if ($script:failed -ne 0) { exit 1 }
     exit 0
@@ -417,7 +580,7 @@ catch {
     Write-Host ('[FAIL] harness-exception -- ' + $_.Exception.Message)
     $script:failed++
     Write-Host ''
-    Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (0 skipped)')
+    Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (' + $script:skipped + ' skipped)')
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)
     exit 1
 }
