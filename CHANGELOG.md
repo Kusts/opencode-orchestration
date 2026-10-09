@@ -4,7 +4,66 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
-## [0.1.1] — 2026-10-08 — Autonomous Core Runtime Closure (PARTIAL)
+## [0.1.2] - 2026-10-09 - Native Worker Dispatch Bridge + Autonomous Continuation (PARTIAL)
+
+Branch `closure/native-dispatch-loop` (10 commits desde `a9550c1`, merge de
+`origin/master` em `23dd7c3`). Resolve a lacuna produtiva do FINAL CLOSURE
+2026-10-08: hoje **nenhum** componente do pacote inicia um worker nativo do
+OpenCode — a investigação de runtime (bins pinados 2.0.23/1.18.34) provou que
+o único executor real é o Planner LLM via ferramenta `subagent` (V2) / `task`
+(V1 dentro de sessão ativa). O wiring honesto entregue: PowerShell produz
+`DispatchIntent` validado + recibos idempotentes + driver de continuação; o
+`Executor` injetado (Planner) é o único ponto de efeito externo, invocado uma
+vez e somente após admissão. Log detalhado das rodadas de fix em
+`[Unreleased]` abaixo.
+
+- **`OrchestrationNativeDispatch.ps1` (novo):** intent validado
+  (`New-OrchestrationNativeDispatchIntent` — nome exclusivo; o construtor de
+  mesmo nome em `OrchestrationObjectiveRuntime` segue intocado),
+  autorização fail-closed antes de qualquer efeito (ownership viva + task
+  viva/não-terminal/vinculada ao goal + flag do kernel + fencing **pós-lock**),
+  recibos idempotentes com fingerprint canônico v2 de todos os campos
+  semânticos (upgrade de idempotência = colisão), isolamento por goal
+  (namespace com hash; recusa de junction/symlink/reparse e reasserção de
+  identidade antes de cada IO, incluindo cada tentativa de lock),
+  `pending` ambíguo sem replay automático (reconciliação só com prova
+  kernel-side vinculada a task/key e ownership viva sob lock) e evidência
+  persistida no store canônico.
+- **`OrchestrationAutonomousLoop.ps1` (novo):** step único (reconcile →
+  next-move → dispatch ou conclusão) + driver limitado (MaxSteps/Budget,
+  watchdog por referência, checkpoint por step, retomada sem duplicar
+  efeitos); `TASK_DONE/WAVE_DONE/PHASE_DONE != OBJECTIVE_DONE` — conclusão
+  apenas via CAS persistido do kernel, com releitura canônica obrigatória.
+- **Fase F — Evidence Store:** canônico `cache/evidence-store` unificado
+  (leitura legada `cache/reuse-store` apenas como fallback, com precedência
+  por `evidence_id` **antes** da filtragem de validade; falha canônica =
+  fail-closed, nunca reuse).
+- **Não alterado (doutrina preservada):** HOLDs do
+  `OrchestrationRuntimeAdapterContract` (`dispatchWorker`,
+  `waitForSettlement`, `requestPlannerContinuation`, `cancelAuthorizedExecution`,
+  `getSessionState`), flags do registry (`runtime_grant_enforcement` OFF),
+  TaskKernel/GoalKernel/contrato/registry.
+- **Testes:** 6 suítes novas/afetadas — PS5.1: NativeDispatch 178/178,
+  Receipts 188/188, Envelopes 39/39, AutonomousLoop 47/47, ReuseWiring 40/40,
+  StoreUnification 12/12, DispatchIntentSymbol 47/47,
+  package-consistency 16 OK/0 FAIL; PS7: 100% nas mesmas. Adversarial
+  independente 161/161 + corridas reais de identidade/junction (RP3a–RP3g).
+- **Cadeia de review:** 8 rodadas REV/SEC (7 findings → R1-R6 → S1-S2 →
+  R1-R4 → F1-F4 → reparse → TOCTOU → lock/cleanup), cada uma corrigida com
+  testes de regressão; evidência em
+  `evidence/v3.1/runtime-reliability/native-dispatch-closure-2026-10-09.json`.
+- **Veredito: PARTIAL CLOSURE** — gates B/C/E/F provados em nível de
+  harness com garantias adversariais; aceitação runtime-real completa
+  (sessão substituída consumindo objetivo, turn de modelo) segue dependente
+  de provider; `dispatchWorker` nativo permanece HOLD por prova
+  arquitetural, não por pendência de código.
+
+Foi detectado que o arquivo `VERSION` transitou em `0.1.0` desde `2daa6af`
+e não acompanhou a tag `v0.1.1` (`301ab59`, PR #41 — o commit da tag não
+alterou o arquivo). Correção nesta entrega: `VERSION` passa a `0.1.2`
+(próxima versão desta mudança; tags existentes não reescritas).
+
+## [0.1.1] - 2026-10-08 - Autonomous Core Runtime Closure (PARTIAL)
 
 Fechamento corretivo JOB44 + programa PR-1..PR-6 (+PR-6b) sobre a base
 `closure/v0.1.1-job44-stable-core`. Merge PR #41 em `301ab59`
@@ -64,6 +123,55 @@ Residuais operador/CI: smokes V1/V2 exact-runtime, 5 checks do PR,
 issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
+
+### Fixes finais do native dispatch loop (REV8 — F1 lock retry + F2 cleanup, 2026-10-09)
+
+Branch `closure/native-dispatch-loop` (@ `99da553`). Dois P1 do review
+independente sobre a rodada REV7/R1+SEC7, ambos no caminho de recibos de
+`scripts/v3/lib/OrchestrationNativeDispatch.ps1`:
+
+- **F1 (REV8 P1 — lock retry reutilizava validação antiga):**
+  `Assert-NDDirIdentity` rodava UMA vez ANTES do `do/while` de
+  `Open-NDReceiptLock`. Com o lock contido e um `Start-Sleep` entre
+  tentativas, a validação anterior era reutilizada por todas elas (até o
+  deadline de 60s): um namespace trocado nesse intervalo só era conferido
+  na chamada seguinte e a tentativa posterior abria/criava o lock no
+  destino substituído. Agora a identidade do diretório **e** o ReparsePoint
+  do caminho do lock são revalidados DENTRO de cada tentativa,
+  imediatamente antes de cada `File.Open`; divergência recusa na hora com
+  `lock-identity-changed`, sem retry e sem IO no alvo.
+- **F2 (REV8 P1 — cleanup pós-invalidação):** quando a identidade deixava
+  de conferir entre o temporário e o `Move-Item`, o cleanup executava
+  `Remove-Item $tmp` pelo caminho invalidado — o que seguiria o caminho
+  substituído e apagaria no alvo errado; idem no catch do Move. Agora a
+  divergência **preserva** o temporário e reporta `receipt-cleanup-deferred`;
+  o catch do Move revalida a identidade ANTES de qualquer cleanup e só
+  remove com identidade válida.
+- **Contratos preservados:** ambos os helpers mantêm o retorno original
+  (`Open-NDReceiptLock` → handle/`$null`; `Write-NDReceipt` → `$true`/`$false`)
+  e ganham parâmetro opcional `-RefusalReason` (`[ref]`, ausente = sem
+  efeito). Callers traduzem o motivo via `Resolve-NDRefusalReason`, de
+  forma que `lock-busy` passa a significar **exclusivamente** contenção
+  real e os fallbacks de envelope (`receipt-write-failed`,
+  `receipt-persist-failed`) seguem iguais quando não há motivo específico.
+  Sem remoção de HOLD, sem ativação de flag, sem edição de
+  kernel/registry/contrato.
+- **Testes (`OrchestrationNativeDispatchReceipts.tests.ps1`, +3 blocos):**
+  RP3e — holder em background com `FileShare.Delete` (contência + troca de
+  namespace viável) troca o diretório por junction **durante** a contenção;
+  a tentativa seguinte recusa com `lock-identity-changed` em tempo muito
+  inferior ao deadline e o alvo substituído não recebe nenhum IO (nenhum
+  lock criado). RP3f — contenção pura mantém motivo vazio (`lock-busy`
+  continua sendo só contenção) e a liberação ainda adquire o lock. RP3g —
+  destino de recibo preso por outro handle (Move falha deterministicamente)
+  + identidade girando em laço apertado: o cleanup é adiado
+  (`receipt-cleanup-deferred`), o temporário é preservado e o destino
+  fica byte-a-byte intacto.
+- **Validação:** PS 5.1 — NativeDispatch 178, Receipts 188, Envelopes 39,
+  AutonomousLoop 47, DispatchIntentSymbol 47, ObjectiveRuntime 175,
+  ProductiveActivation 133, RuntimeAdapterContract 148, package
+  consistency 16/16, `git diff --check` limpo. PS 7 — NativeDispatch 178,
+  Receipts 188, Envelopes 39, RuntimeAdapterContract 148. Zero regressão.
 
 ### Revisão BOTREV-01 dos findings do PR #44 (2026-10-08, CODER-BOTREV-01)
 

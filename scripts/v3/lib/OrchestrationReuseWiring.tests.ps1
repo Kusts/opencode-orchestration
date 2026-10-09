@@ -72,9 +72,13 @@ try {
         $v = Get-OrchestrationReuseWiringVersion
         Assert-ReuseWiring (([int]$v.schema_version -eq 1) -and ([string]$v.phase -ceq 'PR-4')) '[W0] wiring version schema 1 phase PR-4' ''
 
-        # ---------- default store dir: automatic, local-only, caller-free ----------
+        # ---------- default store dir: automatic, canonical evidence-store (Fase F) ----------
         $auto = Get-OrchestrationReuseDefaultStoreDir -StoreDir '' -RepoRoot $tempRoot
-        Assert-ReuseWiring (((-not [string]::IsNullOrWhiteSpace($auto)) -and ($auto -like '*reuse-store') -and (Test-Path -LiteralPath $auto -PathType Container))) '[W1] default store_dir resolves under local cache and is created' $auto
+        Assert-ReuseWiring (((-not [string]::IsNullOrWhiteSpace($auto)) -and ($auto -like '*evidence-store') -and (Test-Path -LiteralPath $auto -PathType Container))) '[W1] default store_dir resolves to canonical evidence-store and is created' $auto
+        $canon = Get-OrchestrationReuseCanonicalStoreDir -RepoRoot $tempRoot
+        Assert-ReuseWiring (($auto -ceq $canon)) '[W1] default equals canonical dir' $auto
+        $leg = Get-OrchestrationReuseLegacyStoreDir -RepoRoot $tempRoot
+        Assert-ReuseWiring (($leg -like '*reuse-store')) '[W1] legacy dir resolves to reuse-store (read fallback only)' $leg
         $explicit = Get-OrchestrationReuseDefaultStoreDir -StoreDir $storeA -RepoRoot $tempRoot
         Assert-ReuseWiring (($explicit -ceq $storeA)) '[W1] explicit store_dir wins' $explicit
         $unresolvable = Get-OrchestrationReuseDefaultStoreDir -StoreDir '' -RepoRoot ''
@@ -124,6 +128,37 @@ try {
         Assert-ReuseWiring ([bool]$madeRev.created) '[R3] revoked record stored' ([string]$madeRev.reason)
         $tRev = Test-OrchestrationReuseCandidate -Record $madeRev.record -Current @{ current_source_fingerprints = $fps; current_base_revision = 'rev-a'; current_criteria_hash = 'crit-a'; current_env = $envNow; now = $now.ToString('o') } -ReuseClass 'service-response'
         Assert-ReuseWiring (((-not [bool]$tRev.reusable) -and (@($tRev.reasons) -contains 'revoked'))) '[R3] revoked means no reuse' ((@($tRev.reasons) -join ','))
+
+        # ---------- F6: canonical presence suppresses the legacy copy of the same ID ----------
+        $rootF6 = Join-Path $tempRoot 'f6root'
+        $legF6 = Join-Path (Join-Path $rootF6 'cache') 'reuse-store'
+        $canonF6 = Join-Path (Join-Path $rootF6 'cache') 'evidence-store'
+        New-Item -ItemType Directory -Path $legF6 -Force | Out-Null
+        $legSeed = New-RWRecordInput -RunId 'f6-1' -StoreDir $legF6 -ExpiresAt $future
+        $legMade = New-OrchestrationEvidenceRecord $legSeed $legF6
+        Assert-ReuseWiring ([bool]$legMade.created) '[F6] legacy record stored' ([string]$legMade.reason)
+        $eidF6 = ([string]$legMade.record.evidence_id)
+        $fpsF6 = @{'src/a.ps1' = 'sha-a'}
+        $envF6 = @{ runtime = 'pwsh'; version = '7' }
+        $hitLeg = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fpsF6 -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envF6 -Now $now.ToString('o') -ReuseClass 'service-response' -RepoRoot $rootF6
+        Assert-ReuseWiring ([bool]$hitLeg.reused) '[F6] legacy-only copy is a candidate' ([string]$hitLeg.decision)
+        New-Item -ItemType Directory -Path $canonF6 -Force | Out-Null
+        $canonText = [IO.File]::ReadAllText((Join-Path $legF6 ($eidF6 + '.json')), [Text.Encoding]::UTF8)
+        $canonRec = ConvertFrom-Json $canonText
+        $canonRec.invalidation_conditions = @(@{ type = 'revoked'; revoked_by = 'operator-1' })
+        [IO.File]::WriteAllText((Join-Path $canonF6 ($eidF6 + '.json')), (ConvertTo-Json -InputObject $canonRec -Depth 20 -Compress), [Text.UTF8Encoding]::new($false))
+        $hitSup = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fpsF6 -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envF6 -Now $now.ToString('o') -ReuseClass 'service-response' -RepoRoot $rootF6
+        Assert-ReuseWiring (((-not [bool]$hitSup.reused) -and ([string]$hitSup.decision -ceq 'reexecute') -and (@($hitSup.reasons) -contains 'canonical-supersedes-legacy'))) '[F6] canonical revoked presence suppresses the legacy copy' ((@($hitSup.reasons) -join ','))
+
+        # ---------- R5: precedencia canonica por ID com verificacao direta ----------
+        Assert-ReuseWiring ([bool](Test-RWCanonicalIdPresence -CanonicalDir $canonF6 -EvidenceId $eidF6)) '[R5] direct canonical file check hits the counterpart' $eidF6
+        Assert-ReuseWiring ((-not [bool](Test-RWCanonicalIdPresence -CanonicalDir $canonF6 -EvidenceId 'ffffffffffffffffffffffffffffffff'))) '[R5] direct check misses absent canonical file' ''
+        Assert-ReuseWiring ((-not [bool](Test-RWCanonicalIdPresence -CanonicalDir '' -EvidenceId $eidF6))) '[R5] direct check fails closed on empty dir' ''
+        # R5: falha de consulta canonica recusa o fallback (fail-closed, nunca reuse)
+        $fileStore = Join-Path $tempRoot 'file-as-store.json'
+        [IO.File]::WriteAllText($fileStore, '{}', [Text.UTF8Encoding]::new($false))
+        $qFail = Find-OrchestrationReusableWork -Scope @('src/a.ps1') -CurrentSourceFingerprints $fps -CurrentBaseRevision 'rev-a' -CurrentCriteriaHash 'crit-a' -CurrentEnv $envNow -Now $now.ToString('o') -ReuseClass 'service-response' -StoreDir $fileStore
+        Assert-ReuseWiring (((-not [bool]$qFail.reused) -and ([string]$qFail.decision -ceq 'reexecute') -and (@($qFail.reasons) -contains 'store-query-failed-reexecute'))) '[R5] failed store query fails closed, never reuses' ((@($qFail.reasons) -join ','))
 
         # ---------- R4: missing provenance => no reuse ----------
         $storeB = Join-Path $tempRoot 'store-b'

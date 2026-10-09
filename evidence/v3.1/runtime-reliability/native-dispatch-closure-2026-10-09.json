@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "record": "native-dispatch-bridge-closure",
+  "date": "2026-10-09",
+  "branch": "closure/native-dispatch-loop",
+  "base_master": "a9550c154d9107704d968489353fd4e2a6262c69",
+  "final_head_pre_merge": "b217e75",
+  "commits": [
+    "68d97a7 feat(bridge): NativeDispatch + AutonomousLoop + store canonical unificado",
+    "9fdf166 fix: F1-F7 (admissao pre-efeito, fencing pos-lock, pending ambiguo, conclusao CAS, budget, precedencia canonica, fingerprint)",
+    "f95b245 fix: R1-R6 (kernel-OFF gate, fingerprint canonico v2, reconciliacao vinculada, leitura viva no COMPLETE, precedence por arquivo, executor_calls)",
+    "d5a6b3f fix: S1-S2 (prova vinculada de reconciliacao, identidade em duplicata)",
+    "d0cee7a fix: R1-R4 (colisao de simbolo, ownership viva em duplicata, recibo ilegivel, oraculo indistinguivel)",
+    "f596a8f fix: F1-F4 (fase canonica, entrada nao-regular, namespace por goal, ownership sob lock no Confirm)",
+    "8ff0f93 fix: reparse points (junction/symlink) recusados no namespace/leitura/escrita + claim F4 delimitado",
+    "99da553 fix: identidade do diretorio reassertada antes de cada IO (REV7/R1 + SEC7)",
+    "b217e75 fix: revalidacao de identidade em cada tentativa do lock + cleanup preserva temporario apos invalidacao (REV8/F1+F2)"
+  ],
+  "architecture_decision": {
+    "question": "qual componente inicia um subagent nativo no OpenCode?",
+    "answer": "nenhum script PowerShell. O unico executor real e o Planner LLM via ferramenta subagent (V2) / task (V1), que so existe dentro de uma sessao ativa com loop de modelo.",
+    "consequence": "dispatchWorker/waitForSettlement/requestPlannerContinuation/cancelAuthorizedExecution permanecem em HOLD em OrchestrationRuntimeAdapterContract.ps1 (nenhum hold removido, nenhuma flag ativada).",
+    "honest_wiring": "PowerShell produz DispatchIntent validado + recibos idempotentes + driver de steps; o Executor injetado (Planner) e o unico ponto de efeito externo, invocado 1x e somente apos admissao."
+  },
+  "modules": {
+    "new": [
+      "scripts/v3/lib/OrchestrationNativeDispatch.ps1",
+      "scripts/v3/lib/OrchestrationAutonomousLoop.ps1"
+    ],
+    "changed": [
+      "scripts/v3/lib/OrchestrationReuseWiring.ps1 (store canonico cache/evidence-store + fallback legado cache/reuse-store com precedencia por evidence_id antes da validade)"
+    ],
+    "tests": [
+      "OrchestrationNativeDispatch.tests.ps1",
+      "OrchestrationAutonomousLoop.tests.ps1",
+      "OrchestrationStoreUnification.tests.ps1",
+      "OrchestrationDispatchIntentSymbol.tests.ps1",
+      "OrchestrationNativeDispatchReceipts.tests.ps1",
+      "OrchestrationNativeDispatchEnvelopes.tests.ps1"
+    ]
+  },
+  "validation": {
+    "engines": ["Windows PowerShell 5.1.26100.9444", "PowerShell 7.6.6"],
+    "ps51": {
+      "OrchestrationNativeDispatch": "178/178",
+      "OrchestrationNativeDispatchReceipts": "188/188",
+      "OrchestrationNativeDispatchEnvelopes": "39/39",
+      "OrchestrationAutonomousLoop": "47/47",
+      "OrchestrationReuseWiring": "40/40",
+      "OrchestrationStoreUnification": "12/12",
+      "OrchestrationDispatchIntentSymbol": "47/47",
+      "test-package-consistency": "16 OK / 0 FAIL"
+    },
+    "ps7": {
+      "OrchestrationNativeDispatch": "178/178",
+      "OrchestrationNativeDispatchReceipts": "188/188",
+      "OrchestrationNativeDispatchEnvelopes": "39/39"
+    },
+    "adversarial": "161/161 asserts independentes (tester VAL6-BCEF) + RP3a-RP3g (race real de identidade/junction durante lock e escrita)",
+    "known_residuals": [
+      "runtime-real cross-session E2E segue BLOCKED sem provider de modelo (auto-reportado por OrchestrationCorrectiveE2E)",
+      "janela TOCTOU residual documentada (PS 5.1 sem abertura kernel sem-seguir-link); raiz de recibos confiavel por escolha do chamador",
+      "DE22307F (divergencia user-owned do opencode.json vivo) pre-existente, nao-bloqueante",
+      "flake transiente de timing no watchdog enforcement (FIX5-2) - re-run isolado 421/421"
+    ]
+  },
+  "review_chain": [
+    {"round": "REV-BCEF/SEC-BCEF", "verdict": "CHANGES_REQUIRED (7 findings)", "fixed_in": "68d97a7 -> 9fdf166 -> f95b245 -> d5a6b3f"},
+    {"round": "REV2/SEC2", "verdict": "CHANGES_REQUIRED (R1-R6)", "fixed_in": "f95b245"},
+    {"round": "REV3/SEC3", "verdict": "CHANGES_REQUIRED (S1-S2)", "fixed_in": "d5a6b3f"},
+    {"round": "REV4/SEC4", "verdict": "CHANGES_REQUIRED (R1-R4)", "fixed_in": "d0cee7a"},
+    {"round": "REV5/SEC5", "verdict": "CHANGES_REQUIRED (F1-F4)", "fixed_in": "f596a8f"},
+    {"round": "REV6/SEC6", "verdict": "CHANGES_REQUIRED (reparse points + claim F4)", "fixed_in": "8ff0f93"},
+    {"round": "REV7/SEC7", "verdict": "CHANGES_REQUIRED (TOCTOU namespace + honestidade de claims)", "fixed_in": "99da553"},
+    {"round": "REV8/SEC8", "verdict": "CHANGES_REQUIRED (lock retry + cleanup pos-invalidacao)", "fixed_in": "b217e75"},
+    {"round": "sign-off final", "verdict": "PASS tester (VAL6: 161/161 adversarial + suites 100% PS5.1/PS7); residuos documentados como risco aceito sob modelo de ameaca local"}
+  ],
+  "gates": {
+    "B_native_dispatch": "harness-level provado (intent autorizado -> executor unico -> receipt -> kernel); spawn nativo permanece HOLD por doutrina (so o LLM spawna)",
+    "C_autonomous_continuation": "driver limitado + checkpoint + budget + idempotencia provados em testes; execucao real depende de Executor (Planner)",
+    "D_goal_recovery": "checkpoint/resume kernel-side mantidos; sessao substituta real segue dependente de provider",
+    "E_productive_activation": "autorizacao verificada antes de qualquer efeito (TestCallback recusado; kernel-OFF gate; fencing pos-lock; identidade sob lock)",
+    "F_evidence_store": "store canonico unificado + precedencia + invalidacao confiavel; teste escreve-por-um/le-por-outro sem store_dir manual"
+  },
+  "version_file_divergence": {
+    "observed": "VERSION=0.1.0 enquanto a tag v0.1.1 aponta para 301ab59",
+    "root_cause": "o commit da tag v0.1.1 (PR #41) nao alterou o arquivo VERSION; ultima escrita foi 2daa6af (v0.1.0)",
+    "correction": "VERSION passa a 0.1.2 nesta entrega; tags existentes nao reescritas"
+  },
+  "conclusion": "PARTIAL CLOSURE - bridge produtivo honesto implementado, revisado e endurecido; spawn nativo (dispatchWorker) permanece HOLD com justificativa arquitetural provada; aceitacao runtime-real completa depende de provider de modelo."
+}
