@@ -406,6 +406,26 @@ foreach ($m in $finClauseSep) {
     Assert (([string]$mr.permissions.recommendation) -ceq [string]$m.perm) ('fronteira clausulas perm ' + [string]$m.perm + ': ' + [string]$m.name) ('obtido: ' + [string]$mr.permissions.recommendation)
   }
 }
+# --- 2F-FIX-P2-WRITE-VERB: 'write' nao prova intencao documental ---
+# Finding P2 (PR #45): 'write' sozinho satisfazia o conjunto de verbos
+# documentais financeiros, entao 'write Stripe refund script' e 'write
+# financial transaction code' recebiam LOW + allow indevidos ('write' pode
+# ser criacao de CODIGO financeiro, nao prova intencao documental). 'write'
+# saiu de $finDocVerbWords (verbo documental proprio = document/explain/
+# describe/draft + flexoes). Regressoes com expectativa propria.
+$finWriteVerb = @(
+  @{ name = 'write + script de refund: CRITICAL'; task = 'write Stripe refund script'; task_class = 'implementation'; risk = 'CRITICAL'; perm = 'deny' },
+  @{ name = 'write + codigo de transacao financeira: CRITICAL'; task = 'write financial transaction code'; task_class = 'implementation'; risk = 'CRITICAL'; perm = 'deny' }
+)
+foreach ($m in $finWriteVerb) {
+  $mr = $null
+  try { $mr = Invoke-CapabilityResolve -TaskInput @{ task = [string]$m.task; task_class = [string]$m.task_class; project = @{ stack = ''; }; projectRoot = $fxEmpty } } catch { $mr = $null }
+  Assert ($null -ne $mr) ('write-verb financeiro resolve: ' + [string]$m.name)
+  if ($null -ne $mr) {
+    Assert (([string]$mr.risk.level) -ceq [string]$m.risk) ('write-verb financeiro risk ' + [string]$m.risk + ': ' + [string]$m.name) ('obtido: ' + [string]$mr.risk.level)
+    Assert (([string]$mr.permissions.recommendation) -ceq [string]$m.perm) ('write-verb financeiro perm ' + [string]$m.perm + ': ' + [string]$m.name) ('obtido: ' + [string]$mr.permissions.recommendation)
+  }
+}
 # --- 2F-FIX-DEBUGGER-R5R6: descontaminacao por metadados ---
 # Sinais de risco (isFinancial/isProd e as excecoes doc/logs-read) vem do
 # TEXTO DA TAREFA. task_class/stack (metadata) nao podem fornecer sinais que

@@ -300,3 +300,26 @@ só `and`/`then`/`;` separavam clausulas; `document procedure. refund` e
   demais combinacoes com `or`/`with` seguem como residual documentado
   (heuristica lexical, proxy text-only - promotion continua sendo decisao
   humana com evidencia).
+
+## 10.5. Apendice 2F-FIX-P2-WRITE-VERB (2026-10-08, TASK_ID 2F-FIX-P2-WRITE-VERB)
+
+Finding P2 do Codex no PR #45: `write` sozinho satisfazia o conjunto de
+verbos documentais financeiros (`$finDocVerbWords`), entao `write Stripe
+refund script` e `write financial transaction code` recebiam LOW + allow
+indevidos. `write`/`writes`/`writing`/`written` sairam do conjunto: `write`
+sozinho nao prova intencao documental (pode ser criacao de CODIGO
+financeiro). Verbo documental proprio passa a ser somente
+document/explain/describe/draft + flexoes.
+
+- **Regressoes novas** (`scripts/v3/lib/CapabilityRoutingPhase2F.tests.ps1`,
+  bloco `$finWriteVerb`, expectativa propria): `write Stripe refund script`
+  => CRITICAL + deny; `write financial transaction code` => CRITICAL + deny.
+- **Preservados**: `document Stripe refund procedure` LOW + allow (F10 do
+  corpus, usa `document`); `write setup guide`/`write README` seguem LOW e
+  docs-manager (sem mencao financeira, regra de agente inalterada); F10 sem
+  pontuacao LOW; R5/R5b; fronteira de clausulas 10.4; verdes base;
+  P1/P3/P11/P12. Corpus 2F/2D/2E intactos (nenhum caso verde dependia de
+  `write` financeiro para LOW - verificado por varredura dos corpus).
+- **Escopo**: somente a lista de verbos documentais financeiros em
+  `scripts/v3/lib/CapabilityResolver.ps1` + 2 regressoes + esta nota.
+  Agentes, matcher, flags, Core e JSONs intactos.

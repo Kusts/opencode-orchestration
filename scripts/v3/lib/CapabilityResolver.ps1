@@ -317,14 +317,21 @@ function Invoke-CapabilityResolve {
         #     fica sob clausula + alvo);
         # (2) o texto e dividido em clausulas por 'and'/'then'/';' e a excecao
         #     vale SOMENTE se TODA clausula com mencao financeira contiver
-        #     verbo documental proprio (document/explain/describe/draft/write
-        #     + flexoes; 'procedure' sozinho NAO conta: e substantivo);
+        #     verbo documental proprio (document/explain/describe/draft
+        #     + flexoes; 'write' NAO conta: 2F-FIX-P2-WRITE-VERB;
+        #     'procedure' sozinho NAO conta: e substantivo);
         # (3) alvo operacional (customer/payment/invoice/subscription/card/
         #     order + plural) tambem veta.
         $isFinancialMention = (Test-ResolverBlobHas -Blob $riskText -Words @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial'))
         $isFinancialMentionCtx = (Test-ResolverBlobHas -Blob $riskCtxText -Words @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial'))
         $finExecVeto = (Test-ResolverBlobHasExact -Blob $riskText -Words @('execute', 'executes', 'executed', 'executing', 'process', 'processes', 'processed', 'processing', 'perform', 'performs', 'performed', 'performing', 'run', 'runs', 'running', 'initiate', 'initiates', 'initiated', 'initiating', 'approve', 'approves', 'approved', 'approving', 'confirm', 'confirms', 'confirmed', 'confirming', 'submit', 'submits', 'submitted', 'submitting', 'transfer', 'transfers', 'transferred', 'transferring', 'charge', 'charges', 'charged', 'charging', 'pay', 'pays', 'paid', 'paying', 'payout', 'payouts'))
-        $finDocVerbWords = @('document', 'documents', 'documented', 'documenting', 'explain', 'explains', 'explained', 'explaining', 'describe', 'describes', 'described', 'describing', 'draft', 'drafts', 'drafted', 'drafting', 'write', 'writes', 'writing', 'written')
+        # 2F-FIX-P2-WRITE-VERB (PR #45, finding P2): 'write'/'writes'/
+        # 'writing'/'written' FORA do conjunto. 'write' sozinho NAO prova
+        # intencao documental (pode ser criacao de CODIGO financeiro:
+        # 'write Stripe refund script' / 'write financial transaction code'
+        # => CRITICAL + deny). Verbo documental proprio = document/explain/
+        # describe/draft + flexoes.
+        $finDocVerbWords = @('document', 'documents', 'documented', 'documenting', 'explain', 'explains', 'explained', 'explaining', 'describe', 'describes', 'described', 'describing', 'draft', 'drafts', 'drafted', 'drafting')
         $finMentionWords = @('refund', 'payout', 'pagamento', 'cobranca', 'stripe', 'financial')
         $isFinancialOpTarget = (Test-ResolverBlobHasExact -Blob $riskText -Words @('customer', 'customers', 'payment', 'payments', 'invoice', 'invoices', 'subscription', 'subscriptions', 'card', 'cards', 'order', 'orders'))
         # 2F-FIX-CLAUSE-SEPARATORS (plano 10.4): separadores de clausula
