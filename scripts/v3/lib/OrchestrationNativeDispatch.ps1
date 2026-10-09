@@ -19,7 +19,14 @@
     Por isso `Invoke-OrchestrationNativeDispatch` recebe um `-Executor`
     scriptblock injetado pelo chamador (harness/teste) ou e chamado pelo
     Planner apos execucao via subagent. Sem Executor, o Planner usa
-    `New-OrchestrationDispatchIntent` e executa ele mesmo.
+    `New-OrchestrationNativeDispatchIntent` e executa ele mesmo.
+
+    Nota de simbolo (R1/REV4): `New-OrchestrationDispatchIntent` e o
+    construtor do contrato ANTIGO de OrchestrationObjectiveRuntime.ps1
+    (GoalId/WorkItemId/ActionRevision). O construtor NOVO deste modulo
+    (TaskId/agent/scopes) chama-se `New-OrchestrationNativeDispatchIntent`
+    para nao colidir com o nome antigo quando as duas bibliotecas sao
+    carregadas na mesma sessao.
 
     Guarda-corpo central (Gate E): acao autorizada executa; acao nao
     autorizada e impedida ANTES de qualquer efeito externo. O Executor e
@@ -137,7 +144,7 @@ function Test-NDCriterionRef {
     catch { return $false }
 }
 
-function New-OrchestrationDispatchIntent {
+function New-OrchestrationNativeDispatchIntent {
     <#
     .SYNOPSIS
         Constroi um envelope DispatchIntent puro e validado. Sem efeito externo.
@@ -146,6 +153,8 @@ function New-OrchestrationDispatchIntent {
         `acceptance_criteria` sao refs `criterion:<idx>`. `idempotency_key`
         e fornecida (32 hex) ou derivada de forma deterministica do conteudo.
         Retorna envelope @{ok, reason, intent}; intent=$null quando invalido.
+        Nome exclusivo (R1/REV4): nao colide com `New-OrchestrationDispatchIntent`
+        do contrato antigo em OrchestrationObjectiveRuntime.ps1.
     #>
     [CmdletBinding()]
     param(
@@ -418,15 +427,67 @@ function Open-NDReceiptLock {
 }
 
 function Read-NDReceipt {
+    <#
+    .SYNOPSIS
+        Le o recibo de uma idempotency key SEM colapsar estados distintos.
+    .DESCRIPTION
+        Retorna @{ok, reason, present, receipt}. Ausencia COMPROVADA
+        (arquivo inexistente) devolve ok=$false com
+        reason='receipt-absent': esse e o UNICO caso em que um dispatch
+        novo e legitimo. Qualquer outro ok=$false significa que existe um
+        recibo que nao pode ser lido nem confiado, e o chamador DEVE
+        recusar com a razao explicita, sem sobrescrever o arquivo e sem
+        executar nada (R3/REV4):
+          receipt-absent        sem arquivo (unico caminho para dispatch novo)
+          receipt-key-invalid   key fora do formato 32 hex
+          receipt-unreadable    falha de IO ao ler o arquivo
+          receipt-json-invalid  JSON ausente/truncado/invalido
+          receipt-key-mismatch  idempotency_key divergente do nome do arquivo
+          receipt-schema-unknown schema_version nao suportado
+          receipt-phase-unknown  phase fora de settled/pending
+        Nunca lanca e nunca devolve recibo parcial.
+    #>
+    [CmdletBinding()]
     param([string]$Dir, [string]$Key)
     try {
-        $path = Join-Path $Dir ($Key + '.json')
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
-        $raw = ConvertFrom-Json ([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8))
-        if ([string](Get-NDValue $raw 'idempotency_key' '') -cne $Key) { return $null }
-        return $raw
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        if (([string]::IsNullOrWhiteSpace($Dir)) -or ($k -cnotmatch '^[a-f0-9]{32}$')) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-key-invalid'; present = $false; receipt = $null }
+        }
+        $path = Join-Path $Dir ($k + '.json')
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-absent'; present = $false; receipt = $null }
+        }
+        $text = ''
+        try { $text = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8) }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'receipt-unreadable'; present = $true; receipt = $null } }
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-json-invalid'; present = $true; receipt = $null }
+        }
+        $raw = $null
+        try { $raw = ConvertFrom-Json $text }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'receipt-json-invalid'; present = $true; receipt = $null } }
+        if ($null -eq $raw) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-json-invalid'; present = $true; receipt = $null }
+        }
+        if ([string](Get-NDValue $raw 'idempotency_key' '') -cne $k) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-key-mismatch'; present = $true; receipt = $null }
+        }
+        $sv = [long]0
+        try { $sv = [long](Get-NDValue $raw 'schema_version' $null) }
+        catch { $sv = [long]0 }
+        if ($sv -ne 1) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-schema-unknown'; present = $true; receipt = $null }
+        }
+        $phase = (([string](Get-NDValue $raw 'phase' '')).Trim().ToLowerInvariant())
+        if (@('settled', 'pending') -cnotcontains $phase) {
+            return [pscustomobject]@{ ok = $false; reason = 'receipt-phase-unknown'; present = $true; receipt = $null }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; present = $true; receipt = $raw }
     }
-    catch { return $null }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'receipt-unreadable'; present = $false; receipt = $null }
+    }
 }
 
 function Write-NDReceipt {
@@ -904,15 +965,18 @@ function Test-NDDuplicateReadIdentity {
         recibo (goal/owner/generation + task pertence ao goal, mesmo
         padrao do Confirm):
           - goal_id divergente (cross-goal) sempre recusa;
-          - mesma identidade (goal/owner/generation) permite a leitura;
+          - goal nao-ACTIVE recusa em TODOS os caminhos (R2);
+          - mesma identidade (goal/owner/generation) SO permite a leitura
+            se essa ownership ainda e a viva ATUAL (owner+geracao+lease
+            conferidos no goal relido sob o lock) (R2);
           - takeover (mesmo goal, owner/generation novos com ownership
             viva + worker_result kernel-side presente e igual campo a
             campo ao do recibo) permite a leitura com prova.
-        Sem prova, recusa. O veredito nunca inclui conteudo do recibo:
-        recusas usam uma razao unica e nao revelam worker_result nem
-        evidence_id. Nenhuma ampliacao de autoridade: leitura do
-        resultado ja persistido para o dono vivo do mesmo goal. Nunca
-        lanca.
+        Sem prova ou com ownership stale, recusa. O veredito nunca inclui
+        conteudo do recibo: recusas usam uma razao unica e nao revelam
+        worker_result nem evidence_id. Nenhuma ampliacao de autoridade:
+        leitura do resultado ja persistido para o dono vivo do mesmo
+        goal. Nunca lanca.
     #>
     [CmdletBinding()]
     param($Receipt = $null, $Authorization = $null, [string]$GoalStoreDir = '', [string]$TasksDir = '', [string]$RepoRoot = '')
@@ -968,7 +1032,26 @@ function Test-NDDuplicateReadIdentity {
         if (([string]::IsNullOrWhiteSpace($recOwner)) -or ([string]::IsNullOrWhiteSpace($authOwner)) -or ($recGen -lt 1) -or ($authGen -lt 1)) {
             return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
         }
+        # R2 (REV4): a autorizacao acontece ANTES do lock do recibo. Sem
+        # esta releitura da ownership VIVA, um token aceito no gate
+        # poderia devolver o resultado de um recibo cujo goal mudou de
+        # dono (takeover/expiracao) ou saiu de ACTIVE entre a autorizacao
+        # e a aquisicao do lock. Goal nao-ACTIVE recusa em TODOS os
+        # caminhos; o caminho direto ainda exige que o dono do recibo
+        # seja o dono vivo ATUAL (owner+geracao+lease). Mismatch recusa
+        # sem conteudo.
+        $liveState = ''
+        try { $liveState = (([string](Get-NDValue $goal 'state' '')).Trim().ToUpperInvariant()) } catch { $liveState = '' }
+        if ($liveState -cne 'ACTIVE') {
+            return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+        }
         if (($recOwner -ceq $authOwner) -and ($recGen -eq $authGen)) {
+            $liveChk = $null
+            try { $liveChk = Test-OrchestrationGoalOwnership -Goal $goal -OwnerId $recOwner -Generation $recGen }
+            catch { $liveChk = $null }
+            if (($null -eq $liveChk) -or (-not [bool](Get-NDValue $liveChk 'ok' $false)) -or (-not [bool](Get-NDValue $liveChk 'held' $false))) {
+                return [pscustomobject]@{ ok = $false; reason = 'duplicate-identity-mismatch'; takeover = $false }
+            }
             return [pscustomobject]@{ ok = $true; reason = ''; takeover = $false }
         }
         # Takeover: novo owner vivo do mesmo goal + prova kernel-side de
@@ -1102,7 +1185,16 @@ function Confirm-OrchestrationDispatchReconciliation {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'lock-busy' -Admitted $true -ExecutorCalls 0)
         }
         try {
-            $existing = Read-NDReceipt -Dir $dir -Key $key
+            $read = Read-NDReceipt -Dir $dir -Key $key
+            if (-not [bool](Get-NDValue $read 'ok' $false)) {
+                # R3: ausencia comprovada -> receipt-not-found; recibo
+                # ilegivel/invalido recusa com a razao explicita e sem
+                # sobrescrever o arquivo.
+                $readWhy = ([string](Get-NDValue $read 'reason' 'receipt-unreadable'))
+                if ($readWhy -ceq 'receipt-absent') { $readWhy = 'receipt-not-found' }
+                return (New-NDDispatchEnvelope -Ok $false -Reason $readWhy -Admitted $true -ExecutorCalls 0)
+            }
+            $existing = Get-NDValue $read 'receipt' $null
             if ($null -eq $existing) {
                 return (New-NDDispatchEnvelope -Ok $false -Reason 'receipt-not-found' -Admitted $true -ExecutorCalls 0)
             }
@@ -1233,14 +1325,19 @@ function Invoke-OrchestrationNativeDispatch {
         Ordem fixa: (a) autorizacao -> (b) admissao viva do kernel (F1:
         task existe e nao-terminal, pertence ao goal, revisoes/fencing/
         grants conferem; divergencia recusa com 0 calls) -> (c) lock do
-        recibo -> (d) vinculo de Intent (F7: mesma key com fingerprint
-        distinto = colisao, sem reuso e sem efeito) -> (e) pending
-        ambiguo (F3: sem replay automatico; exige reconciliacao externa
-        ou flag external_idempotent com prova) -> (f) recibo pending ->
-        (g) fencing pos-lock (F2: releitura IMEDIATA antes do efeito) ->
-        (h) Executor UMA vez (unico ponto de efeito externo) ->
-        (i) validacao de forma -> (j) evidence row -> (k) kernel ->
-        (l) recibo settled (falha de persistencia = erro explicito).
+        recibo -> (d) leitura do recibo (R3: ausencia comprovada segue
+        para dispatch novo; recibo ilegivel/invalido recusa com razao
+        explicita, sem sobrescrever e sem efeito) -> (e) duplicata
+        settled: IDENTIDADE antes do fingerprint (R4/SEC4: razao unica
+        'duplicate-identity-mismatch' para "existe e nao e utilizavel",
+        sem oraculo de existencia, sem worker_result/evidence_id) ->
+        (f) pending ambiguo (F3: sem replay automatico; exige
+        reconciliacao externa ou flag external_idempotent com prova) ->
+        (g) recibo pending -> (h) fencing pos-lock (F2: releitura
+        IMEDIATA antes do efeito) -> (i) Executor UMA vez (unico ponto
+        de efeito externo) -> (j) validacao de forma -> (k) evidence
+        row -> (l) kernel -> (m) recibo settled (falha de persistencia
+        = erro explicito).
         O lock de recibo e mantido durante todo o despacho. Nunca lanca.
     #>
     [CmdletBinding()]
@@ -1259,7 +1356,7 @@ function Invoke-OrchestrationNativeDispatch {
     try {
         $realIntent = Get-NDValue $Intent 'intent' $null
         if ($null -eq $realIntent) { $realIntent = $Intent }
-        $check = New-OrchestrationDispatchIntent `
+        $check = New-OrchestrationNativeDispatchIntent `
             -TaskId ([string](Get-NDValue $realIntent 'task_id' '')) `
             -TaskExpectedRevision ([long](Get-NDValue $realIntent 'task_expected_revision' 0)) `
             -Agent ([string](Get-NDValue $realIntent 'agent' '')) `
@@ -1311,18 +1408,35 @@ function Invoke-OrchestrationNativeDispatch {
             return (New-NDDispatchEnvelope -Ok $false -Reason 'lock-busy' -Admitted $true -Intent $intent -ExecutorCalls 0)
         }
         try {
-            $existing = Read-NDReceipt -Dir $dir -Key $key
-            if (($null -ne $existing) -and ([string](Get-NDValue $existing 'phase' '') -ceq 'settled')) {
-                $storedFp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
-                if ([string]::IsNullOrWhiteSpace($storedFp) -or ($storedFp -cne $fingerprint)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'idempotency-key-collision' -Admitted $true -Intent $intent -ExecutorCalls 0)
+            # R3 (REV4): ausencia COMPROVADA (sem arquivo) e o UNICO caso
+            # que segue para um dispatch novo. Recibo ilegivel/invalido
+            # (JSON truncado, key divergente, schema/fase desconhecidos)
+            # recusa com razao explicita, sem sobrescrever o arquivo e sem
+            # chamar o Executor.
+            $read = Read-NDReceipt -Dir $dir -Key $key
+            $existing = $null
+            if (-not [bool](Get-NDValue $read 'ok' $false)) {
+                $readWhy = ([string](Get-NDValue $read 'reason' 'receipt-unreadable'))
+                if ($readWhy -cne 'receipt-absent') {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason $readWhy -Admitted $true -Intent $intent -ExecutorCalls 0)
                 }
-                # FIX3-S2: antes de devolver o resultado settled, vincula
-                # a Authorization a identidade persistida no recibo. A
-                # recusa nao devolve conteudo do recibo (sem oracle).
+            }
+            else {
+                $existing = Get-NDValue $read 'receipt' $null
+            }
+            if (($null -ne $existing) -and ([string](Get-NDValue $existing 'phase' '') -ceq 'settled')) {
+                # R4/SEC4: IDENTIDADE antes do fingerprint, e uma UNICA
+                # razao de recusa para "existe um recibo que este chamador
+                # nao pode usar". Assim o envelope nao revela se a key
+                # existe nem se o recibo e do proprio chamador (sem oraculo
+                # de existencia cross-goal), e nunca carrega
+                # worker_result/evidence_id.
+                $storedFp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
+                $fpOk = ((-not [string]::IsNullOrWhiteSpace($storedFp)) -and ($storedFp -ceq $fingerprint))
                 $dupId = Test-NDDuplicateReadIdentity -Receipt $existing -Authorization $Authorization -GoalStoreDir $GoalStoreDir -TasksDir $TasksDir -RepoRoot $RepoRoot
-                if (-not [bool](Get-NDValue $dupId 'ok' $false)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'duplicate-identity-mismatch' -Admitted $true -ExecutorCalls 0 -Intent $intent)
+                $identityOk = [bool](Get-NDValue $dupId 'ok' $false)
+                if ((-not $identityOk) -or (-not $fpOk)) {
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'duplicate-identity-mismatch' -Admitted $true -Intent $intent -ExecutorCalls 0)
                 }
                 $dupReason = 'idempotent-duplicate'
                 if ([bool](Get-NDValue $dupId 'takeover' $false)) { $dupReason = 'idempotent-duplicate-takeover' }
@@ -1331,8 +1445,10 @@ function Invoke-OrchestrationNativeDispatch {
             $reconciled = $false
             if (($null -ne $existing) -and ([string](Get-NDValue $existing 'phase' '') -ceq 'pending')) {
                 $storedFp = ([string](Get-NDValue $existing 'intent_fingerprint' ''))
+                # R4/SEC4: mesma razao unica do caminho settled para
+                # "recibo existente nao utilizavel por este chamador".
                 if ([string]::IsNullOrWhiteSpace($storedFp) -or ($storedFp -cne $fingerprint)) {
-                    return (New-NDDispatchEnvelope -Ok $false -Reason 'idempotency-key-collision' -Admitted $true -Intent $intent -ExecutorCalls 0)
+                    return (New-NDDispatchEnvelope -Ok $false -Reason 'duplicate-identity-mismatch' -Admitted $true -Intent $intent -ExecutorCalls 0)
                 }
                 # R2: replay de pending consulta a declaracao ORIGINAL
                 # persistida no recibo, nao a do novo Intent. Upgrade de

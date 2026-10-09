@@ -165,7 +165,7 @@ function Invoke-OrchestrationObjectiveStep {
         Executa UM passo do objetivo. Sem loop interno, sem polling.
     .DESCRIPTION
         reconcile (le Goal) -> next-move (Get-OrchestrationGoalNextMove) ->
-        CONTINUE/RETRY: produz DispatchIntent (New-OrchestrationDispatchIntent
+        CONTINUE/RETRY: produz DispatchIntent (New-OrchestrationNativeDispatchIntent
           via -DispatchSpec) e, com -Executor, despacha via recibos; sem
           Executor retorna dispatch_intent para o Planner (subagent/task).
         COMPLETE com OBJECTIVE_COMPLETED + criterios verificados: finaliza
@@ -297,7 +297,7 @@ function Invoke-OrchestrationObjectiveStep {
             }
             $intentSlot = $null
             try {
-                $intentSlot = New-OrchestrationDispatchIntent `
+                $intentSlot = New-OrchestrationNativeDispatchIntent `
                     -TaskId ([string](Get-ALValue $spec 'task_id' '')) `
                     -TaskExpectedRevision ([long](Get-ALValue $spec 'task_expected_revision' 0)) `
                     -Agent ([string](Get-ALValue $spec 'agent' '')) `
