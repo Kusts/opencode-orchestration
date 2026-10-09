@@ -227,13 +227,23 @@ revalidada em 2026-10-08 — **985 → 991 / 0** (+6 asserts do bloco
   `scripts/v3/lib/CapabilityResolver.ps1`,
   `source/registry/capability-routing.json`.
 - `git diff --check`: **limpo**.
-- **PR: #45 aberto** — finding **P2** do Codex (`write` sozinho como verbo
+- **PR: #45 mergeado** — finding **P2** do Codex (`write` sozinho como verbo
   documental financeiro) corrigido em `d4e05cd`; Codex respondido e thread
-  resolvida.
-- **CI: sem evidência nova nesta atualização** (nomes reais dos checks
-  conforme a policy de git lifecycle; resultado de SHA anterior nunca
-  reutilizado como prova do SHA atual).
-- **Merge: PENDENTE** (método `--merge` padrão, sem squash/rewrite).
+  resolvida. Commits: `9a17af2` (refinamento advisory 2F), `df747c3`
+  (closure), `103271c` (closure atualizado com o fix P2).
+- **CI: 5/5 verde no HEAD `103271c`** — `CI (ps51)`, `CI (ps7)`,
+  `CI (smoke opencode real)`, `CI (smoke opencode v2 real)`,
+  `CI (v2 lane, perfil V2 provisionado)` (run `37866831393`).
+- **Merge: CONCLUÍDO** em `master` — merge-commit
+  `2470b186a66ea718f79d0e777c40123fa261c3e2` (2026-10-09T01:49:51Z),
+  método `--merge` padrão, sem squash/rewrite, sem force push.
+- **Flake de CI registrado (nao-2F):** na primeira execucao do HEAD `103271c`,
+  `CI (ps51)` falhou em `FIX4-2b` de
+  `OrchestrationRuntimeWatchdogEnforcement.tests.ps1` (watchdog/interrupcao
+  de processos, outro escopo, arquivo nao tocado por esta branch). O job foi
+  re-executado e passou; o HEAD anterior desta branch ja havia passado
+  `ps51` com o mesmo codigo 2F. Classificado como flake de timing, nao
+  regressao 2F — resultado nao ocultado.
 
 > Estado PR/CI/merge registrado no momento da escrita; conclusão (resultado de
 > CI, hash de merge) é responsabilidade do Planner e entra por
@@ -266,4 +276,6 @@ Codex no PR #45 corrigido (§10.5, `d4e05cd`: `write` deixa de ser verbo
 documental financeiro; 2F revalidado 991/0). Arquitetura final:
 **SHADOW + ADVISORY**; **Active HOLD**; recomendação **CONTINUE_ADVISORY**.
 Ressalva mantida: amostra pequena, sem claim de estabilidade produtiva.
-Pendências: CI/merge (a cargo do Planner; PR #45 já aberto).
+**Concluído:** PR #45 mergeado em `master` (merge-commit `2470b18`) com CI
+5/5 verde no HEAD `103271c`; flake `FIX4-2b` (watchdog, outro escopo)
+re-executado e verde, classificado e registrado na §9.
