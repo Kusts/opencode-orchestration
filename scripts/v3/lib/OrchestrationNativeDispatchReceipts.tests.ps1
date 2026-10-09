@@ -26,6 +26,18 @@
     `cmd /c mklink` and are explicitly SKIPPED (never faked) where the
     environment forbids them; cleanup removes ONLY the link, never the
     target.
+    RP3 (REV7/R1 namespace TOCTOU): the resolver validates the goal
+    namespace ONCE; `Assert-NDDirIdentity` revalidates it immediately
+    before every IO. Covered by an identity change driven from inside
+    the Executor (mid-dispatch, after resolution and after the pending
+    write) with zero write IO afterwards and the receipt left pending,
+    by direct helper calls on a REAL junctioned directory (read, write
+    and lock, with and without the captured identity) with zero IO in
+    the junction target, by a recreated directory failing the identity
+    reassert, and by a happy-path dispatch proving the checks do not
+    disturb the normal flow. The in-flight rename/junction swap itself
+    is refused by the operating system while the receipt lock
+    (FileShare.None) is held, which is stated in the test comment.
 #>
 [CmdletBinding()]
 param()
@@ -553,6 +565,125 @@ try {
         Assert-RXRefusal -Result $rLive -SpyState $liveSpy.state -Reason 'duplicate-identity-mismatch' -Name '[R2b] live owner without proof' -ReceiptPath $tkPath
         Test-RXPreserved -Path $tkPath -Before $tkBefore -Name '[R2b] refused duplicate read'
         }
+
+        # ---------- RP3 (REV7/R1): namespace TOCTOU -------------------
+        # `Resolve-NDGoalReceiptDir` valida o namespace UMA vez.
+        # `Assert-NDDirIdentity` revalida antes de cada IO. Janela
+        # residual documentada: PS 5.1 nao tem abertura kernel
+        # sem-seguir-link, entao checagem -> IO nao e atomico.
+        function New-RXSwapFixture {
+            param([string]$GoalId, [string]$TaskId, [string]$KeySeed)
+            return (New-RXLinkFixture -GoalId $GoalId -TaskId $TaskId -KeySeed $KeySeed)
+        }
+
+        # (a) dispatch: dentro do despacho, DEPOIS da resolucao e da
+        #     escrita do pending, a identidade do diretorio de recibos
+        #     deixa de conferir. O Executor e o unico ponto de
+        #     interposicao do fluxo; a troca por rename/junction DURANTE
+        #     o despacho e negada pelo proprio sistema operacional
+        #     enquanto o lock do recibo (FileShare.None) esta aberto
+        #     (verificado: Directory.Move/Delete e Move-Item falham com
+        #     "being used by another process" - o lock e a primeira
+        #     barreira). O estado que a revalidacao pega e o de
+        #     identidade DIVERGENTE: a mutacao do CreationTimeUtc
+        #     reproduz esse estado sem derrubar o lock. A escrita settled
+        #     tem de recusar antes de criar temp/Move e o recibo em
+        #     disco tem de continuar byte-a-byte o pending anterior.
+        $swapA = New-RXSwapFixture -GoalId 'rx-goal-swap-a' -TaskId 'rx-task-swap-a' -KeySeed 'rx-swap-key-a'
+        $swapADir = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-swap-a')
+        $swapAPath = Join-Path $swapADir ([string]$swapA.key + '.json')
+        $swapAState = @{ done = $false; dir = $swapADir; path = $swapAPath; before = $null }
+        $swapAExec = { param($i)
+            if (-not $swapAState.done) {
+                $swapAState.done = $true
+                # snapshot do pending ANTES de alterar a identidade
+                $swapAState.before = [IO.File]::ReadAllBytes($swapAState.path)
+                [IO.Directory]::SetCreationTimeUtc($swapAState.dir, [DateTime]::UtcNow.AddDays(-1))
+            }
+            return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
+        }.GetNewClosure()
+        $rSwapA = Invoke-OrchestrationNativeDispatch -Intent $swapA.intent.intent -Executor $swapAExec -Authorization @{ explicit_allow = $true; goal_id = 'rx-goal-swap-a'; owner = 'planner-1'; generation = [long]$swapA.gen; source = 'planner' } -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-RX (((-not [bool]$rSwapA.ok) -and ([string]$rSwapA.reason -ceq 'receipt-dir-identity-changed') -and ([int]$rSwapA.executor_calls -eq 1))) '[RP3a] identity changed mid-dispatch refuses the settled write' ([string]$rSwapA.reason + ' calls=' + [string]$rSwapA.executor_calls)
+        $swapAAfter = [IO.File]::ReadAllBytes($swapAPath)
+        $swapASame = ((@($swapAAfter).Count -eq @($swapAState.before).Count))
+        if ($swapASame) { for ($i = 0; $i -lt @($swapAAfter).Count; $i++) { if ([int]$swapAAfter[$i] -ne [int]$swapAState.before[$i]) { $swapASame = $false; break } } }
+        Assert-RX ($swapASame) '[RP3a] refusal did zero write IO after the identity change (pending bytes intact)' ('before=' + @($swapAState.before).Count + ' after=' + @($swapAAfter).Count)
+        $swapAStored = ConvertFrom-Json ([IO.File]::ReadAllText($swapAPath, [Text.Encoding]::UTF8))
+        Assert-RX (([string]$swapAStored.phase -ceq 'pending')) '[RP3a] the receipt stays pending (nothing settled under the new identity)' ([string]$swapAStored.phase)
+        $swapATemps = @(Get-ChildItem -LiteralPath $swapADir -Force -File -Filter '*.tmp' -ErrorAction SilentlyContinue)
+        Assert-RX ((@($swapATemps).Count -eq 0)) '[RP3a] no temp left behind by the refused write' ([string]@($swapATemps).Count)
+
+        # (b) helpers chamados DIRETAMENTE com diretorio junctionado: e a
+        #     mesma superficie (`Assert-NDDirIdentity` + Read/Write/Lock)
+        #     que o despacho usa, entao a recusa aqui vale para o caminho
+        #     do dispatch. A juncao representa `<hash-B>` -> `<hash-A>`
+        #     criada depois de uma resolucao contra B.
+        $directTarget = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-direct-target')
+        $directGoal = New-RXSwapFixture -GoalId 'rx-goal-direct-link' -TaskId 'rx-task-direct-link' -KeySeed 'rx-direct-key-1'
+        $directDir = Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-direct-link')
+        $directOk = $false
+        try {
+            New-Item -ItemType Directory -Path $directTarget -Force | Out-Null
+            $directOk = New-RXJunction -LinkPath $directDir -TargetPath $directTarget
+        }
+        catch { $directOk = $false }
+        if ($directOk) {
+            try {
+                $directKey = [string]$directGoal.key
+                $directRead = Read-NDReceipt -Dir $directDir -Key $directKey
+                Assert-RX (((-not [bool]$directRead.ok) -and ([string]$directRead.reason -ceq 'receipt-dir-reparse-point') -and (-not [bool]$directRead.present))) '[RP3b] direct read on a junctioned dir refuses' ([string]$directRead.reason)
+                $directRead2 = Read-NDReceipt -Dir $directDir -Key $directKey -Expected '1'
+                Assert-RX (((-not [bool]$directRead2.ok) -and ([string]$directRead2.reason -ceq 'receipt-dir-reparse-point'))) '[RP3b] direct read with Expected refuses the junction too' ([string]$directRead2.reason)
+                $directWriteRec = [ordered]@{ schema_version = 1; idempotency_key = $directKey; phase = 'pending'; task_id = 'rx-task-direct-link'; agent = 'coder'; owner = 'planner-1'; goal_id = 'rx-goal-direct-link'; ownership_generation = 1; task_expected_revision = 1; intent_fingerprint = (Get-NDIntentFingerprint -Intent $directGoal.intent.intent); external_idempotent = $false; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+                Assert-RX ((-not (Write-NDReceipt -Dir $directDir -Receipt $directWriteRec))) '[RP3b] direct write on a junctioned dir refuses' ''
+                Assert-RX ((-not (Write-NDReceipt -Dir $directDir -Receipt $directWriteRec -Expected '1'))) '[RP3b] direct write with Expected refuses the junction too' ''
+                $directLock = Open-NDReceiptLock -Dir $directDir -LockTimeoutMs 200
+                Assert-RX (($null -eq $directLock)) '[RP3b] direct lock on a junctioned dir refuses' ''
+                $directLock2 = Open-NDReceiptLock -Dir $directDir -LockTimeoutMs 200 -Expected '1'
+                Assert-RX (($null -eq $directLock2)) '[RP3b] direct lock with Expected refuses the junction too' ''
+                $directTargetFiles = @(Get-ChildItem -LiteralPath $directTarget -Force -ErrorAction SilentlyContinue)
+                Assert-RX ((@($directTargetFiles).Count -eq 0)) '[RP3b] the junction target received no IO at all (no lock, no receipt, no temp)' ([string]@($directTargetFiles).Count)
+            }
+            finally { try { Remove-RXLink -LinkPath $directDir } catch { } }
+        }
+        else { Skip-RX 'RP3b direct-helper junction fixture unavailable in this environment' }
+
+        # (c) identidade alterada: diretorio do goal RECRIADO entre a
+        #     resolucao e o IO. Com a identidade capturada, os helpers
+        #     recusam antes de qualquer IO no diretorio novo.
+        $identKey = Get-NativeDispatchHash32 'rx-identity-1'
+        $identDir = Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-1'
+        $identState = Resolve-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-1'
+        Assert-RX (([bool]$identState.ok) -and ([string]$identState.created_utc -cmatch '^[0-9]+$')) '[RP3c] resolver captures the creation identity' ([string]$identState.created_utc)
+        $identExpect = [string]$identState.created_utc
+        # caminho feliz primeiro: a identidade confere
+        $identOkRead = Read-NDReceipt -Dir $identDir -Key $identKey -Expected $identExpect
+        Assert-RX (((-not [bool]$identOkRead.ok) -and ([string]$identOkRead.reason -ceq 'receipt-absent'))) '[RP3c] matching identity still reads the receipt path' ([string]$identOkRead.reason)
+        # recria o diretorio (identidade nova) e consulta de novo
+        try { [IO.Directory]::Delete($identDir, $true) } catch { }
+        [IO.Directory]::CreateDirectory($identDir) | Out-Null
+        $identChk = Assert-NDDirIdentity -Path $identDir -Expected $identExpect
+        Assert-RX (((-not [bool]$identChk.ok) -and ([string]$identChk.reason -ceq 'receipt-dir-identity-changed'))) '[RP3c] recreated directory fails the identity reassert' ([string]$identChk.reason)
+        $identBadRead = Read-NDReceipt -Dir $identDir -Key $identKey -Expected $identExpect
+        Assert-RX (((-not [bool]$identBadRead.ok) -and ([string]$identBadRead.reason -ceq 'receipt-dir-identity-changed'))) '[RP3c] read refuses the recreated directory' ([string]$identBadRead.reason)
+        $identBadWrite = Write-NDReceipt -Dir $identDir -Expected $identExpect -Receipt ([ordered]@{ schema_version = 1; idempotency_key = $identKey; phase = 'pending'; task_id = 'rx-absent-1'; agent = 'coder'; owner = 'planner-1'; goal_id = 'rx-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = (Get-NDIntentFingerprint -Intent (New-RXIntent -Task 'rx-absent-1' -Key $identKey)); external_idempotent = $false; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) })
+        Assert-RX ((-not $identBadWrite)) '[RP3c] write refuses the recreated directory' ''
+        $identFiles = @(Get-ChildItem -LiteralPath $identDir -Force -ErrorAction SilentlyContinue)
+        Assert-RX ((@($identFiles).Count -eq 0)) '[RP3c] refused write left the recreated directory empty (no temp either)' ([string]@($identFiles).Count)
+        # diretorio inexistente tambem recusa (nao confunde com ausencia)
+        $identGone = Assert-NDDirIdentity -Path (Join-Path $receiptDir (Get-NativeDispatchHash32 'rx-goal-inexistente-xyz')) -Expected $identExpect
+        Assert-RX (((-not [bool]$identGone.ok) -and ([string]$identGone.reason -ceq 'receipt-dir-identity-changed'))) '[RP3c] missing directory is never treated as resolved' ([string]$identGone.reason)
+
+        # (d) caminho feliz inalterado: um dispatch comum segue assentando
+        #     com as revalidacoes de identidade ligadas.
+        $happyKey = Get-NativeDispatchHash32 'rx-happy-identity-1'
+        New-RXKernelTask -Id 'rx-task-happy-identity'
+        $happyIntent = New-RXIntent -Task 'rx-task-happy-identity' -Key $happyKey
+        $happySpy = New-RXSpy -Token 'candidate_pass'
+        $rHappy = Invoke-OrchestrationNativeDispatch -Intent $happyIntent.intent -Executor $happySpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-RX ((([bool]$rHappy.ok) -and ([int]$rHappy.executor_calls -eq 1) -and ([int]$happySpy.state.calls -eq 1))) '[RP3d] happy path still dispatches and settles with identity checks on' ([string]$rHappy.reason + ' calls=' + [string]$happySpy.state.calls)
+        $happyPath = Join-Path (Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-1') ($happyKey + '.json')
+        Assert-RX ((Test-Path -LiteralPath $happyPath -PathType Leaf)) '[RP3d] happy path receipt landed on the expected regular file' ''
 
         # ---------- hygiene ----------
         $rxPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'
