@@ -4,7 +4,66 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
-## [0.1.1] — 2026-10-08 — Autonomous Core Runtime Closure (PARTIAL)
+## [0.1.2] - 2026-10-09 - Native Worker Dispatch Bridge + Autonomous Continuation (PARTIAL)
+
+Branch `closure/native-dispatch-loop` (10 commits desde `a9550c1`, merge de
+`origin/master` em `23dd7c3`). Resolve a lacuna produtiva do FINAL CLOSURE
+2026-10-08: hoje **nenhum** componente do pacote inicia um worker nativo do
+OpenCode — a investigação de runtime (bins pinados 2.0.23/1.18.34) provou que
+o único executor real é o Planner LLM via ferramenta `subagent` (V2) / `task`
+(V1 dentro de sessão ativa). O wiring honesto entregue: PowerShell produz
+`DispatchIntent` validado + recibos idempotentes + driver de continuação; o
+`Executor` injetado (Planner) é o único ponto de efeito externo, invocado uma
+vez e somente após admissão. Log detalhado das rodadas de fix em
+`[Unreleased]` abaixo.
+
+- **`OrchestrationNativeDispatch.ps1` (novo):** intent validado
+  (`New-OrchestrationNativeDispatchIntent` — nome exclusivo; o construtor de
+  mesmo nome em `OrchestrationObjectiveRuntime` segue intocado),
+  autorização fail-closed antes de qualquer efeito (ownership viva + task
+  viva/não-terminal/vinculada ao goal + flag do kernel + fencing **pós-lock**),
+  recibos idempotentes com fingerprint canônico v2 de todos os campos
+  semânticos (upgrade de idempotência = colisão), isolamento por goal
+  (namespace com hash; recusa de junction/symlink/reparse e reasserção de
+  identidade antes de cada IO, incluindo cada tentativa de lock),
+  `pending` ambíguo sem replay automático (reconciliação só com prova
+  kernel-side vinculada a task/key e ownership viva sob lock) e evidência
+  persistida no store canônico.
+- **`OrchestrationAutonomousLoop.ps1` (novo):** step único (reconcile →
+  next-move → dispatch ou conclusão) + driver limitado (MaxSteps/Budget,
+  watchdog por referência, checkpoint por step, retomada sem duplicar
+  efeitos); `TASK_DONE/WAVE_DONE/PHASE_DONE != OBJECTIVE_DONE` — conclusão
+  apenas via CAS persistido do kernel, com releitura canônica obrigatória.
+- **Fase F — Evidence Store:** canônico `cache/evidence-store` unificado
+  (leitura legada `cache/reuse-store` apenas como fallback, com precedência
+  por `evidence_id` **antes** da filtragem de validade; falha canônica =
+  fail-closed, nunca reuse).
+- **Não alterado (doutrina preservada):** HOLDs do
+  `OrchestrationRuntimeAdapterContract` (`dispatchWorker`,
+  `waitForSettlement`, `requestPlannerContinuation`, `cancelAuthorizedExecution`,
+  `getSessionState`), flags do registry (`runtime_grant_enforcement` OFF),
+  TaskKernel/GoalKernel/contrato/registry.
+- **Testes:** 6 suítes novas/afetadas — PS5.1: NativeDispatch 178/178,
+  Receipts 188/188, Envelopes 39/39, AutonomousLoop 47/47, ReuseWiring 40/40,
+  StoreUnification 12/12, DispatchIntentSymbol 47/47,
+  package-consistency 16 OK/0 FAIL; PS7: 100% nas mesmas. Adversarial
+  independente 161/161 + corridas reais de identidade/junction (RP3a–RP3g).
+- **Cadeia de review:** 8 rodadas REV/SEC (7 findings → R1-R6 → S1-S2 →
+  R1-R4 → F1-F4 → reparse → TOCTOU → lock/cleanup), cada uma corrigida com
+  testes de regressão; evidência em
+  `evidence/v3.1/runtime-reliability/native-dispatch-closure-2026-10-09.json`.
+- **Veredito: PARTIAL CLOSURE** — gates B/C/E/F provados em nível de
+  harness com garantias adversariais; aceitação runtime-real completa
+  (sessão substituída consumindo objetivo, turn de modelo) segue dependente
+  de provider; `dispatchWorker` nativo permanece HOLD por prova
+  arquitetural, não por pendência de código.
+
+Foi detectado que o arquivo `VERSION` transitou em `0.1.0` desde `2daa6af`
+e não acompanhou a tag `v0.1.1` (`301ab59`, PR #41 — o commit da tag não
+alterou o arquivo). Correção nesta entrega: `VERSION` passa a `0.1.2`
+(próxima versão desta mudança; tags existentes não reescritas).
+
+## [0.1.1] - 2026-10-08 - Autonomous Core Runtime Closure (PARTIAL)
 
 Fechamento corretivo JOB44 + programa PR-1..PR-6 (+PR-6b) sobre a base
 `closure/v0.1.1-job44-stable-core`. Merge PR #41 em `301ab59`

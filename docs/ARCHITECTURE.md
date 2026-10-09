@@ -125,6 +125,46 @@ e devolve ao Planner. Retorno compacto (`TASK_ID`, `STATUS`,
 `RECOMMENDATION`); Reviewer termina `APPROVED`/`CHANGES_REQUIRED`, Tester
 `PASS`/`FAIL`.
 
+## Native Worker Dispatch bridge (v0.1.2, 2026-10-09)
+
+Os contratos de dispatch acima são **advisory**: eles descrevem o que um
+worker deve receber, não criam o worker. A investigação das superfícies
+pinadas (V1 `1.18.34`, V2 `2.0.23`) demonstrou que o único executor real de
+workers é o **Planner LLM dentro de uma sessão ativa** (ferramenta `subagent`
+no V2, `task` no V1): nenhum endpoint HTTP/CLI/plugin cria worker filho
+com prompt+agente e devolve handle de execução; a criação de sessão filha
+existe, mas o trabalho só entra pelo loop do modelo. Por isso
+`dispatchWorker`, `waitForSettlement`, `requestPlannerContinuation`,
+`cancelAuthorizedExecution` e `getSessionState` continuam em HOLD no
+`OrchestrationRuntimeAdapterContract` — não por pendência de código, mas
+por impossibilidade comprovada de spawn fora do modelo.
+
+O bridge produtivo (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) fecha
+o que é eficazmente endereçável por script:
+
+```text
+Planner (LLM)
+  -> New-OrchestrationNativeDispatchIntent   (intent validado, prompt so como hash)
+  -> Invoke-OrchestrationNativeDispatch       (autorizacao antes de qualquer efeito:
+                                                ownership viva + task viva/vinculada ao goal
+                                                + kernel flag + fencing pos-lock)
+  -> recibo idempotente persistido (namespace por goal)   [pending]
+  -> Executor (scriptblock confiavel = chamada subagent pelo Planner)  [efeito unico]
+  -> resultado validado (candidate_pass|failed|blocked)
+  -> evidencia no store canonico + Set-OrchestrationTaskWorkerResult
+  -> recibo [settled]  -> duplicata idempotente (identidade revalidada)
+```
+
+`OrchestrationAutonomousLoop.ps1` adiciona a continuação: cada step
+reconcilia, consulta o next-move (controller/kernel) e despacha ou conclui;
+o driver é limitado (MaxSteps + orçamento + watchdog por referência +
+checkpoint por step). Regra central: `TASK_DONE/WAVE_DONE/PHASE_DONE !=
+OBJECTIVE_DONE` — conclusão apenas por CAS persistido do GoalKernel com
+releitura canônica bem-sucedida. `pending` ambíguo (crash entre efeito e
+recibo) nunca dá replay automático: exige reconciliação explícita com prova
+kernel-side vinculada à task/key. Detalhes e residuais documentados em
+`evidence/v3.1/runtime-reliability/native-dispatch-closure-2026-10-09.json`.
+
 ## V3 (router, registry, flags)
 
 - **Router shadow/off por padrão**: `source/registry/capability-flags.json`
