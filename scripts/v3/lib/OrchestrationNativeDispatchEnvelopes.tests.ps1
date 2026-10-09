@@ -103,6 +103,16 @@ try {
                 -Owner 'planner-1' -OwnershipGeneration $script:genText -BaseRevision 'rev-a')
         }
 
+        function New-EVReceiptPath {
+            param([string]$GoalId, [string]$Key)
+            try {
+                # F3/REV5: recibos isolados por goal autorizado.
+                $sub = Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId $GoalId
+                return (Join-Path $sub ($Key + '.json'))
+            }
+            catch { return (Join-Path $receiptDir ($Key + '.json')) }
+        }
+
         New-EVKernelTask -Id 'ev-task-1'
         New-EVKernelTask -Id 'ev-task-2'
 
@@ -113,22 +123,36 @@ try {
         $spy = { param($i) $st.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $rOk = Invoke-OrchestrationNativeDispatch -Intent $goodIntent.intent -Executor $spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-EV ([bool]$rOk.ok) '[F] shared key settles once' ([string]$rOk.reason)
-        $recPath = Join-Path $receiptDir ($key + '.json')
+        $recPath = (New-EVReceiptPath -GoalId 'ev-goal-1' -Key $key)
         $before = [IO.File]::ReadAllBytes($recPath)
 
-        # ---------- refusal A: identity mismatch (fingerprint MATCHES) ----------
+        # ---------- refusal A: cross-goal probe (receipt lives elsewhere) ----------
         # Same intent (so the fingerprint equals the stored one) presented
-        # by the owner of a DIFFERENT goal: the receipt exists, the caller
-        # is not entitled to it.
+        # by the owner of a DIFFERENT goal. F3/REV5: the receipts are
+        # namespaced per goal, so this caller resolves ITS OWN path, does
+        # not find the key and follows the normal admission path (which
+        # refuses on the live kernel facts). The existence of the receipt
+        # in the other goal is NOT observable.
         $stA = @{ calls = 0 }
         $spyA = { param($i) $stA.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $envA = Invoke-OrchestrationNativeDispatch -Intent $goodIntent.intent -Executor $spyA -Authorization $authForeign -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
-        Assert-EV (((-not [bool]$envA.ok) -and ([string]$envA.reason -ceq 'duplicate-identity-mismatch') -and ([int]$envA.executor_calls -eq 0) -and ([int]$stA.calls -eq 0))) '[A] identity mismatch refuses with 0 calls' (([string]$envA.reason) + ' calls=' + [string]$stA.calls)
-        Assert-EV ((-not [bool]$envA.duplicate)) '[A] identity mismatch is not a duplicate read' ''
+        Assert-EV (((-not [bool]$envA.ok) -and ([int]$envA.executor_calls -eq 0) -and ([int]$stA.calls -eq 0) -and (-not [bool]$envA.duplicate))) '[A] cross-goal probe refuses with 0 calls' (([string]$envA.reason) + ' calls=' + [string]$stA.calls)
+        Assert-EV (([string]$envA.reason -cne 'duplicate-identity-mismatch') -and ([string]$envA.reason -cne 'idempotent-duplicate')) '[A] cross-goal probe never reports an existing receipt' ([string]$envA.reason)
+
+        # ---------- refusal A2: a key that never existed, SAME input ----------
+        # The oracle test: with the same Authorization and the same
+        # task/revision, probing a key that exists in ANOTHER goal must be
+        # indistinguishable from probing a key that was never used.
+        $neverIntent = New-EVIntent -Task 'ev-task-1' -Key (Get-NativeDispatchHash32 'ev-never-used-1')
+        Assert-EV ([bool]$neverIntent.ok) '[A2] never-used key intent built' ([string]$neverIntent.reason)
+        $stA2 = @{ calls = 0 }
+        $spyA2 = { param($i) $stA2.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $envA2 = Invoke-OrchestrationNativeDispatch -Intent $neverIntent.intent -Executor $spyA2 -Authorization $authForeign -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-EV (((-not [bool]$envA2.ok) -and ([int]$envA2.executor_calls -eq 0) -and ([int]$stA2.calls -eq 0))) '[A2] never-used key refuses with 0 calls' (([string]$envA2.reason) + ' calls=' + [string]$stA2.calls)
 
         # ---------- refusal B: fingerprint mismatch (identity MATCHES) ----------
         # Same key, same owner/goal, divergent intent: the receipt exists
-        # but does not match this dispatch.
+        # in the caller's own namespace and does not match this dispatch.
         $divergent = New-EVIntent -Task 'ev-task-2' -Key $key
         Assert-EV ([bool]$divergent.ok) '[B] divergent intent built for the same key' ([string]$divergent.reason)
         $stB = @{ calls = 0 }
@@ -137,21 +161,24 @@ try {
         Assert-EV (((-not [bool]$envB.ok) -and ([string]$envB.reason -ceq 'duplicate-identity-mismatch') -and ([int]$envB.executor_calls -eq 0) -and ([int]$stB.calls -eq 0))) '[B] fingerprint mismatch refuses with 0 calls' (([string]$envB.reason) + ' calls=' + [string]$stB.calls)
         Assert-EV ((-not [bool]$envB.duplicate)) '[B] fingerprint mismatch is not a duplicate read' ''
 
-        # ---------- the two refusals are indistinguishable ----------
+        # ---------- the two boundary refusals are indistinguishable ----------
+        # A (key exists in another goal) vs A2 (key never used): field by
+        # field identical for the SAME input. No existence oracle.
         $fields = @('ok', 'reason', 'admitted', 'duplicate', 'reconciled', 'executor_calls', 'worker_result', 'kernel_ok', 'kernel_reason', 'evidence_created', 'evidence_id')
         foreach ($f in $fields) {
             $va = Get-NDValue $envA $f $null
-            $vb = Get-NDValue $envB $f $null
+            $vb = Get-NDValue $envA2 $f $null
             $sa = '<null>'
             $sb = '<null>'
             if ($null -ne $va) { $sa = [string]$va }
             if ($null -ne $vb) { $sb = [string]$vb }
-            Assert-EV ($sa -ceq $sb) ('[R4] refusal envelopes agree on ' + $f) ($sa + ' vs ' + $sb)
+            Assert-EV ($sa -ceq $sb) ('[F3] existing-elsewhere and absent agree on ' + $f) ($sa + ' vs ' + $sb)
         }
         # no oracle: neither refusal carries receipt content
-        Assert-EV (($null -eq (Get-NDValue $envA 'worker_result' $null)) -and ($null -eq (Get-NDValue $envB 'worker_result' $null))) '[R4] both refusals carry no worker_result' ''
-        Assert-EV ((([string](Get-NDValue $envA 'evidence_id' '')) -ceq '') -and (([string](Get-NDValue $envB 'evidence_id' '')) -ceq '')) '[R4] both refusals carry no evidence_id' ''
-        Assert-EV ((-not [bool](Get-NDValue $envA 'evidence_created' $true)) -and (-not [bool](Get-NDValue $envB 'evidence_created' $true))) '[R4] both refusals claim no evidence' ''
+        Assert-EV (($null -eq (Get-NDValue $envA 'worker_result' $null)) -and ($null -ceq (Get-NDValue $envA2 'worker_result' $null))) '[F3] both boundary refusals carry no worker_result' ''
+        Assert-EV ((([string](Get-NDValue $envA 'evidence_id' '')) -ceq '') -and (([string](Get-NDValue $envA2 'evidence_id' '')) -ceq '')) '[F3] both boundary refusals carry no evidence_id' ''
+        Assert-EV ((-not [bool](Get-NDValue $envA 'evidence_created' $true)) -and (-not [bool](Get-NDValue $envA2 'evidence_created' $true))) '[F3] both boundary refusals claim no evidence' ''
+        Assert-EV (([string]$envA.reason -cne [string]$envB.reason)) '[F3] same-namespace mismatch is a distinct, documented state from a foreign probe' ([string]$envA.reason + ' vs ' + [string]$envB.reason)
 
         # ---------- the settled receipt was never touched ----------
         $after = [IO.File]::ReadAllBytes($recPath)

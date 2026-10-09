@@ -94,6 +94,16 @@ try {
         }
         $script:phText = $ph
 
+        function New-RXReceiptPath {
+            param([string]$GoalId, [string]$Key)
+            try {
+                # F3/REV5: recibos isolados por goal autorizado.
+                $sub = Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId $GoalId
+                return (Join-Path $sub ($Key + '.json'))
+            }
+            catch { return (Join-Path $receiptDir ($Key + '.json')) }
+        }
+
         function New-RXSpy {
             param([string]$Token = 'candidate_pass')
             $st = @{ calls = 0 }
@@ -129,7 +139,7 @@ try {
         $absentSpy = New-RXSpy -Token 'candidate_pass'
         $rAbsent = Invoke-OrchestrationNativeDispatch -Intent $absentIntent.intent -Executor $absentSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-RX (([bool]$rAbsent.ok) -and ([int]$rAbsent.executor_calls -eq 1) -and ([int]$absentSpy.state.calls -eq 1)) '[R3a] proven absence (no file) allows a fresh dispatch' ([string]$rAbsent.reason)
-        $absentPath = Join-Path $receiptDir ($absentKey + '.json')
+        $absentPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $absentKey)
         $absentRec = ConvertFrom-Json ([IO.File]::ReadAllText($absentPath, [Text.Encoding]::UTF8))
         Assert-RX (([string]$absentRec.phase -ceq 'settled') -and ([bool]$absentRec.ok)) '[R3a] fresh dispatch settles its own receipt' ([string]$absentRec.phase)
 
@@ -137,7 +147,7 @@ try {
         $badKey = Get-NativeDispatchHash32 'rx-truncated-1'
         New-RXKernelTask -Id 'rx-task-trunc'
         $truncIntent = New-RXIntent -Task 'rx-task-trunc' -Key $badKey
-        $truncPath = Join-Path $receiptDir ($badKey + '.json')
+        $truncPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $badKey)
         $truncText = '{"schema_version":1,"idempotency_key":"' + $badKey + '","phase":"pend'
         [IO.File]::WriteAllText($truncPath, $truncText, [Text.UTF8Encoding]::new($false))
         $truncBefore = [IO.File]::ReadAllBytes($truncPath)
@@ -151,7 +161,7 @@ try {
         $otherKey = Get-NativeDispatchHash32 'rx-keydiv-other'
         New-RXKernelTask -Id 'rx-task-keydiv'
         $divIntent = New-RXIntent -Task 'rx-task-keydiv' -Key $divKey
-        $divPath = Join-Path $receiptDir ($divKey + '.json')
+        $divPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $divKey)
         $divRec = [ordered]@{
             schema_version = 1; idempotency_key = $otherKey; phase = 'pending'
             task_id = 'rx-task-keydiv'; agent = 'coder'; owner = 'planner-1'
@@ -171,7 +181,7 @@ try {
         $schKey = Get-NativeDispatchHash32 'rx-schema-1'
         New-RXKernelTask -Id 'rx-task-schema'
         $schIntent = New-RXIntent -Task 'rx-task-schema' -Key $schKey
-        $schPath = Join-Path $receiptDir ($schKey + '.json')
+        $schPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $schKey)
         $schRec = [ordered]@{
             schema_version = 2; idempotency_key = $schKey; phase = 'pending'
             task_id = 'rx-task-schema'; agent = 'coder'; owner = 'planner-1'
@@ -205,7 +215,7 @@ try {
                 created_at = ([DateTime]::UtcNow.ToString('o'))
             }
             if ($null -ne $pc.phase) { $pcRec['phase'] = ([string]$pc.phase) }
-            $pcPath = Join-Path $receiptDir ($pcKey + '.json')
+            $pcPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $pcKey)
             [IO.File]::WriteAllText($pcPath, (ConvertTo-Json -InputObject $pcRec -Compress), [Text.UTF8Encoding]::new($false))
             $pcBefore = [IO.File]::ReadAllBytes($pcPath)
             $pcSpy = New-RXSpy
@@ -218,13 +228,86 @@ try {
         $recKey = Get-NativeDispatchHash32 'rx-reconcile-bad-1'
         New-RXKernelTask -Id 'rx-task-recbad'
         $recIntent = New-RXIntent -Task 'rx-task-recbad' -Key $recKey
-        $recPath = Join-Path $receiptDir ($recKey + '.json')
+        $recPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $recKey)
         [IO.File]::WriteAllText($recPath, '{"schema_version":1,"idempotency_key":"' + $recKey + '","phase":"pend', [Text.UTF8Encoding]::new($false))
         $recBefore = [IO.File]::ReadAllBytes($recPath)
         $badOutcome = @{ ok = $true; reason = 'invented'; worker_result = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }; kernel_ok = $true; kernel_reason = 'invented'; evidence_created = $true; evidence_id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
         $rRecBad = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $recKey -Outcome $badOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
         Assert-RX (((-not [bool]$rRecBad.ok) -and ([string]$rRecBad.reason -ceq 'receipt-json-invalid') -and ([int]$rRecBad.executor_calls -eq 0))) '[R3g] reconciliation refuses an unreadable receipt' ([string]$rRecBad.reason)
         Test-RXPreserved -Path $recPath -Before $recBefore -Name '[R3g] reconciliation of unreadable receipt'
+
+        # ---------- F1 (REV5): fase variante e canonicalizada na leitura ----------
+        # Antes do fix, a leitura normalizava a fase para decidir se o
+        # recibo era valido, mas DEVOLVIA o objeto original. O consumidor
+        # comparava a forma bruta com -ceq 'pending'/'settled' e um recibo
+        # 'PENDING' ou ' pending ' escorregava para o caminho de dispatch
+        # novo: recibo existente + Executor chamado (efeito duplicado).
+        $f1Cases = @(
+            @{ tag = '[F1a] SETTLED (maiusculas)'; seed = 'rx-f1-settled'; task = 'rx-task-f1a'; phase = 'SETTLED'; expect = 'idempotent-duplicate' }
+            @{ tag = '[F1b] pending (minusculas)'; seed = 'rx-f1-pending'; task = 'rx-task-f1b'; phase = 'pending'; expect = 'pending-ambiguous' }
+            @{ tag = '[F1c] pending com padding'; seed = 'rx-f1-pad'; task = 'rx-task-f1c'; phase = ' pending '; expect = 'pending-ambiguous' }
+        )
+        foreach ($f1 in @($f1Cases)) {
+            $f1Key = Get-NativeDispatchHash32 ([string]$f1.seed)
+            New-RXKernelTask -Id ([string]$f1.task)
+            $f1Intent = New-RXIntent -Task ([string]$f1.task) -Key $f1Key
+            $f1Dir = Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-1'
+            $f1Path = Join-Path $f1Dir ($f1Key + '.json')
+            $f1Rec = [ordered]@{
+                schema_version = 1; idempotency_key = $f1Key
+                phase = ([string]$f1.phase)
+                task_id = ([string]$f1.task); agent = 'coder'; owner = 'planner-1'
+                goal_id = 'rx-goal-1'; ownership_generation = $gen; task_expected_revision = 1
+                intent_fingerprint = (Get-NDIntentFingerprint -Intent $f1Intent.intent)
+                external_idempotent = $false; reconciled = $false
+                created_at = ([DateTime]::UtcNow.ToString('o'))
+            }
+            [IO.File]::WriteAllText($f1Path, (ConvertTo-Json -InputObject $f1Rec -Compress), [Text.UTF8Encoding]::new($false))
+            $f1Before = [IO.File]::ReadAllBytes($f1Path)
+            $readF1 = Read-NDReceipt -Dir $f1Dir -Key $f1Key
+            $f1RecObj = Get-NDValue $readF1 'receipt' $null
+            $f1Canon = ([string]$f1.phase).Trim().ToLowerInvariant()
+            $f1Phase = [string](Get-NDValue $f1RecObj 'phase' '')
+            $f1Task = [string](Get-NDValue $f1RecObj 'task_id' '')
+            $f1Fp = [string](Get-NDValue $f1RecObj 'intent_fingerprint' '')
+            Assert-RX ((([bool]$readF1.ok) -and ($f1Phase -ceq $f1Canon) -and ($f1Task -ceq ([string]$f1.task)) -and ($f1Fp -cmatch '^[a-f0-9]{32}$'))) ([string]$f1.tag + ' is read as the canonical phase, other fields preserved') ([string]$readF1.reason + ' phase=' + $f1Phase)
+            $f1Spy = New-RXSpy
+            $rF1 = Invoke-OrchestrationNativeDispatch -Intent $f1Intent.intent -Executor $f1Spy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+            Assert-RXRefusal -Result $rF1 -SpyState $f1Spy.state -Reason ([string]$f1.expect) -Name ([string]$f1.tag) -ReceiptPath $f1Path
+            Test-RXPreserved -Path $f1Path -Before $f1Before -Name ([string]$f1.tag)
+        }
+
+        # ---------- F2 (REV5): entrada nao-arquivo no caminho do recibo ----------
+        # <key>.json como diretorio nao pode ser confundido com ausencia:
+        # Move-Item -Force moveria o temporario para DENTRO do diretorio e
+        # devolveria sucesso, admitindo o Executor sem recibo persistido.
+        New-RXKernelTask -Id 'rx-task-dirreceipt'
+        $dirKey = Get-NativeDispatchHash32 'rx-receipt-dir-1'
+        $dirIntent = New-RXIntent -Task 'rx-task-dirreceipt' -Key $dirKey
+        $dirGoal = Get-NDGoalReceiptDir -RootDir $receiptDir -GoalId 'rx-goal-1'
+        $dirPath = Join-Path $dirGoal ($dirKey + '.json')
+        New-Item -ItemType Directory -Path $dirPath -Force | Out-Null
+        $decoyPath = Join-Path $dirPath 'decoy.json'
+        [IO.File]::WriteAllText($decoyPath, '{"decoy":true}', [Text.UTF8Encoding]::new($false))
+        $dirSpy = New-RXSpy
+        $rDirPath = Invoke-OrchestrationNativeDispatch -Intent $dirIntent.intent -Executor $dirSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-RX (((-not [bool]$rDirPath.ok) -and ([string]$rDirPath.reason -ceq 'receipt-not-regular') -and ([int]$rDirPath.executor_calls -eq 0) -and ([int]$dirSpy.state.calls -eq 0))) '[F2] directory on the receipt path refuses with 0 calls' ([string]$rDirPath.reason + ' calls=' + [string]$dirSpy.state.calls)
+        Assert-RX (($null -eq $rDirPath.worker_result) -and ([string]$rDirPath.evidence_id -ceq '')) '[F2] directory refusal leaks no content' ''
+        Assert-RX ((Test-Path -LiteralPath $dirPath -PathType Container)) '[F2] the receipt path stays a directory' ''
+        Assert-RX ((Test-Path -LiteralPath $decoyPath -PathType Leaf) -and (@(Get-ChildItem -LiteralPath $dirPath -Force).Count -eq 1)) '[F2] no temp was moved inside the directory' ''
+        $readDir = Read-NDReceipt -Dir $dirGoal -Key $dirKey
+        Assert-RX (((-not [bool]$readDir.ok) -and ([string]$readDir.reason -ceq 'receipt-not-regular') -and ([bool]$readDir.present))) '[F2] reading a non-regular entry is not absence' ([string]$readDir.reason)
+        # escrita exige destino EXATAMENTE arquivo
+        $dirWriteRec = [ordered]@{ schema_version = 1; idempotency_key = $dirKey; phase = 'pending'; task_id = 'rx-task-dirreceipt'; agent = 'coder'; owner = 'planner-1'; goal_id = 'rx-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = (Get-NDIntentFingerprint -Intent $dirIntent.intent); external_idempotent = $false; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        Assert-RX ((-not (Write-NDReceipt -Dir $dirGoal -Receipt $dirWriteRec))) '[F2] write refuses to target a directory' ''
+        Assert-RX ((Test-Path -LiteralPath $dirPath -PathType Container) -and (@(Get-ChildItem -LiteralPath $dirPath -Force).Count -eq 1)) '[F2] refused write moved nothing and left no temp' ''
+        $okWriteKey = Get-NativeDispatchHash32 'rx-receipt-okwrite-1'
+        $okWriteRec = [ordered]@{ schema_version = 1; idempotency_key = $okWriteKey; phase = 'pending'; task_id = 'rx-task-dirreceipt'; agent = 'coder'; owner = 'planner-1'; goal_id = 'rx-goal-1'; ownership_generation = $gen; task_expected_revision = 1; intent_fingerprint = (Get-NDIntentFingerprint -Intent $dirIntent.intent); external_idempotent = $false; reconciled = $false; created_at = ([DateTime]::UtcNow.ToString('o')) }
+        Assert-RX (Write-NDReceipt -Dir $dirGoal -Receipt $okWriteRec) '[F2] write to a fresh destination succeeds' ''
+        $okWritePath = Join-Path $dirGoal ($okWriteKey + '.json')
+        Assert-RX ((Test-Path -LiteralPath $okWritePath -PathType Leaf)) '[F2] fresh write lands exactly on the expected regular file' ''
+        $okWriteBack = [IO.File]::ReadAllText($okWritePath, [Text.Encoding]::UTF8)
+        Assert-RX (($okWriteBack.IndexOf($okWriteKey, [StringComparison]::Ordinal) -ge 0)) '[F2] the persisted file holds the receipt key' ''
 
         # ---------- R2a: goal left ACTIVE refuses the settled duplicate ----------
         New-RXKernelTask -Id 'rx-task-pause'
@@ -238,7 +321,7 @@ try {
         Assert-RX ([bool]$pause.ok) '[R2a] goal paused after the settled receipt' ([string]$pause.reason)
         $pausedSpy = New-RXSpy
         $rPausedDup = Invoke-OrchestrationNativeDispatch -Intent $pauseIntent.intent -Executor $pausedSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
-        Assert-RXRefusal -Result $rPausedDup -SpyState $pausedSpy.state -Reason 'duplicate-identity-mismatch' -Name '[R2a] non-ACTIVE goal' -ReceiptPath (Join-Path $receiptDir ($pauseKey + '.json'))
+        Assert-RXRefusal -Result $rPausedDup -SpyState $pausedSpy.state -Reason 'duplicate-identity-mismatch' -Name '[R2a] non-ACTIVE goal' -ReceiptPath ((New-RXReceiptPath -GoalId 'rx-goal-1' -Key $pauseKey))
         Assert-RX ((-not [bool]$rPausedDup.duplicate)) '[R2a] non-ACTIVE goal is not a duplicate read' ''
         $resumeLive = Get-OrchestrationGoal -GoalId 'rx-goal-1' -StoreDir $goalDir
         $resume = Set-OrchestrationGoalStatePersisted -GoalId 'rx-goal-1' -ToState 'ACTIVE' -ExpectedRevision ([long]$resumeLive.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen
@@ -274,7 +357,7 @@ try {
         $tkEvil = New-RXSpy -Token 'verified_pass'
         $rTk1 = Invoke-OrchestrationNativeDispatch -Intent $tkIntent.intent -Executor $tkEvil.spy -Authorization @{ explicit_allow = $true; goal_id = 'rx-goal-take'; owner = 'planner-1'; generation = $genTk; source = 'planner' } -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-RX (((-not [bool]$rTk1.ok) -and ([string]$rTk1.reason -ceq 'status-not-allowed-from-worker'))) '[R2b] takeover receipt settles as failure (no worker result)' ([string]$rTk1.reason)
-        $tkPath = Join-Path $receiptDir ($tkKey + '.json')
+        $tkPath = (New-RXReceiptPath -GoalId 'rx-goal-take' -Key $tkKey)
         if (-not (Test-Path -LiteralPath $tkPath -PathType Leaf)) {
             # Fixture failure (e.g. lease lost during setup): report one
             # clear assertion instead of aborting the whole suite.
