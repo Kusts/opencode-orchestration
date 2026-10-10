@@ -25,10 +25,10 @@ não uma amostra inventada.
 ```text
 initial master: b38c92bc8b3ab334a9dffad609f3515350336061 (origin/master no fetch inicial)
 branch: feat/capability-advisory-observability-phase-2g
-feature HEAD: follow-up dos findings Codex validado localmente; commit/push pendentes
+feature HEAD: `5ebadf729c2dd49af8dcb22acd6521f22fdf5aec` (fix findings Codex)
 PR: #54 — https://github.com/Kusts/opencode-orchestration/pull/54 (OPEN)
-CI: run 38001403498 passou nos cinco checks para SHA 66835d0; novo SHA exigirá nova execução
-review: Reviewer APPROVED no recorte final de seleção; Security Reviewer APPROVED na revisão final do coletor; Tester validou a suíte e regressões abaixo
+CI: run 38010954938 passou nos cinco checks para SHA 5ebadf7
+review: findings Codex #54 corrigidos; revisão independente final indisponível por limite de uso dos subagentes — REVIEW_FALLBACK; review/security anteriores são anteriores aos fixes
 merge commit: N/A
 final master: não revalidado após a concorrência; nenhum merge executado
 ```
@@ -185,8 +185,8 @@ alterado pelo trabalho 2G; suítes históricas podem produzir telemetria em
 
 ## Commits, PR e veredito
 
-**Follow-up de review do PR #54 (2026-10-09, rodada 2):** os quatro findings
-pendentes do review foram endereçados localmente no coletor e na suíte: (1) renomeação do
+**Follow-up de review do PR #54 (2026-10-09):** os quatro findings pendentes
+do review automatizado foram corrigidos no commit `5ebadf7`: (1) renomeação do
 conjunto local em `Get-AdvisoryIdentifierArray` (sem coincidência de nome
 insensível à caixa com `$SetName`), com testes de agentes/skills/profiles/
 MCPs conhecidos e arrays de claim fornecidos; (2) confinamento de caminho com
@@ -197,15 +197,14 @@ mais de 64 caracteres), sem ecoar nome/valor; (4)
 `uncorrelated_observation_keys` passa a contar toda chave distinta aceita,
 inclusive a ambígua (a emissão de claim conflitante segue omitida). A suíte
 2G fecha em 446/446 em PS 5.1 e em PS 7 (`schema_version` permanece 3; nenhuma
-chave do relatório foi acrescentada ou removida). As threads não foram
-marcadas como resolvidas; depois do push do follow-up, aguardar CI do novo SHA.
-Nenhum merge foi executado.
+chave do relatório foi acrescentada ou removida). Os cinco checks do GitHub
+passaram no run 38010954938 para este SHA. As threads não foram marcadas como
+resolvidas nesta etapa; nenhum merge foi executado.
 
-Commits anteriores: `2e581d1` (plano), `c1139a4` (coletor, suíte e relatório),
-`ffc9055` (closure) e `66835d0` (PR/CI). O follow-up dos findings Codex está
-validado localmente; commit/push em separado. O PR #54 permanece aberto. A CI
-do SHA `66835d0` passou nos cinco checks; o novo SHA precisará executar CI
-novamente após push. `origin/master` foi revalidado e continua em
+Commits: `2e581d1` (plano), `c1139a4` (coletor, suíte e relatório),
+`ffc9055` (closure), `66835d0` (PR/CI) e `5ebadf7` (fix findings Codex). O
+PR #54 permanece aberto. A CI do SHA `5ebadf7` passou nos cinco checks.
+`origin/master` foi revalidado e continua em
 `b38c92bc8b3ab334a9dffad609f3515350336061`. Nenhum merge foi executado. A
 outra sessão do Autonomous Core permaneceu isolada; os
 arquivos `source/adapters/opencode.md` e

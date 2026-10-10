@@ -391,14 +391,15 @@ desta revisão:
     `UNAVAILABLE / NO_VALID_RESOLVER_ROWS`, porque não havia resolver JSONL
     novo. Métricas requeridas são `NOT_OBSERVABLE`; avaliação geral
     `PARTIAL — INSUFFICIENT_REAL_WORLD_DATA`.
-  - **G6 — parcial (ambiente)**: coletor 401/401 em PS 5.1 e PS 7; 2D 372/0,
+  - **G6 — validação verde; review final REVIEW_FALLBACK**: coletor 446/446
+    em PS 5.1 e PS 7 após corrigir os quatro findings Codex; 2D 372/0,
     2E 408/408, 2F 991/0, distribuição 20 PASS/0 FAIL/1 SKIP e consistência
-    16/0. Reviewer aprovou o finding final de seleção; Security Reviewer
-    aprovou com resíduos TOCTOU/hardlink documentados. Runner V3 completo:
-    81 PASS/4 FAIL/6 SKIP; três falhas dependem do hash externo `DE22307F` e
-    uma do nome do worktree `-2g`. Os seis skips são ambientais. `git diff
-    --check` limpo. PR #54 aberto; os cinco checks estavam pendentes na última
-    consulta (run 38001327140).
+    16/0. Review/security APPROVED anteriores cobriam o estado anterior aos
+    fixes Codex; revisão independente final indisponível por limite de uso dos
+    subagentes, portanto status `REVIEW_FALLBACK`. Runner V3 completo anterior
+    aos fixes: 81 PASS/4 FAIL/6 SKIP; falhas ambientais estão na closure. Após
+    os fixes, cinco checks reais do GitHub passaram no run 38010954938 (SHA
+    5ebadf7). `git diff --check` limpo.
 
 | Gate | Requisito | Depende de | Evidência exigida |
 |------|-----------|------------|-------------------|
@@ -755,16 +756,16 @@ observacional. A suíte 2G deve manter esses números verdes (G6).
   operador**.
 - **Recomendação**: `COLLECT_MORE_REAL_DATA`; **Active segue HOLD**; **flags
   UNCHANGED (OFF)**; **Planner/Kernel authority UNCHANGED**.
-- **Workflow**: implementação, testes e closure locais concluídos; commits
-  locais publicados na branch isolada e PR #54 aberto para `master`. Na última
-  consulta, os cinco checks reais do GitHub estavam `pending` (run 38001327140);
-  nenhum CI verde ou merge é afirmado. O merge permanece pendente.
+- **Workflow**: implementation/closure publicados na branch isolada; PR #54
+  aberto para `master`. Os cinco checks do SHA `5ebadf7` passaram (run
+  38010954938); nenhum merge foi executado. Findings Codex corrigidos, mas
+  threads ainda sem resolução formal e revisão independente final classificada
+  `REVIEW_FALLBACK` por limite de uso dos subagentes.
 - **Dívida explícita (não mascarada)**: zero observações reais novas; não há
   contrato de correlação com runtime. O relatório em `evidence/` registra a
-  ausência de input (`UNAVAILABLE`), não dados sintéticos. Revisões independentes
-  aprovam o finding final e a segurança, com limitações TOCTOU/hardlink
-  explicitadas na closure; runner V3 completo mantém failures ambientais
-  documentados (§4 e closure).
+  ausência de input (`UNAVAILABLE`), não dados sintéticos. Limitações
+  TOCTOU/hardlink explicitadas na closure; o runner V3 completo no ambiente
+  local manteve failures ambientais documentados (§4 e closure).
 
 ---
 
