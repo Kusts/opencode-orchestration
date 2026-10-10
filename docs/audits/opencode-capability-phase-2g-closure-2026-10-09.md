@@ -25,12 +25,12 @@ não uma amostra inventada.
 ```text
 initial master: b38c92bc8b3ab334a9dffad609f3515350336061 (origin/master no fetch inicial)
 branch: feat/capability-advisory-observability-phase-2g
-feature HEAD: `5ebadf729c2dd49af8dcb22acd6521f22fdf5aec` (fix findings Codex)
+feature HEAD: `38105be89aee657cc542500b01ded850697f553e` (closure/status; fixes in parent `5ebadf7`)
 PR: #54 — https://github.com/Kusts/opencode-orchestration/pull/54 (OPEN)
-CI: run 38010954938 passou nos cinco checks para SHA 5ebadf7
-review: findings Codex #54 corrigidos; revisão independente final indisponível por limite de uso dos subagentes — REVIEW_FALLBACK; review/security anteriores são anteriores aos fixes
+CI: run 38013128672 — 5/5 checks PASS após rerun do job PS7 no mesmo SHA
+review: 4 threads Codex corrigidas/resolvidas; revisão independente final indisponível por limite de uso dos subagentes — REVIEW_FALLBACK; approvals anteriores são anteriores aos fixes
 merge commit: N/A
-final master: não revalidado após a concorrência; nenhum merge executado
+final master: `b38c92bc8b3ab334a9dffad609f3515350336061` no último fetch; nenhum merge executado
 ```
 
 O PR #54 foi aberto/publicado nesta branch isolada. O checkout principal
@@ -131,7 +131,7 @@ permission bypass: nenhum; flags/contratos não alterados
 dispatch interference: nenhuma; leitor offline, sem dispatch ou execução externa
 session isolation: sem correlação entre sessões; não há prova de isolamento produtivo nova
 secret leakage: canários sintéticos cobertos; campos inesperados, IDs e nomes de arquivo não são refletidos
-review: Reviewer APPROVED no finding final de seleção; Security Reviewer APPROVED com resíduos TOCTOU/hardlink documentados
+review: 4 threads Codex corrigidas/resolvidas; revisão independente final indisponível por limite de uso — REVIEW_FALLBACK; approvals anteriores precedem os fixes
 ```
 
 Resíduo de segurança: a checagem de reparse antecede a abertura, portanto não é
@@ -150,7 +150,7 @@ Executado no worktree isolado em PowerShell 5.1 e pwsh 7:
 | `tests/distribution/capability-routing-phase2d.tests.ps1` | 372 PASS / 0 FAIL |
 | `scripts/test-package-consistency.ps1` | 16 OK / 0 FAIL; flags routing OFF |
 | `tests/distribution/run-distribution-tests.ps1` | 20 PASS / 0 FAIL / 1 SKIP (live-hook V2, requisito ambiental) |
-| `scripts/v3/run-v3-tests.ps1` completo | 81 PASS / 4 FAIL / 6 SKIP / 91; exit 1 |
+| `scripts/v3/run-v3-tests.ps1` local anterior aos fixes | 81 PASS / 4 FAIL / 6 SKIP / 91; exit 1 |
 | `git diff --check` | limpo após as últimas alterações |
 
 Os quatro failures do runner V3 completo são ambientais, não atribuídos ao 2G:
@@ -161,6 +161,13 @@ SKIPs são guards/pré-requisitos ambientais. O run completo terminou todas as
 suítes, inclusive o coletor 2G. Nenhum dado do usuário, adapter ou registry foi
 alterado pelo trabalho 2G; suítes históricas podem produzir telemetria em
 `cache/`, conforme seu próprio contrato.
+
+No GitHub, ambos os runners completos passaram no estado final: **PS 5.1
+82 PASS/0 FAIL/9 SKIP** e **PS 7 82 PASS/0 FAIL/9 SKIP**. O primeiro attempt
+do PS 7 falhou em `F3-tree: interrupt SETTLED`; a mesma suíte isolada em pwsh
+local passou **421/421**, e o rerun do job PS 7 no mesmo SHA passou. A causa
+não foi provada; é um cenário de timing de processos, não do coletor. Os cinco
+checks do PR ficaram verdes.
 
 ## Eficiência e segurança operacional
 
@@ -202,8 +209,9 @@ passaram no run 38010954938 para este SHA. As threads não foram marcadas como
 resolvidas nesta etapa; nenhum merge foi executado.
 
 Commits: `2e581d1` (plano), `c1139a4` (coletor, suíte e relatório),
-`ffc9055` (closure), `66835d0` (PR/CI) e `5ebadf7` (fix findings Codex). O
-PR #54 permanece aberto. A CI do SHA `5ebadf7` passou nos cinco checks.
+`ffc9055` (closure), `66835d0` (PR/CI), `5ebadf7` (fix findings Codex) e
+`38105be` (status/CI). O PR #54 permanece aberto. A CI do SHA `38105be`
+passou nos cinco checks após rerun do PS 7 no mesmo SHA.
 `origin/master` foi revalidado e continua em
 `b38c92bc8b3ab334a9dffad609f3515350336061`. Nenhum merge foi executado. A
 outra sessão do Autonomous Core permaneceu isolada; os
