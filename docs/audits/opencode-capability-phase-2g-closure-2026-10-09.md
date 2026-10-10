@@ -25,19 +25,17 @@ não uma amostra inventada.
 ```text
 initial master: b38c92bc8b3ab334a9dffad609f3515350336061 (origin/master no fetch inicial)
 branch: feat/capability-advisory-observability-phase-2g
-feature HEAD: `ffc905578a60d807d32eab039ccf80bc4ea7a18e` (closure local; PR #54 inicial em CI)
+feature HEAD: follow-up dos findings Codex validado localmente; commit/push pendentes
 PR: #54 — https://github.com/Kusts/opencode-orchestration/pull/54 (OPEN)
-CI: workflow run 38001327140; os cinco checks reais estavam PENDING na última consulta
+CI: run 38001403498 passou nos cinco checks para SHA 66835d0; novo SHA exigirá nova execução
 review: Reviewer APPROVED no recorte final de seleção; Security Reviewer APPROVED na revisão final do coletor; Tester validou a suíte e regressões abaixo
 merge commit: N/A
 final master: não revalidado após a concorrência; nenhum merge executado
 ```
 
-O pedido fornecido inclui abertura de PR. Esta closure foi registrada antes da
-publicação; o checkout principal compartilhado continua pertencendo à frente
-Autonomous Core e não foi alterado. Push/PR/merge devem usar esta branch isolada
-e revalidar `origin/master` imediatamente antes de abrir/integrar. Não se declara
-PR, CI ou merge inexistente.
+O PR #54 foi aberto/publicado nesta branch isolada. O checkout principal
+compartilhado continua pertencendo à frente Autonomous Core e não foi alterado.
+Nenhum merge foi executado; `origin/master` segue no baseline verificado.
 
 ## Escopo e arquitetura observada
 
@@ -146,7 +144,7 @@ Executado no worktree isolado em PowerShell 5.1 e pwsh 7:
 
 | Comando | Resultado |
 |---|---|
-| `CapabilityAdvisoryCollector.tests.ps1` | 401/401 PASS em PS 5.1 e PS 7 |
+| `CapabilityAdvisoryCollector.tests.ps1` | 446/446 PASS em PS 5.1 e PS 7 (pós-findings Codex) |
 | `CapabilityRoutingPhase2F.tests.ps1` | 991 PASS / 0 FAIL |
 | `CapabilityRealWorldPhase2E.tests.ps1` | 408/408 PASS |
 | `tests/distribution/capability-routing-phase2d.tests.ps1` | 372 PASS / 0 FAIL |
@@ -187,11 +185,27 @@ alterado pelo trabalho 2G; suítes históricas podem produzir telemetria em
 
 ## Commits, PR e veredito
 
-Commits locais: `2e581d1` (plano), `c1139a4` (coletor, suíte e relatório) e
-`ffc9055` (closure). A branch foi publicada e o PR #54 aberto conforme o
-pedido. No momento desta atualização, os checks estão pendentes; qualquer
-mudança neste follow-up documental altera o SHA e poderá iniciar nova execução
-de CI. `origin/master` foi revalidado após os commits e continua em
+**Follow-up de review do PR #54 (2026-10-09, rodada 2):** os quatro findings
+pendentes do review foram endereçados localmente no coletor e na suíte: (1) renomeação do
+conjunto local em `Get-AdvisoryIdentifierArray` (sem coincidência de nome
+insensível à caixa com `$SetName`), com testes de agentes/skills/profiles/
+MCPs conhecidos e arrays de claim fornecidos; (2) confinamento de caminho com
+comparação própria da plataforma (Windows `OrdinalIgnoreCase`, Unix
+`Ordinal`); (3) `dropped_input_keys_count`/`sensitive_keys_dropped` passam a
+cobrir toda propriedade desconhecida de primeira nível (Unicode e nomes com
+mais de 64 caracteres), sem ecoar nome/valor; (4)
+`uncorrelated_observation_keys` passa a contar toda chave distinta aceita,
+inclusive a ambígua (a emissão de claim conflitante segue omitida). A suíte
+2G fecha em 446/446 em PS 5.1 e em PS 7 (`schema_version` permanece 3; nenhuma
+chave do relatório foi acrescentada ou removida). As threads não foram
+marcadas como resolvidas; depois do push do follow-up, aguardar CI do novo SHA.
+Nenhum merge foi executado.
+
+Commits anteriores: `2e581d1` (plano), `c1139a4` (coletor, suíte e relatório),
+`ffc9055` (closure) e `66835d0` (PR/CI). O follow-up dos findings Codex está
+validado localmente; commit/push em separado. O PR #54 permanece aberto. A CI
+do SHA `66835d0` passou nos cinco checks; o novo SHA precisará executar CI
+novamente após push. `origin/master` foi revalidado e continua em
 `b38c92bc8b3ab334a9dffad609f3515350336061`. Nenhum merge foi executado. A
 outra sessão do Autonomous Core permaneceu isolada; os
 arquivos `source/adapters/opencode.md` e

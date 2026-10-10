@@ -545,6 +545,31 @@ removida; só semântica mais honesta de contadores já existentes):
   orçamento: EOF exatamente no último byte do orçamento não é truncamento e
   a linha final completa é aceita.
 
+**Revisão 4 (follow-up de review do PR #54): `schema_version` permanece 3**
+(nenhuma chave acrescentada ou removida; três correções de comportamento e
+uma de portabilidade):
+
+- **Confinamento com comparação própria da plataforma**: no Windows a
+  comparação de caminho continua ordinal **insensível** à caixa (NTFS); em
+  Unix passa a ordinal **sensível** à caixa — `/TMP/x` não é confinado por
+  `/tmp`. A checagem de Windows não foi afrouxada; os asserts de Unix rodam
+  condicionados à plataforma.
+- **`dropped_input_keys_count` / `sensitive_keys_dropped`**: passam a cobrir
+  **toda** propriedade de primeiro nível fora da allowlist, inclusive nome
+  com Unicode ou com mais de 64 caracteres (antes essas chaves desapareciam
+  antes da contagem). Nenhum nome/valor é ecoado: a saída da contagem segue
+  sendo apenas inteiro. Invariante: `dropped + sensitive` = propriedades
+  desconhecidas de primeira nível.
+- **`uncorrelated_observation_keys`**: passa a contar **todas** as chaves
+  distintas aceitas de observação, inclusive a ambígua. A ambiguidade segue
+  impedindo a **emissão** do claim conflitante (`supplied_claims`), nunca a
+  contagem da chave lida.
+- **`Get-AdvisoryIdentifierArray`**: conjunto local renomeado para eliminar
+  qualquer coincidência de nome (insensível à caixa) com o parâmetro
+  `$SetName` — coincidência sobrescreveria o parâmetro e transformaria todo
+  identificador conhecido em `INVALID_IDENTIFIER`. Testes travam agentes,
+  skills, profiles e MCPs conhecidos (e os arrays de claim fornecidos).
+
 **Limites honestos deste disclosure (não mascarados):**
 
 - `files_skipped_by_limit` conta **entradas de caminho candidato** não
@@ -663,7 +688,8 @@ Reversão = remover os arquivos net-new, o relatório de status e a linha
   **sem** correlação entre streams.
 - `scripts/v3/lib/CapabilityAdvisoryCollector.tests.ps1` **(novo)** — suíte
   determinística (read-only, offline, ausência de correlação, quarentena,
-  `PARTIAL`). Estado: **401 asserts / 0 falhas / 0 skips em PS 5.1 e PS 7**
+  `PARTIAL`). Estado (follow-up de review do PR #54, revisão 4):
+  **446 asserts / 0 falhas / 0 skips em PS 5.1 e PS 7**
   (inclusive sob carga de CPU), incluindo orçamento compartilhado
   multi-arquivo/multi-stream, fronteira exata do orçamento de bytes (linha
   de exatamente `total_bytes`, com/sem terminador, aceita; `cap+1`
@@ -672,7 +698,13 @@ Reversão = remover os arquivos net-new, o relatório de status e a linha
   selecionado e o mesmo caminho pedido nos dois streams), enumeração
   limitada com contagem de omitidos, fixture adversária de aspas escapadas,
   performance medida por escala contra baseline menor e determinismo
-  comparado com processo filho separado (PS 5.1 ↔ PS 7).
+  comparado com processo filho separado (PS 5.1 ↔ PS 7). A revisão 4
+  acrescentou: identificadores conhecidos (agentes/skills/profiles/MCPs e
+  claims fornecidos) contra regressão de colisão de nome, confinamento com
+  comparação de caixa própria da plataforma (asserts de Unix condicionados à
+  plataforma), contagem de toda propriedade desconhecida (Unicode / >64
+  caracteres, com verificação de não-vazamento) e contagem de chave ambígua em
+  `uncorrelated_observation_keys` (emissão de claim conflitante segue omitida).
 
 **Também entregues neste request:**
 

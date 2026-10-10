@@ -23,8 +23,10 @@
       - Projecao por allowlist: saida apenas com identificador opaco, enums
         fechados e identificadores conhecidos. Campos desconhecidos, texto
         livre, nomes de arquivo/caminho, nomes de chave de entrada e valores
-        sensiveis nunca fluem para o relatorio: chave desconhecida vira
-        CONTAGEM (dropped_input_keys_count), nunca nome.
+        sensiveis nunca fluem para o relatorio: TODA chave desconhecida de
+        primeiro nivel (inclusive nome Unicode ou com mais de 64 caracteres)
+        vira CONTAGEM (dropped_input_keys_count / sensitive_keys_dropped),
+        nunca nome.
       - Identificador de capability so passa se existir na allowlist fechada
         de capabilities conhecidas (agents/skills/profiles/mcps). Um canario
         disfarcado de identificador (ex.: 'sk-...') e rejeitado com
@@ -269,14 +271,45 @@ function Get-AdvisoryAllowedRoots {
     return @($roots)
 }
 
+function Test-AdvisoryIsWindowsPlatform {
+    <#
+    .SYNOPSIS
+        True no Windows (comparacao de caminho INSENSIVEL a caixa).
+    .DESCRIPTION
+        Nao usa $IsWindows (variavel automatica somente do PS 7): em PS 5.1
+        ela nao existe e -not $IsWindows seria verdadeiro no Windows.
+        Environment.OSVersion.Platform existe no .NET Framework (PS 5.1) e no
+        .NET Core (PS 7): Windows devolve Win32NT; Linux/macOS devolvem Unix.
+        Excecao (praticamente inalcancavel) preserva a semantica Windows.
+    #>
+    [CmdletBinding()]
+    param()
+    try { return ([Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) }
+    catch { return $true }
+}
+
 function Test-AdvisoryPathUnderRoot {
+    <#
+    .SYNOPSIS
+        True se FullPath esta sob Root, com comparacao propria da plataforma.
+    .DESCRIPTION
+        Windows (NTFS, case-insensitive): comparacao ordinal INSENSIVEL a
+        caixa - raiz e caminho podem divergir apenas na caixa e ainda apontar
+        para o mesmo arquivo; exigir caixa identica recusaria entrada legitima.
+        Unix (ext4 e afins, case-SENSITIVE): comparacao ordinal SENSIVEL a
+        caixa - la /TMP e /tmp sao diretorios distintos e tratar /TMP/x como
+        sob /tmp seria confinamento falso. Os dois lados chegam normalizados
+        por Get-AdvisoryFullPath.
+    #>
     [CmdletBinding()]
     param([string]$FullPath = '', [string]$Root = '')
     if ([string]::IsNullOrWhiteSpace($FullPath) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
     try {
         $sep = [IO.Path]::DirectorySeparatorChar
         $prefix = $Root.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + $sep
-        return $FullPath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+        $cmp = [System.StringComparison]::Ordinal
+        if (Test-AdvisoryIsWindowsPlatform) { $cmp = [System.StringComparison]::OrdinalIgnoreCase }
+        return $FullPath.StartsWith($prefix, $cmp)
     }
     catch { return $false }
 }
@@ -471,7 +504,13 @@ function Get-AdvisoryStringField {
 function Get-AdvisoryJsonKeys {
     <#
     .SYNOPSIS
-        Chaves de primeiro nivel do objeto (somente charset seguro).
+        TODOS os nomes de primeiro nivel do objeto (sem filtro de charset).
+    .DESCRIPTION
+        A contagem de projecao precisa cobrir TODA propriedade desconhecida,
+        inclusive nome com Unicode ou com mais de 64 caracteres: filtrar por
+        charset aqui faria a chave desaparecer ANTES da conta e o relatorio
+        sub-notificaria entrada desconhecida. Nenhum nome sai daqui: o unico
+        consumidor (Get-AdvisoryRowProjectionCounts) devolve apenas inteiros.
     #>
     [CmdletBinding()]
     param($Node = $null)
@@ -480,12 +519,12 @@ function Get-AdvisoryJsonKeys {
     try {
         if ($Node -is [System.Collections.IDictionary]) {
             foreach ($k in @($Node.Keys)) {
-                if ("$k" -cmatch '^[A-Za-z0-9._-]{1,64}$') { [void]$keys.Add([string]$k) }
+                [void]$keys.Add([string]$k)
             }
         }
         else {
             foreach ($p in @($Node.PSObject.Properties)) {
-                if ($p.Name -cmatch '^[A-Za-z0-9._-]{1,64}$') { [void]$keys.Add([string]$p.Name) }
+                [void]$keys.Add([string]$p.Name)
             }
         }
     }
@@ -723,18 +762,21 @@ function Get-AdvisoryIdentifierArray {
     $raw = @()
     try { $raw = @($Value) } catch { return $fail }
     if ($raw.Count -gt $MaxItems) { return @{ ok = $false; items = @(); reason = 'OVERSIZED_ARRAY' } }
-    # $set (HashSet local) e $SetName (parametro) sao propositadamente distintos:
-    # nome de variavel no PowerShell nao distingue caixa.
-    $set = New-Object 'System.Collections.Generic.HashSet[string]'
+    # Nome de variavel no PowerShell NAO distingue caixa: qualquer coalescao
+    # local com nome semelhante ao do parametro ($SetName, $Set, ...) sobrescreveria
+    # o parametro dentro do mesmo escopo e TODO identificador conhecido viraria
+    # INVALID_IDENTIFIER. O conjunto local usa nome unico, sem relacao de caixa
+    # com $SetName.
+    $identifierSet = New-Object 'System.Collections.Generic.HashSet[string]'
     foreach ($item in $raw) {
         if ($item -isnot [string]) { return $fail }
         $s = [string]$item
         if (-not (Test-AdvisoryIdentifier -Value $s)) { return $fail }
         if ($s.Length -gt 64) { return $fail }
         if (-not (Test-AdvisoryKnownCapabilityId -Value $s -SetName $SetName -Allowlist $Allowlist)) { return $fail }
-        [void]$set.Add($s.Trim())
+        [void]$identifierSet.Add($s.Trim())
     }
-    return @{ ok = $true; items = @(Get-AdvisorySortedStrings -Values @($set)); reason = '' }
+    return @{ ok = $true; items = @(Get-AdvisorySortedStrings -Values @($identifierSet)); reason = '' }
 }
 
 function Get-AdvisoryReadKeyNames {
@@ -901,12 +943,16 @@ function Test-AdvisoryRawRootIsObject {
 function Get-AdvisoryRowProjectionCounts {
     <#
     .SYNOPSIS
-        Conta chaves fora da allowlist. Nenhum nome de chave e devolvido.
+        Conta TODA chave de primeiro nivel fora da allowlist. Nenhum nome e devolvido.
     .DESCRIPTION
         Nome de chave de entrada e dado do produtor: ecoa-lo no relatorio
         seria um canal de vazamento (canario em nome de propriedade). Por isso
         a saida e apenas contagem: dropped (fora da allowlist, nao sensivel) e
         sensitive (nome com padrao sensivel, tambem contado e nao ecoado).
+        A contagem cobre TODA propriedade desconhecida - inclusive nome com
+        Unicode ou com mais de 64 caracteres: filtro de charset nesta altura
+        faria a chave sumir ANTES da conta. Invariante: dropped + sensitive =
+        numero de propriedades de primeiro nivel fora da allowlist.
     #>
     [CmdletBinding()]
     param($Node = $null, [string[]]$AllowKeys = @())
@@ -1986,8 +2032,13 @@ function Get-AdvisoryCollectorReport {
     # chaves nao correlacionadas ficam explicitas e honestas.
     $uniqueResolverKeys = New-Object 'System.Collections.Generic.HashSet[string]'
     foreach ($rec in @($acc.resolverRecords)) { [void]$uniqueResolverKeys.Add([string]$rec['task_key']) }
+    # Contagem de chaves de observacao NAO correlacionadas: TODA chave distinta
+    # ACEITA entra, inclusive a ambigua. A ambiguidade impede a EMISSAO do claim
+    # (nenhum dos claims conflitantes e escolhido), mas a chave foi lida e
+    # aceita: omiti-la aqui seria sub-contar observacao real. A emissao de claim
+    # continua omitindo a chave conflitante mais abaixo.
     $uniqueObsKeys = New-Object 'System.Collections.Generic.HashSet[string]'
-    foreach ($k in @($obsByKey.Keys)) { [void]$uniqueObsKeys.Add([string]$k) }
+    foreach ($k in @($obsLists.Keys)) { [void]$uniqueObsKeys.Add([string]$k) }
 
     # Claims fornecidos emitidos (chaves nao ambiguas), com cap proprio e total
     # real antes do cap: emitted nunca substitui o total e truncation so e true

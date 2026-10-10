@@ -9,6 +9,8 @@
         repo ou TEMP), recusa de reparse point/junction em qualquer componente,
         recusa de telemetria de kernel (events-*.jsonl), recusa de arquivo
         ausente, arquivo fora da raiz e limite de arquivos/bytes/linhas;
+        comparacao de caminho propria da plataforma (Windows case-insensitive,
+        Unix case-sensitive: /TMP/x nao e confinado por /tmp);
       - leitura streaming linear e limitada POR BYTES: leitor proprio que conta
         bytes/linhas realmente examinados, guarda no maximo line_bytes por
         linha, trata UTF-8/CRLF/BOM e falha fechado em decodificacao invalida,
@@ -19,7 +21,8 @@
       - projecao por allowlist: task_id opaco de 16 hex, enums fechados, arrays
         de identificadores CONHECIDOS (allowlist de capabilities); campo
         desconhecido, nome de chave de entrada, nome de arquivo e valor
-        sensivel nunca fluem para o relatorio (viram contagem);
+        sensivel nunca fluem para o relatorio (viram contagem - TODA chave
+        desconhecida conta, inclusive nome Unicode ou com >64 caracteres);
       - sem coercao: campo textual exige JSON string (id numerico rejeitado);
         linha que repetir nome de campo LIDO e rejeitada (DUPLICATE_KEY),
         inclusive com escape JSON ('task\u005fid' === 'task_id');
@@ -46,7 +49,8 @@
         fornecida (nao existe escopo comum): blocos separados, claims
         SUPPLIED_UNVERIFIED, campos de observacao NOT_OBSERVABLE;
       - claim conflitante para a mesma chave => AMBIGUO (nenhum claim
-        escolhido); repeticao identica deduplica;
+        escolhido, mas a chave ambigua segue contada como observacao nao
+        correlacionada); repeticao identica deduplica;
       - observacao fornecida exige provenance 'supplied', fica
         SUPPLIED_UNVERIFIED e nunca vira prova de acordo/adesao/sucesso;
       - relatorio PARTIAL sem observacoes externas, metricas indisponiveis
@@ -244,6 +248,29 @@ if ($junctionOk) {
     Assert ([int]$rLink.counts.resolver_records_valid -eq 0) 'arquivo atras de junction nao e lido'
 }
 else { Skip-That 'junction no caminho => FAILED_CLOSED' 'mklink /J indisponivel neste host' }
+
+# ---- B2. confinamento: comparacao propria da plataforma --------------------
+# Windows (NTFS case-insensitive): raiz e caminho podem diverger so na caixa e
+# ainda apontar para o mesmo arquivo. Unix (ext4 case-SENSITIVE): /TMP/x NAO
+# esta sob /tmp - trataria diretorio outro como confinado. Os asserts de
+# Windows seguem intactos; os de Unix rodam condicionados a plataforma.
+$confUnderFile = Join-Path $telDir 'resolver-20261009.jsonl'
+Assert (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root $telDir) 'caminho exatamente sob a raiz e confinado' $confUnderFile
+Assert (-not (Test-AdvisoryPathUnderRoot -FullPath $workDir -Root $telDir)) 'diretorio PAI da raiz nao e confinado'
+Assert (-not (Test-AdvisoryPathUnderRoot -FullPath (Join-Path (Join-Path $workDir 'telemetry-outra') 'resolver.jsonl') -Root $telDir)) 'prefixo de diretorio irmao (telemetry-outra) nao e confinado'
+Assert (-not (Test-AdvisoryPathUnderRoot -FullPath (Join-Path $telDir 'resolver.jsonl') -Root (Join-Path $workDir 'telemetry-outra'))) 'raiz irma nao confina arquivo da telemetry'
+Assert (-not (Test-AdvisoryPathUnderRoot -FullPath '' -Root $telDir)) 'caminho vazio nunca e confinado'
+Assert (-not (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root '')) 'raiz vazia nunca confina'
+if (Test-AdvisoryIsWindowsPlatform) {
+    Assert (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root $telDir.ToUpperInvariant()) 'Windows: TRUE confina variante so de caixa (OrdinalIgnoreCase preservado)'
+    Assert (-not (Test-AdvisoryPathUnderRoot -FullPath (Join-Path $workDir 'fora-da-raiz.jsonl') -Root $telDir)) 'Windows: caminho fora da raiz continua recusado'
+}
+else {
+    Assert (-not (Test-AdvisoryPathUnderRoot -FullPath '/TMP/x.jsonl' -Root '/tmp')) 'Unix: /TMP/x NAO esta sob /tmp (Ordinal, caixa importa)'
+    Assert (Test-AdvisoryPathUnderRoot -FullPath '/tmp/x.jsonl' -Root '/tmp') 'Unix: /tmp/x esta sob /tmp'
+    Assert (-not (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root $telDir.ToUpperInvariant())) 'Unix: raiz com caixa diferente NAO confina (Ordinal)'
+    Assert (-not (Test-AdvisoryPathUnderRoot -FullPath (Join-Path $telDir 'resolver.jsonl') -Root '/TMP')) 'Unix: raiz /TMP nao confina caminho real em /tmp'
+}
 
 $limits = Get-AdvisoryCollectorLimits
 Assert ([int]$limits.files -ge 1 -and [int]$limits.records -ge 1 -and [int]$limits.line_bytes -ge 1) 'limites padrao positivos'
@@ -815,6 +842,42 @@ $rNestedDup = Get-AdvisoryCollectorReport -ResolverPaths @($nestedDupFile)
 Assert ([int]$rNestedDup.counts.resolver_records_valid -eq 0) 'nome lido repetido em objeto aninhado rejeita a linha (fail-closed)'
 Assert (@($rNestedDup.rejection_reasons.resolver.Keys) -ccontains 'DUPLICATE_KEY') 'motivo DUPLICATE_KEY para repeticao aninhada'
 
+# ---- C3. identificadores CONHECIDOS: agentes/skills/profiles/MCPs normais ---
+# Regressao de colisao de nome de variavel: nenhum local do conjunto pode
+# coalescer com o parametro $SetName (nome de variavel no PowerShell NAO
+# distingue caixa). Se coalescesse, TODO identificador conhecido - inclusive
+# agentes/skills/profiles/MCPs legitimos do resolver e os arrays de claim
+# fornecidos - viraria INVALID_IDENTIFIER.
+$knownAllow = Get-AdvisoryCapabilityAllowlist -RepoRoot $RepoRoot
+Assert $knownAllow.ok 'allowlist de capabilities carregada para os casos de identificador'
+$knownAgentIds = Get-AdvisoryIdentifierArray -Value @('reviewer', 'coder', 'reviewer') -MaxItems 16 -SetName 'agents' -Allowlist $knownAllow
+Assert $knownAgentIds.ok 'agentes conhecidos normais sao aceitos (nunca INVALID_IDENTIFIER)' ([string]$knownAgentIds.reason)
+Assert ((@($knownAgentIds.items) -join ',') -ceq 'coder,reviewer') 'itens deduplicados e ordenados ordinalmente' (@($knownAgentIds.items) -join ',')
+$knownSkillIds = Get-AdvisoryIdentifierArray -Value @('requesting-code-review', 'verification-before-completion') -SetName 'skills' -Allowlist $knownAllow
+Assert $knownSkillIds.ok 'skills conhecidos normais sao aceitos' ([string]$knownSkillIds.reason)
+Assert ((@($knownSkillIds.items) -join ',') -ceq 'requesting-code-review,verification-before-completion') 'skills conhecidos devolvidos na integra' (@($knownSkillIds.items) -join ',')
+$knownProfileIds = Get-AdvisoryIdentifierArray -Value @('core', 'research') -SetName 'profiles' -Allowlist $knownAllow
+Assert $knownProfileIds.ok 'profiles conhecidos normais sao aceitos' ([string]$knownProfileIds.reason)
+Assert ((@($knownProfileIds.items) -join ',') -ceq 'core,research') 'profiles conhecidos devolvidos na integra' (@($knownProfileIds.items) -join ',')
+$knownMcpIds = Get-AdvisoryIdentifierArray -Value @('context7', 'jev') -SetName 'mcps' -Allowlist $knownAllow
+Assert $knownMcpIds.ok 'MCPs conhecidos normais sao aceitos' ([string]$knownMcpIds.reason)
+Assert ((@($knownMcpIds.items) -join ',') -ceq 'context7,jev') 'MCPs conhecidos devolvidos na integra' (@($knownMcpIds.items) -join ',')
+$knownEmptyIds = Get-AdvisoryIdentifierArray -Value @() -SetName 'agents' -Allowlist $knownAllow
+Assert $knownEmptyIds.ok 'array vazio de identificadores continua aceito' ([string]$knownEmptyIds.reason)
+Assert (@($knownEmptyIds.items).Count -eq 0) 'array vazio devolve zero itens'
+Assert (-not (Get-AdvisoryIdentifierArray -Value 'reviewer' -SetName 'agents' -Allowlist $knownAllow).ok) 'escalar string nunca e aceito no lugar do array'
+$unknownIdArray = Get-AdvisoryIdentifierArray -Value @('reviewer', 'agente-inventado') -SetName 'agents' -Allowlist $knownAllow
+Assert (-not $unknownIdArray.ok) 'identificador fora da allowlist continua rejeitado'
+Assert ($unknownIdArray.reason -ceq 'INVALID_IDENTIFIER') 'motivo INVALID_IDENTIFIER preservado para identificador desconhecido' ([string]$unknownIdArray.reason)
+# claims fornecidos (observacao): arrays conhecidos passam pela MESMA allowlist
+$claimKnown = Convert-AdvisoryObservationRow -Node (('{"provenance":"supplied","task_key":"abcdef0123456789","claimed_agent":"reviewer","claimed_skills":["requesting-code-review"],"claimed_mcps":["context7"]}') | ConvertFrom-Json) -Allowlist $knownAllow
+Assert $claimKnown.ok 'observacao fornecida com agent/skills/MCPs conhecidos e aceita' ([string]$claimKnown.reason)
+Assert ((@($claimKnown.record.claimed_mcps) -join ',') -ceq 'context7') 'claimed_mcps conhecido sobrevive a projecao' (@($claimKnown.record.claimed_mcps) -join ',')
+Assert ((@($claimKnown.record.claimed_skills) -join ',') -ceq 'requesting-code-review') 'claimed_skills conhecido sobrevive a projecao' (@($claimKnown.record.claimed_skills) -join ',')
+$claimUnknown = Convert-AdvisoryObservationRow -Node (('{"provenance":"supplied","task_key":"abcdef0123456789","claimed_agent":"agente-inventado"}') | ConvertFrom-Json) -Allowlist $knownAllow
+Assert (-not $claimUnknown.ok) 'claim com agente desconhecido continua rejeitado'
+Assert ($claimUnknown.reason -ceq 'INVALID_IDENTIFIER') 'motivo INVALID_IDENTIFIER para claim desconhecido' ([string]$claimUnknown.reason)
+
 # ---- D. projecao por allowlist (sem texto livre/segredo) --------------------
 $leakLine = '{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":["requesting-code-review"],"risk":"HIGH","confidence":"HIGH","mode":"shadow","at":"2026-10-09T10:00:00.0000000Z","prompt":"texto livre com segredo","api_key":"sk-SYNTHETICSECRET","nested":{"a":1},"reason_codes":["AMBIGUOUS"]}'
 $leakFile = Write-TestFile $caseDir 'resolver-20261011.jsonl' @($leakLine)
@@ -846,6 +909,39 @@ $topKeys = @()
 try { $topKeys = @(($leakJson | ConvertFrom-Json).PSObject.Properties.Name) } catch { $topKeys = @() }
 $topUnexpected = @($topKeys | Where-Object { $allowedTop -cnotcontains $_ })
 Assert (@($topUnexpected).Count -eq 0) 'relatorio so tem chaves de topo conhecidas' (@($topUnexpected) -join ',')
+
+# ---- D2. Toda propriedade desconhecida conta (Unicode e >64 caracteres) -----
+# Chave desconhecida com nome Unicode ou maior que 64 caracteres era filtrada
+# ANTES da contagem: o relatorio sub-notificava entrada desconhecida. Agora
+# dropped + sensitive cobre TODA propriedade de primeiro nivel fora da
+# allowlist - e nenhum nome/valor e ecoado (a saida da contagem e so inteiro).
+$probeLongKeyName = ('k' * 70)
+$probeUnicodeKeyName = ('can' + [string][char]0x00E1 + 'rio')
+$probeSensitiveUnicodeName = ('api_key' + [string][char]0x00FC)
+$probeAllowKeys = @('task_id', 'task_class', 'profiles', 'agents', 'skills', 'risk', 'confidence', 'mode', 'at')
+$probeAllKeysNode = ('{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":[],"risk":"LOW","confidence":"HIGH","mode":"shadow","at":"2026-10-09T10:00:00.0000000Z","extra_field":1,"' + $probeLongKeyName + '":1,"' + $probeUnicodeKeyName + '":1,"' + $probeSensitiveUnicodeName + '":"sk-SYNTHETICSECRET"}') | ConvertFrom-Json
+$probeAllNotes = Get-AdvisoryRowProjectionCounts -Node $probeAllKeysNode -AllowKeys $probeAllowKeys
+Assert ([int]$probeAllNotes.sensitive -eq 1) 'nome sensivel com sufixo Unicode conta como sensivel' ([string]$probeAllNotes.sensitive)
+Assert ([int]$probeAllNotes.dropped -eq 3) 'nomes comuns, Unicode e >64 chars contam como descartados' ([string]$probeAllNotes.dropped)
+$unicodeKeysLine = '{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":[],"risk":"LOW","confidence":"HIGH","mode":"shadow","at":"2026-10-09T10:00:00.0000000Z","' + $probeLongKeyName + '":1,"' + $probeUnicodeKeyName + '":1}'
+$unicodeKeysFile = Write-TestFile $caseDir 'resolver-20261067.jsonl' @($unicodeKeysLine)
+$rUnicodeKeys = Get-AdvisoryCollectorReport -ResolverPaths @($unicodeKeysFile)
+$unicodeKeysJson = ConvertTo-AdvisoryCollectorJson -Report $rUnicodeKeys -Depth 12
+Assert ([int]$rUnicodeKeys.counts.resolver_records_valid -eq 1) 'chave desconhecida com nome Unicode ou >64 chars nao invalida a linha' ([string]$rUnicodeKeys.counts.resolver_records_valid)
+Assert ([int]$rUnicodeKeys.inputs.dropped_input_keys_count -eq 2) 'TODA propriedade desconhecida conta, inclusive Unicode e >64 chars' ([string]$rUnicodeKeys.inputs.dropped_input_keys_count)
+Assert (-not $unicodeKeysJson.Contains($probeLongKeyName)) 'nome de chave com >64 caracteres nao e ecoado'
+$sensitiveUnicodeLine = '{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":[],"risk":"LOW","confidence":"HIGH","mode":"shadow","at":"2026-10-09T10:00:00.0000000Z","' + $probeSensitiveUnicodeName + '":"sk-SYNTHETICSECRET"}'
+$sensitiveUnicodeFile = Write-TestFile $caseDir 'resolver-20261068.jsonl' @($sensitiveUnicodeLine)
+$rSensitiveUnicode = Get-AdvisoryCollectorReport -ResolverPaths @($sensitiveUnicodeFile)
+Assert ([int]$rSensitiveUnicode.inputs.sensitive_keys_dropped -eq 1) 'nome sensivel com Unicode tambem conta como sensivel' ([string]$rSensitiveUnicode.inputs.sensitive_keys_dropped)
+Assert ([int]$rSensitiveUnicode.inputs.dropped_input_keys_count -eq 0) 'chave sensivel nao e contada em duplicidade como descartada' ([string]$rSensitiveUnicode.inputs.dropped_input_keys_count)
+Assert (-not (ConvertTo-AdvisoryCollectorJson -Report $rSensitiveUnicode -Depth 12).Contains('sk-SYNTHETICSECRET')) 'valor sensivel de chave com nome Unicode nao vaza'
+# observacao fornecida: mesma invariante de contagem para toda chave desconhecida
+$obsUnknownKeysLine = '{"provenance":"supplied","task_key":"abcdef0123456789","claimed_agent":"reviewer","' + $probeUnicodeKeyName + '":1}'
+$obsUnknownKeysFile = Write-TestFile $caseDir 'observations-20261068.jsonl' @($obsUnknownKeysLine)
+$rObsUnknownKeys = Get-AdvisoryCollectorReport -ObservationPaths @($obsUnknownKeysFile)
+Assert ([int]$rObsUnknownKeys.counts.observations_accepted -eq 1) 'chave desconhecida Unicode nao invalida a observacao'
+Assert ([int]$rObsUnknownKeys.inputs.dropped_input_keys_count -eq 1) 'stream de observacao tambem conta toda chave desconhecida' ([string]$rObsUnknownKeys.inputs.dropped_input_keys_count)
 
 # ---- E. contrato do produtor (CLI manual) ----------------------------------
 $cliLines = @(
@@ -950,6 +1046,24 @@ Assert ([int]$rDup.supplied_claims.emitted -eq 0) 'chave ambigua nao emite claim
 $dupJson = ConvertTo-AdvisoryCollectorJson -Report $rDup -Depth 12
 Assert (-not $dupJson.Contains('"claimed_agent":"coder"')) 'claim conflitante nao e ecoado em lugar nenhum'
 Assert (-not $dupJson.Contains('"claimed_agent":"reviewer"')) 'nenhum dos claims conflitantes e escolhido'
+# chave AMBIGUA continua contada como observacao aceita nao correlacionada:
+# a ambiguidade impede a EMISSAO do claim (nenhum dos dois e escolhido), nunca
+# a contagem da chave lida e aceita.
+$ambCountedFile = Write-TestFile $corrDir 'observations-20261018.jsonl' @(
+    (New-ObservationLine -TaskKey 'abcdef0123456789'),
+    (New-ObservationLine -TaskKey 'abcdef0123456789' -ClaimedAgent 'coder'),
+    (New-ObservationLine -TaskKey '1111111111111111')
+)
+$rAmbCounted = Get-AdvisoryCollectorReport -ResolverPaths @($hashFile) -ObservationPaths @($ambCountedFile)
+Assert ([int]$rAmbCounted.counts.observations_accepted -eq 3) 'tres observacoes aceitas (duas conflitantes + uma limpa)' ([string]$rAmbCounted.counts.observations_accepted)
+Assert ([int]$rAmbCounted.counts.ambiguous_observation_keys -eq 1) 'uma chave fica ambigua'
+Assert ([int]$rAmbCounted.counts.uncorrelated_observation_keys -eq 2) 'chave AMBIGUA tambem conta como nao correlacionada (2 chaves aceitas distintas)' ([string]$rAmbCounted.counts.uncorrelated_observation_keys)
+Assert ([int]$rAmbCounted.uncorrelated.observation_keys -eq 2) 'bloco uncorrelated observa a chave ambigua' ([string]$rAmbCounted.uncorrelated.observation_keys)
+Assert ([int]$rAmbCounted.supplied_claims.unique_keys -eq 1) 'claims unicos ignoram a chave ambigua' ([string]$rAmbCounted.supplied_claims.unique_keys)
+Assert ([int]$rAmbCounted.supplied_claims.emitted -eq 1) 'so a chave limpa emite claim (conflito continua omitido)' ([string]$rAmbCounted.supplied_claims.emitted)
+Assert (@($rAmbCounted.ambiguous.observation_keys) -ccontains 'abcdef0123456789') 'chave ambigua listada em ambiguous.observation_keys'
+$ambCountedJson = ConvertTo-AdvisoryCollectorJson -Report $rAmbCounted -Depth 12
+Assert (-not $ambCountedJson.Contains('"claimed_agent":"coder"')) 'claim conflitante nao e ecoado mesmo com a chave contada'
 # repeticao IDENTICA do mesmo claim deduplica (nao e conflito)
 $sameDupFile = Write-TestFile $corrDir 'observations-20261017.jsonl' @(
     (New-ObservationLine -TaskKey 'abcdef0123456789'),
