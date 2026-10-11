@@ -98,10 +98,19 @@ implementar por hipótese.
 ## GitHub Lifecycle
 
 Source of truth: [github-lifecycle-policy](github-lifecycle-policy.md).
-Nenhum commit direto em `master` — tudo entra via PR com os 5 checks do
-workflow `CI` verdes no HEAD (`CI (ps51)`, `CI (ps7)`,
+Nenhum commit direto em `master` — tudo entra via PR com os checks
+requeridos do workflow `CI` verdes no HEAD. Os números são snapshots
+datados, não invariantes: em 2026-10-11 o workflow `CI` tem **6 jobs**
+(`CI (linux capability collector)`, `CI (ps51)`, `CI (ps7)`,
 `CI (smoke opencode real)`, `CI (v2 lane, perfil V2 provisionado)`,
-`CI (smoke opencode v2 real)`).
+`CI (smoke opencode v2 real)`) e a branch protection exige **5** deles como
+`required_checks` (`CI (ps51)`, `CI (ps7)`, `CI (smoke opencode real)`,
+`CI (v2 lane, perfil V2 provisionado)`, `CI (smoke opencode v2 real)`),
+com `strict: true` e `required_approving_review_count: 0`. Job novo ou
+complementar roda como evidência, mas só vira exigência de merge por
+decisão explícita do operador, registrada no PR e refletida no documento de
+policy, em `source/registry/delivery-policy.json` e na branch protection —
+nunca por acréscimo silencioso e nunca reduzindo cobertura de CI ou review.
 
 Método de merge padrão é **merge commit**, sem squash nem reescrita salvo
 decisão explícita registrada no PR (praticado no PR #28: fix `4a1acbe` em

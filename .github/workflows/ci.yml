@@ -27,7 +27,7 @@
 # esse arquivo no passo "Resolve pinned versions" e exporta as specs por
 # GITHUB_ENV; nenhuma versao de pacote e digitada neste workflow. Bump de
 # versao = edicao do registry + re-validacao no runtime exato.
-# Tres jobs: ci-ps51/ci-ps7 (suites V3 + distribution, engines ps51/pwsh),
+# Seis jobs: ci-ps51/ci-ps7 (suites V3 + distribution, engines ps51/pwsh),
 # ci-smoke-opencode (OpenCode V1 REAL num home isolado + typecheck do plugin
 # contra a API real, pin do registry) e ci-v2-lane (package
 # consistency + V3 + distribution + typecheck V1/V2/dual COM o perfil V2 pinado
@@ -40,7 +40,20 @@
 # (scripts/ci/smoke-opencode-v2-lifecycle.ps1, padrao P22, 3/3 PASS local em
 # 2026-10-03; primeira execucao real no runner so ocorre no push).
 # Badge padrao do GitHub Actions (badge-able): actions/workflows/ci.yml/badge.svg.
-# Tres jobs explicitos (ci-ps51/ci-ps7/smoke) mais a lane ci-v2-lane em vez de
+# Jobs do workflow vs checks requeridos: o workflow tem 6 jobs, mas a branch
+# protection de master exige 5 deles como required_checks
+# (CI (ps51), CI (ps7), CI (smoke opencode real),
+# CI (v2 lane, perfil V2 provisionado), CI (smoke opencode v2 real)).
+# ci-linux-capability-collector e o sexto job: complementar (suites do
+# capability collector em filesystem case-sensitive), roda como evidencia e
+# NAO e gate por acrescimo. Promover qualquer job novo a check requerido e
+# decisao explicita do operador, registrada no PR e refletida em
+# docs/github-lifecycle-policy.md secao 4, em
+# source/registry/delivery-policy.json e na propria protection; nunca por
+# silencio, e nunca reduzindo cobertura dos jobs ja requeridos nem o review.
+# Contagem de jobs/checks e snapshot datado (2026-10-11), nao invariante.
+# Cinco jobs explicitos (ci-ps51/ci-ps7/smoke e as lanes ci-v2-lane e
+# ci-smoke-opencode-v2) mais o collector em ubuntu, em vez de
 # matriz: steps.shell NAO aceita contexts/expressoes (actionlint). Pipeline: package consistency ->
 # V3 suites (scripts/v3/run-v3-tests.ps1) -> distribution suites
 # (tests/distribution/run-distribution-tests.ps1, PS 5.1-compativel); cada
