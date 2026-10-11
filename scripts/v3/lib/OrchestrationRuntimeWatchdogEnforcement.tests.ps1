@@ -237,6 +237,30 @@ function Assert-Enforce {
     }
 }
 
+function Format-EnforceDiagToken {
+    <#
+    .SYNOPSIS
+        Strict, bounded, sanitized scalar for FAILURE-ONLY diagnostics:
+        trims, then WHOLE-STRING-REJECTS anything outside the closed
+        safe-token charset [A-Za-z0-9_.:,()+ =-] (no slash, backslash,
+        newline or any other char) and caps length. Guarantees NO path can
+        leak from a value such as detail / job_attach / FullyQualifiedErrorId:
+        a violating value becomes the fixed marker <non-token>. Callers pass
+        ONLY scalars (bools, ints, bounded enum tokens) -- never raw
+        structures. Diagnostic-only; it never changes any assertion, timing
+        or cleanup. Never throws.
+    #>
+    param($Value)
+    if ($null -eq $Value) { return '<null>' }
+    $s = ''
+    try { $s = [string]$Value } catch { return '<err>' }
+    $s = $s.Trim()
+    if ($s.Length -eq 0) { return '<empty>' }
+    if (-not [regex]::IsMatch($s, '\A[A-Za-z0-9_.:,()+ =\-]+\z')) { return '<non-token>' }
+    if ($s.Length -gt 64) { return '<non-token>' }
+    return $s
+}
+
 function Write-EnforceFixture {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Text)
     $parent = Split-Path -Parent $Path
@@ -385,9 +409,21 @@ function Wait-EnforceExit {
     param($Proc, [int]$TimeoutMs = 8000)
     try {
         try { $Proc.Refresh() } catch { }
-        return ([bool]$Proc.WaitForExit([int]$TimeoutMs))
+        $result = [bool]$Proc.WaitForExit([int]$TimeoutMs)
+        if ($script:CaptureEnforceWaitDiagnostic) {
+            $script:LastEnforceWaitDiagnostic = @{ native_wait_returned = $true; native_result = $result; fallback_used = $false; error_type = 'none'; error_id = 'none' }
+        }
+        return $result
     }
-    catch { return (Test-EnforceAlive -Proc $Proc) -eq $false }
+    catch {
+        if ($script:CaptureEnforceWaitDiagnostic) {
+            $errorType = 'unknown'; $errorId = 'unknown'
+            try { $errorType = [string]$_.Exception.GetType().Name } catch { }
+            try { $errorId = [string]$_.FullyQualifiedErrorId } catch { }
+            $script:LastEnforceWaitDiagnostic = @{ native_wait_returned = $false; native_result = $false; fallback_used = $true; error_type = $errorType; error_id = $errorId }
+        }
+        return (Test-EnforceAlive -Proc $Proc) -eq $false
+    }
 }
 
 function Stop-EnforceSafety {
@@ -679,7 +715,8 @@ function Register-EnforceBound {
         [string]$TaskId, [string]$SessionId, $Child, $Budget, $StartedAt,
         [string]$FlagsPath, [string]$Repo, [string]$Role = 'coder'
     )
-    [void](Wait-EnforceReady -Proc $Child -TimeoutMs 10000)
+    $ready = Wait-EnforceReady -Proc $Child -TimeoutMs 10000
+    if ($script:CaptureEnforceReadinessDiagnostic) { $script:LastEnforceReadinessResult = [bool]$ready }
     $livePath = ''
     try { $livePath = ([string](Get-Process -Id ([int]$Child.Id) -ErrorAction Stop).Path).Trim() } catch { $livePath = '' }
     $st = $null
@@ -1064,7 +1101,24 @@ try {
     }
     $c12b = Start-EnforceChild -SleepSeconds 120
     $b12 = New-EnforceBudget -Steps 64 -Wall 30 -NoProg 25
+    $script:CaptureEnforceReadinessDiagnostic = $true
+    $script:LastEnforceReadinessResult = $null
     $r12 = Register-EnforceBound -TaskId 'wd-fix1-once' -SessionId 'wd-fix1-sess-once' -Child $c12b -Budget $b12 -StartedAt ((Get-Date).ToUniversalTime().AddSeconds(-31)) -FlagsPath $flagsEnforce -Repo $repo
+    $script:CaptureEnforceReadinessDiagnostic = $false
+    if (-not [bool]$r12.ok) {
+        $__d = 'ok=' + (Format-EnforceDiagToken [bool]$r12.ok)
+        foreach ($__k in @('error', 'unbound', 'advisory', 'detail')) {
+            if ($r12.PSObject.Properties.Name -contains $__k) { $__d += ('; ' + $__k + '=' + (Format-EnforceDiagToken $r12.$__k)) }
+        }
+        $__pidb = 0
+        try { $__pidb = [int]$c12b.Id } catch { $__pidb = 0 }
+        $__ticksb = -1
+        try { $__ticksb = [long](([DateTime]$c12b.StartTime).ToUniversalTime().Ticks) } catch { $__ticksb = -1 }
+        $__hasexb = $false
+        try { $__hasexb = [bool]$c12b.HasExited } catch { $__hasexb = $false }
+        $__d += ('; readiness=' + (Format-EnforceDiagToken $script:LastEnforceReadinessResult) + '; child_pid=' + [string][int]$__pidb + '; parent=' + [string][int]$PID + '; start_ticks=' + [string][long]$__ticksb + '; has_exited=' + $__hasexb + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+        Write-Host ('[DIAG] F1 register-bound: ' + $__d)
+    }
     Assert-Enforce ([bool]$r12.ok) 'F1 single-resolution register bound' ''
     $preCount12 = Get-EnforceTreeSize -RootPid ([int]$c12b.Id)
     Assert-Enforce (([int]$preCount12 -ge 0)) 'F1 CIM-only tree pre-count readable' ('descendants=' + [string][int]$preCount12)
@@ -1092,8 +1146,29 @@ try {
     $exec12c = $script:WatchdogExecutions['wd-fix1-stale']
     $own12c = Test-WatchdogProcessOwnership -Execution $exec12c
     Assert-Enforce ([bool]$own12c.owned) 'F1 stale-instance ownership verified' ''
+    $__f1origTicks = -1
+    try { $__f1origTicks = [long](([DateTime]$c12c.StartTime).ToUniversalTime().Ticks) } catch { $__f1origTicks = -1 }
+    $__f1errN = $Error.Count
     Stop-Process -Id ([int]$c12c.Id) -Force -ErrorAction SilentlyContinue
-    Assert-Enforce ((Wait-EnforceExit -Proc $c12c -TimeoutMs 8000) -and (-not (Test-EnforceAlive -Proc $c12c))) 'F1 child exited externally' ''
+    $__f1stopOk = $?
+    $__f1errId = 'none'
+    if ($Error.Count -gt $__f1errN) { try { $__f1errId = ([string]$Error[0].FullyQualifiedErrorId) } catch { $__f1errId = 'id-unavailable' } }
+    $__f1sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $script:CaptureEnforceWaitDiagnostic = $true
+    $script:LastEnforceWaitDiagnostic = $null
+    $__f1wait = Wait-EnforceExit -Proc $c12c -TimeoutMs 8000
+    $script:CaptureEnforceWaitDiagnostic = $false
+    $__f1sw.Stop()
+    $__f1ok = $__f1wait -and (-not (Test-EnforceAlive -Proc $c12c))
+    if (-not $__f1ok) {
+        $__f1lookup = 'absent'; $__f1ticks = 0
+        try { $__f1live = Get-Process -Id ([int]$c12c.Id) -ErrorAction Stop; $__f1lookup = 'present'; try { $__f1ticks = [long](([DateTime]$__f1live.StartTime).ToUniversalTime().Ticks) } catch { $__f1ticks = 0 } } catch { $__f1lookup = 'absent' }
+        $__f1parent = 0
+        try { $__f1parent = [int]$exec12c['process']['parent_process_id'] } catch { $__f1parent = 0 }
+        $__wd = $script:LastEnforceWaitDiagnostic
+        Write-Host ('[DIAG] F1 external-exit: wait=' + (Format-EnforceDiagToken [bool]$__f1wait) + '; native_returned=' + (Format-EnforceDiagToken $__wd.native_wait_returned) + '; native_result=' + (Format-EnforceDiagToken $__wd.native_result) + '; fallback=' + (Format-EnforceDiagToken $__wd.fallback_used) + '; wait_error=' + (Format-EnforceDiagToken $__wd.error_type) + '; wait_error_id=' + (Format-EnforceDiagToken $__wd.error_id) + '; wait_ms=' + [string][int]$__f1sw.ElapsedMilliseconds + '; has_exited=' + (Format-EnforceDiagToken [bool]$c12c.HasExited) + '; stop_ok=' + (Format-EnforceDiagToken [bool]$__f1stopOk) + '; stop_err=' + (Format-EnforceDiagToken $__f1errId) + '; pid=' + [string][int]$c12c.Id + '; orig_ticks=' + [string][long]$__f1origTicks + '; pid_lookup=' + $__f1lookup + '; lookup_ticks=' + [string][long]$__f1ticks + '; parent=' + [string][int]$__f1parent + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    }
+    Assert-Enforce $__f1ok 'F1 child exited externally' ''
     $script:WatchdogLiveQueryCount = 0
     $staleStop12 = Stop-WatchdogVerifiedProcess -ProcessId ([int]$c12c.Id) -ProcessInstance $own12c.process
     Assert-Enforce (([bool]$staleStop12.ok) -and ([bool]$staleStop12.already_exited)) 'F1 stale verified instance => ALREADY_EXITED, no PID re-kill' ''
@@ -2892,6 +2967,19 @@ Start-Sleep -Milliseconds 400
         $exec48 = $script:WatchdogExecutions['wd-job-onlyjob']
         $int48 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-job-onlyjob' -Execution $exec48 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
         $script:WatchdogTreeTestOverride = $null
+        if (-not [bool]$int48.job_attached) {
+            $__d = ''
+            foreach ($__k in @('ok', 'interrupted', 'settlement', 'reason', 'error', 'detail', 'partial', 'classification', 'tree_excluded', 'exclusion', 'node_cap', 'depth_cap', 'tree_nodes', 'tree_depth', 'tree_limit_exceeded', 'job_attached', 'job_attach', 'job_kill_applied', 'job_settled', 'job_skip', 'job_members_before', 'job_members_reduction', 'job_members_remaining')) {
+                if ($int48.PSObject.Properties.Name -contains $__k) { $__d += ($__k + '=' + (Format-EnforceDiagToken $int48.$__k) + '; ') }
+            }
+            $__d += ('tree_max_depth=' + [string][int]$script:WatchdogTreeMaxDepth + '; tree_max_nodes=' + [string][int]$script:WatchdogTreeMaxNodes + '; ')
+            $__p48 = 0
+            try { $__p48 = [int]$root48Proc.Id } catch { $__p48 = 0 }
+            $__par48 = 0
+            try { $__par48 = [int]$exec48['process']['parent_process_id'] } catch { $__par48 = 0 }
+            $__d += ('root_pid=' + [string][int]$__p48 + '; parent=' + [string][int]$__par48 + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+            Write-Host ('[DIAG] JOB48 attach: ' + $__d)
+        }
         Assert-Enforce ([bool]$int48.job_attached) 'JOB48 raiz verificada atribuida ao job antes do snapshot' ([string]$int48.job_attach)
         $latePid48 = Read-EnforcePidFile -Path $late48 -TimeoutMs 5000
         Assert-Enforce ([int]$latePid48 -gt 0) 'JOB48 tardio nasceu na janela pos-snapshot' ('late=' + [string][int]$latePid48)
