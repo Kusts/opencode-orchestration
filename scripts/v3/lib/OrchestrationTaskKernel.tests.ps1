@@ -66,6 +66,9 @@ function Get-TaskKernelDiagText {
         $s = ($s -replace '[\r\n\t]+', ' ')
         $s = ($s -replace ' {2,}', ' ')
         $s = ($s -replace '[^\x20-\x7E]', '?')
+        # Match structured credentials before generic key/value patterns.
+        $s = ($s -replace '(?i)(authorization\s*:\s*(?:bearer|basic)\s+)\S+', '$1[REDACTED]')
+        $s = ($s -replace '(?i)"(authorization|api[_-]?key|access[_-]?key|secret[_-]?key|token|secret|password|passwd|pwd)"\s*:\s*"(?:\\.|\\$|[^"\\])*(?:"|$)', '"$1":"[REDACTED]"')
         $s = ($s -replace '(?i)(sk|pk|api[_-]?key|access[_-]?key|secret[_-]?key|token|secret|password|passwd|pwd|authorization)\s*[:=]\s*\S+', '$1=[REDACTED]')
         $s = ($s -replace '(?i)sk-[A-Za-z0-9_\-]{8,}', '[REDACTED]')
         $s = ($s -replace '(?i)gh[pousr]_[A-Za-z0-9]{16,}', '[REDACTED]')
@@ -73,8 +76,9 @@ function Get-TaskKernelDiagText {
         $s = ($s -replace 'AKIA[0-9A-Z]{16}', '[REDACTED]')
         $s = ($s -replace '(?i)bearer\s+[A-Za-z0-9\-._~+/=]{8,}', 'bearer [REDACTED]')
         $s = ($s -replace '(?i)eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}', '[REDACTED-JWT]')
-        $s = ($s -replace '(?i)([A-Za-z]:\\Users\\)[^\\/\s;,]+', '$1[REDACTED]')
-        $s = ($s -replace '(?i)/(home|users)/[^/\s;,]+', '/$1/[REDACTED]')
+        # Accept regular and JSON-escaped separators, and usernames with spaces.
+        $s = ($s -replace '(?i)([A-Za-z]:\\+Users\\+).*?(?=\\)', '$1[REDACTED]')
+        $s = ($s -replace '(?i)(/(?:home|users)/).*?(?=/)', '$1[REDACTED]')
         if ($MaxChars -gt 0 -and $s.Length -gt $MaxChars) {
             $total = $s.Length
             $s = ($s.Substring(0, $MaxChars) + (' [truncated,total ' + $total + ' chars]'))
@@ -97,14 +101,25 @@ function Read-TaskKernelDiagOutput {
         created and never fatal.
     #>
     param([string]$Path, [int]$MaxChars = $script:TaskKernelDiagMaxChars)
-    $res = @{ exists = $false; chars = 0; text = '[missing output file]'; path = '' }
+    $res = @{ exists = $false; chars = 0; truncated = $false; text = '[missing output file]'; path = '' }
     try { $res.path = (Get-TaskKernelDiagText -Text $Path) } catch { $res.path = '[unavailable]' }
     try {
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             $res.exists = $true
-            $raw = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
-            $res.chars = $raw.Length
-            $res.text = (Get-TaskKernelDiagText -Text $raw -MaxChars $MaxChars)
+            # Bound the read before allocating or applying sanitization.
+            $limit = [Math]::Max(1, [int]$MaxChars)
+            $reader = New-Object System.IO.StreamReader($Path, [Text.Encoding]::UTF8, $true)
+            try {
+                $buffer = New-Object 'char[]' ($limit + 1)
+                $read = $reader.Read($buffer, 0, $buffer.Length)
+                $res.truncated = ($read -gt $limit)
+                $sampleLength = [Math]::Min($read, $limit)
+                $raw = [string]::new($buffer, 0, $sampleLength)
+                $res.chars = $sampleLength
+                if ($res.truncated) { $raw += ' [input truncated]' }
+                $res.text = (Get-TaskKernelDiagText -Text $raw -MaxChars ($limit + 100))
+            }
+            finally { $reader.Dispose() }
         }
     }
     catch {
@@ -119,11 +134,8 @@ function Wait-TaskKernelDiagProcess {
         Waits for a race child with the SAME total budget as the inline
         call and records diagnostics. Never throws, never kills.
     .DESCRIPTION
-        Polls in 100ms slices so the last WaitForExit return is recorded and
-        the overall budget (60000ms) is unchanged. Duration is measured
-        against $Clock when given (a stopwatch started at the spawn barrier),
-        so both children report time-since-spawn; otherwise the helper uses
-        its own stopwatch.
+        Uses the same bounded WaitForExit call and budget as the original
+        test, recording its return value, elapsed time and process state.
     #>
     param([Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process, [int]$BudgetMs = 60000, [System.Diagnostics.Stopwatch]$Clock = $null)
     $r = @{
@@ -139,10 +151,7 @@ function Wait-TaskKernelDiagProcess {
     try {
         $r.pid = $Process.Id
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $done = $false
-        while ((-not $done) -and ($sw.ElapsedMilliseconds -lt $BudgetMs)) {
-            if ($Process.WaitForExit(100)) { $done = $true }
-        }
+        $done = $Process.WaitForExit($BudgetMs)
         $sw.Stop()
         $r.wait_return = $done
         if ($null -ne $Clock) { $r.duration_ms = $Clock.ElapsedMilliseconds }
@@ -202,7 +211,7 @@ function Get-TaskKernelRaceDiagLines {
         [void]$lines.Add(('[DIAG] ' + $c.label + '.pid=' + $c.pid))
         [void]$lines.Add(('[DIAG] ' + $c.label + '.exit_code=' + $c.exit_code + ' ' + $c.label + '.finished=' + $c.finished + ' ' + $c.label + '.has_exited=' + $c.has_exited))
         [void]$lines.Add(('[DIAG] ' + $c.label + '.waitfor_exit_return=' + $c.wait_return + ' ' + $c.label + '.duration_ms=' + $c.duration_ms + ' wait_budget_ms=' + $c.wait_budget_ms + ' wait_error=' + $c.wait_error))
-        [void]$lines.Add(('[DIAG] ' + $c.label + '.stdout_stderr_chars=' + $c.output.chars + ' ' + $c.label + '.stdout_stderr=' + (Get-TaskKernelDiagText -Text ([string]$c.output.text))))
+        [void]$lines.Add(('[DIAG] ' + $c.label + '.stdout_stderr_chars=' + $c.output.chars + ' ' + $c.label + '.stdout_stderr_truncated=' + [string]$c.output.truncated + ' ' + $c.label + '.stdout_stderr=' + (Get-TaskKernelDiagText -Text ([string]$c.output.text))))
         [void]$lines.Add(('[DIAG] ' + $c.label + '.output_path=' + (Get-TaskKernelDiagText -Text ([string]$c.output_path))))
     }
     [void]$lines.Add(('[DIAG] assertion=' + $Diag.assertion))
@@ -722,6 +731,20 @@ try {
     Assert-TaskKernel (($dClean -notmatch 'sk-SYNTHETICSECRET') -and ($dClean -match '\[REDACTED\]')) 'diagnostic sanitizer redacts token-like values'
     Assert-TaskKernel (($dClean -notmatch 'Bearer abcdef1234567890') -and ($dClean -notmatch 'hunter2')) 'diagnostic sanitizer redacts bearer and key=value secrets'
     Assert-TaskKernel (($dClean -notmatch 'someuser') -and ($dClean -match '\[REDACTED\]')) 'diagnostic sanitizer redacts absolute usernames'
+    $dHeader = Get-TaskKernelDiagText -Text 'Authorization: Bearer SYNTHETIC_OPAQUE_12345'
+    Assert-TaskKernel ($dHeader -notmatch 'SYNTHETIC_OPAQUE_12345') 'diagnostic sanitizer redacts complete Authorization Bearer header'
+    $dJson = Get-TaskKernelDiagText -Text '{"token":"SYNTHETIC_OPAQUE_12345","password":"SYNTHETIC_PASSWORD"}'
+    Assert-TaskKernel (($dJson -notmatch 'SYNTHETIC_OPAQUE_12345') -and ($dJson -notmatch 'SYNTHETIC_PASSWORD')) 'diagnostic sanitizer redacts JSON credential fields'
+    $dJsonEscaped = Get-TaskKernelDiagText -Text '{"password":"prefix\"SYNTHETIC_ESCAPED_SUFFIX"}'
+    Assert-TaskKernel ($dJsonEscaped -notmatch 'SYNTHETIC_ESCAPED_SUFFIX') 'diagnostic sanitizer redacts JSON credentials containing escaped quotes'
+    $dJsonTruncated = Get-TaskKernelDiagText -Text '{"token":"SYNTHETIC_TRUNCATED_SECRET'
+    Assert-TaskKernel ($dJsonTruncated -notmatch 'SYNTHETIC_TRUNCATED_SECRET') 'diagnostic sanitizer redacts incomplete JSON credential at capture boundary'
+    $dJsonDanglingEscape = Get-TaskKernelDiagText -Text ('{"token":"SYNTHETIC_DANGLING_ESCAPE' + [char]92)
+    Assert-TaskKernel ($dJsonDanglingEscape -notmatch 'SYNTHETIC_DANGLING_ESCAPE') 'diagnostic sanitizer redacts JSON credential ending in dangling escape'
+    $dJsonPath = Get-TaskKernelDiagText -Text '{"path":"C:\\Users\\synthetic user\\Temp\\race.json"}'
+    Assert-TaskKernel ($dJsonPath -notmatch 'synthetic user') 'diagnostic sanitizer redacts escaped JSON paths with spaced usernames'
+    $dPlainPath = Get-TaskKernelDiagText -Text 'C:\Users\synthetic user\Temp\race.json'
+    Assert-TaskKernel ($dPlainPath -notmatch 'synthetic user') 'diagnostic sanitizer redacts plain paths with spaced usernames'
     Assert-TaskKernel (($dClean -notmatch "`r") -and ($dClean -notmatch "`n") -and ($dClean.Length -gt 0)) 'diagnostic sanitizer never emits line breaks'
     $dLines = Get-TaskKernelDiagText -Text ('lineA' + "`r`n" + "`t" + 'lineB')
     Assert-TaskKernel ($dLines -ceq 'lineA lineB') 'diagnostic sanitizer collapses child output into a single line'
@@ -729,18 +752,28 @@ try {
     Assert-TaskKernel (($dCapped.Length -gt 300) -and ($dCapped.Length -lt 400) -and ($dCapped -match '\[truncated') -and ($dCapped -match 'total 5000 chars')) 'diagnostic sanitizer caps length with an explicit truncation marker'
     $dMissing = Read-TaskKernelDiagOutput -Path (Join-Path $t.root 'no-such-race-output.json')
     Assert-TaskKernel ((-not [bool]$dMissing.exists) -and ($dMissing.chars -eq 0) -and ($dMissing.text -ceq '[missing output file]')) 'diagnostic reader reports a missing child output file without throwing'
+    $dLargePath = Join-Path $t.root 'large-race-output.txt'
+    [IO.File]::WriteAllText($dLargePath, ('x' * 50000), [Text.Encoding]::UTF8)
+    $dLarge = Read-TaskKernelDiagOutput -Path $dLargePath -MaxChars 256
+    Assert-TaskKernel ($dLarge.chars -eq 256 -and $dLarge.truncated -and $dLarge.text.Length -lt 400) 'diagnostic reader caps bytes read before sanitization'
+    $dBoundaryPrefix = '{"token":"SYNTHETIC_BOUNDARY_ESCAPE' + [char]92
+    $dBoundaryPath = Join-Path $t.root 'credential-boundary.txt'
+    [IO.File]::WriteAllText($dBoundaryPath, ($dBoundaryPrefix + 'tail"}'), [Text.Encoding]::UTF8)
+    $dBoundary = Read-TaskKernelDiagOutput -Path $dBoundaryPath -MaxChars $dBoundaryPrefix.Length
+    Assert-TaskKernel ($dBoundary.truncated -and ($dBoundary.text -notmatch 'SYNTHETIC_BOUNDARY_ESCAPE')) 'bounded read ending in JSON escape redacts credential before logging'
     $dRender = @(Get-TaskKernelRaceDiagLines -Diag @{
         task_id = 'race-001'; assertion = 'synthetic-assertion'; expected_exit_pair = '0,3'; observed_exit_pair = '1,1'
         spawned_at_utc = '2026-01-01T00:00:00Z'; final_state = 'PLANNING'; final_revision = '2'
         children = @(@{
             label = 'process_1'; pid = '4242'; exit_code = '1'; finished = 'True'; has_exited = 'True'
             wait_return = 'True'; duration_ms = '12'; wait_budget_ms = '60000'; wait_error = ''
-            output = @{ exists = $true; chars = 64; text = 'sk-SYNTHETICSECRET raw child output' }
+            output = @{ exists = $true; chars = 64; truncated = $false; text = 'sk-SYNTHETICSECRET raw child output' }
             output_path = 'C:\Users\someuser\race1.json'
         })
     })
     $dJoined = ($dRender -join "`n")
     Assert-TaskKernel (($dRender.Count -ge 8) -and ($dJoined -match 'process_1\.exit_code=1') -and ($dJoined -match 'process_1\.finished=True') -and ($dJoined -match 'duration_ms=12') -and ($dJoined -match 'waitfor_exit_return=True') -and ($dJoined -match 'task_final_revision=2') -and ($dJoined -match 'stdout_stderr_chars=64')) 'diagnostic renderer emits exit codes, finished flags, durations and task state'
+    Assert-TaskKernel ($dJoined -match 'stdout_stderr_truncated=False') 'diagnostic renderer records that captured output is complete'
     Assert-TaskKernel (($dJoined -notmatch 'sk-SYNTHETICSECRET') -and ($dJoined -notmatch 'someuser')) 'diagnostic renderer sanitizes child output and paths even when capture missed it'
 }
 catch {
