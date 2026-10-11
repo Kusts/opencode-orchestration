@@ -91,8 +91,8 @@ $v3 = Split-Path -Parent $PSScriptRoot
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $v3)
 $libPath = Join-Path $PSScriptRoot 'CapabilityAdvisoryCollector.ps1'
 $cliPath = Join-Path $v3 'capability-resolve.ps1'
-$flagsPath = Join-Path $RepoRoot 'source\registry\capability-flags.json'
-$routingPath = Join-Path $RepoRoot 'source\registry\capability-routing.json'
+$flagsPath = Join-Path (Join-Path (Join-Path $RepoRoot 'source') 'registry') 'capability-flags.json'
+$routingPath = Join-Path (Join-Path (Join-Path $RepoRoot 'source') 'registry') 'capability-routing.json'
 
 Assert (Test-Path -LiteralPath $libPath -PathType Leaf) 'lib CapabilityAdvisoryCollector.ps1 existe'
 Assert (Test-Path -LiteralPath $cliPath -PathType Leaf) 'cli capability-resolve.ps1 existe (baseline intocado)'
@@ -206,10 +206,12 @@ catch {
 # ---- B. confinamento, fail-closed e limites ---------------------------------
 $repoTelPath = Join-Path (Join-Path (Join-Path (Join-Path $RepoRoot 'cache') 'v3') 'telemetry') 'resolver-20261009.jsonl'
 Assert (Test-AdvisoryConfinedInput -Path $repoTelPath -RepoRoot $RepoRoot) 'cache/v3/telemetry do repo e raiz permitida (funcao pura)' $repoTelPath
-Assert (-not (Test-AdvisoryConfinedInput -Path (Join-Path $RepoRoot 'docs\plano.jsonl') -RepoRoot $RepoRoot)) 'caminho fora da raiz permitida e recusado'
-Assert (-not (Test-AdvisoryConfinedInput -Path (Join-Path $env:USERPROFILE 'Documents\2g-fora.jsonl') -RepoRoot $RepoRoot)) 'caminho sob USERPROFILE\Documents (fora de TEMP) e recusado'
+Assert (-not (Test-AdvisoryConfinedInput -Path (Join-Path (Join-Path $RepoRoot 'docs') 'plano.jsonl') -RepoRoot $RepoRoot)) 'caminho fora da raiz permitida e recusado'
+$homeDir = [string]$env:USERPROFILE
+if ([string]::IsNullOrWhiteSpace($homeDir)) { $homeDir = [string]$env:HOME }
+Assert (-not (Test-AdvisoryConfinedInput -Path (Join-Path (Join-Path $homeDir 'Documents') '2g-fora.jsonl') -RepoRoot $RepoRoot)) 'caminho sob home/Documents (fora de TEMP) e recusado'
 
-$outside = Join-Path $env:USERPROFILE ('2g-outside-' + [guid]::NewGuid().ToString('N') + '.jsonl')
+$outside = Join-Path $homeDir ('2g-outside-' + [guid]::NewGuid().ToString('N') + '.jsonl')
 [IO.File]::WriteAllText($outside, (New-ResolverLine), [Text.UTF8Encoding]::new($false))
 $rOutside = $null
 try { $rOutside = Get-AdvisoryCollectorReport -ResolverPaths @($outside) } catch { $rOutside = 'THREW' }
@@ -264,12 +266,31 @@ Assert (-not (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root '')) 'ra
 if (Test-AdvisoryIsWindowsPlatform) {
     Assert (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root $telDir.ToUpperInvariant()) 'Windows: TRUE confina variante so de caixa (OrdinalIgnoreCase preservado)'
     Assert (-not (Test-AdvisoryPathUnderRoot -FullPath (Join-Path $workDir 'fora-da-raiz.jsonl') -Root $telDir)) 'Windows: caminho fora da raiz continua recusado'
+    $winUpperPath = Join-Path $telDir 'Resolver.jsonl'
+    $winLowerPath = Join-Path $telDir 'resolver.jsonl'
+    [IO.File]::WriteAllText($winUpperPath, (New-ResolverLine), [Text.UTF8Encoding]::new($false))
+    $winForward = Select-AdvisoryCandidates -ResolverPaths @($winUpperPath, $winLowerPath, $winUpperPath) -Repo $RepoRoot -FileCap 8
+    $winReverse = Select-AdvisoryCandidates -ResolverPaths @($winLowerPath, $winUpperPath, $winLowerPath) -Repo $RepoRoot -FileCap 8
+    Assert (@($winForward.selected).Count -eq 1) 'Windows case-only spellings of one file deduplicate'
+    Assert (([string]$winForward.selected[0].full) -ieq ([string]$winReverse.selected[0].full)) 'Windows case-insensitive candidate dedup is independent of input order'
 }
 else {
     Assert (-not (Test-AdvisoryPathUnderRoot -FullPath '/TMP/x.jsonl' -Root '/tmp')) 'Unix: /TMP/x NAO esta sob /tmp (Ordinal, caixa importa)'
     Assert (Test-AdvisoryPathUnderRoot -FullPath '/tmp/x.jsonl' -Root '/tmp') 'Unix: /tmp/x esta sob /tmp'
     Assert (-not (Test-AdvisoryPathUnderRoot -FullPath $confUnderFile -Root $telDir.ToUpperInvariant())) 'Unix: raiz com caixa diferente NAO confina (Ordinal)'
     Assert (-not (Test-AdvisoryPathUnderRoot -FullPath (Join-Path $telDir 'resolver.jsonl') -Root '/TMP')) 'Unix: raiz /TMP nao confina caminho real em /tmp'
+    $caseDir = New-TestDir 'CaseSensitivePaths'
+    $upperCasePath = Write-TestFile $caseDir 'Resolver.jsonl' @((New-ResolverLine -TaskKey 'abcdef0123456789'))
+    $lowerCasePath = Write-TestFile $caseDir 'resolver.jsonl' @((New-ResolverLine -TaskKey '0123456789abcdef'))
+    Assert ((Test-Path -LiteralPath $upperCasePath -PathType Leaf) -and (Test-Path -LiteralPath $lowerCasePath -PathType Leaf) -and ($upperCasePath -cne $lowerCasePath)) 'Unix real filesystem stores case-only paths as distinct files'
+    $caseForward = Select-AdvisoryCandidates -ResolverPaths @($upperCasePath, $lowerCasePath, $upperCasePath) -Repo $RepoRoot -FileCap 8
+    $caseReverse = Select-AdvisoryCandidates -ResolverPaths @($lowerCasePath, $upperCasePath, $lowerCasePath) -Repo $RepoRoot -FileCap 8
+    $caseForwardPaths = @($caseForward.selected | ForEach-Object { [string]$_.full })
+    $caseReversePaths = @($caseReverse.selected | ForEach-Object { [string]$_.full })
+    Assert (@($caseForward.selected).Count -eq 2) 'Unix case-only paths remain distinct while exact duplicate deduplicates' ([string]@($caseForward.selected).Count)
+    Assert (($caseForwardPaths -join "`n") -ceq ($caseReversePaths -join "`n")) 'Unix candidate ordering is deterministic for reversed input order'
+    $caseRecords = Get-AdvisoryCollectorReport -ResolverPaths @($lowerCasePath, $upperCasePath, $upperCasePath)
+    Assert ([int]$caseRecords.counts.resolver_records_valid -eq 2) 'Unix collector reads both case-distinct files exactly once' ([string]$caseRecords.counts.resolver_records_valid)
 }
 
 $limits = Get-AdvisoryCollectorLimits
@@ -690,6 +711,44 @@ else {
 # ---- C. validacao estrita das linhas do resolver ----------------------------
 $caseDir = New-TestDir 'cases'
 $goodKey = 'abcdef0123456789'
+$timestampCases = @(
+    @{ value = '2026-10-09T10:00:00.0000000Z'; valid = $true; name = 'round-trip UTC with seven fractional digits' },
+    @{ value = '2026-10-09T10:00:00Z'; valid = $true; name = 'ISO UTC seconds without fraction' },
+    @{ value = '2026-10-09T10:00:00.125Z'; valid = $true; name = 'ISO UTC milliseconds' },
+    @{ value = '2026-10-09T10:00:00.125+05:45'; valid = $true; name = 'ISO offset preserved' },
+    @{ value = '2026-02-30T10:00:00Z'; valid = $false; name = 'invalid calendar date rejected' },
+    @{ value = '2026-10-09T10:00:00'; valid = $false; name = 'timezone-less timestamp rejected' },
+    @{ value = 'not-a-timestamp'; valid = $false; name = 'invalid text rejected' }
+)
+foreach ($timestampCase in $timestampCases) {
+    $timestampResult = Test-AdvisoryTimestamp -Value ([string]$timestampCase.value)
+    Assert ($timestampResult -eq [bool]$timestampCase.valid) ('timestamp: ' + $timestampCase.name) ([string]$timestampCase.value)
+}
+$offsetTimestamp = '2026-10-09T10:00:00.125+05:45'
+$timestampNode = ConvertFrom-AdvisoryJsonLine -Json (New-ResolverLine -At $offsetTimestamp)
+Assert (($timestampNode.at -is [string]) -and ([string]$timestampNode.at -ceq $offsetTimestamp)) 'JSON timestamp remains exact source string (no timezone or precision normalization)' ([string]$timestampNode.at)
+$escapedTimestampNode = ConvertFrom-AdvisoryJsonLine -Json '{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":[],"risk":"LOW","confidence":"HIGH","mode":"shadow","a\u0074":"2026-10-09T10:00:00.125\u005a"}'
+Assert (($escapedTimestampNode.at -is [string]) -and ([string]$escapedTimestampNode.at -ceq '2026-10-09T10:00:00.125Z')) 'escaped JSON key/value decode to exact timestamp without runtime date coercion' ([string]$escapedTimestampNode.at)
+$nestedAtNode = ConvertFrom-AdvisoryJsonLine -Json '{"meta":{"at":"not-a-timestamp"},"at":"2026-10-09T10:00:00Z"}'
+Assert ([string]$nestedAtNode.at -ceq '2026-10-09T10:00:00Z') 'nested at property cannot replace top-level timestamp'
+$nestedAtBuilder = New-Object System.Text.StringBuilder
+[void]$nestedAtBuilder.Append('{"meta":[')
+for ($ni = 0; $ni -lt 256; $ni++) {
+    if ($ni -gt 0) { [void]$nestedAtBuilder.Append(',') }
+    [void]$nestedAtBuilder.Append('{"at":"nested"}')
+}
+[void]$nestedAtBuilder.Append('],"at":"2026-10-09T10:00:00Z"}')
+$manyNestedAtNode = ConvertFrom-AdvisoryJsonLine -Json $nestedAtBuilder.ToString()
+Assert ([string]$manyNestedAtNode.at -ceq '2026-10-09T10:00:00Z') 'single-pass timestamp scan handles many nested at keys without replacing root'
+$invalidEscapedTimestampPath = Write-TestFile $caseDir 'resolver-invalid-escaped-timestamp.jsonl' @('{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":[],"risk":"LOW","confidence":"HIGH","mode":"shadow","at":"\u 032026-10-09T10:00:00Z"}')
+$invalidEscapedTimestampReport = Get-AdvisoryCollectorReport -ResolverPaths @($invalidEscapedTimestampPath)
+Assert ([int]$invalidEscapedTimestampReport.counts.resolver_records_valid -eq 0) 'malformed unicode escape in timestamp is rejected, not normalized'
+Assert (@($invalidEscapedTimestampReport.rejection_reasons.resolver.Keys) -ccontains 'MALFORMED_JSON') 'malformed timestamp escape is classified as malformed JSON'
+$invalidUpperEscapePath = Write-TestFile $caseDir 'resolver-invalid-uppercase-escape.jsonl' @('{"task_id":"abcdef0123456789","task_class":"review","profiles":[],"agents":["reviewer"],"skills":[],"risk":"LOW","confidence":"HIGH","mode":"shadow","at":"\U0032026-10-09T10:00:00Z"}')
+$invalidUpperEscapeReport = Get-AdvisoryCollectorReport -ResolverPaths @($invalidUpperEscapePath)
+Assert ([int]$invalidUpperEscapeReport.counts.resolver_records_valid -eq 0) 'uppercase JSON escape marker remains invalid (case-sensitive grammar)'
+Assert (@($invalidUpperEscapeReport.rejection_reasons.resolver.Keys) -ccontains 'MALFORMED_JSON') 'uppercase JSON escape is classified as malformed JSON'
+
 $mixLines = @(
     (New-ResolverLine -TaskKey $goodKey),
     (New-ResolverLine -TaskKey $goodKey),

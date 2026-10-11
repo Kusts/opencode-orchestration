@@ -425,31 +425,147 @@ function Get-AdvisoryNormalizedTaskKey {
 function Test-AdvisoryTimestamp {
     <#
     .SYNOPSIS
-        Valida o campo 'at': string ISO-8601 round-trip ('o') OU valor de data
-        ja tipado.
+        Valida somente strings ISO-8601 com zona explicita (UTC Z ou offset).
     .DESCRIPTION
-        PS 7 coage string ISO-8601 com 'T' para [DateTime]; PS 5.1 mantem
-        String. Nos dois casos o valor e aceito: tipo tipado comprova string
-        de data parseavel e string passa pelo formato round-trip 'o'.
-        Qualquer outro tipo, string vazia, ausente ou fora de 'o' => invalido.
+        Formatos exatos e cultura invariant evitam dependencias de timezone,
+        cultura local e DateParseHandling do ConvertFrom-Json. A precisao
+        fracionaria original nao e normalizada nem serializada no relatorio.
     #>
     [CmdletBinding()]
     param($Value = $null)
     if ($null -eq $Value) { return $false }
-    if ($Value -is [DateTime]) { return ($Value -ne [DateTime]::MinValue) }
-    if ($Value -is [DateTimeOffset]) { return ($Value -ne [DateTimeOffset]::MinValue) }
     if ($Value -is [string]) {
         $s = ([string]$Value).Trim()
         if ([string]::IsNullOrWhiteSpace($s)) { return $false }
-        if ($s.Length -gt 40) { return $false }
+        if ($s.Length -lt 20 -or $s.Length -gt 33) { return $false }
         $dto = [DateTimeOffset]::MinValue
         try {
-            $styles = [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
-            return [DateTimeOffset]::TryParseExact($s, 'o', [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$dto)
+            if ($s.EndsWith('Z', [System.StringComparison]::Ordinal)) {
+                $formats = [string[]]@("yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'")
+                $styles = [System.Globalization.DateTimeStyles]::AssumeUniversal
+            }
+            else {
+                $formats = [string[]]@("yyyy-MM-dd'T'HH:mm:sszzz", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz")
+                $styles = [System.Globalization.DateTimeStyles]::None
+            }
+            return [DateTimeOffset]::TryParseExact($s, $formats, [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$dto)
         }
         catch { return $false }
     }
     return $false
+}
+
+function ConvertFrom-AdvisoryJsonStringStrict {
+    <# Decode a JSON string body, rejecting malformed escapes before masking. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$RawContent)
+    $sb = New-Object System.Text.StringBuilder
+    $i = 0
+    while ($i -lt $RawContent.Length) {
+        $c = $RawContent[$i]
+        if ($c -ne [char]92) {
+            if ([int]$c -lt 32) { throw 'INVALID_JSON_STRING_CONTROL' }
+            [void]$sb.Append($c)
+            $i += 1
+            continue
+        }
+        $i += 1
+        if ($i -ge $RawContent.Length) { throw 'INVALID_JSON_STRING_ESCAPE' }
+        $escape = $RawContent[$i]
+        switch -CaseSensitive ([string]$escape) {
+            '"' { [void]$sb.Append([char]34); $i += 1; continue }
+            '\' { [void]$sb.Append([char]92); $i += 1; continue }
+            '/' { [void]$sb.Append([char]47); $i += 1; continue }
+            'b' { [void]$sb.Append([char]8); $i += 1; continue }
+            'f' { [void]$sb.Append([char]12); $i += 1; continue }
+            'n' { [void]$sb.Append([char]10); $i += 1; continue }
+            'r' { [void]$sb.Append([char]13); $i += 1; continue }
+            't' { [void]$sb.Append([char]9); $i += 1; continue }
+            'u' {
+                if (($i + 4) -ge $RawContent.Length) { throw 'INVALID_JSON_STRING_UNICODE_ESCAPE' }
+                $hex = $RawContent.Substring($i + 1, 4)
+                if ($hex -cnotmatch '^[0-9a-fA-F]{4}$') { throw 'INVALID_JSON_STRING_UNICODE_ESCAPE' }
+                $code = [Convert]::ToInt32($hex, 16)
+                [void]$sb.Append([char]$code)
+                $i += 5
+                continue
+            }
+            default { throw 'INVALID_JSON_STRING_ESCAPE' }
+        }
+    }
+    return $sb.ToString()
+}
+
+function ConvertFrom-AdvisoryJsonLine {
+    <#
+    .SYNOPSIS
+        Parses one JSONL object while keeping its timestamp as its source string.
+    .DESCRIPTION
+        ConvertFrom-Json has runtime-dependent date coercion. A single lexical
+        pass locates the top-level `at` key/value, strictly decodes its JSON
+        escapes, and masks the value before parsing. This retains the original
+        instant/precision and rejects malformed timestamp escapes.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Json)
+    if (-not (Test-AdvisoryRawRootIsObject -Raw $Json)) { return ($Json | ConvertFrom-Json) }
+    $valueStart = -1
+    $valueLength = 0
+    $timestamp = $null
+    $objectDepth = 0
+    $arrayDepth = 0
+    $quote = [char]34
+    $backslash = [char]92
+    $n = $Json.Length
+    $i = 0
+    while ($i -lt $n) {
+        $ch = $Json[$i]
+        if ($ch -eq $quote) {
+            $keyStart = $i + 1
+            $j = $keyStart
+            while ($j -lt $n) {
+                if ($Json[$j] -eq $backslash) { $j += 2; continue }
+                if ($Json[$j] -eq $quote) { break }
+                $j += 1
+            }
+            if ($j -ge $n) { break }
+            $k = $j + 1
+            while ($k -lt $n -and [char]::IsWhiteSpace($Json[$k])) { $k += 1 }
+            if ($k -lt $n -and $Json[$k] -eq ':' -and $objectDepth -eq 1 -and $arrayDepth -eq 0) {
+                $key = Convert-AdvisoryJsonEscapedText -Value $Json.Substring($keyStart, $j - $keyStart)
+                if ($key -ceq 'at') {
+                    $v = $k + 1
+                    while ($v -lt $n -and [char]::IsWhiteSpace($Json[$v])) { $v += 1 }
+                    if ($v -lt $n -and $Json[$v] -eq $quote) {
+                        $end = $v + 1
+                        while ($end -lt $n) {
+                            if ($Json[$end] -eq $backslash) { $end += 2; continue }
+                            if ($Json[$end] -eq $quote) { break }
+                            $end += 1
+                        }
+                        if ($end -lt $n) {
+                            $valueStart = $v
+                            $valueLength = $end - $v + 1
+                            $timestamp = ConvertFrom-AdvisoryJsonStringStrict -RawContent $Json.Substring($v + 1, $end - $v - 1)
+                            break
+                        }
+                    }
+                }
+            }
+            $i = $j + 1
+            continue
+        }
+        if ($ch -eq '{') { $objectDepth += 1 }
+        elseif ($ch -eq '}') { $objectDepth -= 1 }
+        elseif ($ch -eq '[') { $arrayDepth += 1 }
+        elseif ($ch -eq ']') { $arrayDepth -= 1 }
+        $i += 1
+    }
+    if ($valueStart -lt 0) { return ($Json | ConvertFrom-Json) }
+    $masked = $Json.Substring(0, $valueStart) + '"__ADVISORY_TIMESTAMP__"' + $Json.Substring($valueStart + $valueLength)
+    $node = $masked | ConvertFrom-Json
+    if ($null -ne $node) { $node.at = [string]$timestamp }
+    return $node
 }
 
 function Get-AdvisoryJsonField {
@@ -629,7 +745,7 @@ function Get-AdvisoryCapabilityAllowlist {
     $routing = $null
     if ($ok) {
         try {
-            $p = Join-Path $root 'source\registry\capability-routing.json'
+            $p = Join-Path (Join-Path (Join-Path $root 'source') 'registry') 'capability-routing.json'
             if (Test-Path -LiteralPath $p -PathType Leaf) {
                 $routing = ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) | ConvertFrom-Json)
             }
@@ -658,7 +774,7 @@ function Get-AdvisoryCapabilityAllowlist {
 
     if ($ok) {
         try {
-            $adir = Join-Path $root 'source\agents'
+            $adir = Join-Path (Join-Path $root 'source') 'agents'
             if (-not (Test-Path -LiteralPath $adir -PathType Container)) { $ok = $false }
             else {
                 foreach ($f in @(Get-ChildItem -LiteralPath $adir -Filter '*.md' -File)) {
@@ -672,7 +788,7 @@ function Get-AdvisoryCapabilityAllowlist {
 
     if ($ok) {
         try {
-            $p = Join-Path $root 'source\registry\skills-catalog.json'
+            $p = Join-Path (Join-Path (Join-Path $root 'source') 'registry') 'skills-catalog.json'
             if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { $ok = $false }
             else {
                 $cat = ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) | ConvertFrom-Json)
@@ -687,7 +803,7 @@ function Get-AdvisoryCapabilityAllowlist {
 
     if ($ok) {
         try {
-            $p = Join-Path $root 'source\registry\mcp-profiles.json'
+            $p = Join-Path (Join-Path (Join-Path $root 'source') 'registry') 'mcp-profiles.json'
             if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { $ok = $false }
             else {
                 $mp = ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) | ConvertFrom-Json)
@@ -1402,7 +1518,7 @@ function Get-AdvisoryCandidateRank {
     .SYNOPSIS
         Ordem total determinista entre dois candidatos (caminho + kind).
     .DESCRIPTION
-        Compara o caminho completo na ordem ordinal ignorando caixa e usa o
+        Compara caminho pela identidade da plataforma e usa o
         kind como desempate ('observation' antes de 'resolver'), para que a
         selecao do orcamento de arquivos seja estavel entre processos e entre
         runtimes - nada de ordenacao dependente de cultura ou de seed de hash
@@ -1410,7 +1526,9 @@ function Get-AdvisoryCandidateRank {
     #>
     [CmdletBinding()]
     param([string]$PathA = '', [string]$KindA = '', [string]$PathB = '', [string]$KindB = '')
-    $c = [string]::Compare([string]$PathA, [string]$PathB, [System.StringComparison]::OrdinalIgnoreCase)
+    $comparison = [System.StringComparison]::Ordinal
+    if (Test-AdvisoryIsWindowsPlatform) { $comparison = [System.StringComparison]::OrdinalIgnoreCase }
+    $c = [string]::Compare([string]$PathA, [string]$PathB, $comparison)
     if ($c -ne 0) { return $c }
     return [string]::Compare([string]$KindA, [string]$KindB, [System.StringComparison]::Ordinal)
 }
@@ -1452,6 +1570,8 @@ function Select-AdvisoryCandidates {
     $bestKind = New-Object 'string[]' $cap
     $bestCount = 0
     $seen = 0
+    $pathComparison = [System.StringComparison]::Ordinal
+    if (Test-AdvisoryIsWindowsPlatform) { $pathComparison = [System.StringComparison]::OrdinalIgnoreCase }
     foreach ($stream in @(@{ paths = $ResolverPaths; kind = 'resolver' }, @{ paths = $ObservationPaths; kind = 'observation' })) {
         foreach ($rawPathValue in $stream.paths) {
             if ($null -eq $rawPathValue) { continue }
@@ -1463,7 +1583,7 @@ function Select-AdvisoryCandidates {
             $seen += 1
             $isDup = $false
             for ($bi = 0; $bi -lt $bestCount; $bi++) {
-                if (([string]::Equals([string]$bestFull[$bi], $full, [System.StringComparison]::OrdinalIgnoreCase)) -and
+                if (([string]::Equals([string]$bestFull[$bi], $full, $pathComparison)) -and
                     ([string]$bestKind[$bi] -ceq $kind)) { $isDup = $true; break }
             }
             if ($isDup) { continue }
@@ -1762,7 +1882,7 @@ function Invoke-AdvisoryStreamRead {
                 }
                 $obj = $null
                 $parsed = $false
-                try { $obj = ($raw | ConvertFrom-Json); $parsed = $true }
+                try { $obj = ConvertFrom-AdvisoryJsonLine -Json $raw; $parsed = $true }
                 catch { $parsed = $false }
                 if (-not $parsed) {
                     $Acc.$linesAcc = ([int]$Acc.$linesAcc) + 1
