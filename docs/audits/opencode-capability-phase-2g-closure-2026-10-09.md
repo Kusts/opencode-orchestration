@@ -144,7 +144,7 @@ Executado no worktree isolado em PowerShell 5.1 e pwsh 7:
 
 | Comando | Resultado |
 |---|---|
-| `CapabilityAdvisoryCollector.tests.ps1` | 446/446 PASS em PS 5.1 e PS 7 (pós-findings Codex) |
+| `CapabilityAdvisoryCollector.tests.ps1` | 446/446 PASS na closure inicial (PS 5.1 e PS 7); superseded pela validação final abaixo: 463/463 em ambos |
 | `CapabilityRoutingPhase2F.tests.ps1` | 991 PASS / 0 FAIL |
 | `CapabilityRealWorldPhase2E.tests.ps1` | 408/408 PASS |
 | `tests/distribution/capability-routing-phase2d.tests.ps1` | 372 PASS / 0 FAIL |
@@ -227,3 +227,59 @@ Active Mode: HOLD
 Flags: UNCHANGED
 Next Recommendation: COLLECT_MORE_REAL_DATA
 ```
+
+## Final PR validation — 2026-10-11 (pre-merge)
+
+O veredito histórico **PARTIAL — INSUFFICIENT_REAL_WORLD_DATA** permanece
+inalterado. Esta atualização fecha os achados de plataforma/timestamp e registra
+evidência do HEAD final antes do merge; não transforma a avaliação real em
+`PASS` nem amplia autoridade.
+
+```text
+PR: #54 OPEN; current HEAD db18b28e8c628f9e1791ef38ca56e3e35128a3b1
+base: 4f1cf7ea95fba9914e253e6d627242a2cd9f47ce (includes merged PR #58)
+merge state: CLEAN / MERGEABLE
+required GitHub approving reviews: 0 (no GitHub approval is claimed)
+internal independent review: APPROVED
+security review: APPROVED
+tester assurance: PASS against the exact CI run/head
+review threads: 4 resolved / 0 unresolved
+```
+
+### Final checks (GitHub Actions run `38146173840`, exact HEAD above)
+
+| Check | Result |
+|---|---|
+| `CI (ps51)` | PASS — collector 463/463 |
+| `CI (ps7)` | PASS — collector 463/463 |
+| `CI (smoke opencode real)` | PASS |
+| `CI (v2 lane, perfil V2 provisionado)` | PASS — package consistency 16/16 |
+| `CI (smoke opencode v2 real)` | PASS |
+| `CI (linux capability collector)` | PASS on `ubuntu-latest`/PowerShell 7 — 459 passed, 0 failed, 3 platform skips (junction creation unavailable) |
+| Phase 2D regression | PASS — 372 / 0 |
+| Phase 2E regression | PASS — 408 / 408 |
+| Phase 2F regression | PASS — 991 / 0 |
+| `git diff --check` | PASS |
+
+The new Linux lane ran the actual collector suite on `ubuntu-latest`; its
+case-only file fixtures use the Linux runner filesystem, not a Windows
+simulation. Windows PowerShell 5.1 and PowerShell 7 each ran all 463 assertions
+with no skips.
+
+### Corrective delta and invariants
+
+- Candidate ordering and deduplication now use `OrdinalIgnoreCase` on Windows
+  and `Ordinal` on Unix. Tests cover actual case-only files on the Linux
+  filesystem, reverse input order, exact duplicate paths, Windows behavior,
+  confinement and rejection of a file outside the authorized roots.
+- `at` is preserved as its source string before JSON parsing, decoded with
+  strict JSON escape rules, and validated with explicit ISO-8601 formats,
+  invariant culture, and explicit UTC/offset. Tests cover fractional precision,
+  offsets, escaped JSON key/value, malformed escapes, invalid dates and
+  timezone-less values. The timestamp is not normalized into the report.
+- The collector remains offline/read-only; planner and kernel authority are
+  unchanged; routing flags are unchanged/OFF; Active Mode remains HOLD; real
+  evaluation remains PARTIAL. No Autonomous Core instrumentation was added.
+- Review classification refers to the internal independent reviewers only;
+  GitHub branch protection requires zero approving reviews. No external
+  approval is represented as having occurred.
