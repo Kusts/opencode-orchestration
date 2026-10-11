@@ -695,8 +695,17 @@ para tudo que envolve shell.
 
 ## G1 trusted-runtime closure (fatia aditiva)
 
-Camada de confianca do despacho nativo, toda OPT-IN (nenhum caminho
-default muda):
+Camada de confianca do despacho nativo. Provenance, admission-file e
+avanco causal sao OPT-IN (sem os switches, esses blocos nao existem e o
+CLAIM/SETTLE sem `-EmitAdmission` conserva o comportamento — teste B8c).
+O caminho sincrono legado (`Invoke-OrchestrationNativeDispatch`) recebeu
+endurecimento fail-closed INCONDICIONAL (F1 admissao viva, F2
+exclusividade por task com varredura limitada, F3 pending preservado em
+falha do Executor): nenhuma recusa nova CONCEDE autoridade, mas um store
+suficientemente grande pode recusar com `claim-task-scan-unbounded` (ver
+limites operacionais ao fim da secao). Nenhum caminho produtivo invoca
+essa funcao por padrao (`dispatchWorker`/`waitForSettlement` seguem HOLD;
+somente o Planner LLM executa):
 
 - **Provenance tiers + SETTLE estrito** (em
   `scripts/v3/lib/OrchestrationNativeDispatch.ps1`): `Test-NDProvenanceBinding`
@@ -752,3 +761,14 @@ default muda):
 
 Cobertura: cenarios A1-A8, B1-B11 e D0-D7 em
 `scripts/v3/lib/OrchestrationNativeDispatchHandoff.tests.ps1`.
+
+Limites operacionais do endurecimento (fail-closed, sem concessao de
+autoridade): a exclusividade por task varre o store com teto local de 512
+entradas por namespace e teto global de 4096 entradas em todas as
+namespaces (contadas por entrada do filesystem, inclusive arquivos
+internos como locks/tmp). Acima do teto, o despacho recusa com
+`claim-task-scan-unbounded` SEM perda de dados e SEM efeito novo; a
+recuperacao e operacional (arquivar/limpar namespaces antigas do store e
+repetir). Falha ou excecao do Executor preserva o recibo `pending`
+(`executor-failed` / forma invalida); somente a reconciliacao externa com
+prova kernel-side resolve o recibo.
