@@ -255,7 +255,7 @@ review threads: 4 resolved / 0 unresolved
 | `CI (smoke opencode real)` | PASS |
 | `CI (v2 lane, perfil V2 provisionado)` | PASS — package consistency 16/16 |
 | `CI (smoke opencode v2 real)` | PASS |
-| `CI (linux capability collector)` | PASS on `ubuntu-latest`/PowerShell 7 — 459 passed, 0 failed, 3 platform skips (junction creation unavailable) |
+| `CI (linux capability collector)` | PASS on `ubuntu-latest`/PowerShell 7 — 459 passed, 0 failed, 3 platform skips (junction creation, Windows-only share mode, opposite `powershell` runtime unavailable) |
 | Phase 2D regression | PASS — 372 / 0 |
 | Phase 2E regression | PASS — 408 / 408 |
 | Phase 2F regression | PASS — 991 / 0 |
