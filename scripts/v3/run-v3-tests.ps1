@@ -3,7 +3,8 @@
     Runner oficial das suites V3 (*.tests.ps1 em scripts/v3 + lib).
 .DESCRIPTION
     Descobre suites deterministicamente (FullName alfabetico), executa cada
-    uma isolada (powershell -NoProfile -File, timeout 300s/suite), coleta
+    uma isolada (powershell -NoProfile -File, timeout padrao 300s/suite com
+    override por suite quando justificado), coleta
     exit code + duracao e imprime PASS/FAIL/SKIP por suite + resumo final.
     Filtro -Name com charset validado (fail-closed, exit 2): so seleciona
     suites ja descobertas nos roots fixos, nunca resolve caminho nem executa
@@ -18,7 +19,25 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $v3 = $PSScriptRoot
-$SuiteTimeoutMs = 300000
+
+# Timeout por suite: default global + overrides justificados por BaseName.
+# Chave = FileInfo.BaseName (nome sem a ultima extensao, ex.:
+# "OrchestrationNativeDispatchHandoff.tests" para "...tests.ps1").
+$SuiteTimeoutDefaultMs = 300000
+$SuiteTimeoutOverrides = @{
+  # OrchestrationNativeDispatchHandoff: corridas oficiais PS5.1 observaram
+  # 197s, 261s, 284s e um timeout real de 300.7s/301.5s. A suite hoje tem
+  # ~1745 assertions (cobertura de regressao de seguranca), com cauda
+  # intermitente que pode passar dos 300s. Sobe SO esta suite para 420s (7
+  # min). Elevar o default global NAO e apropriado: a cauda e especifica do
+  # volume desta suite; um default maior mascararia hangs reais nas demais
+  # suites e atrasaria a deteccao de falha. As outras suites seguem em 300s.
+  'OrchestrationNativeDispatchHandoff.tests' = 420000
+}
+function Get-SuiteTimeoutMs([string]$BaseName) {
+  if ($SuiteTimeoutOverrides.ContainsKey($BaseName)) { return [int]$SuiteTimeoutOverrides[$BaseName] }
+  return [int]$SuiteTimeoutDefaultMs
+}
 
 function Write-SuiteResult([string]$Verdict, [string]$SuiteName, [long]$Ms, [string]$Note) {
   $line = $Verdict + ' ' + $SuiteName + ' ' + $Ms + 'ms'
@@ -102,7 +121,17 @@ try {
     exit 2
   }
 
-  Write-Host ('Runner V3: ' + $suites.Count + ' suite(s), timeout 300s/suite, cwd isolado por processo.')
+  $defSec = [int]($SuiteTimeoutDefaultMs / 1000)
+  $banner = 'Runner V3: ' + $suites.Count + ' suite(s), timeout padrao ' + $defSec + 's/suite'
+  $activeOverrides = @()
+  foreach ($s in $suites) {
+    if ($SuiteTimeoutOverrides.ContainsKey($s.BaseName)) {
+      $activeOverrides += ($s.Name + '=' + [int]($SuiteTimeoutOverrides[$s.BaseName] / 1000) + 's')
+    }
+  }
+  if ($activeOverrides.Count -gt 0) { $banner = $banner + '; override ativo: ' + ($activeOverrides -join ', ') }
+  $banner = $banner + '; cwd isolado por processo.'
+  Write-Host $banner
   $nPass = 0
   $nFail = 0
   $nSkip = 0
@@ -111,6 +140,7 @@ try {
   New-Item -ItemType Directory -Path $logDir -Force | Out-Null
   $totalWatch = [System.Diagnostics.Stopwatch]::StartNew()
   foreach ($s in $suites) {
+    $suiteTimeoutMs = Get-SuiteTimeoutMs $s.BaseName
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $code = -1
     $text = ''
@@ -133,7 +163,7 @@ try {
       $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
       $psi.WorkingDirectory = $v3
       $p = [System.Diagnostics.Process]::Start($psi)
-      $finished = $p.WaitForExit($SuiteTimeoutMs)
+      $finished = $p.WaitForExit($suiteTimeoutMs)
       if (-not $finished) {
         $timedOut = $true
         try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { }
@@ -175,7 +205,7 @@ try {
     }
     elseif ($timedOut) {
       $nFail += 1
-      Write-SuiteResult 'FAIL' $s.Name $ms 'TIMEOUT 300s (processo morto)'
+      Write-SuiteResult 'FAIL' $s.Name $ms ('TIMEOUT ' + [int]($suiteTimeoutMs / 1000) + 's (processo morto)')
     }
     elseif (($code -ne 0) -or $hasFail) {
       $nFail += 1
