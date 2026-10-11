@@ -4412,6 +4412,549 @@ public class NDCountEnum : IEnumerable<string> {
     Restore-HFReceiptWriter
     $hfRestoredWriter = Get-Item -Path ('function:' + 'Write-NDReceipt')
     Assert-HF ((($null -ne $hfRestoredWriter) -and ($null -ne $hfRestoredWriter.ScriptBlock) -and ($hfRestoredWriter.ScriptBlock -ceq $script:hfOrigWriteReceipt))) '[G] the ORIGINAL Write-NDReceipt is restored after the writer-fault scenarios' 'not restored'
+
+    # =================================================================
+    # G1 trusted-runtime closure (ADDITIVO): provenance strict (A),
+    # admission lifecycle + decisao sem host (B) e avanco causal (D).
+    #
+    # Nada aqui altera o comportamento default: os cenarios sem
+    # -StrictProvenance / -EmitAdmission provam isso explicitamente
+    # (A6-control, B8-control), e os escritores mockados ja foram
+    # restaurados acima, portanto estas escritas sao REAIS.
+    # =================================================================
+    $g1Root = New-HFReceiptRoot -Name 'g1'
+
+    # ---------- fixtures: claim claimed em raiz propria ----------
+    function New-G1PrepareFixture {
+        param([string]$Suffix, [string]$KeyMaterial)
+        $fx = New-HFIsolatedFixture -Suffix $Suffix
+        $k = Get-NativeDispatchHash32 $KeyMaterial
+        $i = New-HFIntent -Task $fx.task -Key $k -Gen $fx.gen
+        Assert-HF ([bool]$i.ok) ('[G1] intent built ' + $Suffix) ([string]$i.reason)
+        $p = Invoke-OrchestrationNativeDispatchPrepare -Intent $i -Authorization $fx.auth -SessionId $session -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-HF ([bool]$p.ok) ('[G1] prepared ' + $Suffix) ([string]$p.reason)
+        return [pscustomobject]@{ fx = $fx; key = $k; intent = $i; prepare = $p }
+    }
+
+    function Invoke-G1Claim {
+        param($Fx, [switch]$EmitAdmission, [int]$Ttl = 3600, [string]$Model = '', [string]$Provider = '', $Auth = $null)
+        $useAuth = $Auth
+        if ($null -eq $useAuth) { $useAuth = $Fx.fx.auth }
+        return (Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $Fx.key -Authorization $useAuth -SessionId $session -MessageId $message -CallId $call -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$Fx.prepare.prepared_fingerprint) -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EmitAdmission:$EmitAdmission -AdmissionTtlSeconds $Ttl -AdmissionModel $Model -AdmissionProvider $Provider)
+    }
+
+    function Invoke-G1Settle {
+        param($Fx, $Result, $Proof = $null, [switch]$Strict, [string]$ChildSession = 'ses_g1_child_1', [switch]$EmitAdmission)
+        return (Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $Fx.key -Authorization $Fx.fx.auth -ChildSessionId $ChildSession -SessionId $session -MessageId $message -CallId $call -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$Fx.prepare.prepared_fingerprint) -Reference ([string]$Fx.prepare.reference) -Result $Result -ReceiptDir $g1Root -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath -ProvenanceProof $Proof -StrictProvenance:$Strict -EmitAdmission:$EmitAdmission)
+    }
+
+    function New-G1Proof {
+        param(
+            [string]$Child = 'ses_g1_child_1',
+            [string]$Parent = $session,
+            [string]$CallId = $call,
+            [string]$KeyMaterial = '',
+            [string]$Source = 'plugin-session-get',
+            [string[]]$Sources = @(),
+            [string[]]$Refs = @()
+        )
+        return [pscustomobject]@{
+            source = $Source
+            sources = [string[]]$Sources
+            child_session_id = $Child
+            parent_session_id = $Parent
+            call_id = $CallId
+            idempotency_key = $KeyMaterial
+            claimed_evidence = [string[]]$Refs
+        }
+    }
+
+    function Get-G1Admission {
+        param([string]$GoalId, [string]$Key)
+        $st = Get-NDAdmissionDir -RootDir $g1Root -GoalId $GoalId
+        if (-not [bool]$st.ok) { return $null }
+        return (Read-NDAdmissionRecord -AdmissionDir ([string]$st.dir) -Key $Key)
+    }
+
+    # Leitura crua do recibo NA RAIZ PROPRIA dos cenarios G1 (o helper
+    # global le a raiz 'settle', que nao e esta).
+    function Get-G1ReceiptRaw {
+        param([string]$GoalId, [string]$Key)
+        $sub = Get-NDGoalReceiptDir -RootDir $g1Root -GoalId $GoalId
+        if ([string]::IsNullOrWhiteSpace($sub)) { return $null }
+        $p = Join-Path $sub ($Key + '.json')
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+        try { return (ConvertFrom-Json ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8))) } catch { return $null }
+    }
+
+    $g1Cand = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0', 'criterion:1') }
+    $g1Child = 'ses_g1_child_1'
+
+    # ---------- A1: strict sem proof recusa ANTES de qualquer escrita ----------
+    $fxA1 = New-G1PrepareFixture -Suffix 'g1a1' -KeyMaterial 'g1-a1-1'
+    $cA1 = Invoke-G1Claim -Fx $fxA1
+    Assert-HF (([bool]$cA1.ok) -and ([bool]$cA1.claimed) -and ([int]$cA1.executor_calls -eq 0)) '[A1] the claim committed without any admission/provenance opt-in (default unchanged)' ([string]$cA1.reason)
+    $evBeforeA1 = @(Get-ChildItem -LiteralPath $evDir -Filter '*.json' -File).Count
+    $sA1 = Invoke-G1Settle -Fx $fxA1 -Result $g1Cand -Strict
+    Assert-HF ((-not [bool]$sA1.ok) -and (-not [bool]$sA1.settled) -and ([string]$sA1.reason -ceq 'settle-provenance-unproven') -and ([int]$sA1.executor_calls -eq 0)) '[A1] strict without proof refuses the settlement before evidence/kernel' ([string]$sA1.reason)
+    $rawA1 = Get-G1ReceiptRaw -GoalId $fxA1.fx.goal -Key $fxA1.key
+    Assert-HF (($null -ne $rawA1) -and ([string]$rawA1.phase -ceq 'claimed')) '[A1] the receipt stays claimed with the task reservation held' ''
+    Assert-HF (@(Get-ChildItem -LiteralPath $evDir -Filter '*.json' -File).Count -eq $evBeforeA1) '[A1] no evidence line was created by the refused strict settle' ''
+
+    # ---------- A2: child inexistente (proof declara outro filho) ----------
+    $fxA2 = New-G1PrepareFixture -Suffix 'g1a2' -KeyMaterial 'g1-a2-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA2).ok) '[A2] claimed' ''
+    $pA2 = New-G1Proof -Child 'ses_g1_never_existed' -KeyMaterial $fxA2.key -Refs @('criterion:0', 'criterion:1')
+    $sA2 = Invoke-G1Settle -Fx $fxA2 -Result $g1Cand -Proof $pA2 -Strict
+    Assert-HF ((-not [bool]$sA2.ok) -and ([string]$sA2.reason -ceq 'settle-provenance-unproven')) '[A2] a nonexistent child session is refused in strict mode' ([string]$sA2.reason)
+
+    # ---------- A3: parent incorreto ----------
+    $fxA3 = New-G1PrepareFixture -Suffix 'g1a3' -KeyMaterial 'g1-a3-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA3).ok) '[A3] claimed' ''
+    $pA3 = New-G1Proof -Parent 'ses_hf_some_other_session' -KeyMaterial $fxA3.key -Refs @('criterion:0', 'criterion:1')
+    $sA3 = Invoke-G1Settle -Fx $fxA3 -Result $g1Cand -Proof $pA3 -Strict
+    Assert-HF ((-not [bool]$sA3.ok) -and ([string]$sA3.reason -ceq 'settle-provenance-unproven')) '[A3] a wrong parent session is refused' ([string]$sA3.reason)
+
+    # ---------- A4: chamada inexistente ----------
+    $fxA4 = New-G1PrepareFixture -Suffix 'g1a4' -KeyMaterial 'g1-a4-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA4).ok) '[A4] claimed' ''
+    $pA4 = New-G1Proof -CallId 'call_never_made' -KeyMaterial $fxA4.key -Refs @('criterion:0', 'criterion:1')
+    $sA4 = Invoke-G1Settle -Fx $fxA4 -Result $g1Cand -Proof $pA4 -Strict
+    Assert-HF ((-not [bool]$sA4.ok) -and ([string]$sA4.reason -ceq 'settle-provenance-unproven')) '[A4] a nonexistent host call id is refused' ([string]$sA4.reason)
+
+    # ---------- A5: resultado adulterado depois da claim ----------
+    $fxA5 = New-G1PrepareFixture -Suffix 'g1a5' -KeyMaterial 'g1-a5-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA5).ok) '[A5] claimed' ''
+    $pA5 = New-G1Proof -KeyMaterial $fxA5.key -Refs @('criterion:0', 'criterion:1')
+    $tampered = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:1', 'criterion:99') }
+    $sA5 = Invoke-G1Settle -Fx $fxA5 -Result $tampered -Proof $pA5 -Strict
+    Assert-HF ((-not [bool]$sA5.ok) -and ([string]$sA5.reason -ceq 'settle-provenance-unproven')) '[A5] an evidence ref tampered after the claim is refused (never tier-capped into success)' ([string]$sA5.reason)
+
+    # ---------- A6: proof legitima permite + tier/source no recibo ----------
+    $fxA6 = New-G1PrepareFixture -Suffix 'g1a6' -KeyMaterial 'g1-a6-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA6).ok) '[A6] claimed' ''
+    $pA6 = New-G1Proof -KeyMaterial $fxA6.key -Refs @('criterion:0', 'criterion:1')
+    $bindA6 = Test-NDProvenanceBinding -ProvenanceProof $pA6 -ClaimSessionId $session -ClaimCallId $call -IdempotencyKey $fxA6.key -ChildSessionId $g1Child
+    Assert-HF (([bool]$bindA6.ok) -and ([string]$bindA6.tier -ceq 'observed') -and ([string]$bindA6.source -ceq 'plugin-session-get')) '[A6] a single independent host source binds as tier observed' ('reason=' + [string]$bindA6.reason)
+    $pA6b = New-G1Proof -KeyMaterial $fxA6.key -Source 'opencode-db' -Sources @('plugin-session-get', 'opencode-db') -Refs @('criterion:0', 'criterion:1')
+    $bindA6b = Test-NDProvenanceBinding -ProvenanceProof $pA6b -ClaimSessionId $session -ClaimCallId $call -IdempotencyKey $fxA6.key -ChildSessionId $g1Child
+    Assert-HF (([bool]$bindA6b.ok) -and ([string]$bindA6b.tier -ceq 'corroborated')) '[A6] two independent sources bind as tier corroborated' ('reason=' + [string]$bindA6b.reason)
+    $pA6c = New-G1Proof -KeyMaterial $fxA6.key -Source 'declared' -Refs @('criterion:0', 'criterion:1')
+    $bindA6c = Test-NDProvenanceBinding -ProvenanceProof $pA6c -ClaimSessionId $session -ClaimCallId $call -IdempotencyKey $fxA6.key -ChildSessionId $g1Child
+    Assert-HF (([bool]$bindA6c.ok) -and ([string]$bindA6c.tier -ceq 'declared')) '[A6] a bare declaration binds as tier declared' ('reason=' + [string]$bindA6c.reason)
+    $sA6 = Invoke-G1Settle -Fx $fxA6 -Result $g1Cand -Proof $pA6 -Strict
+    Assert-HF (([bool]$sA6.ok) -and ([bool]$sA6.settled) -and (-not [bool]$sA6.duplicate) -and ([int]$sA6.executor_calls -eq 0)) '[A6] a valid bound proof allows the settlement in strict mode' ([string]$sA6.reason)
+    $rawA6 = Get-G1ReceiptRaw -GoalId $fxA6.fx.goal -Key $fxA6.key
+    Assert-HF (($null -ne $rawA6) -and ([string]$rawA6.settle_provenance_tier -ceq 'observed') -and ([string]$rawA6.settle_provenance_source -ceq 'plugin-session-get')) '[A6] the settled receipt records settle_provenance_tier + settle_provenance_source' ''
+    Assert-HF ([bool](Test-NDSettledHandoffProof -Receipt $rawA6).ok) '[A6] the settled receipt still proves the handoff with the provenance fields added' ''
+
+    # ---------- A6-control: default SEM proof segue identico ----------
+    $fxA6c = New-G1PrepareFixture -Suffix 'g1a6c' -KeyMaterial 'g1-a6c-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA6c).ok) '[A6c] claimed' ''
+    $sA6c = Invoke-G1Settle -Fx $fxA6c -Result $g1Cand
+    Assert-HF (([bool]$sA6c.ok) -and ([bool]$sA6c.settled)) '[A6c] without strict/proof the settlement is unchanged (no new refusal)' ([string]$sA6c.reason)
+    $rawA6c = Get-G1ReceiptRaw -GoalId $fxA6c.fx.goal -Key $fxA6c.key
+    Assert-HF (($null -ne $rawA6c) -and ($null -eq $rawA6c.PSObject.Properties['settle_provenance_tier'])) '[A6c] the default receipt carries no provenance field (byte-level default preserved)' ''
+
+    # ---------- A7: strict recusa source='declared' mesmo com tupla concordante ----------
+    $fxA7 = New-G1PrepareFixture -Suffix 'g1a7' -KeyMaterial 'g1-a7-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA7).ok) '[A7] claimed' ''
+    $pA7 = New-G1Proof -KeyMaterial $fxA7.key -Source 'declared' -Refs @('criterion:0', 'criterion:1')
+    $sA7 = Invoke-G1Settle -Fx $fxA7 -Result $g1Cand -Proof $pA7 -Strict
+    Assert-HF ((-not [bool]$sA7.ok) -and (-not [bool]$sA7.settled) -and ([string]$sA7.reason -ceq 'settle-provenance-unproven')) '[A7] a concordant tuple with source declared is refused in strict mode (declaration is never proof)' ([string]$sA7.reason)
+    $bindA7 = Test-NDProvenanceBinding -ProvenanceProof $pA7 -ClaimSessionId $session -ClaimCallId $call -IdempotencyKey $fxA7.key -ChildSessionId $g1Child -ExpectedClaimedEvidence @('criterion:0', 'criterion:1') -Strict
+    Assert-HF ((-not [bool]$bindA7.ok) -and ([string]$bindA7.reason -ceq 'provenance-declared-not-proof')) '[A7] strict binding refuses the declared tier directly' ([string]$bindA7.reason)
+
+    # ---------- A8: strict exige claimed_evidence (sem skip por ausencia) ----------
+    $fxA8 = New-G1PrepareFixture -Suffix 'g1a8' -KeyMaterial 'g1-a8-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA8).ok) '[A8] claimed' ''
+    $pA8 = New-G1Proof -KeyMaterial $fxA8.key
+    $sA8 = Invoke-G1Settle -Fx $fxA8 -Result $g1Cand -Proof $pA8 -Strict
+    Assert-HF ((-not [bool]$sA8.ok) -and ([string]$sA8.reason -ceq 'settle-provenance-unproven')) '[A8] strict refuses a proof without claimed_evidence (no skip on absence)' ([string]$sA8.reason)
+    $bindA8 = Test-NDProvenanceBinding -ProvenanceProof $pA8 -ClaimSessionId $session -ClaimCallId $call -IdempotencyKey $fxA8.key -ChildSessionId $g1Child -ExpectedClaimedEvidence @('criterion:0', 'criterion:1') -Strict
+    Assert-HF ((-not [bool]$bindA8.ok) -and ([string]$bindA8.reason -ceq 'provenance-evidence-required')) '[A8] strict binding requires the result refs directly' ([string]$bindA8.reason)
+
+    # ---------- A9: replay strict de liquidacao declarada nao herda sucesso ----------
+    $fxA9 = New-G1PrepareFixture -Suffix 'g1a9' -KeyMaterial 'g1-a9-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxA9).ok) '[A9] claimed' ''
+    $sA9 = Invoke-G1Settle -Fx $fxA9 -Result $g1Cand
+    Assert-HF (([bool]$sA9.ok) -and ([bool]$sA9.settled)) '[A9] the declared settlement succeeded without strict' ([string]$sA9.reason)
+    $sA9r = Invoke-G1Settle -Fx $fxA9 -Result $g1Cand -Strict
+    Assert-HF ((-not [bool]$sA9r.ok) -and (-not [bool]$sA9r.settled) -and ([string]$sA9r.reason -ceq 'settle-provenance-unproven')) '[A9] a strict replay of a declared settlement is refused (replay never invents provenance)' ([string]$sA9r.reason)
+
+    # ---------- B1: CLAIM valido => admission vivo => allow ----------
+    $fxB1 = New-G1PrepareFixture -Suffix 'g1b1' -KeyMaterial 'g1-b1-1'
+    $cB1 = Invoke-G1Claim -Fx $fxB1 -EmitAdmission
+    Assert-HF (([bool]$cB1.ok) -and ([bool]$cB1.claimed)) '[B1] the claim accepted with the admission opt-in' ([string]$cB1.reason)
+    $admB1 = Get-G1Admission -GoalId $fxB1.fx.goal -Key $fxB1.key
+    Assert-HF ($null -ne $admB1) '[B1] the admission file exists under <goal-namespace>/admission/<key>.admission.json' ''
+    $dB1 = Test-NDAdmissionDecision -Admission $admB1 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -ExpectedGeneration $fxB1.fx.gen
+    Assert-HF (([bool]$dB1.allow) -and ([string]$dB1.reason -ceq '')) '[B1] a live admission with matching (session, call, agent) allows' ('reason=' + [string]$dB1.reason)
+    $rawB1 = Get-G1ReceiptRaw -GoalId $fxB1.fx.goal -Key $fxB1.key
+    Assert-HF (($null -ne $rawB1) -and ([string]$rawB1.phase -ceq 'claimed')) '[B1] the receipt is claimed (the admission did not change the receipt phase)' ''
+
+    # ---------- B2: sem CLAIM => sem admission => deny ----------
+    $fxB2 = New-G1PrepareFixture -Suffix 'g1b2' -KeyMaterial 'g1-b2-1'
+    Assert-HF ([bool](Invoke-OrchestrationNativeDispatchPrepare -Intent $fxB2.intent -Authorization $fxB2.fx.auth -SessionId $session -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath).ok) '[B2] only PREPARE ran (no claim, no effect)' ''
+    $admB2 = Get-G1Admission -GoalId $fxB2.fx.goal -Key $fxB2.key
+    Assert-HF ($null -eq $admB2) '[B2] no admission file exists without a claim' ''
+    $dB2 = Test-NDAdmissionDecision -Admission $null -GoalId $fxB2.fx.goal -SessionId $session -CallId $call -Agent 'coder'
+    Assert-HF ((-not [bool]$dB2.allow) -and ([string]$dB2.reason -ceq 'admission-absent')) '[B2] absent admission denies (fail-closed)' ('reason=' + [string]$dB2.reason)
+
+    # ---------- B3: expirado => deny ----------
+    $admB3 = New-NDAdmissionRecord -IdempotencyKey $fxB1.key -GoalId $fxB1.fx.goal -TaskId $fxB1.fx.task -SessionId $session -CallId $call -Agent 'coder' -Owner 'planner-1' -Generation $fxB1.fx.gen -GoalState 'ACTIVE' -TtlSeconds 1 -NowUtc ([DateTime]::UtcNow.AddHours(-2))
+    $dB3 = Test-NDAdmissionDecision -Admission $admB3 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder'
+    Assert-HF ((-not [bool]$dB3.allow) -and ([string]$dB3.reason -ceq 'admission-expired')) '[B3] an expired admission denies' ('reason=' + [string]$dB3.reason)
+
+    # ---------- B4: generation obsoleta => deny ----------
+    $admB4 = New-NDAdmissionRecord -IdempotencyKey $fxB1.key -GoalId $fxB1.fx.goal -TaskId $fxB1.fx.task -SessionId $session -CallId $call -Agent 'coder' -Owner 'planner-1' -Generation $fxB1.fx.gen -GoalState 'ACTIVE' -TtlSeconds 3600
+    $dB4 = Test-NDAdmissionDecision -Admission $admB4 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -ExpectedGeneration ($fxB1.fx.gen + 1)
+    Assert-HF ((-not [bool]$dB4.allow) -and ([string]$dB4.reason -ceq 'admission-generation-stale')) '[B4] a stale ownership generation denies' ('reason=' + [string]$dB4.reason)
+
+    # ---------- B5: outro goal => deny ----------
+    $dB5 = Test-NDAdmissionDecision -Admission $admB1 -GoalId 'hf-goal-outro' -SessionId $session -CallId $call -Agent 'coder'
+    Assert-HF ((-not [bool]$dB5.allow) -and ([string]$dB5.reason -ceq 'admission-goal-mismatch')) '[B5] another goal denies' ('reason=' + [string]$dB5.reason)
+
+    # ---------- B6: model/provider fora do autorizado => deny ----------
+    $admB6 = New-NDAdmissionRecord -IdempotencyKey $fxB1.key -GoalId $fxB1.fx.goal -TaskId $fxB1.fx.task -SessionId $session -CallId $call -Agent 'coder' -Owner 'planner-1' -Generation $fxB1.fx.gen -GoalState 'ACTIVE' -TtlSeconds 3600 -AllowedModel 'modelo-autorizado' -AllowedProvider 'provider-autorizado'
+    $dB6m = Test-NDAdmissionDecision -Admission $admB6 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -Model 'modelo-nao-autorizado' -Provider 'provider-autorizado'
+    Assert-HF ((-not [bool]$dB6m.allow) -and ([string]$dB6m.reason -ceq 'admission-model-not-authorized')) '[B6] an unauthorized model override denies' ('reason=' + [string]$dB6m.reason)
+    $dB6p = Test-NDAdmissionDecision -Admission $admB6 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -Model 'modelo-autorizado' -Provider 'provider-nao-autorizado'
+    Assert-HF ((-not [bool]$dB6p.allow) -and ([string]$dB6p.reason -ceq 'admission-provider-not-authorized')) '[B6] an unauthorized provider override denies' ('reason=' + [string]$dB6p.reason)
+
+    # ---------- B7: operacao legitima => allow ----------
+    $dB7 = Test-NDAdmissionDecision -Admission $admB6 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -Model 'modelo-autorizado' -Provider 'provider-autorizado'
+    Assert-HF (([bool]$dB7.allow) -and ([string]$dB7.reason -ceq '')) '[B7] a legitimate operation (tuple + authorized model/provider) allows' ('reason=' + [string]$dB7.reason)
+    # B7 residual (documentado, nao coberto): o gate de permissao so
+    # alcanca a superficie model-callable 'subagent'. Um shell/REST
+    # direto NAO passa por permission.evaluate e portanto NAO coberto por
+    # este decision function; a parcela PowerShell (admission lifecycle)
+    # cobre a criacao/remocao, nao a invocacao fora da tool.
+    $dB7b = Test-NDAdmissionDecision -Admission $admB6 -GoalId $fxB1.fx.goal -SessionId 'ses_hf_outra' -CallId $call -Agent 'coder' -Model 'modelo-autorizado' -Provider 'provider-autorizado'
+    Assert-HF ((-not [bool]$dB7b.allow) -and ([string]$dB7b.reason -ceq 'admission-session-mismatch')) '[B7] another session denies (the tuple is what allows)' ('reason=' + [string]$dB7b.reason)
+
+    # ---------- B8: SETTLE remove o admission ----------
+    $fxB8 = New-G1PrepareFixture -Suffix 'g1b8' -KeyMaterial 'g1-b8-1'
+    $cB8 = Invoke-G1Claim -Fx $fxB8 -EmitAdmission
+    Assert-HF (([bool]$cB8.ok) -and ($null -ne (Get-G1Admission -GoalId $fxB8.fx.goal -Key $fxB8.key))) '[B8] the claim wrote a live admission' ''
+    $sB8 = Invoke-G1Settle -Fx $fxB8 -Result $g1Cand -EmitAdmission
+    Assert-HF (([bool]$sB8.ok) -and ([bool]$sB8.settled)) '[B8] the settlement succeeded and released the reservation' ([string]$sB8.reason)
+    Assert-HF ($null -eq (Get-G1Admission -GoalId $fxB8.fx.goal -Key $fxB8.key)) '[B8] the settled dispatch no longer has a live admission (released)' ''
+    $dB8 = Test-NDAdmissionDecision -Admission $null -GoalId $fxB8.fx.goal -SessionId $session -CallId $call -Agent 'coder'
+    Assert-HF ((-not [bool]$dB8.allow) -and ([string]$dB8.reason -ceq 'admission-absent')) '[B8] a released admission denies the next dispatch of the same key' ('reason=' + [string]$dB8.reason)
+
+    # ---------- B8-control: CLAIM/SETTLE sem opt-in nao tocam o admission ----------
+    $fxB8c = New-G1PrepareFixture -Suffix 'g1b8c' -KeyMaterial 'g1-b8c-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxB8c).ok) '[B8c] claimed without the admission opt-in' ''
+    Assert-HF ($null -eq (Get-G1Admission -GoalId $fxB8c.fx.goal -Key $fxB8c.key)) '[B8c] no admission file is written without -EmitAdmission (default unchanged)' ''
+    $sB8c = Invoke-G1Settle -Fx $fxB8c -Result $g1Cand
+    Assert-HF (([bool]$sB8c.ok) -and ([bool]$sB8c.settled)) '[B8c] the settle without -EmitAdmission still succeeds' ([string]$sB8c.reason)
+
+    # ---------- B9: reparo idempotente pos-commit (admission perdido, retry identico) ----------
+    $fxB9 = New-G1PrepareFixture -Suffix 'g1b9' -KeyMaterial 'g1-b9-1'
+    $cB9 = Invoke-G1Claim -Fx $fxB9 -EmitAdmission
+    Assert-HF (([bool]$cB9.ok) -and ($null -ne (Get-G1Admission -GoalId $fxB9.fx.goal -Key $fxB9.key))) '[B9] the claim wrote the admission after the durable commit' ([string]$cB9.reason)
+    $stB9 = Get-NDAdmissionDir -RootDir $g1Root -GoalId $fxB9.fx.goal
+    $admPathB9 = Join-Path ([string]$stB9.dir) ($fxB9.key + '.admission.json')
+    Remove-Item -LiteralPath $admPathB9 -Force
+    Assert-HF ($null -eq (Get-G1Admission -GoalId $fxB9.fx.goal -Key $fxB9.key)) '[B9] the admission file was removed to simulate a post-commit loss' ''
+    $cB9r = Invoke-G1Claim -Fx $fxB9 -EmitAdmission
+    Assert-HF (([bool]$cB9r.ok) -and ([bool]$cB9r.claimed) -and ($null -ne (Get-G1Admission -GoalId $fxB9.fx.goal -Key $fxB9.key))) '[B9] an identical retry regenerates the admission (idempotent repair, no new effect)' ([string]$cB9r.reason)
+    # retry com binding divergente continua consumido-recusado.
+    $cB9x = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $fxB9.key -Authorization $fxB9.fx.auth -SessionId 'ses_hf_outra' -MessageId $message -CallId $call -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$fxB9.prepare.prepared_fingerprint) -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EmitAdmission
+    Assert-HF ((-not [bool]$cB9x.ok) -and ([string]$cB9x.reason -ceq 'claim-already-consumed')) '[B9] a divergent retry of a consumed claim is still refused' ([string]$cB9x.reason)
+
+    # ---------- B9-takeover: retry do novo dono nao reautoriza claim antigo ----------
+    $fxB9t = New-G1PrepareFixture -Suffix 'g1b9t' -KeyMaterial 'g1-b9t-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxB9t -EmitAdmission).ok) '[B9t] claimed with admission under planner-1' ''
+    $stB9t = Get-NDAdmissionDir -RootDir $g1Root -GoalId $fxB9t.fx.goal
+    Remove-Item -LiteralPath (Join-Path ([string]$stB9t.dir) ($fxB9t.key + '.admission.json')) -Force
+    $shrB9t = Renew-OrchestrationGoalOwnership -GoalId $fxB9t.fx.goal -OwnerId 'planner-1' -Generation $fxB9t.fx.gen -StoreDir $goalDir -LeaseTtlMs 1
+    Assert-HF (($null -ne $shrB9t) -and ([bool]$shrB9t.ok)) '[B9t] the lease was shrunk to force expiry' ''
+    Start-Sleep -Milliseconds 400
+    $towB9t = Takeover-OrchestrationGoalOwnership -GoalId $fxB9t.fx.goal -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 120000
+    Assert-HF (($null -ne $towB9t) -and ([bool]$towB9t.ok)) '[B9t] the takeover to planner-2 succeeded' ([string]$towB9t.reason)
+    $authB9t = @{ explicit_allow = $true; goal_id = $fxB9t.fx.goal; owner = 'planner-2'; generation = [long]$towB9t.ownership.generation; source = 'planner' }
+    $cB9t = Invoke-G1Claim -Fx $fxB9t -EmitAdmission -Auth $authB9t
+    Assert-HF ((-not [bool]$cB9t.ok) -and ([string]$cB9t.reason -ceq 'claim-already-consumed')) '[B9t] the new owner retry with the old tuple does not reauthorize the old claim' ([string]$cB9t.reason)
+    Assert-HF ($null -eq (Get-G1Admission -GoalId $fxB9t.fx.goal -Key $fxB9t.key)) '[B9t] no admission was regenerated across the ownership change' ''
+
+    # ---------- B9-restricoes: reparo preserva o escopo gravado, nao o do retry ----------
+    $fxB9r = New-G1PrepareFixture -Suffix 'g1b9r' -KeyMaterial 'g1-b9r-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxB9r -EmitAdmission -Model 'modelo-original').ok) '[B9r] claimed with a model restriction' ''
+    $stB9r = Get-NDAdmissionDir -RootDir $g1Root -GoalId $fxB9r.fx.goal
+    Remove-Item -LiteralPath (Join-Path ([string]$stB9r.dir) ($fxB9r.key + '.admission.json')) -Force
+    $cB9r = Invoke-G1Claim -Fx $fxB9r -EmitAdmission -Model 'modelo-trocado'
+    Assert-HF (([bool]$cB9r.ok) -and ([bool]$cB9r.claimed)) '[B9r] the identical retry regenerates the admission' ([string]$cB9r.reason)
+    $admB9r = Get-G1Admission -GoalId $fxB9r.fx.goal -Key $fxB9r.key
+    Assert-HF (($null -ne $admB9r) -and ([string]$admB9r.allowed_model -ceq 'modelo-original')) '[B9r] the regenerated admission keeps the RECORDED restriction (retry never loosens scope)' ('allowed_model=' + [string]$admB9r.allowed_model)
+    $dB9r = Test-NDAdmissionDecision -Admission $admB9r -GoalId $fxB9r.fx.goal -SessionId $session -CallId $call -Agent 'coder' -Model 'modelo-trocado'
+    Assert-HF ((-not [bool]$dB9r.allow) -and ([string]$dB9r.reason -ceq 'admission-model-not-authorized')) '[B9r] the swapped model still denies against the recorded restriction' ('reason=' + [string]$dB9r.reason)
+
+    # ---------- B9-corrompido: admission existente invalido nunca e "reparado" ----------
+    $fxB9m = New-G1PrepareFixture -Suffix 'g1b9m' -KeyMaterial 'g1-b9m-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxB9m -EmitAdmission).ok) '[B9m] claimed with admission' ''
+    $stB9m = Get-NDAdmissionDir -RootDir $g1Root -GoalId $fxB9m.fx.goal
+    $admPathB9m = Join-Path ([string]$stB9m.dir) ($fxB9m.key + '.admission.json')
+    [IO.File]::WriteAllText($admPathB9m, '{ truncado', [Text.UTF8Encoding]::new($false))
+    $cB9m = Invoke-G1Claim -Fx $fxB9m -EmitAdmission
+    Assert-HF ((-not [bool]$cB9m.ok) -and ([string]$cB9m.reason -ceq 'claim-already-consumed')) '[B9m] an identical retry never repairs an existing (even malformed) admission with a new expiry' ([string]$cB9m.reason)
+    Assert-HF ([string]([IO.File]::ReadAllText($admPathB9m, [Text.Encoding]::UTF8)) -ceq '{ truncado') '[B9m] the malformed admission file was left untouched' ''
+
+    # ---------- B10: remocao incondicional mesmo sem switch no SETTLE ----------
+    $fxB10 = New-G1PrepareFixture -Suffix 'g1b10' -KeyMaterial 'g1-b10-1'
+    Assert-HF ([bool](Invoke-G1Claim -Fx $fxB10 -EmitAdmission).ok) '[B10] claimed with admission' ''
+    Assert-HF ($null -ne (Get-G1Admission -GoalId $fxB10.fx.goal -Key $fxB10.key)) '[B10] the admission exists before settlement' ''
+    $sB10 = Invoke-G1Settle -Fx $fxB10 -Result $g1Cand
+    Assert-HF (([bool]$sB10.ok) -and ([bool]$sB10.settled)) '[B10] the settle without -EmitAdmission still succeeds' ([string]$sB10.reason)
+    Assert-HF ($null -eq (Get-G1Admission -GoalId $fxB10.fx.goal -Key $fxB10.key)) '[B10] the admission is released even when the settle carries no opt-in (unconditional removal)' ''
+
+    # ---------- B11: paridade de model/provider vazio (restricao vazia = sem restricao) ----------
+    $admB11 = New-NDAdmissionRecord -IdempotencyKey $fxB1.key -GoalId $fxB1.fx.goal -TaskId $fxB1.fx.task -SessionId $session -CallId $call -Agent 'coder' -Owner 'planner-1' -Generation $fxB1.fx.gen -GoalState 'ACTIVE' -TtlSeconds 3600
+    $dB11 = Test-NDAdmissionDecision -Admission $admB11 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -Model 'qualquer-modelo' -Provider 'qualquer-provider'
+    Assert-HF ([bool]$dB11.allow) '[B11] an empty model/provider restriction constrains nothing (parity PS/JS)' ('reason=' + [string]$dB11.reason)
+    $dB11b = Test-NDAdmissionDecision -Admission $admB6 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -Provider 'provider-autorizado'
+    Assert-HF ((-not [bool]$dB11b.allow) -and ([string]$dB11b.reason -ceq 'admission-model-not-authorized')) '[B11] a filled model restriction with omitted invocation model denies (no bypass by omission)' ('reason=' + [string]$dB11b.reason)
+    $dB11c = Test-NDAdmissionDecision -Admission $admB11 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -ExpectedOwner 'planner-1'
+    Assert-HF ([bool]$dB11c.allow) '[B11] a matching expected owner allows' ('reason=' + [string]$dB11c.reason)
+    $dB11d = Test-NDAdmissionDecision -Admission $admB11 -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder' -ExpectedOwner 'outro-owner'
+    Assert-HF ((-not [bool]$dB11d.allow) -and ([string]$dB11d.reason -ceq 'admission-owner-mismatch')) '[B11] a divergent expected owner denies' ('reason=' + [string]$dB11d.reason)
+    $admB11e = New-NDAdmissionRecord -IdempotencyKey $fxB1.key -GoalId $fxB1.fx.goal -TaskId $fxB1.fx.task -SessionId $session -CallId $call -Agent 'coder' -Owner 'planner-1' -Generation $fxB1.fx.gen -GoalState 'BLOCKED' -TtlSeconds 3600
+    $dB11e = Test-NDAdmissionDecision -Admission $admB11e -GoalId $fxB1.fx.goal -SessionId $session -CallId $call -Agent 'coder'
+    Assert-HF ((-not [bool]$dB11e.allow) -and ([string]$dB11e.reason -ceq 'admission-goal-not-active')) '[B11] a non-ACTIVE recorded goal state denies' ('reason=' + [string]$dB11e.reason)
+
+    # ---------- D: avanco causal ----------
+    . (Join-Path $PSScriptRoot 'OrchestrationObjectiveController.ps1')
+    $script:g1OrigNextMove = (Get-Item -Path ('function:' + 'Get-OrchestrationNextMove')).ScriptBlock
+    function Restore-G1NextMove {
+        if ($null -ne $script:g1OrigNextMove) { Set-Item -Path ('function:' + 'Get-OrchestrationNextMove') -Value $script:g1OrigNextMove }
+    }
+    function New-G1AdvanceFixture {
+        param([string]$Suffix)
+        $fx = New-HFIsolatedFixture -Suffix $Suffix
+        $nextTask = ('hf-task-' + $Suffix + '-next')
+        New-HFKernelTask -Id $nextTask -GoalId $fx.goal -Gen $fx.gen
+        $nextKey = Get-NativeDispatchHash32 ('g1-adv-' + $Suffix + '-next')
+        $nextIntent = New-HFIntent -Task $nextTask -Key $nextKey -Gen $fx.gen
+        Assert-HF ([bool]$nextIntent.ok) ('[G1-D] next intent built ' + $Suffix) ([string]$nextIntent.reason)
+        return [pscustomobject]@{ fx = $fx; nextTask = $nextTask; nextKey = $nextKey; nextIntent = $nextIntent }
+    }
+    # G1-D-FIX: avanco exige liquidacao REAL previa. Prepara, reclama e
+    # liquida a primeira task do goal (default, sem opt-ins) e devolve a
+    # chave liquidada para o avanco causal.
+    function New-G1SettledAdvanceFixture {
+        param([string]$Suffix)
+        $a = New-G1AdvanceFixture -Suffix $Suffix
+        $firstTask = ('hf-task-' + $Suffix)
+        $sk = Get-NativeDispatchHash32 ('g1-settled-' + $Suffix)
+        $firstIntent = New-HFIntent -Task $firstTask -Key $sk -Gen $a.fx.gen
+        Assert-HF ([bool]$firstIntent.ok) ('[G1-D] first intent built ' + $Suffix) ([string]$firstIntent.reason)
+        $pp = Invoke-OrchestrationNativeDispatchPrepare -Intent $firstIntent -Authorization $a.fx.auth -SessionId $session -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-HF ([bool]$pp.ok) ('[G1-D] first task prepared ' + $Suffix) ([string]$pp.reason)
+        $cc = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $sk -Authorization $a.fx.auth -SessionId $session -MessageId $message -CallId $call -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$pp.prepared_fingerprint) -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-HF (([bool]$cc.ok) -and ([bool]$cc.claimed)) ('[G1-D] first task claimed ' + $Suffix) ([string]$cc.reason)
+        $ss = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $sk -Authorization $a.fx.auth -ChildSessionId $g1Child -SessionId $session -MessageId $message -CallId $call -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$pp.prepared_fingerprint) -Reference ([string]$pp.reference) -Result $g1Cand -ReceiptDir $g1Root -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-HF (([bool]$ss.ok) -and ([bool]$ss.settled)) ('[G1-D] first task settled ' + $Suffix) ([string]$ss.reason)
+        return [pscustomobject]@{ fx = $a.fx; nextTask = $a.nextTask; nextKey = $a.nextKey; nextIntent = $a.nextIntent; settledKey = $sk }
+    }
+    function Invoke-G1Advance {
+        param($Fx, $Status, $NextIntent, [switch]$Finalize, [string]$SettledKey, [int]$LockMs = 60000)
+        return (Invoke-OrchestrationNativeDispatchAdvance -GoalId $Fx.fx.goal -SettledKey $SettledKey -Authorization $Fx.fx.auth -ObjectiveStatus $Status -NextIntent $NextIntent -SessionId $session -ReceiptDir $g1Root -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -FinalizeGoalOnComplete:$Finalize -LockTimeoutMs $LockMs)
+    }
+    function New-G1Status {
+        param([bool]$Completed = $false, [bool]$StrategyChange = $false, [string]$Failure = '', [bool]$Progress = $true, [string[]]$Remaining = @('hf-next'))
+        $fail = $Failure
+        if ([string]::IsNullOrWhiteSpace($fail)) { $fail = $null }
+        return @{
+            objective_completed = [bool]$Completed
+            remaining_work = [string[]]$Remaining
+            authorized = $true
+            blocker_kind = ''
+            progress_possible = [bool]$Progress
+            strategy_change = [bool]$StrategyChange
+            context_degraded = $false
+            last_failure = $fail
+            terminal_blocker = $null
+            consecutive_no_progress = [long]0
+        }
+    }
+    function Get-G1AdvanceRecord {
+        param([string]$GoalId, [string]$SettledKey)
+        $st = Get-NDAdvanceDir -RootDir $g1Root -GoalId $GoalId
+        if (-not [bool]$st.ok) { return $null }
+        $p = Join-Path ([string]$st.dir) ($SettledKey + '.advance.json')
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+        try { return (ConvertFrom-Json ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8))) } catch { return $null }
+    }
+
+    # D0: chave fabricada (sem liquidacao) nao avanca - sem prepare.
+    $fxD0 = New-G1AdvanceFixture -Suffix 'g1d0'
+    $aD0 = Invoke-G1Advance -Fx $fxD0 -Status (New-G1Status) -NextIntent $fxD0.nextIntent -SettledKey (Get-NativeDispatchHash32 'g1-settled-d0')
+    Assert-HF ((-not [bool]$aD0.ok) -and (-not [bool]$aD0.prepared) -and ([string]$aD0.reason -ceq 'advance-settlement-unproven')) '[D0] a fabricated settled key never advances (no prior settlement, no prepare)' ([string]$aD0.reason)
+
+    # D1: CONTINUE prepara a proxima task.
+    $fxD1 = New-G1SettledAdvanceFixture -Suffix 'g1d1'
+    $skD1 = $fxD1.settledKey
+    $aD1 = Invoke-G1Advance -Fx $fxD1 -Status (New-G1Status) -NextIntent $fxD1.nextIntent -SettledKey $skD1
+    Assert-HF (([bool]$aD1.ok) -and ([bool]$aD1.prepared) -and ([string]$aD1.move -ceq 'CONTINUE') -and ([int]$aD1.executor_calls -eq 0)) '[D1] CONTINUE prepares the next task and returns the new idempotency key' ([string]$aD1.reason)
+    Assert-HF (($aD1.idempotency_key -ceq $fxD1.nextKey) -and (-not [string]::IsNullOrWhiteSpace([string]$aD1.reference))) '[D1] the returned key is the PREPAREd one' ('key=' + [string]$aD1.idempotency_key)
+    $recD1 = Get-G1AdvanceRecord -GoalId $fxD1.fx.goal -SettledKey $skD1
+    Assert-HF (($null -ne $recD1) -and ([string]$recD1.move -ceq 'CONTINUE') -and ([bool]$recD1.prepared) -and ([string]$recD1.next_idempotency_key -ceq $fxD1.nextKey)) '[D1] the advance decision is persisted with the prepared next key' ''
+    # D1-idempotencia: repetir a mesma chave devolve a decisao SEM novo PREPARE.
+    $aD1b = Invoke-G1Advance -Fx $fxD1 -Status (New-G1Status) -NextIntent $fxD1.nextIntent -SettledKey $skD1
+    Assert-HF (([bool]$aD1b.ok) -and ([bool]$aD1b.prepared) -and ([string]$aD1b.idempotency_key -ceq $fxD1.nextKey)) '[D1] replaying the settled key returns the stored decision without preparing again' ([string]$aD1b.reason)
+
+    # D1c: lock do advance ocupado => recusa sem preparar (exclusao real).
+    $fxD1c = New-G1SettledAdvanceFixture -Suffix 'g1d1c'
+    $advDirD1c = Get-NDAdvanceDir -RootDir $g1Root -GoalId $fxD1c.fx.goal
+    Assert-HF ([bool](Get-NDValue $advDirD1c 'ok' $false)) '[D1c] the advance dir resolves' ''
+    $heldWhy = ''
+    $heldLock = Open-NDReceiptLock -Dir ([string](Get-NDValue $advDirD1c 'dir' '')) -LockTimeoutMs 60000 -Expected ([string](Get-NDValue $advDirD1c 'ident' '')) -RefusalReason ([ref]$heldWhy)
+    Assert-HF ($null -ne $heldLock) '[D1c] the test holds the advance lock' ([string]$heldWhy)
+    try {
+        $aD1c = Invoke-G1Advance -Fx $fxD1c -Status (New-G1Status) -NextIntent $fxD1c.nextIntent -SettledKey $fxD1c.settledKey -LockMs 300
+    }
+    finally {
+        try { $heldLock.Dispose() } catch { }
+    }
+    Assert-HF ((-not [bool]$aD1c.ok) -and (-not [bool]$aD1c.prepared) -and ([string]$aD1c.reason -ceq 'advance-lock-busy')) '[D1c] a contended advance refuses without preparing (one decision per settlement)' ([string]$aD1c.reason)
+    $recD1c = Get-G1AdvanceRecord -GoalId $fxD1c.fx.goal -SettledKey $fxD1c.settledKey
+    Assert-HF ($null -eq $recD1c) '[D1c] the refused contended advance persisted no decision' ''
+
+    # D1d: record pendente (queda antes do PREPARE) permite nova tentativa fresca.
+    $fxD1d = New-G1SettledAdvanceFixture -Suffix 'g1d1d'
+    $advDirD1d = Get-NDAdvanceDir -RootDir $g1Root -GoalId $fxD1d.fx.goal
+    $pendingD1d = [ordered]@{
+        schema_version = 1
+        ok = $true
+        reason = ''
+        goal_id = $fxD1d.fx.goal
+        settled_key = $fxD1d.settledKey
+        move = 'CONTINUE'
+        move_reason = 'crashed-before-prepare'
+        stop_reason = ''
+        prepared = $false
+        next_idempotency_key = $fxD1d.nextKey
+        next_reference = ''
+        next_task_id = ''
+        next_agent = ''
+        prepare_reason = ''
+        goal_state = 'ACTIVE'
+        goal_revision = 0
+        finalize_reason = ''
+        recorded_at = ([DateTime]::UtcNow.ToString('o'))
+    }
+    Assert-HF ([bool](Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $advDirD1d 'dir' '')) -Ident ([string](Get-NDValue $advDirD1d 'ident' '')) -Key $fxD1d.settledKey -Record $pendingD1d)) '[D1d] a pending record simulates the pre-PREPARE crash' ''
+    $aD1d = Invoke-G1Advance -Fx $fxD1d -Status (New-G1Status) -NextIntent $fxD1d.nextIntent -SettledKey $fxD1d.settledKey
+    Assert-HF (([bool]$aD1d.ok) -and ([bool]$aD1d.prepared) -and ([string]$aD1d.idempotency_key -ceq $fxD1d.nextKey)) '[D1d] a pending record recovers with a fresh attempt of the SAME intent (never replays empty success)' ([string]$aD1d.reason)
+
+    # D1e: pendente com intent divergente recusa; pendente sem chave recusa.
+    $fxD1e = New-G1SettledAdvanceFixture -Suffix 'g1d1e'
+    $advDirD1e = Get-NDAdvanceDir -RootDir $g1Root -GoalId $fxD1e.fx.goal
+    $otherKeyD1e = Get-NativeDispatchHash32 'g1-d1e-other-intent'
+    $otherIntentD1e = New-HFIntent -Task 'hf-task-g1d1e-other' -Key $otherKeyD1e -Gen $fxD1e.fx.gen
+    $pendingD1e = [ordered]@{
+        schema_version = 1
+        ok = $true
+        reason = ''
+        goal_id = $fxD1e.fx.goal
+        settled_key = $fxD1e.settledKey
+        move = 'CONTINUE'
+        move_reason = 'crashed-after-prepare'
+        stop_reason = ''
+        prepared = $false
+        next_idempotency_key = $fxD1e.nextKey
+        next_reference = ''
+        next_task_id = ''
+        next_agent = ''
+        prepare_reason = ''
+        goal_state = 'ACTIVE'
+        goal_revision = 0
+        finalize_reason = ''
+        recorded_at = ([DateTime]::UtcNow.ToString('o'))
+    }
+    Assert-HF ([bool](Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $advDirD1e 'dir' '')) -Ident ([string](Get-NDValue $advDirD1e 'ident' '')) -Key $fxD1e.settledKey -Record $pendingD1e)) '[D1e] a pending record with the reserved intent is stored' ''
+    $aD1e = Invoke-G1Advance -Fx $fxD1e -Status (New-G1Status) -NextIntent $otherIntentD1e -SettledKey $fxD1e.settledKey
+    Assert-HF ((-not [bool]$aD1e.ok) -and (-not [bool]$aD1e.prepared) -and ([string]$aD1e.reason -ceq 'advance-intent-mismatch')) '[D1e] a retry with a DIVERGENT intent never prepares a second successor for the same settlement' ([string]$aD1e.reason)
+    $noKeyD1e = [ordered]@{}
+    foreach ($kv in $pendingD1e.GetEnumerator()) { $noKeyD1e[$kv.Key] = $kv.Value }
+    $noKeyD1e['next_idempotency_key'] = ''
+    Assert-HF ([bool](Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $advDirD1e 'dir' '')) -Ident ([string](Get-NDValue $advDirD1e 'ident' '')) -Key $fxD1e.settledKey -Record $noKeyD1e)) '[D1e] a pending record without intent identity is stored' ''
+    $aD1e2 = Invoke-G1Advance -Fx $fxD1e -Status (New-G1Status) -NextIntent $fxD1e.nextIntent -SettledKey $fxD1e.settledKey
+    Assert-HF ((-not [bool]$aD1e2.ok) -and (-not [bool]$aD1e2.prepared) -and ([string]$aD1e2.reason -ceq 'advance-intent-unknown')) '[D1e] a pending record without intent identity refuses instead of preparing blindly' ([string]$aD1e2.reason)
+
+    # D1f: advance record existente porem ilegivel nunca vira ausencia.
+    $fxD1f = New-G1SettledAdvanceFixture -Suffix 'g1d1f'
+    $advDirD1f = Get-NDAdvanceDir -RootDir $g1Root -GoalId $fxD1f.fx.goal
+    $advPathD1f = Join-Path ([string](Get-NDValue $advDirD1f 'dir' '')) ($fxD1f.settledKey + '.advance.json')
+    [IO.File]::WriteAllText($advPathD1f, '{ truncado', [Text.UTF8Encoding]::new($false))
+    $aD1f = Invoke-G1Advance -Fx $fxD1f -Status (New-G1Status) -NextIntent $fxD1f.nextIntent -SettledKey $fxD1f.settledKey
+    Assert-HF ((-not [bool]$aD1f.ok) -and (-not [bool]$aD1f.prepared) -and ([string]$aD1f.reason -ceq 'advance-intent-unknown')) '[D1f] an unreadable advance record refuses without preparing (corruption is never absence)' ([string]$aD1f.reason)
+    Assert-HF ([string]([IO.File]::ReadAllText($advPathD1f, [Text.Encoding]::UTF8)) -ceq '{ truncado') '[D1f] the corrupted advance record was preserved, not overwritten' ''
+    $pD1f = Join-Path (Get-NDGoalReceiptDir -RootDir $g1Root -GoalId $fxD1f.fx.goal) ($fxD1f.nextKey + '.json')
+    Assert-HF (-not (Test-Path -LiteralPath $pD1f)) '[D1f] no successor was prepared for the settlement with the corrupted record' ''
+
+    # D2: RETRY dentro da policy prepara.
+    $fxD2 = New-G1SettledAdvanceFixture -Suffix 'g1d2'
+    $stD2 = New-G1Status -Failure 'recoverable' -Progress $false
+    $aD2 = Invoke-G1Advance -Fx $fxD2 -Status $stD2 -NextIntent $fxD2.nextIntent -SettledKey $fxD2.settledKey
+    Assert-HF (([bool]$aD2.ok) -and ([bool]$aD2.prepared) -and ([string]$aD2.move -ceq 'RETRY')) '[D2] RETRY inside policy prepares the next task' ([string]$aD2.reason)
+
+    # D3: REPLAN nao prepara as cegas.
+    $fxD3 = New-G1SettledAdvanceFixture -Suffix 'g1d3'
+    $skD3 = $fxD3.settledKey
+    $aD3 = Invoke-G1Advance -Fx $fxD3 -Status (New-G1Status -StrategyChange $true) -NextIntent $fxD3.nextIntent -SettledKey $skD3
+    Assert-HF (([bool]$aD3.ok) -and (-not [bool]$aD3.prepared) -and ([string]$aD3.move -ceq 'REPLAN')) '[D3] REPLAN does not prepare blindly' ([string]$aD3.reason)
+    Assert-HF ([string]::IsNullOrWhiteSpace([string]$aD3.idempotency_key)) '[D3] no idempotency key is minted on REPLAN' ''
+    $recD3 = Get-G1AdvanceRecord -GoalId $fxD3.fx.goal -SettledKey $skD3
+    Assert-HF (($null -ne $recD3) -and ([string]$recD3.move -ceq 'REPLAN') -and (-not [bool]$recD3.prepared)) '[D3] the replan decision is marked in the advance record' ''
+    $pD3 = Join-Path (Get-NDGoalReceiptDir -RootDir $g1Root -GoalId $fxD3.fx.goal) ($fxD3.nextKey + '.json')
+    Assert-HF (-not (Test-Path -LiteralPath $pD3)) '[D3] no prepared receipt exists for the next task after REPLAN' ''
+
+    # D4: admissao viva recusa => BLOCKED sem prepare.
+    $fxD4 = New-G1SettledAdvanceFixture -Suffix 'g1d4'
+    $ghostKey = Get-NativeDispatchHash32 'g1-adv-d4-ghost'
+    $ghostIntent = New-HFIntent -Task 'hf-task-ghost-d4' -Key $ghostKey -Gen $fxD4.fx.gen
+    $aD4 = Invoke-G1Advance -Fx $fxD4 -Status (New-G1Status) -NextIntent $ghostIntent -SettledKey $fxD4.settledKey
+    Assert-HF ((-not [bool]$aD4.ok) -and (-not [bool]$aD4.prepared) -and ([string]$aD4.move -ceq 'BLOCKED') -and ([string]$aD4.reason -ceq 'advance-blocked:task-not-found')) '[D4] a refused live admission blocks the advance without preparing' ([string]$aD4.reason)
+
+    # D5: COMPLETE nao prepara e finaliza SOMENTE por CAS.
+    $fxD5 = New-G1SettledAdvanceFixture -Suffix 'g1d5'
+    $stD5 = New-G1Status -Completed $true -Progress $false
+    $aD5 = Invoke-G1Advance -Fx $fxD5 -Status $stD5 -NextIntent $fxD5.nextIntent -SettledKey $fxD5.settledKey
+    Assert-HF (([bool]$aD5.ok) -and (-not [bool]$aD5.prepared) -and ([string]$aD5.move -ceq 'COMPLETE')) '[D5] COMPLETE does not prepare' ([string]$aD5.reason)
+    $goalD5 = (Get-OrchestrationGoal -GoalId $fxD5.fx.goal -StoreDir $goalDir).goal
+    Assert-HF ([string]$goalD5['state'] -ceq 'ACTIVE') '[D5] without the explicit finalize switch the goal state is untouched' ('state=' + [string]$goalD5['state'])
+    $fxD5b = New-G1SettledAdvanceFixture -Suffix 'g1d5b'
+    $revD5b = [long]((Get-OrchestrationGoal -GoalId $fxD5b.fx.goal -StoreDir $goalDir).goal['revision'])
+    $aD5b = Invoke-G1Advance -Fx $fxD5b -Status (New-G1Status -Completed $true -Progress $false) -NextIntent $fxD5b.nextIntent -SettledKey $fxD5b.settledKey -Finalize
+    Assert-HF (([bool]$aD5b.ok) -and (-not [bool]$aD5b.prepared) -and ([string]$aD5b.move -ceq 'COMPLETE')) '[D5b] COMPLETE with the finalize switch still does not prepare' ([string]$aD5b.reason)
+    $goalD5b = (Get-OrchestrationGoal -GoalId $fxD5b.fx.goal -StoreDir $goalDir).goal
+    Assert-HF ([string]$goalD5b['state'] -ceq 'COMPLETED') '[D5b] the goal was finalized through the CAS path' ('state=' + [string]$goalD5b['state'])
+    $aD5c = Invoke-G1Advance -Fx $fxD5b -Status (New-G1Status -Completed $true -Progress $false) -NextIntent $fxD5b.nextIntent -SettledKey (Get-NativeDispatchHash32 'g1-settled-d5b2') -Finalize
+    Assert-HF ((-not [bool]$aD5c.ok) -and ([string]$aD5c.reason -ceq 'advance-stale-goal')) '[D5c] a terminal goal refuses the next advance (stale)' ([string]$aD5c.reason)
+
+    # D6: move fora do conjunto fechado => recusa sem prepare.
+    $fxD6 = New-G1SettledAdvanceFixture -Suffix 'g1d6'
+    function Get-OrchestrationNextMove {
+        param($Status)
+        return [pscustomobject]@{ move = 'ROTATE_CONTEXT'; reason = 'mocked-rotacao'; remaining_count = 1 }
+    }
+    try {
+        $aD6 = Invoke-G1Advance -Fx $fxD6 -Status (New-G1Status) -NextIntent $fxD6.nextIntent -SettledKey $fxD6.settledKey
+    }
+    finally {
+        Restore-G1NextMove
+    }
+    Assert-HF ((-not [bool]$aD6.ok) -and (-not [bool]$aD6.prepared) -and ([string]$aD6.reason -ceq 'advance-move-unknown')) '[D6] an unknown move refuses without preparing' ([string]$aD6.reason)
+
+    # D7: goal stale (fora de ACTIVE) => revalida e recusa.
+    $fxD7 = New-G1AdvanceFixture -Suffix 'g1d7'
+    $setD7 = Set-HFGoalStateLive -GoalId $fxD7.fx.goal -ToState 'BLOCKED' -Gen $fxD7.fx.gen
+    Assert-HF ([bool]$setD7.ok) '[D7] the fixture goal left ACTIVE' ([string]$setD7.reason)
+    $aD7 = Invoke-G1Advance -Fx $fxD7 -Status (New-G1Status) -NextIntent $fxD7.nextIntent -SettledKey (Get-NativeDispatchHash32 'g1-settled-d7')
+    Assert-HF ((-not [bool]$aD7.ok) -and (-not [bool]$aD7.prepared) -and ([string]$aD7.reason -ceq 'advance-stale-goal')) '[D7] a stale goal (not ACTIVE) is revalidated and refuses' ([string]$aD7.reason)
+
     # ---------- global: no worker was ever spawned in this suite ----------
     # L2a (compatibilidade legada) e X1f (replay idempotente da propria
     # chave) sao as UNICAS chamadas intencionais de Executor em toda a suite;
