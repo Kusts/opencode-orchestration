@@ -692,3 +692,63 @@ Classes (read-only / writer-shell / writer-no-shell / diagnostic),
 barreiras (runtime / prompt / planner) e limitações declaradas do matching
 `bash:` vivem em [PERMISSIONS.md](PERMISSIONS.md) — referência normativa
 para tudo que envolve shell.
+
+## G1 trusted-runtime closure (fatia aditiva)
+
+Camada de confianca do despacho nativo, toda OPT-IN (nenhum caminho
+default muda):
+
+- **Provenance tiers + SETTLE estrito** (em
+  `scripts/v3/lib/OrchestrationNativeDispatch.ps1`): `Test-NDProvenanceBinding`
+  confere a tupla (child_session_id, parent_session_id, call_id,
+  idempotency_key) de um proof TRANSPORTADO pelo Planner (nunca assinatura,
+  nunca texto do modelo) e devolve o tier `corroborated` (duas fontes
+  independentes), `observed` (uma fonte) ou `declared` (apenas declaracao).
+  Com `-StrictProvenance` (+ `-Strict` interno), o SETTLE EXIGE fonte
+  observada (`provenance-declared-not-proof` recusa `declared`) e
+  comparacao OBRIGATORIA de `claimed_evidence`
+  (`provenance-evidence-required` quando ausente/vazio,
+  `provenance-result-mismatch` quando diverge), ANTES de qualquer escrita
+  (marcador de tentativa, evidencia, kernel, recibo `settled`). Sem o
+  switch, o caminho declarado (N5b) persiste como compatibilidade
+  documentada - NAO como prova. O recibo `settled` passa a registrar
+  `settle_provenance_tier` e `settle_provenance_source` quando ha proof
+  valida. Residual honesto: dupla-fonte e consistencia entre declaracoes,
+  nao independencia autenticada (exige leitura do host pelo kernel; sem
+  API de atestacao no V2, gate parcial).
+- **Admission-file lifecycle** (mesmo arquivo): o CLAIM, com
+  `-EmitAdmission`, resolve o diretorio antes do commit mas GRAVA o
+  admission (`<goal-namespace>/admission/<key>.admission.json`) SOMENTE
+  APOS o commit duravel do recibo `claimed`; falha pos-commit devolve
+  `claim-admission-write-failed` e o retry com binding identico regenera
+  (reparo idempotente; binding divergente continua
+  `claim-already-consumed`). A remocao no SETTLE (caminho normal e
+  duplicata provada) e INCONDICIONAL. `Test-NDAdmissionDecision` e a
+  decisao PURA (sem host) espelhada pelo plugin
+  `plugins/g1-dispatch-admission/index.js` (`ctx.permission.hook('evaluate')`),
+  deny-by-default para a tool `subagent`: exige `fencing.goal_state` =
+  ACTIVE registrado (`admission-goal-not-active`), owner esperado
+  (`admission-owner-mismatch`, so com ExpectedOwner), restricao vazia =
+  sem restricao e restricao preenchida + identidade omitida = deny
+  (paridade PS/JS, generation inteira). Com `OPENCODE_G1_RECEIPT_FILE`,
+  o plugin exige recibo em phase `claimed` (fecha replay pos-SETTLE).
+  Residuais honestos: o plugin cobre apenas a superficie model-callable
+  `subagent` (shell/REST direto nao passa por `permission.evaluate` -
+  SEC-HIGH-01 permanece HIGH); o admission e forjavel por quem escreve no
+  arquivo (fechamento exige componente inacessivel ao Planner); fencing e
+  snapshot do CLAIM, nao leitura viva; `runtime_grant_enforcement` segue
+  OFF/HOLD.
+- **Avanco causal** (`Invoke-OrchestrationNativeDispatchAdvance`): le o goal
+  vivo, EXIGE o recibo da SettledKey em phase `settled` do mesmo goal com
+  evidencia (`advance-settlement-unproven` caso contrario - chave fabricada
+  nunca avanca), devolve advance record existente SEM novo PREPARE
+  (idempotencia por chave), consulta o ObjectiveController, valida o move
+  contra o conjunto fechado {CONTINUE, RETRY, REPLAN, BLOCKED, COMPLETE},
+  revalida admissao/budget, persiste a decisao como pendente
+  (`prepared=false`) e SOMENTE apos PREPARE ok marca `prepared=true` com
+  `next_*`. REPLAN marca replan sem preparar; COMPLETE finaliza o goal
+  somente por CAS e somente com `-FinalizeGoalOnComplete`; BLOCKED, move
+  desconhecido e goal stale recusam sem PREPARE.
+
+Cobertura: cenarios A1-A8, B1-B11 e D0-D7 em
+`scripts/v3/lib/OrchestrationNativeDispatchHandoff.tests.ps1`.
