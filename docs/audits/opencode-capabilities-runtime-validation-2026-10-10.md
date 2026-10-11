@@ -1,9 +1,9 @@
 # Closure operacional de capabilities OpenCode — 2026-10-10
 
 Veredito: **PARTIAL**. Esta rodada fecha a causa da falha de uma fixture de
-distribution e valida o ciclo de vida V2 isolado. Não fecha a disponibilidade
-dos browser MCPs, a conexão dos servidores browser, o isolamento entre sessões
-do mesmo serviço nem a invocação por agentes canônicos.
+distribution e comprova conexão dos dois browser MCPs em serviço V2 privado.
+Não fecha a oferta/invocação por agentes canônicos nem o isolamento entre
+sessões do mesmo serviço.
 
 ## Git e governança
 
@@ -25,11 +25,15 @@ Playwright MCP `0.0.83` e Chrome DevTools `1.10.1` FULL.
 | Verificação | Resultado | Evidência/limite |
 |---|---|---|
 | Serviço privado V2 | PASS | `serve` em porta dinâmica exclusiva; config/data/state/cache e HOME em diretório temporário. Nenhum acesso à porta `49374`. |
-| Profile `testing` no serviço privado | `NOT_VERIFIED` para uso | `/api/mcp` listou os IDs `playwright` e `chrome-devtools`, mas ambos reportaram `pending`; nenhum catálogo de tools conectadas foi comprovado. |
-| Processo sem profile | PASS (negativo de configuração) | Segundo serviço, diretórios e porta independentes, config `default` sem MCPs; `/api/mcp` listou zero servidores. |
-| Isolamento de configuração entre processos | PASS | O serviço `testing` listou dois IDs configurados; o serviço `default` listou zero. Isso não prova que os MCPs browser conectaram. |
+| Profile `testing` no serviço privado | PASS (conexão) | `/api/mcp` com `location.directory` explícito reportou `playwright=connected` e `chrome-devtools=connected` no V2 `2.0.23`. A API não expõe contagem/schema das tools nessa rota. |
+| Processo sem profile | PASS (negativo) | Segundo serviço, XDG/HOME/cache/porta independentes e config `default` vazia; `/api/mcp` com localização explícita listou zero servidores. |
+| Isolamento entre processos | PASS | O processo `testing` conectou dois MCPs; o processo `default` não configurou nenhum. Isso não prova isolamento entre sessões do mesmo serviço. |
 | Isolamento entre sessões no mesmo serviço | `SESSION_ISOLATION_NOT_PROVEN` | O overlay existente grava/remova JSON shadow por `session_id`; não altera a configuração efetiva. A API documentada de connect/disconnect MCP opera no servidor, não por sessão. |
-| Ativação/liberação efetiva de `testing` | `NOT_VERIFIED` | Os testes do overlay provam criação/liberação do artefato shadow, não ativação/desconexão runtime. Nenhuma configuração foi persistida. |
+| Ativação/liberação de `testing` | PASS somente por processo efêmero | A config própria do processo conectou os MCPs; encerrar o serviço próprio e remover o profile liberou recursos. Não há ativação/liberação por sessão no serviço compartilhado. Nenhuma config foi persistida. |
+
+A consulta inicial sem `location.directory` usou a localização padrão e retornou
+`pending`. Repetir com o diretório do profile explícito carregou a configuração
+esperada e retornou ambos `connected`; a localização explícita é parte do teste.
 
 Os processos de teste, subprocessos MCP e diretórios temporários próprios foram
 encerrados/removidos. `49374` permaneceu ouvindo pelo mesmo processo antes e
@@ -116,10 +120,11 @@ depois dos testes. Não houve dependência desse serviço.
 | Item | Status |
 |---|---|
 | Corrigir fixture de containment que falhava por repo sob `$TEMP` | `RESOLVED` |
-| Isolamento MCP de configuração entre processos (IDs listados; ainda `pending`) | `PARTIAL` |
-| Browser MCP conectado e tools descobertas no runtime V2 | `EXTERNAL_DEPENDENCY` |
+| Isolamento de configuração/conexão MCP entre processos privados (testing connected; default vazio) | `RESOLVED` |
+| Conexão Playwright e Chrome DevTools FULL no processo privado V2 | `RESOLVED` |
+| Enumeração/contagem do catálogo de tools e oferta ao agente | `NOT_VERIFIED` (a API MCP consultada expõe conexão, não catálogo) |
 | Isolamento por sessão no mesmo serviço e profile efetivo on-demand | `FUTURE_BACKLOG` (runtime atual não provado) |
-| Uso de Playwright pelo `tester` e DevTools FULL pelo `debugger` | `OPERATOR_ACTION_REQUIRED` (sessão/serviço que ofereça MCPs conectados) |
+| Uso de Playwright pelo `tester` e DevTools FULL pelo `debugger` | `OPERATOR_ACTION_REQUIRED` (invocação real do agente ainda não comprovada) |
 | Backup AI Memory na raiz ativa e investigação da recorrência (#25) | `OPERATOR_ACTION_REQUIRED` |
 | V3: basename fixo e comparação de hashes do config vivo | `FUTURE_BACKLOG` (sem alterar expectativas nesta rodada) |
 | Decisão de manter os três MCPs core globais | `OPERATOR_ACTION_REQUIRED` |

@@ -37,18 +37,20 @@
   },
   "browser_mcps": {
     "testing_process": {
-      "status": "NOT_VERIFIED",
+      "status": "PASS (connected in isolated V2 process)",
       "configured_ids_visible": ["playwright", "chrome-devtools"],
-      "runtime_status": "pending for both",
-      "tools_connected_or_discovered": false
+      "runtime_status": "connected for both",
+      "location_directory_explicit": true,
+      "tools_catalog_count_from_api": "NOT_EXPOSED",
+      "agent_tool_offer": "NOT_VERIFIED"
     },
     "default_process": {
       "configured_mcp_count": 0,
-      "status": "PASS (negative configuration case)"
+      "status": "PASS (negative configuration case, explicit location)"
     },
-    "process_config_isolation": "PASS (separate V2 services, XDG roots, HOME, caches, ports; does not prove MCP connection)",
+    "process_config_isolation": "PASS (testing connected; default zero configured; separate V2 services, XDG roots, HOME, caches, ports)",
     "session_isolation": "SESSION_ISOLATION_NOT_PROVEN",
-    "overlay_activation_release": "shadow artifact only; no runtime enforcement",
+    "overlay_activation_release": "PASS only for ephemeral process startup/cleanup; same-service session activation/release NOT_PROVEN",
     "persisted": false,
     "agent_tool_invocation": "AGENT_TOOL_INVOCATION_NOT_VERIFIED"
   },
