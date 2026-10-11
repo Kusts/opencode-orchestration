@@ -4486,6 +4486,47 @@ function Get-NDJsonStringValue {
     catch { return $null }
 }
 
+function Get-NDJsonInstantString {
+    <#
+    .SYNOPSIS
+        Devolve o instante SOMENTE quando o token e string ISO ou DateTime
+        materializado pelo runtime (G1-B, paridade PS5.1/PS7). Fail-closed.
+    .DESCRIPTION
+        O ConvertFrom-Json do PS7 materializa strings ISO-8601 como
+        [DateTime]; o do PS5.1 as mantem [string]. O MESMO bytes JSON
+        produz tipos diferentes por edicao - esta funcao normaliza:
+        string devolve como esta; DateTime devolve em formato 'o'
+        (round-trip, sem perda); qualquer outro tipo, null ou ausencia
+        devolve $null. Uso RESTRITO a campos de instante (expires_at_utc):
+        campos de identidade continuam em Get-NDJsonStringValue estrito,
+        pois um DateTime ali seria violacao de forma, nao artefato do
+        runtime. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param($Object = $null, [string]$Name = '')
+    try {
+        if (($null -eq $Object) -or ([string]::IsNullOrWhiteSpace($Name))) { return $null }
+        $val = $null
+        $found = $false
+        if ($Object -is [System.Collections.IDictionary]) {
+            if ($Object.Contains($Name)) { $val = $Object[$Name]; $found = $true }
+        }
+        else {
+            $prop = $Object.PSObject.Properties[$Name]
+            if ($null -ne $prop) { $val = $prop.Value; $found = $true }
+        }
+        if (-not $found) { return $null }
+        if ($null -eq $val) { return $null }
+        if ($val -is [string]) { return [string]$val }
+        # PS7 materializa strings ISO-8601 como [DateTime] no
+        # ConvertFrom-Json (PS5.1 mantem [string]): o MESMO bytes JSON
+        # produz tipos distintos por edicao. Normaliza para 'o'.
+        if ($val -is [DateTime]) { return (([DateTime]$val).ToString('o')) }
+        return $null
+    }
+    catch { return $null }
+}
+
 function Get-NDJsonBoolValue {
     <#
     .SYNOPSIS
@@ -5903,7 +5944,13 @@ function Invoke-OrchestrationNativeDispatchClaim {
         [string]$GoalStoreDir = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
-        [int]$LockTimeoutMs = 60000
+        [int]$LockTimeoutMs = 60000,
+        # G1-B (opt-in): escrever o admission file sob os MESMOS locks. Sem
+        # este switch o CLAIM segue EXATAMENTE como antes.
+        [switch]$EmitAdmission,
+        [int]$AdmissionTtlSeconds = 3600,
+        [string]$AdmissionModel = '',
+        [string]$AdmissionProvider = ''
     )
     try {
         # (a) chave + forma do descritor do host.
@@ -6021,6 +6068,71 @@ function Invoke-OrchestrationNativeDispatchClaim {
             # (d) SO 'prepared' e consumivel. Sem replay de consumido.
             $exPhase = ([string](Get-NDValue $existing 'phase' '')).Trim().ToLowerInvariant()
             if ($exPhase -ceq 'claimed') {
+                # G1-B-FIX reparo idempotente (OPT-IN, round-3 endurecido):
+                # um CLAIM anterior pode ter persistido o recibo mas falhado
+                # ao gravar o admission pos-commit. O reparo REGENERA o
+                # arquivo SOMENTE quando: (a) o admission esta AUSENTE
+                # (ausencia comprovada - nunca renova autorizacao existente);
+                # (b) o binding e IDENTICO ao gravado (sessao, chamada,
+                # agentes, fingerprint); (c) owner+generation ATUAIS conferem
+                # com os GRAVADOS no recibo (takeover nao reautoriza claim
+                # antigo - 'claim-identity-mismatch'); (d) o escopo de
+                # restricao (model/provider/ttl) vem DO RECIBO gravado no
+                # CLAIM, nunca dos argumentos do retry (retry nao afrouxa
+                # nem troca restricao); (e) o fencing vivo confere. Sem
+                # -EmitAdmission este bloco nao existe.
+                if ($EmitAdmission) {
+                    $repFp = ([string](Get-NDValue $existing 'prepared_fingerprint' '')).Trim().ToLowerInvariant()
+                    $repSess = ([string](Get-NDValue $existing 'claim_session_id' ''))
+                    $repMsg = ([string](Get-NDValue $existing 'claim_message_id' ''))
+                    $repCall = ([string](Get-NDValue $existing 'claim_call_id' ''))
+                    $repCaller = ([string](Get-NDValue $existing 'claim_caller_agent' ''))
+                    $repTarget = ([string](Get-NDValue $existing 'claim_target_agent' ''))
+                    $repTask = ([string](Get-NDValue $existing 'task_id' '')).Trim()
+                    $repRef = ([string](Get-NDValue $existing 'reference' ''))
+                    $repIntentFp = ([string](Get-NDValue $existing 'intent_fingerprint' '')).Trim().ToLowerInvariant()
+                    $repOwner = ([string](Get-NDValue $existing 'owner' '')).Trim()
+                    $repGen = [long](Get-NDValue $existing 'ownership_generation' 0)
+                    if ((($repFp -ceq $claimFp) -and ($repSess -ceq $sessionId) -and ($repMsg -ceq $messageId) -and ($repCall -ceq $callId) -and ($repCaller -ceq $callerAgent) -and ($repTarget -ceq $targetAgent) -and (-not [string]::IsNullOrWhiteSpace($repTask)) -and ($repOwner -ceq $authOwner) -and ($repGen -eq $authGen))) {
+                        $repDirState = Get-NDAdmissionDir -RootDir $dir -GoalId $ndGoalId
+                        if ([bool](Get-NDValue $repDirState 'ok' $false)) {
+                            $repDir = [string](Get-NDValue $repDirState 'dir' '')
+                            $repIdent = [string](Get-NDValue $repDirState 'ident' '')
+                            # Ausencia COMPROVADA: o caminho nao pode existir
+                            # em nenhuma forma (ausente, malformado, vazio,
+                            # ilegivel). Arquivo existente - mesmo invalido -
+                            # nunca e "reparado" com novo prazo: retry cai em
+                            # claim-already-consumed e a autorizacao gravada
+                            # (ou sua ausencia) prevalece.
+                            $repPath = Get-NDAdmissionPath -AdmissionDir $repDir -Key $key
+                            if (([string]::IsNullOrWhiteSpace($repPath)) -or (Test-Path -LiteralPath $repPath)) {
+                                return (New-NDClaimEnvelope -Ok $false -Reason 'claim-already-consumed' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent)
+                            }
+                                $repFence = Test-NDPostLockFencing -GoalId $ndGoalId -Owner $authOwner -Generation $authGen -GoalStoreDir $GoalStoreDir
+                                if ([bool](Get-NDValue $repFence 'ok' $false)) {
+                                    $repScopeModel = Get-NDValue $existing 'admission_allowed_model' $null
+                                    $repScopeProvider = Get-NDValue $existing 'admission_allowed_provider' $null
+                                    $repScopeTtl = Get-NDValue $existing 'admission_ttl_seconds' $null
+                                    if ((($null -ne $repScopeModel) -and ($null -ne $repScopeProvider) -and ($null -ne $repScopeTtl))) {
+                                        $repGoalState = ''
+                                        try {
+                                            $repG = Get-OrchestrationGoal -GoalId $ndGoalId -StoreDir $GoalStoreDir
+                                            if (($null -ne $repG) -and [bool](Get-NDValue $repG 'ok' $false)) {
+                                                $repGoalState = ([string](Get-NDValue (Get-NDValue $repG 'goal' $null) 'state' '')).Trim().ToUpperInvariant()
+                                            }
+                                        }
+                                        catch { $repGoalState = '' }
+                                        $repRec = New-NDAdmissionRecord -IdempotencyKey $key -GoalId $ndGoalId -TaskId $repTask -SessionId $sessionId -CallId $callId -Agent $targetAgent -Owner $authOwner -Generation $authGen -GoalState $repGoalState -TtlSeconds ([int]$repScopeTtl) -AllowedModel ([string]$repScopeModel) -AllowedProvider ([string]$repScopeProvider)
+                                        if (($null -ne $repRec) -and (Write-NDAdmissionRecord -AdmissionDir $repDir -Ident $repIdent -Key $key -Record $repRec -FailIfExists)) {
+                                            return (New-NDClaimEnvelope -Ok $true -Reason '' -Admitted $true -Claimed $true -Phase 'claimed' -HandoffState 'DISPATCH_UNCERTAIN' -IdempotencyKey $key -Reference $repRef -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -IntentFingerprint $repIntentFp -PreparedFingerprint $repFp)
+                                        }
+                                        return (New-NDClaimEnvelope -Ok $false -Reason 'claim-admission-write-failed' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -Reference $repRef -IntentFingerprint $repIntentFp -PreparedFingerprint $repFp)
+                                    }
+                                }
+                            }
+                        }
+                    return (New-NDClaimEnvelope -Ok $false -Reason 'claim-already-consumed' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent)
+                }
                 return (New-NDClaimEnvelope -Ok $false -Reason 'claim-already-consumed' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent)
             }
             if ($exPhase -cne 'prepared') {
@@ -6124,6 +6236,35 @@ function Invoke-OrchestrationNativeDispatchClaim {
             if ($null -eq $claimed) {
                 return (New-NDClaimEnvelope -Ok $false -Reason 'claim-receipt-unusable' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent)
             }
+            # G1-B-FIX escopo do admission GRAVADO no recibo (OPT-IN): o
+            # reparo idempotente do ramo 'claimed' reutiliza EXATAMENTE
+            # este escopo - retry nunca afrouxa nem troca restricao.
+            if ($EmitAdmission) {
+                $claimed['admission_allowed_model'] = ([string]$AdmissionModel)
+                $claimed['admission_allowed_provider'] = ([string]$AdmissionProvider)
+                $claimed['admission_ttl_seconds'] = [int]$AdmissionTtlSeconds
+            }
+            # (g2) G1-B (OPT-IN): admission file do despacho. ORDEM
+            #      POS-COMMIT (G1-B-FIX): o diretorio e resolvido aqui
+            #      (falha recusa ANTES de qualquer escrita duravel), mas o
+            #      admission so e GRAVADO DEPOIS do commit do recibo
+            #      'claimed'. Admission nunca existe sem CLAIM duravel:
+            #      queda entre as escritas deixa 'claimed' sem admission
+            #      (plugin nega por ausencia) e o retry com binding
+            #      identico regenera via ramo 'claimed' acima. Sem
+            #      -EmitAdmission este bloco nao existe e o CLAIM fica
+            #      byte-a-byte como era.
+            $admDirState = $null
+            $admIdent = ''
+            $admDir = ''
+            if ($EmitAdmission) {
+                $admDirState = Get-NDAdmissionDir -RootDir $dir -GoalId $ndGoalId
+                if (-not [bool](Get-NDValue $admDirState 'ok' $false)) {
+                    return (New-NDClaimEnvelope -Ok $false -Reason ([string](Get-NDValue $admDirState 'reason' 'claim-admission-write-failed')) -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
+                }
+                $admDir = [string](Get-NDValue $admDirState 'dir' '')
+                $admIdent = [string](Get-NDValue $admDirState 'ident' '')
+            }
             $idWhyClaim = Test-NDReceiptDirLive -Dir $rDir -Expected $rIdent
             if (-not [string]::IsNullOrWhiteSpace($idWhyClaim)) {
                 return (New-NDClaimEnvelope -Ok $false -Reason $idWhyClaim -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent)
@@ -6131,6 +6272,26 @@ function Invoke-OrchestrationNativeDispatchClaim {
             $writeWhy = ''
             if (-not (Write-NDReceipt -Dir $rDir -Receipt $claimed -Expected $rIdent -RefusalReason ([ref]$writeWhy))) {
                 return (New-NDClaimEnvelope -Ok $false -Reason (Resolve-NDRefusalReason -Refusal $writeWhy -Fallback 'receipt-write-failed') -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
+            }
+            # (g3) pos-commit: grava o admission SOMENTE com CLAIM duravel.
+            #      Falha aqui nao desfaz o CLAIM (recibo ja 'claimed'):
+            #      devolve 'claim-admission-write-failed' e o retry com
+            #      binding identico regenera (ramo 'claimed'). O plugin,
+            #      com OPENCODE_G1_RECEIPT_FILE, nega de qualquer forma
+            #      enquanto o recibo nao estiver 'claimed'.
+            if ($EmitAdmission) {
+                $admGoalState = ''
+                try {
+                    $gAdm = Get-OrchestrationGoal -GoalId $ndGoalId -StoreDir $GoalStoreDir
+                    if (($null -ne $gAdm) -and [bool](Get-NDValue $gAdm 'ok' $false)) {
+                        $admGoalState = ([string](Get-NDValue (Get-NDValue $gAdm 'goal' $null) 'state' '')).Trim().ToUpperInvariant()
+                    }
+                }
+                catch { $admGoalState = '' }
+                $admRec = New-NDAdmissionRecord -IdempotencyKey $key -GoalId $ndGoalId -TaskId $storedTask -SessionId $sessionId -CallId $callId -Agent $targetAgent -Owner $authOwner -Generation $authGen -GoalState $admGoalState -TtlSeconds $AdmissionTtlSeconds -AllowedModel $AdmissionModel -AllowedProvider $AdmissionProvider
+                if (($null -eq $admRec) -or (-not (Write-NDAdmissionRecord -AdmissionDir $admDir -Ident $admIdent -Key $key -Record $admRec))) {
+                    return (New-NDClaimEnvelope -Ok $false -Reason 'claim-admission-write-failed' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
+                }
             }
             return (New-NDClaimEnvelope -Ok $true -Reason '' -Admitted $true -Claimed $true -Phase 'claimed' -HandoffState 'DISPATCH_UNCERTAIN' -IdempotencyKey $key -Reference $reference -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
         }
@@ -6397,7 +6558,15 @@ function Invoke-OrchestrationNativeDispatchSettle {
         [string]$EvidenceStoreDir = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
-        [int]$LockTimeoutMs = 60000
+        [int]$LockTimeoutMs = 60000,
+        # G1-A (opt-in): prova de provenance TRANSPORTADA pelo Planner e o
+        # modo estrito. Sem -StrictProvenance e sem proof, o SETTLE segue
+        # EXATAMENTE como antes (nenhuma recusa nova, nenhum campo novo).
+        $ProvenanceProof = $null,
+        [switch]$StrictProvenance,
+        # G1-B (opt-in): remove o admission file quando a liquidacao fica
+        # provada. Sem o switch nada e removido.
+        [switch]$EmitAdmission
     )
     try {
         # (a) chave.
@@ -6702,6 +6871,27 @@ function Invoke-OrchestrationNativeDispatchSettle {
                 $dupEvCreated = [bool](Get-NDValue $existing 'evidence_created' $false)
                 $dupReason = 'settle-duplicate'
                 if ([bool](Get-NDValue $dupId 'takeover' $false)) { $dupReason = 'settle-duplicate-takeover' }
+                # G1-A-FIX replay estrito: a duplicata provada so vale como
+                # strict quando o REGISTRO ARMAZENADO ja carrega provenance
+                # observada+. Liquidar sem proof e repetir com
+                # -StrictProvenance NAO herda sucesso: sem tier gravado,
+                # recusa em 'settle-provenance-unproven' (replay nao cria
+                # provenance que nunca existiu).
+                if ($StrictProvenance) {
+                    $dupTier = ([string](Get-NDValue $existing 'settle_provenance_tier' '')).Trim().ToLowerInvariant()
+                    if ((($dupTier -cne 'observed') -and ($dupTier -cne 'corroborated'))) {
+                        return (New-NDSettleEnvelope -Ok $false -Reason 'settle-provenance-unproven' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $childSession -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
+                    }
+                }
+                # G1-B-FIX: duplicata provada tambem invalida admission
+                # residual (incondicional, no-op quando ausente). A
+                # liquidacao original ja removeu; isto fecha a janela em
+                # que o admission sobreviveu a remocao (falha ou caminho
+                # sem switch na primeira passagem).
+                $dupRelState = Get-NDAdmissionDir -RootDir $dir -GoalId $ndGoalId
+                if ([bool](Get-NDValue $dupRelState 'ok' $false)) {
+                    [void](Remove-NDAdmissionRecord -AdmissionDir ([string](Get-NDValue $dupRelState 'dir' '')) -Ident ([string](Get-NDValue $dupRelState 'ident' '')) -Key $key)
+                }
                 return (New-NDSettleEnvelope -Ok $true -Reason $dupReason -Admitted $true -Settled $true -Duplicate $true -Phase 'settled' -HandoffState 'SETTLED' -IdempotencyKey $key -Reference $reference -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $dupChild -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp -WorkerStatus $dupStatus -EvidenceCreated $dupEvCreated -EvidenceId $dupEv -KernelOk $dupKOk -KernelReason ([string](Get-NDValue $existing 'kernel_reason' '')))
             }
             # (h2) tentativa anterior registrada no proprio recibo: o
@@ -6724,6 +6914,32 @@ function Invoke-OrchestrationNativeDispatchSettle {
                 }
             }
             $storedRev = [long](Get-NDValue $existing 'task_expected_revision' 0)
+            # (i2) G1-A GATE DE PROVENANCE (OPT-IN): com -StrictProvenance a
+            #      liquidacao EXIGE proof transportada e vinculada ANTES de
+            #      qualquer escrita de liquidacao (marcador de tentativa,
+            #      evidencia, kernel e 'settled'). Sem proof, com binding
+            #      divergente ou com resultado adulterado depois da claim a
+            #      operacao recusa em 'settle-provenance-unproven' e o
+            #      recibo continua 'claimed' com a reserva.
+            #      O gate roda DEPOIS do caminho de duplicata 'settled': uma
+            #      liquidacao ja provada continua idempotente (o registro
+            #      existente e a autoridade), e nao ha nada novo a provar.
+            #      Fora do modo estrito o gate so REGISTRA o tier quando a
+            #      proof vem valida - nunca recusa e nunca muda o resultado.
+            $provTier = ''
+            $provSource = ''
+            if (($StrictProvenance) -or ($null -ne $ProvenanceProof)) {
+                $prov = Test-NDProvenanceBinding -ProvenanceProof $ProvenanceProof -ClaimSessionId $claimSession -ClaimCallId $claimCall -IdempotencyKey $key -ChildSessionId $childSession -ExpectedClaimedEvidence $claimed -Strict:$StrictProvenance
+                if ([bool](Get-NDValue $prov 'ok' $false)) {
+                    $provTier = ([string](Get-NDValue $prov 'tier' ''))
+                    $provSource = ([string](Get-NDValue $prov 'source' ''))
+                }
+                else {
+                    if ($StrictProvenance) {
+                        return (New-NDSettleEnvelope -Ok $false -Reason 'settle-provenance-unproven' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $childSession -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
+                    }
+                }
+            }
             # (j0) GATE DE COMMIT AMBIGUO (F1/F2/PRA-SETTLE-FIX2), ANTES de
             #      qualquer gate vivo e ANTES de qualquer escrita: se a task
             #      guarda um worker_result e a revisao viva AVANCOU ALEM da
@@ -6939,6 +7155,13 @@ function Invoke-OrchestrationNativeDispatchSettle {
                 settled_generation = $authGen
                 settled_at = ([DateTime]::UtcNow.ToString('o'))
             }
+            # G1-A: o tier da provenance so entra no registro quando o gate
+            # rodou com proof valida. Sem proof, o recibo fica EXATAMENTE
+            # como antes (comportamento default inalterado).
+            if (-not [string]::IsNullOrWhiteSpace($provTier)) {
+                $settleExtra['settle_provenance_tier'] = $provTier
+                $settleExtra['settle_provenance_source'] = $provSource
+            }
             $settledReceipt = Convert-NDReceiptToPhase -Receipt ([pscustomobject]$attempted) -Phase 'settled' -Extra $settleExtra
             if ($null -eq $settledReceipt) {
                 return (New-NDSettleEnvelope -Ok $false -Reason 'settle-receipt-write-failed' -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $childSession -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp -EvidenceCreated $evCreated -EvidenceId $evId -KernelOk $kOk -KernelReason $kWhy)
@@ -6994,6 +7217,17 @@ function Invoke-OrchestrationNativeDispatchSettle {
             # Sem reconciliador: o SETTLE so devolve settled quando ELE
             # escreveu kernel + recibo nesta propria chamada (ou provou, por
             # releitura sob lock, que a escrita do recibo 'settled' ocorreu).
+            # G1-B (OPT-IN, remocao INCONDICIONAL pos-G1-B-FIX): liquidacao
+            # provada INVALIDA o admission file deste despacho, sob os
+            # DOIS locks ainda segurados. A remocao nao depende de
+            # -EmitAdmission: se o arquivo existir, sai; se nao existir,
+            # Remove-NDAdmissionRecord e no-op. Replay pos-SETTLE nega no
+            # plugin (recibo phase='settled') e expira pelo expires_at_utc.
+            # Falha de remocao NAO desfaz a liquidacao ja provada.
+            $relState = Get-NDAdmissionDir -RootDir $dir -GoalId $ndGoalId
+            if ([bool](Get-NDValue $relState 'ok' $false)) {
+                [void](Remove-NDAdmissionRecord -AdmissionDir ([string](Get-NDValue $relState 'dir' '')) -Ident ([string](Get-NDValue $relState 'ident' '')) -Key $key)
+            }
             return (New-NDSettleEnvelope -Ok ([bool]$kOk) -Reason '' -Admitted $true -Settled ([bool]$kOk) -Reconciled $false -Phase 'settled' -HandoffState 'SETTLED' -IdempotencyKey $key -Reference $reference -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $childSession -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp -WorkerStatus $status -EvidenceCreated $evCreated -EvidenceId $evId -KernelOk $kOk -KernelReason $kWhy)
         }
         finally {
@@ -7003,5 +7237,1061 @@ function Invoke-OrchestrationNativeDispatchSettle {
     }
     catch {
         return (New-NDSettleEnvelope -Ok $false -Reason 'settle-internal-error')
+    }
+}
+
+# =====================================================================
+# G1 trusted-runtime closure (BLOCO ADITIVO)
+#
+# Nada aqui muda o comportamento default: PREPARE/CLAIM/SETTLE seguem
+# exatamente iguais sem os novos parametros opt-in
+# (-ProvenanceProof/-StrictProvenance no SETTLE, -EmitAdmission no
+# CLAIM/SETTLE). Tudo vive sob os MESMOS locks, no MESMO namespace de
+# recibos (nunca um segundo store) e no MESMO vocabulario de recusa
+# fail-closed.
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# (A) Provenance: BINDING da prova transportada + tier
+# ---------------------------------------------------------------------
+function Test-NDProvenanceBinding {
+    <#
+    .SYNOPSIS
+        Confere o BINDING de uma prova de provenance transportada contra
+        a claim que a liquidacao quer fechar (G1-A). Fail-closed.
+    .DESCRIPTION
+        O proof NAO e assinatura: e um registro TRANSPORTADO pelo Planner
+        (nunca texto do modelo) afirmando que a identidade do evento foi
+        obtida de forma INDEPENDENTE pelo hospedeiro. Esta funcao so
+        confere BINDING: a tupla (child_session_id, parent_session_id,
+        call_id, idempotency_key) tem de casar EXATAMENTE com a claim
+        sob liquidacao. O tier e derivado das fontes declaradas:
+
+          'plugin-session-get' - o host leu a sessao filha pelo plugin;
+          'opencode-db'        - o host leu a sessao no banco do runtime;
+          'declared'           - declaracao do Planner, sem testemunho
+                                 independente do host.
+
+        Tier: 'corroborated' exige DUAS fontes independentes distintas
+        (ex.: plugin-session-get + opencode-db, ambas em `sources`);
+        'observed' quando ha EXATAMENTE UMA fonte independente;
+        'declared' quando so existe a declaracao. Racional: 'corroborated'
+        so e honesto quando ha MATCH em 2 fontes independentes; quando a
+        segunda fonte nao esta disponivel, o tier caiba para 'observed' -
+        nunca se inventa corroboracao.
+
+        Quando -ExpectedClaimedEvidence vem preenchido, o proof tambem
+        tem de concordar com as refs do candidato: resultado adulterado
+        depois da claim recusa em 'provenance-result-mismatch' (nunca
+        passa com tier alto). Com -Strict a comparacao e OBRIGATORIA
+        (refs ausentes/vazias recusam em 'provenance-evidence-required')
+        e tier 'declared' recusa em 'provenance-declared-not-proof':
+        declaracao do Planner nunca e prova em modo estrito.
+
+        Devolve @{ok, reason, tier, source, sources}. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param(
+        $ProvenanceProof = $null,
+        [string]$ClaimSessionId = '',
+        [string]$ClaimCallId = '',
+        [string]$IdempotencyKey = '',
+        [string]$ChildSessionId = '',
+        [string[]]$ExpectedClaimedEvidence = @(),
+        [switch]$Strict
+    )
+    $refuse = {
+        param([string]$Why)
+        return [pscustomobject]@{ ok = $false; reason = $Why; tier = ''; source = ''; sources = @() }
+    }
+    try {
+        if ($null -eq $ProvenanceProof) { return (& $refuse 'provenance-absent') }
+        $allowed = @('plugin-session-get', 'opencode-db', 'declared')
+        $srcTok = Get-NDJsonStringValue -Object $ProvenanceProof -Name 'source'
+        if ($null -eq $srcTok) { return (& $refuse 'provenance-source-missing') }
+        $source = ([string]$srcTok).Trim().ToLowerInvariant()
+        if ($allowed -cnotcontains $source) { return (& $refuse 'provenance-source-unknown') }
+        # tupla: filho, pai, chamada e chave - todas EXATAS.
+        $childTok = Get-NDJsonStringValue -Object $ProvenanceProof -Name 'child_session_id'
+        if ($null -eq $childTok) { return (& $refuse 'provenance-child-missing') }
+        if (([string]$childTok).Trim() -cne ([string]$ChildSessionId).Trim()) { return (& $refuse 'provenance-child-mismatch') }
+        $parentTok = Get-NDJsonStringValue -Object $ProvenanceProof -Name 'parent_session_id'
+        if (($null -eq $parentTok) -or (([string]$parentTok).Trim() -cne ([string]$ClaimSessionId).Trim())) { return (& $refuse 'provenance-parent-mismatch') }
+        $callTok = Get-NDJsonStringValue -Object $ProvenanceProof -Name 'call_id'
+        if (($null -eq $callTok) -or (([string]$callTok).Trim() -cne ([string]$ClaimCallId).Trim())) { return (& $refuse 'provenance-call-mismatch') }
+        $keyTok = Get-NDJsonStringValue -Object $ProvenanceProof -Name 'idempotency_key'
+        $keyNorm = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+        if (($null -eq $keyTok) -or (([string]$keyTok).Trim().ToLowerInvariant() -cne $keyNorm)) { return (& $refuse 'provenance-key-mismatch') }
+        # fontes adicionais (opcional): array JSON de strings do conjunto.
+        $sources = @()
+        $rawSources = $null
+        if (Try-NDRawProperty -Object $ProvenanceProof -Name 'sources' -Value ([ref]$rawSources)) {
+            if ($rawSources -is [string]) { return (& $refuse 'provenance-sources-shape-invalid') }
+            foreach ($s in @($rawSources)) {
+                if ($s -isnot [string]) { return (& $refuse 'provenance-sources-shape-invalid') }
+                $sn = ([string]$s).Trim().ToLowerInvariant()
+                if ($allowed -cnotcontains $sn) { return (& $refuse 'provenance-source-unknown') }
+                if ($sources -cnotcontains $sn) { $sources += $sn }
+            }
+        }
+        if ($sources -cnotcontains $source) { $sources += $source }
+        $independent = @()
+        foreach ($s in @($sources)) { if ($s -cne 'declared') { $independent += $s } }
+        $tier = ''
+        if (@($independent).Count -ge 2) { $tier = 'corroborated' }
+        elseif (@($independent).Count -eq 1) { $tier = 'observed' }
+        else { $tier = 'declared' }
+        # resultado adulterado depois da claim: o proof que concordava
+        # com as refs antigas nao pode abencoar as novas. Em modo
+        # estrito a comparacao e OBRIGATORIA: proof sem refs (ou refs
+        # vazias) nunca prova resultado - recusa em vez de pular a
+        # comparacao. Fora do modo estrito, a ausencia de refs apenas
+        # registra binding sem vinculo de resultado (tier possivel,
+        # sem prova de integridade do candidato).
+        $proofRefs = @()
+        $hasRefsField = $false
+        $rawRefs = $null
+        if (Try-NDRawProperty -Object $ProvenanceProof -Name 'claimed_evidence' -Value ([ref]$rawRefs)) {
+            $hasRefsField = $true
+            if ($rawRefs -is [string]) { return (& $refuse 'provenance-result-mismatch') }
+            foreach ($r in @($rawRefs)) {
+                if ($r -isnot [string]) { return (& $refuse 'provenance-result-mismatch') }
+                $proofRefs += ([string]$r).Trim()
+            }
+        }
+        if ($Strict) {
+            if ((@($ExpectedClaimedEvidence).Count -eq 0) -or (@($proofRefs).Count -eq 0)) {
+                return (& $refuse 'provenance-evidence-required')
+            }
+            $a = @(Get-NDSortedOrdinal -Items @($proofRefs))
+            $b = @(Get-NDSortedOrdinal -Items @($ExpectedClaimedEvidence))
+            if (@($a).Count -ne @($b).Count) { return (& $refuse 'provenance-result-mismatch') }
+            for ($i = 0; $i -lt @($a).Count; $i++) {
+                if (([string]$a[$i]) -cne ([string]$b[$i])) { return (& $refuse 'provenance-result-mismatch') }
+            }
+            if ($tier -ceq 'declared') { return (& $refuse 'provenance-declared-not-proof') }
+        }
+        elseif (@($ExpectedClaimedEvidence).Count -gt 0) {
+            if (@($proofRefs).Count -gt 0) {
+                $a = @(Get-NDSortedOrdinal -Items @($proofRefs))
+                $b = @(Get-NDSortedOrdinal -Items @($ExpectedClaimedEvidence))
+                if (@($a).Count -ne @($b).Count) { return (& $refuse 'provenance-result-mismatch') }
+                for ($i = 0; $i -lt @($a).Count; $i++) {
+                    if (([string]$a[$i]) -cne ([string]$b[$i])) { return (& $refuse 'provenance-result-mismatch') }
+                }
+            }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; tier = $tier; source = $source; sources = [string[]]$sources }
+    }
+    catch {
+        return (& $refuse 'provenance-binding-error')
+    }
+}
+
+# ---------------------------------------------------------------------
+# (B) Admission-file lifecycle + decisao testavel sem host
+# ---------------------------------------------------------------------
+function Get-NDAdmissionDir {
+    <#
+    .SYNOPSIS
+        Subdiretorio de admission files de UM goal (G1-B). Fail-closed.
+    .DESCRIPTION
+        O admission file VIVE em `<GoalReceiptDir>/admission/` e NAO
+        direto no namespace de recibos. Razao mecanica: a varredura
+        `Test-NDTaskEffectExclusive` caminha ENTRADAS do namespace e
+        trata QUALQUER nome `.json` fora de `^[a-f0-9]{32}.json$` como
+        recusa fail-closed da varredura INTEIRA - um
+        `<chave>.admission.json` solto no namespace quebraria todo CLAIM
+        posterior. Um subdiretorio chamado `admission` nao termina em
+        `.json` e segue ignorado pela varredura, sem excecao nova.
+        Reaproveita `Resolve-NDGoalReceiptDir` (namespace + reparse
+        point + identidade), nunca um segundo store.
+    #>
+    [CmdletBinding()]
+    param([string]$RootDir = '', [string]$GoalId = '')
+    try {
+        $nsState = Resolve-NDGoalReceiptDir -RootDir $RootDir -GoalId $GoalId
+        $nsDir = [string](Get-NDValue $nsState 'dir' '')
+        if ([string]::IsNullOrWhiteSpace($nsDir)) {
+            return [pscustomobject]@{ ok = $false; reason = ([string](Get-NDValue $nsState 'reason' 'admission-dir-unresolvable')); dir = ''; ident = '' }
+        }
+        $sub = Join-Path $nsDir 'admission'
+        # Cria PRIMEIRO e checa reparse DEPOIS (e recheca): um caminho
+        # inexistente devolve $false em Test-NDPathWithoutReparsePoint, que
+        # seria lido como rejeicao indevida no primeiro acesso.
+        try {
+            if (-not (Test-Path -LiteralPath $sub -PathType Container)) { [void][IO.Directory]::CreateDirectory($sub) }
+        }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'admission-dir-unresolvable'; dir = ''; ident = '' } }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $sub)) {
+            return [pscustomobject]@{ ok = $false; reason = 'admission-dir-reparse-point'; dir = ''; ident = '' }
+        }
+        $ident = Get-NDDirCreationTimeUtcTicks -Path $sub
+        if ([string]::IsNullOrWhiteSpace($ident)) {
+            return [pscustomobject]@{ ok = $false; reason = 'admission-dir-unresolvable'; dir = ''; ident = '' }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; dir = $sub; ident = $ident }
+    }
+    catch { return [pscustomobject]@{ ok = $false; reason = 'admission-dir-unresolvable'; dir = ''; ident = '' } }
+}
+
+function Get-NDAdmissionPath {
+    [CmdletBinding()]
+    param([string]$AdmissionDir = '', [string]$Key = '')
+    try {
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        if (([string]::IsNullOrWhiteSpace($AdmissionDir)) -or ($k -cnotmatch '^[a-f0-9]{32}$')) { return '' }
+        return (Join-Path $AdmissionDir ($k + '.admission.json'))
+    }
+    catch { return '' }
+}
+
+function New-NDAdmissionRecord {
+    <#
+    .SYNOPSIS
+        Forma canonica de UM admission file (G1-B). Somente construcao.
+    .DESCRIPTION
+        Campos do contrato do admission: idempotency_key, goal_id,
+        task_id, session_id, call_id, agent, generation, fencing,
+        allowed_model/allowed_provider (vazio = sem restricao),
+        created_at_utc e expires_at_utc. `fencing` carrega o
+        owner/generation e o estado do goal que autorizou o despacho,
+        para que a decisao do host falhe fechada em takeover ou goal
+        fora de ACTIVE. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$IdempotencyKey = '',
+        [string]$GoalId = '',
+        [string]$TaskId = '',
+        [string]$SessionId = '',
+        [string]$CallId = '',
+        [string]$Agent = '',
+        [string]$Owner = '',
+        [long]$Generation = 0,
+        [string]$GoalState = '',
+        [int]$TtlSeconds = 3600,
+        [string]$AllowedModel = '',
+        [string]$AllowedProvider = '',
+        [datetime]$NowUtc = ([DateTime]::MinValue)
+    )
+    try {
+        $now = $NowUtc
+        if ($now -eq [DateTime]::MinValue) { $now = [DateTime]::UtcNow }
+        $ttl = [int]$TtlSeconds
+        if ($ttl -lt 1) { $ttl = 3600 }
+        return [ordered]@{
+            schema_version = 1
+            idempotency_key = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+            goal_id = ([string]$GoalId).Trim()
+            task_id = ([string]$TaskId).Trim()
+            session_id = ([string]$SessionId).Trim()
+            call_id = ([string]$CallId).Trim()
+            agent = ([string]$Agent).Trim()
+            generation = [long]$Generation
+            fencing = [ordered]@{
+                owner = ([string]$Owner).Trim()
+                generation = [long]$Generation
+                goal_state = (([string]$GoalState).Trim().ToUpperInvariant())
+                ok = $true
+            }
+            allowed_model = ([string]$AllowedModel).Trim()
+            allowed_provider = ([string]$AllowedProvider).Trim()
+            created_at_utc = ($now.ToString('o'))
+            expires_at_utc = ($now.AddSeconds([double]$ttl).ToString('o'))
+        }
+    }
+    catch { return $null }
+}
+
+function Write-NDAdmissionRecord {
+    <#
+    .SYNOPSIS
+        Persiste UM admission file (temp+move com identidade reassertada).
+    .DESCRIPTION
+        Mesma disciplina de `Write-NDReceipt`: identidade do diretorio
+        reassertada antes do temporario e antes do Move, destino EXATO
+        tem de ser arquivo regular sem reparse point e prova pos-escrita
+        confirma que o arquivo contem a chave. Devolve $true somente
+        quando persistiu. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$AdmissionDir = '', [string]$Ident = '', [string]$Key = '', $Record = $null, [switch]$FailIfExists)
+    try {
+        if ($null -eq $Record) { return $false }
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        if (($k -cnotmatch '^[a-f0-9]{32}$') -or ([string]::IsNullOrWhiteSpace($AdmissionDir))) { return $false }
+        $idPre = Assert-NDDirIdentity -Path $AdmissionDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idPre 'ok' $false)) { return $false }
+        $path = Get-NDAdmissionPath -AdmissionDir $AdmissionDir -Key $k
+        if ([string]::IsNullOrWhiteSpace($path)) { return $false }
+        if (Test-Path -LiteralPath $path) {
+            # Sem sobrescrita quando exigido (reparo): quem chegou
+            # depois nao renova autorizacao existente - fail-closed.
+            if ($FailIfExists) { return $false }
+            if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        }
+        $json = ConvertTo-Json -InputObject $Record -Depth 12 -Compress
+        $tmp = Join-Path $AdmissionDir (('admission-' + [IO.Path]::GetRandomFileName() + '.tmp'))
+        try { [IO.File]::WriteAllText($tmp, $json, [Text.UTF8Encoding]::new($false)) } catch { return $false }
+        $idMove = Assert-NDDirIdentity -Path $AdmissionDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idMove 'ok' $false)) { return $false }
+        if ($FailIfExists) {
+            # Publicacao sem sobrescrita: o Move SEM -Force falha quando
+            # o destino nasceu entre a checagem e a escrita (TOCTOU) -
+            # quem chegou depois nao renova. Falha aqui = alguem publicou.
+            try { Move-Item -LiteralPath $tmp -Destination $path -ErrorAction Stop }
+            catch {
+                try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch { }
+                return $false
+            }
+        }
+        else {
+            try { Move-Item -LiteralPath $tmp -Destination $path -Force -ErrorAction Stop }
+            catch { return $false }
+        }
+        $idPost = Assert-NDDirIdentity -Path $AdmissionDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idPost 'ok' $false)) { return $false }
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
+        try {
+            $back = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
+            if (([string]::IsNullOrWhiteSpace($back)) -or ($back.IndexOf($k, [StringComparison]::Ordinal) -lt 0)) { return $false }
+        }
+        catch { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Read-NDAdmissionRecord {
+    <#
+    .SYNOPSIS
+        Le UM admission file (objeto JSON) ou devolve $null. Somente
+        leitura, bounded, fail-closed. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$AdmissionDir = '', [string]$Key = '')
+    try {
+        $path = Get-NDAdmissionPath -AdmissionDir $AdmissionDir -Key $Key
+        if ([string]::IsNullOrWhiteSpace($path)) { return $null }
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $null }
+        $rd = Read-NDBoundedFileText -Path $path -MaxBytes 65536
+        if (-not [bool](Get-NDValue $rd 'ok' $false)) { return $null }
+        $text = [string](Get-NDValue $rd 'text' '')
+        if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+        if (-not (Test-NDJsonObjectRootText -Text $text)) { return $null }
+        try { return (ConvertFrom-Json $text) } catch { return $null }
+    }
+    catch { return $null }
+}
+
+function Remove-NDAdmissionRecord {
+    <#
+    .SYNOPSIS
+        Remove (invalida) UM admission file sob identidade reassertada.
+    .DESCRIPTION
+        Usado pelo SETTLE no caminho de liquidacao provada e pelo CLAIM
+        quando a escrita do recibo claimed falha depois de o admission
+        ja ter sido persistido (nada de admission orfao). Somente remove
+        arquivo regular sem reparse point, pelo caminho revalidado.
+        Devolve $true quando nao ha mais admission. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$AdmissionDir = '', [string]$Ident = '', [string]$Key = '')
+    try {
+        $path = Get-NDAdmissionPath -AdmissionDir $AdmissionDir -Key $Key
+        if ([string]::IsNullOrWhiteSpace($path)) { return $false }
+        if (-not (Test-Path -LiteralPath $path)) { return $true }
+        $idChk = Assert-NDDirIdentity -Path $AdmissionDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idChk 'ok' $false)) { return $false }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop } catch { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Test-NDAdmissionDecision {
+    <#
+    .SYNOPSIS
+        Decisao de admissao de UM subagent dispatch, sem host (G1-B).
+        Fail-closed: DUVIDA = DENY.
+    .DESCRIPTION
+        Logica PURA, extraida do plugin de permissao para ser testavel
+        sem runtime OpenCode. O plugin JS espelha exatamente estas
+        regras (paridade documentada no proprio plugin). Ordem:
+
+          1. admission ausente                 -> deny admission-absent;
+          2. forma minima invalida            -> deny admission-shape-invalid
+             (chave 32 hex, sessao, chamada, agente, generation >= 1,
+             expires_at_utc parseavel, fencing.ok booleano true);
+          3. expirado (agora > expires_at_utc) -> deny admission-expired;
+          4. goal divergente                   -> deny admission-goal-mismatch;
+          5. sessao divergente                 -> deny admission-session-mismatch;
+          6. chamada divergente                -> deny admission-call-mismatch;
+          7. agente divergente                 -> deny admission-agent-mismatch;
+          8. generation obsoleta               -> deny admission-generation-stale;
+          9. model/provider fora do autorizado -> deny
+             admission-model-not-authorized /
+             admission-provider-not-authorized;
+         10. nada disso                        -> allow.
+
+        Regras adicionais pos-G1-FIX: fencing sem goal ACTIVE
+        registrado nega (admission-goal-not-active; snapshot do CLAIM,
+        nao leitura viva); owner divergente do ExpectedOwner nega
+        (admission-owner-mismatch, so com ExpectedOwner preenchido);
+        restricao de model/provider vazia = sem restricao, mas restricao
+        preenchida com identidade da invocacao vazia nega (fail-closed).
+
+        generation obsoleta = a admissao foi emitida para um generation
+        MENOR do que a viva: houve takeover/renew desde a claim.
+        Devolve @{allow, reason}. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param(
+        $Admission = $null,
+        [string]$GoalId = '',
+        [string]$SessionId = '',
+        [string]$CallId = '',
+        [string]$Agent = '',
+        [string]$Model = '',
+        [string]$Provider = '',
+        [long]$ExpectedGeneration = 0,
+        [string]$ExpectedOwner = '',
+        [datetime]$NowUtc = ([DateTime]::MinValue)
+    )
+    try {
+        $deny = {
+            param([string]$Why)
+            return [pscustomobject]@{ allow = $false; reason = $Why }
+        }
+        if ($null -eq $Admission) { return (& $deny 'admission-absent') }
+        $keyTok = Get-NDJsonStringValue -Object $Admission -Name 'idempotency_key'
+        if (($null -eq $keyTok) -or (([string]$keyTok).Trim().ToLowerInvariant() -cnotmatch '^[a-f0-9]{32}$')) { return (& $deny 'admission-shape-invalid') }
+        $sessTok = Get-NDJsonStringValue -Object $Admission -Name 'session_id'
+        if (($null -eq $sessTok) -or ([string]::IsNullOrWhiteSpace(([string]$sessTok).Trim()))) { return (& $deny 'admission-shape-invalid') }
+        $callTok = Get-NDJsonStringValue -Object $Admission -Name 'call_id'
+        if (($null -eq $callTok) -or ([string]::IsNullOrWhiteSpace(([string]$callTok).Trim()))) { return (& $deny 'admission-shape-invalid') }
+        $agentTok = Get-NDJsonStringValue -Object $Admission -Name 'agent'
+        if (($null -eq $agentTok) -or ([string]::IsNullOrWhiteSpace(([string]$agentTok).Trim()))) { return (& $deny 'admission-shape-invalid') }
+        $genTok = Get-NDJsonIntegralLong -Object $Admission -Name 'generation'
+        if (($null -eq $genTok) -or ($genTok -lt 1)) { return (& $deny 'admission-shape-invalid') }
+        $fence = Get-NDValue $Admission 'fencing' $null
+        $fenceOk = $null
+        if ($null -ne $fence) { $fenceOk = Get-NDJsonBoolValue -Object $fence -Name 'ok' }
+        if (($null -eq $fenceOk) -or (-not [bool]$fenceOk)) { return (& $deny 'admission-fencing-invalid') }
+        # Snapshot de goal gravado no CLAIM: fora de ACTIVE a admissao
+        # nasceu (ou envelheceu) sem autoridade viva - nega. Residual
+        # honesto: isto confere o ESTADO REGISTRADO, nao o goal vivo;
+        # takeover apos o CLAIM so e visivel com leitura do kernel no
+        # momento do evaluate (fora do alcance desta funcao pura).
+        $fenceGoalState = ''
+        if ($null -ne $fence) {
+            $fgsTok = Get-NDJsonStringValue -Object $fence -Name 'goal_state'
+            if ($null -ne $fgsTok) { $fenceGoalState = (([string]$fgsTok).Trim().ToUpperInvariant()) }
+        }
+        if ($fenceGoalState -cne 'ACTIVE') { return (& $deny 'admission-goal-not-active') }
+        $fenceOwner = ''
+        if ($null -ne $fence) {
+            $fowTok = Get-NDJsonStringValue -Object $fence -Name 'owner'
+            if ($null -ne $fowTok) { $fenceOwner = ([string]$fowTok).Trim() }
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($ExpectedOwner)) -and ($fenceOwner -cne ([string]$ExpectedOwner).Trim())) { return (& $deny 'admission-owner-mismatch') }
+        # PS5.1/PS7: o ConvertFrom-Json do PS7 materializa ISO-8601 como
+        # [DateTime]; Get-NDJsonInstantString normaliza (ver funcao).
+        $expTok = Get-NDJsonInstantString -Object $Admission -Name 'expires_at_utc'
+        if ($null -eq $expTok) { return (& $deny 'admission-shape-invalid') }
+        $exp = [DateTime]::MinValue
+        $parsed = $false
+        try { $parsed = [DateTime]::TryParse(([string]$expTok), [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$exp) }
+        catch { $parsed = $false }
+        if ((-not $parsed) -or ($exp -eq [DateTime]::MinValue)) { return (& $deny 'admission-shape-invalid') }
+        $now = $NowUtc
+        if ($now -eq [DateTime]::MinValue) { $now = [DateTime]::UtcNow }
+        if ($now.ToUniversalTime() -gt $exp.ToUniversalTime()) { return (& $deny 'admission-expired') }
+        $admGoal = Get-NDJsonStringValue -Object $Admission -Name 'goal_id'
+        if (($null -eq $admGoal) -or (([string]$admGoal).Trim() -cne ([string]$GoalId).Trim())) { return (& $deny 'admission-goal-mismatch') }
+        if (([string]$sessTok).Trim() -cne ([string]$SessionId).Trim()) { return (& $deny 'admission-session-mismatch') }
+        if (([string]$callTok).Trim() -cne ([string]$CallId).Trim()) { return (& $deny 'admission-call-mismatch') }
+        if (([string]$agentTok).Trim() -cne ([string]$Agent).Trim()) { return (& $deny 'admission-agent-mismatch') }
+        if (([long]$ExpectedGeneration -gt 0) -and ([long]$genTok -lt [long]$ExpectedGeneration)) { return (& $deny 'admission-generation-stale') }
+        # Restricao vazia/ausente = sem restricao (paridade com o
+        # plugin). Restricao preenchida com identidade da invocacao
+        # vazia = deny fail-closed: omitir model/provider nao contorna
+        # uma restricao gravada. Residual: a identidade vem dos
+        # args/metadata da chamada, nao do modelo efetivamente
+        # resolvido pelo host.
+        $allowedModel = Get-NDJsonStringValue -Object $Admission -Name 'allowed_model'
+        $allowedModelNorm = ''
+        if ($null -ne $allowedModel) { $allowedModelNorm = ([string]$allowedModel).Trim() }
+        $modelNorm = ([string]$Model).Trim()
+        if ($allowedModelNorm -cne '') {
+            if ($modelNorm -ceq '') { return (& $deny 'admission-model-not-authorized') }
+            if ($allowedModelNorm -cne $modelNorm) { return (& $deny 'admission-model-not-authorized') }
+        }
+        $allowedProvider = Get-NDJsonStringValue -Object $Admission -Name 'allowed_provider'
+        $allowedProviderNorm = ''
+        if ($null -ne $allowedProvider) { $allowedProviderNorm = ([string]$allowedProvider).Trim() }
+        $providerNorm = ([string]$Provider).Trim()
+        if ($allowedProviderNorm -cne '') {
+            if ($providerNorm -ceq '') { return (& $deny 'admission-provider-not-authorized') }
+            if ($allowedProviderNorm -cne $providerNorm) { return (& $deny 'admission-provider-not-authorized') }
+        }
+        return [pscustomobject]@{ allow = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject]@{ allow = $false; reason = 'admission-internal-error' }
+    }
+}
+
+# ---------------------------------------------------------------------
+# (D) Avanco causal: so CONTINUE/RETRY preparam a proxima task
+# ---------------------------------------------------------------------
+function Get-NDAdvanceDir {
+    <#
+    .SYNOPSIS
+        Subdiretorio de advance records de UM goal (G1-D). Fail-closed.
+    .DESCRIPTION
+        Mesmo rationale do admission dir: `<GoalReceiptDir>/advance/`
+        mantem o registro FORA do namespace de recibos para nao ser
+        confundido com recibo pela varredura de exclusao de efeito.
+    #>
+    [CmdletBinding()]
+    param([string]$RootDir = '', [string]$GoalId = '')
+    try {
+        $nsState = Resolve-NDGoalReceiptDir -RootDir $RootDir -GoalId $GoalId
+        $nsDir = [string](Get-NDValue $nsState 'dir' '')
+        if ([string]::IsNullOrWhiteSpace($nsDir)) {
+            return [pscustomobject]@{ ok = $false; reason = 'advance-dir-unresolvable'; dir = ''; ident = '' }
+        }
+        $sub = Join-Path $nsDir 'advance'
+        # Mesma ordem do admission dir: criar, depois checar reparse.
+        try {
+            if (-not (Test-Path -LiteralPath $sub -PathType Container)) { [void][IO.Directory]::CreateDirectory($sub) }
+        }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'advance-dir-unresolvable'; dir = ''; ident = '' } }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $sub)) {
+            return [pscustomobject]@{ ok = $false; reason = 'advance-dir-reparse-point'; dir = ''; ident = '' }
+        }
+        $ident = Get-NDDirCreationTimeUtcTicks -Path $sub
+        if ([string]::IsNullOrWhiteSpace($ident)) {
+            return [pscustomobject]@{ ok = $false; reason = 'advance-dir-unresolvable'; dir = ''; ident = '' }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; dir = $sub; ident = $ident }
+    }
+    catch { return [pscustomobject]@{ ok = $false; reason = 'advance-dir-unresolvable'; dir = ''; ident = '' } }
+}
+
+function Write-NDAdvanceRecord {
+    <#
+    .SYNOPSIS
+        Persiste UM advance record (temp+move, identidade reassertada).
+    .DESCRIPTION
+        Mesma disciplina de `Write-NDAdmissionRecord`: identidade do
+        diretorio reassertada antes do temporario e antes do Move,
+        destino EXATO arquivo regular sem reparse point, prova
+        pos-escrita. Devolve $true somente quando persistiu. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$AdvanceDir = '', [string]$Ident = '', [string]$Key = '', $Record = $null)
+    try {
+        if ($null -eq $Record) { return $false }
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        if (($k -cnotmatch '^[a-f0-9]{32}$') -or ([string]::IsNullOrWhiteSpace($AdvanceDir))) { return $false }
+        $idPre = Assert-NDDirIdentity -Path $AdvanceDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idPre 'ok' $false)) { return $false }
+        $path = Join-Path $AdvanceDir ($k + '.advance.json')
+        if (Test-Path -LiteralPath $path) {
+            if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        }
+        $json = ConvertTo-Json -InputObject $Record -Depth 12 -Compress
+        $tmp = Join-Path $AdvanceDir (('advance-' + [IO.Path]::GetRandomFileName() + '.tmp'))
+        try { [IO.File]::WriteAllText($tmp, $json, [Text.UTF8Encoding]::new($false)) } catch { return $false }
+        $idMove = Assert-NDDirIdentity -Path $AdvanceDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idMove 'ok' $false)) { return $false }
+        try { Move-Item -LiteralPath $tmp -Destination $path -Force -ErrorAction Stop } catch { return $false }
+        $idPost = Assert-NDDirIdentity -Path $AdvanceDir -Expected $Ident
+        if (-not [bool](Get-NDValue $idPost 'ok' $false)) { return $false }
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $false }
+        try {
+            $back = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
+            if (([string]::IsNullOrWhiteSpace($back)) -or ($back.IndexOf($k, [StringComparison]::Ordinal) -lt 0)) { return $false }
+        }
+        catch { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Read-NDAdvanceRecord {
+    <#
+    .SYNOPSIS
+        Le UM advance record (objeto JSON) ou devolve $null. Somente
+        leitura, bounded, fail-closed. Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param([string]$AdvanceDir = '', [string]$Key = '')
+    try {
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        if (($k -cnotmatch '^[a-f0-9]{32}$') -or ([string]::IsNullOrWhiteSpace($AdvanceDir))) { return $null }
+        $path = Join-Path $AdvanceDir ($k + '.advance.json')
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+        if (-not (Test-NDPathWithoutReparsePoint -Path $path)) { return $null }
+        $rd = Read-NDBoundedFileText -Path $path -MaxBytes 65536
+        if (-not [bool](Get-NDValue $rd 'ok' $false)) { return $null }
+        $text = [string](Get-NDValue $rd 'text' '')
+        if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+        if (-not (Test-NDJsonObjectRootText -Text $text)) { return $null }
+        try { return (ConvertFrom-Json $text) } catch { return $null }
+    }
+    catch { return $null }
+}
+
+function New-NDAdvanceEnvelope {
+    <#
+    .SYNOPSIS
+        Envelope compacto do avanco causal (G1-D).
+    .DESCRIPTION
+        `prepared=$true` afirma apenas que UM preparo da proxima task
+        foi persistido; `ok=$false` com `prepared=$false` e recusa.
+        `executor_calls` e sempre 0: nada aqui executa worker.
+    #>
+    [CmdletBinding()]
+    param(
+        [bool]$Ok = $false,
+        [string]$Reason = '',
+        [string]$Move = '',
+        [string]$MoveReason = '',
+        [string]$StopReason = '',
+        [string]$GoalId = '',
+        [string]$SettledKey = '',
+        [bool]$Prepared = $false,
+        [string]$IdempotencyKey = '',
+        [string]$Reference = '',
+        [string]$TaskId = '',
+        [string]$Agent = '',
+        [string]$RecordPath = '',
+        [int]$ExecutorCalls = 0
+    )
+    return [pscustomobject][ordered]@{
+        ok = [bool]$Ok
+        reason = ([string]$Reason)
+        move = ([string]$Move)
+        move_reason = ([string]$MoveReason)
+        stop_reason = ([string]$StopReason)
+        goal_id = ([string]$GoalId)
+        settled_key = ([string]$SettledKey)
+        prepared = [bool]$Prepared
+        idempotency_key = ([string]$IdempotencyKey)
+        reference = ([string]$Reference)
+        task_id = ([string]$TaskId)
+        agent = ([string]$Agent)
+        record_path = ([string]$RecordPath)
+        executor_calls = [int]$ExecutorCalls
+    }
+}
+
+function Invoke-OrchestrationNativeDispatchAdvance {
+    <#
+    .SYNOPSIS
+        Avanco causal pos-liquidacao (G1-D): consulta o ObjectiveController
+        e SOMENTE em CONTINUE/RETRY prepara a proxima task.
+    .DESCRIPTION
+        Ordem fixa, fail-closed:
+          (a) forma do goal e da chave liquidada;
+          (b) raiz dos recibos + autorizacao viva
+              (`Test-NativeDispatchAuthorization`);
+          (c) goal VIVO lido do store e fencing pos-lido
+              (`Test-NDPostLockFencing`): goal fora de ACTIVE, ownership
+              trocada ou lease expirada recusam em 'advance-stale-goal'
+              SEMPRE sem prepare;
+          (d) status do objetivo: `-ObjectiveStatus` quando o chamador o
+              fornece, senao DERIVADO do goal vivo (estado, tarefas
+              ativas, criterios pendentes) - mesma forma que
+              `Get-OrchestrationGoalNextMove` usa, sem duplicar a lista
+              de moves;
+          (e) consulta ao ObjectiveController (`Get-OrchestrationNextMove`,
+              lazy dot-source do sibling quando indisponivel) e validacao
+              do move contra o conjunto FECHADO
+              {CONTINUE, RETRY, REPLAN, BLOCKED, COMPLETE}. Moves fora
+              desse conjunto (ROTATE_CONTEXT, DELEGATE, qualquer coisa
+              nova) recusam em 'advance-move-unknown' - prepare cego
+              nunca acontece;
+          (f) revalidacao viva da proxima task quando ela existe
+              (admissao do kernel + budget). Falha aqui produz
+              move BLOCKED sem prepare;
+          (g) decisao persistida em `<GoalReceiptDir>/advance/<chave>.advance.json`;
+          (h) SOMENTE CONTINUE/RETRY executam
+              `Invoke-OrchestrationNativeDispatchPrepare` e devolvem o
+              novo idempotency key. COMPLETE finaliza o goal SOMENTE por
+              CAS (`Set-OrchestrationGoalStatePersisted` com
+              ExpectedRevision) e somente quando `-FinalizeGoalOnComplete`
+              e pedido; REPLAN marca replan sem prepare; BLOCKED nao
+              prepara nada.
+
+        NAO ha Executor nem re-despacho: `executor_calls` e sempre 0.
+        Nunca lanca.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$GoalId = '',
+        [string]$SettledKey = '',
+        $Authorization = $null,
+        $ObjectiveStatus = $null,
+        $NextIntent = $null,
+        [string]$SessionId = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$GoalStoreDir = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [int]$LockTimeoutMs = 60000,
+        [switch]$FinalizeGoalOnComplete
+    )
+    try {
+        $gid = ([string]$GoalId).Trim()
+        $sk = ([string]$SettledKey).Trim().ToLowerInvariant()
+        if (([string]::IsNullOrWhiteSpace($gid)) -or ($gid.Length -gt 128)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-goal-invalid')
+        }
+        if ($sk -cnotmatch '^[a-f0-9]{32}$') {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-key-invalid' -GoalId $gid)
+        }
+        $dir = Get-OrchestrationDispatchReceiptDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'receipt-dir-unresolvable' -GoalId $gid -SettledKey $sk)
+        }
+        try {
+            if (-not (Test-Path -LiteralPath $dir -PathType Container)) { [void][IO.Directory]::CreateDirectory($dir) }
+        }
+        catch { return (New-NDAdvanceEnvelope -Ok $false -Reason 'receipt-dir-unresolvable' -GoalId $gid -SettledKey $sk) }
+        $auth = Test-NativeDispatchAuthorization -Authorization $Authorization -GoalStoreDir $GoalStoreDir -ActivationLogDir $dir
+        if (-not [bool](Get-NDValue $auth 'admitted' $false)) {
+            $authWhy = ([string](Get-NDValue $auth 'reason' 'authorization-denied'))
+            # Goal terminal / fora de ACTIVE e STALE por definicao: a
+            # autorizacao ja recusa antes do fencing, e a razao publica do
+            # avanco continua sendo 'advance-stale-goal' (nunca prepare).
+            if ((($authWhy.IndexOf('goal-terminal', [StringComparison]::OrdinalIgnoreCase)) -ge 0) -or (($authWhy.IndexOf('goal-not-active', [StringComparison]::OrdinalIgnoreCase)) -ge 0)) {
+                return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-stale-goal' -GoalId $gid -SettledKey $sk)
+            }
+            return (New-NDAdvanceEnvelope -Ok $false -Reason $authWhy -GoalId $gid -SettledKey $sk)
+        }
+        $authOwner = ([string](Get-NDValue $Authorization 'owner' '')).Trim()
+        $authGen = [long](Get-NDValue $Authorization 'generation' 0)
+        $fenceNow = Test-NDPostLockFencing -GoalId $gid -Owner $authOwner -Generation $authGen -GoalStoreDir $GoalStoreDir
+        if (-not [bool](Get-NDValue $fenceNow 'ok' $false)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-stale-goal' -GoalId $gid -SettledKey $sk)
+        }
+        $goalSlot = $null
+        try { $goalSlot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $goalSlot = $null }
+        if (($null -eq $goalSlot) -or (-not [bool](Get-NDValue $goalSlot 'ok' $false))) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-goal-unreadable' -GoalId $gid -SettledKey $sk)
+        }
+        $goal = Get-NDValue $goalSlot 'goal' $null
+        if ($null -eq $goal) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-goal-unreadable' -GoalId $gid -SettledKey $sk)
+        }
+        $goalState = ''
+        try { $goalState = (([string](Get-NDValue $goal 'state' '')).Trim().ToUpperInvariant()) } catch { $goalState = '' }
+        $goalRevision = 0
+        try { $goalRevision = [long](Get-NDValue $goal 'revision' 0) } catch { $goalRevision = 0 }
+        # (c2) G1-D-FIX prova de liquidacao: o avanco exige o recibo da
+        #      SettledKey em phase 'settled', do MESMO goal, com evidencia
+        #      vinculada. Chave inexistente, phase divergente ou evidencia
+        #      ausente recusam em 'advance-settlement-unproven' SEMPRE sem
+        #      prepare - nenhuma chave fabricada avanca causalidade.
+        $advRState = Resolve-NDGoalReceiptDir -RootDir $dir -GoalId $gid
+        $advRDir = [string](Get-NDValue $advRState 'dir' '')
+        if ([string]::IsNullOrWhiteSpace($advRDir)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-settlement-unproven' -GoalId $gid -SettledKey $sk)
+        }
+        $advRead = Read-NDReceipt -Dir $advRDir -Key $sk -Expected ([string](Get-NDValue $advRState 'created_utc' '')) -AllowHandoffPhases
+        if (-not [bool](Get-NDValue $advRead 'ok' $false)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-settlement-unproven' -GoalId $gid -SettledKey $sk)
+        }
+        $advSettled = Get-NDValue $advRead 'receipt' $null
+        if ($null -eq $advSettled) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-settlement-unproven' -GoalId $gid -SettledKey $sk)
+        }
+        $advPhase = ([string](Get-NDValue $advSettled 'phase' '')).Trim().ToLowerInvariant()
+        $advGoal = ([string](Get-NDValue $advSettled 'goal_id' '')).Trim()
+        $advEv = ([string](Get-NDValue $advSettled 'evidence_id' '')).Trim()
+        if ((($advPhase -cne 'settled') -or ($advGoal -cne $gid) -or ([string]::IsNullOrWhiteSpace($advEv)))) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-settlement-unproven' -GoalId $gid -SettledKey $sk)
+        }
+        # (c3-lock) G1-D-FIX exclusao do avanco: o lock do subdiretorio
+        #      advance (dir diferente do lock do recibo e do task lock:
+        #      sem deadlock com o
+        #      PREPARE interno) serializa leitura-decisao-preparo por goal.
+        #      Duas chamadas concorrentes para a mesma SettledKey nunca
+        #      preparam intents distintos: a segunda encontra o record da
+        #      primeira. Contencao real recusa 'advance-lock-busy'.
+        $advDirEarly = Get-NDAdvanceDir -RootDir $dir -GoalId $gid
+        if (-not [bool](Get-NDValue $advDirEarly 'ok' $false)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason ([string](Get-NDValue $advDirEarly 'reason' 'advance-dir-unresolvable')) -GoalId $gid -SettledKey $sk)
+        }
+        $advLockWhy = ''
+        $advLock = Open-NDReceiptLock -Dir ([string](Get-NDValue $advDirEarly 'dir' '')) -LockTimeoutMs $LockTimeoutMs -Expected ([string](Get-NDValue $advDirEarly 'ident' '')) -RefusalReason ([ref]$advLockWhy)
+        if ($null -eq $advLock) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-lock-busy' -GoalId $gid -SettledKey $sk)
+        }
+        try {
+        # (c3) G1-D-FIX idempotencia + vinculo do intent: SOMENTE record
+        #      com prepared=true devolve a decisao gravada sem novo
+        #      PREPARE. Decisao terminal que nao prepara (BLOCKED/REPLAN/
+        #      COMPLETE com ok=false) devolve o stored deterministico.
+        #      Record pendente ou falho de CONTINUE/RETRY exige o MESMO
+        #      next_idempotency_key do intent corrente
+        #      ('advance-intent-mismatch' se divergir,
+        #      'advance-intent-unknown' se o pendente nao o registra):
+        #      recovery nunca troca a decisao apos o PREPARE, e queda
+        #      pos-PREPARE reconcilia exclusivamente o preparo vinculado
+        #      (PREPARE do mesmo intent e idempotente na camada de recibos).
+        #      Ausencia COMPROVADA vs registro ilegivel: caminho existente
+        #      que nao le (truncado, malformado, reparse, ilegivel) recusa
+        #      em 'advance-intent-unknown' SEMPRE sem prepare e preserva o
+        #      arquivo - nunca se trata corrupcao como ausencia, senao um
+        #      segundo sucessor nasceria para a mesma liquidacao.
+        $advRecPath = Join-Path ([string](Get-NDValue $advDirEarly 'dir' '')) ($sk + '.advance.json')
+        $prior = Read-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $advDirEarly 'dir' '')) -Key $sk
+        if (($null -eq $prior) -and (Test-Path -LiteralPath $advRecPath)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-intent-unknown' -GoalId $gid -SettledKey $sk)
+        }
+        if ($null -ne $prior) {
+            $priorGoal = ([string](Get-NDValue $prior 'goal_id' '')).Trim()
+            $priorKey = ([string](Get-NDValue $prior 'settled_key' '')).Trim().ToLowerInvariant()
+            $priorMove = ([string](Get-NDValue $prior 'move' '')).Trim().ToUpperInvariant()
+            $priorOk = [bool](Get-NDValue $prior 'ok' $true)
+            $priorPrepared = [bool](Get-NDValue $prior 'prepared' $false)
+            if ((($priorGoal -ceq $gid) -and ($priorKey -ceq $sk) -and (@('CONTINUE', 'RETRY', 'REPLAN', 'BLOCKED', 'COMPLETE') -ccontains $priorMove))) {
+                if ($priorPrepared) {
+                    $advReplay = (New-NDAdvanceEnvelope -Ok $priorOk -Reason ([string](Get-NDValue $prior 'reason' '')) -GoalId $gid -SettledKey $sk -Move $priorMove -MoveReason ([string](Get-NDValue $prior 'move_reason' '')) -StopReason ([string](Get-NDValue $prior 'stop_reason' '')) -Prepared $true -IdempotencyKey ([string](Get-NDValue $prior 'next_idempotency_key' '')) -Reference ([string](Get-NDValue $prior 'next_reference' '')) -TaskId ([string](Get-NDValue $prior 'next_task_id' '')) -Agent ([string](Get-NDValue $prior 'next_agent' '')) -RecordPath (Join-Path ([string](Get-NDValue $advDirEarly 'dir' '')) ($sk + '.advance.json')))
+                    return $advReplay
+                }
+                if ((@('BLOCKED', 'REPLAN', 'COMPLETE') -ccontains $priorMove)) {
+                    return (New-NDAdvanceEnvelope -Ok $priorOk -Reason ([string](Get-NDValue $prior 'reason' '')) -GoalId $gid -SettledKey $sk -Move $priorMove -MoveReason ([string](Get-NDValue $prior 'move_reason' '')) -StopReason ([string](Get-NDValue $prior 'stop_reason' '')) -Prepared $false -RecordPath (Join-Path ([string](Get-NDValue $advDirEarly 'dir' '')) ($sk + '.advance.json')))
+                }
+                $priorNext = ([string](Get-NDValue $prior 'next_idempotency_key' '')).Trim().ToLowerInvariant()
+                if ([string]::IsNullOrWhiteSpace($priorNext)) {
+                    return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-intent-unknown' -GoalId $gid -SettledKey $sk)
+                }
+                $curNextKey = ''
+                if ($null -ne $NextIntent) {
+                    $curReal = Get-NDValue $NextIntent 'intent' $null
+                    if ($null -eq $curReal) { $curReal = $NextIntent }
+                    $curNextKey = ([string](Get-NDValue $curReal 'idempotency_key' '')).Trim().ToLowerInvariant()
+                }
+                if (([string]::IsNullOrWhiteSpace($curNextKey)) -or ($curNextKey -cne $priorNext)) {
+                    return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-intent-mismatch' -GoalId $gid -SettledKey $sk)
+                }
+            }
+        }
+        # (d) status do objetivo.
+        $status = $ObjectiveStatus
+        if ($null -eq $status) {
+            $activeTasks = @()
+            try { $activeTasks = @((Get-NDValue $goal 'active_tasks' @())) } catch { $activeTasks = @() }
+            $criteria = @()
+            try { $criteria = @((Get-NDValue $goal 'criteria' @())) } catch { $criteria = @() }
+            $satisfied = 0
+            try {
+                $prog = Get-NDValue $goal 'progress' $null
+                if ($null -ne $prog) { $satisfied = [long](Get-NDValue $prog 'satisfied' 0) }
+            }
+            catch { $satisfied = 0 }
+            if ($satisfied -lt 0) { $satisfied = 0 }
+            if ($satisfied -gt @($criteria).Count) { $satisfied = @($criteria).Count }
+            $remaining = @()
+            foreach ($t in @($activeTasks)) { $remaining += ([string]$t) }
+            for ($i = $satisfied; $i -lt @($criteria).Count; $i++) { $remaining += ('criterion:' + [string]$criteria[$i]) }
+            $terminalBlocker = $null
+            if ($goalState -ceq 'EXHAUSTED') { $terminalBlocker = 'GOAL_HARD_BUDGET_EXHAUSTED' }
+            elseif ($goalState -ceq 'CANCELLED') { $terminalBlocker = 'CANCELLED' }
+            $status = @{
+                objective_completed = ($goalState -ceq 'COMPLETED')
+                remaining_work = [string[]]$remaining
+                authorized = (@('BLOCKED', 'CANCELLED', 'EXHAUSTED', 'BUDGET_LIMITED') -cnotcontains $goalState)
+                blocker_kind = ''
+                progress_possible = ($goalState -ceq 'ACTIVE')
+                strategy_change = $false
+                context_degraded = $false
+                last_failure = $null
+                terminal_blocker = $terminalBlocker
+                consecutive_no_progress = [long]0
+            }
+            if ($goalState -ceq 'BUDGET_LIMITED') { $status['blocker_kind'] = 'policy' }
+        }
+        $ocCmd = Get-Command Get-OrchestrationNextMove -ErrorAction SilentlyContinue
+        if ($null -eq $ocCmd) {
+            $sibling = Join-Path $PSScriptRoot 'OrchestrationObjectiveController.ps1'
+            if (Test-Path -LiteralPath $sibling -PathType Leaf) { try { . $sibling } catch { } }
+            $ocCmd = Get-Command Get-OrchestrationNextMove -ErrorAction SilentlyContinue
+        }
+        if ($null -eq $ocCmd) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-controller-unavailable' -GoalId $gid -SettledKey $sk)
+        }
+        if (-not (Test-OrchestrationObjectiveStatus -Status $status)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-status-invalid' -GoalId $gid -SettledKey $sk)
+        }
+        $moveObj = $null
+        try { $moveObj = Get-OrchestrationNextMove -Status $status } catch { $moveObj = $null }
+        if ($null -eq $moveObj) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-next-move-failed' -GoalId $gid -SettledKey $sk)
+        }
+        $move = ''
+        try { $move = (([string](Get-NDValue $moveObj 'move' '')).Trim().ToUpperInvariant()) } catch { $move = '' }
+        $moveReason = ''
+        try { $moveReason = ([string](Get-NDValue $moveObj 'reason' '')) } catch { $moveReason = '' }
+        $stopReason = ''
+        try { $stopReason = ([string](Get-NDValue $moveObj 'stop_reason' '')) } catch { $stopReason = '' }
+        # (e) conjunto FECHADO: fora dele nunca ha prepare.
+        $accepted = @('CONTINUE', 'RETRY', 'REPLAN', 'BLOCKED', 'COMPLETE')
+        if ($accepted -cnotcontains $move) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-move-unknown' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason)
+        }
+        # (f) revalidacao viva da proxima task (so quando existir).
+        $admitReason = ''
+        $budgetReason = ''
+        $nextPrepared = $false
+        if (($move -ceq 'CONTINUE') -or ($move -ceq 'RETRY')) {
+            if ($null -eq $NextIntent) {
+                return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-next-intent-missing' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason)
+            }
+            $realIntent = Get-NDValue $NextIntent 'intent' $null
+            if ($null -eq $realIntent) { $realIntent = $NextIntent }
+            $nextTask = ([string](Get-NDValue $realIntent 'task_id' '')).Trim()
+            if ([string]::IsNullOrWhiteSpace($nextTask)) {
+                return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-next-intent-invalid' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason)
+            }
+            # Vinculo do intent (M2): a chave do proximo intent e extraida
+            # AQUI e reservada no record pendente; recovery so aceita o
+            # mesmo intent, e o PREPARE que devolver outra chave recusa.
+            $nextKeyPre = ([string](Get-NDValue $realIntent 'idempotency_key' '')).Trim().ToLowerInvariant()
+            if (($nextKeyPre -cnotmatch '^[a-f0-9]{32}$')) {
+                return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-next-intent-invalid' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason)
+            }
+            $admit = Test-NDLiveTaskAdmission -Intent $realIntent -Authorization $Authorization -Goal $goal -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+            if (-not [bool](Get-NDValue $admit 'ok' $false)) { $admitReason = ([string](Get-NDValue $admit 'reason' 'admission-denied')) }
+            else {
+                $budget = Test-NDTaskAttemptBudget -TaskId $nextTask -TasksDir $TasksDir -RepoRoot $RepoRoot
+                if (-not [bool](Get-NDValue $budget 'ok' $false)) { $budgetReason = ([string](Get-NDValue $budget 'reason' 'attempt-budget-unknown')) }
+            }
+            if ((-not [string]::IsNullOrWhiteSpace($admitReason)) -or (-not [string]::IsNullOrWhiteSpace($budgetReason))) {
+                $blockedReason = $admitReason
+                if ([string]::IsNullOrWhiteSpace($blockedReason)) { $blockedReason = $budgetReason }
+                $dirState = Get-NDAdvanceDir -RootDir $dir -GoalId $gid
+                $recordPath = ''
+                if ([bool](Get-NDValue $dirState 'ok' $false)) {
+                    $rec = [ordered]@{
+                        schema_version = 1
+                        goal_id = $gid
+                        settled_key = $sk
+                        move = 'BLOCKED'
+                        move_reason = $blockedReason
+                        prepared = $false
+                        goal_state = $goalState
+                        goal_revision = $goalRevision
+                        admission_reason = $admitReason
+                        budget_reason = $budgetReason
+                        recorded_at = ([DateTime]::UtcNow.ToString('o'))
+                    }
+                    $recPath = Join-Path ([string](Get-NDValue $dirState 'dir' '')) ($sk + '.advance.json')
+                    if (Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $dirState 'dir' '')) -Ident ([string](Get-NDValue $dirState 'ident' '')) -Key $sk -Record $rec) { $recordPath = $recPath }
+                }
+                return (New-NDAdvanceEnvelope -Ok $false -Reason ('advance-blocked:' + $blockedReason) -GoalId $gid -SettledKey $sk -Move 'BLOCKED' -MoveReason $blockedReason -RecordPath $recordPath)
+            }
+        }
+        # (g)+(h) decisao persistida e, so em CONTINUE/RETRY, PREPARE.
+        $finalizeReason = ''
+        if ($move -ceq 'COMPLETE') {
+            if ($FinalizeGoalOnComplete) {
+                $fin = Set-OrchestrationGoalStatePersisted -GoalId $gid -ToState 'COMPLETED' -ExpectedRevision $goalRevision -StoreDir $GoalStoreDir -OwnerId $authOwner -OwnershipGeneration $authGen
+                if (($null -eq $fin) -or (-not [bool](Get-NDValue $fin 'ok' $false))) {
+                    $finalizeReason = ([string](Get-NDValue $fin 'reason' 'goal-finalize-refused'))
+                }
+            }
+            else { $finalizeReason = 'goal-finalization-not-requested' }
+        }
+        $dirState = Get-NDAdvanceDir -RootDir $dir -GoalId $gid
+        if (-not [bool](Get-NDValue $dirState 'ok' $false)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason ([string](Get-NDValue $dirState 'reason' 'advance-dir-unresolvable')) -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason)
+        }
+        $recPath = Join-Path ([string](Get-NDValue $dirState 'dir' '')) ($sk + '.advance.json')
+        # (g)+(h) G1-D-FIX decisao pendente primeiro: persiste prepared=false
+        #      ANTES do PREPARE e so marca prepared=true (+ next_*) DEPOIS
+        #      do PREPARE ok. Falha de PREPARE nunca deixa registro
+        #      afirmando preparo inexistente; replay da mesma chave usa (c3)
+        #      e nunca prepara duas vezes (PREPARE do mesmo intent e
+        #      idempotente na camada de recibos).
+        $rec = [ordered]@{
+            schema_version = 1
+            ok = $true
+            reason = ''
+            goal_id = $gid
+            settled_key = $sk
+            move = $move
+            move_reason = $moveReason
+            stop_reason = $stopReason
+            prepared = $false
+            next_idempotency_key = $nextKeyPre
+            next_reference = ''
+            next_task_id = ''
+            next_agent = ''
+            prepare_reason = ''
+            goal_state = $goalState
+            goal_revision = $goalRevision
+            finalize_reason = $finalizeReason
+            recorded_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        if (-not (Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $dirState 'dir' '')) -Ident ([string](Get-NDValue $dirState 'ident' '')) -Key $sk -Record $rec)) {
+            return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-record-write-failed' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason -RecordPath $recPath)
+        }
+        if (($move -ceq 'CONTINUE') -or ($move -ceq 'RETRY')) {
+            $prep = Invoke-OrchestrationNativeDispatchPrepare -Intent $NextIntent -Authorization $Authorization -SessionId $SessionId -ReceiptDir $ReceiptDir -GoalStoreDir $GoalStoreDir -TasksDir $TasksDir -FlagsPath $FlagsPath -LockTimeoutMs $LockTimeoutMs
+            if (-not [bool](Get-NDValue $prep 'ok' $false)) {
+                $prepWhy = [string](Get-NDValue $prep 'reason' 'prepare-refused')
+                $rec['ok'] = $false
+                $rec['reason'] = ('advance-prepare-refused:' + $prepWhy)
+                $rec['prepare_reason'] = $prepWhy
+                [void](Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $dirState 'dir' '')) -Ident ([string](Get-NDValue $dirState 'ident' '')) -Key $sk -Record $rec)
+                return (New-NDAdvanceEnvelope -Ok $false -Reason ('advance-prepare-refused:' + $prepWhy) -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason -RecordPath $recPath)
+            }
+            $prepIntent = Get-NDValue $prep 'intent' $null
+            $prepKey = ''
+            if ($null -ne $prepIntent) { $prepKey = ([string](Get-NDValue $prepIntent 'idempotency_key' '')).Trim().ToLowerInvariant() }
+            # O PREPARE do MESMO intent devolve a MESMA chave; divergencia
+            # significa que o preparo nao corresponde a decisao reservada -
+            # nunca se registra vinculo falso (fail-closed, sem reescrita).
+            if (($prepKey -cne $nextKeyPre) -or ([string]::IsNullOrWhiteSpace($prepKey))) {
+                $rec['ok'] = $false
+                $rec['reason'] = 'advance-key-mismatch'
+                $rec['prepare_reason'] = 'advance-key-mismatch'
+                [void](Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $dirState 'dir' '')) -Ident ([string](Get-NDValue $dirState 'ident' '')) -Key $sk -Record $rec)
+                return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-key-mismatch' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason -RecordPath $recPath)
+            }
+            $rec['prepared'] = $true
+            $rec['next_idempotency_key'] = $prepKey
+            $rec['next_reference'] = ([string](Get-NDValue $prep 'reference' ''))
+            $rec['next_task_id'] = ([string](Get-NDValue $prep 'task_id' ''))
+            $rec['next_agent'] = ([string](Get-NDValue $prep 'agent' ''))
+            if (-not (Write-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $dirState 'dir' '')) -Ident ([string](Get-NDValue $dirState 'ident' '')) -Key $sk -Record $rec)) {
+                return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-record-write-failed' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason -Prepared $true -IdempotencyKey $prepKey -Reference ([string](Get-NDValue $prep 'reference' '')) -TaskId ([string](Get-NDValue $prep 'task_id' '')) -Agent ([string](Get-NDValue $prep 'agent' '')) -RecordPath $recPath)
+            }
+            return (New-NDAdvanceEnvelope -Ok $true -Reason '' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason -Prepared $true -IdempotencyKey $prepKey -Reference ([string](Get-NDValue $prep 'reference' '')) -TaskId ([string](Get-NDValue $prep 'task_id' '')) -Agent ([string](Get-NDValue $prep 'agent' '')) -RecordPath $recPath)
+        }
+        return (New-NDAdvanceEnvelope -Ok $true -Reason '' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason -Prepared $false -RecordPath $recPath)
+        }
+        finally {
+            try { $advLock.Dispose() } catch { }
+        }
+    }
+    catch {
+        return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-internal-error')
     }
 }
