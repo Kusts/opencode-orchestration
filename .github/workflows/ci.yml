@@ -81,6 +81,20 @@ on:
   pull_request:
 
 jobs:
+  ci-linux-capability-collector:
+    name: CI (linux capability collector)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Phase 2G collector tests on a case-sensitive filesystem
+        run: pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/v3/lib/CapabilityAdvisoryCollector.tests.ps1
+
   ci-ps51:
     name: CI (ps51)
     runs-on: windows-latest

@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "record": "native-handoff-v2-hook-probe",
+  "date": "2026-10-09",
+  "classification": "exact-binary-live; isolated test fixture; capability probe only",
+  "runtime": {
+    "package": "@opencode/cli",
+    "version": "2.0.23",
+    "binary_sha256": "E8091A74F22A1DF6467134262A55E7DDD215F3C1C8CC4C7988437591A096C974",
+    "plugin_version_reported_by_host": "2.0.23"
+  },
+  "fixture": {
+    "mode": "standalone",
+    "project_and_config": "temporary isolated directories under the approved local temp root",
+    "plugin": "temporary local plugin registering ctx.tool.hook execute.before and execute.after",
+    "global_config_modified": false,
+    "global_provider_or_credentials_modified": false,
+    "credential_values_recorded": false,
+    "provider_model": "openai/gpt-6-luna",
+    "task_effect": "read-only child returns a fixed synthetic literal; no files changed",
+    "runtime_reported_cost": 0,
+    "billing_cost_verified": false
+  },
+  "session_store_observation": {
+    "store": "existing host OpenCode SQLite session store; read-only inspected after runs",
+    "positive_parent_version": "2.0.23",
+    "positive_child_parent_id_matches": true,
+    "negative_parent_version": "2.0.23",
+    "negative_children_for_parent": 0,
+    "credential_or_config_rows_changed_by_agent": false
+  },
+  "positive_call": {
+    "exit_code": 0,
+    "parent_session_id": "ses_edfb2c2f8ffeclhsUu0Sy1vXD7",
+    "message_id": "msg_1204d447e001QRwJ5NbKGJVycl",
+    "tool_call_id": "call_cc82ac82e5944dd5aaca7e334debc932",
+    "caller_agent": "build",
+    "target_agent": "explorer",
+    "before_hook_observed": true,
+    "after_hook_status": "completed",
+    "child_session_id_from_host_result": "ses_edfb2b302ffeA8GeTZH5HFwtEC",
+    "child_session_persisted_with_parent_id": true,
+    "child_result": "PROBE_CHILD_OK"
+  },
+  "negative_call": {
+    "exit_code": 0,
+    "parent_session_id": "ses_edfb24797ffeCpG8ZfJZabSfJ6",
+    "message_id": "msg_1204dbeb9001WXDgsPh2vkoous",
+    "tool_call_id": "call_a3ab235dd596423cacd596d2a0d154a0",
+    "caller_agent": "build",
+    "target_agent": "explorer",
+    "before_hook_observed": true,
+    "hook_action": "throw synthetic-pre-effect-denial",
+    "tool_status": "error",
+    "after_hook_observed": false,
+    "child_session_id": null,
+    "child_session_persisted": false,
+    "provider_call_executed": false
+  },
+  "proven": [
+    "In this exact V2 binary and isolated plugin configuration, execute.before receives host sessionID, messageID, call ID, caller agent, and target agent for the native subagent tool.",
+    "An execute.before exception prevented the tested native subagent tool body from completing and produced an error result without an after event or child session ID.",
+    "For a permitted native call, execute.after preserved the same parent/message/call correlation and returned a child session ID."
+  ],
+  "not_proven": [
+    "No durable NativeDispatch PREPARE, receipt, authorization envelope, TaskKernel settlement, verification, ADVANCE, or recovery was exercised.",
+    "Plugin absence/unload, multiple-plugin input mutation/order, alternate spawn surfaces, and exact parentage persistence were not tested.",
+    "The probe does not prove worker grant enforcement; runtime_grant_enforcement remains OFF/HOLD.",
+    "The probe does not provide V1 evidence and does not validate OpenCode 2.0.26 compatibility."
+  ],
+  "event_files": [
+    "native-handoff-hook-probe-2026-10-09-positive.jsonl",
+    "native-handoff-hook-probe-2026-10-09-deny.jsonl"
+  ]
+}

@@ -67,3 +67,103 @@ Contrato `TASK_DONE≠OBJECTIVE_DONE` (SPEC INV-006) existe como texto de plano/
 
 ## 10. Veredito
 **PARTIAL CLOSURE**: CI pós-merge endereçada com causa-raiz e fix validado isoladamente; matriz honesta IMPLEMENTED→RUNTIME-PROVEN produzida; wiring produtivo e auto-promotion documentados como HOLD (não alegar FINAL). Próximo passo: re-review + CI verde + decisão operador sobre executor mínimo (B) ou manter HOLD com follow-ups rastreáveis.
+
+## 11. Adendo de aceitação (2026-10-09)
+
+Rodada de aceitação do Autonomous Core na branch
+`acceptance/autonomous-core-v0.1.2-2026-10-09` (baseline `b38c92b`, merge do
+PR #47, tag/`VERSION` v0.1.2; documentation-only, nenhum código/flag/registry/CI
+tocado). Relatório completo:
+`docs/audits/AUTONOMOUS-CORE-RUNTIME-ACCEPTANCE-2026-10-09.md`.
+
+- Achado arquitetural (checkout atual): `Invoke-OrchestrationObjectiveStep` só é
+  chamado por `Invoke-OrchestrationAutonomousObjective` (lib
+  `OrchestrationAutonomousLoop.ps1`) e testes; a lib não tem caller produtivo;
+  `GoalAutoPromotion`/`Resume` e `ProductiveObjective` event/reconcile só em
+  testes; plugin V2 injeta mandato + observabilidade sem invocar task/subagent;
+  sem `Executor` o passo retorna `dispatch_intent` e o driver
+  `awaits-planner`. Causa-raiz: **Planner Runtime Wiring ausente** — não é
+  provider; a SPEC vigente não exige daemon novo e nenhum é proposto.
+- Recovery: lanes `session-lane-2026-10-06`/`-08` (+ reruns 1821/20) mantêm
+  16/17/19 `pass-real`; 18/20/21/22 `blocked` ou blocked sob critério
+  enrijecido; turn de modelo do Planner substituto ausente/não provado.
+- Segurança: `runtime_grant_enforcement` V1/V2 OFF (registry atual); fail-open
+  `/shell` 2.0.23 observado; guardas de recibo (junction/symlink/reparse),
+  idempotência, fencing e `pending` ambíguo provados **em teste/harness**;
+  TOCTOU de reparse residual documentado; raiz de recibos confiável por escolha
+  do caller.
+- Watchdog CI: run `37893387670` attempt1 falhou só no job PS7 da lane V2 com
+  5 assertions FIX4-2b (`killed=0`, settlement `REFUSED`, root vivo, asserts de
+  resume); attempt2 5/5 sucesso. PS51 attempt1 passou watchdog (incl. FIX5-2).
+  Hipótese estática (preparo CIM/árvore consumindo deadline de 9s → `REFUSED`
+  correto) **não confirmada** — log não emite detalhe da recusa; re-run não é
+  prova de fix; asserts não modificados. Classificado sem abrir issue.
+- Veredito desta rodada: **PARTIAL CLOSURE** — wiring produtivo ao vivo,
+  transições automáticas, settlement do Task Kernel em runtime-real e consumo
+  por Planner substituto **não provados**. Suíte V3 completa local PS5.1 e PS7:
+  cada engine 81 PASS/3 FAIL/6 SKIP; os 3 FAILs são os checks de hash canônico `DE22307F`
+  contra a configuração global user-owned `C1BB84F2…`
+  (`CapabilityObservability`, `CapabilitySkillUtility`, `shadow-route`),
+  preservada sem reconciliação. Watchdog local 421/421 PASS, incluindo
+  FIX4-2b/FIX5-2 em ambas engines. Evidência verde completa da CI attempt2 permanece 5/5; attempt1
+  teve 5 FAIL FIX4-2b conforme acima. Próximo passo
+  delimitado: implementar/validar o Planner Runtime Wiring com a ferramenta
+  nativa existente (subagent V2/task V1 via Planner em sessão ativa), sem novo
+  daemon e sem inferência de API.
+
+## 12. Revisão do plano Native Handoff (2026-10-09)
+
+Documentos produzidos: `PLANNER-NATIVE-HANDOFF-v0.1.2-SPEC.md` e
+`PLANNER-NATIVE-HANDOFF-v0.1.2-PLAN.md`. A investigação e revisão independente
+confirmaram G0 (causa-raiz = ausência de caller/wiring produtivo), mas
+identificaram bloqueio de segurança antes de G1: o callback PowerShell atual é
+síncrono, e a chamada nativa do Planner não pode ocorrer dentro dessa stack;
+executar primeiro a tool e depois chamar o bridge não satisfaz autorização
+pré-efeito. Hooks observacionais/fail-open e output textual não comprovam
+enforcement nem correlation de host.
+
+G1 exige prova no runtime exato de autorização pré-efeito para a tool nativa e
+identidade/correlação host-originated da execução. Sem essa capacidade, manter
+HOLD, preservar `runtime_grant_enforcement` OFF e não iniciar uma fixture que
+crie efeitos sem admissão. G2–G7 permanecem não aprovados; veredito permanece
+**PARTIAL CLOSURE**. Detalhes no audit de aceitação §16. Nenhuma alteração de
+código/flags/configuração foi feita; as mudanças user-owned dos adapters V1/V2
+permanecem intactas.
+
+## 13. Evidência de hook nativo V2 (2026-10-09)
+
+Após autorização do operador para iniciar, probe isolado no binário `2.0.23`
+comprovou que `execute.before` consegue recusar a chamada `subagent` testada
+antes do retorno/criação observada de child; a chamada positiva correlacionou
+parent/message/call e child session ID por eventos do host, com confirmação na
+store de sessões. Evidência, SHA-256 do binário e eventos sanitizados:
+`evidence/v3.1/runtime-reliability/native-handoff-hook-probe-2026-10-09.json`.
+
+Isso avança o diagnóstico da capacidade de veto do runtime, não o fechamento da
+feature. Não há ainda PREPARE durável/consumido, settlement no TaskKernel,
+verification, ADVANCE, recovery, prova V1 nem contenção de grants do worker.
+G1 produtivo segue bloqueado; `runtime_grant_enforcement` continua OFF/HOLD.
+
+## 14. PR-A — NativeDispatch PREPARE/CLAIM (2026-10-10)
+
+Fatia de biblioteca NativeDispatch implementada com `prepared → claimed /
+DISPATCH_UNCERTAIN`, receipt store único, fencing/revalidação, exclusão de
+efeito por Task entre Goals/revisões/keys e caminho síncrono legado; corrupção,
+tipos JSON malformados e reparse falham fechado. Exceção/resultado inválido
+pós-efeito preserva `pending`, sem retry implícito. Takeover de `settled` exige
+prova kernel-side.
+
+Reviewer e Security Reviewer aprovaram **somente a primitiva sintética**. Tester
+passou 6 suites PS5.1+PS7 (Handoff 675, NativeDispatch 180, Receipts 187,
+Envelopes 39, IntentSymbol 47, AutonomousLoop 47 por engine), 10/10 repetidas
+PS5.1 NativeDispatch, package consistency 16/16 e `git diff --check`.
+
+Probes exact-binary V2 2.0.23 comprovam `execute.before` veto, correlation
+parent/message/call/child, `permission.evaluate` deny de read/edit e de um
+comando shell literal sintéticos, e `ctx.session.get(child).parentID`. O
+Promise plugin não expõe `ctx.permission.rules`. Isso não conecta o plugin às
+funções NativeDispatch: nenhuma chamada PREPARE/CLAIM/SETTLE productiva foi executada;
+nenhum TaskKernel result, VERIFY, ADVANCE ou recovery. O instalador só leva o
+bundle JS, sem as libs/scripts bridge, e a fonte de autorização deve ser
+independente do modelo. G1 produtivo permanece **BLOCKED**, G2–G7 não aprovados,
+V1 e enforcement geral em HOLD; ver audit §§17–19.
