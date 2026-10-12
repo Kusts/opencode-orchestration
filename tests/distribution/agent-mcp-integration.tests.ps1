@@ -1,0 +1,240 @@
+<#!
+.SYNOPSIS
+    Suite estatica da integracao testing-profile x tester/debugger (sem modelo, sem rede).
+.DESCRIPTION
+    Valida a fixture local (ASCII, zero recursos externos, elementos),
+    a presenca da secao de uso pelos agentes em docs/mcp-profiles.md,
+    a lane (scripts/ci/agent-mcp-integration-lane-v2.ps1) com params
+    obrigatorios, os pontos de guarda do registry (testing APPROVED;
+    mcp_routing/capability_router.active/skill_routing/adaptive_ranking OFF),
+    os templates tester/debugger ainda mode=subagent e a ausencia de
+    literais de segredo nos arquivos novos. Somente leitura; PS 5.1 compativel.
+    Estilo distribution: 'ok - ...' / 'NOT OK - ...', exit 0/1.
+#>
+$ErrorActionPreference = 'Stop'
+$pass = 0
+$fail = 0
+function Assert($Cond, [string]$Name, [string]$Detail = '') {
+  if ($Cond) { $script:pass += 1; Write-Host ("ok - " + $Name) }
+  else {
+    $script:fail += 1
+    $line = ("NOT OK - " + $Name)
+    if (-not [string]::IsNullOrWhiteSpace($Detail)) { $line = $line + " -- " + $Detail }
+    Write-Host $line
+  }
+}
+
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$fixturePath = Join-Path $RepoRoot 'tests\distribution\agent-mcp-integration-fixture\index.html'
+$lanePath = Join-Path $RepoRoot 'scripts\ci\agent-mcp-integration-lane-v2.ps1'
+$errorPath = Join-Path $RepoRoot 'tests\distribution\agent-mcp-integration-fixture\error.html'
+$profPath = Join-Path $RepoRoot 'source\registry\mcp-profiles.json'
+$flagsPath = Join-Path $RepoRoot 'source\registry\capability-flags.json'
+$tmplV2Path = Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl'
+$tmplV1Path = Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl'
+$docsPath = Join-Path $RepoRoot 'docs\mcp-profiles.md'
+$suitePath = Join-Path $RepoRoot 'tests\distribution\agent-mcp-integration.tests.ps1'
+
+# --- Fixture: existe + ASCII + sem recursos externos ---
+Assert (Test-Path -LiteralPath $fixturePath -PathType Leaf) 'fixture index.html existe'
+
+$fixBytes = $null
+$fixText = ''
+if (Test-Path -LiteralPath $fixturePath -PathType Leaf) {
+  $fixBytes = [IO.File]::ReadAllBytes($fixturePath)
+  $fixText = [Text.Encoding]::UTF8.GetString($fixBytes)
+  $nonAscii = @($fixBytes | Where-Object { $_ -gt 127 })
+  Assert ($nonAscii.Count -eq 0) 'fixture ASCII-only' ('bytes>127=' + $nonAscii.Count)
+  Assert (($fixText -notmatch 'https?://') -and ($fixText -notmatch '(?i)\bcdn\b')) 'fixture sem recursos externos (sem http, sem CDN)'
+  Assert ($fixText -notmatch '(?i)\bfetch\s*\(') 'fixture sem fetch externo'
+  Assert ($fixText -match '<h1>Agent MCP Integration Fixture</h1>') 'fixture h1 com titulo fixo'
+  Assert (($fixText -match '<span id="count">') -and ($fixText -match '<button id="count-btn"')) 'fixture botao contador + span#count'
+  Assert (($fixText -match '<form') -and ($fixText -match 'id="echo-input"') -and ($fixText -match '<div id="echo"')) 'fixture form texto com echo em div#echo'
+  Assert (($fixText -match "console\.error\('FIXTURE-ERROR-42'\)") -and ($fixText -match "console\.warn\('FIXTURE-WARN-7'\)")) 'fixture emite FIXTURE-ERROR-42 + FIXTURE-WARN-7'
+  $anchors = ([regex]::Matches($fixText, 'href="#')).Count
+  Assert (($anchors -ge 3) -and ($fixText -notmatch 'href="https?://')) 'fixture lista de 3 links ancora internos' ('anchors=' + $anchors)
+  $hasSrcScript = $fixText -match '<script[^>]+src='
+  $jsLines = 999
+  $m = [regex]::Match($fixText, '(?s)<script>(.*?)</script>')
+  if ($m.Success) {
+    $jsLines = @($m.Groups[1].Value -split "`r?`n").Count
+  }
+  Assert ((-not $hasSrcScript) -and ($m.Success) -and ($jsLines -lt 60)) 'fixture JS inline < 60 linhas, sem dependencias' ('linhas=' + $jsLines)
+}
+else {
+  Assert $false 'fixture ASCII-only' 'arquivo ausente'
+  Assert $false 'fixture sem recursos externos (sem http, sem CDN)' 'arquivo ausente'
+  Assert $false 'fixture sem fetch externo' 'arquivo ausente'
+  Assert $false 'fixture h1 com titulo fixo' 'arquivo ausente'
+  Assert $false 'fixture botao contador + span#count' 'arquivo ausente'
+  Assert $false 'fixture form texto com echo em div#echo' 'arquivo ausente'
+  Assert $false 'fixture emite FIXTURE-ERROR-42 + FIXTURE-WARN-7' 'arquivo ausente'
+  Assert $false 'fixture lista de 3 links ancora internos' 'arquivo ausente'
+  Assert $false 'fixture JS inline < 60 linhas, sem dependencias' 'arquivo ausente'
+}
+
+# --- Fixture error.html: existe + ASCII + marcador + console.error + sem externos ---
+Assert (Test-Path -LiteralPath $errorPath -PathType Leaf) 'fixture error.html existe'
+if (Test-Path -LiteralPath $errorPath -PathType Leaf) {
+  $errBytes = [IO.File]::ReadAllBytes($errorPath)
+  $errText = [Text.Encoding]::UTF8.GetString($errBytes)
+  $errNonAscii = @($errBytes | Where-Object { $_ -gt 127 })
+  Assert (@($errNonAscii).Count -eq 0) 'fixture error.html ASCII-only'
+  Assert (($errText -match 'FIXTURE-ERROR-42') -and ($errText -match 'id="emarker"')) 'fixture error.html marcador FIXTURE-ERROR-42'
+  Assert ($errText -match 'console\.error') 'fixture error.html emite console.error'
+  Assert (($errText -notmatch 'https?://') -and ($errText -notmatch '<script[^>]+src=')) 'fixture error.html sem recursos externos'
+}
+else {
+  Assert $false 'fixture error.html ASCII-only' 'arquivo ausente'
+  Assert $false 'fixture error.html marcador FIXTURE-ERROR-42' 'arquivo ausente'
+  Assert $false 'fixture error.html emite console.error' 'arquivo ausente'
+  Assert $false 'fixture error.html sem recursos externos' 'arquivo ausente'
+}
+
+# --- Lane: existe com params obrigatorios ---
+Assert (Test-Path -LiteralPath $lanePath -PathType Leaf) 'lane script existe'
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8)
+  Assert (($laneText -match '(?m)^\s*param\s*\(') -and ($laneText -match '\$ScenarioFilter') -and ($laneText -match '\$ModelKeyEnvName') -and ($laneText -match '\$EvidenceDir') -and ($laneText -match '\$FixtureDir') -and ($laneText -match '\$CheapModel') -and ($laneText -match '\$StrongModel') -and ($laneText -match '\$BinaryPath')) 'lane com params de contrato'
+  Assert (($laneText -match 'function Add-LaneServeAuth') -and ($laneText -match 'OPENCODE_PASSWORD') -and ($laneText -match 'function Wait-LaneMcpNames') -and ($laneText -match 'function Get-LaneChildAgents')) 'lane com auth de serve + espera MCP + child sessions'
+  Assert ((@([regex]::Matches($laneText, "-Agent 'build'")).Count -ge 2) -and ($laneText -match "'--agent', 'build'") -and ($laneText -notmatch "-Agent 'tester'") -and ($laneText -notmatch "-Agent 'debugger'") -and ($laneText -notmatch "'--agent', 'tester'") -and ($laneText -notmatch "'--agent', 'debugger'")) 'lane invoca via build (subagents nao sao primary)'
+  Assert (($laneText -match 'Delegate to the tester') -and ($laneText -match 'Delegate to the debugger')) 'lane delega a tester/debugger via Planner'
+  Assert (($laneText -match 'browser_run_code_unsafe') -and ($laneText -match "'deny'") -and ($laneText -match 'evaluate_script') -and ($laneText -match 'run_code_unsafe') -and ($laneText -match 'browser_navigate') -and ($laneText -match 'navigate_page') -and ($laneText -match 'turn-output-head')) 'lane materializa restricoes MCP + scan de proibidas + diagnostico de transcript'
+  Assert (($laneText -match 'FixtureDir incompativel') -and ($laneText -match 'id="count-btn"')) 'lane valida contrato da FixtureDir'
+  Assert (($laneText -match 'WaitForExit\(5000\)') -and ($laneText -match '\$task = \$null') -and ($laneText -match 'npm_config_cache')) 'lane com leitura limitada + HOME isolado do npx'
+  Assert (($laneText -match 'Test-LaneLocalhostUrl') -and ($laneText -match '49374')) 'lane com guard localhost + recusa 49374'
+  Assert (($laneText -match 'auth_store') -and ($laneText -match 'npm_config_cache') -and ($laneText -match 'npmrc-blank') -and ($laneText -match 'account\.json')) 'lane com auth store isolado + npm confinado'
+  Assert (($laneText -match 'Copy-LaneCredentials') -and ($laneText -match 'INSERT OR REPLACE INTO credential')) 'lane copia tabela credential para DB isolado'
+  Assert (($laneText -match 'Get-LaneChildTranscript') -and ($laneText -match 'ProgramFiles') -and ($laneText -match 'transcript-match-lines')) 'lane captura transcript da child + env do Chrome'
+}
+else {
+  Assert $false 'lane com params obrigatorios' 'arquivo ausente'
+}
+
+# --- Registry: pontos de guarda INALTERADOS ---
+$prof = $null
+try { $prof = ([IO.File]::ReadAllText($profPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json } catch { $prof = $null }
+Assert ($null -ne $prof) 'mcp-profiles.json parseia'
+if ($null -ne $prof) {
+  $testing = @(@($prof.profiles) | Where-Object { [string]$_.id -ceq 'testing' })
+  Assert ((@($testing).Count -eq 1) -and ([string]$testing[0].status -ceq 'APPROVED')) 'guard: profile testing APPROVED'
+}
+
+$flags = $null
+try { $flags = ([IO.File]::ReadAllText($flagsPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json } catch { $flags = $null }
+Assert ($null -ne $flags) 'capability-flags.json parseia'
+if ($null -ne $flags) {
+  Assert ($flags.mcp_routing.enabled -eq $false) 'guard: mcp_routing OFF'
+  Assert ($flags.capability_router.active -eq $false) 'guard: capability_router.active OFF'
+  Assert ($flags.skill_routing.enabled -eq $false) 'guard: skill_routing OFF'
+  Assert ($flags.adaptive_ranking.enabled -eq $false) 'guard: adaptive_ranking OFF'
+}
+
+# --- Templates: tester/debugger ainda mode=subagent ---
+foreach ($t in @(@{ Path = $tmplV2Path; Name = 'v2'; Key = 'agents' }, @{ Path = $tmplV1Path; Name = 'v1'; Key = 'agent' })) {
+  $tmpl = $null
+  try { $tmpl = ([IO.File]::ReadAllText($t.Path, [Text.Encoding]::UTF8)) | ConvertFrom-Json } catch { $tmpl = $null }
+  Assert ($null -ne $tmpl) ('template ' + $t.Name + ' parseia')
+  if ($null -ne $tmpl) {
+    $agents = $tmpl.($t.Key)
+    Assert (([string]$agents.tester.mode -ceq 'subagent')) ('template ' + $t.Name + ' tester mode=subagent')
+    Assert (([string]$agents.debugger.mode -ceq 'subagent')) ('template ' + $t.Name + ' debugger mode=subagent')
+  }
+}
+
+# --- Sem literais de segredo nos arquivos novos (padroes montados sem contiguidade) ---
+$secPats = @(('sk' + '-'), ('Bear' + 'er'), ('api' + '_' + 'key'))
+foreach ($f in @($fixturePath, $errorPath, $docsPath, $suitePath)) {
+  $label = [IO.Path]::GetFileName($f)
+  if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { Assert $false ("sem segredo em " + $label) 'arquivo ausente'; continue }
+  $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
+  $hits = New-Object System.Collections.ArrayList
+  foreach ($p in $secPats) { if ($t -match [regex]::Escape($p)) { [void]$hits.Add($p) } }
+  Assert ($hits.Count -eq 0) ("sem segredo em " + $label) ($hits -join ',')
+}
+
+# --- Docs: secao de uso pelos agentes presente ---
+Assert (Test-Path -LiteralPath $docsPath -PathType Leaf) 'docs mcp-profiles.md existe'
+if (Test-Path -LiteralPath $docsPath -PathType Leaf) {
+  $docs = [IO.File]::ReadAllText($docsPath, [Text.Encoding]::UTF8)
+  Assert ($docs -match '(?m)^## Uso pelos agentes \(tester/debugger\)') 'docs secao tester/debugger presente'
+  Assert (($docs -match 'XDG_CONFIG_HOME') -and ($docs -match 'opencode run --standalone') -and ($docs -match 'opencode serve --port')) 'docs ativacao via profile isolado + comandos'
+  Assert (($docs -match 'NOT_SUPPORTED') -and ($docs -match 'session_id') -and ($docs -match 'session\.environment')) 'docs isolamento intrasservico NOT_SUPPORTED'
+  Assert (($docs -match '(?i)permission model inalterado') -and ($docs -match '(?i)custo sob demanda')) 'docs permission model + custo'
+  Assert (($docs -match 'tester') -and ($docs -match 'Playwright') -and ($docs -match 'debugger') -and ($docs -match 'DevTools')) 'docs tester->Playwright + debugger->DevTools via Planner'
+}
+
+# --- SECFIX(CLOSURE-F1-PR71-SECFFIX): sem copia de credencial sem opt-in ---
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  if ([string]::IsNullOrWhiteSpace($laneText)) { $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8) }
+  $posNew = $laneText.IndexOf('function New-LaneProfile')
+  $posImport = $laneText.IndexOf('function Import-LaneProfileCredentials')
+  $posCopy = $laneText.IndexOf('Copy-Item')
+  Assert (($posNew -ge 0) -and ($posImport -gt $posNew) -and ($posCopy -gt $posImport)) 'secfix: New-LaneProfile sem Copy-Item; copia vive em Import-LaneProfileCredentials'
+  $importBody = ''
+  if ($posImport -ge 0) { $importBody = $laneText.Substring($posImport, [Math]::Min(3000, $laneText.Length - $posImport)) }
+  Assert (($importBody -match 'Test-LaneModelKeyAvailable') -and ($importBody -match 'Copy-Item') -and ($importBody -match 'auth\.json')) 'secfix: importacao guardada por gate opt-in (sem opt-in => sem copia)'
+  $posSetup = $laneText.IndexOf('function Get-LaneModelSetup')
+  $posImpTesting = $laneText.IndexOf('Import-LaneProfileCredentials $profTesting')
+  Assert (($posSetup -ge 0) -and ($posImpTesting -gt $posSetup)) 'secfix: S5/S6 importam credencial pos-gate em Get-LaneModelSetup'
+  $posS7 = $laneText.IndexOf("Test-ScenarioSelected 'S7'")
+  $posImpDefault = $laneText.IndexOf('Import-LaneProfileCredentials $profDefault')
+  Assert (($posS7 -ge 0) -and ($posImpDefault -gt $posS7)) 'secfix: S7 importa credencial pos-gate (perfil default)'
+  Assert (($laneText -match 'auth_store_deferred') -and ($laneText -notmatch 'auth_store_copied')) 'secfix: check auth_store_deferred substitui copia incondicional'
+}
+else {
+  Assert $false 'secfix: New-LaneProfile sem Copy-Item; copia vive em Import-LaneProfileCredentials' 'arquivo ausente'
+}
+
+# --- CLOSURE-F1-PR71-GATES: gates estruturados + scan pre-truncamento + cleanup acumulado ---
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  if ([string]::IsNullOrWhiteSpace($laneText)) { $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8) }
+  Assert ($laneText -match 'function Test-LaneForbiddenCall') 'gates: helper Test-LaneForbiddenCall existe'
+  Assert ($laneText -match 'function Test-LaneToolSuccess') 'gates: helper Test-LaneToolSuccess existe'
+  Assert ($laneText -match 'run\[_-\]\?code\[_-\]\?unsafe') 'gates: scan cobre equivalentes de run_code_unsafe'
+  Assert (($laneText -match 'Test-LaneToolSuccess \$childTx ''browser_navigate'' 1') -and ($laneText -match 'Test-LaneToolSuccess \$childTx ''browser_click'' 3')) 'gates S5: navigate+>=3 clicks com status de sucesso'
+  Assert (($laneText -match 'Test-LaneToolSuccess \$childTx6') -and ($laneText -match 'list_console_messages\|get_console_message') -and ($laneText -match 'take_snapshot'' 1')) 'gates S6: console + DOM com status de sucesso'
+  Assert ($laneText -match 'close_page/hover sozinhos reprovam') 'gates S6: recusa set so com close_page/hover'
+  Assert ($laneText -match 'status=\(fail') 'gates: status de falha reprova (ferramenta falhando nunca pass-real)'
+  Assert (($laneText -match 'FORBIDDEN-CALL-DETECTED') -and ($laneText -match 'scan pre-truncamento')) 'gates: scan de proibida no raw da child antes de truncar'
+  Assert (($laneText -match 'if \(\[bool\]\$childForbidden5\)') -and ($laneText -match 'if \(\[bool\]\$childForbidden6\)')) 'gates S5/S6: parent limpo + child com proibida => fail'
+  Assert (($laneText -match 'stopFailures') -and ($laneText -match 'LaneCleanupLog')) 'gates: Stop-LaneOwned preserva falhas + log acumulado'
+  Assert (($laneText -match '\$s1stop = Stop-LaneOwned') -and ($laneText -match '\$s2stop = Stop-LaneOwned')) 'gates: S1/S2 acumulam resultado do cleanup (sem descartar)'
+  Assert ($laneText -match 'cleanup-attempts-all') 'gates: S8 considera todas as tentativas'
+}
+else {
+  Assert $false 'gates: helpers + scans + cleanup' 'arquivo ausente'
+}
+
+# --- CLOSURE-F1-PR71-GATES2: ancoragem TOOL + cleanup agregado (estatico + comportamental) ---
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  if ([string]::IsNullOrWhiteSpace($laneText)) { $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8) }
+  Assert ($laneText -match '\^\\s\*TOOL name=') 'gates2: Test-LaneToolSuccess ancora em inicio de linha (^\\s*TOOL)'
+  Assert ($laneText -match "IndexOf\(' out=\['\)") 'gates2: Test-LaneToolSuccess exclui conteudo aninhado em out=[...]'
+  Assert ($laneText -match "stopFail\.Add\(\('close-job#'") 'gates2: falha de Close-RuntimeJobObject entra em stopFailures (agregado)'
+  Assert ($laneText -match "stopFail\.Add\('proc-estado-desconhecido") 'gates2: estado desconhecido de processo entra em stopFailures (agregado)'
+  Assert ($laneText -match 'close-skip-job#') 'gates2: handle-sem-close (stop falhou => sem close pos-falha, registro original preservado)'
+  $mTool = [regex]::Match($laneText, '(?ms)^function Test-LaneToolSuccess.*?^}')
+  Assert ($mTool.Success) 'gates2: Test-LaneToolSuccess extraivel para teste comportamental'
+  if ($mTool.Success) {
+    $toolLoaded = $true
+    try { Invoke-Expression $mTool.Value } catch { $toolLoaded = $false }
+    Assert ($toolLoaded) 'gates2: Test-LaneToolSuccess carrega isolado'
+    if ($toolLoaded) {
+      $txNested = ('TOOL name=browser_snapshot status=completed out=[TOOL name=browser_navigate status=completed]' + "`n" + 'REPORT done')
+      Assert ((Test-LaneToolSuccess $txNested 'browser_navigate' 1) -eq $false) 'gates2: navigate aninhado em out=[...] nao conta (navigate=0)'
+      $txReal = ('TOOL name=browser_navigate status=completed out=[ok]' + "`n" + 'TOOL name=browser_snapshot status=completed out=[TOOL name=browser_navigate status=completed]')
+      Assert ((Test-LaneToolSuccess $txReal 'browser_navigate' 1) -eq $true) 'gates2: registro real no inicio da linha conta (navigate=1)'
+      $txReport = ('REPORT TOOL name=browser_navigate status=completed' + "`n" + 'TOOL name=browser_snapshot status=completed out=[x]')
+      Assert ((Test-LaneToolSuccess $txReport 'browser_navigate' 1) -eq $false) 'gates2: TOOL dentro de bloco REPORT nao conta'
+      $txBad = 'TOOL name=browser_navigate status=failed out=[x]'
+      Assert ((Test-LaneToolSuccess $txBad 'browser_navigate' 1) -eq $false) 'gates2: status de falha reprova (nunca pass-real)'
+    }
+  }
+}
+else {
+  Assert $false 'gates2: ancoragem + cleanup agregado' 'arquivo ausente'
+}
+
+Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)
+if ($fail -gt 0) { exit 1 } else { exit 0 }

@@ -1,0 +1,15 @@
+{
+    "objective_id":  "AGENT-MCP-B-LANE",
+    "task_id":  "S8-cleanup-release",
+    "session_id":  "n/a",
+    "run_id":  "lane-run",
+    "agent_id":  "lane",
+    "profile_id":  "both",
+    "mcp_id":  "n/a",
+    "tool_id":  "n/a",
+    "invocation_status":  "cleanup",
+    "result_status":  "leaks=0 removed=True",
+    "timestamp":  "2026-10-12T22:43:41.5841748Z",
+    "evidence_source":  "Stop-LaneOwned + Remove-Item TargetHome",
+    "prompt_sha256":  "n/a"
+}

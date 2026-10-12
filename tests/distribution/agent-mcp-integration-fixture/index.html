@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent MCP Integration Fixture</title>
+<style>
+body { font-family: sans-serif; margin: 2rem; }
+section { margin-bottom: 1.5rem; }
+#echo { border: 1px solid #666; padding: 0.5rem; min-height: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>Agent MCP Integration Fixture</h1>
+<nav>
+<ul>
+<li><a href="#counter">Counter</a></li>
+<li><a href="#echo-form">Echo form</a></li>
+<li><a href="#console">Console signals</a></li>
+</ul>
+</nav>
+<section id="counter">
+<h2>Counter</h2>
+<p>Clicks: <span id="count">0</span></p>
+<button id="count-btn" type="button">Increment</button>
+</section>
+<section id="echo-form">
+<h2>Echo form</h2>
+<form id="echo-form-el">
+<label for="echo-input">Text:</label>
+<input id="echo-input" name="text" type="text" value="">
+<button type="submit">Echo</button>
+</form>
+<div id="echo"></div>
+</section>
+<section id="console">
+<h2>Console signals</h2>
+<button id="emit-btn" type="button">Emit console signals</button>
+</section>
+<script>
+(function () {
+  var count = 0;
+  var countSpan = document.getElementById('count');
+  document.getElementById('count-btn').addEventListener('click', function () {
+    count += 1;
+    countSpan.textContent = String(count);
+  });
+  document.getElementById('echo-form-el').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    document.getElementById('echo').textContent =
+      document.getElementById('echo-input').value;
+  });
+  document.getElementById('emit-btn').addEventListener('click', function () {
+    console.error('FIXTURE-ERROR-42');
+    console.warn('FIXTURE-WARN-7');
+  });
+})();
+</script>
+</body>
+</html>
