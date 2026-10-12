@@ -672,56 +672,62 @@ try {
     try { $p1.Close() } catch { }
     try { $p2.Close() } catch { }
     $codes = @($c1e, $c2e) | Sort-Object
-    # ---- diagnostic capture (read-only, before the finally cleanup) ----
-    # Child output files are read HERE, so a failure can explain itself
-    # while the temp roots still exist. Capture never throws.
-    $script:RaceDiag = @{
-        task_id = 'race-001'
-        assertion = 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
-        expected_exit_pair = '0,3'
-        observed_exit_pair = ($codes -join ',')
-        spawned_at_utc = $raceSpawnedAt
-        final_state = 'unavailable'
-        final_revision = 'unavailable'
-        children = @(
-            (New-TaskKernelRaceDiagChild -Label 'process_1' -OutputPath $childOut1 -Wait $raceWait1),
-            (New-TaskKernelRaceDiagChild -Label 'process_2' -OutputPath $childOut2 -Wait $raceWait2)
-        )
-    }
-    try { $gRace = Get-OrchestrationTask -TaskId 'race-001' -TasksDir $t.tasks } catch { $gRace = $null }
-    try {
-        $raceReadError = ''
-        if ($null -ne $gRace) {
-            if ($gRace -is [System.Collections.IDictionary]) {
-                if ($gRace.Contains('error')) { $raceReadError = [string]$gRace['error'] }
-            }
-            else {
-                $ep = $gRace.PSObject.Properties | Where-Object { $_.Name -ceq 'error' } | Select-Object -First 1
-                if ($null -ne $ep) { $raceReadError = [string]$ep.Value }
-            }
-        }
-        if ([string]::IsNullOrWhiteSpace($raceReadError)) {
-            $script:RaceDiag.final_state = [string]$gRace['state']
-            $script:RaceDiag.final_revision = [string]$gRace['revision']
-        }
-        else {
-            $script:RaceDiag.final_state = ('read-error:' + $raceReadError)
-            $script:RaceDiag.final_revision = 'unavailable'
-        }
-    }
-    catch {
-        $script:RaceDiag.final_state = 'unavailable'
-        $script:RaceDiag.final_revision = 'unavailable'
-    }
     $racePairOk = ((($codes -join ',') -ceq '0,3'))
-    Assert-TaskKernel $racePairOk 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
+    try { $gRace = Get-OrchestrationTask -TaskId 'race-001' -TasksDir $t.tasks } catch { $gRace = $null }
     $raceConsistentOk = (([int]$gRace['revision'] -eq 2) -and ([string]$gRace['state'] -ceq 'PLANNING'))
+    Assert-TaskKernel $racePairOk 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
     Assert-TaskKernel $raceConsistentOk 'raced record consistent at revision 2'
-    # Diagnostics are emitted on failure, before the finally cleanup. The
-    # handled flag is always set here (failure or not) so the finally only
-    # prints the block when an exception interrupted this test mid-race.
+    # ---- failure-only diagnostic capture (read-only, before the finally cleanup) ----
+    # The happy path performs ZERO child-output IO beyond the waits above.
+    # Child output files are read HERE, only when the pair or consistency
+    # check failed, so a failure can explain itself while the temp roots
+    # still exist. Capture never throws outward.
     if ((-not $racePairOk) -or (-not $raceConsistentOk)) {
-        Write-TaskKernelRaceDiagnostics -Diag $script:RaceDiag
+        try {
+            $script:RaceDiag = @{
+                task_id = 'race-001'
+                assertion = 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
+                expected_exit_pair = '0,3'
+                observed_exit_pair = ($codes -join ',')
+                spawned_at_utc = $raceSpawnedAt
+                final_state = 'unavailable'
+                final_revision = 'unavailable'
+                children = @(
+                    (New-TaskKernelRaceDiagChild -Label 'process_1' -OutputPath $childOut1 -Wait $raceWait1),
+                    (New-TaskKernelRaceDiagChild -Label 'process_2' -OutputPath $childOut2 -Wait $raceWait2)
+                )
+            }
+            try {
+                $raceReadError = ''
+                if ($null -ne $gRace) {
+                    if ($gRace -is [System.Collections.IDictionary]) {
+                        if ($gRace.Contains('error')) { $raceReadError = [string]$gRace['error'] }
+                    }
+                    else {
+                        $ep = $gRace.PSObject.Properties | Where-Object { $_.Name -ceq 'error' } | Select-Object -First 1
+                        if ($null -ne $ep) { $raceReadError = [string]$ep.Value }
+                    }
+                }
+                if ([string]::IsNullOrWhiteSpace($raceReadError)) {
+                    $script:RaceDiag.final_state = [string]$gRace['state']
+                    $script:RaceDiag.final_revision = [string]$gRace['revision']
+                }
+                else {
+                    $script:RaceDiag.final_state = ('read-error:' + $raceReadError)
+                    $script:RaceDiag.final_revision = 'unavailable'
+                }
+            }
+            catch {
+                $script:RaceDiag.final_state = 'unavailable'
+                $script:RaceDiag.final_revision = 'unavailable'
+            }
+        }
+        catch {
+            $script:RaceDiag = $null
+        }
+        if ($null -ne $script:RaceDiag) {
+            Write-TaskKernelRaceDiagnostics -Diag $script:RaceDiag
+        }
     }
     $script:RaceDiagHandled = $true
 
@@ -781,13 +787,65 @@ catch {
     $script:failed++
 }
 finally {
-    # Unexpected-exception safety net: if the race diagnostics were captured
-    # but the test never reached its failure/pass decision (throw between the
-    # capture and the assertions), print them BEFORE the temp roots are
-    # removed. No indefinite retention: the child output files were read into
-    # memory above and the roots are removed right after this block.
-    if (($null -ne $script:RaceDiag) -and (-not $script:RaceDiagHandled)) {
-        Write-TaskKernelRaceDiagnostics -Diag $script:RaceDiag
+    # Unexpected-exception safety net: if an exception interrupted the race
+    # test before its pass/fail decision, the failure-branch capture above
+    # never ran, so build the diagnostics HERE (best effort, exception path
+    # only) BEFORE the temp roots are removed. The happy path sets Handled
+    # above and performs zero child-output IO. No indefinite retention: the
+    # child output files are read into memory below and the roots are
+    # removed right after this block. Capture never throws outward.
+    if (-not $script:RaceDiagHandled) {
+        try {
+            $diagPair = 'unavailable'
+            try { $diagPair = ((@($c1e, $c2e) | Sort-Object) -join ',') } catch { }
+            $diagSpawned = 'unavailable'
+            try { if (-not [string]::IsNullOrWhiteSpace($raceSpawnedAt)) { $diagSpawned = $raceSpawnedAt } } catch { }
+            $diagChildren = @()
+            try {
+                if (($null -ne $raceWait1) -and (-not [string]::IsNullOrWhiteSpace($childOut1))) {
+                    $diagChildren += (New-TaskKernelRaceDiagChild -Label 'process_1' -OutputPath $childOut1 -Wait $raceWait1)
+                }
+            }
+            catch { }
+            try {
+                if (($null -ne $raceWait2) -and (-not [string]::IsNullOrWhiteSpace($childOut2))) {
+                    $diagChildren += (New-TaskKernelRaceDiagChild -Label 'process_2' -OutputPath $childOut2 -Wait $raceWait2)
+                }
+            }
+            catch { }
+            $diagFinalState = 'unavailable'
+            $diagFinalRev = 'unavailable'
+            try {
+                $diagRace = $gRace
+                if (($null -eq $diagRace) -and ($null -ne $t)) {
+                    try { $diagRace = Get-OrchestrationTask -TaskId 'race-001' -TasksDir $t.tasks } catch { $diagRace = $null }
+                }
+                if ($null -ne $diagRace) {
+                    try { $diagFinalState = [string]$diagRace['state'] } catch { }
+                    try { $diagFinalRev = [string]$diagRace['revision'] } catch { }
+                    if ([string]::IsNullOrWhiteSpace($diagFinalState)) { $diagFinalState = 'unavailable' }
+                    if ([string]::IsNullOrWhiteSpace($diagFinalRev)) { $diagFinalRev = 'unavailable' }
+                }
+            }
+            catch { }
+            $script:RaceDiag = @{
+                task_id = 'race-001'
+                assertion = 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
+                expected_exit_pair = '0,3'
+                observed_exit_pair = $diagPair
+                spawned_at_utc = $diagSpawned
+                final_state = $diagFinalState
+                final_revision = $diagFinalRev
+                children = $diagChildren
+            }
+        }
+        catch {
+            $script:RaceDiag = $null
+        }
+        try {
+            if ($null -ne $script:RaceDiag) { Write-TaskKernelRaceDiagnostics -Diag $script:RaceDiag }
+        }
+        catch { }
         $script:RaceDiagHandled = $true
     }
     foreach ($rd in $roots) {
