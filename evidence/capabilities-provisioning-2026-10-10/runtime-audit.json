@@ -1,0 +1,203 @@
+{
+  "audit": "opencode-capabilities-provisioning-validation",
+  "task_id": "CAP-AUDIT-DOC-01",
+  "date": "2026-10-10",
+  "verdict": "PARTIAL",
+  "revision": {
+    "by_task_id": "CAP-AUDIT-DOC-FIX-02",
+    "change": "evidence-correctness fixes from independent review: (1) baseline failures are recorded as observed before audit edits, with symptoms (worktree/runtime identity assertions w1c/w14 and live opencode.json hash mismatch C1BB84F2 vs DE22307F) and root cause NOT established - not attributed to environment/worktree/config drift; (2) secret handling split into secret_values_exposed_to_agent=0 and secret_values_printed_or_persisted=0 plus healthcheck_internal_secret_presence_checks=true; removed the claim that no secret value was read internally; finding F1, cache-persistent npx wording and all other facts unchanged",
+    "date": "2026-10-10"
+  },
+  "revision_history": [
+    {
+      "by_task_id": "CAP-AUDIT-DOC-FIX-01",
+      "change": "distinguish named-profile state (19 profiles, 0 active profile IDs) from machine-global MCP server config (3 core entries directly configured/loaded in active user/global config); record policy/config drift as finding F1 for operator decision; no config change proposed",
+      "date": "2026-10-10"
+    }
+  ],
+  "repo": {
+    "name": "opencode-orchestration",
+    "worktree": "C:/Users/walis/AppData/Local/Temp/opencode/capabilities-provisioning-b38c92b",
+    "branch": "feat/opencode-capabilities-provisioning-validation",
+    "base_revision": "b38c92bc8b3ab334a9dffad609f3515350336061",
+    "head": "b38c92bc8b3ab334a9dffad609f3515350336061",
+    "base_short": "b38c92b",
+    "origin_master": "b38c92bc8b3ab334a9dffad609f3515350336061",
+    "remote_sync": "git fetch origin --prune completed successfully"
+  },
+  "independent_prs": [
+    {
+      "pr": 54,
+      "subject": "Phase 2G advisory observability collector",
+      "state": "open",
+      "ci": "5/5 successful",
+      "review_decision": null,
+      "files_touched": false
+    },
+    {
+      "pr": 23,
+      "subject": "2026-10-06 local audit",
+      "state": "open",
+      "behind_master": true,
+      "files_touched": false
+    }
+  ],
+  "original_checkout": {
+    "branch": "acceptance/autonomous-core-v0.1.2-2026-10-09",
+    "state": "dirty (7 tracked edits + untracked tests/evidence from another session)",
+    "adapter_diff_scope": "cheap model fallback to step-5-preview-free only; no capabilities registry/profile changes",
+    "modified_by_audit": false
+  },
+  "summary_counts": {
+    "capabilities_registry": 32,
+    "profiles": 19,
+    "skills_cataloged": 105,
+    "skills_raw_discovered": 110,
+    "skills_discovered_split": { "agents_root": 103, "opencode_root": 7 },
+    "core_mcps": 3,
+    "browser_mcps": 2,
+    "specialized_mcp_entries": 15,
+    "specialized_mcp_entries_note": "14 domain/service MCPs + 1 Docker MCP Gateway (execution infra)",
+    "profiles_approved": 4,
+    "profiles_pilot": 15,
+    "profiles_active_globally": 0,
+    "machine_global_configured_mcp_entries": 3,
+    "machine_global_configured_mcp_ids": ["context7", "jev", "servers.ai-memory"],
+    "machine_global_configured_mcp_note": "3 core MCPs are DIRECTLY in the active user/global config mcp block (machine-global, always loaded), NOT via a named profile; profiles_active_globally=0 refers to named profile IDs only and does NOT mean zero global MCP entries"
+  },
+  "healthchecks": {
+    "capability_healthcheck": { "script": "scripts/v3/capability-healthcheck.ps1 -Json", "registry_entries": 32, "repo_managed": "healthy", "core_mcps": "installed/configured/healthy", "github_mcp": "not configured", "specialized_mcps": "not configured", "browser_mcps": "not configured in active config", "cli_present": ["opencode", "git", "gh", "playwright", "docker"], "browser_mcp_in_active_or_global_config": false },
+    "skills_healthcheck": { "script": "scripts/v3/skills-healthcheck.ps1 -Json", "verdict": "PASS", "catalog": 105, "raw_discovered": 110, "shadowed_ids": 5, "duplicate_ids": 0, "invalid_entries": 1, "core_gate": "9/9 PASS", "classifications": { "CORE": 9, "RECOMMENDED": 24, "DOMAIN": 44, "PERSONAL": 20, "EXPERIMENTAL": 4, "PROJECT_SPECIFIC": 1, "REDUNDANT": 1, "DEPRECATED": 1 }, "classifications_note": "REMOVE_CANDIDATE is an additional catalog classification; counts must not be summed blindly" },
+    "plugin_healthcheck": { "script": "scripts/ci/plugin-healthcheck.ps1", "verdict": "FAIL", "sole_cause": "forbidden/inactive backup ai-memory-opencode2.ts.bak-1791360135 present in active plugin root", "plugins_loaded": ["ai-memory-opencode2.ts", "orchestration-enforcement.js"], "shape": "v2_object", "load_errors": 0, "legacy_ai_memory_ts_absent": true, "issue": 25, "issue_status": "open; latest comment 2026-10-09 no regeneration repro; earlier recurring regeneration unsolved", "backup_deleted": false }
+  },
+  "active_config_key_summary": {
+    "note": "key names only; the capability healthcheck parses the active config and checks env presence internally, outputting only names/presence; no secret values exposed to the agent or persisted",
+    "mcp_present": ["context7", "jev", "servers.ai-memory"],
+    "mcp_absent": ["mcp.playwright", "mcp.chrome-devtools", "mcp.github"],
+    "scope_clarification": "the 3 present entries are DIRECTLY in the active user/global config mcp block: machine-global configured/connected and directly loaded; NOT proven session-scoped by a named profile; the active global config does NOT have zero global MCPs",
+    "named_profile_state": "registry has 19 named profiles; 0 named profile IDs are explicitly active in this config; this is a distinct fact and does NOT imply zero global MCP entries"
+  },
+  "mcps": {
+    "core": [
+      { "id": "ai-memory", "configured": true, "configured_scope": "machine-global (direct in active user/global config mcp block)", "session_scoped_via_named_profile": false, "invoked_this_session": true, "operation": "memory_status", "result": "real project counts returned" },
+      { "id": "context7", "configured": true, "configured_scope": "machine-global (direct in active user/global config mcp block)", "session_scoped_via_named_profile": false, "invoked_this_session": true, "operation": "resolve-library-id + query-docs (official Playwright docs)", "result": "results returned" },
+      { "id": "jev", "configured": true, "configured_scope": "machine-global (direct in active user/global config mcp block)", "session_scoped_via_named_profile": false, "invoked_this_session": true, "operation": "jev_check", "result": "likely=true, probability=0.62" }
+    ],
+    "core_invocation_note": "invoked by Planner/current session, not by researcher/coder role; invocation proves the path, not that they are session-scoped via a named profile",
+    "github": { "id": "github-mcp", "configured": false, "registry_desired": "CANDIDATE", "decision": "DEFER (PILOT-APPROVED)", "gh_cli_installed": true, "gh_cli_real_reads": ["PR list", "issue #25"], "pat_requested_or_printed": false },
+    "browser": [
+      { "id": "playwright-mcp", "package": "@playwright/mcp@0.0.83", "tools": 25, "decision": "APPROVED (Phase 2C)", "persistently_configured": false, "verification": "ephemeral V2 2.0.23 + stdio JSON-RPC probe: navigate fixture, snapshot H1, click test button (changed H1 verified), console warning, local /api request, screenshot; browser_close; exit 0" },
+      { "id": "chrome-devtools-mcp", "package": "chrome-devtools-mcp@1.10.1 FULL", "tools": 30, "flags": ["--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"], "decision": "APPROVED (Phase 2C, operator reversed HOLD)", "persistently_configured": false, "verification": "ephemeral V2 2.0.23 + stdio JSON-RPC probe: navigate fixture, DOM snapshot, console warning, /api request, performance trace start/stop; close_page; exit 0" }
+    ],
+    "specialized": [
+      { "id": "supabase-mcp", "registry_desired": "PROJECT_ONLY", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "Supabase CLI + SQL" },
+      { "id": "neon-mcp", "registry_desired": "PROJECT_ONLY", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "neonctl/SQL" },
+      { "id": "stripe-mcp", "registry_desired": "PROJECT_ONLY", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "CLI/SDK" },
+      { "id": "n8n-mcp", "registry_desired": "PROJECT_ONLY", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "API/UI" },
+      { "id": "postman-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "curl/OpenAPI/Newman; CLI+skill primary" },
+      { "id": "figma-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "manual design context" },
+      { "id": "posthog-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "direct API" },
+      { "id": "hubspot-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "direct API" },
+      { "id": "grafana-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "direct API" },
+      { "id": "terraform-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "Terraform CLI docs-only" },
+      { "id": "cloudflare-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "REST + cloudflare* skills" },
+      { "id": "ga-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "GA APIs/libs" },
+      { "id": "google-ads-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "Google Ads API" },
+      { "id": "dataforseo-mcp", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "direct API" },
+      { "id": "docker-mcp-gateway", "registry_desired": "CANDIDATE", "configured": false, "healthcheck": false, "decision": "DEFER", "fallback": "standalone server; gateway is execution infra, never decides" }
+    ],
+    "specialized_common_reason": "not configured; healthcheck false; no current project-specific need or credentials; policy and fallbacks preserved",
+    "browser_install_note": "packages downloaded into persistent local npx cache (not globally installed); no testing profile persisted to user/global config",
+    "browser_artifacts_location": "C:/Users/walis/AppData/Local/Temp/opencode/capability-audit/playwright-artifacts (outside worktree)"
+  },
+  "browser_open_code_integration": {
+    "temp_testing_mcp_config_launched_exact_v2": "2.0.23",
+    "mcp_list_run": 1,
+    "mcp_list_connected": ["chrome-devtools", "playwright"],
+    "second_mcp_list_no_profile_session": "collided/reused existing managed service state",
+    "clean_attempt_blocked_by": "managed server could not start: port 49374 occupied by existing user service",
+    "mcp_list_standalone_flag": "not accepted by the pinned CLI",
+    "verdict": "new-session no-profile isolation and agent offered-to-role/invoked-by-role NOT_VERIFIED"
+  },
+  "runtimes": {
+    "v2_global_version": "2.0.26",
+    "v2_pin": "2.0.23",
+    "v2_pin_source": "source/registry/runtime-versions.json",
+    "v2_drift": "global binary 2.0.26 vs pin 2.0.23",
+    "v2_private_profile_binary_exact_version": "2.0.23",
+    "v2_lifecycle_smoke": { "script": "scripts/ci/smoke-opencode-v2-lifecycle.ps1 -BinaryPath <exact 2.0.23 exe>", "result": "PASS", "isolation": "ephemeral temp home, free port 63016", "global_config_touched": false, "existing_service_49374_touched": false, "cleanup": "passed" },
+    "v1": { "status": "NOT_VERIFIED/UNAVAILABLE", "reason": "no V1 binary or profile found under .opencode-orchestration/profiles", "smoke_claim": false }
+  },
+  "tests": {
+    "baseline": {
+      "scripts/test-package-consistency.ps1": "PASS 16/16",
+      "scripts/v3/run-v3-tests.ps1": "80 PASS / 4 FAIL / 6 SKIP (total 90); failures: observability identity assertions w1c, w14 (worktree-id/runtime unavailable behavior) and 2 tests expecting live opencode.json prefix DE22307F (actual SHA starts C1BB84F2); observed before any audit edit; symptoms include worktree/runtime identity and active-config hash mismatch; root cause not established; not attributed to environment/worktree/config drift; no writes made",
+      "tests/distribution/run-distribution-tests.ps1": "observed before any audit edit; 19 PASS / 1 FAIL / 1 SKIP; output shows V2 smoke skipped (opencode absent in PATH of a fixture) and V1/V2 environment mismatch; exact failed suite not independently extracted — cause not claimed"
+    },
+    "targeted_this_audit": {
+      "tests/distribution/mcp-profiles.tests.ps1": "8/8 PASS",
+      "tests/distribution/capability-registry-v2.tests.ps1": "48/48 PASS",
+      "tests/distribution/capability-planning.tests.ps1": "12/12 PASS",
+      "skills-catalog suite within distribution": "18/18 PASS",
+      "scripts/test-package-consistency.ps1": "16/16 PASS"
+    }
+  },
+  "security": {
+    "secret_values_exposed_to_agent": 0,
+    "secret_values_printed_or_persisted": 0,
+    "healthcheck_internal_secret_presence_checks": true,
+    "secret_exposure_note": "no secret values were exposed to the agent or printed/persisted in this report or evidence; the capability healthcheck parses the active config and checks env presence internally, outputting only names/presence, and did not expose values in observed output; no claim is made that no secret value was read internally by tooling",
+    "credentials_created_rotated_requested": false,
+    "pat_requested_or_printed": false,
+    "permissions_or_global_config_changes": false,
+    "registry_plugins_skills_profiles_mutations": 0,
+    "network_effects": "public docs/MCP calls + loopback browser fixture only",
+    "external_installs": "packages downloaded by npx into persistent local package cache for the user-approved test; no global installation",
+    "authenticated_personal_session": false
+  },
+  "context_cost": {
+    "playwright_tools": 25,
+    "chrome_devtools_tools_full": 30,
+    "tokens": "UNVERIFIED (not measured)",
+    "rule": "tens of tools only via on-demand testing profile; Playwright CLI + skill remain lower-cost default for simple navigation"
+  },
+  "unverified": [
+    "V1 runtime (no binary/profile on this machine; no smoke claim)",
+    "new-session no-profile isolation and agent offered-to-role/invoked-by-role (port 49374 occupied by existing user service)",
+    "token cost of browser MCPs (tool counts observed only)",
+    "operator opt-in activation of testing/core-dev profiles in user config",
+    "registry desired/observed statuses may be stale; dimensions reported separately"
+  ],
+  "blockers": [
+    "managed V2 service port 49374 occupied by existing user service; mcp list of pinned CLI does not accept --standalone",
+    "plugin V2 healthcheck FAIL caused solely by forbidden/inactive backup ai-memory-opencode2.ts.bak-1791360135 (issue #25 open)",
+    "baseline failures: 4 in run-v3-tests (w1c, w14, 2 x DE22307F config prefix) and 1 in distribution suite (suite not isolated); observed before audit edits; root cause not established",
+    "runtime drift: global 2.0.26 vs pin 2.0.23",
+    "evidence path is ignored by .gitignore evidence/*; this sanitized JSON is explicitly force-added to the PR without changing ignore rules"
+  ],
+  "next_actions": [
+    "Keep the evidence JSON explicitly tracked with git add -f because evidence/* is ignored; future edits may continue using force-add or propose a specific ignore exception separately",
+    "Operator: prove new-session isolation on an isolated service with its own port, via a safe mechanism, without changing global config",
+    "Operator: explicit opt-in activation of testing (browser) and core-dev (GitHub with PAT), with token measurement before any default",
+    "Issue #25: investigate backup regeneration with a dedicated repro; do not delete blindly",
+    "Decide runtime pin drift 2.0.26 vs 2.0.23 (pin bump + exact-runtime revalidation, or align global binary)",
+    "Investigate 4 baseline run-v3-tests failures and isolate the distribution failing suite in dedicated work",
+    "Gate preserved: no specialized capability activates without project + credential + pilot; fallbacks preserved",
+    "Operator (finding F1): decide whether the 3 core MCPs (context7, jev, servers.ai-memory), today machine-global always-on in the active user/global config, may remain global or should move to a safe session-scoped mechanism (e.g., opt-in named-profile activation); no config change proposed by this audit"
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "title": "policy/config drift: 3 core MCPs are machine-global always-on, not session-scoped by a named profile",
+      "detail": "The active user/global OpenCode config directly includes and loads 3 core MCP entries (context7, jev, servers.ai-memory) in its mcp block. They are machine-global configured/connected and NOT proven session-scoped by a named profile. The registry separately declares 19 named profiles with 0 named profile IDs explicitly active in that config; this does NOT mean zero global MCP entries. The always-on global presence of the 3 core MCPs diverges from the opt-in session-scoped named-profile model.",
+      "operator_decision_required": "decide whether the 3 core MCPs may remain global or should move to a safe session-scoped mechanism (e.g., opt-in named-profile activation)",
+      "config_change_proposed": false
+    }
+  ],
+  "sanitization": {
+    "secrets": "none present in this evidence file",
+    "prompt_content": "none present",
+    "raw_machine_config": "not dumped; key names only",
+    "claims_beyond_supplied_evidence": "none"
+  }
+}

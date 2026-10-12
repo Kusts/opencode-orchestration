@@ -550,8 +550,8 @@ try {
         $t2g = New-OrchestrationGoal -GoalId 'nd-goal-take2' -Objective 'takeover leitura' -Criteria @('criterio-a') -StoreDir $goalDir
         $t2a = Set-OrchestrationGoalState -Goal $t2g.goal -ToState 'ACTIVE'
         $t2s = Save-OrchestrationGoal -Goal $t2a.goal -StoreDir $goalDir
-        $t2o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take2' -OwnerId 'planner-1' -ExpectedRevision ([long]$t2s.revision) -StoreDir $goalDir -LeaseTtlMs 500
-        Assert-ND ([bool]$t2o.ok) '[FIX3-S2] takeover goal owned with short lease' ([string]$t2o.reason)
+        $t2o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take2' -OwnerId 'planner-1' -ExpectedRevision ([long]$t2s.revision) -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$t2o.ok) '[FIX3-S2] takeover goal owned with a realistic lease for the first dispatch' ([string]$t2o.reason)
         $t2gen = [long]$t2o.ownership['generation']
         $ct2 = New-OrchestrationTask -TaskId 'nd-task-take2' -Objective 'obj take2' -TaskType 'implementation' `
             -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
@@ -569,6 +569,17 @@ try {
         $t2spy = { param($i) $t2state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $rT2 = Invoke-OrchestrationNativeDispatch -Intent $t2Intent.intent -Executor $t2spy -Authorization $authT2 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (([bool]$rT2.ok -and ([int]$t2state.calls -eq 1))) '[FIX3-S2] first dispatch settles before takeover' ([string]$rT2.reason)
+        # B5 (timing determinism): o dispatch funcional acima roda sob um lease
+        # REALISTA de 60s. PS5.1 soma setup (criacao de task/kernel/ownership) +
+        # a varredura global de exclusao por task ANTES do re-fence pos-lock; um
+        # lease de 500ms cobriria tambem esse setup e expiraria de forma
+        # ESPURIA (post-lock-fencing-changed:owner-lease-expired), quebrando o
+        # dispatch. A expiracao + takeover REAIS segue exercida de forma honrada
+        # e separada: re-armamos um lease CURTO (500ms) aqui e esperamos ele
+        # expirar (1200ms) antes do takeover. Nenhuma assercao de fencing foi
+        # relaxada.
+        $renewT2 = Renew-OrchestrationGoalOwnership -GoalId 'nd-goal-take2' -OwnerId 'planner-1' -Generation $t2gen -StoreDir $goalDir -LeaseTtlMs 500
+        Assert-ND ([bool]$renewT2.ok) '[FIX3-S2] short lease re-armed for the real expiry + takeover' ([string]$renewT2.reason)
         Start-Sleep -Milliseconds 1200
         $tow2 = Takeover-OrchestrationGoalOwnership -GoalId 'nd-goal-take2' -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 60000
         Assert-ND ([bool]$tow2.ok) '[FIX3-S2] ownership taken over' ([string]$tow2.reason)
@@ -583,8 +594,8 @@ try {
         $t3g = New-OrchestrationGoal -GoalId 'nd-goal-take3' -Objective 'takeover sem prova' -Criteria @('criterio-a') -StoreDir $goalDir
         $t3a = Set-OrchestrationGoalState -Goal $t3g.goal -ToState 'ACTIVE'
         $t3s = Save-OrchestrationGoal -Goal $t3a.goal -StoreDir $goalDir
-        $t3o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take3' -OwnerId 'planner-1' -ExpectedRevision ([long]$t3s.revision) -StoreDir $goalDir -LeaseTtlMs 500
-        Assert-ND ([bool]$t3o.ok) '[FIX3-S2] proofless goal owned with short lease' ([string]$t3o.reason)
+        $t3o = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-take3' -OwnerId 'planner-1' -ExpectedRevision ([long]$t3s.revision) -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$t3o.ok) '[FIX3-S2] proofless goal owned with a realistic lease for the first dispatch' ([string]$t3o.reason)
         $t3gen = [long]$t3o.ownership['generation']
         $ct3 = New-OrchestrationTask -TaskId 'nd-task-take3' -Objective 'obj take3' -TaskType 'implementation' `
             -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
@@ -600,6 +611,10 @@ try {
         $evilT3 = { param($i) return @{ status = 'verified_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $rT3 = Invoke-OrchestrationNativeDispatch -Intent $t3Intent.intent -Executor $evilT3 -Authorization $authT3 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-ND (((-not [bool]$rT3.ok) -and ([string]$rT3.reason -ceq 'status-not-allowed-from-worker'))) '[FIX3-S2] proofless receipt settles as failure' ([string]$rT3.reason)
+        # B5: idem t2 - lease curto re-armado so para a expiracao + takeover
+        # reais abaixo; o dispatch funcional acima usou lease realista de 60s.
+        $renewT3 = Renew-OrchestrationGoalOwnership -GoalId 'nd-goal-take3' -OwnerId 'planner-1' -Generation $t3gen -StoreDir $goalDir -LeaseTtlMs 500
+        Assert-ND ([bool]$renewT3.ok) '[FIX3-S2] short lease re-armed for the real expiry + takeover' ([string]$renewT3.reason)
         Start-Sleep -Milliseconds 1200
         $tow3 = Takeover-OrchestrationGoalOwnership -GoalId 'nd-goal-take3' -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 60000
         Assert-ND ([bool]$tow3.ok) '[FIX3-S2] proofless ownership taken over' ([string]$tow3.reason)
@@ -607,7 +622,15 @@ try {
         $t3bstate = @{ calls = 0 }
         $t3bspy = { param($i) $t3bstate.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
         $rT3b = Invoke-OrchestrationNativeDispatch -Intent $t3Intent.intent -Executor $t3bspy -Authorization $authT3b -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
-        Assert-ND (((-not [bool]$rT3b.ok) -and ([string]$rT3b.reason -ceq 'duplicate-identity-mismatch') -and ([int]$t3bstate.calls -eq 0))) '[FIX3-S2] takeover without kernel proof refused' ([string]$rT3b.reason)
+        # FIX3-PRA: o executor 'verified_pass' agora deixa o recibo PENDING
+        # (nao-resolvido), nao 'settled'. shape-invalid e falha DEPOIS de o
+        # Executor ter RODADO (possivel efeito): liquidar liberaria a reserva
+        # da task e deixaria um SEGUNDO efeito correr. O takeover do novo
+        # dono sobre esse recibo, sem prova kernel-side, continua recusado de
+        # forma SEGURA - 'duplicate-identity-mismatch' para um settled legado
+        # sem worker_result, 'pending-ambiguous' para o pending que o fix
+        # passou a deixar. Ambos sem efeito (calls=0) e sem vazar conteudo.
+        Assert-ND (((-not [bool]$rT3b.ok) -and (@('duplicate-identity-mismatch','pending-ambiguous') -ccontains [string]$rT3b.reason) -and ([int]$t3bstate.calls -eq 0))) '[FIX3-S2] takeover without kernel proof refused' ([string]$rT3b.reason)
         Assert-ND (($null -eq $rT3b.worker_result)) '[FIX3-S2] refused takeover read leaks no worker result' ''
         Assert-ND (([string]$rT3b.evidence_id -ceq '')) '[FIX3-S2] refused takeover read leaks no evidence id' ([string]$rT3b.evidence_id)
 

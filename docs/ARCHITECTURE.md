@@ -692,3 +692,92 @@ Classes (read-only / writer-shell / writer-no-shell / diagnostic),
 barreiras (runtime / prompt / planner) e limitações declaradas do matching
 `bash:` vivem em [PERMISSIONS.md](PERMISSIONS.md) — referência normativa
 para tudo que envolve shell.
+
+## G1 trusted-runtime closure (fatia aditiva)
+
+Camada de confianca do despacho nativo. Provenance, admission-file e
+avanco causal sao OPT-IN (sem os switches, esses blocos nao existem e o
+CLAIM/SETTLE sem `-EmitAdmission` conserva o comportamento — teste B8c).
+O caminho sincrono legado (`Invoke-OrchestrationNativeDispatch`) recebeu
+endurecimento fail-closed INCONDICIONAL (F1 admissao viva, F2
+exclusividade por task com varredura limitada, F3 pending preservado em
+falha do Executor): nenhuma recusa nova CONCEDE autoridade, mas um store
+suficientemente grande pode recusar com `claim-task-scan-unbounded` (ver
+limites operacionais ao fim da secao). Nenhum caminho produtivo invoca
+essa funcao por padrao (`dispatchWorker`/`waitForSettlement` seguem HOLD;
+somente o Planner LLM executa):
+
+- **Provenance tiers + SETTLE estrito** (em
+  `scripts/v3/lib/OrchestrationNativeDispatch.ps1`): `Test-NDProvenanceBinding`
+  confere a tupla (child_session_id, parent_session_id, call_id,
+  idempotency_key) de um proof TRANSPORTADO pelo Planner (nunca assinatura,
+  nunca texto do modelo) e devolve o tier `corroborated` (duas fontes
+  independentes), `observed` (uma fonte) ou `declared` (apenas declaracao).
+  Com `-StrictProvenance` (+ `-Strict` interno), o SETTLE EXIGE fonte
+  observada (`provenance-declared-not-proof` recusa `declared`) e
+  comparacao OBRIGATORIA de `claimed_evidence`
+  (`provenance-evidence-required` quando ausente/vazio,
+  `provenance-result-mismatch` quando diverge), ANTES de qualquer escrita
+  (marcador de tentativa, evidencia, kernel, recibo `settled`). Sem o
+  switch, o caminho declarado (N5b) persiste como compatibilidade
+  documentada - NAO como prova. O recibo `settled` passa a registrar
+  `settle_provenance_tier` e `settle_provenance_source` quando ha proof
+  valida. Residual honesto: dupla-fonte e consistencia entre declaracoes,
+  nao independencia autenticada (exige leitura do host pelo kernel; sem
+  API de atestacao no V2, gate parcial).
+- **Admission-file lifecycle** (mesmo arquivo): o CLAIM, com
+  `-EmitAdmission`, resolve o diretorio antes do commit mas GRAVA o
+  admission (`<goal-namespace>/admission/<key>.admission.json`) SOMENTE
+  APOS o commit duravel do recibo `claimed`; falha pos-commit devolve
+  `claim-admission-write-failed` e o retry com binding identico regenera
+  (reparo idempotente; binding divergente continua
+  `claim-already-consumed`). A remocao no SETTLE (caminho normal e
+  duplicata provada) e INCONDICIONAL. `Test-NDAdmissionDecision` e a
+  decisao PURA (sem host) espelhada pelo plugin
+  `plugins/g1-dispatch-admission/index.js` (`ctx.permission.hook('evaluate')`),
+  deny-by-default para a tool `subagent`: exige `fencing.goal_state` =
+  ACTIVE registrado (`admission-goal-not-active`), owner esperado
+  (`admission-owner-mismatch`, so com ExpectedOwner), restricao vazia =
+  sem restricao e restricao preenchida + identidade omitida = deny
+  (paridade PS/JS, generation inteira). Com `OPENCODE_G1_RECEIPT_FILE`,
+  o plugin exige recibo em phase `claimed` (fecha replay pos-SETTLE).
+  Residuais honestos: o plugin cobre apenas a superficie model-callable
+  `subagent` (shell/REST direto nao passa por `permission.evaluate` -
+  SEC-HIGH-01 permanece HIGH); o admission e forjavel por quem escreve no
+  arquivo (fechamento exige componente inacessivel ao Planner); fencing e
+  snapshot do CLAIM, nao leitura viva; `runtime_grant_enforcement` segue
+  OFF/HOLD.
+- **Avanco causal** (`Invoke-OrchestrationNativeDispatchAdvance`): le o goal
+  vivo, EXIGE o recibo da SettledKey em phase `settled` do mesmo goal com
+  evidencia (`advance-settlement-unproven` caso contrario - chave fabricada
+  nunca avanca), devolve advance record existente SEM novo PREPARE
+  (idempotencia por chave), consulta o ObjectiveController, valida o move
+  contra o conjunto fechado {CONTINUE, RETRY, REPLAN, BLOCKED, COMPLETE},
+  revalida admissao/budget, persiste a decisao como pendente
+  (`prepared=false`) e SOMENTE apos PREPARE ok marca `prepared=true` com
+  `next_*`. REPLAN marca replan sem preparar; COMPLETE finaliza o goal
+  somente por CAS e somente com `-FinalizeGoalOnComplete`; BLOCKED, move
+  desconhecido e goal stale recusam sem PREPARE.
+
+Cobertura: cenarios A1-A8, B1-B11 e D0-D7 em
+`scripts/v3/lib/OrchestrationNativeDispatchHandoff.tests.ps1`.
+
+Limites operacionais do endurecimento (fail-closed, sem concessao de
+autoridade): a exclusividade por task varre o store com teto local de 512
+entradas por namespace, teto de 512 namespaces e teto global de 4096
+entradas em todas as namespaces (contadas por entrada do filesystem,
+inclusive arquivos internos como locks/tmp). Acima do teto, o despacho
+recusa com `claim-task-scan-unbounded` SEM perda de dados e SEM efeito
+novo; a recuperacao e operacional, mas RESTRITA a historico resolvido:
+somente recibos `settled` com reserva liberada (`kernel_ok=true` ou
+recusa pre-efeito fresca) podem ser arquivados/removidos — recibos
+`pending` ou `claimed` NAO resolvidos sao a reserva contra segundo
+efeito e NUNCA podem ser movidos para fora da raiz nem apagados (fora
+da raiz a varredura nao os enxerga e a reserva se perde). Falha ou
+excecao do Executor preserva o recibo `pending` (`executor-failed` /
+forma invalida). O recibo `pending` resolve-se por (a) replay
+idempotente do proprio recibo (declaracao original e reenvio com
+`external_idempotent`, que reexecuta o Executor) ou (b) reconciliacao
+externa: sucesso SOMENTE com prova kernel-side; liquidacao de falha
+MANTEM a reserva, exceto recusa pre-efeito fresca (zero chamadas de
+Executor, `reconciled=false`).
