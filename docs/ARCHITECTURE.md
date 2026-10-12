@@ -764,11 +764,20 @@ Cobertura: cenarios A1-A8, B1-B11 e D0-D7 em
 
 Limites operacionais do endurecimento (fail-closed, sem concessao de
 autoridade): a exclusividade por task varre o store com teto local de 512
-entradas por namespace e teto global de 4096 entradas em todas as
-namespaces (contadas por entrada do filesystem, inclusive arquivos
-internos como locks/tmp). Acima do teto, o despacho recusa com
-`claim-task-scan-unbounded` SEM perda de dados e SEM efeito novo; a
-recuperacao e operacional (arquivar/limpar namespaces antigas do store e
-repetir). Falha ou excecao do Executor preserva o recibo `pending`
-(`executor-failed` / forma invalida); somente a reconciliacao externa com
-prova kernel-side resolve o recibo.
+entradas por namespace, teto de 512 namespaces e teto global de 4096
+entradas em todas as namespaces (contadas por entrada do filesystem,
+inclusive arquivos internos como locks/tmp). Acima do teto, o despacho
+recusa com `claim-task-scan-unbounded` SEM perda de dados e SEM efeito
+novo; a recuperacao e operacional, mas RESTRITA a historico resolvido:
+somente recibos `settled` com reserva liberada (`kernel_ok=true` ou
+recusa pre-efeito fresca) podem ser arquivados/removidos — recibos
+`pending` ou `claimed` NAO resolvidos sao a reserva contra segundo
+efeito e NUNCA podem ser movidos para fora da raiz nem apagados (fora
+da raiz a varredura nao os enxerga e a reserva se perde). Falha ou
+excecao do Executor preserva o recibo `pending` (`executor-failed` /
+forma invalida). O recibo `pending` resolve-se por (a) replay
+idempotente do proprio recibo (declaracao original e reenvio com
+`external_idempotent`, que reexecuta o Executor) ou (b) reconciliacao
+externa: sucesso SOMENTE com prova kernel-side; liquidacao de falha
+MANTEM a reserva, exceto recusa pre-efeito fresca (zero chamadas de
+Executor, `reconciled=false`).
