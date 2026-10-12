@@ -766,7 +766,8 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
 
 function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong) {
   # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
-  # experimental.subagent_depth), 17 blocos agents, build sem model,
+  # experimental.subagent_depth), 21 blocos agents (build + title + 15
+  # subagents explicitos + 4 planning), build sem model,
   # tokens resolvidos. Mesmos exit paths (precheck exit 3, nada escrito).
   $errs = @()
   $tmplPath = Join-Path $Root 'templates\opencode.v2.json.tmpl'
@@ -784,7 +785,7 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
   if (Has-Member $desired 'agents') {
     $agentCount = @($desired.agents.PSObject.Properties.Name).Count
   }
-  if ($agentCount -ne 17) { $errs += ('template V2: esperado 17 blocos agents, encontrado ' + $agentCount) }
+  if ($agentCount -ne 21) { $errs += ('template V2: esperado 21 blocos agents, encontrado ' + $agentCount) }
   if (Has-Member $desired 'agents') {
     if (Has-Member $desired.agents 'build') {
       if (Has-Member $desired.agents.build 'model') {

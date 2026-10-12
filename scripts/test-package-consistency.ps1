@@ -392,7 +392,7 @@ try {
     if ($null -eq $v2.PSObject.Properties['agents']) { [void]$errs12.Add('V2 sem bloco agents') }
     else {
       $blocks12 = @($v2.agents.PSObject.Properties.Name)
-      if ($blocks12.Count -ne 17) { [void]$errs12.Add(('V2 blocos agents=' + $blocks12.Count + ', esperado 17')) }
+      if ($blocks12.Count -ne 21) { [void]$errs12.Add(('V2 blocos agents=' + $blocks12.Count + ', esperado 21')) }
       foreach ($req in @('build', 'title')) {
         if ($blocks12 -notcontains $req) { [void]$errs12.Add(('V2 bloco ausente: ' + $req)) }
       }
@@ -431,7 +431,7 @@ try {
       }
     }
   }
-  if ($errs12.Count -eq 0) { Report-Ok '12 template V2 shape nativo' '17 blocos agents; experimental.subagent_depth=1; permissions arrays validos; sem chaves legadas' }
+  if ($errs12.Count -eq 0) { Report-Ok '12 template V2 shape nativo' '21 blocos agents; experimental.subagent_depth=1; permissions arrays validos; sem chaves legadas' }
   else { Report-Fail '12 template V2 shape nativo' ($errs12 -join ' | ') }
 }
 catch { Report-Fail '12 template V2 shape nativo' $_.Exception.Message }
