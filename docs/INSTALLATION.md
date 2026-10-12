@@ -2,17 +2,23 @@
 
 ## Pré-requisitos
 
-- **OpenCode V1.x e/ou V2.x** instalado(s) e funcional(is) (`opencode
-  --version` responde `1.x` ou `2.x`; CI validado com **1.18.32**, pacote
-  npm `opencode-ai`, e **2.0.18**, pacote `@opencode/cli`). Instalação
+- **OpenCode V2** instalado e funcional (`opencode
+  --version` responde `2.x`; instalações novas usam `-Runtime V2`).
+  **V1 (pacote npm `opencode-ai`): legado, frozen desde a issue #62** —
+  continua funcional para perfis existentes (`-Runtime V1`/`Both` =
+  manutenção de perfis legados, não certificação de features novas).
+  Pins vigentes em `source/registry/runtime-versions.json`: **V1 1.18.34**
+  e **V2 2.0.23** (números `1.18.32`/`2.0.18` citados em evidências
+  antigas são histórico). Instalação
   single-runtime usa o dialeto do `-Runtime` pedido (Phase 6); `-Runtime
   Both` exige um binário provado por geração ou `-ProvisionRuntime`
   (Phase 7, abaixo).
 - **Windows PowerShell 5.1+** ou `pwsh` recente.
 - **`bun` ou `npm`** — somente para a dependência do plugin
-  `@opencode-ai/plugin@1.18.32` (best-effort: se ambos faltarem ou a rede
-  falhar, o instalador avisa e conclui sem ela; instale depois com
-  `cd ~/.config/opencode; bun add @opencode-ai/plugin@1.18.32`).
+  `@opencode/plugin@2.0.23` (V2, instalações novas; best-effort: se ambos
+  faltarem ou a rede falhar, o instalador avisa e conclui sem ela; instale
+  depois com `cd ~/.config/opencode; bun add @opencode/plugin@2.0.23`;
+  legado V1: `@opencode-ai/plugin@1.18.34`).
 - Este repo clonado + `models.jsonc` criado (copiado de
   `models.example.jsonc`, com `planner`/`cheap`/`strong` preenchidos).
   Sem `models.jsonc` válido o instalador falha no precheck (exit 3) sem
@@ -25,8 +31,8 @@ git clone <este-repo>
 cd opencode-orchestration
 copy models.example.jsonc models.jsonc
 # edite models.jsonc com seus modelos
-.\install.ps1 -WhatIf     # plano por recurso, nenhuma escrita
-.\install.ps1             # instalação real
+.\install.ps1 -Runtime V2 -WhatIf  # plano por recurso, nenhuma escrita
+.\install.ps1 -Runtime V2          # instalação real (V2, instalações novas; Auto preservado p/ compatibilidade)
 ```
 
 Flags reais do `install.ps1`:
@@ -88,7 +94,7 @@ runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 | `adopted_paths[]` | Lista legada mantida por compatibilidade (hoje sempre vazia — nenhuma chave é mais adotada). |
 | `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
 | `models{}` | `planner`/`cheap`/`strong` usados. |
-| `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.32` no V1; `@opencode/plugin@2.0.18` no V2). |
+| `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.34` no V1 legado; `@opencode/plugin@2.0.23` no V2). |
 
 ## Upgrade
 
