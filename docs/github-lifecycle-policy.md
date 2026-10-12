@@ -25,10 +25,23 @@ Sem merge sem PR. O PR é a unidade de revisão, de CI e de evidência: descreve
 o escopo, referencia a fase/spec/issue e acumula reviews, threads resolvidas
 e resultado do CI antes do merge.
 
-## 4. CI obrigatório (5 checks)
+## 4. CI obrigatório (jobs, checks requeridos e política documental)
 
-Merge exige os 5 checks do workflow `CI` (`.github/workflows/ci.yml`) verdes
-**no HEAD do PR**, pelos nomes reais exibidos no GitHub:
+Três camadas distintas, que não se confundem:
+
+1. **Jobs do workflow `CI`** (`.github/workflows/ci.yml`) — tudo que o
+   workflow executa. Snapshot em 2026-10-11: **6 jobs**
+   (`ci-linux-capability-collector`, `ci-ps51`, `ci-ps7`,
+   `ci-smoke-opencode`, `ci-v2-lane`, `ci-smoke-opencode-v2`).
+2. **Checks requeridos pela branch protection de `master`** — o subconjunto
+   que o GitHub exige verde no HEAD do PR (`strict: true`,
+   `required_approving_review_count: 0`). Snapshot em 2026-10-11: **5**.
+3. **Política documental** — este documento (§4 + §11),
+   `source/registry/delivery-policy.json` e a política de review da §5.
+
+O número de checks requeridos **não é invariante nem permanente**: é um
+snapshot datado. O conjunto requerido hoje (nomes exatos, tal como exibidos
+no GitHub — não inventar sinônimos) é:
 
 1. `CI (ps51)`
 2. `CI (ps7)`
@@ -36,10 +49,33 @@ Merge exige os 5 checks do workflow `CI` (`.github/workflows/ci.yml`) verdes
 4. `CI (v2 lane, perfil V2 provisionado)`
 5. `CI (smoke opencode v2 real)`
 
+Esses 5 nomes são a lista vigente da branch protection; o workflow pode ter
+mais jobs sem que a lista mude, e a lista só muda por decisão explícita
+(abaixo).
+
+**Job novo ou complementar** (ex.: `CI (linux capability collector)`, job de
+2026-10) **roda, mas não vira gate por acréscimo**: entra no workflow como
+evidência adicional enquanto a promoção a check requerido não for decidida.
+Promover um check a exigência de merge exige, cumulativamente:
+
+1. decisão explícita do operador registrada no PR — nunca inferida do
+   merge, de um job verde ou de conveniência ("já passa sempre");
+2. atualização desta seção com o nome exato do job e o novo snapshot
+   datado;
+3. atualização de `source/registry/delivery-policy.json`
+   (`required_checks`) e da §11 na mesma mudança;
+4. re-aplicação da branch protection com o nome real do check — job cujo
+   nome não esteja na protection não é gate e não pode ser tratado como tal.
+
+Job novo **não pode enfraquecer o que já existe**: nenhum passo, `skip` ou
+condicional pode reduzir a cobertura dos jobs já requeridos, e nenhuma
+mudança pode baixar `required_approving_review_count` ou dispensar review
+para facilitar o merge. Falha de job não requerido **não** libera o PR:
+continua sendo falha, registrada no PR ou no closure.
+
 Re-execução (`rerun`) de job flaky documentado é permitida sem novo commit,
 desde que no mesmo SHA e com a causa registrada no PR ou no closure. Resultado
-de SHA anterior nunca é reutilizado como prova do SHA atual. Nomes acima são
-os `name:` reais dos jobs — não inventar sinônimos.
+de SHA anterior nunca é reutilizado como prova do SHA atual.
 
 ## 5. Política de review
 
@@ -119,7 +155,9 @@ clássica de branch protection, com autorização explícita do operador:
   `require_code_owner_reviews: false` — sem CODEOWNERS no repo,
   `required_approving_review_count: 0` — mantenedor solo; CI + threads
   continuam obrigatórios para non-admins (admin bypass = break-glass §9))
-- `required_checks`: `strict: true` + os 5 CIs reais da seção 4
+- `required_checks`: `strict: true` + os 5 checks requeridos da seção 4
+  (snapshot 2026-10-11; a lista é a vigente, não um número fixo — promoção
+  de job novo a check requerido segue o procedimento da §4)
 - `require_conversation_resolution`: true (`enabled: true`)
 - `required_linear_history`: false (merge commit é o método padrão, §6)
 - `enforce_admins`: false — bypass de admin preservado como caminho
@@ -137,7 +175,8 @@ redundância, sem toque no registry):
 capability github-lifecycle:
   branch_required: true   (seção 2)
   pr_required: true        (seção 3)
-  checks_required: true    (seção 4, 5 checks)
+  checks_required: true    (seção 4 — subconjunto requerido do workflow `CI`,
+                           6 jobs no total; snapshot 2026-10-11: 5 requeridos)
   review_required: true    (seção 5)
 ```
 

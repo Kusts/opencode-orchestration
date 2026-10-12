@@ -87,10 +87,10 @@ checks cobrem.
 
 | Camada | Status |
 |---|---|
-| Permissões V1 | runtime-enforced (templates + testes do instalador + smoke CI 1.18.x) |
+| Permissões V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos) — templates + testes do instalador + smoke CI 1.18.x |
 | Permissões V2 | renderizado + validado por checks (consistency 12–15); claim de enforcement aguarda spike V2 real (Phase 5) |
 | Policies V2 (`experimental.policies`) | HOLD (Phase 5); nenhum hard-deny enviado |
-| Hooks do plugin V1 | runtime-enforced (provado em 1.18.x, testes do plugin) |
+| Hooks do plugin V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos — testes do plugin) |
 | Hooks do plugin V2 | implementado com testes mock; claim live pendente da lane CI V2 (Phase 8) |
 | Kernel (CAS/gate/DONE/grants/leases/worktrees) | kernel-enforced; flags OFF por padrão até ativação com evidência (Phase 19) |
 
