@@ -445,17 +445,38 @@ Remove-Item -LiteralPath $can2Task -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $can2Tel -Force -ErrorAction SilentlyContinue
 
 # --- R2 FIX 1: -TelemetryPath fora do confinado -> exit 2 (fail-closed) ---
+# O confinamento produtivo aceita <repo>\cache\v3\telemetry e o $env:TEMP do
+# processo filho. Quando o repo vive sob o TEMP do SO (worktree em TEMP), o
+# caminho evidence/ bate no prefixo TEMP sem querer e o CLI aceita; por isso o
+# filho recebe um TEMP/TMP efemero exclusivo (nunca ancestor de evidence/),
+# com o ambiente do processo pai restaurado em finally.
 $evilTel = Join-Path $RepoRoot 'evidence\phase2d-tel-evil.jsonl'
 $evilTask = Join-Path $tempBase 'phase2d-evil-task.json'
 [IO.File]::WriteAllText($evilTask, '{"task_id":"EVIL-1","task":"read docs","task_class":"documentation"}', [Text.UTF8Encoding]::new($false))
+$evilTmpDir = Join-Path $tempBase ('phase2d-evil-temp-' + [Guid]::NewGuid().ToString('n'))
+if (Test-Path -LiteralPath $evilTmpDir) { throw 'Temporary fixture path collision; preserving existing directory.' }
+New-Item -ItemType Directory -Path $evilTmpDir -Force | Out-Null
 $oldEapEvil = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-$evilStd = & powershell -NoProfile -ExecutionPolicy Bypass -File $cliPath -TaskFile $evilTask -ProjectRoot $fxEmpty -TelemetryPath $evilTel 2>&1 | Out-String
-$evilCode = $LASTEXITCODE
-$ErrorActionPreference = $oldEapEvil
+$oldTempEvil = $env:TEMP
+$oldTmpEvil = $env:TMP
+$evilStd = ''
+$evilCode = -1
+try {
+  $ErrorActionPreference = 'Continue'
+  $env:TEMP = $evilTmpDir
+  $env:TMP = $evilTmpDir
+  $evilStd = & powershell -NoProfile -ExecutionPolicy Bypass -File $cliPath -TaskFile $evilTask -ProjectRoot $fxEmpty -TelemetryPath $evilTel 2>&1 | Out-String
+  $evilCode = $LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference = $oldEapEvil
+  if ($null -eq $oldTempEvil) { Remove-Item -LiteralPath 'Env:\TEMP' -Force -ErrorAction SilentlyContinue } else { $env:TEMP = $oldTempEvil }
+  if ($null -eq $oldTmpEvil) { Remove-Item -LiteralPath 'Env:\TMP' -Force -ErrorAction SilentlyContinue } else { $env:TMP = $oldTmpEvil }
+}
 Assert ($evilCode -eq 2) 'telemetry fora do confinado exit 2' ('exit=' + $evilCode)
 Assert (-not (Test-Path -LiteralPath $evilTel)) 'telemetry fora do confinado nada escrito'
 Remove-Item -LiteralPath $evilTask -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $evilTmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- R2 FIX 2: schema invalido '{}' via -RoutingPath -> fallback sem throw ---
 $badSchema = Join-Path $tempBase 'phase2d-bad-schema.json'

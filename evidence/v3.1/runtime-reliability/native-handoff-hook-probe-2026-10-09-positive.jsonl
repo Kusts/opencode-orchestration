@@ -1,0 +1,3 @@
+{"kind":"setup","version":"2.0.23"}
+{"kind":"before","tool":"subagent","sessionID":"ses_edfb2c2f8ffeclhsUu0Sy1vXD7","messageID":"msg_1204d447e001QRwJ5NbKGJVycl","callID":"call_cc82ac82e5944dd5aaca7e334debc932","callerAgent":"build","targetAgent":"explorer"}
+{"kind":"after","status":"completed","sessionID":"ses_edfb2c2f8ffeclhsUu0Sy1vXD7","messageID":"msg_1204d447e001QRwJ5NbKGJVycl","callID":"call_cc82ac82e5944dd5aaca7e334debc932","childSessionID":"ses_edfb2b302ffeA8GeTZH5HFwtEC"}

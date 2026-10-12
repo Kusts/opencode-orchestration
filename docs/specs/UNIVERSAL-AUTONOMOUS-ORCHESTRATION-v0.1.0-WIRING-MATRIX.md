@@ -64,3 +64,61 @@ Adendo final (2026-10-08, pós-merge + re-run20): linhas lane/ativação/tag/CI-
 acima registram o estado final real — PARTIAL CLOSURE (runtime-real parcial
 3/7 + 20 blocked sob critério enrijecido, re-run `...-rerun20/` + enforcement HOLD + routing OFF); sem alegar FINAL. Detalhe em
 CORRECTIVE-PLAN §8 "Estado final".
+
+Adendo de aceitação (2026-10-09, branch `acceptance/autonomous-core-v0.1.2-2026-10-09`,
+baseline `b38c92b`, merge do PR #47, tag/`VERSION` v0.1.2; documentação-only):
+veredito **PARTIAL CLOSURE** — ver
+`docs/audits/AUTONOMOUS-CORE-RUNTIME-ACCEPTANCE-2026-10-09.md`. Confirmações do
+checkout atual: nenhum caller produtivo de `Invoke-OrchestrationAutonomousObjective`/
+`Invoke-OrchestrationObjectiveStep` (só testes dot-sourced a lib); sem `Executor`
+o passo retorna `dispatch_intent` e o driver `awaits-planner`
+(`OrchestrationAutonomousLoop.ps1:324/482`); plugin V2 injeta mandato +
+observabilidade e não spawna; causa-raiz = Planner Runtime Wiring ausente, **não**
+provider; HOLDs do adapter (`dispatchWorker`/`waitForSettlement`/
+`requestPlannerContinuation`/`cancelAuthorizedExecution`/`getSessionState`)
+preservados e `runtime_grant_enforcement` segue OFF (fail-open `/shell` 2.0.23
+observado). Lanes mantêm 16/17/19 `pass-real` e 18/20/21/22 `blocked`/critério
+enrijecido (`...-rerun1821/`, `...-rerun20/`). CI run `37893387670` attempt2 5/5
+(attempt1: 5 FAIL FIX4-2b só no job PS7 da lane V2; hipótese estática não
+confirmada; re-run não é prova de fix — asserts intactos). Suíte V3 completa
+local PS5.1 e PS7: cada engine 81 PASS/3 FAIL/6 SKIP; os 3 FAILs são os checks de hash canônico
+`DE22307F` contra configuração global user-owned `C1BB84F2…`
+(`CapabilityObservability`, `CapabilitySkillUtility`, `shadow-route`), sem
+reconciliação/alteração dessa config. Watchdog local 421/421 PASS, incluindo
+FIX4-2b/FIX5-2 em ambas engines. Nenhum daemon/API nova proposta; próximo passo
+ delimitado: wiring do Executor (Planner em sessão ativa) via ferramenta nativa
+ existente.
+
+Adendo de revisão Native Handoff (2026-10-09): SPEC/PLAN em
+`PLANNER-NATIVE-HANDOFF-v0.1.2-{SPEC,PLAN}.md`; G0 = diagnóstico PASS,
+G1 = BLOCKED. Reavaliação independente confirmou que `Executor` do
+NativeDispatch é callback PowerShell síncrono, não um ponto que pausa e entrega
+controle à tool nativa; executar tool antes dele viola PREPARE pré-efeito.
+Sem gate host confiável e correlation host-originated, a intenção do Planner
+é consultiva, nunca autorização consumível. O plugin fail-open e
+`runtime_grant_enforcement` OFF não mudam isso. Planner native dispatch,
+SETTLE/ADVANCE produtivos e recovery por sessão substituta continuam
+`HOLD / NOT PROVEN`; não houve implementação nem mudança de flag. Ver seção 16
+do audit de aceitação para evidências e pareceres.
+
+Adendo de capacidade (2026-10-09): o follow-up de autorização do operador
+executou probe isolated com V2 pinado `2.0.23` (binário SHA-256 e eventos em
+`evidence/v3.1/runtime-reliability/native-handoff-hook-probe-2026-10-09.json`).
+`execute.before` com throw bloqueou a chamada `subagent` testada; chamada
+permitida expôs IDs host-originated parent/message/call e child no `after`,
+confirmados na session store. A primitiva de veto/correlação passa; PREPARE,
+consumo CAS, Kernel settlement, ADVANCE, recovery e grants permanecem não
+wireados/não comprovados. Portanto G1 produtivo continua BLOCKED; não ativar
+enforcement geral, sem alteração do registry/configuração.
+
+Adendo PR-A (2026-10-10): NativeDispatch PREPARE/CLAIM implementados no receipt
+store canônico e aprovados por Reviewer/Security Reviewer como **primitive-only**;
+testes herméticos PS5.1/PS7 (Handoff 675, NativeDispatch 180, Receipts 187,
+Envelopes 39, IntentSymbol 47, Loop 47; cada engine; 10/10 repetições PS5.1
+NativeDispatch). `Invoke-OrchestrationNativeDispatchPrepare` e `...Claim` ainda
+não têm caller produtivo/plugin, nem settlement/TaskKernel worker-result. O
+plugin instalado continua fail-open. Probes exact-binary V2 2.0.23 demonstram
+veto do spawn, deny read/edit e um shell literal em fixture, não autorização do
+kernel nem containment geral. Sem CLI bridge/install path, grants source e fail-closed em
+plugin absence/unload; G1 product continua BLOCKED, V1 e enforcement geral HOLD.
+Audit detalhado §§17–19.

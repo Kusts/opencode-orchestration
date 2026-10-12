@@ -159,6 +159,15 @@ não os acione por rito.
   uma arquitetura conceitual precisa ser confrontada com a implementação real.
   Não implementa código. Não usar quando a viabilidade já está demonstrada por
   evidência (código, teste, log ou documento).
+- `engineering-advisor` em modo deadlock consult (#60 F2) — quando o plano
+  travou: 2 tentativas sem progresso verificável, sinal `NO_PROGRESS`/ciclo
+  do watchdog/telemetria, ou bloqueio por dependência/trade-off/dados
+  contraditórios/hipótese esgotada (risco material comprovado dispensa
+  esperar as 2 tentativas). Sem reconsulta sem evidência nova; limites de
+  calls/tempo/orçamento herdados da tarefa; Jev opcional como auxiliar,
+  nunca autoridade. Não usar em tarefa trivial, passo bem definido ou só
+  porque a tarefa é grande. Conta como o único papel advisory da subtarefa
+  (ordem de prioridade inalterada).
 - `product-designer` — quando a mudança altera jornada, interação, estados de
   UI, information architecture, acessibilidade ou comportamento responsivo
   material. Não substitui o `frontend-engineer`. Não usar quando a mudança não

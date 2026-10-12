@@ -1,0 +1,131 @@
+{
+  "audit": "opencode-capabilities-runtime-validation",
+  "date": "2026-10-10",
+  "verdict": "PARTIAL",
+  "revision": {
+    "base": "b38c92bc8b3ab334a9dffad609f3515350336061",
+    "branch": "feat/opencode-capabilities-runtime-validation",
+    "changed_files": [
+      "tests/distribution/capability-routing-phase2d.tests.ps1",
+      "docs/audits/opencode-capabilities-runtime-validation-2026-10-10.md",
+      "evidence/capabilities-runtime-validation-2026-10-10/runtime-audit.json"
+    ]
+  },
+  "github": {
+    "pr58": {
+      "state": "OPEN",
+      "required_checks": "5/5 SUCCESS",
+      "review_decision": "none",
+      "action": "HUMAN_REVIEW_REQUIRED; not merged"
+    },
+    "pr54": "OPEN; not modified",
+    "master_initial": "b38c92bc8b3ab334a9dffad609f3515350336061"
+  },
+  "runtime": {
+    "v2_pin": "2.0.23",
+    "v2_global": "2.0.26",
+    "v1": "NOT_VERIFIED",
+    "v2_lifecycle_smoke": {
+      "status": "PASS",
+      "checks_passed": 14,
+      "binary_version_exact": true,
+      "home_isolated": true,
+      "service_port": "exclusive ephemeral port",
+      "port_49374_unchanged": true,
+      "cleanup": "owned job/process tree closed; temporary evidence removed"
+    }
+  },
+  "browser_mcps": {
+    "testing_process": {
+      "status": "PASS (connected in isolated V2 process)",
+      "configured_ids_visible": ["playwright", "chrome-devtools"],
+      "runtime_status": "connected for both",
+      "location_directory_explicit": true,
+      "tools_catalog_count_from_api": "NOT_EXPOSED",
+      "agent_tool_offer": "NOT_VERIFIED"
+    },
+    "default_process": {
+      "configured_mcp_count": 0,
+      "status": "PASS (negative configuration case, explicit location)"
+    },
+    "process_config_isolation": "PASS (testing connected; default zero configured; separate V2 services, XDG roots, HOME, caches, ports)",
+    "session_isolation": "SESSION_ISOLATION_NOT_PROVEN",
+    "overlay_activation_release": "PASS only for ephemeral process startup/cleanup; same-service session activation/release NOT_PROVEN",
+    "persisted": false,
+    "agent_tool_invocation": "AGENT_TOOL_INVOCATION_NOT_VERIFIED"
+  },
+  "canonical_agents": {
+    "tester": {
+      "selected": true,
+      "browser_mcp_offered": false,
+      "browser_mcp_invoked": false,
+      "result_verified": false
+    },
+    "debugger": {
+      "chrome_devtools_offered": false,
+      "chrome_devtools_invoked": false,
+      "result_verified": false
+    }
+  },
+  "ai_memory": {
+    "memory_status": "PASS",
+    "plugin_healthcheck_expected_plugins": {
+      "ai-memory-opencode2.ts": {
+        "present": true,
+        "shape": "v2_object",
+        "loading_plugin_observed": true,
+        "healthy": true
+      },
+      "orchestration-enforcement.js": {
+        "present": true,
+        "shape": "v2_object",
+        "loading_plugin_observed": true,
+        "healthy": true
+      }
+    },
+    "plugin_hook_end_to_end_execution": "NOT_VERIFIED",
+    "plugin_healthcheck": "FAIL",
+    "healthcheck_failure": "ai-memory-opencode2.ts.bak-1791360135 in active autodiscovery root",
+    "backup_load_log_matches": 0,
+    "backup_moved_or_deleted": false,
+    "issue25": "OPEN; regeneration origin unresolved"
+  },
+  "tests": {
+    "package_consistency": "PASS 16/16",
+    "mcp_profiles": "PASS 8/8",
+    "capability_registry_v2": "PASS 48/48",
+    "capability_planning": "PASS 12/12",
+    "skills_catalog": "PASS 18/18",
+    "skills_healthcheck": "PASS",
+    "phase2d_fixture_after_fix": {
+      "powershell_51": "PASS 372/372",
+      "powershell_7": "PASS 372/372",
+      "review": "APPROVED"
+    },
+    "distribution_after_fix": "PASS 20 / FAIL 0 / SKIP 1",
+    "v3": {
+      "result": "80 PASS / 4 FAIL / 6 SKIP",
+      "failing_suites": [
+        "session-bootstrap-context.tests.ps1 (w1c/w14: project_id assumes fixed checkout basename)",
+        "CapabilityObservability.tests.ps1 (live global config hash prefix DE22307F; observed C1BB84F2)",
+        "CapabilitySkillUtility.tests.ps1 (live global config hash prefix DE22307F; observed C1BB84F2)",
+        "shadow-route.tests.ps1 (live global config hash prefix DE22307F; observed C1BB84F2)"
+      ],
+      "expected_hash_changed": false
+    }
+  },
+  "global_core_mcps": {
+    "configured": ["context7", "jev", "servers.ai-memory"],
+    "migration_performed": false,
+    "recommendation": "keep as explicit global exception until effective session-scoped MCP support is proven; token/tool exposure cost not measured"
+  },
+  "security": {
+    "real_secret_values_printed_or_persisted": 0,
+    "synthetic_server_password_only": true,
+    "global_config_changed": false,
+    "permissions_or_flags_changed": false,
+    "49374_interference": false,
+    "owned_test_processes_remaining": 0,
+    "temporary_browser_profiles_persisted": false
+  }
+}
