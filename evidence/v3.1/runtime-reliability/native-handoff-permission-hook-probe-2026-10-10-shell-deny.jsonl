@@ -1,0 +1,5 @@
+{"kind":"setup","version":"2.0.23","permissionHookAvailable":true}
+{"kind":"subagent-before","sessionID":"ses_edc07008bffeu66fO9dl9xHqjk","messageID":"msg_123f90409001LqRK289q7RERJt","callID":"call_6abd35a9940f4508af5d7a34a21bb58a","targetAgent":"coder"}
+{"kind":"permission-evaluate","sessionID":"ses_edc07008bffeu66fO9dl9xHqjk","agent":"build","action":"subagent","resources":["coder"],"sourceType":"tool","messageID":"msg_123f90409001LqRK289q7RERJt","callID":"call_6abd35a9940f4508af5d7a34a21bb58a","effectBefore":"allow","effectAfter":"allow"}
+{"kind":"permission-evaluate","sessionID":"ses_edc06df61ffeEzYRkl64lIK6Dt","agent":"coder","action":"shell","resources":["Write-Output SHELL_PROBE_MARKER_56"],"sourceType":"tool","messageID":"msg_123f920ba001lSsQ60zLHTrrL8","callID":"call_d87bba43e76f46888f0ce94e6aac2f09","effectBefore":"allow","effectAfter":"deny"}
+{"kind":"subagent-after","status":"completed","parentSessionID":"ses_edc07008bffeu66fO9dl9xHqjk","messageID":"msg_123f90409001LqRK289q7RERJt","callID":"call_6abd35a9940f4508af5d7a34a21bb58a","childSessionID":"ses_edc06df61ffeEzYRkl64lIK6Dt"}

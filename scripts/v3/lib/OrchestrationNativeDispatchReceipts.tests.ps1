@@ -184,6 +184,12 @@ try {
         $rTrunc = Invoke-OrchestrationNativeDispatch -Intent $truncIntent.intent -Executor $truncSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-RXRefusal -Result $rTrunc -SpyState $truncSpy.state -Reason 'receipt-json-invalid' -Name '[R3b] truncated JSON' -ReceiptPath $truncPath
         Test-RXPreserved -Path $truncPath -Before $truncBefore -Name '[R3b] truncated JSON'
+        # B1: o scan fail-closed de efeito por task agora recusa um recibo
+        # truncado. Este fixture NAO pode vazar no namespace compartilhado,
+        # senao quebraria a varredura global dos despachos posteriores
+        # (R2a/R2b/RP3a). A assercao de preservacao acima ja rodou; o arquivo
+        # e removido aqui como higiene do proprio teste.
+        try { Remove-Item -LiteralPath $truncPath -Force -ErrorAction SilentlyContinue } catch { }
 
         # key divergent from the filename
         $divKey = Get-NativeDispatchHash32 'rx-keydiv-1'
@@ -205,6 +211,13 @@ try {
         $rDiv = Invoke-OrchestrationNativeDispatch -Intent $divIntent.intent -Executor $divSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-RXRefusal -Result $rDiv -SpyState $divSpy.state -Reason 'receipt-key-mismatch' -Name '[R3c] key divergent from filename' -ReceiptPath $divPath
         Test-RXPreserved -Path $divPath -Before $divBefore -Name '[R3c] key divergent from filename'
+        # F2/B1: higiene - a chave divergente do nome do arquivo e uma
+        # invalidade ESTRUTURAL que a varredura global de exclusao por task
+        # recusa em modo fail-closed. A assercao de preservacao acima ja
+        # rodou; manter o fixture no namespace compartilhado quebraria as
+        # varreduras dos despachos posteriores (R2a/R2b/RP3a). Remove-se
+        # aqui, como higiene do proprio teste.
+        try { Remove-Item -LiteralPath $divPath -Force -ErrorAction SilentlyContinue } catch { }
 
         # schema unknown
         $schKey = Get-NativeDispatchHash32 'rx-schema-1'
@@ -225,6 +238,11 @@ try {
         $rSch = Invoke-OrchestrationNativeDispatch -Intent $schIntent.intent -Executor $schSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-RXRefusal -Result $rSch -SpyState $schSpy.state -Reason 'receipt-schema-unknown' -Name '[R3f] unknown schema' -ReceiptPath $schPath
         Test-RXPreserved -Path $schPath -Before $schBefore -Name '[R3f] unknown schema'
+        # F2/B1: higiene - schema desconhecido tambem e invalidade
+        # estrutural recusada pela varredura global. A assercao de
+        # preservacao ja rodou; o fixture nao pode vazar no namespace
+        # compartilhado.
+        try { Remove-Item -LiteralPath $schPath -Force -ErrorAction SilentlyContinue } catch { }
 
         # phase absent / unknown (same reason class, distinct receipts)
         $phaseCases = @(
@@ -251,6 +269,11 @@ try {
             $rPc = Invoke-OrchestrationNativeDispatch -Intent $pcIntent.intent -Executor $pcSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
             Assert-RXRefusal -Result $rPc -SpyState $pcSpy.state -Reason 'receipt-phase-unknown' -Name ([string]$pc.tag) -ReceiptPath $pcPath
             Test-RXPreserved -Path $pcPath -Before $pcBefore -Name ([string]$pc.tag)
+            # F2/B1: higiene - fase ausente/desconhecida tambem e
+            # invalidade estrutural recusada pela varredura global de
+            # exclusao por task. A assercao de preservacao ja rodou; o
+            # fixture nao pode vazar no namespace compartilhado.
+            try { Remove-Item -LiteralPath $pcPath -Force -ErrorAction SilentlyContinue } catch { }
         }
 
         # reconcile path also refuses an unreadable receipt instead of settling it
@@ -264,6 +287,8 @@ try {
         $rRecBad = Confirm-OrchestrationDispatchReconciliation -IdempotencyKey $recKey -Outcome $badOutcome -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath -EvidenceStoreDir $evDir
         Assert-RX (((-not [bool]$rRecBad.ok) -and ([string]$rRecBad.reason -ceq 'receipt-json-invalid') -and ([int]$rRecBad.executor_calls -eq 0))) '[R3g] reconciliation refuses an unreadable receipt' ([string]$rRecBad.reason)
         Test-RXPreserved -Path $recPath -Before $recBefore -Name '[R3g] reconciliation of unreadable receipt'
+        # B1: higiene - nao vazar o recibo truncado no namespace compartilhado.
+        try { Remove-Item -LiteralPath $recPath -Force -ErrorAction SilentlyContinue } catch { }
 
         # ---------- F1 (REV5): fase variante e canonicalizada na leitura ----------
         # Antes do fix, a leitura normalizava a fase para decidir se o
@@ -337,6 +362,12 @@ try {
         Assert-RX ((Test-Path -LiteralPath $okWritePath -PathType Leaf)) '[F2] fresh write lands exactly on the expected regular file' ''
         $okWriteBack = [IO.File]::ReadAllText($okWritePath, [Text.Encoding]::UTF8)
         Assert-RX (($okWriteBack.IndexOf($okWriteKey, [StringComparison]::Ordinal) -ge 0)) '[F2] the persisted file holds the receipt key' ''
+        # B2: higiene - o diretorio `<key>.json` deste fixture NAO pode vazar:
+        # o scan fail-closed (EnumerateFileSystemEntries) recusa entrada com
+        # nome de recibo que nao e arquivo, e quebraria as varreduras globais
+        # dos despachos posteriores. As assercoes acima ja rodaram; removemos
+        # o diretorio (nunca um alvo linkado) aqui.
+        try { Remove-Item -LiteralPath $dirPath -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
         # ---------- RP (REV6 / SEC6 MEDIA): reparse points ----------
         # `Test-Path -PathType Leaf` aceita symlink/junction para arquivo
@@ -524,14 +555,17 @@ try {
         $addTk = Add-OrchestrationGoalTaskPersisted -GoalId 'rx-goal-take' -TaskId 'rx-task-take1' -ExpectedRevision ([long]$slotTk.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $genTk
         Assert-RX ([bool]$addTk.ok) '[R2b] takeover task attached' ([string]$addTk.reason)
         $tkKey = Get-NativeDispatchHash32 'rx-take-1'
-        # The settled receipt deliberately carries NO worker_result (worker
-        # status refused), so no takeover read can be justified by proof.
+        # FIX3-PRA: the evil 'verified_pass' executor (shape-invalid, a
+        # failure AFTER the executor RAN) now leaves the receipt PENDING
+        # (unresolved) instead of settling a failure: settling would release
+        # the task reservation. It carries NO worker_result either way, so no
+        # takeover read can be justified by proof.
         $tkIntent = New-RXIntent -Task 'rx-task-take1' -Key $tkKey -Gen $genTk
         $renTk = Renew-OrchestrationGoalOwnership -GoalId 'rx-goal-take' -OwnerId 'planner-1' -Generation $genTk -StoreDir $goalDir -LeaseTtlMs 3000
         Assert-RX ([bool]$renTk.ok) '[R2b] lease refreshed right before the dispatch' ([string]$renTk.reason)
         $tkEvil = New-RXSpy -Token 'verified_pass'
         $rTk1 = Invoke-OrchestrationNativeDispatch -Intent $tkIntent.intent -Executor $tkEvil.spy -Authorization @{ explicit_allow = $true; goal_id = 'rx-goal-take'; owner = 'planner-1'; generation = $genTk; source = 'planner' } -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
-        Assert-RX (((-not [bool]$rTk1.ok) -and ([string]$rTk1.reason -ceq 'status-not-allowed-from-worker'))) '[R2b] takeover receipt settles as failure (no worker result)' ([string]$rTk1.reason)
+        Assert-RX (((-not [bool]$rTk1.ok) -and ([string]$rTk1.reason -ceq 'status-not-allowed-from-worker') -and ([int]$tkEvil.state.calls -eq 1))) '[R2b] unusable worker result accounted the effect and left the receipt unresolved' ([string]$rTk1.reason)
         $tkPath = (New-RXReceiptPath -GoalId 'rx-goal-take' -Key $tkKey)
         if (-not (Test-Path -LiteralPath $tkPath -PathType Leaf)) {
             # Fixture failure (e.g. lease lost during setup): report one
@@ -541,7 +575,7 @@ try {
         else {
         $tkBefore = [IO.File]::ReadAllBytes($tkPath)
         $tkStored = ConvertFrom-Json ([IO.File]::ReadAllText($tkPath, [Text.Encoding]::UTF8))
-        Assert-RX (([string]$tkStored.phase -ceq 'settled') -and ($null -eq $tkStored.worker_result)) '[R2b] settled receipt has no worker result to leak' ''
+        Assert-RX (([string]$tkStored.phase -ceq 'pending') -and ($null -eq $tkStored.worker_result)) '[R2b] unresolved (pending) receipt carries no worker result to leak' ('phase=' + [string]$tkStored.phase)
         # provable expiry, then a NEW holder: the token that authorized the
         # first dispatch is exactly what a pre-lock authorization would
         # still carry when the duplicate read runs.
@@ -562,8 +596,14 @@ try {
         # (iii) the live owner without kernel-side proof is still refused
         $liveSpy = New-RXSpy
         $rLive = Invoke-OrchestrationNativeDispatch -Intent $tkIntent.intent -Executor $liveSpy.spy -Authorization @{ explicit_allow = $true; goal_id = 'rx-goal-take'; owner = 'planner-2'; generation = $genTk2; source = 'planner' } -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
-        Assert-RXRefusal -Result $rLive -SpyState $liveSpy.state -Reason 'duplicate-identity-mismatch' -Name '[R2b] live owner without proof' -ReceiptPath $tkPath
-        Test-RXPreserved -Path $tkPath -Before $tkBefore -Name '[R2b] refused duplicate read'
+        # FIX3-PRA: with the receipt left pending (not settled), the live owner
+        # without kernel-side proof is refused as 'pending-ambiguous' (a legacy
+        # settled failure would read 'duplicate-identity-mismatch'); both
+        # refuse with 0 executor calls and leak no content.
+        Assert-RX (((-not [bool]$rLive.ok) -and (@('duplicate-identity-mismatch','pending-ambiguous') -ccontains [string]$rLive.reason) -and ([int]$rLive.executor_calls -eq 0) -and ([int]$liveSpy.state.calls -eq 0))) '[R2b] live owner without proof is refused' (([string]$rLive.reason) + ' calls=' + [string]$liveSpy.state.calls)
+        Assert-RX (($null -eq $rLive.worker_result)) '[R2b] refused live-owner read leaks no worker result' ''
+        Assert-RX (([string]$rLive.evidence_id -ceq '')) '[R2b] refused live-owner read leaks no evidence id' ([string]$rLive.evidence_id)
+        Test-RXPreserved -Path $tkPath -Before $tkBefore -Name '[R2b] refused live owner read'
         }
 
         # ---------- RP3 (REV7/R1): namespace TOCTOU -------------------

@@ -1,0 +1,2095 @@
+[PASS] [F] goal created
+[PASS] [F] goal active+saved
+[PASS] [F] ownership acquired
+[PASS] [F] kernel task created hf-task-1
+[PASS] [F] task attached hf-task-1
+[PASS] [F] kernel task created hf-task-2
+[PASS] [F] task attached hf-task-2
+[PASS] [F] kernel task created hf-task-term
+[PASS] [F] task attached hf-task-term
+[PASS] [F] kernel task created hf-task-legacy
+[PASS] [F] task attached hf-task-legacy
+[PASS] [F] kernel task created hf-task-claim
+[PASS] [F] task attached hf-task-claim
+[PASS] [F] kernel task created hf-task-conc
+[PASS] [F] task attached hf-task-conc
+[PASS] [F] kernel task created hf-task-l1
+[PASS] [F] task attached hf-task-l1
+[PASS] [P1] prepare admits with 0 executor calls
+[PASS] [P1] prepared phase + compact opaque reference
+[PASS] [P1] durable prepared receipt persisted on disk
+[PASS] [P1] receipt holds phase=prepared and handoff_state=PREPARED
+[PASS] [P1] receipt binds fingerprint + session
+[PASS] [P1] receipt carries prompt_hash only, never prompt text
+[PASS] [P2a] missing explicit_allow denies
+[PASS] [P2b] test-callback never authorizes production
+[PASS] [P2c] absent explicit_allow denies
+[PASS] [P2d] null authorization denies
+[PASS] [P2e] empty host session denies before any receipt IO
+[PASS] [P2] no receipt persisted for denied prepares
+[PASS] [P3] invalid agent in Intent denies
+[PASS] [F4] terminal-goal fixture owned
+[PASS] [F4] terminal-goal fixture moved to COMPLETED
+[PASS] [P4] terminal goal denies before any effect
+[PASS] [F5] terminal task fixture cancelled
+[PASS] [P5] terminal task denies before any effect
+[PASS] [P6a] rival owner denies (ownership not held)
+[PASS] [P6b] stale generation denies (fencing)
+[PASS] [P6c] stale expected revision denies
+[PASS] [P6d] ungranted scope denies
+[PASS] [P7] kernel OFF denies with 0 executor calls
+[PASS] [P8a] first prepare is fresh
+[PASS] [P8b] identical re-entry is idempotent (same reference)
+[PASS] [P8b] idempotent re-entry reports prepare-reused
+[PASS] [P8b] idempotent re-entry does not rewrite the receipt
+[PASS] [P8] no executor call across duplicate prepares
+[PASS] [P9] first prepare stored for collision fixture
+[PASS] [P9] same key with divergent Intent is a refused collision
+[PASS] [P9] same key with divergent session is refused
+[PASS] [P10] prepared for post-claim fixture
+[PASS] [P10] claim consumed the fixture
+[PASS] [P10] re-prepare of a claimed receipt denies
+[PASS] [P11] prepare over a legacy pending receipt refuses
+[PASS] [C1] prepared for valid claim
+[PASS] [C1] valid claim admits with 0 executor calls
+[PASS] [C1] claim transitions to DISPATCH_UNCERTAIN before the effect boundary
+[PASS] [C1] claim records host lineage
+[PASS] [C1] claim records caller/target agents
+[PASS] [C1] durable receipt holds the claimed phase
+[PASS] [C1] durable receipt holds host lineage
+[PASS] [C1] claimed receipt preserves prepared intent fields
+[PASS] [C2a] identical replay of a consumed claim denies
+[PASS] [C2b] replay with a NEW call identity still denies
+[PASS] [C2] refused replays never mutate the consumed receipt
+[PASS] [C3] rival authorization fixture owned
+[PASS] [C3] prepared for mismatch fixture
+[PASS] [C3a] divergence between claim and stored argument fingerprint denies
+[PASS] [C3b] wrong session denies
+[PASS] [C3c] wrong target agent denies
+[PASS] [C3d] caller equal to target agent denies
+[PASS] [C3e] malformed call id denies
+[PASS] [C3f] malformed message id denies
+[PASS] [C3g] authorization of another goal sees the receipt as absent (isolation)
+[PASS] [C3] all refused claims leave the receipt prepared
+[PASS] [C4a] claim over a legacy pending receipt conflicts
+[PASS] [C4b] claim over a legacy settled receipt conflicts
+[PASS] [C4c] claim of an absent key denies as not prepared
+[PASS] [C4d] malformed key denies
+[PASS] [C4e] malformed fingerprint denies
+[PASS] [C5] prepared for corruption fixture
+[PASS] [C5a] truncated JSON receipt denies the claim
+[PASS] [C5b] corrupt receipt also blocks re-prepare
+[PASS] [C5] corrupt fixture left corrupt (never rewritten)
+[PASS] [C6] prepared for concurrency fixture
+[PASS] [C6] test holds the receipt lock
+[PASS] [C6] a claimant that cannot take the receipt lock refuses as busy
+[PASS] [C6] a lock-starved claimant never consumes the receipt
+[PASS] [C6] after the lock is released the single legitimate claim succeeds
+[PASS] [C6] exactly one claim wins, the duplicate is refused
+[PASS] [L1] prepared for legacy-interaction fixture
+[PASS] [L1a] legacy Invoke refuses a prepared receipt with 0 executor calls
+[PASS] [L1a] the prepared receipt survives the legacy refusal
+[PASS] [L1] claimed for legacy-interaction fixture
+[PASS] [L1b] legacy Invoke refuses a claimed receipt with 0 executor calls
+[PASS] [L1b] the claimed receipt is never overwritten by the legacy path
+[PASS] [L2a] legacy synchronous Invoke still executes exactly once
+[PASS] [L2a] legacy happy path returns its usual envelope
+[PASS] [L2a] legacy receipt settles as before
+[PASS] [L2b] legacy duplicate still short-circuits with 0 executor calls
+[PASS] [L2c] prepare over a settled legacy receipt conflicts
+[PASS] [L2c] claim over a settled legacy receipt conflicts
+[PASS] [L3a] descriptor validation checks shape only
+[PASS] [L3a] required call identity validates message and call ids
+[PASS] [L3b] malformed session id is refused
+[PASS] [L3b] a claim descriptor requires message and call identity
+[PASS] [L3b] malformed session id is refused
+[PASS] [L3c] library documents that it cannot authenticate a supplied descriptor
+[PASS] [ASCII] OrchestrationNativeDispatch.ps1
+[PASS] [ASCII] OrchestrationNativeDispatchHandoff.tests.ps1
+[PASS] [HYG] library has no spawn/network
+[PASS] [HYG] no receipt JSON at the receipt root (no second store)
+[PASS] [HYG] every receipt lives under a per-goal subdirectory of the existing store
+[PASS] [F] fixture goal created hf-goal-fence
+[PASS] [F] fixture goal active hf-goal-fence
+[PASS] [F] fixture goal owned hf-goal-fence
+[PASS] [F] kernel task created hf-task-fence
+[PASS] [F] task attached hf-task-fence
+[PASS] [F1] prepared on the isolated fence fixture
+[PASS] [F1a] test holds the receipt lock of the fence fixture
+[PASS] [F1a] goal left ACTIVE while a claimant would wait on the lock
+[PASS] [F1a] idempotent reuse revalidates admission, budget and live fencing under the lock
+[PASS] [F1a] refused reuse never rewrites the prepared receipt
+[PASS] [F1a] goal restored to ACTIVE
+[PASS] [F1a] control: identical reuse works again once the goal is ACTIVE
+[PASS] [F1b] goal left ACTIVE before a fresh persist
+[PASS] [F1b] a fresh PREPARED persist requires post-lock fencing
+[PASS] [F1b] nothing persisted when fencing refuses
+[PASS] [F1b] goal restored to ACTIVE
+[PASS] [F1b] control: fresh persist works once the goal is ACTIVE
+[PASS] [F1c] prepared for the claim fencing fixture
+[PASS] [F1c] goal left ACTIVE before the claim
+[PASS] [F1c] CLAIM revalidates the goal under the lock immediately before the write
+[PASS] [F1c] refused claim leaves the receipt prepared
+[PASS] [F1c] goal restored to ACTIVE
+[PASS] [F1c] control: claim works once the goal is ACTIVE
+[PASS] [F] fixture goal created hf-goal-job1
+[PASS] [F] fixture goal active hf-goal-job1
+[PASS] [F] fixture goal owned hf-goal-job1
+[PASS] [F] kernel task created hf-task-job1
+[PASS] [F] task attached hf-task-job1
+[PASS] [F1] lease armed for the wait window hf-goal-job1
+[PASS] [F1] prepared before the lock wait hf-goal-job1
+[PASS] [F1d] the setup lease stayed live through admission and was then expired deterministically
+[PASS] [F1d] lease expiry while the claimant waits on the lock refuses
+[PASS] [F1d] expired lease never consumes the prepared receipt
+[PASS] [F] fixture goal created hf-goal-job2
+[PASS] [F] fixture goal active hf-goal-job2
+[PASS] [F] fixture goal owned hf-goal-job2
+[PASS] [F] kernel task created hf-task-job2
+[PASS] [F] task attached hf-task-job2
+[PASS] [F1] prepared before the lock wait hf-goal-job2
+[PASS] [F1e] terminalization while the claimant waits on the lock refuses
+[PASS] [F1e] terminal goal never consumes the prepared receipt
+[PASS] [F] fixture goal created hf-goal-job3
+[PASS] [F] fixture goal active hf-goal-job3
+[PASS] [F] fixture goal owned hf-goal-job3
+[PASS] [F] kernel task created hf-task-job3
+[PASS] [F] task attached hf-task-job3
+[PASS] [F1] lease armed for the wait window hf-goal-job3
+[PASS] [F1] prepared before the lock wait hf-goal-job3
+[PASS] [F1f] takeover succeeded (new owner + live lease) while the claimant waited on the lock
+[PASS] [F1f] takeover, not lease expiry, refuses the claim
+[PASS] [F1f] takeover never consumes the prepared receipt
+[PASS] [F] fixture goal created hf-goal-f2a
+[PASS] [F] fixture goal active hf-goal-f2a
+[PASS] [F] fixture goal owned hf-goal-f2a
+[PASS] [F] kernel task created hf-task-f2a
+[PASS] [F] task attached hf-task-f2a
+[PASS] [F2a] first key prepared for the reservation fixture
+[PASS] [F2a] second key prepared for the SAME task and revision
+[PASS] [F2a] first key claims
+[PASS] [F2a] second key on the same task/revision is refused by the reservation
+[PASS] [F2a] the refused second receipt stays prepared
+[PASS] [F] fixture goal created hf-goal-f2b
+[PASS] [F] fixture goal active hf-goal-f2b
+[PASS] [F] fixture goal owned hf-goal-f2b
+[PASS] [F] kernel task created hf-task-f2b
+[PASS] [F] task attached hf-task-f2b
+[PASS] [F2b] unrelated task prepared
+[PASS] [F2b] the reservation does not block an unrelated task
+[PASS] [F] fixture goal created hf-goal-f2c
+[PASS] [F] fixture goal active hf-goal-f2c
+[PASS] [F] fixture goal owned hf-goal-f2c
+[PASS] [F] kernel task created hf-task-f2c
+[PASS] [F] task attached hf-task-f2c
+[PASS] [F2c] prepared over a settled legacy receipt of the same task
+[PASS] [F2c] a settled receipt does not block the task
+[PASS] [F2d] second key prepared over an open claim of the same task
+[PASS] [F2d] an open claim of the same task refuses a second effect
+[PASS] [F2d] refused effect keeps the prepared receipt
+[PASS] [F] fixture goal created hf-goal-f2e
+[PASS] [F] fixture goal active hf-goal-f2e
+[PASS] [F] fixture goal owned hf-goal-f2e
+[PASS] [F] kernel task created hf-task-f2e
+[PASS] [F] task attached hf-task-f2e
+[PASS] [F2e] prepared for the unknown-phase scan fixture
+[PASS] [F2e] an unknown-phase receipt of the SAME task fails the scan closed
+[PASS] [F2e] failed scan never consumes the prepared receipt
+[PASS] [F2e] control: the claim works once the malformed receipt is gone
+[PASS] [F] fixture goal created hf-goal-f2f
+[PASS] [F] fixture goal active hf-goal-f2f
+[PASS] [F] fixture goal owned hf-goal-f2f
+[PASS] [F] kernel task created hf-task-f2f
+[PASS] [F] task attached hf-task-f2f
+[PASS] [F2f] prepared with a foreign-task invalid receipt present
+[PASS] [F2f] an invalid receipt of ANOTHER task fails the scan closed (never ignored as unrelated)
+[PASS] [F2f] failed scan never consumes the prepared receipt
+[PASS] [F2f] control: the claim works once the malformed foreign receipt is gone
+[PASS] [F] fixture goal created hf-goal-f2d
+[PASS] [F] fixture goal active hf-goal-f2d
+[PASS] [F] fixture goal owned hf-goal-f2d
+[PASS] [F] kernel task created hf-task-f2d
+[PASS] [F] task attached hf-task-f2d
+[PASS] [F2e] first concurrent key prepared
+[PASS] [F2e] second concurrent key prepared
+[PASS] [F2e] concurrent same-task claims yield at most one winner
+[PASS] [F2e] exactly one receipt of that task is claimed on disk
+[PASS] [F] fixture goal created hf-goal-x1rev
+[PASS] [F] fixture goal active hf-goal-x1rev
+[PASS] [F] fixture goal owned hf-goal-x1rev
+[PASS] [F] kernel task created hf-task-x1rev
+[PASS] [F] task attached hf-task-x1rev
+[PASS] [X1a] first key prepared at revision 1
+[PASS] [X1a] first key claims at revision 1
+[PASS] [X1a] kernel advanced the live task revision
+[PASS] [X1a] live task revision moved forward
+[PASS] [X1a] a NEW revision still prepares (prepared is not an effect)
+[PASS] [X1a] same task at a NEW revision is still blocked by the open effect
+[PASS] [X1a] refused revision keeps its prepared receipt
+[PASS] [F] fixture goal created hf-goal-x1ga
+[PASS] [F] fixture goal active hf-goal-x1ga
+[PASS] [F] fixture goal owned hf-goal-x1ga
+[PASS] [F] kernel task created hf-task-x1ga
+[PASS] [F] task attached hf-task-x1ga
+[PASS] [X1b] second goal created for the same task
+[PASS] [X1b] second goal active
+[PASS] [X1b] second goal owned
+[PASS] [X1b] the SAME task attached to the second goal
+[PASS] [X1b] prepared under goal B
+[PASS] [X1b] claim under goal B succeeds (no effect open yet)
+[PASS] [X1b] prepared under goal A for the same task
+[PASS] [X1b] the open effect of ANOTHER goal blocks a second effect of the same task
+[PASS] [X1b] the blocked receipt of goal A stays prepared
+[PASS] [F] fixture goal created hf-goal-x1settled
+[PASS] [F] fixture goal active hf-goal-x1settled
+[PASS] [F] fixture goal owned hf-goal-x1settled
+[PASS] [F] kernel task created hf-task-x1settled
+[PASS] [F] task attached hf-task-x1settled
+[PASS] [X1c] prepared while a settled receipt of the same task exists in another goal
+[PASS] [X1c] a settled receipt of the same task does not block
+[PASS] [F] fixture goal created hf-goal-x1legacy
+[PASS] [F] fixture goal active hf-goal-x1legacy
+[PASS] [F] fixture goal owned hf-goal-x1legacy
+[PASS] [F] kernel task created hf-task-x1legacy
+[PASS] [F] task attached hf-task-x1legacy
+[PASS] [X1d] prepared for the claim-then-legacy fixture
+[PASS] [X1d] claim consumed the fixture
+[PASS] [X1d] the legacy Executor is refused while the claim is unresolved
+[PASS] [X1d] refused legacy dispatch persisted nothing
+[PASS] [X1d] the own claimed receipt still refuses as phase-unknown
+[PASS] [F] fixture goal created hf-goal-x1pend
+[PASS] [F] fixture goal active hf-goal-x1pend
+[PASS] [F] fixture goal owned hf-goal-x1pend
+[PASS] [F] kernel task created hf-task-x1pend
+[PASS] [F] task attached hf-task-x1pend
+[PASS] [X1e] prepared while a legacy pending of the same task is unresolved
+[PASS] [X1e] an unresolved legacy pending blocks a native claim of the same task
+[PASS] [X1e] blocked claim stays prepared
+[PASS] [F] fixture goal created hf-goal-x1replay
+[PASS] [F] fixture goal active hf-goal-x1replay
+[PASS] [F] fixture goal owned hf-goal-x1replay
+[PASS] [F] kernel task created hf-task-x1replay
+[PASS] [F] task attached hf-task-x1replay
+[PASS] [X1f] external-idempotent intent built
+[PASS] [X1f] second key prepared while the legacy pending is unresolved
+[PASS] [X1f] an unresolved legacy pending also blocks another key
+[PASS] [X1f] the exact same-key external-idempotent replay still runs once
+[PASS] [X1f] the replayed receipt settles as before
+[PASS] [F] fixture goal created hf-goal-x1ident
+[PASS] [F] fixture goal active hf-goal-x1ident
+[PASS] [F] fixture goal owned hf-goal-x1ident
+[PASS] [F] kernel task created hf-task-x1ident
+[PASS] [F] task attached hf-task-x1ident
+[PASS] [X1g] prepared under goal A
+[PASS] [X1g] claimed under goal A
+[PASS] [X1g] the same key prepares cleanly in the second namespace
+[PASS] [X1g] the same key in another namespace is a DIFFERENT receipt and is still blocked
+[PASS] [X1g] the blocked receipt of goal B stays prepared
+[PASS] [F] fixture goal created hf-goal-x1conc
+[PASS] [F] fixture goal active hf-goal-x1conc
+[PASS] [F] fixture goal owned hf-goal-x1conc
+[PASS] [F] kernel task created hf-task-x1conc
+[PASS] [F] task attached hf-task-x1conc
+[PASS] [X1h] both goals prepared the same task
+[PASS] [X1h] concurrent same-task claims across goals yield exactly one winner
+[PASS] [X1h] exactly one claimed receipt of that task across both goals
+[PASS] [F] fixture goal created hf-goal-x1sem
+[PASS] [F] fixture goal active hf-goal-x1sem
+[PASS] [F] fixture goal owned hf-goal-x1sem
+[PASS] [F] kernel task created hf-task-x1sem
+[PASS] [F] task attached hf-task-x1sem
+[PASS] [X1i] prepared for the semantic-scan fixture
+[PASS] [X1i] second key prepared over a tampered same-task receipt
+[PASS] [X1i] a semantically tampered handoff receipt of the same task fails the scan closed
+[PASS] [X1i] control: the claim works once the tampering is reverted
+[PASS] [F] fixture goal created hf-goal-x1name
+[PASS] [F] fixture goal active hf-goal-x1name
+[PASS] [F] fixture goal owned hf-goal-x1name
+[PASS] [F] kernel task created hf-task-x1name
+[PASS] [F] task attached hf-task-x1name
+[PASS] [X1j] prepared for the unexpected-name fixture
+[PASS] [X1j] an unexpected receipt file name fails the scan closed
+[PASS] [X1j] failed scan never consumes the receipt
+[PASS] [X1j] control: the claim works once the odd file is gone
+[PASS] [F] fixture goal created hf-goal-x1cap
+[PASS] [F] fixture goal active hf-goal-x1cap
+[PASS] [F] fixture goal owned hf-goal-x1cap
+[PASS] [F] kernel task created hf-task-x1cap
+[PASS] [F] task attached hf-task-x1cap
+[PASS] [X1k] prepared inside the capped receipt root
+[PASS] [X1k] a root above the namespace cap fails the scan closed
+[PASS] [X1k] capped scan never consumes the receipt
+[PASS] [F] fixture goal created hf-goal-x1big
+[PASS] [F] fixture goal active hf-goal-x1big
+[PASS] [F] fixture goal owned hf-goal-x1big
+[PASS] [F] kernel task created hf-task-x1big
+[PASS] [F] task attached hf-task-x1big
+[PASS] [X1l] a receipt above the per-file byte cap fails the scan closed
+[PASS] [X1l] oversized-receipt refusal never consumes the prepared receipt
+[PASS] [F] fixture goal created hf-goal-x1reparse
+[PASS] [F] fixture goal active hf-goal-x1reparse
+[PASS] [F] fixture goal owned hf-goal-x1reparse
+[PASS] [F] kernel task created hf-task-x1reparse
+[PASS] [F] task attached hf-task-x1reparse
+[PASS] [X1m] prepared inside the reparse-scanned root
+[PASS] [X1m] a junction namespace is refused by the scan
+[PASS] [X1m] reparse refusal never consumes the receipt
+[PASS] [F] fixture goal created hf-goal-h1corr
+[PASS] [F] fixture goal active hf-goal-h1corr
+[PASS] [F] fixture goal owned hf-goal-h1corr
+[PASS] [F] kernel task created hf-task-h1corr
+[PASS] [F] task attached hf-task-h1corr
+[PASS] [B1a] first key prepared for the corrupt-only-blocker fixture
+[PASS] [B1a] first key claims, effect open
+[PASS] [B1a] second key prepared (prepare is not an effect)
+[PASS] [B1a] a corrupt unresolved effect of the same task fails the scan closed (no second effect)
+[PASS] [B1a] failed scan never consumes the second prepared receipt
+[PASS] [B1a] control: restored valid claimed still refuses the second effect
+[PASS] [F] fixture goal created hf-goal-h2cross
+[PASS] [F] fixture goal active hf-goal-h2cross
+[PASS] [F] fixture goal owned hf-goal-h2cross
+[PASS] [F] kernel task created hf-task-h2cross
+[PASS] [F] task attached hf-task-h2cross
+[PASS] [B1b] second goal created
+[PASS] [B1b] second goal owned
+[PASS] [B1b] same task attached to the second goal
+[PASS] [B1b] effect opened under goal A
+[PASS] [B1b] prepared under goal B for the same task
+[PASS] [B1b] a corrupt cross-goal effect of the same task fails the scan closed
+[PASS] [B1b] failed scan never consumes the goal-B prepared receipt
+[PASS] [F] fixture goal created hf-goal-h3tid
+[PASS] [F] fixture goal active hf-goal-h3tid
+[PASS] [F] fixture goal owned hf-goal-h3tid
+[PASS] [F] kernel task created hf-task-h3tid
+[PASS] [F] task attached hf-task-h3tid
+[PASS] [B1c] prepared for the missing-task-id fixture
+[PASS] [B1c] a receipt-shaped record with missing task_id fails the scan closed (not assumed unrelated)
+[PASS] [B1c] failed scan never consumes the prepared receipt
+[PASS] [B1c] control: the claim works once the unattributable record is gone
+[PASS] [F] fixture goal created hf-goal-h4dirent
+[PASS] [F] fixture goal active hf-goal-h4dirent
+[PASS] [F] fixture goal owned hf-goal-h4dirent
+[PASS] [F] kernel task created hf-task-h4dirent
+[PASS] [F] task attached hf-task-h4dirent
+[PASS] [B2] prepared for the receipt-shaped directory fixture
+[PASS] [B2] a receipt-named DIRECTORY fails the scan closed (EnumerateFileSystemEntries sees it)
+[PASS] [B2] failed scan never consumes the prepared receipt
+[PASS] [B2] control: the claim works once the receipt-named directory is gone
+[PASS] [F] fixture goal created hf-goal-h5link
+[PASS] [F] fixture goal active hf-goal-h5link
+[PASS] [F] fixture goal owned hf-goal-h5link
+[PASS] [F] kernel task created hf-task-h5link
+[PASS] [F] task attached hf-task-h5link
+[PASS] [B2] prepared for the receipt-named junction fixture
+[PASS] [B2] a receipt-named JUNCTION fails the scan closed (reparse rejected)
+[PASS] [B2] junction refusal never consumes the prepared receipt
+[PASS] [B2] control: the claim works once the junction is gone
+[PASS] [F] fixture goal created hf-goal-zstruct
+[PASS] [F] fixture goal active hf-goal-zstruct
+[PASS] [F] fixture goal owned hf-goal-zstruct
+[PASS] [F] kernel task created hf-task-zstruct
+[PASS] [F] task attached hf-task-zstruct
+[PASS] [B4] prepared for the foreign-invalid-structure fixture
+[PASS] [B4a] control: valid foreign-task receipts do not block
+[PASS] [B4] host goal created
+[PASS] [B4] host goal owned
+[PASS] [B4] host namespace resolved
+[PASS] [F] fixture goal created hf-goal-zstruct2
+[PASS] [F] fixture goal active hf-goal-zstruct2
+[PASS] [F] fixture goal owned hf-goal-zstruct2
+[PASS] [F] kernel task created hf-task-zstruct2
+[PASS] [F] task attached hf-task-zstruct2
+[PASS] [B4] second fixture prepared for the invalid-structure cases
+[PASS] [B4] a foreign receipt with unknown-schema fails the scan closed
+[PASS] [B4] the unknown-schema refusal never consumes the prepared receipt
+[PASS] [B4] a foreign receipt with key-vs-filename fails the scan closed
+[PASS] [B4] the key-vs-filename refusal never consumes the prepared receipt
+[PASS] [B4] a foreign receipt with namespace-hash fails the scan closed
+[PASS] [B4] the namespace-hash refusal never consumes the prepared receipt
+[PASS] [B4] a foreign receipt with semantic-integrity fails the scan closed
+[PASS] [B4] the semantic-integrity refusal never consumes the prepared receipt
+[PASS] [B4] control: the claim works once every invalid foreign receipt is gone
+[PASS] [F] fixture goal created hf-goal-zonly
+[PASS] [F] fixture goal active hf-goal-zonly
+[PASS] [F] fixture goal owned hf-goal-zonly
+[PASS] [F] kernel task created hf-task-zonly
+[PASS] [F] task attached hf-task-zonly
+[PASS] [F] fixture goal created hf-goal-zmask
+[PASS] [F] fixture goal active hf-goal-zmask
+[PASS] [F] fixture goal owned hf-goal-zmask
+[PASS] [F] kernel task created hf-task-zmask
+[PASS] [F] task attached hf-task-zmask
+[PASS] [B1d] a VALID claimed receipt of ANOTHER task is seeded (must not mask the corrupt one)
+[PASS] [B1d] the masking receipt is an open effect of another task
+[PASS] [B1d] the only unresolved receipt of the task is prepared
+[PASS] [B1d] the effect is open (claimed)
+[PASS] [B1d] second key of the same task prepared (prepare is not an effect)
+[PASS] [B1d] a corrupt-only blocker refuses the second key of the same task
+[PASS] [B1d] the refused second receipt stays prepared
+[PASS] [B1d] the corrupt-only blocker also refuses the legacy Invoke (executor spy 0)
+[PASS] [B1d] the refused legacy dispatch persisted nothing
+[PASS] [B1e] second goal created
+[PASS] [B1e] second goal owned
+[PASS] [B1e] the same task attached to the second goal
+[PASS] [B1e] prepared under the second goal for the same task
+[PASS] [B1e] the corrupt-only blocker refuses the CLAIM of ANOTHER goal
+[PASS] [B1e] the corrupt-only blocker also refuses the legacy Invoke of ANOTHER goal (executor spy 0)
+[PASS] [B1d] control: the restored valid receipt refuses with the reservation reason
+[PASS] [B1d] an only-unresolved receipt with missing task_id refuses the legacy Invoke of ANOTHER goal (executor spy 0)
+[PASS] [B1d] an only-unresolved receipt with missing task_id refuses the CLAIM of the second key
+[PASS] [B1d] an only-unresolved receipt with invalid task_id refuses the legacy Invoke of ANOTHER goal (executor spy 0)
+[PASS] [B1d] an only-unresolved receipt with invalid task_id refuses the CLAIM of the second key
+[PASS] [B1d] control: with a readable receipt the reservation reason is back
+[PASS] [B2b] the foreign namespace exists
+[PASS] [F] fixture goal created hf-goal-zdirent
+[PASS] [F] fixture goal active hf-goal-zdirent
+[PASS] [F] fixture goal owned hf-goal-zdirent
+[PASS] [F] kernel task created hf-task-zdirent
+[PASS] [F] task attached hf-task-zdirent
+[PASS] [B2b] prepared for the foreign-namespace directory fixture
+[PASS] [B2b] a receipt-named DIRECTORY in ANOTHER namespace fails the scan closed
+[PASS] [B2b] the foreign-directory refusal never consumes the prepared receipt
+[PASS] [B2b] control: the claim works once the foreign-namespace directory is gone
+[PASS] [F] fixture goal created hf-goal-zjunc
+[PASS] [F] fixture goal active hf-goal-zjunc
+[PASS] [F] fixture goal owned hf-goal-zjunc
+[PASS] [F] kernel task created hf-task-zjunc
+[PASS] [F] task attached hf-task-zjunc
+[PASS] [B2b] prepared for the foreign-namespace junction fixture
+[PASS] [B2b] a receipt-named JUNCTION in ANOTHER namespace fails the scan closed
+[PASS] [B2b] the foreign-junction refusal never consumes the prepared receipt
+[PASS] [B2b] control: the claim works once the foreign-namespace junction is gone
+[PASS] [F] fixture goal created hf-goal-gcap
+[PASS] [F] fixture goal active hf-goal-gcap
+[PASS] [F] fixture goal owned hf-goal-gcap
+[PASS] [F] kernel task created hf-task-gcap
+[PASS] [F] task attached hf-task-gcap
+[PASS] [B3] total entries above the GLOBAL cap fails the scan closed
+[PASS] [B3] capped scan never consumes the prepared receipt
+[PASS] [F] fixture goal created hf-goal-f3
+[PASS] [F] fixture goal active hf-goal-f3
+[PASS] [F] fixture goal owned hf-goal-f3
+[PASS] [F] kernel task created hf-task-f3
+[PASS] [F] task attached hf-task-f3
+[PASS] [F3] prepared for the integrity fixture
+[PASS] [F3] tampered prompt_hash refuses prepare reuse
+[PASS] [F3] tampered prompt_hash refuses claim
+[PASS] [F3] tampered prompt_hash receipt is never rewritten by the refusal
+[PASS] [F3] tampered scope refuses prepare reuse
+[PASS] [F3] tampered scope refuses claim
+[PASS] [F3] tampered scope receipt is never rewritten by the refusal
+[PASS] [F3] tampered acceptance_criteria refuses prepare reuse
+[PASS] [F3] tampered acceptance_criteria refuses claim
+[PASS] [F3] tampered acceptance_criteria receipt is never rewritten by the refusal
+[PASS] [F3] tampered session_id refuses prepare reuse
+[PASS] [F3] tampered session_id refuses claim
+[PASS] [F3] tampered session_id receipt is never rewritten by the refusal
+[PASS] [F3] tampered task_id refuses prepare reuse
+[PASS] [F3] tampered task_id refuses claim
+[PASS] [F3] tampered task_id receipt is never rewritten by the refusal
+[PASS] [F3] tampered agent refuses prepare reuse
+[PASS] [F3] tampered agent refuses claim
+[PASS] [F3] tampered agent receipt is never rewritten by the refusal
+[PASS] [F3] control: untampered record is reusable again
+[PASS] [F3] control: untampered record is claimable
+[PASS] [F] fixture goal created hf-goal-exthrow
+[PASS] [F] fixture goal active hf-goal-exthrow
+[PASS] [F] fixture goal owned hf-goal-exthrow
+[PASS] [F] kernel task created hf-task-exthrow
+[PASS] [F] task attached hf-task-exthrow
+[PASS] [PRA-1] post-effect Executor exception still accounts the effect (executor-failed, calls=1)
+[PASS] [PRA-1] the receipt stays UNRESOLVED (pending), never settled after a possible effect
+[PASS] [PRA-1] a SECOND key on the same task is DENIED while the effect is unresolved
+[PASS] [PRA-1] the denied second key persisted nothing
+[PASS] [F] fixture goal created hf-goal-repfence
+[PASS] [F] fixture goal active hf-goal-repfence
+[PASS] [F] fixture goal owned hf-goal-repfence
+[PASS] [F] kernel task created hf-task-repfence
+[PASS] [F] task attached hf-task-repfence
+[PASS] [PRA-2] external-idempotent replay intent built
+[PASS] [PRA-2] goal left ACTIVE while the replay would settle
+[PASS] [PRA-2] the replay is refused by post-lock fencing with 0 executor calls
+[PASS] [PRA-2] the ORIGINAL pending is NOT overwritten with settled-failure (phase=pending, identity preserved)
+[PASS] [PRA-2] goal restored to ACTIVE
+[PASS] [PRA-2] the refused replay kept the task reserved: a second key is refused
+[PASS] [F] fixture goal created hf-goal-pnum
+[PASS] [F] fixture goal active hf-goal-pnum
+[PASS] [F] fixture goal owned hf-goal-pnum
+[PASS] [F] kernel task created hf-task-pnum
+[PASS] [F] task attached hf-task-pnum
+[PASS] [PRA-3] host goal created
+[PASS] [PRA-3] host namespace resolved
+[PASS] [PRA-3] prepared for the numeric-coercion fixture
+[PASS] [PRA-3] a foreign receipt with schema-bool fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] schema-bool refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with schema-fractional fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] schema-fractional refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with generation-bool fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] generation-bool refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with generation-fractional fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] generation-fractional refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with revision-bool fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] revision-bool refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with revision-fractional fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] revision-fractional refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with agent-bool fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] agent-bool refusal never consumes the prepared receipt
+[PASS] [PRA-3] a foreign receipt with owner-bool fails the scan closed (no numeric/type coercion)
+[PASS] [PRA-3] owner-bool refusal never consumes the prepared receipt
+[PASS] [PRA-3] control: the claim works once every malformed foreign receipt is gone
+[PASS] [PRA-4] capped walk stops with walk-cap-exceeded at seen=513
+[PASS] [PRA-4] the enumerator stopped at cap+1 (513) WITHOUT fully materializing all 2000 items
+[PASS] [PRA-4] control: a source under the cap is fully walked and reports ok
+[PASS] [PRA-4] a callback stop-signal halts the walk at that item (pulled=1)
+[PASS] [F] fixture goal created hf-goal-tok
+[PASS] [F] fixture goal active hf-goal-tok
+[PASS] [F] fixture goal owned hf-goal-tok
+[PASS] [F] kernel task created hf-task-tok
+[PASS] [F] task attached hf-task-tok
+[PASS] [PRA-5] host goal created
+[PASS] [PRA-5] host namespace resolved
+[PASS] [PRA-5] intent built for the token-shape fixture
+[PASS] [PRA-5] prepared for the token-shape fixture
+[PASS] [PRA-5] a foreign receipt with schema-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] schema-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with task-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] task-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with phase-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] phase-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with generation-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] generation-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with revision-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] revision-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with key-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] key-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with goal-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] goal-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] a foreign receipt with agent-array fails the scan closed (no pipeline unrolling)
+[PASS] [PRA-5] agent-array refusal never consumes the prepared receipt
+[PASS] [PRA-5] reading a receipt with schema-array refuses: receipt-schema-unknown
+[PASS] [PRA-5] reading a receipt with phase-array refuses: receipt-phase-unknown
+[PASS] [PRA-5] reading a receipt with key-array refuses: receipt-key-mismatch
+[PASS] [PRA-5] control: legitimate integer/string tokens are still read and canonicalized
+[PASS] [PRA-5] control: the claim works once every array-token receipt is gone
+[PASS] [PRA-6] settled-duplicate goal created
+[PASS] [PRA-6] settled-duplicate goal active
+[PASS] [PRA-6] settled-duplicate goal owned with a short lease
+[PASS] [F] kernel task created hf-task-dupsettled
+[PASS] [F] task attached hf-task-dupsettled
+[PASS] [PRA-6] settled-duplicate intent built
+[PASS] [PRA-6] settled-duplicate receipt path resolved and absent
+[PASS] [PRA-6] control: the original live owner still reads the settled duplicate
+[PASS] [PRA-6] ownership taken over after provable expiry
+[PASS] [PRA-6] the new owner lease is live
+[PASS] [PRA-6] a settled receipt without kernel-side proof refuses the takeover read
+[PASS] [PRA-6] the settled duplicate without proof yields duplicate-identity-mismatch with 0 executor calls
+[PASS] [PRA-6] the refusal leaks no worker result and no evidence id
+[PASS] [PRA-6] the settled receipt was not rewritten by the refusal
+[PASS] [PRA-6] the refused takeover read left the settled receipt byte-identical
+[PASS] [PRA-6] kernel-side proof recorded for the task
+[PASS] [PRA-6] control: the SAME takeover WITH kernel-side proof reads the settled duplicate
+[PASS] [PRA-6] control: the proved takeover read still runs no Executor
+[PASS] [F] fixture goal created hf-goal-shape
+[PASS] [F] fixture goal active hf-goal-shape
+[PASS] [F] fixture goal owned hf-goal-shape
+[PASS] [F] kernel task created hf-task-shape
+[PASS] [F] task attached hf-task-shape
+[PASS] [PRA-7] intent built for the own-shape fixture
+[PASS] [PRA-7] prepared for the own-shape fixture
+[PASS] [PRA-7] own-receipt task_id-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt task_id-singleton-array refuses claim
+[PASS] [PRA-7] task_id-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] task_id-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt agent-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt agent-singleton-array refuses claim
+[PASS] [PRA-7] agent-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] agent-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt owner-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt owner-singleton-array refuses claim
+[PASS] [PRA-7] owner-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] owner-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt goal_id-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt goal_id-singleton-array refuses claim
+[PASS] [PRA-7] goal_id-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] goal_id-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt prompt_hash-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt prompt_hash-singleton-array refuses claim
+[PASS] [PRA-7] prompt_hash-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] prompt_hash-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt base_revision-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt base_revision-singleton-array refuses claim
+[PASS] [PRA-7] base_revision-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] base_revision-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt session_id-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt session_id-singleton-array refuses claim
+[PASS] [PRA-7] session_id-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] session_id-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt intent_fingerprint-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt intent_fingerprint-singleton-array refuses claim
+[PASS] [PRA-7] intent_fingerprint-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] intent_fingerprint-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt prepared_fingerprint-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt prepared_fingerprint-singleton-array refuses claim
+[PASS] [PRA-7] prepared_fingerprint-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] prepared_fingerprint-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt ownership_generation-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt ownership_generation-singleton-array refuses claim
+[PASS] [PRA-7] ownership_generation-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] ownership_generation-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt task_expected_revision-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt task_expected_revision-singleton-array refuses claim
+[PASS] [PRA-7] task_expected_revision-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] task_expected_revision-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt external_idempotent-singleton-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt external_idempotent-singleton-array refuses claim
+[PASS] [PRA-7] external_idempotent-singleton-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] external_idempotent-singleton-array receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt scope-to-scalar refuses prepare reuse
+[PASS] [PRA-7] own-receipt scope-to-scalar refuses claim
+[PASS] [PRA-7] scope-to-scalar refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] scope-to-scalar receipt still prepared after refusal
+[PASS] [PRA-7] own-receipt acceptance_criteria-first-elem-array refuses prepare reuse
+[PASS] [PRA-7] own-receipt acceptance_criteria-first-elem-array refuses claim
+[PASS] [PRA-7] acceptance_criteria-first-elem-array refused receipt stays byte-identical (never rewritten)
+[PASS] [PRA-7] acceptance_criteria-first-elem-array receipt still prepared after refusal
+[PASS] [PRA-7] control: untampered own receipt is reusable again
+[PASS] [PRA-7] control: untampered own receipt is claimable
+[PASS] [F] fixture goal created hf-goal-objroot
+[PASS] [F] fixture goal active hf-goal-objroot
+[PASS] [F] fixture goal owned hf-goal-objroot
+[PASS] [F] kernel task created hf-task-objroot
+[PASS] [F] task attached hf-task-objroot
+[PASS] [PRA-8] intent built for the object-root fixture
+[PASS] [PRA-8] prepared for the object-root fixture
+[PASS] [PRA-8] own-receipt read refuses a singleton-array-root as receipt-json-invalid
+[PASS] [PRA-8] own-receipt read refuses a empty-array-root as receipt-json-invalid
+[PASS] [PRA-8] own-receipt read refuses a scalar-number-root as receipt-json-invalid
+[PASS] [PRA-8] own-receipt read refuses a scalar-string-root as receipt-json-invalid
+[PASS] [PRA-8] own-receipt read refuses a scalar-bool-root as receipt-json-invalid
+[PASS] [PRA-8] own-receipt read refuses a scalar-null-root as receipt-json-invalid
+[PASS] [PRA-8] control: a JSON object root is still read and canonicalized
+[PASS] [PRA-8] reservation scan refuses a foreign singleton-array-root (fails closed)
+[PASS] [PRA-8] singleton-array-root failed scan never consumes the prepared receipt
+[PASS] [PRA-8] reservation scan refuses a foreign scalar-root (fails closed)
+[PASS] [PRA-8] scalar-root failed scan never consumes the prepared receipt
+[PASS] [PRA-8] control: the claim works once every non-object-root foreign receipt is gone
+[PASS] [H5a] a boolean never matches its own singleton array
+[PASS] [H5a] identical booleans still match
+[PASS] [H5a] a string never matches its own singleton array
+[PASS] [H5b] a nested string field never matches its singleton array
+[PASS] [H5b] identical nested objects still match
+[PASS] [H5b] JSON with a nested singleton-array field is refused
+[PASS] [H5b] a nested LIST never matches a flat list
+[PASS] [H5c] an integer never matches a float of the same magnitude
+[PASS] [H5c] int/float tokens differ while Int32 and Int64 tokens are equal
+[PASS] [H5c] a boolean never matches an integer
+[PASS] [H5d] an ABSENT property never matches an explicit null
+[PASS] [H5d] absent matches absent
+[PASS] [H5d] a null field never matches a missing field (key sets differ)
+[PASS] [H5e] list order is part of the comparison
+[PASS] [H5e] identical ordered lists still match
+[PASS] [H5e] list size is part of the comparison
+[PASS] [H5f] an extra/missing object key is refused
+[PASS] [H5f] an extra key on the persisted side is refused
+[PASS] [H5f] identical key sets still match
+[PASS] [H5g] the same ISO-8601 instant matches across string/DateTime
+[PASS] [H5g] a different instant never matches
+[PASS] [H5h0] kernel_ok:true never matches kernel_ok:[true]
+[PASS] [H5h0] control: kernel_ok:true matches kernel_ok:true
+[PASS] [H5h0] a nested worker status string never matches its singleton array
+[PASS] [H5h0] the child session id string never matches its singleton array
+[PASS] [H5h1] an EMPTY list never matches a one-element list
+[PASS] [H5h1] control: empty matches empty
+[PASS] [H5h1] the comparison is symmetric for empty vs non-empty
+[PASS] [H5h] an exact settled receipt shape is accepted
+[PASS] [H5h] settled shape refuses kernel_ok-array
+[PASS] [H5h] settled shape refuses evidence_created-array
+[PASS] [H5h] settled shape refuses reconciled-array
+[PASS] [H5h] settled shape refuses reconciled-string
+[PASS] [H5h] settled shape refuses executor_calls-array
+[PASS] [H5h] settled shape refuses executor_calls-float
+[PASS] [H5h] settled shape refuses settle_child_session_id-array
+[PASS] [H5h] settled shape refuses settle_call_id-array
+[PASS] [H5h] settled shape refuses evidence_id-array
+[PASS] [H5h] settled shape refuses phase-array
+[PASS] [H5h] settled shape refuses worker_result-scalar
+[PASS] [H5h] settled shape refuses worker_result-array
+[PASS] [H5h] settled shape refuses worker_result-status-array
+[PASS] [H5h] settled shape refuses worker_result-refs-scalar
+[PASS] [H5h] settled shape refuses settle_claimed_evidence-scalar
+[PASS] [H5h] settled shape refuses settled_by-missing
+[PASS] [H5h] a settled receipt with EMPTY evidence refs keeps a valid shape
+[PASS] [F] fixture goal created hf-goal-settle1
+[PASS] [F] fixture goal active hf-goal-settle1
+[PASS] [F] fixture goal owned hf-goal-settle1
+[PASS] [F] kernel task created hf-task-settle1
+[PASS] [F] task attached hf-task-settle1
+[PASS] [S] intent built settle1
+[PASS] [S] prepared settle1
+[PASS] [S] claimed settle1
+[PASS] [S1] valid settle admits with 0 executor calls
+[PASS] [S1] settle transitions to SETTLED
+[PASS] [S1] settle reports kernel ok, canonical evidence id and candidate status
+[PASS] [S1] settle records the child session lineage
+[PASS] [S1] durable receipt holds the settled phase
+[PASS] [S1] durable receipt holds kernel result and child session
+[PASS] [S1] durable receipt holds the host call provenance
+[PASS] [S1] kernel task really holds the worker result
+[PASS] [S1] canonical evidence record exists in the evidence store
+[PASS] [S1] evidence record is bound to this task and idempotency key
+[PASS] [S1] evidence provenance carries host call + child session reference
+[PASS] [S1] evidence record carries no prompt text
+[PASS] [S2] identical duplicate settle is idempotent
+[PASS] [S2] idempotent duplicate reports settle-duplicate
+[PASS] [S2] duplicate never rewrites the kernel (revision unchanged)
+[PASS] [S2] duplicate keeps the original settled result
+[PASS] [S2] no Executor call on the duplicate settle
+[PASS] [S3a] divergent status on a settled receipt conflicts
+[PASS] [S3b] divergent evidence refs on a settled receipt conflict
+[PASS] [S3] conflicting duplicate never rewrites the kernel
+[PASS] [S3] the settled receipt is not overwritten by the conflict
+[PASS] [F] fixture goal created hf-goal-settle4
+[PASS] [F] fixture goal active hf-goal-settle4
+[PASS] [F] fixture goal owned hf-goal-settle4
+[PASS] [F] kernel task created hf-task-settle4
+[PASS] [F] task attached hf-task-settle4
+[PASS] [S] intent built settle4
+[PASS] [S] prepared settle4
+[PASS] [S] claimed settle4
+[PASS] [S4a] foreign session (cross-session) refuses before any write
+[PASS] [S4b] foreign message id refuses
+[PASS] [S4c] foreign call id refuses
+[PASS] [S4d] foreign caller agent refuses
+[PASS] [S4e] foreign target agent refuses
+[PASS] [S4f] caller equal to target refuses
+[PASS] [S4g] malformed call id refuses before any receipt IO
+[PASS] [S4] every refused settle leaves the receipt claimed and unresolved
+[PASS] [S4] no attempt marker is written when the descriptor is refused
+[PASS] [F] fixture goal created hf-goal-settle5
+[PASS] [F] fixture goal active hf-goal-settle5
+[PASS] [F] fixture goal owned hf-goal-settle5
+[PASS] [F] kernel task created hf-task-settle5
+[PASS] [F] task attached hf-task-settle5
+[PASS] [S] intent built settle5
+[PASS] [S] prepared settle5
+[PASS] [S] claimed settle5
+[PASS] [S5a] absent child session (no execute.after) refuses
+[PASS] [S5b] malformed child session refuses
+[PASS] [S5c] child session equal to the parent session refuses
+[PASS] [S5] a missing/erroring execute.after keeps the receipt claimed (never "no effect")
+[PASS] [S5] no worker result is written when the child session is unusable
+[PASS] [S5] second effect on the same task prepared
+[PASS] [S5] the unresolved claim still blocks a second effect (no release, no retry)
+[PASS] [S5] control: the same claim settles once the child session is usable
+[PASS] [F] fixture goal created hf-goal-settle6
+[PASS] [F] fixture goal active hf-goal-settle6
+[PASS] [F] fixture goal owned hf-goal-settle6
+[PASS] [F] kernel task created hf-task-settle6
+[PASS] [F] task attached hf-task-settle6
+[PASS] [S] intent built settle6
+[PASS] [S] prepared settle6
+[PASS] [S] claimed settle6
+[PASS] [S6a] wrong prepared fingerprint refuses
+[PASS] [S6b] malformed prepared fingerprint refuses before any receipt IO
+[PASS] [S6c] malformed handoff reference refuses
+[PASS] [S6d] foreign handoff reference refuses
+[PASS] [S6e] foreign task id (cross-task) refuses
+[PASS] [S6f] authorization of another goal never settles this claim (isolation)
+[PASS] [S6g] stale generation refuses
+[PASS] [S6] task revision advanced by another writer
+[PASS] [S6h] live revision mismatch refuses (late result)
+[PASS] [S6] every identity/revision refusal leaves the receipt claimed
+[PASS] [F] fixture goal created hf-goal-settle7
+[PASS] [F] fixture goal active hf-goal-settle7
+[PASS] [F] fixture goal owned hf-goal-settle7
+[PASS] [F] kernel task created hf-task-settle7
+[PASS] [F] task attached hf-task-settle7
+[PASS] [S] intent built settle7
+[PASS] [S] prepared settle7
+[PASS] [S] claimed settle7
+[PASS] [S7] verified_pass is refused as a worker claim
+[PASS] [S7] done is refused as a worker claim
+[PASS] [S7] approved is refused as a worker claim
+[PASS] [S7] empty-status is refused as a worker claim
+[PASS] [S7] missing-status is refused as a worker claim
+[PASS] [S7] no-evidence is refused as a worker claim
+[PASS] [S7] evidence-not-criterion is refused as a worker claim
+[PASS] [S7] evidence-nonnumeric is refused as a worker claim
+[PASS] [S7] evidence-mixed is refused as a worker claim
+[PASS] [S7] result-null is refused as a worker claim
+[PASS] [S7] result-string is refused as a worker claim
+[PASS] [S7] no forged result ever reaches the kernel
+[PASS] [S7] the receipt stays claimed with no attempt marker
+[PASS] [S7] the receipt never carries a worker_result or kernel verdict before settlement
+[PASS] [S7] no Executor call for any forged status or evidence
+[PASS] [F] fixture goal created hf-goal-settle8
+[PASS] [F] fixture goal active hf-goal-settle8
+[PASS] [F] fixture goal owned hf-goal-settle8
+[PASS] [F] kernel task created hf-task-settle8
+[PASS] [F] task attached hf-task-settle8
+[PASS] [S] intent built settle8
+[PASS] [S] prepared settle8
+[PASS] [S] claimed settle8
+[PASS] [S8] the task file lock is held by the test (kernel write must fail)
+[PASS] [S8a] kernel refusal keeps the receipt claimed and unresolved
+[PASS] [S8a] no worker result is written when the kernel refuses
+[PASS] [S8a] the receipt stays claimed/DISPATCH_UNCERTAIN (never settled)
+[PASS] [S8a] the attempt marker and the written evidence id are auditable on disk
+[PASS] [S8a] the canonical evidence record WAS written before the kernel refusal
+[PASS] [S8a] a second effect on the same task can still be prepared
+[PASS] [S8a] the unresolved claim still blocks a second effect after a kernel failure
+[PASS] [S8b] the same claim settles once the kernel is writable again
+[PASS] [S8b] the kernel is written exactly once
+[PASS] [S8b] the deterministic evidence is reused, never orphaned
+[PASS] [S8b] the retry reuses the EXACT evidence bound in the first attempt and does the first/only CAS kernel write (no reconcile, no fabrication)
+[PASS] [F] fixture goal created hf-goal-settle9
+[PASS] [F] fixture goal active hf-goal-settle9
+[PASS] [F] fixture goal owned hf-goal-settle9
+[PASS] [F] kernel task created hf-task-settle9
+[PASS] [F] task attached hf-task-settle9
+[PASS] [S] intent built settle9
+[PASS] [S] prepared settle9
+[PASS] [S] claimed settle9
+[PASS] [S9a] the failed final receipt write returns an EXPLICIT ambiguity (never claiming a phase)
+[PASS] [S9a] the persisted file remains claimed/DISPATCH_UNCERTAIN with no reconciliation
+[PASS] [S9a] the durable settle-ATTEMPT and EVIDENCE markers are on disk (written before the failed final write)
+[PASS] [S9a] the receipt carries no worker_result or kernel verdict: it is not settled
+[PASS] [S9a] the TaskKernel result HAS advanced (kernel write completed before the receipt write)
+[PASS] [S9a] the kernel holds the candidate of THIS claim
+[PASS] [S9a] exactly ONE evidence row exists for this claim (no orphan)
+[PASS] [S9a] the file changed only by the durable markers (no fabricated settle write)
+[PASS] [S9a] the retry after the receipt-write failure stays settle-kernel-commit-ambiguous (no causal proof, no reconcile)
+[PASS] [S9a] the ambiguous retry never rewrites the kernel (no second kernel write)
+[PASS] [S9a] the ambiguous retry creates no orphan evidence row
+[PASS] [S9a] the durable evidence marker from the failed attempt is STILL on the receipt - and still proves nothing (marker != causal proof)
+[PASS] [S9a] the ambiguous retry left the claimed receipt byte-identical (no fabricated write)
+[PASS] [S9a] a second effect on the same task can still be prepared
+[PASS] [S9a] the ambiguous claim keeps the task reservation intact (no release, no retry)
+[PASS] [S9b] a divergent retry for the same claim still conflicts
+[PASS] [S9b] the conflicting retry left the claimed receipt byte-identical
+[PASS] [S9] no Executor call during the partial-write scenario
+[PASS] [F] fixture goal created hf-goal-settle10
+[PASS] [F] fixture goal active hf-goal-settle10
+[PASS] [F] fixture goal owned hf-goal-settle10
+[PASS] [F] kernel task created hf-task-settle10
+[PASS] [F] task attached hf-task-settle10
+[PASS] [S] intent built settle10
+[PASS] [S] prepared settle10
+[PASS] [S] claimed settle10
+[PASS] [S10a] truncated JSON receipt denies the settle
+[PASS] [S10b] semantically tampered receipt denies the settle
+[PASS] [S10c] array-token field in the receipt denies the settle
+[PASS] [S10] no Executor call for any corrupt receipt
+[PASS] [F] fixture goal created hf-goal-settle10b
+[PASS] [F] fixture goal active hf-goal-settle10b
+[PASS] [F] fixture goal owned hf-goal-settle10b
+[PASS] [F] kernel task created hf-task-settle10b
+[PASS] [F] task attached hf-task-settle10b
+[PASS] [S] intent built settle10b
+[PASS] [S] prepared settle10b
+[PASS] [S] claimed settle10b
+[PASS] [S10d] a receipt-shaped DIRECTORY is never overwritten
+[PASS] [S10d] the directory entry is preserved
+[PASS] [S10e] prepared while every receipt entry is a regular file again
+[PASS] [S10] control: an untampered receipt settles again
+[PASS] [F] fixture goal created hf-goal-settle11
+[PASS] [F] fixture goal active hf-goal-settle11
+[PASS] [F] fixture goal owned hf-goal-settle11
+[PASS] [F] kernel task created hf-task-settle11
+[PASS] [F] task attached hf-task-settle11
+[PASS] [S11] prepared for the unclaimed fixture
+[PASS] [S11a] a prepared (never claimed) receipt is not settleable
+[PASS] [S11a] the prepared receipt is untouched
+[PASS] [S11b] a legacy pending receipt conflicts
+[PASS] [S11c] an absent key denies as not claimed
+[PASS] [S11d] a malformed key denies before any receipt IO
+[PASS] [S11] control: the legacy path still refuses to replay its own pending (no implicit retry)
+[PASS] [S12] the settle envelope reports only a candidate worker status
+[PASS] [S12] the durable receipt stores only a candidate worker status
+[PASS] [S12] SETTLE never advances the task to a terminal state
+[PASS] [S12] settle ok is exactly the kernel verdict, not a verification
+[PASS] [F] fixture goal created hf-goal-settle13
+[PASS] [F] fixture goal active hf-goal-settle13
+[PASS] [F] fixture goal owned hf-goal-settle13
+[PASS] [F] kernel task created hf-task-settle13
+[PASS] [F] task attached hf-task-settle13
+[PASS] [S] intent built settle13
+[PASS] [S] prepared settle13
+[PASS] [S] claimed settle13
+[PASS] [S13] the task lock exists at the receipt root (shared reservation)
+[PASS] [S13] the task lock is held by the test
+[PASS] [S13a] a settle that cannot take the task lock refuses as busy
+[PASS] [S13a] a second effect on the same task can still be prepared
+[PASS] [S13a] a new claim on the same task is barred by the held task lock
+[PASS] [S13b] the unresolved claim still blocks a new claim on the same task
+[PASS] [S13c] the settle completes once the lock is free
+[PASS] [S13c] a second effect prepares with the live revision
+[PASS] [S13c] after settlement the task reservation is RELEASED (new claim admitted)
+[PASS] [S13] no Executor call anywhere in the task-lock scenario
+[PASS] [F] fixture goal created hf-goal-settle14
+[PASS] [F] fixture goal active hf-goal-settle14
+[PASS] [F] fixture goal owned hf-goal-settle14
+[PASS] [F] kernel task created hf-task-settle14
+[PASS] [F] task attached hf-task-settle14
+[PASS] [S] intent built settle14
+[PASS] [S] prepared settle14
+[PASS] [S] claimed settle14
+[PASS] [S14] settled fixture for the legacy isolation scenario
+[PASS] [S14] the legacy Invoke reads the handoff SETTLED receipt as a duplicate with 0 executor calls
+[PASS] [S14] the legacy duplicate is explicit, never a second effect
+[PASS] [S14] the settled handoff receipt keeps its size after the legacy call
+[PASS] [S14] the settled handoff receipt is byte-identical after the legacy call
+[PASS] [S14] the legacy call never rewrote the kernel worker result
+[PASS] [S14] the isolated spy was used only for this control, never by the handoff path
+[PASS] [F] fixture goal created hf-goal-settle15
+[PASS] [F] fixture goal active hf-goal-settle15
+[PASS] [F] fixture goal owned hf-goal-settle15
+[PASS] [F] kernel task created hf-task-settle15
+[PASS] [F] task attached hf-task-settle15
+[PASS] [S15] a historical (foreign) worker result advanced the task 1 -> 2
+[PASS] [S15] prepared a new claim at the live revision
+[PASS] [S15] claimed the new attempt
+[PASS] [S15] a new legitimate claim with a divergent candidate settles over a HISTORICAL result (no false conflict)
+[PASS] [S15] the kernel holds the NEW candidate at revision 3 (exactly one CAS write)
+[PASS] [F] fixture goal created hf-goal-settle16
+[PASS] [F] fixture goal active hf-goal-settle16
+[PASS] [F] fixture goal owned hf-goal-settle16
+[PASS] [F] kernel task created hf-task-settle16
+[PASS] [F] task attached hf-task-settle16
+[PASS] [S16] prepared the ambiguous fixture
+[PASS] [S16] claimed the ambiguous fixture
+[PASS] [S16] an unrelated writer posted an identical kernel result beyond the expected revision
+[PASS] [S16] revision advanced beyond expected with no durable evidence proof => settle-kernel-commit-ambiguous
+[PASS] [S16] the receipt stays claimed and unresolved (no settled write)
+[PASS] [S16] the ambiguous settle wrote NOTHING on the receipt (no attempt marker, no evidence id)
+[PASS] [S16] NO evidence is created to prove a previous write
+[PASS] [S16] no second kernel write happens
+[PASS] [S16] a second effect on the ambiguous task prepared
+[PASS] [S16] the ambiguous claim keeps the task reservation intact (no release, no retry)
+[PASS] [F] fixture goal created hf-goal-settle17
+[PASS] [F] fixture goal active hf-goal-settle17
+[PASS] [F] fixture goal owned hf-goal-settle17
+[PASS] [F] kernel task created hf-task-settle17
+[PASS] [F] task attached hf-task-settle17
+[PASS] [S] intent built settle17
+[PASS] [S] prepared settle17
+[PASS] [S] claimed settle17
+[PASS] [S17] the task file lock is held so the first attempt stops at the kernel
+[PASS] [S17a] the first attempt wrote evidence but the kernel refused
+[PASS] [S17a] the first attempt persisted a canonical evidence id
+[PASS] [S17b] a reversed-order retry still settles (refs canonicalized once)
+[PASS] [S17b] the kernel is written exactly once
+[PASS] [S17b] the kernel stores the candidate refs in the ONE canonical order
+[PASS] [S17b] the settled receipt stores the same canonical order
+[PASS] [S17b] the reversed-order retry reuses the SAME evidence row - no orphan
+[PASS] [S17b] the reversed-order retry derives the SAME canonical evidence id
+[PASS] [F] fixture goal created hf-goal-settle18
+[PASS] [F] fixture goal active hf-goal-settle18
+[PASS] [F] fixture goal owned hf-goal-settle18
+[PASS] [F] kernel task created hf-task-settle18
+[PASS] [F] task attached hf-task-settle18
+[PASS] [S] intent built settle18
+[PASS] [S] prepared settle18
+[PASS] [S] claimed settle18
+[PASS] [S18] the test holds the receipt lock of the fence fixture
+[PASS] [S18] the goal left ACTIVE (PAUSED) while the settle would wait on the lock
+[PASS] [S18] the settle fences on a non-ACTIVE goal with both locks held (no partial bypass)
+[PASS] [S18] the receipt stays claimed with no attempt marker (refused before any write)
+[PASS] [S18] the fenced settle left the claimed receipt byte-identical
+[PASS] [S18] the goal is back to ACTIVE for the positive control
+[PASS] [S18] control: the same settle completes once the goal is ACTIVE again
+[PASS] [S18] no Executor call in the fencing scenario
+[PASS] [F] fixture goal created hf-goal-settle19
+[PASS] [F] fixture goal active hf-goal-settle19
+[PASS] [F] fixture goal owned hf-goal-settle19
+[PASS] [F] kernel task created hf-task-settle19
+[PASS] [F] task attached hf-task-settle19
+[PASS] [S] intent built settle19
+[PASS] [S] prepared settle19
+[PASS] [S] claimed settle19
+[PASS] [S19] reference settle stores the child session lineage
+[PASS] [S19a] a settled duplicate with a mismatched child id is denied (same-call/different-child refusal)
+[PASS] [S19a] the denial never returns the stored child lineage
+[PASS] [S19a] the child-B denial is stable across calls
+[PASS] [S19a] the denied duplicate left the settled receipt byte-identical (stored child A kept)
+[PASS] [S19a] the durable receipt still stores child A
+[PASS] [S19a] the denied duplicate never rewrites the kernel
+[PASS] [S19b] an identical child duplicate is idempotent
+[PASS] [S19b] the duplicate returns the STORED child identity, not the presented one
+[PASS] [S19] no Executor call in the settled-duplicate child scenario
+[PASS] [F] fixture goal created hf-goal-settle20
+[PASS] [F] fixture goal active hf-goal-settle20
+[PASS] [F] fixture goal owned hf-goal-settle20
+[PASS] [F] kernel task created hf-task-settle20
+[PASS] [F] task attached hf-task-settle20
+[PASS] [S] intent built settle20
+[PASS] [S] prepared settle20
+[PASS] [S] claimed settle20
+[PASS] [S20] reference settle completes (kernel written)
+[PASS] [S20] with the durable evidence marker lost, the retry remains settle-kernel-commit-ambiguous
+[PASS] [S20] the receipt stays claimed - no settle/release on the ambiguous retry
+[PASS] [S20] the ambiguous retry left the claimed receipt byte-identical (no fabricated worker result, no settle write)
+[PASS] [S20] no second kernel write happens on the ambiguous retry
+[PASS] [S20] the ambiguous retry creates no evidence
+[PASS] [F] fixture goal created hf-goal-settle21
+[PASS] [F] fixture goal active hf-goal-settle21
+[PASS] [F] fixture goal owned hf-goal-settle21
+[PASS] [F] kernel task created hf-task-settle21
+[PASS] [F] task attached hf-task-settle21
+[PASS] [S] intent built settle21
+[PASS] [S] prepared settle21
+[PASS] [S] claimed settle21
+[PASS] [S21a] writer persisted the settled receipt and returned false: the reread proves the commit and the response is settled success
+[PASS] [S21a] the settled envelope carries kernel/evidence/child lineage like any successful settle
+[PASS] [S21a] the durable receipt is the exact settled record (status, child session, evidence id)
+[PASS] [S21a] the kernel was written exactly ONCE (no duplicated kernel write)
+[PASS] [S21a] exactly ONE evidence row (no duplicated evidence write)
+[PASS] [S21b] the proven settle still answers an identical duplicate idempotently
+[PASS] [S21c] child-session equality still holds for the settled duplicate
+[PASS] [S21c] the stored child and the candidate status are preserved (never verified/done)
+[PASS] [S21c] the duplicate refusals never rewrite the kernel nor advance the task to a terminal state
+[PASS] [S21] no Executor call in the write-proved settle scenario
+[PASS] [F] fixture goal created hf-goal-settle22
+[PASS] [F] fixture goal active hf-goal-settle22
+[PASS] [F] fixture goal owned hf-goal-settle22
+[PASS] [F] kernel task created hf-task-settle22
+[PASS] [F] task attached hf-task-settle22
+[PASS] [S] intent built settle22
+[PASS] [S] prepared settle22
+[PASS] [S] claimed settle22
+[PASS] [S22a] the evidence-marker write fails with the attempt marker already durable
+[PASS] [S22a] the durable ATTEMPT marker survives without the evidence marker
+[PASS] [S22a] the failed attempt reached NO kernel write
+[PASS] [S22a] the canonical evidence row of the failed attempt exists exactly once
+[PASS] [S22] an unrelated writer posted the IDENTICAL kernel result beyond the expected revision
+[PASS] [S22b] identical status/refs from an UNRELATED writer remain ambiguous (coincidence is not authorship, no auto-reconciliation)
+[PASS] [S22b] the ambiguous hold performs no second kernel write
+[PASS] [S22b] the ambiguous hold creates no evidence to prove a previous write
+[PASS] [S22b] the receipt stays claimed with the durable attempt marker (no fabricated settle)
+[PASS] [S22b] the ambiguous hold left the claimed receipt byte-identical
+[PASS] [S22c] a second effect on the held task can still be prepared
+[PASS] [S22c] the reservation blocks a second effect while the state is uncertain
+[PASS] [S22] no Executor call in the unrelated-writer scenario
+[PASS] [F] fixture goal created hf-goal-settle23
+[PASS] [F] fixture goal active hf-goal-settle23
+[PASS] [F] fixture goal owned hf-goal-settle23
+[PASS] [F] kernel task created hf-task-settle23
+[PASS] [F] task attached hf-task-settle23
+[PASS] [S] intent built settle23
+[PASS] [S] prepared settle23
+[PASS] [S] claimed settle23
+[PASS] [S23a] the ownership ACTIVE/lease check still runs immediately before the kernel write (partial path)
+[PASS] [S23a] the fenced kernel write is reported on the envelope
+[PASS] [S23a] no kernel write happened after the fenced window
+[PASS] [S23a] the receipt stays claimed with the durable attempt/evidence markers (no settle)
+[PASS] [S23] the goal is back to ACTIVE for the positive control
+[PASS] [S23b] control: the same settle completes once the goal is ACTIVE again
+[PASS] [S23b] the kernel is written exactly once, after the fence is gone
+[PASS] [S23] no Executor call in the partial-path fencing scenario
+[PASS] [F] fixture goal created hf-goal-fix4a
+[PASS] [F] fixture goal active hf-goal-fix4a
+[PASS] [F] fixture goal owned hf-goal-fix4a
+[PASS] [F] kernel task created hf-task-fix4a
+[PASS] [F] task attached hf-task-fix4a
+[PASS] [F4-1] a real effect then TaskKernel refusal still accounts the effect (kernel:*, calls=1)
+[PASS] [F4-1] the settled receipt records kernel_ok=false and executor_calls=1 (post-effect failure)
+[PASS] [F4-1] a second key prepares over the post-effect settled receipt (prepare is not an effect)
+[PASS] [F4-1] a second key CLAIM is refused: the post-effect settled failure does NOT release the reservation
+[PASS] [F4-1] a second key legacy Invoke is refused with 0 new executor calls
+[PASS] [F4-1] the refused second legacy key persisted nothing
+[PASS] [F] fixture goal created hf-goal-fix4b
+[PASS] [F] fixture goal active hf-goal-fix4b
+[PASS] [F] fixture goal owned hf-goal-fix4b
+[PASS] [F] kernel task created hf-task-fix4b
+[PASS] [F] task attached hf-task-fix4b
+[PASS] [F4-2] a fresh pre-effect post-lock refusal runs the Executor 0 times
+[PASS] [F4-2] the real pre-effect refusal persisted settled/kernel_ok=false/executor_calls=0/reconciled=false
+[PASS] [F4-2] the goal is back to ACTIVE for the non-blocking control
+[PASS] [F4-2] a new key prepares over the pre-effect refusal
+[PASS] [F4-2] a no-effect settled refusal does NOT block the task (settled-does-not-block assertion preserved)
+[PASS] [F] fixture goal created hf-goal-fix4c
+[PASS] [F] fixture goal active hf-goal-fix4c
+[PASS] [F] fixture goal owned hf-goal-fix4c
+[PASS] [F] kernel task created hf-task-fix4c
+[PASS] [F] task attached hf-task-fix4c
+[PASS] [F4-3] a second key prepares over the reconciled replay settled failure
+[PASS] [F4-3] a settled failure with reconciled=true (replay of an earlier pending) STILL blocks, even with executor_calls=0
+[PASS] [F] fixture goal created hf-goal-fix4d
+[PASS] [F] fixture goal active hf-goal-fix4d
+[PASS] [F] fixture goal owned hf-goal-fix4d
+[PASS] [F] kernel task created hf-task-fix4d
+[PASS] [F] task attached hf-task-fix4d
+[PASS] [F4-4] prepared for the malformed-settled fixture
+[PASS] [F4-4] a settled receipt with kernel_ok-missing fails closed (claim-task-scan-unreadable)
+[PASS] [F4-4] kernel_ok-missing refusal never consumes the prepared receipt
+[PASS] [F4-4] a settled receipt with kernel_ok-array fails closed (claim-task-scan-unreadable)
+[PASS] [F4-4] kernel_ok-array refusal never consumes the prepared receipt
+[PASS] [F4-4] a settled receipt with kernel_ok-string fails closed (claim-task-scan-unreadable)
+[PASS] [F4-4] kernel_ok-string refusal never consumes the prepared receipt
+[PASS] [F4-4] a settled receipt with executor_calls-array fails closed (claim-task-already-claimed)
+[PASS] [F4-4] executor_calls-array refusal never consumes the prepared receipt
+[PASS] [F4-4] a settled receipt with reconciled-array fails closed (claim-task-already-claimed)
+[PASS] [F4-4] reconciled-array refusal never consumes the prepared receipt
+[PASS] [F4-4] a settled receipt with reason-array fails closed (claim-task-already-claimed)
+[PASS] [F4-4] reason-array refusal never consumes the prepared receipt
+[PASS] [F4-4] a settled receipt with reason-unknown fails closed (claim-task-already-claimed)
+[PASS] [F4-4] reason-unknown refusal never consumes the prepared receipt
+[PASS] [F4-4] control: a VALID fresh pre-effect refusal still does not block (the malformed gate above is precise, not blanket)
+[PASS] [F] fixture goal created hf-goal-fix4e
+[PASS] [F] fixture goal active hf-goal-fix4e
+[PASS] [F] fixture goal owned hf-goal-fix4e
+[PASS] [F] kernel task created hf-task-fix4e
+[PASS] [F] task attached hf-task-fix4e
+[PASS] [F4-5] a successful legacy Invoke settles as before
+[PASS] [F4-5] the successful settled receipt records kernel_ok=true and executor_calls=1 (known settlement)
+[PASS] [F4-5] a new key prepares after the successful settlement (revision advanced)
+[PASS] [F4-5] a kernel_ok=true settled receipt RELEASES the reservation (new claim admitted)
+[PASS] [F] fixture goal created hf-goal-settle-mut-kernel_ok
+[PASS] [F] fixture goal active hf-goal-settle-mut-kernel_ok
+[PASS] [F] fixture goal owned hf-goal-settle-mut-kernel_ok
+[PASS] [F] kernel task created hf-task-settle-mut-kernel_ok
+[PASS] [F] task attached hf-task-settle-mut-kernel_ok
+[PASS] [S] intent built settle-mut-kernel_ok
+[PASS] [S] prepared settle-mut-kernel_ok
+[PASS] [S] claimed settle-mut-kernel_ok
+[PASS] [F4-6/kernel_ok] the tampered settled receipt is refused as an EXPLICIT ambiguity (never success)
+[PASS] [F4-6/kernel_ok] the writer really persisted the settled phase (no manual phase mutation)
+[PASS] [F4-6/kernel_ok] the persisted token really is a singleton ARRAY of one element
+[PASS] [F4-6] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F4-6] exactly ONE evidence row exists for this claim
+[PASS] [F4-6/kernel_ok] the retry is refused fail-closed on the tampered record (ambiguous commit or unproven duplicate)
+[PASS] [F4-6] the ambiguous retry performs NO second kernel write
+[PASS] [F4-6] the ambiguous retry creates NO second evidence row
+[PASS] [F4-6/kernel_ok] the ambiguous retry left the receipt byte-identical (no fabricated write)
+[PASS] [F4-6/kernel_ok] no Executor call in the tampered-token scenario
+[PASS] [F4-6/kernel_ok] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F4-6/kernel_ok] the tampered settled record keeps the task reservation BLOCKED (the scan validates the handoff-settled shape)
+[PASS] [F4-6/kernel_ok] the block is the fail-closed scan over the tampered token (no documented residual left)
+[PASS] [F4-6/kernel_ok] the second claim attempt wrote nothing in the kernel
+[PASS] [F] fixture goal created hf-goal-settle-mut-child-session
+[PASS] [F] fixture goal active hf-goal-settle-mut-child-session
+[PASS] [F] fixture goal owned hf-goal-settle-mut-child-session
+[PASS] [F] kernel task created hf-task-settle-mut-child-session
+[PASS] [F] task attached hf-task-settle-mut-child-session
+[PASS] [S] intent built settle-mut-child-session
+[PASS] [S] prepared settle-mut-child-session
+[PASS] [S] claimed settle-mut-child-session
+[PASS] [F4-6/child-session] the tampered settled receipt is refused as an EXPLICIT ambiguity (never success)
+[PASS] [F4-6/child-session] the writer really persisted the settled phase (no manual phase mutation)
+[PASS] [F4-6/child-session] the persisted token really is a singleton ARRAY of one element
+[PASS] [F4-6] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F4-6] exactly ONE evidence row exists for this claim
+[PASS] [F4-6/child-session] the retry is refused fail-closed on the tampered record (ambiguous commit or unproven duplicate)
+[PASS] [F4-6] the ambiguous retry performs NO second kernel write
+[PASS] [F4-6] the ambiguous retry creates NO second evidence row
+[PASS] [F4-6/child-session] the ambiguous retry left the receipt byte-identical (no fabricated write)
+[PASS] [F4-6/child-session] no Executor call in the tampered-token scenario
+[PASS] [F4-6/child-session] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F4-6/child-session] the tampered settled record keeps the task reservation BLOCKED (the scan validates the handoff-settled shape)
+[PASS] [F4-6/child-session] the block is the fail-closed scan over the tampered token (no documented residual left)
+[PASS] [F4-6/child-session] the second claim attempt wrote nothing in the kernel
+[PASS] [F] fixture goal created hf-goal-settle-mutate-ok
+[PASS] [F] fixture goal active hf-goal-settle-mutate-ok
+[PASS] [F] fixture goal owned hf-goal-settle-mutate-ok
+[PASS] [F] kernel task created hf-task-settle-mutate-ok
+[PASS] [F] task attached hf-task-settle-mutate-ok
+[PASS] [S] intent built settle-mutate-ok
+[PASS] [S] prepared settle-mutate-ok
+[PASS] [S] claimed settle-mutate-ok
+[PASS] [F4-6] control: an EXACT persisted settled receipt (no array token) still proves the commit
+[PASS] [F4-6] control: the persisted receipt holds the EXACT scalar types (kernel_ok bool, child string, candidate object)
+[PASS] [F4-6] control: the kernel was written exactly once
+[PASS] [F4-6] control: exactly one evidence row
+[PASS] [F] fixture goal created hf-goal-settle-true-mut-kernel_ok
+[PASS] [F] fixture goal active hf-goal-settle-true-mut-kernel_ok
+[PASS] [F] fixture goal owned hf-goal-settle-true-mut-kernel_ok
+[PASS] [F] kernel task created hf-task-settle-true-mut-kernel_ok
+[PASS] [F] task attached hf-task-settle-true-mut-kernel_ok
+[PASS] [S] intent built settle-true-mut-kernel_ok
+[PASS] [S] prepared settle-true-mut-kernel_ok
+[PASS] [S] claimed settle-true-mut-kernel_ok
+[PASS] [F4-7/kernel_ok] a writer TRUE return does NOT bypass the reread: the tampered settled receipt is an EXPLICIT ambiguity
+[PASS] [F4-7/kernel_ok] the writer really persisted the settled phase
+[PASS] [F4-7/kernel_ok] the persisted token really is a singleton ARRAY
+[PASS] [F4-7] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F4-7] exactly ONE evidence row exists for this claim
+[PASS] [F4-7/kernel_ok] the retry is refused fail-closed on the tampered record (unproven duplicate or ambiguous commit)
+[PASS] [F4-7] the ambiguous retry performs NO second kernel write
+[PASS] [F4-7] the ambiguous retry creates NO second evidence row
+[PASS] [F4-7/kernel_ok] the ambiguous retry left the receipt byte-identical (no fabricated write)
+[PASS] [F4-7/kernel_ok] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F4-7/kernel_ok] the ambiguous outcome keeps the task reservation BLOCKED (no second effect admitted)
+[PASS] [F4-7/kernel_ok] the refused second claim wrote nothing in the kernel
+[PASS] [F4-7/kernel_ok] no Executor call in the writer-true tampering scenario
+[PASS] [F] fixture goal created hf-goal-settle-true-mut-child-session
+[PASS] [F] fixture goal active hf-goal-settle-true-mut-child-session
+[PASS] [F] fixture goal owned hf-goal-settle-true-mut-child-session
+[PASS] [F] kernel task created hf-task-settle-true-mut-child-session
+[PASS] [F] task attached hf-task-settle-true-mut-child-session
+[PASS] [S] intent built settle-true-mut-child-session
+[PASS] [S] prepared settle-true-mut-child-session
+[PASS] [S] claimed settle-true-mut-child-session
+[PASS] [F4-7/child-session] a writer TRUE return does NOT bypass the reread: the tampered settled receipt is an EXPLICIT ambiguity
+[PASS] [F4-7/child-session] the writer really persisted the settled phase
+[PASS] [F4-7/child-session] the persisted token really is a singleton ARRAY
+[PASS] [F4-7] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F4-7] exactly ONE evidence row exists for this claim
+[PASS] [F4-7/child-session] the retry is refused fail-closed on the tampered record (unproven duplicate or ambiguous commit)
+[PASS] [F4-7] the ambiguous retry performs NO second kernel write
+[PASS] [F4-7] the ambiguous retry creates NO second evidence row
+[PASS] [F4-7/child-session] the ambiguous retry left the receipt byte-identical (no fabricated write)
+[PASS] [F4-7/child-session] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F4-7/child-session] the ambiguous outcome keeps the task reservation BLOCKED (no second effect admitted)
+[PASS] [F4-7/child-session] the refused second claim wrote nothing in the kernel
+[PASS] [F4-7/child-session] no Executor call in the writer-true tampering scenario
+[PASS] [F] fixture goal created hf-goal-settle-true-ok
+[PASS] [F] fixture goal active hf-goal-settle-true-ok
+[PASS] [F] fixture goal owned hf-goal-settle-true-ok
+[PASS] [F] kernel task created hf-task-settle-true-ok
+[PASS] [F] task attached hf-task-settle-true-ok
+[PASS] [S] intent built settle-true-ok
+[PASS] [S] prepared settle-true-ok
+[PASS] [S] claimed settle-true-ok
+[PASS] [F4-7] control: with a TRUE writer return and an EXACT receipt, the reread proof still confirms the settle
+[PASS] [F4-7] control: the kernel was written exactly once
+[PASS] [F4-7] control: exactly one evidence row
+[PASS] [F] fixture goal created hf-goal-fix4scan
+[PASS] [F] fixture goal active hf-goal-fix4scan
+[PASS] [F] fixture goal owned hf-goal-fix4scan
+[PASS] [F] kernel task created hf-task-fix4scan
+[PASS] [F] task attached hf-task-fix4scan
+[PASS] [S] intent built fix4scan
+[PASS] [S] prepared fix4scan
+[PASS] [S] claimed fix4scan
+[PASS] [F4-8] the handoff fixture settled (known settlement)
+[PASS] [F4-8] a fresh second key prepared for the kernel_ok-false case
+[PASS] [F4-8] a handoff settled receipt with kernel_ok-false fails closed (claim-task-already-claimed)
+[PASS] [F4-8] the kernel_ok-false refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh second key prepared for the evidence_created case
+[PASS] [F4-8] a handoff settled receipt with evidence_created fails closed (claim-task-already-claimed)
+[PASS] [F4-8] the evidence_created refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh second key prepared for the evidence_id-empty case
+[PASS] [F4-8] a handoff settled receipt with evidence_id-empty fails closed (claim-task-already-claimed)
+[PASS] [F4-8] the evidence_id-empty refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh second key prepared for the settle_status-bad case
+[PASS] [F4-8] a handoff settled receipt with settle_status-bad fails closed (claim-task-already-claimed)
+[PASS] [F4-8] the settle_status-bad refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh second key prepared for the child-array case
+[PASS] [F4-8] a handoff settled receipt with child-array fails closed (claim-task-scan-unreadable)
+[PASS] [F4-8] the child-array refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh second key prepared for the kernel_ok-array case
+[PASS] [F4-8] a handoff settled receipt with kernel_ok-array fails closed (claim-task-scan-unreadable)
+[PASS] [F4-8] the kernel_ok-array refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh second key prepared for the settle_status-gone case
+[PASS] [F4-8] a handoff settled receipt with settle_status-gone fails closed (claim-task-scan-unreadable)
+[PASS] [F4-8] the settle_status-gone refusal never consumes the prepared receipt
+[PASS] [F4-8] a fresh key prepared for the final control
+[PASS] [F4-8] control: the exact settled receipt releases the reservation again
+[PASS] [F] fixture goal created hf-goal-fix4dup
+[PASS] [F] fixture goal active hf-goal-fix4dup
+[PASS] [F] fixture goal owned hf-goal-fix4dup
+[PASS] [F] kernel task created hf-task-fix4dup
+[PASS] [F] task attached hf-task-fix4dup
+[PASS] [S] intent built fix4dup
+[PASS] [S] prepared fix4dup
+[PASS] [S] claimed fix4dup
+[PASS] [F4-9] the duplicate fixture settled
+[PASS] [F4-9] control: a PROVEN settled duplicate is idempotent and returns the STORED lineage
+[PASS] [F4-9] a settled duplicate with kernel_ok-false is NOT idempotent (duplicate-unproven)
+[PASS] [F4-9] a settled duplicate with evidence_created is NOT idempotent (duplicate-unproven)
+[PASS] [F4-9] a settled duplicate with evidence_id-empty is NOT idempotent (duplicate-unproven)
+[PASS] [F4-9] a settled duplicate with evidence_id-gone is NOT idempotent (duplicate-unproven)
+[PASS] [F4-9] a settled duplicate with kernel_ok-array is NOT idempotent (duplicate-unproven)
+[PASS] [F4-9] fixture mutated the stored settle session
+[PASS] [F4-9] a settled duplicate whose STORED host lineage diverges is refused
+[PASS] [F4-9] control: with the exact receipt restored, the duplicate is idempotent again
+[PASS] [F4-9] no duplicate refusal ever rewrote the kernel (revision kept at 2)
+[PASS] [F4-9] no Executor call in the duplicate-proof scenarios
+[PASS] [F] fixture goal created hf-goal-fix5-child-session
+[PASS] [F] fixture goal active hf-goal-fix5-child-session
+[PASS] [F] fixture goal owned hf-goal-fix5-child-session
+[PASS] [F] kernel task created hf-task-fix5-child-session
+[PASS] [F] task attached hf-task-fix5-child-session
+[PASS] [S] intent built fix5-child-session
+[PASS] [S] prepared fix5-child-session
+[PASS] [S] claimed fix5-child-session
+[PASS] [F5/child-session] a same-type tampered settled receipt is an EXPLICIT ambiguity (never success)
+[PASS] [F5/child-session] the writer really persisted the settled phase (no manual phase mutation)
+[PASS] [F5/child-session] the persisted token is another valid SAME-TYPE value (string)
+[PASS] [F5/child-session] the strict settlement proof refuses the tampered record by SEMANTIC correlation
+[PASS] [F5/child-session] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F5/child-session] exactly ONE evidence row exists for this claim
+[PASS] [F5/child-session] the retry is refused fail-closed on the tampered record (unproven duplicate)
+[PASS] [F5/child-session] the refused retry performs NO second kernel write
+[PASS] [F5/child-session] the refused retry left the tampered receipt byte-identical (no fabricated write)
+[PASS] [F5/child-session] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F5/child-session] the tampered settled record KEEPS the task reservation (second-key CLAIM denied)
+[PASS] [F5/child-session] the denied claim never consumes the prepared receipt
+[PASS] [F5/child-session] the legacy Invoke with a second key is denied by the SAME scan with 0 executor calls
+[PASS] [F5/child-session] the denied legacy key persisted nothing
+[PASS] [F5/child-session] no Executor call from any handoff operation in the tampered scenario
+[PASS] [F] fixture goal created hf-goal-fix5-evidence-id
+[PASS] [F] fixture goal active hf-goal-fix5-evidence-id
+[PASS] [F] fixture goal owned hf-goal-fix5-evidence-id
+[PASS] [F] kernel task created hf-task-fix5-evidence-id
+[PASS] [F] task attached hf-task-fix5-evidence-id
+[PASS] [S] intent built fix5-evidence-id
+[PASS] [S] prepared fix5-evidence-id
+[PASS] [S] claimed fix5-evidence-id
+[PASS] [F5/evidence-id] a same-type tampered settled receipt is an EXPLICIT ambiguity (never success)
+[PASS] [F5/evidence-id] the writer really persisted the settled phase (no manual phase mutation)
+[PASS] [F5/evidence-id] the persisted token is another valid SAME-TYPE value (string)
+[PASS] [F5/evidence-id] the strict settlement proof refuses the tampered record by SEMANTIC correlation
+[PASS] [F5/evidence-id] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F5/evidence-id] exactly ONE evidence row exists for this claim
+[PASS] [F5/evidence-id] the retry is refused fail-closed on the tampered record (unproven duplicate)
+[PASS] [F5/evidence-id] the refused retry performs NO second kernel write
+[PASS] [F5/evidence-id] the refused retry left the tampered receipt byte-identical (no fabricated write)
+[PASS] [F5/evidence-id] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F5/evidence-id] the tampered settled record KEEPS the task reservation (second-key CLAIM denied)
+[PASS] [F5/evidence-id] the denied claim never consumes the prepared receipt
+[PASS] [F5/evidence-id] the legacy Invoke with a second key is denied by the SAME scan with 0 executor calls
+[PASS] [F5/evidence-id] the denied legacy key persisted nothing
+[PASS] [F5/evidence-id] no Executor call from any handoff operation in the tampered scenario
+[PASS] [F] fixture goal created hf-goal-fix5-settle-evidence-id
+[PASS] [F] fixture goal active hf-goal-fix5-settle-evidence-id
+[PASS] [F] fixture goal owned hf-goal-fix5-settle-evidence-id
+[PASS] [F] kernel task created hf-task-fix5-settle-evidence-id
+[PASS] [F] task attached hf-task-fix5-settle-evidence-id
+[PASS] [S] intent built fix5-settle-evidence-id
+[PASS] [S] prepared fix5-settle-evidence-id
+[PASS] [S] claimed fix5-settle-evidence-id
+[PASS] [F5/settle-evidence-id] a same-type tampered settled receipt is an EXPLICIT ambiguity (never success)
+[PASS] [F5/settle-evidence-id] the writer really persisted the settled phase (no manual phase mutation)
+[PASS] [F5/settle-evidence-id] the persisted token is another valid SAME-TYPE value (string)
+[PASS] [F5/settle-evidence-id] the strict settlement proof refuses the tampered record by SEMANTIC correlation
+[PASS] [F5/settle-evidence-id] the kernel was written exactly ONCE (before the receipt write)
+[PASS] [F5/settle-evidence-id] exactly ONE evidence row exists for this claim
+[PASS] [F5/settle-evidence-id] the retry is refused fail-closed on the tampered record (unproven duplicate)
+[PASS] [F5/settle-evidence-id] the refused retry performs NO second kernel write
+[PASS] [F5/settle-evidence-id] the refused retry left the tampered receipt byte-identical (no fabricated write)
+[PASS] [F5/settle-evidence-id] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F5/settle-evidence-id] the tampered settled record KEEPS the task reservation (second-key CLAIM denied)
+[PASS] [F5/settle-evidence-id] the denied claim never consumes the prepared receipt
+[PASS] [F5/settle-evidence-id] the legacy Invoke with a second key is denied by the SAME scan with 0 executor calls
+[PASS] [F5/settle-evidence-id] the denied legacy key persisted nothing
+[PASS] [F5/settle-evidence-id] no Executor call from any handoff operation in the tampered scenario
+[PASS] [F] fixture goal created hf-goal-fix5-ok
+[PASS] [F] fixture goal active hf-goal-fix5-ok
+[PASS] [F] fixture goal owned hf-goal-fix5-ok
+[PASS] [F] kernel task created hf-task-fix5-ok
+[PASS] [F] task attached hf-task-fix5-ok
+[PASS] [S] intent built fix5-ok
+[PASS] [S] prepared fix5-ok
+[PASS] [S] claimed fix5-ok
+[PASS] [F5] control: an EXACT settled receipt settles as known settlement
+[PASS] [F5] control: the strict settlement proof ACCEPTS the exact settled receipt
+[PASS] [F5] control: a second key prepares after the exact settlement
+[PASS] [F5] control: the EXACT settled receipt RELEASES the task reservation
+[PASS] [F] fixture goal created hf-goal-fix5dup
+[PASS] [F] fixture goal active hf-goal-fix5dup
+[PASS] [F] fixture goal owned hf-goal-fix5dup
+[PASS] [F] kernel task created hf-task-fix5dup
+[PASS] [F] task attached hf-task-fix5dup
+[PASS] [S] intent built fix5dup
+[PASS] [S] prepared fix5dup
+[PASS] [S] claimed fix5dup
+[PASS] [F5-dup] the duplicate fixture settled
+[PASS] [F5-dup] an identical duplicate on the PROVEN record is idempotent
+[PASS] [F5-dup] the duplicate returns the PERSISTED evidence id, child session and kernel verdict
+[PASS] [F5-dup] fixture replaced the stored evidence id with another valid hash
+[PASS] [F5-dup] the strict proof refuses a same-type evidence id swap
+[PASS] [F5-dup] a duplicate over the swapped evidence id is NOT idempotent (unproven)
+[PASS] [F5-dup] no duplicate refusal ever rewrote the kernel
+[PASS] [F5-dup] control: the exact record restored, the duplicate is idempotent again with the PERSISTED evidence id
+[PASS] [F] fixture goal created hf-goal-fix5legacy
+[PASS] [F] fixture goal active hf-goal-fix5legacy
+[PASS] [F] fixture goal owned hf-goal-fix5legacy
+[PASS] [F] kernel task created hf-task-fix5legacy
+[PASS] [F] task attached hf-task-fix5legacy
+[PASS] [F5-legacy] the structurally valid legacy settled receipt carries NO handoff marker
+[PASS] [F5-legacy] a second key prepares over the legacy settled receipt
+[PASS] [F5-legacy] a structurally valid LEGACY settled receipt (kernel_ok=true, no handoff markers) still RELEASES the reservation
+[PASS] [F5] no Executor call in any strict-proof scenario
+[PASS] [F] fixture goal created hf-goal-fix5tid-a
+[PASS] [F] fixture goal active hf-goal-fix5tid-a
+[PASS] [F] fixture goal owned hf-goal-fix5tid-a
+[PASS] [F] kernel task created hf-task-fix5tid-a
+[PASS] [F] task attached hf-task-fix5tid-a
+[PASS] [S] intent built fix5tid-a
+[PASS] [S] prepared fix5tid-a
+[PASS] [S] claimed fix5tid-a
+[PASS] [F5-taskid] the reference fixture settled (known settlement)
+[PASS] [F] fixture goal created hf-goal-fix5tid-b
+[PASS] [F] fixture goal active hf-goal-fix5tid-b
+[PASS] [F] fixture goal owned hf-goal-fix5tid-b
+[PASS] [F] kernel task created hf-task-fix5tid-b
+[PASS] [F] task attached hf-task-fix5tid-b
+[PASS] [S] intent built fix5tid-b
+[PASS] [S] prepared fix5tid-b
+[PASS] [S] claimed fix5tid-b
+[PASS] [F5-taskid] control: the fixture of ANOTHER task claimed while a proven settled receipt is in the root
+[PASS] [F5-taskid] control: the unrelated fixture ALSO settled (valid handoff settlement)
+[PASS] [F5-taskid] control: the unrelated settlement passes the strict proof (proven)
+[PASS] [F5-taskid] control: a second key of the OTHER task prepares
+[PASS] [F5-taskid] control: a VALID unrelated handoff-settled receipt does NOT block (proven, then ignored) and its OWN task is released
+[PASS] [F] fixture goal created hf-goal-fix5tidlegacy
+[PASS] [F] fixture goal active hf-goal-fix5tidlegacy
+[PASS] [F] fixture goal owned hf-goal-fix5tidlegacy
+[PASS] [F] kernel task created hf-task-fix5tidlegacy
+[PASS] [F] task attached hf-task-fix5tidlegacy
+[PASS] [F5-taskid] control: the LEGACY settled receipt carries NO handoff marker (own compatibility path)
+[PASS] [F5-taskid] control: a second key of the LEGACY task prepares
+[PASS] [F5-taskid] control: a valid LEGACY settled receipt still RELEASES the reservation in the same root (never dragged into the handoff gate)
+[PASS] [F5-taskid] fixture mutated the settled task_id to another VALID id (hashes untouched)
+[PASS] [F5-taskid] the tampered record is still a settled handoff on disk (no phase tampering)
+[PASS] [F5-taskid] the persisted task_id token is another valid SAME-TYPE string (kernel-accepted id)
+[PASS] [F5-taskid] the recalculated semantic integrity REFUSES the same-type task_id swap (hash intact)
+[PASS] [F5-taskid] the strict settlement proof REFUSES the same-type task_id swap
+[PASS] [F5-taskid] the tampered record still carries handoff markers (never read as legacy)
+[PASS] [F5-taskid] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F5-taskid] the ORIGINAL task stays RESERVED: the scan fails closed on the swapped task_id (no second effect)
+[PASS] [F5-taskid] the denied claim never consumes the prepared receipt
+[PASS] [F5-taskid] the denied claim wrote nothing in the kernel
+[PASS] [F5-taskid] the legacy Invoke with another key is denied by the SAME scan with 0 executor calls
+[PASS] [F5-taskid] the denied legacy key persisted nothing
+[PASS] [F5-taskid] no Executor call from any operation in the swapped-task_id scenario
+[PASS] [F5-taskid] control: the EXACT settled receipt restored RELEASES the reservation again
+[PASS] [F5-taskid] control: the restored receipt passes the strict settlement proof again
+[PASS] [F] fixture goal created hf-goal-fix5hyb
+[PASS] [F] fixture goal active hf-goal-fix5hyb
+[PASS] [F] fixture goal owned hf-goal-fix5hyb
+[PASS] [F] kernel task created hf-task-fix5hyb
+[PASS] [F] task attached hf-task-fix5hyb
+[PASS] [S] intent built fix5hyb
+[PASS] [S] prepared fix5hyb
+[PASS] [S] claimed fix5hyb
+[PASS] [F5-hybrid] the isolated fixture settled (known settlement)
+[PASS] [F5-hybrid] the reference receipt is a CANONICAL settled handoff receipt
+[PASS] [F5-hybrid] fixture stripped the whole settlement lineage from the exact receipt
+[PASS] [F5-hybrid] the hybrid record STILL carries handoff markers (some, not all)
+[PASS] [F5-hybrid] the hybrid record keeps the legacy-looking kernel_ok=true (the value the legacy gate would release on)
+[PASS] [F5-hybrid] the strict proof refuses the hybrid record as INDECIDABLE (settled-shape-invalid, not a legacy-shaped refusal)
+[PASS] [F5-hybrid] the semantic integrity still holds (only settlement fields were removed - this is not a semantic tamper)
+[PASS] [F5-hybrid] a second effect on the hybrid root can still be PREPARED (prepare is not an effect)
+[PASS] [F5-hybrid] the HYBRID record is refused fail-closed with the EXACT scan reason (indecidable, never released as legacy)
+[PASS] [F5-hybrid] the refused hybrid claim never consumes the prepared receipt
+[PASS] [F5-hybrid] the refused claim wrote nothing in the kernel
+[PASS] [F5-hybrid] control: the exact receipt restored passes the strict settlement proof again
+[PASS] [F5-hybrid] control: the exact receipt restored, the SAME root admits the claim again
+[PASS] [F5-hybrid] no Executor call in the hybrid scenario
+[PASS] [F5-taskid] no Executor call anywhere in the task_id-swap group
+[PASS] [F6A-marker] a structurally valid LEGACY receipt (no handoff lineage at all) is still NOT marked
+[PASS] [F6A-marker] a record whose ONLY handoff field has ALTERED CASE (SETTLE_CHILD_SESSION_ID) is still classified as HANDOFF (never legacy)
+[PASS] [F6A-marker] a record whose ONLY handoff field is HANDOFF_STATE (uppercase) is still classified as HANDOFF
+[PASS] [F6A-marker] a record whose ONLY handoff field is Claim_Session_Id (mixed case) is still classified as HANDOFF
+[PASS] [F6A-marker] a marker name with TRAILING whitespace (handoff_state ) is still classified as HANDOFF
+[PASS] [F6A-marker] a marker name with LEADING whitespace ( settle_status) is still classified as HANDOFF
+[PASS] [F6A-marker] a marker name with INNER whitespace (handoff state) is still classified as HANDOFF
+[PASS] [F6A-marker] a handoff-shaped name with the separator TAMPERED (settle-status) is still classified as HANDOFF
+[PASS] [F6A-marker] a record whose ONLY handoff field is claimed_by (exclusive claim metadata) is still classified as HANDOFF
+[PASS] [F6A-marker] a record whose ONLY handoff field is reference is still classified as HANDOFF
+[PASS] [F6A-marker] a record whose ONLY handoff field is prepared_at is still classified as HANDOFF
+[PASS] [F] fixture goal created hf-goal-fix6a-case
+[PASS] [F] fixture goal active hf-goal-fix6a-case
+[PASS] [F] fixture goal owned hf-goal-fix6a-case
+[PASS] [F] kernel task created hf-task-fix6a-case
+[PASS] [F] task attached hf-task-fix6a-case
+[PASS] [S] intent built fix6a-case
+[PASS] [S] prepared fix6a-case
+[PASS] [S] claimed fix6a-case
+[PASS] [F6A-case] the reference fixture settled (known settlement)
+[PASS] [F6A-case] the reference fixture is a CANONICAL settled handoff receipt
+[PASS] [F6A-case] fixture moved the SAME child session VALUE to an ALTERED-CASE field name (value untouched)
+[PASS] [F6A-case] only the field NAME changed - the phase and every other field are intact
+[PASS] [F6A-case] the altered-case record is STILL classified as HANDOFF (marker detection is case-insensitive)
+[PASS] [F6A-case] the altered-case name is NOT canonical (this is not the record the settlement wrote)
+[PASS] [F6A-case] the closed structural gate refuses the altered-case marked record with the EXACT reason
+[PASS] [F6A-case] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F6A-case] the altered-case record fails the scan closed with the EXACT reason (never released through the legacy gate)
+[PASS] [F6A-case] the refused claim never consumes the prepared receipt
+[PASS] [F6A-case] the refused claim wrote nothing in the kernel
+[PASS] [F6A-case] control: the canonical name restored, the SAME root admits the claim again
+[PASS] [F6A-case] no Executor call in the altered-case scenario
+[PASS] [F] fixture goal created hf-goal-fix6a-missing
+[PASS] [F] fixture goal active hf-goal-fix6a-missing
+[PASS] [F] fixture goal owned hf-goal-fix6a-missing
+[PASS] [F] kernel task created hf-task-fix6a-missing
+[PASS] [F] task attached hf-task-fix6a-missing
+[PASS] [S] intent built fix6a-missing
+[PASS] [S] prepared fix6a-missing
+[PASS] [S] claimed fix6a-missing
+[PASS] [F6A-missing] the reference fixture settled (known settlement)
+[PASS] [F6A-missing] fixture removed EXACTLY ONE marker (settle_status), leaving every other handoff marker
+[PASS] [F6A-missing] with ONE marker gone the record is STILL handoff (the remaining markers keep it out of the legacy gate)
+[PASS] [F6A-missing] the strict settlement proof refuses the record as INDECIDABLE (settled-shape-invalid)
+[PASS] [F6A-missing] the structural gate STILL accepts the record (every remaining name is canonical and the fingerprints hold)
+[PASS] [F6A-missing] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F6A-missing] a partial marker set fails the scan closed with the EXACT reason (indecidable settlement)
+[PASS] [F6A-missing] the refused claim never consumes the prepared receipt
+[PASS] [F6A-missing] control: the complete marker set restored, the SAME root admits the claim again
+[PASS] [F6A-missing] no Executor call in the missing-marker scenario
+[PASS] [F] fixture goal created hf-goal-fix6a-xga
+[PASS] [F] fixture goal active hf-goal-fix6a-xga
+[PASS] [F] fixture goal owned hf-goal-fix6a-xga
+[PASS] [F] kernel task created hf-task-fix6a-xga
+[PASS] [F] task attached hf-task-fix6a-xga
+[PASS] [S] intent built fix6a-xga
+[PASS] [S] prepared fix6a-xga
+[PASS] [S] claimed fix6a-xga
+[PASS] [F6A-cross] the goal-A fixture settled (known settlement)
+[PASS] [F] fixture goal created hf-goal-fix6a-xgb
+[PASS] [F] fixture goal active hf-goal-fix6a-xgb
+[PASS] [F] fixture goal owned hf-goal-fix6a-xgb
+[PASS] [F] kernel task created hf-task-fix6a-xgb
+[PASS] [F] task attached hf-task-fix6a-xgb
+[PASS] [S] intent built fix6a-xgb
+[PASS] [S] prepared fix6a-xgb
+[PASS] [S] claimed fix6a-xgb
+[PASS] [F6A-cross] the goal-B fixture settled (known settlement)
+[PASS] [F6A-cross] the reference receipt carries the task id of its OWN goal
+[PASS] [F6A-cross] fixture forged the settled task_id into ANOTHER goal task id (hashes untouched)
+[PASS] [F6A-cross] the forged receipt still carries handoff markers (never read as legacy)
+[PASS] [F6A-cross] the recalculated semantic integrity REFUSES the forged task_id (the intent fingerprint covers the task)
+[PASS] [F6A-cross] a second effect on the ORIGINAL task can still be PREPARED (prepare is not an effect)
+[PASS] [F6A-cross] the ORIGINAL task stays RESERVED: the scan fails closed on the forged record
+[PASS] [F6A-cross] a second effect on the FORGED-ID task can still be PREPARED (prepare is not an effect)
+[PASS] [F6A-cross] the goal whose id was FORGED also stays RESERVED (the forgery is not a proven settlement of that goal)
+[PASS] [F6A-cross] the refused claim never consumes the prepared receipt of the original task
+[PASS] [F6A-cross] control: the exact receipt restored, the ORIGINAL goal task is released again
+[PASS] [F6A-cross] control: with the forgery gone, the OTHER goal task is released again too
+[PASS] [F6A-cross] no Executor call in the cross-goal forgery scenario
+[PASS] [F6B-marker] the handoff-exclusive name SETTLE_STATUS in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name Settle_Child_Session_Id in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name SETTLE_ATTEMPT_STATUS in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name settle_EVIDENCE_ID in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name Claim_Call_Id in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name CLAIM_PREPARED_FINGERPRINT in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name CLAIMED_BY in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name Claimed_Generation in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name CLAIMED_AT in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name Prepared_By in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name PREPARED_GENERATION in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name Prepared_Fingerprint in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name SESSION_ID in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name REFERENCE in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name SETTLED_BY in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] the handoff-exclusive name Settled_Generation in ALTERED CASE is still classified as HANDOFF
+[PASS] [F6B-marker] a PARTIAL marker set whose names are ALL in altered case is still classified as HANDOFF
+[PASS] [F6B-marker] a name that is EXACTLY the handoff prefix (settle_) is marked, never downgraded
+[PASS] [F6B-marker] a name that is EXACTLY the handoff prefix (prepared_) is marked, never downgraded
+[PASS] [F6B-marker] a record whose UPPERCASE names are ALL legacy fields carries NO handoff marker (the set stays exact)
+[PASS] [F] fixture goal created hf-goal-fix6b-case
+[PASS] [F] fixture goal active hf-goal-fix6b-case
+[PASS] [F] fixture goal owned hf-goal-fix6b-case
+[PASS] [F] kernel task created hf-task-fix6b-case
+[PASS] [F] task attached hf-task-fix6b-case
+[PASS] [S] intent built fix6b-case
+[PASS] [S] prepared fix6b-case
+[PASS] [S] claimed fix6b-case
+[PASS] [F6B-case] the isolated fixture settled (known settlement)
+[PASS] [F6B-case] the reference receipt is a CANONICAL settled handoff receipt
+[PASS] [F6B-case] fixture renamed handoff markers to ALTERED CASE with every VALUE untouched
+[PASS] [F6B-case] the ALTERED-CASE record is STILL classified as HANDOFF (marker detection is case-insensitive)
+[PASS] [F6B-case] the altered-case names are NOT canonical (this is not the record the settlement wrote)
+[PASS] [F6B-case] the closed structural gate refuses the altered-case marked record with the EXACT reason
+[PASS] [F6B-case] a second effect on the same task can still be PREPARED (prepare is not an effect)
+[PASS] [F6B-case] the cross-key CLAIM is refused fail-closed with the EXACT scan class (never released as legacy)
+[PASS] [F6B-case] the refused claim never consumes the prepared receipt
+[PASS] [F6B-case] the refused claim wrote nothing in the kernel
+[PASS] [F6B-case] the cross-key legacy Invoke is refused by the SAME scan with 0 executor calls
+[PASS] [F6B-case] the refused legacy key persisted nothing
+[PASS] [F6B-case] no Executor call from any operation in the altered-case scenario
+[PASS] [F6B-case] control: the EXACT record restored, the legacy Invoke is admitted again (the refusal was attributable to the record)
+[PASS] [F6B-case] control: a fresh prepare on the SAME root is admitted with the EXACT record restored
+[PASS] [F6B-case] control: the EXACT record restored, the SAME root admits the claim again
+[PASS] [F6B-case] the local legacy spy took the call, never the global one
+[PASS] [F6B-hybrid] a second effect on the hybrid root can still be PREPARED (prepare is not an effect)
+[PASS] [F6B-hybrid] the isolated root holds ONLY the prepared receipt (no other pending/claimed receipt shares the root)
+[PASS] [F6B-hybrid] fixture stripped the settlement lineage AND renamed the surviving markers to altered case
+[PASS] [F6B-hybrid] the hybrid with ALTERED-CASE markers STILL carries handoff markers (never legacy)
+[PASS] [F6B-hybrid] the altered-case names are NOT canonical
+[PASS] [F6B-hybrid] the hybrid keeps the legacy-looking kernel_ok=true (the value the legacy gate would release on)
+[PASS] [F6B-hybrid] the strict proof refuses the hybrid as INDECIDABLE (settled-shape-invalid)
+[PASS] [F6B-hybrid] the semantic integrity still holds (only names/fields changed - not a semantic tamper)
+[PASS] [F6B-hybrid] the closed structural gate refuses the altered-case hybrid with the EXACT reason
+[PASS] [F6B-hybrid] the HYBRID claim is refused fail-closed with the EXACT scan class (indecidable, never released as legacy)
+[PASS] [F6B-hybrid] the refused hybrid claim never consumes the prepared receipt
+[PASS] [F6B-hybrid] the refused claim wrote nothing in the kernel
+[PASS] [F6B-hybrid] the cross-key legacy Invoke is refused by the SAME scan with no new executor call
+[PASS] [F6B-hybrid] control: the EXACT record restored is a canonical, proven settled handoff receipt again
+[PASS] [F6B-hybrid] control: the EXACT record restored, the SAME root admits the claim again
+[PASS] [F6B-hybrid] no Executor call in the altered-case hybrid scenario
+[PASS] [F6B-dup] a second effect on the duplicate-key root can still be PREPARED (prepare is not an effect)
+[PASS] [F6B-dup] fixture wrote the SAME settled record with a case-duplicated semantic key (handoff_state + HANDOFF_STATE)
+[PASS] [F6B-dup] the case-duplicated key makes the receipt UNPARSEABLE (fail-closed at parse, never half-read)
+[PASS] [F6B-dup] the duplicate-key record fails the scan closed with the EXACT reason (unattributable, never half-read)
+[PASS] [F6B-dup] the refused claim never consumes the prepared receipt
+[PASS] [F6B-dup] control: the EXACT record restored, the SAME root admits the claim again
+[PASS] [F6B-dup] no Executor call in the duplicate-key scenario
+[PASS] [F6C-marker] a structurally valid LEGACY settled receipt (no handoff marker at all) is still NOT marked
+[PASS] [F6C-marker] the handoff-exclusive name base_revision as the SOLE surviving marker in a legacy-shaped record is classified as HANDOFF (never legacy)
+[PASS] [F6C-marker] the same name in ALTERED CASE (BASE_REVISION) is still classified as HANDOFF (any surviving marker means handoff)
+[PASS] [F6C-marker] the altered-case name is NOT canonical - the CASE gate rejects it, never the legacy gate
+[PASS] [F6C-marker] the handoff-exclusive name prompt_hash as the SOLE surviving marker in a legacy-shaped record is classified as HANDOFF (never legacy)
+[PASS] [F6C-marker] the same name in ALTERED CASE (PROMPT_HASH) is still classified as HANDOFF (any surviving marker means handoff)
+[PASS] [F6C-marker] the altered-case name is NOT canonical - the CASE gate rejects it, never the legacy gate
+[PASS] [F6C-marker] the handoff-exclusive name scope as the SOLE surviving marker in a legacy-shaped record is classified as HANDOFF (never legacy)
+[PASS] [F6C-marker] the same name in ALTERED CASE (SCOPE) is still classified as HANDOFF (any surviving marker means handoff)
+[PASS] [F6C-marker] the altered-case name is NOT canonical - the CASE gate rejects it, never the legacy gate
+[PASS] [F6C-marker] the handoff-exclusive name acceptance_criteria as the SOLE surviving marker in a legacy-shaped record is classified as HANDOFF (never legacy)
+[PASS] [F6C-marker] the same name in ALTERED CASE (ACCEPTANCE_CRITERIA) is still classified as HANDOFF (any surviving marker means handoff)
+[PASS] [F6C-marker] the altered-case name is NOT canonical - the CASE gate rejects it, never the legacy gate
+[PASS] [F6C-marker] the handoff-exclusive name external_idempotency_proof as the SOLE surviving marker in a legacy-shaped record is classified as HANDOFF (never legacy)
+[PASS] [F6C-marker] the same name in ALTERED CASE (EXTERNAL_IDEMPOTENCY_PROOF) is still classified as HANDOFF (any surviving marker means handoff)
+[PASS] [F6C-marker] the altered-case name is NOT canonical - the CASE gate rejects it, never the legacy gate
+[PASS] [F6C-marker] the handoff-exclusive name prepared_fingerprint as the SOLE surviving marker in a legacy-shaped record is classified as HANDOFF (never legacy)
+[PASS] [F6C-marker] the same name in ALTERED CASE (PREPARED_FINGERPRINT) is still classified as HANDOFF (any surviving marker means handoff)
+[PASS] [F6C-marker] the altered-case name is NOT canonical - the CASE gate rejects it, never the legacy gate
+[PASS] [F] fixture goal created hf-goal-fix6c-sole
+[PASS] [F] fixture goal active hf-goal-fix6c-sole
+[PASS] [F] fixture goal owned hf-goal-fix6c-sole
+[PASS] [F] kernel task created hf-task-fix6c-sole
+[PASS] [F] task attached hf-task-fix6c-sole
+[PASS] [F6C-sole] the swap target is a DIFFERENT, kernel-VALID task id
+[PASS] [F6C-sole/base_revision] the kept hash is a 32-hex intent fingerprint of the ORIGINAL task (hashes intact)
+[PASS] [F6C-sole/base_revision] the fixture is a settled receipt in LEGACY shape with the task_id swapped to another VALID id
+[PASS] [F6C-sole/base_revision] the record with the SOLE surviving marker is classified as HANDOFF (never legacy)
+[PASS] [F6C-sole/base_revision] the sole marker name is canonical (the case gate is not the reason for any refusal here)
+[PASS] [F6C-sole/base_revision] the structural gate fails closed on the marked record BEFORE any task attribution (exact reason)
+[PASS] [F6C-sole/base_revision] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F6C-sole/base_revision] the ORIGINAL task stays RESERVED: the cross-key CLAIM is denied fail-closed with the EXACT scan class (no second effect)
+[PASS] [F6C-sole/base_revision] the denied claim never consumes the prepared receipt
+[PASS] [F6C-sole/base_revision] the denied claim wrote nothing in the kernel
+[PASS] [F6C-sole/base_revision] the cross-key legacy Invoke is denied by the SAME scan with 0 executor calls
+[PASS] [F6C-sole/base_revision] the denied legacy key persisted nothing
+[PASS] [F6C-sole/base_revision] no Executor call from any operation in the sole-marker scenario
+[PASS] [F6C-sole/prompt_hash] the kept hash is a 32-hex intent fingerprint of the ORIGINAL task (hashes intact)
+[PASS] [F6C-sole/prompt_hash] the fixture is a settled receipt in LEGACY shape with the task_id swapped to another VALID id
+[PASS] [F6C-sole/prompt_hash] the record with the SOLE surviving marker is classified as HANDOFF (never legacy)
+[PASS] [F6C-sole/prompt_hash] the sole marker name is canonical (the case gate is not the reason for any refusal here)
+[PASS] [F6C-sole/prompt_hash] the structural gate fails closed on the marked record BEFORE any task attribution (exact reason)
+[PASS] [F6C-sole/prompt_hash] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F6C-sole/prompt_hash] the ORIGINAL task stays RESERVED: the cross-key CLAIM is denied fail-closed with the EXACT scan class (no second effect)
+[PASS] [F6C-sole/prompt_hash] the denied claim never consumes the prepared receipt
+[PASS] [F6C-sole/prompt_hash] the denied claim wrote nothing in the kernel
+[PASS] [F6C-sole/prompt_hash] the cross-key legacy Invoke is denied by the SAME scan with 0 executor calls
+[PASS] [F6C-sole/prompt_hash] the denied legacy key persisted nothing
+[PASS] [F6C-sole/prompt_hash] no Executor call from any operation in the sole-marker scenario
+[PASS] [F6C-sole/scope] the kept hash is a 32-hex intent fingerprint of the ORIGINAL task (hashes intact)
+[PASS] [F6C-sole/scope] the fixture is a settled receipt in LEGACY shape with the task_id swapped to another VALID id
+[PASS] [F6C-sole/scope] the record with the SOLE surviving marker is classified as HANDOFF (never legacy)
+[PASS] [F6C-sole/scope] the sole marker name is canonical (the case gate is not the reason for any refusal here)
+[PASS] [F6C-sole/scope] the structural gate fails closed on the marked record BEFORE any task attribution (exact reason)
+[PASS] [F6C-sole/scope] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F6C-sole/scope] the ORIGINAL task stays RESERVED: the cross-key CLAIM is denied fail-closed with the EXACT scan class (no second effect)
+[PASS] [F6C-sole/scope] the denied claim never consumes the prepared receipt
+[PASS] [F6C-sole/scope] the denied claim wrote nothing in the kernel
+[PASS] [F6C-sole/scope] the cross-key legacy Invoke is denied by the SAME scan with 0 executor calls
+[PASS] [F6C-sole/scope] the denied legacy key persisted nothing
+[PASS] [F6C-sole/scope] no Executor call from any operation in the sole-marker scenario
+[PASS] [F6C-sole/acceptance_criteria] the kept hash is a 32-hex intent fingerprint of the ORIGINAL task (hashes intact)
+[PASS] [F6C-sole/acceptance_criteria] the fixture is a settled receipt in LEGACY shape with the task_id swapped to another VALID id
+[PASS] [F6C-sole/acceptance_criteria] the record with the SOLE surviving marker is classified as HANDOFF (never legacy)
+[PASS] [F6C-sole/acceptance_criteria] the sole marker name is canonical (the case gate is not the reason for any refusal here)
+[PASS] [F6C-sole/acceptance_criteria] the structural gate fails closed on the marked record BEFORE any task attribution (exact reason)
+[PASS] [F6C-sole/acceptance_criteria] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F6C-sole/acceptance_criteria] the ORIGINAL task stays RESERVED: the cross-key CLAIM is denied fail-closed with the EXACT scan class (no second effect)
+[PASS] [F6C-sole/acceptance_criteria] the denied claim never consumes the prepared receipt
+[PASS] [F6C-sole/acceptance_criteria] the denied claim wrote nothing in the kernel
+[PASS] [F6C-sole/acceptance_criteria] the cross-key legacy Invoke is denied by the SAME scan with 0 executor calls
+[PASS] [F6C-sole/acceptance_criteria] the denied legacy key persisted nothing
+[PASS] [F6C-sole/acceptance_criteria] no Executor call from any operation in the sole-marker scenario
+[PASS] [F6C-sole/external_idempotency_proof] the kept hash is a 32-hex intent fingerprint of the ORIGINAL task (hashes intact)
+[PASS] [F6C-sole/external_idempotency_proof] the fixture is a settled receipt in LEGACY shape with the task_id swapped to another VALID id
+[PASS] [F6C-sole/external_idempotency_proof] the record with the SOLE surviving marker is classified as HANDOFF (never legacy)
+[PASS] [F6C-sole/external_idempotency_proof] the sole marker name is canonical (the case gate is not the reason for any refusal here)
+[PASS] [F6C-sole/external_idempotency_proof] the structural gate fails closed on the marked record BEFORE any task attribution (exact reason)
+[PASS] [F6C-sole/external_idempotency_proof] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F6C-sole/external_idempotency_proof] the ORIGINAL task stays RESERVED: the cross-key CLAIM is denied fail-closed with the EXACT scan class (no second effect)
+[PASS] [F6C-sole/external_idempotency_proof] the denied claim never consumes the prepared receipt
+[PASS] [F6C-sole/external_idempotency_proof] the denied claim wrote nothing in the kernel
+[PASS] [F6C-sole/external_idempotency_proof] the cross-key legacy Invoke is denied by the SAME scan with 0 executor calls
+[PASS] [F6C-sole/external_idempotency_proof] the denied legacy key persisted nothing
+[PASS] [F6C-sole/external_idempotency_proof] no Executor call from any operation in the sole-marker scenario
+[PASS] [F6C-sole/prepared_fingerprint] the kept hash is a 32-hex intent fingerprint of the ORIGINAL task (hashes intact)
+[PASS] [F6C-sole/prepared_fingerprint] the fixture is a settled receipt in LEGACY shape with the task_id swapped to another VALID id
+[PASS] [F6C-sole/prepared_fingerprint] the record with the SOLE surviving marker is classified as HANDOFF (never legacy)
+[PASS] [F6C-sole/prepared_fingerprint] the sole marker name is canonical (the case gate is not the reason for any refusal here)
+[PASS] [F6C-sole/prepared_fingerprint] the structural gate fails closed on the marked record BEFORE any task attribution (exact reason)
+[PASS] [F6C-sole/prepared_fingerprint] a second effect on the original task can still be PREPARED (prepare is not an effect)
+[PASS] [F6C-sole/prepared_fingerprint] the ORIGINAL task stays RESERVED: the cross-key CLAIM is denied fail-closed with the EXACT scan class (no second effect)
+[PASS] [F6C-sole/prepared_fingerprint] the denied claim never consumes the prepared receipt
+[PASS] [F6C-sole/prepared_fingerprint] the denied claim wrote nothing in the kernel
+[PASS] [F6C-sole/prepared_fingerprint] the cross-key legacy Invoke is denied by the SAME scan with 0 executor calls
+[PASS] [F6C-sole/prepared_fingerprint] the denied legacy key persisted nothing
+[PASS] [F6C-sole/prepared_fingerprint] no Executor call from any operation in the sole-marker scenario
+[PASS] [F6C-control] a genuinely LEGACY settled receipt (no marker at all) is NOT marked (own compatibility path)
+[PASS] [F6C-control] a second key of the LEGACY task prepares
+[PASS] [F6C-control] a genuinely legacy settled receipt still RELEASES the reservation in the same root (never dragged into the handoff gate)
+[PASS] [F] fixture goal created hf-goal-fix6c-ok
+[PASS] [F] fixture goal active hf-goal-fix6c-ok
+[PASS] [F] fixture goal owned hf-goal-fix6c-ok
+[PASS] [F] kernel task created hf-task-fix6c-ok
+[PASS] [F] task attached hf-task-fix6c-ok
+[PASS] [S] intent built fix6c-ok
+[PASS] [S] prepared fix6c-ok
+[PASS] [S] claimed fix6c-ok
+[PASS] [F6C-control] the unrelated fixture settled (known settlement)
+[PASS] [F6C-control] the unrelated settlement is a CANONICAL, PROVEN settled handoff receipt
+[PASS] [F6C-control] a second key of the unrelated task prepares
+[PASS] [F6C-control] a VALID unrelated handoff-settled receipt does NOT block (proven, then released)
+[PASS] [F6C] no Executor call anywhere in the omitted-exclusive-names group
+[PASS] [G] the ORIGINAL Write-NDReceipt is restored after the writer-fault scenarios
+[PASS] [F] fixture goal created hf-goal-g1a1
+[PASS] [F] fixture goal active hf-goal-g1a1
+[PASS] [F] fixture goal owned hf-goal-g1a1
+[PASS] [F] kernel task created hf-task-g1a1
+[PASS] [F] task attached hf-task-g1a1
+[PASS] [G1] intent built g1a1
+[PASS] [G1] prepared g1a1
+[PASS] [A1] the claim committed without any admission/provenance opt-in (default unchanged)
+[PASS] [A1] strict without proof refuses the settlement before evidence/kernel
+[PASS] [A1] the receipt stays claimed with the task reservation held
+[PASS] [A1] no evidence line was created by the refused strict settle
+[PASS] [F] fixture goal created hf-goal-g1a2
+[PASS] [F] fixture goal active hf-goal-g1a2
+[PASS] [F] fixture goal owned hf-goal-g1a2
+[PASS] [F] kernel task created hf-task-g1a2
+[PASS] [F] task attached hf-task-g1a2
+[PASS] [G1] intent built g1a2
+[PASS] [G1] prepared g1a2
+[PASS] [A2] claimed
+[PASS] [A2] a nonexistent child session is refused in strict mode
+[PASS] [F] fixture goal created hf-goal-g1a3
+[PASS] [F] fixture goal active hf-goal-g1a3
+[PASS] [F] fixture goal owned hf-goal-g1a3
+[PASS] [F] kernel task created hf-task-g1a3
+[PASS] [F] task attached hf-task-g1a3
+[PASS] [G1] intent built g1a3
+[PASS] [G1] prepared g1a3
+[PASS] [A3] claimed
+[PASS] [A3] a wrong parent session is refused
+[PASS] [F] fixture goal created hf-goal-g1a4
+[PASS] [F] fixture goal active hf-goal-g1a4
+[PASS] [F] fixture goal owned hf-goal-g1a4
+[PASS] [F] kernel task created hf-task-g1a4
+[PASS] [F] task attached hf-task-g1a4
+[PASS] [G1] intent built g1a4
+[PASS] [G1] prepared g1a4
+[PASS] [A4] claimed
+[PASS] [A4] a nonexistent host call id is refused
+[PASS] [F] fixture goal created hf-goal-g1a5
+[PASS] [F] fixture goal active hf-goal-g1a5
+[PASS] [F] fixture goal owned hf-goal-g1a5
+[PASS] [F] kernel task created hf-task-g1a5
+[PASS] [F] task attached hf-task-g1a5
+[PASS] [G1] intent built g1a5
+[PASS] [G1] prepared g1a5
+[PASS] [A5] claimed
+[PASS] [A5] an evidence ref tampered after the claim is refused (never tier-capped into success)
+[PASS] [F] fixture goal created hf-goal-g1a6
+[PASS] [F] fixture goal active hf-goal-g1a6
+[PASS] [F] fixture goal owned hf-goal-g1a6
+[PASS] [F] kernel task created hf-task-g1a6
+[PASS] [F] task attached hf-task-g1a6
+[PASS] [G1] intent built g1a6
+[PASS] [G1] prepared g1a6
+[PASS] [A6] claimed
+[PASS] [A6] a single independent host source binds as tier observed
+[PASS] [A6] two independent sources bind as tier corroborated
+[PASS] [A6] a bare declaration binds as tier declared
+[PASS] [A6] a valid bound proof allows the settlement in strict mode
+[PASS] [A6] the settled receipt records settle_provenance_tier + settle_provenance_source
+[PASS] [A6] the settled receipt still proves the handoff with the provenance fields added
+[PASS] [F] fixture goal created hf-goal-g1a6c
+[PASS] [F] fixture goal active hf-goal-g1a6c
+[PASS] [F] fixture goal owned hf-goal-g1a6c
+[PASS] [F] kernel task created hf-task-g1a6c
+[PASS] [F] task attached hf-task-g1a6c
+[PASS] [G1] intent built g1a6c
+[PASS] [G1] prepared g1a6c
+[PASS] [A6c] claimed
+[PASS] [A6c] without strict/proof the settlement is unchanged (no new refusal)
+[PASS] [A6c] the default receipt carries no provenance field (byte-level default preserved)
+[PASS] [F] fixture goal created hf-goal-g1a7
+[PASS] [F] fixture goal active hf-goal-g1a7
+[PASS] [F] fixture goal owned hf-goal-g1a7
+[PASS] [F] kernel task created hf-task-g1a7
+[PASS] [F] task attached hf-task-g1a7
+[PASS] [G1] intent built g1a7
+[PASS] [G1] prepared g1a7
+[PASS] [A7] claimed
+[PASS] [A7] a concordant tuple with source declared is refused in strict mode (declaration is never proof)
+[PASS] [A7] strict binding refuses the declared tier directly
+[PASS] [F] fixture goal created hf-goal-g1a8
+[PASS] [F] fixture goal active hf-goal-g1a8
+[PASS] [F] fixture goal owned hf-goal-g1a8
+[PASS] [F] kernel task created hf-task-g1a8
+[PASS] [F] task attached hf-task-g1a8
+[PASS] [G1] intent built g1a8
+[PASS] [G1] prepared g1a8
+[PASS] [A8] claimed
+[PASS] [A8] strict refuses a proof without claimed_evidence (no skip on absence)
+[PASS] [A8] strict binding requires the result refs directly
+[PASS] [F] fixture goal created hf-goal-g1a9
+[PASS] [F] fixture goal active hf-goal-g1a9
+[PASS] [F] fixture goal owned hf-goal-g1a9
+[PASS] [F] kernel task created hf-task-g1a9
+[PASS] [F] task attached hf-task-g1a9
+[PASS] [G1] intent built g1a9
+[PASS] [G1] prepared g1a9
+[PASS] [A9] claimed
+[PASS] [A9] the declared settlement succeeded without strict
+[PASS] [A9] a strict replay of a declared settlement is refused (replay never invents provenance)
+[PASS] [F] fixture goal created hf-goal-g1b1
+[PASS] [F] fixture goal active hf-goal-g1b1
+[PASS] [F] fixture goal owned hf-goal-g1b1
+[PASS] [F] kernel task created hf-task-g1b1
+[PASS] [F] task attached hf-task-g1b1
+[PASS] [G1] intent built g1b1
+[PASS] [G1] prepared g1b1
+[PASS] [B1] the claim accepted with the admission opt-in
+[PASS] [B1] the admission file exists under <goal-namespace>/admission/<key>.admission.json
+[FAIL] [B1] a live admission with matching (session, call, agent) allows -- reason=admission-shape-invalid
+[PASS] [B1] the receipt is claimed (the admission did not change the receipt phase)
+[PASS] [F] fixture goal created hf-goal-g1b2
+[PASS] [F] fixture goal active hf-goal-g1b2
+[PASS] [F] fixture goal owned hf-goal-g1b2
+[PASS] [F] kernel task created hf-task-g1b2
+[PASS] [F] task attached hf-task-g1b2
+[PASS] [G1] intent built g1b2
+[PASS] [G1] prepared g1b2
+[PASS] [B2] only PREPARE ran (no claim, no effect)
+[PASS] [B2] no admission file exists without a claim
+[PASS] [B2] absent admission denies (fail-closed)
+[PASS] [B3] an expired admission denies
+[PASS] [B4] a stale ownership generation denies
+[FAIL] [B5] another goal denies -- reason=admission-shape-invalid
+[PASS] [B6] an unauthorized model override denies
+[PASS] [B6] an unauthorized provider override denies
+[PASS] [B7] a legitimate operation (tuple + authorized model/provider) allows
+[PASS] [B7] another session denies (the tuple is what allows)
+[PASS] [F] fixture goal created hf-goal-g1b8
+[PASS] [F] fixture goal active hf-goal-g1b8
+[PASS] [F] fixture goal owned hf-goal-g1b8
+[PASS] [F] kernel task created hf-task-g1b8
+[PASS] [F] task attached hf-task-g1b8
+[PASS] [G1] intent built g1b8
+[PASS] [G1] prepared g1b8
+[PASS] [B8] the claim wrote a live admission
+[PASS] [B8] the settlement succeeded and released the reservation
+[PASS] [B8] the settled dispatch no longer has a live admission (released)
+[PASS] [B8] a released admission denies the next dispatch of the same key
+[PASS] [F] fixture goal created hf-goal-g1b8c
+[PASS] [F] fixture goal active hf-goal-g1b8c
+[PASS] [F] fixture goal owned hf-goal-g1b8c
+[PASS] [F] kernel task created hf-task-g1b8c
+[PASS] [F] task attached hf-task-g1b8c
+[PASS] [G1] intent built g1b8c
+[PASS] [G1] prepared g1b8c
+[PASS] [B8c] claimed without the admission opt-in
+[PASS] [B8c] no admission file is written without -EmitAdmission (default unchanged)
+[PASS] [B8c] the settle without -EmitAdmission still succeeds
+[PASS] [F] fixture goal created hf-goal-g1b9
+[PASS] [F] fixture goal active hf-goal-g1b9
+[PASS] [F] fixture goal owned hf-goal-g1b9
+[PASS] [F] kernel task created hf-task-g1b9
+[PASS] [F] task attached hf-task-g1b9
+[PASS] [G1] intent built g1b9
+[PASS] [G1] prepared g1b9
+[PASS] [B9] the claim wrote the admission after the durable commit
+[PASS] [B9] the admission file was removed to simulate a post-commit loss
+[PASS] [B9] an identical retry regenerates the admission (idempotent repair, no new effect)
+[PASS] [B9] a divergent retry of a consumed claim is still refused
+[PASS] [F] fixture goal created hf-goal-g1b9t
+[PASS] [F] fixture goal active hf-goal-g1b9t
+[PASS] [F] fixture goal owned hf-goal-g1b9t
+[PASS] [F] kernel task created hf-task-g1b9t
+[PASS] [F] task attached hf-task-g1b9t
+[PASS] [G1] intent built g1b9t
+[PASS] [G1] prepared g1b9t
+[PASS] [B9t] claimed with admission under planner-1
+[PASS] [B9t] the lease was shrunk to force expiry
+[PASS] [B9t] the takeover to planner-2 succeeded
+[PASS] [B9t] the new owner retry with the old tuple does not reauthorize the old claim
+[PASS] [B9t] no admission was regenerated across the ownership change
+[PASS] [F] fixture goal created hf-goal-g1b9r
+[PASS] [F] fixture goal active hf-goal-g1b9r
+[PASS] [F] fixture goal owned hf-goal-g1b9r
+[PASS] [F] kernel task created hf-task-g1b9r
+[PASS] [F] task attached hf-task-g1b9r
+[PASS] [G1] intent built g1b9r
+[PASS] [G1] prepared g1b9r
+[PASS] [B9r] claimed with a model restriction
+[PASS] [B9r] the identical retry regenerates the admission
+[PASS] [B9r] the regenerated admission keeps the RECORDED restriction (retry never loosens scope)
+[FAIL] [B9r] the swapped model still denies against the recorded restriction -- reason=admission-shape-invalid
+[PASS] [F] fixture goal created hf-goal-g1b10
+[PASS] [F] fixture goal active hf-goal-g1b10
+[PASS] [F] fixture goal owned hf-goal-g1b10
+[PASS] [F] kernel task created hf-task-g1b10
+[PASS] [F] task attached hf-task-g1b10
+[PASS] [G1] intent built g1b10
+[PASS] [G1] prepared g1b10
+[PASS] [B10] claimed with admission
+[PASS] [B10] the admission exists before settlement
+[PASS] [B10] the settle without -EmitAdmission still succeeds
+[PASS] [B10] the admission is released even when the settle carries no opt-in (unconditional removal)
+[PASS] [B11] an empty model/provider restriction constrains nothing (parity PS/JS)
+[PASS] [B11] a filled model restriction with omitted invocation model denies (no bypass by omission)
+[PASS] [B11] a matching expected owner allows
+[PASS] [B11] a divergent expected owner denies
+[PASS] [B11] a non-ACTIVE recorded goal state denies
+[PASS] [F] fixture goal created hf-goal-g1d0
+[PASS] [F] fixture goal active hf-goal-g1d0
+[PASS] [F] fixture goal owned hf-goal-g1d0
+[PASS] [F] kernel task created hf-task-g1d0
+[PASS] [F] task attached hf-task-g1d0
+[PASS] [F] kernel task created hf-task-g1d0-next
+[PASS] [F] task attached hf-task-g1d0-next
+[PASS] [G1-D] next intent built g1d0
+[PASS] [D0] a fabricated settled key never advances (no prior settlement, no prepare)
+[PASS] [F] fixture goal created hf-goal-g1d1
+[PASS] [F] fixture goal active hf-goal-g1d1
+[PASS] [F] fixture goal owned hf-goal-g1d1
+[PASS] [F] kernel task created hf-task-g1d1
+[PASS] [F] task attached hf-task-g1d1
+[PASS] [F] kernel task created hf-task-g1d1-next
+[PASS] [F] task attached hf-task-g1d1-next
+[PASS] [G1-D] next intent built g1d1
+[PASS] [G1-D] first intent built g1d1
+[PASS] [G1-D] first task prepared g1d1
+[PASS] [G1-D] first task claimed g1d1
+[PASS] [G1-D] first task settled g1d1
+[PASS] [D1] CONTINUE prepares the next task and returns the new idempotency key
+[PASS] [D1] the returned key is the PREPAREd one
+[PASS] [D1] the advance decision is persisted with the prepared next key
+[PASS] [D1] replaying the settled key returns the stored decision without preparing again
+[PASS] [F] fixture goal created hf-goal-g1d1c
+[PASS] [F] fixture goal active hf-goal-g1d1c
+[PASS] [F] fixture goal owned hf-goal-g1d1c
+[PASS] [F] kernel task created hf-task-g1d1c
+[PASS] [F] task attached hf-task-g1d1c
+[PASS] [F] kernel task created hf-task-g1d1c-next
+[PASS] [F] task attached hf-task-g1d1c-next
+[PASS] [G1-D] next intent built g1d1c
+[PASS] [G1-D] first intent built g1d1c
+[PASS] [G1-D] first task prepared g1d1c
+[PASS] [G1-D] first task claimed g1d1c
+[PASS] [G1-D] first task settled g1d1c
+[PASS] [D1c] the advance dir resolves
+[PASS] [D1c] the test holds the advance lock
+[PASS] [D1c] a contended advance refuses without preparing (one decision per settlement)
+[PASS] [D1c] the refused contended advance persisted no decision
+[PASS] [F] fixture goal created hf-goal-g1d1d
+[PASS] [F] fixture goal active hf-goal-g1d1d
+[PASS] [F] fixture goal owned hf-goal-g1d1d
+[PASS] [F] kernel task created hf-task-g1d1d
+[PASS] [F] task attached hf-task-g1d1d
+[PASS] [F] kernel task created hf-task-g1d1d-next
+[PASS] [F] task attached hf-task-g1d1d-next
+[PASS] [G1-D] next intent built g1d1d
+[PASS] [G1-D] first intent built g1d1d
+[PASS] [G1-D] first task prepared g1d1d
+[PASS] [G1-D] first task claimed g1d1d
+[PASS] [G1-D] first task settled g1d1d
+[PASS] [D1d] a pending record simulates the pre-PREPARE crash
+[PASS] [D1d] a pending record recovers with a fresh attempt (never replays empty success)
+[PASS] [F] fixture goal created hf-goal-g1d2
+[PASS] [F] fixture goal active hf-goal-g1d2
+[PASS] [F] fixture goal owned hf-goal-g1d2
+[PASS] [F] kernel task created hf-task-g1d2
+[PASS] [F] task attached hf-task-g1d2
+[PASS] [F] kernel task created hf-task-g1d2-next
+[PASS] [F] task attached hf-task-g1d2-next
+[PASS] [G1-D] next intent built g1d2
+[PASS] [G1-D] first intent built g1d2
+[PASS] [G1-D] first task prepared g1d2
+[PASS] [G1-D] first task claimed g1d2
+[PASS] [G1-D] first task settled g1d2
+[PASS] [D2] RETRY inside policy prepares the next task
+[PASS] [F] fixture goal created hf-goal-g1d3
+[PASS] [F] fixture goal active hf-goal-g1d3
+[PASS] [F] fixture goal owned hf-goal-g1d3
+[PASS] [F] kernel task created hf-task-g1d3
+[PASS] [F] task attached hf-task-g1d3
+[PASS] [F] kernel task created hf-task-g1d3-next
+[PASS] [F] task attached hf-task-g1d3-next
+[PASS] [G1-D] next intent built g1d3
+[PASS] [G1-D] first intent built g1d3
+[PASS] [G1-D] first task prepared g1d3
+[PASS] [G1-D] first task claimed g1d3
+[PASS] [G1-D] first task settled g1d3
+[PASS] [D3] REPLAN does not prepare blindly
+[PASS] [D3] no idempotency key is minted on REPLAN
+[PASS] [D3] the replan decision is marked in the advance record
+[PASS] [D3] no prepared receipt exists for the next task after REPLAN
+[PASS] [F] fixture goal created hf-goal-g1d4
+[PASS] [F] fixture goal active hf-goal-g1d4
+[PASS] [F] fixture goal owned hf-goal-g1d4
+[PASS] [F] kernel task created hf-task-g1d4
+[PASS] [F] task attached hf-task-g1d4
+[PASS] [F] kernel task created hf-task-g1d4-next
+[PASS] [F] task attached hf-task-g1d4-next
+[PASS] [G1-D] next intent built g1d4
+[PASS] [G1-D] first intent built g1d4
+[PASS] [G1-D] first task prepared g1d4
+[PASS] [G1-D] first task claimed g1d4
+[PASS] [G1-D] first task settled g1d4
+[PASS] [D4] a refused live admission blocks the advance without preparing
+[PASS] [F] fixture goal created hf-goal-g1d5
+[PASS] [F] fixture goal active hf-goal-g1d5
+[PASS] [F] fixture goal owned hf-goal-g1d5
+[PASS] [F] kernel task created hf-task-g1d5
+[PASS] [F] task attached hf-task-g1d5
+[PASS] [F] kernel task created hf-task-g1d5-next
+[PASS] [F] task attached hf-task-g1d5-next
+[PASS] [G1-D] next intent built g1d5
+[PASS] [G1-D] first intent built g1d5
+[PASS] [G1-D] first task prepared g1d5
+[PASS] [G1-D] first task claimed g1d5
+[PASS] [G1-D] first task settled g1d5
+[PASS] [D5] COMPLETE does not prepare
+[PASS] [D5] without the explicit finalize switch the goal state is untouched
+[PASS] [F] fixture goal created hf-goal-g1d5b
+[PASS] [F] fixture goal active hf-goal-g1d5b
+[PASS] [F] fixture goal owned hf-goal-g1d5b
+[PASS] [F] kernel task created hf-task-g1d5b
+[PASS] [F] task attached hf-task-g1d5b
+[PASS] [F] kernel task created hf-task-g1d5b-next
+[PASS] [F] task attached hf-task-g1d5b-next
+[PASS] [G1-D] next intent built g1d5b
+[PASS] [G1-D] first intent built g1d5b
+[PASS] [G1-D] first task prepared g1d5b
+[PASS] [G1-D] first task claimed g1d5b
+[PASS] [G1-D] first task settled g1d5b
+[PASS] [D5b] COMPLETE with the finalize switch still does not prepare
+[PASS] [D5b] the goal was finalized through the CAS path
+[PASS] [D5c] a terminal goal refuses the next advance (stale)
+[PASS] [F] fixture goal created hf-goal-g1d6
+[PASS] [F] fixture goal active hf-goal-g1d6
+[PASS] [F] fixture goal owned hf-goal-g1d6
+[PASS] [F] kernel task created hf-task-g1d6
+[PASS] [F] task attached hf-task-g1d6
+[PASS] [F] kernel task created hf-task-g1d6-next
+[PASS] [F] task attached hf-task-g1d6-next
+[PASS] [G1-D] next intent built g1d6
+[PASS] [G1-D] first intent built g1d6
+[PASS] [G1-D] first task prepared g1d6
+[PASS] [G1-D] first task claimed g1d6
+[PASS] [G1-D] first task settled g1d6
+[PASS] [D6] an unknown move refuses without preparing
+[PASS] [F] fixture goal created hf-goal-g1d7
+[PASS] [F] fixture goal active hf-goal-g1d7
+[PASS] [F] fixture goal owned hf-goal-g1d7
+[PASS] [F] kernel task created hf-task-g1d7
+[PASS] [F] task attached hf-task-g1d7
+[PASS] [F] kernel task created hf-task-g1d7-next
+[PASS] [F] task attached hf-task-g1d7-next
+[PASS] [G1-D] next intent built g1d7
+[PASS] [D7] the fixture goal left ACTIVE
+[PASS] [D7] a stale goal (not ACTIVE) is revalidated and refuses
+[PASS] [G] no Executor call from Prepare/Claim/Settle beyond the two intentional legacy calls
+[PASS] [G] exactly the TWO intentional legacy-spy calls happened, nothing else
+[SUMMARY] pass=2091 fail=3 skip=0

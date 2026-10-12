@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "record": "native-handoff-permission-evaluate-probe",
+  "date": "2026-10-10",
+  "classification": "exact-binary-live; isolated temporary project; capability probe only",
+  "runtime": {
+    "package": "@opencode/cli",
+    "version": "2.0.23",
+    "binary_sha256": "E8091A74F22A1DF6467134262A55E7DDD215F3C1C8CC4C7988437591A096C974",
+    "plugin_version_reported_by_host": "2.0.23"
+  },
+  "fixture": {
+    "project_and_config": "temporary isolated directories under the approved local temp root",
+    "plugin": "temporary plugin registers ctx.permission.hook('evaluate')",
+    "provider_model": "openai/gpt-6-luna",
+    "global_config_modified": false,
+    "provider_or_credentials_modified": false,
+    "credential_values_recorded": false,
+    "runtime_reported_cost": 0,
+    "billing_cost_verified": false,
+    "runtime_session_store": "existing host OpenCode session database received test-session records; inspected read-only"
+  },
+  "surface_probe": {
+    "permission_evaluate_hook_available": true,
+    "permission_rules_api_available_on_promise_plugin_context": false,
+    "session_get_api_available_on_promise_plugin_context": true,
+    "session_get_location_directory_available": true,
+    "global_plugin_context_project_directory_available": true,
+    "parent_session_id": "ses_edc289438ffe6PChEU55Eql9iz",
+    "parent_subagent_call_id": "call_1aab52b9a54e47efaaa9e4bb7c4c9e75",
+    "child_session_id": "ses_edc2888ecffeQPyqyuJpbdd6hI"
+  },
+  "read_probe": {
+    "parent_session_id": "ses_edc17ec45ffegIBpRLSiwe4ZqQ",
+    "child_session_id": "ses_edc17d9afffe6CiRbkynbhtevI",
+    "child_parent_id_from_session_get": "ses_edc17ec45ffegIBpRLSiwe4ZqQ",
+    "allowed_resource": "allowed.txt",
+    "allowed_effect_before_after": "allow → allow",
+    "allowed_result": "SAFE_ALLOWED_MARKER_42",
+    "denied_resource": "denied.txt",
+    "denied_effect_before_after": "allow → deny",
+    "denial_message": "synthetic-scope-denial",
+    "denied_content_returned": false
+  },
+  "edit_probe": {
+    "parent_session_id": "ses_edc273864ffeHiRd580PWVGbyH",
+    "child_session_id": "ses_edc27288dffe5eC5PpMWDPZtTA",
+    "allowed_resource": "allowed-edit.txt",
+    "allowed_effect_before_after": "allow → allow",
+    "allowed_marker_written_in_temporary_project": true,
+    "denied_resource": "denied-edit.txt",
+    "denied_effect_before_after": "allow → deny",
+    "denial_message": "synthetic-edit-scope-denial",
+    "denied_marker_written": false,
+    "child_session_completed": true
+  },
+  "shell_probe": {
+    "parent_session_id": "ses_edc07008bffeu66fO9dl9xHqjk",
+    "child_session_id": "ses_edc06df61ffeEzYRkl64lIK6Dt",
+    "permission_resource": "Write-Output SHELL_PROBE_MARKER_56",
+    "effect_before_after": "allow → deny",
+    "denial_message": "synthetic-shell-scope-denial",
+    "command_output_or_side_effect": false
+  },
+  "session_lookup_probe": {
+    "parent_session_id": "ses_edc17ec45ffegIBpRLSiwe4ZqQ",
+    "child_session_id": "ses_edc17d9afffe6CiRbkynbhtevI",
+    "ctx_session_get_child_parent_id": "ses_edc17ec45ffegIBpRLSiwe4ZqQ",
+    "ctx_location_project_directory": "temporary project directory; exact user path intentionally omitted"
+  },
+  "proven": [
+    "In the tested OpenCode V2 2.0.23 plugin session, permission.evaluate was available and received child session ID, agent, action, resource, and source message/call IDs.",
+    "For native child read and edit actions, the hook changed the tested out-of-scope resource from allow to deny before the tool returned; in-scope synthetic resources remained allowed.",
+    "For one synthetic native shell command, the hook changed allow to deny before the command produced output.",
+    "ctx.session.get({sessionID: childSessionID}) returned the child parentID matching the before/after parent session in the tested read fixture; the global plugin context exposed the current project directory in the isolated setup.",
+    "The Promise plugin context used by the fixture did not expose ctx.permission.rules."
+  ],
+  "not_proven": [
+    "No production NativeDispatch PREPARE/CLAIM was connected to the permission hook.",
+    "No user/project/runtime grant source was derived or authenticated by this fixture.",
+    "Only one synthetic shell resource was tested; the full shell language, MCP, Code Mode, external directories, plugin unload/absence, hook ordering/mutation, and task-receipt integration were not tested.",
+    "This does not prove general runtime_grant_enforcement; that flag remains OFF/HOLD.",
+    "No V1 result and no OpenCode 2.0.26 compatibility result."
+  ],
+  "event_files": [
+    "native-handoff-permission-hook-probe-2026-10-10-read.jsonl",
+    "native-handoff-permission-hook-probe-2026-10-10-edit.jsonl",
+    "native-handoff-permission-hook-probe-2026-10-10-session-get.jsonl",
+    "native-handoff-permission-hook-probe-2026-10-10-shell-deny.jsonl"
+  ]
+}
