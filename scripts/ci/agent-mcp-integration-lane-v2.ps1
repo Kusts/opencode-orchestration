@@ -539,8 +539,54 @@ function New-LaneProfile([string]$ProfileId) {
     }
     $dbPath = Join-Path $dbDir 'opencode.db'
     $servePw = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
+    # SECFIX(CLOSURE-F1-PR71-SECFFIX): nenhuma credencial materializada aqui.
+    # A importacao de auth.json/account.json (+kv/model/service) foi adiada
+    # para Import-LaneProfileCredentials, chamada SOMENTE apos o gate de
+    # opt-in de modelo (Test-LaneModelKeyAvailable) nos setups de S5/S6/S7.
+    # Caminho sem opt-in nunca toca credencial alguma (fail-closed preservado).
     $authCopied = $false
+    $npmCache = Join-Path $root 'npm-cache'
+    try { if (-not (Test-Path -LiteralPath $npmCache -PathType Container)) { New-Item -ItemType Directory -Path $npmCache -Force | Out-Null } } catch { }
+    $npmRcBlank = Join-Path $root 'npmrc-blank'
+    try { if (-not (Test-Path -LiteralPath $npmRcBlank -PathType Leaf)) { [IO.File]::WriteAllText($npmRcBlank, "# lane-owned blank npmrc`n", (New-Object Text.UTF8Encoding $false)) } } catch { }
+    $servePwEnv = @{
+        XDG_CONFIG_HOME = $xdg
+        XDG_DATA_HOME   = $xdgData
+        XDG_STATE_HOME  = $xdgState
+        XDG_CACHE_HOME  = $xdgCache
+        HOME            = $profHome
+        USERPROFILE     = $profHome
+        OPENCODE_DB     = $dbPath
+        OPENCODE_PASSWORD = $servePw
+        npm_config_cache = $npmCache
+        npm_config_userconfig = $npmRcBlank
+    }
+    $servePw = ''
+    return [ordered]@{
+        id       = $ProfileId
+        root     = $root
+        xdg      = $xdg
+        home     = $profHome
+        cwd      = $cwd
+        db       = $dbPath
+        cfg_path = (Join-Path $xdg 'opencode\opencode.json')
+        env      = $servePwEnv
+        auth_store = [bool]$authCopied
+    }
+}
+
+function Import-LaneProfileCredentials($Profile) {
+    # SECFIX(CLOSURE-F1-PR71-SECFFIX): importacao pos-gate de opt-in.
+    # Chamar SOMENTE apos Test-LaneModelKeyAvailable == $true, nos setups
+    # de S5/S6/S7 selecionados. Sem opt-in retorna $false sem copiar nada.
+    # Valores nunca vao para log; segredos morrem com TargetHome.
     try {
+        if ($null -eq $Profile) { return $false }
+        if (-not (Test-LaneModelKeyAvailable)) { return $false }
+        $root = [string]$Profile.root
+        if ([string]::IsNullOrWhiteSpace($root)) { return $false }
+        $xdgData = Join-Path $root 'xdg-data'
+        $xdgState = Join-Path $root 'xdg-state'
         $userData = $env:XDG_DATA_HOME
         if ([string]::IsNullOrWhiteSpace($userData)) { $userData = Join-Path $env:USERPROFILE '.local\share' }
         $userOpDir = Join-Path ([string]$userData) 'opencode'
@@ -570,36 +616,9 @@ function New-LaneProfile([string]$ProfileId) {
                 }
             } catch { }
         }
-        $authCopied = [bool]$copiedAny
-    } catch { $authCopied = $false }
-    $npmCache = Join-Path $root 'npm-cache'
-    try { if (-not (Test-Path -LiteralPath $npmCache -PathType Container)) { New-Item -ItemType Directory -Path $npmCache -Force | Out-Null } } catch { }
-    $npmRcBlank = Join-Path $root 'npmrc-blank'
-    try { if (-not (Test-Path -LiteralPath $npmRcBlank -PathType Leaf)) { [IO.File]::WriteAllText($npmRcBlank, "# lane-owned blank npmrc`n", (New-Object Text.UTF8Encoding $false)) } } catch { }
-    $servePwEnv = @{
-        XDG_CONFIG_HOME = $xdg
-        XDG_DATA_HOME   = $xdgData
-        XDG_STATE_HOME  = $xdgState
-        XDG_CACHE_HOME  = $xdgCache
-        HOME            = $profHome
-        USERPROFILE     = $profHome
-        OPENCODE_DB     = $dbPath
-        OPENCODE_PASSWORD = $servePw
-        npm_config_cache = $npmCache
-        npm_config_userconfig = $npmRcBlank
-    }
-    $servePw = ''
-    return [ordered]@{
-        id       = $ProfileId
-        root     = $root
-        xdg      = $xdg
-        home     = $profHome
-        cwd      = $cwd
-        db       = $dbPath
-        cfg_path = (Join-Path $xdg 'opencode\opencode.json')
-        env      = $servePwEnv
-        auth_store = [bool]$authCopied
-    }
+        try { $Profile.auth_store = [bool]$copiedAny } catch { }
+        return [bool]$copiedAny
+    } catch { return $false }
 }
 
 # ---------- processos owned de longa vida (fixture + serve) ----------
@@ -815,7 +834,7 @@ try {
     $profDefault = New-LaneProfile -ProfileId 'default'
     if ($profTesting.db -ceq $profDefault.db) { Write-LaneSummaryAndExit 'failed' 'OPENCODE_DB colidiu entre perfis (defeito da lane).' 1 }
     Add-LaneCheck 'profiles_isolated_temp' $true ('testing+default sob TargetHome exclusivo; OPENCODE_DB distintos (convencao lane-owned)')
-    Add-LaneCheck 'auth_store_copied' (([bool]$profTesting.auth_store) -and ([bool]$profDefault.auth_store)) 'auth.json/account.json copiados para XDG_DATA isolado (model auth via store; segredos morrem com TargetHome)'
+    Add-LaneCheck 'auth_store_deferred' ((-not [bool]$profTesting.auth_store) -and (-not [bool]$profDefault.auth_store)) 'perfis iniciam SEM credencial; importacao adiada para pos-gate opt-in via Import-LaneProfileCredentials (S5/S6/S7); segredos morrem com TargetHome'
     $tmplPath = Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl'
     if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) { Write-LaneSummaryAndExit 'failed' ('template ausente: ' + $tmplPath) 1 }
     $tmplRaw = [IO.File]::ReadAllText($tmplPath, [Text.Encoding]::UTF8)
@@ -1247,6 +1266,9 @@ try {
             $script:ModelSetup = $st
             return $st
         }
+        # SECFIX: importacao de credenciais SOMENTE aqui (pos-gate, S5/S6
+        # selecionados via Get-LaneModelSetup), antes de subir fixture/serve.
+        [void](Import-LaneProfileCredentials $profTesting)
         $fx = Get-LaneFixture -Wanted $FixtureDir
         if (-not [bool]$fx.ok) { $st.reason = ('fixture: ' + $fx.reason); $script:ModelSetup = $st; return $st }
         $py = Get-Command python -ErrorAction SilentlyContinue
@@ -1616,6 +1638,8 @@ try {
                 [void](Add-ScenarioProof $proofs 'model-gate' $false ('OPERATOR_ACTION_REQUIRED (' + (Get-LaneModelKeyLogToken) + ')'))
                 Set-ScenarioResult 'S7' 'blocked' ('OPERATOR_ACTION_REQUIRED: ' + (Get-LaneModelKeyLogToken)) $proofs $coverage
             } else {
+                # SECFIX: importacao de credenciais SOMENTE aqui (pos-gate S7).
+                [void](Import-LaneProfileCredentials $profDefault)
                 $serveD = Start-LaneOwnedProcess -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcDefault") -EnvTable (Get-LaneModelChildEnv -BaseEnv $profDefault.env) -EnvRemove ($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { ($_ -cne $script:ModelKeyEnvNameClean) -and ($_ -cne 'OPENCODE_PASSWORD') })) -WorkDir ([string]$profDefault.cwd) -LogName 'serve-default'
                 if (-not [bool]$serveD.ok) {
                     [void](Add-ScenarioProof $proofs 'serve-default' $false $serveD.reason)

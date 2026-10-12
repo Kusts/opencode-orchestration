@@ -164,5 +164,27 @@ if (Test-Path -LiteralPath $docsPath -PathType Leaf) {
   Assert (($docs -match 'tester') -and ($docs -match 'Playwright') -and ($docs -match 'debugger') -and ($docs -match 'DevTools')) 'docs tester->Playwright + debugger->DevTools via Planner'
 }
 
+# --- SECFIX(CLOSURE-F1-PR71-SECFFIX): sem copia de credencial sem opt-in ---
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  if ([string]::IsNullOrWhiteSpace($laneText)) { $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8) }
+  $posNew = $laneText.IndexOf('function New-LaneProfile')
+  $posImport = $laneText.IndexOf('function Import-LaneProfileCredentials')
+  $posCopy = $laneText.IndexOf('Copy-Item')
+  Assert (($posNew -ge 0) -and ($posImport -gt $posNew) -and ($posCopy -gt $posImport)) 'secfix: New-LaneProfile sem Copy-Item; copia vive em Import-LaneProfileCredentials'
+  $importBody = ''
+  if ($posImport -ge 0) { $importBody = $laneText.Substring($posImport, [Math]::Min(3000, $laneText.Length - $posImport)) }
+  Assert (($importBody -match 'Test-LaneModelKeyAvailable') -and ($importBody -match 'Copy-Item') -and ($importBody -match 'auth\.json')) 'secfix: importacao guardada por gate opt-in (sem opt-in => sem copia)'
+  $posSetup = $laneText.IndexOf('function Get-LaneModelSetup')
+  $posImpTesting = $laneText.IndexOf('Import-LaneProfileCredentials $profTesting')
+  Assert (($posSetup -ge 0) -and ($posImpTesting -gt $posSetup)) 'secfix: S5/S6 importam credencial pos-gate em Get-LaneModelSetup'
+  $posS7 = $laneText.IndexOf("Test-ScenarioSelected 'S7'")
+  $posImpDefault = $laneText.IndexOf('Import-LaneProfileCredentials $profDefault')
+  Assert (($posS7 -ge 0) -and ($posImpDefault -gt $posS7)) 'secfix: S7 importa credencial pos-gate (perfil default)'
+  Assert (($laneText -match 'auth_store_deferred') -and ($laneText -notmatch 'auth_store_copied')) 'secfix: check auth_store_deferred substitui copia incondicional'
+}
+else {
+  Assert $false 'secfix: New-LaneProfile sem Copy-Item; copia vive em Import-LaneProfileCredentials' 'arquivo ausente'
+}
+
 Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)
 if ($fail -gt 0) { exit 1 } else { exit 0 }
