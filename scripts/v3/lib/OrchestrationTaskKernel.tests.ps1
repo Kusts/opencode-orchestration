@@ -5,6 +5,12 @@
     Hermetic: temp dirs under $env:TEMP, fixture flags files, cleanup in
     finally. Bracketed output the runner parses. Exit 0 on all pass,
     exit 1 on any fail or unexpected exception. PS 5.1. ASCII-only.
+    Test 31 (concurrent same-revision transitions) is diagnostic-only
+    instrumented: on failure it prints a [DIAG] block (per-child exit code,
+    finished flag, WaitForExit return, duration, sanitized/capped
+    stdout+stderr, task final state/revision) BEFORE the finally cleanup.
+    The helpers only observe; expectations, timeouts and the state machine
+    are untouched.
 #>
 [CmdletBinding()]
 param()
@@ -26,6 +32,204 @@ function Assert-TaskKernel {
         if ([string]::IsNullOrWhiteSpace($Detail)) { Write-Host ("[FAIL] {0}" -f $Name) }
         else { Write-Host ("[FAIL] {0} -- {1}" -f $Name, $Detail) }
         $script:failed++
+    }
+}
+
+# ---------- diagnostic-only helpers (CAS race) ----------
+# Observability of a FAILED 'concurrent same-revision transitions' assertion
+# (test 31). Diagnostic-only: no production code, no state machine, no
+# change to the expected exit pair, revisions, timeouts or retries. Temp
+# child output files are read BEFORE the finally cleanup and the bytes are
+# sanitized + capped here, so a failure explains itself in the CI log
+# (scripts/v3/run-v3-tests.ps1 re-prints the whole suite log).
+# Sanitization rules: collapse EOL/tabs, drop non-printable/non-ASCII,
+# redact common token shapes and absolute usernames, cap length with an
+# explicit marker. Never dumps the environment, never expands variables.
+
+$script:TaskKernelDiagMaxChars = 1600
+$script:RaceDiag = $null
+$script:RaceDiagHandled = $false
+
+function Get-TaskKernelDiagText {
+    <#
+    .SYNOPSIS
+        Sanitizes and caps one diagnostic string. Never throws.
+    .DESCRIPTION
+        Returns a single-line, ASCII, capped projection of the input: safe
+        to print in CI without leaking secrets or the operator username.
+    #>
+    param([string]$Text, [int]$MaxChars = $script:TaskKernelDiagMaxChars)
+    try {
+        if ($null -eq $Text) { return '' }
+        $s = [string]$Text
+        if ($s.Length -eq 0) { return '' }
+        $s = ($s -replace '[\r\n\t]+', ' ')
+        $s = ($s -replace ' {2,}', ' ')
+        $s = ($s -replace '[^\x20-\x7E]', '?')
+        # Match structured credentials before generic key/value patterns.
+        $s = ($s -replace '(?i)(authorization\s*:\s*(?:bearer|basic)\s+)\S+', '$1[REDACTED]')
+        $s = ($s -replace '(?i)"(authorization|api[_-]?key|access[_-]?key|secret[_-]?key|token|secret|password|passwd|pwd)"\s*:\s*"(?:\\.|\\$|[^"\\])*(?:"|$)', '"$1":"[REDACTED]"')
+        $s = ($s -replace '(?i)(sk|pk|api[_-]?key|access[_-]?key|secret[_-]?key|token|secret|password|passwd|pwd|authorization)\s*[:=]\s*\S+', '$1=[REDACTED]')
+        $s = ($s -replace '(?i)sk-[A-Za-z0-9_\-]{8,}', '[REDACTED]')
+        $s = ($s -replace '(?i)gh[pousr]_[A-Za-z0-9]{16,}', '[REDACTED]')
+        $s = ($s -replace '(?i)github_pat_[A-Za-z0-9_]{20,}', '[REDACTED]')
+        $s = ($s -replace 'AKIA[0-9A-Z]{16}', '[REDACTED]')
+        $s = ($s -replace '(?i)bearer\s+[A-Za-z0-9\-._~+/=]{8,}', 'bearer [REDACTED]')
+        $s = ($s -replace '(?i)eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}', '[REDACTED-JWT]')
+        # Accept regular and JSON-escaped separators, and usernames with spaces.
+        $s = ($s -replace '(?i)([A-Za-z]:\\+Users\\+).*?(?=\\)', '$1[REDACTED]')
+        $s = ($s -replace '(?i)(/(?:home|users)/).*?(?=/)', '$1[REDACTED]')
+        if ($MaxChars -gt 0 -and $s.Length -gt $MaxChars) {
+            $total = $s.Length
+            $s = ($s.Substring(0, $MaxChars) + (' [truncated,total ' + $total + ' chars]'))
+        }
+        return $s.Trim()
+    }
+    catch {
+        return '[diag-sanitize-error]'
+    }
+}
+
+function Read-TaskKernelDiagOutput {
+    <#
+    .SYNOPSIS
+        Reads a child output file for diagnostics. Never throws.
+    .DESCRIPTION
+        The race children redirect stdout+stderr into one file, so both
+        streams are reported together as a sanitized/capped projection
+        plus the raw character count. A missing file is reported, never
+        created and never fatal.
+    #>
+    param([string]$Path, [int]$MaxChars = $script:TaskKernelDiagMaxChars)
+    $res = @{ exists = $false; chars = 0; truncated = $false; text = '[missing output file]'; path = '' }
+    try { $res.path = (Get-TaskKernelDiagText -Text $Path) } catch { $res.path = '[unavailable]' }
+    try {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            $res.exists = $true
+            # Bound the read before allocating or applying sanitization.
+            $limit = [Math]::Max(1, [int]$MaxChars)
+            $reader = New-Object System.IO.StreamReader($Path, [Text.Encoding]::UTF8, $true)
+            try {
+                $buffer = New-Object 'char[]' ($limit + 1)
+                $read = $reader.Read($buffer, 0, $buffer.Length)
+                $res.truncated = ($read -gt $limit)
+                $sampleLength = [Math]::Min($read, $limit)
+                $raw = [string]::new($buffer, 0, $sampleLength)
+                $res.chars = $sampleLength
+                if ($res.truncated) { $raw += ' [input truncated]' }
+                $res.text = (Get-TaskKernelDiagText -Text $raw -MaxChars ($limit + 100))
+            }
+            finally { $reader.Dispose() }
+        }
+    }
+    catch {
+        $res.text = '[diag-read-error]'
+    }
+    return $res
+}
+
+function Wait-TaskKernelDiagProcess {
+    <#
+    .SYNOPSIS
+        Waits for a race child with the SAME total budget as the inline
+        call and records diagnostics. Never throws, never kills.
+    .DESCRIPTION
+        Uses the same bounded WaitForExit call and budget as the original
+        test, recording its return value, elapsed time and process state.
+    #>
+    param([Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process, [int]$BudgetMs = 60000, [System.Diagnostics.Stopwatch]$Clock = $null)
+    $r = @{
+        pid = 0
+        wait_return = 'unavailable'
+        finished = 'unavailable'
+        has_exited = 'unavailable'
+        exit_code = $null
+        duration_ms = -1
+        budget_ms = $BudgetMs
+        error = ''
+    }
+    try {
+        $r.pid = $Process.Id
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $done = $Process.WaitForExit($BudgetMs)
+        $sw.Stop()
+        $r.wait_return = $done
+        if ($null -ne $Clock) { $r.duration_ms = $Clock.ElapsedMilliseconds }
+        else { $r.duration_ms = $sw.ElapsedMilliseconds }
+        try { $r.finished = $Process.HasExited } catch { $r.finished = 'unavailable' }
+        try { $r.has_exited = $Process.HasExited } catch { $r.has_exited = 'unavailable' }
+        if ($r.has_exited -eq $true) {
+            try { $r.exit_code = $Process.ExitCode } catch { $r.error = 'exit-code-unavailable' }
+        }
+        else { $r.error = 'child-still-running-at-budget' }
+    }
+    catch {
+        $r.error = 'wait-error'
+    }
+    return $r
+}
+
+function New-TaskKernelRaceDiagChild {
+    <#
+    .SYNOPSIS
+        Builds one diagnostic child entry (label, wait facts, sanitized
+        stdout+stderr). Read-only: the child files are read here, before
+        the temp roots are removed.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Label, [Parameter(Mandatory = $true)][string]$OutputPath, [Parameter(Mandatory = $true)]$Wait)
+    $out = Read-TaskKernelDiagOutput -Path $OutputPath
+    return @{
+        label = $Label
+        pid = [string]$Wait.pid
+        exit_code = $(if ($null -eq $Wait.exit_code) { 'not-exited-or-unavailable' } else { [string]$Wait.exit_code })
+        finished = [string]$Wait.finished
+        has_exited = [string]$Wait.has_exited
+        wait_return = [string]$Wait.wait_return
+        duration_ms = [string]$Wait.duration_ms
+        wait_budget_ms = [string]$Wait.budget_ms
+        wait_error = [string]$Wait.error
+        output = $out
+        output_path = [string]$out.path
+    }
+}
+
+function Get-TaskKernelRaceDiagLines {
+    <#
+    .SYNOPSIS
+        Renders the captured race diagnostics as one bracketed block
+        (pure, no side effects). Sanitizes again at render time so a leak
+        cannot reach the log even if capture missed it.
+    #>
+    param([Parameter(Mandatory = $true)]$Diag)
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add('[DIAG] CAS race (concurrent same-revision transitions) -- diagnostic only')
+    [void]$lines.Add(('[DIAG] task_id=' + $Diag.task_id + ' spawned_at_utc=' + $Diag.spawned_at_utc))
+    [void]$lines.Add(('[DIAG] expected_exit_pair=' + $Diag.expected_exit_pair + ' observed_exit_pair=' + $Diag.observed_exit_pair))
+    [void]$lines.Add(('[DIAG] task_final_state=' + $Diag.final_state + ' task_final_revision=' + $Diag.final_revision))
+    foreach ($c in @($Diag.children)) {
+        if ($null -eq $c) { continue }
+        [void]$lines.Add(('[DIAG] ' + $c.label + '.pid=' + $c.pid))
+        [void]$lines.Add(('[DIAG] ' + $c.label + '.exit_code=' + $c.exit_code + ' ' + $c.label + '.finished=' + $c.finished + ' ' + $c.label + '.has_exited=' + $c.has_exited))
+        [void]$lines.Add(('[DIAG] ' + $c.label + '.waitfor_exit_return=' + $c.wait_return + ' ' + $c.label + '.duration_ms=' + $c.duration_ms + ' wait_budget_ms=' + $c.wait_budget_ms + ' wait_error=' + $c.wait_error))
+        [void]$lines.Add(('[DIAG] ' + $c.label + '.stdout_stderr_chars=' + $c.output.chars + ' ' + $c.label + '.stdout_stderr_truncated=' + [string]$c.output.truncated + ' ' + $c.label + '.stdout_stderr=' + (Get-TaskKernelDiagText -Text ([string]$c.output.text))))
+        [void]$lines.Add(('[DIAG] ' + $c.label + '.output_path=' + (Get-TaskKernelDiagText -Text ([string]$c.output_path))))
+    }
+    [void]$lines.Add(('[DIAG] assertion=' + $Diag.assertion))
+    [void]$lines.Add('[DIAG] temp child files preserved until this block; normal finally cleanup follows')
+    return ($lines.ToArray())
+}
+
+function Write-TaskKernelRaceDiagnostics {
+    <#
+    .SYNOPSIS
+        Prints the race diagnostics block. Never throws.
+    #>
+    param([Parameter(Mandatory = $true)]$Diag)
+    try {
+        foreach ($l in @(Get-TaskKernelRaceDiagLines -Diag $Diag)) { Write-Host $l }
+    }
+    catch {
+        Write-Host '[DIAG] render-error'
     }
 }
 
@@ -456,24 +660,194 @@ try {
     $psi2.Arguments = ($argTpl -f $cliPath, $t.tasks, $t.flags) + (' > "{0}" 2>&1' -f $childOut2)
     $psi2.UseShellExecute = $false
     $psi2.CreateNoWindow = $true
+    $raceSpawnedAt = [DateTime]::UtcNow.ToString('o')
     $p1 = [System.Diagnostics.Process]::Start($psi1)
     $p2 = [System.Diagnostics.Process]::Start($psi2)
-    $p1.WaitForExit(60000)
-    $p2.WaitForExit(60000)
-    $c1e = $p1.ExitCode
-    $c2e = $p2.ExitCode
+    $raceClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $raceWait1 = Wait-TaskKernelDiagProcess -Process $p1 -BudgetMs 60000 -Clock $raceClock
+    $raceWait2 = Wait-TaskKernelDiagProcess -Process $p2 -BudgetMs 60000 -Clock $raceClock
+    try { $raceClock.Stop() } catch { }
+    $c1e = $raceWait1.exit_code
+    $c2e = $raceWait2.exit_code
     try { $p1.Close() } catch { }
     try { $p2.Close() } catch { }
     $codes = @($c1e, $c2e) | Sort-Object
-    Assert-TaskKernel ((($codes -join ',') -ceq '0,3')) 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
-    $gRace = Get-OrchestrationTask -TaskId 'race-001' -TasksDir $t.tasks
-    Assert-TaskKernel (([int]$gRace['revision'] -eq 2) -and ([string]$gRace['state'] -ceq 'PLANNING')) 'raced record consistent at revision 2'
+    $racePairOk = ((($codes -join ',') -ceq '0,3'))
+    try { $gRace = Get-OrchestrationTask -TaskId 'race-001' -TasksDir $t.tasks } catch { $gRace = $null }
+    $raceConsistentOk = (([int]$gRace['revision'] -eq 2) -and ([string]$gRace['state'] -ceq 'PLANNING'))
+    Assert-TaskKernel $racePairOk 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
+    Assert-TaskKernel $raceConsistentOk 'raced record consistent at revision 2'
+    # ---- failure-only diagnostic capture (read-only, before the finally cleanup) ----
+    # The happy path performs ZERO child-output IO beyond the waits above.
+    # Child output files are read HERE, only when the pair or consistency
+    # check failed, so a failure can explain itself while the temp roots
+    # still exist. Capture never throws outward.
+    if ((-not $racePairOk) -or (-not $raceConsistentOk)) {
+        try {
+            $script:RaceDiag = @{
+                task_id = 'race-001'
+                assertion = 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
+                expected_exit_pair = '0,3'
+                observed_exit_pair = ($codes -join ',')
+                spawned_at_utc = $raceSpawnedAt
+                final_state = 'unavailable'
+                final_revision = 'unavailable'
+                children = @(
+                    (New-TaskKernelRaceDiagChild -Label 'process_1' -OutputPath $childOut1 -Wait $raceWait1),
+                    (New-TaskKernelRaceDiagChild -Label 'process_2' -OutputPath $childOut2 -Wait $raceWait2)
+                )
+            }
+            try {
+                $raceReadError = ''
+                if ($null -ne $gRace) {
+                    if ($gRace -is [System.Collections.IDictionary]) {
+                        if ($gRace.Contains('error')) { $raceReadError = [string]$gRace['error'] }
+                    }
+                    else {
+                        $ep = $gRace.PSObject.Properties | Where-Object { $_.Name -ceq 'error' } | Select-Object -First 1
+                        if ($null -ne $ep) { $raceReadError = [string]$ep.Value }
+                    }
+                }
+                if ([string]::IsNullOrWhiteSpace($raceReadError)) {
+                    $script:RaceDiag.final_state = [string]$gRace['state']
+                    $script:RaceDiag.final_revision = [string]$gRace['revision']
+                }
+                else {
+                    $script:RaceDiag.final_state = ('read-error:' + $raceReadError)
+                    $script:RaceDiag.final_revision = 'unavailable'
+                }
+            }
+            catch {
+                $script:RaceDiag.final_state = 'unavailable'
+                $script:RaceDiag.final_revision = 'unavailable'
+            }
+        }
+        catch {
+            $script:RaceDiag = $null
+        }
+        if ($null -ne $script:RaceDiag) {
+            Write-TaskKernelRaceDiagnostics -Diag $script:RaceDiag
+        }
+    }
+    $script:RaceDiagHandled = $true
+
+    # 32. race diagnostics helpers: sanitize, cap, render (diagnostic-only)
+    $dCanary = 'sk-SYNTHETICSECRET Bearer abcdef1234567890 token=hunter2'
+    $dClean = Get-TaskKernelDiagText -Text ('lineA ' + $dCanary + ' C:\Users\someuser\AppData\Local\Temp\race1.json' + "`r`n" + 'lineB') -MaxChars 400
+    Assert-TaskKernel (($dClean -notmatch 'sk-SYNTHETICSECRET') -and ($dClean -match '\[REDACTED\]')) 'diagnostic sanitizer redacts token-like values'
+    Assert-TaskKernel (($dClean -notmatch 'Bearer abcdef1234567890') -and ($dClean -notmatch 'hunter2')) 'diagnostic sanitizer redacts bearer and key=value secrets'
+    Assert-TaskKernel (($dClean -notmatch 'someuser') -and ($dClean -match '\[REDACTED\]')) 'diagnostic sanitizer redacts absolute usernames'
+    $dHeader = Get-TaskKernelDiagText -Text 'Authorization: Bearer SYNTHETIC_OPAQUE_12345'
+    Assert-TaskKernel ($dHeader -notmatch 'SYNTHETIC_OPAQUE_12345') 'diagnostic sanitizer redacts complete Authorization Bearer header'
+    $dJson = Get-TaskKernelDiagText -Text '{"token":"SYNTHETIC_OPAQUE_12345","password":"SYNTHETIC_PASSWORD"}'
+    Assert-TaskKernel (($dJson -notmatch 'SYNTHETIC_OPAQUE_12345') -and ($dJson -notmatch 'SYNTHETIC_PASSWORD')) 'diagnostic sanitizer redacts JSON credential fields'
+    $dJsonEscaped = Get-TaskKernelDiagText -Text '{"password":"prefix\"SYNTHETIC_ESCAPED_SUFFIX"}'
+    Assert-TaskKernel ($dJsonEscaped -notmatch 'SYNTHETIC_ESCAPED_SUFFIX') 'diagnostic sanitizer redacts JSON credentials containing escaped quotes'
+    $dJsonTruncated = Get-TaskKernelDiagText -Text '{"token":"SYNTHETIC_TRUNCATED_SECRET'
+    Assert-TaskKernel ($dJsonTruncated -notmatch 'SYNTHETIC_TRUNCATED_SECRET') 'diagnostic sanitizer redacts incomplete JSON credential at capture boundary'
+    $dJsonDanglingEscape = Get-TaskKernelDiagText -Text ('{"token":"SYNTHETIC_DANGLING_ESCAPE' + [char]92)
+    Assert-TaskKernel ($dJsonDanglingEscape -notmatch 'SYNTHETIC_DANGLING_ESCAPE') 'diagnostic sanitizer redacts JSON credential ending in dangling escape'
+    $dJsonPath = Get-TaskKernelDiagText -Text '{"path":"C:\\Users\\synthetic user\\Temp\\race.json"}'
+    Assert-TaskKernel ($dJsonPath -notmatch 'synthetic user') 'diagnostic sanitizer redacts escaped JSON paths with spaced usernames'
+    $dPlainPath = Get-TaskKernelDiagText -Text 'C:\Users\synthetic user\Temp\race.json'
+    Assert-TaskKernel ($dPlainPath -notmatch 'synthetic user') 'diagnostic sanitizer redacts plain paths with spaced usernames'
+    Assert-TaskKernel (($dClean -notmatch "`r") -and ($dClean -notmatch "`n") -and ($dClean.Length -gt 0)) 'diagnostic sanitizer never emits line breaks'
+    $dLines = Get-TaskKernelDiagText -Text ('lineA' + "`r`n" + "`t" + 'lineB')
+    Assert-TaskKernel ($dLines -ceq 'lineA lineB') 'diagnostic sanitizer collapses child output into a single line'
+    $dCapped = Get-TaskKernelDiagText -Text ('x' * 5000) -MaxChars 300
+    Assert-TaskKernel (($dCapped.Length -gt 300) -and ($dCapped.Length -lt 400) -and ($dCapped -match '\[truncated') -and ($dCapped -match 'total 5000 chars')) 'diagnostic sanitizer caps length with an explicit truncation marker'
+    $dMissing = Read-TaskKernelDiagOutput -Path (Join-Path $t.root 'no-such-race-output.json')
+    Assert-TaskKernel ((-not [bool]$dMissing.exists) -and ($dMissing.chars -eq 0) -and ($dMissing.text -ceq '[missing output file]')) 'diagnostic reader reports a missing child output file without throwing'
+    $dLargePath = Join-Path $t.root 'large-race-output.txt'
+    [IO.File]::WriteAllText($dLargePath, ('x' * 50000), [Text.Encoding]::UTF8)
+    $dLarge = Read-TaskKernelDiagOutput -Path $dLargePath -MaxChars 256
+    Assert-TaskKernel ($dLarge.chars -eq 256 -and $dLarge.truncated -and $dLarge.text.Length -lt 400) 'diagnostic reader caps bytes read before sanitization'
+    $dBoundaryPrefix = '{"token":"SYNTHETIC_BOUNDARY_ESCAPE' + [char]92
+    $dBoundaryPath = Join-Path $t.root 'credential-boundary.txt'
+    [IO.File]::WriteAllText($dBoundaryPath, ($dBoundaryPrefix + 'tail"}'), [Text.Encoding]::UTF8)
+    $dBoundary = Read-TaskKernelDiagOutput -Path $dBoundaryPath -MaxChars $dBoundaryPrefix.Length
+    Assert-TaskKernel ($dBoundary.truncated -and ($dBoundary.text -notmatch 'SYNTHETIC_BOUNDARY_ESCAPE')) 'bounded read ending in JSON escape redacts credential before logging'
+    $dRender = @(Get-TaskKernelRaceDiagLines -Diag @{
+        task_id = 'race-001'; assertion = 'synthetic-assertion'; expected_exit_pair = '0,3'; observed_exit_pair = '1,1'
+        spawned_at_utc = '2026-01-01T00:00:00Z'; final_state = 'PLANNING'; final_revision = '2'
+        children = @(@{
+            label = 'process_1'; pid = '4242'; exit_code = '1'; finished = 'True'; has_exited = 'True'
+            wait_return = 'True'; duration_ms = '12'; wait_budget_ms = '60000'; wait_error = ''
+            output = @{ exists = $true; chars = 64; truncated = $false; text = 'sk-SYNTHETICSECRET raw child output' }
+            output_path = 'C:\Users\someuser\race1.json'
+        })
+    })
+    $dJoined = ($dRender -join "`n")
+    Assert-TaskKernel (($dRender.Count -ge 8) -and ($dJoined -match 'process_1\.exit_code=1') -and ($dJoined -match 'process_1\.finished=True') -and ($dJoined -match 'duration_ms=12') -and ($dJoined -match 'waitfor_exit_return=True') -and ($dJoined -match 'task_final_revision=2') -and ($dJoined -match 'stdout_stderr_chars=64')) 'diagnostic renderer emits exit codes, finished flags, durations and task state'
+    Assert-TaskKernel ($dJoined -match 'stdout_stderr_truncated=False') 'diagnostic renderer records that captured output is complete'
+    Assert-TaskKernel (($dJoined -notmatch 'sk-SYNTHETICSECRET') -and ($dJoined -notmatch 'someuser')) 'diagnostic renderer sanitizes child output and paths even when capture missed it'
 }
 catch {
     Write-Host ("[FAIL] unexpected error: {0}" -f $_)
     $script:failed++
 }
 finally {
+    # Unexpected-exception safety net: if an exception interrupted the race
+    # test before its pass/fail decision, the failure-branch capture above
+    # never ran, so build the diagnostics HERE (best effort, exception path
+    # only) BEFORE the temp roots are removed. The happy path sets Handled
+    # above and performs zero child-output IO. No indefinite retention: the
+    # child output files are read into memory below and the roots are
+    # removed right after this block. Capture never throws outward.
+    if (-not $script:RaceDiagHandled) {
+        try {
+            $diagPair = 'unavailable'
+            try { $diagPair = ((@($c1e, $c2e) | Sort-Object) -join ',') } catch { }
+            $diagSpawned = 'unavailable'
+            try { if (-not [string]::IsNullOrWhiteSpace($raceSpawnedAt)) { $diagSpawned = $raceSpawnedAt } } catch { }
+            $diagChildren = @()
+            try {
+                if (($null -ne $raceWait1) -and (-not [string]::IsNullOrWhiteSpace($childOut1))) {
+                    $diagChildren += (New-TaskKernelRaceDiagChild -Label 'process_1' -OutputPath $childOut1 -Wait $raceWait1)
+                }
+            }
+            catch { }
+            try {
+                if (($null -ne $raceWait2) -and (-not [string]::IsNullOrWhiteSpace($childOut2))) {
+                    $diagChildren += (New-TaskKernelRaceDiagChild -Label 'process_2' -OutputPath $childOut2 -Wait $raceWait2)
+                }
+            }
+            catch { }
+            $diagFinalState = 'unavailable'
+            $diagFinalRev = 'unavailable'
+            try {
+                $diagRace = $gRace
+                if (($null -eq $diagRace) -and ($null -ne $t)) {
+                    try { $diagRace = Get-OrchestrationTask -TaskId 'race-001' -TasksDir $t.tasks } catch { $diagRace = $null }
+                }
+                if ($null -ne $diagRace) {
+                    try { $diagFinalState = [string]$diagRace['state'] } catch { }
+                    try { $diagFinalRev = [string]$diagRace['revision'] } catch { }
+                    if ([string]::IsNullOrWhiteSpace($diagFinalState)) { $diagFinalState = 'unavailable' }
+                    if ([string]::IsNullOrWhiteSpace($diagFinalRev)) { $diagFinalRev = 'unavailable' }
+                }
+            }
+            catch { }
+            $script:RaceDiag = @{
+                task_id = 'race-001'
+                assertion = 'concurrent same-revision transitions: exactly one wins (0) and one CAS_CONFLICT (3)'
+                expected_exit_pair = '0,3'
+                observed_exit_pair = $diagPair
+                spawned_at_utc = $diagSpawned
+                final_state = $diagFinalState
+                final_revision = $diagFinalRev
+                children = $diagChildren
+            }
+        }
+        catch {
+            $script:RaceDiag = $null
+        }
+        try {
+            if ($null -ne $script:RaceDiag) { Write-TaskKernelRaceDiagnostics -Diag $script:RaceDiag }
+        }
+        catch { }
+        $script:RaceDiagHandled = $true
+    }
     foreach ($rd in $roots) {
         if (Test-Path -LiteralPath $rd) { Remove-Item -LiteralPath $rd -Recurse -Force -ErrorAction SilentlyContinue }
     }
