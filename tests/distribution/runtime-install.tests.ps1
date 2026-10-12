@@ -75,7 +75,7 @@ $null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $hA -Runtime V2 2>&1
 Assert ($LASTEXITCODE -eq 0) 'a: install V2 exit 0'
 $ocA = Join-Path $hA '.config\opencode'
 $jA = ([IO.File]::ReadAllText((Join-Path $ocA 'opencode.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
-Assert ((@($jA.agents.PSObject.Properties.Name).Count) -eq 17) 'a: 17 blocos agents'
+Assert ((@($jA.agents.PSObject.Properties.Name).Count) -eq 21) 'a: 21 blocos agents'
 Assert (($null -ne ($jA.agents.build | Get-Member -Name 'permissions' -ErrorAction SilentlyContinue))) 'a: build tem permissions'
 Assert (($null -eq ($jA.agents.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue))) 'a: build sem model'
 Assert (([string]$jA.agents.build.permissions[0].effect -ceq 'deny') -and ([string]$jA.agents.build.permissions[0].resource -ceq '*')) 'a: build.permissions[0] deny-*'
@@ -219,6 +219,10 @@ $jF2 = ([IO.File]::ReadAllText((Join-Path $ocF 'opencode.json'), [Text.Encoding]
 Assert ([string]$jF2.agents.'meu-custom'.model -eq 'foo/bar') 'f: agents.meu-custom permanece no config'
 Assert (($null -ne $jF2.mcp) -and ($null -ne $jF2.mcp.srv)) 'f: mcp permanece no config'
 Assert (($null -eq ($jF2.agents | Get-Member -Name 'coder' -ErrorAction SilentlyContinue))) 'f: agents.coder removido do config'
+Assert (($null -eq ($jF2.agents | Get-Member -Name 'requirements-analyst' -ErrorAction SilentlyContinue))) 'f: agents.requirements-analyst removido do config'
+Assert (($null -eq ($jF2.agents | Get-Member -Name 'engineering-advisor' -ErrorAction SilentlyContinue))) 'f: agents.engineering-advisor removido do config'
+Assert (($null -eq ($jF2.agents | Get-Member -Name 'product-designer' -ErrorAction SilentlyContinue))) 'f: agents.product-designer removido do config'
+Assert (($null -eq ($jF2.agents | Get-Member -Name 'skeptic' -ErrorAction SilentlyContinue))) 'f: agents.skeptic removido do config'
 Assert (($null -eq ($jF2 | Get-Member -Name '$schema' -ErrorAction SilentlyContinue))) 'f: $schema package-owned removido do config'
 $tF = [IO.File]::ReadAllText((Join-Path $ocF 'AGENTS.md'), [Text.Encoding]::UTF8)
 Assert (($tF -notmatch 'opencode-orchestration:start') -and ($tF.Contains('Notas do usuario'))) 'f: bloco removido, resto do usuario permanece'

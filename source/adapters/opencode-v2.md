@@ -118,6 +118,21 @@ sem decisão".
   telemetria `cache/v3/telemetry/`). Sem ritual: a obrigação é decision sempre
   + worker útil quando não trivial; o conjunto continua mínimo e proporcional.
 
+### Planner Runtime Wiring (delegação nativa)
+
+Fluxo verificado no runtime V2: preflight (`orchestration-preflight.ps1`)
+→ seleção do worker pela policy → chamada da tool nativa `subagent` pelo
+Planner LLM → child session do worker → consumo do resultado pelo Planner
+→ `Test-OrchestrationDoneCompliance` no DONE gate.
+
+- Scripts PS nunca spawnam workers: o único Executor é o Planner LLM via
+  tool nativa; scripts apenas decidem/validam (preflight, gates) e nunca
+  criam sessões.
+- O plugin nunca dispara workers sozinho: sem chamada do Planner, nenhum
+  worker executa.
+- Para cognição (ler/mapear código), prefira as tools nativas read/grep/
+  glob em vez de `shell cat/ls`: menos custo e sem efeitos colaterais.
+
 ### Controle do Planner e roteamento de especialistas de domínio
 
 O Planner `build` é o único control plane: decide arquitetura, decompõe,

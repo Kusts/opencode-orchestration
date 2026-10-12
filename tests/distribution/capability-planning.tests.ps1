@@ -1,11 +1,11 @@
 <#!
 .SYNOPSIS
-    Suite do contrato planning + discovery V2 (Fase 2A fatia 1): 17 + 19 + 19.
+    Suite do contrato planning + discovery V2 (Fase 2A fatia 1 + fix delegacao): 21 + 19 + 19.
 .DESCRIPTION
     Restaura em arquivo proprio os asserts de planning descritos em
-    docs/capability-planning-v2.md (contrato canonico: 17 blocos no template
+    docs/capability-planning-v2.md (contrato canonico: 21 blocos no template
     V2, 19 .md em source/agents, 19 allows na allowlist do build, com os 4
-    papeis de planning file-based + allowlisted e sem bloco JSON).
+    papeis de planning com bloco cheap + allowlisted).
     Estilo das suites distribution: 'ok - ...' / 'NOT OK - ...', exit 0/1.
     Somente leitura; nao altera templates/agents/registry/flags; PS 5.1 compativel.
     Nome propositalmente distinto de capability-registry-v2.tests.ps1 (fatia 2).
@@ -53,7 +53,7 @@ $planning = @('requirements-analyst', 'engineering-advisor', 'product-designer',
 if ($null -ne $tmpl) {
   $blocks = @()
   try { $blocks = @($tmpl.agents.PSObject.Properties | ForEach-Object { $_.Name }) } catch { $blocks = @() }
-  Assert ($blocks.Count -eq 17) 'template V2 tem 17 blocos agents' ('obtido: ' + $blocks.Count)
+  Assert ($blocks.Count -eq 21) 'template V2 tem 21 blocos agents' ('obtido: ' + $blocks.Count)
 
   $allows = @()
   try {
@@ -67,8 +67,14 @@ if ($null -ne $tmpl) {
 
   $mdOk = @($planning | Where-Object { $mdNames -contains $_ })
   Assert ($mdOk.Count -eq 4) '4 planning tem .md em source/agents' ('obtidos: ' + ($mdOk -join ','))
-  $noBlock = @($planning | Where-Object { $blocks -notcontains $_ })
-  Assert ($noBlock.Count -eq 4) '4 planning sem bloco agents.* no template V2 (file-based)' ('com bloco: ' + ((@($planning | Where-Object { $blocks -contains $_ }) -join ',')))
+  $withBlock = @($planning | Where-Object { $blocks -contains $_ })
+  Assert ($withBlock.Count -eq 4) '4 planning COM bloco agents.* no template V2 (delegacao nativa)' ('sem bloco: ' + ((@($planning | Where-Object { $blocks -notcontains $_ }) -join ',')))
+  foreach ($p in $planning) {
+    $node = $null
+    try { $node = $tmpl.agents.$p } catch { $node = $null }
+    Assert (($null -ne $node) -and ([string]$node.mode -ceq 'subagent')) ('planning com mode subagent: ' + $p)
+    Assert (($null -ne $node) -and ([string]$node.model -ceq 'x/cheap')) ('planning com model cheap: ' + $p)
+  }
 }
 
 Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)

@@ -45,8 +45,11 @@ correta; sem commit/install/escrita global salvo pedido explícito.
 Toda tarefa não trivial passa por preflight **antes** da primeira ação:
 
 ```powershell
-powershell -NoProfile -File scripts\v3\orchestration-preflight.ps1
+powershell -NoProfile -File scripts\v3\orchestration-preflight.ps1 -Objective "..." -TaskType implementation -Domain backend -Risk low -ReadWrite read
 ```
+
+Chamada sem parametros falha com exit 2 (uso impresso em stderr);
+alternativa: `-TaskFile <json>` com os mesmos campos.
 
 Estados: `SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
 `DETERMINISTIC_FALLBACK`, `BLOCKED` (v0.1.0: `TRIVIAL_DIRECT`/`DELEGATED`
