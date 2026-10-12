@@ -186,5 +186,55 @@ else {
   Assert $false 'secfix: New-LaneProfile sem Copy-Item; copia vive em Import-LaneProfileCredentials' 'arquivo ausente'
 }
 
+# --- CLOSURE-F1-PR71-GATES: gates estruturados + scan pre-truncamento + cleanup acumulado ---
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  if ([string]::IsNullOrWhiteSpace($laneText)) { $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8) }
+  Assert ($laneText -match 'function Test-LaneForbiddenCall') 'gates: helper Test-LaneForbiddenCall existe'
+  Assert ($laneText -match 'function Test-LaneToolSuccess') 'gates: helper Test-LaneToolSuccess existe'
+  Assert ($laneText -match 'run\[_-\]\?code\[_-\]\?unsafe') 'gates: scan cobre equivalentes de run_code_unsafe'
+  Assert (($laneText -match 'Test-LaneToolSuccess \$childTx ''browser_navigate'' 1') -and ($laneText -match 'Test-LaneToolSuccess \$childTx ''browser_click'' 3')) 'gates S5: navigate+>=3 clicks com status de sucesso'
+  Assert (($laneText -match 'Test-LaneToolSuccess \$childTx6') -and ($laneText -match 'list_console_messages\|get_console_message') -and ($laneText -match 'take_snapshot'' 1')) 'gates S6: console + DOM com status de sucesso'
+  Assert ($laneText -match 'close_page/hover sozinhos reprovam') 'gates S6: recusa set so com close_page/hover'
+  Assert ($laneText -match 'status=\(fail') 'gates: status de falha reprova (ferramenta falhando nunca pass-real)'
+  Assert (($laneText -match 'FORBIDDEN-CALL-DETECTED') -and ($laneText -match 'scan pre-truncamento')) 'gates: scan de proibida no raw da child antes de truncar'
+  Assert (($laneText -match 'if \(\[bool\]\$childForbidden5\)') -and ($laneText -match 'if \(\[bool\]\$childForbidden6\)')) 'gates S5/S6: parent limpo + child com proibida => fail'
+  Assert (($laneText -match 'stopFailures') -and ($laneText -match 'LaneCleanupLog')) 'gates: Stop-LaneOwned preserva falhas + log acumulado'
+  Assert (($laneText -match '\$s1stop = Stop-LaneOwned') -and ($laneText -match '\$s2stop = Stop-LaneOwned')) 'gates: S1/S2 acumulam resultado do cleanup (sem descartar)'
+  Assert ($laneText -match 'cleanup-attempts-all') 'gates: S8 considera todas as tentativas'
+}
+else {
+  Assert $false 'gates: helpers + scans + cleanup' 'arquivo ausente'
+}
+
+# --- CLOSURE-F1-PR71-GATES2: ancoragem TOOL + cleanup agregado (estatico + comportamental) ---
+if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
+  if ([string]::IsNullOrWhiteSpace($laneText)) { $laneText = [IO.File]::ReadAllText($lanePath, [Text.Encoding]::UTF8) }
+  Assert ($laneText -match '\^\\s\*TOOL name=') 'gates2: Test-LaneToolSuccess ancora em inicio de linha (^\\s*TOOL)'
+  Assert ($laneText -match "IndexOf\(' out=\['\)") 'gates2: Test-LaneToolSuccess exclui conteudo aninhado em out=[...]'
+  Assert ($laneText -match "stopFail\.Add\(\('close-job#'") 'gates2: falha de Close-RuntimeJobObject entra em stopFailures (agregado)'
+  Assert ($laneText -match "stopFail\.Add\('proc-estado-desconhecido") 'gates2: estado desconhecido de processo entra em stopFailures (agregado)'
+  Assert ($laneText -match 'close-skip-job#') 'gates2: handle-sem-close (stop falhou => sem close pos-falha, registro original preservado)'
+  $mTool = [regex]::Match($laneText, '(?ms)^function Test-LaneToolSuccess.*?^}')
+  Assert ($mTool.Success) 'gates2: Test-LaneToolSuccess extraivel para teste comportamental'
+  if ($mTool.Success) {
+    $toolLoaded = $true
+    try { Invoke-Expression $mTool.Value } catch { $toolLoaded = $false }
+    Assert ($toolLoaded) 'gates2: Test-LaneToolSuccess carrega isolado'
+    if ($toolLoaded) {
+      $txNested = ('TOOL name=browser_snapshot status=completed out=[TOOL name=browser_navigate status=completed]' + "`n" + 'REPORT done')
+      Assert ((Test-LaneToolSuccess $txNested 'browser_navigate' 1) -eq $false) 'gates2: navigate aninhado em out=[...] nao conta (navigate=0)'
+      $txReal = ('TOOL name=browser_navigate status=completed out=[ok]' + "`n" + 'TOOL name=browser_snapshot status=completed out=[TOOL name=browser_navigate status=completed]')
+      Assert ((Test-LaneToolSuccess $txReal 'browser_navigate' 1) -eq $true) 'gates2: registro real no inicio da linha conta (navigate=1)'
+      $txReport = ('REPORT TOOL name=browser_navigate status=completed' + "`n" + 'TOOL name=browser_snapshot status=completed out=[x]')
+      Assert ((Test-LaneToolSuccess $txReport 'browser_navigate' 1) -eq $false) 'gates2: TOOL dentro de bloco REPORT nao conta'
+      $txBad = 'TOOL name=browser_navigate status=failed out=[x]'
+      Assert ((Test-LaneToolSuccess $txBad 'browser_navigate' 1) -eq $false) 'gates2: status de falha reprova (nunca pass-real)'
+    }
+  }
+}
+else {
+  Assert $false 'gates2: ancoragem + cleanup agregado' 'arquivo ausente'
+}
+
 Write-Host ("PASS: " + $pass + " / FAIL: " + $fail)
 if ($fail -gt 0) { exit 1 } else { exit 0 }

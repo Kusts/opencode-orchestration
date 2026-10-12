@@ -358,11 +358,13 @@ function Get-LaneChildTranscript([string]$ServeUrl, $ApiEnv, [string[]]$ApiRemov
         if ([string]::IsNullOrWhiteSpace($cid)) { return '' }
         $mr = Invoke-PreflightBoundedExe -File $script:Exe -ArgsLine ('api --server ' + $ServeUrl + ' GET /api/session/' + $cid + '/message') -WorkDir $WorkDir -EnvTable $ApiEnv -EnvRemove $ApiRemove -TimeoutMs 30000 -MaxChars 524288
         if ((-not [bool]$mr.Finished) -or ([int]$mr.ExitCode -ne 0)) { return '' }
+        $childRawForbidden = Test-LaneForbiddenCall ([string]$mr.Output)
         $mj = $null
         try { $mj = ConvertFrom-Json ([string]$mr.Output) } catch { return '' }
         $rows = Get-JsonProp $mj 'data' $mj
         if ($null -eq $rows) { $rows = @($mj) }
         $ev = New-Object System.Collections.ArrayList
+        if ([bool]$childRawForbidden) { [void]$ev.Add('FORBIDDEN-CALL-DETECTED run_code_unsafe (scan pre-truncamento do transcript raw da child)') }
         foreach ($m in @($rows)) {
             try {
                 foreach ($it in @(Get-JsonProp $m 'content' $null)) {
@@ -697,25 +699,102 @@ function Wait-LaneListener([int]$Port, [int]$DeadlineSeconds) {
     }
     return $false
 }
+# ---------- gates estruturados (CLOSURE-F1-PR71-GATES) ----------
+function Test-LaneForbiddenCall([string]$Text) {
+    # Scan de ferramenta proibida + equivalentes (parent E child, sempre no
+    # texto pre-truncamento; nunca so no $turn.out).
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    return ([regex]::IsMatch([string]$Text, '(?i)run[_-]?code[_-]?unsafe'))
+}
+function Test-LaneToolSuccess([string]$Transcript, [string]$ToolPattern, [int]$MinCount = 1) {
+    # Exige >=MinCount registros estruturados (extrator TOOL name/status) com
+    # status de sucesso; QUALQUER registro do mesmo nome com status de falha
+    # reprova (ferramenta falhando => nunca pass-real).
+    # Ancoragem GATES2: conta SOMENTE registros em fronteira de registro
+    # (inicio de linha, uma linha por registro gerada por
+    # Get-LaneChildTranscript). O sufixo out=[...] e cortado antes do match,
+    # entao texto 'TOOL name=... status=...' aninhado no conteudo (ou em
+    # blocos REPORT) NUNCA conta.
+    try {
+        if ([string]::IsNullOrWhiteSpace($Transcript)) { return $false }
+        $okRe = ('(?i)^\s*TOOL name=' + $ToolPattern + ' status=(completed|complete|success|ok|done)\b')
+        $badRe = ('(?i)^\s*TOOL name=' + $ToolPattern + ' status=(fail\w*|error\w*|abort\w*|reject\w*|timeout\w*|cancel\w*)\b')
+        $okN = 0
+        $badN = 0
+        foreach ($line in ([string]$Transcript -split "`r?`n")) {
+            $head = [string]$line
+            $ix = $head.IndexOf(' out=[')
+            if ($ix -ge 0) { $head = $head.Substring(0, $ix) }
+            if ([regex]::IsMatch($head, $okRe)) { $okN += 1 }
+            if ([regex]::IsMatch($head, $badRe)) { $badN += 1 }
+        }
+        return (([int]$okN -ge [int]$MinCount) -and ([int]$badN -eq 0))
+    } catch { return $false }
+}
 function Stop-LaneOwned([string]$Why) {
+    if ($null -eq $script:LaneCleanupLog) { $script:LaneCleanupLog = New-Object System.Collections.ArrayList }
     $notes = New-Object System.Collections.ArrayList
+    $stopFail = New-Object System.Collections.ArrayList
+    $remainingJobs = New-Object System.Collections.ArrayList
+    $jobIx = 0
     foreach ($job in @($script:OwnedJobs)) {
-        try { [void](Stop-RuntimeJobObject -Job $job) } catch { [void]$notes.Add('stop-job-throw') }
+        $jobIx += 1
+        $sr = $null
+        try { $sr = Stop-RuntimeJobObject -Job $job } catch { $sr = $null }
+        if ($null -eq $sr) {
+            [void]$stopFail.Add(('job#' + $jobIx + ' stop-throw (handle preservado no tracking)'))
+            [void]$remainingJobs.Add($job)
+        } elseif (-not [bool]$sr.Ok) {
+            [void]$stopFail.Add(('job#' + $jobIx + ' stop-ok=false api=' + [string]$sr.Api + ' remaining=' + [string]$sr.Remaining + ' (handle preservado no tracking)'))
+            [void]$remainingJobs.Add($job)
+        } elseif (-not [bool]$sr.Settled) {
+            [void]$stopFail.Add(('job#' + $jobIx + ' settlement-pendente remaining=' + [string]$sr.Remaining + ' (handle preservado no tracking)'))
+            [void]$remainingJobs.Add($job)
+        }
     }
     Start-Sleep -Milliseconds 1500
+    $closeIx = 0
     foreach ($job in @($script:OwnedJobs)) {
-        try { [void](Close-RuntimeJobObject -Job $job) } catch { }
+        $closeIx += 1
+        # GATES2 (handle-sem-close): job cujo stop falhou NAO e fechado aqui;
+        # o handle e preservado no tracking como evidencia e o registro
+        # original em stopFailures permanece intacto (sem close pós-falha
+        # que o destrua).
+        $stopFailed = $false
+        foreach ($k in @($remainingJobs)) { if ([object]::ReferenceEquals($k, $job)) { $stopFailed = $true; break } }
+        if ([bool]$stopFailed) {
+            [void]$notes.Add(('close-skip-job#' + $closeIx + ' (stop falhou; handle preservado no tracking, sem close pós-falha)'))
+            continue
+        }
+        $cr = $null
+        try { $cr = Close-RuntimeJobObject -Job $job } catch { $cr = $null }
+        if (($null -eq $cr) -or (-not [bool]$cr.Ok)) {
+            [void]$notes.Add(('close-job#' + $closeIx + '-falhou (handle preservado no tracking)'))
+            [void]$stopFail.Add(('close-job#' + $closeIx + '-falhou (handle preservado no tracking)'))
+            $already = $false
+            foreach ($k in @($remainingJobs)) { if ([object]::ReferenceEquals($k, $job)) { $already = $true; break } }
+            if (-not $already) { [void]$remainingJobs.Add($job) }
+        }
     }
     $leaks = New-Object System.Collections.ArrayList
+    $remainingProcs = New-Object System.Collections.ArrayList
     foreach ($p in @($script:OwnedProcs)) {
         try {
             $p.Refresh()
-            if (-not $p.HasExited) { [void]$leaks.Add($p.Id) }
-        } catch { }
+            if (-not $p.HasExited) { [void]$leaks.Add($p.Id); [void]$remainingProcs.Add($p) }
+        } catch {
+            [void]$notes.Add('proc-estado-desconhecido (preservado no tracking)')
+            [void]$stopFail.Add('proc-estado-desconhecido (preservado no tracking)')
+            [void]$remainingProcs.Add($p)
+        }
     }
     try { $script:OwnedJobs.Clear() } catch { }
     try { $script:OwnedProcs.Clear() } catch { }
-    return [ordered]@{ leaks = @($leaks); notes = @($notes); why = $Why }
+    foreach ($j in @($remainingJobs)) { try { [void]$script:OwnedJobs.Add($j) } catch { } }
+    foreach ($p in @($remainingProcs)) { try { [void]$script:OwnedProcs.Add($p) } catch { } }
+    $res = [ordered]@{ leaks = @($leaks); notes = @($notes); stopFailures = @($stopFail); why = $Why }
+    try { [void]$script:LaneCleanupLog.Add($res) } catch { }
+    return $res
 }
 
 # ---------- fixture (deterministica; FixtureDir opt-in, senao gerada em TEMP) ----------
@@ -982,7 +1061,8 @@ try {
                     if ($hasPw -or $hasDt) { $s1fail = 'default expoe MCP browser (vazamento entre perfis)' }
                 }
                 } finally {
-                    [void](Stop-LaneOwned ('s1-serve-' + [string]$prof.id + '-done'))
+                    $s1stop = Stop-LaneOwned ('s1-serve-' + [string]$prof.id + '-done')
+                    [void](Add-ScenarioProof $proofs ('cleanup-' + [string]$prof.id) (((@($s1stop.leaks).Count -eq 0) -and (@($s1stop.stopFailures).Count -eq 0))) ('Stop-LaneOwned acumulado na LaneCleanupLog: leaks=' + @($s1stop.leaks).Count + ' stop-failures=' + @($s1stop.stopFailures).Count))
                 }
                 if (-not [string]::IsNullOrWhiteSpace($s1fail)) { break }
             }
@@ -1047,7 +1127,8 @@ try {
                                 }
                             }
                             } finally {
-                                [void](Stop-LaneOwned 's2-serve-done')
+                                $s2stop = Stop-LaneOwned 's2-serve-done'
+                                [void](Add-ScenarioProof $proofs 'cleanup-s2' (((@($s2stop.leaks).Count -eq 0) -and (@($s2stop.stopFailures).Count -eq 0))) ('Stop-LaneOwned acumulado na LaneCleanupLog: leaks=' + @($s2stop.leaks).Count + ' stop-failures=' + @($s2stop.stopFailures).Count))
                             }
                         }
                     }
@@ -1413,7 +1494,7 @@ try {
                         $hasPwCall = (($turn.out -match '(?i)playwright_') -or ($turn.out -match '(?i)browser_(navigate|snapshot|click|take_screenshot|console_messages|network_requests|evaluate|fill_form|type|hover|drag|wait_for|tabs|press_key|select_option)\b'))
                         $hasTester = ($turn.out -match '(?i)tester')
                         $clicks = ([regex]::Matches($turn.out, '(?i)browser_click')).Count
-                        $forbidden = ($turn.out -match '(?i)run_code_unsafe')
+                        $forbidden = Test-LaneForbiddenCall $turn.out
                         $mVal = [regex]::Match($turn.out, '(?i)CLICKS_DONE\s*[=:]\s*(\d+)')
                         $reported = ''
                         if ($mVal.Success) { $reported = $mVal.Groups[1].Value }
@@ -1432,6 +1513,8 @@ try {
                         [void](Add-ScenarioProof $proofs 'child-session-tester' ([bool]$childTester) ('child sessions via GET /api/session com parentID da sessao: [' + ($childAgents -join ',') + ']'))
                         $childTx = Get-LaneChildTranscript ([string]$ms.serve_url) $auth5.env $script:ApiRemove ([string]$profTesting.cwd) ([string]$sess.id) 'tester'
                         [void](Add-ScenarioProof $proofs 'child-transcript-tester' (-not [string]::IsNullOrWhiteSpace($childTx)) $childTx)
+                        $childForbidden5 = Test-LaneForbiddenCall $childTx
+                        [void](Add-ScenarioProof $proofs 'zero-forbidden-calls-child' (-not [bool]$childForbidden5) 'child transcript sem run_code_unsafe (scan pre-truncamento do raw)')
                         $indep = 'nao-executada'
                         $indepOk = $false
                         try {
@@ -1523,11 +1606,13 @@ try {
                             timestamp = (Get-LaneTimestampUtc); evidence_source = 'run --server build->tester + stdio snapshot independente'
                             prompt_sha256 = $sha5
                         })
-                        $txNav = ($childTx -match 'TOOL name=browser_navigate')
-                        $txClick = (([regex]::Matches($childTx, 'TOOL name=browser_click')).Count -ge 3)
-                        [void](Add-ScenarioProof $proofs 'child-tools-nav' ([bool]$txNav) 'child transcript contem TOOL browser_navigate')
-                        [void](Add-ScenarioProof $proofs 'child-tools-click' ([bool]$txClick) 'child transcript contem >=3 TOOL browser_click')
-                        if ($hasPwCall -and $txNav -and $txClick -and $childTester -and ($reported -ceq '3')) {
+                        $txNav = Test-LaneToolSuccess $childTx 'browser_navigate' 1
+                        $txClick = Test-LaneToolSuccess $childTx 'browser_click' 3
+                        [void](Add-ScenarioProof $proofs 'child-tools-nav' ([bool]$txNav) 'child transcript com TOOL browser_navigate com status de sucesso (estruturado)')
+                        [void](Add-ScenarioProof $proofs 'child-tools-click' ([bool]$txClick) 'child transcript com >=3 TOOL browser_click com status de sucesso (falha => reprova)')
+                        if ([bool]$childForbidden5) {
+                            Set-ScenarioResult 'S5' 'fail' 'child transcript contem chamada proibida run_code_unsafe (scan pre-truncamento).' $proofs $coverage
+                        } elseif ($hasPwCall -and $txNav -and $txClick -and $childTester -and ($reported -ceq '3')) {
                             $stdNote = 'stdio auxiliar inconclusivo'
                             if ([bool]$indepOk) { $stdNote = 'stdio auxiliar coerente' }
                             Set-ScenarioResult 'S5' 'pass-real' ('tester via Playwright: child transcript com navigate+>=3 clicks + CLICKS_DONE=3 + zero proibidas; ' + $stdNote + '.') $proofs $coverage
@@ -1587,7 +1672,7 @@ try {
                         $hasDtCall = (($turn.out -match '(?i)(chrome[-_]?devtools[_-])?(navigate_page|take_snapshot|take_screenshot|list_console_messages|list_network_requests|evaluate_script|get_console_message|get_network_request|performance_|take_heapsnapshot|lighthouse_audit|new_page|select_page|press_key|type_text|upload_file|fill_form)\b') -or ($turn.out -match '(?i)devtools_'))
                         $hasDbg = ($turn.out -match '(?i)debugger')
                         $citesErr = ($turn.out -match 'FIXTURE-ERROR-42')
-                        $forbidden6 = ($turn.out -match '(?i)run_code_unsafe')
+                        $forbidden6 = Test-LaneForbiddenCall $turn.out
                         [void](Add-ScenarioProof $proofs 'toolcalls-devtools' ([bool]$hasDtCall) 'transcript contem (chrome-)devtools_*')
                         [void](Add-ScenarioProof $proofs 'child-debugger-text' ([bool]$hasDbg) 'transcript cita debugger (auxiliar; prova estrutural abaixo)')
                         [void](Add-ScenarioProof $proofs 'cites-real-error' ([bool]$citesErr) 'diagnostico cita FIXTURE-ERROR-42 (marcador NAO entregue no prompt)')
@@ -1604,6 +1689,8 @@ try {
                         $childTx6 = ''
                         if ([bool]$auth6b.hasPassword) { $childTx6 = Get-LaneChildTranscript ([string]$ms.serve_url) $auth6b.env $script:ApiRemove ([string]$profTesting.cwd) ([string]$sess.id) 'debugger' }
                         [void](Add-ScenarioProof $proofs 'child-transcript-debugger' (-not [string]::IsNullOrWhiteSpace($childTx6)) $childTx6)
+                        $childForbidden6 = Test-LaneForbiddenCall $childTx6
+                        [void](Add-ScenarioProof $proofs 'zero-forbidden-calls-child' (-not [bool]$childForbidden6) 'child transcript sem run_code_unsafe (scan pre-truncamento do raw)')
                         Add-EvidenceRecord ([ordered]@{
                             objective_id = 'AGENT-MCP-B-LANE'; task_id = 'S6-debugger-devtools'; session_id = ([string]$sess.id).Substring(0, [Math]::Min(8, ([string]$sess.id).Length)) + '...'
                             run_id = 'lane-run'; agent_id = 'debugger'; profile_id = 'testing'; mcp_id = 'chrome-devtools-mcp'
@@ -1611,9 +1698,13 @@ try {
                             timestamp = (Get-LaneTimestampUtc); evidence_source = 'run --server build->debugger'
                             prompt_sha256 = $sha6
                         })
-                        $txDt = ($childTx6 -match 'TOOL name=(navigate_page|take_snapshot|take_screenshot|list_console_messages|list_network_requests|evaluate_script|get_console_message|get_network_request|new_page|press_key|type_text|upload_file|fill_form|click|close_page|drag|hover|wait_for)\b')
-                        [void](Add-ScenarioProof $proofs 'child-tools-diag' ([bool]$txDt) 'child transcript contem TOOL de diagnostico')
-                        if ($hasDtCall -and $txDt -and $hasDbg -and $citesErr -and $childDebugger) {
+                        $txDiagConsole = Test-LaneToolSuccess $childTx6 '(list_console_messages|get_console_message)' 1
+                        $txDiagDom = Test-LaneToolSuccess $childTx6 'take_snapshot' 1
+                        [void](Add-ScenarioProof $proofs 'child-tools-diag-console' ([bool]$txDiagConsole) 'child transcript com TOOL de leitura de console com status de sucesso')
+                        [void](Add-ScenarioProof $proofs 'child-tools-diag-dom' ([bool]$txDiagDom) 'child transcript com TOOL take_snapshot (DOM) com status de sucesso; close_page/hover sozinhos reprovam')
+                        if ([bool]$childForbidden6) {
+                            Set-ScenarioResult 'S6' 'fail' 'child transcript contem chamada proibida run_code_unsafe (scan pre-truncamento).' $proofs $coverage
+                        } elseif ($hasDtCall -and $txDiagConsole -and $txDiagDom -and $hasDbg -and $citesErr -and $childDebugger) {
                             Set-ScenarioResult 'S6' 'pass-real' 'debugger via DevTools: child transcript com TOOL diagnostica + diagnostico citando FIXTURE-ERROR-42 (nao entregue no prompt).' $proofs $coverage
                         } else {
                             Set-ScenarioResult 'S6' 'fail' 'turn ok mas sem feixe completo (TOOL diagnostica na child + erro real).' $proofs $coverage
@@ -1744,7 +1835,19 @@ try {
             [void](Add-ScenarioProof $proofs 'owned-before' ($ownedBefore -ge 0) ('processos owned rastreados=' + $ownedBefore))
             $stop = Stop-LaneOwned 's8'
             $leakN = @($stop.leaks).Count
-            [void](Add-ScenarioProof $proofs 'owned-stopped' ($leakN -eq 0) ('leaks=' + $leakN))
+            $stopFailN = @($stop.stopFailures).Count
+            $priorBad = 0
+            try {
+                if ($null -ne $script:LaneCleanupLog) {
+                    foreach ($r in @($script:LaneCleanupLog)) {
+                        if ([string]$r['why'] -cne 's8') {
+                            if (((@($r['leaks']).Count -gt 0) -or ((@($r['stopFailures']).Count -gt 0)))) { $priorBad += 1 }
+                        }
+                    }
+                }
+            } catch { }
+            [void](Add-ScenarioProof $proofs 'owned-stopped' (($leakN -eq 0) -and ($stopFailN -eq 0)) ('leaks=' + $leakN + ' stop-failures=' + $stopFailN))
+            [void](Add-ScenarioProof $proofs 'cleanup-attempts-all' ($priorBad -eq 0) ('tentativas anteriores com leak/falha=' + $priorBad + ' (LaneCleanupLog: todas as tentativas consideradas)'))
             $removed = $true
             try {
                 if (Test-Path -LiteralPath $TargetHome) { Remove-Item -LiteralPath $TargetHome -Recurse -Force }
@@ -1754,15 +1857,15 @@ try {
             Add-EvidenceRecord ([ordered]@{
                 objective_id = 'AGENT-MCP-B-LANE'; task_id = 'S8-cleanup-release'; session_id = 'n/a'
                 run_id = 'lane-run'; agent_id = 'lane'; profile_id = 'both'; mcp_id = 'n/a'
-                tool_id = 'n/a'; invocation_status = 'cleanup'; result_status = 'leaks=' + $leakN + ' removed=' + $removed
+                tool_id = 'n/a'; invocation_status = 'cleanup'; result_status = 'leaks=' + $leakN + ' stop-failures=' + $stopFailN + ' removed=' + $removed
                 timestamp = (Get-LaneTimestampUtc); evidence_source = 'Stop-LaneOwned + Remove-Item TargetHome'
                 prompt_sha256 = 'n/a'
             })
             $evPath = Join-Path $script:EvidenceDir 'agent-mcp-evidence.json'
             [void](Write-LaneJson @($script:EvidenceRecords) $evPath)
             [void](Add-ScenarioProof $proofs 'evidence-written' (Test-Path -LiteralPath $evPath -PathType Leaf) ('evidence JSON em EvidenceDir (records=' + @($script:EvidenceRecords).Count + ')'))
-            if (($leakN -gt 0) -or (-not $removed)) {
-                Set-ScenarioResult 'S8' 'fail' ('cleanup incompleto: leaks=' + $leakN + ' removed=' + $removed) $proofs $coverage
+            if (($leakN -gt 0) -or ($stopFailN -gt 0) -or ($priorBad -gt 0) -or (-not $removed)) {
+                Set-ScenarioResult 'S8' 'fail' ('cleanup incompleto: leaks=' + $leakN + ' stop-failures=' + $stopFailN + ' tentativas-anteriores-com-falha=' + $priorBad + ' removed=' + $removed) $proofs $coverage
             } else {
                 Set-ScenarioResult 'S8' 'pass-real' 'fixture+serve owned parados; TEMP profiles removidos; handles pinados encerrados; evidence JSON escrito.' $proofs $coverage
             }
