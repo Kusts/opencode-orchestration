@@ -64,7 +64,7 @@ profundidade, risco, workstream independente ou paralelização segura.
 `skeptic` — no máximo 1 por subtarefa, sem rito obrigatório.
 
 Total: 11 + 4 + 4 = **19 workers delegáveis** (`source/agents/*.md`).
-No `templates/opencode.v1.json.tmpl` (V1 ativo; `templates/opencode.v2.json.tmpl` espelha a mesma semantica no shape nativo V2), 15 têm bloco `agent.*`; os 4 de planning
+No `templates/opencode.v1.json.tmpl` (V1 legado, frozen desde a issue #62; `templates/opencode.v2.json.tmpl` é o prospectivo e espelha a mesma semantica no shape nativo V2), 15 têm bloco `agent.*`; os 4 de planning
 vivem só nos `.md` + allowlist do `build` (by design — ver check 3 de
 `scripts/test-package-consistency.ps1`). `agent.build.model` nunca existe:
 o Planner herda o modelo da sessão.
@@ -197,10 +197,12 @@ kernel-side vinculada à task/key. Detalhes e residuais documentados em
   V3.1 (abaixo) — classes `RUNTIME_COMPATIBILITY` +
   `FEATURE_REEVALUATION` — não reabre o router/flags da V3.
 
-## Dual-runtime (V3.1, em andamento)
+## Dual-runtime (V3.1; V1 legado frozen desde a issue #62)
 
 A orquestração é canônica; a sintaxe de cada geração é adaptação
-(`docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`):
+(`docs/specs/ORCHESTRATION-V3.1-KERNEL-HARDENING-SPEC.md`). Dual-runtime
+= manutenção de perfis legados existentes, não certificação de features
+novas em V1:
 
 - **Registry de runtimes** (`source/registry/runtimes.json`): descritores
   `opencode-v1` e `opencode-v2` com dialeto de config/permissões, pacote de

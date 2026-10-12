@@ -58,14 +58,15 @@ Uma versão só é publicada com, cumulativamente:
    (`scripts/v3/run-v3-tests.ps1`, incluindo as de `scripts/runtime/`) e
    13 suítes de distribuição
    (`tests/distribution/run-distribution-tests.ps1`, incluindo runtime
-   V1/V2 e perfis isolados). Exceção documentada: 4 suítes falham quando o
+   V1 (legado, provado em 1.18.x; sem novos desenvolvimentos)/V2 e perfis isolados). Exceção documentada: 4 suítes falham quando o
    `opencode.json` vivo diverge do baseline canônico — invariante de
    ambiente, não do pacote (ver [TROUBLESHOOTING](TROUBLESHOOTING.md)).
 2. **Smoke com OpenCode real**: job `ci-smoke-opencode` verde
    (install num home isolado + `opencode debug config/agent/skill`).
    Lane de CI para V2/dual-perfil pendente (Phase 8 do V3.1); smoke V2
    atual é via suítes locais e spike de isolamento.
-3. **Typecheck do plugin** contra as APIs reais pinadas V1 e V2
+3. **Typecheck do plugin** contra as APIs reais pinadas V1 (legado,
+   provado em 1.18.x; sem novos desenvolvimentos) e V2
    (`scripts/ci/typecheck-plugin.ps1`, trilhas V1/V2/dual).
 4. **Evidência**: logs das suítes e CHANGELOG atualizado.
 

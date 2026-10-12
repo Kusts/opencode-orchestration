@@ -188,9 +188,10 @@ Corrija, rode `.\install.ps1 -WhatIf` e depois `.\install.ps1`.
 
 ## OpenCode atualizou — e agora?
 
-Política de suporte: as linhas **OpenCode V1.x** (pacote npm
-`opencode-ai`) e **OpenCode V2** (pacote `@opencode/cli`) são suportadas
-(programa V3.1). Os pins exatos que o CI instala e as suítes exigem estão
+Política de suporte: **OpenCode V2** (pacote `@opencode/cli`) é a linha
+prospectiva (programa V3.1). **V1 (pacote npm `opencode-ai`): legado,
+frozen desde a issue #62** — dual-runtime = manutenção de perfis
+legados existentes, não certificação de features novas em V1. Os pins exatos que o CI instala e as suítes exigem estão
 no **registry canônico** `source/registry/runtime-versions.json` (leia
 `runtimes.v1.spec` / `runtimes.v2.spec`; loader fail-closed
 `scripts/runtime/lib/RuntimeVersions.ps1`) — não fixe números neste doc:
@@ -199,9 +200,10 @@ o bump de pin é edição de um arquivo + revalidação no runtime exato.
 histórico da evidência em que apareceram.)
 O `install.ps1 -Runtime Auto` detecta a geração pelo probe; explícito
 (`-Runtime V1`/`-Runtime V2`) sempre vence. Uma versão **mais nova e ainda
-não testada** de qualquer linha pode ser "esperadamente compatível", mas
+não testada** da linha V2 pode ser "esperadamente compatível", mas
 só vira "validada" depois de smoke/suítes verdes — nesse meio tempo,
-reinstale e revalide.
+reinstale e revalide. A linha V1 segue frozen no pin canônico
+(regressão/manutenção de perfis legados, sem certificação de versões novas).
 
 Colisão de gerações no `PATH` (ambas respondem a `opencode`): confira qual
 responde —
