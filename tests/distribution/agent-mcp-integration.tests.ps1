@@ -99,10 +99,13 @@ if (Test-Path -LiteralPath $lanePath -PathType Leaf) {
   Assert (($laneText -match 'function Add-LaneServeAuth') -and ($laneText -match 'OPENCODE_PASSWORD') -and ($laneText -match 'function Wait-LaneMcpNames') -and ($laneText -match 'function Get-LaneChildAgents')) 'lane com auth de serve + espera MCP + child sessions'
   Assert ((@([regex]::Matches($laneText, "-Agent 'build'")).Count -ge 2) -and ($laneText -match "'--agent', 'build'") -and ($laneText -notmatch "-Agent 'tester'") -and ($laneText -notmatch "-Agent 'debugger'") -and ($laneText -notmatch "'--agent', 'tester'") -and ($laneText -notmatch "'--agent', 'debugger'")) 'lane invoca via build (subagents nao sao primary)'
   Assert (($laneText -match 'Delegate to the tester') -and ($laneText -match 'Delegate to the debugger')) 'lane delega a tester/debugger via Planner'
-  Assert (($laneText -match 'browser_run_code_unsafe') -and ($laneText -match "'deny'") -and ($laneText -match 'evaluate_script') -and ($laneText -match 'run_code_unsafe')) 'lane materializa restricoes MCP + scan de proibidas'
+  Assert (($laneText -match 'browser_run_code_unsafe') -and ($laneText -match "'deny'") -and ($laneText -match 'evaluate_script') -and ($laneText -match 'run_code_unsafe') -and ($laneText -match 'browser_navigate') -and ($laneText -match 'navigate_page') -and ($laneText -match 'turn-output-head')) 'lane materializa restricoes MCP + scan de proibidas + diagnostico de transcript'
   Assert (($laneText -match 'FixtureDir incompativel') -and ($laneText -match 'id="count-btn"')) 'lane valida contrato da FixtureDir'
   Assert (($laneText -match 'WaitForExit\(5000\)') -and ($laneText -match '\$task = \$null') -and ($laneText -match 'npm_config_cache')) 'lane com leitura limitada + HOME isolado do npx'
   Assert (($laneText -match 'Test-LaneLocalhostUrl') -and ($laneText -match '49374')) 'lane com guard localhost + recusa 49374'
+  Assert (($laneText -match 'auth_store') -and ($laneText -match 'npm_config_cache') -and ($laneText -match 'npmrc-blank') -and ($laneText -match 'account\.json')) 'lane com auth store isolado + npm confinado'
+  Assert (($laneText -match 'Copy-LaneCredentials') -and ($laneText -match 'INSERT OR REPLACE INTO credential')) 'lane copia tabela credential para DB isolado'
+  Assert (($laneText -match 'Get-LaneChildTranscript') -and ($laneText -match 'ProgramFiles') -and ($laneText -match 'transcript-match-lines')) 'lane captura transcript da child + env do Chrome'
 }
 else {
   Assert $false 'lane com params obrigatorios' 'arquivo ausente'

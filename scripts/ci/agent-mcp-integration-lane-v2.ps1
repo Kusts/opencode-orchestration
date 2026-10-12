@@ -37,17 +37,19 @@
          owned com perfil testing (Job Object); `run --server URL --agent
          build` com prompt que manda o Planner delegar o E2E ao tester
          (tester e mode=subagent: invocacao direta via --agent e rejeitada;
-         observado no contrato); feixe de provas: tool calls playwright_* +
-         >=3 browser_click + child session tester via GET /api/session +
-         CLICKS_DONE=3 + scan de run_code_unsafe (fail se presente);
+         observado no contrato); feixe de provas: TOOL records extraidos do
+         transcript da child (navigate+>=3 clicks com status/trechos de
+         resultado) + child session estrutural + CLICKS_DONE=3 + scan de
+         run_code_unsafe (fail se presente); snapshot stdio como auxiliar
+         (nao gating: contexto do browser e efemero por perfil).
          verificacao independente = snapshot stdio coerente. Limite honesto:
          os clicks ocorreram no contexto efemero do tester (sem contexto
          compartilhado); o valor e corroborado por feixe, nao re-observado.
          Timeout 240s.
       S6 debugger->DevTools (model-gated, mesmo setup): `run --agent build`
          com prompt que manda delegar o diagnostico ao debugger SEM entregar
-         o marcador (prova que o agente leu console/DOM); feixe: tool calls
-         (chrome-)devtools_* + child debugger + cita FIXTURE-ERROR-42 +
+         o marcador (prova que o agente leu console/DOM); feixe: TOOL
+         records do transcript da child + cita FIXTURE-ERROR-42 +
          scan run_code_unsafe.
       S7 negative dynamic (model-gated): serve dedicado do perfil default +
          `run --agent build`, tarefa sem browser (reportar versao do node);
@@ -55,6 +57,11 @@
       Auth serve dedicado: segredo gerado pela lane por perfil (memoria
          apenas, valor nunca logado); todo filho api/run o recebe via env;
          ausencia => blocked fail-closed (serves frescos exigem password).
+         Auth de modelos via store: provider opencode-go autentica pelo
+         credential store (auth.json/account.json copiados para o XDG_DATA
+         isolado; segredos morrem com TargetHome); env de chave sozinha NAO
+         basta sob isolamento total (provider.no-route observado). Filhos npx
+         recebem npm_config_cache + npmrc em branco sob TargetHome.
       S8 cleanup/release: para fixture+serve owned, remove TEMP profiles,
          verifica handles pinados encerrados, escreve evidence JSON com os
          campos do contrato + prompt_sha256 (nunca prompt completo, nunca
@@ -245,8 +252,71 @@ function Wait-LaneMcpNames([string]$ServeUrl, $ApiEnv, [string[]]$ApiRemove, [st
     $res.elapsed_ms = [int]$sw.Elapsed.TotalMilliseconds
     return $res
 }
-function Get-LaneChildAgents([string]$ServeUrl, $ApiEnv, [string[]]$ApiRemove, [string]$WorkDir, [string]$ParentId) {
-    # Lista agentes de child sessions (parentID == ParentId): prova estrutural
+function Copy-LaneCredentials([string]$DstDb) {
+    # Copia SOMENTE a tabela credential (o store de credenciais do provider)
+    # do DB do usuario para o DB isolado JA migrado pelo serve. Sem DDL
+    # (o serve migra sozinho); INSERT OR REPLACE por id via helper python3
+    # em TargetHome. Retorna ok/rows/reason. Valores nunca vao para log.
+    $res = [ordered]@{ ok = $false; rows = 0; reason = '' }
+    try {
+        $py = Get-Command python3 -ErrorAction SilentlyContinue
+        if ($null -eq $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
+        if ($null -eq $py) { $res.reason = 'python3 indisponivel (infra)'; return $res }
+        $helper = Join-Path $TargetHome 'copycreds.py'
+        if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) {
+            $code = @'
+import sqlite3, sys
+src, dst = sys.argv[1], sys.argv[2]
+s = sqlite3.connect('file:' + src + '?mode=ro', uri=True, timeout=15)
+rows = s.execute('select id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated from credential').fetchall()
+cols = [r[1] for r in s.execute('PRAGMA table_info(credential)')]
+s.close()
+d = sqlite3.connect(dst, timeout=30)
+try:
+    ncol = [r[1] for r in d.execute('PRAGMA table_info(credential)')]
+except Exception:
+    print('NO-TABLE'); sys.exit(3)
+if ncol != cols:
+    print('SCHEMA-MISMATCH'); sys.exit(4)
+d.executemany('INSERT OR REPLACE INTO credential VALUES (?,?,?,?,?,?,?,?,?)', rows)
+d.commit()
+print('ROWS=' + str(len(rows)))
+'@
+            [IO.File]::WriteAllText($helper, ($code -replace "`r`n", "`n"), (New-Object Text.UTF8Encoding $false))
+        }
+        $userDb = Join-Path $env:USERPROFILE '.local\share\opencode\opencode.db'
+        if (-not [string]::IsNullOrWhiteSpace($env:XDG_DATA_HOME)) {
+            $alt = Join-Path ([string]$env:XDG_DATA_HOME) 'opencode\opencode.db'
+            if (Test-Path -LiteralPath $alt -PathType Leaf) { $userDb = $alt }
+        }
+        if (-not (Test-Path -LiteralPath $userDb -PathType Leaf)) { $res.reason = 'DB do usuario ausente (infra)'; return $res }
+        if (-not (Test-Path -LiteralPath $DstDb -PathType Leaf)) { $res.reason = 'DB isolado ainda nao migrado (ordenacao)'; return $res }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = ([string]$py.Source)
+        $psi.Arguments = (ConvertTo-SpikeArguments -ArgumentList @($helper, $userDb, $DstDb))
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $psi.WorkingDirectory = $TargetHome
+        try { $psi.EnvironmentVariables.Clear() } catch { }
+        foreach ($kn in @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'SystemDrive')) {
+            try { $v = [Environment]::GetEnvironmentVariable($kn, 'Process'); if ($null -ne $v) { $psi.EnvironmentVariables[$kn] = [string]$v } } catch { }
+        }
+        $c = [System.Diagnostics.Process]::Start($psi)
+        if ($null -eq $c) { $res.reason = 'helper nao iniciou (infra)'; return $res }
+        if (-not $c.WaitForExit(60000)) { try { $c.Kill() } catch { }; $res.reason = 'helper TIMEOUT 60s (infra)'; return $res }
+        $o = $c.StandardOutput.ReadToEnd()
+        if ([int]$c.ExitCode -ne 0) { $res.reason = ('helper exit=' + [int]$c.ExitCode + ' ' + (Get-LaneSafeText $o 120)); return $res }
+        $m = [regex]::Match($o, 'ROWS=(\d+)')
+        if (-not $m.Success) { $res.reason = 'helper sem contagem (infra)'; return $res }
+        $res.ok = $true
+        $res.rows = [int]$m.Groups[1].Value
+        $res.reason = 'credential copiada (contagem apenas)'
+        return $res
+    } catch { $res.reason = (Get-LaneSafeText $_.Exception.Message 120); return $res }
+}
+function Get-LaneChildAgents([string]$ServeUrl, $ApiEnv, [string[]]$ApiRemove, [string]$WorkDir, [string]$ParentId) {    # Lista agentes de child sessions (parentID == ParentId): prova estrutural
     # de delegacao (vai alem de mencao textual no transcript).
     $out = New-Object System.Collections.ArrayList
     try {
@@ -267,6 +337,62 @@ function Get-LaneChildAgents([string]$ServeUrl, $ApiEnv, [string[]]$ApiRemove, [
         }
     } catch { }
     return @($out)
+}
+function Get-LaneChildTranscript([string]$ServeUrl, $ApiEnv, [string[]]$ApiRemove, [string]$WorkDir, [string]$ParentId, [string]$Agent) {
+    # Extrai da child session SOMENTE registros de tool (nome+status+trecho
+    # do resultado) + linhas de relatorio. Evita blobs de reasoning e
+    # independe do TargetHome post-hoc (que se mostrou efemero).
+    try {
+        if ([string]::IsNullOrWhiteSpace($ParentId)) { return '' }
+        if (-not (Test-LaneLocalhostUrl $ServeUrl)) { return '' }
+        $lr = Invoke-PreflightBoundedExe -File $script:Exe -ArgsLine ('api --server ' + $ServeUrl + ' GET /api/session') -WorkDir $WorkDir -EnvTable $ApiEnv -EnvRemove $ApiRemove -TimeoutMs 30000 -MaxChars 131072
+        if ((-not [bool]$lr.Finished) -or ([int]$lr.ExitCode -ne 0)) { return '' }
+        $lj = $null
+        try { $lj = ConvertFrom-Json ([string]$lr.Output) } catch { return '' }
+        $cid = ''
+        foreach ($r in @(Get-JsonProp $lj 'data' $null)) {
+            try {
+                if (([string](Get-JsonProp $r 'parentID' '') -ceq $ParentId) -and ([string](Get-JsonProp $r 'agent' '') -ceq $Agent)) { $cid = [string](Get-JsonProp $r 'id' ''); break }
+            } catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($cid)) { return '' }
+        $mr = Invoke-PreflightBoundedExe -File $script:Exe -ArgsLine ('api --server ' + $ServeUrl + ' GET /api/session/' + $cid + '/message') -WorkDir $WorkDir -EnvTable $ApiEnv -EnvRemove $ApiRemove -TimeoutMs 30000 -MaxChars 524288
+        if ((-not [bool]$mr.Finished) -or ([int]$mr.ExitCode -ne 0)) { return '' }
+        $mj = $null
+        try { $mj = ConvertFrom-Json ([string]$mr.Output) } catch { return '' }
+        $rows = Get-JsonProp $mj 'data' $mj
+        if ($null -eq $rows) { $rows = @($mj) }
+        $ev = New-Object System.Collections.ArrayList
+        foreach ($m in @($rows)) {
+            try {
+                foreach ($it in @(Get-JsonProp $m 'content' $null)) {
+                    try {
+                        $tp = [string](Get-JsonProp $it 'type' '')
+                        if ($tp -ceq 'tool') {
+                            $nm = [string](Get-JsonProp $it 'name' (Get-JsonProp $it 'tool' ''))
+                            $st = [string](Get-JsonProp (Get-JsonProp $it 'state' $null) 'status' '')
+                            $ot = ''
+                            try {
+                                $oc = @(Get-JsonProp $it 'content' $null)
+                                $tx = @()
+                                foreach ($c in @($oc)) { $tx += [string](Get-JsonProp $c 'text' '') }
+                                $ot = ($tx -join ' ').Trim()
+                            } catch { }
+                            if ($ot.Length -gt 300) { $ot = $ot.Substring(0, 300) }
+                            [void]$ev.Add(('TOOL name=' + $nm + ' status=' + $st + ' out=[' + $ot + ']'))
+                        } elseif ($tp -ceq 'text') {
+                            $tx = [string](Get-JsonProp $it 'text' '')
+                            if (($tx -match 'CLICKS_DONE') -or ($tx -match 'FIXTURE-ERROR-42')) {
+                                if ($tx.Length -gt 300) { $tx = $tx.Substring(0, 300) }
+                                [void]$ev.Add(('REPORT ' + $tx))
+                            }
+                        }
+                    } catch { }
+                }
+            } catch { }
+        }
+        return (Get-LaneSafeText ($ev -join "`n") 4000)
+    } catch { return '' }
 }
 
 function Add-LaneCheck([string]$Name, [bool]$Ok, [string]$Detail) {
@@ -292,7 +418,7 @@ function Set-ScenarioResult([string]$Id, [string]$Status, [string]$Detail, $Proo
     Write-Host ('[agent-mcp-lane] ' + $Id + ' => ' + $Status + ' :: ' + (Get-LaneSafeText $Detail 120))
 }
 function Add-ScenarioProof($Proofs, [string]$Name, [bool]$Ok, [string]$Detail) {
-    [void]$Proofs.Add([ordered]@{ proof = $Name; ok = [bool]$Ok; detail = (Get-LaneSafeText $Detail 300) })
+    [void]$Proofs.Add([ordered]@{ proof = $Name; ok = [bool]$Ok; detail = (Get-LaneSafeText $Detail 4000) })
     return $Proofs
 }
 function Add-EvidenceRecord($Rec) {
@@ -413,6 +539,43 @@ function New-LaneProfile([string]$ProfileId) {
     }
     $dbPath = Join-Path $dbDir 'opencode.db'
     $servePw = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
+    $authCopied = $false
+    try {
+        $userData = $env:XDG_DATA_HOME
+        if ([string]::IsNullOrWhiteSpace($userData)) { $userData = Join-Path $env:USERPROFILE '.local\share' }
+        $userOpDir = Join-Path ([string]$userData) 'opencode'
+        $profOpData = Join-Path $xdgData 'opencode'
+        if (-not (Test-Path -LiteralPath $profOpData -PathType Container)) { New-Item -ItemType Directory -Path $profOpData -Force | Out-Null }
+        $copiedAny = $false
+        foreach ($af in @('auth.json', 'account.json')) {
+            try {
+                $src = Join-Path $userOpDir $af
+                if (Test-Path -LiteralPath $src -PathType Leaf) {
+                    Copy-Item -LiteralPath $src -Destination (Join-Path $profOpData $af) -Force
+                    $copiedAny = $true
+                }
+            } catch { }
+        }
+        $userState = $env:XDG_STATE_HOME
+        if ([string]::IsNullOrWhiteSpace($userState)) { $userState = Join-Path $env:USERPROFILE '.local\state' }
+        $userOpState = Join-Path ([string]$userState) 'opencode'
+        $profOpState = Join-Path $xdgState 'opencode'
+        if (-not (Test-Path -LiteralPath $profOpState -PathType Container)) { New-Item -ItemType Directory -Path $profOpState -Force | Out-Null }
+        foreach ($sf in @('kv.json', 'model.json', 'service.json')) {
+            try {
+                $src = Join-Path $userOpState $sf
+                if (Test-Path -LiteralPath $src -PathType Leaf) {
+                    Copy-Item -LiteralPath $src -Destination (Join-Path $profOpState $sf) -Force
+                    $copiedAny = $true
+                }
+            } catch { }
+        }
+        $authCopied = [bool]$copiedAny
+    } catch { $authCopied = $false }
+    $npmCache = Join-Path $root 'npm-cache'
+    try { if (-not (Test-Path -LiteralPath $npmCache -PathType Container)) { New-Item -ItemType Directory -Path $npmCache -Force | Out-Null } } catch { }
+    $npmRcBlank = Join-Path $root 'npmrc-blank'
+    try { if (-not (Test-Path -LiteralPath $npmRcBlank -PathType Leaf)) { [IO.File]::WriteAllText($npmRcBlank, "# lane-owned blank npmrc`n", (New-Object Text.UTF8Encoding $false)) } } catch { }
     $servePwEnv = @{
         XDG_CONFIG_HOME = $xdg
         XDG_DATA_HOME   = $xdgData
@@ -422,6 +585,8 @@ function New-LaneProfile([string]$ProfileId) {
         USERPROFILE     = $profHome
         OPENCODE_DB     = $dbPath
         OPENCODE_PASSWORD = $servePw
+        npm_config_cache = $npmCache
+        npm_config_userconfig = $npmRcBlank
     }
     $servePw = ''
     return [ordered]@{
@@ -433,6 +598,7 @@ function New-LaneProfile([string]$ProfileId) {
         db       = $dbPath
         cfg_path = (Join-Path $xdg 'opencode\opencode.json')
         env      = $servePwEnv
+        auth_store = [bool]$authCopied
     }
 }
 
@@ -459,7 +625,7 @@ function Start-LaneOwnedProcess {
         $psi.RedirectStandardInput = $true
         $psi.CreateNoWindow = $true
         if (-not [string]::IsNullOrWhiteSpace($WorkDir)) { $psi.WorkingDirectory = $WorkDir }
-        $keepNames = @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'PSModulePath')
+        $keepNames = @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'PSModulePath', 'SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA', 'APPDATA')
         try { $psi.EnvironmentVariables.Clear() } catch { }
         foreach ($kn in $keepNames) {
             try {
@@ -610,6 +776,11 @@ try {
         }
         $profileBin = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
         if ((Test-Path -LiteralPath $profileBin -PathType Leaf) -and (-not ($cands -contains $profileBin))) { [void]$cands.Add($profileBin) }
+        $npmCli = Join-Path $env:APPDATA 'npm\node_modules\@opencode\cli'
+        foreach ($plat in @('cli-windows-x64-baseline', 'cli-windows-x64', 'cli-windows-arm64')) {
+            $pb = Join-Path $npmCli ('node_modules\@opencode\' + $plat + '\bin\opencode.exe')
+            if ((Test-Path -LiteralPath $pb -PathType Leaf) -and (-not ($cands -contains $pb))) { [void]$cands.Add($pb) }
+        }
     }
     foreach ($cand in @($cands)) {
         $exePath = [string]$cand
@@ -644,6 +815,7 @@ try {
     $profDefault = New-LaneProfile -ProfileId 'default'
     if ($profTesting.db -ceq $profDefault.db) { Write-LaneSummaryAndExit 'failed' 'OPENCODE_DB colidiu entre perfis (defeito da lane).' 1 }
     Add-LaneCheck 'profiles_isolated_temp' $true ('testing+default sob TargetHome exclusivo; OPENCODE_DB distintos (convencao lane-owned)')
+    Add-LaneCheck 'auth_store_copied' (([bool]$profTesting.auth_store) -and ([bool]$profDefault.auth_store)) 'auth.json/account.json copiados para XDG_DATA isolado (model auth via store; segredos morrem com TargetHome)'
     $tmplPath = Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl'
     if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) { Write-LaneSummaryAndExit 'failed' ('template ausente: ' + $tmplPath) 1 }
     $tmplRaw = [IO.File]::ReadAllText($tmplPath, [Text.Encoding]::UTF8)
@@ -922,7 +1094,7 @@ try {
                         $psi.CreateNoWindow = $true
                         $psi.WorkingDirectory = $TargetHome
                         try { $psi.EnvironmentVariables.Clear() } catch { }
-                        foreach ($kn in @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP')) {
+                        foreach ($kn in @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA', 'APPDATA')) {
                             try {
                                 $kv = [Environment]::GetEnvironmentVariable($kn, 'Process')
                                 if ($null -ne $kv) { $psi.EnvironmentVariables[$kn] = [string]$kv }
@@ -1102,6 +1274,9 @@ try {
             $script:ModelSetup = $st
             return $st
         }
+        $cc = Copy-LaneCredentials ([string]$profTesting.db)
+        if (-not [bool]$cc.ok) { $st.reason = ('credential store indisponivel: ' + [string]$cc.reason); $script:ModelSetup = $st; return $st }
+        $st.cred_rows = [int]$cc.rows
         $st.ok = $true
         $st.fixture = $fx
         $st.fixture_port = $portFixture
@@ -1187,13 +1362,14 @@ try {
                 Set-ScenarioResult 'S5' 'blocked' $ms.reason $proofs $coverage
             } else {
                 [void](Add-ScenarioProof $proofs 'model-setup' $true ('fixture+serve owned; ' + (Get-LaneModelKeyLogToken)))
+                [void](Add-ScenarioProof $proofs 'credential-store' $true ('credential rows=' + [int]$ms.cred_rows + ' no DB isolado'))
                 $sess = New-LaneApiSession -ServerUrl ([string]$ms.serve_url) -EnvTable $profTesting.env -Cwd ([string]$profTesting.cwd)
                 if (-not [bool]$sess.ok) {
                     [void](Add-ScenarioProof $proofs 'session-created' $false $sess.reason)
                     Set-ScenarioResult 'S5' 'blocked' ('sessao API indisponivel: ' + $sess.reason) $proofs $coverage
                 } else {
                     [void](Add-ScenarioProof $proofs 'session-created' $true ('id len=' + ([string]$sess.id).Length))
-                    $prompt5 = 'Delegate to the tester subagent: open ' + [string]$ms.fixture_url + ' with the Playwright browser tools, click the button id count-btn exactly 3 times, read span id count, and report CLICKS_DONE=<n>. Use only browser testing tools.'
+                    $prompt5 = 'Delegate to the tester subagent: open ' + [string]$ms.fixture_url + ' with the Playwright browser tools ONLY (browser_navigate, browser_snapshot, browser_click). Do NOT read the page via shell, curl, cat or any file tool. Click the button id count-btn exactly 3 times, read span id count, and report CLICKS_DONE=<n>.'
                     $sha5 = Get-PromptSha256 $prompt5
                     $turn = Invoke-LaneModelRun -ServerUrl ([string]$ms.serve_url) -SessionId ([string]$sess.id) -Model $CheapModel -Agent 'build' -Prompt $prompt5
                     if (-not [bool]$turn.attempted) {
@@ -1201,13 +1377,18 @@ try {
                         Set-ScenarioResult 'S5' 'blocked' ('turn nao tentado: ' + $turn.reason) $proofs $coverage
                     } elseif ([bool]$turn.timedout) {
                         [void](Add-ScenarioProof $proofs 'model-turn' $false 'TIMEOUT 240s')
+                        [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
                         Set-ScenarioResult 'S5' 'blocked' 'turn TIMEOUT 240s (infra/modelo).' $proofs $coverage
                     } elseif (-not [bool]$turn.ok) {
                         [void](Add-ScenarioProof $proofs 'model-turn' $false ('exit=' + [int]$turn.exit + ' job=' + [bool]$turn.job_assigned + ' ' + $turn.reason))
+                        [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
                         if (Test-InfraMarkers $turn.out) { Set-ScenarioResult 'S5' 'blocked' ('turn infra: exit=' + [int]$turn.exit) $proofs $coverage }
                         else { Set-ScenarioResult 'S5' 'fail' ('turn falhou com saida limpa: exit=' + [int]$turn.exit + ' ' + $turn.reason) $proofs $coverage }
                     } else {
-                        $hasPwCall = ($turn.out -match '(?i)playwright_')
+                        [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
+                        $matchLines = @($turn.out -split "`n" | Where-Object { $_ -match '(?i)browser_(navigate|snapshot|click|take_screenshot|console_messages|network_requests|evaluate|fill_form|type|hover|drag|wait_for|tabs|press_key|select_option)|CLICKS_DONE|tool[-_ ]?call|subagent|delegate' } | Select-Object -First 40)
+                        [void](Add-ScenarioProof $proofs 'transcript-match-lines' $true (($matchLines -join "`n").Substring(0, [Math]::Min(3500, ($matchLines -join "`n").Length))))
+                        $hasPwCall = (($turn.out -match '(?i)playwright_') -or ($turn.out -match '(?i)browser_(navigate|snapshot|click|take_screenshot|console_messages|network_requests|evaluate|fill_form|type|hover|drag|wait_for|tabs|press_key|select_option)\b'))
                         $hasTester = ($turn.out -match '(?i)tester')
                         $clicks = ([regex]::Matches($turn.out, '(?i)browser_click')).Count
                         $forbidden = ($turn.out -match '(?i)run_code_unsafe')
@@ -1227,6 +1408,8 @@ try {
                         if ([bool]$auth5.hasPassword) { $childAgents = @(Get-LaneChildAgents ([string]$ms.serve_url) $auth5.env $script:ApiRemove ([string]$profTesting.cwd) ([string]$sess.id)) }
                         $childTester = (@($childAgents) -contains 'tester')
                         [void](Add-ScenarioProof $proofs 'child-session-tester' ([bool]$childTester) ('child sessions via GET /api/session com parentID da sessao: [' + ($childAgents -join ',') + ']'))
+                        $childTx = Get-LaneChildTranscript ([string]$ms.serve_url) $auth5.env $script:ApiRemove ([string]$profTesting.cwd) ([string]$sess.id) 'tester'
+                        [void](Add-ScenarioProof $proofs 'child-transcript-tester' (-not [string]::IsNullOrWhiteSpace($childTx)) $childTx)
                         $indep = 'nao-executada'
                         $indepOk = $false
                         try {
@@ -1253,7 +1436,7 @@ try {
                                     $ipsi.CreateNoWindow = $true
                                     $ipsi.WorkingDirectory = $TargetHome
                                     try { $ipsi.EnvironmentVariables.Clear() } catch { }
-                                    foreach ($kn in @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP')) {
+                                    foreach ($kn in @('PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA', 'APPDATA')) {
                                         try {
                                             $kv = [Environment]::GetEnvironmentVariable($kn, 'Process')
                                             if ($null -ne $kv) { $ipsi.EnvironmentVariables[$kn] = [string]$kv }
@@ -1281,7 +1464,7 @@ try {
                                         } catch { }
                                         $snapText = ''
                                         $navOk = $false
-                                        $dl = [DateTime]::UtcNow.AddSeconds(120)
+                                        $dl = [DateTime]::UtcNow.AddSeconds(240)
                                         $t2 = $null
                                         while ([DateTime]::UtcNow -lt $dl) {
                                             try {
@@ -1299,6 +1482,8 @@ try {
                                         }
                                         $hasCount = ($snapText -match '(?i)count')
                                         $titleHit = ($snapText -match '(?i)lane-fixture-counter')
+                                        [void](Add-ScenarioProof $proofs 'stdio-raw-head' $true (Get-LaneSafeText $snapText 1000))
+                                        [void](Add-ScenarioProof $proofs 'stdio-full' $true (Get-LaneSafeText $snapText 6000))
                                         $indepOk = ([bool]$navOk -and [bool]$hasCount)
                                         $indep = 'snapshot(stdio): navigate-ok=' + $navOk + ' count-presente=' + $hasCount + ' titulo-lane=' + $titleHit
                                         try { $ip.StandardInput.Close() } catch { }
@@ -1316,12 +1501,16 @@ try {
                             timestamp = (Get-LaneTimestampUtc); evidence_source = 'run --server build->tester + stdio snapshot independente'
                             prompt_sha256 = $sha5
                         })
-                        if ($hasPwCall -and ([int]$clicks -ge 3) -and $childTester -and ($reported -ceq '3') -and $indepOk) {
-                            Set-ScenarioResult 'S5' 'pass-real' 'tester via Playwright: >=3 browser_click + child tester + CLICKS_DONE=3 + snapshot stdio coerente.' $proofs $coverage
-                        } elseif ($hasPwCall -and ([int]$clicks -ge 3) -and $childTester -and ($reported -ceq '3')) {
-                            Set-ScenarioResult 'S5' 'blocked' ('turn ok mas verificacao independente inconclusiva: ' + $indep) $proofs $coverage
+                        $txNav = ($childTx -match 'TOOL name=browser_navigate')
+                        $txClick = (([regex]::Matches($childTx, 'TOOL name=browser_click')).Count -ge 3)
+                        [void](Add-ScenarioProof $proofs 'child-tools-nav' ([bool]$txNav) 'child transcript contem TOOL browser_navigate')
+                        [void](Add-ScenarioProof $proofs 'child-tools-click' ([bool]$txClick) 'child transcript contem >=3 TOOL browser_click')
+                        if ($hasPwCall -and $txNav -and $txClick -and $childTester -and ($reported -ceq '3')) {
+                            $stdNote = 'stdio auxiliar inconclusivo'
+                            if ([bool]$indepOk) { $stdNote = 'stdio auxiliar coerente' }
+                            Set-ScenarioResult 'S5' 'pass-real' ('tester via Playwright: child transcript com navigate+>=3 clicks + CLICKS_DONE=3 + zero proibidas; ' + $stdNote + '.') $proofs $coverage
                         } else {
-                            Set-ScenarioResult 'S5' 'fail' 'turn ok mas sem evidencia de tool calls playwright/clicks/child-tester/valor 3.' $proofs $coverage
+                            Set-ScenarioResult 'S5' 'fail' 'turn ok mas sem feixe completo (TOOL records na child + valor 3).' $proofs $coverage
                         }
                         }
                     }
@@ -1345,6 +1534,7 @@ try {
                 Set-ScenarioResult 'S6' 'blocked' $ms.reason $proofs $coverage
             } else {
                 [void](Add-ScenarioProof $proofs 'model-setup' $true ('fixture+serve owned; ' + (Get-LaneModelKeyLogToken)))
+                [void](Add-ScenarioProof $proofs 'credential-store' $true ('credential rows=' + [int]$ms.cred_rows + ' no DB isolado'))
                 $sess = New-LaneApiSession -ServerUrl ([string]$ms.serve_url) -EnvTable $profTesting.env -Cwd ([string]$profTesting.cwd)
                 if (-not [bool]$sess.ok) {
                     [void](Add-ScenarioProof $proofs 'session-created' $false $sess.reason)
@@ -1361,13 +1551,18 @@ try {
                         Set-ScenarioResult 'S6' 'blocked' ('turn nao tentado: ' + $turn.reason) $proofs $coverage
                     } elseif ([bool]$turn.timedout) {
                         [void](Add-ScenarioProof $proofs 'model-turn' $false 'TIMEOUT 240s')
+                        [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
                         Set-ScenarioResult 'S6' 'blocked' 'turn TIMEOUT 240s (infra/modelo).' $proofs $coverage
                     } elseif (-not [bool]$turn.ok) {
                         [void](Add-ScenarioProof $proofs 'model-turn' $false ('exit=' + [int]$turn.exit + ' ' + $turn.reason))
+                        [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
                         if (Test-InfraMarkers $turn.out) { Set-ScenarioResult 'S6' 'blocked' ('turn infra: exit=' + [int]$turn.exit) $proofs $coverage }
                         else { Set-ScenarioResult 'S6' 'fail' ('turn falhou com saida limpa: exit=' + [int]$turn.exit) $proofs $coverage }
                     } else {
-                        $hasDtCall = (($turn.out -match '(?i)devtools_') -or ($turn.out -match '(?i)chrome-devtools'))
+                        [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
+                        $matchLines6 = @($turn.out -split "`n" | Where-Object { $_ -match '(?i)(chrome[-_]?devtools[_-])?(navigate_page|take_snapshot|take_screenshot|list_console_messages|list_network_requests|evaluate_script|get_console_message|get_network_request|performance_|take_heapsnapshot|lighthouse_audit|new_page|select_page|press_key|type_text|upload_file|fill_form)|FIXTURE-ERROR-42|tool[-_ ]?call|subagent|delegate' } | Select-Object -First 40)
+                        [void](Add-ScenarioProof $proofs 'transcript-match-lines' $true (($matchLines6 -join "`n").Substring(0, [Math]::Min(3500, ($matchLines6 -join "`n").Length))))
+                        $hasDtCall = (($turn.out -match '(?i)(chrome[-_]?devtools[_-])?(navigate_page|take_snapshot|take_screenshot|list_console_messages|list_network_requests|evaluate_script|get_console_message|get_network_request|performance_|take_heapsnapshot|lighthouse_audit|new_page|select_page|press_key|type_text|upload_file|fill_form)\b') -or ($turn.out -match '(?i)devtools_'))
                         $hasDbg = ($turn.out -match '(?i)debugger')
                         $citesErr = ($turn.out -match 'FIXTURE-ERROR-42')
                         $forbidden6 = ($turn.out -match '(?i)run_code_unsafe')
@@ -1383,6 +1578,10 @@ try {
                         if ([bool]$auth6.hasPassword) { $childAgents6 = @(Get-LaneChildAgents ([string]$ms.serve_url) $auth6.env $script:ApiRemove ([string]$profTesting.cwd) ([string]$sess.id)) }
                         $childDebugger = (@($childAgents6) -contains 'debugger')
                         [void](Add-ScenarioProof $proofs 'child-session-debugger' ([bool]$childDebugger) ('child sessions via GET /api/session com parentID da sessao: [' + ($childAgents6 -join ',') + ']'))
+                        $auth6b = Add-LaneServeAuth $profTesting.env
+                        $childTx6 = ''
+                        if ([bool]$auth6b.hasPassword) { $childTx6 = Get-LaneChildTranscript ([string]$ms.serve_url) $auth6b.env $script:ApiRemove ([string]$profTesting.cwd) ([string]$sess.id) 'debugger' }
+                        [void](Add-ScenarioProof $proofs 'child-transcript-debugger' (-not [string]::IsNullOrWhiteSpace($childTx6)) $childTx6)
                         Add-EvidenceRecord ([ordered]@{
                             objective_id = 'AGENT-MCP-B-LANE'; task_id = 'S6-debugger-devtools'; session_id = ([string]$sess.id).Substring(0, [Math]::Min(8, ([string]$sess.id).Length)) + '...'
                             run_id = 'lane-run'; agent_id = 'debugger'; profile_id = 'testing'; mcp_id = 'chrome-devtools-mcp'
@@ -1390,10 +1589,12 @@ try {
                             timestamp = (Get-LaneTimestampUtc); evidence_source = 'run --server build->debugger'
                             prompt_sha256 = $sha6
                         })
-                        if ($hasDtCall -and $hasDbg -and $citesErr -and $childDebugger) {
-                            Set-ScenarioResult 'S6' 'pass-real' 'debugger via DevTools: tool calls devtools + child debugger + diagnostico citando FIXTURE-ERROR-42 (nao entregue no prompt).' $proofs $coverage
+                        $txDt = ($childTx6 -match 'TOOL name=(navigate_page|take_snapshot|take_screenshot|list_console_messages|list_network_requests|evaluate_script|get_console_message|get_network_request|new_page|press_key|type_text|upload_file|fill_form|click|close_page|drag|hover|wait_for)\b')
+                        [void](Add-ScenarioProof $proofs 'child-tools-diag' ([bool]$txDt) 'child transcript contem TOOL de diagnostico')
+                        if ($hasDtCall -and $txDt -and $hasDbg -and $citesErr -and $childDebugger) {
+                            Set-ScenarioResult 'S6' 'pass-real' 'debugger via DevTools: child transcript com TOOL diagnostica + diagnostico citando FIXTURE-ERROR-42 (nao entregue no prompt).' $proofs $coverage
                         } else {
-                            Set-ScenarioResult 'S6' 'fail' 'turn ok mas sem evidencia devtools/child-debugger/erro-real.' $proofs $coverage
+                            Set-ScenarioResult 'S6' 'fail' 'turn ok mas sem feixe completo (TOOL diagnostica na child + erro real).' $proofs $coverage
                         }
                         }
                     }
@@ -1423,6 +1624,11 @@ try {
                     [void](Add-ScenarioProof $proofs 'serve-default' $false 'sem listener (infra)')
                     Set-ScenarioResult 'S7' 'blocked' 'serve default sem listener (infra).' $proofs $coverage
                 } else {
+                    $cc7 = Copy-LaneCredentials ([string]$profDefault.db)
+                    [void](Add-ScenarioProof $proofs 'credential-store' ([bool]$cc7.ok) ('credential copiada: rows=' + [int]$cc7.rows + ' ' + [string]$cc7.reason))
+                    if (-not [bool]$cc7.ok) {
+                        Set-ScenarioResult 'S7' 'blocked' ('credential store indisponivel: ' + [string]$cc7.reason) $proofs $coverage
+                    } else {
                     $urlD = ('http://127.0.0.1:' + $portSvcDefault)
                     $sess = New-LaneApiSession -ServerUrl $urlD -EnvTable $profDefault.env -Cwd ([string]$profDefault.cwd)
                     if (-not [bool]$sess.ok) {
@@ -1473,6 +1679,7 @@ try {
                             Set-ScenarioResult 'S7' 'blocked' 'turn TIMEOUT 240s (infra/modelo).' $proofs $coverage
                         } elseif (-not [bool]$turn.ok) {
                             [void](Add-ScenarioProof $proofs 'model-turn' $false ('exit=' + [int]$turn.exit))
+                            [void](Add-ScenarioProof $proofs 'turn-output-head' $true (Get-LaneSafeText $turn.out 2000))
                             if (Test-InfraMarkers $turn.out) { Set-ScenarioResult 'S7' 'blocked' ('turn infra: exit=' + [int]$turn.exit) $proofs $coverage }
                             else { Set-ScenarioResult 'S7' 'fail' ('turn falhou com saida limpa: exit=' + [int]$turn.exit) $proofs $coverage }
                         } else {
@@ -1491,6 +1698,7 @@ try {
                                 Set-ScenarioResult 'S7' 'pass-real' 'perfil default, tarefa sem browser: zero tool calls browser + zero ativacao MCP.' $proofs $coverage
                             } else {
                                 Set-ScenarioResult 'S7' 'fail' 'transcript mostra uso browser/MCP em tarefa sem browser.' $proofs $coverage
+                            }
                             }
                         }
                     }
