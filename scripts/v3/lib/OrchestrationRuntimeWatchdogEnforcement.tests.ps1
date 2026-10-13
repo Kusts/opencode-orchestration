@@ -210,6 +210,13 @@
          contagem: KilledCount segue 0) e ainda assim
          interrupted=true + ALREADY_EXITED (nenhum REFUSED falso depois de um
          ato letal).
+     42. DIAG-FB redaction (review ses_eca5cbee3, sem processos): os campos
+         de enum do bloco failure-only (settlement/classification/error/
+         reason/exclusion) sao validados por allowlist especifica de campo
+         (case-sensitive); texto livre (detail) nunca e ecoado
+         ([REDACTED-TEXT]); valor nao listado vira [UNRECOGNIZED-TEXT].
+         Canarios sinteticos (sk-SYNTHETICSECRET) provam que nenhum segredo
+         conformante ao charset sobrevive a via de diagnostico.
 #>
 [CmdletBinding()]
 param()
@@ -259,6 +266,51 @@ function Format-EnforceDiagToken {
     if (-not [regex]::IsMatch($s, '\A[A-Za-z0-9_.:,()+ =\-]+\z')) { return '<non-token>' }
     if ($s.Length -gt 64) { return '<non-token>' }
     return $s
+}
+
+function Format-EnforceDiagField {
+    <#
+    .SYNOPSIS
+        Field-allowlisted scalar for FAILURE-ONLY diagnostics (DIAG-FB
+        hardening, review ses_eca5cbee3): Format-EnforceDiagToken alone
+        echoes ANY charset-conforming text, so a synthetic canary such as
+        sk-SYNTHETICSECRET would pass through intact. This gate validates
+        known enum fields against a CLOSED per-field allowlist (case
+        SENSITIVE, matching the -ceq asserts) and NEVER echoes free text:
+        detail is always the fixed marker [REDACTED-TEXT]; any unlisted
+        value (or unknown field) is the fixed marker [UNRECOGNIZED-TEXT].
+        Listed values still pass through Format-EnforceDiagToken as
+        defense-in-depth (charset + length). Diagnostic-only; it never
+        changes any assertion, timing or cleanup. Never throws, never
+        echoes unrecognized input.
+    #>
+    param([string]$Field, $Value)
+    if ($null -eq $Value) { return '<null>' }
+    $s = ''
+    try { $s = [string]$Value } catch { return '<err>' }
+    try { $s = $s.Trim() } catch { return '<err>' }
+    if ($s.Length -eq 0) { return '<empty>' }
+    $f = ''
+    try { $f = ([string]$Field).Trim().ToLowerInvariant() } catch { $f = '' }
+    if ($f -ceq 'detail') { return '[REDACTED-TEXT]' }
+    $allowed = $null
+    if ($f -ceq 'settlement') {
+        $allowed = @('SETTLED', 'ALREADY_EXITED', 'REFUSED', 'PENDING', 'FAILED', 'STILL_RUNNING', 'NONE', 'UNKNOWN')
+    } elseif ($f -ceq 'classification') {
+        $allowed = @('HARD_TIMEOUT', 'NO_PROGRESS', 'REPEATED_ACTION', 'REPEATED_CYCLE', 'STALL_SUSPECTED', 'BUDGET_NEAR_LIMIT', 'NONE')
+    } elseif ($f -ceq 'error') {
+        $allowed = @('WATCHDOG_INTERRUPTED', 'WATCHDOG_INTERRUPT_FAILED', 'WATCHDOG_INTERRUPT_REFUSED', 'WATCHDOG_SETTLED', 'WATCHDOG_NO_PROCESS_IDENTITY', 'WATCHDOG_INSPECTION_FAILED', 'WATCHDOG_PROCESS_GONE', 'WATCHDOG_TREE_EXCLUDED', 'WATCHDOG_TREE_LIMIT_EXCEEDED', 'WATCHDOG_DEADLINE_EXCEEDED', 'WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED', 'INVALID_PROCESS_IDENTITY', 'INVALID_FAULT_INJECT', 'INVALID_BUDGET', 'BUDGET_LIB_UNAVAILABLE', 'BUDGET_POLICY_UNAVAILABLE', 'BUDGET_POLICY_INVALID', 'INTERNAL_ERROR', 'NOT_REGISTERED', 'SETTLEMENT_REQUIRED')
+    } elseif ($f -ceq 'reason') {
+        $allowed = @('WATCHDOG_INTERRUPT_FAILED', 'WATCHDOG_INTERRUPT_REFUSED', 'WATCHDOG_NO_PROCESS_IDENTITY', 'WATCHDOG_INSPECTION_FAILED', 'WATCHDOG_PROCESS_GONE', 'tree-unverifiable', 'ancestor-unverifiable', 'ancestor-ambiguous', 'tree-limit-exceeded', 'tree-deadline-exceeded', 'descendant-unverifiable', 'descendant-ambiguous')
+    } elseif ($f -ceq 'exclusion') {
+        $allowed = @('WATCHDOG_TREE_EXCLUDED')
+    } else {
+        return '[UNRECOGNIZED-TEXT]'
+    }
+    $hit = $false
+    try { $hit = (@($allowed) -ccontains $s) } catch { $hit = $false }
+    if (-not $hit) { return '[UNRECOGNIZED-TEXT]' }
+    try { return (Format-EnforceDiagToken $s) } catch { return '<err>' }
 }
 
 function Write-EnforceFixture {
@@ -1689,8 +1741,8 @@ try {
     if ([int]$script:failed -gt [int]$fbFail22) {
         try {
             $__fb = 'r_ok=' + (Format-EnforceDiagToken (($null -ne $r22) -and [bool]$r22.ok)) + '; '
-            try { $__fb += ('r_err=' + (Format-EnforceDiagToken $r22.error) + '; ') } catch { $__fb += 'r_err=<err>; ' }
-            try { $__fb += ('e_ok=' + (Format-EnforceDiagToken ([bool]$e22.ok)) + '; e_int=' + (Format-EnforceDiagToken ([bool]$e22.interrupted)) + '; e_err=' + (Format-EnforceDiagToken $e22.error) + '; ') } catch { $__fb += 'e_top=<err>; ' }
+            try { $__fb += ('r_err=' + (Format-EnforceDiagField 'error' $r22.error) + '; ') } catch { $__fb += 'r_err=<err>; ' }
+            try { $__fb += ('e_ok=' + (Format-EnforceDiagToken ([bool]$e22.ok)) + '; e_int=' + (Format-EnforceDiagToken ([bool]$e22.interrupted)) + '; e_err=' + (Format-EnforceDiagField 'error' $e22.error) + '; ') } catch { $__fb += 'e_top=<err>; ' }
             try {
                 $__enf22 = $null
                 try { $__enf22 = $e22.enforcement } catch { $__enf22 = $null }
@@ -1706,12 +1758,14 @@ try {
                         $__n = -1
                         try { $__n = [int]$__v } catch { $__n = -1 }
                         $__fb += ($__k + '=' + [string]$__n + '; ')
+                    } elseif (($__k -ceq 'settlement') -or ($__k -ceq 'classification') -or ($__k -ceq 'error') -or ($__k -ceq 'detail') -or ($__k -ceq 'reason') -or ($__k -ceq 'exclusion')) {
+                        $__fb += ($__k + '=' + (Format-EnforceDiagField $__k $__v) + '; ')
                     } else { $__fb += ($__k + '=' + (Format-EnforceDiagToken $__v) + '; ') }
                 }
             } catch { $__fb += 'enf=<err>; ' }
             try {
                 $__s22 = Get-OrchestrationWatchdogSettlement -TaskId 'wd-fix2-excl' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
-                $__fb += ('stored_ok=' + (Format-EnforceDiagToken ([bool]$__s22.ok)) + '; stored_settlement=' + (Format-EnforceDiagToken $__s22.settlement) + '; stored_class=' + (Format-EnforceDiagToken $__s22.classification) + '; stored_engaged=' + (Format-EnforceDiagToken ([bool]$__s22.engaged)) + '; stored_int=' + (Format-EnforceDiagToken ([bool]$__s22.interrupted)) + '; ')
+                $__fb += ('stored_ok=' + (Format-EnforceDiagToken ([bool]$__s22.ok)) + '; stored_settlement=' + (Format-EnforceDiagField 'settlement' $__s22.settlement) + '; stored_class=' + (Format-EnforceDiagField 'classification' $__s22.classification) + '; stored_engaged=' + (Format-EnforceDiagToken ([bool]$__s22.engaged)) + '; stored_int=' + (Format-EnforceDiagToken ([bool]$__s22.interrupted)) + '; ')
             } catch { $__fb += 'stored=<err>; ' }
             $__st22 = -1
             $__rt22 = -1
@@ -3080,6 +3134,26 @@ Start-Sleep -Milliseconds 400
     Assert-Enforce ((($null -ne $wdNode)) -and ([bool]$wdNode.enabled -eq $true) -and ([bool]$wdNode.shadow -eq $false)) 'production watchdog flag ATIVADA 2026-10-04 {enabled:true,shadow:false}' ''
     $sw11.Stop()
     Assert-Enforce (($sw11.Elapsed.TotalSeconds -lt 90)) 'scenario 11 externally bounded' ([string][int]$sw11.Elapsed.TotalSeconds + 's')
+
+# DIAG-FB redaction (review ses_eca5cbee3): enum fields are allowlisted
+# per-field and free text is never echoed. Synthetic canaries prove no
+# charset-conforming secret survives the diag path. No processes, no
+# timing, no semantics touched: pure function asserts.
+    $swFb = [System.Diagnostics.Stopwatch]::StartNew()
+    $fbCan = 'sk-SYNTHETICSECRET-PROBE-7F3A'
+    Assert-Enforce ((Format-EnforceDiagToken $fbCan) -ceq $fbCan) 'DIAG-FB premise: the bare canary passes the old charset gate' ''
+    Assert-Enforce ((Format-EnforceDiagField 'settlement' $fbCan) -ceq '[UNRECOGNIZED-TEXT]') 'DIAG-FB canary settlement redacted' ''
+    Assert-Enforce ((Format-EnforceDiagField 'classification' $fbCan) -ceq '[UNRECOGNIZED-TEXT]') 'DIAG-FB canary classification redacted' ''
+    Assert-Enforce ((Format-EnforceDiagField 'error' $fbCan) -ceq '[UNRECOGNIZED-TEXT]') 'DIAG-FB canary error redacted' ''
+    Assert-Enforce ((Format-EnforceDiagField 'reason' $fbCan) -ceq '[UNRECOGNIZED-TEXT]') 'DIAG-FB canary reason redacted' ''
+    Assert-Enforce ((Format-EnforceDiagField 'exclusion' $fbCan) -ceq '[UNRECOGNIZED-TEXT]') 'DIAG-FB canary exclusion redacted' ''
+    Assert-Enforce ((Format-EnforceDiagField 'detail' $fbCan) -ceq '[REDACTED-TEXT]') 'DIAG-FB canary detail redacted' ''
+    Assert-Enforce ((Format-EnforceDiagField 'detail' 'tree-deadline-exceeded') -ceq '[REDACTED-TEXT]') 'DIAG-FB legit detail still never echoed' ''
+    Assert-Enforce (((Format-EnforceDiagField 'settlement' 'SETTLED') -ceq 'SETTLED') -and ((Format-EnforceDiagField 'classification' 'HARD_TIMEOUT') -ceq 'HARD_TIMEOUT') -and ((Format-EnforceDiagField 'error' 'WATCHDOG_INTERRUPT_FAILED') -ceq 'WATCHDOG_INTERRUPT_FAILED') -and ((Format-EnforceDiagField 'reason' 'tree-deadline-exceeded') -ceq 'tree-deadline-exceeded') -and ((Format-EnforceDiagField 'exclusion' 'WATCHDOG_TREE_EXCLUDED') -ceq 'WATCHDOG_TREE_EXCLUDED')) 'DIAG-FB legit enum tokens still pass' ''
+    $__fbCan = ('r_err=' + (Format-EnforceDiagField 'error' $fbCan) + '; settlement=' + (Format-EnforceDiagField 'settlement' $fbCan) + '; classification=' + (Format-EnforceDiagField 'classification' $fbCan) + '; error=' + (Format-EnforceDiagField 'error' $fbCan) + '; detail=' + (Format-EnforceDiagField 'detail' $fbCan) + '; reason=' + (Format-EnforceDiagField 'reason' $fbCan) + '; exclusion=' + (Format-EnforceDiagField 'exclusion' $fbCan) + '; ')
+    Assert-Enforce ((($__fbCan -notmatch 'sk-SYNTHETICSECRET') -and ($__fbCan -match 'UNRECOGNIZED-TEXT') -and ($__fbCan -match 'REDACTED-TEXT'))) 'DIAG-FB synthetic line carries markers, never the canary' ''
+    $swFb.Stop()
+    Assert-Enforce (($swFb.Elapsed.TotalSeconds -lt 90)) 'DIAG-FB redaction scenario externally bounded' ([string][int]$swFb.Elapsed.TotalSeconds + 's')
 
     Write-Host ''
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)
