@@ -85,4 +85,4 @@
 - smoke-v2: preflight porta 54133 PORT_STALE_OR_UNKNOWN (fail-closed correto) — ambiente do runner, sem relação com o merge.
 
 ## Master pós-#76 rerun: 6/6 SUCCESS
-- F-B orphan + porta 54133 limparam sem código — flakes ambientais confirmados. Master verde. Ajuste estrutural (diagnóstico F-B failure-only, PR82) em curso como item próprio.
+- F-B orphan + porta 54133 limparam sem código — flakes ambientais confirmados. Master verde. Ajuste estrutural (diagnóstico F-B failure-only, PR82) MERGED em 845be40 (review + CI 6/6 verdes); próxima ocorrência F-B virá com [DIAG-FB] classificável.
