@@ -778,6 +778,28 @@ try {
     Assert-F3 ((-not [bool]$cas7.ok) -and ([string]$cas7.reason -like 'completion-gate:*')) '[N7] the objective cannot be completed while the progress gate is closed' ([string]$cas7.reason)
     Remove-F3Environment -Environment $e7
 
+    # ================= [OWN] unregistered root refusal =================
+    # Remove-F3Environment must check the ownership registry BEFORE any
+    # recursive removal: a foreign root is refused (fail closed), nothing
+    # is deleted, and the refusal is explicit (ok=$false, reason not-owned).
+    $foreignRoot = Join-Path ([IO.Path]::GetTempPath()) ('f3-foreign-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $foreignRoot -Force | Out-Null
+    $foreignSentinel = Join-Path $foreignRoot 'sentinel.txt'
+    [IO.File]::WriteAllText($foreignSentinel, "foreign`n", [Text.UTF8Encoding]::new($false))
+    $refForeign = Remove-F3Environment -Environment @{ root = $foreignRoot } 3>$null
+    Assert-F3 ((Test-Path -LiteralPath $foreignSentinel -PathType Leaf)) '[OWN] a foreign root is not removed' ''
+    Assert-F3 ((($null -ne $refForeign) -and (-not [bool](Get-F3Value $refForeign 'ok' $true)) -and ([string](Get-F3Value $refForeign 'reason' '') -ceq 'not-owned'))) '[OWN] the refusal is explicit (ok=false, reason not-owned)' ([string](Get-F3Value $refForeign 'reason' ''))
+    Assert-F3 (([bool](Test-Path -LiteralPath $foreignRoot -PathType Container))) '[OWN] the foreign directory itself still exists' ''
+    Remove-Item -LiteralPath $foreignRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+    # An owned root is still removed (positive control: no behavior change
+    # for the registered path every other scenario relies on).
+    $ownedProbe = New-F3Environment -Label 'ownprobe'
+    $ownedRoot = [string](Get-F3Value $ownedProbe 'root' '')
+    $refOwned = Remove-F3Environment -Environment $ownedProbe 3>$null
+    Assert-F3 ((-not (Test-Path -LiteralPath $ownedRoot))) '[OWN] a registered root is still removed' ''
+    Assert-F3 ((($null -ne $refOwned) -and [bool](Get-F3Value $refOwned 'ok' $false))) '[OWN] the owned removal reports ok=true' ([string](Get-F3Value $refOwned 'reason' ''))
+
     # ================= [H] hygiene =================
     $libText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'OrchestrationF3ThreePhaseFixture.ps1'), [Text.UTF8Encoding]::new($false))
     Assert-F3 ((($libText -notmatch 'Start-Process') -and ($libText -notmatch 'Invoke-WebRequest') -and ($libText -notmatch 'HttpClient') -and ($libText -notmatch 'while\s*\(\s*\$true'))) '[H] the fixture driver has no spawn, no network and no busy loop' ''

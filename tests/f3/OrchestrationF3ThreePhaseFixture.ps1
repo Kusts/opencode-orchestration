@@ -197,15 +197,29 @@ function New-F3Environment {
 }
 
 function Remove-F3Environment {
+    <#
+    .SYNOPSIS Removes one environment root created by this run.
+    Fail closed: a root NOT present in the ownership registry
+    ($script:F3OwnedRoots) is refused BEFORE any recursive removal, so a
+    foreign or mistyped path is never deleted. Returns an envelope:
+    ok=$true when removed (or already gone but owned), ok=$false with
+    reason not-owned / empty-root on refusal.
+    #>
     param($Environment = $null)
     try {
         $r = ([string](Get-F3Value $Environment 'root' '')).Trim()
-        if ([string]::IsNullOrWhiteSpace($r)) { return }
-        if (-not (Test-Path -LiteralPath $r)) { Unregister-F3OwnedRoot -Root $r; return }
+        if ([string]::IsNullOrWhiteSpace($r)) { return (New-F3Envelope -Ok $false -Reason 'empty-root') }
+        $owned = @(@($script:F3OwnedRoots) | Where-Object { ([string]$_) -ceq $r })
+        if (@($owned).Count -eq 0) {
+            Write-Warning ('Remove-F3Environment refused: root not registered in ownership registry: ' + $r)
+            return (New-F3Envelope -Ok $false -Reason 'not-owned')
+        }
+        if (-not (Test-Path -LiteralPath $r)) { Unregister-F3OwnedRoot -Root $r; return (New-F3Envelope -Ok $true -Reason 'already-gone') }
         Remove-Item -LiteralPath $r -Recurse -Force -ErrorAction SilentlyContinue
         Unregister-F3OwnedRoot -Root $r
+        return (New-F3Envelope -Ok $true -Reason 'removed')
     }
-    catch { }
+    catch { return (New-F3Envelope -Ok $false -Reason 'remove-exception') }
 }
 
 # ------------------------------------------------------------------
