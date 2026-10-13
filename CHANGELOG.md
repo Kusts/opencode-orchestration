@@ -124,6 +124,55 @@ issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
 
+### Closure CURRENT_WORK (F0–F7, 2026-10-12/13)
+
+Base: master `ec5c2de` (merge PR #75). Evidência por frente em
+`evidence/closure/` (f0-baseline-final, f0-finding-B-wiring,
+f0-finding-C-v2-policy, f1-progress, f6-observability-closure) e relatório
+final em `evidence/closure/CLOSURE-REPORT.md` (local, ignorado pelo git).
+
+- **PRs merged com veredito:**
+  - #59 (telemetry confinement, `8edc5d7`): fixture de contenção passou;
+    o FAIL único do job ps7 era o race-001 CAS (74/75), objeto do #65.
+    Review independente APPROVED. Reconcile + rerun verdes ⇒ merged.
+  - #65 (CAS diagnostics, `2970770`): mudança test-only (instrumentação
+    failure-only do race-001, sem semântica de Kernel). TaskKernel 94/94
+    no rerun; FAIL residual era contenção de harness de recibos (fora do
+    escopo). Rerun do job falho SUCCESS ⇒ merged.
+  - #66 (CI policy, `3b58d82`): diff `ci.yml` só comentários
+    (jobs-vs-checks) + docs; 6/6 verde + review APPROVED ⇒ merged.
+  - #71 (browser MCPs, `3d7b88a`): security APPROVED (cópia de
+    credenciais adiada para pós-gate de opt-in); técnico com 1 achado
+    refutado (`New-LaneApiSession` definida no próprio escopo) + 5
+    corrigidos com prova comportamental (suite 78/78 verificada em
+    execução). CI SUCCESS (run 38319742324) ⇒ merged. S1–S4 pass-real;
+    S5–S7 blocked `OPERATOR_ACTION_REQUIRED` (sem `OPENCODE_GO_API_KEY`).
+  - #73 (V2-only policy, `b9f3485`, inclui `c212eda`): consolida
+    V1-legado-frozen / V2-prospectivo (issue #62 fechada). Sem steps de
+    CI alterados; testes V2 sem dependência V1 nova ⇒ merged.
+  - #75 (F3 three-phase fixture, `ec5c2de`): fixture de um objetivo em
+    três fases com barreira declarada + fencing N4 (152 asserts),
+    hermética (TEMP, sem spawn/rede/provider). PASSOU no runner V3
+    oficial; fix de bot-review (runner descobre `tests/f3` + remove com
+    ownership fail-closed) ⇒ merged.
+- **Flakes classificados (todos limpos em rerun, sem mudança de código):**
+  race-001 timing (CAS mesma-revisão; 10/10 reps locais PASS, FLAKY-TIMING
+  honesto, CAS protegido por `FileShare.None` sem janela encontrada);
+  watchdog F1 / JOB46 / JOB48 timing (3 runs distintos, irmãos verdes,
+  F1.4 consolidado como timing de runner); recibos `GetFiles` contenção
+  de harness (recorrente, até mesmo receipt id `84c13c00`; candidato a
+  item próprio — retry ou varredura tolerante — sem bloquear). Nenhum
+  timeout ou invariante relaxado para obter verde.
+- **Runtime:** binário instalado 2.0.27 vs pin 2.0.23 (drift +4 patch,
+  registrado sem bump/upgrade, mesmo precedente dos drifts 2.0.24/2.0.26);
+  bun 1.3.14 = pin.
+- **HOLDs mantidos:** `runtime_grant_enforcement{v1,v2}` OFF;
+  `capability_router` shadow+active OFF; `skill`/`mcp`/`adaptive`/
+  `routing_telemetry`/`reconciler` OFF; Active Routing 2G OFF
+  (`INSUFFICIENT_REAL_WORLD_DATA`, F6); flags ativas intocadas
+  (`task_kernel`/`bounded`/`watchdog`/`jev_advisory`/`worktree_isolation`,
+  `runtime_support` v1+v2+dual).
+
 ### Fixes finais do native dispatch loop (REV8 — F1 lock retry + F2 cleanup, 2026-10-09)
 
 Branch `closure/native-dispatch-loop` (@ `99da553`). Dois P1 do review
