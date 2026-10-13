@@ -1,0 +1,110 @@
+{
+    "lane":  "agent-mcp-integration-lane-v2",
+    "purpose":  "integracao agent-\u003eMCP (tester-\u003ePlaywright, debugger-\u003eDevTools) em runtime REAL com binario V2 vivo",
+    "date":  "2026-10-12",
+    "started_at":  "2026-10-12T03:17:16.7498166Z",
+    "finished_at":  "2026-10-12T03:17:18.0470510Z",
+    "status":  "completed",
+    "reason":  "sem fail (apenas pass-real/blocked).",
+    "runtime_pin":  "2.0.23",
+    "runtime_live":  "2.0.26",
+    "pin_drift":  true,
+    "binary":  "~\\AppData\\Roaming\\npm\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "model_key_env":  "model-key-env=OPENCODE_GO_API_KEY",
+    "scenarios":  [
+                      {
+                          "scenario_id":  "S5",
+                          "status":  "blocked",
+                          "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_GO_API_KEY)",
+                          "proofs":  [
+                                         {
+                                             "proof":  "model-setup",
+                                             "ok":  false,
+                                             "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_GO_API_KEY)"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-12T03:17:18.0137632Z"
+                      },
+                      {
+                          "scenario_id":  "S6",
+                          "status":  "blocked",
+                          "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_GO_API_KEY)",
+                          "proofs":  [
+                                         {
+                                             "proof":  "model-setup",
+                                             "ok":  false,
+                                             "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_GO_API_KEY)"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-12T03:17:18.0216539Z"
+                      },
+                      {
+                          "scenario_id":  "S7",
+                          "status":  "blocked",
+                          "detail":  "OPERATOR_ACTION_REQUIRED: model-key-env=OPENCODE_GO_API_KEY",
+                          "proofs":  [
+                                         {
+                                             "proof":  "model-gate",
+                                             "ok":  false,
+                                             "detail":  "OPERATOR_ACTION_REQUIRED (model-key-env=OPENCODE_GO_API_KEY)"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-12T03:17:18.0258968Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  0,
+                            "fail":  0,
+                            "blocked":  3
+                        },
+    "checks":  [
+                   {
+                       "check":  "binary_live_resolved",
+                       "ok":  true,
+                       "detail":  "vivo=2.0.26 pin=2.0.23 pin_drift=True (prossegue com o binario vivo documentado)"
+                   },
+                   {
+                       "check":  "profiles_isolated_temp",
+                       "ok":  true,
+                       "detail":  "testing+default sob TargetHome exclusivo; OPENCODE_DB distintos (convencao lane-owned)"
+                   },
+                   {
+                       "check":  "configs_from_template",
+                       "ok":  true,
+                       "detail":  "agents.build/tester/debugger extraidos em runtime + 14 restricoes MCP materializadas (deny code-exec, ask evaluate); modelos: cheap=opencode-go/muse-spark-1.3-contributor strong=openai/gpt-6.1-sol; testing com 2 MCPs, default sem mcp"
+                   },
+                   {
+                       "check":  "isolation_testing",
+                       "ok":  true,
+                       "detail":  "debug paths resolve em TEMP; sem ~/.config (toca-home=False)"
+                   },
+                   {
+                       "check":  "isolation_default",
+                       "ok":  true,
+                       "detail":  "debug paths resolve em TEMP; sem ~/.config (toca-home=False)"
+                   },
+                   {
+                       "check":  "service_ports_isolated",
+                       "ok":  true,
+                       "detail":  "testing=53741 default=53742 fixture=53743; 49374 recusada"
+                   }
+               ],
+    "notes":  [
+                  "pin_drift: registry=2.0.23 vivo=2.0.26; nenhuma alegacao de conformidade com o pin",
+                  "model-key opt-in (model-key-env=OPENCODE_GO_API_KEY); passthrough pontual SOMENTE aos filhos opencode run de S5/S6/S7"
+              ],
+    "evidence_records":  [
+
+                         ],
+    "isolation":  "dois perfis XDG isolados em TEMP + OPENCODE_DB distintos (convencao lane-owned); -CleanEnvironment nos filhos Spike; cwd nos perfis; stdin fechado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado ANTES de cada processo owned de longa vida; contem somente processos desta lane"
+}

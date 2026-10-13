@@ -100,6 +100,13 @@ try {
   foreach ($f in @(Get-ChildItem -File (Join-Path $runtimeDir '*.tests.ps1') -ErrorAction SilentlyContinue)) {
     [void]$all.Add($f)
   }
+  # F3 fixture suites live outside scripts/v3 (tests/f3). Same discovery
+  # pattern as the loops above: fixed root, file glob only, sorted later by
+  # FullName. No timeout, order or filter semantic change.
+  $f3Dir = Join-Path $repoDir 'tests\f3'
+  foreach ($f in @(Get-ChildItem -File (Join-Path $f3Dir '*.tests.ps1') -ErrorAction SilentlyContinue)) {
+    [void]$all.Add($f)
+  }
   $suites = @($all | Sort-Object { $_.FullName })
   if ($Name.Length -gt 0) {
     # Charset fechado: letras, digitos, ponto, traco, underscore, espaco e

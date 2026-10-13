@@ -21,11 +21,11 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 | Requisito | Suporte |
 |---|---|
-| OpenCode **V1.x** (pacote npm `opencode-ai`) | ✅ Suportado — CI valida com **1.18.32** (`opencode --version` responde `1.x`). |
-| OpenCode **V2** (pacote `@opencode/cli`) | ✅ Suportado (programa V3.1) — validado com **2.0.18** (`opencode --version` responde `2.x`); render/config/permissões **nativos V2** e plugin dual-runtime. Camada `experimental.policies` e lane de CI própria ainda pendentes (ver [CHANGELOG](CHANGELOG.md)). |
-| V1 **e** V2 na mesma máquina | ✅ Via perfis isolados (`.\install.ps1 -Runtime Both`); fail-closed sem binários provados. |
+| OpenCode **V1.x** (pacote npm `opencode-ai`) | ⚠️ Legado, frozen (issue #62) — funcional para perfis existentes; CI legado validou com **1.18.34** (`opencode --version` responde `1.x`). Sem certificação de features novas. |
+| OpenCode **V2** (pacote `@opencode/cli`) | ✅ Prospectivo (programa V3.1) — validado com **2.0.23** (`opencode --version` responde `2.x`); render/config/permissões **nativos V2** e plugin dual-runtime. Camada `experimental.policies` e lane de CI própria ainda pendentes (ver [CHANGELOG](CHANGELOG.md)). |
+| V1 **e** V2 na mesma máquina | ✅ Via perfis isolados (`.\install.ps1 -Runtime Both`) — migração/manutenção de perfis legados; fail-closed sem binários provados. |
 | Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
-| `bun` ou `npm` — dependência do plugin (`@opencode-ai/plugin@1.18.32` no V1; `@opencode/plugin@2.0.18` no V2) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
+| `bun` ou `npm` — dependência do plugin (`@opencode/plugin@2.0.23` no V2, recomendado; `@opencode-ai/plugin@1.18.34` no V1 legado) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
 
 ## Versionamento
 
@@ -41,11 +41,11 @@ git clone <este-repo>
 cd opencode-orchestration
 copy models.example.jsonc models.jsonc
 # edite models.jsonc: planner, cheap, strong (ver "Configurar modelos")
-.\install.ps1 -WhatIf              # plano por recurso, nenhuma escrita
-.\install.ps1                      # Auto: detecta a geração do `opencode` no PATH
-.\install.ps1 -Runtime V1          # força V1 (dialeto agent/permission/task)
-.\install.ps1 -Runtime V2          # força V2 (dialeto agents/permissions/subagent)
-.\install.ps1 -Runtime Both        # perfis isolados V1+V2 (fail-closed sem binários provados)
+.\install.ps1 -Runtime V2 -WhatIf  # plano por recurso, nenhuma escrita
+.\install.ps1 -Runtime V2          # V2: instalações novas (Auto detecta a geração no PATH, p/ compatibilidade)
+.\install.ps1 -Runtime V1          # legado frozen (dialeto agent/permission/task) — só perfis existentes
+.\install.ps1 -Runtime V2          # prospectivo (dialeto agents/permissions/subagent) — instalações novas
+.\install.ps1 -Runtime Both        # perfis isolados V1+V2 = migração/perfils legados (fail-closed sem binários provados)
 ```
 
 Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)

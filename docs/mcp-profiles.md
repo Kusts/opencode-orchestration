@@ -86,3 +86,38 @@ n8n: discovery/logs allow; execute/edit sob ask (efeito real).
 
 Regra: MCP com dezenas de tools entra somente via profile on-demand;
 medir tokens antes de qualquer default.
+
+## Uso pelos agentes (tester/debugger)
+
+- `tester` usa o Playwright MCP (comportamento/E2E) exclusivamente via
+  delegacao do Planner: o agente `tester` (`mode=subagent` nos templates
+  V1/V2) e invocado pelo `build`; o tester nunca se auto-anexa a MCP nem
+  ativa profile por conta propria.
+- `debugger` usa o Chrome DevTools MCP FULL (diagnostico/runtime:
+  console/network/DOM/perf) pelo mesmo caminho: delegacao do Planner para
+  o agente `debugger` (`mode=subagent`), com invocacao via `build`.
+- Ativacao SOMENTE via profile isolado: `XDG_CONFIG_HOME` distinto por
+  profile + servidor dedicado (`opencode run --standalone` para execucao
+  isolada, `opencode serve --port <porta>` para servidor dedicado). Nunca
+  ativar o profile `testing` na config global do operador
+  (`~/.config/opencode`); o profile nasce OFF e e opt-in por tarefa.
+- Isolamento intrasservico: NOT_SUPPORTED. MCP e por-servidor: nao ha
+  overlay por `session_id`; `session.environment` cobre somente env de
+  shell, nao escopo de MCP. Isolar = processo/config distintos, nunca
+  parametro de sessao.
+- Permission model inalterado: `evaluate`/`evaluate_script` sob `ask`
+  (somente paginas do escopo da tarefa), `run_code_unsafe` sob `deny`,
+  `autoConnect`/`browserUrl` negados (sessao pessoal fora de escopo);
+  ver `## Permission model` acima.
+- Custo sob demanda: DevTools full (~59 tools com opt-ins) e Playwright
+  (~25 tools) entram somente com o profile `testing` ativo para a tarefa;
+  sem tarefa browser, sem MCP browser. CLI+skill (`playwright-cli`)
+  continua a alternativa de menor custo para navegacao simples.
+- Perfis descartaveis de teste materializam o permission model do registry
+  (deny em vetores de execucao de codigo, ask em evaluate) como entradas de
+  permissao dos agentes + scan de chamadas proibidas no transcript; o
+  produto nao muda (nenhum grant novo em `source/agents`, nenhum MCP
+  global, nenhuma flag de roteamento ativa).
+- Evidencia de delegacao e estrutural (child session com `parentID` via
+  `GET /api/session`), nao apenas textual; isolamento intrasservico segue
+  NOT_SUPPORTED (processo dedicado por profile).

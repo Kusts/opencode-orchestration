@@ -63,7 +63,9 @@ param(
 # V2); ambiguo/inconclusivo com binario presente aborta com exit 6.
 # Phase 7 (V3.1): Both ATIVO via perfis isolados (ver ramo Both abaixo).
 # Auto sem binario opencode no PATH degrada para V1 (comportamento legado,
-# com aviso).
+# com aviso). NOTA issue #62 (V2-only/V1-frozen): fallback V1 = compat com
+# perfis legados; o default prospectivo para instalacoes novas e V2
+# explicito (-Runtime V2). Logica inalterada.
 
 $ErrorActionPreference = 'Stop'
 

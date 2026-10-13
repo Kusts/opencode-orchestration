@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lane-fixture-error</title></head>
+<body>
+<h1 id="etitle">fixture-error-page</h1>
+<p id="emarker">FIXTURE-ERROR-42: widget render failed (deterministic marker)</p>
+<button id="ebtn">trigger error</button>
+<script>
+document.getElementById("ebtn").addEventListener("click", function () {
+  console.error("FIXTURE-ERROR-42: widget render failed (deterministic marker)");
+  throw new Error("FIXTURE-ERROR-42: widget render failed (deterministic marker)");
+});
+console.error("FIXTURE-ERROR-42: widget render failed (deterministic marker)");
+</script>
+</body></html>

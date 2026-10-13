@@ -58,14 +58,15 @@ Uma versão só é publicada com, cumulativamente:
    (`scripts/v3/run-v3-tests.ps1`, incluindo as de `scripts/runtime/`) e
    13 suítes de distribuição
    (`tests/distribution/run-distribution-tests.ps1`, incluindo runtime
-   V1/V2 e perfis isolados). Exceção documentada: 4 suítes falham quando o
+   V1 (legado, provado em 1.18.x; sem novos desenvolvimentos)/V2 e perfis isolados). Exceção documentada: 4 suítes falham quando o
    `opencode.json` vivo diverge do baseline canônico — invariante de
    ambiente, não do pacote (ver [TROUBLESHOOTING](TROUBLESHOOTING.md)).
 2. **Smoke com OpenCode real**: job `ci-smoke-opencode` verde
    (install num home isolado + `opencode debug config/agent/skill`).
    Lane de CI para V2/dual-perfil pendente (Phase 8 do V3.1); smoke V2
    atual é via suítes locais e spike de isolamento.
-3. **Typecheck do plugin** contra as APIs reais pinadas V1 e V2
+3. **Typecheck do plugin** contra as APIs reais pinadas V1 (legado,
+   provado em 1.18.x; sem novos desenvolvimentos) e V2
    (`scripts/ci/typecheck-plugin.ps1`, trilhas V1/V2/dual).
 4. **Evidência**: logs das suítes e CHANGELOG atualizado.
 
@@ -98,10 +99,19 @@ implementar por hipótese.
 ## GitHub Lifecycle
 
 Source of truth: [github-lifecycle-policy](github-lifecycle-policy.md).
-Nenhum commit direto em `master` — tudo entra via PR com os 5 checks do
-workflow `CI` verdes no HEAD (`CI (ps51)`, `CI (ps7)`,
+Nenhum commit direto em `master` — tudo entra via PR com os checks
+requeridos do workflow `CI` verdes no HEAD. Os números são snapshots
+datados, não invariantes: em 2026-10-11 o workflow `CI` tem **6 jobs**
+(`CI (linux capability collector)`, `CI (ps51)`, `CI (ps7)`,
 `CI (smoke opencode real)`, `CI (v2 lane, perfil V2 provisionado)`,
-`CI (smoke opencode v2 real)`).
+`CI (smoke opencode v2 real)`) e a branch protection exige **5** deles como
+`required_checks` (`CI (ps51)`, `CI (ps7)`, `CI (smoke opencode real)`,
+`CI (v2 lane, perfil V2 provisionado)`, `CI (smoke opencode v2 real)`),
+com `strict: true` e `required_approving_review_count: 0`. Job novo ou
+complementar roda como evidência, mas só vira exigência de merge por
+decisão explícita do operador, registrada no PR e refletida no documento de
+policy, em `source/registry/delivery-policy.json` e na branch protection —
+nunca por acréscimo silencioso e nunca reduzindo cobertura de CI ou review.
 
 Método de merge padrão é **merge commit**, sem squash nem reescrita salvo
 decisão explícita registrada no PR (praticado no PR #28: fix `4a1acbe` em
