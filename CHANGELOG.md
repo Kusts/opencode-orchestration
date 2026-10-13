@@ -126,10 +126,13 @@ issue #25, green-run de distribuição no CI.
 
 ### Closure CURRENT_WORK (F0–F7, 2026-10-12/13)
 
-Base: master `ec5c2de` (merge PR #75). Evidência por frente em
-`evidence/closure/` (f0-baseline-final, f0-finding-B-wiring,
+Base: master `ec5c2de` (merge PR #75). Evidência por frente nos `.md`
+versionados de `evidence/closure/` (f0-baseline-final, f0-finding-B-wiring,
 f0-finding-C-v2-policy, f1-progress, f6-observability-closure) e relatório
-final em `evidence/closure/CLOSURE-REPORT.md` (local, ignorado pelo git).
+final em `evidence/closure/CLOSURE-REPORT.md` (top-level `.md` versionados
+via `!evidence/closure/*.md` no `.gitignore`; `ci-logs/` local com ~MBs
+permanece fora do git — logs completos duráveis = runs GitHub citados por
+frente no CLOSURE-REPORT §Links).
 
 - **PRs merged com veredito:**
   - #59 (telemetry confinement, `8edc5d7`): fixture de contenção passou;

@@ -189,7 +189,7 @@ goal por baixo, sem passar pelo driver do AutonomousLoop.
 
 ```text
 Planner (LLM, único ponto de efeito externo)
-  -> New-OrchestrationDispatchIntent             (OrchestrationObjectiveRuntime.ps1 — intent validado)
+  -> New-OrchestrationNativeDispatchIntent       (OrchestrationNativeDispatch.ps1:791 — intent validado do caminho produtivo; distinto de New-OrchestrationDispatchIntent de OrchestrationObjectiveRuntime.ps1:300, contrato legado GoalId/WorkItemId/ActionRevision)
   -> [produtivo] Invoke-OrchestrationObjectiveStep /
      Invoke-OrchestrationAutonomousObjective     (OrchestrationAutonomousLoop.ps1 — reconcile → next-move → dispatch/conclusão)
   -> [produtivo] Invoke-OrchestrationNativeDispatch  (AutonomousLoop.ps1:328 — síncrono legado; Prepare/Claim/Settle só lá dentro)
@@ -199,8 +199,8 @@ Planner (LLM, único ponto de efeito externo)
   -> Set-OrchestrationTaskWorkerResult           (OrchestrationTaskKernel.ps1)
   -> Verification → Review (verifier com allowlist fechada)
   -> Test-OrchestrationTaskCompletion → Complete-OrchestrationTask  (DONE só aqui)
-  -> Set-OrchestrationGoalStatePersisted         (OrchestrationGoalKernel.ps1 — CAS com fencing; OBJECTIVE_DONE só por CAS)
-  -> Invoke-OrchestrationNativeDispatchAdvance   (avanço causal: exige recibo settled + evidência da mesma chave)
+  -> Invoke-OrchestrationNativeDispatchAdvance   (avanço causal por fase: exige recibo settled + evidência da mesma chave; roda após settlement + verification + review + DONE + progresso + attach do sucessor)
+  -> Set-OrchestrationGoalStatePersisted         (OrchestrationGoalKernel.ps1 — CAS com fencing; OBJECTIVE_DONE só por CAS, após a fase 3; no nativo a finalização opcional vive DENTRO do Advance, só com -FinalizeGoalOnComplete)
 ```
 
 Grants por interseção (`Get-OrchestrationEffectiveGrants`, nunca união);
