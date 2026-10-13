@@ -955,13 +955,34 @@ try {
                 if ([bool]$f2Res) { $f2WriteOkSeen = $true }
                 if ($f2Why -ceq 'receipt-cleanup-deferred') {
                     $f2Deferred++
-                    $f2Temps = @([IO.Directory]::GetFiles($f2Dir, 'receipt-*.tmp'))
-                    if (@($f2Temps).Count -ge 1) { $f2TempPreserved = $true }
+                    # NENHUMA enumeracao aqui: o flipper ainda corre e
+                    # SetCreationTimeUtc abre o diretorio sem FILE_SHARE_READ;
+                    # reler agora arrisca sharing-violation. Interrompe e
+                    # sincroniza abaixo, antes de qualquer GetFiles.
+                    break
                 }
                 elseif (-not [string]::IsNullOrWhiteSpace($f2Why)) { $f2OtherReason = $f2Why }
-                if ($f2Deferred -ge 1) { break }
             }
             Assert-RX ($f2Deferred -ge 1) '[RP3g] invalidated identity before cleanup defers the cleanup (receipt-cleanup-deferred)' ('deferred=' + [string]$f2Deferred + ' other=' + $f2OtherReason)
+            # Sincroniza o flipper ANTES de qualquer enumeracao: parar e
+            # aguardar com prazo limitado; timeout vira falha explicita
+            # (Assert-RX), nunca SKIP silencioso.
+            $f2FlipStopped = $false
+            try { [void]$f2FlipStop.Set() } catch { }
+            try {
+                if (($null -ne $f2FlipPs) -and ($null -ne $f2FlipH)) {
+                    $f2FlipStopped = $f2FlipH.AsyncWaitHandle.WaitOne(10000)
+                    if ([bool]$f2FlipStopped) { $f2FlipPs.EndInvoke($f2FlipH) | Out-Null }
+                }
+            } catch { $f2FlipStopped = $false }
+            Assert-RX ([bool]$f2FlipStopped) '[RP3g] flipper stopped within deadline before temp enumeration' ''
+            # So entao enumerar temporarios, antes de qualquer cleanup.
+            if ([bool]$f2FlipStopped) {
+                try {
+                    $f2Temps = @([IO.Directory]::GetFiles($f2Dir, 'receipt-*.tmp'))
+                    if (@($f2Temps).Count -ge 1) { $f2TempPreserved = $true }
+                } catch { }
+            }
             Assert-RX ([bool]$f2TempPreserved) '[RP3g] the temporary is preserved, never removed through the invalidated path' ''
             Assert-RX ((-not [bool]$f2WriteOkSeen)) '[RP3g] a held destination never reports a persisted receipt' ''
             # solta o destino ANTES de reler: com FileShare.None a leitura
@@ -979,10 +1000,40 @@ try {
             try { if ($null -ne $f2DestPs) { $f2DestPs.Dispose() } } catch { }
             try { if ($null -ne $f2DestRs) { $f2DestRs.Close() } } catch { }
             try { if ($null -ne $f2DestRs) { $f2DestRs.Dispose() } } catch { }
-            try { if ($null -ne $f2FlipPs) { $f2FlipPs.Dispose() } } catch { }
-            try { if ($null -ne $f2FlipRs) { $f2FlipRs.Close() } } catch { }
-            try { if ($null -ne $f2FlipRs) { $f2FlipRs.Dispose() } } catch { }
-            foreach ($f2t in @([IO.Directory]::GetFiles($f2Dir, 'receipt-*.tmp'))) { try { [IO.File]::Delete($f2t) } catch { } }
+            # Mesma sincronizacao antes de enumerar: aguardar o flipper com
+            # prazo limitado para nao reler o diretorio enquanto o
+            # SetCreationTimeUtc ainda corre (sharing-violation). O resultado
+            # do WaitOne e registrado: timeout conta como falha explicita via
+            # Assert-RX (nao lanca: nunca mascara a excecao original em voo).
+            # A enumeracao de limpeza so roda com termino confirmado; sem
+            # confirmacao, registra e falha em vez de enumerar as cegas.
+            $f2FlipJoined = $false
+            try {
+                if (($null -ne $f2FlipPs) -and ($null -ne $f2FlipH)) {
+                    $f2FlipJoined = [bool]$f2FlipH.AsyncWaitHandle.WaitOne(10000)
+                    if ([bool]$f2FlipJoined) { $f2FlipPs.EndInvoke($f2FlipH) | Out-Null }
+                } else {
+                    $f2FlipJoined = $true
+                }
+            } catch { $f2FlipJoined = $false }
+            Assert-RX ([bool]$f2FlipJoined) '[RP3g] flipper joined in finally before cleanup enumeration' ''
+            $f2FlipPsDisposed = $true
+            try { if ($null -ne $f2FlipPs) { $f2FlipPs.Dispose() } } catch { $f2FlipPsDisposed = $false }
+            Assert-RX ([bool]$f2FlipPsDisposed) '[RP3g] flipper runspace disposed in finally' ''
+            $f2FlipRsClosed = $true
+            try { if ($null -ne $f2FlipRs) { $f2FlipRs.Close() } } catch { $f2FlipRsClosed = $false }
+            Assert-RX ([bool]$f2FlipRsClosed) '[RP3g] flipper runspace closed in finally' ''
+            $f2FlipRsDisposed = $true
+            try { if ($null -ne $f2FlipRs) { $f2FlipRs.Dispose() } } catch { $f2FlipRsDisposed = $false }
+            Assert-RX ([bool]$f2FlipRsDisposed) '[RP3g] flipper runspace handle disposed in finally' ''
+            # Enumeracao defensiva fora da expressao do foreach, e somente
+            # com termino confirmado: um GetFiles ainda concorrente nao pode
+            # mascarar a excecao original.
+            if ([bool]$f2FlipJoined) {
+                $f2Leftovers = @()
+                try { $f2Leftovers = @([IO.Directory]::GetFiles($f2Dir, 'receipt-*.tmp')) } catch { $f2Leftovers = @() }
+                foreach ($f2t in $f2Leftovers) { try { [IO.File]::Delete($f2t) } catch { } }
+            }
         }
 
         # ---------- hygiene ----------
@@ -1008,7 +1059,11 @@ try {
     exit 0
 }
 catch {
-    Write-Host ('[FAIL] harness-exception -- ' + $_.Exception.Message)
+    $hxMsg = '<n/a>'
+    $hxLine = 0
+    try { $hxMsg = $_.Exception.Message } catch { }
+    try { $hxLine = [int]$_.InvocationInfo.ScriptLineNumber } catch { }
+    Write-Host ('[FAIL] harness-exception -- ' + $hxMsg + ' (line=' + [string]$hxLine + ')')
     $script:failed++
     Write-Host ''
     Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (' + $script:skipped + ' skipped)')
