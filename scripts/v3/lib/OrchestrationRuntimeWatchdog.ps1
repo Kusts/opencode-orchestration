@@ -1960,6 +1960,9 @@ function Test-WatchdogProcessOwnership {
         suppress_proof override key skips proof capture so tests
         deterministically exercise the missing-proof refusal.
         Accepts an execution-like hashtable (unit-testable).
+        The path-unverifiable refusal carries additive decision-time
+        evidence only (diag_path_read: empty|exception|ok; diag_pid):
+        never a later query, never echoed paths, decision unchanged.
         -FaultInject is a test-only seam (closed set, default absent).
         Never throws, never kills anything.
     #>
@@ -2018,9 +2021,10 @@ function Test-WatchdogProcessOwnership {
         try { $regPath = ([string]$proc['process_path']).Trim() } catch { $regPath = '' }
         if (-not [string]::IsNullOrWhiteSpace($regPath)) {
             $livePath = ''
-            try { $livePath = ([string]$live.Path).Trim() } catch { $livePath = '' }
+            $livePathRead = 'empty'
+            try { $livePath = ([string]$live.Path).Trim(); if ([string]::IsNullOrWhiteSpace($livePath)) { $livePathRead = 'empty' } else { $livePathRead = 'ok' } } catch { $livePath = ''; $livePathRead = 'exception' }
             if ([string]::IsNullOrWhiteSpace($livePath)) {
-                return [PSCustomObject]@{ owned = $false; reason = 'WATCHDOG_INTERRUPT_REFUSED'; detail = 'path-unverifiable'; process = $null }
+                return [PSCustomObject]@{ owned = $false; reason = 'WATCHDOG_INTERRUPT_REFUSED'; detail = 'path-unverifiable'; process = $null; diag_path_read = $livePathRead; diag_pid = $pidWant }
             }
             if ($livePath -cne $regPath) {
                 return [PSCustomObject]@{ owned = $false; reason = 'WATCHDOG_INTERRUPT_REFUSED'; detail = 'path-mismatch'; process = $null }
