@@ -1774,6 +1774,39 @@ try {
             $__delta22 = -1
             try { $__delta22 = ([long]$__rt22 - [long]$__st22) } catch { $__delta22 = -1 }
             $__fb += ('sentinel_ticks=' + [string][long]$__st22 + '; root_ticks=' + [string][long]$__rt22 + '; delta_ticks=' + [string][long]$__delta22 + '; ')
+            try {
+                $__stCim22 = -1
+                $__rtCim22 = -1
+                $__stCimFound22 = $false
+                $__rtCimFound22 = $false
+                try { $__sl22 = Get-WatchdogCimProcessLine -ProcessId ([int]$sentinel22.Id); $__stCimFound22 = [bool]$__sl22.found; if ([bool]$__sl22.found) { $__stCim22 = [long]$__sl22.creation_ticks } } catch { $__stCim22 = -1; $__stCimFound22 = $false }
+                try { $__rl22 = Get-WatchdogCimProcessLine -ProcessId ([int]$root22.Id); $__rtCimFound22 = [bool]$__rl22.found; if ([bool]$__rl22.found) { $__rtCim22 = [long]$__rl22.creation_ticks } } catch { $__rtCim22 = -1; $__rtCimFound22 = $false }
+                $__deltaCim22 = -1
+                try { $__deltaCim22 = ([long]$__rtCim22 - [long]$__stCim22) } catch { $__deltaCim22 = -1 }
+                $__genCim22 = '<unavailable>'
+                try { $__genCim22 = [string](Test-WatchdogTreeGeneration -ChildCreationTicks ([long]$__stCim22) -AncestorCreationTicks ([long]$__rtCim22)) } catch { $__genCim22 = '<err>' }
+                try { $__genCim22 = [string](Format-EnforceDiagToken $__genCim22) } catch { $__genCim22 = '<err>' }
+                $__fb += ('sentinel_cim_ticks=' + [string][long]$__stCim22 + '; root_cim_ticks=' + [string][long]$__rtCim22 + '; delta_cim_ticks=' + [string][long]$__deltaCim22 + '; sentinel_cim_found=' + (Format-EnforceDiagToken $__stCimFound22) + '; root_cim_found=' + (Format-EnforceDiagToken $__rtCimFound22) + '; gen_cim=' + $__genCim22 + '; ')
+            } catch { $__fb += 'cim=<err>; ' }
+            try {
+                $__lvt22 = @()
+                try { $__lvt22 = @($script:WatchdogExecutions['wd-fix2-excl']['last_verified_tree']) } catch { $__lvt22 = @() }
+                $__lvtN22 = -1
+                try { $__lvtN22 = [int](@($__lvt22).Count) } catch { $__lvtN22 = -1 }
+                $__fb += ('lvt_count=' + [string][int]$__lvtN22 + '; ')
+                $__lvtShown22 = 0
+                try {
+                    foreach ($__lvtE22 in @($__lvt22)) {
+                        if ([int]$__lvtShown22 -ge 8) { break }
+                        $__lvtPid22 = -1
+                        $__lvtTicks22 = -1
+                        try { $__lvtPid22 = [int]$__lvtE22.process_id } catch { $__lvtPid22 = -1 }
+                        try { $__lvtTicks22 = [long]$__lvtE22.creation_ticks } catch { $__lvtTicks22 = -1 }
+                        $__fb += ('lvt' + [string][int]$__lvtShown22 + '_pid=' + [string][int]$__lvtPid22 + '; lvt' + [string][int]$__lvtShown22 + '_ticks=' + [string][long]$__lvtTicks22 + '; ')
+                        $__lvtShown22 = ([int]$__lvtShown22 + 1)
+                    }
+                } catch { $__fb += 'lvt_rows=<err>; ' }
+            } catch { $__fb += 'lvt=<err>; ' }
             try { $__fb += ('sentinel_alive=' + (Format-EnforceDiagToken (Test-EnforceAlive -Proc $sentinel22)) + '; root_alive=' + (Format-EnforceDiagToken (Test-EnforceAlive -Proc $root22)) + '; ') } catch { $__fb += 'alive=<err>; ' }
             try { $__fb += ('sentinel_pid=' + [string][int]$sentinel22.Id + '; root_pid=' + [string][int]$root22.Id + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion)) } catch { $__fb += 'pids=<err>' }
             Write-Host ('[DIAG-FB] ' + $__fb)
