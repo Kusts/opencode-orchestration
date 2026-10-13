@@ -79,3 +79,10 @@
 ## PR75 run2: F3 no runner oficial + receipts flake repetido
 - F3ThreePhaseFixture executou no runner V3 oficial e PASSOU (exit 0) — discovery P1 resolvido e provado em CI.
 - FAIL único: receipts harness-exception GetFiles (mesma classe do PR65-run2, até mesmo receipt id 84c13c00). Flake de contenção recorrente do harness de recibos — candidato a item próprio (retry ou varredura tolerante), sem bloquear este PR. Rerun --failed disparado.
+
+## Master pós-#76 (38391699516): 2 FAILs ambientais
+- ps51: watchdog enforcement F-B orphan-exclusion (4 FAILs) — mesma família timing F1/JOB46/JOB48; PR76 é docs-only.
+- smoke-v2: preflight porta 54133 PORT_STALE_OR_UNKNOWN (fail-closed correto) — ambiente do runner, sem relação com o merge.
+
+## Master pós-#76 rerun: 6/6 SUCCESS
+- F-B orphan + porta 54133 limparam sem código — flakes ambientais confirmados. Master verde. Ajuste estrutural (diagnóstico F-B failure-only, PR82) MERGED em 845be40 (review + CI 6/6 verdes); próxima ocorrência F-B virá com [DIAG-FB] classificável.
