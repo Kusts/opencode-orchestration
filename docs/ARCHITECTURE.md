@@ -165,6 +165,67 @@ recibo) nunca dá replay automático: exige reconciliação explícita com prova
 kernel-side vinculada à task/key. Detalhes e residuais documentados em
 `evidence/v3.1/runtime-reliability/native-dispatch-closure-2026-10-09.json`.
 
+### Call graph verificado Planner→Kernel (closure F7, 2026-10-13)
+
+Dois caminhos distintos, com fatos lidos de volta dos stores (fases de
+recibo, revisões/estados de task e goal, grants efetivos, advance
+records). Nomes de função verificados no checkout `ec5c2de`:
+
+(a) Caminho produtivo (`scripts/v3/lib/OrchestrationAutonomousLoop.ps1:328`):
+`Invoke-OrchestrationObjectiveStep` / `Invoke-OrchestrationAutonomousObjective`
+(reconcile → next-move → dispatch/conclusão) chama o síncrono legado
+`Invoke-OrchestrationNativeDispatch` — nunca `Prepare`/`Claim`/`Settle`
+direto.
+
+(b) Harness F3 (`tests/f3/`, 152 asserts em
+`OrchestrationF3ThreePhaseFixture.tests.ps1:93-128`, função
+`Invoke-F3FullPhase`): NÃO executa `Invoke-OrchestrationObjectiveStep`
+nem `Invoke-OrchestrationAutonomousObjective`. Encadeia helpers próprios
+— `Invoke-F3ReceiptWalk` (Prepare → Claim → efeito simulado → Settle,
+sem advance) → `Invoke-F3TaskSettlement` (verification + review + DONE
+via `Complete-F3GoalTask`) → attach do sucessor (barreira do harness) →
+`Invoke-F3CausalAdvance` — cobrindo o mesmo contrato de recibos/kernel/
+goal por baixo, sem passar pelo driver do AutonomousLoop.
+
+```text
+Planner (LLM, único ponto de efeito externo)
+  -> New-OrchestrationNativeDispatchIntent       (OrchestrationNativeDispatch.ps1:791 — intent validado do caminho produtivo; distinto de New-OrchestrationDispatchIntent de OrchestrationObjectiveRuntime.ps1:300, contrato legado GoalId/WorkItemId/ActionRevision)
+  -> [produtivo] Invoke-OrchestrationObjectiveStep /
+     Invoke-OrchestrationAutonomousObjective     (OrchestrationAutonomousLoop.ps1 — reconcile → next-move → dispatch/conclusão)
+  -> [produtivo] Invoke-OrchestrationNativeDispatch  (AutonomousLoop.ps1:328 — síncrono legado; Prepare/Claim/Settle só lá dentro)
+  -> [harness F3] Invoke-OrchestrationNativeDispatchPrepare   (admissão + fencing; recibo pending; zero efeitos)
+  -> [harness F3] Invoke-OrchestrationNativeDispatchClaim     (fronteira do efeito: um claim admitido = no máximo um efeito)
+  -> [harness F3] Invoke-OrchestrationNativeDispatchSettle    (resultado candidate_pass|failed|blocked; verified_pass/done/approved rejeitados)
+  -> Set-OrchestrationTaskWorkerResult           (OrchestrationTaskKernel.ps1)
+  -> Verification → Review (verifier com allowlist fechada)
+  -> Test-OrchestrationTaskCompletion → Complete-OrchestrationTask  (DONE só aqui)
+  -> Invoke-OrchestrationNativeDispatchAdvance   (avanço causal por fase: exige recibo settled + evidência da mesma chave; roda após settlement + verification + review + DONE + progresso + attach do sucessor)
+  -> Set-OrchestrationGoalStatePersisted         (OrchestrationGoalKernel.ps1 — CAS com fencing; OBJECTIVE_DONE só por CAS, após a fase 3; no nativo a finalização opcional vive DENTRO do Advance, só com -FinalizeGoalOnComplete)
+```
+
+Grants por interseção (`Get-OrchestrationEffectiveGrants`, nunca união);
+gate de conclusão (`Test-ObjectiveCompletionAllowed`); tentativa ambígua
+pós-efeito nunca re-preparada automaticamente (`prepare-already-claimed`,
+segunda chave recusada em `claim-task-already-claimed`).
+
+### Limitação declarada (closure F7)
+
+- **Barreira de fases = disciplina do harness, não do kernel.** O contrato
+  de attach do kernel (CAS + fencing) não verifica o estado do predecessor;
+  a fixture abre a barreira (attach do sucessor) somente após settlement +
+  verification + review + DONE + progresso de goal (grupo `[BAR]` da
+  suite). Fora do harness, nada impede despacho fora de ordem.
+- **Claim não-verificado por construção.** O host é validado por
+  descritores (`Test-NDHostCallDescriptor` e correlatos), mas o runtime não
+  expõe API de atestação que permita ao kernel ler o host; provenance
+  `declared` não é prova (tiers `corroborated/observed/declared`, ver
+  seção G1).
+- **Enforcement OFF/HOLD.** `runtime_grant_enforcement{v1,v2}` OFF,
+  roteamento (`skill`/`mcp`/`adaptive`/`routing_telemetry`/`reconciler`)
+  OFF, Active Routing 2G OFF (`INSUFFICIENT_REAL_WORLD_DATA`, F6). O único
+  executor real de workers é o Planner LLM em sessão ativa; `dispatchWorker`
+  e correlatos seguem HOLD.
+
 ## V3 (router, registry, flags)
 
 - **Router shadow/off por padrão**: `source/registry/capability-flags.json`

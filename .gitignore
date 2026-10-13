@@ -12,6 +12,9 @@ evidence/*
 !evidence/capabilities-phase-2g/
 !evidence/agent-mcp-integration/
 !evidence/v0.1.0/
+!evidence/closure/
+evidence/closure/*
+!evidence/closure/*.md
 cache/
 evidence/v3.1/runtime-reliability/phase24-livehook.jsonl
 *.bak*
