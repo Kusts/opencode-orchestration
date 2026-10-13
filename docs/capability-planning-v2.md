@@ -6,46 +6,46 @@ altera nenhum template, agent ou flag. Em divergência, `source/` vence
 `scripts/test-package-consistency.ps1` (checks 3/11/12/13/14) e na suite
 `tests/distribution/capability-planning.tests.ps1`.
 
-## 1. Contrato canônico planning (17 + 19 + 19)
+## 1. Contrato canônico planning (21 + 19 + 19)
 
 O inventário canônico de agentes é:
 
-- **17 blocos** em `templates/opencode.v2.json.tmpl` sob `agents`:
-  `build` + `title` + 15 workers com bloco próprio.
+- **21 blocos** em `templates/opencode.v2.json.tmpl` sob `agents`:
+  `build` + `title` + 19 workers com bloco próprio (15 de execução +
+  4 de planning).
 - **19 arquivos** em `source/agents/*.md` (um por worker delegável).
 - **19 allows** na allowlist do `build`
   (`agents.build.permissions`: 1 × `{subagent, *: deny}` broad-first + 19
   × `allow` estreitos — check 13 de `scripts/test-package-consistency.ps1`).
 
 Os 4 papéis de planning — `requirements-analyst`,
-`engineering-advisor`, `product-designer`, `skeptic` — são **file-based +
-allowlisted**: existem como `.md` em `source/agents/` e como `allow` na
-allowlist do `build`, mas **não têm bloco** `agents.<nome>` no template
-V2 (nem `agent.<nome>` no V1). Eles são despachados pelo Planner como
-`subagent` via `build` (advisory, read-only, `task: deny`), sem
-configuração própria de modelo/permissões no JSON gerenciado.
+`engineering-advisor`, `product-designer`, `skeptic` — são **allowlisted +
+com bloco cheap**: existem como `.md` em `source/agents/`, como `allow` na
+allowlist do `build` e como bloco `agents.<nome>` no template V2
+(`mode: subagent`, `model: {{MODEL_CHEAP}}`, sem delegação própria).
+Eles são despachados pelo Planner como `subagent` via `build` (advisory,
+read-only), com delegação nativa no JSON gerenciado.
 
-### Por que 21 blocos é incorreto
+### Por que 17 blocos ficou obsoleto
 
-Adicionar os 4 blocos de planning ao template (17 → 21) quebraria:
+O contrato anterior (17 blocos: `build` + `title` + 15 workers, planning
+file-based sem bloco) impedia delegação nativa V2 dos papéis advisory:
+todo `allow` do `build` deve ter bloco `agents.*` correspondente. Manter
+17 blocos com 19 allows quebraria:
 
-- **check 3** (`template V1 x agents`): exige exatamente 17 blocos
-  `agent` e que todo `.md` fora dos 15 workers esteja no conjunto
-  `planningOnly` — 21 blocos falha na contagem;
-- **check 11** (`template V1 trimmed`): exige 17 blocos `agent`;
-- **check 12** (`template V2 shape nativo`): exige exatamente 17 blocos
+- **preflight de delegação V2**
+  (`tests/distribution/v2-delegation-preflight.tests.ps1`): exige 21
+  blocos e todo `allow` com bloco `agents.*`;
+- **check 12** (`template V2 shape nativo`): exige exatamente 21 blocos
   `agents`;
-- **check 14** (`paridade V2 <-> V1`): compara os conjuntos bloco a bloco;
-- **precheck do `install.ps1`**: exige template resolvido com 17 blocos
-  `agent`, `build` sem `model` e zero tokens pendentes (ver
-  [INSTALLATION.md](INSTALLATION.md), fase Precheck).
+- **precheck do `install.ps1`** (`Validate-TemplateV2`): exige template
+  resolvido com 21 blocos `agents`, `build` sem `model` e zero tokens
+  pendentes (ver [INSTALLATION.md](INSTALLATION.md), fase Precheck).
 
-Além da quebra mecânica, seria errado por semântica: papéis advisory
-read-only não precisam de bloco gerenciado (modelo/permissões próprios);
-o frontmatter do `.md` + a allowlist do `build` já lhes dão identidade,
-classificação (`source/registry/capability-policy.json#classification`)
-e delegabilidade. Bloco próprio sugeriria capacidade de execução que
-eles não têm.
+O V1 permanece com 17 blocos `agent` (checks 3/11 + precheck
+`Validate-Template` inalterados): os 4 planning seguem file-based no
+dialeto legado. A paridade V2↔V1 (check 14) compara allowlists (19 = 19)
+e os 15 workers comuns; os 4 blocos de planning são adição V2-only.
 
 ## 2. Plugin discovery global no V2 (sem `plugins[]`)
 

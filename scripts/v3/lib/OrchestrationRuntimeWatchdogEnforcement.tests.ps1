@@ -217,6 +217,13 @@
          ([REDACTED-TEXT]); valor nao listado vira [UNRECOGNIZED-TEXT].
          Canarios sinteticos (sk-SYNTHETICSECRET) provam que nenhum segredo
          conformante ao charset sobrevive a via de diagnostico.
+      8b. DIAG-8B (failure-only, padrao DIAG-FB): se qualquer assert do
+         bloco 8b falhar, emite [DIAG-8B] com a leitura decisoria que a
+         propria recusa carrega (diag_path_read: READ-EMPTY = .Path
+         vazio, READ-EXCEPTION = excecao na leitura; nunca uma consulta
+         posterior), a classe fechada do detail (EXPECTED-PATH-MISMATCH
+         vs FLAKE-PATH-UNVERIFIABLE, sem ecoar texto livre), os PIDs
+         numericos e a vida do filho. A decisao segue REFUSED, nunca kill.
 #>
 [CmdletBinding()]
 param()
@@ -1028,6 +1035,7 @@ try {
     # 8b. divergent ownership => REFUSED, process intact. A genuine own
     # child whose live parent IS the test process still passes the parent
     # leg; divergence is proven via executable-path and start-time legs.
+    $fbFail8b = [int]$script:failed
     $c8b = Start-EnforceChild -SleepSeconds 60
     $livePath8 = ''
     try { $livePath8 = ([string](Get-Process -Id ([int]$c8b.Id) -ErrorAction Stop).Path).Trim() } catch { $livePath8 = '' }
@@ -1050,6 +1058,39 @@ try {
     $noIdExec = @{ task_id = 'wd-enf-8'; attempt_n = 1 }
     $ownNone = Test-WatchdogProcessOwnership -Execution $noIdExec
     Assert-Enforce (((-not [bool]$ownNone.owned)) -and ([string]$ownNone.reason -ceq 'WATCHDOG_NO_PROCESS_IDENTITY')) 'missing binding => NO_PROCESS_IDENTITY' ([string]$ownNone.reason)
+    if ([int]$script:failed -gt [int]$fbFail8b) {
+        try {
+            $__fb8b = ''
+            try { $__fb8b += ('reason=' + (Format-EnforceDiagField 'reason' $own8.reason) + '; ') } catch { $__fb8b += 'reason=<err>; ' }
+            $__dc8b = '[UNRECOGNIZED-TEXT]'
+            try {
+                $__draw8b = ''
+                try { $__draw8b = ([string]$own8.detail).Trim() } catch { $__draw8b = '' }
+                if ($__draw8b -ceq 'path-mismatch') { $__dc8b = 'EXPECTED-PATH-MISMATCH' }
+                elseif ($__draw8b -ceq 'path-unverifiable') { $__dc8b = 'FLAKE-PATH-UNVERIFIABLE' }
+            } catch { $__dc8b = '<err>' }
+            $__fb8b += ('detail_class=' + $__dc8b + '; ')
+            $__pr8b = '[UNRECOGNIZED-TEXT]'
+            try {
+                $__praw8b = ''
+                try { $__praw8b = ([string]$own8.diag_path_read).Trim() } catch { $__praw8b = '' }
+                if ($__praw8b -ceq 'empty') { $__pr8b = 'READ-EMPTY' }
+                elseif ($__praw8b -ceq 'exception') { $__pr8b = 'READ-EXCEPTION' }
+                elseif ($__praw8b -ceq 'ok') { $__pr8b = 'READ-OK' }
+            } catch { $__pr8b = '<err>' }
+            $__fb8b += ('decisory_path_read=' + $__pr8b + '; ')
+            try {
+                $__dp8b = -1
+                try { $__dp8b = [int]$own8.diag_pid } catch { $__dp8b = -1 }
+                $__cp8b = -1
+                try { $__cp8b = [int]$c8b.Id } catch { $__cp8b = -1 }
+                $__fb8b += ('decisory_pid=' + [string][int]$__dp8b + '; child_pid=' + [string][int]$__cp8b + '; ')
+            } catch { $__fb8b += 'pids=<err>; ' }
+            try { $__fb8b += ('pre_read_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($livePath8))) + '; ') } catch { $__fb8b += 'pre_read=<err>; ' }
+            try { $__fb8b += ('child_alive=' + (Format-EnforceDiagToken (Test-EnforceAlive -Proc $c8b)) + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion)) } catch { $__fb8b += 'alive=<err>' }
+            Write-Host ('[DIAG-8B] ' + $__fb8b)
+        } catch { Write-Host '[DIAG-8B] <diag-unavailable>' }
+    }
 
     # 8c. stop on a dead PID maps to structured ALREADY_EXITED, never throws.
     $stopDead = Stop-WatchdogVerifiedProcess -ProcessId 999999001

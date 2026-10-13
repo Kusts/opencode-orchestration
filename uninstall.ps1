@@ -46,7 +46,9 @@ $WorkerKeys = @(
   'explorer', 'researcher', 'coder', 'tester', 'reviewer', 'debugger',
   'security-reviewer', 'architect', 'docs-manager', 'frontend-engineer',
   'backend-engineer', 'database-engineer', 'ai-agent-engineer',
-  'automation-engineer', 'infra-engineer'
+  'automation-engineer', 'infra-engineer',
+  # Planning advisory (V2: blocos agents.* proprios; V1: ausentes no template, loop ignora via skip).
+  'requirements-analyst', 'engineering-advisor', 'product-designer', 'skeptic'
 )
 $SkillNames = @(
   'dispatching-parallel-agents', 'hybrid-development',
