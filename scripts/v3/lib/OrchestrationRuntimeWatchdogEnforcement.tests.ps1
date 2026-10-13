@@ -1665,6 +1665,9 @@ try {
     # 22. F-B PID-reuse orphan excluded, never killed (test-only
     # parent-link override; creations stay REAL through CIM).
     $sw22 = [System.Diagnostics.Stopwatch]::StartNew()
+    $fbFail22 = [int]$script:failed
+    $r22 = $null
+    $e22 = $null
     $sentinel22 = Start-EnforceChild -SleepSeconds 120
     [void](Wait-EnforceReady -Proc $sentinel22 -TimeoutMs 10000)
     Start-Sleep -Seconds 4
@@ -1683,6 +1686,45 @@ try {
         Assert-Enforce (Test-EnforceAlive -Proc $sentinel22) 'F-B PID-reuse orphan survives (never killed)' ''
     }
     finally { $script:WatchdogTreeTestOverride = $null }
+    if ([int]$script:failed -gt [int]$fbFail22) {
+        try {
+            $__fb = 'r_ok=' + (Format-EnforceDiagToken (($null -ne $r22) -and [bool]$r22.ok)) + '; '
+            try { $__fb += ('r_err=' + (Format-EnforceDiagToken $r22.error) + '; ') } catch { $__fb += 'r_err=<err>; ' }
+            try { $__fb += ('e_ok=' + (Format-EnforceDiagToken ([bool]$e22.ok)) + '; e_int=' + (Format-EnforceDiagToken ([bool]$e22.interrupted)) + '; e_err=' + (Format-EnforceDiagToken $e22.error) + '; ') } catch { $__fb += 'e_top=<err>; ' }
+            try {
+                $__enf22 = $null
+                try { $__enf22 = $e22.enforcement } catch { $__enf22 = $null }
+                foreach ($__k in @('settlement', 'classification', 'error', 'detail', 'reason', 'tree_excluded', 'exclusion')) {
+                    $__v = '<absent>'
+                    try {
+                        if ($null -ne $__enf22) {
+                            if ($__enf22 -is [System.Collections.IDictionary]) { if ($__enf22.Contains($__k)) { $__v = $__enf22[$__k] } }
+                            elseif ($__enf22.PSObject.Properties.Name -contains $__k) { $__v = $__enf22.$__k }
+                        }
+                    } catch { $__v = '<err>' }
+                    if ($__k -ceq 'tree_excluded') {
+                        $__n = -1
+                        try { $__n = [int]$__v } catch { $__n = -1 }
+                        $__fb += ($__k + '=' + [string]$__n + '; ')
+                    } else { $__fb += ($__k + '=' + (Format-EnforceDiagToken $__v) + '; ') }
+                }
+            } catch { $__fb += 'enf=<err>; ' }
+            try {
+                $__s22 = Get-OrchestrationWatchdogSettlement -TaskId 'wd-fix2-excl' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+                $__fb += ('stored_ok=' + (Format-EnforceDiagToken ([bool]$__s22.ok)) + '; stored_settlement=' + (Format-EnforceDiagToken $__s22.settlement) + '; stored_class=' + (Format-EnforceDiagToken $__s22.classification) + '; stored_engaged=' + (Format-EnforceDiagToken ([bool]$__s22.engaged)) + '; stored_int=' + (Format-EnforceDiagToken ([bool]$__s22.interrupted)) + '; ')
+            } catch { $__fb += 'stored=<err>; ' }
+            $__st22 = -1
+            $__rt22 = -1
+            try { $__st22 = [long](([DateTime]$sentinel22.StartTime).ToUniversalTime().Ticks) } catch { $__st22 = -1 }
+            try { $__rt22 = [long](([DateTime]$root22.StartTime).ToUniversalTime().Ticks) } catch { $__rt22 = -1 }
+            $__delta22 = -1
+            try { $__delta22 = ([long]$__rt22 - [long]$__st22) } catch { $__delta22 = -1 }
+            $__fb += ('sentinel_ticks=' + [string][long]$__st22 + '; root_ticks=' + [string][long]$__rt22 + '; delta_ticks=' + [string][long]$__delta22 + '; ')
+            try { $__fb += ('sentinel_alive=' + (Format-EnforceDiagToken (Test-EnforceAlive -Proc $sentinel22)) + '; root_alive=' + (Format-EnforceDiagToken (Test-EnforceAlive -Proc $root22)) + '; ') } catch { $__fb += 'alive=<err>; ' }
+            try { $__fb += ('sentinel_pid=' + [string][int]$sentinel22.Id + '; root_pid=' + [string][int]$root22.Id + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion)) } catch { $__fb += 'pids=<err>' }
+            Write-Host ('[DIAG-FB] ' + $__fb)
+        } catch { Write-Host '[DIAG-FB] <diag-unavailable>' }
+    }
     Stop-EnforceSafety -Proc $sentinel22
     Stop-EnforceSafety -Proc $root22
     $sw22.Stop()
