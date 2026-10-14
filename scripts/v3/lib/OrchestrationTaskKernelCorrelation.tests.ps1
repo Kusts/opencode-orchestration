@@ -106,12 +106,14 @@ try {
     $neg = New-CorrelationEnvelope -Objective 'x' -AttemptN 'abc'
     Assert-Correlation ((-not $neg.Contains('corr_attempt'))) 'non-numeric attempt_n omitted without throwing'
 
-    # 3. never throws on garbage
+    # 3. never throws on garbage (hermetic: temp root, never checkout fallback)
+    $g = New-CorrTestRoot
+    [void]$roots.Add($g.root)
     $threw = $false
     try { $null = New-CorrelationEnvelope -GoalId $null -Objective $null -RunId $null -SessionId $null -AttemptN @('a', 'b') -DecisionRef $null -SettlementState $null } catch { $threw = $true }
     Assert-Correlation (-not $threw) 'garbage input never throws'
     $sendThrew = $false
-    try { $null = Send-TaskKernelTelemetry -EventType 'TASK_CREATED' -TaskId 'corr-001' -Runtime $null -TelemetryRoot '' -Correlation 'not-a-dict' } catch { $sendThrew = $true }
+    try { $null = Send-TaskKernelTelemetry -EventType 'TASK_CREATED' -TaskId 'corr-001' -Runtime $null -TelemetryRoot $g.root -Correlation 'not-a-dict' } catch { $sendThrew = $true }
     Assert-Correlation (-not $sendThrew) 'garbage correlation never throws the telemetry path'
 
     # 4. TASK_CREATED emits envelope; telemetry holds no raw text
