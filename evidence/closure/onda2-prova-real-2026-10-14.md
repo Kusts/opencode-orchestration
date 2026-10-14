@@ -1,4 +1,4 @@
-# Prova runtime-real Onda 2 — objetivo o2-goal COMPLETED (issue #51)
+# Prova runtime-real Onda 2 — objetivo o2-goal COMPLETED runtime-real (Planner-driven, provenance declared, modo compatibilidade; SEM atestacao estrita host) (issue #51)
 
 Data: 2026-10-13/14. Executor: Planner em sessão OpenCode interativa real
 via ferramenta nativa `subagent` (V2). Kernel: libs do repo no commit
@@ -58,3 +58,6 @@ Nada foi escrito no repo ou no destino ativo durante a prova.
 - Provenance das chamadas é `declared` (ids `ses_o2_*`), não prova de autoria —
   conforme doutrina do repo (dado, não autoridade).
 - Pernas model-dependent da lane (18/20/21/22) seguem operator-owned; fora desta prova.
+- Rebuttal P2 (modo compatibilidade, sem `-StrictProvenance`/proof): o gate opt-in G1-A recusaria tier `declared` (`provenance-declared-not-proof`, `OrchestrationNativeDispatch.ps1:7288`/`7372`), mas não foi acionado nesta prova.
+- O settle não-estrito é o caminho de produção ("segue EXATAMENTE como antes", `:6563-6564`); verify/review/DONE/CAS não ramificam por `StrictProvenance` (estrito afeta só replay de duplicata + gate opt-in).
+- A citação da SPEC no P2 não procede: `PLANNER-NATIVE-HANDOFF-v0.1.2-SPEC.md` não contém "declared", "strict/estrito" nem "unverified/não verificado" (grep zero).

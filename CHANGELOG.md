@@ -133,7 +133,7 @@ issue #25, green-run de distribuição no CI.
   FAIL `divergent path` do Watchdog classificado flake ambiental
   (`$live.Path` indisponivel transitorio; 431/1, repro local 120/120) +
   diagnóstico failure-only `[DIAG-8B]` entregue (`d8dd25b`).
-- **Onda 2 — objetivo o2-goal COMPLETED runtime-real (issue #51, parcial):**
+- **Onda 2 — objetivo o2-goal COMPLETED runtime-real (Planner-driven, provenance declared, modo compatibilidade; SEM atestacao estrita host) (issue #51, parcial):**
   3 fases com coder→tester→reviewer reais, fault-injection (prev zeros →
   FAIL → settled-failed → retry admitido com nova key → PASS), scratch
   CANCELLED, checkpoints + guarda `stale-goal-revision`, CAS final 3/3.
