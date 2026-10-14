@@ -260,3 +260,47 @@ graceful continua primário.
 **Matriz atualizada:** F3 preparação = PARTIAL (observe + readiness + request
 testados offline, sem wake); F3 funcional/GW09 = BLOCKED; F1 = HOLD (B10);
 programa segue PARTIAL/HOLD, sem `FUNCTIONAL_COMPLETE`.
+
+## Prova F1 2026-10-14 (tarde) — Planner-driven cooperativo, settlement kernel
+
+**Lane:** `supervised-cooperative` delimitada pelo
+[ADR](../specs/ORFS-SUPERVISED-COOPERATIVE-LANE-ADR.md) (B10 resolvida como
+decisão de escopo; SPEC histórica intacta; strict segue bloqueado #69/#70).
+Sessão nova, fluxo normal, sem driver: o Planner executou cada transição do
+kernel explicitamente; workers reais via tool nativa `subagent` (V2).
+
+**Resultado:** goal `f1-goal` ACTIVE → COMPLETED via CAS (rev 10,
+`progress.satisfied=3/total=3`, `completed=[f1p1,f1p2,f1p3]`). Prova em
+[ORFS-F1-PROOF-2026-10-14.md](./ORFS-F1-PROOF-2026-10-14.md) (22 linhas).
+
+| Task | Trabalhadores | Ordem temporal | Estado |
+|---|---|---|---|
+| f1p1 | coder→tester→reviewer reais | record(4) < verify(6) < review(8) < DONE(9) | DONE rev 9 |
+| f1p2 a1 | coder→tester (FAIL honesto: link quebrado declarado) | failed(6) → FIXING(7) | — |
+| f1p2 a2 | coder retry → tester PASS → reviewer APPROVED | record(12) < verify(15) < review(17) < DONE(18) | DONE rev 18 |
+| f1p2 a3 | reviewer CHANGES_REQUIRED (rótulo a1/a2) → fix → re-verify → APPROVED | record → verify → review → DONE | incluído no DONE rev 18 |
+| f1p3 | coder→tester→reviewer reais | record(4) < verify(6) < review(8) < DONE(9) | DONE rev 9 |
+
+Cancelamento explícito: `f1-p1` (bench TEMP) CANCELLED rev 6 com motivo
+(superseded pela prova repo-scoped que o verificador exige) — zero tarefas
+abandonadas sem estado. Grep `verified_pass` no artefato = 0: nenhum worker
+declarou prova; `verified_pass` só do verificador allowlisted
+(`package-consistency` + scope check por task). Gates honestos observados:
+`INVALID_VERIFIER_RESULT` (laudo fora do shape), `out_of_scope_write`
+(ADR não-commitado no diff), `COMPLETION_GATE_FAILED` (compliance/riscos),
+`UNTRUSTED_IDENTITY`/`CAS_CONFLICT`/`ILLEGAL_TRANSITION` (identidade e ordem).
+
+**Limites:** proveniência `declared` (sessões `ses_*` desta rodada), sem
+atestação host; segunda sessão independente pendente (Onda 2 é a sessão-irmã
+com mesmo desenho: 3 fases + fault-injection + CAS). Veredito: F1 caminho
+cooperativo = RUNTIME_REAL_PASS (supervised); strict = BLOCKED.
+
+## CI da branch (PR #89)
+
+Run `38603241301` (commit `96fad69`): 5/6 verde; `CI (ps7)` FAIL com 1/95 —
+`OrchestrationRuntimeWatchdogEnforcement.tests.ps1` 426/6, os 6 em FIX5-2
+(timing de kill/settlement em runner carregado). ps51 verde no mesmo commit;
+nenhum arquivo nosso toca watchdog. Classificação: suspeita de flake mesma
+classe F1/JOB46/JOB48, causa UNKNOWN até rerun/diagnóstico — sem relaxar
+invariante, sem rerun-como-correção. Runs `38606718116`/`38607508804`
+em andamento dirão se é intermitência do runner.
