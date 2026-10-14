@@ -1,6 +1,8 @@
 # Operational Closure Report — refinamento funcional (execução parcial)
 
 **Data:** 2026-10-14. **Status:** PARTIAL/HOLD; não é `FUNCTIONAL_COMPLETE` nem release.
+**Merge:** PR #89 fundida em `abf7f5d` (2026-10-14T19:55Z, CI 6/6 verde no HEAD
+`48c9161`); CI pós-merge no master `38627699859` = **success**.
 **Plano:** [F0–F7](../../docs/plans/OPERATIONAL-REFINEMENT-FUNCTIONAL-STABILIZATION-PLAN.md).
 **SHA inicial:** `3d3ba0eeab8402b519a2edee0177117cc4cc33da`, branch `master`.
 **SHA de commit final:** não produzido; alterações de trabalho precisam ser consideradas junto ao SHA.
