@@ -58,4 +58,60 @@ $plan=New-OrchestrationContinuationPlan -Envelope $e -Runtime 1 -EnvelopeRef 'en
 Assert ($plan.mode -eq 'fresh-session' -and -not $plan.native_resume -and $plan.task_id -eq 'task-1') 'V1 fresh session only'
 $again=New-OrchestrationContinuationEnvelope -TaskId 'task-1' -Objective 'build' -TimestampUtc $fixed
 Assert ((ConvertTo-Json $again -Compress) -eq (ConvertTo-Json (New-OrchestrationContinuationEnvelope -TaskId 'task-1' -Objective 'build' -TimestampUtc $fixed) -Compress)) 'deterministic'
+# F2 regression: duplicate/out-of-order observations must fail closed as ambiguous (no last-wins, no timestamp heuristic)
+function Assert-AmbiguousRow([object]$Rec,[string]$Sid,[string]$Name){
+    $row=$Rec.runs | Where-Object session_id -eq $Sid
+    Assert (($row.status -eq 'stale') -and ($row.detail -eq 'ambiguous_observations') -and ([string]::IsNullOrWhiteSpace([string]$row.output_ref))) ("F2 ambiguous $Name")
+    Assert ((@($Rec.recommended_actions | Where-Object session_id -eq $Sid)).Count -eq 0) ("F2 no action $Name")
+}
+$dupRuns=@(@{run_id='orfs-diag';root_session='ses_diag';worker_sessions=@()})
+$dupA=@(@{session_id='ses_diag';observed='completed';output_ref='artifact-ref'},@{session_id='ses_diag';observed='missing'})
+$dupB=@(@{session_id='ses_diag';observed='missing'},@{session_id='ses_diag';observed='completed';output_ref='artifact-ref'})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $dupRuns -Observations $dupA -StaleAfterSeconds 60 -TimestampUtc $fixed) 'ses_diag' 'completed/missing order A'
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $dupRuns -Observations $dupB -StaleAfterSeconds 60 -TimestampUtc $fixed) 'ses_diag' 'completed/missing order B'
+$runB=@(@{session_id='s_rc';observed='running'},@{session_id='s_rc';observed='completed';output_ref='o1'})
+$runC=@(@{session_id='s_rc';observed='completed';output_ref='o1'},@{session_id='s_rc';observed='running'})
+$bindRc=@(@{run_id='rrc';root_session='s_rc';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindRc -Observations $runB -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_rc' 'running/completed order A'
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindRc -Observations $runC -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_rc' 'running/completed order B'
+$bindOut=@(@{run_id='rout';root_session='s_out';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindOut -Observations @(@{session_id='s_out';observed='completed';output_ref='out-A'},@{session_id='s_out';observed='completed';output_ref='out-B'}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_out' 'conflicting output_ref'
+$bindOwn=@(@{run_id='rown';root_session='s_own';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindOwn -Observations @(@{session_id='s_own';observed='completed';output_ref='o'},@{session_id='s_own';observed='completed';output_ref='o';binding_session_id='other'}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_own' 'conflicting ownership'
+$bindLs=@(@{run_id='rls';root_session='s_ls';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindLs -Observations @(@{session_id='s_ls';observed='completed';output_ref='o'},@{session_id='s_ls';observed='completed';output_ref='o';last_seen='not-a-date'}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_ls' 'invalid last_seen among duplicates'
+$bindType=@(@{run_id='rty';root_session='s_ty';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindType -Observations @(@{session_id='s_ty';observed='completed';output_ref='o1'},@{session_id='s_ty';observed='completed';output_ref=@('o1')}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_ty' 'malformed output_ref type'
+$bindEq=@(@{run_id='req';root_session='s_eq';worker_sessions=@()})
+$eqA=@{session_id='s_eq';observed='completed';output_ref='o-eq';foo='irrelevant-1'}
+$eqB=[pscustomobject]@{session_id='s_eq';observed='completed';output_ref='o-eq';bar='irrelevant-2'}
+$eqRec=Get-OrchestrationSessionReconciliation -Bindings $bindEq -Observations @($eqA,$eqB) -StaleAfterSeconds 60 -TimestampUtc $fixed
+Assert ((($eqRec.runs | Where-Object session_id -eq s_eq).status -eq 'completed') -and (($eqRec.runs | Where-Object session_id -eq s_eq).output_ref -eq 'o-eq')) 'F2 equivalent duplicates collapse'
+Assert ((($eqRec.recommended_actions | Where-Object session_id -eq s_eq).action -eq 'recover-output')) 'F2 equivalent duplicates action'
+# F2-R1: session_id matching is ordinal case-exact (ses_x vs SES_X are distinct; no cross-case hiding)
+$bindCase=@(@{run_id='rcase';root_session='ses_x';worker_sessions=@('SES_X')})
+$obsCaseA=@(@{session_id='ses_x';observed='completed';output_ref='o-low'},@{session_id='SES_X';observed='completed';output_ref='o-up'})
+$obsCaseB=@(@{session_id='SES_X';observed='completed';output_ref='o-up'},@{session_id='ses_x';observed='completed';output_ref='o-low'})
+foreach($pair in @($obsCaseA,$obsCaseB)){
+    $cr=Get-OrchestrationSessionReconciliation -Bindings $bindCase -Observations $pair -StaleAfterSeconds 60 -TimestampUtc $fixed
+    Assert (($cr.runs.Count -eq 2) -and ($cr.runs[0].session_id -ceq 'ses_x') -and ($cr.runs[0].status -eq 'completed') -and ($cr.runs[0].output_ref -eq 'o-low')) 'F2 ordinal exact ses_x row'
+    Assert (($cr.runs[1].session_id -ceq 'SES_X') -and ($cr.runs[1].status -eq 'completed') -and ($cr.runs[1].output_ref -eq 'o-up')) 'F2 ordinal exact SES_X row'
+}
+$bindCross=@(@{run_id='rcross';root_session='ses_x';worker_sessions=@()})
+$crossRec=Get-OrchestrationSessionReconciliation -Bindings $bindCross -Observations @(@{session_id='SES_X';observed='completed';output_ref='o-up'}) -StaleAfterSeconds 60 -TimestampUtc $fixed
+Assert (($crossRec.runs[0].status -eq 'missing') -and ($crossRec.recommended_actions[0].action -eq 'mark_SESSION_LOST') -and ($crossRec.recommended_actions[0].session_id -ceq 'ses_x')) 'F2 cross-case no hidden observation'
+# F2-R2: duplicates scope rejects non-string scalars (no array/type coercion, no false-as-absent); unique path untouched
+$bindArr2=@(@{run_id='rarr2';root_session='s_arr2';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindArr2 -Observations @(@{session_id='s_arr2';observed='completed';output_ref=@('o1')},@{session_id='s_arr2';observed='completed';output_ref=@('o1')}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_arr2' 'identical array output_ref stays ambiguous'
+$bindObs2=@(@{run_id='robs2';root_session='s_obs2';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindObs2 -Observations @(@{session_id='s_obs2';observed=@('completed');output_ref='o'},@{session_id='s_obs2';observed=@('completed');output_ref='o'}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_obs2' 'identical array observed stays ambiguous'
+$bindBnd2=@(@{run_id='rbnd2';root_session='s_bnd2';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindBnd2 -Observations @(@{session_id='s_bnd2';observed='completed';output_ref='o';binding_session_id=@('s_bnd2')},@{session_id='s_bnd2';observed='completed';output_ref='o';binding_session_id=@('s_bnd2')}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_bnd2' 'identical array binding stays ambiguous'
+$bindFls=@(@{run_id='rfls';root_session='s_fls';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindFls -Observations @(@{session_id='s_fls';observed='completed';output_ref='o';last_seen=$false},@{session_id='s_fls';observed='completed';output_ref='o';last_seen=$false}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_fls' 'identical bool last_seen stays ambiguous'
+$bindZls=@(@{run_id='rzls';root_session='s_zls';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindZls -Observations @(@{session_id='s_zls';observed='completed';output_ref='o';last_seen=0},@{session_id='s_zls';observed='completed';output_ref='o';last_seen=0}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_zls' 'identical zero last_seen stays ambiguous'
+$bindRev=@(@{run_id='rrev';root_session='s_rev';worker_sessions=@()})
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindRev -Observations @(@{session_id='s_rev';observed='completed';output_ref=@('o1')},@{session_id='s_rev';observed='completed';output_ref='o1'}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_rev' 'reversed array/string output A'
+Assert-AmbiguousRow (Get-OrchestrationSessionReconciliation -Bindings $bindRev -Observations @(@{session_id='s_rev';observed='completed';output_ref='o1'},@{session_id='s_rev';observed='completed';output_ref=@('o1')}) -StaleAfterSeconds 60 -TimestampUtc $fixed) 's_rev' 'reversed array/string output B'
 Write-Output "PASS: $script:passed assertions"

@@ -124,6 +124,23 @@ issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
 
+### Operational refinement — fatias locais F2/F5/F6 (2026-10-14, não lançadas)
+
+- **Ownership PS7/pt-BR:** `Test-OwnershipLeaseActive` preserva datas tipadas do
+  `ConvertFrom-Json` e interpreta strings com cultura invariável/UTC. Corrige lease
+  futura tratada como inativa por cast cultural, que escondia `ownership_conflict`.
+- **Reconciliação:** observações contraditórias da mesma sessão não usam mais
+  last-wins; duplicatas inválidas ficam `stale/ambiguous_observations`, sem ação.
+  Identidade de sessão ordinal e validação antes de colapsar duplicatas equivalentes.
+- **Healthcheck V2:** total de load errors separado da amostra de cinco; token de
+  run exato; loading sem timestamp válido não prova saúde após cutoff. Fingerprints
+  opcionais são diagnóstico, não atestação/autoridade. Testes exercitam o engine real.
+- **CI:** steps focados nos jobs existentes PS5.1/PS7 executam diretamente as quatro
+  suítes de regressão; sem novos required checks, `continue-on-error` ou timeout ampliado.
+- **Estado:** implementação parcial, sem claim de F1 produtivo, wake durável GitHub,
+  enforcement ou release. Detalhes e limites no
+  [relatório operacional](evidence/closure/OPERATIONAL-CLOSURE-2026-10-14.md).
+
 ### Ondas 1–4 do plano 12 frentes (2026-10-13/14, sessão Planner real)
 
 - **Onda 1 — PR #74 mergeado (`09781f3`, CI 6/6 run `38475100828`):**

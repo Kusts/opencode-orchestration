@@ -431,12 +431,41 @@ function Test-OwnershipLeaseActive {
         if ($null -eq $Record) { return $false }
         if (-not ($Record -is [System.Collections.IDictionary])) { return $false }
         if (-not $Record.Contains('expires_at')) { return $false }
-        $raw = [string]$Record['expires_at']
-        if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
-        $when = [DateTime]::MinValue
-        try { $when = [DateTime]::Parse($raw, $null, [Globalization.DateTimeStyles]::RoundtripKind) }
-        catch { return $false }
-        return ($when.ToUniversalTime() -gt (Get-Date).ToUniversalTime())
+        # Never [string]-cast the raw value: PS7 ConvertFrom-Json yields
+        # [DateTime]/[DateTimeOffset] and a culture-sensitive cast ('10/14/2030'
+        # in pt-BR) breaks RoundtripKind parsing for day>12. Branch on type.
+        $raw = $Record['expires_at']
+        if ($null -eq $raw) { return $false }
+        $nowUtc = (Get-Date).ToUniversalTime()
+        if ($raw -is [System.DateTimeOffset]) {
+            try { return (([System.DateTimeOffset]$raw).UtcDateTime -gt $nowUtc) }
+            catch { return $false }
+        }
+        if ($raw -is [System.DateTime]) {
+            try {
+                $dt = [System.DateTime]$raw
+                if ($dt.Kind -eq [System.DateTimeKind]::Unspecified) {
+                    # Documented UTC treatment only: no local reinterpretation.
+                    $dt = [System.DateTime]::SpecifyKind($dt, [System.DateTimeKind]::Utc)
+                }
+                return ($dt.ToUniversalTime() -gt $nowUtc)
+            }
+            catch { return $false }
+        }
+        if ($raw -is [string]) {
+            $s = ([string]$raw).Trim()
+            if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+            $dto = [System.DateTimeOffset]::MinValue
+            $styles = ([System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AllowWhiteSpaces)
+            $ok = $false
+            try { $ok = [System.DateTimeOffset]::TryParse($s, [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$dto) }
+            catch { return $false }
+            if (-not $ok) { return $false }
+            try { return ($dto.UtcDateTime -gt $nowUtc) }
+            catch { return $false }
+        }
+        # Non-scalar (arrays, numbers, objects): inactive, no ToString coercion.
+        return $false
     }
     catch { return $false }
 }

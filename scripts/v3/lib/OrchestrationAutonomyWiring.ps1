@@ -779,3 +779,106 @@ function Resolve-OrchestrationStopDecision {
         }
     }
 }
+
+# ---------- ORFS-CONT-F3-PURE: GitHub wait request (pure, data-only) ----------
+
+function Test-AWGitHubRepoSyntax {
+    param([string]$Repository = '')
+    try {
+        $v = ([string]$Repository).Trim()
+        if ([string]::IsNullOrWhiteSpace($v)) { return $false }
+        if ($v.Length -gt 200) { return $false }
+        if ($v -cmatch '[^A-Za-z0-9._/-]') { return $false }
+        $parts = $v.Split('/')
+        if (@($parts).Count -ne 2) { return $false }
+        foreach ($p in @($parts)) {
+            if ([string]::IsNullOrWhiteSpace([string]$p)) { return $false }
+            if (([string]$p) -cmatch '[^A-Za-z0-9._-]') { return $false }
+            if ([string]$p -cmatch '^\.') { return $false }
+            if ([string]$p -cmatch '\.$') { return $false }
+        }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Test-AWGitHubSha40 {
+    param($Value)
+    try {
+        if (-not ($Value -is [string])) { return $false }
+        $v = ([string]$Value).Trim()
+        if ($v.Length -ne 40) { return $false }
+        return ($v -cmatch '^[0-9a-fA-F]{40}$')
+    }
+    catch { return $false }
+}
+
+function Test-AWGitHubOwner {
+    param([string]$Owner = '')
+    try {
+        $v = ([string]$Owner).Trim()
+        if ([string]::IsNullOrWhiteSpace($v)) { return $false }
+        if ($v.Length -gt 128) { return $false }
+        return ($v -cmatch '^[A-Za-z0-9._:-]{1,128}$')
+    }
+    catch { return $false }
+}
+
+function New-OrchestrationGitHubWaitRequest {
+    [CmdletBinding()]
+    param(
+        $Repository = '',
+        $PrNumber = $null,
+        $ExpectedHeadSha = '',
+        [string]$Owner = ''
+    )
+    try {
+        if (-not (Test-AWGitHubRepoSyntax -Repository ([string]$Repository))) {
+            return [pscustomobject]@{
+                ok = $false; reason = 'invalid-repository'
+                WaitType = ''; WaitOwner = ''; WaitAction = ''; WaitDependencyId = ''
+                kernel_mutated = $false; grants_authority = $false; done_approved = $false
+            }
+        }
+        if (-not (Test-AWStrictPositiveInt -Value $PrNumber)) {
+            return [pscustomobject]@{
+                ok = $false; reason = 'invalid-pr-number'
+                WaitType = ''; WaitOwner = ''; WaitAction = ''; WaitDependencyId = ''
+                kernel_mutated = $false; grants_authority = $false; done_approved = $false
+            }
+        }
+        if (-not (Test-AWGitHubSha40 -Value $ExpectedHeadSha)) {
+            return [pscustomobject]@{
+                ok = $false; reason = 'invalid-expected-sha'
+                WaitType = ''; WaitOwner = ''; WaitAction = ''; WaitDependencyId = ''
+                kernel_mutated = $false; grants_authority = $false; done_approved = $false
+            }
+        }
+        if (-not (Test-AWGitHubOwner -Owner ([string]$Owner))) {
+            return [pscustomobject]@{
+                ok = $false; reason = 'invalid-owner'
+                WaitType = ''; WaitOwner = ''; WaitAction = ''; WaitDependencyId = ''
+                kernel_mutated = $false; grants_authority = $false; done_approved = $false
+            }
+        }
+        $repoLow = ([string]$Repository).Trim().ToLowerInvariant()
+        $shaLow = ([string]$ExpectedHeadSha).Trim().ToLowerInvariant()
+        $prNum = [long]$PrNumber
+        $depId = ('github-ci:v1:' + $repoLow + ':' + [string]$prNum + ':' + $shaLow)
+        return [pscustomobject]@{
+            ok = $true; reason = ''
+            WaitType = 'external_dependency'
+            WaitOwner = ([string]$Owner).Trim()
+            WaitAction = 'revalidate-github-ci'
+            WaitDependencyId = $depId
+            kernel_mutated = $false; grants_authority = $false; done_approved = $false
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            ok = $false; reason = 'internal-error'
+            WaitType = ''; WaitOwner = ''; WaitAction = ''; WaitDependencyId = ''
+            kernel_mutated = $false; grants_authority = $false; done_approved = $false
+        }
+    }
+}

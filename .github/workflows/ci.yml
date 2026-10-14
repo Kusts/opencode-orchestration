@@ -146,6 +146,29 @@ jobs:
         timeout-minutes: 40
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
+      # ORFS-F6 regressao orfa em engine real (powershell 5.1 nativo deste job,
+      # sem run-v3-tests.ps1: o runner fixa filhos em powershell 5.1 mesmo sob
+      # pwsh, e scripts/ci/*.tests.ps1 nem e descoberto por ele;
+      # plugin-healthcheck.tests.ps1 tem engine auto-filho). Fail-loud por
+      # suite (exit code propagado, sem continue-on-error); jobs/checks e
+      # timeout total inalterados; V1 frozen inalterado.
+      - name: ORFS-F6 regression (engine real powershell 5.1, fail-loud)
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $suites = @(
+            'scripts/ci/plugin-healthcheck.tests.ps1',
+            'scripts/v3/lib/OrchestrationOwnership.tests.ps1',
+            'scripts/v3/lib/OrchestrationSessionReconciler.tests.ps1',
+            'scripts/v3/lib/OrchestrationTaskKernel.tests.ps1',
+            'scripts/v3/github-await.tests.ps1'
+          )
+          foreach ($s in $suites) {
+            Write-Host ('[ORFS-F6] ' + $s)
+            powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File $s
+            if ($LASTEXITCODE -ne 0) { throw ('ORFS-F6 FAIL: ' + $s + ' exit ' + $LASTEXITCODE) }
+          }
+
       - name: Provision OpenCode V2 profile (pinned, official npm package)
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
 
@@ -189,6 +212,29 @@ jobs:
       - name: V3 test suite (~5-6 min local; runner exige mais)
         timeout-minutes: 40
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
+
+      # ORFS-F6 regressao orfa em engine real (pwsh 7 nativo deste job, sem
+      # run-v3-tests.ps1: o runner fixa filhos em powershell 5.1 mesmo sob
+      # pwsh, e scripts/ci/*.tests.ps1 nem e descoberto por ele;
+      # plugin-healthcheck.tests.ps1 tem engine auto-filho). Fail-loud por
+      # suite (exit code propagado, sem continue-on-error); jobs/checks e
+      # timeout total inalterados; V1 frozen inalterado.
+      - name: ORFS-F6 regression (engine real pwsh 7, fail-loud)
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $suites = @(
+            'scripts/ci/plugin-healthcheck.tests.ps1',
+            'scripts/v3/lib/OrchestrationOwnership.tests.ps1',
+            'scripts/v3/lib/OrchestrationSessionReconciler.tests.ps1',
+            'scripts/v3/lib/OrchestrationTaskKernel.tests.ps1',
+            'scripts/v3/github-await.tests.ps1'
+          )
+          foreach ($s in $suites) {
+            Write-Host ('[ORFS-F6] ' + $s)
+            pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File $s
+            if ($LASTEXITCODE -ne 0) { throw ('ORFS-F6 FAIL: ' + $s + ' exit ' + $LASTEXITCODE) }
+          }
 
       - name: Provision OpenCode V2 profile (pinned, official npm package)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime

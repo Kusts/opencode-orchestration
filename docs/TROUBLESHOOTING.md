@@ -1,5 +1,79 @@
 # Troubleshooting
 
+## GitHub observe (`scripts/v3/github-await.ps1`, ORFS-CONT-F3-CLI)
+
+Observador fino, somente leitura, de um PR — sem watcher, sem daemon,
+sem estado e sem autoridade. Usa o `gh` ambiente já autenticado (nunca
+faz login, nunca escreve credencial, nunca toca config global) com uma
+única query GraphQL fixa (`gh api graphql --hostname github.com`), sem
+retry, paginação, cache, timer ou loop. O que ele NÃO faz: registrar ou
+desbloquear waits, completar trabalho, mutar kernel/grants/leases/flags,
+escrever em PRs (comentário, merge, close), nem aprovar resume/DONE —
+`grants_authority`, `merge_authority`, `done_approved`,
+`resume_authorized` e `kernel_mutated` são sempre `false`.
+
+```powershell
+powershell -NoProfile -File scripts\v3\github-await.ps1 -Action observe `
+  -Repository Kusts/opencode-orchestration -PrNumber 88 `
+  -ExpectedHeadSha <40hex-do-head-do-PR> [-Owner <wait-owner>] `
+  [-TimeoutMs 10000] [-MaxAgeSeconds 300] [-GraphQLSnapshotFile <fixture>]
+```
+
+- `-ExpectedHeadSha` é obrigatório e explícito: o observado nunca é
+  aceito automaticamente (anti-replay). O SHA do **head do PR não é o
+  SHA do merge**: para a PR 88 (merged), o head é `6dbc9ae...` (via
+  `gh pr view 88 --json headRefOid,state`), não o commit de merge
+  `3d3ba0e`. Com o head correto, a PR 88 observa `MERGED`/`TERMINAL`.
+- Exit **0** = observação válida (readiness pode ser `READY_FOR_RESUME`,
+  `CHECKS_PENDING`, `REVIEW_PENDING`, `TERMINAL`, `STALE`,
+  `REPAIR_REQUIRED` ou `INCONCLUSIVE` — observar não é autorizar);
+  **1** = transporte/schema falhou (`gh-not-found`, `child-timeout`,
+  `gh-nonzero-exit`, `pr-not-found`, `pagination-incomplete`,
+  `unknown-typename`, `totalcount-mismatch`, `graphql-errors`, ...);
+  **2** = argumento inválido. `errors[]` carrega só códigos estáveis — nunca conteúdo
+  remoto, URLs, logs ou segredos; a saída é um único envelope JSON.
+  Ação rejeitada sai com `action='observe'` fixo (o valor recebido nunca
+  é ecoado); nome bruto de check eh identidade: com controles
+  (U+0000-U+001F/U+007F), vazio ou >200 chars => `check-name-invalid`
+  (exit 1, nunca colapsa para required, sem eco); redacao de trechos
+  tipo-segredo (`sk-...`, `ghp_...`, `github_pat_...`, `xox-...`) com
+  `[redacted]` eh heuristica - snapshot nao eh autoritativo.
+- `checks_complete` = completude da RESPOSTA (rollup presente, página
+  única e íntegra: `pageInfo` presente, `hasNextPage=false`,
+  `totalCount` consistente) — NÃO exige todos `COMPLETED`. Estados dos
+  checks ficam em `checks[]` para a função pura
+  (`Get-OrchestrationGitHubReadiness`, que julga os required e ignora
+  extras): required verdes + extra pendente ⇒ `checks_complete=true` e
+  `READY_FOR_RESUME`. Resposta truncada/paginada ⇒ sem readiness
+  otimista (exit 1). `statusCheckRollup` nulo ⇒ `checks_complete=false`,
+  checks vazio; `reviewDecision` nula ⇒ `UNKNOWN`; `StatusContext` mapeia
+  `SUCCESS→COMPLETED/success`, `PENDING|EXPECTED→IN_PROGRESS`,
+  `FAILURE|ERROR→COMPLETED/failure`; `CheckRun.conclusion` fora de
+  `SUCCESS/FAILURE/NEUTRAL/CANCELLED/SKIPPED/TIMED_OUT/ACTION_REQUIRED`
+  => `check-conclusion-invalid` (exit 1, sem eco; `STALE` rejeitado por
+  conservadorismo); `pageInfo` ausente ou `__typename`
+  desconhecido ⇒ exit 1. `Raw.errors` não-vazio ou malformado ⇒
+  `graphql-errors` (exit 1) mesmo com `data` verde.
+  `transport='fixture-declared'` usa o mesmo normalizador offline
+  (`-GraphQLSnapshotFile` UTF-8 ≤ 256k); `invocation_proven` é sempre
+  `false` (captura readonly não é atestado de execução).
+- Transporte próprio neste arquivo (`Invoke-GHAChildTransport`):
+  `ProcessStartInfo` sem shell (argv por array, `gh` via `Get-Command`,
+  hostname fixo `github.com`), dreno concorrente dos dois streams em
+  blocos de 4k durante a execucao, retendo no maximo cap+1 chars por
+  stream (cap 256k; excedente descartado, sem crescer memoria);
+  O char testemunha conta: retido acima do cap => truncado, mesmo terminando exatamente em cap+1.
+  `StdoutTruncated/StderrTruncated/DrainIncomplete` => exit 1 com codigo
+  estavel; timeout mata o processo (`child-timeout`); o envelope
+  expõe `Started/TimedOut/DrainIncomplete/StdoutTruncated/ExitCode`.
+  Não usa a lib compartilhada `SpikeProcess` (dreno sequencial pós-wait).
+  Cleanup confinado à raiz exclusiva da suíte (`$script:base`) — nenhum
+  `Remove-Item` no CLI, nenhum caminho absoluto de máquina.
+- Suíte: `scripts\v3\github-await.tests.ps1` (PS 5.1 e PS7, sem Pester,
+  fixtures em TEMP; descoberta automática pelo `run-v3-tests.ps1`).
+  Rede real só opt-in (`ORFS_LIVE_GITHUB=1`, sonda PR 88 readonly);
+  o padrão é offline.
+
 ## Programa Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; flags de rollout ativas desde 2026-10-04; release gate pendente do operador)
 
 Estado vivo em
@@ -133,6 +207,39 @@ template V1 (`--agent opencode`), só `--agent opencode2 --apply` quando
 necessário. Valide com `scripts/ci/plugin-healthcheck.ps1`. Se o arquivo
 legado continha token em plaintext, trate como incidente P0 (rotação +
 varredura de backups por hash, sem imprimir valores).
+
+## Diagnóstico de plugins (`plugin-healthcheck.ps1`, F0/F5)
+
+```powershell
+powershell -NoProfile -File scripts\ci\plugin-healthcheck.ps1
+powershell -NoProfile -File scripts\ci\plugin-healthcheck.tests.ps1  # 23 casos; filho == engine atual (pwsh sob pwsh, powershell sob PS 5.1)
+# ou forcar engine: scripts\ci\plugin-healthcheck.tests.ps1 -Engine pwsh
+```
+
+Comportamento da fatia F0/F5 (diagnóstico apenas):
+
+- Conta TODOS os `LoadError` do run em escopo; `load_error_refs` mostra só
+  os 5 primeiros (`load_error_sample_capped=true` quando há mais). Erro #6+
+  de plugin esperado também é FAIL (nunca PASS por corte de amostra).
+- Escopo por token exato `run=<8hex>` em estilo logfmt (início/whitespace
+  antes; whitespace/`,`/`;`/fim depois; mesma regex no extrator e no
+  matcher): prefixo (`notrun=`) e sufixo (hex extra ou letra) não casam.
+  Sem run no tail => FAIL (nunca PASS fabricado).
+- Erro com timestamp desconhecido entra em escopo (fail-closed,
+  inspecionado); loading é afirmação positiva e exige timestamp válido
+  além do corte — sem timestamp válido com `-SinceTimestamp` exigido não
+  vale `loaded`/`healthy` e gera recusa limitada (1 warning por plugin).
+  `-SinceTimestamp` inválido é FAIL.
+- A saída mostra só identificadores limitados (nome esperado/deprecated ou
+  `non-expected-plugin`) — nunca target cru, URL ou linha de log.
+- Metadados (`runtime`, `config`, `claimed_runtime_version`) são opcionais e
+  diagnósticos: ausente = `UNKNOWN`, versão alegada = `UNVERIFIED`, correlação
+  de evidência = `NOT_OBSERVED`. Presença/forma/loading **não provam**
+  invocação confiável nem enforcement (`invocation_proven=false`,
+  `diagnostic_only=true`). A engine que executou vai em `engine.*`.
+- Limitação conhecida: formas de token não confirmadas nos logs reais
+  (ex. `run="..."` citado) não casam — o resultado é FAIL conservador,
+  nunca PASS.
 
 ## Provider rejeita o system prompt (prompt muito longo)
 
