@@ -31,6 +31,11 @@
       - Telemetry is best-effort via CapabilityObservability (events
         TASK_CREATED, TASK_STATE_CHANGED, CANDIDATE_RESULT_RECORDED,
         TASK_DONE, TASK_EXHAUSTED, TASK_CANCELLED); failure never blocks.
+        TASK_CREATED/TASK_DONE carry a hashes-only correlation envelope
+        (New-CorrelationEnvelope: objective sha256 over len:value framed
+        canonical text + hashed goal/run/session/decision/settlement +
+        attempt_n, all omitted-when-absent, caps inherited from the
+        observability sanitizer).
       - Concurrency: every mutation serializes read-check-write under an
         interprocess lock file (<task>.lock) opened with FileShare.None
         plus bounded retry (20 x 100ms); timeout returns LOCK_TIMEOUT.
@@ -543,11 +548,106 @@ function Protect-TaskKernelStringList {
     return ([string[]]$out.ToArray())
 }
 
+# ---------- correlation envelope (objective -> settlement, best-effort) ----------
+# F6 envelope: links TASK_CREATED to TASK_DONE with zero raw text. Every id
+# is hashed, the objective is a sha256 over len:value framed canonical text
+# (P25 convention, never raw). Keys use the corr_* namespace with
+# sanitizer-safe aliases (corr_sess, never session_id: the observability
+# sanitizer drops keys matching the sensitive pattern, which includes
+# 'session'). All fields optional/omitted-when-absent. Persisted values go
+# through Get-ObservabilitySanitizedMetadata (<=10 keys, strings re-hashed
+# to h:<16hex>, ints kept, retry/duration clamped by New-ObservabilityEvent),
+# so caps are inherited here, never reimplemented. Never throws.
+
+function Get-TaskKernelCorrelationHash16 {
+    [CmdletBinding()]
+    param([string]$Text)
+    try {
+        $s = ([string]$Text).Trim()
+        if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+        if ((Get-Command Get-ObservabilityHash16 -ErrorAction SilentlyContinue) -ne $null) {
+            return ([string](Get-ObservabilityHash16 -Text $s))
+        }
+        if ((Get-Command Get-TaskKernelStringHash -ErrorAction SilentlyContinue) -ne $null) {
+            $h = ([string](Get-TaskKernelStringHash -Text $s.ToLowerInvariant()))
+            if ($h.Length -ge 16) { return ('h:' + $h.Substring(0, 16)) }
+        }
+    }
+    catch { }
+    return ''
+}
+
+function New-CorrelationEnvelope {
+    <#
+    .SYNOPSIS
+        Builds the objective->settlement correlation envelope (hashes only).
+        Every field optional/omitted-when-absent. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$GoalId = '',
+        [string]$Objective = '',
+        [string]$RunId = '',
+        [string]$SessionId = '',
+        $AttemptN = $null,
+        [string]$DecisionRef = '',
+        [string]$SettlementState = ''
+    )
+    $env = [ordered]@{}
+    try {
+        $g = Get-TaskKernelCorrelationHash16 -Text ([string]$GoalId)
+        if (-not [string]::IsNullOrWhiteSpace($g)) { $env['corr_goal'] = $g }
+        try {
+            $canon = ''
+            if ((Get-Command Get-TaskKernelCanonicalText -ErrorAction SilentlyContinue) -ne $null) {
+                $canon = ([string](Get-TaskKernelCanonicalText -Text ([string]$Objective))).Trim()
+            }
+            else {
+                $canon = (([string]$Objective).Trim().ToLowerInvariant())
+            }
+            if (-not [string]::IsNullOrWhiteSpace($canon)) {
+                $frame = ''
+                if ((Get-Command Get-TaskKernelFrame -ErrorAction SilentlyContinue) -ne $null) {
+                    $frame = ([string](Get-TaskKernelFrame -Text $canon))
+                }
+                else {
+                    $frame = ($canon.Length.ToString([Globalization.CultureInfo]::InvariantCulture) + ':' + $canon)
+                }
+                $hex = ''
+                if ((Get-Command Get-TaskKernelStringHash -ErrorAction SilentlyContinue) -ne $null) {
+                    $hex = ([string](Get-TaskKernelStringHash -Text $frame)).ToLowerInvariant()
+                }
+                if ($hex -cmatch '^[0-9a-f]{64}$') { $env['corr_objective'] = ('sha256:' + $hex) }
+            }
+        }
+        catch { }
+        $r = Get-TaskKernelCorrelationHash16 -Text ([string]$RunId)
+        if (-not [string]::IsNullOrWhiteSpace($r)) { $env['corr_run'] = $r }
+        $sess = Get-TaskKernelCorrelationHash16 -Text ([string]$SessionId)
+        if (-not [string]::IsNullOrWhiteSpace($sess)) { $env['corr_sess'] = $sess }
+        try {
+            if ($null -ne $AttemptN) {
+                $n = 0
+                if ([int]::TryParse(([string]$AttemptN).Trim(), [ref]$n)) {
+                    if (($n -ge 1) -and ($n -le 99)) { $env['corr_attempt'] = [int]$n }
+                }
+            }
+        }
+        catch { }
+        $d = Get-TaskKernelCorrelationHash16 -Text ([string]$DecisionRef)
+        if (-not [string]::IsNullOrWhiteSpace($d)) { $env['corr_decision'] = $d }
+        $st = Get-TaskKernelCorrelationHash16 -Text ([string]$SettlementState)
+        if (-not [string]::IsNullOrWhiteSpace($st)) { $env['corr_settlement'] = $st }
+    }
+    catch { }
+    return $env
+}
+
 # ---------- telemetry (best-effort, never blocks) ----------
 
 function Send-TaskKernelTelemetry {
     [CmdletBinding()]
-    param([string]$EventType, [string]$TaskId, $Runtime, [string]$TelemetryRoot)
+    param([string]$EventType, [string]$TaskId, $Runtime, [string]$TelemetryRoot, $Correlation = $null)
     try {
         if ((Get-Command New-ObservabilityEvent -ErrorAction SilentlyContinue) -eq $null) { return $false }
         if ((Get-Command Write-ObservabilityEvent -ErrorAction SilentlyContinue) -eq $null) { return $false }
@@ -579,12 +679,43 @@ function Send-TaskKernelTelemetry {
             }
         }
         catch { $tidHash = '' }
-        $meta = [ordered]@{
+        # F6-FIX1: correlation-first ordering so the 7 corr_* keys hold
+        # precedence within the inherited 10-key sanitizer cap. With a
+        # complete runtime (4 base + 7 corr = 11) the sanitizer keeps the
+        # first 10 in insertion order, which silently discarded
+        # corr_settlement. Corr-first keeps all 7 corr_* plus the first
+        # 3 base keys; the no-correlation path below reuses $baseMeta
+        # untouched (byte-for-byte identical). Cap itself unchanged.
+        $baseMeta = [ordered]@{
             task_id_hash       = $tidHash
             runtime_id         = $rid
             runtime_generation = $gen
             profile            = $prof
         }
+        $corrPairs = @()
+        try {
+            if (($null -ne $Correlation) -and ($Correlation -is [System.Collections.IDictionary])) {
+                foreach ($k in @($Correlation.Keys)) {
+                    $ck = ([string]$k).Trim()
+                    if ([string]::IsNullOrWhiteSpace($ck)) { continue }
+                    if ($baseMeta.Contains($ck)) { continue }
+                    $corrPairs += ,@($ck, $Correlation[$k])
+                }
+            }
+        }
+        catch { $corrPairs = @() }
+        $meta = $null
+        try {
+            if (@($corrPairs).Count -gt 0) {
+                $meta = [ordered]@{}
+                foreach ($pair in $corrPairs) { $meta[[string]$pair[0]] = $pair[1] }
+                foreach ($bk in @($baseMeta.Keys)) { $meta[[string]$bk] = $baseMeta[$bk] }
+            }
+            else {
+                $meta = $baseMeta
+            }
+        }
+        catch { $meta = $baseMeta }
         $ev = New-ObservabilityEvent -TaskId ([string]$TaskId) -EventType ([string]$EventType) -Metadata $meta
         if ($null -eq $ev) { return $false }
         if ([string]::IsNullOrWhiteSpace($TelemetryRoot)) {
@@ -1131,7 +1262,9 @@ function New-OrchestrationTask {
         if (-not [bool]$wr.ok) {
             return (New-TaskKernelError -Code ([string]$wr.error))
         }
-        $null = Send-TaskKernelTelemetry -EventType 'TASK_CREATED' -TaskId $tid -Runtime $record['runtime'] -TelemetryRoot $TelemetryRoot
+        $corrCreated = $null
+        try { $corrCreated = New-CorrelationEnvelope -Objective ([string]$record['objective']) -DecisionRef ([string]$record['orchestration_decision']) -SettlementState 'pending' } catch { $corrCreated = $null }
+        $null = Send-TaskKernelTelemetry -EventType 'TASK_CREATED' -TaskId $tid -Runtime $record['runtime'] -TelemetryRoot $TelemetryRoot -Correlation $corrCreated
         return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = 1; state = 'DISCOVERING' }
         }
         finally {
@@ -3156,7 +3289,22 @@ function Complete-OrchestrationTask {
         if (-not [bool]$wr.ok) {
             return (New-TaskKernelError -Code ([string]$wr.error))
         }
-        $null = Send-TaskKernelTelemetry -EventType 'TASK_DONE' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot
+        $corrDone = $null
+        try {
+            $corrSess = ''
+            $corrN = $null
+            try {
+                $corrRt = $rec['execution_runtime']
+                if (($null -ne $corrRt) -and ($corrRt -is [System.Collections.IDictionary])) {
+                    if ($null -ne $corrRt['session_id']) { $corrSess = ([string]$corrRt['session_id']).Trim() }
+                    if ($null -ne $corrRt['attempt_n']) { $corrN = $corrRt['attempt_n'] }
+                }
+            }
+            catch { $corrSess = ''; $corrN = $null }
+            $corrDone = New-CorrelationEnvelope -Objective ([string]$rec['objective']) -SessionId $corrSess -AttemptN $corrN -DecisionRef ([string]$rec['orchestration_decision']) -SettlementState 'settled'
+        }
+        catch { $corrDone = $null }
+        $null = Send-TaskKernelTelemetry -EventType 'TASK_DONE' -TaskId $tid -Runtime $rec['runtime'] -TelemetryRoot $TelemetryRoot -Correlation $corrDone
         return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; state = 'DONE' }
         }
         finally {
