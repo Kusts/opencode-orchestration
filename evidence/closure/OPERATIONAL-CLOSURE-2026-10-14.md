@@ -244,6 +244,31 @@ execução, não a dispensa dos gates de qualidade.
 | F7 | PARTIAL (relatório incremental; release HOLD; merge pendente) |
 | Strict #69/#70, enforcement, routing | HOLD/BLOCKED (inalterados) |
 
+## Pernas model 18/20/21 + Jev direto (2026-10-14 noite, chaves do operador)
+
+**Chaves:** `OPENCODE_ZEN_API_KEY` + `ZAI_API_KEY` presentes (só nomes);
+alias em memória (`GO<=ZEN`, depois `GO<=ZAI`) para opt-in da lane; nenhum
+valor em log/evidência. Sem 429 em nenhuma chamada — fallback não precisou
+ser usado.
+
+- **RR-E2E-20 `pass-real`:** turno com modelo funcionou (envelope recebido
+  pelo substituto + retomada com rebind). Conta como a perna model
+  substituto-consumidor exigida.
+- **18/21:** pernas sem-modelo provadas; turnos com modelo falharam rc=1 nas
+  duas chaves → **não é rate limit nem chave**. Diagnóstico direto:
+  turno isolado chave-só → `provider.no-route`; **com credential store
+  importado → exit 0** (sessão criada, stream iniciado). Mecanismo provado;
+  a divergência está no env exato dos turnos da lane (deny overlay?
+  continue-session? `EnvRemove`?) — pendente de debug focado da lane, não
+  de credencial. 18/21 model seguem `blocked`.
+- **Jev transporte PS direto:** 3 tentativas bounded com chave Zen/Go +
+  base https da config viva → `MCP_ERROR` vazio (possível incompatibilidade
+  de protocolo/modelo no endpoint). Parei sem chutar `JEV_MODEL`. Path
+  **MCP live segue provado** (calls reais com a chave real nesta sessão,
+  advisory considerada, sem autoridade).
+- **Higiene:** fixtures TEMP próprias removidas; cache `ModuleAnalysisCache`
+  gerado no repo por runs pwsh removido (regenerável, sem valor).
+
 *(bullets de planejamento desta seção, anteriores aos resultados, removidos
 por supersessão — o desenho vigente está nos itens acima e no plano F0–F7.)*
 
