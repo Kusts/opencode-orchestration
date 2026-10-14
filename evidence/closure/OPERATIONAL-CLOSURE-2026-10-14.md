@@ -304,3 +304,45 @@ nenhum arquivo nosso toca watchdog. Classificação: suspeita de flake mesma
 classe F1/JOB46/JOB48, causa UNKNOWN até rerun/diagnóstico — sem relaxar
 invariante, sem rerun-como-correção. Runs `38606718116`/`38607508804`
 em andamento dirão se é intermitência do runner.
+
+## Executor sobrevivente + wake real (F3 spike, 2026-10-14 tarde)
+
+**Executor PROVADO:** Task Scheduler do Windows executou `probe-wake.ps1`
+one-shot sem nenhum turno LLM ativo (marker `scheduler-marker.json` com
+timestamp/PID próprios). Tasks removidas após uso (higiene; sem daemon
+persistente instalado).
+
+**Wake PROVADO (modo compatibilidade, binário instalado `2.0.29` — não o
+pin):** a task agendada invocou `opencode run --format json` com prompt
+trivial; sessão real `ses_ec477d1a…` (tentativa 1, exit 0) e
+`ses_ec472562…` (tentativa 2, `wake_ok=true`, `WAKE-OK` no output integral)
+foram criadas pelo scheduler e executaram o turno. Tentativa 1 falhou só no
+critério (corte de 200 chars pegou `step_start`; `probe-error` na tentativa
+anterior era bug do probe — `ArgumentList` inexistente no PS5.1, corrigido
+para `Arguments` com literais fixos). Modelo: default da config do usuário,
+1 turno mínimo, sem credencial nova.
+
+**Não provado aqui:** consumo de wait real pelo substituto (próximo passo
+abaixo) e retomada de Planner com turno de modelo no pin `2.0.23`.
+
+## F3/GW09-lite end-to-end (em andamento)
+
+Dependência real: CI da PR #89. Caminho: `github-watch observe` →
+`wait_request` → registro `external_dependency` no kernel (caller autorizado:
+Planner via `task-kernel block`) → one-shots observam → sessão substituta
+revalida SHA/lease e consome via fingerprint pré-computado (sem cripto no
+prompt) → unblock para IMPLEMENTING + registro. Merge continua humano por
+policy (não é falha, é desenho).
+
+## F4/F5 complementos desta rodada
+
+- AI Memory (`ferramentas/opencode-orchestration`): `memory_status` saudável
+  (974 páginas latest, 1128 sessões) — integração disponível; zero escritas.
+- Lane b com probes: 3 pass-real (16/17/19) + 2 blocked (20/21); probes
+  7 ambiguous + 1 unsupported (`session-permission-narrowing`) —
+  `plugin-storage-index` ambiguous: storage existe como superfície, sem prova
+  de scheduler/wake nativo (consistente com o spike: wake veio de fora).
+- Watchdog FIX5-2: suite local PS7 **432/432 verde** (inclui os 6 FIX5-2 que
+  falharam no CI ps7) — reforça flake de runner; causa segue UNKNOWN, sem
+  relaxamento; aguardar runs em andamento.
+- Golden 71/71 (15/15 harness) + CorrectiveE2E 119 PASS nesta máquina.
