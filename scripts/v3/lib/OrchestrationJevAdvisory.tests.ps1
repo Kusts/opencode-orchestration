@@ -993,6 +993,38 @@ try {
     $zeroDoc = $null
     try { $zeroDoc = ($zeroLine | ConvertFrom-Json) } catch { $zeroDoc = $null }
     Assert-JevAdvisory ((($null -ne $zeroDoc) -and ([int]$zeroDoc.usage_input_tokens -eq 0) -and ([int]$zeroDoc.usage_output_tokens -eq 0))) '[T2-9] explicit zero recorded, absent stays omitted' ($zeroLine)
+    $wNullTok = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -UsageInputTokens $null -UsageOutputTokens $null
+    Assert-JevAdvisory ([bool]$wNullTok.ok) '[T2-9] null usage accepted' ([string]$wNullTok.skipped)
+    $nullTokLine = ''
+    try { $nullTokLine = ([IO.File]::ReadAllLines($optFile, [Text.Encoding]::UTF8) | Select-Object -Last 1) } catch { $nullTokLine = '' }
+    Assert-JevAdvisory ((($nullTokLine -notmatch 'usage_input_tokens') -and ($nullTokLine -notmatch 'usage_output_tokens'))) '[T2-9] null usage omitted, never 0 invented' ($nullTokLine)
+    $wFalseTok = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -UsageInputTokens $false -UsageOutputTokens $false
+    Assert-JevAdvisory ([bool]$wFalseTok.ok) '[T2-9] bool usage accepted' ([string]$wFalseTok.skipped)
+    $falseTokLine = ''
+    try { $falseTokLine = ([IO.File]::ReadAllLines($optFile, [Text.Encoding]::UTF8) | Select-Object -Last 1) } catch { $falseTokLine = '' }
+    Assert-JevAdvisory ((($falseTokLine -notmatch 'usage_input_tokens') -and ($falseTokLine -notmatch 'usage_output_tokens'))) '[T2-9] bool usage omitted, never 0 invented' ($falseTokLine)
+    $wStrTok = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -UsageInputTokens '11' -UsageOutputTokens '7'
+    Assert-JevAdvisory ([bool]$wStrTok.ok) '[T2-9] string usage accepted' ([string]$wStrTok.skipped)
+    $strTokLine = ''
+    try { $strTokLine = ([IO.File]::ReadAllLines($optFile, [Text.Encoding]::UTF8) | Select-Object -Last 1) } catch { $strTokLine = '' }
+    Assert-JevAdvisory ((($strTokLine -notmatch 'usage_input_tokens') -and ($strTokLine -notmatch 'usage_output_tokens'))) '[T2-9] string usage omitted even when numeric text' ($strTokLine)
+    $wFracTok = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -UsageInputTokens 11.7 -UsageOutputTokens 7.2
+    Assert-JevAdvisory ([bool]$wFracTok.ok) '[T2-9] fractional usage accepted' ([string]$wFracTok.skipped)
+    $fracTokLine = ''
+    try { $fracTokLine = ([IO.File]::ReadAllLines($optFile, [Text.Encoding]::UTF8) | Select-Object -Last 1) } catch { $fracTokLine = '' }
+    $fracTokDoc = $null
+    try { $fracTokDoc = ($fracTokLine | ConvertFrom-Json) } catch { $fracTokDoc = $null }
+    Assert-JevAdvisory ((($null -ne $fracTokDoc) -and ([int]$fracTokDoc.usage_input_tokens -eq 11) -and ([int]$fracTokDoc.usage_output_tokens -eq 7))) '[T2-9] fractional doubles floored (documented normalization, same as caller)' ($fracTokLine)
+    $wNaNTok = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -UsageInputTokens ([double]::NaN) -UsageOutputTokens ([double]::PositiveInfinity)
+    Assert-JevAdvisory ([bool]$wNaNTok.ok) '[T2-9] NaN/Infinity usage accepted' ([string]$wNaNTok.skipped)
+    $nanTokLine = ''
+    try { $nanTokLine = ([IO.File]::ReadAllLines($optFile, [Text.Encoding]::UTF8) | Select-Object -Last 1) } catch { $nanTokLine = '' }
+    Assert-JevAdvisory ((($nanTokLine -notmatch 'usage_input_tokens') -and ($nanTokLine -notmatch 'usage_output_tokens'))) '[T2-9] NaN/Infinity usage omitted' ($nanTokLine)
+    $wNegTok = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -UsageInputTokens -1 -UsageOutputTokens -1
+    Assert-JevAdvisory ([bool]$wNegTok.ok) '[T2-9] sentinel -1 usage accepted' ([string]$wNegTok.skipped)
+    $negTokLine = ''
+    try { $negTokLine = ([IO.File]::ReadAllLines($optFile, [Text.Encoding]::UTF8) | Select-Object -Last 1) } catch { $negTokLine = '' }
+    Assert-JevAdvisory ((($negTokLine -notmatch 'usage_input_tokens') -and ($negTokLine -notmatch 'usage_output_tokens'))) '[T2-9] sentinel -1 (absent) omitted' ($negTokLine)
     $wEvilNote = Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool 'jev_decide' -TriggerReason 'route-uncertain' -Descriptor $consultDesc -OutputSummary 'decide-ok' -Mode 'active' -TelemetryRoot $teleOpt -DecisionNote 'note sk-SYNTHETICSECRET-9 token=abc123'
     Assert-JevAdvisory ([bool]$wEvilNote.ok) '[T2-9] hostile decision note accepted for write' ([string]$wEvilNote.skipped)
     $evilNoteLine = ''

@@ -1566,8 +1566,8 @@ function Write-JevAdvisoryEvidence {
         [string]$TelemetryRoot = '',
         [string]$RepoRoot = '',
         [string]$Model = '',
-        [int]$UsageInputTokens = -1,
-        [int]$UsageOutputTokens = -1,
+        $UsageInputTokens = -1,
+        $UsageOutputTokens = -1,
         $DecisionAdopted = $null,
         [string]$DecisionNote = ''
     )
@@ -1606,8 +1606,58 @@ function Write-JevAdvisoryEvidence {
         if ($modelName.Length -gt 64) { $modelName = $modelName.Substring(0, 64) }
         $modelName = $modelName.Trim()
         if (-not [string]::IsNullOrWhiteSpace($modelName)) { $doc['model'] = $modelName }
-        try { if ([int]$UsageInputTokens -ge 0) { $doc['usage_input_tokens'] = [int]$UsageInputTokens } } catch { }
-        try { if ([int]$UsageOutputTokens -ge 0) { $doc['usage_output_tokens'] = [int]$UsageOutputTokens } } catch { }
+        # Usage tokens: untyped params (default -1, DecisionAdopted style)
+        # so [int] coercion can never invent 0 from $null/$false. Rule:
+        # record only a genuine numeric (byte/sbyte/int16/uint16/int/
+        # uint32/long/uint64/single/double/decimal; never string/bool/
+        # null/other), finite, >=0 and within [int] range. A finite
+        # fractional double >=0 is FLOORED to int (same normalization
+        # Invoke-JevAdvisoryCall already applies to the typed probe
+        # projection); $null/bool/string/NaN/Infinity/negative/-1
+        # (absent)/out-of-range are omitted, never recorded as 0.
+        # Explicit 0 is recorded.
+        try {
+            $inTok = $UsageInputTokens
+            if (($null -ne $inTok) -and ($inTok -isnot [string]) -and ($inTok -isnot [bool])) {
+                $inIsNum = $false
+                $inD = 0.0
+                try {
+                    if (($inTok -is [byte]) -or ($inTok -is [sbyte]) -or ($inTok -is [int16]) -or ($inTok -is [uint16]) -or ($inTok -is [int]) -or ($inTok -is [uint32]) -or ($inTok -is [long]) -or ($inTok -is [uint64]) -or ($inTok -is [single]) -or ($inTok -is [double]) -or ($inTok -is [decimal])) {
+                        $inD = [double]$inTok
+                        $inIsNum = $true
+                    }
+                }
+                catch { $inIsNum = $false }
+                if ($inIsNum) {
+                    if ((-not [double]::IsNaN($inD)) -and (-not [double]::IsInfinity($inD)) -and ($inD -ge 0)) {
+                        $inF = [math]::Floor($inD)
+                        if (($inF -ge 0) -and ($inF -le [int]::MaxValue)) { $doc['usage_input_tokens'] = [int]$inF }
+                    }
+                }
+            }
+        }
+        catch { }
+        try {
+            $outTok = $UsageOutputTokens
+            if (($null -ne $outTok) -and ($outTok -isnot [string]) -and ($outTok -isnot [bool])) {
+                $outIsNum = $false
+                $outD = 0.0
+                try {
+                    if (($outTok -is [byte]) -or ($outTok -is [sbyte]) -or ($outTok -is [int16]) -or ($outTok -is [uint16]) -or ($outTok -is [int]) -or ($outTok -is [uint32]) -or ($outTok -is [long]) -or ($outTok -is [uint64]) -or ($outTok -is [single]) -or ($outTok -is [double]) -or ($outTok -is [decimal])) {
+                        $outD = [double]$outTok
+                        $outIsNum = $true
+                    }
+                }
+                catch { $outIsNum = $false }
+                if ($outIsNum) {
+                    if ((-not [double]::IsNaN($outD)) -and (-not [double]::IsInfinity($outD)) -and ($outD -ge 0)) {
+                        $outF = [math]::Floor($outD)
+                        if (($outF -ge 0) -and ($outF -le [int]::MaxValue)) { $doc['usage_output_tokens'] = [int]$outF }
+                    }
+                }
+            }
+        }
+        catch { }
         try {
             if ($PSBoundParameters.ContainsKey('DecisionAdopted') -and ($DecisionAdopted -is [bool])) {
                 $doc['decision_adopted'] = [bool]$DecisionAdopted
