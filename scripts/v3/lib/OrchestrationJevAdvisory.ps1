@@ -1241,7 +1241,10 @@ function Get-JevAdvisoryOutputSummary {
           score  -> 'score s=<..> conf=<..> legend=<n>'
           gate   -> 'gate rec=<allow|confirm|block> conf=<..>
                     risk=<..> prod=<true|false>/<..>'
-          decide -> 'decide answers=<n> usage=<n>'
+          decide -> 'decide answers=<n> usage=<n>[ in=<..>][ out=<..>]'
+        The decide in/out tokens are appended only when the usage
+        projection carries numeric input_tokens/output_tokens; the
+        legacy prefix is unchanged otherwise.
         Any output that does not carry the recognized typed shape falls
         back to the legacy rendering, so caller-supplied probes keep
         their previous summary byte for byte. Never throws.
@@ -1288,6 +1291,31 @@ function Get-JevAdvisoryOutputSummary {
                 $un = 0
                 try { $un = @($u.PSObject.Properties).Count } catch { $un = 0 }
                 $s = 'decide answers=' + ([string]$n) + ' usage=' + ([string]$un)
+                try {
+                    $inTok = $null
+                    $outTok = $null
+                    try { $inTok = Get-JevAdvisoryPolicyNode -Doc $u -Name 'input_tokens' } catch { $inTok = $null }
+                    try { $outTok = Get-JevAdvisoryPolicyNode -Doc $u -Name 'output_tokens' } catch { $outTok = $null }
+                    $inNum = $null
+                    $outNum = $null
+                    if (($null -ne $inTok) -and ($inTok -isnot [string]) -and ($inTok -isnot [bool])) {
+                        try {
+                            $d = [double]$inTok
+                            if ((-not [double]::IsNaN($d)) -and (-not [double]::IsInfinity($d)) -and ($d -ge 0)) { $inNum = $d }
+                        }
+                        catch { $inNum = $null }
+                    }
+                    if (($null -ne $outTok) -and ($outTok -isnot [string]) -and ($outTok -isnot [bool])) {
+                        try {
+                            $d = [double]$outTok
+                            if ((-not [double]::IsNaN($d)) -and (-not [double]::IsInfinity($d)) -and ($d -ge 0)) { $outNum = $d }
+                        }
+                        catch { $outNum = $null }
+                    }
+                    if ($null -ne $inNum) { $s = $s + ' in=' + (Format-JevAdvisoryNumber -Value $inNum) }
+                    if ($null -ne $outNum) { $s = $s + ' out=' + (Format-JevAdvisoryNumber -Value $outNum) }
+                }
+                catch { }
             }
         }
         if ([string]::IsNullOrWhiteSpace($s)) { return $legacy }
@@ -1536,7 +1564,12 @@ function Write-JevAdvisoryEvidence {
         [string]$Circuit = '',
         [string]$Mode = '',
         [string]$TelemetryRoot = '',
-        [string]$RepoRoot = ''
+        [string]$RepoRoot = '',
+        [string]$Model = '',
+        [int]$UsageInputTokens = -1,
+        [int]$UsageOutputTokens = -1,
+        $DecisionAdopted = $null,
+        [string]$DecisionNote = ''
     )
     try {
         $allowed = @('JEV_WOULD_CONSULT', 'JEV_NOT_TRIGGERED', 'JEV_ADVISORY_OK', 'JEV_UNAVAILABLE', 'JEV_AUTH_INVALID', 'JEV_POLICY_INVALID', 'JEV_DISABLED', 'JEV_FLAG_INVALID', 'INVALID_TOOL', 'INVALID_TURN_ID')
@@ -1569,6 +1602,22 @@ function Write-JevAdvisoryEvidence {
             circuit        = $cir
             mode           = $mode
         }
+        $modelName = Get-JevAdvisoryFieldRedaction -Value (([string]$Model).Trim())
+        if ($modelName.Length -gt 64) { $modelName = $modelName.Substring(0, 64) }
+        $modelName = $modelName.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($modelName)) { $doc['model'] = $modelName }
+        try { if ([int]$UsageInputTokens -ge 0) { $doc['usage_input_tokens'] = [int]$UsageInputTokens } } catch { }
+        try { if ([int]$UsageOutputTokens -ge 0) { $doc['usage_output_tokens'] = [int]$UsageOutputTokens } } catch { }
+        try {
+            if ($PSBoundParameters.ContainsKey('DecisionAdopted') -and ($DecisionAdopted -is [bool])) {
+                $doc['decision_adopted'] = [bool]$DecisionAdopted
+            }
+        }
+        catch { }
+        $noteText = Get-JevAdvisoryFieldRedaction -Value ([string]$DecisionNote)
+        if ($noteText.Length -gt 128) { $noteText = $noteText.Substring(0, 128) }
+        $noteText = $noteText.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($noteText)) { $doc['decision_note'] = $noteText }
         $text = ''
         try { $text = ($doc | ConvertTo-Json -Depth 4 -Compress) }
         catch { return [PSCustomObject]@{ ok = $false; skipped = 'serialize' } }
@@ -1785,6 +1834,7 @@ function Invoke-JevAdvisoryCall {
             [void](Write-JevAdvisoryEvidence -EventName 'JEV_UNAVAILABLE' -Tool $tool -TriggerReason $reason -Descriptor $Descriptor -OutputSummary 'envelope-unavailable-deterministic-fallback' -Mode 'active' -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot)
             return (New-JevAdvisoryResult -Status 'JEV_UNAVAILABLE' -Ok $true -Failure 'JEV_ENVELOPE_UNAVAILABLE' -Tool $tool -TriggerReason $reason -Consulted $false -FallbackContinue $true -Blocked $false -Mode 'active')
         }
+        $transportModel = ''
         if ($null -eq $Probe) {
             $stateText = ([string]$State).Trim()
             if ([string]::IsNullOrWhiteSpace($stateText)) {
@@ -1823,6 +1873,7 @@ function Invoke-JevAdvisoryCall {
             if (([int]$BudgetSecondsOverride -gt 0) -and ([int]$BudgetSecondsOverride -lt $probeBudget)) { $probeBudget = [int]$BudgetSecondsOverride }
             $Probe = New-JevAdvisoryHttpProbe -TimeoutSeconds $probeBudget
             $ProbeArgs = @($tool, $stateText, $ToolArgs)
+            try { $transportModel = ([string]$tcfg.model).Trim() } catch { $transportModel = '' }
         }
         $cap = ([string]$script:JevAdvisoryToolCapability[$tool])
         if ([string]::IsNullOrWhiteSpace($cap)) { $cap = 'jev.decide' }
@@ -1840,7 +1891,42 @@ function Invoke-JevAdvisoryCall {
         if (([bool]$envResult.ok) -and ([string]$envResult.status -ceq 'OK')) {
             $summary = Get-JevAdvisoryOutputSummary -Tool $tool -Output $envResult.output
             if ([string]::IsNullOrWhiteSpace($summary)) { $summary = 'advisory-ok' }
-            [void](Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool $tool -TriggerReason $reason -Descriptor $Descriptor -OutputSummary $summary -BudgetS $budget -ElapsedMs $elapsed -Consecutive $consec -Circuit $cir -Mode 'active' -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot)
+            $evModel = ''
+            $evIn = -1
+            $evOut = -1
+            try {
+                $mOut = Get-JevAdvisoryPolicyNode -Doc $envResult.output -Name 'model'
+                if (($null -ne $mOut) -and ($mOut -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$mOut))) {
+                    $evModel = ([string]$mOut).Trim()
+                }
+            }
+            catch { $evModel = '' }
+            if ([string]::IsNullOrWhiteSpace($evModel)) { $evModel = $transportModel }
+            try {
+                $uOut = Get-JevAdvisoryPolicyNode -Doc $envResult.output -Name 'usage'
+                if ($null -ne $uOut) {
+                    $itOut = $null
+                    $otOut = $null
+                    try { $itOut = Get-JevAdvisoryPolicyNode -Doc $uOut -Name 'input_tokens' } catch { $itOut = $null }
+                    try { $otOut = Get-JevAdvisoryPolicyNode -Doc $uOut -Name 'output_tokens' } catch { $otOut = $null }
+                    if (($null -ne $itOut) -and ($itOut -isnot [string]) -and ($itOut -isnot [bool])) {
+                        try {
+                            $d = [double]$itOut
+                            if ((-not [double]::IsNaN($d)) -and (-not [double]::IsInfinity($d)) -and ($d -ge 0)) { $evIn = [int][math]::Floor($d) }
+                        }
+                        catch { }
+                    }
+                    if (($null -ne $otOut) -and ($otOut -isnot [string]) -and ($otOut -isnot [bool])) {
+                        try {
+                            $d = [double]$otOut
+                            if ((-not [double]::IsNaN($d)) -and (-not [double]::IsInfinity($d)) -and ($d -ge 0)) { $evOut = [int][math]::Floor($d) }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            [void](Write-JevAdvisoryEvidence -EventName 'JEV_ADVISORY_OK' -Tool $tool -TriggerReason $reason -Descriptor $Descriptor -OutputSummary $summary -BudgetS $budget -ElapsedMs $elapsed -Consecutive $consec -Circuit $cir -Mode 'active' -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Model $evModel -UsageInputTokens $evIn -UsageOutputTokens $evOut)
             return (New-JevAdvisoryResult -Status 'JEV_ADVISORY_OK' -Ok $true -Failure '' -Tool $tool -TriggerReason $reason -Consulted $true -FallbackContinue $false -Blocked $false -Mode 'active' -Circuit $cir -Consecutive $consec -BudgetS $budget -ElapsedMs $elapsed -Output $envResult.output)
         }
         $cause = 'JEV_UNAVAILABLE'
