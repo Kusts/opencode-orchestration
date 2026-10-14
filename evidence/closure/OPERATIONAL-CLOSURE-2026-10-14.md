@@ -192,28 +192,58 @@ Não fechar issues pelo CI base nem por fixture. Sem garantias obrigatórias ups
 não usar `FULL_PRODUCTION_READY`. Merge/deploy/pilotos/scheduling/global install continuam
 operações separadas; o pedido de autonomia não remove suas fronteiras.
 
-## Continuação solicitada — observação GitHub e spike F3
+## Continuação solicitada — observação GitHub e spike F3 (atualizado 16:15 UTC)
 
-**Estado desta fatia:** em execução, sem resultados antecipados. As correções da rodada
-anterior são baseline preservada; não constituem autorização para F1 produtivo.
+**Estado desta fatia:** mecânica entregue e provada; consumo corretamente
+retido por policy. Correções da rodada anterior são baseline preservada.
 
-- Preflight da continuação: `MULTI_WORKER`, `non_trivial`; descoberta read-only e parecer
-  de Architect delimitaram preparação separada de registro produtivo/wake.
-- Implementação delimitada: readiness puro em Delivery e request para `external_dependency`
-  em AutonomyWiring, mais CLI `github-await -Action observe` de consulta única bounded.
-  A CLI não bloqueia/desbloqueia task, não chama Planner, não concede grants e não faz merge.
-- Identidade da espera proposta: repo + número do PR + SHA esperado. Novo SHA é nova
-  dependência, não retarget silencioso da espera antiga; run id não redefine a identidade.
-  O kernel existente continua dono do fingerprint/persistência. Não criar store paralelo.
-- Consulta GitHub: fixed GraphQL, public host explícito, credential profile existente
-  somente read-only. Paginação incompleta, erro GraphQL mesmo com HTTP 200, SHA divergente,
-  check obrigatório ausente/duplicado e dados inconclusivos não produzem readiness otimista.
-- Spike isolado: uma questão — timer após encerramento da sessão e reidratação de storage
-  após restart owned do serviço V2 `2.0.23`. Timebox 12 min; homes/portas/jobs próprios em
-  TEMP; sem modelos, scheduling global ou webhook. Código experimental não será produto.
-  Mesmo um sucesso desse experimento não passa GW09 sem wake/consumo real pelo Planner.
-- Bibliotecas mantêm contrato offline. Transporte fica só na CLI; snapshot/readiness são
-  dados, não novos estados ou autoridade do kernel. F3 funcional continua condicionado.
+> *(conteúdo original da seção preservado acima; resultados abaixo)*
+
+### Resultados obs1/obs2 (sessões agendadas reais, Task Scheduler)
+
+- **obs1 (observe):** sessão agendada executou `github-watch observe` com
+  sucesso — checks reais pendentes (`CI ps51/ps7/v2-lane`), `CHECKS_PENDING`
+  registrado. Porém o turno não saiu sozinho (kill após timeout 8min):
+  saída limpa de turno com tools **não provada**.
+- **obs2 (consume):** CI completo (6 checks), mas readiness
+  `REVIEW_PENDING` (`review-required`, PR #89 sem review) → sessão registrou
+  `NOT-READY REVIEW_PENDING`, **sem consume, sem resume falso**. Turno
+  também precisou de kill (mesmo residual de saída).
+- **Mecânica GW09:** executor + wake + observe + decisão + registro =
+  RUNTIME_REAL_PASS (cooperativo-supervisionado); consumo retido por
+  autoridade de review **por desenho** (merge/review seguem humanos).
+  `f1wait` permanece BLOCKED explícito (rev 3); novo push retargeta o SHA —
+  documentado, não falha.
+- Tasks agendadas removidas após uso; nenhum daemon instalado.
+
+### CI final e merge
+
+Matriz branch (5 runs): 4 success + 1 failure — os 2 FAILs são
+`WatchdogEnforcement FIX5-2` (um por engine, runs distintos), verde local
+PS5.1+PS7 e verde nos demais runs: flake de runner, causa UNKNOWN, sem
+relaxamento. Último run `38611124172` (HEAD `1c9bedf`): **success**.
+**Merge não executado:** pendente de review humano (policy
+`internal_reviewer`); PR #89 aberta. Autorização do usuário cobre a
+execução, não a dispensa dos gates de qualidade.
+
+### Veredito atualizado por frente
+
+| Frente | Veredito |
+|---|---|
+| F0 | RUNTIME_REAL_PASS (baseline + distribuição dual-engine + smoke + lane) |
+| F1 | RUNTIME_REAL_PASS (cooperativo-supervisionado, 2 sessões: Onda 2 + prova f1-goal); strict = BLOCKED |
+| F2 | RUNTIME_REAL_PASS (fixes + recovery kernel-side + lane 16/17/19); substituta-com-turno = partial histórico |
+| F3 preparação | RUNTIME_REAL_PASS (observe/readiness/request/watch/step CLIs, 237+130+140 suites) |
+| F3 wake/observe | RUNTIME_REAL_PASS (scheduler + sessões reais); saída limpa de turno = NOT_PROVEN |
+| F3 consumo/GW09 | PARTIAL (mecânica pronta; retido por review humano por desenho) |
+| F4 | PARTIAL (Jev/MCP consultivos testados; live/S5-S7 sem credencial; AI Memory saudável sem escritas) |
+| F5 | RUNTIME_REAL_PASS (diagnóstico + probes lane: 7 ambiguous + 1 unsupported) |
+| F6 | PARTIAL (harness 71+119 verde; matriz normativa runtime-real parcial como acima) |
+| F7 | PARTIAL (relatório incremental; release HOLD; merge pendente) |
+| Strict #69/#70, enforcement, routing | HOLD/BLOCKED (inalterados) |
+
+*(bullets de planejamento desta seção, anteriores aos resultados, removidos
+por supersessão — o desenho vigente está nos itens acima e no plano F0–F7.)*
 
 ## Continuação 2026-10-14 (tarde) — observe GitHub entregue, spike bloqueado
 
