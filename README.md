@@ -29,8 +29,8 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 ## Versionamento
 
-- Versão atual: `0.1.0` (ver `VERSION`); tag `v0.1.0` marca esta release.
-- A tag `v1.0` é legada — anterior ao versionamento formal — e preservada como histórico.
+- Versão atual: `0.1.2` (ver `VERSION`); tag `v0.1.2` (→ `b38c92b`) marca esta release.
+- Tags `v0.1.1` e `v1.0` (legada, anterior ao versionamento formal) marcam releases anteriores e são preservadas como histórico.
 - `V3` / `V3.1` / `Pxx` são programas internos históricos, não versões do pacote.
 - Índice SPEC/PLAN/ADR em [docs/specs/INDEX.md](docs/specs/INDEX.md); histórico de mudanças em [CHANGELOG.md](CHANGELOG.md).
 
@@ -110,7 +110,7 @@ plugin); o segundo roda as suítes `*.tests.ps1` de `scripts/v3/` e
 `scripts/runtime/`. Validações de distribuição (fresh-install,
 idempotência, rollback, uninstall, runtime V1/V2, perfis isolados — 13
 suítes) vivem em `tests/distribution/`. O CI ainda roda um smoke com
-OpenCode V1 real 1.18.32 num home isolado (`opencode debug
+OpenCode V1 real 1.18.34 num home isolado (`opencode debug
 config/agent/skill`); lanes de CI para V2/dual-perfil são pendentes
 (Phase 8 do plano V3.1).
 
