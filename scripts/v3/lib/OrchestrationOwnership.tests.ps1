@@ -169,6 +169,58 @@ try {
     Assert-OwnTrue ((Get-OrchestrationScopeOverlap -ScopesA @('src\api') -ScopesB @('src\api\sub')) -eq $true) 'lease: parent/child scopes overlap'
     Assert-OwnTrue ((Get-OrchestrationScopeOverlap -ScopesA @('src\apix') -ScopesB @('src\api')) -eq $false) 'lease: sibling prefix without boundary does not overlap'
 
+    # ---------- lease expiry parsing (UTC-typed + invariant strings, ORFS-F2) ----------
+    # Regression: PS7 ConvertFrom-Json yields [DateTime] for ISO timestamps;
+    # the old [string] cast culture-stringified ('10/14/2030 12:00:00' in
+    # pt-BR) and RoundtripKind Parse failed => future leases read inactive.
+    # Unspecified-Kind DateTime and offset-less strings are documented as UTC.
+    $prevOwnCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture
+    $prevOwnUICulture = [System.Threading.Thread]::CurrentThread.CurrentUICulture
+    try {
+        foreach ($cultureName in @('pt-BR', 'en-US')) {
+            try {
+                $ci = [System.Globalization.CultureInfo]::GetCultureInfo($cultureName)
+                [System.Threading.Thread]::CurrentThread.CurrentCulture = $ci
+                [System.Threading.Thread]::CurrentThread.CurrentUICulture = $ci
+            } catch { }
+            $tag = ('[' + $cultureName + ']')
+            $futureDt = New-Object System.DateTime(2030, 10, 14, 12, 0, 0, [System.DateTimeKind]::Utc)
+            $futureRec = [ordered]@{ expires_at = $futureDt }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $futureRec) -eq $true) ('lease: typed DateTime UTC future (day>12) active ' + $tag)
+            $futureDto = New-Object System.DateTimeOffset(2030, 10, 14, 14, 0, 0, ([System.TimeSpan]::FromHours(2)))
+            $dtoRec = [ordered]@{ expires_at = $futureDto }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $dtoRec) -eq $true) ('lease: typed DateTimeOffset explicit offset active ' + $tag)
+            $strRec = [ordered]@{ expires_at = '2030-10-14T12:00:00.0000000Z' }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $strRec) -eq $true) ('lease: ISO Z string future active ' + $tag)
+            $offRec = [ordered]@{ expires_at = '2030-10-14T14:00:00.0000000+02:00' }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $offRec) -eq $true) ('lease: explicit offset string active ' + $tag)
+            $naiveRec = [ordered]@{ expires_at = '2030-10-14T12:00:00' }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $naiveRec) -eq $true) ('lease: offset-less string treated as UTC future ' + $tag)
+            $unspecDt = New-Object System.DateTime(2030, 10, 14, 12, 0, 0, [System.DateTimeKind]::Unspecified)
+            $unspecRec = [ordered]@{ expires_at = $unspecDt }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $unspecRec) -eq $true) ('lease: Unspecified-Kind DateTime treated as UTC future ' + $tag)
+            $pastRec = [ordered]@{ expires_at = '2000-01-01T00:00:00.0000000Z' }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $pastRec) -eq $false) ('lease: expired ISO string inactive ' + $tag)
+            $pastDtRec = [ordered]@{ expires_at = (New-Object System.DateTime(2000, 1, 2, 0, 0, 0, [System.DateTimeKind]::Utc)) }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $pastDtRec) -eq $false) ('lease: expired typed DateTime inactive ' + $tag)
+            $badRec = [ordered]@{ expires_at = 'not-a-date' }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $badRec) -eq $false) ('lease: malformed string inactive ' + $tag)
+            $nullRec = [ordered]@{ expires_at = $null }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $nullRec) -eq $false) ('lease: null expires_at inactive ' + $tag)
+            $arrRec = [ordered]@{ expires_at = @('2030-10-14T12:00:00.0000000Z') }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $arrRec) -eq $false) ('lease: non-scalar expires_at inactive ' + $tag)
+            $missRec = [ordered]@{ task_id = 'no-expiry' }
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $missRec) -eq $false) ('lease: missing expires_at inactive ' + $tag)
+            $rtDoc = ('{"expires_at":"2030-10-14T12:00:00.0000000Z"}' | ConvertFrom-Json)
+            $rtRec = ConvertTo-OwnershipOrdered -Node $rtDoc
+            Assert-OwnTrue ((Test-OwnershipLeaseActive -Record $rtRec) -eq $true) ('lease: JSON roundtrip future active ' + $tag)
+        }
+    }
+    finally {
+        try { [System.Threading.Thread]::CurrentThread.CurrentCulture = $prevOwnCulture } catch { }
+        try { [System.Threading.Thread]::CurrentThread.CurrentUICulture = $prevOwnUICulture } catch { }
+    }
+
     # ---------- worktrees (temp git fixture only) ----------
 
     if (-not (Get-GitAvailable)) {

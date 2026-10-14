@@ -154,4 +154,182 @@ $s = Get-OrchestrationDeliveryState -Events @('implemented', 'tests_failed', 'fi
 Assert-That (([string]$s.state -ceq 'MERGED') -and [bool]$s.terminal) 'pr_opened after review_approved still reaches MERGED'
 $s = Get-OrchestrationDeliveryState -Events @('branch_created', 'implemented', 'tests_passed', 'review_approved', 'pr_opened', 'pr_opened', 'ci_passed', 'merged')
 Assert-That (([string]$s.state -ceq 'MERGED') -and [bool]$s.terminal) 'pr_opened re-open from PR_OPEN still reaches MERGED'
+# --- F3-PURE: Get-OrchestrationGitHubReadiness (pure, data-only).
+$GH_SHA_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+$GH_SHA_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+$GH_REPO = 'acme/widgets'
+$GH_PR = 42
+$GH_NOW = '2026-10-10T12:02:00Z'
+$GH_OBS = '2026-10-10T12:00:00Z'
+function New-GHCheck {
+    param([string]$Name, [string]$Sha, [string]$Status, $Conclusion)
+    return [pscustomobject]@{ name = $Name; head_sha = $Sha; status = $Status; conclusion = $Conclusion }
+}
+function New-GHChecksAllGreen {
+    param([string]$Sha)
+    $out = @()
+    foreach ($n in @(Get-OrchestrationDeliveryRequiredChecks $policy)) { $out += @(New-GHCheck $n $Sha 'COMPLETED' 'success') }
+    return $out
+}
+function New-GHSnapshot {
+    param($Checks, [string]$Obs = $GH_OBS, [string]$Head = $GH_SHA_A, [string]$Commit = $GH_SHA_A, [string]$State = 'OPEN', [string]$Merge = 'MERGEABLE', [string]$Rev = 'APPROVED', [bool]$Complete = $true)
+    return [pscustomobject]@{
+        repository = $GH_REPO; pr_number = $GH_PR; head_sha = $Head; commit_sha = $Commit
+        observed_at = $Obs; pr_state = $State; mergeable = $Merge
+        review_decision = $Rev; checks_complete = $Complete; checks = $Checks
+    }
+}
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 300
+Assert-That (([bool]$r.ok) -and ([string]$r.readiness -ceq 'READY_FOR_RESUME') -and (@($r.reasons).Count -eq 0)) 'F3 green => READY_FOR_RESUME ok'
+Assert-That (([bool]$r.snapshot_only) -and (-not [bool]$r.grants_authority) -and (-not [bool]$r.done_approved) -and (-not [bool]$r.merge_authority) -and (-not [bool]$r.resume_authorized) -and (-not [bool]$r.kernel_mutated)) 'F3 green claims no authority and mutates nothing'
+Assert-That ((([string]$r.repository -ceq 'acme/widgets') -and ([long]$r.pr_number -eq 42) -and ([string]$r.expected_head_sha -ceq $GH_SHA_A) -and ([string]$r.observed_head_sha -ceq $GH_SHA_A))) 'F3 identifiers echo canonically'
+$r = Get-OrchestrationGitHubReadiness -Repository 'bad repo!' -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'invalid-repository'))) 'F3 bad repo => INCONCLUSIVE invalid-repository'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber '42' -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-pr-number'))) 'F3 string PR => INCONCLUSIVE invalid-pr-number'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha 'zzz' -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-expected-sha'))) 'F3 bad sha => INCONCLUSIVE invalid-expected-sha'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 0
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-max-age'))) 'F3 maxage 0 => INCONCLUSIVE invalid-max-age'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 3601
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-max-age'))) 'F3 maxage 3601 => INCONCLUSIVE invalid-max-age'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds '300'
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-max-age'))) 'F3 string maxage => INCONCLUSIVE invalid-max-age'
+$wrongRepo = New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)
+$wrongRepo.repository = 'acme/other'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $wrongRepo -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'repository-mismatch'))) 'F3 wrong snapshot repo => INCONCLUSIVE repository-mismatch'
+$wrongPr = New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)
+$wrongPr.pr_number = 43
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $wrongPr -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'pr-number-mismatch'))) 'F3 wrong snapshot PR => INCONCLUSIVE pr-number-mismatch'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Head $GH_SHA_B) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'STALE') -and (@($r.reasons) -contains 'head-mismatch'))) 'F3 replay old head => STALE head-mismatch'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Commit $GH_SHA_B) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'STALE') -and (@($r.reasons) -contains 'commit-mismatch'))) 'F3 commit mismatch => STALE commit-mismatch'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Obs '2026-10-10T11:00:00Z') -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 300
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'STALE') -and (@($r.reasons) -contains 'snapshot-stale'))) 'F3 stale timestamp => STALE snapshot-stale'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Obs '2026-10-10T12:05:00Z') -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 300
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'STALE') -and (@($r.reasons) -contains 'snapshot-future'))) 'F3 future timestamp => STALE snapshot-future'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -State 'MERGED') -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'TERMINAL') -and (@($r.reasons) -contains 'pr-terminal'))) 'F3 merged PR => TERMINAL pr-terminal'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -State 'CLOSED') -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'TERMINAL'))) 'F3 closed PR => TERMINAL'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Merge 'CONFLICTING') -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REPAIR_REQUIRED') -and (@($r.reasons) -contains 'merge-conflicting'))) 'F3 conflicting => REPAIR_REQUIRED merge-conflicting'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Merge 'UNKNOWN') -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'mergeable-unknown'))) 'F3 mergeable unknown => INCONCLUSIVE mergeable-unknown'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Complete $false) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'CHECKS_PENDING') -and (@($r.reasons) -contains 'checks-incomplete'))) 'F3 checks_complete false => CHECKS_PENDING'
+$missing = @((New-GHChecksAllGreen $GH_SHA_A) | Where-Object { [string]$_.name -cne 'CI (ps7)' })
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $missing) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'CHECKS_PENDING') -and (@($r.reasons) -contains 'check-missing:CI (ps7)'))) 'F3 missing required => CHECKS_PENDING check-missing'
+$dup = @(New-GHChecksAllGreen $GH_SHA_A) + @(New-GHCheck 'ci (ps7)' $GH_SHA_A 'COMPLETED' 'success')
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $dup) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'check-duplicate:CI (ps7)'))) 'F3 duplicate required case-insensitive => INCONCLUSIVE check-duplicate'
+$failedChecks = New-GHChecksAllGreen $GH_SHA_A
+$failedChecks[1] = New-GHCheck 'CI (ps7)' $GH_SHA_A 'COMPLETED' 'failure'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $failedChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REPAIR_REQUIRED') -and (@($r.reasons) -contains 'check-failed:CI (ps7)'))) 'F3 failed check => REPAIR_REQUIRED check-failed'
+$skipChecks = New-GHChecksAllGreen $GH_SHA_A
+$skipChecks[1] = New-GHCheck 'CI (ps7)' $GH_SHA_A 'COMPLETED' 'skipped'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $skipChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'check-failed:CI (ps7)'))) 'F3 skipped conclusion never green'
+$neutChecks = New-GHChecksAllGreen $GH_SHA_A
+$neutChecks[1] = New-GHCheck 'CI (ps7)' $GH_SHA_A 'COMPLETED' 'neutral'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $neutChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'check-failed:CI (ps7)'))) 'F3 neutral conclusion never green'
+$nullChecks = @((New-GHChecksAllGreen $GH_SHA_A) | Where-Object { [string]$_.name -cne 'CI (ps7)' }) + @([pscustomobject]@{ name = 'CI (ps7)'; head_sha = $GH_SHA_A; status = 'COMPLETED'; conclusion = $null })
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $nullChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'check-inconclusive:CI (ps7)'))) 'F3 null conclusion => INCONCLUSIVE check-inconclusive'
+$pendChecks = New-GHChecksAllGreen $GH_SHA_A
+$pendChecks[1] = [pscustomobject]@{ name = 'CI (ps7)'; head_sha = $GH_SHA_A; status = 'IN_PROGRESS'; conclusion = $null }
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $pendChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'CHECKS_PENDING') -and (@($r.reasons) -contains 'check-pending:CI (ps7)'))) 'F3 in-progress check => CHECKS_PENDING check-pending'
+$shaChecks = New-GHChecksAllGreen $GH_SHA_A
+$shaChecks[1] = New-GHCheck 'CI (ps7)' $GH_SHA_B 'COMPLETED' 'success'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $shaChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'check-sha-mismatch:CI (ps7)'))) 'F3 required check on old head => INCONCLUSIVE check-sha-mismatch'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'CHANGES_REQUESTED') -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REPAIR_REQUIRED') -and (@($r.reasons) -contains 'changes-requested'))) 'F3 changes requested => REPAIR_REQUIRED'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REVIEW_PENDING') -and (@($r.reasons) -contains 'review-required'))) 'F3 review required => REVIEW_PENDING'
+$extraBad = @(New-GHChecksAllGreen $GH_SHA_A) + @([pscustomobject]@{ name = 'CI (experiment)'; head_sha = 'bogus'; status = 'BROKEN'; conclusion = 42 })
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $extraBad) -Policy $policy -NowUtc $GH_NOW
+Assert-That (([bool]$r.ok) -and ([string]$r.readiness -ceq 'READY_FOR_RESUME')) 'F3 invalid extra non-required ignored'
+$noName = @(New-GHChecksAllGreen $GH_SHA_A) + @([pscustomobject]@{ head_sha = $GH_SHA_A; status = 'COMPLETED'; conclusion = 'success' })
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $noName) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'checks-invalid'))) 'F3 nameless entry => INCONCLUSIVE checks-invalid (never silently ignored)'
+$nullChecksSnap = New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)
+$nullChecksSnap.checks = $null
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $nullChecksSnap -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'checks-invalid'))) 'F3 null checks collection => INCONCLUSIVE checks-invalid'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy @{} -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'policy-invalid'))) 'F3 malformed policy => INCONCLUSIVE policy-invalid'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy @{} -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'policy-invalid'))) 'F3 malformed policy => INCONCLUSIVE policy-invalid'
+# --- F3-FIX1: invalid identifiers are never echoed (no secret/huge leak, bounded).
+$GH_CANARY = 'sk-SYNTHETICSECRET'
+$GH_HUGE = ($GH_CANARY + "`n" + ('X' * 50000))
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_HUGE -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 300
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.repository -ceq '') -and ([string]$r.expected_head_sha -ceq ''))) 'F3 huge bad repo echoes no identifier'
+$j = ConvertTo-Json $r -Compress -Depth 4
+Assert-That ((($j -notmatch 'SYNTHETICSECRET') -and ($j.Length -le 4096))) 'F3 huge bad repo output bounded with no leak'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_CANARY -PrNumber $GH_PR -ExpectedHeadSha $GH_CANARY -Snapshot $null -Policy $policy -NowUtc $GH_NOW -MaxAgeSeconds 0
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-max-age') -and ([string]$r.repository -ceq '') -and ([string]$r.expected_head_sha -ceq ''))) 'F3 invalid maxage echoes no identifier'
+$j = ConvertTo-Json $r -Compress -Depth 4
+Assert-That ((($j -notmatch 'SYNTHETICSECRET') -and ($j.Length -le 4096))) 'F3 invalid maxage output bounded with no leak'
+$r = Get-OrchestrationGitHubReadiness -Repository @('acme/widgets', 'evil') -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-repository') -and ([string]$r.repository -ceq ''))) 'F3 array repo echoes no identifier'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_CANARY -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'invalid-expected-sha') -and ([string]$r.expected_head_sha -ceq ''))) 'F3 bad sha echoes no identifier'
+$j = ConvertTo-Json $r -Compress -Depth 4
+Assert-That (($j -notmatch 'SYNTHETICSECRET')) 'F3 bad sha output carries no leak'
+$GH_NLREPO = ('acme/wid' + "`n" + 'gets')
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_NLREPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.repository -ceq ''))) 'F3 newline repo echoes no identifier'
+# --- F3-FIX2: required-check SHA must match before any status/conclusion verdict.
+$oldFail = New-GHChecksAllGreen $GH_SHA_A
+$oldFail[1] = New-GHCheck 'CI (ps7)' $GH_SHA_B 'COMPLETED' 'failure'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $oldFail) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'check-sha-mismatch:CI (ps7)') -and (-not (@($r.reasons) -contains 'check-failed:CI (ps7)')))) 'F3 old-head failure never repairs current HEAD'
+$oldPend = New-GHChecksAllGreen $GH_SHA_A
+$oldPend[1] = [pscustomobject]@{ name = 'CI (ps7)'; head_sha = $GH_SHA_B; status = 'IN_PROGRESS'; conclusion = $null }
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $oldPend) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'check-sha-mismatch:CI (ps7)'))) 'F3 old-head pending is inconclusive, not pending'
+$noShaChecks = @((New-GHChecksAllGreen $GH_SHA_A) | Where-Object { [string]$_.name -cne 'CI (ps7)' }) + @([pscustomobject]@{ name = 'CI (ps7)'; status = 'COMPLETED'; conclusion = 'success' })
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $noShaChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'check-inconclusive:CI (ps7)'))) 'F3 missing check sha => INCONCLUSIVE check-inconclusive'
+$badShaChecks = New-GHChecksAllGreen $GH_SHA_A
+$badShaChecks[1] = New-GHCheck 'CI (ps7)' 'not-a-sha' 'COMPLETED' 'success'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $badShaChecks) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'check-inconclusive:CI (ps7)'))) 'F3 malformed check sha => INCONCLUSIVE check-inconclusive'
+# --- F3-FIX3: checks must be an explicit list, never a singular object/string.
+$singPolicy = ConvertFrom-Json (ConvertTo-Json $policy -Depth 10)
+$singPolicy.required_checks = @('CI (solo)')
+$singEntry = [pscustomobject]@{ name = 'CI (solo)'; head_sha = $GH_SHA_A; status = 'COMPLETED'; conclusion = 'success' }
+$singSnap = [pscustomobject]@{
+    repository = $GH_REPO; pr_number = $GH_PR; head_sha = $GH_SHA_A; commit_sha = $GH_SHA_A
+    observed_at = $GH_OBS; pr_state = 'OPEN'; mergeable = 'MERGEABLE'
+    review_decision = 'APPROVED'; checks_complete = $true; checks = $singEntry
+}
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $singSnap -Policy $singPolicy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'checks-invalid'))) 'F3 singular checks object never READY'
+$singSnapList = [pscustomobject]@{
+    repository = $GH_REPO; pr_number = $GH_PR; head_sha = $GH_SHA_A; commit_sha = $GH_SHA_A
+    observed_at = $GH_OBS; pr_state = 'OPEN'; mergeable = 'MERGEABLE'
+    review_decision = 'APPROVED'; checks_complete = $true; checks = @($singEntry)
+}
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $singSnapList -Policy $singPolicy -NowUtc $GH_NOW
+Assert-That (([bool]$r.ok) -and ([string]$r.readiness -ceq 'READY_FOR_RESUME')) 'F3 single-check policy with proper list stays READY'
+$strSnap = New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)
+$strSnap.checks = 'COMPLETED'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $strSnap -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'checks-invalid'))) 'F3 string checks => INCONCLUSIVE checks-invalid'
+$hashSnap = New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)
+$hashSnap.checks = @{ name = 'CI (ps7)'; head_sha = $GH_SHA_A; status = 'COMPLETED'; conclusion = 'success' }
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot $hashSnap -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'checks-invalid'))) 'F3 dictionary checks => INCONCLUSIVE checks-invalid'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot @()) -Policy $policy -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'CHECKS_PENDING') -and (@($r.reasons) -contains 'check-missing:CI (ps51)'))) 'F3 empty checks list means missing pending, not malformed'
 Write-Output "PASS: $passed assertions"

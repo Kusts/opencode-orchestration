@@ -68,17 +68,105 @@ function New-OrchestrationSessionLostAttemptResult {
     return [pscustomobject][ordered]@{n=0;status='SESSION_LOST';result_type='SESSION_LOST';task_id=[string]$Binding.task_id;run_id=[string]$Binding.run_id;session_id=[string]$Binding.session_id;at=$stamp;registration='caller_must_register_with_kernel';task_state_mutated=$false}
 }
 
+function Get-ReconcilerFieldInfo([object]$Obs,[string]$Name) {
+    if ($Obs -is [System.Collections.IDictionary]) {
+        if ($Obs.Contains($Name)) {
+            $v=$Obs[$Name];$t='null';if($null -ne $v){$t=$v.GetType().FullName};$s='';if($null -ne $v){$s=[string]$v}
+            return @{exists=$true;text=$s;typename=$t;value=$v}
+        }
+        return @{exists=$false;text='';typename='';value=$null}
+    }
+    $p=$Obs.PSObject.Properties[$Name]
+    if ($null -eq $p) { return @{exists=$false;text='';typename='';value=$null} }
+    $v=$p.Value;$t='null';if($null -ne $v){$t=$v.GetType().FullName};$s='';if($null -ne $v){$s=[string]$v}
+    return @{exists=$true;text=$s;typename=$t;value=$v}
+}
+
+function Test-ReconcilerGroupEquivalent([object[]]$Group) {
+    $fields=@('observed','binding_session_id','output_ref','attempt_ref','last_seen')
+    for($i=1;$i -lt $Group.Count;$i++){
+        foreach($f in $fields){
+            $a=Get-ReconcilerFieldInfo $Group[0] $f
+            $b=Get-ReconcilerFieldInfo $Group[$i] $f
+            if($a.exists -ne $b.exists){return $false}
+            if($a.exists){
+                if($a.text -cne $b.text){return $false}
+                if($a.typename -cne $b.typename){return $false}
+            }
+        }
+    }
+    return $true
+}
+
+function Test-ReconcilerObservationValid([object]$Obs,[string]$Sid) {
+    # Strict scalar-string gate, duplicates scope only (unique/singleton path keeps legacy coercion).
+    # Any non-string scalar (arrays, bool/int, $null) in an identity/evidence field is invalid here,
+    # so equally-invalid duplicates can never collapse into recover-output; a present-but-falsy
+    # last_seen ($false/0) is invalid, while present-empty-string stays absent-like per unique contract.
+    $oi=Get-ReconcilerFieldInfo $Obs 'observed'
+    if(-not $oi.exists -or -not ($oi.value -is [string])){return $false}
+    if($oi.value -notin @('running','completed','interrupted','missing','stale')){return $false}
+    $si=Get-ReconcilerFieldInfo $Obs 'session_id'
+    if(-not $si.exists -or -not ($si.value -is [string])){return $false}
+    if($si.value -cne $Sid){return $false}
+    $bi=Get-ReconcilerFieldInfo $Obs 'binding_session_id'
+    if($bi.exists){
+        if(-not ($bi.value -is [string])){return $false}
+        if($bi.value -cne $Sid){return $false}
+    }
+    $ri=Get-ReconcilerFieldInfo $Obs 'output_ref'
+    if($ri.exists -and -not ($ri.value -is [string])){return $false}
+    $ai=Get-ReconcilerFieldInfo $Obs 'attempt_ref'
+    if($ai.exists -and -not ($ai.value -is [string])){return $false}
+    $lsi=Get-ReconcilerFieldInfo $Obs 'last_seen'
+    if($lsi.exists){
+        $lv=$lsi.value
+        if($null -eq $lv){return $false}
+        if(-not ($lv -is [string])){return $false}
+        if($lv -ne ''){try{[void][DateTime]::Parse($lv).ToUniversalTime()}catch{return $false}}
+    }
+    return $true
+}
+
 function Get-OrchestrationSessionReconciliation {
     [CmdletBinding()]
     param([Parameter(Mandatory=$true)][AllowEmptyCollection()][object[]]$Bindings,[object[]]$Observations=@(),[Parameter(Mandatory=$true)][int]$StaleAfterSeconds,[object]$TimestampUtc=$null)
     if($Bindings.Count -gt 200 -or $Observations.Count -gt 500){return [pscustomobject]@{status='input-limit-exceeded';runs=@();recommended_actions=@();probed=$false}}
     $now=Resolve-ContinuationTimestamp $TimestampUtc
-    $obsById=@{}; foreach($o in $Observations){if($o.session_id){$obsById[[string]$o.session_id]=$o}}
+    # F2 root cause: prior code did last-wins ($obsById[sid]=$o) before validation, so duplicate
+    # observations for the same session_id resolved by input order and a duplicate could hide
+    # invalid evidence. Fail closed: group by session_id; only semantically equal duplicates on
+    # the relevant safety fields (observed/binding_session_id/output_ref/attempt_ref/last_seen,
+    # presence+value+type) collapse; any conflict or any individually-invalid member yields
+    # stale/ambiguous_observations with empty output_ref and no recommended action. No timestamp ordering.
+    # Identity is ordinal case-exact (ses_x vs SES_X are distinct ids; producers must use exact IDs):
+    # grouping and binding lookup use Ordinal dictionaries, and each duplicate member must carry an
+    # exact string session_id. Strict scalar-string validation applies to duplicates only; the
+    # unique/singleton path keeps the legacy coercion contract.
+    $obsGroups=[System.Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    foreach($o in $Observations){
+        if($null -eq $o){continue}
+        $sk='';try{$sk=[string]$o.session_id}catch{$sk=''}
+        if([string]::IsNullOrWhiteSpace($sk)){continue}
+        if(-not $obsGroups.ContainsKey($sk)){$obsGroups[$sk]=@()}
+        $obsGroups[$sk]=@($obsGroups[$sk]) + ,$o
+    }
+    $obsById=[System.Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    $ambiguousIds=[System.Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
+    foreach($key in @($obsGroups.Keys)){
+        $g=@($obsGroups[$key])
+        if($g.Count -eq 1){$obsById[$key]=$g[0];continue}
+        $equiv=Test-ReconcilerGroupEquivalent $g
+        $allValid=$true;foreach($m in $g){if(-not (Test-ReconcilerObservationValid $m $key)){$allValid=$false;break}}
+        if($equiv -and $allValid){$obsById[$key]=$g[0]}
+        else{$ambiguousIds[$key]=$true}
+    }
     $rows=@();$actions=@()
     foreach($run in $Bindings){
         $ids=@();if($run.root_session){$ids+=,[string]$run.root_session};foreach($sid in @($run.worker_sessions)){$ids+=,[string]$sid}
         foreach($sid in $ids){if(-not $sid){continue};$o=$null;if($obsById.ContainsKey($sid)){$o=$obsById[$sid]};$status='missing';$detail='';$output=''
-            if($null -eq $o){
+            if($ambiguousIds.ContainsKey($sid)){$status='stale';$detail='ambiguous_observations';$output=''}
+            elseif($null -eq $o){
                 $status='missing'
                 if($run.bound_at){try{if(($now-[DateTime]::Parse([string]$run.bound_at).ToUniversalTime()).TotalSeconds -le $StaleAfterSeconds){$status='stale';$detail='awaiting_stale_threshold'}}catch{$status='stale';$detail='invalid_bound_at'}}
             }

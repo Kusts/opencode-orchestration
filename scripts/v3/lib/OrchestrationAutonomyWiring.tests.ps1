@@ -214,6 +214,45 @@ try {
         $s = Resolve-OrchestrationStopDecision -Reason '' -Detail 'test-detail'
         Assert-AutonomyWiring (((-not [bool]$s.terminal) -and ([string]$s.return_to -ceq 'control-plane'))) '[S1] empty reason returns to control plane' ''
 
+        # ---------- F3: github wait request is pure, canonical, SHA-bound ----------
+        $GHW_SHA_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        $GHW_SHA_B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        $w = New-OrchestrationGitHubWaitRequest -Repository 'acme/widgets' -PrNumber 42 -ExpectedHeadSha $GHW_SHA_A -Owner 'planner-loop'
+        Assert-AutonomyWiring (([bool]$w.ok) -and ([string]$w.WaitType -ceq 'external_dependency') -and ([string]$w.WaitAction -ceq 'revalidate-github-ci')) '[F3] wait request carries action arguments only' ([string]$w.WaitType + '/' + [string]$w.WaitAction)
+        Assert-AutonomyWiring (([string]$w.WaitDependencyId -ceq ('github-ci:v1:acme/widgets:42:' + $GHW_SHA_A))) '[F3] dependency id is canonical and SHA-bound' ([string]$w.WaitDependencyId)
+        Assert-AutonomyWiring ((-not [bool]$w.kernel_mutated) -and (-not [bool]$w.grants_authority) -and (-not [bool]$w.done_approved)) '[F3] wait request mutates nothing and grants nothing' ''
+        $wCase = New-OrchestrationGitHubWaitRequest -Repository 'ACME/Widgets' -PrNumber 42 -ExpectedHeadSha $GHW_SHA_A -Owner 'planner-loop'
+        Assert-AutonomyWiring (([bool]$wCase.ok) -and ([string]$wCase.WaitDependencyId -ceq [string]$w.WaitDependencyId)) '[F3] repo case folds stably to one dependency id' ([string]$wCase.WaitDependencyId)
+        $wNew = New-OrchestrationGitHubWaitRequest -Repository 'acme/widgets' -PrNumber 42 -ExpectedHeadSha $GHW_SHA_B -Owner 'planner-loop'
+        Assert-AutonomyWiring (([bool]$wNew.ok) -and ([string]$wNew.WaitDependencyId -cne [string]$w.WaitDependencyId)) '[F3] each head is a new wait, never a silent retarget' ([string]$wNew.WaitDependencyId)
+        Assert-AutonomyWiring (([string]$w.WaitDependencyId -notmatch 'run') -and ([string]$w.WaitDependencyId -notmatch '[0-9a-f]{8}-')) '[F3] run_id is not identity and nothing is invented' ([string]$w.WaitDependencyId)
+        $wBad = New-OrchestrationGitHubWaitRequest -Repository 'bad repo!' -PrNumber 42 -ExpectedHeadSha $GHW_SHA_A -Owner 'planner-loop'
+        Assert-AutonomyWiring (((-not [bool]$wBad.ok) -and (-not [bool]$wBad.kernel_mutated))) '[F3] bad repo fails closed' ([string]$wBad.reason)
+        $wBad = New-OrchestrationGitHubWaitRequest -Repository 'acme/widgets' -PrNumber 0 -ExpectedHeadSha $GHW_SHA_A -Owner 'planner-loop'
+        Assert-AutonomyWiring (((-not [bool]$wBad.ok))) '[F3] non-positive PR fails closed' ([string]$wBad.reason)
+        $wBad = New-OrchestrationGitHubWaitRequest -Repository 'acme/widgets' -PrNumber 42 -ExpectedHeadSha 'zzz' -Owner 'planner-loop'
+        Assert-AutonomyWiring (((-not [bool]$wBad.ok))) '[F3] bad SHA fails closed' ([string]$wBad.reason)
+        $wBad = New-OrchestrationGitHubWaitRequest -Repository 'acme/widgets' -PrNumber 42 -ExpectedHeadSha $GHW_SHA_A -Owner 'bad owner!'
+        Assert-AutonomyWiring (((-not [bool]$wBad.ok))) '[F3] bad owner fails closed' ([string]$wBad.reason)
+
+        # ---------- F3: typed-wait registration via the kernel stays explicit ----------
+        $kernelCmd = Get-Command New-TaskKernelTypedWait -ErrorAction SilentlyContinue
+        if ($null -eq $kernelCmd) {
+            try { . (Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1') } catch { }
+            $kernelCmd = Get-Command New-TaskKernelTypedWait -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $kernelCmd) {
+            $t1 = New-TaskKernelTypedWait -Type ([string]$w.WaitType) -Owner ([string]$w.WaitOwner) -Action ([string]$w.WaitAction) -DependencyId ([string]$w.WaitDependencyId)
+            Assert-AutonomyWiring ([bool]$t1.ok) '[F3] caller registers the wait explicitly through the kernel' ([string]$t1.error)
+            $t1b = New-TaskKernelTypedWait -Type ([string]$w.WaitType) -Owner ([string]$w.WaitOwner) -Action ([string]$w.WaitAction) -DependencyId ([string]$w.WaitDependencyId)
+            Assert-AutonomyWiring (([bool]$t1b.ok) -and ([string]$t1b.wait.fingerprint -ceq [string]$t1.wait.fingerprint)) '[F3] identical registration is idempotent' ''
+            $t2 = New-TaskKernelTypedWait -Type ([string]$wNew.WaitType) -Owner ([string]$wNew.WaitOwner) -Action ([string]$wNew.WaitAction) -DependencyId ([string]$wNew.WaitDependencyId)
+            Assert-AutonomyWiring (([bool]$t2.ok) -and ([string]$t2.wait.fingerprint -cne [string]$t1.wait.fingerprint)) '[F3] new head changes the fingerprint (CAS, no automatic unblock)' ''
+        }
+        else {
+            Assert-AutonomyWiring $false '[F3] kernel typed-wait entrypoint available' 'New-TaskKernelTypedWait not found'
+        }
+
         # ---------- hygiene: no network/spawn/secrets, ASCII-only ----------
         $wiringPath = Join-Path $PSScriptRoot 'OrchestrationAutonomyWiring.ps1'
         $wiringText = [IO.File]::ReadAllText($wiringPath, [Text.Encoding]::UTF8)

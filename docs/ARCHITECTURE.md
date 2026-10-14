@@ -704,13 +704,20 @@ confirmada em 2026-10-04 e round-trip remoto autenticado comprovado
 real** (`transport-probe-aimem-https-2026-10-06.json`: TLS 1.3, 401
 fail-closed sem token, host sanitizado); o
 release gate foi **fechado como `PASS` em 2026-10-06** (closure V3.1,
-`program-status.json#closure_2026_10_06`): **RR-E2E-04..10 7/7
+`program-status.json#closure_2026_10_06` — registro histórico preservado,
+sem reescrita para falha): **RR-E2E-04..10 7/7
 `pass-real` no runner** em 2026-10-05 (run `37376248759`, lane fechada
-após o fix de contaminação `7b527d8`) e **RR-E2E-16..22: 5 `pass-real`
-(16, 17, 19, 20, 21) + 2 `blocked`-parciais (18, 22, model-dependent com
-pernas alternativas provadas em runtime)** em runtime real 2.0.23 (lane
+após o fix de contaminação `7b527d8`) e **RR-E2E-16..22 (closure
+2026-10-06, após revisão independente rodada 2): 3 `pass-real`
+(16, 17, 19) + 4 `blocked`-parciais (18, 20, 21, 22)** em runtime real 2.0.23 (lane
 `scripts/ci/session-real-lane-v2.ps1`, evidência em
-`session-lane-2026-10-06/`); `debug config` com
+`session-lane-2026-10-06/` e `program-status.json#closure_2026_10_06`;
+o claim anterior de cinco pass-real não é prova vigente). **Release `0.1.1`,
+2026-10-08, mantém 3 `pass-real` (16, 17, 19) + `blocked` (18, 20, 21, 22) sob
+critério enrijecido — ver `CHANGELOG.md` `[0.1.1]`; rodada operacional
+2026-10-14: 3 `pass-real` (16/17/19) + 2 `blocked` (20/21), 18/22 não
+executados na rodada, escopo de prova sem turn de modelo pelo substituto
+(ver nota operacional 2026-10-14 abaixo)**; `debug config` com
 intermitência caracterizada experimentalmente (7 hangs vs 5 passes no
 mesmo dia; suspeita principal interna ao binário histórico 2.0.18, não
 comprovada; `debugcfg-hang-investigation.json`) — no run de 2026-10-05 ele
@@ -733,6 +740,22 @@ por slice (HOLDs registrados); critérios `PAE-01`–`PAE-40` rastreados em
 `activation-pending`/`blocked-operator-evidence` históricas foram
 superseded pelo closure de 2026-10-06 onde o item virou prova real ou
 HOLD sustentado — status vivo é `program-status.json`).
+
+### Nota operacional 2026-10-14 (refinamento funcional, sem release)
+
+Refinamento local F2/F5/F6 em execução parcial, sem claim produtivo,
+wake durável, enforcement ou release — detalhes e limites só em
+[OPERATIONAL-CLOSURE-2026-10-14](../evidence/closure/OPERATIONAL-CLOSURE-2026-10-14.md),
+plano em
+[OPERATIONAL-REFINEMENT-FUNCTIONAL-STABILIZATION-PLAN](plans/OPERATIONAL-REFINEMENT-FUNCTIONAL-STABILIZATION-PLAN.md):
+F2 — observações conflitantes da mesma sessão viram
+`stale/ambiguous_observations` sem ação/replay (identidade ordinal, sem
+last-wins nem heurística de timestamp); lease `Expiry` `DateTime` sem cast
+cultural (parse invariável/UTC, fix PS7/pt-BR); F5 — diagnóstico separa
+total de erros da amostra e hash/fingerprint segue `NOT OBSERVED`
+(diagnóstico, não atestação/enforcement); F6 — steps nativos nos jobs
+existentes executam as suítes pelo engine real do job (notas de engine,
+sem claims prod/CI executado — sem push).
 
 ## Ownership model do installer (PACKAGE/USER)
 
