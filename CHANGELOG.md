@@ -124,6 +124,40 @@ issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
 
+### Ondas 1–4 do plano 12 frentes (2026-10-13/14, sessão Planner real)
+
+- **Onda 1 — PR #74 mergeado (`09781f3`, CI 6/6 run `38475100828`):**
+  delegação nativa V2 com 19 workers + 21 blocos (build/title + 4 planning),
+  permissoes/modelos verificados, thread P1 do bot resolvida com placeholders,
+  config V2 reinstalada do master (21 blocos vivos, MCPs/modelos preservados).
+  FAIL `divergent path` do Watchdog classificado flake ambiental
+  (`$live.Path` indisponivel transitorio; 431/1, repro local 120/120) +
+  diagnóstico failure-only `[DIAG-8B]` entregue (`d8dd25b`).
+- **Onda 2 — objetivo o2-goal COMPLETED runtime-real (Planner-driven, provenance declared, modo compatibilidade; SEM atestacao estrita host) (issue #51, parcial):**
+  3 fases com coder→tester→reviewer reais, fault-injection (prev zeros →
+  FAIL → settled-failed → retry admitido com nova key → PASS), scratch
+  CANCELLED, checkpoints + guarda `stale-goal-revision`, CAS final 3/3.
+  Nenhum `verified_pass` declarado (grep=0). Evidência em
+  `evidence/closure/onda2-prova-real-2026-10-14.md` (hashes, keys, ordem
+  settle<verify<review<DONE). Residuais: provenance `declared` (não autoria);
+  `settle-result-conflict` só harness (F3 [N7]); pernas model-dependent 18/20/21/22 operator-owned.
+- **Onda 3 — #61 instrumentado e mergeado (PR #85, `9593752`, CI 6/6 runs
+  `38493328915`/`38536604735`):** evidencia Jev com `model/usage_in/usage_out/
+  decision_adopted/decision_note` opcionais (omitidos quando ausentes; review
+  R3 corrigiu coerção `[int]` de `$null`→0; suite 188/188). #60 validado útil
+  (deadlock consult real sobre impasse Onda 2). #48 sem código (backlog vedado).
+- **Onda 4 — F6 mergeado (PR #87, `4b470b7`, CI 6/6 run `38546857943` após
+  rerun):** envelope de correlação objetivo→settlement hash-only best-effort
+  (precedência corr no cap 10; suite 34/34 + 94/94). Bot P2 (hermeticidade)
+  corrigido. Flake T2-5 (`elapsed 4652` vs teto 4000, runner carregado;
+  ps51 verde) limpo em rerun sem mudança de código — mesma classe F1/JOB46/JOB48.
+- **Onda 5 — aceite parcial:** Synkroo docs-only entregue em branch (sem merge);
+  IPTV E1–E3 PASS (headers + kill + retomada; sem merge); Ted declinado
+  honestamente (probe sem SUT). Merges nesses repos = decisão dos donos.
+- **Issues:** auditoria 2026-10-14 manteve as 45 abertas (zero candidatas a
+  FECHAR; harness-PASS ≠ runtime-real). Bloqueios #69/#70 seguem upstream;
+  #50 aguarda decisão de política; S5–S7 aguardam credencial.
+
 ### Closure CURRENT_WORK (F0–F7, 2026-10-12/13)
 
 Base: master `ec5c2de` (merge PR #75). Evidência por frente nos `.md`
