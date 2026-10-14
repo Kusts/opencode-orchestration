@@ -54,10 +54,12 @@
 #     => pernas seguem blocked (fail-closed; nenhum PASS forjado). Ex.
 #     operator-owned: -ModelKeyEnvName 'OPENCODE_GO_API_KEY' com o modelo
 #     opencode-go/muse-spark-1.3-contributor (verificado em 2026-10-08).
-#     Cada turn 'opencode run' roda em Job Object proprio com KILL_ON_JOB_CLOSE
-#     (contencao provada da arvore com a model-key no ambiente; rc=0 sem
-#     atribuicao comprovada nao conta como ok; job indisponivel => turn
-#     recusado, fail-closed).
+#     Cada turn 'opencode run' recebe um Job Object proprio com KILL_ON_JOB_CLOSE
+#     (contencao POS-SPAWN + rejeicao de resultado sem atribuicao comprovada;
+#     NAO e contencao pre-execucao: rc sem atribuicao nao conta como ok; job
+#     indisponivel => turn recusado, fail-closed).
+#     Falha de turn (rc!=0/timeout) persiste excerpt sanitizado (cap 1200) como
+#     proof 'model-turn-output' (diag informativa ok=true; veredito intacto).
 #     O turn da fresh session V1 (22) segue operator-owned, sem mudanca de
 #     veredito nesta lane.
 #     PowerShell 5.1 compativel; ASCII-only.
@@ -278,15 +280,172 @@ function Get-LaneModelChildEnv {
     } catch { }
     return $out
 }
+function Get-LaneModelTurnOutputExcerpt {
+    # Excerpt diagnostico do output de um turn de modelo: stdout+stderr com
+    # pre-redacao LOCAL de credenciais com aspas (NOME="v", NOME='v',
+    # "NOME": "v", 'NOME': 'v', NOME=v) e depois Get-LaneSafeText com cap
+    # 1200 (truncagem sempre DEPOIS da redacao). Uso: proof
+    # 'model-turn-output' (ok=true, diag informativa) SOMENTE em falha do
+    # turn; sucesso mantem output_excerpt=''. Get-LaneSafeText e
+    # compartilhada e permanece intocada. Saida vazia vira placeholder
+    # ASCII (nunca string vazia). Nao altera veredito, gate, timeout ou flag.
+    [CmdletBinding()] param([string]$Stdout = '', [string]$Stderr = '', [int]$Max = 1200)
+    try {
+        if ($Max -le 0) { $Max = 1200 }
+        if ($Max -gt 1200) { $Max = 1200 }
+        $raw = (([string]$Stdout) + "`n" + ([string]$Stderr))
+        # Lista fechada: credenciais relevantes do SensitiveEnvRemove da lane
+        # + NOME da model-key opt-in (dinamico) + formato generico para chaves
+        # desconhecidas com cara de segredo. Get-LaneSafeText nao cobre
+        # valores com aspas (o valor comeca com " ou ' e o padrao sem aspas
+        # nao casa); por isso a pre-redacao local, antes do cap. Valores
+        # reconhecem escapes (\" nao fecha o valor) e nomes genericos exatos
+        # ("password", 'token') casam com prefixo vazio/delimitador.
+        $credNames = @(
+            'OPENCODE_PASSWORD', 'OPENCODE_API_KEY', 'JEV_API_KEY',
+            'AIMEMORY_REMOTE_TOKEN', 'AI_MEMORY_TOKEN',
+            'GITHUB_TOKEN', 'GH_TOKEN', 'GIT_TOKEN',
+            'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+            'AZURE_CLIENT_SECRET', 'GOOGLE_APPLICATION_CREDENTIALS',
+            'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY',
+            'NPM_TOKEN', 'npm_token'
+        )
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean)) { $credNames += [string]$script:ModelKeyEnvNameClean }
+        } catch { }
+        $esc = @()
+        foreach ($k in @($credNames)) {
+            if (-not [string]::IsNullOrWhiteSpace($k)) { $esc += [regex]::Escape([string]$k) }
+        }
+        $nameRx = '(?:' + (($esc -join '|') + '|(?<=^|[\s{[,:\x22\x27])(?:[A-Za-z_][A-Za-z0-9_]*?)?(?:password|token|secret|credential|authorization|api[_-]?key)[A-Za-z0-9_]*\b') + ')'
+        $dqV = '\x22(?:[^\x22\x5c\r\n]|\x5c.)*\x22'
+        $sqV = '\x27(?:[^\x27\x5c\r\n]|\x5c.)*\x27'
+        $v = $raw
+        try {
+            $v = $v -replace ('(?i)\b(' + $nameRx + ')\s*=\s*(' + $dqV + '|' + $sqV + '|[^\s,;"\x27]+)'), '$1=[REDACTED]'
+            $v = $v -replace ('(?i)\x22(' + $nameRx + ')\x22\s*:\s*(' + $dqV + '|' + $sqV + '|[^\s,;"\x27}]+)'), '"$1": "[REDACTED]"'
+            $v = $v -replace ('(?i)\x27(' + $nameRx + ')\x27\s*:\s*(' + $dqV + '|' + $sqV + '|[^\s,;"\x27}]+)'), '"$1": "[REDACTED]"'
+        } catch { $v = $raw }
+        $safe = Get-LaneSafeText $v $Max
+        if ([string]::IsNullOrWhiteSpace($safe)) { return '(sem saida capturada)' }
+        return $safe
+    } catch { return '(sem saida capturada)' }
+}
+function Test-LaneModelUnavailableOutput {
+    # Classificador puro da classe retentavel do fallback de modelo: true
+    # somente para a frase 'Model unavailable' (case-insensitive, com
+    # word-boundary; vale com ':'/' '/fim ou outro separador apos a frase).
+    # Sequencias ANSI CSI (ESC [ params letra, ex. [0m SGR) sao stripadas
+    # ANTES do match: no output real o reset termina em letra colada no M
+    # de Model ([0mModel unavailable) e mataria o \b. ESC via [char]27, sem
+    # byte literal (ASCII-only). Falso para vazio, timeout, rc0 e outros
+    # erros sem a frase. Sem rede/spawn/estado; nao altera veredito, gate,
+    # timeout ou flag.
+    [CmdletBinding()] param([string]$Text = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+        $esc = [string][char]27
+        $plain = ([string]$Text -replace ($esc + '\[[0-9;]*[A-Za-z]'), '')
+        return ($plain -match '(?i)\bmodel\s+unavailable\b')
+    } catch { return $false }
+}
+function New-LaneModelTurnOutcome {
+    # Decisao pura do fallback de modelo (sem spawn/rede/estado): a partir do
+    # resultado da 1a tentativa (e, quando executado, do retry) decide se o
+    # retry era devido, monta os arg arrays (retry sem --model), conta as
+    # chamadas com resultado e emite a proof de fallback. Invoke-LaneModelTurn
+    # delega a ele em 3 fases (args -> decisao -> desfecho); testes offline
+    # cobrem todos os ramos com fixtures sinteticas, sem mocks de processo.
+    # Campos lidos de cada resultado: ExitCode, TimedOut, Stdout, Stderr,
+    # JobAssigned, JobNote (hashtable ou objeto; ausente = default fail-closed).
+    # retryDue = classe (rc!=0, sem timeout, Model unavailable), sem olhar assign.
+    # shouldRetry = retryDue E 1a com JobAssigned provado (mitigacao
+    # ORFS-SPAWN-CONTAINMENT-ADV; 1a sem assign => sem retry, terminal).
+    # calls conta 1a + retry quando usado; retry recusado/sem resultado nao
+    # soma e a 1a prevalece (fail-closed). fallbackProof (model-fallback-default
+    # ok=true) so existe quando o retry foi usado, com rc/job do resultado
+    # final (fail do retry segue fail; vereditos dos cenarios intactos).
+    # noFallbackReason/refusedProof (model-fallback-refused ok=true, diag)
+    # existem quando devido-mas-sem-fallback: 1a sem assign
+    # (job-unassigned-no-fallback), job do retry indisponivel
+    # (retry-job-unavailable) ou retry sem resultado (retry-no-result).
+    # No objeto de gate (pre-retry) esses valores sao provisorios; a lane so
+    # le reason/proof do desfecho pos-branch.
+    [CmdletBinding()] param($FirstResult = $null, $RetryResult = $null, [bool]$RetryRefused = $false, [string]$SessionId = '', [string]$SafePrompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor')
+    $firstArgs = @('run', '--session', [string]$SessionId, '--model', [string]$Model, [string]$SafePrompt)
+    $out = [ordered]@{
+        shouldRetry     = $false
+        retryDue        = $false
+        fallback        = $false
+        calls           = 0
+        firstArgs       = $firstArgs
+        retryArgs       = $null
+        final           = $null
+        ok              = $false
+        fallbackProof   = $null
+        noFallbackReason = ''
+        refusedProof    = $null
+        proofs          = @()
+    }
+    try {
+        if ($null -eq $FirstResult) { return $out }
+        $fExit = -1
+        $fTimedOut = $false
+        $fOut = ''
+        $fJob = $false
+        try { $fTimedOut = [bool]$FirstResult.TimedOut } catch { $fTimedOut = $false }
+        try { if ($null -ne $FirstResult.ExitCode) { $fExit = [int]$FirstResult.ExitCode } } catch { $fExit = -1 }
+        try { $fOut = (([string]$FirstResult.Stdout) + "`n" + ([string]$FirstResult.Stderr)) } catch { $fOut = '' }
+        try { $fJob = [bool]$FirstResult.JobAssigned } catch { $fJob = $false }
+        $due = (((-not $fTimedOut) -and ($fExit -ne 0)) -and (Test-LaneModelUnavailableOutput -Text $fOut))
+        $out.retryDue = [bool]$due
+        $should = (([bool]$due) -and ([bool]$fJob))
+        $out.shouldRetry = [bool]$should
+        if ([bool]$should) { $out.retryArgs = @('run', '--session', [string]$SessionId, [string]$SafePrompt) }
+        $used = (([bool]$should) -and (-not [bool]$RetryRefused) -and ($null -ne $RetryResult))
+        $out.fallback = [bool]$used
+        if ([bool]$used) { $out.final = $RetryResult } else { $out.final = $FirstResult }
+        $out.calls = 1
+        if ([bool]$used) { $out.calls = 2 }
+        $eExit = -1
+        $eTo = $true
+        $eJob = $false
+        try { if ($null -ne $out.final.ExitCode) { $eExit = [int]$out.final.ExitCode } } catch { $eExit = -1 }
+        try { $eTo = [bool]$out.final.TimedOut } catch { $eTo = $true }
+        try { $eJob = [bool]$out.final.JobAssigned } catch { $eJob = $false }
+        $out.ok = (((-not $eTo) -and ($eExit -eq 0)) -and ([bool]$eJob))
+        if ([bool]$used) {
+            $fp = [ordered]@{ proof = 'model-fallback-default'; ok = $true; detail = ('retry sem --model (default do servico) apos Model unavailable; rc=' + $eExit + ' job=' + [bool]$eJob) }
+            $out.fallbackProof = $fp
+            $out.proofs = @($fp)
+        }
+        if ((([bool]$due) -and (-not [bool]$used))) {
+            if (-not [bool]$fJob) { $out.noFallbackReason = 'job-unassigned-no-fallback: 1a sem JobAssigned provado; retry recusado (fail-closed)' }
+            elseif ([bool]$RetryRefused) { $out.noFallbackReason = 'retry-job-unavailable: job do retry indisponivel; 1a prevalece (fail-closed)' }
+            else { $out.noFallbackReason = 'retry-no-result: retry sem resultado; 1a prevalece (fail-closed)' }
+            $rp = [ordered]@{ proof = 'model-fallback-refused'; ok = $true; detail = ([string]$out.noFallbackReason + '; rc=' + $eExit + ' job=' + [bool]$eJob) }
+            $out.refusedProof = $rp
+            $out.proofs = @($rp)
+        }
+        return $out
+    } catch { return $out }
+}
 function Invoke-LaneModelTurn {
     # Turn de modelo bounded via filho 'opencode run --session' (conecta no
     # service isolado da lane). So executa com model-key disponivel; fora
     # disso retorna attempted=false e a perna segue blocked (fail-closed).
-    # BOTREV-01/B3: o filho roda em Job Object proprio com KILL_ON_JOB_CLOSE
-    # (contencao provada da arvore com a model-key no ambiente); job
-    # indisponivel => turn recusado (fail-closed), nunca sem contencao.
+    # Decisao do fallback delegada a New-LaneModelTurnOutcome (pura): 1a
+    # tentativa com --model do pin; se devida (rc!=0, sem timeout, Model
+    # unavailable, 1a com JobAssigned provado), UMA retentativa com args do
+    # helper (sem --model, default do servico). 1a sem assign => sem retry,
+    # terminal, reason job-unassigned-no-fallback + proof diag
+    # (veredito intacto: ok so com retry exit 0 + job assigned).
+    # BOTREV-01/B3: o filho recebe Job Object proprio com KILL_ON_JOB_CLOSE
+    # (contencao POS-SPAWN + rejeicao de resultado sem atribuicao comprovada;
+    # NAO e contencao pre-execucao); job indisponivel => turn recusado
+    # (fail-closed).
     [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000)
-    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; job_assigned = $false; job_note = ''; reason = '' }
+    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; reason = '' }
     try {
         if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
@@ -307,13 +466,55 @@ function Invoke-LaneModelTurn {
         $modelEnv = Get-LaneModelChildEnv -BaseEnv $script:IsoEnv
         $modelRemove = @($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { $_ -cne $script:ModelKeyEnvNameClean }))
         $res.attempted = $true
+        $plan = New-LaneModelTurnOutcome -SessionId $SessionId -SafePrompt $safePrompt -Model $Model
         $r = $null
         try {
-            $r = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('run', '--session', $SessionId, '--model', $Model, $safePrompt) -EnvSet $modelEnv -EnvRemove $modelRemove -WorkingDirectory $script:CwdT -TimeoutMs $TimeoutMs -CleanEnvironment -StdinNul -JobObject $turnJob
+            $r = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList $plan.firstArgs -EnvSet $modelEnv -EnvRemove $modelRemove -WorkingDirectory $script:CwdT -TimeoutMs $TimeoutMs -CleanEnvironment -StdinNul -JobObject $turnJob
         } finally {
             try { [void](Close-RuntimeJobObject -Job $turnJob) } catch { }
         }
-        if ($null -eq $r) { $res.reason = 'spawn do turn sem resultado (fail-closed)'; return $res }
+        if ($null -eq $r) { $res.reason = 'spawn do turn sem resultado (fail-closed)'; $res.output_excerpt = Get-LaneModelTurnOutputExcerpt -Stdout '' -Stderr ''; return $res }
+        $gate = New-LaneModelTurnOutcome -FirstResult $r -SessionId $SessionId -SafePrompt $safePrompt -Model $Model
+        if ([bool]$gate.shouldRetry) {
+            # Contencao padrao P26: assign imediato pos-spawn via -JobObject +
+            # resultado recusado sem JobAssigned provado + backstop
+            # KILL_ON_JOB_CLOSE; a janela residual spawn-antes-assign vive no
+            # SpikeProcess compartilhado (fora deste escopo). create-suspended
+            # exigiria slice dedicada com architect + regressao total.
+            $fbJob = $null
+            try { $fbJob = New-RuntimeJobObject } catch { $fbJob = $null }
+            $fbUsable = (($null -ne $fbJob) -and ([bool]$fbJob.Ok))
+            if ($fbUsable) {
+                try {
+                    $fbFlags = Get-RuntimeJobLimitFlags -Job $fbJob
+                    $fbUsable = (($null -ne $fbFlags) -and ([bool]$fbFlags.Ok) -and ([bool]$fbFlags.KillOnClose))
+                } catch { $fbUsable = $false }
+            }
+            $outcome = $null
+            if ($fbUsable) {
+                $r2 = $null
+                try {
+                    $r2 = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList $gate.retryArgs -EnvSet $modelEnv -EnvRemove $modelRemove -WorkingDirectory $script:CwdT -TimeoutMs $TimeoutMs -CleanEnvironment -StdinNul -JobObject $fbJob
+                } finally {
+                    try { [void](Close-RuntimeJobObject -Job $fbJob) } catch { }
+                }
+                $outcome = New-LaneModelTurnOutcome -FirstResult $r -RetryResult $r2 -SessionId $SessionId -SafePrompt $safePrompt -Model $Model
+            } else {
+                try { [void](Close-RuntimeJobObject -Job $fbJob) } catch { }
+                $outcome = New-LaneModelTurnOutcome -FirstResult $r -RetryRefused $true -SessionId $SessionId -SafePrompt $safePrompt -Model $Model
+            }
+            $r = $outcome.final
+            $res.fallback = [bool]$outcome.fallback
+            $res.fallbackProof = $outcome.fallbackProof
+            $res.calls = [int]$outcome.calls
+            $final = $outcome
+        } else {
+            $final = $gate
+        }
+        if (-not [bool]$res.fallback) {
+            if ([string]$final.noFallbackReason -ne '') { $res.reason = [string]$final.noFallbackReason }
+            if ($null -ne $final.refusedProof) { $res.refusedProof = $final.refusedProof }
+        }
         $res.exit = [int]$r.ExitCode
         $res.timedout = [bool]$r.TimedOut
         $res.job_assigned = [bool]$r.JobAssigned
@@ -321,12 +522,16 @@ function Invoke-LaneModelTurn {
         $so = Get-LaneSafeText (([string]$r.Stdout + "`n" + [string]$r.Stderr)) 160
         $res.out_chars = $so.Length
         $res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))
+        if (([bool]$res.attempted) -and (-not [bool]$res.ok)) {
+            try { $res.output_excerpt = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$r.Stdout) -Stderr ([string]$r.Stderr) } catch { $res.output_excerpt = '(sem saida capturada)' }
+        }
         if ((-not [bool]$r.JobAssigned) -and ($res.ok -eq $false) -and ([int]$r.ExitCode -eq 0) -and (-not [bool]$r.TimedOut)) {
             $res.reason = 'turn rc=0 mas atribuicao ao job NAO comprovada (contencao nao provada; resultado nao conta como ok)'
         }
         return $res
     } catch {
         $res.reason = (Get-LaneSafeText $_.Exception.Message 160)
+        if (([bool]$res.attempted) -and ([string]::IsNullOrWhiteSpace([string]$res.output_excerpt))) { $res.output_excerpt = '(sem saida capturada)' }
         return $res
     }
 }
@@ -1075,6 +1280,8 @@ try {
                             if (Test-LaneModelKeyAvailable) {
                                 $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
+                                if ($null -ne $turn18.fallbackProof) { [void]$proofs.Add($turn18.fallbackProof) }
+                                if ($null -ne $turn18.refusedProof) { [void]$proofs.Add($turn18.refusedProof) }
                                 if ([bool]$turn18.ok) {
                                     $msg18b = Invoke-Api -Method 'GET' -Path ('/api/session/' + $childId + '/message')
                                     if ([bool]$msg18b.ok) {
@@ -1094,6 +1301,7 @@ try {
                                     }
                                 } else {
                                     $modelDetail18 = ('model-turn opt-in falhou: rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' (' + (Get-LaneModelKeyLogToken) + '); perna segue blocked')
+                                    if ([bool]$turn18.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn18.output_excerpt) }) }
                                 }
                             }
                             [void](Add-ScenarioProof $proofs 'completed-leg-recovered' $modelRecovered18 $modelDetail18)
@@ -1279,6 +1487,9 @@ try {
                                 $canaryEsc20 = [regex]::Escape($canary20)
                                 $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
+                                if (([bool]$turn20.attempted) -and (-not [bool]$turn20.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn20.output_excerpt) }) }
+                                if ($null -ne $turn20.fallbackProof) { [void]$proofs.Add($turn20.fallbackProof) }
+                                if ($null -ne $turn20.refusedProof) { [void]$proofs.Add($turn20.refusedProof) }
                                 if ([bool]$turn20.ok) {
                                     $msgRepl2 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$srepl.id + '/message')
                                     $postBody20 = $(if ([bool]$msgRepl2.ok) { [string]$msgRepl2.body } else { '' })
@@ -1417,6 +1628,9 @@ try {
                         $stateEsc21 = [regex]::Escape($preState)
                         $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt ('RECOVERY-' + $canary21 + '-read-task-lane21-report-state-objective-history') -TimeoutMs 180000
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
+                        if (([bool]$turn21.attempted) -and (-not [bool]$turn21.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn21.output_excerpt) }) }
+                        if ($null -ne $turn21.fallbackProof) { [void]$proofs.Add($turn21.fallbackProof) }
+                        if ($null -ne $turn21.refusedProof) { [void]$proofs.Add($turn21.refusedProof) }
                         if ([bool]$turn21.ok) {
                             $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message')
                             $body21 = [string]$msg21.body
