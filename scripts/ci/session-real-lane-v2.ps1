@@ -369,7 +369,7 @@ function Get-LaneModelTurnOutputExcerpt {
     # Excerpt diagnostico do output de um turn de modelo: stdout+stderr com
     # pre-redacao LOCAL de credenciais com aspas (NOME="v", NOME='v',
     # "NOME": "v", 'NOME': 'v', NOME=v) e depois Get-LaneSafeText com cap
-    # 1200 (truncagem sempre DEPOIS da redacao). Uso: proof
+    # default 1200 e teto 4000 (truncagem sempre DEPOIS da redacao). Uso: proof
     # 'model-turn-output' (ok=true, diag informativa) SOMENTE em falha do
     # turn; sucesso mantem output_excerpt=''. Get-LaneSafeText e
     # compartilhada e permanece intocada. Saida vazia vira placeholder
@@ -377,7 +377,7 @@ function Get-LaneModelTurnOutputExcerpt {
     [CmdletBinding()] param([string]$Stdout = '', [string]$Stderr = '', [int]$Max = 1200)
     try {
         if ($Max -le 0) { $Max = 1200 }
-        if ($Max -gt 1200) { $Max = 1200 }
+        if ($Max -gt 4000) { $Max = 4000 }
         $raw = (([string]$Stdout) + "`n" + ([string]$Stderr))
         # Lista fechada: credenciais relevantes do SensitiveEnvRemove da lane
         # + NOME da model-key opt-in (dinamico) + formato generico para chaves
@@ -1007,7 +1007,7 @@ function Invoke-LaneModelTurn {
     # NAO e contencao pre-execucao); job indisponivel => turn recusado
     # (fail-closed).
     [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000, [string]$NativeBaseUrl = '', $NativeRequestFn = $null)
-    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; reason = '' }
+    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; turn_output_safe = '(turno sem saida: spawn sem resultado)'; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; reason = '' }
     try {
         if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
@@ -1083,6 +1083,11 @@ function Invoke-LaneModelTurn {
         $res.job_note = [string]$r.JobNote
         $so = Get-LaneSafeText (([string]$r.Stdout + "`n" + [string]$r.Stderr)) 160
         $res.out_chars = $so.Length
+        # STDOUT+STDERR sanitizado integral do turno para diagnostico
+        # (sempre preenchido com $r presente, sucesso ou falha; cap 4000 via
+        # excerpt-helper (mesma redacao do matcher). So alimenta
+        # a proof diag model-turn-stdout (ok=true); vereditos/gates intactos.
+        $res.turn_output_safe = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$r.Stdout) -Stderr ([string]$r.Stderr) -Max 4000
         # STDOUT sanitizado SOMENTE com gate CLI integral (rc==0, sem timeout,
         # JobAssigned provado): stdout de tentativa recusada nunca vira
         # evidencia (se a nativa decidir depois, cenarios usam GET ou evidencia
@@ -1922,6 +1927,7 @@ try {
                                 [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport18 + ' motivo=' + [string]$credWhy18 + '; sem import a perna model segue blocked'))
                                 $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
+                                if ([bool]$turn18.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn18.turn_output_safe) }) }
                                 if ($null -ne $turn18.fallbackProof) { [void]$proofs.Add($turn18.fallbackProof) }
                                 if ($null -ne $turn18.refusedProof) { [void]$proofs.Add($turn18.refusedProof) }
                                 if ($null -ne $turn18.nativeProof) { [void]$proofs.Add($turn18.nativeProof) }
@@ -2150,6 +2156,7 @@ try {
                                 [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport20 + ' motivo=' + [string]$credWhy20 + '; sem import a perna model segue blocked'))
                                 $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
+                                if ([bool]$turn20.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn20.turn_output_safe) }) }
                                 if (([bool]$turn20.attempted) -and (-not [bool]$turn20.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn20.output_excerpt) }) }
                                 if ($null -ne $turn20.fallbackProof) { [void]$proofs.Add($turn20.fallbackProof) }
                                 if ($null -ne $turn20.refusedProof) { [void]$proofs.Add($turn20.refusedProof) }
@@ -2296,6 +2303,7 @@ try {
                         [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport21 + ' motivo=' + [string]$credWhy21 + '; sem import a perna model segue blocked'))
                         $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt ('RECOVERY-' + $canary21 + '-read-task-lane21-report-state-objective-history') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
+                        if ([bool]$turn21.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn21.turn_output_safe) }) }
                         if (([bool]$turn21.attempted) -and (-not [bool]$turn21.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn21.output_excerpt) }) }
                         if ($null -ne $turn21.fallbackProof) { [void]$proofs.Add($turn21.fallbackProof) }
                         if ($null -ne $turn21.refusedProof) { [void]$proofs.Add($turn21.refusedProof) }

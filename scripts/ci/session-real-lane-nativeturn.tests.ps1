@@ -935,6 +935,8 @@ try {
             if ([string]$script:cliFault -ceq 'rc') { $ex = 1 }
             elseif ([string]$script:cliFault -ceq 'timeout') { $to = $true }
             elseif ([string]$script:cliFault -ceq 'nojob') { $ja = $false }
+            if ([string]$script:cliFault -ceq 'throw') { throw 'syn-spike-throw-i9' }
+            if ([string]$script:cliFault -ceq 'null') { return $null }
             return @{ ExitCode = $ex; TimedOut = $to; Stdout = [string]$script:cliStdout; Stderr = ''; JobAssigned = $ja; JobNote = 'syn-stub' }
         }
         $script:cliCalls = 0
@@ -945,6 +947,25 @@ try {
         Assert-That (([bool]$tI.ok) -and ([string]$tI.turn_stdout_safe -match 'assistant') -and ([string]$tI.turn_stdout_safe -match 'lane21-syn-sess-i1') -and ([string]$tI.turn_stdout_safe -match 'PLANNING')) 'turn expoe stdout sanitizado com marcadores' 'campo ausente/vazio'
         Assert-That ([string]$tI.turn_stdout_safe -notmatch 'SYNTHETIC-K99-VALUE') 'turn sanitiza segredo do stdout' 'vazamento'
         Assert-That ([int]$script:legCalls -eq 0) 'turn CLI-ok nao consulta nativa' ('leg=' + $script:legCalls)
+        # I-full: output sanitizado ate 4000 (maior que o excerpt de falha)
+        $script:cliFault = ''
+        $script:cliStdout = '{"role":"assistant","session":"lane21-syn-sess-i9"} token=SYNTHETIC-K99-VALUE "token": "SYNTHETIC-T99-VALUE" ' + ('B' * 5000)
+        $script:legCalls = 0
+        $tO = Invoke-LaneModelTurn -SessionId 'syn-sess-i9' -Prompt 'syn-prompt-i9' -TimeoutMs 10000
+        Assert-That (([bool]$tO.ok) -and ($tO.Contains('turn_output_safe')) -and ([string]$tO.turn_output_safe -match 'assistant')) 'turn expoe output sanitizado integral' 'campo ausente/vazio'
+        Assert-That ((([string]$tO.turn_output_safe).Length -le 4000) -and (([string]$tO.turn_output_safe).Length -gt 1200)) 'turn cap 4000 respeitado, maior que excerpt' ('len=' + ([string]$tO.turn_output_safe).Length)
+        Assert-That (([string]$tO.turn_output_safe -notmatch 'SYNTHETIC-K99-VALUE') -and ([int]$script:legCalls -eq 0)) 'turn output sanitizado sem consulta nativa' 'vazamento ou chamada indevida'
+        # I-null-spawn: sem resultado, campo com placeholder nao-vazio
+        $script:cliFault = 'null'
+        $script:cliStdout = ''
+        $tS = Invoke-LaneModelTurn -SessionId 'syn-sess-i10' -Prompt 'syn-prompt-i10' -TimeoutMs 10000
+        Assert-That (([bool]$tS.attempted) -and (-not [bool]$tS.ok) -and ($tS.Contains('turn_output_safe')) -and ([string]$tS.turn_output_safe -ceq '(turno sem saida: spawn sem resultado)')) 'turn spawn-nulo: placeholder nao-vazio' 'campo ausente/vazio'
+        # I-throw: excecao apos attempted, campo com placeholder nao-vazio
+        $script:cliFault = 'throw'
+        $tT = Invoke-LaneModelTurn -SessionId 'syn-sess-i11' -Prompt 'syn-prompt-i11' -TimeoutMs 10000
+        Assert-That (([bool]$tT.attempted) -and (-not [bool]$tT.ok) -and ($tT.Contains('turn_output_safe')) -and ([string]$tT.turn_output_safe -ceq '(turno sem saida: spawn sem resultado)')) 'turn throw apos attempted: placeholder nao-vazio' 'campo ausente/vazio'
+        $script:cliFault = ''
+        Assert-That ([string]$tO.turn_output_safe -notmatch 'SYNTHETIC-T99-VALUE') 'turn redige token JSON com espaco no diag' 'vazamento'
         # I-gate: tentativa recusada nunca popula o campo, mesmo com marcadores
         $script:cliFault = 'rc'
         $tR = Invoke-LaneModelTurn -SessionId 'syn-sess-i2' -Prompt 'syn-prompt-i2' -TimeoutMs 10000
@@ -970,6 +991,12 @@ try {
     Assert-That ($text.Contains('Test-LaneTurnEvidence -Text $stdSrc21')) '21: mesmos criterios via matcher' 'matcher ausente'
     Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + `$childId + '/message')")) '18: GET mantido como fallback' 'fallback removido'
     Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]`$s2.id + '/message')")) '21: GET mantido como fallback' 'fallback removido'
+    # I-stdout-proof: diag model-turn-stdout ok=true nos 3 cenarios, gated em attempted
+    $stdoutProofAdds = @([regex]::Matches($text, "proof = 'model-turn-stdout'"))
+    Assert-That (@($stdoutProofAdds).Count -eq 3) 'model-turn-stdout em 18/20/21' ('count=' + @($stdoutProofAdds).Count)
+    $stdoutProofBad = @([regex]::Matches($text, 'proof = ''model-turn-stdout''; ok = \$false'))
+    Assert-That (@($stdoutProofBad).Count -eq 0) 'model-turn-stdout nunca com ok=false (veredito intacto)' ('count=' + @($stdoutProofBad).Count)
+    Assert-That ((@([regex]::Matches($text, 'turn18\.turn_output_safe')).Count -ge 1) -and (@([regex]::Matches($text, 'turn20\.turn_output_safe')).Count -ge 1) -and (@([regex]::Matches($text, 'turn21\.turn_output_safe')).Count -ge 1)) 'stdout-proof le turn_output_safe nos 3' 'leitura ausente'
     $suiteSecs = [int]$script:suiteSw.Elapsed.TotalSeconds
     Assert-That ($suiteSecs -lt 300) 'suite completa <300s' ('duracao=' + $suiteSecs + 's')
     Write-Host ('[nativeturn-tests] ' + $script:passed + '/' + $script:total + ' PASS')
