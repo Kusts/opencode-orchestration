@@ -54,6 +54,11 @@
 #     => pernas seguem blocked (fail-closed; nenhum PASS forjado). Ex.
 #     operator-owned: -ModelKeyEnvName 'OPENCODE_GO_API_KEY' com o modelo
 #     opencode-go/muse-spark-1.3-contributor (verificado em 2026-10-08).
+#     Com opt-in, a lane importa o credential store do usuario (somente
+#     auth.json,account.json de XDG_DATA e kv.json,model.json,service.json
+#     de XDG_STATE) para o perfil isolado antes dos turnos 18/20/21, via
+#     Import-LaneSessionCredentialStore; sem opt-in ou sem arquivos, nada
+#     e copiado e os turnos model seguem blocked (fail-closed).
 #     Cada turn 'opencode run' recebe um Job Object proprio com KILL_ON_JOB_CLOSE
 #     (contencao POS-SPAWN + rejeicao de resultado sem atribuicao comprovada;
 #     NAO e contencao pre-execucao: rc sem atribuicao nao conta como ok; job
@@ -280,6 +285,86 @@ function Get-LaneModelChildEnv {
     } catch { }
     return $out
 }
+function Import-LaneSessionCredentialStore {
+    # Importacao pos-gate de opt-in do credential store do usuario para o
+    # perfil isolado (espelha Import-LaneProfileCredentials da MCP lane).
+    # Chamar SOMENTE com Test-LaneModelKeyAvailable == $true, nos setups
+    # 18/20/21 antes dos turnos. Copia APENAS os 5 nomes fixos (XDG_DATA
+    # opencode/auth.json,account.json + XDG_STATE opencode/kv.json,
+    # model.json,service.json, com fallback USERPROFILE/.local quando XDG_
+    # vazio) para o xdg isolado sob TargetRoot. Retorna bool (true se copiou
+    # ao menos 1). Valores nunca vao para log (so bool); segredos morrem
+    # com TargetRoot. Sem opt-in ou sem arquivos => $false sem copiar nada;
+    # a perna model segue blocked (fail-closed, sem inventar auth).
+    [CmdletBinding()] param([string]$TargetRoot = '', [string]$UserDataRoot = '', [string]$UserStateRoot = '', $ReasonOut = $null)
+    try {
+        # Confinamento TEMP (sec): o cleanup da lane cobre SOMENTE TEMP e
+        # RUNNER_TEMP; fora delas as credenciais persistiriam. Normaliza
+        # (GetFullPath resolve '..') e exige prefixo por limite (base mais
+        # separador, case-insensitive): irmao com prefixo parecido e escape
+        # '..' sao recusados. Fora => $false SEM copiar, com reason explicito
+        # via ReasonOut (opcional; sem ele, so o bool).
+        $root = [string]$TargetRoot
+        if ([string]::IsNullOrWhiteSpace($root)) { return $false }
+        $nt = ''
+        try { $nt = ([IO.Path]::GetFullPath($root)).TrimEnd('\', '/') } catch { $nt = '' }
+        if ([string]::IsNullOrWhiteSpace($nt)) { return $false }
+        $sep = [string][IO.Path]::DirectorySeparatorChar
+        $inTemp = $false
+        $tmpBase = [IO.Path]::GetTempPath()
+        $runTemp = [Environment]::GetEnvironmentVariable('RUNNER_TEMP', 'Process')
+        foreach ($base in @($tmpBase, $runTemp)) {
+            if ([string]::IsNullOrWhiteSpace($base)) { continue }
+            $nb = ''
+            try { $nb = ([IO.Path]::GetFullPath($base)).TrimEnd('\', '/') } catch { $nb = '' }
+            if ([string]::IsNullOrWhiteSpace($nb)) { continue }
+            if (($nt + $sep).StartsWith(($nb + $sep), [StringComparison]::OrdinalIgnoreCase)) { $inTemp = $true; break }
+        }
+        if (-not $inTemp) {
+            try { if ($ReasonOut -is [System.Management.Automation.PSReference]) { $ReasonOut.Value = 'credstore-target-fora-do-temp' } } catch { }
+            return $false
+        }
+        if (-not (Test-LaneModelKeyAvailable)) { return $false }
+        $xdgData = Join-Path $root 'xdg-data'
+        $xdgState = Join-Path $root 'xdg-state'
+        $userData = [string]$UserDataRoot
+        if ([string]::IsNullOrWhiteSpace($userData)) {
+            $userData = [Environment]::GetEnvironmentVariable('XDG_DATA_HOME', 'Process')
+            if ([string]::IsNullOrWhiteSpace($userData)) { $userData = Join-Path ([Environment]::GetEnvironmentVariable('USERPROFILE', 'Process')) '.local\share' }
+        }
+        $userOpDir = Join-Path ([string]$userData) 'opencode'
+        $profOpData = Join-Path $xdgData 'opencode'
+        if (-not (Test-Path -LiteralPath $profOpData -PathType Container)) { New-Item -ItemType Directory -Path $profOpData -Force | Out-Null }
+        $copiedAny = $false
+        foreach ($af in @('auth.json', 'account.json')) {
+            try {
+                $src = Join-Path $userOpDir $af
+                if (Test-Path -LiteralPath $src -PathType Leaf) {
+                    Copy-Item -LiteralPath $src -Destination (Join-Path $profOpData $af) -Force
+                    $copiedAny = $true
+                }
+            } catch { }
+        }
+        $userState = [string]$UserStateRoot
+        if ([string]::IsNullOrWhiteSpace($userState)) {
+            $userState = [Environment]::GetEnvironmentVariable('XDG_STATE_HOME', 'Process')
+            if ([string]::IsNullOrWhiteSpace($userState)) { $userState = Join-Path ([Environment]::GetEnvironmentVariable('USERPROFILE', 'Process')) '.local\state' }
+        }
+        $userOpState = Join-Path ([string]$userState) 'opencode'
+        $profOpState = Join-Path $xdgState 'opencode'
+        if (-not (Test-Path -LiteralPath $profOpState -PathType Container)) { New-Item -ItemType Directory -Path $profOpState -Force | Out-Null }
+        foreach ($sf in @('kv.json', 'model.json', 'service.json')) {
+            try {
+                $src = Join-Path $userOpState $sf
+                if (Test-Path -LiteralPath $src -PathType Leaf) {
+                    Copy-Item -LiteralPath $src -Destination (Join-Path $profOpState $sf) -Force
+                    $copiedAny = $true
+                }
+            } catch { }
+        }
+        return [bool]$copiedAny
+    } catch { return $false }
+}
 function Get-LaneModelTurnOutputExcerpt {
     # Excerpt diagnostico do output de um turn de modelo: stdout+stderr com
     # pre-redacao LOCAL de credenciais com aspas (NOME="v", NOME='v',
@@ -358,11 +443,11 @@ function New-LaneModelTurnOutcome {
     # cobrem todos os ramos com fixtures sinteticas, sem mocks de processo.
     # Campos lidos de cada resultado: ExitCode, TimedOut, Stdout, Stderr,
     # JobAssigned, JobNote (hashtable ou objeto; ausente = default fail-closed).
+    # retry recusado/sem resultado nao soma e a 1a prevalece (fail-closed).
     # retryDue = classe (rc!=0, sem timeout, Model unavailable), sem olhar assign.
     # shouldRetry = retryDue E 1a com JobAssigned provado (mitigacao
     # ORFS-SPAWN-CONTAINMENT-ADV; 1a sem assign => sem retry, terminal).
-    # calls conta 1a + retry quando usado; retry recusado/sem resultado nao
-    # soma e a 1a prevalece (fail-closed). fallbackProof (model-fallback-default
+    # calls conta 1a + retry quando usado; fallbackProof (model-fallback-default
     # ok=true) so existe quando o retry foi usado, com rc/job do resultado
     # final (fail do retry segue fail; vereditos dos cenarios intactos).
     # noFallbackReason/refusedProof (model-fallback-refused ok=true, diag)
@@ -371,7 +456,10 @@ function New-LaneModelTurnOutcome {
     # (retry-job-unavailable) ou retry sem resultado (retry-no-result).
     # No objeto de gate (pre-retry) esses valores sao provisorios; a lane so
     # le reason/proof do desfecho pos-branch.
-    [CmdletBinding()] param($FirstResult = $null, $RetryResult = $null, [bool]$RetryRefused = $false, [string]$SessionId = '', [string]$SafePrompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor')
+    # Nativa (ORFS-LANE-NATIVETURN): params NativeAttempted/NativeOk/
+    # NativeProof opcionais e saidas nativeAttempted/nativeOk/nativeProof/
+    # nativeCalls aditivas; callers antigos (sem nativa) mantem calls/proofs.
+    [CmdletBinding()] param($FirstResult = $null, $RetryResult = $null, [bool]$RetryRefused = $false, [string]$SessionId = '', [string]$SafePrompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [bool]$NativeAttempted = $false, [bool]$NativeOk = $false, $NativeProof = $null)
     $firstArgs = @('run', '--session', [string]$SessionId, '--model', [string]$Model, [string]$SafePrompt)
     $out = [ordered]@{
         shouldRetry     = $false
@@ -386,6 +474,10 @@ function New-LaneModelTurnOutcome {
         noFallbackReason = ''
         refusedProof    = $null
         proofs          = @()
+        nativeAttempted = $false
+        nativeOk        = $false
+        nativeProof     = $null
+        nativeCalls     = 0
     }
     try {
         if ($null -eq $FirstResult) { return $out }
@@ -407,6 +499,14 @@ function New-LaneModelTurnOutcome {
         if ([bool]$used) { $out.final = $RetryResult } else { $out.final = $FirstResult }
         $out.calls = 1
         if ([bool]$used) { $out.calls = 2 }
+        if ([bool]$NativeAttempted) {
+            $out.nativeAttempted = $true
+            $out.nativeProof = $NativeProof
+            $out.nativeCalls = 1
+            if ([bool]$NativeOk) { $out.nativeOk = $true }
+            if ([int]$out.calls -lt 3) { $out.calls = [int]$out.calls + 1 }
+            if ([int]$out.calls -gt 3) { $out.calls = 3 }
+        }
         $eExit = -1
         $eTo = $true
         $eJob = $false
@@ -430,6 +530,397 @@ function New-LaneModelTurnOutcome {
         return $out
     } catch { return $out }
 }
+function Parse-NativeTurnMessages {
+    # Parser puro das mensagens do turno nativo (sem rede/spawn/estado):
+    # aceita lista nua, {data:[...]}, {messages:[...]} e
+    # {data:{messages:[...]}}; conta textos de resposta com papel assistant
+    # (role/type/sender), em partes content[] com type text ou em content
+    # string. ok=true = shape de lista valido (mesmo com count 0); ok=false
+    # = vazio/invalido/sem-lista (fail-closed, sem excecao). next =
+    # cursor.next quando presente (paginacao com mesmo type pelo chamador).
+    # dedupKeys: chave paralela a texts (id da mensagem quando houver,
+    # senao o proprio texto); a perna conta so a primeira ocorrencia de
+    # cada chave (sem dupla contagem entre paginas).
+    # Leitura por acesso direto a propriedade (preserva arrays de 1 item no
+    # PS 5.1 em todos os niveis; passar colecao por & de scriptblock ou por
+    # PSObject.Properties[].Value desembrulha singletons). $null seguro;
+    # nunca lanca (o try externo fecha sem excecao).
+    [CmdletBinding()] param([string]$Body = '')
+    $out = [ordered]@{ ok = $false; count = 0; texts = @(); dedupKeys = @(); next = ''; error = '' }
+    try {
+        if ([string]::IsNullOrWhiteSpace($Body)) { $out.error = 'empty-body'; return $out }
+        $j = $null
+        try { $j = ConvertFrom-Json $Body } catch { $j = $null }
+        if ($null -eq $j) { $out.error = 'json-invalido'; return $out }
+        $list = $null
+        $cursorNext = ''
+        if ($j -is [System.Array]) { $list = @($j) }
+        else {
+            $dataNode = $null
+            $msgNode = $null
+            try { $dataNode = $j.data } catch { $dataNode = $null }
+            try { $msgNode = $j.messages } catch { $msgNode = $null }
+            if (($null -ne $dataNode) -and ($dataNode -is [System.Array])) { $list = @($dataNode) }
+            elseif (($null -ne $msgNode) -and ($msgNode -is [System.Array])) { $list = @($msgNode) }
+            elseif ($null -ne $dataNode) {
+                $nested = $null
+                try { $nested = $dataNode.messages } catch { $nested = $null }
+                if (($null -ne $nested) -and ($nested -is [System.Array])) { $list = @($nested) }
+            }
+            # Cursor tri-state (finding MEDIUM): AUSENTE (sem chave ou valor
+            # null, em qualquer das 4 posicoes) ou terminal valido (next null
+            # ou "" explicito) => completo; PRESENTE-mas-malformado (cursor
+            # nao-objeto como string/numero/array, {} sem next, next com tipo
+            # errado como numero/bool/array/objeto) => cursor-malformado.
+            # top/data next string e tolerado (mesmo type implicito).
+            $curVal = $null
+            $curKind = ''
+            try { $t = $j.cursor; if ($null -ne $t) { $curVal = $t; $curKind = 'cursor' } } catch { }
+            if ($null -eq $curVal) { try { $t = $j.next; if ($null -ne $t) { $curVal = $t; $curKind = 'next' } } catch { } }
+            if (($null -eq $curVal) -and ($null -ne $dataNode) -and (-not ($dataNode -is [System.Array]))) {
+                try { $t = $dataNode.cursor; if ($null -ne $t) { $curVal = $t; $curKind = 'cursor' } } catch { }
+                if ($null -eq $curVal) { try { $t = $dataNode.next; if ($null -ne $t) { $curVal = $t; $curKind = 'next' } } catch { } }
+            }
+            if ($null -eq $curVal) { $cursorNext = '' }
+            elseif ($curKind -ceq 'cursor') {
+                if (($curVal -is [System.Array]) -or ($curVal -is [string]) -or ($curVal -is [System.ValueType])) {
+                    $out.error = 'cursor-malformado'; return $out
+                }
+                $hasNextKey = $false
+                try { $hasNextKey = (([string[]]@($curVal.PSObject.Properties.Name)) -contains 'next') } catch { $hasNextKey = $false }
+                if (-not $hasNextKey) { $out.error = 'cursor-malformado'; return $out }
+                $nx = $null
+                try { $nx = $curVal.next } catch { $nx = $null }
+                if ($null -eq $nx) { $cursorNext = '' }
+                elseif ($nx -is [string]) { $cursorNext = [string]$nx }
+                else { $out.error = 'cursor-malformado'; return $out }
+            } else {
+                if ($curVal -is [string]) { $cursorNext = [string]$curVal }
+                else { $out.error = 'cursor-malformado'; return $out }
+            }
+            if ($null -eq $list) {
+                # PS7 desembrulha array-nuo de 1 item no topo: mensagem direta
+                # vira objeto; embrulha de volta quando tem cara de mensagem
+                # (role/sender/content). Objeto sem esses campos segue sem-lista.
+                $jr = $null
+                $js = $null
+                $jc = $null
+                try { $jr = $j.role } catch { $jr = $null }
+                try { $js = $j.sender } catch { $js = $null }
+                try { $jc = $j.content } catch { $jc = $null }
+                if (($null -ne $jr) -or ($null -ne $js) -or ($null -ne $jc)) { $list = @($j) }
+            }
+        }
+        if ($null -eq $list) { $out.error = 'sem-lista'; return $out }
+        $texts = New-Object System.Collections.ArrayList
+        $keys = New-Object System.Collections.ArrayList
+        foreach ($m in @($list)) {
+            if ($null -eq $m) { continue }
+            $role = $null
+            try { $role = $m.role } catch { $role = $null }
+            if ($null -eq $role) { try { $role = $m.type } catch { $role = $null } }
+            if ($null -eq $role) { try { $role = $m.sender } catch { $role = $null } }
+            if ([string]$role -ine 'assistant') { continue }
+            $mid = $null
+            try { $mid = $m.id } catch { $mid = $null }
+            $content = $null
+            try { $content = $m.content } catch { $content = $null }
+            if ($content -is [string]) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$content)) {
+                    [void]$texts.Add([string]$content)
+                    $kk = 'tx:' + [string]$content
+                    if (-not [string]::IsNullOrWhiteSpace([string]$mid)) { $kk = 'id:' + [string]$mid }
+                    [void]$keys.Add($kk)
+                }
+            } elseif ($content -is [System.Array]) {
+                foreach ($part in @($content)) {
+                    if ($null -eq $part) { continue }
+                    if ($part -is [string]) {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$part)) {
+                            [void]$texts.Add([string]$part)
+                            $kk = 'tx:' + [string]$part
+                            if (-not [string]::IsNullOrWhiteSpace([string]$mid)) { $kk = 'id:' + [string]$mid }
+                            [void]$keys.Add($kk)
+                        }
+                        continue
+                    }
+                    $ptype = $null
+                    try { $ptype = $part.type } catch { $ptype = $null }
+                    if ([string]$ptype -ine 'text') { continue }
+                    $tv = $null
+                    try { $tv = $part.text } catch { $tv = $null }
+                    if ($null -eq $tv) { try { $tv = $part.value } catch { $tv = $null } }
+                    if ($null -eq $tv) { try { $tv = $part.content } catch { $tv = $null } }
+                    if ($null -eq $tv) { try { $tv = $part.data } catch { $tv = $null } }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$tv)) {
+                        [void]$texts.Add([string]$tv)
+                        $kk = 'tx:' + [string]$tv
+                        if (-not [string]::IsNullOrWhiteSpace([string]$mid)) { $kk = 'id:' + [string]$mid }
+                        [void]$keys.Add($kk)
+                    }
+                }
+            } else {
+                $tv = $null
+                try { $tv = $m.text } catch { $tv = $null }
+                if ($null -eq $tv) { try { $tv = $m.body } catch { $tv = $null } }
+                if ($null -eq $tv) { try { $tv = $m.message } catch { $tv = $null } }
+                if (-not [string]::IsNullOrWhiteSpace([string]$tv)) {
+                    [void]$texts.Add([string]$tv)
+                    $kk = 'tx:' + [string]$tv
+                    if (-not [string]::IsNullOrWhiteSpace([string]$mid)) { $kk = 'id:' + [string]$mid }
+                    [void]$keys.Add($kk)
+                }
+            }
+        }
+        $out.ok = $true
+        $out.count = @($texts).Count
+        $out.texts = @($texts)
+        $out.dedupKeys = @($keys)
+        $out.next = [string]$cursorNext
+        return $out
+    } catch { $out.error = 'parser-throw'; return $out }
+}
+function Invoke-LaneNativeTurn {
+    # Perna REST nativa do turno (prompt -> wait -> messages), ULTIMO fallback
+    # apos as tentativas CLI. Sem host fixo: usa RequestFn injetado
+    # (Method/Path/Body/TimeoutMs -> StatusCode/Body/TimedOut) ou HTTP direto
+    # contra BaseUrl injetado. Sem auth nova e sem dado sensivel: 401/403 e
+    # qualquer divergencia => fail-closed sem excecao. ok exige prompt 200
+    # com inbox item valido (envelope sem erro significativo + objeto com
+    # id -is [string] nao-vazio e sem erro significativo)
+    # + wait 204 (sem body) + ao menos 1 texto assistant novo (totais
+    # antes/depois dedupados; sem relogio fragil). Paginacao por cursor.next
+    # com mesmo type, ate 5 paginas por lado: cursor ausente/terminal segue,
+    # presente-malformado recusa; repetido => erro, cap com pendencia =>
+    # erro (leitura incompleta); cada chave (id, ou texto sem id) conta uma
+    # unica vez por lado. Paths: prompt sem prefixo experimental, wait COM
+    # o prefixo experimental do contrato V2, messages sem prefixo. Falha com
+    # attempt=true gera proof diag model-native-failed ok=true com detail =
+    # reason estavel (sem body).
+    [CmdletBinding()] param([string]$SessionId = '', [string]$SafePrompt = 'lane-model-turn-probe', [int]$TimeoutMs = 180000, [string]$BaseUrl = '', $RequestFn = $null)
+    $res = [ordered]@{ attempted = $false; ok = $false; wait204 = $false; beforeCount = 0; afterCount = 0; textsNew = 0; promptStatus = -1; waitStatus = -1; messagesStatus = -1; reason = ''; proof = $null }
+    try {
+        if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'empty-session'; return $res }
+        if ([string]::IsNullOrWhiteSpace($SafePrompt)) { $SafePrompt = 'lane-model-turn-probe' }
+        if ([int]$TimeoutMs -le 0) { $TimeoutMs = 180000 }
+        $useFn = ($null -ne $RequestFn)
+        $useHttp = ((-not $useFn) -and (-not [string]::IsNullOrWhiteSpace($BaseUrl)))
+        if ((-not $useFn) -and (-not $useHttp)) { $res.reason = 'native-transport-unavailable'; return $res }
+        $res.attempted = $true
+        $call = {
+            param($Method, $Path, $Body)
+            $o = @{ StatusCode = -1; Body = ''; TimedOut = $false }
+            try {
+                if ($useFn) {
+                    $rr = $null
+                    try { $rr = & $RequestFn -Method $Method -Path $Path -Body ([string]$Body) -TimeoutMs $TimeoutMs } catch { $rr = $null }
+                    if ($null -eq $rr) { return $o }
+                    try { $o.StatusCode = [int](Get-JsonProp $rr 'StatusCode' -1) } catch { }
+                    try { $o.Body = [string](Get-JsonProp $rr 'Body' '') } catch { }
+                    try { $o.TimedOut = [bool](Get-JsonProp $rr 'TimedOut' $false) } catch { }
+                    return $o
+                }
+                $url = ([string]$BaseUrl).TrimEnd('/') + [string]$Path
+                $req = [System.Net.HttpWebRequest]([System.Net.WebRequest]::Create($url))
+                $req.Method = [string]$Method
+                $req.Timeout = [int]$TimeoutMs
+                try { $req.ReadWriteTimeout = [int]$TimeoutMs } catch { }
+                try { $req.Proxy = $null } catch { }
+                if ($Method -ceq 'POST') {
+                    $payload = [string]$Body
+                    if ([string]::IsNullOrEmpty($payload)) { $req.ContentLength = 0 }
+                    else {
+                        $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
+                        $req.ContentType = 'application/json'
+                        $req.ContentLength = $bytes.Length
+                        $ws = $req.GetRequestStream()
+                        try { $ws.Write($bytes, 0, $bytes.Length) } finally { try { $ws.Close() } catch { } }
+                    }
+                }
+                try {
+                    $resp = $req.GetResponse()
+                    try {
+                        $o.StatusCode = [int]$resp.StatusCode
+                        try {
+                            $sr = New-Object IO.StreamReader ($resp.GetResponseStream(), [Text.Encoding]::UTF8)
+                            try { $o.Body = $sr.ReadToEnd() } finally { try { $sr.Close() } catch { } }
+                        } catch { $o.Body = '' }
+                    } finally { try { $resp.Close() } catch { } }
+                } catch {
+                    # PS5.1 embrulha a WebException em MethodInvocationException:
+                    # desembrulha a cadeia ate achar a WebException real, senao
+                    # 404/500/503 viram -1 e timeout vira status (evidencia
+                    # errada, ainda que fail-closed). PS7 nao embrulha; o
+                    # loop e inofensivo la.
+                    $we = $null
+                    $scan = $_.Exception
+                    $sdepth = 0
+                    while (($null -ne $scan) -and ($sdepth -lt 4)) {
+                        if ($scan -is [System.Net.WebException]) { $we = $scan; break }
+                        try { $scan = $scan.InnerException } catch { $scan = $null }
+                        $sdepth++
+                    }
+                    if ($null -ne $we) {
+                        if ($we.Status -eq ([System.Net.WebExceptionStatus]::Timeout)) { $o.TimedOut = $true; return $o }
+                        try {
+                            $er = $we.Response
+                            if ($null -ne $er) {
+                                $o.StatusCode = [int]$er.StatusCode
+                                try {
+                                    $sr2 = New-Object IO.StreamReader ($er.GetResponseStream(), [Text.Encoding]::UTF8)
+                                    try { $o.Body = $sr2.ReadToEnd() } finally { try { $sr2.Close() } catch { } }
+                                } catch { }
+                                try { $er.Close() } catch { }
+                            }
+                        } catch { }
+                    }
+                }
+                return $o
+            } catch { return $o }
+        }
+        $msgBase = '/api/session/' + [string]$SessionId + '/message?type=assistant&order=asc'
+        $promptPath = '/api/session/' + [string]$SessionId + '/prompt'
+        $waitPath = '/api/experimental/session/' + [string]$SessionId + '/wait'
+        $beforeTotal = 0
+        $cursorB = ''
+        $pagesB = 0
+        $pathB = $msgBase
+        $seenKeyB = New-Object System.Collections.ArrayList
+        $seenCurB = New-Object System.Collections.ArrayList
+        while ($pagesB -lt 5) {
+            $br = & $call -Method 'GET' -Path $pathB -Body ''
+            if ([bool]$br.TimedOut) { $res.reason = 'messages-before-timeout'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+            $res.messagesStatus = [int]$br.StatusCode
+            $pb = Parse-NativeTurnMessages -Body ([string]$br.Body)
+            if (([int]$br.StatusCode -ne 200) -or (-not [bool]$pb.ok)) {
+                if ([string]$pb.error -ceq 'cursor-malformado') { $res.reason = 'messages-before-cursor-invalid' } else { $res.reason = 'messages-before-invalid' }
+                $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }
+                return $res
+            }
+            $dkB = $pb['dedupKeys']
+            if ($null -ne $dkB) {
+                foreach ($k in @($dkB)) {
+                    $ks = [string]$k
+                    if (-not $seenKeyB.Contains($ks)) { [void]$seenKeyB.Add($ks); $beforeTotal++ }
+                }
+            }
+            $cursorB = [string]$pb.next
+            if ([string]::IsNullOrWhiteSpace($cursorB)) { break }
+            if ($seenCurB.Contains($cursorB)) { $res.reason = 'messages-before-cursor-repeat'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+            [void]$seenCurB.Add($cursorB)
+            $pathB = $msgBase + '&cursor=' + [Uri]::EscapeDataString($cursorB)
+            $pagesB++
+        }
+        if (-not [string]::IsNullOrWhiteSpace($cursorB)) { $res.reason = 'messages-before-truncated'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $res.beforeCount = $beforeTotal
+        $esc = ([string]$SafePrompt -replace '\\', '\\' -replace '"', '\"' -replace "`r", '\r' -replace "`n", '\n')
+        $promptBody = '{"text":"' + $esc + '"}'
+        $pr = & $call -Method 'POST' -Path $promptPath -Body $promptBody
+        if ([bool]$pr.TimedOut) { $res.reason = 'prompt-timeout'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $res.promptStatus = [int]$pr.StatusCode
+        if ([int]$pr.StatusCode -ne 200) { $res.reason = ('prompt-status-' + [int]$pr.StatusCode); $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        # Tipo raiz ANTES do desembrulho (finding MEDIUM, v2): o parse aceita
+        # comentarios e o PS7 desembrulha array singleton, entao nem o check
+        # de '[' nem o -is Array barram '/*c*/[...]' ; o texto apos trim tem
+        # que comecar com '{', qualquer outro inicio ([, comentario, string,
+        # numero) => recusa direta com prompt-invalid-shape, sem proof.
+        if (-not ([string]$pr.Body).Trim().StartsWith('{')) { $res.reason = 'prompt-invalid-shape'; return $res }
+        $pj = $null
+        try { $pj = ConvertFrom-Json ([string]$pr.Body) } catch { $pj = $null }
+        if ($null -eq $pj) { $res.reason = 'prompt-invalid'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        # Schema minimo do inbox item (finding HIGH, v2): envelope objeto
+        # SEM erro significativo + item (nu ou sob data) objeto com id
+        # -is [string] nao-vazio e SEM erro significativo. Benigno = ausente,
+        # null, "" , [] , $false e 0; resto (string/array/objeto/numero/bool
+        # significativos) recusa. Recusa {"error":...}+id valido (erro externo
+        # nao descartado), id numerico/bool/array, {} , array e string;
+        # qualquer divergencia => fail-closed sem proof.
+        $inboxOk = $false
+        try {
+            $envNode = $pj
+            if (($null -ne $envNode) -and (-not ($envNode -is [System.Array]))) {
+                $envErr = $null
+                try { $envErr = $envNode.error } catch { $envErr = $null }
+                $envBad = $false
+                if ($null -eq $envErr) { $envBad = $false }
+                elseif ($envErr -is [string]) { $envBad = (-not [string]::IsNullOrWhiteSpace([string]$envErr)) }
+                elseif ($envErr -is [System.Array]) { $envBad = (@($envErr).Count -gt 0) }
+                elseif ($envErr -is [bool]) { $envBad = [bool]$envErr }
+                else {
+                    $envZero = $false
+                    try { $envZero = ([double]$envErr -eq 0) } catch { $envZero = $false }
+                    $envBad = (-not $envZero)
+                }
+                $inboxNode = $envNode
+                $inboxData = $null
+                try { $inboxData = $envNode.data } catch { $inboxData = $null }
+                if ($null -ne $inboxData) { $inboxNode = $inboxData }
+                if (($null -ne $inboxNode) -and (-not ($inboxNode -is [System.Array]))) {
+                    $inboxId = $null
+                    $inboxErr = $null
+                    try { $inboxId = $inboxNode.id } catch { $inboxId = $null }
+                    try { $inboxErr = $inboxNode.error } catch { $inboxErr = $null }
+                    $itemBad = $false
+                    if ($null -eq $inboxErr) { $itemBad = $false }
+                    elseif ($inboxErr -is [string]) { $itemBad = (-not [string]::IsNullOrWhiteSpace([string]$inboxErr)) }
+                    elseif ($inboxErr -is [System.Array]) { $itemBad = (@($inboxErr).Count -gt 0) }
+                    elseif ($inboxErr -is [bool]) { $itemBad = [bool]$inboxErr }
+                    else {
+                        $itemZero = $false
+                        try { $itemZero = ([double]$inboxErr -eq 0) } catch { $itemZero = $false }
+                        $itemBad = (-not $itemZero)
+                    }
+                    $idOk = (($inboxId -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$inboxId)))
+                    if ((-not $envBad) -and (-not $itemBad) -and ([bool]$idOk)) { $inboxOk = $true }
+                }
+            }
+        } catch { $inboxOk = $false }
+        if (-not [bool]$inboxOk) { $res.reason = 'prompt-invalid-shape'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $wr = & $call -Method 'POST' -Path $waitPath -Body ''
+        if ([bool]$wr.TimedOut) { $res.reason = 'wait-timeout'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $res.waitStatus = [int]$wr.StatusCode
+        if ([int]$wr.StatusCode -ne 204) { $res.reason = ('wait-status-' + [int]$wr.StatusCode); $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $res.wait204 = $true
+        $afterTotal = 0
+        $cursorA = ''
+        $pagesA = 0
+        $pathA = $msgBase
+        $seenKeyA = New-Object System.Collections.ArrayList
+        $seenCurA = New-Object System.Collections.ArrayList
+        while ($pagesA -lt 5) {
+            $ar = & $call -Method 'GET' -Path $pathA -Body ''
+            if ([bool]$ar.TimedOut) { $res.reason = 'messages-after-timeout'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+            $res.messagesStatus = [int]$ar.StatusCode
+            $pa = Parse-NativeTurnMessages -Body ([string]$ar.Body)
+            if (([int]$ar.StatusCode -ne 200) -or (-not [bool]$pa.ok)) {
+                if ([string]$pa.error -ceq 'cursor-malformado') { $res.reason = 'messages-after-cursor-invalid' } else { $res.reason = 'messages-after-invalid' }
+                $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }
+                return $res
+            }
+            $dkA = $pa['dedupKeys']
+            if ($null -ne $dkA) {
+                foreach ($k in @($dkA)) {
+                    $ks = [string]$k
+                    if (-not $seenKeyA.Contains($ks)) { [void]$seenKeyA.Add($ks); $afterTotal++ }
+                }
+            }
+            $cursorA = [string]$pa.next
+            if ([string]::IsNullOrWhiteSpace($cursorA)) { break }
+            if ($seenCurA.Contains($cursorA)) { $res.reason = 'messages-after-cursor-repeat'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+            [void]$seenCurA.Add($cursorA)
+            $pathA = $msgBase + '&cursor=' + [Uri]::EscapeDataString($cursorA)
+            $pagesA++
+        }
+        if (-not [string]::IsNullOrWhiteSpace($cursorA)) { $res.reason = 'messages-after-truncated'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $res.afterCount = $afterTotal
+        $newN = $afterTotal - $beforeTotal
+        if ([int]$newN -lt 1) { $res.reason = ('no-new-text (antes=' + $beforeTotal + ' depois=' + $afterTotal + ')'); $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+        $res.textsNew = [int]$newN
+        $res.ok = $true
+        $res.proof = [ordered]@{ proof = 'model-native-prompt'; ok = $true; detail = ('prompt 200 + wait 204 + textos novos=' + $newN + ' (antes=' + $beforeTotal + ' depois=' + $afterTotal + ')') }
+        return $res
+    } catch { $res.reason = 'native-throw'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
+}
 function Invoke-LaneModelTurn {
     # Turn de modelo bounded via filho 'opencode run --session' (conecta no
     # service isolado da lane). So executa com model-key disponivel; fora
@@ -444,8 +935,8 @@ function Invoke-LaneModelTurn {
     # (contencao POS-SPAWN + rejeicao de resultado sem atribuicao comprovada;
     # NAO e contencao pre-execucao); job indisponivel => turn recusado
     # (fail-closed).
-    [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000)
-    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; reason = '' }
+    [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000, [string]$NativeBaseUrl = '', $NativeRequestFn = $null)
+    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; reason = '' }
     try {
         if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
@@ -522,6 +1013,34 @@ function Invoke-LaneModelTurn {
         $so = Get-LaneSafeText (([string]$r.Stdout + "`n" + [string]$r.Stderr)) 160
         $res.out_chars = $so.Length
         $res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))
+        # ORFS-LANE-NATIVETURN: perna REST nativa (prompt -> wait -> messages)
+        # como ULTIMO recurso do turno: so executa com desfecho CLI nao-ok e
+        # com transporte injetado pelo chamador (NativeRequestFn autenticado
+        # nos cenarios; NativeBaseUrl segue existindo para testes/offline,
+        # onde HTTP direto sem auth falha fechado). Sem transporte a perna e
+        # pulada e o veredito CLI prevalece.
+        # Teto de 3 tentativas por turno (2 CLI + 1 nativa). Divergencia fecha
+        # sem excecao; a proof model-native-prompt so existe quando a perna
+        # decide o turno.
+        $nativeBase = [string]$NativeBaseUrl
+        if ((-not [bool]$res.ok) -and ((-not [string]::IsNullOrWhiteSpace($nativeBase)) -or ($null -ne $NativeRequestFn))) {
+            $res.nativeCalls = 1
+            $nativeTurn = $null
+            try { $nativeTurn = Invoke-LaneNativeTurn -SessionId $SessionId -SafePrompt $safePrompt -TimeoutMs $TimeoutMs -BaseUrl $nativeBase -RequestFn $NativeRequestFn } catch { $nativeTurn = $null }
+            if (($null -ne $nativeTurn) -and ([bool]$nativeTurn['attempted'])) {
+                $res.native = $true
+                if ($null -ne $nativeTurn['proof']) { $res.nativeProof = $nativeTurn['proof'] }
+                if ([bool]$nativeTurn['ok']) {
+                    $res.ok = $true
+                    $res.reason = ''
+                }
+            }
+            $cliCalls = 1
+            try { if ([bool]$res.fallback) { $cliCalls = [int]$res.calls } } catch { $cliCalls = 1 }
+            if ([int]$cliCalls -lt 1) { $cliCalls = 1 }
+            if ([int]$cliCalls -gt 2) { $cliCalls = 2 }
+            $res.calls = ($cliCalls + 1)
+        }
         if (([bool]$res.attempted) -and (-not [bool]$res.ok)) {
             try { $res.output_excerpt = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$r.Stdout) -Stderr ([string]$r.Stderr) } catch { $res.output_excerpt = '(sem saida capturada)' }
         }
@@ -661,6 +1180,44 @@ function Invoke-Api {
     } catch {
         return [ordered]@{ ok = $false; exit = -1; truncated = $false; finished = $false; body = ('throw: ' + (Get-LaneSafeText $_.Exception.Message 200)) }
     }
+}
+function New-LaneNativeApiRequestFn {
+    # Fabrica o RequestFn da perna nativa sobre o transporte AUTENTICADO
+    # Invoke-Api (opencode api --server + OPENCODE_PASSWORD do AuthEnv do
+    # escopo; nenhum segredo transita aqui: o scriptblock recebe so
+    # Method/Path/Body/TimeoutMs). Mapeamento para o contrato RequestFn
+    # (StatusCode/Body/TimedOut), fail-closed em qualquer duvida:
+    # finished=false => TimedOut; truncated ou !ok => StatusCode -1;
+    # ok com corpo vazio => 204; ok com corpo => 200. Heuristica honesta:
+    # o CLI nao expoe o status HTTP exato; vazio significa 204 (sem body)
+    # e corpo significa 200; erro de transporte vira -1/timeout.
+    [CmdletBinding()] param()
+    $fn = {
+        param($Method, $Path, $Body, $TimeoutMs)
+        $o = @{ StatusCode = -1; Body = ''; TimedOut = $false }
+        try {
+            $ms = 0
+            try { $ms = [int]$TimeoutMs } catch { $ms = 0 }
+            $r = $null
+            try { $r = Invoke-Api -Method ([string]$Method) -Path ([string]$Path) -Data ([string]$Body) -TimeoutMs $ms } catch { $r = $null }
+            if ($null -eq $r) { return $o }
+            $finished = $false
+            try { $finished = [bool]$r.finished } catch { $finished = $false }
+            if (-not $finished) { $o.TimedOut = $true; return $o }
+            $trunc = $false
+            try { $trunc = [bool]$r.truncated } catch { $trunc = $false }
+            if ($trunc) { return $o }
+            $ok = $false
+            try { $ok = [bool]$r.ok } catch { $ok = $false }
+            if (-not $ok) { return $o }
+            $b = ''
+            try { $b = [string]$r.body } catch { $b = '' }
+            $o.Body = $b
+            if ([string]::IsNullOrWhiteSpace($b)) { $o.StatusCode = 204 } else { $o.StatusCode = 200 }
+            return $o
+        } catch { return $o }
+    }
+    return $fn
 }
 function Convert-ApiJson([string]$Body) {
     try {
@@ -1278,10 +1835,15 @@ try {
                             $modelRecovered18 = $false
                             $modelDetail18 = ('BLOCKED sem modelo (' + (Get-LaneModelKeyLogToken) + '): ' + $completionEvidence)
                             if (Test-LaneModelKeyAvailable) {
-                                $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000
+                                $credImport18 = $false
+                                $credWhy18 = ''
+                                try { $credImport18 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy18) } catch { $credImport18 = $false }
+                                [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport18 + ' motivo=' + [string]$credWhy18 + '; sem import a perna model segue blocked'))
+                                $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
                                 if ($null -ne $turn18.fallbackProof) { [void]$proofs.Add($turn18.fallbackProof) }
                                 if ($null -ne $turn18.refusedProof) { [void]$proofs.Add($turn18.refusedProof) }
+                                if ($null -ne $turn18.nativeProof) { [void]$proofs.Add($turn18.nativeProof) }
                                 if ([bool]$turn18.ok) {
                                     $msg18b = Invoke-Api -Method 'GET' -Path ('/api/session/' + $childId + '/message')
                                     if ([bool]$msg18b.ok) {
@@ -1485,11 +2047,16 @@ try {
                                 $preBody20 = $(if ([bool]$preTurn20.ok) { [string]$preTurn20.body } else { '' })
                                 $canary20 = ('lane20-' + [string]$srepl.id)
                                 $canaryEsc20 = [regex]::Escape($canary20)
-                                $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000
+                                $credImport20 = $false
+                                $credWhy20 = ''
+                                try { $credImport20 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy20) } catch { $credImport20 = $false }
+                                [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport20 + ' motivo=' + [string]$credWhy20 + '; sem import a perna model segue blocked'))
+                                $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
                                 if (([bool]$turn20.attempted) -and (-not [bool]$turn20.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn20.output_excerpt) }) }
                                 if ($null -ne $turn20.fallbackProof) { [void]$proofs.Add($turn20.fallbackProof) }
                                 if ($null -ne $turn20.refusedProof) { [void]$proofs.Add($turn20.refusedProof) }
+                                if ($null -ne $turn20.nativeProof) { [void]$proofs.Add($turn20.nativeProof) }
                                 if ([bool]$turn20.ok) {
                                     $msgRepl2 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$srepl.id + '/message')
                                     $postBody20 = $(if ([bool]$msgRepl2.ok) { [string]$msgRepl2.body } else { '' })
@@ -1626,11 +2193,16 @@ try {
                         $canary21 = ('lane21-' + [string]$s2.id)
                         $canaryEsc21 = [regex]::Escape($canary21)
                         $stateEsc21 = [regex]::Escape($preState)
-                        $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt ('RECOVERY-' + $canary21 + '-read-task-lane21-report-state-objective-history') -TimeoutMs 180000
+                        $credImport21 = $false
+                        $credWhy21 = ''
+                        try { $credImport21 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy21) } catch { $credImport21 = $false }
+                        [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport21 + ' motivo=' + [string]$credWhy21 + '; sem import a perna model segue blocked'))
+                        $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt ('RECOVERY-' + $canary21 + '-read-task-lane21-report-state-objective-history') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
                         if (([bool]$turn21.attempted) -and (-not [bool]$turn21.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn21.output_excerpt) }) }
                         if ($null -ne $turn21.fallbackProof) { [void]$proofs.Add($turn21.fallbackProof) }
                         if ($null -ne $turn21.refusedProof) { [void]$proofs.Add($turn21.refusedProof) }
+                        if ($null -ne $turn21.nativeProof) { [void]$proofs.Add($turn21.nativeProof) }
                         if ([bool]$turn21.ok) {
                             $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message')
                             $body21 = [string]$msg21.body
