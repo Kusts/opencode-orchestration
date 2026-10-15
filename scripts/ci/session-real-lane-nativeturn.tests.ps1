@@ -670,10 +670,11 @@ try {
         Invoke-Expression $funcs['Parse-NativeTurnMessages']
         Invoke-Expression $funcs['Invoke-LaneNativeTurn']
         Invoke-Expression $funcs['Invoke-LaneModelTurn']
+        if ($funcs.ContainsKey('Test-LaneTurnEvidence')) { Invoke-Expression $funcs['Test-LaneTurnEvidence'] }
+        if ($funcs.ContainsKey('Get-LaneSafeText')) { Invoke-Expression $funcs['Get-LaneSafeText'] }
+        if ($funcs.ContainsKey('Get-LaneModelTurnOutputExcerpt')) { Invoke-Expression $funcs['Get-LaneModelTurnOutputExcerpt'] }
         function Test-LaneModelKeyAvailable { return $true }
         function Get-LaneModelChildEnv { param($BaseEnv = $null) return @{} }
-        function Get-LaneSafeText { param($Value, $Max = 200) return [string]$Value }
-        function Get-LaneModelTurnOutputExcerpt { param([string]$Stdout = '', [string]$Stderr = '', [int]$Max = 1200) return '(stub-excerpt)' }
         function New-RuntimeJobObject { return @{ Ok = $true } }
         function Get-RuntimeJobLimitFlags { param($Job = $null) return @{ Ok = $true; KillOnClose = $true } }
         function Close-RuntimeJobObject { param($Job = $null) return @{ Ok = $true } }
@@ -684,8 +685,8 @@ try {
             param($FilePath = '', $ArgumentList = @(), $EnvSet = $null, $EnvRemove = $null, $WorkingDirectory = '', $TimeoutMs = 0, [switch]$CleanEnvironment, [switch]$StdinNul, $JobObject = $null)
             $script:cliCalls++
             [void]$script:cliSawModel.Add((@($ArgumentList) -contains '--model'))
-            if ([string]$script:cliMode -ceq 'ok') { return @{ ExitCode = 0; TimedOut = $false; Stdout = 'syn-cli-ok'; Stderr = ''; JobAssigned = $true; JobNote = 'syn-stub' } }
-            if (([string]$script:cliMode -ceq 'once-then-ok') -and ($script:cliCalls -ge 2)) { return @{ ExitCode = 0; TimedOut = $false; Stdout = 'syn-cli-retry-ok'; Stderr = ''; JobAssigned = $true; JobNote = 'syn-stub' } }
+            if ([string]$script:cliMode -ceq 'ok') { return @{ ExitCode = 0; TimedOut = $false; Stdout = '{"role":"assistant","content":[{"type":"text","text":"syn-cli-ok"}]}'; Stderr = ''; JobAssigned = $true; JobNote = 'syn-stub' } }
+            if (([string]$script:cliMode -ceq 'once-then-ok') -and ($script:cliCalls -ge 2)) { return @{ ExitCode = 0; TimedOut = $false; Stdout = '{"role":"assistant","content":[{"type":"text","text":"syn-cli-retry-ok"}]}'; Stderr = ''; JobAssigned = $true; JobNote = 'syn-stub' } }
             return @{ ExitCode = 1; TimedOut = $false; Stdout = ''; Stderr = 'Model unavailable: syn-stub-model'; JobAssigned = $true; JobNote = 'syn-stub' }
         }
         $script:legCalls = 0
@@ -997,6 +998,86 @@ try {
     $stdoutProofBad = @([regex]::Matches($text, 'proof = ''model-turn-stdout''; ok = \$false'))
     Assert-That (@($stdoutProofBad).Count -eq 0) 'model-turn-stdout nunca com ok=false (veredito intacto)' ('count=' + @($stdoutProofBad).Count)
     Assert-That ((@([regex]::Matches($text, 'turn18\.turn_output_safe')).Count -ge 1) -and (@([regex]::Matches($text, 'turn20\.turn_output_safe')).Count -ge 1) -and (@([regex]::Matches($text, 'turn21\.turn_output_safe')).Count -ge 1)) 'stdout-proof le turn_output_safe nos 3' 'leitura ausente'
+    # J. hollow-ok (rc=0 SEM texto) nao conta como ok substantivo; a perna
+    # nativa tem sua chance (ORFS-HOLLOW-NATIVE). Fixtures sinteticas, sem
+    # rede/servico real. RED-first: falha na baseline (sem substantive, sem
+    # trigger, nativa nunca corre com ok=true).
+    if (($funcs.ContainsKey('Invoke-LaneModelTurn')) -and ($funcs.ContainsKey('Test-LaneTurnEvidence'))) {
+        Invoke-Expression $funcs['Test-LaneTurnEvidence']
+        Invoke-Expression $funcs['Invoke-LaneNativeTurn']
+        Invoke-Expression $funcs['Invoke-LaneModelTurn']
+        $script:legCallsJ = 0
+        $script:realNativeLegJ = ${function:Invoke-LaneNativeTurn}
+        function Invoke-LaneNativeTurn {
+            param([string]$SessionId = '', [string]$SafePrompt = '', [int]$TimeoutMs = 0, [string]$BaseUrl = '', $RequestFn = $null)
+            $script:legCallsJ++
+            return (& $script:realNativeLegJ -SessionId $SessionId -SafePrompt $SafePrompt -TimeoutMs $TimeoutMs -BaseUrl $BaseUrl -RequestFn $RequestFn)
+        }
+        function Invoke-SpikeChild {
+            param($FilePath = '', $ArgumentList = @(), $EnvSet = $null, $EnvRemove = $null, $WorkingDirectory = '', $TimeoutMs = 0, [switch]$CleanEnvironment, [switch]$StdinNul, $JobObject = $null)
+            $exJ = 0
+            $seJ = ''
+            if ([string]$script:cliFaultJ -ceq 'rc') { $exJ = 1; $seJ = 'syn-fail-j3' }
+            return @{ ExitCode = $exJ; TimedOut = $false; Stdout = [string]$script:cliStdoutJ; Stderr = $seJ; JobAssigned = $true; JobNote = 'syn-stub' }
+        }
+        $script:natCallsJ = 0
+        $hHappyJ = {
+            param($Method, $Path, $Body, $TimeoutMs)
+            $script:natCallsJ++
+            if (($Method -ceq 'GET') -and ($Path -like '*/message*')) {
+                if ($script:natCallsJ -eq 1) { return @{ StatusCode = 200; Body = '{"data":[]}'; TimedOut = $false } }
+                return @{ StatusCode = 200; Body = '{"data":[{"role":"assistant","content":[{"type":"text","text":"syn-j-new"}]}]}'; TimedOut = $false }
+            }
+            if (($Method -ceq 'POST') -and ($Path -like '*/prompt')) { return @{ StatusCode = 200; Body = '{"data":{"id":"syn-inbox-j"}}'; TimedOut = $false } }
+            if (($Method -ceq 'POST') -and ($Path -like '*/wait')) { return @{ StatusCode = 204; Body = ''; TimedOut = $false } }
+            return @{ StatusCode = 404; Body = ''; TimedOut = $false }
+        }
+        # J1. hollow: flag pura substantive existe; ok global intacto (true).
+        $script:cliFaultJ = ''
+        $script:cliStdoutJ = '{"session":"syn-hollow-j1"}'
+        $script:natCallsJ = 0; $script:legCallsJ = 0
+        $tJ1 = Invoke-LaneModelTurn -SessionId 'syn-sess-j1' -Prompt 'syn-prompt-j1' -TimeoutMs 10000 -NativeRequestFn $hHappyJ
+        Assert-That ($tJ1.Contains('substantive')) 'hollow: flag substantive existe' 'chave ausente'
+        Assert-That (([bool]$tJ1.ok) -and ($tJ1.Contains('substantive')) -and (-not [bool]$tJ1.substantive)) 'hollow: ok intacto mas substantive=false' ('ok=' + [bool]$tJ1.ok)
+        # J2. hollow-ok da chance a nativa com trigger hollow (nao fail).
+        Assert-That (([int]$script:legCallsJ -eq 1) -and ([bool]$tJ1.native) -and ([string]$tJ1.nativeTrigger -ceq 'native-after-hollow')) 'hollow: nativa corre 1x com trigger hollow' ('leg=' + $script:legCallsJ + ' trig=' + [string]$tJ1.nativeTrigger)
+        Assert-That (($null -ne $tJ1.nativeTriggerProof) -and ([string]$tJ1.nativeTriggerProof['proof'] -ceq 'model-native-trigger') -and ([bool]$tJ1.nativeTriggerProof['ok']) -and ([string]$tJ1.nativeTriggerProof['detail'] -like '*native-after-hollow*')) 'hollow: proof model-native-trigger distingue hollow' 'proof ausente/divergente'
+        # J3. fail da chance a nativa com trigger fail (nativa-ok decide o
+        # turno: ok vira true VIA nativa, mas substantive segue false).
+        $script:cliFaultJ = 'rc'
+        $script:cliStdoutJ = ''
+        $script:natCallsJ = 0; $script:legCallsJ = 0
+        $tJ3 = Invoke-LaneModelTurn -SessionId 'syn-sess-j3' -Prompt 'syn-prompt-j3' -TimeoutMs 10000 -NativeRequestFn $hHappyJ
+        Assert-That (([bool]$tJ3.ok) -and ([bool]$tJ3.native) -and (-not [bool]$tJ3.substantive) -and ([int]$script:legCallsJ -eq 1) -and ([string]$tJ3.nativeTrigger -ceq 'native-after-fail')) 'fail+nativa-ok: trigger fail, ok via nativa' ('leg=' + $script:legCallsJ + ' trig=' + [string]$tJ3.nativeTrigger)
+        # J3b. fail + nativa-fail: ok segue false, trigger fail preservado.
+        $fWait500J = {
+            param($Method, $Path, $Body, $TimeoutMs)
+            if (($Method -ceq 'GET') -and ($Path -like '*/message*')) { return @{ StatusCode = 200; Body = '{"data":[]}'; TimedOut = $false } }
+            if (($Method -ceq 'POST') -and ($Path -like '*/prompt')) { return @{ StatusCode = 200; Body = '{"data":{"id":"syn-inbox-j3b"}}'; TimedOut = $false } }
+            if (($Method -ceq 'POST') -and ($Path -like '*/wait')) { return @{ StatusCode = 500; Body = '{}'; TimedOut = $false } }
+            return @{ StatusCode = 404; Body = ''; TimedOut = $false }
+        }
+        $script:cliFaultJ = 'rc'
+        $script:cliStdoutJ = ''
+        $script:natCallsJ = 0; $script:legCallsJ = 0
+        $tJ3b = Invoke-LaneModelTurn -SessionId 'syn-sess-j3b' -Prompt 'syn-prompt-j3b' -TimeoutMs 10000 -NativeRequestFn $fWait500J
+        Assert-That (((-not [bool]$tJ3b.ok)) -and (-not [bool]$tJ3b.substantive) -and ([int]$script:legCallsJ -eq 1) -and ([string]$tJ3b.nativeTrigger -ceq 'native-after-fail')) 'fail+nativa-fail: ok false, trigger fail' ('leg=' + $script:legCallsJ + ' trig=' + [string]$tJ3b.nativeTrigger)
+        # J4. substantivo-ok (rc=0 COM marcadores) nao chama a nativa.
+        $script:cliFaultJ = ''
+        $script:cliStdoutJ = '{"role":"assistant","content":[{"type":"text","text":"syn-j4-ok"}]}'
+        $script:natCallsJ = 0; $script:legCallsJ = 0
+        $tJ4 = Invoke-LaneModelTurn -SessionId 'syn-sess-j4' -Prompt 'syn-prompt-j4' -TimeoutMs 10000 -NativeRequestFn $hHappyJ
+        Assert-That (([bool]$tJ4.ok) -and ([bool]$tJ4.substantive) -and (-not [bool]$tJ4.native) -and ([int]$script:legCallsJ -eq 0)) 'substantivo-ok: nativa nao corre' ('leg=' + $script:legCallsJ)
+        $script:cliFaultJ = ''
+    }
+    # J-statics: flag, gate hollow, triggers e reason hollow em 18/21.
+    $turnFnJ = [string]$funcs['Invoke-LaneModelTurn']
+    Assert-That ($text.Contains('substantive')) 'static: lane expoe flag substantive' 'flag ausente'
+    Assert-That (($turnFnJ.Contains('native-after-hollow')) -and ($turnFnJ.Contains('native-after-fail'))) 'static: turn distingue triggers hollow/fail' 'triggers ausentes'
+    Assert-That ($turnFnJ.Contains('model-native-trigger')) 'static: turn emite proof model-native-trigger' 'proof ausente'
+    Assert-That ($turnFnJ.Contains('substantive') -and ($turnFnJ.Contains('-not [bool]$res.ok'))) 'static: gate nativo cobre not-ok e hollow' 'gate ausente'
+    Assert-That ($text.Contains('hollow-ok')) 'static: 18/21 nomeiam hollow-ok no blocked' 'reason hollow ausente'
+    Assert-That ($text.Contains('$res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))')) 'static: expressao de turn-ok CLI intacta (hollow)' 'semantica alterada'
     $suiteSecs = [int]$script:suiteSw.Elapsed.TotalSeconds
     Assert-That ($suiteSecs -lt 300) 'suite completa <300s' ('duracao=' + $suiteSecs + 's')
     Write-Host ('[nativeturn-tests] ' + $script:passed + '/' + $script:total + ' PASS')

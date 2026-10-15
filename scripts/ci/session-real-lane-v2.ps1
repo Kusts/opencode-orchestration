@@ -1007,7 +1007,7 @@ function Invoke-LaneModelTurn {
     # NAO e contencao pre-execucao); job indisponivel => turn recusado
     # (fail-closed).
     [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000, [string]$NativeBaseUrl = '', $NativeRequestFn = $null)
-    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; turn_output_safe = '(turno sem saida: spawn sem resultado)'; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; reason = '' }
+    $res = [ordered]@{ attempted = $false; ok = $false; substantive = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; turn_output_safe = '(turno sem saida: spawn sem resultado)'; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; nativeTrigger = ''; nativeTriggerProof = $null; reason = '' }
     try {
         if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
@@ -1099,9 +1099,21 @@ function Invoke-LaneModelTurn {
             try { $res.turn_stdout_safe = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$r.Stdout) -Stderr '' } catch { $res.turn_stdout_safe = '' }
         }
         $res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))
+        # ORFS-HOLLOW-NATIVE: flag pura de resposta substantiva = ok CLI E
+        # stdout com marcadores (mesmo matcher dos cenarios 18/21, sem
+        # canario/state no nivel do turno: so role). rc=0 SEM texto (ex. ack
+        # de child session) mantem ok=true (GLOBAL INTACTO) mas substantive
+        # fica false, e a perna nativa ganha sua chance no gate abaixo.
+        # Nunca lanca; duvida => false (fail-closed).
+        $res.substantive = $false
+        try {
+            $subEv = Test-LaneTurnEvidence -Text ([string]$res.turn_stdout_safe)
+            if (([bool]$res.ok) -and ([bool]$subEv.role)) { $res.substantive = $true }
+        } catch { $res.substantive = $false }
         # ORFS-LANE-NATIVETURN: perna REST nativa (prompt -> wait -> messages)
-        # como ULTIMO recurso do turno: so executa com desfecho CLI nao-ok e
-        # com transporte injetado pelo chamador (NativeRequestFn autenticado
+        # como ULTIMO recurso do turno: executa com desfecho CLI nao-ok OU
+        # com hollow-ok (ok SEM marcadores no stdout), e com transporte
+        # injetado pelo chamador (NativeRequestFn autenticado
         # nos cenarios; NativeBaseUrl segue existindo para testes/offline,
         # onde HTTP direto sem auth falha fechado). Sem transporte a perna e
         # pulada e o veredito CLI prevalece.
@@ -1109,12 +1121,15 @@ function Invoke-LaneModelTurn {
         # sem excecao; a proof model-native-prompt so existe quando a perna
         # decide o turno.
         $nativeBase = [string]$NativeBaseUrl
-        if ((-not [bool]$res.ok) -and ((-not [string]::IsNullOrWhiteSpace($nativeBase)) -or ($null -ne $NativeRequestFn))) {
+        $nativeDue = (((-not [bool]$res.ok) -or (([bool]$res.ok) -and (-not [bool]$res.substantive))))
+        if ([bool]$nativeDue -and ((-not [string]::IsNullOrWhiteSpace($nativeBase)) -or ($null -ne $NativeRequestFn))) {
             $res.nativeCalls = 1
             $nativeTurn = $null
             try { $nativeTurn = Invoke-LaneNativeTurn -SessionId $SessionId -SafePrompt $safePrompt -TimeoutMs $TimeoutMs -BaseUrl $nativeBase -RequestFn $NativeRequestFn } catch { $nativeTurn = $null }
             if (($null -ne $nativeTurn) -and ([bool]$nativeTurn['attempted'])) {
                 $res.native = $true
+                if ([bool]$res.ok) { $res.nativeTrigger = 'native-after-hollow' } else { $res.nativeTrigger = 'native-after-fail' }
+                $res.nativeTriggerProof = [ordered]@{ proof = 'model-native-trigger'; ok = $true; detail = ('gatilho=' + [string]$res.nativeTrigger + ' (turn ' + $(if ([string]$res.nativeTrigger -ceq 'native-after-hollow') { 'rc=0 sem marcadores no stdout, substantive=false' } else { 'CLI nao-ok' }) + '; nativa como ultimo recurso)') }
                 if ($null -ne $nativeTurn['proof']) { $res.nativeProof = $nativeTurn['proof'] }
                 if ([bool]$nativeTurn['ok']) {
                     $res.ok = $true
@@ -1931,6 +1946,8 @@ try {
                                 if ($null -ne $turn18.fallbackProof) { [void]$proofs.Add($turn18.fallbackProof) }
                                 if ($null -ne $turn18.refusedProof) { [void]$proofs.Add($turn18.refusedProof) }
                                 if ($null -ne $turn18.nativeProof) { [void]$proofs.Add($turn18.nativeProof) }
+                                if ($null -ne $turn18.nativeTriggerProof) { [void]$proofs.Add($turn18.nativeTriggerProof) }
+                                $hollow18 = (([bool]$turn18.ok) -and (-not [bool]$turn18.substantive))
                                 if ([bool]$turn18.ok) {
                                     # Equivalencia stdout-OU-GET (documentada): o stdout do
                                     # proprio turno (--format json) carrega o mesmo event
@@ -1951,9 +1968,11 @@ try {
                                         if ([bool]$msg18b.ok) {
                                             $body18b = [string]$msg18b.body
                                             if ([bool](Test-LaneTurnEvidence -Text $body18b).role) { $evSrc18 = 'message' }
+                                            elseif ([bool]$hollow18) { $modelDetail18 = ('hollow-ok (rc=0 sem marcadores no stdout, substantive=false) e GET message sem evidencia de resposta; perna segue blocked (' + (Get-LaneModelKeyLogToken) + ')') }
                                             else { $modelDetail18 = ('model-turn rc=0 mas sem mensagem de resposta observavel no stdout nem no GET message (' + (Get-LaneModelKeyLogToken) + ')') }
                                         } else {
-                                            $modelDetail18 = ('model-turn rc=0, stdout sem role e GET message indisponivel: exit=' + [int]$msg18b.exit + ' (' + (Get-LaneModelKeyLogToken) + ')')
+                                            if ([bool]$hollow18) { $modelDetail18 = ('hollow-ok (rc=0 sem marcadores no stdout, substantive=false); stdout sem role e GET message indisponivel: exit=' + [int]$msg18b.exit + ' (' + (Get-LaneModelKeyLogToken) + '); perna segue blocked') }
+                                            else { $modelDetail18 = ('model-turn rc=0, stdout sem role e GET message indisponivel: exit=' + [int]$msg18b.exit + ' (' + (Get-LaneModelKeyLogToken) + ')') }
                                         }
                                     }
                                     if ($evSrc18 -ne '') {
@@ -2308,6 +2327,8 @@ try {
                         if ($null -ne $turn21.fallbackProof) { [void]$proofs.Add($turn21.fallbackProof) }
                         if ($null -ne $turn21.refusedProof) { [void]$proofs.Add($turn21.refusedProof) }
                         if ($null -ne $turn21.nativeProof) { [void]$proofs.Add($turn21.nativeProof) }
+                        if ($null -ne $turn21.nativeTriggerProof) { [void]$proofs.Add($turn21.nativeTriggerProof) }
+                        $hollow21 = (([bool]$turn21.ok) -and (-not [bool]$turn21.substantive))
                         if ([bool]$turn21.ok) {
                             # Equivalencia stdout-OU-GET (idem 18): mesmos criterios
                             # (role + canario fresco + state token) no stdout
@@ -2335,7 +2356,9 @@ try {
                             if (([bool]$stdRead21) -and ([bool]$msgRead21)) { $evSrc21 = 'stdout+message' }
                             elseif ([bool]$stdRead21) { $evSrc21 = 'stdout' }
                             elseif ([bool]$msgRead21) { $evSrc21 = 'message' }
-                            [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $substituteTurnOk21 ('resposta do substituto observada=' + $substituteTurnOk21 + ' fonte=' + $evSrc21 + ' job=' + [bool]$turn21.job_assigned + ' (' + (Get-LaneModelKeyLogToken) + ')'))
+                            $rereadDetail21 = ('resposta do substituto observada=' + $substituteTurnOk21 + ' fonte=' + $evSrc21 + ' job=' + [bool]$turn21.job_assigned + ' (' + (Get-LaneModelKeyLogToken) + ')')
+                            if (([bool]$hollow21) -and (-not [bool]$substituteTurnOk21)) { $rereadDetail21 = ('hollow-ok (rc=0 sem marcadores no stdout, substantive=false) + GET sem evidencia; perna segue blocked; ' + $rereadDetail21) }
+                            [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $substituteTurnOk21 $rereadDetail21)
                         } else {
                             [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $false ('model-turn falhou: rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
                         }
