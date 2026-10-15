@@ -874,6 +874,102 @@ try {
         $nfBad = @([regex]::Matches($text, 'proof = ''model-native-failed''; ok = \$false'))
         Assert-That (@($nfBad).Count -eq 0) 'model-native-failed nunca com ok=false' ('count=' + @($nfBad).Count)
     }
+    # I. evidencia stdout-OU-GET (18/21): stdout sanitizado do turno com os
+    # mesmos criterios do GET; sem servico real (stubs + fixtures sinteticas).
+    Assert-That ($funcs.ContainsKey('Test-LaneTurnEvidence')) 'helper Test-LaneTurnEvidence exists' 'helper ausente na lane'
+    if ($funcs.ContainsKey('Test-LaneTurnEvidence')) {
+        Invoke-Expression $funcs['Test-LaneTurnEvidence']
+        # I-matcher: mesmos criterios nos dois lados
+        $evR1 = Test-LaneTurnEvidence -Text '{"role":"assistant","id":"syn-i-r1"}'
+        Assert-That (([bool]$evR1.role) -and (-not [bool]$evR1.canary) -and (-not [bool]$evR1.state)) 'matcher: role assistant, resto falso por padrao' 'divergente'
+        $evR0 = Test-LaneTurnEvidence -Text '{"role":"user","id":"syn-i-r0"}'
+        Assert-That (-not [bool]$evR0.role) 'matcher: role user nao conta' 'falso positivo'
+        $evT1 = Test-LaneTurnEvidence -Text '{"role":"tool","id":"syn-i-t1"}'
+        Assert-That ([bool]$evT1.role) 'matcher: role tool conta' 'falso negativo'
+        $canonI = 'lane21-syn-sess-i21'
+        $evC1 = Test-LaneTurnEvidence -Text ('turn ok ' + $canonI + ' state PLANNING') -CanaryEsc ([regex]::Escape($canonI)) -StateEsc ([regex]::Escape('PLANNING'))
+        Assert-That (([bool]$evC1.canary) -and ([bool]$evC1.state)) 'matcher: canary+state quando presentes' 'divergente'
+        $evC0 = Test-LaneTurnEvidence -Text 'turn ok sem marcas' -CanaryEsc ([regex]::Escape($canonI)) -StateEsc ([regex]::Escape('PLANNING'))
+        Assert-That ((-not [bool]$evC0.canary) -and (-not [bool]$evC0.state)) 'matcher: canary+state ausentes' 'falso positivo'
+        $threwEv = $false
+        $evBad = $null
+        try { $evBad = Test-LaneTurnEvidence -Text 'x' -CanaryEsc '([' -StateEsc '([' } catch { $threwEv = $true }
+        Assert-That ((-not $threwEv) -and ($null -ne $evBad) -and (-not [bool]$evBad.role) -and (-not [bool]$evBad.canary) -and (-not [bool]$evBad.state)) 'matcher: regex invalido falha fechado sem throw' ('threw=' + $threwEv)
+        $evEmpty = Test-LaneTurnEvidence -Text ''
+        Assert-That ((-not [bool]$evEmpty.role) -and (-not [bool]$evEmpty.canary) -and (-not [bool]$evEmpty.state)) 'matcher: texto vazio tudo falso' 'divergente'
+        # I-cli: stream --format json sem role (step_start + text)
+        $cliStream = '{"type":"step_start","session":"syn-cli-01"}' + "`n" + '{"type":"text","text":"RECOVERY-lane21-syn-cli-01 state PLANNING"}'
+        $evCli = Test-LaneTurnEvidence -Text $cliStream -CanaryEsc ([regex]::Escape('lane21-syn-cli-01')) -StateEsc ([regex]::Escape('PLANNING'))
+        Assert-That (([bool]$evCli.role) -and ([bool]$evCli.canary) -and ([bool]$evCli.state)) 'matcher: stream CLI sem role aceito' 'divergente'
+        $evStep = Test-LaneTurnEvidence -Text '{"type":"step_start","session":"syn-cli-02"}'
+        Assert-That ((-not [bool]$evStep.role) -and (-not [bool]$evStep.canary) -and (-not [bool]$evStep.state)) 'matcher: step_start sozinho nao conta' 'falso positivo'
+        $evEmptyTx = Test-LaneTurnEvidence -Text '{"type":"text","text":""}'
+        Assert-That (-not [bool]$evEmptyTx.role) 'matcher: texto vazio recusado' 'falso positivo'
+        $evWsTx = Test-LaneTurnEvidence -Text '{"type":"text","text":"   "}'
+        Assert-That (-not [bool]$evWsTx.role) 'matcher: texto em branco recusado' 'falso positivo'
+        # I-cli-escapes: decodifica antes de julgar vazio; avalia todas as ocorrencias
+        $evEsc = Test-LaneTurnEvidence -Text '{"type":"text","text":"\n\t"}'
+        Assert-That (-not [bool]$evEsc.role) 'matcher: escapes decodificados, vazio recusado' 'falso positivo'
+        $evUni = Test-LaneTurnEvidence -Text '{"type":"text","text":"\u0020"}'
+        Assert-That (-not [bool]$evUni.role) 'matcher: unicode-espaco recusado' 'falso positivo'
+        $evBs = Test-LaneTurnEvidence -Text '{"type":"text","text":"\\"}'
+        Assert-That ([bool]$evBs.role) 'matcher: contrabarra literal aceita' 'falso negativo'
+        $evMix1 = Test-LaneTurnEvidence -Text ('{"type":"text","text":""}' + "`n" + '{"type":"text","text":"syn-mix-ok"}')
+        Assert-That ([bool]$evMix1.role) 'matcher: vazio+valido aceita o valido' 'falso negativo'
+        $evMix2 = Test-LaneTurnEvidence -Text ('{"type":"text","text":"syn-mix-ok"}' + "`n" + '{"type":"text","text":""}')
+        Assert-That ([bool]$evMix2.role) 'matcher: valido+vazio aceita o valido' 'falso negativo'
+        $evAllEmpty = Test-LaneTurnEvidence -Text ('{"type":"text","text":""}' + "`n" + '{"type":"text","text":"  "}')
+        Assert-That (-not [bool]$evAllEmpty.role) 'matcher: todos vazios recusado' 'falso positivo'
+    }
+    if ($funcs.ContainsKey('Invoke-LaneModelTurn')) {
+        Invoke-Expression $funcs['Invoke-LaneModelTurn']
+        # I-turn: campo sanitizado (recarrega sanitizadores reais por cima dos stubs de F)
+        Invoke-Expression $funcs['Get-LaneSafeText']
+        Invoke-Expression $funcs['Get-LaneModelTurnOutputExcerpt']
+        function Invoke-SpikeChild {
+            param($FilePath = '', $ArgumentList = @(), $EnvSet = $null, $EnvRemove = $null, $WorkingDirectory = '', $TimeoutMs = 0, [switch]$CleanEnvironment, [switch]$StdinNul, $JobObject = $null)
+            $script:cliCalls++
+            $ex = 0
+            $to = $false
+            $ja = $true
+            if ([string]$script:cliFault -ceq 'rc') { $ex = 1 }
+            elseif ([string]$script:cliFault -ceq 'timeout') { $to = $true }
+            elseif ([string]$script:cliFault -ceq 'nojob') { $ja = $false }
+            return @{ ExitCode = $ex; TimedOut = $to; Stdout = [string]$script:cliStdout; Stderr = ''; JobAssigned = $ja; JobNote = 'syn-stub' }
+        }
+        $script:cliCalls = 0
+        $script:legCalls = 0
+        $script:cliFault = ''
+        $script:cliStdout = '{"role":"assistant","session":"lane21-syn-sess-i1","state":"PLANNING"} "api_key": "SYNTHETIC-K99-VALUE"'
+        $tI = Invoke-LaneModelTurn -SessionId 'syn-sess-i1' -Prompt 'syn-prompt-i1' -TimeoutMs 10000
+        Assert-That (([bool]$tI.ok) -and ([string]$tI.turn_stdout_safe -match 'assistant') -and ([string]$tI.turn_stdout_safe -match 'lane21-syn-sess-i1') -and ([string]$tI.turn_stdout_safe -match 'PLANNING')) 'turn expoe stdout sanitizado com marcadores' 'campo ausente/vazio'
+        Assert-That ([string]$tI.turn_stdout_safe -notmatch 'SYNTHETIC-K99-VALUE') 'turn sanitiza segredo do stdout' 'vazamento'
+        Assert-That ([int]$script:legCalls -eq 0) 'turn CLI-ok nao consulta nativa' ('leg=' + $script:legCalls)
+        # I-gate: tentativa recusada nunca popula o campo, mesmo com marcadores
+        $script:cliFault = 'rc'
+        $tR = Invoke-LaneModelTurn -SessionId 'syn-sess-i2' -Prompt 'syn-prompt-i2' -TimeoutMs 10000
+        Assert-That (((-not [bool]$tR.ok)) -and ($tR.Contains('turn_stdout_safe')) -and ([string]$tR.turn_stdout_safe -ceq '')) 'turn CLI rc!=0: stdout descartado' 'campo populado com stdout recusado'
+        $script:cliFault = 'timeout'
+        $tT = Invoke-LaneModelTurn -SessionId 'syn-sess-i3' -Prompt 'syn-prompt-i3' -TimeoutMs 10000
+        Assert-That (($tT.Contains('turn_stdout_safe')) -and ([string]$tT.turn_stdout_safe -ceq '')) 'turn CLI timeout: stdout descartado' 'campo populado com stdout recusado'
+        $script:cliFault = 'nojob'
+        $tJ = Invoke-LaneModelTurn -SessionId 'syn-sess-i4' -Prompt 'syn-prompt-i4' -TimeoutMs 10000
+        Assert-That (($tJ.Contains('turn_stdout_safe')) -and ([string]$tJ.turn_stdout_safe -ceq '')) 'turn sem job: stdout descartado' 'campo populado sem atribuicao'
+        $script:cliFault = 'rc'
+        $script:natCalls = 0
+        $tN = Invoke-LaneModelTurn -SessionId 'syn-sess-i5' -Prompt 'syn-prompt-i5' -TimeoutMs 10000 -NativeRequestFn $fHappy
+        Assert-That (([bool]$tN.ok) -and ([bool]$tN.native) -and ($tN.Contains('turn_stdout_safe')) -and ([string]$tN.turn_stdout_safe -ceq '')) 'turn nativa-ok: stdout recusado vazio, GET decide depois' 'campo populado com stdout recusado'
+        $script:cliFault = ''
+    }
+    # I-statics: 18/21 leem o campo + OU com GET; GET mantido como fallback
+    Assert-That ($text.Contains('turn18.turn_stdout_safe')) '18: le stdout do turno' 'leitura ausente'
+    Assert-That ($text.Contains('turn21.turn_stdout_safe')) '21: le stdout do turno' 'leitura ausente'
+    Assert-That ($text.Contains('if (-not [bool]$turn18.native)')) '18: stdout so sem nativa decidindo' 'gate ausente'
+    Assert-That ($text.Contains('if (-not [bool]$turn21.native)')) '21: stdout so sem nativa decidindo' 'gate ausente'
+    Assert-That ($text.Contains('Test-LaneTurnEvidence -Text $stdSrc18')) '18: mesmos criterios via matcher' 'matcher ausente'
+    Assert-That ($text.Contains('Test-LaneTurnEvidence -Text $stdSrc21')) '21: mesmos criterios via matcher' 'matcher ausente'
+    Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + `$childId + '/message')")) '18: GET mantido como fallback' 'fallback removido'
+    Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]`$s2.id + '/message')")) '21: GET mantido como fallback' 'fallback removido'
     $suiteSecs = [int]$script:suiteSw.Elapsed.TotalSeconds
     Assert-That ($suiteSecs -lt 300) 'suite completa <300s' ('duracao=' + $suiteSecs + 's')
     Write-Host ('[nativeturn-tests] ' + $script:passed + '/' + $script:total + ' PASS')

@@ -921,6 +921,77 @@ function Invoke-LaneNativeTurn {
         return $res
     } catch { $res.reason = 'native-throw'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
 }
+function Test-LaneTurnEvidence {
+    # Matcher puro da evidencia de resposta de um turno: aplica os MESMOS
+    # criterios ao stdout sanitizado do turno e ao corpo GET message, de modo
+    # que stdout-OU-GET provem o mesmo conteudo (equivalencia por construcao).
+    # Role vale por "role":assistant|tool OU por evento CLI sem role
+    # ({"type":"text","text":"..."} do --format json): type text E text com
+    # valor nao-vazio/no-branco no MESMO objeto (sem chaves no caminho; regex
+    # com janela braceless cobre as duas ordens de chave e multilinha, e
+    # recusa aninhamento inesperado fail-closed). O valor passa por decode
+    # de escapes JSON em passada unica (sem eval: \" \\ \/ \b \f \n \r \t
+    # \uXXXX; resto literal) e so conta decodificado nao-branco. TODAS as
+    # ocorrencias sao avaliadas ate a primeira valida; nenhuma valida =>
+    # recusado. CanaryEsc/StateEsc sao regex
+    # ja escapados ([regex]::Escape no chamador) e seguem substring-match no
+    # texto sanitizado (anti-forgery: canario fresco por execucao); vazio =>
+    # criterio falso (fail-closed). Nunca lanca.
+    [CmdletBinding()] param([string]$Text = '', [string]$CanaryEsc = '', [string]$StateEsc = '')
+    try {
+        $t = [string]$Text
+        $role = (($t -match '"role"\s*:\s*"assistant"') -or ($t -match '"role"\s*:\s*"tool"'))
+        if (-not $role) {
+            try {
+                $pats = @(
+                    '"type"\s*:\s*"text"\s*,[^{}]*"text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                    '"text"\s*:\s*"((?:[^"\\]|\\.)*)"[^{}]*"type"\s*:\s*"text"'
+                )
+                foreach ($pat in @($pats)) {
+                    if ([bool]$role) { break }
+                    $all = $null
+                    try { $all = [regex]::Matches($t, $pat) } catch { $all = $null }
+                    if ($null -eq $all) { continue }
+                    foreach ($mm in @($all)) {
+                        if ([bool]$role) { break }
+                        if (-not $mm.Success) { continue }
+                        $raw = ''
+                        try { $raw = [string]$mm.Groups[1].Value } catch { $raw = '' }
+                        $dec = $null
+                        try {
+                            $dec = [regex]::Replace($raw, '\\(u[0-9a-fA-F]{4}|["\\/bfnrt])', {
+                                param($e)
+                                $k = ''
+                                try { $k = [string]$e.Groups[1].Value } catch { $k = '' }
+                                if ($k.Length -gt 1) {
+                                    $cp = 0
+                                    try { $cp = [Convert]::ToInt32($k.Substring(1), 16) } catch { $cp = -1 }
+                                    if ($cp -ge 0) { return [string][char]$cp }
+                                    return $e.Value
+                                }
+                                if ($k -ceq '"') { return '"' }
+                                if ($k -ceq '\') { return '\' }
+                                if ($k -ceq '/') { return '/' }
+                                if ($k -ceq 'b') { return [string][char]8 }
+                                if ($k -ceq 'f') { return [string][char]12 }
+                                if ($k -ceq 'n') { return [string][char]10 }
+                                if ($k -ceq 'r') { return [string][char]13 }
+                                if ($k -ceq 't') { return [string][char]9 }
+                                return $e.Value
+                            })
+                        } catch { $dec = $null }
+                        if (($null -ne $dec) -and (-not [string]::IsNullOrWhiteSpace($dec))) { $role = $true }
+                    }
+                }
+            } catch { }
+        }
+        $canary = $false
+        if (-not [string]::IsNullOrWhiteSpace($CanaryEsc)) { $canary = ($t -match $CanaryEsc) }
+        $state = $false
+        if (-not [string]::IsNullOrWhiteSpace($StateEsc)) { $state = ($t -match $StateEsc) }
+        return [ordered]@{ role = [bool]$role; canary = [bool]$canary; state = [bool]$state }
+    } catch { return [ordered]@{ role = $false; canary = $false; state = $false } }
+}
 function Invoke-LaneModelTurn {
     # Turn de modelo bounded via filho 'opencode run --session' (conecta no
     # service isolado da lane). So executa com model-key disponivel; fora
@@ -936,7 +1007,7 @@ function Invoke-LaneModelTurn {
     # NAO e contencao pre-execucao); job indisponivel => turn recusado
     # (fail-closed).
     [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000, [string]$NativeBaseUrl = '', $NativeRequestFn = $null)
-    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; reason = '' }
+    $res = [ordered]@{ attempted = $false; ok = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; reason = '' }
     try {
         if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
@@ -1012,6 +1083,16 @@ function Invoke-LaneModelTurn {
         $res.job_note = [string]$r.JobNote
         $so = Get-LaneSafeText (([string]$r.Stdout + "`n" + [string]$r.Stderr)) 160
         $res.out_chars = $so.Length
+        # STDOUT sanitizado SOMENTE com gate CLI integral (rc==0, sem timeout,
+        # JobAssigned provado): stdout de tentativa recusada nunca vira
+        # evidencia (se a nativa decidir depois, cenarios usam GET ou evidencia
+        # da propria perna, nunca este campo). Sanitizacao identica a do
+        # excerpt via helper (credenciais redigidas, cap 1200); truncagem erra
+        # fail-closed. output_excerpt segue falha-somente (turndiag trava).
+        $res.turn_stdout_safe = ''
+        if (((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))) {
+            try { $res.turn_stdout_safe = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$r.Stdout) -Stderr '' } catch { $res.turn_stdout_safe = '' }
+        }
         $res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))
         # ORFS-LANE-NATIVETURN: perna REST nativa (prompt -> wait -> messages)
         # como ULTIMO recurso do turno: so executa com desfecho CLI nao-ok e
@@ -1845,21 +1926,37 @@ try {
                                 if ($null -ne $turn18.refusedProof) { [void]$proofs.Add($turn18.refusedProof) }
                                 if ($null -ne $turn18.nativeProof) { [void]$proofs.Add($turn18.nativeProof) }
                                 if ([bool]$turn18.ok) {
-                                    $msg18b = Invoke-Api -Method 'GET' -Path ('/api/session/' + $childId + '/message')
-                                    if ([bool]$msg18b.ok) {
-                                        $body18b = [string]$msg18b.body
-                                        if (($body18b -match '"role"\s*:\s*"assistant"') -or ($body18b -match '"role"\s*:\s*"tool"')) {
-                                            $obsC2 = @(, @{ session_id = $childId; observed = 'completed'; binding_session_id = $childId; last_seen = (Get-LaneTimestampUtc) })
-                                            $recC2 = Get-Reconciliation -Runs $runs -Observations $obsC2
-                                            foreach ($act in @(Get-JsonProp $recC2 'recommended_actions' @())) {
-                                                if ([string](Get-JsonProp $act 'action' '') -ceq 'recover-output') { $modelRecovered18 = $true }
-                                            }
-                                            $modelDetail18 = ('acao=recover-output via model-turn opt-in (' + (Get-LaneModelKeyLogToken) + '); completion observada runtime-native')
+                                    # Equivalencia stdout-OU-GET (documentada): o stdout do
+                                    # proprio turno (--format json) carrega o mesmo event
+                                    # stream do GET message; antes o veredito ficava refem
+                                    # do servico (turno rc=0 + servico morto depois + GET
+                                    # falho => blocked). Mesmos criterios nos dois lados;
+                                    # GET consultado so quando o stdout nao contem.
+                                    # Ausencia nos dois => blocked (sem afrouxamento).
+                                    # stdout so vale sem nativa decidindo (gate abaixo):
+                                    # stdout de CLI recusada nunca prova resposta.
+                                    $stdSrc18 = ''
+                                    if (-not [bool]$turn18.native) { $stdSrc18 = [string]$turn18.turn_stdout_safe }
+                                    $stdEv18 = Test-LaneTurnEvidence -Text $stdSrc18
+                                    $evSrc18 = ''
+                                    if ([bool]$stdEv18.role) { $evSrc18 = 'stdout' }
+                                    else {
+                                        $msg18b = Invoke-Api -Method 'GET' -Path ('/api/session/' + $childId + '/message')
+                                        if ([bool]$msg18b.ok) {
+                                            $body18b = [string]$msg18b.body
+                                            if ([bool](Test-LaneTurnEvidence -Text $body18b).role) { $evSrc18 = 'message' }
+                                            else { $modelDetail18 = ('model-turn rc=0 mas sem mensagem de resposta observavel no stdout nem no GET message (' + (Get-LaneModelKeyLogToken) + ')') }
                                         } else {
-                                            $modelDetail18 = ('model-turn rc=0 mas sem mensagem de resposta observavel (' + (Get-LaneModelKeyLogToken) + ')')
+                                            $modelDetail18 = ('model-turn rc=0, stdout sem role e GET message indisponivel: exit=' + [int]$msg18b.exit + ' (' + (Get-LaneModelKeyLogToken) + ')')
                                         }
-                                    } else {
-                                        $modelDetail18 = ('model-turn rc=0 mas GET message indisponivel: exit=' + [int]$msg18b.exit + ' (' + (Get-LaneModelKeyLogToken) + ')')
+                                    }
+                                    if ($evSrc18 -ne '') {
+                                        $obsC2 = @(, @{ session_id = $childId; observed = 'completed'; binding_session_id = $childId; last_seen = (Get-LaneTimestampUtc) })
+                                        $recC2 = Get-Reconciliation -Runs $runs -Observations $obsC2
+                                        foreach ($act in @(Get-JsonProp $recC2 'recommended_actions' @())) {
+                                            if ([string](Get-JsonProp $act 'action' '') -ceq 'recover-output') { $modelRecovered18 = $true }
+                                        }
+                                        $modelDetail18 = ('acao=recover-output via model-turn opt-in (' + (Get-LaneModelKeyLogToken) + '); completion observada via ' + $evSrc18)
                                     }
                                 } else {
                                     $modelDetail18 = ('model-turn opt-in falhou: rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' (' + (Get-LaneModelKeyLogToken) + '); perna segue blocked')
@@ -2204,14 +2301,33 @@ try {
                         if ($null -ne $turn21.refusedProof) { [void]$proofs.Add($turn21.refusedProof) }
                         if ($null -ne $turn21.nativeProof) { [void]$proofs.Add($turn21.nativeProof) }
                         if ([bool]$turn21.ok) {
-                            $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message')
-                            $body21 = [string]$msg21.body
-                            $canaryHit21 = (([bool]$msg21.ok) -and ($body21 -match $canaryEsc21))
-                            $stateTok21 = (((-not [string]::IsNullOrWhiteSpace($preState))) -and ([bool]$msg21.ok) -and ($body21 -match $stateEsc21))
-                            if (([bool]$msg21.ok) -and (($body21 -match '"role"\s*:\s*"assistant"') -or ($body21 -match '"role"\s*:\s*"tool"')) -and $canaryHit21 -and $stateTok21) {
-                                $substituteTurnOk21 = $true
+                            # Equivalencia stdout-OU-GET (idem 18): mesmos criterios
+                            # (role + canario fresco + state token) no stdout
+                            # sanitizado OU no GET (fallback). Ausencia nos dois
+                            # => blocked. Anti-forgery intacto: canario e o id
+                            # fresco da substituta.
+                            # stdout so vale sem nativa decidindo (gate abaixo).
+                            $stdSrc21 = ''
+                            if (-not [bool]$turn21.native) { $stdSrc21 = [string]$turn21.turn_stdout_safe }
+                            $stdEv21 = Test-LaneTurnEvidence -Text $stdSrc21 -CanaryEsc $canaryEsc21 -StateEsc $stateEsc21
+                            $stdRead21 = (([bool]$stdEv21.role) -and ([bool]$stdEv21.canary) -and ([bool]$stdEv21.state))
+                            $msgRead21 = $false
+                            $canaryHit21 = $false
+                            $stateTok21 = $false
+                            if (-not $stdRead21) {
+                                $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message')
+                                $body21 = [string]$msg21.body
+                                $canaryHit21 = (([bool]$msg21.ok) -and ($body21 -match $canaryEsc21))
+                                $stateTok21 = (((-not [string]::IsNullOrWhiteSpace($preState))) -and ([bool]$msg21.ok) -and ($body21 -match $stateEsc21))
+                                $msgEv21 = Test-LaneTurnEvidence -Text $body21 -CanaryEsc $canaryEsc21 -StateEsc $stateEsc21
+                                $msgRead21 = (([bool]$msg21.ok) -and ([bool]$msgEv21.role) -and ([bool]$msgEv21.canary) -and ([bool]$msgEv21.state))
                             }
-                            [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $substituteTurnOk21 ('resposta do substituto observada=' + $substituteTurnOk21 + ' canary=' + $canaryHit21 + ' state_tok=' + $stateTok21 + ' job=' + [bool]$turn21.job_assigned + ' (' + (Get-LaneModelKeyLogToken) + ')'))
+                            $substituteTurnOk21 = (([bool]$stdRead21) -or ([bool]$msgRead21))
+                            $evSrc21 = 'nenhuma'
+                            if (([bool]$stdRead21) -and ([bool]$msgRead21)) { $evSrc21 = 'stdout+message' }
+                            elseif ([bool]$stdRead21) { $evSrc21 = 'stdout' }
+                            elseif ([bool]$msgRead21) { $evSrc21 = 'message' }
+                            [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $substituteTurnOk21 ('resposta do substituto observada=' + $substituteTurnOk21 + ' fonte=' + $evSrc21 + ' job=' + [bool]$turn21.job_assigned + ' (' + (Get-LaneModelKeyLogToken) + ')'))
                         } else {
                             [void](Add-ScenarioProof $proofs 'substitute-reread-turn' $false ('model-turn falhou: rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
                         }
