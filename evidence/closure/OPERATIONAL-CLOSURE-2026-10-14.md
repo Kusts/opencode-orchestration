@@ -269,6 +269,23 @@ ser usado.
 - **Higiene:** fixtures TEMP próprias removidas; cache `ModuleAnalysisCache`
   gerado no repo por runs pwsh removido (regenerável, sem valor).
 
+## Diagnóstico de turnos model 18/21 (PR #92, causa-raiz em camadas)
+
+`model-turn-output` (46 asserts) + fallback sem `--model` (83 asserts),
+reviewer + security APPROVED. Runtime com chaves do operador:
+
+1. Erro real capturado: `Model unavailable: opencode-go/muse-spark-1.3-contributor`.
+2. Bisseções (turnos mínimos reais, mesmo binário pinado): config da lane,
+   StdinNul, continue-mode, password bogus e denylist — todos exit 0.
+3. Root-cause do classificador: `[0mModel` (reset ANSI colado) matava o
+   `\b` — strip CSI antes do match.
+4. Com fallback, retry sem `--model` executa contido (proofs presentes)
+   mas **também rc=1** → excluído o flag `--model` como causa; restante
+   suspeito: `--session` em sessões REST (child/substituta) no contexto
+   da lane. 18/21 model seguem `blocked`; kernel-side + 20 + turnos
+   ambient/isolados provados. Gasto model total da rodada: ~12 turnos
+   mínimos, zero 429.
+
 *(bullets de planejamento desta seção, anteriores aos resultados, removidos
 por supersessão — o desenho vigente está nos itens acima e no plano F0–F7.)*
 
