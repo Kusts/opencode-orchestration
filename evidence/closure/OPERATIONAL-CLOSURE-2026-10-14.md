@@ -420,3 +420,24 @@ policy (não é falha, é desenho).
   falharam no CI ps7) — reforça flake de runner; causa segue UNKNOWN, sem
   relaxamento; aguardar runs em andamento.
 - Golden 71/71 (15/15 harness) + CorrectiveE2E 119 PASS nesta máquina.
+
+## PR #93 fundida + 18/21 model (2026-10-15)
+
+**Merge:** PR #93 (`973cedd`, CI 6/6 verde) integrou perna nativa REST
+autenticada, fallback sem `--model`, strip ANSI, credstore sob opt-in e
+diagnóstico de turno — tudo com reviewer+security APPROVED.
+
+**Diagnóstico fechado em camadas** (turnos mínimos reais, chaves do operador):
+chave/rate-limit inocentados (2 chaves, zero 429); config/StdinNul/continue/
+password/denylist inocentados (bissecções verdes); classificador quebrado por
+`[0mModel` colado (strip CSI); path do wait corrigido para
+`/api/experimental` (o antigo dava 404 mudo); HTTP direto sem auth explicado
+(401 — por isso a perna usa `Invoke-Api`); credstore ausente explicado
+(turnos rc=1 sem store, exit 0 com store).
+
+**Pendente — serviço morre após turno rc=0** (2× reproduzido): turno model
+executa, verificação GET subsequente falha e o serviço não volta em 30s.
+Mecanismo não provado (interferência turno×serviço suspeita, sem evidência).
+Bloqueia 18/21 model + progressão da lane. Validação runtime aguarda janela
+de estabilidade local (restarts frequentes em 15/10 inviabilizam runs de
+5-8 min); CI da PR (runners estáveis) segue como gate.
