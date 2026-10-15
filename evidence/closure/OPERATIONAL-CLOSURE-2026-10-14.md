@@ -435,9 +435,27 @@ password/denylist inocentados (bissecções verdes); classificador quebrado por
 (401 — por isso a perna usa `Invoke-Api`); credstore ausente explicado
 (turnos rc=1 sem store, exit 0 com store).
 
-**Pendente — serviço morre após turno rc=0** (2× reproduzido): turno model
+**Pendente - serviço morre após turno rc=0** (2× reproduzido): turno model
 executa, verificação GET subsequente falha e o serviço não volta em 30s.
 Mecanismo não provado (interferência turno×serviço suspeita, sem evidência).
 Bloqueia 18/21 model + progressão da lane. Validação runtime aguarda janela
 de estabilidade local (restarts frequentes em 15/10 inviabilizam runs de
 5-8 min); CI da PR (runners estáveis) segue como gate.
+
+**Adendo 15/10 — restarts também matam o próprio agente:** runs locais de
+qualquer duração (>~1 min com serviços/turnos) passaram a ser interrompidos
+por restarts da plataforma; nem o probe de diagnóstico (setup de serviço
+isolado) sobrevive. Interrompida investigação runtime local por
+impossibilidade técnica, não por falta de hipótese (candidatas: pressão de
+memória dos subprocessos; watchdog da plataforma). Trabalho restante desta
+frente: re-run 18/21 e probe svcdeath, ambos pendentes de estabilidade.
+
+## Estabilidade do ambiente (2026-10-15)
+
+Runs locais pesados (>~3 min, servicos + turnos model) passaram a matar a sessao do agente (restarts repetidos em 15/10). Investigado em passos curtos, sem modelo e sem tocar processos alheios:
+
+- Nao e a maquina: uptime desde reboot do operador em 14/10 22:11; zero desligamentos inesperados; servico OpenCode mesmo PID por ~1h.
+- Evento real as ~06:42: respawn em massa (~30 node MCPs + servico) = restart da plataforma do agente; resto intacto.
+- Memoria apertada (3,4 GB livres de 15,4 GB), sem prova de OOM como causa; sem fatal/error real no log (primeiros achados eram falsos positivos dos proprios greps).
+- Pegada propria zerada: nenhum processo meu rodando; copias de credenciais em TEMP removidas.
+- Mitigacao: so passos curtos localmente; validacao pesada via CI; 18/21 model aguardam janela estavel.
