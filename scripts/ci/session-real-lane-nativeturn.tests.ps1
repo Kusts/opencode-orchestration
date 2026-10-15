@@ -375,9 +375,12 @@ try {
         Assert-That (([bool]$pk1.ok) -and (@($pk1['dedupKeys']) -contains 'id:syn-k-01')) 'parser: chave por id' ('keys=' + (@($pk1['dedupKeys']) -join ','))
         $pk2 = Parse-NativeTurnMessages -Body '{"data":[{"role":"assistant","content":[{"type":"text","text":"syn-k-t2"}]}]}'
         Assert-That (([bool]$pk2.ok) -and (@($pk2['dedupKeys']) -contains 'tx:syn-k-t2')) 'parser: chave por texto sem id' ('keys=' + (@($pk2['dedupKeys']) -join ','))
-        # C26. cursor {} => malformado (presente sem next)
+        # C26. cursor {} VAZIO => terminal valido do contrato (fim de paginas)
         $pc1 = Parse-NativeTurnMessages -Body '{"data":[],"cursor":{}}'
-        Assert-That ((-not [bool]$pc1.ok) -and ([string]$pc1.error -ceq 'cursor-malformado')) 'parser: cursor-{} recusado' ('err=' + [string]$pc1.error)
+        Assert-That (([bool]$pc1.ok) -and ([string]$pc1.next -ceq '')) 'parser: cursor-{} vazio terminal' ('err=' + [string]$pc1.error)
+        # C26b. cursor NAO-vazio sem next => malformado (fail-closed preservado)
+        $pc1b = Parse-NativeTurnMessages -Body '{"data":[],"cursor":{"foo":"syn-x"}}'
+        Assert-That ((-not [bool]$pc1b.ok) -and ([string]$pc1b.error -ceq 'cursor-malformado')) 'parser: cursor nao-vazio sem next recusado' ('err=' + [string]$pc1b.error)
         # C27. cursor string => malformado (espera objeto)
         $pc2 = Parse-NativeTurnMessages -Body '{"data":[],"cursor":"syn-cur-str"}'
         Assert-That ((-not [bool]$pc2.ok) -and ([string]$pc2.error -ceq 'cursor-malformado')) 'parser: cursor-string recusado' ('err=' + [string]$pc2.error)
@@ -403,7 +406,7 @@ try {
         $script:promptSeen2 = $false
         $curBadFn = {
             param($Method, $Path, $Body, $TimeoutMs)
-            if (($Method -ceq 'GET') -and ($Path -like '*/message*')) { return @{ StatusCode = 200; Body = '{"data":[],"cursor":{}}'; TimedOut = $false } }
+            if (($Method -ceq 'GET') -and ($Path -like '*/message*')) { return @{ StatusCode = 200; Body = '{"data":[],"cursor":"syn-bad-str"}'; TimedOut = $false } }
             if (($Method -ceq 'POST') -and ($Path -like '*/prompt')) { $script:promptSeen2 = $true; return @{ StatusCode = 200; Body = '{"data":{"id":"syn-inbox-cb"}}'; TimedOut = $false } }
             if (($Method -ceq 'POST') -and ($Path -like '*/wait')) { return @{ StatusCode = 204; Body = ''; TimedOut = $false } }
             return @{ StatusCode = 404; Body = ''; TimedOut = $false }
@@ -418,7 +421,7 @@ try {
             if (($Method -ceq 'GET') -and ($Path -like '*/message*')) {
                 $script:curAfterCalls++
                 if ($script:curAfterCalls -eq 1) { return @{ StatusCode = 200; Body = '{"data":[]}'; TimedOut = $false } }
-                return @{ StatusCode = 200; Body = '{"data":[],"cursor":{}}'; TimedOut = $false }
+                return @{ StatusCode = 200; Body = '{"data":[],"cursor":{"next":5}}'; TimedOut = $false }
             }
             if (($Method -ceq 'POST') -and ($Path -like '*/prompt')) { return @{ StatusCode = 200; Body = '{"data":{"id":"syn-inbox-ca"}}'; TimedOut = $false } }
             if (($Method -ceq 'POST') -and ($Path -like '*/wait')) { return @{ StatusCode = 204; Body = ''; TimedOut = $false } }
@@ -670,6 +673,8 @@ try {
         Invoke-Expression $funcs['Parse-NativeTurnMessages']
         Invoke-Expression $funcs['Invoke-LaneNativeTurn']
         Invoke-Expression $funcs['Invoke-LaneModelTurn']
+        if ($funcs.ContainsKey('Get-LaneTurnUnitText')) { Invoke-Expression $funcs['Get-LaneTurnUnitText'] }
+        if ($funcs.ContainsKey('Test-LaneSignificantError')) { Invoke-Expression $funcs['Test-LaneSignificantError'] }
         if ($funcs.ContainsKey('Test-LaneTurnEvidence')) { Invoke-Expression $funcs['Test-LaneTurnEvidence'] }
         if ($funcs.ContainsKey('Get-LaneSafeText')) { Invoke-Expression $funcs['Get-LaneSafeText'] }
         if ($funcs.ContainsKey('Get-LaneModelTurnOutputExcerpt')) { Invoke-Expression $funcs['Get-LaneModelTurnOutputExcerpt'] }
@@ -874,57 +879,166 @@ try {
         Assert-That ($natFnH.Contains("proof = 'model-native-failed'")) 'perna define model-native-failed' 'definicao ausente'
         $nfBad = @([regex]::Matches($text, 'proof = ''model-native-failed''; ok = \$false'))
         Assert-That (@($nfBad).Count -eq 0) 'model-native-failed nunca com ok=false' ('count=' + @($nfBad).Count)
+        # H-paged: inicial com order=asc; seguintes com cursor SEM order
+        # (pin 2.0.23: Cursor cannot be combined with order); type mantido.
+        $script:pgPaths = New-Object System.Collections.ArrayList
+        $script:pgGets = 0
+        $pgFn = {
+            param($Method, $Path, $Body, $TimeoutMs)
+            if (($Method -ceq 'GET') -and ($Path -like '*/message*')) {
+                $script:pgGets++
+                [void]$script:pgPaths.Add([string]$Path)
+                if ([string]$Path -match 'cursor=') {
+                    if ([int]$script:pgGets -le 2) { return @{ StatusCode = 200; Body = '{"data":[],"cursor":{}}'; TimedOut = $false } }
+                    return @{ StatusCode = 200; Body = '{"data":[{"role":"assistant","content":[{"type":"text","text":"syn-pg-new"}]}],"cursor":{}}'; TimedOut = $false }
+                }
+                return @{ StatusCode = 200; Body = '{"data":[],"cursor":{"next":"syn-pg-1"}}'; TimedOut = $false }
+            }
+            if (($Method -ceq 'POST') -and ($Path -like '*/prompt')) { return @{ StatusCode = 200; Body = '{"data":{"id":"syn-inbox-pg"}}'; TimedOut = $false } }
+            if (($Method -ceq 'POST') -and ($Path -like '*/wait')) { return @{ StatusCode = 204; Body = ''; TimedOut = $false } }
+            return @{ StatusCode = 404; Body = ''; TimedOut = $false }
+        }
+        $rpg = Invoke-LaneNativeTurn -SessionId 'syn-sess-pg' -SafePrompt 'syn-prompt-pg' -TimeoutMs 10000 -RequestFn $pgFn
+        Assert-That ([bool]$rpg.ok) 'leg paged: ok com cursor-{} terminal na 2a pagina' ('ok=' + [bool]$rpg.ok + ' reason=' + [string]$rpg.reason)
+        $pgFirst = @(@($script:pgPaths) | Where-Object { $_ -notmatch 'cursor=' })
+        $pgFollow = @(@($script:pgPaths) | Where-Object { $_ -match 'cursor=' })
+        Assert-That ((@($pgFirst).Count -ge 1) -and ((@($pgFirst) | Where-Object { ($_ -match 'order=asc') -and ($_ -match 'type=assistant') }).Count -eq @($pgFirst).Count)) 'leg paged: iniciais com order=asc+type' ('paths=' + (@($pgFirst) -join ';'))
+        Assert-That ((@($pgFollow).Count -ge 1) -and ((@($pgFollow) | Where-Object { ($_ -match 'type=assistant') -and ($_ -notmatch 'order=') }).Count -eq @($pgFollow).Count)) 'leg paged: seguintes com cursor SEM order' ('paths=' + (@($pgFollow) -join ';'))
     }
     # I. evidencia stdout-OU-GET (18/21): stdout sanitizado do turno com os
     # mesmos criterios do GET; sem servico real (stubs + fixtures sinteticas).
     Assert-That ($funcs.ContainsKey('Test-LaneTurnEvidence')) 'helper Test-LaneTurnEvidence exists' 'helper ausente na lane'
-    if ($funcs.ContainsKey('Test-LaneTurnEvidence')) {
+    Assert-That ($funcs.ContainsKey('Test-LaneTurnEvidence')) 'helper Test-LaneTurnEvidence exists' 'helper ausente na lane'
+    Assert-That ($funcs.ContainsKey('Get-LaneTurnUnitText')) 'helper Get-LaneTurnUnitText exists' 'helper ausente na lane'
+    if (($funcs.ContainsKey('Test-LaneTurnEvidence')) -and ($funcs.ContainsKey('Get-LaneTurnUnitText'))) {
+        Invoke-Expression $funcs['Get-LaneTurnUnitText']
         Invoke-Expression $funcs['Test-LaneTurnEvidence']
-        # I-matcher: mesmos criterios nos dois lados
-        $evR1 = Test-LaneTurnEvidence -Text '{"role":"assistant","id":"syn-i-r1"}'
-        Assert-That (([bool]$evR1.role) -and (-not [bool]$evR1.canary) -and (-not [bool]$evR1.state)) 'matcher: role assistant, resto falso por padrao' 'divergente'
-        $evR0 = Test-LaneTurnEvidence -Text '{"role":"user","id":"syn-i-r0"}'
-        Assert-That (-not [bool]$evR0.role) 'matcher: role user nao conta' 'falso positivo'
-        $evT1 = Test-LaneTurnEvidence -Text '{"role":"tool","id":"syn-i-t1"}'
-        Assert-That ([bool]$evT1.role) 'matcher: role tool conta' 'falso negativo'
-        $canonI = 'lane21-syn-sess-i21'
-        $evC1 = Test-LaneTurnEvidence -Text ('turn ok ' + $canonI + ' state PLANNING') -CanaryEsc ([regex]::Escape($canonI)) -StateEsc ([regex]::Escape('PLANNING'))
-        Assert-That (([bool]$evC1.canary) -and ([bool]$evC1.state)) 'matcher: canary+state quando presentes' 'divergente'
-        $evC0 = Test-LaneTurnEvidence -Text 'turn ok sem marcas' -CanaryEsc ([regex]::Escape($canonI)) -StateEsc ([regex]::Escape('PLANNING'))
-        Assert-That ((-not [bool]$evC0.canary) -and (-not [bool]$evC0.state)) 'matcher: canary+state ausentes' 'falso positivo'
-        $threwEv = $false
-        $evBad = $null
-        try { $evBad = Test-LaneTurnEvidence -Text 'x' -CanaryEsc '([' -StateEsc '([' } catch { $threwEv = $true }
-        Assert-That ((-not $threwEv) -and ($null -ne $evBad) -and (-not [bool]$evBad.role) -and (-not [bool]$evBad.canary) -and (-not [bool]$evBad.state)) 'matcher: regex invalido falha fechado sem throw' ('threw=' + $threwEv)
-        $evEmpty = Test-LaneTurnEvidence -Text ''
-        Assert-That ((-not [bool]$evEmpty.role) -and (-not [bool]$evEmpty.canary) -and (-not [bool]$evEmpty.state)) 'matcher: texto vazio tudo falso' 'divergente'
-        # I-cli: stream --format json sem role (step_start + text)
-        $cliStream = '{"type":"step_start","session":"syn-cli-01"}' + "`n" + '{"type":"text","text":"RECOVERY-lane21-syn-cli-01 state PLANNING"}'
-        $evCli = Test-LaneTurnEvidence -Text $cliStream -CanaryEsc ([regex]::Escape('lane21-syn-cli-01')) -StateEsc ([regex]::Escape('PLANNING'))
-        Assert-That (([bool]$evCli.role) -and ([bool]$evCli.canary) -and ([bool]$evCli.state)) 'matcher: stream CLI sem role aceito' 'divergente'
+        $tokC = 'CHAL21-SYN01AA02BB'
+        $tokS = 'PLANNING'
+        # I-unit: extracao de texto por unidade elegivel
+        $u1 = $null
+        try { $u1 = ConvertFrom-Json '{"role":"assistant","content":[{"type":"text","text":"syn-u1-a"},{"type":"text","text":"syn-u1-b"}]}' } catch { $u1 = $null }
+        Assert-That ((Get-LaneTurnUnitText -Unit $u1) -ceq "syn-u1-a`nsyn-u1-b") 'unit: partes text concatenadas' 'divergente'
+        $u2 = $null
+        try { $u2 = ConvertFrom-Json '{"role":"assistant","content":"syn-u2-plain"}' } catch { $u2 = $null }
+        Assert-That ((Get-LaneTurnUnitText -Unit $u2) -ceq 'syn-u2-plain') 'unit: content string direto' 'divergente'
+        $u3 = $null
+        try { $u3 = ConvertFrom-Json '{"role":"tool","text":"syn-u3-tool"}' } catch { $u3 = $null }
+        Assert-That ((Get-LaneTurnUnitText -Unit $u3) -ceq 'syn-u3-tool') 'unit: campo text direto' 'divergente'
+        Assert-That ((Get-LaneTurnUnitText -Unit $null) -ceq '') 'unit: null vira vazio' 'divergente'
+        # I-pos: assistant real com tokens na MESMA mensagem
+        $okBody = '{"data":[{"role":"assistant","content":[{"type":"text","text":"li ' + $tokC + ' no arquivo; estado ' + $tokS + ' preservado"}]}]}'
+        $evOk = Test-LaneTurnEvidence -Text $okBody -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evOk.role) -and ([bool]$evOk.canary) -and ([bool]$evOk.state)) 'matcher: assistant real com tokens na mesma mensagem' 'divergente'
+        # I-neg-user: user array text com tokens => sem role
+        $userBody = '{"data":[{"role":"user","content":[{"type":"text","text":"eco ' + $tokC + ' ' + $tokS + '"}]}]}'
+        $evUser = Test-LaneTurnEvidence -Text $userBody -CanaryToken $tokC -StateToken $tokS
+        Assert-That ((-not [bool]$evUser.role) -and (-not [bool]$evUser.canary) -and (-not [bool]$evUser.state)) 'matcher: user array text negado' 'falso positivo'
+        # I-neg-split: user tokens + assistant negativa (unidades distintas)
+        $splitBody = '{"data":[{"role":"user","content":"' + $tokC + ' ' + $tokS + '"},{"role":"assistant","content":[{"type":"text","text":"narrativa generica syn-split"}]}]}'
+        $evSplit = Test-LaneTurnEvidence -Text $splitBody -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evSplit.role) -and (-not [bool]$evSplit.canary) -and (-not [bool]$evSplit.state)) 'matcher: user tokens + assistant negativa nao combinam' 'falso positivo'
+        # I-neg-err: erro com marcadores => negado
+        $errBody = '{"role":"assistant","error":"boom syn-err","content":[{"type":"text","text":"' + $tokC + ' ' + $tokS + '"}]}'
+        $evErr = Test-LaneTurnEvidence -Text $errBody -CanaryToken $tokC -StateToken $tokS
+        Assert-That ((-not [bool]$evErr.role) -and (-not [bool]$evErr.canary) -and (-not [bool]$evErr.state)) 'matcher: erro com marcadores negado' 'falso positivo'
+        # I-neg-echo: eco do prompt (sem desafio) por assistant => sem canario
+        $echoBody = '{"data":[{"role":"assistant","content":[{"type":"text","text":"RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history"}]}]}'
+        $evEchoP = Test-LaneTurnEvidence -Text $echoBody -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evEchoP.role) -and (-not [bool]$evEchoP.canary) -and (-not [bool]$evEchoP.state)) 'matcher: eco do prompt sem leitura negado' 'falso positivo'
+        # I-env: envelopes com role passam com mesma-unidade
+        $envNaked = '[{"role":"assistant","content":"' + $tokC + ' ' + $tokS + '"}]'
+        $evNaked = Test-LaneTurnEvidence -Text $envNaked -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evNaked.role) -and ([bool]$evNaked.canary)) 'matcher: lista nua elegivel' 'divergente'
+        $envMsgs = '{"messages":[{"role":"assistant","content":[{"type":"text","text":"' + $tokC + ' ' + $tokS + '"}]}]}'
+        $evMsgs = Test-LaneTurnEvidence -Text $envMsgs -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evMsgs.role) -and ([bool]$evMsgs.canary)) 'matcher: messages elegivel' 'divergente'
+        $envNested = '{"data":{"messages":[{"sender":"assistant","content":"' + $tokC + ' ' + $tokS + '"}],"cursor":{}}}'
+        $evNested = Test-LaneTurnEvidence -Text $envNested -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evNested.role) -and ([bool]$evNested.canary)) 'matcher: data.messages+sender elegivel' 'divergente'
+        $envTool = '{"role":"tool","content":"' + $tokC + ' ' + $tokS + '"}'
+        $evTool = Test-LaneTurnEvidence -Text $envTool -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evTool.role) -and ([bool]$evTool.canary)) 'matcher: role tool elegivel' 'divergente'
+        # I-cli-deny: stream sem role nunca vale (sem aceitacao ampla)
         $evStep = Test-LaneTurnEvidence -Text '{"type":"step_start","session":"syn-cli-02"}'
         Assert-That ((-not [bool]$evStep.role) -and (-not [bool]$evStep.canary) -and (-not [bool]$evStep.state)) 'matcher: step_start sozinho nao conta' 'falso positivo'
-        $evEmptyTx = Test-LaneTurnEvidence -Text '{"type":"text","text":""}'
-        Assert-That (-not [bool]$evEmptyTx.role) 'matcher: texto vazio recusado' 'falso positivo'
-        $evWsTx = Test-LaneTurnEvidence -Text '{"type":"text","text":"   "}'
-        Assert-That (-not [bool]$evWsTx.role) 'matcher: texto em branco recusado' 'falso positivo'
-        # I-cli-escapes: decodifica antes de julgar vazio; avalia todas as ocorrencias
-        $evEsc = Test-LaneTurnEvidence -Text '{"type":"text","text":"\n\t"}'
-        Assert-That (-not [bool]$evEsc.role) 'matcher: escapes decodificados, vazio recusado' 'falso positivo'
-        $evUni = Test-LaneTurnEvidence -Text '{"type":"text","text":"\u0020"}'
-        Assert-That (-not [bool]$evUni.role) 'matcher: unicode-espaco recusado' 'falso positivo'
-        $evBs = Test-LaneTurnEvidence -Text '{"type":"text","text":"\\"}'
-        Assert-That ([bool]$evBs.role) 'matcher: contrabarra literal aceita' 'falso negativo'
-        $evMix1 = Test-LaneTurnEvidence -Text ('{"type":"text","text":""}' + "`n" + '{"type":"text","text":"syn-mix-ok"}')
-        Assert-That ([bool]$evMix1.role) 'matcher: vazio+valido aceita o valido' 'falso negativo'
-        $evMix2 = Test-LaneTurnEvidence -Text ('{"type":"text","text":"syn-mix-ok"}' + "`n" + '{"type":"text","text":""}')
-        Assert-That ([bool]$evMix2.role) 'matcher: valido+vazio aceita o valido' 'falso negativo'
-        $evAllEmpty = Test-LaneTurnEvidence -Text ('{"type":"text","text":""}' + "`n" + '{"type":"text","text":"  "}')
-        Assert-That (-not [bool]$evAllEmpty.role) 'matcher: todos vazios recusado' 'falso positivo'
+        $evBareTx = Test-LaneTurnEvidence -Text ('{"type":"text","text":"' + $tokC + ' ' + $tokS + '"}')
+        Assert-That ((-not [bool]$evBareTx.role) -and (-not [bool]$evBareTx.canary) -and (-not [bool]$evBareTx.state)) 'matcher: type:text nu sem proveniencia negado' 'aceitacao ampla'
+        # I-tui: transcript real do pin (TUI, sem JSON elegivel) => negado
+        $tuiReal = '> build - muse-spark-1.3-contributor' + "`n" + '-> Skill "syn-skill"' + "`n" + '[0m ok syn-tui-01'
+        $evTui = Test-LaneTurnEvidence -Text $tuiReal -CanaryToken $tokC -StateToken $tokS
+        Assert-That ((-not [bool]$evTui.role) -and (-not [bool]$evTui.canary) -and (-not [bool]$evTui.state)) 'matcher: transcript TUI sem JSON negado' 'falso positivo'
+        # I-mixed: TUI + uma linha JSON elegivel => vale pela linha
+        $mixedBody = $tuiReal + "`n" + '{"role":"assistant","content":"' + $tokC + ' ' + $tokS + '"}'
+        $evMixed = Test-LaneTurnEvidence -Text $mixedBody -CanaryToken $tokC -StateToken $tokS
+        Assert-That (([bool]$evMixed.role) -and ([bool]$evMixed.canary)) 'matcher: linha elegivel em stream misto vale' 'falso negativo'
+        # I-esc: escapes decodificados pelo parse estrutural
+        $evEscBlank = Test-LaneTurnEvidence -Text '{"role":"assistant","content":[{"type":"text","text":"\n\t \u0020"}]}' -CanaryToken $tokC -StateToken $tokS
+        Assert-That (-not [bool]$evEscBlank.role) 'matcher: so-escapes em branco recusado' 'falso positivo'
+        $evBs = Test-LaneTurnEvidence -Text '{"role":"assistant","content":[{"type":"text","text":"\\"}]}'
+        Assert-That ([bool]$evBs.role) 'matcher: contrabarra literal em unidade elegivel conta' 'falso negativo'
+        # I-lit: tokens sao literais, nao regex
+        $rxTok = 'CHAL21.(SYN)+'
+        $evRx = Test-LaneTurnEvidence -Text '{"role":"assistant","content":"CHAL21XSYN estado PLANNING"}' -CanaryToken $rxTok -StateToken $tokS
+        Assert-That (([bool]$evRx.role) -and (-not [bool]$evRx.canary) -and (-not [bool]$evRx.state)) 'matcher: token literal, nao regex' 'regex ativo'
+        # I-closed: fail-closed sem throw
+        $evEmpty = Test-LaneTurnEvidence -Text ''
+        Assert-That ((-not [bool]$evEmpty.role) -and (-not [bool]$evEmpty.canary) -and (-not [bool]$evEmpty.state)) 'matcher: texto vazio tudo falso' 'divergente'
+        $evGarbage = Test-LaneTurnEvidence -Text 'THIS-IS-NOT-JSON{{{'
+        Assert-That ((-not [bool]$evGarbage.role) -and (-not [bool]$evGarbage.canary)) 'matcher: lixo nao-JSON negado' 'divergente'
+        $evNoTok = Test-LaneTurnEvidence -Text '{"role":"assistant","content":"resposta real syn-notok"}'
+        Assert-That (([bool]$evNoTok.role) -and (-not [bool]$evNoTok.canary) -and (-not [bool]$evNoTok.state)) 'matcher: sem tokens, so role' 'divergente'
+    }
+    # I-ancerr: erro ancestral descarta documento/descendentes (Debugger);
+    # JSONL avaliado por documento, sem contaminacao cruzada.
+    Assert-That ($funcs.ContainsKey('Test-LaneSignificantError')) 'helper Test-LaneSignificantError exists' 'helper ausente na lane'
+    if (($funcs.ContainsKey('Test-LaneTurnEvidence')) -and ($funcs.ContainsKey('Get-LaneTurnUnitText')) -and ($funcs.ContainsKey('Test-LaneSignificantError'))) {
+        Invoke-Expression $funcs['Get-LaneTurnUnitText']
+        Invoke-Expression $funcs['Test-LaneSignificantError']
+        Invoke-Expression $funcs['Test-LaneTurnEvidence']
+        $tokC2 = 'CHAL21-ANC01RR02'
+        $tokS2 = 'PLANNING'
+        Assert-That (-not [bool](Test-LaneSignificantError -Value $null)) 'sigerr: null benigno' 'divergente'
+        Assert-That (-not [bool](Test-LaneSignificantError -Value '')) 'sigerr: string vazia benigna' 'divergente'
+        Assert-That (-not [bool](Test-LaneSignificantError -Value @())) 'sigerr: array vazio benigno' 'divergente'
+        Assert-That (-not [bool](Test-LaneSignificantError -Value $false)) 'sigerr: false benigno' 'divergente'
+        Assert-That (-not [bool](Test-LaneSignificantError -Value 0)) 'sigerr: zero benigno' 'divergente'
+        Assert-That ([bool](Test-LaneSignificantError -Value 'boom')) 'sigerr: string significativa' 'divergente'
+        Assert-That ([bool](Test-LaneSignificantError -Value @('x'))) 'sigerr: array nao-vazio significativo' 'divergente'
+        Assert-That ([bool](Test-LaneSignificantError -Value $true)) 'sigerr: true significativo' 'divergente'
+        Assert-That ([bool](Test-LaneSignificantError -Value 5)) 'sigerr: numero nao-zero significativo' 'divergente'
+        $eobj = $null
+        try { $eobj = ConvertFrom-Json '{}' } catch { $eobj = $null }
+        if ($null -eq $eobj) { $eobj = New-Object PSObject }
+        Assert-That ([bool](Test-LaneSignificantError -Value $eobj)) 'sigerr: {} significativo' 'divergente'
+        $rData = '{"error":"boom syn-rd","data":[{"role":"assistant","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}'
+        $evRData = Test-LaneTurnEvidence -Text $rData -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That ((-not [bool]$evRData.role) -and (-not [bool]$evRData.canary)) 'ancerr: raiz+data[] descartado' 'falso positivo'
+        $rMsgs = '{"error":["boom syn-rm"],"messages":[{"role":"assistant","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}'
+        $evRMsgs = Test-LaneTurnEvidence -Text $rMsgs -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That ((-not [bool]$evRMsgs.role) -and (-not [bool]$evRMsgs.canary)) 'ancerr: raiz+messages[] descartado' 'falso positivo'
+        $rNest = '{"data":{"messages":[{"role":"assistant","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}}'
+        $evRNest = Test-LaneTurnEvidence -Text $rNest -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That (([bool]$evRNest.role) -and ([bool]$evRNest.canary)) 'ancerr: data.messages sem erro passa (positivo)' 'falso negativo'
+        $dErr = '{"data":{"error":"boom syn-de","messages":[{"role":"assistant","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}}'
+        $evDErr = Test-LaneTurnEvidence -Text $dErr -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That ((-not [bool]$evDErr.role) -and (-not [bool]$evDErr.canary)) 'ancerr: data.error intermedio descarta' 'falso positivo'
+        $ownErr = '{"data":[{"role":"assistant","error":"boom syn-own","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}'
+        $evOwn = Test-LaneTurnEvidence -Text $ownErr -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That ((-not [bool]$evOwn.role) -and (-not [bool]$evOwn.canary)) 'ancerr: message.error proprio negado' 'falso positivo'
+        $jlFalse = '{"error":"boom syn-j1","data":[{"role":"assistant","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}' + "`n" + '{"data":[{"role":"user","content":"' + $tokC2 + ' ' + $tokS2 + '"}]}'
+        $evJlF = Test-LaneTurnEvidence -Text $jlFalse -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That ((-not [bool]$evJlF.role) -and (-not [bool]$evJlF.canary)) 'ancerr: JSONL erro+user falso' 'falso positivo'
+        $jlTrue = '{"error":"boom syn-j2"}' + "`n" + '{"role":"assistant","content":"' + $tokC2 + ' ' + $tokS2 + '"}'
+        $evJlT = Test-LaneTurnEvidence -Text $jlTrue -CanaryToken $tokC2 -StateToken $tokS2
+        Assert-That (([bool]$evJlT.role) -and ([bool]$evJlT.canary)) 'ancerr: JSONL erro nao contamina assistant valido posterior' 'falso negativo'
     }
     if ($funcs.ContainsKey('Invoke-LaneModelTurn')) {
         Invoke-Expression $funcs['Invoke-LaneModelTurn']
         # I-turn: campo sanitizado (recarrega sanitizadores reais por cima dos stubs de F)
+        if ($funcs.ContainsKey('Get-LaneTurnUnitText')) { Invoke-Expression $funcs['Get-LaneTurnUnitText'] }
+        if ($funcs.ContainsKey('Test-LaneSignificantError')) { Invoke-Expression $funcs['Test-LaneSignificantError'] }
+        if ($funcs.ContainsKey('Test-LaneTurnEvidence')) { Invoke-Expression $funcs['Test-LaneTurnEvidence'] }
         Invoke-Expression $funcs['Get-LaneSafeText']
         Invoke-Expression $funcs['Get-LaneModelTurnOutputExcerpt']
         function Invoke-SpikeChild {
@@ -991,18 +1105,54 @@ try {
     Assert-That ($text.Contains('Test-LaneTurnEvidence -Text $stdSrc18')) '18: mesmos criterios via matcher' 'matcher ausente'
     Assert-That ($text.Contains('Test-LaneTurnEvidence -Text $stdSrc21')) '21: mesmos criterios via matcher' 'matcher ausente'
     Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + `$childId + '/message')")) '18: GET mantido como fallback' 'fallback removido'
-    Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]`$s2.id + '/message')")) '21: GET mantido como fallback' 'fallback removido'
+    Assert-That ($text.Contains("Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]`$s2.id + '/message?type=assistant')")) '21: GET fallback filtrado por type=assistant (eco do prompt fora do corpo)' 'fallback divergente'
     # I-stdout-proof: diag model-turn-stdout ok=true nos 3 cenarios, gated em attempted
     $stdoutProofAdds = @([regex]::Matches($text, "proof = 'model-turn-stdout'"))
     Assert-That (@($stdoutProofAdds).Count -eq 3) 'model-turn-stdout em 18/20/21' ('count=' + @($stdoutProofAdds).Count)
     $stdoutProofBad = @([regex]::Matches($text, 'proof = ''model-turn-stdout''; ok = \$false'))
     Assert-That (@($stdoutProofBad).Count -eq 0) 'model-turn-stdout nunca com ok=false (veredito intacto)' ('count=' + @($stdoutProofBad).Count)
     Assert-That ((@([regex]::Matches($text, 'turn18\.turn_output_safe')).Count -ge 1) -and (@([regex]::Matches($text, 'turn20\.turn_output_safe')).Count -ge 1) -and (@([regex]::Matches($text, 'turn21\.turn_output_safe')).Count -ge 1)) 'stdout-proof le turn_output_safe nos 3' 'leitura ausente'
+    # I21. desafio persistido no task file, NUNCA no prompt (anti-eco).
+    $setup21Lines = @($text -split "`r?`n" | Where-Object { $_ -match "New-LaneTask -TaskId 'lane21'" })
+    Assert-That (@($setup21Lines).Count -eq 1) '21: setup cria lane21 uma vez' ('count=' + @($setup21Lines).Count)
+    $setup21 = ''
+    if (@($setup21Lines).Count -ge 1) { $setup21 = [string]$setup21Lines[0] }
+    Assert-That ($setup21 -match '\$challenge21') '21: setup persiste desafio fresco no objective' 'desafio ausente'
+    Assert-That ($text.Contains('$challenge21 = (''CHAL21-'' + ([guid]::')) '21: desafio e token aleatorio de teste (guid, nao segredo)' 'definicao ausente'
+    $prompt21Lines = @($text -split "`r?`n" | Where-Object { $_ -match '\$turn21 = Invoke-LaneModelTurn' })
+    Assert-That (@($prompt21Lines).Count -eq 1) '21: um turn do substituto' ('count=' + @($prompt21Lines).Count)
+    $p21line = ''
+    if (@($prompt21Lines).Count -ge 1) { $p21line = [string]$prompt21Lines[0] }
+    Assert-That ($p21line -match '\.\./kernel-tasks/lane21\.json') '21: prompt com caminho relativo do task file' 'caminho ausente'
+    Assert-That ((($p21line -notmatch 'challenge21') -and ($p21line -notmatch 'preState') -and ($p21line -notmatch '(?i)canary'))) '21: prompt NAO revela desafio nem estado' 'revelacao no prompt'
+    Assert-That ((@([regex]::Matches($text, '-CanaryToken \$challenge21 -StateToken \$preState')).Count) -eq 2) '21: matcher usa desafio+estado nas 2 vias (stdout+GET)' 'wiring divergente'
+    # I21-sane: prompt curto sobrevive intacto ao saneamento do turno.
+    $synPrompt21 = 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history'
+    $synSafe21 = (($synPrompt21 -replace '[&|<>\^%!"''();$`\{\}\[\]\r\n]', '-').Trim())
+    if ($synSafe21.Length -gt 200) { $synSafe21 = $synSafe21.Substring(0, 200) }
+    Assert-That (($synSafe21 -ceq $synPrompt21) -and ($synSafe21.Length -le 200)) '21: prompt intacto pos-saneamento+cap200' ('safe=' + $synSafe21)
+    # I21-gate: desafio+estado na mesma unidade assistant passam; eco do
+    # prompt (sem desafio) e user-only com tokens nao passam.
+    if ($funcs.ContainsKey('Get-LaneTurnUnitText')) { Invoke-Expression $funcs['Get-LaneTurnUnitText'] }
+    if ($funcs.ContainsKey('Test-LaneSignificantError')) { Invoke-Expression $funcs['Test-LaneSignificantError'] }
+    Invoke-Expression $funcs['Test-LaneTurnEvidence']
+    $chal21 = 'CHAL21-SYNTEST01AB'
+    $readBody21 = '{"data":[{"role":"assistant","content":[{"type":"text","text":"objective RR-E2E-21 ' + $chal21 + ' estado PLANNING via arquivo"}]}]}'
+    $evRead21 = Test-LaneTurnEvidence -Text $readBody21 -CanaryToken $chal21 -StateToken 'PLANNING'
+    Assert-That (([bool]$evRead21.role) -and ([bool]$evRead21.canary) -and ([bool]$evRead21.state)) '21 leitura real: desafio+estado na mesma unidade passam' 'divergente'
+    $echoP21 = '{"data":[{"role":"assistant","content":[{"type":"text","text":"RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history"}]}]}'
+    $evEchoP21 = Test-LaneTurnEvidence -Text $echoP21 -CanaryToken $chal21 -StateToken 'PLANNING'
+    Assert-That (([bool]$evEchoP21.role) -and (-not [bool]$evEchoP21.canary) -and (-not [bool]$evEchoP21.state)) '21 eco do prompt sem desafio negado' 'falso positivo'
+    $userOnly21 = '{"data":[{"role":"user","content":"' + $chal21 + ' PLANNING"}]}'
+    $evUser21 = Test-LaneTurnEvidence -Text $userOnly21 -CanaryToken $chal21 -StateToken 'PLANNING'
+    Assert-That ((-not [bool]$evUser21.role) -and (-not [bool]$evUser21.canary)) '21 user-only com tokens negado' 'falso positivo'
     # J. hollow-ok (rc=0 SEM texto) nao conta como ok substantivo; a perna
     # nativa tem sua chance (ORFS-HOLLOW-NATIVE). Fixtures sinteticas, sem
     # rede/servico real. RED-first: falha na baseline (sem substantive, sem
     # trigger, nativa nunca corre com ok=true).
     if (($funcs.ContainsKey('Invoke-LaneModelTurn')) -and ($funcs.ContainsKey('Test-LaneTurnEvidence'))) {
+        if ($funcs.ContainsKey('Get-LaneTurnUnitText')) { Invoke-Expression $funcs['Get-LaneTurnUnitText'] }
+        if ($funcs.ContainsKey('Test-LaneSignificantError')) { Invoke-Expression $funcs['Test-LaneSignificantError'] }
         Invoke-Expression $funcs['Test-LaneTurnEvidence']
         Invoke-Expression $funcs['Invoke-LaneNativeTurn']
         Invoke-Expression $funcs['Invoke-LaneModelTurn']

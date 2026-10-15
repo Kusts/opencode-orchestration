@@ -1,0 +1,169 @@
+{
+    "lane":  "session-real-lane-v2",
+    "purpose":  "V3.1 closure: RR-E2E-16..22 runtime-real + V2-native capability probes",
+    "date":  "2026-10-15",
+    "started_at":  "2026-10-15T12:30:32.7426174Z",
+    "finished_at":  "2026-10-15T12:32:18.8385966Z",
+    "status":  "ok-with-blocked",
+    "reason":  "cenarios blocked (motivos nos rows)",
+    "runtime_pin":  "2.0.23",
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "service_port":  54359,
+    "scenarios":  [
+                      {
+                          "scenario_id":  "RR-E2E-21",
+                          "status":  "blocked",
+                          "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+                          "proofs":  [
+                                         {
+                                             "proof":  "task-has-worker-result",
+                                             "ok":  true,
+                                             "detail":  "candidate_pass=True exit=0"
+                                         },
+                                         {
+                                             "proof":  "session-replacement-real",
+                                             "ok":  true,
+                                             "detail":  "old=ses_ec074e5b6ffejtahkqeFrO1MtJ new=ses_ec074b2b5ffe5q42TFrRv4I0Td"
+                                         },
+                                         {
+                                             "proof":  "state-preserved",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING-\u003ePLANNING"
+                                         },
+                                         {
+                                             "proof":  "history-preserved",
+                                             "ok":  true,
+                                             "detail":  "worker_result_preservado=True attempts=1"
+                                         },
+                                         {
+                                             "proof":  "no-false-terminal",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         },
+                                         {
+                                             "proof":  "credstore-import",
+                                             "ok":  true,
+                                             "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                                         },
+                                         {
+                                             "proof":  "model-turn-attempt",
+                                             "ok":  true,
+                                             "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=0 timedout=False job=True"
+                                         },
+                                         {
+                                             "proof":  "model-turn-stdout",
+                                             "ok":  true,
+                                             "detail":  "Decoding your recovery lane request ÔÇö inspecting workspace to reconstruct state.  That lane ID looks like a memory lookup ÔÇö I\u0027ll try to pull its objective and history.  Estado lane21 recuperado (via worker `researcher` ÔÇö `ses_ec07444d9ffeG5lI01V25gqeoF`):  **Objetivo ÔÇö lane21 = RR-E2E-21 (`scripts/ci/session-real-lane-v2.ps1`, projeto `ferramentas/opencode-orchestration`):** Estado da task preservado atrav├®s de substitui├º├úo de sess├úo ÔÇö detach+rebind oldÔåÆnew session real, com `state/history` preservados e relidos kernel-side. Releitura pelo substituto (model-turn do Planner) exige opt-in de modelo.  **Hist├│rico:** 1. `2026-10-08 TEST-SESSLANE-01` ÔåÆ veredito `ok-with-blocked`, 21 sem pass-real. Defini├º├úo: cen├írios 16-22, 21 = ÔÇ£estado da task preservadoÔÇØ. 2. `2026-10-08 TEST-LANE-1821-01 (RR-18/21)` ÔåÆ ambos `blocked`, rc=1 `timedout=False` ÔÇö ÔÇ£recusa sistem├ítica, n├úo flakeÔÇØ. 21 com `session-replacement-real` + `state-preserved` + `history-preserved` provados, mas `substitute-reread-turn=false`. 3. `BOTREV-01 (PR #44)` endureceu prova RR-21: antes substring est├ítica `lane21`, agora exige can├írio exclusivo (id nova sess├úo) + token de estado persistido (`state` pr├®-substitui├º├úo) + papel de resposta. Segue `blocked`, sem re-run.  **Evid├¬ncias:** - `ferramentas/opencode-orchestration:sessions/8b295aed-ae65-58f7-b3c5-ddfdfc05d113.md` ÔÇö BOTREV-01 - `ferramentas/opencode-orchestration:sessions/d6b7719d-8e74-58cc-bb17-4e20739d8570.md` ÔÇö rerun 18/21 (`old=ses_ee34144eÔÇªÔåÆnew=ses_ee341069ÔÇª`, `PLANNING-\u003ePLANNING`) - `ferramentas/opencode-orchestration:sessions/6cb76c3e-e98b-52ea-8bf5-7529f0cd9add.md` ÔÇö TEST-SESSLANE-01  **Sobre `ses_ec074b2b5ffe5q42TFrRv4I0Td`:** Zero hits em busca global. ├ë id OpenCode, n├úo UUID ai-memory ÔÇö n├úo recuper├ível via `memory_read_session_observations`.  **Handoff aberto:** `MODEL-1821-RUN` (`01a13f7f-ÔÇª`) ÔÇö pernas 18/21, rerun filtrado com opt-in, `EvidenceDir session-lane-2026-10-15-model1821`. Indica trabalho 1821 pendente.  **Blocker RR-21:** model-turn sistematicamente recusado sem opt-in efetivo. Re-run s├│ com `-ModelKeyEnvName` e EvidenceDir nova.    [0m  \u003e build ┬À muse-spark-1.3-contributor   [0mÔåÆ  [0mRead .   \u003e build ┬À muse-spark-1.3-contributor   [0mÔÜÖ  [0mexecute {\"code\":\"search({query: \\\"memory handoff ai-memory\\\"});\\nreturn \\\"searched\\\";\"}   \u003e build ┬À muse-spark-1.3-contributor   [0mÔÜÖ  [0mexecute {\"code\":\"const r = search({query: \\\"memory\\\", namespace: \\\"ai-memory\\\", limit: 30});\\nreturn JSON.stringify(r, null, 2);\"}   \u003e build ┬À muse-spark-1.3-contributor   [0mÔ£ô  [0mRecover lane21 task state  [90mResearcher Agent [0m  \u003e build ┬À muse-spark-1.3-contributor"
+                                         },
+                                         {
+                                             "proof":  "model-native-failed",
+                                             "ok":  true,
+                                             "detail":  "messages-before-invalid"
+                                         },
+                                         {
+                                             "proof":  "model-native-trigger",
+                                             "ok":  true,
+                                             "detail":  "gatilho=native-after-hollow (turn rc=0 sem marcadores no stdout, substantive=false; nativa como ultimo recurso)"
+                                         },
+                                         {
+                                             "proof":  "substitute-reread-turn",
+                                             "ok":  false,
+                                             "detail":  "hollow-ok (rc=0 sem marcadores no stdout, substantive=false) + GET sem evidencia; perna segue blocked; resposta do substituto observada=False fonte=nenhuma job=True (model-key-env=OPENCODE_GO_API_KEY)"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                                       ],
+                          "at":  "2026-10-15T12:32:16.6173322Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  0,
+                            "fail":  0,
+                            "blocked":  1
+                        },
+    "capability_probes":  [
+
+                          ],
+    "probes_skipped":  true,
+    "model_key_env":  "model-key-env=OPENCODE_GO_API_KEY",
+    "checks":  [
+                   {
+                       "check":  "version_exact",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.23"
+                   },
+                   {
+                       "check":  "config_19_workers_built",
+                       "ok":  true,
+                       "detail":  "opencode.json da lane com 19 workers + overlay deny shell marker (probe narrowing)"
+                   },
+                   {
+                       "check":  "isolation_paths",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "check":  "port_preflight_free",
+                       "ok":  true,
+                       "detail":  "porta 54359 =\u003e PORT_FREE should_start=true"
+                   },
+                   {
+                       "check":  "service_port_configured",
+                       "ok":  true,
+                       "detail":  "service set port =\u003e 54359"
+                   },
+                   {
+                       "check":  "job_object_created_before_start",
+                       "ok":  true,
+                       "detail":  "limit_flags=0x2000"
+                   },
+                   {
+                       "check":  "service_start_explicit_job_assigned",
+                       "ok":  true,
+                       "detail":  "service start rc=0; job_assigned=true; nota=atribuido ao job (pid 6528)"
+                   },
+                   {
+                       "check":  "service_listener_observed",
+                       "ok":  true,
+                       "detail":  "listener porta 54359 observado (fato P22)"
+                   },
+                   {
+                       "check":  "rest_auth_from_service_json",
+                       "ok":  true,
+                       "detail":  "password lida de service.json do perfil isolado (valor nunca logado)"
+                   },
+                   {
+                       "check":  "openapi_real_parsed",
+                       "ok":  true,
+                       "detail":  "spec real carregada (paths disponiveis)"
+                   },
+                   {
+                       "check":  "service_stop_owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "check":  "service_settlement",
+                       "ok":  true,
+                       "detail":  "ausencia conclusiva do listener apos stop owned"
+                   },
+                   {
+                       "check":  "job_object_closed",
+                       "ok":  true,
+                       "detail":  "reason=handle fechado (KILL_ON_JOB_CLOSE: membros remanescentes encerrados pelo SO)"
+                   },
+                   {
+                       "check":  "port49374_untouched",
+                       "ok":  true,
+                       "detail":  "antes=FREE depois=FREE"
+                   }
+               ],
+    "notes":  [
+                  "model-key opt-in ativo (model-key-env=OPENCODE_GO_API_KEY); passthrough pontual SOMENTE aos filhos opencode run das pernas 18/20/21"
+              ],
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane",
+    "port49374_owner_before":  "FREE",
+    "port49374_owner_after":  "FREE"
+}

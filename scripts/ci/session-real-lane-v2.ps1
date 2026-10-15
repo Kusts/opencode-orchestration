@@ -460,7 +460,13 @@ function New-LaneModelTurnOutcome {
     # NativeProof opcionais e saidas nativeAttempted/nativeOk/nativeProof/
     # nativeCalls aditivas; callers antigos (sem nativa) mantem calls/proofs.
     [CmdletBinding()] param($FirstResult = $null, $RetryResult = $null, [bool]$RetryRefused = $false, [string]$SessionId = '', [string]$SafePrompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [bool]$NativeAttempted = $false, [bool]$NativeOk = $false, $NativeProof = $null)
-    $firstArgs = @('run', '--session', [string]$SessionId, '--model', [string]$Model, [string]$SafePrompt)
+    # CLI do pin (2.0.23): 'opencode run' aceita '--format json' (mesmo uso
+    # provado na lane agent-mcp-integration-lane-v2.ps1, linhas de run com
+    # '--format','json' + closure 2026-10-14). O matcher Test-LaneTurnEvidence
+    # exige unidade estrutural com role/sender assistant|tool (evento CLI sem
+    # role nunca vale; ver Get-LaneTurnUnitText). --session/--model/proofs
+    # intactos.
+    $firstArgs = @('run', '--session', [string]$SessionId, '--model', [string]$Model, '--format', 'json', [string]$SafePrompt)
     $out = [ordered]@{
         shouldRetry     = $false
         retryDue        = $false
@@ -493,7 +499,7 @@ function New-LaneModelTurnOutcome {
         $out.retryDue = [bool]$due
         $should = (([bool]$due) -and ([bool]$fJob))
         $out.shouldRetry = [bool]$should
-        if ([bool]$should) { $out.retryArgs = @('run', '--session', [string]$SessionId, [string]$SafePrompt) }
+        if ([bool]$should) { $out.retryArgs = @('run', '--session', [string]$SessionId, '--format', 'json', [string]$SafePrompt) }
         $used = (([bool]$should) -and (-not [bool]$RetryRefused) -and ($null -ne $RetryResult))
         $out.fallback = [bool]$used
         if ([bool]$used) { $out.final = $RetryResult } else { $out.final = $FirstResult }
@@ -569,10 +575,12 @@ function Parse-NativeTurnMessages {
             }
             # Cursor tri-state (finding MEDIUM): AUSENTE (sem chave ou valor
             # null, em qualquer das 4 posicoes) ou terminal valido (next null
-            # ou "" explicito) => completo; PRESENTE-mas-malformado (cursor
-            # nao-objeto como string/numero/array, {} sem next, next com tipo
-            # errado como numero/bool/array/objeto) => cursor-malformado.
-            # top/data next string e tolerado (mesmo type implicito).
+            # ou "" explicito, ou objeto cursor VAZIO {} conforme o contrato
+            # do pin 2.0.23) => completo; PRESENTE-mas-malformado (cursor
+            # nao-objeto como string/numero/array, {} NAO-vazio sem next,
+            # next com tipo errado como numero/bool/array/objeto) =>
+            # cursor-malformado. top/data next string e tolerado (mesmo type
+            # implicito).
             $curVal = $null
             $curKind = ''
             try { $t = $j.cursor; if ($null -ne $t) { $curVal = $t; $curKind = 'cursor' } } catch { }
@@ -588,12 +596,20 @@ function Parse-NativeTurnMessages {
                 }
                 $hasNextKey = $false
                 try { $hasNextKey = (([string[]]@($curVal.PSObject.Properties.Name)) -contains 'next') } catch { $hasNextKey = $false }
-                if (-not $hasNextKey) { $out.error = 'cursor-malformado'; return $out }
-                $nx = $null
-                try { $nx = $curVal.next } catch { $nx = $null }
-                if ($null -eq $nx) { $cursorNext = '' }
-                elseif ($nx -is [string]) { $cursorNext = [string]$nx }
-                else { $out.error = 'cursor-malformado'; return $out }
+                if (-not $hasNextKey) {
+                    # cursor:{} vazio e terminal do contrato (fim de paginas);
+                    # objeto NAO-vazio sem next segue malformado (fail-closed).
+                    $propCount = 0
+                    try { $propCount = @($curVal.PSObject.Properties).Count } catch { $propCount = -1 }
+                    if ([int]$propCount -eq 0) { $cursorNext = '' }
+                    else { $out.error = 'cursor-malformado'; return $out }
+                } else {
+                    $nx = $null
+                    try { $nx = $curVal.next } catch { $nx = $null }
+                    if ($null -eq $nx) { $cursorNext = '' }
+                    elseif ($nx -is [string]) { $cursorNext = [string]$nx }
+                    else { $out.error = 'cursor-malformado'; return $out }
+                }
             } else {
                 if ($curVal -is [string]) { $cursorNext = [string]$curVal }
                 else { $out.error = 'cursor-malformado'; return $out }
@@ -778,7 +794,11 @@ function Invoke-LaneNativeTurn {
                 return $o
             } catch { return $o }
         }
+        # pin 2.0.23: 'Cursor cannot be combined with order' - a pagina
+        # inicial leva order=asc; as seguintes levam cursor SEM order
+        # (type=assistant mantido nas duas, exigido pelo contrato).
         $msgBase = '/api/session/' + [string]$SessionId + '/message?type=assistant&order=asc'
+        $msgFollowBase = '/api/session/' + [string]$SessionId + '/message?type=assistant'
         $promptPath = '/api/session/' + [string]$SessionId + '/prompt'
         $waitPath = '/api/experimental/session/' + [string]$SessionId + '/wait'
         $beforeTotal = 0
@@ -808,7 +828,7 @@ function Invoke-LaneNativeTurn {
             if ([string]::IsNullOrWhiteSpace($cursorB)) { break }
             if ($seenCurB.Contains($cursorB)) { $res.reason = 'messages-before-cursor-repeat'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
             [void]$seenCurB.Add($cursorB)
-            $pathB = $msgBase + '&cursor=' + [Uri]::EscapeDataString($cursorB)
+            $pathB = $msgFollowBase + '&cursor=' + [Uri]::EscapeDataString($cursorB)
             $pagesB++
         }
         if (-not [string]::IsNullOrWhiteSpace($cursorB)) { $res.reason = 'messages-before-truncated'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
@@ -908,7 +928,7 @@ function Invoke-LaneNativeTurn {
             if ([string]::IsNullOrWhiteSpace($cursorA)) { break }
             if ($seenCurA.Contains($cursorA)) { $res.reason = 'messages-after-cursor-repeat'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
             [void]$seenCurA.Add($cursorA)
-            $pathA = $msgBase + '&cursor=' + [Uri]::EscapeDataString($cursorA)
+            $pathA = $msgFollowBase + '&cursor=' + [Uri]::EscapeDataString($cursorA)
             $pagesA++
         }
         if (-not [string]::IsNullOrWhiteSpace($cursorA)) { $res.reason = 'messages-after-truncated'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
@@ -921,75 +941,168 @@ function Invoke-LaneNativeTurn {
         return $res
     } catch { $res.reason = 'native-throw'; $res.proof = [ordered]@{ proof = 'model-native-failed'; ok = $true; detail = ([string]$res.reason) }; return $res }
 }
-function Test-LaneTurnEvidence {
-    # Matcher puro da evidencia de resposta de um turno: aplica os MESMOS
-    # criterios ao stdout sanitizado do turno e ao corpo GET message, de modo
-    # que stdout-OU-GET provem o mesmo conteudo (equivalencia por construcao).
-    # Role vale por "role":assistant|tool OU por evento CLI sem role
-    # ({"type":"text","text":"..."} do --format json): type text E text com
-    # valor nao-vazio/no-branco no MESMO objeto (sem chaves no caminho; regex
-    # com janela braceless cobre as duas ordens de chave e multilinha, e
-    # recusa aninhamento inesperado fail-closed). O valor passa por decode
-    # de escapes JSON em passada unica (sem eval: \" \\ \/ \b \f \n \r \t
-    # \uXXXX; resto literal) e so conta decodificado nao-branco. TODAS as
-    # ocorrencias sao avaliadas ate a primeira valida; nenhuma valida =>
-    # recusado. CanaryEsc/StateEsc sao regex
-    # ja escapados ([regex]::Escape no chamador) e seguem substring-match no
-    # texto sanitizado (anti-forgery: canario fresco por execucao); vazio =>
-    # criterio falso (fail-closed). Nunca lanca.
-    [CmdletBinding()] param([string]$Text = '', [string]$CanaryEsc = '', [string]$StateEsc = '')
+function Get-LaneTurnUnitText {
+    # Extrai o texto de UMA unidade candidata (paridade com
+    # Parse-NativeTurnMessages): content string | content[] (string ou parte
+    # {type:text,...}) | campos text|body|message. Retorna '' sem texto;
+    # nunca lanca.
+    [CmdletBinding()] param($Unit = $null)
     try {
-        $t = [string]$Text
-        $role = (($t -match '"role"\s*:\s*"assistant"') -or ($t -match '"role"\s*:\s*"tool"'))
-        if (-not $role) {
-            try {
-                $pats = @(
-                    '"type"\s*:\s*"text"\s*,[^{}]*"text"\s*:\s*"((?:[^"\\]|\\.)*)"',
-                    '"text"\s*:\s*"((?:[^"\\]|\\.)*)"[^{}]*"type"\s*:\s*"text"'
-                )
-                foreach ($pat in @($pats)) {
-                    if ([bool]$role) { break }
-                    $all = $null
-                    try { $all = [regex]::Matches($t, $pat) } catch { $all = $null }
-                    if ($null -eq $all) { continue }
-                    foreach ($mm in @($all)) {
-                        if ([bool]$role) { break }
-                        if (-not $mm.Success) { continue }
-                        $raw = ''
-                        try { $raw = [string]$mm.Groups[1].Value } catch { $raw = '' }
-                        $dec = $null
-                        try {
-                            $dec = [regex]::Replace($raw, '\\(u[0-9a-fA-F]{4}|["\\/bfnrt])', {
-                                param($e)
-                                $k = ''
-                                try { $k = [string]$e.Groups[1].Value } catch { $k = '' }
-                                if ($k.Length -gt 1) {
-                                    $cp = 0
-                                    try { $cp = [Convert]::ToInt32($k.Substring(1), 16) } catch { $cp = -1 }
-                                    if ($cp -ge 0) { return [string][char]$cp }
-                                    return $e.Value
-                                }
-                                if ($k -ceq '"') { return '"' }
-                                if ($k -ceq '\') { return '\' }
-                                if ($k -ceq '/') { return '/' }
-                                if ($k -ceq 'b') { return [string][char]8 }
-                                if ($k -ceq 'f') { return [string][char]12 }
-                                if ($k -ceq 'n') { return [string][char]10 }
-                                if ($k -ceq 'r') { return [string][char]13 }
-                                if ($k -ceq 't') { return [string][char]9 }
-                                return $e.Value
-                            })
-                        } catch { $dec = $null }
-                        if (($null -ne $dec) -and (-not [string]::IsNullOrWhiteSpace($dec))) { $role = $true }
-                    }
+        if ($null -eq $Unit) { return '' }
+        $parts = New-Object System.Collections.ArrayList
+        $content = $null
+        try { $content = $Unit.content } catch { $content = $null }
+        if ($content -is [string]) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$content)) { [void]$parts.Add([string]$content) }
+        } elseif ($content -is [System.Array]) {
+            foreach ($part in @($content)) {
+                if ($null -eq $part) { continue }
+                if ($part -is [string]) {
+                    if (-not [string]::IsNullOrWhiteSpace([string]$part)) { [void]$parts.Add([string]$part) }
+                    continue
                 }
-            } catch { }
+                if (($part -is [System.Array]) -or ($part -is [System.ValueType])) { continue }
+                $pt = $null
+                try { $pt = $part.type } catch { $pt = $null }
+                if ([string]$pt -ine 'text') { continue }
+                $tv = $null
+                try { $tv = $part.text } catch { $tv = $null }
+                if ($null -eq $tv) { try { $tv = $part.value } catch { $tv = $null } }
+                if ($null -eq $tv) { try { $tv = $part.content } catch { $tv = $null } }
+                if ($null -eq $tv) { try { $tv = $part.data } catch { $tv = $null } }
+                if (-not [string]::IsNullOrWhiteSpace([string]$tv)) { [void]$parts.Add([string]$tv) }
+            }
+        } else {
+            foreach ($fn in @('text', 'body', 'message')) {
+                $fv = $null
+                try { $fv = $Unit.$fn } catch { $fv = $null }
+                if (-not [string]::IsNullOrWhiteSpace([string]$fv)) { [void]$parts.Add([string]$fv); break }
+            }
         }
-        $canary = $false
-        if (-not [string]::IsNullOrWhiteSpace($CanaryEsc)) { $canary = ($t -match $CanaryEsc) }
-        $state = $false
-        if (-not [string]::IsNullOrWhiteSpace($StateEsc)) { $state = ($t -match $StateEsc) }
-        return [ordered]@{ role = [bool]$role; canary = [bool]$canary; state = [bool]$state }
+        return (@($parts) -join "`n")
+    } catch { return '' }
+}
+function Test-LaneSignificantError {
+    # Semantica pura de erro significativo (contrato existente da perna
+    # nativa, sem mudanca): benigno = ausente/null/""/[]/$false/0; resto
+    # significativo (inclui {} e objetos). Nunca lanca; excecao =>
+    # significativo (fail-closed: nega unidade/documento).
+    [CmdletBinding()] param($Value = $null)
+    try {
+        if ($null -eq $Value) { return $false }
+        if ($Value -is [string]) { return (-not [string]::IsNullOrWhiteSpace([string]$Value)) }
+        if ($Value -is [System.Array]) { return (@($Value).Count -gt 0) }
+        if ($Value -is [bool]) { return [bool]$Value }
+        $z = $false
+        try { $z = ([double]$Value -eq 0) } catch { $z = $false }
+        if ([bool]$z) { return $false }
+        return $true
+    } catch { return $true }
+}
+function Test-LaneTurnEvidence {
+    # Matcher estrutural da evidencia de resposta de um turno (reviewer+sec):
+    # aplica os MESMOS criterios ao stdout do turno e ao corpo GET message
+    # (equivalencia por construcao). Parseia JSON/JSONL e extrai texto
+    # SOMENTE de unidade elegivel: role/sender explicito assistant|tool, sem
+    # erro significativo. Canario+state sao literais avaliados na MESMA
+    # unidade elegivel (user tokens + assistant negativa nao combinam).
+    # Nega user/error/envelopes ambiguos; linhas nao-JSON sao ignoradas, nunca
+    # casadas. Shapes repo-grounded: envelopes do GET (lista nua,
+    # {data:[...]}, {messages:[...]}, {data:{messages:[...]}}, mensagem direta
+    # com role) e docs JSON por linha do stdout CLI. Evento CLI sem role
+    # (step_start, {"type":"text",...} nu) NAO tem proveniencia e nunca vale
+    # role (sem aceitacao ampla: o --format json real do pin mistura
+    # transcript TUI; a decisao usa o GET ?type=assistant). Token vazio =>
+    # criterio falso (fail-closed). Nunca lanca.
+    [CmdletBinding()] param([string]$Text = '', [string]$CanaryToken = '', [string]$StateToken = '')
+    $out = [ordered]@{ role = $false; canary = $false; state = $false }
+    try {
+        $docs = New-Object System.Collections.ArrayList
+        $whole = $null
+        try { $whole = ConvertFrom-Json ([string]$Text) } catch { $whole = $null }
+        if ($null -ne $whole) { [void]$docs.Add($whole) }
+        else {
+            foreach ($ln in ([string]$Text -split "`r?`n")) {
+                $t = ''
+                try { $t = ([string]$ln).Trim() } catch { $t = '' }
+                if ([string]::IsNullOrWhiteSpace($t)) { continue }
+                if ((-not $t.StartsWith('{')) -and (-not $t.StartsWith('['))) { continue }
+                $d = $null
+                try { $d = ConvertFrom-Json $t } catch { $d = $null }
+                if ($null -ne $d) { [void]$docs.Add($d) }
+            }
+        }
+        $units = New-Object System.Collections.ArrayList
+        foreach ($doc in @($docs)) {
+            if ($doc -is [System.Array]) { foreach ($m in @($doc)) { [void]$units.Add($m) } }
+            elseif (($doc -is [string]) -or ($doc -is [System.ValueType])) { continue }
+            else {
+                # Erro significativo no doc raiz descarta o documento e os
+                # descendentes (nao herdam elegibilidade do envelope).
+                $rootBad = $false
+                try {
+                    $re = $null
+                    try { $re = $doc.error } catch { $re = $null }
+                    try { $rootBad = [bool](Test-LaneSignificantError -Value $re) } catch { $rootBad = $true }
+                } catch { $rootBad = $true }
+                if ([bool]$rootBad) { continue }
+                $dataNode = $null
+                $msgNode = $null
+                try { $dataNode = $doc.data } catch { $dataNode = $null }
+                try { $msgNode = $doc.messages } catch { $msgNode = $null }
+                if (($null -ne $dataNode) -and ($dataNode -is [System.Array])) { foreach ($m in @($dataNode)) { [void]$units.Add($m) } }
+                elseif (($null -ne $msgNode) -and ($msgNode -is [System.Array])) { foreach ($m in @($msgNode)) { [void]$units.Add($m) } }
+                elseif ($null -ne $dataNode) {
+                    $nested = $null
+                    try { $nested = $dataNode.messages } catch { $nested = $null }
+                    if (($null -ne $nested) -and ($nested -is [System.Array])) {
+                        # Intermediario data.error tambem descarta (mesma
+                        # semantica; sem recursao generica).
+                        $dataBad = $false
+                        try {
+                            $de = $null
+                            try { $de = $dataNode.error } catch { $de = $null }
+                            try { $dataBad = [bool](Test-LaneSignificantError -Value $de) } catch { $dataBad = $true }
+                        } catch { $dataBad = $true }
+                        if (-not [bool]$dataBad) { foreach ($m in @($nested)) { [void]$units.Add($m) } }
+                    }
+                    else { [void]$units.Add($doc) }
+                }
+                else { [void]$units.Add($doc) }
+            }
+        }
+        $wantBoth = ((-not [string]::IsNullOrWhiteSpace($CanaryToken)) -and (-not [string]::IsNullOrWhiteSpace($StateToken)))
+        $roleFound = $false
+        $sameFound = $false
+        foreach ($m in @($units)) {
+            if ($null -eq $m) { continue }
+            if (($m -is [string]) -or ($m -is [System.ValueType]) -or ($m -is [System.Array])) { continue }
+            # Erro significativo proprio (mesma semantica pura) => inelegivel.
+            $bad = $false
+            try {
+                $e = $null
+                try { $e = $m.error } catch { $e = $null }
+                try { $bad = [bool](Test-LaneSignificantError -Value $e) } catch { $bad = $true }
+            } catch { $bad = $true }
+            if ([bool]$bad) { continue }
+            $rv = $null
+            try { $rv = $m.role } catch { $rv = $null }
+            if ($null -eq $rv) { try { $rv = $m.sender } catch { $rv = $null } }
+            if ((([string]$rv -ieq 'assistant') -or ([string]$rv -ieq 'tool'))) { }
+            else { continue }
+            $tx = ''
+            try { $tx = Get-LaneTurnUnitText -Unit $m } catch { $tx = '' }
+            if ([string]::IsNullOrWhiteSpace($tx)) { continue }
+            $roleFound = $true
+            if ([bool]$wantBoth) {
+                $low = $tx.ToLowerInvariant()
+                if (($low.Contains(([string]$CanaryToken).ToLowerInvariant())) -and ($low.Contains(([string]$StateToken).ToLowerInvariant()))) { $sameFound = $true }
+            }
+        }
+        $out.role = [bool]$roleFound
+        $out.canary = [bool]$sameFound
+        $out.state = [bool]$sameFound
+        return $out
     } catch { return [ordered]@{ role = $false; canary = $false; state = $false } }
 }
 function Invoke-LaneModelTurn {
@@ -2254,7 +2367,13 @@ try {
         $coverage = New-Object System.Collections.ArrayList
         try {
             $s = New-RealSession
-            $t = New-LaneTask -TaskId 'lane21' -Objective 'RR-E2E-21: estado da task preservado na substituicao de sessao'
+            # Desafio fresco por execucao persistido no ARQUIVO da task
+            # (objective; campo apropriado ja existente, sem schema novo):
+            # token aleatorio de teste (NAO segredo de usuario), nunca
+            # revelado no prompt. So a leitura real do arquivo pelo
+            # substituto produz o desafio na resposta (anti-eco).
+            $challenge21 = ('CHAL21-' + ([guid]::NewGuid().ToString('N').Substring(0, 12).ToUpperInvariant()))
+            $t = New-LaneTask -TaskId 'lane21' -Objective ('RR-E2E-21: estado da task preservado na substituicao de sessao ' + $challenge21)
             if ((-not [bool]$s.ok) -or (-not (Test-KernelOk $t))) {
                 Set-ScenarioResult 'RR-E2E-21' 'blocked' ('pre-requisitos: sessao=' + [bool]$s.ok + ' task=' + (Test-KernelOk $t)) $proofs $coverage
             } else {
@@ -2309,18 +2428,18 @@ try {
                     # resposta observavel do substituto (nunca forjado)
                     $substituteTurnOk21 = $false
                     if (Test-LaneModelKeyAvailable) {
-                        # BOTREV-01/B2: canario exclusivo da execucao (id da nova
-                        # sessao) + token do estado persistido (state pre-substituicao)
-                        # + papel de resposta. Substring estatica 'lane21' sozinha
-                        # nao prova releitura PELO substituto (fail-closed).
-                        $canary21 = ('lane21-' + [string]$s2.id)
-                        $canaryEsc21 = [regex]::Escape($canary21)
-                        $stateEsc21 = [regex]::Escape($preState)
+                        # Desafio persistido (reviewer+sec): o prompt NAO revela canario
+                        # nem estado; o substituto so produz desafio+estado lendo
+                        # de fato o arquivo da task. Eco do prompt nao contem o
+                        # desafio (fail-closed); expectativa independente abaixo.
                         $credImport21 = $false
                         $credWhy21 = ''
                         try { $credImport21 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy21) } catch { $credImport21 = $false }
                         [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport21 + ' motivo=' + [string]$credWhy21 + '; sem import a perna model segue blocked'))
-                        $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt ('RECOVERY-' + $canary21 + '-read-task-lane21-report-state-objective-history') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                        # Prompt: so caminho relativo explicito do task file +
+                        # instrucao de reportar objective/state/history (sem
+                        # desafio, sem estado; curto e sem shell-meta).
+                        $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
                         if ([bool]$turn21.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn21.turn_output_safe) }) }
                         if (([bool]$turn21.attempted) -and (-not [bool]$turn21.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn21.output_excerpt) }) }
@@ -2331,24 +2450,27 @@ try {
                         $hollow21 = (([bool]$turn21.ok) -and (-not [bool]$turn21.substantive))
                         if ([bool]$turn21.ok) {
                             # Equivalencia stdout-OU-GET (idem 18): mesmos criterios
-                            # (role + canario fresco + state token) no stdout
-                            # sanitizado OU no GET (fallback). Ausencia nos dois
-                            # => blocked. Anti-forgery intacto: canario e o id
-                            # fresco da substituta.
+                            # estruturais (unidade assistant|tool com desafio do
+                            # arquivo + state token na MESMA unidade) no stdout
+                            # OU no GET (fallback). Ausencia nos dois =>
+                            # blocked. O desafio nunca esteve no prompt, entao
+                            # eco/narrativa sem leitura nao passa.
                             # stdout so vale sem nativa decidindo (gate abaixo).
                             $stdSrc21 = ''
                             if (-not [bool]$turn21.native) { $stdSrc21 = [string]$turn21.turn_stdout_safe }
-                            $stdEv21 = Test-LaneTurnEvidence -Text $stdSrc21 -CanaryEsc $canaryEsc21 -StateEsc $stateEsc21
+                            $stdEv21 = Test-LaneTurnEvidence -Text $stdSrc21 -CanaryToken $challenge21 -StateToken $preState
                             $stdRead21 = (([bool]$stdEv21.role) -and ([bool]$stdEv21.canary) -and ([bool]$stdEv21.state))
                             $msgRead21 = $false
-                            $canaryHit21 = $false
-                            $stateTok21 = $false
                             if (-not $stdRead21) {
-                                $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message')
+                                # GET filtrado por type=assistant: o eco do proprio
+                                # prompt (mensagem user) NAO entra no corpo; mesmo
+                                # com filtro, o gate estrutural exige desafio+state
+                                # na mesma unidade assistant (eco sem leitura nao
+                                # contem o desafio). Mesma forma do contrato da
+                                # perna nativa.
+                                $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message?type=assistant')
                                 $body21 = [string]$msg21.body
-                                $canaryHit21 = (([bool]$msg21.ok) -and ($body21 -match $canaryEsc21))
-                                $stateTok21 = (((-not [string]::IsNullOrWhiteSpace($preState))) -and ([bool]$msg21.ok) -and ($body21 -match $stateEsc21))
-                                $msgEv21 = Test-LaneTurnEvidence -Text $body21 -CanaryEsc $canaryEsc21 -StateEsc $stateEsc21
+                                $msgEv21 = Test-LaneTurnEvidence -Text $body21 -CanaryToken $challenge21 -StateToken $preState
                                 $msgRead21 = (([bool]$msg21.ok) -and ([bool]$msgEv21.role) -and ([bool]$msgEv21.canary) -and ([bool]$msgEv21.state))
                             }
                             $substituteTurnOk21 = (([bool]$stdRead21) -or ([bool]$msgRead21))

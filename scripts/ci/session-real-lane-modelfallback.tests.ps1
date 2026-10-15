@@ -111,6 +111,8 @@ try {
         Assert-That ($outFn.Contains('Test-LaneModelUnavailableOutput')) 'decisao usa o classificador' 'classificador nao referenciado'
         $outFlags = @([regex]::Matches($outFn, "'--model'"))
         Assert-That (@($outFlags).Count -eq 1) 'flag --model 1x no helper (so 1a)' ('count=' + @($outFlags).Count)
+        $fmtFlags = @([regex]::Matches($outFn, "'--format', 'json'"))
+        Assert-That (@($fmtFlags).Count -eq 2) 'flag --format json 2x no helper (1a+retry; matcher exige stream estruturado)' ('count=' + @($fmtFlags).Count)
         Assert-That ($outFn -notmatch "'--model',\s*''") 'retry sem string vazia de modelo' 'placeholder vazio'
         Assert-That (($outFn.Contains('noFallbackReason')) -and ($outFn.Contains('refusedProof')) -and ($outFn.Contains('retryDue'))) 'helper expoe gate/proof de recusa' 'campos ausentes'
         Assert-That (($outFn.Contains('job-unassigned-no-fallback')) -and ($outFn.Contains('model-fallback-refused'))) 'helper define reason/proof de recusa' 'tokens ausentes'
@@ -122,12 +124,14 @@ try {
         Assert-That (($null -eq $oOk.retryArgs) -and ($null -eq $oOk.fallbackProof) -and (@($oOk.proofs).Count -eq 0)) 'sucesso-1a: sem retryArgs/proof' 'residuo de retry'
         Assert-That ([bool]$oOk.ok -and ([string]$oOk.final.Stdout -ceq 'assistant reply syn-ok-01')) 'sucesso-1a: ok com final da 1a' 'ok/final divergente'
         Assert-That ((@($oOk.firstArgs) -contains '--model') -and (@($oOk.firstArgs) -contains 'syn-model-01')) 'sucesso-1a: 1a com --model' 'args da 1a divergentes'
+        Assert-That (((@($oOk.firstArgs) -contains '--format') -and (@($oOk.firstArgs) -contains 'json') -and (@($oOk.firstArgs) -contains 'syn-sess-01'))) 'sucesso-1a: 1a com --format json + sessao (prova de origem)' ('args=' + (@($oOk.firstArgs) -join ','))
         # 2b. indisponivel + retry ok: 2 chamadas, 2a sem --model, proof emitida
         $fixUn = @{ ExitCode = 1; TimedOut = $false; Stdout = ''; Stderr = 'ERROR Model unavailable: syn-model-02'; JobAssigned = $true; JobNote = 'syn' }
         $fixRe = @{ ExitCode = 0; TimedOut = $false; Stdout = 'assistant reply syn-re-02'; Stderr = ''; JobAssigned = $true; JobNote = 'syn' }
         $oFb = New-LaneModelTurnOutcome -FirstResult $fixUn -RetryResult $fixRe -SessionId 'syn-sess-02' -SafePrompt 'syn-prompt-02' -Model 'syn-model-02'
         Assert-That (([bool]$oFb.shouldRetry) -and ([int]$oFb.calls -eq 2) -and ([bool]$oFb.fallback)) 'indisponivel: retry decidido, 2 chamadas' ('retry=' + [bool]$oFb.shouldRetry + ' calls=' + [int]$oFb.calls)
         Assert-That ((@($oFb.retryArgs) -notcontains '--model') -and (@($oFb.retryArgs) -contains 'syn-sess-02') -and (@($oFb.retryArgs) -contains 'syn-prompt-02')) 'retry sem --model (flag omitida)' ('args=' + (@($oFb.retryArgs) -join ','))
+        Assert-That (((@($oFb.retryArgs) -contains '--format') -and (@($oFb.retryArgs) -contains 'json') -and (@($oFb.retryArgs) -contains 'syn-sess-02') -and (@($oFb.retryArgs) -contains 'syn-prompt-02'))) 'retry com --format json + sessao/prompt (prova de origem)' ('args=' + (@($oFb.retryArgs) -join ','))
         Assert-That ([bool]$oFb.ok -and ([string]$oFb.final.Stdout -ceq 'assistant reply syn-re-02')) 'retry ok: final do retry' 'final divergente'
         Assert-That (($null -ne $oFb.fallbackProof) -and ([string]$oFb.fallbackProof['proof'] -ceq 'model-fallback-default') -and ([bool]$oFb.fallbackProof['ok'])) 'fallback emite proof ok=true' 'proof ausente/divergente'
         Assert-That ((@($oFb.proofs).Count -eq 1) -and ([string]$oFb.proofs[0]['proof'] -ceq 'model-fallback-default')) 'proofs por cenario: 1 fallback' 'proofs divergentes'
@@ -171,6 +175,8 @@ try {
         Assert-That ($turnFn -notmatch 'Test-LaneModelUnavailableOutput') 'gate vive no helper (nao inline)' 'gate duplicado no turn'
         $turnModelFlags = @([regex]::Matches($turnFn, "'--model'"))
         Assert-That (@($turnModelFlags).Count -eq 0) 'turn sem flag inline (args do helper)' ('count=' + @($turnModelFlags).Count)
+        $turnFmtFlags = @([regex]::Matches($turnFn, "'--format'"))
+        Assert-That (@($turnFmtFlags).Count -eq 0) 'turn sem formato inline (formato vem do helper)' ('count=' + @($turnFmtFlags).Count)
         $spawns = @([regex]::Matches($turnFn, 'Invoke-SpikeChild'))
         Assert-That (@($spawns).Count -eq 2) 'exatamente 1 retry (2 spawns)' ('spawns=' + @($spawns).Count)
         $hasLoop = (($turnFn -match '\bwhile\b') -or ($turnFn -match '\bfor\b') -or ($turnFn -match '\bforeach\b'))

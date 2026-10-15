@@ -1,0 +1,66 @@
+{
+    "scenario_id":  "RR-E2E-21",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+    "proofs":  [
+                   {
+                       "proof":  "task-has-worker-result",
+                       "ok":  true,
+                       "detail":  "candidate_pass=True exit=0"
+                   },
+                   {
+                       "proof":  "session-replacement-real",
+                       "ok":  true,
+                       "detail":  "old=ses_ec077eb1effeP0rh1VjUsFIP9M new=ses_ec077c7bfffeay8sTx2OMKTj4g"
+                   },
+                   {
+                       "proof":  "state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "history-preserved",
+                       "ok":  true,
+                       "detail":  "worker_result_preservado=True attempts=1"
+                   },
+                   {
+                       "proof":  "no-false-terminal",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "credstore-import",
+                       "ok":  true,
+                       "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=0 timedout=False job=True"
+                   },
+                   {
+                       "proof":  "model-turn-stdout",
+                       "ok":  true,
+                       "detail":  "Recovering lane 21 ÔÇö reading task state and history.  Lane 21 recovery requested ÔÇö checking memory retrieval skill for task history.  Using ai-memory-retrieval to recover lane 21 state, objective, and history.  Estado lane21 / RR-E2E-21 ÔÇö recuperado via `ai-memory-retrieval`:  **Estado atual: `blocked` terminal-documentado** N├úo ├® flake. Recusa sistem├ítica do model-turn (rc=1, `timedout=False`). Run inicial 2026-10-08 `ok-with-blocked` ÔåÆ rerun filtrado 18/21 confirma blocked ÔåÆ closure 0.1.1: 18/21 blocked, 16/17/19/20 `pass-real`.  **Objetivo:** Provar estado preservado atrav├®s de substitui├º├úo real de sess├úo (`session-replacement-real` oldÔåÆnew + `state-preserved` PLANNINGÔåÆPLANNING + `history-preserved` worker_result, attempts=1 + `no-false-terminal`). Releitura pelo substituto (`substitute-reread-turn`) exige opt-in de modelo. Lane: `scripts/ci/session-real-lane-v2.ps1`.  **Hist├│ria:** 1. `sessions/6cb76c3e-e98b-52ea-8bf5-7529f0cd9add.md` (TEST-SESSLANE-01) ÔÇö define objetivo + veredito ok-with-blocked. 2. `sessions/d6b7719d-8e74-58cc-bb17-4e20739d8570.md` (TEST-LANE-1821-01 rerun) ÔÇö provas `rr-e2e-21.json`, tabela blocked. 3. `sessions/8b295aed-ae65-58f7-b3c5-ddfdfc05d113.md` (BOTREV-01 B2) ÔÇö checagem `lane21` est├ítica ÔåÆ can├írio+token+role, sem re-run. 4. `sessions/d06f7d0a-1a1b-5105-b28b-e94d1de5f7f2.md` (CODER-CLOSE-03 0.1.1) ÔÇö estado final 4/7.  **Evid├¬ncias:** - Workspace `ferramentas` / project `opencode-orchestration`, p├íginas acima. - Replacement-real: `old=ses_ee34144e5ffexMS7dSZOAd6N6X ÔåÆ new=ses_ee3410698ffeVfHCDMZUkoYkjW`. - Comando: `scripts/ci/session-real-lane-v2.ps1 -ScenarioFilter @(\u0027RR-E2E-18\u0027,\u0027RR-E2E-21\u0027)`, EvidenceDir `session-lane-2026-10-08-rerun1821`; `evidence/v3.1/runtime-reliability/.../lane-summary.json + rr-e2e-21.json + v2-native-probes.json`. - Hint `ses_ec077c7bfffeay8sTx2OMKTj4g` inv├ílido para ai-memory (espera UUID) e sem hits global ÔÇö bloqueador s├│ para resolu├º├úo direta, n├úo para leitura.  Recomenda├º├úo worker: consumir como `blocked` documentado; para `pass-real` exigir re-run com opt-in focado em `substitute-reread-turn=true`.    [0m  \u003e build ┬À muse-spark-1.3-contributor   [0mÔåÆ  [0mRead .   \u003e build ┬À muse-spark-1.3-contributor   [0mÔåÆ  [0mSkill \"ai-memory-retrieval\"   \u003e build ┬À muse-spark-1.3-contributor   [0mÔ£ô  [0mRecover lane21 task history  [90mExplorer Agent [0m  \u003e build ┬À muse-spark-1.3-contributor"
+                   },
+                   {
+                       "proof":  "model-native-failed",
+                       "ok":  true,
+                       "detail":  "messages-before-invalid"
+                   },
+                   {
+                       "proof":  "model-native-trigger",
+                       "ok":  true,
+                       "detail":  "gatilho=native-after-hollow (turn rc=0 sem marcadores no stdout, substantive=false; nativa como ultimo recurso)"
+                   },
+                   {
+                       "proof":  "substitute-reread-turn",
+                       "ok":  false,
+                       "detail":  "hollow-ok (rc=0 sem marcadores no stdout, substantive=false) + GET sem evidencia; perna segue blocked; resposta do substituto observada=False fonte=nenhuma job=True (model-key-env=OPENCODE_GO_API_KEY)"
+                   }
+               ],
+    "coverage":  [
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                 ],
+    "at":  "2026-10-15T12:29:08.2777978Z"
+}
