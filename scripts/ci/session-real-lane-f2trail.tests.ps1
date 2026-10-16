@@ -294,7 +294,7 @@ try {
     Assert-That ($text.Contains("Fail-Lane 'servico indisponivel antes do cenario 19.'")) 'gate pre-19 preservado' 'gate alterado'
     Assert-That ($text.Contains("Fail-Lane 'invariante 49374 violada no encerramento.'")) 'invariante 49374 preservada' 'gate alterado'
     Assert-That ($text.Contains('foreach ($cc in @(''service_stop_owned'', ''service_settlement'', ''job_object_closed''))')) 'checks criticos de encerramento preservados' 'gate alterado'
-    Assert-That ((@([regex]::Matches($text, '-TimeoutMs 180000')).Count) -eq 3) 'TimeoutMs 180000 intacto nos 3 turns' 'timeout alterado'
+    Assert-That ((@([regex]::Matches($text, '-TimeoutMs 180000')).Count) -eq 3) 'TimeoutMs 180000 intacto nos 3 turns (18/20/21)' 'timeout alterado'
     $safeFn = ''
     if ($funcs.ContainsKey('Get-LaneSafeText')) { $safeFn = [string]$funcs['Get-LaneSafeText'] }
     Assert-That (($safeFn.Contains('param($Value, [int]$Max = 200)')) -and ($safeFn -notmatch 'OwningPID|LaneTrail|EXPECTED_TEST')) 'Get-LaneSafeText compartilhada intocada' 'assinatura alterada'
