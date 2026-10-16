@@ -165,6 +165,188 @@ function Get-LaneTimestampUtc {
     return ([DateTime]::UtcNow.ToString('o'))
 }
 
+# ---------- trilha F2 (lifecycle, advisory-only; nunca gate) ----------
+# Vocabulario: LANE_START, SERVICE_START_REQUESTED/STARTED,
+# SERVICE_STOP_REQUESTED/STOPPED, EXPECTED_TEST_RESTART (classification no
+# proprio evento, emitido por Write-LaneServiceCycleTrail nos 5 pontos de
+# restart), PID_CHANGED (quando antes/depois observados divergem),
+# MODEL_TURN_STARTED/FINISHED, SERVICE_UNRESPONSIVE, EXPECTED_TEST_STOP,
+# LANE_FINISHED, LANE_CLEANUP. UNEXPECTED_EXIT permanece NOT_OBSERVED
+# (todos os stops desta lane sao solicitados; sem deteccao de saida
+# inesperada nesta trilha). Nenhum evento aqui decide PASS/FAIL: a trilha
+# e evidencia auxiliar; lane-summary.json segue sendo a obrigatoria.
+$script:LaneTrailMaxBytes = 262144
+function Get-LaneTrailPath {
+    # Caminho confinado: evidence da lane quando disponivel; senao
+    # cache/v3/telemetry sob o RepoRoot. Nunca lanca; '' = desligada.
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($script:EvidenceDir)) { return (Join-Path $script:EvidenceDir 'lane-lifecycle-trail.jsonl') }
+        $rr = ''
+        try { $rr = [string]$RepoRoot } catch { $rr = '' }
+        if ([string]::IsNullOrWhiteSpace($rr)) { return '' }
+        return (Join-Path $rr 'cache\v3\telemetry\session-lane-lifecycle-trail.jsonl')
+    } catch { return '' }
+}
+function Get-LaneCurrentListenerPid {
+    # Snapshot pontual do OwningPID (fail-closed; 0 = desconhecido).
+    # Uso exclusivo da trilha; nunca decide gate. Nunca lanca.
+    try {
+        if ([int]$script:Port -le 0) { return 0 }
+        $ln = $null
+        try { $ln = Get-PreflightNetTCPListenerBounded -Port ([int]$script:Port) -TimeoutMs 5000 } catch { return 0 }
+        if (($null -ne $ln) -and ([bool]$ln.QuerySucceeded) -and ([bool]$ln.Exists) -and ($null -ne $ln.OwningPID)) {
+            return ([int]$ln.OwningPID)
+        }
+        return 0
+    } catch { return 0 }
+}
+function Write-LaneTrailEvent {
+    # Append JSONL advisory-only: confinado, bounded, sanitizado, fail-closed.
+    # Retorna $true/$false; nunca lanca; falha silenciosa (a evidencia
+    # obrigatoria continua sendo lane-summary.json).
+    [CmdletBinding()] param([string]$Event = '', [hashtable]$Fields = $null)
+    try {
+        $evName = ''
+        try { $evName = (Get-LaneSafeText $Event 64) } catch { $evName = '' }
+        if ([string]::IsNullOrWhiteSpace($evName)) { return $false }
+        $trailPath = ''
+        try { $trailPath = Get-LaneTrailPath } catch { $trailPath = '' }
+        if ([string]::IsNullOrWhiteSpace($trailPath)) { return $false }
+        $full = ''
+        try { $full = [IO.Path]::GetFullPath($trailPath) } catch { return $false }
+        $okConfine = $false
+        try {
+            $sep = [string][IO.Path]::DirectorySeparatorChar
+            $cands = @()
+            try { if (-not [string]::IsNullOrWhiteSpace($script:EvidenceDir)) { $cands += ([IO.Path]::GetFullPath([string]$script:EvidenceDir)) } } catch { }
+            try {
+                $rrloc = ''
+                try { $rrloc = [string]$RepoRoot } catch { $rrloc = '' }
+                if (-not [string]::IsNullOrWhiteSpace($rrloc)) { $cands += ([IO.Path]::GetFullPath((Join-Path $rrloc 'cache\v3\telemetry'))) }
+            } catch { }
+            foreach ($base in @($cands)) {
+                if ([string]::IsNullOrWhiteSpace($base)) { continue }
+                $b = ([string]$base).TrimEnd('\', '/')
+                if (($full + $sep).StartsWith(($b + $sep), [StringComparison]::OrdinalIgnoreCase)) { $okConfine = $true; break }
+            }
+        } catch { return $false }
+        if (-not [bool]$okConfine) { return $false }
+        $maxBytes = 262144
+        try { if ($null -ne $script:LaneTrailMaxBytes -and ([int]$script:LaneTrailMaxBytes -gt 0)) { $maxBytes = [int]$script:LaneTrailMaxBytes } } catch { }
+        try {
+            $fi = $null
+            try { $fi = Get-Item -LiteralPath $full -ErrorAction SilentlyContinue } catch { $fi = $null }
+            if (($null -ne $fi) -and ([long]$fi.Length -gt [long]$maxBytes)) { return $false }
+        } catch { }
+        $parent = ''
+        try { $parent = Split-Path -Parent $full } catch { return $false }
+        if ([string]::IsNullOrWhiteSpace($parent)) { return $false }
+        try { if (-not (Test-Path -LiteralPath $parent -PathType Container)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null } } catch { return $false }
+        $row = [ordered]@{ ts = ''; lane = 'session-real-lane-v2'; advisory_only = $true; event = $evName }
+        try { $row.ts = (Get-LaneTimestampUtc) } catch { $row.ts = '' }
+        if ($null -ne $Fields) {
+            foreach ($k in @($Fields.Keys)) {
+                $ks = ''
+                try { $ks = ([string]$k -replace '[^A-Za-z0-9_]', '_') } catch { $ks = '' }
+                if ([string]::IsNullOrWhiteSpace($ks)) { continue }
+                if ($ks.Length -gt 32) { $ks = $ks.Substring(0, 32) }
+                $fv = $Fields[$k]
+                if (($fv -is [int]) -or ($fv -is [long]) -or ($fv -is [bool])) { $row[$ks] = $fv }
+                else {
+                    $sv = ''
+                    try { $sv = (Get-LaneSafeText ([string]$fv) 200) } catch { $sv = '' }
+                    $row[$ks] = $sv
+                }
+            }
+        }
+        $json = ''
+        try { $json = ($row | ConvertTo-Json -Depth 6 -Compress) } catch { return $false }
+        if ([string]::IsNullOrWhiteSpace($json)) { return $false }
+        # Teto preciso em bytes UTF-8 incluindo o newline: recusa quando o
+        # tamanho atual + bytes da linha ultrapassa o teto (o pre-check acima
+        # so barra arquivo ja acima do teto; arquivo exatamente no teto ou
+        # proximo dele ainda escreveria e estouraria sem este gate).
+        try {
+            $lineText = ($json + "`n")
+            $lineBytes = [long]0
+            try { $lineBytes = [long](New-Object Text.UTF8Encoding $false).GetByteCount($lineText) } catch { $lineBytes = [long]0 }
+            if ([long]$lineBytes -le 0) { return $false }
+            $curLen = [long]0
+            try {
+                $fiNow = $null
+                try { $fiNow = Get-Item -LiteralPath $full -ErrorAction SilentlyContinue } catch { $fiNow = $null }
+                if ($null -ne $fiNow) { $curLen = [long]$fiNow.Length }
+            } catch { $curLen = [long]0 }
+            if (([long]$curLen + [long]$lineBytes) -gt [long]$maxBytes) { return $false }
+        } catch { return $false }
+        try { [IO.File]::AppendAllText($full, ($json + "`n"), (New-Object Text.UTF8Encoding $false)) } catch { return $false }
+        return $true
+    } catch { return $false }
+}
+function Write-LaneServiceCycleTrail {
+    # Emite o ciclo stop->start de UM ponto de restart como linhas
+    # advisory-only, na ordem real das operacoes (bloco stop antes do bloco
+    # start; EXPECTED_TEST_RESTART por ultimo; PID_CHANGED quando aplicavel).
+    # Cada bloco sai SOMENTE junto a operacao correspondente: sem $StopResult
+    # (caminhos somente-start como post17-gate/pre19-gate) nenhum evento de
+    # stop e emitido; sem $StartResult nenhum evento de start e emitido.
+    # REQUESTED = tentativa (operacao invocada, sempre que o resultado da
+    # operacao existe); STOPPED/STARTED = conclusao observada (STOPPED so
+    # com settlement Absent=true; STARTED so com presence Seen=true).
+    # Tentativa sem observacao positiva (timeout, Absent=false, Seen=false
+    # ou Settle/Presence $null) emite so REQUESTED, sem evento conclusivo.
+    # $StopResult/$StartResult: resultados de Invoke-SpikeChild (ExitCode/
+    # TimedOut/JobAssigned); $Settle/$Presence: resultados de
+    # Wait-LaneListener (Absent/Seen/OwningPID). Ausente ($null) vira
+    # 'NOT_OBSERVED' nos campos; operacao ausente omite o bloco inteiro.
+    # PID_CHANGED sai quando antes/depois divergem.
+    [CmdletBinding()] param([string]$Site = '', [int]$PidBefore = 0, $StopResult = $null, $StartResult = $null, $Settle = $null, $Presence = $null)
+    try {
+        $siteSafe = ''
+        try { $siteSafe = (Get-LaneSafeText $Site 64) } catch { $siteSafe = '' }
+        if ([string]::IsNullOrWhiteSpace($siteSafe)) { $siteSafe = 'unknown-site' }
+        $stopRc = 'NOT_OBSERVED'; $stopTo = 'NOT_OBSERVED'
+        try { if ($null -ne $StopResult) { $stopRc = [int]$StopResult.ExitCode; $stopTo = [bool]$StopResult.TimedOut } } catch { }
+        $startRc = 'NOT_OBSERVED'; $startJob = 'NOT_OBSERVED'
+        try { if ($null -ne $StartResult) { $startRc = [int]$StartResult.ExitCode; $startJob = [bool]$StartResult.JobAssigned } } catch { }
+        $settled = 'NOT_OBSERVED'; $seenAfter = 'NOT_OBSERVED'; $pidAfter = 0
+        try { if ($null -ne $Settle) { $settled = [bool]$Settle.Absent } } catch { }
+        try {
+            if ($null -ne $Presence) {
+                $seenAfter = [bool]$Presence.Seen
+                try { if ($null -ne $Presence.OwningPID) { $pidAfter = [int]$Presence.OwningPID } } catch { $pidAfter = 0 }
+            }
+        } catch { }
+        $portNum = 0
+        try { $portNum = [int]$script:Port } catch { $portNum = 0 }
+        $hasStop = ($null -ne $StopResult)
+        $hasStart = ($null -ne $StartResult)
+        $stopConclusive = $false
+        try { $stopConclusive = ((($null -ne $Settle) -and ([bool]$Settle.Absent -eq $true))) } catch { $stopConclusive = $false }
+        $startConclusive = $false
+        try { $startConclusive = ((($null -ne $Presence) -and ([bool]$Presence.Seen -eq $true))) } catch { $startConclusive = $false }
+        if ([bool]$hasStop) {
+            [void](Write-LaneTrailEvent -Event 'SERVICE_STOP_REQUESTED' -Fields @{ site = $siteSafe; pid_before = [int]$PidBefore; port = $portNum })
+            if ([bool]$stopConclusive) {
+                [void](Write-LaneTrailEvent -Event 'SERVICE_STOPPED' -Fields @{ site = $siteSafe; stop_rc = $stopRc; stop_timeout = $stopTo; settlement = $settled })
+            }
+        }
+        if ([bool]$hasStart) {
+            [void](Write-LaneTrailEvent -Event 'SERVICE_START_REQUESTED' -Fields @{ site = $siteSafe; port = $portNum })
+            if ([bool]$startConclusive) {
+                [void](Write-LaneTrailEvent -Event 'SERVICE_STARTED' -Fields @{ site = $siteSafe; start_rc = $startRc; job_assigned = $startJob; pid_after = $pidAfter; presence_seen = $seenAfter })
+            }
+        }
+        [void](Write-LaneTrailEvent -Event 'EXPECTED_TEST_RESTART' -Fields @{ site = $siteSafe; classification = 'EXPECTED_TEST_RESTART'; pid_before = [int]$PidBefore; pid_after = $pidAfter; port = $portNum; job_assigned = $startJob; stop_rc = $stopRc; stop_timeout = $stopTo; start_rc = $startRc; settlement = $settled; presence_seen = $seenAfter })
+        try {
+            if (([int]$PidBefore -gt 0) -and ([int]$pidAfter -gt 0) -and ([int]$PidBefore -ne [int]$pidAfter)) {
+                [void](Write-LaneTrailEvent -Event 'PID_CHANGED' -Fields @{ site = $siteSafe; pid_before = [int]$PidBefore; pid_after = $pidAfter })
+            }
+        } catch { }
+        return $true
+    } catch { return $false }
+}
+
 # ---------- estado da lane ----------
 $script:LaneStarted = Get-LaneTimestampUtc
 $script:ExitDone = $false
@@ -415,6 +597,22 @@ function Get-LaneModelTurnOutputExcerpt {
         if ([string]::IsNullOrWhiteSpace($safe)) { return '(sem saida capturada)' }
         return $safe
     } catch { return '(sem saida capturada)' }
+}
+function Test-LaneNeedsPost17Gate {
+    # Predicado puro (isolamento pos-16/17, mesmo padrao F1-FIX-01, sem
+    # spawn/rede/estado): o gate 'servico no ar apos 16/17' executa SOMENTE
+    # quando algum cenario posterior que precisa do servico sera executado
+    # (filtro vazio = lane integral, ou filtro contendo 18/19/20/21/22).
+    # Filtro so com 16/17 (ex. so-16) pula o gate sem falha por ele.
+    # Erro => true (fail-closed: mantem o comportamento anterior).
+    [CmdletBinding()] param([string[]]$Filter = @())
+    try {
+        if (@($Filter).Count -eq 0) { return $true }
+        foreach ($id in @($Filter)) {
+            if (@('18', '19', '20', '21', '22') -ccontains [string]$id) { return $true }
+        }
+        return $false
+    } catch { return $true }
 }
 function Test-LaneModelUnavailableOutput {
     # Classificador puro da classe retentavel do fallback de modelo: true
@@ -1537,6 +1735,8 @@ try {
     New-Item -ItemType Directory -Path $TargetHome -Force | Out-Null
     New-Item -ItemType Directory -Path $EvidenceDir -Force | Out-Null
 } catch { Write-Error ('falha ao criar dirs: ' + $_.Exception.Message); exit 1 }
+# F2: trilha advisory-only abre aqui (LANE_START nunca decide gate).
+try { [void](Write-LaneTrailEvent -Event 'LANE_START' -Fields @{ scenario_filter_count = @($ScenarioFilter).Count }) } catch { }
 
 $xdg = Join-Path $TargetHome 'xdg'
 $xdgData = Join-Path $TargetHome 'xdg-data'
@@ -1685,6 +1885,7 @@ try {
     if ((-not [bool]$jobFlags.Ok) -or (-not [bool]$jobFlags.KillOnClose)) { Fail-Lane ('job sem KILL_ON_JOB_CLOSE provado (fail-closed antes do start)') }
     Add-LaneCheck 'job_object_created_before_start' $true ('limit_flags=0x' + ([uint32]$jobFlags.LimitFlags).ToString('x'))
 
+    try { [void](Write-LaneTrailEvent -Event 'SERVICE_START_REQUESTED' -Fields @{ site = 'lane-init'; port = ([int]$script:Port) }) } catch { }
     $sst = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob
     if ([bool]$sst.TimedOut) { Fail-Lane 'service start: TIMEOUT 30s.' }
     if ([int]$sst.ExitCode -ne 0) { Fail-Lane ('service start: exit ' + $sst.ExitCode) }
@@ -1694,22 +1895,30 @@ try {
     function Wait-LaneListener([int]$DeadlineSeconds, [ValidateSet('presence', 'absence')][string]$Mode) {
         $deadline = [DateTime]::UtcNow.AddSeconds($DeadlineSeconds)
         $seen = $false; $absent = $false; $inconclusive = 0
+        # F2: captura do OwningPID (aditivo; Seen/Absent/Inconclusive intactos).
+        $ownPid = 0
         while ([DateTime]::UtcNow -lt $deadline) {
             $remainingMs = [int]([DateTime]::UtcNow - $deadline).TotalMilliseconds * -1
             if ($remainingMs -gt 10000) { $remainingMs = 10000 }
             if ($remainingMs -lt 500) { $remainingMs = 500 }
             $ln = Get-PreflightNetTCPListenerBounded -Port $script:Port -TimeoutMs $remainingMs
             if ($null -ne $ln -and [bool]$ln.QuerySucceeded) {
-                if ([bool]$ln.Exists -and $null -ne $ln.OwningPID) { $seen = $true; if ($Mode -eq 'presence') { break } }
+                if ([bool]$ln.Exists -and $null -ne $ln.OwningPID) { $seen = $true; try { $ownPid = [int]$ln.OwningPID } catch { }; if ($Mode -eq 'presence') { break } }
                 elseif ([bool]$ln.Exists) { $inconclusive++ }
                 else { $absent = $true; if ($Mode -eq 'absence') { break } }
             } else { $inconclusive++ }
             Start-Sleep -Milliseconds 1000
         }
-        return [ordered]@{ Seen = $seen; Absent = $absent; Inconclusive = $inconclusive }
+        return [ordered]@{ Seen = $seen; Absent = $absent; Inconclusive = $inconclusive; OwningPID = $ownPid }
     }
     $obs = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
-    if (-not [bool]$obs.Seen) { Fail-Lane ('service start: sem listener na porta ' + $freePort + ' apos 30s.') }
+    $obsPidInit = 0
+    try { if ($null -ne $obs.OwningPID) { $obsPidInit = [int]$obs.OwningPID } } catch { $obsPidInit = 0 }
+    if (-not [bool]$obs.Seen) {
+        try { [void](Write-LaneTrailEvent -Event 'SERVICE_UNRESPONSIVE' -Fields @{ site = 'lane-init'; port = ([int]$script:Port) }) } catch { }
+        Fail-Lane ('service start: sem listener na porta ' + $freePort + ' apos 30s.')
+    }
+    try { [void](Write-LaneTrailEvent -Event 'SERVICE_STARTED' -Fields @{ site = 'lane-init'; job_assigned = $true; pid_after = $obsPidInit; presence_seen = $true }) } catch { }
     Add-LaneCheck 'service_listener_observed' $true ('listener porta ' + $freePort + ' observado (fato P22)')
 
     # ---------- 5b. auth REST ----------
@@ -1873,6 +2082,9 @@ try {
                     [void](Add-ScenarioProof $proofs 'task-active-bound' $true ('state=PLANNING root=' + $sid))
                     $hashPre = Get-LaneTaskFileHash -TaskId 'lane17'
                     # restart REAL: stop owned -> settlement -> start -> presence
+                    # F2: snapshot do PID antes do stop (trilha apenas; sem gate).
+                    $pidBefore17 = 0
+                    try { $pidBefore17 = Get-LaneCurrentListenerPid } catch { $pidBefore17 = 0 }
                     $stp = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'stop') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
                     $stopOk = ((-not [bool]$stp.TimedOut) -and ([int]$stp.ExitCode -eq 0))
                     [void](Add-ScenarioProof $proofs 'restart-stop-owned' $stopOk ('rc=' + [int]$stp.ExitCode))
@@ -1883,6 +2095,8 @@ try {
                     [void](Add-ScenarioProof $proofs 'restart-start-owned' $startOk ('rc=' + [int]$sst2.ExitCode + ' job=' + [bool]$sst2.JobAssigned))
                     $pres = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
                     [void](Add-ScenarioProof $proofs 'restart-listener-observed' ([bool]$pres.Seen) ('presenca=' + [bool]$pres.Seen))
+                    # F2: trilha EXPECTED_TEST_RESTART do ponto 17 (advisory-only).
+                    try { [void](Write-LaneServiceCycleTrail -Site 'RR-E2E-17' -PidBefore $pidBefore17 -StopResult $stp -StartResult $sst2 -Settle $settle -Presence $pres) } catch { }
                     # re-auth (novo service.json pode ter password nova)
                     try {
                         $svcRaw2 = [IO.File]::ReadAllText($svcJsonPath, [Text.Encoding]::UTF8)
@@ -1931,12 +2145,21 @@ try {
     }
 
     # serviço pode ter sido re-iniciado: garantir que segue no ar para os proximos cenarios
-    $presCheck = Wait-LaneListener -DeadlineSeconds 5 -Mode 'presence'
-    if (-not [bool]$presCheck.Seen) {
-        $sst3 = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob
-        $presCheck = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
-        if (-not [bool]$presCheck.Seen) { Fail-Lane 'servico indisponivel apos cenarios 16/17; lane abortada.' }
-        Add-LaneNote 'service re-iniciado apos restart do cenario 17'
+    # (isolamento pos-16/17, mesmo padrao F1-FIX-01: somente quando algum
+    # cenario posterior sera executado; filtro sem 18-22 pula sem falha)
+    if (Test-LaneNeedsPost17Gate -Filter $ScenarioFilter) {
+        $presCheck = Wait-LaneListener -DeadlineSeconds 5 -Mode 'presence'
+        if (-not [bool]$presCheck.Seen) {
+            # F2: ausencia ja provada pelo gate; pid_before=0 sem snapshot.
+            $sst3 = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob
+            $presCheck = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
+            try { [void](Write-LaneServiceCycleTrail -Site 'post17-gate' -PidBefore 0 -StopResult $null -StartResult $sst3 -Settle $null -Presence $presCheck) } catch { }
+            if (-not [bool]$presCheck.Seen) {
+                try { [void](Write-LaneTrailEvent -Event 'SERVICE_UNRESPONSIVE' -Fields @{ site = 'post17-gate'; port = ([int]$script:Port) }) } catch { }
+                Fail-Lane 'servico indisponivel apos cenarios 16/17; lane abortada.'
+            }
+            Add-LaneNote 'service re-iniciado apos restart do cenario 17'
+        }
     }
 
     # ==================================================================
@@ -1986,12 +2209,17 @@ try {
                     $bd = Invoke-KernelCli -KernelArgs @('-Action', 'bind-session', '-TaskId', 'lane18', '-RunId', 'lane18-child-run', '-SessionId', $childId, '-ExpectedRevision', "$revB", '-TasksDir', $script:KernelTasksDir, '-ParentSessionId', $rootId, '-RootSessionId', $rootId)
                     [void](Add-ScenarioProof $proofs 'child-bound-to-task' (Test-KernelOk $bd) ('run=lane18-child-run parent_provenance=' + $rootId + ' exit=' + [int]$bd.exit + ' err=' + $bd.stderr + ' out=' + $bd.stdout))
                     # restart real
+                    # F2: snapshot do PID antes do stop (trilha apenas; sem gate).
+                    $pidBefore18 = 0
+                    try { $pidBefore18 = Get-LaneCurrentListenerPid } catch { $pidBefore18 = 0 }
                     $stp = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'stop') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
                     $settle = Wait-LaneListener -DeadlineSeconds 30 -Mode 'absence'
                     $sst2 = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob
                     $pres = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
                     $restartOk = (([int]$stp.ExitCode -eq 0) -and ([bool]$settle.Absent) -and ([int]$sst2.ExitCode -eq 0) -and ([bool]$sst2.JobAssigned) -and ([bool]$pres.Seen))
                     [void](Add-ScenarioProof $proofs 'restart-real' $restartOk ('stop+settlement+start+listener'))
+                    # F2: trilha EXPECTED_TEST_RESTART do ponto 18 (advisory-only).
+                    try { [void](Write-LaneServiceCycleTrail -Site 'RR-E2E-18' -PidBefore $pidBefore18 -StopResult $stp -StartResult $sst2 -Settle $settle -Presence $pres) } catch { }
                     try {
                         $svcRaw2 = [IO.File]::ReadAllText($svcJsonPath, [Text.Encoding]::UTF8)
                         $svcJson2 = ($svcRaw2 | ConvertFrom-Json)
@@ -2053,7 +2281,9 @@ try {
                                 $credWhy18 = ''
                                 try { $credImport18 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy18) } catch { $credImport18 = $false }
                                 [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport18 + ' motivo=' + [string]$credWhy18 + '; sem import a perna model segue blocked'))
-                                $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                                 try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_STARTED' -Fields @{ site = 'RR-E2E-18'; timeout_ms = 180000 }) } catch { }
+                                 $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                                 try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-18'; rc = [int]$turn18.exit; timedout = [bool]$turn18.timedout; job_assigned = [bool]$turn18.job_assigned; ok = [bool]$turn18.ok }) } catch { }
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
                                 if ([bool]$turn18.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn18.turn_output_safe) }) }
                                 if ($null -ne $turn18.fallbackProof) { [void]$proofs.Add($turn18.fallbackProof) }
@@ -2124,9 +2354,14 @@ try {
     # garantir servico no ar para 19+
     $presCheck = Wait-LaneListener -DeadlineSeconds 5 -Mode 'presence'
     if (-not [bool]$presCheck.Seen) {
-        $null = (Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob)
+        # F2: captura do resultado do start (trilha apenas; sem gate).
+        $pre19Start = (Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob)
         $presCheck = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
-        if (-not [bool]$presCheck.Seen) { Fail-Lane 'servico indisponivel antes do cenario 19.' }
+        try { [void](Write-LaneServiceCycleTrail -Site 'pre19-gate' -PidBefore 0 -StopResult $null -StartResult $pre19Start -Settle $null -Presence $presCheck) } catch { }
+        if (-not [bool]$presCheck.Seen) {
+            try { [void](Write-LaneTrailEvent -Event 'SERVICE_UNRESPONSIVE' -Fields @{ site = 'pre19-gate'; port = ([int]$script:Port) }) } catch { }
+            Fail-Lane 'servico indisponivel antes do cenario 19.'
+        }
         Add-LaneNote 'service re-iniciado antes do cenario 19'
     }
 
@@ -2157,10 +2392,17 @@ try {
                     if (-not [bool]$cl.ok) { Set-ScenarioResult 'RR-E2E-19' 'blocked' ('remocao real do child indisponivel: ' + $cl.reason) $proofs $coverage }
                     else {
                         # o contrato exige ausencia APOS um restart real: restart agora
+                        # F2: snapshot do PID antes do stop (trilha apenas; sem gate).
+                        $pidBefore19 = 0
+                        try { $pidBefore19 = Get-LaneCurrentListenerPid } catch { $pidBefore19 = 0 }
                         $stp19 = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'stop') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
                         $settle19 = Wait-LaneListener -DeadlineSeconds 30 -Mode 'absence'
                         $sst19 = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob
                         $pres19 = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
+                        $restart19Ok = (([int]$stp19.ExitCode -eq 0) -and ([bool]$settle19.Absent) -and ([int]$sst19.ExitCode -eq 0) -and ([bool]$sst19.JobAssigned) -and ([bool]$pres19.Seen))
+                        [void](Add-ScenarioProof $proofs 'restart-real-before-absence' $restart19Ok ('stop+settlement+start+listener'))
+                        # F2: trilha EXPECTED_TEST_RESTART do ponto 19 (advisory-only).
+                        try { [void](Write-LaneServiceCycleTrail -Site 'RR-E2E-19' -PidBefore $pidBefore19 -StopResult $stp19 -StartResult $sst19 -Settle $settle19 -Presence $pres19) } catch { }
                         $restart19Ok = (([int]$stp19.ExitCode -eq 0) -and ([bool]$settle19.Absent) -and ([int]$sst19.ExitCode -eq 0) -and ([bool]$sst19.JobAssigned) -and ([bool]$pres19.Seen))
                         [void](Add-ScenarioProof $proofs 'restart-real-before-absence' $restart19Ok ('stop+settlement+start+listener'))
                         try {
@@ -2286,7 +2528,9 @@ try {
                                 $credWhy20 = ''
                                 try { $credImport20 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy20) } catch { $credImport20 = $false }
                                 [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport20 + ' motivo=' + [string]$credWhy20 + '; sem import a perna model segue blocked'))
-                                $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                                 try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_STARTED' -Fields @{ site = 'RR-E2E-20'; timeout_ms = 180000 }) } catch { }
+                                 $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                                 try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-20'; rc = [int]$turn20.exit; timedout = [bool]$turn20.timedout; job_assigned = [bool]$turn20.job_assigned; ok = [bool]$turn20.ok }) } catch { }
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
                                 if ([bool]$turn20.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn20.turn_output_safe) }) }
                                 if (([bool]$turn20.attempted) -and (-not [bool]$turn20.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn20.output_excerpt) }) }
@@ -2439,7 +2683,9 @@ try {
                         # Prompt: so caminho relativo explicito do task file +
                         # instrucao de reportar objective/state/history (sem
                         # desafio, sem estado; curto e sem shell-meta).
-                        $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                         try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_STARTED' -Fields @{ site = 'RR-E2E-21'; timeout_ms = 180000 }) } catch { }
+                         $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history-brief-direct-answer-no-delegation' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                         try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-21'; rc = [int]$turn21.exit; timedout = [bool]$turn21.timedout; job_assigned = [bool]$turn21.job_assigned; ok = [bool]$turn21.ok }) } catch { }
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
                         if ([bool]$turn21.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn21.turn_output_safe) }) }
                         if (([bool]$turn21.attempted) -and (-not [bool]$turn21.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn21.output_excerpt) }) }
@@ -2872,6 +3118,10 @@ try {
     }
 
     # ---------- finalizacao: stop owned + settlement + job + 49374 ----------
+    # F2: snapshot do PID antes do stop final (trilha apenas; sem gate).
+    $pidBeforeFinal = 0
+    try { $pidBeforeFinal = Get-LaneCurrentListenerPid } catch { $pidBeforeFinal = 0 }
+    try { [void](Write-LaneTrailEvent -Event 'SERVICE_STOP_REQUESTED' -Fields @{ site = 'lane-final'; pid_before = $pidBeforeFinal; port = ([int]$script:Port) }) } catch { }
     $stpF = Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'stop') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul
     $stopFOk = ((-not [bool]$stpF.TimedOut) -and ([int]$stpF.ExitCode -eq 0))
     Add-LaneCheck 'service_stop_owned' $stopFOk ('rc=' + [int]$stpF.ExitCode)
@@ -2884,6 +3134,22 @@ try {
         Add-LaneNote ('backstop de job acionado: ok=' + [string]$stopJob.Ok + ' settled=' + [string]$stopJob.Settled)
     }
     Add-LaneCheck 'service_settlement' $settledF ('ausencia conclusiva do listener apos stop owned')
+    # F2: trilha EXPECTED_TEST_STOP do encerramento (advisory-only; os gates
+    # acima seguem decidindo so pelos checks criticos).
+    $pidAfterFinal = 0
+    try {
+        if ($settledF) { $pidAfterFinal = 0 }
+        else {
+            $lnF = $null
+            try { $lnF = Get-PreflightNetTCPListenerBounded -Port ([int]$script:Port) -TimeoutMs 5000 } catch { $lnF = $null }
+            if (($null -ne $lnF) -and ([bool]$lnF.QuerySucceeded) -and ([bool]$lnF.Exists) -and ($null -ne $lnF.OwningPID)) { $pidAfterFinal = [int]$lnF.OwningPID }
+        }
+    } catch { $pidAfterFinal = 0 }
+    # F2: SERVICE_STOPPED conclusivo so com settlement (fail-closed em erro).
+    if ([bool]$settledF) {
+        try { [void](Write-LaneTrailEvent -Event 'SERVICE_STOPPED' -Fields @{ site = 'lane-final'; stop_rc = [int]$stpF.ExitCode; stop_timeout = [bool]$stpF.TimedOut; settlement = [bool]$settledF }) } catch { }
+    }
+    try { [void](Write-LaneTrailEvent -Event 'EXPECTED_TEST_STOP' -Fields @{ site = 'lane-final'; classification = 'EXPECTED_TEST_STOP'; pid_before = $pidBeforeFinal; pid_after = $pidAfterFinal; port = ([int]$script:Port); stop_rc = [int]$stpF.ExitCode; stop_timeout = [bool]$stpF.TimedOut; settlement = [bool]$settledF }) } catch { }
     $finClose = Close-RuntimeJobObject -Job $svcJob
     $script:JobClosedByLane = [bool]$finClose.Ok
     Add-LaneCheck 'job_object_closed' ([bool]$finClose.Ok) ('reason=' + [string]$finClose.Reason)
@@ -2917,6 +3183,8 @@ try {
     $status = 'ok'
     if ($failCount -gt 0) { $status = 'failed' }
     elseif ($blockedCount -gt 0) { $status = 'ok-with-blocked' }
+    # F2: LANE_FINISHED carrega so o veredito ja decidido acima (sem gate).
+    try { [void](Write-LaneTrailEvent -Event 'LANE_FINISHED' -Fields @{ status = $status; fail_count = [int]$failCount; blocked_count = [int]$blockedCount }) } catch { }
     $summary = New-LaneSummary -Status $status -Reason $(if ($failCount -gt 0) { 'cenarios com fail' } elseif ($blockedCount -gt 0) { 'cenarios blocked (motivos nos rows)' } else { '' })
     $summary['port49374_owner_after'] = $owner49374After
     $main = Join-Path $script:EvidenceDir 'lane-summary.json'
@@ -2946,6 +3214,8 @@ try {
     if ($blockedCount -gt 0) { exit 2 }
     exit 0
 } finally {
+    # F2: LANE_CLEANUP na saida (advisory-only; cleanup existente intacto).
+    try { [void](Write-LaneTrailEvent -Event 'LANE_CLEANUP' -Fields @{ job_closed_by_lane = [bool]$script:JobClosedByLane }) } catch { }
     # cleanup de processo e estado temporario; o job e o backstop primordial:
     # Stop-RuntimeJobObject encerra a arvore propria (kill-on-close), e a
     # remocao do home so ocorre depois do encerramento bounded
