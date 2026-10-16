@@ -1,0 +1,71 @@
+{
+    "scenario_id":  "RR-E2E-21",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+    "proofs":  [
+                   {
+                       "proof":  "task-has-worker-result",
+                       "ok":  true,
+                       "detail":  "candidate_pass=True exit=0"
+                   },
+                   {
+                       "proof":  "session-replacement-real",
+                       "ok":  true,
+                       "detail":  "old=ses_ebafac830ffePr5hhl2TIm0sn4 new=ses_ebafaab65ffe41GCsZGP0ulw1c"
+                   },
+                   {
+                       "proof":  "state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "history-preserved",
+                       "ok":  true,
+                       "detail":  "worker_result_preservado=True attempts=1"
+                   },
+                   {
+                       "proof":  "no-false-terminal",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "credstore-import",
+                       "ok":  true,
+                       "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=-1 timedout=True job=True"
+                   },
+                   {
+                       "proof":  "model-turn-stdout",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792159348098,\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"part\":{\"id\":\"prt_145057582001syy3CQ8Fq0P7De\",\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"messageID\":\"msg_145056ce2001w9mzW4RPlSQvON\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792159353553,\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"part\":{\"id\":\"prt_145058acf001ho88LCDCAY9ahV\",\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"messageID\":\"msg_145056ce2001w9mzW4RPlSQvON\",\"type\":\"text\",\"text\":\"Reading lane21 state ÔÇö delegating to worker for file recovery.\",\"time\":{\"start\":1792159353551,\"end\":1792159353553}}}\n\n [turn_stdout_window=1200 truncated=False]"
+                   },
+                   {
+                       "proof":  "model-turn-output",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792159348098,\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"part\":{\"id\":\"prt_145057582001syy3CQ8Fq0P7De\",\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"messageID\":\"msg_145056ce2001w9mzW4RPlSQvON\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792159353553,\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"part\":{\"id\":\"prt_145058acf001ho88LCDCAY9ahV\",\"sessionID\":\"ses_ebafaab65ffe41GCsZGP0ulw1c\",\"messageID\":\"msg_145056ce2001w9mzW4RPlSQvON\",\"type\":\"text\",\"text\":\"Reading lane21 state ÔÇö delegating to worker for file recovery.\",\"time\":{\"start\":1792159353551,\"end\":1792159353553}}}\n\n"
+                   },
+                   {
+                       "proof":  "model-native-failed",
+                       "ok":  true,
+                       "detail":  "messages-before-invalid"
+                   },
+                   {
+                       "proof":  "model-native-trigger",
+                       "ok":  true,
+                       "detail":  "gatilho=native-after-fail (turn CLI nao-ok; nativa como ultimo recurso)"
+                   },
+                   {
+                       "proof":  "substitute-reread-turn",
+                       "ok":  false,
+                       "detail":  "model-turn falhou: rc=-1 timedout=True job=True"
+                   }
+               ],
+    "coverage":  [
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                 ],
+    "at":  "2026-10-16T14:05:26.6904014Z"
+}

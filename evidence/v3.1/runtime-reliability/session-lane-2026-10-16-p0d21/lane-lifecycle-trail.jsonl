@@ -1,0 +1,10 @@
+{"ts":"2026-10-16T14:02:07.9020633Z","lane":"session-real-lane-v2","advisory_only":true,"event":"LANE_START","scenario_filter_count":1}
+{"ts":"2026-10-16T14:02:09.9619067Z","lane":"session-real-lane-v2","advisory_only":true,"event":"SERVICE_START_REQUESTED","site":"lane-init","port":53111}
+{"ts":"2026-10-16T14:02:11.2297091Z","lane":"session-real-lane-v2","advisory_only":true,"event":"SERVICE_STARTED","pid_after":18024,"site":"lane-init","job_assigned":true,"presence_seen":true}
+{"ts":"2026-10-16T14:02:24.8022039Z","lane":"session-real-lane-v2","advisory_only":true,"event":"MODEL_TURN_STARTED","timeout_ms":180000,"site":"RR-E2E-21"}
+{"ts":"2026-10-16T14:05:26.6771076Z","lane":"session-real-lane-v2","advisory_only":true,"event":"MODEL_TURN_FINISHED","ok":false,"rc":-1,"site":"RR-E2E-21","job_assigned":true,"timedout":true}
+{"ts":"2026-10-16T14:05:27.4618161Z","lane":"session-real-lane-v2","advisory_only":true,"event":"SERVICE_STOP_REQUESTED","port":53111,"site":"lane-final","pid_before":0}
+{"ts":"2026-10-16T14:05:28.5287643Z","lane":"session-real-lane-v2","advisory_only":true,"event":"SERVICE_STOPPED","site":"lane-final","stop_timeout":false,"stop_rc":0,"settlement":true}
+{"ts":"2026-10-16T14:05:28.5318150Z","lane":"session-real-lane-v2","advisory_only":true,"event":"EXPECTED_TEST_STOP","settlement":true,"stop_rc":0,"pid_after":0,"pid_before":0,"stop_timeout":false,"site":"lane-final","port":53111,"classification":"EXPECTED_TEST_STOP"}
+{"ts":"2026-10-16T14:05:29.2669811Z","lane":"session-real-lane-v2","advisory_only":true,"event":"LANE_FINISHED","blocked_count":1,"status":"ok-with-blocked","fail_count":0}
+{"ts":"2026-10-16T14:05:29.2925880Z","lane":"session-real-lane-v2","advisory_only":true,"event":"LANE_CLEANUP","job_closed_by_lane":true}

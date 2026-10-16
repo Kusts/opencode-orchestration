@@ -1,0 +1,71 @@
+{
+    "scenario_id":  "RR-E2E-21",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+    "proofs":  [
+                   {
+                       "proof":  "task-has-worker-result",
+                       "ok":  true,
+                       "detail":  "candidate_pass=True exit=0"
+                   },
+                   {
+                       "proof":  "session-replacement-real",
+                       "ok":  true,
+                       "detail":  "old=ses_ebaabd492ffeizfO9YyynP4J2S new=ses_ebaabb6feffeg3eV7ujHAZqdft"
+                   },
+                   {
+                       "proof":  "state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "history-preserved",
+                       "ok":  true,
+                       "detail":  "worker_result_preservado=True attempts=1"
+                   },
+                   {
+                       "proof":  "no-false-terminal",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "credstore-import",
+                       "ok":  true,
+                       "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=-1 timedout=True job=True"
+                   },
+                   {
+                       "proof":  "model-turn-stdout",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792164523507,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_145546df30011pHmt58CTS4zGU\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792164524469,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_1455471b2001WNWLcwcaUqNcJF\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"text\",\"text\":\"Direct read-only recovery ÔÇö fetching lane file.\",\"time\":{\"start\":1792164524466,\"end\":1792164524469}}}\n{\"type\":\"tool_use\",\"timestamp\":1792164524644,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"partID\":\"prt_1455471b90013mrimzG20rbXBk\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"tool\",\"id\":\"call_01a145546d3d72f6a28b6b10d82569e2\",\"tool\":\"read\",\"state\":{\"status\":\"completed\",\"input\":{\"path\":\"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77\\\\cwd\"},\"output\":\"Read directory C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77\\\\cwd, 0 entries\",\"title\":\"read\",\"metadata\":{\"metadata\":{\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"Read directory C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77\\\\cwd, 0 entries\"}],\"providerCall\":{\"executed\":false,\"state\":{\"itemId\":\"fc_01a145546d3d72f6a28b6b10d82569e2\"}},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"path\\\":\\\"C:\\\\\\\\Users\\\\\\\\walis\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\oo-sesslane-20261016-152821-7300ce77\\\\\\\\cwd\\\"}\"},\"time\":{\"start\":1792164524473,\"end\":1792164524644}}}}\n{\"type\":\"step_finish\",\"timestamp\":1792164524673,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_145547281001U415eHpNJKIint\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"step-finish\",\"reason\":\"tool-calls\",\"cost\":0.004419900000000001,\"tokens\": \"[REDACTED]\"\"input\":42643,\"output\":96,\"reasoning\":682,\"cache\":{\"read\":0,\"write\":0}}}}\n{\"type\":\"step_start\",\"timestamp\":1792164527210,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_145547c6a001Fp7RKyuGyWMWt5\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_14554730c001XGFxeLckEC1Kqz\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792164527218,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_145547c7000195gfBOG9QQjjSO\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_14554730c001XGFxeLckEC1Kqz\",\"type\":\"text\",\"text\":\"Empty workspace ÔÇö checking parent for the lane file.\",\"time\":{\"start\":1792164527216,\"end\":1792164527218}}}\n{\"type\":\"tool_use\",\"timestamp\":1792164527237,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"partID\":\"prt_145547c76001yjLcyyqlXNMqUW\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_14554730c001XGFxeLckEC1Kqz\",\"type\":\"tool\",\"id\":\"call_01a1455473a8767593b4aaf3f0aeee9b\",\"tool\":\"read\",\"state\":{\"status\":\"completed\",\"input\":{\"path\":\"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77\"},\"output\":\"Read directory C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77, entries 1-8\\ncwd\\\\\\nenvelopes\\\\\\nhome\\\\\\nkernel-tasks\\\\\\nxdg-cache\\\\\\nxdg-data\\\\\\nxdg-state\\\\\\nxdg\\\\\",\"title\":\"read\",\"metadata\":{\"metadata\":{\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"Read directory C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77, entries 1-8\\ncwd\\\\\\nenvelopes\\\\\\nhome\\\\\\nkernel-tasks\\\\\\nxdg-cache\\\\\\nxdg-data\\\\\\nxdg-state\\\\\\nxdg\\\\\"}],\"providerCall\":{\"executed\":false,\"state\":{\"itemId\":\"fc_01a1455473a8767593b4aaf3f0aeee9b\"}},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"path\\\":\\\"C:\\\\\\\\Users\\\\\\\\walis\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\oo-sesslane-20261016-152821-7300ce77\\\"}\"},\"time\":{\"start\":1792164527222,\"end\":1792164527237}}}}\n\n [turn_stdout_window=1200 truncated=True]"
+                   },
+                   {
+                       "proof":  "model-turn-output",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792164523507,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_145546df30011pHmt58CTS4zGU\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792164524469,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"id\":\"prt_1455471b2001WNWLcwcaUqNcJF\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"text\",\"text\":\"Direct read-only recovery ÔÇö fetching lane file.\",\"time\":{\"start\":1792164524466,\"end\":1792164524469}}}\n{\"type\":\"tool_use\",\"timestamp\":1792164524644,\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"part\":{\"partID\":\"prt_1455471b90013mrimzG20rbXBk\",\"sessionID\":\"ses_ebaabb6feffeg3eV7ujHAZqdft\",\"messageID\":\"msg_145546198001xpSvY8gsz7oAVe\",\"type\":\"tool\",\"id\":\"call_01a145546d3d72f6a28b6b10d82569e2\",\"tool\":\"read\",\"state\":{\"status\":\"completed\",\"input\":{\"path\":\"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77\\\\cwd\"},\"output\":\"Read directory C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\oo-sesslane-20261016-152821-7300ce77\\\\cwd, 0 entries\",\"title\":\"read\",\"metadata\":{\"metadata\":{\"truncated"
+                   },
+                   {
+                       "proof":  "model-native-failed",
+                       "ok":  true,
+                       "detail":  "messages-before-invalid"
+                   },
+                   {
+                       "proof":  "model-native-trigger",
+                       "ok":  true,
+                       "detail":  "gatilho=native-after-fail (turn CLI nao-ok; nativa como ultimo recurso)"
+                   },
+                   {
+                       "proof":  "substitute-reread-turn",
+                       "ok":  false,
+                       "detail":  "model-turn falhou: rc=-1 timedout=True job=True"
+                   }
+               ],
+    "coverage":  [
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                 ],
+    "at":  "2026-10-16T15:31:41.0283960Z"
+}
