@@ -1,0 +1,71 @@
+{
+    "scenario_id":  "RR-E2E-21",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+    "proofs":  [
+                   {
+                       "proof":  "task-has-worker-result",
+                       "ok":  true,
+                       "detail":  "candidate_pass=True exit=0"
+                   },
+                   {
+                       "proof":  "session-replacement-real",
+                       "ok":  true,
+                       "detail":  "old=ses_eb66d2a42ffeERXTTdCa2k1MH3 new=ses_eb66cf235ffeqEu3gyXI8cnPHi"
+                   },
+                   {
+                       "proof":  "state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "history-preserved",
+                       "ok":  true,
+                       "detail":  "worker_result_preservado=True attempts=1"
+                   },
+                   {
+                       "proof":  "no-false-terminal",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "credstore-import",
+                       "ok":  true,
+                       "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=1 timedout=False job=True"
+                   },
+                   {
+                       "proof":  "model-turn-stdout",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"error\",\"timestamp\":1792235747938,\"sessionID\":\"ses_eb66cf235ffeqEu3gyXI8cnPHi\",\"error\":{\"type\":\"provider.quota\",\"message\":\"Insufficient balance or no resource package. Please recharge.\",\"status\":429,\"response\":{\"body\":\"{\\\"error\\\":{\\\"code\\\":\\\"1113\\\",\\\"message\\\":\\\"Insufficient balance or no resource package. Please recharge.\\\"}}\"}}}\n\n [turn_stdout_window=1200 truncated=False]"
+                   },
+                   {
+                       "proof":  "model-turn-output",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"error\",\"timestamp\":1792235747938,\"sessionID\":\"ses_eb66cf235ffeqEu3gyXI8cnPHi\",\"error\":{\"type\":\"provider.quota\",\"message\":\"Insufficient balance or no resource package. Please recharge.\",\"status\":429,\"response\":{\"body\":\"{\\\"error\\\":{\\\"code\\\":\\\"1113\\\",\\\"message\\\":\\\"Insufficient balance or no resource package. Please recharge.\\\"}}\"}}}\n\n"
+                   },
+                   {
+                       "proof":  "model-native-failed",
+                       "ok":  true,
+                       "detail":  "messages-before-invalid"
+                   },
+                   {
+                       "proof":  "model-native-trigger",
+                       "ok":  true,
+                       "detail":  "gatilho=native-after-fail (turn CLI nao-ok; nativa como ultimo recurso)"
+                   },
+                   {
+                       "proof":  "substitute-reread-turn",
+                       "ok":  false,
+                       "detail":  "model-turn falhou: rc=1 timedout=False job=True"
+                   }
+               ],
+    "coverage":  [
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                 ],
+    "at":  "2026-10-17T11:15:48.3360597Z"
+}

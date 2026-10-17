@@ -1,0 +1,72 @@
+{
+    "scenario_id":  "RR-E2E-18",
+    "status":  "pass-real",
+    "detail":  "child real reconciliado apos restart real, incluindo perna completed",
+    "proofs":  [
+                   {
+                       "proof":  "child-created-real",
+                       "ok":  true,
+                       "detail":  "child=ses_ebc445e04ffei4n89FufjLBkmR parent=ses_ebc446c38ffeo9Ry3oZGvb8pid"
+                   },
+                   {
+                       "proof":  "child-provenance-native",
+                       "ok":  true,
+                       "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_ebc446c38ffeo9Ry3oZGvb8pid"
+                   },
+                   {
+                       "proof":  "child-bound-to-task",
+                       "ok":  true,
+                       "detail":  "run=lane18-child-run parent_provenance=ses_ebc446c38ffeo9Ry3oZGvb8pid exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
+                   },
+                   {
+                       "proof":  "restart-real",
+                       "ok":  true,
+                       "detail":  "stop+settlement+start+listener"
+                   },
+                   {
+                       "proof":  "child-observed-after-restart",
+                       "ok":  true,
+                       "detail":  "child=ses_ebc445e04ffei4n89FufjLBkmR observado=running"
+                   },
+                   {
+                       "proof":  "reconciler-child-action-correct",
+                       "ok":  true,
+                       "detail":  "observado=running"
+                   },
+                   {
+                       "proof":  "task-intact-after-restart",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "synthetic-endpoint-attempt",
+                       "ok":  true,
+                       "detail":  "POST /synthetic rc=1 (observacao; status nao convertido em saude)"
+                   },
+                   {
+                       "proof":  "credstore-import",
+                       "ok":  true,
+                       "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session child --model (model-key-env=OPENCODE_GO_API_KEY) rc=0 timedout=False job=True"
+                   },
+                   {
+                       "proof":  "model-turn-stdout",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792137743240,\"sessionID\":\"ses_ebc445e04ffei4n89FufjLBkmR\",\"part\":{\"id\":\"prt_143bbcb88001fK2wPyrWd3mhuF\",\"sessionID\":\"ses_ebc445e04ffei4n89FufjLBkmR\",\"messageID\":\"msg_143bbc281001ZJOPLMg9tJx49F\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792137743275,\"sessionID\":\"ses_ebc445e04ffei4n89FufjLBkmR\",\"part\":{\"id\":\"prt_143bbcb9f001AU86u1nS9RXIw1\",\"sessionID\":\"ses_ebc445e04ffei4n89FufjLBkmR\",\"messageID\":\"msg_143bbc281001ZJOPLMg9tJx49F\",\"type\":\"text\",\"text\":\"Probe acknowledged.\\n\",\"time\":{\"start\":1792137743263,\"end\":1792137743275}}}\n\n [turn_stdout_window=1200 truncated=False]"
+                   },
+                   {
+                       "proof":  "completed-leg-recovered",
+                       "ok":  true,
+                       "detail":  "acao=recover-output via model-turn opt-in (model-key-env=OPENCODE_GO_API_KEY); completion observada via stdout"
+                   }
+               ],
+    "coverage":  [
+                     "exercitado: child real (parentID) + restart real + reconciliacao com observacao real",
+                     "perna completed-session: so observavel com turn de modelo; plano Â§10 (persistence) lista como perna distinta de \"running child reattached\" (exercitada aqui em runtime real)"
+                 ],
+    "at":  "2026-10-16T08:02:23.6607048Z"
+}

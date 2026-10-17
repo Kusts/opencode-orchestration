@@ -1,0 +1,102 @@
+{
+    "lane":  "agent-mcp-integration-lane-v2",
+    "purpose":  "integracao agent-\u003eMCP (tester-\u003ePlaywright, debugger-\u003eDevTools) em runtime REAL com binario V2 vivo",
+    "date":  "2026-10-16",
+    "started_at":  "2026-10-16T02:25:41.5571276Z",
+    "finished_at":  "2026-10-16T02:29:55.4052113Z",
+    "status":  "completed",
+    "reason":  "sem fail (apenas pass-real/blocked).",
+    "runtime_pin":  "2.0.23",
+    "runtime_live":  "2.0.23",
+    "pin_drift":  false,
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "model_key_env":  "model-key-env=OPENCODE_GO_API_KEY",
+    "scenarios":  [
+                      {
+                          "scenario_id":  "S5",
+                          "status":  "blocked",
+                          "detail":  "turn TIMEOUT 240s (infra/modelo).",
+                          "proofs":  [
+                                         {
+                                             "proof":  "model-setup",
+                                             "ok":  true,
+                                             "detail":  "fixture+serve owned; model-key-env=OPENCODE_GO_API_KEY"
+                                         },
+                                         {
+                                             "proof":  "credential-store",
+                                             "ok":  true,
+                                             "detail":  "credential rows=7 no DB isolado"
+                                         },
+                                         {
+                                             "proof":  "session-created",
+                                             "ok":  true,
+                                             "detail":  "id len=30"
+                                         },
+                                         {
+                                             "proof":  "model-turn",
+                                             "ok":  false,
+                                             "detail":  "TIMEOUT 240s"
+                                         },
+                                         {
+                                             "proof":  "turn-output-head",
+                                             "ok":  true,
+                                             "detail":  "{\"type\":\"step_start\",\"timestamp\":1792117557425,\"sessionID\":\"ses_ebd784603ffew39iZBlGHG7rLB\",\"part\":{\"id\":\"prt_14287c8b1001JIeqhe9OwhcTFS\",\"sessionID\":\"ses_ebd784603ffew39iZBlGHG7rLB\",\"messageID\":\"msg_14287c0d3001KpqG8sLvER3wsl\",\"type\":\"step-start\"}}  {\"type\":\"text\",\"timestamp\":1792117558865,\"sessionID\":\"ses_ebd784603ffew39iZBlGHG7rLB\",\"part\":{\"id\":\"prt_14287ce4c001RehlyNitN4WZdg\",\"sessionID\":\"ses_ebd784603ffew39iZBlGHG7rLB\",\"messageID\":\"msg_14287c0d3001KpqG8sLvER3wsl\",\"type\":\"text\",\"text\":\"Routing to tester for 3 clicks on count-btn.\",\"time\":{\"start\":1792117558860,\"end\":1792117558865}}}  {\"type\":\"tool_use\",\"timestamp\":1792117790227,\"sessionID\":\"ses_ebd784603ffew39iZBlGHG7rLB\",\"part\":{\"partID\":\"prt_14287ce75001EzWtVCIfbzDBNj\",\"sessionID\":\"ses_ebd784603ffew39iZBlGHG7rLB\",\"messageID\":\"msg_14287c0d3001KpqG8sLvER3wsl\",\"type\":\"tool\",\"id\":\"call_01a14287c43d72c0b806ad60e4c3990d\",\"tool\":\"subagent\",\"state\":{\"status\":\"completed\",\"input\":{\"agent\":\"tester\",\"description\":\"Click count-btn 3 times\",\"prompt\":\"Open [REDACTED-URL] with the Playwright browser tools ONLY - browser_navigate, browser_snapshot, browser_click. Do NOT read the page via shell, curl, cat or any file tool. Click the button id count-btn exactly 3 times, read span id count, and report CLICKS_DONE=-n-.\"},\"output\":\"\u003csubagent sessionID=\\\"ses_ebd782d6affeTJvEp5gFpNDul6\\\" state=\\\"completed\\\"\u003e\\nPlaywright `browser_navigate` to [REDACTED-URL] failed twice with identical infra error ÔÇö Chrome launch fails, so no clicks were performed:\\n\\n`async initializeServer: Target page, context or browser has been closed` ÔÇö `DevTools remote debugging requires a non-default data directory. Specify this using --user-data-dir.` (chrome.exe pid launch -\u003e gracefully close).\\n\\nFallback `chrome-devtools list_pages` also failed: `The browser is already running for ...\\\\puppeteer_dev_chrome_profile-dsQeAo. Use a different userDataDir or stop the running browser first.`\\n\\nNo `browser_snapshot` / `browser_click` on `#count-btn` / `#count`"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-16T02:29:55.3859484Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  0,
+                            "fail":  0,
+                            "blocked":  1
+                        },
+    "checks":  [
+                   {
+                       "check":  "binary_live_resolved",
+                       "ok":  true,
+                       "detail":  "vivo=2.0.23 pin=2.0.23 pin_drift=False (prossegue com o binario vivo documentado)"
+                   },
+                   {
+                       "check":  "profiles_isolated_temp",
+                       "ok":  true,
+                       "detail":  "testing+default sob TargetHome exclusivo; OPENCODE_DB distintos (convencao lane-owned)"
+                   },
+                   {
+                       "check":  "auth_store_deferred",
+                       "ok":  true,
+                       "detail":  "perfis iniciam SEM credencial; importacao adiada para pos-gate opt-in via Import-LaneProfileCredentials (S5/S6/S7); segredos morrem com TargetHome"
+                   },
+                   {
+                       "check":  "configs_from_template",
+                       "ok":  true,
+                       "detail":  "agents.build/tester/debugger extraidos em runtime + 14 restricoes MCP materializadas (deny code-exec, ask evaluate); modelos: cheap=opencode-go/muse-spark-1.3-contributor strong=openai/gpt-6.1-sol; testing com 2 MCPs, default sem mcp"
+                   },
+                   {
+                       "check":  "isolation_testing",
+                       "ok":  true,
+                       "detail":  "debug paths resolve em TEMP; sem ~/.config (toca-home=False)"
+                   },
+                   {
+                       "check":  "isolation_default",
+                       "ok":  true,
+                       "detail":  "debug paths resolve em TEMP; sem ~/.config (toca-home=False)"
+                   },
+                   {
+                       "check":  "service_ports_isolated",
+                       "ok":  true,
+                       "detail":  "testing=59007 default=59008 fixture=59009; 49374 recusada"
+                   }
+               ],
+    "notes":  [
+                  "model-key opt-in (model-key-env=OPENCODE_GO_API_KEY); passthrough pontual SOMENTE aos filhos opencode run de S5/S6/S7"
+              ],
+    "evidence_records":  [
+
+                         ],
+    "isolation":  "dois perfis XDG isolados em TEMP + OPENCODE_DB distintos (convencao lane-owned); -CleanEnvironment nos filhos Spike; cwd nos perfis; stdin fechado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado ANTES de cada processo owned de longa vida; contem somente processos desta lane"
+}

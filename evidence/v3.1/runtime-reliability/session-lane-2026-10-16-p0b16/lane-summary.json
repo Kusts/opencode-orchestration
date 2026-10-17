@@ -1,0 +1,175 @@
+{
+    "lane":  "session-real-lane-v2",
+    "purpose":  "V3.1 closure: RR-E2E-16..22 runtime-real + V2-native capability probes",
+    "date":  "2026-10-16",
+    "started_at":  "2026-10-16T12:40:18.6128083Z",
+    "finished_at":  "2026-10-16T12:40:36.8501967Z",
+    "status":  "ok",
+    "reason":  "",
+    "runtime_pin":  "2.0.23",
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "service_port":  56268,
+    "scenarios":  [
+                      {
+                          "scenario_id":  "RR-E2E-16",
+                          "status":  "pass-real",
+                          "detail":  "cadeia completa provada em runtime real",
+                          "proofs":  [
+                                         {
+                                             "proof":  "real-session-created",
+                                             "ok":  true,
+                                             "detail":  "id=ses_ebb45adf1ffe3fpb2xFJD0HJLS"
+                                         },
+                                         {
+                                             "proof":  "task-transitioned-active",
+                                             "ok":  true,
+                                             "detail":  "DISCOVERING-\u003ePLANNING"
+                                         },
+                                         {
+                                             "proof":  "session-bound",
+                                             "ok":  true,
+                                             "detail":  "run=lane16-run root=ses_ebb45adf1ffe3fpb2xFJD0HJLS"
+                                         },
+                                         {
+                                             "proof":  "session-present-before-close",
+                                             "ok":  true,
+                                             "detail":  "probe=present"
+                                         },
+                                         {
+                                             "proof":  "session-closed-real",
+                                             "ok":  true,
+                                             "detail":  "DELETE /api/session/{id} rc=0"
+                                         },
+                                         {
+                                             "proof":  "absence-proven-after-close",
+                                             "ok":  true,
+                                             "detail":  "probe=absent"
+                                         },
+                                         {
+                                             "proof":  "absent-from-list",
+                                             "ok":  true,
+                                             "detail":  "listado=False"
+                                         },
+                                         {
+                                             "proof":  "task-persisted",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING rev=3 exit=0 timedout=False out={      \"acceptance_criteria\":  null,      \"active_wait\":  null,      \"actor\":  \"session-lane\",      \"attempt_budget\":  3,      \"attempts\":  null,      \"base_revision\":  \"\",      \"bindings\":  {                       \"active_execution_owner\":  \"ses_ebb45a"
+                                         },
+                                         {
+                                             "proof":  "no-false-completion",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING (nao-terminal)"
+                                         },
+                                         {
+                                             "proof":  "binding-record-preserved",
+                                             "ok":  true,
+                                             "detail":  "status=attached"
+                                         },
+                                         {
+                                             "proof":  "recovery-rebind",
+                                             "ok":  true,
+                                             "detail":  "root=ses_ebb45950bffeDRRxZLV5Q7E2qZ"
+                                         },
+                                         {
+                                             "proof":  "recovery-state-intact",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "required_activation: root session real fechada com task ativa - exercitado",
+                                           "task persistida / sem conclusao falsa / recuperacao - provado"
+                                       ],
+                          "at":  "2026-10-16T12:40:34.5079395Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  1,
+                            "fail":  0,
+                            "blocked":  0
+                        },
+    "capability_probes":  [
+
+                          ],
+    "probes_skipped":  true,
+    "model_key_env":  "model-key-env=\u003cunset\u003e",
+    "checks":  [
+                   {
+                       "check":  "version_exact",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.23"
+                   },
+                   {
+                       "check":  "config_19_workers_built",
+                       "ok":  true,
+                       "detail":  "opencode.json da lane com 19 workers + overlay deny shell marker (probe narrowing)"
+                   },
+                   {
+                       "check":  "isolation_paths",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "check":  "port_preflight_free",
+                       "ok":  true,
+                       "detail":  "porta 56268 =\u003e PORT_FREE should_start=true"
+                   },
+                   {
+                       "check":  "service_port_configured",
+                       "ok":  true,
+                       "detail":  "service set port =\u003e 56268"
+                   },
+                   {
+                       "check":  "job_object_created_before_start",
+                       "ok":  true,
+                       "detail":  "limit_flags=0x2000"
+                   },
+                   {
+                       "check":  "service_start_explicit_job_assigned",
+                       "ok":  true,
+                       "detail":  "service start rc=0; job_assigned=true; nota=atribuido ao job (pid 11376)"
+                   },
+                   {
+                       "check":  "service_listener_observed",
+                       "ok":  true,
+                       "detail":  "listener porta 56268 observado (fato P22)"
+                   },
+                   {
+                       "check":  "rest_auth_from_service_json",
+                       "ok":  true,
+                       "detail":  "password lida de service.json do perfil isolado (valor nunca logado)"
+                   },
+                   {
+                       "check":  "openapi_real_parsed",
+                       "ok":  true,
+                       "detail":  "spec real carregada (paths disponiveis)"
+                   },
+                   {
+                       "check":  "service_stop_owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "check":  "service_settlement",
+                       "ok":  true,
+                       "detail":  "ausencia conclusiva do listener apos stop owned"
+                   },
+                   {
+                       "check":  "job_object_closed",
+                       "ok":  true,
+                       "detail":  "reason=handle fechado (KILL_ON_JOB_CLOSE: membros remanescentes encerrados pelo SO)"
+                   },
+                   {
+                       "check":  "port49374_untouched",
+                       "ok":  true,
+                       "detail":  "antes=FREE depois=FREE"
+                   }
+               ],
+    "notes":  [
+
+              ],
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane",
+    "port49374_owner_before":  "FREE",
+    "port49374_owner_after":  "FREE"
+}
