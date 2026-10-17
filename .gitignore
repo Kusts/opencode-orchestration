@@ -20,3 +20,6 @@ evidence/v3.1/runtime-reliability/phase24-livehook.jsonl
 *.bak*
 generated/
 .opencode/
+.env
+.env.*
+!.env.example
