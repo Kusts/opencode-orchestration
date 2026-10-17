@@ -603,50 +603,10 @@ function Get-LaneModelTurnOutputExcerpt {
             $v = $v -replace ('(?i)\x22(' + $nameRx + ')\x22\s*:\s*(' + $dqV + '|' + $sqV + '|[^\s,;"\x27}]+)'), '"$1": "[REDACTED]"'
             $v = $v -replace ('(?i)\x27(' + $nameRx + ')\x27\s*:\s*(' + $dqV + '|' + $sqV + '|[^\s,;"\x27}]+)'), '"$1": "[REDACTED]"'
         } catch { $v = $raw }
-        # Framing JSONL preservado (F1-FIX-01, F1-FIX-02): newlines codificados
-        # 1-para-1 como [char]0x7F (DEL) ANTES do cap e restaurados DEPOIS.
-        # Get-LaneSafeText (que achata [\x00-\x1f]) nao toca em 0x7F e permanece
-        # intocada; o caminho decisorio volta a ver 1 doc por linha. Token de
-        # 16 chars removido: expandia o texto antes do cap e invalidava doc
-        # valido proximo do teto (ex. ~1190 chars + newline). Codificacao so
-        # encolhe ou mantem (nunca expande); DEL preexistente vira espaco
-        # (cosmetico, sem newline espurio no restore). Sem padrao de segredo/URL.
-        $nlSub = [string][char]0x7F
-        $v = ([string]$v).Replace($nlSub, ' ')
-        $v = $v.Replace("`r`n", $nlSub).Replace("`r", $nlSub).Replace("`n", $nlSub)
         $safe = Get-LaneSafeText $v $Max
-        $safe = ([string]$safe).Replace($nlSub, "`n")
         if ([string]::IsNullOrWhiteSpace($safe)) { return '(sem saida capturada)' }
         return $safe
     } catch { return '(sem saida capturada)' }
-}
-function Test-LaneStdoutWindowTruncated {
-    # Predicado puro (F1-FIX-01, sem rede/spawn/estado): true quando a
-    # sanitizacao integral (teto 4000, mesmo helper e mesma redacao do caminho
-    # decisorio) excede a janela do matcher (default 1200, cap inalterado).
-    # A flag vai para a proof diag; o matcher avalia janela + flag e a cauda
-    # nunca e descartada em silencio. Nunca lanca; duvida => false.
-    [CmdletBinding()] param([string]$Stdout = '', [string]$Stderr = '', [int]$Window = 1200, [int]$FullCap = 4000)
-    try {
-        if ([int]$Window -le 0) { $Window = 1200 }
-        if ([int]$FullCap -le [int]$Window) { $FullCap = ([int]$Window + 2800) }
-        if ([int]$FullCap -gt 4000) { $FullCap = 4000 }
-        $win = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$Stdout) -Stderr ([string]$Stderr) -Max ([int]$Window)
-        $full = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$Stdout) -Stderr ([string]$Stderr) -Max ([int]$FullCap)
-        if (([string]$win -ceq '(sem saida capturada)') -or ([string]$full -ceq '(sem saida capturada)')) { return $false }
-        return (([string]$full).Length -gt ([string]$win).Length)
-    } catch { return $false }
-}
-function Test-LaneNeedsPre19Gate {
-    # Predicado puro (F1-FIX-01, sem spawn/rede/estado): o gate 'servico no ar
-    # para 19+' executa SOMENTE quando o filtro inclui 19 ou esta vazio (lane
-    # integral). Filtro sem 19 (ex. so-18) pula o gate sem falha por ele.
-    # Erro => true (fail-closed: mantem o comportamento anterior).
-    [CmdletBinding()] param([string[]]$Filter = @())
-    try {
-        if (@($Filter).Count -eq 0) { return $true }
-        return ((@($Filter) -ccontains '19'))
-    } catch { return $true }
 }
 function Test-LaneNeedsPost17Gate {
     # Predicado puro (isolamento pos-16/17, mesmo padrao F1-FIX-01, sem
@@ -1261,16 +1221,9 @@ function Test-LaneTurnEvidence {
     # (step_start, {"type":"text",...} nu) NAO tem proveniencia e nunca vale
     # role (sem aceitacao ampla: o --format json real do pin mistura
     # transcript TUI; a decisao usa o GET ?type=assistant). Token vazio =>
-    # criterio falso (fail-closed). Novo campo cli_bound (F1-FIX-01): evento
-    # CLI tipo text com duplo vinculo de sessao (doc.sessionID e
-    # part.sessionID -ceq ExpectedSessionId, part.messageID presente,
-    # part.type text, part.text nao-vazio) conta como proveniencia ligada a
-    # sessao; sem -ExpectedSessionId nunca elegivel (estrito preservado).
-    # Split aditivo por linha: tenta a linha inteira antes; em falha de parse
-    # segmenta via segmentador top-level inline ('}  {', caso lane18 real).
-    # Nunca lanca.
-    [CmdletBinding()] param([string]$Text = '', [string]$CanaryToken = '', [string]$StateToken = '', [string]$ExpectedSessionId = '')
-    $out = [ordered]@{ role = $false; canary = $false; state = $false; cli_bound = $false }
+    # criterio falso (fail-closed). Nunca lanca.
+    [CmdletBinding()] param([string]$Text = '', [string]$CanaryToken = '', [string]$StateToken = '')
+    $out = [ordered]@{ role = $false; canary = $false; state = $false }
     try {
         $docs = New-Object System.Collections.ArrayList
         $whole = $null
@@ -1284,64 +1237,7 @@ function Test-LaneTurnEvidence {
                 if ((-not $t.StartsWith('{')) -and (-not $t.StartsWith('['))) { continue }
                 $d = $null
                 try { $d = ConvertFrom-Json $t } catch { $d = $null }
-                if ($null -ne $d) { [void]$docs.Add($d); continue }
-                # Fallback aditivo (F1-FIX-01, F1-FIX-02): docs CLI concatenados
-                # por espacos na mesma linha (caso lane18 real: '}  {'). A linha
-                # inteira foi tentada acima; a segmentacao so roda em falha de
-                # parse, entao entradas que passavam continuam passando.
-                # Segmentador minimo INLINE e autocontido (extracao offline por
-                # AST nao carrega helpers extras): divide SOMENTE em whitespace
-                # de fronteira top-level (depth==0) fora de strings, com escapes
-                # respeitados (\" nao fecha string, \\ escapa o proximo char).
-                # Chaves/colchetes em string nao movem depth; depth negativo
-                # clampado em 0. Limites: sem parser completo, sem comentarios,
-                # single-quotes nao sao string; boundary sem whitespace (ex.
-                # '}{') nao divide. Peca que nao parseia e descartada abaixo
-                # (fail-closed, sem falso positivo).
-                $laneSegs = New-Object System.Collections.ArrayList
-                try {
-                    $laneBuf = New-Object System.Text.StringBuilder
-                    $laneDepth = 0
-                    $laneInStr = $false
-                    $laneEsc = $false
-                    $laneSrc = [string]$t
-                    $laneN = $laneSrc.Length
-                    $laneI = 0
-                    while ($laneI -lt $laneN) {
-                        $laneCh = $laneSrc.Substring($laneI, 1)
-                        if ([bool]$laneInStr) {
-                            [void]$laneBuf.Append($laneCh)
-                            if ([bool]$laneEsc) { $laneEsc = $false }
-                            elseif ($laneCh -ceq '\') { $laneEsc = $true }
-                            elseif ($laneCh -ceq '"') { $laneInStr = $false }
-                            $laneI++
-                            continue
-                        }
-                        if ($laneCh -ceq '"') { $laneInStr = $true; [void]$laneBuf.Append($laneCh); $laneI++; continue }
-                        if (($laneCh -ceq '{') -or ($laneCh -ceq '[')) { $laneDepth++; [void]$laneBuf.Append($laneCh); $laneI++; continue }
-                        if (($laneCh -ceq '}') -or ($laneCh -ceq ']')) { $laneDepth--; if ($laneDepth -lt 0) { $laneDepth = 0 }; [void]$laneBuf.Append($laneCh); $laneI++; continue }
-                        if (([int]$laneDepth -le 0) -and ($laneCh -match '^\s$')) {
-                            $laneSeg = ([string]$laneBuf.ToString()).Trim()
-                            if (-not [string]::IsNullOrWhiteSpace($laneSeg)) { [void]$laneSegs.Add($laneSeg) }
-                            $laneBuf = New-Object System.Text.StringBuilder
-                            $laneI++
-                            continue
-                        }
-                        [void]$laneBuf.Append($laneCh)
-                        $laneI++
-                    }
-                    $laneTail = ([string]$laneBuf.ToString()).Trim()
-                    if (-not [string]::IsNullOrWhiteSpace($laneTail)) { [void]$laneSegs.Add($laneTail) }
-                } catch { }
-                foreach ($ck in @($laneSegs)) {
-                    $c = ''
-                    try { $c = ([string]$ck).Trim() } catch { $c = '' }
-                    if ([string]::IsNullOrWhiteSpace($c)) { continue }
-                    if ((-not $c.StartsWith('{')) -and (-not $c.StartsWith('['))) { continue }
-                    $dd = $null
-                    try { $dd = ConvertFrom-Json $c } catch { $dd = $null }
-                    if ($null -ne $dd) { [void]$docs.Add($dd) }
-                }
+                if ($null -ne $d) { [void]$docs.Add($d) }
             }
         }
         $units = New-Object System.Collections.ArrayList
@@ -1386,7 +1282,6 @@ function Test-LaneTurnEvidence {
         $wantBoth = ((-not [string]::IsNullOrWhiteSpace($CanaryToken)) -and (-not [string]::IsNullOrWhiteSpace($StateToken)))
         $roleFound = $false
         $sameFound = $false
-        $cliFound = $false
         foreach ($m in @($units)) {
             if ($null -eq $m) { continue }
             if (($m -is [string]) -or ($m -is [System.ValueType]) -or ($m -is [System.Array])) { continue }
@@ -1398,31 +1293,6 @@ function Test-LaneTurnEvidence {
                 try { $bad = [bool](Test-LaneSignificantError -Value $e) } catch { $bad = $true }
             } catch { $bad = $true }
             if ([bool]$bad) { continue }
-            # Vinculo CLI-bound (F1-FIX-01): acesso direto a propriedade (sem
-            # novos helpers; extracao offline por AST continua autocontida).
-            # Sessao com -ceq (exata); outra sessao, sem messageID ou texto
-            # vazio seguem inelegiveis. Erro proprio ja descartado acima.
-            if (-not [string]::IsNullOrWhiteSpace($ExpectedSessionId)) {
-                try {
-                    $cbDocType = $null; try { $cbDocType = $m.type } catch { $cbDocType = $null }
-                    $cbDocSid = $null; try { $cbDocSid = $m.sessionID } catch { $cbDocSid = $null }
-                    $cbPart = $null; try { $cbPart = $m.part } catch { $cbPart = $null }
-                    $cbPartIsObj = (($null -ne $cbPart) -and (-not ($cbPart -is [string])) -and (-not ($cbPart -is [System.Array])) -and (-not ($cbPart -is [System.ValueType])))
-                    if ([bool]$cbPartIsObj) {
-                        $cbPartType = $null; try { $cbPartType = $cbPart.type } catch { $cbPartType = $null }
-                        $cbPartSid = $null; try { $cbPartSid = $cbPart.sessionID } catch { $cbPartSid = $null }
-                        $cbPartMid = $null; try { $cbPartMid = $cbPart.messageID } catch { $cbPartMid = $null }
-                        $cbPartText = $null; try { $cbPartText = $cbPart.text } catch { $cbPartText = $null }
-                        if ((([string]$cbDocType -ieq 'text') -and ([string]$cbDocSid -ceq $ExpectedSessionId) -and ([string]$cbPartType -ieq 'text') -and ([string]$cbPartSid -ceq $ExpectedSessionId) -and (-not [string]::IsNullOrWhiteSpace([string]$cbPartMid)) -and (-not [string]::IsNullOrWhiteSpace([string]$cbPartText)))) {
-                            $cliFound = $true
-                            if ([bool]$wantBoth) {
-                                $cbLow = ([string]$cbPartText).ToLowerInvariant()
-                                if (($cbLow.Contains(([string]$CanaryToken).ToLowerInvariant())) -and ($cbLow.Contains(([string]$StateToken).ToLowerInvariant()))) { $sameFound = $true }
-                            }
-                        }
-                    }
-                } catch { }
-            }
             $rv = $null
             try { $rv = $m.role } catch { $rv = $null }
             if ($null -eq $rv) { try { $rv = $m.sender } catch { $rv = $null } }
@@ -1440,9 +1310,8 @@ function Test-LaneTurnEvidence {
         $out.role = [bool]$roleFound
         $out.canary = [bool]$sameFound
         $out.state = [bool]$sameFound
-        $out.cli_bound = [bool]$cliFound
         return $out
-    } catch { return [ordered]@{ role = $false; canary = $false; state = $false; cli_bound = $false } }
+    } catch { return [ordered]@{ role = $false; canary = $false; state = $false } }
 }
 function Invoke-LaneModelTurn {
     # Turn de modelo bounded via filho 'opencode run --session' (conecta no
@@ -1459,7 +1328,7 @@ function Invoke-LaneModelTurn {
     # NAO e contencao pre-execucao); job indisponivel => turn recusado
     # (fail-closed).
     [CmdletBinding()] param([string]$SessionId = '', [string]$Prompt = 'lane-model-turn-probe', [string]$Model = 'opencode-go/muse-spark-1.3-contributor', [int]$TimeoutMs = 180000, [string]$NativeBaseUrl = '', $NativeRequestFn = $null)
-    $res = [ordered]@{ attempted = $false; ok = $false; substantive = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; turn_stdout_truncated = $false; turn_output_safe = '(turno sem saida: spawn sem resultado)'; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; nativeTrigger = ''; nativeTriggerProof = $null; reason = '' }
+    $res = [ordered]@{ attempted = $false; ok = $false; substantive = $false; exit = -1; timedout = $false; out_chars = 0; output_excerpt = ''; turn_stdout_safe = ''; turn_output_safe = '(turno sem saida: spawn sem resultado)'; job_assigned = $false; job_note = ''; fallback = $false; fallbackProof = $null; refusedProof = $null; calls = 0; native = $false; nativeProof = $null; nativeCalls = 0; nativeTrigger = ''; nativeTriggerProof = $null; reason = '' }
     try {
         if (-not (Test-LaneModelKeyAvailable)) { $res.reason = ('model-key indisponivel; ' + (Get-LaneModelKeyLogToken)); return $res }
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
@@ -1550,11 +1419,6 @@ function Invoke-LaneModelTurn {
         if (((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))) {
             try { $res.turn_stdout_safe = Get-LaneModelTurnOutputExcerpt -Stdout ([string]$r.Stdout) -Stderr '' } catch { $res.turn_stdout_safe = '' }
         }
-        # F1-FIX-01: flag de truncamento da janela 1200 (cap inalterado; a
-        # proof diag carrega truncated e o matcher avalia janela + flag).
-        # Ausencia do helper em sessoes antigas => false, sem throw.
-        $res.turn_stdout_truncated = $false
-        try { $res.turn_stdout_truncated = [bool](Test-LaneStdoutWindowTruncated -Stdout ([string]$r.Stdout) -Window 1200) } catch { $res.turn_stdout_truncated = $false }
         $res.ok = ((-not [bool]$r.TimedOut) -and ([int]$r.ExitCode -eq 0) -and ([bool]$r.JobAssigned))
         # ORFS-HOLLOW-NATIVE: flag pura de resposta substantiva = ok CLI E
         # stdout com marcadores (mesmo matcher dos cenarios 18/21, sem
@@ -1564,10 +1428,8 @@ function Invoke-LaneModelTurn {
         # Nunca lanca; duvida => false (fail-closed).
         $res.substantive = $false
         try {
-            # F1-FIX-01: proveniencia role OU cli_bound com vinculo de sessao
-            # (stdout sem role mas com evento text ligado a sessao do turno).
-            $subEv = Test-LaneTurnEvidence -Text ([string]$res.turn_stdout_safe) -ExpectedSessionId ([string]$SessionId)
-            if (([bool]$res.ok) -and (([bool]$subEv.role) -or ([bool]$subEv.cli_bound))) { $res.substantive = $true }
+            $subEv = Test-LaneTurnEvidence -Text ([string]$res.turn_stdout_safe)
+            if (([bool]$res.ok) -and ([bool]$subEv.role)) { $res.substantive = $true }
         } catch { $res.substantive = $false }
         # ORFS-LANE-NATIVETURN: perna REST nativa (prompt -> wait -> messages)
         # como ULTIMO recurso do turno: executa com desfecho CLI nao-ok OU
@@ -2433,7 +2295,7 @@ try {
                                  $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -Model ([string]$script:TurnModelClean) -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                  try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-18'; rc = [int]$turn18.exit; timedout = [bool]$turn18.timedout; job_assigned = [bool]$turn18.job_assigned; ok = [bool]$turn18.ok }) } catch { }
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
-                                if ([bool]$turn18.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = (([string]$turn18.turn_output_safe) + ' [turn_stdout_window=1200 truncated=' + [bool]$turn18.turn_stdout_truncated + ']') }) }
+                                if ([bool]$turn18.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn18.turn_output_safe) }) }
                                 if ($null -ne $turn18.fallbackProof) { [void]$proofs.Add($turn18.fallbackProof) }
                                 if ($null -ne $turn18.refusedProof) { [void]$proofs.Add($turn18.refusedProof) }
                                 if ($null -ne $turn18.nativeProof) { [void]$proofs.Add($turn18.nativeProof) }
@@ -2451,17 +2313,14 @@ try {
                                     # stdout de CLI recusada nunca prova resposta.
                                     $stdSrc18 = ''
                                     if (-not [bool]$turn18.native) { $stdSrc18 = [string]$turn18.turn_stdout_safe }
-                                    # F1-FIX-01: mesmos criterios + cli_bound com
-                                    # vinculo a sessao child (evento text ligado).
-                                    $stdEv18 = Test-LaneTurnEvidence -Text $stdSrc18 -ExpectedSessionId $childId
+                                    $stdEv18 = Test-LaneTurnEvidence -Text $stdSrc18
                                     $evSrc18 = ''
-                                    if (([bool]$stdEv18.role) -or ([bool]$stdEv18.cli_bound)) { $evSrc18 = 'stdout' }
+                                    if ([bool]$stdEv18.role) { $evSrc18 = 'stdout' }
                                     else {
                                         $msg18b = Invoke-Api -Method 'GET' -Path ('/api/session/' + $childId + '/message')
                                         if ([bool]$msg18b.ok) {
                                             $body18b = [string]$msg18b.body
-                                            $msgEv18b = Test-LaneTurnEvidence -Text $body18b -ExpectedSessionId $childId
-                                            if (([bool]$msgEv18b.role) -or ([bool]$msgEv18b.cli_bound)) { $evSrc18 = 'message' }
+                                            if ([bool](Test-LaneTurnEvidence -Text $body18b).role) { $evSrc18 = 'message' }
                                             elseif ([bool]$hollow18) { $modelDetail18 = ('hollow-ok (rc=0 sem marcadores no stdout, substantive=false) e GET message sem evidencia de resposta; perna segue blocked (' + (Get-LaneModelKeyLogToken) + ')') }
                                             else { $modelDetail18 = ('model-turn rc=0 mas sem mensagem de resposta observavel no stdout nem no GET message (' + (Get-LaneModelKeyLogToken) + ')') }
                                         } else {
@@ -2502,23 +2361,18 @@ try {
         }
     }
 
-    # garantir servico no ar para 19+ (F1-FIX-01: somente quando 19 sera
-    # executado; filtro sem 19 pula o gate sem falha por ele)
-    if (Test-LaneNeedsPre19Gate -Filter $ScenarioFilter) {
-        $presCheck = Wait-LaneListener -DeadlineSeconds 5 -Mode 'presence'
+    # garantir servico no ar para 19+
+    $presCheck = Wait-LaneListener -DeadlineSeconds 5 -Mode 'presence'
+    if (-not [bool]$presCheck.Seen) {
+        # F2: captura do resultado do start (trilha apenas; sem gate).
+        $pre19Start = (Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob)
+        $presCheck = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
+        try { [void](Write-LaneServiceCycleTrail -Site 'pre19-gate' -PidBefore 0 -StopResult $null -StartResult $pre19Start -Settle $null -Presence $presCheck) } catch { }
         if (-not [bool]$presCheck.Seen) {
-            # F2: ausencia ja provada pelo gate; pid_before=0 sem snapshot.
-            # (resultado capturado em variavel em vez de descartado; sem
-            # mudanca de comportamento: so alimenta a trilha advisory-only).
-            $pre19Start = (Invoke-SpikeChild -FilePath $script:Exe -ArgumentList @('service', 'start') -EnvSet $script:IsoEnv -EnvRemove $script:IsoRemove -WorkingDirectory $script:CwdT -TimeoutMs 30000 -CleanEnvironment -StdinNul -JobObject $svcJob)
-            $presCheck = Wait-LaneListener -DeadlineSeconds 30 -Mode 'presence'
-            try { [void](Write-LaneServiceCycleTrail -Site 'pre19-gate' -PidBefore 0 -StopResult $null -StartResult $pre19Start -Settle $null -Presence $presCheck) } catch { }
-            if (-not [bool]$presCheck.Seen) {
-                try { [void](Write-LaneTrailEvent -Event 'SERVICE_UNRESPONSIVE' -Fields @{ site = 'pre19-gate'; port = ([int]$script:Port) }) } catch { }
-                Fail-Lane 'servico indisponivel antes do cenario 19.'
-            }
-            Add-LaneNote 'service re-iniciado antes do cenario 19'
+            try { [void](Write-LaneTrailEvent -Event 'SERVICE_UNRESPONSIVE' -Fields @{ site = 'pre19-gate'; port = ([int]$script:Port) }) } catch { }
+            Fail-Lane 'servico indisponivel antes do cenario 19.'
         }
+        Add-LaneNote 'service re-iniciado antes do cenario 19'
     }
 
     # ==================================================================
@@ -2688,7 +2542,7 @@ try {
                                  $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -Model ([string]$script:TurnModelClean) -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                  try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-20'; rc = [int]$turn20.exit; timedout = [bool]$turn20.timedout; job_assigned = [bool]$turn20.job_assigned; ok = [bool]$turn20.ok }) } catch { }
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
-                                if ([bool]$turn20.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = (([string]$turn20.turn_output_safe) + ' [turn_stdout_window=1200 truncated=' + [bool]$turn20.turn_stdout_truncated + ']') }) }
+                                if ([bool]$turn20.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn20.turn_output_safe) }) }
                                 if (([bool]$turn20.attempted) -and (-not [bool]$turn20.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn20.output_excerpt) }) }
                                 if ($null -ne $turn20.fallbackProof) { [void]$proofs.Add($turn20.fallbackProof) }
                                 if ($null -ne $turn20.refusedProof) { [void]$proofs.Add($turn20.refusedProof) }
@@ -2843,7 +2697,7 @@ try {
                          $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history-brief-direct-answer-no-delegation' -Model ([string]$script:TurnModelClean) -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                          try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-21'; rc = [int]$turn21.exit; timedout = [bool]$turn21.timedout; job_assigned = [bool]$turn21.job_assigned; ok = [bool]$turn21.ok }) } catch { }
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
-                        if ([bool]$turn21.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = (([string]$turn21.turn_output_safe) + ' [turn_stdout_window=1200 truncated=' + [bool]$turn21.turn_stdout_truncated + ']') }) }
+                        if ([bool]$turn21.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = ([string]$turn21.turn_output_safe) }) }
                         if (([bool]$turn21.attempted) -and (-not [bool]$turn21.ok)) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-output'; ok = $true; detail = ([string]$turn21.output_excerpt) }) }
                         if ($null -ne $turn21.fallbackProof) { [void]$proofs.Add($turn21.fallbackProof) }
                         if ($null -ne $turn21.refusedProof) { [void]$proofs.Add($turn21.refusedProof) }
@@ -2860,8 +2714,8 @@ try {
                             # stdout so vale sem nativa decidindo (gate abaixo).
                             $stdSrc21 = ''
                             if (-not [bool]$turn21.native) { $stdSrc21 = [string]$turn21.turn_stdout_safe }
-                            $stdEv21 = Test-LaneTurnEvidence -Text $stdSrc21 -CanaryToken $challenge21 -StateToken $preState -ExpectedSessionId ([string]$s2.id)
-                            $stdRead21 = ((([bool]$stdEv21.role) -or ([bool]$stdEv21.cli_bound)) -and ([bool]$stdEv21.canary) -and ([bool]$stdEv21.state))
+                            $stdEv21 = Test-LaneTurnEvidence -Text $stdSrc21 -CanaryToken $challenge21 -StateToken $preState
+                            $stdRead21 = (([bool]$stdEv21.role) -and ([bool]$stdEv21.canary) -and ([bool]$stdEv21.state))
                             $msgRead21 = $false
                             if (-not $stdRead21) {
                                 # GET filtrado por type=assistant: o eco do proprio
@@ -2872,8 +2726,8 @@ try {
                                 # perna nativa.
                                 $msg21 = Invoke-Api -Method 'GET' -Path ('/api/session/' + [string]$s2.id + '/message?type=assistant')
                                 $body21 = [string]$msg21.body
-                                $msgEv21 = Test-LaneTurnEvidence -Text $body21 -CanaryToken $challenge21 -StateToken $preState -ExpectedSessionId ([string]$s2.id)
-                                $msgRead21 = (([bool]$msg21.ok) -and ((([bool]$msgEv21.role) -or ([bool]$msgEv21.cli_bound))) -and ([bool]$msgEv21.canary) -and ([bool]$msgEv21.state))
+                                $msgEv21 = Test-LaneTurnEvidence -Text $body21 -CanaryToken $challenge21 -StateToken $preState
+                                $msgRead21 = (([bool]$msg21.ok) -and ([bool]$msgEv21.role) -and ([bool]$msgEv21.canary) -and ([bool]$msgEv21.state))
                             }
                             $substituteTurnOk21 = (([bool]$stdRead21) -or ([bool]$msgRead21))
                             $evSrc21 = 'nenhuma'
