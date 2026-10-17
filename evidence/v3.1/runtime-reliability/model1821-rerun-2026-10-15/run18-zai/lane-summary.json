@@ -1,0 +1,175 @@
+{
+    "lane":  "session-real-lane-v2",
+    "purpose":  "V3.1 closure: RR-E2E-16..22 runtime-real + V2-native capability probes",
+    "date":  "2026-10-15",
+    "started_at":  "2026-10-15T23:54:54.4683923Z",
+    "finished_at":  "2026-10-15T23:55:14.6619140Z",
+    "status":  "ok",
+    "reason":  "",
+    "runtime_pin":  "2.0.23",
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "service_port":  60169,
+    "scenarios":  [
+                      {
+                          "scenario_id":  "RR-E2E-18",
+                          "status":  "pass-real",
+                          "detail":  "child real reconciliado apos restart real, incluindo perna completed",
+                          "proofs":  [
+                                         {
+                                             "proof":  "child-created-real",
+                                             "ok":  true,
+                                             "detail":  "child=ses_ebe026540ffejNfjww3Yp5Fveq parent=ses_ebe026fffffenI1s8cRX4VYdHx"
+                                         },
+                                         {
+                                             "proof":  "child-provenance-native",
+                                             "ok":  true,
+                                             "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_ebe026fffffenI1s8cRX4VYdHx"
+                                         },
+                                         {
+                                             "proof":  "child-bound-to-task",
+                                             "ok":  true,
+                                             "detail":  "run=lane18-child-run parent_provenance=ses_ebe026fffffenI1s8cRX4VYdHx exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
+                                         },
+                                         {
+                                             "proof":  "restart-real",
+                                             "ok":  true,
+                                             "detail":  "stop+settlement+start+listener"
+                                         },
+                                         {
+                                             "proof":  "child-observed-after-restart",
+                                             "ok":  true,
+                                             "detail":  "child=ses_ebe026540ffejNfjww3Yp5Fveq observado=running"
+                                         },
+                                         {
+                                             "proof":  "reconciler-child-action-correct",
+                                             "ok":  true,
+                                             "detail":  "observado=running"
+                                         },
+                                         {
+                                             "proof":  "task-intact-after-restart",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         },
+                                         {
+                                             "proof":  "synthetic-endpoint-attempt",
+                                             "ok":  true,
+                                             "detail":  "POST /synthetic rc=1 (observacao; status nao convertido em saude)"
+                                         },
+                                         {
+                                             "proof":  "credstore-import",
+                                             "ok":  true,
+                                             "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                                         },
+                                         {
+                                             "proof":  "model-turn-attempt",
+                                             "ok":  true,
+                                             "detail":  "opencode run --session child --model (model-key-env=ZAI_API_KEY) rc=0 timedout=False job=True"
+                                         },
+                                         {
+                                             "proof":  "model-turn-stdout",
+                                             "ok":  true,
+                                             "detail":  "{\"type\":\"step_start\",\"timestamp\":1792108511181,\"sessionID\":\"ses_ebe026540ffejNfjww3Yp5Fveq\",\"part\":{\"id\":\"prt_141fdbfcd001njkKiV1DecMmiX\",\"sessionID\":\"ses_ebe026540ffejNfjww3Yp5Fveq\",\"messageID\":\"msg_141fdb804001O5EyN63q86ZLQq\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792108512509,\"sessionID\":\"ses_ebe026540ffejNfjww3Yp5Fveq\",\"part\":{\"id\":\"prt_141fdc4ba001ibAN9PR2Q2ZIpl\",\"sessionID\":\"ses_ebe026540ffejNfjww3Yp5Fveq\",\"messageID\":\"msg_141fdb804001O5EyN63q86ZLQq\",\"type\":\"text\",\"text\":\"Probe acknowledged ÔÇö lane18 child alive.\",\"time\":{\"start\":1792108512442,\"end\":1792108512509}}}\n\n [turn_stdout_window=1200 truncated=False]"
+                                         },
+                                         {
+                                             "proof":  "completed-leg-recovered",
+                                             "ok":  true,
+                                             "detail":  "acao=recover-output via model-turn opt-in (model-key-env=ZAI_API_KEY); completion observada via stdout"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "exercitado: child real (parentID) + restart real + reconciliacao com observacao real",
+                                           "perna completed-session: so observavel com turn de modelo; plano Â§10 (persistence) lista como perna distinta de \"running child reattached\" (exercitada aqui em runtime real)"
+                                       ],
+                          "at":  "2026-10-15T23:55:12.8197950Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  1,
+                            "fail":  0,
+                            "blocked":  0
+                        },
+    "capability_probes":  [
+
+                          ],
+    "probes_skipped":  true,
+    "model_key_env":  "model-key-env=ZAI_API_KEY",
+    "checks":  [
+                   {
+                       "check":  "version_exact",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.23"
+                   },
+                   {
+                       "check":  "config_19_workers_built",
+                       "ok":  true,
+                       "detail":  "opencode.json da lane com 19 workers + overlay deny shell marker (probe narrowing)"
+                   },
+                   {
+                       "check":  "isolation_paths",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "check":  "port_preflight_free",
+                       "ok":  true,
+                       "detail":  "porta 60169 =\u003e PORT_FREE should_start=true"
+                   },
+                   {
+                       "check":  "service_port_configured",
+                       "ok":  true,
+                       "detail":  "service set port =\u003e 60169"
+                   },
+                   {
+                       "check":  "job_object_created_before_start",
+                       "ok":  true,
+                       "detail":  "limit_flags=0x2000"
+                   },
+                   {
+                       "check":  "service_start_explicit_job_assigned",
+                       "ok":  true,
+                       "detail":  "service start rc=0; job_assigned=true; nota=atribuido ao job (pid 4856)"
+                   },
+                   {
+                       "check":  "service_listener_observed",
+                       "ok":  true,
+                       "detail":  "listener porta 60169 observado (fato P22)"
+                   },
+                   {
+                       "check":  "rest_auth_from_service_json",
+                       "ok":  true,
+                       "detail":  "password lida de service.json do perfil isolado (valor nunca logado)"
+                   },
+                   {
+                       "check":  "openapi_real_parsed",
+                       "ok":  true,
+                       "detail":  "spec real carregada (paths disponiveis)"
+                   },
+                   {
+                       "check":  "service_stop_owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "check":  "service_settlement",
+                       "ok":  true,
+                       "detail":  "ausencia conclusiva do listener apos stop owned"
+                   },
+                   {
+                       "check":  "job_object_closed",
+                       "ok":  true,
+                       "detail":  "reason=handle fechado (KILL_ON_JOB_CLOSE: membros remanescentes encerrados pelo SO)"
+                   },
+                   {
+                       "check":  "port49374_untouched",
+                       "ok":  true,
+                       "detail":  "antes=FREE depois=FREE"
+                   }
+               ],
+    "notes":  [
+                  "model-key opt-in ativo (model-key-env=ZAI_API_KEY); passthrough pontual SOMENTE aos filhos opencode run das pernas 18/20/21"
+              ],
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane",
+    "port49374_owner_before":  "FREE",
+    "port49374_owner_after":  "FREE"
+}

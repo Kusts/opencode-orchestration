@@ -1,0 +1,160 @@
+{
+    "lane":  "session-real-lane-v2",
+    "purpose":  "V3.1 closure: RR-E2E-16..22 runtime-real + V2-native capability probes",
+    "date":  "2026-10-15",
+    "started_at":  "2026-10-15T23:41:25.6676804Z",
+    "finished_at":  "2026-10-15T23:41:40.6824110Z",
+    "status":  "ok-with-blocked",
+    "reason":  "cenarios blocked (motivos nos rows)",
+    "runtime_pin":  "2.0.23",
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "service_port":  64889,
+    "scenarios":  [
+                      {
+                          "scenario_id":  "RR-E2E-18",
+                          "status":  "blocked",
+                          "detail":  "perna running runtime-real; perna completed bloqueada sem modelo (provas parciais gravadas; plano lista as duas pernas como testes distintos)",
+                          "proofs":  [
+                                         {
+                                             "proof":  "child-created-real",
+                                             "ok":  true,
+                                             "detail":  "child=ses_ebe0ebd09ffewrXM4YlV3Jx07p parent=ses_ebe0ec7ebffe2QdYPWx5WycXQh"
+                                         },
+                                         {
+                                             "proof":  "child-provenance-native",
+                                             "ok":  true,
+                                             "detail":  "create-com-parentID-aceito; parentID_no_get_response=ses_ebe0ec7ebffe2QdYPWx5WycXQh"
+                                         },
+                                         {
+                                             "proof":  "child-bound-to-task",
+                                             "ok":  true,
+                                             "detail":  "run=lane18-child-run parent_provenance=ses_ebe0ec7ebffe2QdYPWx5WycXQh exit=0 err= out={      \"ok\":  true,      \"task_id\":  \"lane18\",      \"run_id\":  \"lane18-child-run\",      \"revision\":  3,      \"bindings\":  {                       \"runs\":  [                                    {                     "
+                                         },
+                                         {
+                                             "proof":  "restart-real",
+                                             "ok":  true,
+                                             "detail":  "stop+settlement+start+listener"
+                                         },
+                                         {
+                                             "proof":  "child-observed-after-restart",
+                                             "ok":  true,
+                                             "detail":  "child=ses_ebe0ebd09ffewrXM4YlV3Jx07p observado=running"
+                                         },
+                                         {
+                                             "proof":  "reconciler-child-action-correct",
+                                             "ok":  true,
+                                             "detail":  "observado=running"
+                                         },
+                                         {
+                                             "proof":  "task-intact-after-restart",
+                                             "ok":  true,
+                                             "detail":  "state=PLANNING"
+                                         },
+                                         {
+                                             "proof":  "synthetic-endpoint-attempt",
+                                             "ok":  true,
+                                             "detail":  "POST /synthetic rc=1 (observacao; status nao convertido em saude)"
+                                         },
+                                         {
+                                             "proof":  "completed-leg-recovered",
+                                             "ok":  false,
+                                             "detail":  "BLOCKED sem modelo (model-key-env=OPENCODE_GO_API_KEY): sem mensagens de resposta (sem modelo, o runtime nao produz turn completo)"
+                                         }
+                                     ],
+                          "coverage":  [
+                                           "exercitado: child real (parentID) + restart real + reconciliacao com observacao real",
+                                           "perna completed-session: so observavel com turn de modelo; plano Â§10 (persistence) lista como perna distinta de \"running child reattached\" (exercitada aqui em runtime real)"
+                                       ],
+                          "at":  "2026-10-15T23:41:38.8820869Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  0,
+                            "fail":  0,
+                            "blocked":  1
+                        },
+    "capability_probes":  [
+
+                          ],
+    "probes_skipped":  true,
+    "model_key_env":  "model-key-env=OPENCODE_GO_API_KEY",
+    "checks":  [
+                   {
+                       "check":  "version_exact",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.23"
+                   },
+                   {
+                       "check":  "config_19_workers_built",
+                       "ok":  true,
+                       "detail":  "opencode.json da lane com 19 workers + overlay deny shell marker (probe narrowing)"
+                   },
+                   {
+                       "check":  "isolation_paths",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "check":  "port_preflight_free",
+                       "ok":  true,
+                       "detail":  "porta 64889 =\u003e PORT_FREE should_start=true"
+                   },
+                   {
+                       "check":  "service_port_configured",
+                       "ok":  true,
+                       "detail":  "service set port =\u003e 64889"
+                   },
+                   {
+                       "check":  "job_object_created_before_start",
+                       "ok":  true,
+                       "detail":  "limit_flags=0x2000"
+                   },
+                   {
+                       "check":  "service_start_explicit_job_assigned",
+                       "ok":  true,
+                       "detail":  "service start rc=0; job_assigned=true; nota=atribuido ao job (pid 17856)"
+                   },
+                   {
+                       "check":  "service_listener_observed",
+                       "ok":  true,
+                       "detail":  "listener porta 64889 observado (fato P22)"
+                   },
+                   {
+                       "check":  "rest_auth_from_service_json",
+                       "ok":  true,
+                       "detail":  "password lida de service.json do perfil isolado (valor nunca logado)"
+                   },
+                   {
+                       "check":  "openapi_real_parsed",
+                       "ok":  true,
+                       "detail":  "spec real carregada (paths disponiveis)"
+                   },
+                   {
+                       "check":  "service_stop_owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "check":  "service_settlement",
+                       "ok":  true,
+                       "detail":  "ausencia conclusiva do listener apos stop owned"
+                   },
+                   {
+                       "check":  "job_object_closed",
+                       "ok":  true,
+                       "detail":  "reason=handle fechado (KILL_ON_JOB_CLOSE: membros remanescentes encerrados pelo SO)"
+                   },
+                   {
+                       "check":  "port49374_untouched",
+                       "ok":  true,
+                       "detail":  "antes=FREE depois=FREE"
+                   }
+               ],
+    "notes":  [
+                  "model-key opt-in ativo (model-key-env=OPENCODE_GO_API_KEY); passthrough pontual SOMENTE aos filhos opencode run das pernas 18/20/21"
+              ],
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane",
+    "port49374_owner_before":  "FREE",
+    "port49374_owner_after":  "FREE"
+}

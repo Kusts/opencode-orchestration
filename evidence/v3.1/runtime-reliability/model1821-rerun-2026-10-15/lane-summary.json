@@ -1,0 +1,104 @@
+{
+    "lane":  "session-real-lane-v2",
+    "purpose":  "V3.1 closure: RR-E2E-16..22 runtime-real + V2-native capability probes",
+    "date":  "2026-10-15",
+    "started_at":  "2026-10-15T23:40:50.7662053Z",
+    "finished_at":  "2026-10-15T23:40:57.4290219Z",
+    "status":  "ok",
+    "reason":  "",
+    "runtime_pin":  "2.0.23",
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "service_port":  64876,
+    "scenarios":  [
+
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  0,
+                            "fail":  0,
+                            "blocked":  0
+                        },
+    "capability_probes":  [
+
+                          ],
+    "probes_skipped":  true,
+    "model_key_env":  "model-key-env=OPENCODE_GO_API_KEY",
+    "checks":  [
+                   {
+                       "check":  "version_exact",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e --version (-CleanEnvironment); Test-SpikeExactVersion 2.0.23"
+                   },
+                   {
+                       "check":  "config_19_workers_built",
+                       "ok":  true,
+                       "detail":  "opencode.json da lane com 19 workers + overlay deny shell marker (probe narrowing)"
+                   },
+                   {
+                       "check":  "isolation_paths",
+                       "ok":  true,
+                       "detail":  "cmd: \u003cbin\u003e debug paths (isolado); config resolve no TargetHome"
+                   },
+                   {
+                       "check":  "port_preflight_free",
+                       "ok":  true,
+                       "detail":  "porta 64876 =\u003e PORT_FREE should_start=true"
+                   },
+                   {
+                       "check":  "service_port_configured",
+                       "ok":  true,
+                       "detail":  "service set port =\u003e 64876"
+                   },
+                   {
+                       "check":  "job_object_created_before_start",
+                       "ok":  true,
+                       "detail":  "limit_flags=0x2000"
+                   },
+                   {
+                       "check":  "service_start_explicit_job_assigned",
+                       "ok":  true,
+                       "detail":  "service start rc=0; job_assigned=true; nota=atribuido ao job (pid 15440)"
+                   },
+                   {
+                       "check":  "service_listener_observed",
+                       "ok":  true,
+                       "detail":  "listener porta 64876 observado (fato P22)"
+                   },
+                   {
+                       "check":  "rest_auth_from_service_json",
+                       "ok":  true,
+                       "detail":  "password lida de service.json do perfil isolado (valor nunca logado)"
+                   },
+                   {
+                       "check":  "openapi_real_parsed",
+                       "ok":  true,
+                       "detail":  "spec real carregada (paths disponiveis)"
+                   },
+                   {
+                       "check":  "service_stop_owned",
+                       "ok":  true,
+                       "detail":  "rc=0"
+                   },
+                   {
+                       "check":  "service_settlement",
+                       "ok":  true,
+                       "detail":  "ausencia conclusiva do listener apos stop owned"
+                   },
+                   {
+                       "check":  "job_object_closed",
+                       "ok":  true,
+                       "detail":  "reason=handle fechado (KILL_ON_JOB_CLOSE: membros remanescentes encerrados pelo SO)"
+                   },
+                   {
+                       "check":  "port49374_untouched",
+                       "ok":  true,
+                       "detail":  "antes=FREE depois=FREE"
+                   }
+               ],
+    "notes":  [
+                  "model-key opt-in ativo (model-key-env=OPENCODE_GO_API_KEY); passthrough pontual SOMENTE aos filhos opencode run das pernas 18/20/21"
+              ],
+    "isolation":  "XDG_CONFIG/DATA/STATE/CACHE + HOME/USERPROFILE no TargetHome exclusivo; -CleanEnvironment nos filhos; cwd no TargetHome; stdin fechado; password do service.json nunca logado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado antes do service start; contem somente o processo desta lane",
+    "port49374_owner_before":  "FREE",
+    "port49374_owner_after":  "FREE"
+}
