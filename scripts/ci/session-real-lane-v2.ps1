@@ -84,7 +84,8 @@ param(
     [switch]$InstallV1IfMissing,
     [string]$V1NpmSpec = '',
     [int]$KernelTimeoutMs = 90000,
-    [string]$ModelKeyEnvName = ''
+    [string]$ModelKeyEnvName = '',
+    [string]$TurnModel = 'opencode-go/muse-spark-1.3-contributor'
 )
 $ErrorActionPreference = 'Stop'
 
@@ -97,6 +98,15 @@ try {
     if (($candKeyName.Length -gt 0) -and ($candKeyName.Length -le 64) -and ($candKeyName -cmatch '^[A-Za-z_][A-Za-z0-9_]*$')) { $script:ModelKeyEnvNameClean = $candKeyName }
     $candKeyName = ''
 } catch { $script:ModelKeyEnvNameClean = '' }
+
+# ---------- modelo dos turns (operator-owned; default = baseline validado) ----------
+# -TurnModel vazio/invalido => default (fail-closed para o baseline).
+$script:TurnModelClean = 'opencode-go/muse-spark-1.3-contributor'
+try {
+    $candModel = ([string]$TurnModel).Trim()
+    if (($candModel.Length -gt 0) -and ($candModel.Length -le 128) -and ($candModel -cmatch '^[A-Za-z0-9][A-Za-z0-9_./-]*$')) { $script:TurnModelClean = $candModel }
+    $candModel = ''
+} catch { $script:TurnModelClean = 'opencode-go/muse-spark-1.3-contributor' }
 
 # ---------- bootstrap ----------
 function Get-LaneRepoRoot {
@@ -2420,7 +2430,7 @@ try {
                                 try { $credImport18 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy18) } catch { $credImport18 = $false }
                                 [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport18 + ' motivo=' + [string]$credWhy18 + '; sem import a perna model segue blocked'))
                                  try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_STARTED' -Fields @{ site = 'RR-E2E-18'; timeout_ms = 180000 }) } catch { }
-                                 $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                                 $turn18 = Invoke-LaneModelTurn -SessionId $childId -Prompt 'RECOVERY-lane18-child-completion-probe-respond-briefly' -Model ([string]$script:TurnModelClean) -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                  try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-18'; rc = [int]$turn18.exit; timedout = [bool]$turn18.timedout; job_assigned = [bool]$turn18.job_assigned; ok = [bool]$turn18.ok }) } catch { }
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn18.attempted) ('opencode run --session child --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn18.exit + ' timedout=' + [bool]$turn18.timedout + ' job=' + [bool]$turn18.job_assigned))
                                 if ([bool]$turn18.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = (([string]$turn18.turn_output_safe) + ' [turn_stdout_window=1200 truncated=' + [bool]$turn18.turn_stdout_truncated + ']') }) }
@@ -2675,7 +2685,7 @@ try {
                                 try { $credImport20 = Import-LaneSessionCredentialStore -TargetRoot $TargetHome -ReasonOut ([ref]$credWhy20) } catch { $credImport20 = $false }
                                 [void](Add-ScenarioProof $proofs 'credstore-import' $true ('store do usuario -> perfil isolado (auth/account/kv/model/service): importado=' + [bool]$credImport20 + ' motivo=' + [string]$credWhy20 + '; sem import a perna model segue blocked'))
                                  try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_STARTED' -Fields @{ site = 'RR-E2E-20'; timeout_ms = 180000 }) } catch { }
-                                 $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                                 $turn20 = Invoke-LaneModelTurn -SessionId ([string]$srepl.id) -Prompt ('RECOVERY-' + $canary20 + '-resume-via-envelope-lane20-envelope-json') -Model ([string]$script:TurnModelClean) -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                                  try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-20'; rc = [int]$turn20.exit; timedout = [bool]$turn20.timedout; job_assigned = [bool]$turn20.job_assigned; ok = [bool]$turn20.ok }) } catch { }
                                 [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn20.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn20.exit + ' timedout=' + [bool]$turn20.timedout + ' job=' + [bool]$turn20.job_assigned))
                                 if ([bool]$turn20.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = (([string]$turn20.turn_output_safe) + ' [turn_stdout_window=1200 truncated=' + [bool]$turn20.turn_stdout_truncated + ']') }) }
@@ -2830,7 +2840,7 @@ try {
                         # instrucao de reportar objective/state/history (sem
                         # desafio, sem estado; curto e sem shell-meta).
                          try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_STARTED' -Fields @{ site = 'RR-E2E-21'; timeout_ms = 180000 }) } catch { }
-                         $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history-brief-direct-answer-no-delegation' -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
+                         $turn21 = Invoke-LaneModelTurn -SessionId ([string]$s2.id) -Prompt 'RECOVERY-read-file-../kernel-tasks/lane21.json-report-objective-state-history-brief-direct-answer-no-delegation' -Model ([string]$script:TurnModelClean) -TimeoutMs 180000 -NativeRequestFn (New-LaneNativeApiRequestFn)
                          try { [void](Write-LaneTrailEvent -Event 'MODEL_TURN_FINISHED' -Fields @{ site = 'RR-E2E-21'; rc = [int]$turn21.exit; timedout = [bool]$turn21.timedout; job_assigned = [bool]$turn21.job_assigned; ok = [bool]$turn21.ok }) } catch { }
                         [void](Add-ScenarioProof $proofs 'model-turn-attempt' ([bool]$turn21.attempted) ('opencode run --session substituta --model (' + (Get-LaneModelKeyLogToken) + ') rc=' + [int]$turn21.exit + ' timedout=' + [bool]$turn21.timedout + ' job=' + [bool]$turn21.job_assigned))
                         if ([bool]$turn21.attempted) { [void]$proofs.Add([ordered]@{ proof = 'model-turn-stdout'; ok = $true; detail = (([string]$turn21.turn_output_safe) + ' [turn_stdout_window=1200 truncated=' + [bool]$turn21.turn_stdout_truncated + ']') }) }
