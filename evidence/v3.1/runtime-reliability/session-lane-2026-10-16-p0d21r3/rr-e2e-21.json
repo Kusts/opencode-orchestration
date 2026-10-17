@@ -1,0 +1,71 @@
+{
+    "scenario_id":  "RR-E2E-21",
+    "status":  "blocked",
+    "detail":  "parcial provado: substituicao de sessao real (detach+rebind) + estado/historico preservados e re-lidos kernel-side; releitura pelo proprio substituto (turn) exige provider de modelo via -ModelKeyEnvName - required_activation integral nao exercitado sem o opt-in",
+    "proofs":  [
+                   {
+                       "proof":  "task-has-worker-result",
+                       "ok":  true,
+                       "detail":  "candidate_pass=True exit=0"
+                   },
+                   {
+                       "proof":  "session-replacement-real",
+                       "ok":  true,
+                       "detail":  "old=ses_eb9b631aeffeoa54yu9a2m3dT6 new=ses_eb9b612e9ffeYT5mTaV3U0cQO1"
+                   },
+                   {
+                       "proof":  "state-preserved",
+                       "ok":  true,
+                       "detail":  "state=PLANNING-\u003ePLANNING"
+                   },
+                   {
+                       "proof":  "history-preserved",
+                       "ok":  true,
+                       "detail":  "worker_result_preservado=True attempts=1"
+                   },
+                   {
+                       "proof":  "no-false-terminal",
+                       "ok":  true,
+                       "detail":  "state=PLANNING"
+                   },
+                   {
+                       "proof":  "credstore-import",
+                       "ok":  true,
+                       "detail":  "store do usuario -\u003e perfil isolado (auth/account/kv/model/service): importado=True motivo=; sem import a perna model segue blocked"
+                   },
+                   {
+                       "proof":  "model-turn-attempt",
+                       "ok":  true,
+                       "detail":  "opencode run --session substituta --model (model-key-env=OPENCODE_GO_API_KEY) rc=-1 timedout=True job=True"
+                   },
+                   {
+                       "proof":  "model-turn-stdout",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792180621426,\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"part\":{\"id\":\"prt_1464a10720017CJGHAWojAitaf\",\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"messageID\":\"msg_1464a0785001n9Qkqus01eKZLK\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792180622848,\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"part\":{\"id\":\"prt_1464a15fc0014TO1b2Hr9trOyz\",\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"messageID\":\"msg_1464a0785001n9Qkqus01eKZLK\",\"type\":\"text\",\"text\":\"Direct file read requested ÔÇö no delegation, reporting objective/state/history briefly.\",\"time\":{\"start\":1792180622844,\"end\":1792180622848}}}\n\n [turn_stdout_window=1200 truncated=False]"
+                   },
+                   {
+                       "proof":  "model-turn-output",
+                       "ok":  true,
+                       "detail":  "{\"type\":\"step_start\",\"timestamp\":1792180621426,\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"part\":{\"id\":\"prt_1464a10720017CJGHAWojAitaf\",\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"messageID\":\"msg_1464a0785001n9Qkqus01eKZLK\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1792180622848,\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"part\":{\"id\":\"prt_1464a15fc0014TO1b2Hr9trOyz\",\"sessionID\":\"ses_eb9b612e9ffeYT5mTaV3U0cQO1\",\"messageID\":\"msg_1464a0785001n9Qkqus01eKZLK\",\"type\":\"text\",\"text\":\"Direct file read requested ÔÇö no delegation, reporting objective/state/history briefly.\",\"time\":{\"start\":1792180622844,\"end\":1792180622848}}}\n\n"
+                   },
+                   {
+                       "proof":  "model-native-failed",
+                       "ok":  true,
+                       "detail":  "messages-before-invalid"
+                   },
+                   {
+                       "proof":  "model-native-trigger",
+                       "ok":  true,
+                       "detail":  "gatilho=native-after-fail (turn CLI nao-ok; nativa como ultimo recurso)"
+                   },
+                   {
+                       "proof":  "substitute-reread-turn",
+                       "ok":  false,
+                       "detail":  "model-turn falhou: rc=-1 timedout=True job=True"
+                   }
+               ],
+    "coverage":  [
+                     "substituicao real: estado re-lido do disco pela lane (kernel-side) preservado (state/objective/history) sem mutacao indevida; a releitura PELO substituto (turn do Planner) usa o opt-in -ModelKeyEnvName quando disponivel"
+                 ],
+    "at":  "2026-10-16T20:01:59.5052486Z"
+}
