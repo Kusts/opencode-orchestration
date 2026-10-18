@@ -124,6 +124,35 @@ issue #25, green-run de distribuição no CI.
 
 ## [Unreleased]
 
+### Refinamento funcional P0 — mergeados #108/#109/#110 (2026-10-17/18, não lançado)
+
+- **PR #108 mergeado (`19de04a`, P0-02):** `.gitignore` += `.env`, `.env.*`,
+  `!.env.example` (commit `ac20738`, só `.gitignore` +3). Fecha o risco de
+  commit acidental do `.env` untracked apontado na auditoria da Etapa A.
+- **PR #109 mergeado (`fb8d066`, P0-05):** caller `OrchestrationGitHubResume`
+  (`scripts/v3/lib/OrchestrationGitHubResume.ps1`, commit `dcf7768`, +949) +
+  suite (`OrchestrationGitHubResume.tests.ps1`, +324, 107/107 PASS via runner;
+  reviewer APPROVED após 3 correções + 1 HIGH residual de baseline). Contrato
+  durável de resume (objective/task/run/generation, repo/pr/branch/head_sha,
+  checks/review, cursor, deadline/budget/lease/owner, wait-state), fail-closed,
+  sem daemon/rede/segredo; `READY_FOR_RESUME` é só observação — a retomada
+  exige revalidação de SHA/checks/lease pelo Planner.
+- **PR #110 mergeado (`3321967`, P0-06):** negativos de lifecycle, só-testes
+  (commit `01fb810`, +111 em 2 arquivos). Caso 7 (bloco F8 em
+  `OrchestrationNativeDispatch.tests.ps1`): settle-pós-cancel → task terminal,
+  0 calls, recibo byte-idêntico, goal CANCELLED bloqueia (tester PASS 202/202
+  + reviewer APPROVED). Caso 2 (bloco [R2c] em
+  `OrchestrationNativeDispatchReceipts.tests.ps1`): releitura settled como
+  `idempotent-duplicate`, linhagem armazenada, 0 calls (tester PASS 208/208
+  + reviewer APPROVED).
+- **Pendentes (abertos, sem promessa de merge):** #117 (P1-06 S1–S4), #118
+  (S5 STEER/CLOSE), #119 (docs P1-08 — este lote, em revisão).
+- **Limites honestos:** #109/#110 validados em harness; prova runtime-real
+  (kill real de processo, perda real de sessão, PR vivo) fica para lane futura
+  com provider/modelo. P0-03 segue `BLOCKED_UPSTREAM` (turno do substituto
+  trava downstream da auth em todos os modelos testados; braço 6 refutou
+  falta de chave).
+
 ### Operational refinement — fatias locais F2/F5/F6 (2026-10-14, não lançadas)
 
 - **Ownership PS7/pt-BR:** `Test-OwnershipLeaseActive` preserva datas tipadas do
