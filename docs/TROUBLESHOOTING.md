@@ -74,6 +74,19 @@ powershell -NoProfile -File scripts\v3\github-await.ps1 -Action observe `
   Rede real só opt-in (`ORFS_LIVE_GITHUB=1`, sonda PR 88 readonly);
   o padrão é offline.
 
+## Esperas registradas (resume) e STEER/CLOSE do watchdog
+
+Fluxo fechado, sem daemon: `Register → observe → Test → Confirm`
+(registra a espera como documento durável, observa o snapshot via
+`github-await observe`, testa a prontidão single-shot, confirma a
+aplicação — observação vira decisão, decisão nunca vira autorização).
+Liquidação de watchdog via `watchdog-settle -WatchdogDisposition
+RETRY|CLOSE` (`RETRY` = repetível via `ATTEMPT_GATE`; `CLOSE` =
+terminal-sem-retry, `WATCHDOG_CLOSED_NO_RETRY`). O contrato completo vive
+em `docs/ARCHITECTURE.md` (caller de resume P0-05 e S5 STEER/CLOSE) — sem
+duplicação aqui. Aviso: **S5 fora do `master` até merge — ver
+ARCHITECTURE.md**.
+
 ## Programa Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; flags de rollout ativas desde 2026-10-04; release gate pendente do operador)
 
 Estado vivo em
@@ -329,6 +342,7 @@ Após atualizar o runtime **dentro da linha**, revalide com as suítes:
 ```powershell
 powershell -NoProfile -File scripts\test-package-consistency.ps1
 powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+powershell -NoProfile -File tests\distribution\run-distribution-tests.ps1
 ```
 
 Tudo verde → compatível. Falha em suite → abra o log da suite indicada
@@ -369,8 +383,10 @@ de agents, plugin dual, perfis) não dependem desse invariante.
 ## Conflito com config custom
 
 O merge é ownership-aware: o pacote só escreve caminhos do sistema
-(`$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*.mode/
-model/permission.task`). Nunca tocados: `mcp.*`, `autoupdate`,
+(V1: `$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*.mode/
+model/permission.task`; equivalentes V2: `$schema`, `model`,
+`default_agent`, `experimental.subagent_depth`, `agents.*` com regras
+`permissions`). Nunca tocados: `mcp.*`, `autoupdate`,
 `skills.paths`, `plugin`, agents custom, chaves de topo desconhecidas e
 tudo fora dos markers do `AGENTS.md`.
 
