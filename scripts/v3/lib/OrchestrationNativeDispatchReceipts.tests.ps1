@@ -536,6 +536,47 @@ try {
         $rBack = Invoke-OrchestrationNativeDispatch -Intent $pauseIntent.intent -Executor $backSpy.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-RX ((([bool]$rBack.duplicate) -and ([int]$backSpy.state.calls -eq 0) -and ([string]$rBack.reason -ceq 'idempotent-duplicate'))) '[R2a] ACTIVE same owner still reads the duplicate' ([string]$rBack.reason)
 
+        # ---------- R2c: planner perde a sessao; nova sessao rele sem reexecutar ----------
+        # Caso 2 (ramo S21, recibo settled persistido): owner A assentou ate
+        # settled; uma "nova sessao do planner" com a MESMA autorizacao
+        # (objeto reconstruido, sem estado em memoria) rele via
+        # Invoke-OrchestrationNativeDispatch e recebe idempotent-duplicate
+        # com a linhagem ARMAZENADA, 0 executor calls, sem reescrita no
+        # kernel, sem nova evidencia e sem reexecucao de efeito.
+        New-RXKernelTask -Id 'rx-task-plannersess'
+        $sessKey = Get-NativeDispatchHash32 'rx-plannersess-1'
+        $sessIntent = New-RXIntent -Task 'rx-task-plannersess' -Key $sessKey
+        $sessEvBefore = @((Get-ChildItem -LiteralPath $evDir -Filter '*.json' -File -ErrorAction SilentlyContinue)).Count
+        $sessSpy1 = New-RXSpy -Token 'candidate_pass'
+        $rSess1 = Invoke-OrchestrationNativeDispatch -Intent $sessIntent.intent -Executor $sessSpy1.spy -Authorization $authOk -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-RX (([bool]$rSess1.ok) -and (-not [bool]$rSess1.duplicate)) '[R2c] owner A settles the first dispatch' ([string]$rSess1.reason)
+        Assert-RX ((([int]$rSess1.executor_calls -eq 1) -and ([int]$sessSpy1.state.calls -eq 1))) '[R2c] first dispatch ran the Executor exactly once' ('calls=' + [string]$sessSpy1.state.calls)
+        $sessPath = (New-RXReceiptPath -GoalId 'rx-goal-1' -Key $sessKey)
+        Assert-RX ((Test-Path -LiteralPath $sessPath -PathType Leaf)) '[R2c] settled receipt persisted' ''
+        $sessBytesSettled = [IO.File]::ReadAllBytes($sessPath)
+        $sessStored = ConvertFrom-Json ([IO.File]::ReadAllText($sessPath, [Text.Encoding]::UTF8))
+        Assert-RX (([string]$sessStored.phase -ceq 'settled')) '[R2c] receipt is settled after the first dispatch' ([string]$sessStored.phase)
+        $sessEvAfterFirst = @((Get-ChildItem -LiteralPath $evDir -Filter '*.json' -File -ErrorAction SilentlyContinue)).Count
+        Assert-RX (($sessEvAfterFirst -eq ($sessEvBefore + 1))) '[R2c] first dispatch created exactly one evidence row' ('before=' + [string]$sessEvBefore + ' after=' + [string]$sessEvAfterFirst)
+        $sessRevAfterFirst = [long](Get-OrchestrationTask -TaskId 'rx-task-plannersess' -TasksDir $tasksDir).revision
+        # nova sessao: autorizacao e intent reconstruidos do zero, mesmos valores.
+        $sessAuth2 = @{ explicit_allow = $true; goal_id = 'rx-goal-1'; owner = 'planner-1'; generation = $gen; source = 'planner' }
+        $sessIntent2 = New-RXIntent -Task 'rx-task-plannersess' -Key $sessKey
+        $sessSpy2 = New-RXSpy -Token 'candidate_pass'
+        $rSess2 = Invoke-OrchestrationNativeDispatch -Intent $sessIntent2.intent -Executor $sessSpy2.spy -Authorization $sessAuth2 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-RX ((([bool]$rSess2.duplicate) -and ([string]$rSess2.reason -ceq 'idempotent-duplicate') -and ([bool]$rSess2.ok))) '[R2c] new planner session rereads settled as idempotent-duplicate' ([string]$rSess2.reason)
+        Assert-RX ((([int]$rSess2.executor_calls -eq 0) -and ([int]$sessSpy2.state.calls -eq 0))) '[R2c] reread runs zero Executor calls (no reexecution)' ('calls=' + [string]$sessSpy2.state.calls)
+        Assert-RX ((($null -ne $rSess2.worker_result) -and ([string]$rSess2.worker_result.status -ceq 'candidate_pass'))) '[R2c] reread returns the STORED worker lineage' ''
+        Assert-RX (((-not [string]::IsNullOrWhiteSpace([string]$rSess2.evidence_id)) -and ([string]$rSess2.evidence_id -ceq [string]$rSess1.evidence_id))) '[R2c] reread returns the STORED evidence id' ('first=' + [string]$rSess1.evidence_id + ' second=' + [string]$rSess2.evidence_id)
+        Assert-RX (([bool]$rSess2.kernel_ok) -and ([string]$rSess2.evidence_id -cmatch '^[a-f0-9]{32}$')) '[R2c] reread carries the stored kernel/evidence lineage' ''
+        $sessRevAfterSecond = [long](Get-OrchestrationTask -TaskId 'rx-task-plannersess' -TasksDir $tasksDir).revision
+        Assert-RX (($sessRevAfterSecond -eq $sessRevAfterFirst)) '[R2c] reread never rewrites the kernel' ('before=' + [string]$sessRevAfterFirst + ' after=' + [string]$sessRevAfterSecond)
+        $sessEvAfterSecond = @((Get-ChildItem -LiteralPath $evDir -Filter '*.json' -File -ErrorAction SilentlyContinue)).Count
+        Assert-RX (($sessEvAfterSecond -eq $sessEvAfterFirst)) '[R2c] reread creates no new evidence' ('before=' + [string]$sessEvAfterFirst + ' after=' + [string]$sessEvAfterSecond)
+        Test-RXPreserved -Path $sessPath -Before $sessBytesSettled -Name '[R2c] reread keeps the settled receipt byte for byte'
+        $sessStored2 = ConvertFrom-Json ([IO.File]::ReadAllText($sessPath, [Text.Encoding]::UTF8))
+        Assert-RX ((([string]$sessStored2.phase -ceq 'settled') -and ([string]$sessStored2.evidence_id -ceq [string]$rSess1.evidence_id))) '[R2c] durable settled record keeps stored lineage after reread' ''
+
         # ---------- R2b: takeover/expiry between authorization and the lock ----------
         # Fixture order matters: the kernel task is created BEFORE the
         # short lease is acquired, so the lease only has to cover the
