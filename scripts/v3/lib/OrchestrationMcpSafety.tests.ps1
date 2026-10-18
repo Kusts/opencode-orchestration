@@ -293,6 +293,58 @@ try {
     $gNull = Invoke-McpSafetyGrantGate -McpResult $null
     Assert-McpSafety ((-not [bool]$gNull.granted) -and ([string]$gNull.status -ceq 'MCP_RESULT_CANNOT_GRANT')) '[AC8] null input still denied' ([string]$gNull.status)
 
+    # ---------- S4: cross-server grant isolation (stateless deny, no prod change) ----------
+    # NOTE(S4-scope): Invoke-McpSafetyGrantGate takes only $McpResult and
+    # always denies; it carries no server identity and no grant store, so
+    # S4 is proven at the contract level: sequential A/B results cannot
+    # influence each other, and non-status secret/grant fields never
+    # surface in gate output. The gate echoes a well-formed input status
+    # verbatim into mcp_status, so callers must pass allowlisted statuses
+    # only; status-field redaction is NOT claimed here (no prod change).
+    # A and B use DISTINCT allowlisted statuses (OK vs MCP_CALL_OK, both
+    # in the telemetry $stAllowed set) so a cross-server status leak fails
+    # the per-call mcp_status asserts below instead of passing silently.
+    $s4secretA = 'sk-SYNTHETICSECRET-S4-A'
+    $s4permA = 'perm-token-S4-AAA111'
+    $s4secretB = 'sk-SYNTHETICSECRET-S4-B'
+    $resS4A = ([PSCustomObject]@{
+        ok = $true; status = 'OK'; server = 'srv-mcp-a'; capability = 'test.probe'
+        output = ('output-a ' + $s4secretA); token = $s4secretA
+        secret = $s4permA; grant = 'allow-all'; permissions = @('admin', 'fs.write')
+    })
+    $resS4B = ([PSCustomObject]@{
+        ok = $true; status = 'MCP_CALL_OK'; server = 'srv-mcp-b'; capability = 'test.probe'
+        output = 'output-b clean'
+    })
+    $gS4A = Invoke-McpSafetyGrantGate -McpResult $resS4A
+    $gS4B = Invoke-McpSafetyGrantGate -McpResult $resS4B
+    Assert-McpSafety (((-not [bool]$gS4A.granted) -and (-not [bool]$gS4A.widened) -and (-not [bool]$gS4A.ok)) -and ([string]$gS4A.status -ceq 'MCP_RESULT_CANNOT_GRANT')) '[S4] MCP-A result grants nothing' ([string]$gS4A.status)
+    Assert-McpSafety (((-not [bool]$gS4B.granted) -and (-not [bool]$gS4B.widened) -and (-not [bool]$gS4B.ok)) -and ([string]$gS4B.status -ceq 'MCP_RESULT_CANNOT_GRANT')) '[S4] MCP-B result grants nothing' ([string]$gS4B.status)
+    $jS4A = ($gS4A | ConvertTo-Json -Compress)
+    $jS4B = ($gS4B | ConvertTo-Json -Compress)
+    Assert-McpSafety (((-not $jS4A.Contains($s4secretA)) -and (-not $jS4A.Contains($s4permA))) -and ((-not $jS4A.Contains('allow-all')) -and (-not $jS4A.Contains('fs.write')))) '[S4] gate output carries no MCP-A secret or grant text' ''
+    Assert-McpSafety (((-not $jS4B.Contains($s4secretA)) -and (-not $jS4B.Contains($s4permA))) -and (-not $jS4B.Contains('allow-all'))) '[S4] MCP-B output inherits no MCP-A secret or grant' ''
+    Assert-McpSafety ([string]$gS4A.mcp_status -ceq 'OK') '[S4] MCP-A mcp_status is its own status only' ([string]$gS4A.mcp_status)
+    Assert-McpSafety ([string]$gS4B.mcp_status -ceq 'MCP_CALL_OK') '[S4] MCP-B mcp_status is its own status only' ([string]$gS4B.mcp_status)
+    Assert-McpSafety ([string]$gS4A.mcp_status -cne [string]$gS4B.mcp_status) '[S4] MCP-A/B mcp_status values are distinct' ([string]$gS4A.mcp_status + ' vs ' + [string]$gS4B.mcp_status)
+    $gS4B2 = Invoke-McpSafetyGrantGate -McpResult $resS4B
+    $jS4B2 = ($gS4B2 | ConvertTo-Json -Compress)
+    Assert-McpSafety ((($jS4B2 -ceq $jS4B) -and (-not $jS4B2.Contains($s4secretA))) -and ([string]$gS4B2.mcp_status -ceq 'MCP_CALL_OK')) '[S4] repeated MCP-B gate is stable and clean after MCP-A' ([string]$gS4B2.mcp_status)
+    $dictS4A = @{ status = 'OK'; server = 'srv-mcp-a'; secret = $s4secretA; grant = 'allow-all' }
+    $gS4D = Invoke-McpSafetyGrantGate -McpResult $dictS4A
+    $jS4D = ($gS4D | ConvertTo-Json -Compress)
+    Assert-McpSafety (((-not [bool]$gS4D.granted) -and (-not [bool]$gS4D.widened)) -and ([string]$gS4D.status -ceq 'MCP_RESULT_CANNOT_GRANT')) '[S4] dictionary-shape MCP-A result denied' ([string]$gS4D.status)
+    Assert-McpSafety (((-not $jS4D.Contains($s4secretA)) -and (-not $jS4D.Contains('allow-all'))) -and ([string]$gS4D.mcp_status -ceq 'OK')) '[S4] dictionary-shape leaks no secret' ([string]$gS4D.mcp_status)
+    $resS4BGrant = ([PSCustomObject]@{
+        ok = $true; status = 'MCP_CALL_OK'; server = 'srv-mcp-b'; capability = 'test.probe'
+        output = ('output-b ' + $s4secretB); grant = 'allow-all'; permissions = @('root')
+    })
+    $gS4BG = Invoke-McpSafetyGrantGate -McpResult $resS4BGrant
+    $jS4BG = ($gS4BG | ConvertTo-Json -Compress)
+    Assert-McpSafety (((-not [bool]$gS4BG.granted) -and (-not [bool]$gS4BG.widened)) -and ([string]$gS4BG.status -ceq 'MCP_RESULT_CANNOT_GRANT')) '[S4] grant-shaped MCP-B input still denied' ([string]$gS4BG.status)
+    Assert-McpSafety (((-not $jS4BG.Contains($s4secretB)) -and (-not $jS4BG.Contains('allow-all'))) -and (-not $jS4BG.Contains('root'))) '[S4] grant-shaped MCP-B output carries no grant text' ''
+    Assert-McpSafety ([string]$gS4BG.mcp_status -ceq 'MCP_CALL_OK') '[S4] grant-shaped MCP-B mcp_status is its own status only' ([string]$gS4BG.mcp_status)
+
     # ---------- AC9: sanitized bounded telemetry ----------
     $teleSecret = Join-Path $tempRoot 'telemetry-secret'
     New-Item -ItemType Directory -Path $teleSecret -Force | Out-Null
