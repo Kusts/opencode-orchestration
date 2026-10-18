@@ -110,7 +110,7 @@ incluindo shape/paridade dos templates V1 e V2 e integridade do bundle do
 plugin); o segundo roda as suítes `*.tests.ps1` de `scripts/v3/` e
 `scripts/runtime/`; o terceiro roda as validações de distribuição
 (fresh-install, idempotência, rollback, uninstall, runtime V1/V2, perfis
-isolados — 13 suítes) de `tests/distribution/`. Gate vigente = lane V2
+isolados — 23 suítes) de `tests/distribution/`. Gate vigente = lane V2
 real; o smoke com OpenCode V1 real 1.18.34 num home isolado (`opencode
 debug config/agent/skill`) é legado (linha V1 frozen desde a issue #62 —
 só regressão/manutenção de perfis existentes, sem certificação de features
