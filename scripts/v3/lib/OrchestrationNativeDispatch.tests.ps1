@@ -733,6 +733,76 @@ try {
         $f4FailOutcome = @{ ok = $false; reason = 'outer-failure-apurada'; kernel_reason = 'outer-failure' }
         Invoke-F4ConfirmUnderStaleOwnership -Suffix 'failure' -F4 $f4f -Outcome $f4FailOutcome
 
+        # ---------- F8 (caso 7): settle apos cancel da task ----------
+        # Prepare + Claim criam o recibo 'claimed'; o cancel no kernel
+        # torna a liquidacao impossivel: o settle revalida a admissao
+        # viva sob lock e recusa com task-terminal, sem efeito.
+        # (ASCII-only: sem acentos neste arquivo, ver hygiene abaixo.)
+        New-NDKernelTask -Id 'nd-task-cancel7'
+        $c7Key = Get-NativeDispatchHash32 'nd-cancel7-scenario'
+        $c7Intent = New-NDIntent -Task 'nd-task-cancel7' -Key $c7Key
+        $c7p = Invoke-OrchestrationNativeDispatchPrepare -Intent $c7Intent.intent -Authorization $authOk -SessionId 'ses_nd_c7_parent' -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$c7p.ok) '[F8] cancel-case prepared' ([string]$c7p.reason)
+        $c7c = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $c7Key -Authorization $authOk -SessionId 'ses_nd_c7_parent' -MessageId 'msg_nd_c7_001' -CallId 'call_nd_c7_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$c7p.prepared_fingerprint) -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$c7c.ok) '[F8] cancel-case claimed' ([string]$c7c.reason)
+        $c7live = Get-OrchestrationTask -TaskId 'nd-task-cancel7' -TasksDir $tasksDir
+        $c7rev = [int]$c7live.revision
+        $c7x = Cancel-OrchestrationTask -TaskId 'nd-task-cancel7' -Actor 'planner-1' -ExpectedRevision $c7rev -Reason 'case7-fixture-cancellation' -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$c7x.ok) '[F8] task cancelled in the kernel' ([string]$c7x.error)
+        $c7revAfterCancel = [int](Get-OrchestrationTask -TaskId 'nd-task-cancel7' -TasksDir $tasksDir).revision
+        Assert-ND (($c7revAfterCancel -eq ($c7rev + 1))) '[F8] cancel advanced the revision by exactly one' ('rev=' + [string]$c7revAfterCancel)
+        $c7Path = (New-NDReceiptPath -GoalId 'nd-goal-1' -Key $c7Key)
+        $c7BytesBefore = [IO.File]::ReadAllBytes($c7Path)
+        $c7cand = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
+        $c7s = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $c7Key -Authorization $authOk -ChildSessionId 'ses_nd_c7_child_1' -SessionId 'ses_nd_c7_parent' -MessageId 'msg_nd_c7_001' -CallId 'call_nd_c7_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$c7p.prepared_fingerprint) -Reference ([string]$c7p.reference) -Result $c7cand -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$c7s.ok) -and (-not [bool]$c7s.settled) -and ([string]$c7s.reason -ceq 'task-terminal') -and ([int]$c7s.executor_calls -eq 0))) '[F8] settle after task cancel refused as terminal with 0 executor calls' ([string]$c7s.reason)
+        Assert-ND ((([string]$c7s.worker_status -ceq '') -and ([string]$c7s.evidence_id -ceq '') -and (-not [bool]$c7s.kernel_ok) -and ([string]$c7s.kernel_reason -ceq ''))) '[F8] terminal refusal leaks no worker, evidence or kernel claim' ''
+        $c7BytesAfter = [IO.File]::ReadAllBytes($c7Path)
+        $c7same = ($c7BytesAfter.Length -eq $c7BytesBefore.Length)
+        if ($c7same) { for ($c7bi = 0; $c7bi -lt $c7BytesAfter.Length; $c7bi++) { if ([int]$c7BytesAfter[$c7bi] -ne [int]$c7BytesBefore[$c7bi]) { $c7same = $false; break } } }
+        Assert-ND $c7same '[F8] refused settle left the claimed receipt byte-identical' 'content changed'
+        $c7raw = ConvertFrom-Json ([IO.File]::ReadAllText($c7Path, [Text.Encoding]::UTF8))
+        Assert-ND (([string]$c7raw.phase -ceq 'claimed')) '[F8] receipt stays claimed, nothing settled' ([string]$c7raw.phase)
+        $c7task = Get-OrchestrationTask -TaskId 'nd-task-cancel7' -TasksDir $tasksDir
+        Assert-ND ((([int]$c7task.revision -eq $c7revAfterCancel) -and ([string]$c7task.state -ceq 'CANCELLED'))) '[F8] refused settle never rewrites the kernel' ('rev=' + [string]$c7task.revision + ' state=' + [string]$c7task.state)
+        # Repeat with the same key: the refusal is stable, still no effect.
+        $c7s2 = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $c7Key -Authorization $authOk -ChildSessionId 'ses_nd_c7_child_1' -SessionId 'ses_nd_c7_parent' -MessageId 'msg_nd_c7_001' -CallId 'call_nd_c7_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$c7p.prepared_fingerprint) -Reference ([string]$c7p.reference) -Result $c7cand -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$c7s2.ok) -and ([string]$c7s2.reason -ceq 'task-terminal') -and ([int]$c7s2.executor_calls -eq 0))) '[F8] terminal refusal is stable across calls' ([string]$c7s2.reason)
+
+        # ---------- F8b: goal CANCELLED bloqueia dispatch ----------
+        # Variacao do caso 7 no nivel do objetivo: com o goal fora de
+        # ACTIVE, prepare e dispatch legado recusam antes de qualquer
+        # efeito (goal-terminal), sem executar e sem recibo novo.
+        $g8 = New-OrchestrationGoal -GoalId 'nd-goal-cancel8' -Objective 'objetivo cancelado' -Criteria @('criterio-a') -StoreDir $goalDir
+        Assert-ND ([bool]$g8.ok) '[F8] cancel-goal created' ([string]$g8.reason)
+        $a8 = Set-OrchestrationGoalState -Goal $g8.goal -ToState 'ACTIVE'
+        $s8 = Save-OrchestrationGoal -Goal $a8.goal -StoreDir $goalDir
+        Assert-ND ([bool]$s8.ok) '[F8] cancel-goal active+saved' ([string]$s8.reason)
+        $o8 = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-cancel8' -OwnerId 'planner-1' -ExpectedRevision ([long]$s8.revision) -StoreDir $goalDir
+        Assert-ND ([bool]$o8.ok) '[F8] cancel-goal owned' ([string]$o8.reason)
+        $gen8 = [long]$o8.ownership['generation']
+        $t8 = New-OrchestrationTask -TaskId 'nd-task-gcancel8' -Objective 'obj gcancel8' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$t8.ok) '[F8] cancel-goal task created' ([string]$t8.error)
+        $slot8 = Get-OrchestrationGoal -GoalId 'nd-goal-cancel8' -StoreDir $goalDir
+        $add8 = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-cancel8' -TaskId 'nd-task-gcancel8' -ExpectedRevision ([long]$slot8.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen8
+        Assert-ND ([bool]$add8.ok) '[F8] cancel-goal task attached' ([string]$add8.reason)
+        $fin8 = Set-OrchestrationGoalStatePersisted -GoalId 'nd-goal-cancel8' -ToState 'CANCELLED' -ExpectedRevision ([long](Get-OrchestrationGoal -GoalId 'nd-goal-cancel8' -StoreDir $goalDir).goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen8
+        Assert-ND ([bool]$fin8.ok) '[F8] goal moved to CANCELLED' ([string]$fin8.reason)
+        $auth8 = @{ explicit_allow = $true; goal_id = 'nd-goal-cancel8'; owner = 'planner-1'; generation = $gen8; source = 'planner' }
+        $k8 = Get-NativeDispatchHash32 'nd-cancel8-goal-scenario'
+        $i8 = New-OrchestrationNativeDispatchIntent -TaskId 'nd-task-gcancel8' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $k8 -Owner 'planner-1' -OwnershipGeneration $gen8 -BaseRevision 'rev-a'
+        Assert-ND ([bool]$i8.ok) '[F8] cancel-goal intent built' ([string]$i8.reason)
+        $r8 = Invoke-OrchestrationNativeDispatchPrepare -Intent $i8.intent -Authorization $auth8 -SessionId 'ses_nd_c8_parent' -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$r8.ok) -and ([string]$r8.reason -ceq 'goal-terminal') -and ([int]$r8.executor_calls -eq 0))) '[F8] CANCELLED goal blocks prepare with 0 executor calls' ([string]$r8.reason)
+        Assert-ND (-not (Test-Path -LiteralPath (New-NDReceiptPath -GoalId 'nd-goal-cancel8' -Key $k8) -PathType Leaf)) '[F8] refused prepare persisted no receipt' ''
+        $g8state = @{ calls = 0 }
+        $g8spy = { param($ii) $g8state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $r8b = Invoke-OrchestrationNativeDispatch -Intent $i8.intent -Executor $g8spy -Authorization $auth8 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$r8b.ok) -and ([int]$r8b.executor_calls -eq 0) -and ([int]$g8state.calls -eq 0))) '[F8] CANCELLED goal blocks legacy dispatch with 0 executor calls' ([string]$r8b.reason)
+
         # ---------- hygiene ----------
         $ndPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'
         $ndText = [IO.File]::ReadAllText($ndPath, [Text.UTF8Encoding]::new($false))
