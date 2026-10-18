@@ -867,3 +867,111 @@ idempotente do proprio recibo (declaracao original e reenvio com
 externa: sucesso SOMENTE com prova kernel-side; liquidacao de falha
 MANTEM a reserva, exceto recusa pre-efeito fresca (zero chamadas de
 Executor, `reconciled=false`).
+
+## Caller de resume GitHub P0-05 (single-shot, sem daemon)
+
+Helper do Planner para esperas externas de CI (`scripts/v3/lib/
+OrchestrationGitHubResume.ps1`, suite `OrchestrationGitHubResume.tests.ps1`
+— 107/107 PASS via runner, reviewer APPROVED final; mergeado em `master`
+via PR #109, commit `fb8d066`). Contrasta com o `github-await observe`
+(somente leitura, operacional — ver `docs/TROUBLESHOOTING.md`): o caller
+registra a espera como documento duravel e decide single-shot o que fazer
+com um snapshot ja coletado. Nao ha daemon, watcher, loop, sleep, timer,
+retry, scheduler, rede, spawn de processo, chamadas `gh`, merge, deploy,
+tokens nem transcripts: identificadores limitados e codigos estaveis.
+Nunca lanca excecao no caminho operacional — falha devolve `ok=$false`
+com `reason` legivel por maquina.
+
+Tres operacoes (`Register`/`Test`/`Confirm`, mais `Get` de listagem):
+
+- `Register-OrchestrationGitHubWait` persiste o contrato `(objective/task/
+  run/generation, repository/pr/branch/expected_head_sha, required_checks/
+  review_expectation, cursor, deadline/retry-budget/lease/owner,
+  wait-state)`. Validacao fail-closed: SHA de 40 hex, checks ate 32 nomes
+  validos, `review_expectation` so `APPROVED|ANY`, retry budget 0..100,
+  varredura secret-free (assinaturas de token recusadas com
+  `secret-refused`). Dedup pela SHA256 da chave completa; nome de arquivo
+  derivado do hash — divergencia de identidade no mesmo nome recusa com
+  `wait-filename-collision` (sem `-Force` silencioso); persistencia por
+  CAS (`ExpectAbsent`; conflito de concorrencia nao perde dado).
+- `Test-OrchestrationGitHubResume` recebe o wait + snapshot + policy +
+  flags booleanas de vida (lease/owner/autorizacao/executor/cancel/
+  applied) e devolve o envelope de decisao. A avaliacao de prontidao
+  (`READY_FOR_RESUME/PENDING/...`) e delegada a
+  `Get-OrchestrationGitHubReadiness` de `OrchestrationDelivery.ps1` via
+  lazy dot-source (mesmo idioma do `github-await`) — nunca reimplementada
+  aqui. **Gate contrato-vs-policy:** `required_checks`/`review_expectation`
+  persistidos que divergirem da policy efetiva recusam com `INVALID`
+  (`policy-diverged`), fail-closed.
+- `Confirm-OrchestrationGitHubResumeApplied` anexa o event-id a
+  `applied_events` por CAS sobre os bytes do arquivo (`wait-modified` em
+  conflito); evento repetido devolve `duplicate-suppressed` (`reused`); teto
+  de 128 eventos (`event-log-full`).
+
+Decisoes (conjunto fechado; `ok=$true` exceto `INVALID`):
+
+| Decisao | Quando |
+|---|---|
+| `RESUME` | snapshot `READY_FOR_RESUME`, SHA/checks/lease revalidados, executor presente |
+| `READY` | `READY_FOR_RESUME` mas sem executor — observacao, nunca auto-avanco |
+| `KEEP_WAITING` | `pending`, `snapshot-stale`, inconclusivo ou prontidao indisponivel |
+| `TERMINAL` | cancelado, espera/lease expirados, owner/autorizacao perdidos, orcamento de retry esgotado, PR terminal, diagnostico, head substituido |
+| `DUPLICATE_NOOP` | evento ja aplicado |
+| `OUT_OF_ORDER` | evento de outra chave de dedup |
+| `INVALID` | forma invalida, policy-diverged, argumento/now invalidos, erro interno |
+
+Semantica de autoridade: todo envelope carrega `snapshot_only=true`,
+`grants_authority=false`, `done_approved=false`, `merge_authority=false`,
+`kernel_mutated=false`. `RESUME` marca `resume_authorized=true`, consumido
+pela sessao do Planner invocador **como recomendacao** — o Planner continua
+dono da proxima invocacao de step. Observacao vira decisao; decisao nao vira
+autorizacao: `READY` (executor ausente) notifica sem falso sucesso, e
+`READY_FOR_RESUME` sem revalidacao de SHA/checks/lease nao avanca nada.
+
+## STEER advisory opt-in + CLOSE-vs-RETRY fail-closed (S5, P1-05)
+
+Origem: branch `p1-05-steer-close`, commit `a0850cc` (suite nova
+`OrchestrationWatchdogSteerClose.tests.ps1` 62/62 + enforcement 432/432,
+reviewer APPROVED + security APPROVED). **Estado honesto neste checkout: o
+codigo S5 ainda nao esta em `master`** (HEAD `ec5f8b1` nao contem
+`a0850cc`); a secao descreve o contrato aprovado, nao capacidade presente
+na arvore. Recomendacao: merge via PR com CI verde antes de referenciar o
+comportamento como vigente.
+
+- **STEER opt-in (default OFF).** `Invoke-WatchdogProcessInterrupt` aceita
+  `-InterruptMode`: ausente ou `KILL` = caminho limitado de kill (default
+  inalterado); `STEER` = somente advisory, registrado ANTES de qualquer
+  checagem de ownership ou kill — quem/quando/motivo no record de
+  enforcement + evento `WATCHDOG_STEER_ADVISORY` — nunca mata, nunca faz
+  auto-retry; a execucao continua e o chamador decide o proximo passo. A
+  terminacao pegajosa (sticky) existente vence primeiro. Validador de
+  conjunto fechado `Test-WatchdogInterruptMode` (`''|KILL|STEER`,
+  case-insensitive): token desconhecido recusa com
+  `INVALID_INTERRUPT_MODE` sem nada armazenar e sem kill — no dispatcher
+  ENFORCE e na execucao ligada.
+- **CLOSE-vs-RETRY no seam (default RETRY).**
+  `Confirm-OrchestrationTaskWatchdogSettlement` aceita `-Disposition
+  RETRY|CLOSE` (CLI `watchdog-settle -WatchdogDisposition`; token invalido
+  recusa com `INVALID_WATCHDOG_DISPOSITION`, exit 2 no CLI). `RETRY`
+  liquida como repetivel: retry posterior continua passando pelo
+  `ATTEMPT_GATE` (hipotese/nova evidencia; a 3a falha de worker-result
+  segue `ATTEMPT_GATE_FAILED`). `CLOSE` liquida como terminal-sem-retry:
+  `Set-OrchestrationTaskWatchdogInterrupt` recusa novo engajamento e
+  `Start-OrchestrationTaskAttempt` recusa qualquer start posterior, ambos
+  com `WATCHDOG_CLOSED_NO_RETRY` — a task so pode ser liberada/concluida.
+- **Guards (exigencia de reviewer+security).** Guard no dispatcher de
+  interrupt: apos `CLOSE`, `Set-...` recusa re-engajar (revisao sem escrita,
+  disposicao segue `close`). CLOSE sticky: `Confirm RETRY` apos `CLOSE` e
+  repeticoes sao noop idempotente que reporta a disposicao armazenada —
+  **RETRY nunca reabre CLOSE** (`S5c RETRY after CLOSE stays noop close`).
+  Gate fail-closed em no malformado: no `watchdog_interrupt`
+  presente-mas-malformado (nao-dict, flags nao-bool, falha de inspecao)
+  bloqueia com `WATCHDOG_CLOSED_NO_RETRY` em vez de ler como nao-fechado;
+  so o registro sem a chave permite.
+- **Limites honestos.** TOCTOU residual: o advisory STEER nao fixa estado —
+  entre o registro e o ato do Planner a execucao pode ter avancado ou
+  liquidado; o gate CLOSE vale no instante da checagem sob o lock/CAS do
+  kernel, sem prova de atomicidade alem do lock de arquivo existente.
+  `release`/`cancel` continuam funcionando apos `CLOSE`. S6 e shell/REST
+  seguem HOLD (nivel C): o seam nao cobre shell/REST direto, e nenhum
+  hard-deny novo e alegado.

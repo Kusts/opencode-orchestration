@@ -733,6 +733,163 @@ try {
         $f4FailOutcome = @{ ok = $false; reason = 'outer-failure-apurada'; kernel_reason = 'outer-failure' }
         Invoke-F4ConfirmUnderStaleOwnership -Suffix 'failure' -F4 $f4f -Outcome $f4FailOutcome
 
+        # ---------- F8 (caso 7): settle apos cancel da task ----------
+        # Prepare + Claim criam o recibo 'claimed'; o cancel no kernel
+        # torna a liquidacao impossivel: o settle revalida a admissao
+        # viva sob lock e recusa com task-terminal, sem efeito.
+        # (ASCII-only: sem acentos neste arquivo, ver hygiene abaixo.)
+        New-NDKernelTask -Id 'nd-task-cancel7'
+        $c7Key = Get-NativeDispatchHash32 'nd-cancel7-scenario'
+        $c7Intent = New-NDIntent -Task 'nd-task-cancel7' -Key $c7Key
+        $c7p = Invoke-OrchestrationNativeDispatchPrepare -Intent $c7Intent.intent -Authorization $authOk -SessionId 'ses_nd_c7_parent' -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$c7p.ok) '[F8] cancel-case prepared' ([string]$c7p.reason)
+        $c7c = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $c7Key -Authorization $authOk -SessionId 'ses_nd_c7_parent' -MessageId 'msg_nd_c7_001' -CallId 'call_nd_c7_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$c7p.prepared_fingerprint) -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$c7c.ok) '[F8] cancel-case claimed' ([string]$c7c.reason)
+        $c7live = Get-OrchestrationTask -TaskId 'nd-task-cancel7' -TasksDir $tasksDir
+        $c7rev = [int]$c7live.revision
+        $c7x = Cancel-OrchestrationTask -TaskId 'nd-task-cancel7' -Actor 'planner-1' -ExpectedRevision $c7rev -Reason 'case7-fixture-cancellation' -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$c7x.ok) '[F8] task cancelled in the kernel' ([string]$c7x.error)
+        $c7revAfterCancel = [int](Get-OrchestrationTask -TaskId 'nd-task-cancel7' -TasksDir $tasksDir).revision
+        Assert-ND (($c7revAfterCancel -eq ($c7rev + 1))) '[F8] cancel advanced the revision by exactly one' ('rev=' + [string]$c7revAfterCancel)
+        $c7Path = (New-NDReceiptPath -GoalId 'nd-goal-1' -Key $c7Key)
+        $c7BytesBefore = [IO.File]::ReadAllBytes($c7Path)
+        $c7cand = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
+        $c7s = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $c7Key -Authorization $authOk -ChildSessionId 'ses_nd_c7_child_1' -SessionId 'ses_nd_c7_parent' -MessageId 'msg_nd_c7_001' -CallId 'call_nd_c7_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$c7p.prepared_fingerprint) -Reference ([string]$c7p.reference) -Result $c7cand -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$c7s.ok) -and (-not [bool]$c7s.settled) -and ([string]$c7s.reason -ceq 'task-terminal') -and ([int]$c7s.executor_calls -eq 0))) '[F8] settle after task cancel refused as terminal with 0 executor calls' ([string]$c7s.reason)
+        Assert-ND ((([string]$c7s.worker_status -ceq '') -and ([string]$c7s.evidence_id -ceq '') -and (-not [bool]$c7s.kernel_ok) -and ([string]$c7s.kernel_reason -ceq ''))) '[F8] terminal refusal leaks no worker, evidence or kernel claim' ''
+        $c7BytesAfter = [IO.File]::ReadAllBytes($c7Path)
+        $c7same = ($c7BytesAfter.Length -eq $c7BytesBefore.Length)
+        if ($c7same) { for ($c7bi = 0; $c7bi -lt $c7BytesAfter.Length; $c7bi++) { if ([int]$c7BytesAfter[$c7bi] -ne [int]$c7BytesBefore[$c7bi]) { $c7same = $false; break } } }
+        Assert-ND $c7same '[F8] refused settle left the claimed receipt byte-identical' 'content changed'
+        $c7raw = ConvertFrom-Json ([IO.File]::ReadAllText($c7Path, [Text.Encoding]::UTF8))
+        Assert-ND (([string]$c7raw.phase -ceq 'claimed')) '[F8] receipt stays claimed, nothing settled' ([string]$c7raw.phase)
+        $c7task = Get-OrchestrationTask -TaskId 'nd-task-cancel7' -TasksDir $tasksDir
+        Assert-ND ((([int]$c7task.revision -eq $c7revAfterCancel) -and ([string]$c7task.state -ceq 'CANCELLED'))) '[F8] refused settle never rewrites the kernel' ('rev=' + [string]$c7task.revision + ' state=' + [string]$c7task.state)
+        # Repeat with the same key: the refusal is stable, still no effect.
+        $c7s2 = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $c7Key -Authorization $authOk -ChildSessionId 'ses_nd_c7_child_1' -SessionId 'ses_nd_c7_parent' -MessageId 'msg_nd_c7_001' -CallId 'call_nd_c7_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$c7p.prepared_fingerprint) -Reference ([string]$c7p.reference) -Result $c7cand -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$c7s2.ok) -and ([string]$c7s2.reason -ceq 'task-terminal') -and ([int]$c7s2.executor_calls -eq 0))) '[F8] terminal refusal is stable across calls' ([string]$c7s2.reason)
+
+        # ---------- F8b: goal CANCELLED bloqueia dispatch ----------
+        # Variacao do caso 7 no nivel do objetivo: com o goal fora de
+        # ACTIVE, prepare e dispatch legado recusam antes de qualquer
+        # efeito (goal-terminal), sem executar e sem recibo novo.
+        $g8 = New-OrchestrationGoal -GoalId 'nd-goal-cancel8' -Objective 'objetivo cancelado' -Criteria @('criterio-a') -StoreDir $goalDir
+        Assert-ND ([bool]$g8.ok) '[F8] cancel-goal created' ([string]$g8.reason)
+        $a8 = Set-OrchestrationGoalState -Goal $g8.goal -ToState 'ACTIVE'
+        $s8 = Save-OrchestrationGoal -Goal $a8.goal -StoreDir $goalDir
+        Assert-ND ([bool]$s8.ok) '[F8] cancel-goal active+saved' ([string]$s8.reason)
+        $o8 = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-cancel8' -OwnerId 'planner-1' -ExpectedRevision ([long]$s8.revision) -StoreDir $goalDir
+        Assert-ND ([bool]$o8.ok) '[F8] cancel-goal owned' ([string]$o8.reason)
+        $gen8 = [long]$o8.ownership['generation']
+        $t8 = New-OrchestrationTask -TaskId 'nd-task-gcancel8' -Objective 'obj gcancel8' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$t8.ok) '[F8] cancel-goal task created' ([string]$t8.error)
+        $slot8 = Get-OrchestrationGoal -GoalId 'nd-goal-cancel8' -StoreDir $goalDir
+        $add8 = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-cancel8' -TaskId 'nd-task-gcancel8' -ExpectedRevision ([long]$slot8.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen8
+        Assert-ND ([bool]$add8.ok) '[F8] cancel-goal task attached' ([string]$add8.reason)
+        $fin8 = Set-OrchestrationGoalStatePersisted -GoalId 'nd-goal-cancel8' -ToState 'CANCELLED' -ExpectedRevision ([long](Get-OrchestrationGoal -GoalId 'nd-goal-cancel8' -StoreDir $goalDir).goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen8
+        Assert-ND ([bool]$fin8.ok) '[F8] goal moved to CANCELLED' ([string]$fin8.reason)
+        $auth8 = @{ explicit_allow = $true; goal_id = 'nd-goal-cancel8'; owner = 'planner-1'; generation = $gen8; source = 'planner' }
+        $k8 = Get-NativeDispatchHash32 'nd-cancel8-goal-scenario'
+        $i8 = New-OrchestrationNativeDispatchIntent -TaskId 'nd-task-gcancel8' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $k8 -Owner 'planner-1' -OwnershipGeneration $gen8 -BaseRevision 'rev-a'
+        Assert-ND ([bool]$i8.ok) '[F8] cancel-goal intent built' ([string]$i8.reason)
+        $r8 = Invoke-OrchestrationNativeDispatchPrepare -Intent $i8.intent -Authorization $auth8 -SessionId 'ses_nd_c8_parent' -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$r8.ok) -and ([string]$r8.reason -ceq 'goal-terminal') -and ([int]$r8.executor_calls -eq 0))) '[F8] CANCELLED goal blocks prepare with 0 executor calls' ([string]$r8.reason)
+        Assert-ND (-not (Test-Path -LiteralPath (New-NDReceiptPath -GoalId 'nd-goal-cancel8' -Key $k8) -PathType Leaf)) '[F8] refused prepare persisted no receipt' ''
+        $g8state = @{ calls = 0 }
+        $g8spy = { param($ii) $g8state.calls++; return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }.GetNewClosure()
+        $r8b = Invoke-OrchestrationNativeDispatch -Intent $i8.intent -Executor $g8spy -Authorization $auth8 -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$r8b.ok) -and ([int]$r8b.executor_calls -eq 0) -and ([int]$g8state.calls -eq 0))) '[F8] CANCELLED goal blocks legacy dispatch with 0 executor calls' ([string]$r8b.reason)
+
+        # ---------- P1-06-S3: forged parent session never mutates ----------
+        # Exercised contract: CLAIM binds the exact prepared session_id
+        # (claim-session-mismatch) and SETTLE binds the exact claimed host
+        # lineage (settle-host-call-mismatch); live ownership fencing under
+        # lock is proved by the public CLAIM scenario below. The two direct
+        # Test-NDPostLockFencing calls are isolated helper validation only
+        # and claim no public-path enforcement by themselves.
+        # HONEST LIMIT: a distinct well-formed CHILD session is shape-only
+        # by design and is NOT authenticated here, so this block claims
+        # no child denial.
+        New-NDKernelTask -Id 'nd-task-s3forge'
+        $s3Key = Get-NativeDispatchHash32 'nd-s3-forged-session'
+        $s3Intent = New-NDIntent -Task 'nd-task-s3forge' -Key $s3Key
+        $s3p = Invoke-OrchestrationNativeDispatchPrepare -Intent $s3Intent.intent -Authorization $authOk -SessionId 'ses_nd_s3_parent' -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$s3p.ok) '[S3] forged-session fixture prepared' ([string]$s3p.reason)
+        $s3revBefore = [long](Get-OrchestrationTask -TaskId 'nd-task-s3forge' -TasksDir $tasksDir).revision
+        $s3cForge = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $s3Key -Authorization $authOk -SessionId 'ses_nd_s3_FORGED' -MessageId 'msg_nd_s3_001' -CallId 'call_nd_s3_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$s3p.prepared_fingerprint) -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$s3cForge.ok) -and ([string]$s3cForge.reason -ceq 'claim-session-mismatch') -and (-not [bool]$s3cForge.claimed) -and ([int]$s3cForge.executor_calls -eq 0))) '[S3] forged parent session refused at claim with 0 calls' ([string]$s3cForge.reason)
+        $s3rawForge = ConvertFrom-Json ([IO.File]::ReadAllText((New-NDReceiptPath -GoalId 'nd-goal-1' -Key $s3Key), [Text.Encoding]::UTF8))
+        Assert-ND (([string]$s3rawForge.phase -ceq 'prepared')) '[S3] refused claim leaves the receipt prepared' ([string]$s3rawForge.phase)
+        Assert-ND (($null -eq $s3rawForge.PSObject.Properties['claim_session_id'])) '[S3] refused claim writes no host lineage' ''
+        $s3revAfterForge = [long](Get-OrchestrationTask -TaskId 'nd-task-s3forge' -TasksDir $tasksDir).revision
+        Assert-ND (($s3revAfterForge -eq $s3revBefore)) '[S3] refused claim never rewrites the kernel' ('rev=' + [string]$s3revAfterForge)
+        $s3c = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $s3Key -Authorization $authOk -SessionId 'ses_nd_s3_parent' -MessageId 'msg_nd_s3_001' -CallId 'call_nd_s3_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$s3p.prepared_fingerprint) -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (([bool]$s3c.ok) -and ([bool]$s3c.claimed) -and ([int]$s3c.executor_calls -eq 0)) '[S3] control: legitimate session claims' ([string]$s3c.reason)
+        $s3cand = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
+        $s3sForge = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $s3Key -Authorization $authOk -ChildSessionId 'ses_nd_s3_child_1' -SessionId 'ses_nd_s3_FORGED' -MessageId 'msg_nd_s3_001' -CallId 'call_nd_s3_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$s3p.prepared_fingerprint) -Reference ([string]$s3p.reference) -Result $s3cand -ReceiptDir $receiptDir -GoalStoreDir $goalDir -EvidenceStoreDir $evDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND (((-not [bool]$s3sForge.ok) -and (-not [bool]$s3sForge.settled) -and ([string]$s3sForge.reason -ceq 'settle-host-call-mismatch') -and ([int]$s3sForge.executor_calls -eq 0))) '[S3] forged parent session refused at settle with 0 calls' ([string]$s3sForge.reason)
+        Assert-ND ((([string]$s3sForge.worker_status -ceq '') -and ([string]$s3sForge.evidence_id -ceq '') -and (-not [bool]$s3sForge.kernel_ok))) '[S3] refused settle leaks no worker, evidence or kernel claim' ''
+        $s3rawClaimed = ConvertFrom-Json ([IO.File]::ReadAllText((New-NDReceiptPath -GoalId 'nd-goal-1' -Key $s3Key), [Text.Encoding]::UTF8))
+        Assert-ND (([string]$s3rawClaimed.phase -ceq 'claimed')) '[S3] refused settle keeps the receipt claimed' ([string]$s3rawClaimed.phase)
+        $s3taskAfter = Get-OrchestrationTask -TaskId 'nd-task-s3forge' -TasksDir $tasksDir
+        Assert-ND (($null -eq $s3taskAfter.worker_result)) '[S3] refused settle writes no worker result' ''
+        $s3live = Test-NDPostLockFencing -GoalId 'nd-goal-1' -Owner 'planner-1' -Generation $gen -GoalStoreDir $goalDir
+        Assert-ND ([bool]$s3live.ok) '[S3] live ownership re-read passes for the bound owner' ([string]$s3live.reason)
+        $s3stale = Test-NDPostLockFencing -GoalId 'nd-goal-1' -Owner 'planner-1' -Generation ($gen + 99) -GoalStoreDir $goalDir
+        Assert-ND (((-not [bool]$s3stale.ok) -and ([string]$s3stale.reason -like 'post-lock-fencing-changed*'))) '[S3] live ownership re-read denies the forged generation' ([string]$s3stale.reason)
+        # P1-06-S3 public path: stale generation refused at CLAIM (fencing).
+        # Prepare com auth viva; takeover legitimo invalida a geracao; CLAIM com
+        # a auth antiga (igual ao preparo) recusa no gate de fencing da operacao
+        # publica (pre-lock ownership-not-held; pos-lock seria
+        # post-lock-fencing-changed com o mesmo predicado relido sob lock),
+        # sem consumir o preparo e sem efeito no kernel.
+        $s3gFence = New-OrchestrationGoal -GoalId 'nd-goal-s3fence' -Objective 's3 public fencing' -Criteria @('criterio-a') -StoreDir $goalDir
+        Assert-ND ([bool]$s3gFence.ok) '[S3] fence goal created' ([string]$s3gFence.reason)
+        $s3aFence = Set-OrchestrationGoalState -Goal $s3gFence.goal -ToState 'ACTIVE'
+        $s3sFence = Save-OrchestrationGoal -Goal $s3aFence.goal -StoreDir $goalDir
+        Assert-ND ([bool]$s3sFence.ok) '[S3] fence goal active+saved' ([string]$s3sFence.reason)
+        $s3oFence = Acquire-OrchestrationGoalOwnership -GoalId 'nd-goal-s3fence' -OwnerId 'planner-1' -ExpectedRevision ([long]$s3sFence.revision) -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$s3oFence.ok) '[S3] fence goal owned with realistic lease' ([string]$s3oFence.reason)
+        $genFence = [long]$s3oFence.ownership['generation']
+        $ctFence = New-OrchestrationTask -TaskId 'nd-task-s3fence' -Objective 'obj s3fence' -TaskType 'implementation' `
+            -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
+            -RuntimeVersion '2.0.18' -BaseRevision 'rev-a' -ReadScopes @('src/a.ps1') -Grants @('fs.read') `
+            -AcceptanceCriteria @('crit-a') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+        Assert-ND ([bool]$ctFence.ok) '[S3] fence kernel task created' ([string]$ctFence.error)
+        $slotFence = Get-OrchestrationGoal -GoalId 'nd-goal-s3fence' -StoreDir $goalDir
+        $addFence = Add-OrchestrationGoalTaskPersisted -GoalId 'nd-goal-s3fence' -TaskId 'nd-task-s3fence' -ExpectedRevision ([long]$slotFence.goal['revision']) -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $genFence
+        Assert-ND ([bool]$addFence.ok) '[S3] fence task attached' ([string]$addFence.reason)
+        $authFenceStale = @{ explicit_allow = $true; goal_id = 'nd-goal-s3fence'; owner = 'planner-1'; generation = $genFence; source = 'planner' }
+        $s3fKey = Get-NativeDispatchHash32 'nd-s3-public-fencing'
+        $s3fIntent = New-OrchestrationNativeDispatchIntent -TaskId 'nd-task-s3fence' -TaskExpectedRevision 1 -Agent 'coder' -PromptHash $ph -Scope @('src/a.ps1') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $s3fKey -Owner 'planner-1' -OwnershipGeneration $genFence -BaseRevision 'rev-a'
+        Assert-ND ([bool]$s3fIntent.ok) '[S3] fence intent built' ([string]$s3fIntent.reason)
+        $s3fP = Invoke-OrchestrationNativeDispatchPrepare -Intent $s3fIntent.intent -Authorization $authFenceStale -SessionId 'ses_nd_s3f_parent' -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        Assert-ND ([bool]$s3fP.ok) '[S3] fence fixture prepared' ([string]$s3fP.reason)
+        $s3fRevBefore = [long](Get-OrchestrationTask -TaskId 'nd-task-s3fence' -TasksDir $tasksDir).revision
+        $s3fPath = (New-NDReceiptPath -GoalId 'nd-goal-s3fence' -Key $s3fKey)
+        $s3fBytesBefore = [IO.File]::ReadAllBytes($s3fPath)
+        $s3fRenew = Renew-OrchestrationGoalOwnership -GoalId 'nd-goal-s3fence' -OwnerId 'planner-1' -Generation $genFence -StoreDir $goalDir -LeaseTtlMs 500
+        Assert-ND ([bool]$s3fRenew.ok) '[S3] short lease re-armed for the real expiry + takeover' ([string]$s3fRenew.reason)
+        Start-Sleep -Milliseconds 1200
+        $s3fTow = Takeover-OrchestrationGoalOwnership -GoalId 'nd-goal-s3fence' -OwnerId 'planner-2' -StoreDir $goalDir -LeaseTtlMs 60000
+        Assert-ND ([bool]$s3fTow.ok) '[S3] fence ownership taken over' ([string]$s3fTow.reason)
+        $s3fC = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $s3fKey -Authorization $authFenceStale -SessionId 'ses_nd_s3f_parent' -MessageId 'msg_nd_s3f_001' -CallId 'call_nd_s3f_001' -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$s3fP.prepared_fingerprint) -ReceiptDir $receiptDir -GoalStoreDir $goalDir -TasksDir $tasksDir -FlagsPath $flagsPath
+        $s3fFenced = (([string]$s3fC.reason -like 'ownership-not-held*') -or ([string]$s3fC.reason -like 'post-lock-fencing-changed*'))
+        Assert-ND (((-not [bool]$s3fC.ok) -and (-not [bool]$s3fC.claimed) -and $s3fFenced -and ([int]$s3fC.executor_calls -eq 0))) '[S3] stale generation refused at CLAIM with 0 calls' ([string]$s3fC.reason)
+        $s3fRaw = ConvertFrom-Json ([IO.File]::ReadAllText($s3fPath, [Text.Encoding]::UTF8))
+        Assert-ND (([string]$s3fRaw.phase -ceq 'prepared')) '[S3] refused CLAIM keeps the receipt prepared' ([string]$s3fRaw.phase)
+        Assert-ND (($null -eq $s3fRaw.PSObject.Properties['claim_session_id'])) '[S3] refused CLAIM writes no host lineage' ''
+        $s3fBytesAfter = [IO.File]::ReadAllBytes($s3fPath)
+        $s3fSame = ($s3fBytesAfter.Length -eq $s3fBytesBefore.Length)
+        if ($s3fSame) { for ($s3fBi = 0; $s3fBi -lt $s3fBytesAfter.Length; $s3fBi++) { if ([int]$s3fBytesAfter[$s3fBi] -ne [int]$s3fBytesBefore[$s3fBi]) { $s3fSame = $false; break } } }
+        Assert-ND $s3fSame '[S3] refused CLAIM left the receipt byte-identical' 'content changed'
+        $s3fTaskAfter = Get-OrchestrationTask -TaskId 'nd-task-s3fence' -TasksDir $tasksDir
+        Assert-ND (([long]$s3fTaskAfter.revision -eq $s3fRevBefore)) '[S3] refused CLAIM never rewrites the kernel' ('rev=' + [string]$s3fTaskAfter.revision)
+        Assert-ND (($null -eq $s3fTaskAfter.worker_result)) '[S3] refused CLAIM writes no worker result' ''
+
         # ---------- hygiene ----------
         $ndPath = Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1'
         $ndText = [IO.File]::ReadAllText($ndPath, [Text.UTF8Encoding]::new($false))

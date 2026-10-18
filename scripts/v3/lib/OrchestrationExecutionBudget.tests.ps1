@@ -14,7 +14,8 @@
     preserve + strict raw-type rejection (bool/string/fraction/negative),
     full-policy gate (bad fixture create/start no mutation), planner-turn
     event identity (closed charset, distinct, replay/duplicate rejected,
-    free-text/canary rejected without logging, untrusted denied).
+    free-text/canary rejected without logging, untrusted denied; S1 worker
+    model/variant/provider bind denied IMMUTABLE/WIDEN_DENIED no-write).
     Native renderer fields are HOLD (no renderer asserts). Phase 23 is
     shadow/record-only: enforcement always OFF.
 #>
@@ -219,6 +220,18 @@ try {
     $after9 = Get-FileBytesHash -Path $file9
     Assert-Budget (((-not [bool]$w9.ok) -and ([string]$w9.error -ceq 'BUDGET_IMMUTABLE') -and ($before9 -ceq $after9))) 'worker budget proposal denied without write'
 
+    # 9b. S1: worker cannot widen/derive model/variant/provider bind (fail-closed, no write)
+    $before9b = Get-FileBytesHash -Path $file9
+    $w9b = Set-OrchestrationTaskWorkerResult -TaskId 'budget-001' -Status 'failed' -ClaimedEvidence @('criterion:0:try') -ProducedBy 'coder' -ExpectedRevision 1 -ProposedBudgetJson '{"model":"gpt-6-luna","variant":"high","provider":"openai"}' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $after9b = Get-FileBytesHash -Path $file9
+    Assert-Budget (((-not [bool]$w9b.ok) -and ([string]$w9b.error -ceq 'BUDGET_IMMUTABLE') -and ($before9b -ceq $after9b))) 'worker model/variant/provider bind proposal denied without write'
+    $g9b = Get-OrchestrationTask -TaskId 'budget-001' -TasksDir $t.tasks
+    Assert-Budget ((([string]$g9b['execution_budget']['profile'] -ceq 'deep') -and ([string]$g9b['execution_runtime']['session_id'] -ceq ''))) 'model-bind proposal leaves budget profile and runtime binding unchanged'
+    $before9c = Get-FileBytesHash -Path $file9
+    $w9c = Set-OrchestrationTaskBudget -TaskId 'budget-001' -BudgetProfile 'planner-turn' -Actor 'coder' -ExpectedRevision 1 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root -RepoRoot $repo
+    $after9c = Get-FileBytesHash -Path $file9
+    Assert-Budget (((-not [bool]$w9c.ok) -and ([string]$w9c.error -ceq 'BUDGET_WIDEN_DENIED') -and ($before9c -ceq $after9c))) 'worker planner-turn profile derive denied without write'
+
     # 10. old record compat: legacy file without budget derives read-only
     $legacyId = 'legacy-001'
     $legacyFile = Join-Path $t.tasks ($legacyId + '.json')
@@ -390,6 +403,10 @@ try {
     Assert-Budget (((-not [bool]$replaySeq.ok) -and ([string]$replaySeq.error -ceq 'PLANNER_TURN_SEQUENCE_REPLAY') -and ($afterReplay -ceq $afterReplaySeq))) 'replayed sequence with fresh ids rejected without write'
     $wturn = Start-OrchestrationPlannerTurn -TaskId 'budget-001' -TurnId 'turn-009' -UserInputSignal 'evt-009' -UserInputSequence 3 -Actor 'coder' -ExpectedRevision $revT2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root -RepoRoot $repo
     Assert-Budget (((-not [bool]$wturn.ok) -and ([string]$wturn.error -ceq 'BUDGET_WIDEN_DENIED'))) 'untrusted worker planner-turn denied'
+    $beforeWturn = Get-FileBytesHash -Path $file11
+    $wturn2 = Start-OrchestrationPlannerTurn -TaskId 'budget-001' -TurnId 'turn-009' -UserInputSignal 'evt-009' -UserInputSequence 3 -Actor 'coder' -ExpectedRevision $revT2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root -RepoRoot $repo
+    $afterWturn = Get-FileBytesHash -Path $file11
+    Assert-Budget (((-not [bool]$wturn2.ok) -and ([string]$wturn2.error -ceq 'BUDGET_WIDEN_DENIED') -and ($beforeWturn -ceq $afterWturn))) 'worker planner-turn retry leaves bytes unchanged (S1)'
     $uturn = Start-OrchestrationPlannerTurn -TaskId 'budget-001' -TurnId 'turn-009' -UserInputSignal 'evt-009' -UserInputSequence 3 -Actor 'planner' -ExpectedRevision $revT2 -ActorIdentitySource 'unknown' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root -RepoRoot $repo
     Assert-Budget (((-not [bool]$uturn.ok) -and ([string]$uturn.error -ceq 'UNTRUSTED_IDENTITY'))) 'untrusted source planner-turn denied'
 

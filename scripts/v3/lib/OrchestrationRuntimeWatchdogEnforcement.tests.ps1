@@ -320,6 +320,33 @@ function Format-EnforceDiagField {
     try { return (Format-EnforceDiagToken $s) } catch { return '<err>' }
 }
 
+function Get-EnforceDiagPathHash {
+    <#
+    .SYNOPSIS
+        DIAG-117: SHA256 hex (lowercase) of an in-memory string (UTF8),
+        for path-representation diagnostics WITHOUT ever logging the raw
+        path (usernames may hide in temp paths). Deterministic for
+        empty/null input; never throws; diagnostic-only, never changes
+        any assertion, timing or cleanup.
+    #>
+    param([string]$Value)
+    try {
+        $v = [string]$Value
+        if ($null -eq $v) { $v = '' }
+        $bytes = [Text.Encoding]::UTF8.GetBytes($v)
+        $sha = $null
+        try {
+            $sha = [Security.Cryptography.SHA256]::Create()
+            $hash = $sha.ComputeHash($bytes)
+            $sb = New-Object System.Text.StringBuilder
+            foreach ($b in $hash) { [void]$sb.Append($b.ToString('x2')) }
+            return $sb.ToString()
+        }
+        finally { try { if ($null -ne $sha) { $sha.Dispose() } } catch { } }
+    }
+    catch { return '<err>' }
+}
+
 function Write-EnforceFixture {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Text)
     $parent = Split-Path -Parent $Path
@@ -1003,10 +1030,37 @@ try {
     $c7 = Start-EnforceChild -SleepSeconds 120
     $b7 = New-EnforceBudget -Steps 64 -Wall 30 -NoProg 25
     $r7 = Register-EnforceBound -TaskId 'wd-enf-7' -SessionId 'wd-enf-sess-7' -Child $c7 -Budget $b7 -StartedAt ((Get-Date).ToUniversalTime().AddSeconds(-31)) -FlagsPath $flagsEnforce -Repo $repo
+    try {
+        $__cap7 = ''
+        try { $__e7x = $script:WatchdogExecutions['wd-enf-7']; if (($null -ne $__e7x) -and ($__e7x -is [System.Collections.IDictionary]) -and $__e7x.Contains('process')) { $__pn7 = $__e7x['process']; if (($null -ne $__pn7) -and ($__pn7 -is [System.Collections.IDictionary]) -and $__pn7.Contains('process_path')) { $__cap7 = ([string]$__pn7['process_path']).Trim() } } } catch { $__cap7 = '' }
+        $__re7 = ''
+        try { $__re7 = ([string](Get-Process -Id ([int]$c7.Id) -ErrorAction Stop).Path).Trim() } catch { $__re7 = '' }
+        $__capLen7 = -1; try { $__capLen7 = ([string]$__cap7).Length } catch { $__capLen7 = -1 }
+        $__reLen7 = -1; try { $__reLen7 = ([string]$__re7).Length } catch { $__reLen7 = -1 }
+        $__capHash7 = '<err>'; try { $__capHash7 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $__cap7)) } catch { $__capHash7 = '<err>' }
+        $__reHash7 = '<err>'; try { $__reHash7 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $__re7)) } catch { $__reHash7 = '<err>' }
+        $__ordEq7 = $false; try { $__ordEq7 = ([string]$__cap7 -ceq [string]$__re7) } catch { $__ordEq7 = $false }
+        $__ciEq7 = $false; try { $__ciEq7 = ([string]$__cap7 -eq [string]$__re7) } catch { $__ciEq7 = $false }
+        $__r7err = '<err>'; try { $__r7err = (Format-EnforceDiagField 'error' $r7.error) } catch { $__r7err = '<err>' }
+        $__ticks7 = -1; try { $__ticks7 = [long](([DateTime]$c7.StartTime).ToUniversalTime().Ticks) } catch { $__ticks7 = -1 }
+        $__alive7 = $false; try { $__alive7 = (Test-EnforceAlive -Proc $c7) } catch { $__alive7 = $false }
+        $__hasEx7 = $false; try { $__hasEx7 = [bool]$c7.HasExited } catch { $__hasEx7 = $false }
+        Write-Host ('[DIAG-7] register r_ok=' + (Format-EnforceDiagToken ([bool]$r7.ok)) + '; r_err=' + $__r7err + '; cap_len=' + [string][int]$__capLen7 + '; re_len=' + [string][int]$__reLen7 + '; cap_sha=' + $__capHash7 + '; re_sha=' + $__reHash7 + '; ord_eq=' + (Format-EnforceDiagToken ([bool]$__ordEq7)) + '; ci_eq=' + (Format-EnforceDiagToken ([bool]$__ciEq7)) + '; cap_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($__cap7))) + '; re_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($__re7))) + '; child_pid=' + [string][int]$c7.Id + '; parent=' + [string][int]$PID + '; ticks=' + [string][long]$__ticks7 + '; alive=' + (Format-EnforceDiagToken ([bool]$__alive7)) + '; has_exited=' + (Format-EnforceDiagToken ([bool]$__hasEx7)) + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    }
+    catch { Write-Host '[DIAG-7] <diag-unavailable>' }
     Assert-Enforce ([bool]$r7.ok) 'settlement register bound' ''
     $e7 = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
     Assert-Enforce (([bool]$e7.interrupted) -and ([string]$e7.enforcement.settlement -ceq 'SETTLED')) 'interrupt settles SETTLED' ([string]$e7.enforcement.settlement)
     $s7 = Get-OrchestrationWatchdogSettlement -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+    try {
+        $__tele7 = ''
+        try { $__tele7 = ([string]$s7.telemetry_file).Trim() } catch { $__tele7 = '' }
+        $__teleEmpty7 = $true; try { $__teleEmpty7 = [string]::IsNullOrWhiteSpace($__tele7) } catch { $__teleEmpty7 = $true }
+        $__teleLen7 = -1; try { $__teleLen7 = ([string]$__tele7).Length } catch { $__teleLen7 = -1 }
+        $__teleHash7 = '<err>'; try { $__teleHash7 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $__tele7)) } catch { $__teleHash7 = '<err>' }
+        Write-Host ('[DIAG-7] settlement s_ok=' + (Format-EnforceDiagToken ([bool]$s7.ok)) + '; engaged=' + (Format-EnforceDiagToken ([bool]$s7.engaged)) + '; interrupted=' + (Format-EnforceDiagToken ([bool]$s7.interrupted)) + '; settlement=' + (Format-EnforceDiagField 'settlement' $s7.settlement) + '; class=' + (Format-EnforceDiagField 'classification' $s7.classification) + '; tele_empty=' + (Format-EnforceDiagToken ([bool]$__teleEmpty7)) + '; tele_len=' + [string][int]$__teleLen7 + '; tele_sha=' + $__teleHash7 + '; e_settlement=' + (Format-EnforceDiagField 'settlement' $e7.enforcement.settlement) + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    }
+    catch { Write-Host '[DIAG-7] <diag-unavailable>' }
     Assert-Enforce (([bool]$s7.ok) -and ([bool]$s7.engaged) -and ([bool]$s7.interrupted) -and ([string]$s7.settlement -ceq 'SETTLED') -and ([string]$s7.classification -ceq 'HARD_TIMEOUT')) 'settlement queryable post-interrupt' ([string]$s7.settlement + '/' + [string]$s7.classification)
     Assert-Enforce ((Test-Path -LiteralPath ([string]$s7.telemetry_file) -PathType Leaf)) 'settlement references an existing telemetry file' ''
     $e7b = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot -IncludeEnforcement
@@ -1184,6 +1238,31 @@ try {
     Assert-Enforce (($null -ne $liveStart12)) 'F1 live start time retrievable' ''
     $exactExec12 = @{ process = [ordered]@{ process_id = ([int]$c12.Id); process_path = $livePath12; parent_process_id = ([int]$PID); process_start_time = $liveStart12.ToString('o') } }
     $ownExact12 = Test-WatchdogProcessOwnership -Execution $exactExec12
+    try {
+        $__re12 = ''
+        try { $__re12 = ([string](Get-Process -Id ([int]$c12.Id) -ErrorAction Stop).Path).Trim() } catch { $__re12 = '' }
+        $__capLen12 = -1; try { $__capLen12 = ([string]$livePath12).Length } catch { $__capLen12 = -1 }
+        $__reLen12 = -1; try { $__reLen12 = ([string]$__re12).Length } catch { $__reLen12 = -1 }
+        $__capHash12 = '<err>'; try { $__capHash12 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $livePath12)) } catch { $__capHash12 = '<err>' }
+        $__reHash12 = '<err>'; try { $__reHash12 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $__re12)) } catch { $__reHash12 = '<err>' }
+        $__ordEq12 = $false; try { $__ordEq12 = ([string]$livePath12 -ceq [string]$__re12) } catch { $__ordEq12 = $false }
+        $__ciEq12 = $false; try { $__ciEq12 = ([string]$livePath12 -eq [string]$__re12) } catch { $__ciEq12 = $false }
+        $__dc12 = '[UNRECOGNIZED-TEXT]'
+        try {
+            $__draw12 = ''
+            try { $__draw12 = ([string]$ownExact12.detail).Trim() } catch { $__draw12 = '' }
+            if ($__draw12 -ceq 'path-mismatch') { $__dc12 = 'PATH-MISMATCH' }
+            elseif ($__draw12 -ceq 'path-unverifiable') { $__dc12 = 'PATH-UNVERIFIABLE' }
+            elseif ($__draw12 -ceq 'start-time-mismatch') { $__dc12 = 'START-TIME-MISMATCH' }
+            elseif ($__draw12 -ceq '') { $__dc12 = '<empty-detail>' }
+        }
+        catch { $__dc12 = '<err>' }
+        $__reason12 = '<err>'; try { $__reason12 = (Format-EnforceDiagField 'reason' $ownExact12.reason) } catch { $__reason12 = '<err>' }
+        $__ticks12 = -1; try { $__ticks12 = [long](([DateTime]$c12.StartTime).ToUniversalTime().Ticks) } catch { $__ticks12 = -1 }
+        $__alive12 = $false; try { $__alive12 = (Test-EnforceAlive -Proc $c12) } catch { $__alive12 = $false }
+        Write-Host ('[DIAG-F1] exact owned=' + (Format-EnforceDiagToken ([bool]$ownExact12.owned)) + '; reason=' + $__reason12 + '; detail_class=' + $__dc12 + '; cap_len=' + [string][int]$__capLen12 + '; re_len=' + [string][int]$__reLen12 + '; cap_sha=' + $__capHash12 + '; re_sha=' + $__reHash12 + '; ord_eq=' + (Format-EnforceDiagToken ([bool]$__ordEq12)) + '; ci_eq=' + (Format-EnforceDiagToken ([bool]$__ciEq12)) + '; cap_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($livePath12))) + '; re_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($__re12))) + '; child_pid=' + [string][int]$c12.Id + '; parent=' + [string][int]$PID + '; ticks=' + [string][long]$__ticks12 + '; alive=' + (Format-EnforceDiagToken ([bool]$__alive12)) + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    }
+    catch { Write-Host '[DIAG-F1] <diag-unavailable>' }
     Assert-Enforce ([bool]$ownExact12.owned) 'F1 exact creation time => owned' ([string]$ownExact12.reason + '/' + [string]$ownExact12.detail)
     foreach ($skewSec in @(1, 6)) {
         $skewIso12 = ''
@@ -1198,6 +1277,23 @@ try {
     $script:LastEnforceReadinessResult = $null
     $r12 = Register-EnforceBound -TaskId 'wd-fix1-once' -SessionId 'wd-fix1-sess-once' -Child $c12b -Budget $b12 -StartedAt ((Get-Date).ToUniversalTime().AddSeconds(-31)) -FlagsPath $flagsEnforce -Repo $repo
     $script:CaptureEnforceReadinessDiagnostic = $false
+    try {
+        $__capB12 = ''
+        try { $__exB12 = $script:WatchdogExecutions['wd-fix1-once']; if (($null -ne $__exB12) -and ($__exB12 -is [System.Collections.IDictionary]) -and $__exB12.Contains('process')) { $__pnB12 = $__exB12['process']; if (($null -ne $__pnB12) -and ($__pnB12 -is [System.Collections.IDictionary]) -and $__pnB12.Contains('process_path')) { $__capB12 = ([string]$__pnB12['process_path']).Trim() } } } catch { $__capB12 = '' }
+        $__reB12 = ''
+        try { $__reB12 = ([string](Get-Process -Id ([int]$c12b.Id) -ErrorAction Stop).Path).Trim() } catch { $__reB12 = '' }
+        $__capLenB12 = -1; try { $__capLenB12 = ([string]$__capB12).Length } catch { $__capLenB12 = -1 }
+        $__reLenB12 = -1; try { $__reLenB12 = ([string]$__reB12).Length } catch { $__reLenB12 = -1 }
+        $__capHashB12 = '<err>'; try { $__capHashB12 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $__capB12)) } catch { $__capHashB12 = '<err>' }
+        $__reHashB12 = '<err>'; try { $__reHashB12 = (Format-EnforceDiagToken (Get-EnforceDiagPathHash $__reB12)) } catch { $__reHashB12 = '<err>' }
+        $__ordEqB12 = $false; try { $__ordEqB12 = ([string]$__capB12 -ceq [string]$__reB12) } catch { $__ordEqB12 = $false }
+        $__ciEqB12 = $false; try { $__ciEqB12 = ([string]$__capB12 -eq [string]$__reB12) } catch { $__ciEqB12 = $false }
+        $__r12err = '<err>'; try { $__r12err = (Format-EnforceDiagField 'error' $r12.error) } catch { $__r12err = '<err>' }
+        $__ticksB12 = -1; try { $__ticksB12 = [long](([DateTime]$c12b.StartTime).ToUniversalTime().Ticks) } catch { $__ticksB12 = -1 }
+        $__aliveB12 = $false; try { $__aliveB12 = (Test-EnforceAlive -Proc $c12b) } catch { $__aliveB12 = $false }
+        Write-Host ('[DIAG-F1] register r_ok=' + (Format-EnforceDiagToken ([bool]$r12.ok)) + '; r_err=' + $__r12err + '; readiness=' + (Format-EnforceDiagToken $script:LastEnforceReadinessResult) + '; cap_len=' + [string][int]$__capLenB12 + '; re_len=' + [string][int]$__reLenB12 + '; cap_sha=' + $__capHashB12 + '; re_sha=' + $__reHashB12 + '; ord_eq=' + (Format-EnforceDiagToken ([bool]$__ordEqB12)) + '; ci_eq=' + (Format-EnforceDiagToken ([bool]$__ciEqB12)) + '; cap_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($__capB12))) + '; re_empty=' + (Format-EnforceDiagToken ([string]::IsNullOrWhiteSpace($__reB12))) + '; child_pid=' + [string][int]$c12b.Id + '; parent=' + [string][int]$PID + '; ticks=' + [string][long]$__ticksB12 + '; alive=' + (Format-EnforceDiagToken ([bool]$__aliveB12)) + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    }
+    catch { Write-Host '[DIAG-F1] <diag-unavailable>' }
     if (-not [bool]$r12.ok) {
         $__d = 'ok=' + (Format-EnforceDiagToken [bool]$r12.ok)
         foreach ($__k in @('error', 'unbound', 'advisory', 'detail')) {
