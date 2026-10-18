@@ -945,6 +945,16 @@ try {
     $r2 = Register-EnforceBound -TaskId 'wd-enf-2' -SessionId 'wd-enf-sess-2' -Child $c2 -Budget $b2 -StartedAt $t2now -FlagsPath $flagsEnforce -Repo $repo
     Assert-Enforce ([bool]$r2.ok) 'no-progress register bound' ''
     $e2 = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-2' -AtUtc ($t2now.AddSeconds(3)) -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+    try {
+        $__di2err = '<err>'; try { $__di2err = (Format-EnforceDiagField 'error' $e2.error) } catch { $__di2err = '<err>' }
+        $__di2rs = '<err>'; try { $__di2rs = (Format-EnforceDiagField 'reason' $e2.enforcement.reason) } catch { $__di2rs = '<err>' }
+        $__di2st = '<err>'; try { $__di2st = (Format-EnforceDiagField 'settlement' $e2.enforcement.settlement) } catch { $__di2st = '<err>' }
+        $__di2cl = '<err>'; try { $__di2cl = (Format-EnforceDiagField 'classification' $e2.classification) } catch { $__di2cl = '<err>' }
+        $__di2ok = '<err>'; try { $__di2ok = (Format-EnforceDiagToken ([bool]$e2.ok)) } catch { $__di2ok = '<err>' }
+        $__di2in = '<err>'; try { $__di2in = (Format-EnforceDiagToken ([bool]$e2.interrupted)) } catch { $__di2in = '<err>' }
+        $__di2al = '<err>'; try { $__di2al = (Format-EnforceDiagToken (Test-EnforceAlive -Proc $c2)) } catch { $__di2al = '<err>' }
+        Write-Host ('[DIAG-2] eval ok=' + $__di2ok + '; class=' + $__di2cl + '; interrupted=' + $__di2in + '; error=' + $__di2err + '; reason=' + $__di2rs + '; settlement=' + $__di2st + '; child_alive=' + $__di2al)
+    } catch { Write-Host '[DIAG-2] <diag-unavailable>' }
     Assert-Enforce (([bool]$e2.ok) -and ([string]$e2.classification -ceq 'NO_PROGRESS') -and ([bool]$e2.interrupted)) 'silent worker NO_PROGRESS interrupted' ([string]$e2.classification)
     Assert-Enforce ((Wait-EnforceExit -Proc $c2 -TimeoutMs 8000) -and (-not (Test-EnforceAlive -Proc $c2))) 'no-progress child exited after interrupt' ''
     $sw2.Stop()
@@ -3407,6 +3417,12 @@ Start-Sleep -Milliseconds 400
 }
 catch {
     Write-Host ("[FAIL] unexpected error: {0}" -f $_)
+    try {
+        $__diExType = '<err>'; try { $__diExType = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diExType = '<err>' }
+        $__diFqei = '<err>'; try { $__diFqei = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diFqei = '<err>' }
+        $__diLoc = '<err>'; try { $__diSt = ([string]$_.ScriptStackTrace); $__diM = [regex]::Match($__diSt, '([^\\/:]+):line\s+(\d+)'); if ([bool]$__diM.Success) { $__diLoc = (Format-EnforceDiagToken ([string]$__diM.Groups[1].Value)) + ':line ' + [string][int]$__diM.Groups[2].Value } else { $__diLoc = '<no-loc>' } } catch { $__diLoc = '<err>' }
+        Write-Host ('[DIAG-UNEXPECTED] ex_type=' + $__diExType + '; fqei=' + $__diFqei + '; loc=' + $__diLoc + '; pass=' + [string][int]$script:passed + '; fail=' + [string][int]$script:failed + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    } catch { Write-Host '[DIAG-UNEXPECTED] <diag-unavailable>' }
     $script:failed++
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)
     exit 1
