@@ -2816,6 +2816,20 @@ function Set-OrchestrationTaskWatchdogInterrupt {
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
+        try {
+            $closeCheck = $null
+            try { $closeCheck = $rec['watchdog_interrupt'] } catch { $closeCheck = $null }
+            if (($null -ne $closeCheck) -and ($closeCheck -is [System.Collections.IDictionary])) {
+                $cEng = (($null -ne $closeCheck['engaged']) -and ($closeCheck['engaged'] -is [bool]) -and [bool]$closeCheck['engaged'])
+                $cSet = (($null -ne $closeCheck['settled']) -and ($closeCheck['settled'] -is [bool]) -and [bool]$closeCheck['settled'])
+                $cDisp = ''
+                try { if ($null -ne $closeCheck['settled_disposition']) { $cDisp = ([string]$closeCheck['settled_disposition']).Trim().ToLowerInvariant() } } catch { $cDisp = '' }
+                if (([bool]$cEng) -and ([bool]$cSet) -and ($cDisp -ceq 'close')) {
+                    return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog settlement closed without retry; no further interrupts' })
+                }
+            }
+        }
+        catch { }
         if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
             return (New-TaskKernelError -Code 'WATCHDOG_ALREADY_ENGAGED')
         }
@@ -2850,8 +2864,14 @@ function Confirm-OrchestrationTaskWatchdogSettlement {
     .SYNOPSIS
         Confirms post-interrupt settlement (Phase 26 seam): flips a
         pending watchdog_interrupt mark to settled=$true so release/
-        complete may proceed. Idempotent: repeats and confirms on a
-        never-engaged record succeed without mutation. Planner/build +
+        complete may proceed. -Disposition RETRY (default) settles as
+        retryable: any later attempt still passes the ATTEMPT_GATE
+        (hypothesis/new-evidence). CLOSE settles as terminal-without-
+        retry: Start-OrchestrationTaskAttempt then rejects every later
+        attempt with WATCHDOG_CLOSED_NO_RETRY, so the task can only be
+        released/completed, never retried. Idempotent: repeats and
+        confirms on a never-engaged record succeed without mutation
+        (repeats report the stored disposition). Planner/build +
         trusted identity + CAS + lock. Never throws.
     #>
     [CmdletBinding()]
@@ -2860,6 +2880,7 @@ function Confirm-OrchestrationTaskWatchdogSettlement {
         [Parameter(Mandatory = $true)][string]$Actor,
         [Parameter(Mandatory = $true)][int]$ExpectedRevision,
         [string]$ActorIdentitySource = 'unknown',
+        [string]$Disposition = 'RETRY',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
@@ -2869,6 +2890,11 @@ function Confirm-OrchestrationTaskWatchdogSettlement {
         $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
         if (-not [bool]$flags.enabled) {
             return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $disp = ([string]$Disposition).Trim().ToUpperInvariant()
+        if ([string]::IsNullOrWhiteSpace($disp)) { $disp = 'RETRY' }
+        if (($disp -cne 'RETRY') -and ($disp -cne 'CLOSE')) {
+            return (New-TaskKernelError -Code 'INVALID_WATCHDOG_DISPOSITION')
         }
         $actor = ([string]$Actor).Trim()
         if ([string]::IsNullOrWhiteSpace($actor)) {
@@ -2905,7 +2931,16 @@ function Confirm-OrchestrationTaskWatchdogSettlement {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
         if (Test-TaskKernelWatchdogSettlementClear -Record $rec) {
-            return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); watchdog_settled = $true; noop = $true }
+            $noopDisp = 'retry'
+            try {
+                $noopNode = $rec['watchdog_interrupt']
+                if (($null -ne $noopNode) -and ($noopNode -is [System.Collections.IDictionary]) -and ($null -ne $noopNode['settled_disposition'])) {
+                    $noopRaw = ([string]$noopNode['settled_disposition']).Trim().ToLowerInvariant()
+                    if ($noopRaw -ceq 'close') { $noopDisp = 'close' }
+                }
+            }
+            catch { $noopDisp = 'retry' }
+            return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = ([int]$rec['revision']); watchdog_settled = $true; noop = $true; disposition = $noopDisp }
         }
         $node = $rec['watchdog_interrupt']
         if (($null -eq $node) -or (-not ($node -is [System.Collections.IDictionary]))) {
@@ -2913,6 +2948,7 @@ function Confirm-OrchestrationTaskWatchdogSettlement {
         }
         $node['settled'] = $true
         $node['settled_at'] = (Get-TaskKernelTimestamp)
+        $node['settled_disposition'] = ($disp.ToLowerInvariant())
         $newRev = ([int]$rec['revision'] + 1)
         $rec['revision'] = $newRev
         $rec['updated_at'] = (Get-TaskKernelTimestamp)
@@ -2920,7 +2956,7 @@ function Confirm-OrchestrationTaskWatchdogSettlement {
         if (-not [bool]$wr.ok) {
             return (New-TaskKernelError -Code ([string]$wr.error))
         }
-        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; watchdog_settled = $true }
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; watchdog_settled = $true; disposition = ($disp.ToLowerInvariant()) }
         }
         finally {
             Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
@@ -3665,6 +3701,57 @@ function Start-OrchestrationTaskAttempt {
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
         }
+        # S5 CLOSE: a settlement confirmed with disposition CLOSE ends
+        # the task without retry. Any later attempt start is rejected
+        # here, before idempotency and before the ATTEMPT_GATE, so the
+        # task can only be released/completed afterwards. RETRY
+        # settlements (and records predating dispositions) flow through
+        # unchanged. Fail-closed: a present-but-malformed node (non-dict,
+        # missing/non-bool engaged/settled, inspection exception) blocks
+        # with WATCHDOG_CLOSED_NO_RETRY instead of reading as not-closed.
+        # Absent/null-free record (no watchdog_interrupt key) allows.
+        # Never throws.
+        try {
+            $hasWdKey = $false
+            try { $hasWdKey = $rec.Contains('watchdog_interrupt') } catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: key inspection failed' }) }
+            if ([bool]$hasWdKey) {
+                $closeNode = $null
+                try { $closeNode = $rec['watchdog_interrupt'] } catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: node inspection failed' }) }
+                if ($null -eq $closeNode) {
+                    return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: malformed node' })
+                }
+                    if (-not ($closeNode -is [System.Collections.IDictionary])) {
+                        return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: malformed node' })
+                    }
+                    $hasEng = $false
+                    $hasSet = $false
+                    try { $hasEng = $closeNode.Contains('engaged') } catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: engaged inspection failed' }) }
+                    try { $hasSet = $closeNode.Contains('settled') } catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: settled inspection failed' }) }
+                    if ((-not [bool]$hasEng) -or (-not [bool]$hasSet)) {
+                        return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: malformed node' })
+                    }
+                    $rawEng = $null
+                    $rawSet = $null
+                    try { $rawEng = $closeNode['engaged'] } catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: engaged read failed' }) }
+                    try { $rawSet = $closeNode['settled'] } catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: settled read failed' }) }
+                    if ((-not ($rawEng -is [bool])) -or (-not ($rawSet -is [bool]))) {
+                        return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: malformed flags' })
+                    }
+                    $closeEngaged = [bool]$rawEng
+                    $closeSettled = [bool]$rawSet
+                    $closeDisp = ''
+                    try {
+                        if ($null -ne $closeNode['settled_disposition']) {
+                            $closeDisp = ([string]$closeNode['settled_disposition']).Trim().ToLowerInvariant()
+                        }
+                    }
+                    catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed: disposition read failed' }) }
+                    if (([bool]$closeEngaged) -and ([bool]$closeSettled) -and ($closeDisp -ceq 'close')) {
+                        return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog settlement closed without retry; no further attempts' })
+                    }
+            }
+        }
+        catch { return (New-TaskKernelError -Code 'WATCHDOG_CLOSED_NO_RETRY' -Extra @{ detail = 'watchdog close gate fail-closed' }) }
         $pp = $BudgetPolicyPath
         if ([string]::IsNullOrWhiteSpace($pp)) { $pp = Get-ExecutionBudgetDefaultPolicyPath -RepoRoot $RepoRoot }
         if (-not (Test-ExecutionBudgetPolicyFull -Path $pp)) {
