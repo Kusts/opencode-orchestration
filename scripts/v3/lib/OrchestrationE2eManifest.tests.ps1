@@ -583,6 +583,48 @@ try {
     Assert-That ($rows['RR-E2E-41'].status -eq 'pass-synthetic') 'scenario 41 passes as its own synthetic row'
     Assert-That ($rows['RR-E2E-41'].detail -match 'not-proven') 'the synthetic row reports a refusal, not a real deny'
 
+    # ---------- S2 scope-mismatch refusal (P1-06-S2) ----------
+    # Contract note: Find-ReusableOrchestrationEvidence binds reuse by
+    # Scope subset only; it exposes no by-id fetch and no task-id bind
+    # beyond scope. This block therefore claims scope-mismatch refusal
+    # only -- it does NOT prove a forged-citation (task-B cites id of
+    # task-A) refusal, which the production contract does not enforce.
+    # The record below mirrors Invoke-E2eCheckEvidenceReuse (same
+    # conditions, same fixed instants), so the refusal is that same
+    # scope bind and not a new rule.
+    . (Join-Path $RepoRoot 'scripts/v3/lib/OrchestrationEvidenceStore.ps1')
+    $s2reuseCtx = @{ Work = (Join-Path $tempRoot 's2-reuse'); RepoRoot = $RepoRoot }
+    $s2reuseBase = Invoke-E2eScenarioCheck -Check 'evidence-reuse' -Context $s2reuseCtx
+    Assert-That ([bool]$s2reuseBase.ok) ('S2 base evidence-reuse invariant holds: ' + [string]$s2reuseBase.detail)
+    $s2store = Join-Path $tempRoot 's2-bind'
+    $s2fp = 'fp-' + (Get-E2eManifestHash 's2-cross-task-bind')
+    $s2evidence = @{
+        task_id               = 'S2-TASK-A'
+        run_id                = 's2-run-a'
+        worker_id             = 'coder'
+        base_revision         = 'base-s2'
+        source_fingerprints   = @{ 'lib/Sample.ps1' = $s2fp }
+        scope                 = @('s2-scope-a')
+        command               = 'pwsh -NoProfile synthetic.ps1'
+        environment           = @{ runtime = 'pwsh'; version = 'synthetic' }
+        result                = @{ summary = 'synthetic evidence for task A'; raw_ref = 'raw/s2-a.txt' }
+        created_at            = '2026-01-02T03:04:05Z'
+        provenance            = @{ created_by = 'coder'; kernel_task_ref = 'S2-TASK-A' }
+        invalidation_conditions = @(@{ type = 'source-changed'; paths = @('lib/Sample.ps1') })
+    }
+    $s2created = New-OrchestrationEvidenceRecord -Evidence $s2evidence -StoreDir $s2store
+    Assert-That ([bool]$s2created.created) ('S2 task-A record created in an isolated store: ' + [string]$s2created.reason)
+    $s2id = [string]$s2created.record.evidence_id
+    $s2own = Find-ReusableOrchestrationEvidence -StoreDir $s2store -Scope @('s2-scope-a') `
+        -CurrentSourceFingerprints @{ 'lib/Sample.ps1' = $s2fp } -CurrentBaseRevision 'base-s2' `
+        -CurrentCriteriaHash '' -CurrentEnv @{ runtime = 'pwsh'; version = 'synthetic' } -Now '2026-01-02T03:09:05Z'
+    Assert-That ((@($s2own).Count -eq 1) -and ([string]@($s2own)[0].evidence_id -ceq $s2id)) 'S2 own-scope query reuses the valid evidence id (positive control)'
+    $s2other = Find-ReusableOrchestrationEvidence -StoreDir $s2store -Scope @('s2-scope-b') `
+        -CurrentSourceFingerprints @{ 'lib/Sample.ps1' = $s2fp } -CurrentBaseRevision 'base-s2' `
+        -CurrentCriteriaHash '' -CurrentEnv @{ runtime = 'pwsh'; version = 'synthetic' } -Now '2026-01-02T03:09:05Z'
+    Assert-That ((@($s2other).Count -eq 0)) 'S2 foreign-scope query returns no reusable evidence (scope-mismatch refusal)'
+    Assert-That ((@(@($s2other) | Where-Object { [string]$_.evidence_id -ceq $s2id }).Count -eq 0)) 'S2 valid id is absent from the foreign-scope result set (scope-mismatch consequence, not an independent by-id bind)'
+
     $demoted = New-FixtureManifest 'demote39.json' { param($d) $d.scenarios[38].classification = 'runnable-synthetic' }
     $demotedDoc = Get-OrchestrationE2eManifest -ManifestPath $demoted -RepoRoot $RepoRoot
     Assert-That ($demotedDoc.status -eq 'invalid' -and $demotedDoc.reason -like 'runnable-without-check*') 'promoting the real V2 deny to offline-decidable without a check is rejected'
