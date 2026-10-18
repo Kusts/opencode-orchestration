@@ -1199,7 +1199,7 @@ function Write-WatchdogTelemetryEvent {
         [switch]$Enforce
     )
     try {
-        $allowed = @('STALL_SUSPECTED', 'WATCHDOG_WOULD_INTERRUPT', 'BUDGET_NEAR_LIMIT', 'NO_PROGRESS_SUSPECTED', 'REPEATED_ACTION_SUSPECTED', 'WATCHDOG_INTERRUPTED', 'WATCHDOG_INTERRUPT_FAILED', 'WATCHDOG_INTERRUPT_REFUSED', 'WATCHDOG_SETTLED', 'WATCHDOG_NO_PROCESS_IDENTITY')
+        $allowed = @('STALL_SUSPECTED', 'WATCHDOG_WOULD_INTERRUPT', 'BUDGET_NEAR_LIMIT', 'NO_PROGRESS_SUSPECTED', 'REPEATED_ACTION_SUSPECTED', 'WATCHDOG_INTERRUPTED', 'WATCHDOG_INTERRUPT_FAILED', 'WATCHDOG_INTERRUPT_REFUSED', 'WATCHDOG_SETTLED', 'WATCHDOG_NO_PROCESS_IDENTITY', 'WATCHDOG_STEER_ADVISORY')
         if ($allowed -cnotcontains ([string]$EventName).Trim().ToUpperInvariant()) {
             return [PSCustomObject]@{ ok = $false; skipped = 'bad-event' }
         }
@@ -1345,6 +1345,25 @@ function Test-WatchdogFaultInject {
         $v = ([string]$Value).Trim()
         if ([string]::IsNullOrWhiteSpace($v)) { return $true }
         return (@('stop_failure', 'cim_failure', 'query_failure', 'tree_enum_failure') -ccontains $v)
+    }
+    catch { return $false }
+}
+
+function Test-WatchdogInterruptMode {
+    <#
+    .SYNOPSIS
+        Closed-set validator for the interrupt mode seam. '' (absent, the
+        production default) and 'KILL' both mean the bounded kill path;
+        'STEER' means advisory-only (record who/when/reason, never kill,
+        never auto-retry). Unknown non-empty tokens are invalid. Case
+        insensitive. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Value)
+    try {
+        $v = ([string]$Value).Trim().ToUpperInvariant()
+        if ([string]::IsNullOrWhiteSpace($v)) { return $true }
+        return (($v -ceq 'KILL') -or ($v -ceq 'STEER'))
     }
     catch { return $false }
 }
@@ -3033,6 +3052,11 @@ function Invoke-WatchdogProcessInterrupt {
         its content). Refusals and failures are structured results,
         never exceptions, never retry loops. -FaultInject is a
         test-only seam (closed set, default absent).
+        -InterruptMode KILL (default, the bounded kill path above) |
+        STEER (opt-in advisory recorded BEFORE any ownership check or
+        kill: who/when/reason in the enforcement record plus a
+        WATCHDOG_STEER_ADVISORY telemetry event; never kills, never
+        auto-retries; terminal stickiness still wins first).
         RR-P26-JOB-WIRING (normal path only; the gone path keeps the
         CIM-only shape because there is no live root to attach): after
         the identity/ownership gates pass and BEFORE the tree snapshot,
@@ -3093,12 +3117,18 @@ function Invoke-WatchdogProcessInterrupt {
         [int]$Steps = 0,
         [string]$TelemetryRoot = '',
         [string]$RepoRoot = '',
-        [string]$FaultInject = ''
+        [string]$FaultInject = '',
+        [string]$InterruptMode = '',
+        [string]$SteerReason = '',
+        [string]$RequestedBy = ''
     )
     try {
         $fi = ([string]$FaultInject).Trim()
         if (-not (Test-WatchdogFaultInject -Value $fi)) {
             return (New-WatchdogError -Code 'INVALID_FAULT_INJECT')
+        }
+        if (-not (Test-WatchdogInterruptMode -Value $InterruptMode)) {
+            return (New-WatchdogError -Code 'INVALID_INTERRUPT_MODE')
         }
         $tid = ([string]$TaskId).Trim()
         $cls = ([string]$Classification).Trim().ToUpperInvariant()
@@ -3107,6 +3137,33 @@ function Invoke-WatchdogProcessInterrupt {
         $teleFile = Get-WatchdogTelemetryFile -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot
         $terminal = Get-WatchdogStoredTerminalResult -Execution $Execution -TaskId $tid -AttemptN $attemptN -ElapsedSeconds ([int]$ElapsedSeconds) -Steps ([int]$Steps)
         if ($null -ne $terminal) { return $terminal }
+        $mode = ([string]$InterruptMode).Trim().ToUpperInvariant()
+        if ([string]::IsNullOrWhiteSpace($mode)) { $mode = 'KILL' }
+        if ($mode -ceq 'STEER') {
+            # S5 STEER (opt-in advisory): record who/when/reason BEFORE any
+            # ownership check or kill. Never kills, never auto-retries: the
+            # execution keeps running and the caller decides the next step.
+            $sReason = ([string]$SteerReason).Trim()
+            if ($sReason.Length -gt 256) { $sReason = $sReason.Substring(0, 256) }
+            $sWho = ([string]$RequestedBy).Trim()
+            if ([string]::IsNullOrWhiteSpace($sWho)) { $sWho = 'unknown' }
+            if ($sWho.Length -gt 64) { $sWho = $sWho.Substring(0, 64) }
+            $wSteer = Write-WatchdogTelemetryEvent -EventName 'WATCHDOG_STEER_ADVISORY' -TaskId $tid -AttemptN $attemptN -Class $cls -WouldInterrupt $true -Steps ([int]$Steps) -ElapsedSeconds ([int]$ElapsedSeconds) -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -Enforce
+            $settleSteer = [ordered]@{
+                engaged = $true; interrupted = $false; advisory = $true; settlement = 'STEER_ADVISORY'
+                classification = $cls; telemetry_file = $teleFile; telemetry_written = [bool]$wSteer.ok
+                steer_reason = $sReason; steer_requested_by = $sWho
+                steer_at = ([DateTimeOffset]::UtcNow.ToString('o'))
+            }
+            try { $Execution['enforcement'] = $settleSteer } catch { }
+            return [PSCustomObject]@{
+                ok = $true; task_id = $tid; attempt_n = $attemptN; enforced = $true
+                classification = $cls; interrupted = $false; advisory = $true; settlement = 'STEER_ADVISORY'
+                elapsed_s = ([int]$ElapsedSeconds); steps = ([int]$Steps)
+                telemetry_file = $teleFile; telemetry_written = [bool]$wSteer.ok
+                reason = 'WATCHDOG_STEER_ADVISORY'
+            }
+        }
         $pidWant = 0
         try { $pidWant = [int]$Execution['process']['process_id'] } catch { $pidWant = 0 }
         $own = Test-WatchdogProcessOwnership -Execution $Execution -FaultInject $fi
@@ -3556,7 +3613,9 @@ function Invoke-WatchdogEnforcement {
         keeps the advisory result). With an interrupting class and a
         bound process it runs the safe interrupt; without a bound
         process it stays advisory-only (WATCHDOG_NO_PROCESS_IDENTITY
-        telemetry + reason, nothing killed). Never throws.
+        telemetry + reason, nothing killed). -InterruptMode STEER
+        bypasses the kill path entirely (opt-in advisory, kill
+        unchanged by default). Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -3564,13 +3623,19 @@ function Invoke-WatchdogEnforcement {
         $Execution,
         $Eval,
         [string]$TelemetryRoot = '',
-        [string]$RepoRoot = ''
+        [string]$RepoRoot = '',
+        [string]$InterruptMode = '',
+        [string]$SteerReason = '',
+        [string]$RequestedBy = ''
     )
     try {
         if ($null -eq $Eval) { return $null }
         $would = $false
         try { $would = [bool]$Eval.would_interrupt } catch { $would = $false }
         if (-not $would) { return $null }
+        if (-not (Test-WatchdogInterruptMode -Value $InterruptMode)) {
+            return (New-WatchdogError -Code 'INVALID_INTERRUPT_MODE')
+        }
         $tid = ([string]$TaskId).Trim()
         $cls = ''
         try { $cls = ([string]$Eval.classification).Trim().ToUpperInvariant() } catch { $cls = '' }
@@ -3582,6 +3647,10 @@ function Invoke-WatchdogEnforcement {
         try { $steps = [int]$Eval.steps } catch { $steps = 0 }
         $stored = Get-WatchdogStoredTerminalResult -Execution $Execution -TaskId $tid -AttemptN $attemptN -ElapsedSeconds $elapsed -Steps $steps
         if ($null -ne $stored) { return $stored }
+        $dispMode = ([string]$InterruptMode).Trim().ToUpperInvariant()
+        if ($dispMode -ceq 'STEER') {
+            return (Invoke-WatchdogProcessInterrupt -TaskId $tid -Execution $Execution -Classification $cls -ElapsedSeconds $elapsed -Steps $steps -TelemetryRoot $TelemetryRoot -RepoRoot $RepoRoot -InterruptMode 'STEER' -SteerReason $SteerReason -RequestedBy $RequestedBy)
+        }
         $hasProc = $false
         try {
             $pn = $Execution['process']

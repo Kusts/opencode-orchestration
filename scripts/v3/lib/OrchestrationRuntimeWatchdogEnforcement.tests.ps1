@@ -1444,7 +1444,22 @@ try {
     }
     Assert-Enforce $__f1ok 'F1 child exited externally' ''
     $script:WatchdogLiveQueryCount = 0
-    $staleStop12 = Stop-WatchdogVerifiedProcess -ProcessId ([int]$c12c.Id) -ProcessInstance $own12c.process
+    $staleStop12 = $null
+    try { $staleStop12 = Stop-WatchdogVerifiedProcess -ProcessId ([int]$c12c.Id) -ProcessInstance $own12c.process }
+    catch {
+        try {
+            $__di118t = '<err>'; try { $__di118t = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__di118t = '<err>' }
+            $__di118f = '<err>'; try { $__di118f = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__di118f = '<err>' }
+            Write-Host ('[DIAG-118] stale-stop threw ex_type=' + $__di118t + '; fqei=' + $__di118f)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
+        throw
+    }
+    try {
+        $__di118ok = '<err>'; try { $__di118ok = (Format-EnforceDiagToken ([bool]$staleStop12.ok)) } catch { $__di118ok = '<err>' }
+        $__di118ae = '<err>'; try { $__di118ae = (Format-EnforceDiagToken ([bool]$staleStop12.already_exited)) } catch { $__di118ae = '<err>' }
+        $__di118er = '<err>'; try { $__di118er = (Format-EnforceDiagField 'error' $staleStop12.error) } catch { $__di118er = '<err>' }
+        Write-Host ('[DIAG-118] stale-stop ok=' + $__di118ok + '; already_exited=' + $__di118ae + '; error=' + $__di118er)
+    } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
     Assert-Enforce (([bool]$staleStop12.ok) -and ([bool]$staleStop12.already_exited)) 'F1 stale verified instance => ALREADY_EXITED, no PID re-kill' ''
     Assert-Enforce (([int]$script:WatchdogLiveQueryCount -eq 0)) 'F-A stale fixed instance settles with zero new PID resolutions' ('queries=' + [string][int]$script:WatchdogLiveQueryCount)
     try { $own12c.process.Dispose() } catch { }
@@ -2997,6 +3012,11 @@ Start-Sleep -Seconds 120
         $shapeAttach43 = Get-EnforceSettlementShape -Exec $exec43
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job43 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB43 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -3067,6 +3087,11 @@ Start-Sleep -Seconds 120
         }
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job44 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB44 scenario ran without unexpected error' ([string]$_)
     }
     $sw44.Stop()
@@ -3158,6 +3183,11 @@ Start-Sleep -Seconds 120
         Assert-Enforce ($shapeNeg46 -ceq $shapeAttach43) 'JOB46 negative: stable settlement core identical to the positive one (job_* evidence + volatile CIM/telemetry observations excluded)' ('pos=' + $shapeAttach43 + ' neg=' + $shapeNeg46)
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job46 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB46 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -3263,6 +3293,11 @@ Start-Sleep -Seconds 120
         Assert-Enforce $gone47 'JOB47 cleanup: sobrevivente encerrado pelo handle do job de teste' ('late=' + [string][int]$latePid47)
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job47 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB47 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -3363,6 +3398,11 @@ Start-Sleep -Milliseconds 400
         Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) 'JOB48 sentinel nao relacionado intacto' ''
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job48 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB48 scenario ran without unexpected error' ([string]$_)
     }
     finally {
