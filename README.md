@@ -102,22 +102,30 @@ tokens `{{MODEL_PLANNER}}`, `{{MODEL_CHEAP}}`, `{{MODEL_STRONG}}`
 ```powershell
 powershell -NoProfile -File scripts\test-package-consistency.ps1
 powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+powershell -NoProfile -File tests\distribution\run-distribution-tests.ps1
 ```
 
 O primeiro checa consistência interna do pacote (16 checks, exit 0/1 —
 incluindo shape/paridade dos templates V1 e V2 e integridade do bundle do
 plugin); o segundo roda as suítes `*.tests.ps1` de `scripts/v3/` e
-`scripts/runtime/`. Validações de distribuição (fresh-install,
-idempotência, rollback, uninstall, runtime V1/V2, perfis isolados — 13
-suítes) vivem em `tests/distribution/`. O CI ainda roda um smoke com
-OpenCode V1 real 1.18.34 num home isolado (`opencode debug
-config/agent/skill`); lanes de CI para V2/dual-perfil são pendentes
-(Phase 8 do plano V3.1).
+`scripts/runtime/`; o terceiro roda as validações de distribuição
+(fresh-install, idempotência, rollback, uninstall, runtime V1/V2, perfis
+isolados — 13 suítes) de `tests/distribution/`. Gate vigente = lane V2
+real; o smoke com OpenCode V1 real 1.18.34 num home isolado (`opencode
+debug config/agent/skill`) é legado (linha V1 frozen desde a issue #62 —
+só regressão/manutenção de perfis existentes, sem certificação de features
+novas).
 
 Condição conhecida: se o `opencode.json` vivo da máquina divergiu do
 baseline canônico do control plane, 4 suítes V3 falham no invariante de
 origem (hash prefixo `DE22307F`) — não é regressão do pacote; ver
 [TROUBLESHOOTING](docs/TROUBLESHOOTING.md).
+
+Esperas externas de CI e interrupções do watchdog seguem contratos
+fechados (sem daemon, sem auto-avanço): ver
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (caller de resume GitHub
+P0-05 e STEER advisory opt-in + CLOSE-vs-RETRY fail-closed S5) — o
+contrato vive lá, sem duplicação aqui.
 
 ## Atualizar
 

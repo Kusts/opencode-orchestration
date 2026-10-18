@@ -108,6 +108,17 @@ Idempotente: rodar duas vezes não duplica nem quebra (`SKIP` no que está
 inalterado). Ownership-aware: o merge só toca caminhos do pacote; o que é
 seu permanece. Para trocar modelos, edite `models.jsonc` e reinstale.
 
+## Validar
+
+```powershell
+powershell -NoProfile -File scripts\test-package-consistency.ps1
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+powershell -NoProfile -File tests\distribution\run-distribution-tests.ps1
+```
+
+Os 3 comandos canônicos do `AGENTS.md` ("Validação"); `pwsh` recente
+também serve.
+
 ## Uninstall
 
 ```powershell
@@ -136,7 +147,7 @@ manifest. Perfis criados por `-Runtime Both` são removidos um a um
 ## Formato de config (json/jsonc)
 
 O instalador respeita `opencode.json` **e** `opencode.jsonc`, com a mesma
-precedência do runtime OpenCode V1:
+precedência do runtime vigente (V2; V1 legado congelado):
 
 - Só existe `opencode.json` → ele é o alvo.
 - Só existe `opencode.jsonc` → ele é o alvo.
@@ -153,7 +164,7 @@ restauração manual.
 Skills (`~/.config/opencode/skills`) e plugins
 (`~/.config/opencode/plugins`) têm auto-discovery no runtime — por isso o
 instalador **não** escreve `skills.paths`, `plugin` nem `autoupdate`
-(todas opcionais no schema V1). Você mantém controle total dessas chaves:
+(todas opcionais nos schemas V1/V2; novas instalações usam V2). Você mantém controle total dessas chaves:
 o install as preserva, o uninstall nunca as remove.
 
 ## Integração opcional: ai-memory
