@@ -41,7 +41,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
     `goal_store_dir` via default quando omitido. Projeção `advanced`
     interpretada (present|pending|blocked|failed|unknown|absent, com correlação
     goal_id/settled_key) em vez de `present` para qualquer registro; comentário
-    do lock do goal corrigido para leitura lock-free honesta.
+    do lock do goal corrigido para leitura lock-free honesta. A prova é de
+    consistência/estado durável sob o contrato SEC7 do ND (`ReceiptDir`
+    confiável por escolha do chamador, produtor exclusivo): não autentica o
+    processo escritor nem protege contra produtor comprometido; as janelas
+    residuais entre revalidação e persistência permanecem documentadas.
 
 - **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
   `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
