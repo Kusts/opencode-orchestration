@@ -40,7 +40,7 @@
       8. failed interrupt: short-lived child exits alone before Stop =>
          ALREADY_EXITED settlement, no exception; PID/parent divergence
          => WATCHDOG_INTERRUPT_REFUSED with the process intact; stop on
-         a dead PID maps to structured ALREADY_EXITED, never throws.
+         a dead PID fails closed with WATCHDOG_INTERRUPT_FAILED (P1-01-HARDEN), never throws.
       9. kernel seam: release/complete blocked with SETTLEMENT_REQUIRED
          while an interrupt mark is pending; released after confirm;
          CLI watchdog-interrupt / watchdog-settle wired (temp dirs).
@@ -223,7 +223,10 @@
          vazio, READ-EXCEPTION = excecao na leitura; nunca uma consulta
          posterior), a classe fechada do detail (EXPECTED-PATH-MISMATCH
          vs FLAKE-PATH-UNVERIFIABLE, sem ecoar texto livre), os PIDs
-         numericos e a vida do filho. A decisao segue REFUSED, nunca kill.
+         numericos e a vida do filho. A decisao segue REFUSED, nunca kill. P1-01-HARDEN foreign-live guard:
+      Stop sem instancia falha fechado (nunca resolve por PID); processo
+      estrangeiro vivo (pai via CIM, PID 4, dono do 49374) nunca morto,
+      posse nunca concedida, 49374 inalterado.
 #>
 [CmdletBinding()]
 param()
@@ -942,6 +945,16 @@ try {
     $r2 = Register-EnforceBound -TaskId 'wd-enf-2' -SessionId 'wd-enf-sess-2' -Child $c2 -Budget $b2 -StartedAt $t2now -FlagsPath $flagsEnforce -Repo $repo
     Assert-Enforce ([bool]$r2.ok) 'no-progress register bound' ''
     $e2 = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-2' -AtUtc ($t2now.AddSeconds(3)) -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+    try {
+        $__di2err = '<err>'; try { $__di2err = (Format-EnforceDiagField 'error' $e2.error) } catch { $__di2err = '<err>' }
+        $__di2rs = '<err>'; try { $__di2rs = (Format-EnforceDiagField 'reason' $e2.enforcement.reason) } catch { $__di2rs = '<err>' }
+        $__di2st = '<err>'; try { $__di2st = (Format-EnforceDiagField 'settlement' $e2.enforcement.settlement) } catch { $__di2st = '<err>' }
+        $__di2cl = '<err>'; try { $__di2cl = (Format-EnforceDiagField 'classification' $e2.classification) } catch { $__di2cl = '<err>' }
+        $__di2ok = '<err>'; try { $__di2ok = (Format-EnforceDiagToken ([bool]$e2.ok)) } catch { $__di2ok = '<err>' }
+        $__di2in = '<err>'; try { $__di2in = (Format-EnforceDiagToken ([bool]$e2.interrupted)) } catch { $__di2in = '<err>' }
+        $__di2al = '<err>'; try { $__di2al = (Format-EnforceDiagToken (Test-EnforceAlive -Proc $c2)) } catch { $__di2al = '<err>' }
+        Write-Host ('[DIAG-2] eval ok=' + $__di2ok + '; class=' + $__di2cl + '; interrupted=' + $__di2in + '; error=' + $__di2err + '; reason=' + $__di2rs + '; settlement=' + $__di2st + '; child_alive=' + $__di2al)
+    } catch { Write-Host '[DIAG-2] <diag-unavailable>' }
     Assert-Enforce (([bool]$e2.ok) -and ([string]$e2.classification -ceq 'NO_PROGRESS') -and ([bool]$e2.interrupted)) 'silent worker NO_PROGRESS interrupted' ([string]$e2.classification)
     Assert-Enforce ((Wait-EnforceExit -Proc $c2 -TimeoutMs 8000) -and (-not (Test-EnforceAlive -Proc $c2))) 'no-progress child exited after interrupt' ''
     $sw2.Stop()
@@ -1146,9 +1159,81 @@ try {
         } catch { Write-Host '[DIAG-8B] <diag-unavailable>' }
     }
 
-    # 8c. stop on a dead PID maps to structured ALREADY_EXITED, never throws.
+    # 8c. stop without an instance fails closed (P1-01-HARDEN): no PID
+    # resolution, no kill, structured WATCHDOG_INTERRUPT_FAILED even
+    # for a PID that is certainly gone. Never throws.
     $stopDead = Stop-WatchdogVerifiedProcess -ProcessId 999999001
-    Assert-Enforce (([bool]$stopDead.ok) -and ([bool]$stopDead.already_exited)) 'dead-PID stop => structured ALREADY_EXITED' ''
+    Assert-Enforce ((($null -ne $stopDead) -and (-not [bool]$stopDead.ok) -and ([string]$stopDead.error -ceq 'WATCHDOG_INTERRUPT_FAILED'))) 'dead-PID stop without instance => structured WATCHDOG_INTERRUPT_FAILED (fail-closed, never resolves by PID)' ([string]$stopDead.error)
+
+    # P1-01-HARDEN foreign-live guard: um processo estrangeiro vivo nunca
+    # e morto. Somente sondas read-only (Get-Process/CIM/liveness) + as
+    # recusas estruturadas existem aqui: Stop sempre SEM instancia
+    # (trava fail-closed => WATCHDOG_INTERRUPT_FAILED, zero kill) e a
+    # posse e sondada via Test-WatchdogProcessOwnership (nunca mata).
+    # Candidatos estrangeiros: o pai do $PID via CIM, o PID 4 (System)
+    # e o dono da porta 49374 (AI Memory) se houver. O cleanup desta
+    # suite continua restrito aos filhos PROPRIOS ($script:enfChildren).
+    $swFor = [System.Diagnostics.Stopwatch]::StartNew()
+    $foreignPids = @(4)
+    $ppidFor = 0
+    try {
+        $cimSelf = Get-CimInstance -ClassName Win32_Process -Filter ('ProcessId=' + [string][int]$PID) -ErrorAction Stop
+        try { $ppidFor = [int]$cimSelf.ParentProcessId } catch { $ppidFor = 0 }
+        if (($ppidFor -ge 1) -and ($ppidFor -ne [int]$PID)) { $foreignPids += [int]$ppidFor }
+    }
+    catch { }
+    $portOwnerFor = 0
+    try {
+        $connFor = Get-NetTCPConnection -LocalPort 49374 -State Listen -ErrorAction Stop | Select-Object -First 1
+        $portOwnerFor = [int]$connFor.OwningProcess
+    }
+    catch { $portOwnerFor = 0 }
+    if (($portOwnerFor -ge 1) -and ($portOwnerFor -ne [int]$PID) -and (-not ($foreignPids -contains [int]$portOwnerFor))) { $foreignPids += [int]$portOwnerFor }
+    $foreignPids = @($foreignPids | Where-Object { ($_ -ge 1) -and ($_ -ne [int]$PID) } | Sort-Object -Unique)
+    Assert-Enforce ((@($foreignPids).Count -ge 1)) 'foreign-live guard observes at least one foreign PID (PID 4 always listed)' ('count=' + [string](@($foreignPids).Count))
+    foreach ($fp in @($foreignPids)) {
+        $aliveBeforeFor = Test-EnforcePidAlive -ProcessId ([int]$fp)
+        $stopFor = $null
+        try { $stopFor = Stop-WatchdogVerifiedProcess -ProcessId ([int]$fp) } catch { $stopFor = $null }
+        Assert-Enforce ((($null -ne $stopFor) -and (-not [bool]$stopFor.ok) -and ([string]$stopFor.error -ceq 'WATCHDOG_INTERRUPT_FAILED'))) ('foreign PID ' + [string][int]$fp + ' stop without instance => WATCHDOG_INTERRUPT_FAILED, never a kill') ([string]$stopFor.error)
+        if ([bool]$aliveBeforeFor) {
+            Assert-Enforce (Test-EnforcePidAlive -ProcessId ([int]$fp)) ('foreign PID ' + [string][int]$fp + ' alive after the refused stop') ''
+        }
+    }
+    # Sonda de posse: ordem pai-primeiro (processo de usuario comum,
+    # inspecionavel => REFUSED deterministico por parent-mismatch). O
+    # PID 4 (System) fica FORA da sonda de posse: o pin do handle pode
+    # ser negado ali (=> INSPECTION_FAILED, tambem fail-closed mas fora
+    # do contrato REFUSED/NO_PROCESS_IDENTITY deste caso); para o 4
+    # valem o Stop recusado + a vida apos a recusa, acima.
+    $ownProbeFor = $null
+    try {
+        $probeOrderFor = @()
+        if (([int]$ppidFor -ge 1) -and ([int]$ppidFor -ne [int]$PID)) { $probeOrderFor += [int]$ppidFor }
+        if (([int]$portOwnerFor -ge 1) -and ([int]$portOwnerFor -ne [int]$PID)) { $probeOrderFor += [int]$portOwnerFor }
+        $probeOrderFor = @($probeOrderFor | Sort-Object -Unique)
+        Assert-Enforce ((@($probeOrderFor).Count -ge 1)) 'foreign-live ownership probe has a user-mode candidate (CIM parent or 49374 owner)' ('candidates=' + [string](@($probeOrderFor).Count))
+        $probePidFor = 0
+        foreach ($fp in @($probeOrderFor)) {
+            if (Test-EnforcePidAlive -ProcessId ([int]$fp)) { $probePidFor = [int]$fp; break }
+        }
+        if ([int]$probePidFor -ge 1) {
+            $probeExecFor = @{ process = [ordered]@{ process_id = ([int]$probePidFor); process_path = ''; parent_process_id = ([int]$PID); process_start_time = '' } }
+            $ownProbeFor = Test-WatchdogProcessOwnership -Execution $probeExecFor
+            Assert-Enforce (((-not [bool]$ownProbeFor.owned)) -and (([string]$ownProbeFor.reason -ceq 'WATCHDOG_INTERRUPT_REFUSED') -or ([string]$ownProbeFor.reason -ceq 'WATCHDOG_NO_PROCESS_IDENTITY'))) ('foreign PID ' + [string][int]$probePidFor + ' never owned (REFUSED/NO_PROCESS_IDENTITY)') ([string]$ownProbeFor.reason)
+            Assert-Enforce (Test-EnforcePidAlive -ProcessId ([int]$probePidFor)) ('foreign PID ' + [string][int]$probePidFor + ' alive after the ownership probe') ''
+        }
+    }
+    catch { Assert-Enforce $false 'foreign-live ownership probe ran without unexpected error' ([string]$_) }
+    if ([int]$portOwnerFor -ge 1) {
+        Assert-Enforce (Test-EnforcePidAlive -ProcessId ([int]$portOwnerFor)) 'AI Memory port 49374 owner untouched by the refused stops' ('owner=' + [string][int]$portOwnerFor)
+    }
+    else {
+        Assert-Enforce $true 'AI Memory port 49374 has no listener here (vacuous: nothing to disturb)' ''
+    }
+    Assert-Enforce (Test-EnforceAlive -Proc $c8b) 'own child untouched by the foreign-live refused stops' ''
+    $swFor.Stop()
+    Assert-Enforce (($swFor.Elapsed.TotalSeconds -lt 90)) 'foreign-live guard externally bounded' ([string][int]$swFor.Elapsed.TotalSeconds + 's')
     Stop-EnforceSafety -Proc $c8b
     $sw8.Stop()
     Assert-Enforce (($sw8.Elapsed.TotalSeconds -lt 90)) 'scenario 8 externally bounded' ([string][int]$sw8.Elapsed.TotalSeconds + 's')
@@ -1359,7 +1444,22 @@ try {
     }
     Assert-Enforce $__f1ok 'F1 child exited externally' ''
     $script:WatchdogLiveQueryCount = 0
-    $staleStop12 = Stop-WatchdogVerifiedProcess -ProcessId ([int]$c12c.Id) -ProcessInstance $own12c.process
+    $staleStop12 = $null
+    try { $staleStop12 = Stop-WatchdogVerifiedProcess -ProcessId ([int]$c12c.Id) -ProcessInstance $own12c.process }
+    catch {
+        try {
+            $__di118t = '<err>'; try { $__di118t = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__di118t = '<err>' }
+            $__di118f = '<err>'; try { $__di118f = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__di118f = '<err>' }
+            Write-Host ('[DIAG-118] stale-stop threw ex_type=' + $__di118t + '; fqei=' + $__di118f)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
+        throw
+    }
+    try {
+        $__di118ok = '<err>'; try { $__di118ok = (Format-EnforceDiagToken ([bool]$staleStop12.ok)) } catch { $__di118ok = '<err>' }
+        $__di118ae = '<err>'; try { $__di118ae = (Format-EnforceDiagToken ([bool]$staleStop12.already_exited)) } catch { $__di118ae = '<err>' }
+        $__di118er = '<err>'; try { $__di118er = (Format-EnforceDiagField 'error' $staleStop12.error) } catch { $__di118er = '<err>' }
+        Write-Host ('[DIAG-118] stale-stop ok=' + $__di118ok + '; already_exited=' + $__di118ae + '; error=' + $__di118er)
+    } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
     Assert-Enforce (([bool]$staleStop12.ok) -and ([bool]$staleStop12.already_exited)) 'F1 stale verified instance => ALREADY_EXITED, no PID re-kill' ''
     Assert-Enforce (([int]$script:WatchdogLiveQueryCount -eq 0)) 'F-A stale fixed instance settles with zero new PID resolutions' ('queries=' + [string][int]$script:WatchdogLiveQueryCount)
     try { $own12c.process.Dispose() } catch { }
@@ -2912,6 +3012,11 @@ Start-Sleep -Seconds 120
         $shapeAttach43 = Get-EnforceSettlementShape -Exec $exec43
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job43 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB43 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -2982,6 +3087,11 @@ Start-Sleep -Seconds 120
         }
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job44 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB44 scenario ran without unexpected error' ([string]$_)
     }
     $sw44.Stop()
@@ -3073,6 +3183,11 @@ Start-Sleep -Seconds 120
         Assert-Enforce ($shapeNeg46 -ceq $shapeAttach43) 'JOB46 negative: stable settlement core identical to the positive one (job_* evidence + volatile CIM/telemetry observations excluded)' ('pos=' + $shapeAttach43 + ' neg=' + $shapeNeg46)
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job46 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB46 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -3178,6 +3293,11 @@ Start-Sleep -Seconds 120
         Assert-Enforce $gone47 'JOB47 cleanup: sobrevivente encerrado pelo handle do job de teste' ('late=' + [string][int]$latePid47)
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job47 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB47 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -3278,6 +3398,11 @@ Start-Sleep -Milliseconds 400
         Assert-Enforce (Test-EnforceAlive -Proc $sentinel44) 'JOB48 sentinel nao relacionado intacto' ''
     }
     catch {
+        try {
+            $__diJt = '<err>'; try { $__diJt = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diJt = '<err>' }
+            $__diJf = '<err>'; try { $__diJf = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diJf = '<err>' }
+            Write-Host ('[DIAG-118] job48 threw ex_type=' + $__diJt + '; fqei=' + $__diJf)
+        } catch { Write-Host '[DIAG-118] <diag-unavailable>' }
         Assert-Enforce $false 'JOB48 scenario ran without unexpected error' ([string]$_)
     }
     finally {
@@ -3332,6 +3457,12 @@ Start-Sleep -Milliseconds 400
 }
 catch {
     Write-Host ("[FAIL] unexpected error: {0}" -f $_)
+    try {
+        $__diExType = '<err>'; try { $__diExType = (Format-EnforceDiagToken ([string]$_.Exception.GetType().FullName)) } catch { $__diExType = '<err>' }
+        $__diFqei = '<err>'; try { $__diFqei = (Format-EnforceDiagToken ([string]$_.FullyQualifiedErrorId)) } catch { $__diFqei = '<err>' }
+        $__diLoc = '<err>'; try { $__diSt = ([string]$_.ScriptStackTrace); $__diM = [regex]::Match($__diSt, '([^\\/:]+):line\s+(\d+)'); if ([bool]$__diM.Success) { $__diLoc = (Format-EnforceDiagToken ([string]$__diM.Groups[1].Value)) + ':line ' + [string][int]$__diM.Groups[2].Value } else { $__diLoc = '<no-loc>' } } catch { $__diLoc = '<err>' }
+        Write-Host ('[DIAG-UNEXPECTED] ex_type=' + $__diExType + '; fqei=' + $__diFqei + '; loc=' + $__diLoc + '; pass=' + [string][int]$script:passed + '; fail=' + [string][int]$script:failed + '; ps=' + (Format-EnforceDiagToken $PSVersionTable.PSVersion))
+    } catch { Write-Host '[DIAG-UNEXPECTED] <diag-unavailable>' }
     $script:failed++
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)
     exit 1
