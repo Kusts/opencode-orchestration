@@ -112,20 +112,41 @@ inalteradas (OFF) até a decisão de ativação.
 
 ## Estado da execução (atualizado 2026-10-19)
 
-- **F0 concluída em working tree** (branch `docs/reconcile-status-2026-10-19`):
-  6 arquivos reconciliados; validação `tester` PASS (consistency 16/16 via
-  pwsh, JSONs parseiam, diffs aditivos) + `reviewer` APPROVED após 1 rodada de
-  correções (parentético de TROUBLESHOOTING, citações a fontes versionadas no
-  master, contagem 12 PRs). Pendente: commit + PR (requer pedido explícito do
-  operador).
-- **Achado novo — sync pendente `release/0.2.0` → `master`:** a branch
-  `release/0.2.0` tem 2 commits não mergeados em `origin/master` (`930b5c4` +
-  merge `56f68af`): probe `scripts/ci/mcp-subagent-propagation-probe.ps1`
-  (1460 linhas + testes + fixture), ajustes complementares da lane
-  `agent-mcp-integration-lane-v2.ps1`, evidências S5/S6/GW06/session-lane
-  2026-10-18 e o fechamento do plano de refinamento (seção ENCERRAMENTO).
-  Recomendação: PR de sync antes de F3, para restaurar o probe no master e
-  eliminar referências só-existentes-na-release.
+- **F0 ENTREGUE** (branch `docs/reconcile-status-2026-10-19`): commit
+  `d69e81c` publicado, **PR #130** aberto; 6 arquivos reconciliados;
+  validação `tester` PASS (consistency 16/16 via pwsh, JSONs parseiam,
+  diffs aditivos) + `reviewer` APPROVED após 1 rodada de correções.
+- **Sync `release/0.2.0` → `master` (PR #129) com endurecimento do probe
+  MCP antes do merge:** reviewer apontou 4 achados (sanitização com
+  vazamento de credenciais, veredito sem provas estruturais, cleanup
+  fail-open, gate de conexão) e o endurecimento passou por 5 rodadas de
+  review; correções commitadas em `release/0.2.0` (`c93b758`, worktree
+  `sync-129-probe-hardening`): sanitização fail-closed com desescape
+  multi-pass, detector de residual e nuke integral do campo; provas
+  estruturais por sessão no veredito (JSON válido ≠ transcript válido;
+  status vazio ⇒ `unknown`; `parse_ok` exige envelope `data`); cleanup
+  fail-closed e gate de conexão MCP obrigatório. Validação final: suíte
+  110 PASS / 0 FAIL em PS 5.1 e pwsh (sem modelo/rede); `tester` PASS +
+  `reviewer` APPROVED.
+- **F1 S1 ENTREGUE** (branch `feat/f1-s1-native-bridge`, commit `744926f`,
+  **PR #131**): bridge CLI `scripts/v3/native-dispatch-claim.ps1` (ação
+  única `claim`; schema estrito com tipos crus; contexto só de arquivo com
+  teto de 64 KiB em bytes e UTF-8 estrito; prompt ancorado no recibo
+  durável via pré-read; saída sem authority:
+  `grants_authority/verified_pass/done_approved=false`) + hook
+  `execute.before` deny-only no plugin (modo isolado; tool-first; spawn
+  `shell:false`; material canônico reconstruído e conferido antes do hash;
+  fail-closed; nunca `allow:true`). Testes: 102 asserts PS (5.1+pwsh) + 41
+  node (2 de integração com subprocesso real); regressão `objective-step`
+  130/130. Verificação: `tester` PASS, `reviewer` APPROVED (4 rodadas),
+  `security-reviewer` APPROVED (fixture-only; limitações declaradas no
+  código: sem assinatura/integridade, path absoluto não confina, contexto
+  exige ownership externo, bridge não emite admission file). F1 S2–S6
+  pendentes.
+- **F3/F4 bloqueadas por quota** (aprovação do operador com orçamento
+  declarado); F3 também depende do merge do PR #129 (probe no master).
+- **F2 não iniciada** (última por risco; exige prova `exact-binary-live` e
+  decisão de operador para flags — seguem OFF).
 - **F1 — decisão adotada (2026-10-19):** owner único da liquidação é
   `NativeDispatch.Settle` (canônico), com `ProductiveActivation` como proxy
   gated e `TaskKernel` como escritor autoritativo do worker-result; nenhum
@@ -136,6 +157,7 @@ inalteradas (OFF) até a decisão de ativação.
 
 ## Decisões pendentes do operador
 
+- Merge dos PRs #129 (sync), #130 (docs) e #131 (S1) após CI verde.
 - Aprovação de quota por run (F3/F4) com orçamento declarado.
 - Ativação de flags (F2) somente após evidência `exact-binary-live`.
 - Promoção/release que dependam de resume live e MCPs com modelo.
