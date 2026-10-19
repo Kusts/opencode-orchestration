@@ -1,0 +1,11 @@
+{
+    "lane":  "agent-mcp-integration-lane-v2",
+    "cleanup":  "finally",
+    "ok":  true,
+    "leaks":  0,
+    "removed":  true,
+    "residue":  [
+
+                ],
+    "at":  "2026-10-19T13:59:21.6806244Z"
+}
