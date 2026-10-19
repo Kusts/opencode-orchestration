@@ -1593,21 +1593,36 @@ function Test-TaskKernelSettlementContext {
         SessionId/binding of another path), then the LIVE goal binding:
         goal ACTIVE, owner/generation/lease held, live goal revision at or
         past the observed revision, and task membership in the goal when the
-        goal tracks it.
+        goal tracks it. Finally, for tasks carrying a settlement policy,
+        the durable receipt proof
+        (`Test-OrchestrationNativeDispatchSettlementProof`): the context
+        must match a REAL claimed receipt with the attempt/evidence
+        markers written by ND-Settle immediately before the kernel write.
+        A directly fabricated context (valid 32-hex, no receipt) is
+        refused here as SETTLEMENT_CONTEXT_UNVERIFIED.
 
         Ordering contract (goal -> task): callers invoke this BEFORE taking
-        the task file lock and AGAIN under it; the goal store owns its own
-        lock internally, so the goal observation is never taken while the
-        task lock is held. The sequence revalidation -> write is NOT atomic
-        and the task lock does not serialize goal mutation; a takeover after
-        the last revalidation settles inside the residual window (same honest
+        the task file lock and AGAIN under it. The goal read
+        (`Get-OrchestrationGoal`) is LOCK-FREE: there is no cross-resource
+        atomicity between the goal observation and the task write, and the
+        task lock does not serialize goal mutation. The double
+        revalidation (pre-lock + under-lock) plus the durable receipt
+        proof and ND fencing only NARROW the residual window: a takeover
+        after the last revalidation still settles inside it (same honest
         boundary as the ND-Settle fencing it mirrors).
 
         Returns @{ok, reason, detail, task_id, goal_id, owner, generation,
         goal_revision}. Never throws.
     #>
     [CmdletBinding()]
-    param($Context = $null)
+    param(
+        $Context = $null,
+        [string]$TaskId = '',
+        [string]$Status = '',
+        [string]$ProducedBy = '',
+        [string[]]$ClaimedEvidence = @(),
+        [long]$ExpectedRevision = 0
+    )
     $refuse = {
         param([string]$Why, [string]$Detail = '')
         return [pscustomobject]@{ ok = $false; reason = $Why; detail = ([string]$Detail); task_id = ''; goal_id = ''; owner = ''; generation = [long]0; goal_revision = [long]0 }
@@ -1702,6 +1717,24 @@ function Test-TaskKernelSettlementContext {
             try { foreach ($t in @($activeList)) { if ($tid -ceq ([string]$t)) { $member = $true; break } } } catch { $member = $false }
             if (-not $member) { return (& $refuse 'SETTLEMENT_TASK_NOT_IN_GOAL' '') }
         }
+        # F1-S2-FIX1: prova do recibo duravel. O contexto sozinho (mesmo
+        # com 32-hex validos e goal vivo) nao autoriza escrita: tem de
+        # corresponder a um claim REAL com os marcadores de tentativa e
+        # evidencia que o ND-Settle persiste antes do kernel.
+        $proofCmd = Get-Command Test-OrchestrationNativeDispatchSettlementProof -ErrorAction SilentlyContinue
+        if ($null -eq $proofCmd) { return (& $refuse 'SETTLEMENT_PROOF_UNAVAILABLE' 'native dispatch proof unavailable') }
+        $proof = $null
+        try { $proof = Test-OrchestrationNativeDispatchSettlementProof -SettlementContext $Context -TaskId $TaskId -Status $Status -ProducedBy $ProducedBy -ClaimedEvidence $ClaimedEvidence -ExpectedRevision $ExpectedRevision }
+        catch { $proof = $null }
+        if (($null -eq $proof) -or (-not [bool](Get-TaskKernelSettlementValue $proof 'ok'))) {
+            $why = 'proof-refused'
+            try {
+                $pr = ([string](Get-TaskKernelSettlementValue $proof 'reason')).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($pr)) { $why = $pr }
+            }
+            catch { }
+            return (& $refuse 'SETTLEMENT_CONTEXT_UNVERIFIED' $why)
+        }
         return [pscustomobject]@{ ok = $true; reason = ''; detail = ''; task_id = $tid; goal_id = $gid; owner = $own; generation = $gen; goal_revision = $liveRev }
     }
     catch { return (& $refuse 'SETTLEMENT_CONTEXT_INVALID' 'internal-error') }
@@ -1742,8 +1775,10 @@ function Set-OrchestrationTaskWorkerResult {
         # F1-S2 (goal -> task order): when a canonical settlement context is
         # presented for a task that CARRIES a settlement policy, the live
         # goal binding is validated BEFORE taking the task file lock, then
-        # revalidated under it. The goal store owns its own lock, so the
-        # goal observation is never taken while the task lock is held. The
+        # revalidated under it. The goal read is lock-free (no internal
+        # goal-store lock is held); the double revalidation plus the
+        # durable receipt proof only narrow the residual window, without
+        # cross-resource atomicity. The
         # pre-lock peek is advisory only (the record field is immutable;
         # the under-lock gate stays authoritative): legacy tasks (no
         # settlement_policy) skip this entirely and keep the historical
@@ -1769,7 +1804,7 @@ function Set-OrchestrationTaskWorkerResult {
             }
             catch { $peekPolicy = '' }
             if (-not [string]::IsNullOrWhiteSpace($peekPolicy)) {
-                $preCtx = Test-TaskKernelSettlementContext -Context $SettlementContext
+                $preCtx = Test-TaskKernelSettlementContext -Context $SettlementContext -TaskId $peekTid -Status $Status -ProducedBy $ProducedBy -ClaimedEvidence $ClaimedEvidence -ExpectedRevision ([long]$ExpectedRevision)
                 if (-not [bool]$preCtx.ok) {
                     return (New-TaskKernelError -Code ([string]$preCtx.reason) -Extra @{ detail = ([string]$preCtx.detail) })
                 }
@@ -1839,9 +1874,11 @@ function Set-OrchestrationTaskWorkerResult {
         # contract: a presented context is ignored. Tasks marked
         # 'canonical-native-settle' settle ONLY through the canonical owner
         # (ND-Settle), which forwards the correlated native context; a
-        # missing, incomplete or divergent context, or a goal that is not
-        # ACTIVE/held/bound, is refused here with a stable reason and ZERO
-        # writes. Unknown policy values fail closed (never migrated).
+        # missing, incomplete or divergent context, a goal that is not
+        # ACTIVE/held/bound, or a context without a matching durable
+        # claimed receipt (durable proof), is refused here with a stable
+        # reason and ZERO writes. Unknown policy values fail closed
+        # (never migrated).
         $settlePolicy = ''
         try {
             if ($rec -is [System.Collections.IDictionary]) {
@@ -1860,7 +1897,7 @@ function Set-OrchestrationTaskWorkerResult {
             if ($null -eq $SettlementContext) {
                 return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_MISSING' -Extra @{ detail = 'canonical settle requires a correlated native context' })
             }
-            $ctxGate = Test-TaskKernelSettlementContext -Context $SettlementContext
+            $ctxGate = Test-TaskKernelSettlementContext -Context $SettlementContext -TaskId $tid -Status $status -ProducedBy $producer -ClaimedEvidence @($ev.items) -ExpectedRevision ([long]$ExpectedRevision)
             if (-not [bool]$ctxGate.ok) {
                 return (New-TaskKernelError -Code ([string]$ctxGate.reason) -Extra @{ detail = ([string]$ctxGate.detail) })
             }

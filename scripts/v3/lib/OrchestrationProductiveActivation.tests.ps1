@@ -585,10 +585,41 @@ Assert-PAThat (([string]$proj1.candidate.state -ceq 'present') -and ([string]$pr
 Assert-PAThat (([string]$proj1.verified.state -ceq 'present') -and ([string]$proj1.advanced.state -ceq 'absent')) 'S2 projection: verified present, advanced absent (no advance-requires-verified rule)'
 $advDirS = Get-NDAdvanceDir -RootDir $fx1.f.receipt -GoalId $fx1.gid
 Assert-PAThat ([bool]$advDirS.ok) 'S2 advance dir resolves'
-$advW = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $fx1.ndk -Record @{ schema_version = 1; key = $fx1.ndk; settled = $true }
+$advNextS = Get-NativeDispatchHash32 's2-f1-next'
+$advW = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $fx1.ndk -Record @{ schema_version = 1; ok = $true; reason = ''; goal_id = $fx1.gid; settled_key = $fx1.ndk; move = 'CONTINUE'; move_reason = ''; stop_reason = ''; prepared = $true; next_idempotency_key = $advNextS; next_task_id = 'pa-task-s2-next'; next_agent = 'coder'; goal_state = 'ACTIVE' }
 Assert-PAThat ([bool]$advW) 'S2 advance record persists via real writer'
 $proj1b = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId $fx1.gid -WorkItemId $fx1.wid -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch -AdvanceDir ([string]$advDirS.dir) -AdvanceKey $fx1.ndk
-Assert-PAThat (([string]$proj1b.advanced.state -ceq 'present') -and ([string]$proj1b.advanced.ref -ceq 'nd-advance:record')) 'S2 projection: advanced present from existing ND store'
+Assert-PAThat (([string]$proj1b.advanced.state -ceq 'present') -and ([string]$proj1b.advanced.ref -ceq 'nd-advance:CONTINUE:prepared')) 'S2 projection: advanced present from prepared CONTINUE record'
+$advKeyPend = Get-NativeDispatchHash32 's2-f1-pend'
+$advWP = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $advKeyPend -Record @{ schema_version = 1; ok = $true; reason = ''; goal_id = $fx1.gid; settled_key = $advKeyPend; move = 'RETRY'; move_reason = 'retry'; stop_reason = ''; prepared = $false; goal_state = 'ACTIVE' }
+Assert-PAThat ([bool]$advWP) 'S2 pending advance record persists'
+$projPend = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId $fx1.gid -WorkItemId $fx1.wid -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch -AdvanceDir ([string]$advDirS.dir) -AdvanceKey $advKeyPend
+Assert-PAThat (([string]$projPend.advanced.state -ceq 'pending') -and ([string]$projPend.advanced.ref -ceq 'nd-advance:RETRY:unprepared')) 'S2 projection: unprepared RETRY is pending, never present'
+$advKeyBlk = Get-NativeDispatchHash32 's2-f1-block'
+$advWB = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $advKeyBlk -Record @{ schema_version = 1; goal_id = $fx1.gid; settled_key = $advKeyBlk; move = 'BLOCKED'; move_reason = 'admit-x'; prepared = $false; goal_state = 'ACTIVE' }
+Assert-PAThat ([bool]$advWB) 'S2 blocked advance record persists'
+$projBlk = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId $fx1.gid -WorkItemId $fx1.wid -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch -AdvanceDir ([string]$advDirS.dir) -AdvanceKey $advKeyBlk
+Assert-PAThat (([string]$projBlk.advanced.state -ceq 'blocked') -and ([string]$projBlk.advanced.ref -ceq 'nd-advance:blocked:admit-x')) 'S2 projection: BLOCKED is blocked, never present'
+$advKeyFail = Get-NativeDispatchHash32 's2-f1-fail'
+$advWF = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $advKeyFail -Record @{ schema_version = 1; ok = $false; reason = 'advance-prepare-refused:x'; goal_id = $fx1.gid; settled_key = $advKeyFail; move = 'CONTINUE'; prepared = $false; goal_state = 'ACTIVE' }
+Assert-PAThat ([bool]$advWF) 'S2 failed advance record persists'
+$projFail = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId $fx1.gid -WorkItemId $fx1.wid -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch -AdvanceDir ([string]$advDirS.dir) -AdvanceKey $advKeyFail
+Assert-PAThat (([string]$projFail.advanced.state -ceq 'failed') -and ([string]$projFail.advanced.ref -ceq 'nd-advance:failed:advance-prepare-refused:x')) 'S2 projection: failed advance is failed, never present'
+$advKeyDone = Get-NativeDispatchHash32 's2-f1-done'
+$advWD = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $advKeyDone -Record @{ schema_version = 1; ok = $true; reason = ''; goal_id = $fx1.gid; settled_key = $advKeyDone; move = 'COMPLETE'; prepared = $false; finalize_reason = 'goal-finalization-not-requested'; goal_state = 'ACTIVE' }
+Assert-PAThat ([bool]$advWD) 'S2 COMPLETE advance record persists'
+$projDone = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId $fx1.gid -WorkItemId $fx1.wid -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch -AdvanceDir ([string]$advDirS.dir) -AdvanceKey $advKeyDone
+Assert-PAThat (([string]$projDone.advanced.state -ceq 'present') -and ([string]$projDone.advanced.ref -ceq 'nd-advance:COMPLETE:goal-finalization-not-requested')) 'S2 projection: COMPLETE is present'
+$advKeyOther = Get-NativeDispatchHash32 's2-f1-other'
+$advWO = Write-NDAdvanceRecord -AdvanceDir ([string]$advDirS.dir) -Ident ([string]$advDirS.ident) -Key $advKeyOther -Record @{ schema_version = 1; ok = $true; reason = ''; goal_id = 'PA-S2-OTHER'; settled_key = $advKeyOther; move = 'CONTINUE'; prepared = $true; next_idempotency_key = $advNextS; next_task_id = 't'; next_agent = 'coder'; goal_state = 'ACTIVE' }
+Assert-PAThat ([bool]$advWO) 'S2 foreign-goal advance record persists'
+$projOther = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId $fx1.gid -WorkItemId $fx1.wid -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch -AdvanceDir ([string]$advDirS.dir) -AdvanceKey $advKeyOther
+Assert-PAThat (([string]$projOther.advanced.state -ceq 'unknown') -and ([string]$projOther.advanced.ref -ceq 'nd-advance:correlation-mismatch')) 'S2 projection: foreign-goal record is unknown, never present'
+$orKey = Get-OrchestrationObjectiveIdempotencyKey -GoalId 'PA-S2-ORADV' -WorkItemId 'w-s2-oradv' -ActionRevision 1
+$orPath = Get-ORIntentFilePath -Dir $fx1.f.dispatch -GoalId 'PA-S2-ORADV' -WorkItemId 'w-s2-oradv' -ActionRevision 1
+Write-PAFile -Path $orPath -Text (ConvertTo-Json -InputObject @{ schema_version = 1; key = $orKey; goal_id = 'PA-S2-ORADV'; work_item_id = 'w-s2-oradv'; action_revision = [long]1; state = 'advanced'; generation = [long]1 } -Depth 10 -Compress)
+$projOR = Get-ProductiveSettlementProjection -TaskId $fx1.tid -TasksDir $fx1.f.tasks -GoalId 'PA-S2-ORADV' -WorkItemId 'w-s2-oradv' -ActionRevision 1 -ObjectiveStoreDir $fx1.f.dispatch
+Assert-PAThat (([string]$projOR.advanced.state -ceq 'present') -and ([string]$projOR.advanced.ref -ceq 'objective-runtime:advanced')) 'S2 projection: OR advanced intent stays present'
 $projU = Get-ProductiveSettlementProjection -TaskId 'pa-task-s2-ghost' -TasksDir $fx1.f.tasks
 Assert-PAThat (([string]$projU.candidate.state -ceq 'unknown') -and ([string]$projU.advanced.state -ceq 'unknown')) 'S2 projection: unknown with no legible proof'
 # S2-4: HOLD without native context, zero writes.
@@ -611,6 +642,17 @@ function Copy-S2Ctx {
     foreach ($kk in @($Src.Keys)) { $d[$kk] = $Src[$kk] }
     return $d
 }
+function Add-S2ReceiptLoc {
+    param($Ctx, [string]$ReceiptRoot = '', [string]$GoalId = '')
+    $d = Copy-S2Ctx $Ctx
+    try {
+        $st = Resolve-NDGoalReceiptDir -RootDir $ReceiptRoot -GoalId $GoalId
+        $d['receipt_dir'] = [string](Get-PAFieldValue $st 'dir' '')
+        $d['receipt_ident'] = [string](Get-PAFieldValue $st 'created_utc' '')
+    }
+    catch { }
+    return $d
+}
 $ctxTaskDiv = Copy-S2Ctx $fx3.ctx
 $ctxTaskDiv['task_id'] = 'pa-task-s2-other'
 $st3a = New-ProductiveSettleImpl -TaskId $fx3.tid -AttemptRole 'coder' -SessionId $fx3.sess -TasksDir $fx3.f.tasks -FlagsPath $fx3.f.flags -TelemetryRoot $fx3.f.tele -OwnerId 'owner-s2' -Generation $fx3.gen -GoalStoreDir $fx3.f.goal -DispatchStoreDir $fx3.f.dispatch -WorkerStatus 'candidate_pass' -WorkerProducedBy 'coder' -WorkerEvidence @('criterion:0') -Tracker (New-PATracker $null) -NativeSettlement $ctxTaskDiv -Productive
@@ -631,13 +673,39 @@ Assert-PAThat ((($null -ne $wNoCtx) -and (-not [bool]$wNoCtx.ok)) -and ([string]
 Assert-PAThat ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4) 'S2 context-missing refusal writes zero'
 $wEmpty = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext @{}
 Assert-PAThat ((($null -ne $wEmpty) -and (-not [bool]$wEmpty.ok)) -and ([string]$wEmpty.error -ceq 'SETTLEMENT_CONTEXT_INCOMPLETE')) 'S2 marked task refuses incomplete context'
-$ctxDiv4 = Copy-S2Ctx $fx4.ctx
+$ctxDiv4 = Add-S2ReceiptLoc (Copy-S2Ctx $fx4.ctx) -ReceiptRoot $fx4.f.receipt -GoalId $fx4.gid
 $ctxDiv4['target_agent'] = 'reviewer'
 $wDiv = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $ctxDiv4
-Assert-PAThat ((($null -ne $wDiv) -and (-not [bool]$wDiv.ok)) -and ([string]$wDiv.error -ceq 'SETTLEMENT_CONTEXT_DIVERGENT')) 'S2 marked task refuses divergent context'
-Assert-PAThat ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4) 'S2 divergent-context refusal writes zero'
+Assert-PAThat ((($null -ne $wDiv) -and (-not [bool]$wDiv.ok)) -and ([string]$wDiv.error -ceq 'SETTLEMENT_CONTEXT_UNVERIFIED')) 'S2 marked task refuses divergent context (no matching claim proof)'
+Assert-PAThat (([string]$wDiv.detail -ceq 'proof-intent-mismatch') -and ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4)) 'S2 divergent-context refusal writes zero'
 $wCanon = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $fx4.ctx
-Assert-PAThat ((($null -ne $wCanon) -and [bool]$wCanon.ok) -and ([long]$wCanon.revision -eq 5)) 'S2 marked task accepts canonical correlated context (single write)'
+Assert-PAThat ((($null -ne $wCanon) -and (-not [bool]$wCanon.ok)) -and ([string]$wCanon.error -ceq 'SETTLEMENT_CONTEXT_UNVERIFIED')) 'S2 fabricated context without receipt location is refused'
+Assert-PAThat (((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4) -and (-not (Test-PAWorkerResult $fx4.tid $fx4.f.tasks))) 'S2 fabricated-context refusal writes zero'
+# S2-6b: real claimed receipt but WITHOUT attempt/evidence markers => no proof.
+$ctxNoMark = Add-S2ReceiptLoc (Copy-S2Ctx $fx4.ctx) -ReceiptRoot $fx4.f.receipt -GoalId $fx4.gid
+$wNoMark = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $ctxNoMark
+Assert-PAThat ((($null -ne $wNoMark) -and (-not [bool]$wNoMark.ok)) -and ([string]$wNoMark.error -ceq 'SETTLEMENT_CONTEXT_UNVERIFIED')) 'S2 claimed receipt without attempt markers proves nothing'
+Assert-PAThat (([string]$wNoMark.detail -ceq 'proof-attempt-mismatch') -and ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4)) 'S2 markerless receipt writes zero'
+# S2-6c: transplanted key/fingerprint/goal/receipt => proof fails, zero writes.
+$ctxNoKey = Add-S2ReceiptLoc (Copy-S2Ctx $fx4.ctx) -ReceiptRoot $fx4.f.receipt -GoalId $fx4.gid
+$ctxNoKey['idempotency_key'] = Get-NativeDispatchHash32 's2-no-such-claim'
+$wNoKey = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $ctxNoKey
+Assert-PAThat ((($null -ne $wNoKey) -and (-not [bool]$wNoKey.ok)) -and ([string]$wNoKey.error -ceq 'SETTLEMENT_CONTEXT_UNVERIFIED')) 'S2 transplanted key without receipt is refused'
+Assert-PAThat (([string]$wNoKey.detail -ceq 'proof-receipt-absent') -and ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4)) 'S2 absent-receipt proof writes zero'
+$ctxFpNo = Add-S2ReceiptLoc (Copy-S2Ctx $fx4.ctx) -ReceiptRoot $fx4.f.receipt -GoalId $fx4.gid
+$ctxFpNo['prepared_fingerprint'] = Get-NativeDispatchHash32 's2-other-fingerprint'
+$wFpNo = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $ctxFpNo
+Assert-PAThat ((($null -ne $wFpNo) -and (-not [bool]$wFpNo.ok)) -and ([string]$wFpNo.error -ceq 'SETTLEMENT_CONTEXT_UNVERIFIED')) 'S2 divergent fingerprint is refused'
+Assert-PAThat (([string]$wFpNo.detail -ceq 'proof-intent-mismatch') -and ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4)) 'S2 fingerprint-mismatch proof writes zero'
+$ctxGoalNo = Copy-S2Ctx $fx4.ctx
+$ctxGoalNo['goal_id'] = 'PA-S2-OTHER'
+$wGoalNo = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $ctxGoalNo
+Assert-PAThat ((($null -ne $wGoalNo) -and (-not [bool]$wGoalNo.ok)) -and ([string]$wGoalNo.error -ceq 'SETTLEMENT_GOAL_READ_FAILED')) 'S2 transplanted goal fails the live goal read'
+Assert-PAThat ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4) 'S2 transplanted-goal refusal writes zero'
+$ctxXTask = Add-S2ReceiptLoc (Copy-S2Ctx $fx3.ctx) -ReceiptRoot $fx3.f.receipt -GoalId $fx3.gid
+$wXTask = Set-OrchestrationTaskWorkerResult -TaskId $fx4.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx4.f.tasks -FlagsPath $fx4.f.flags -TelemetryRoot $fx4.f.tele -SettlementContext $ctxXTask
+Assert-PAThat ((($null -ne $wXTask) -and (-not [bool]$wXTask.ok)) -and ([string]$wXTask.error -ceq 'SETTLEMENT_CONTEXT_UNVERIFIED')) 'S2 receipt transplanted from another task fails the proof'
+Assert-PAThat (([string]$wXTask.detail -ceq 'proof-intent-mismatch') -and ((Get-PATaskRev $fx4.tid $fx4.f.tasks) -eq 4)) 'S2 cross-task transplant writes zero'
 # S2-7: fencing/lease stale => HOLD, zero writes.
 $fx5a = New-S2Fixture -Tag 'f5a'
 $snap5a = Get-OrchestrationDispatchIntent -GoalId $fx5a.gid -WorkItemId $fx5a.wid -ActionRevision 1 -StoreDir $fx5a.f.dispatch
@@ -660,12 +728,33 @@ $st5b = New-ProductiveSettleImpl -TaskId $fx5b.tid -AttemptRole 'coder' -Session
 Assert-PAThat ($null -eq (& $st5b.impl $snap5b.intent $snap5b.intent['receipt'] $live5b0.goal $authS5b)) 'S2 expired lease => HOLD, zero writes'
 Assert-PAThat (((Get-PATaskRev $fx5b.tid $fx5b.f.tasks) -eq 4) -and (-not (Test-PAWorkerResult $fx5b.tid $fx5b.f.tasks))) 'S2 lease expiry leaves rev 4 with no worker result'
 # S2-8: ambiguous kernel commit => fail-closed, never advance.
+# Simulates an ND-Settle interrupted between the kernel write and the
+# 'settled' transition: attempt + evidence markers persisted on the
+# still-claimed receipt (exactly what ND-Settle writes before the
+# kernel), so the direct write passes the durable proof and lands.
 $fx6 = New-S2Fixture -Tag 'f6'
 $snap6 = Get-OrchestrationDispatchIntent -GoalId $fx6.gid -WorkItemId $fx6.wid -ActionRevision 1 -StoreDir $fx6.f.dispatch
 $live6 = Get-OrchestrationGoal -GoalId $fx6.gid -StoreDir $fx6.f.goal
 $authS6 = New-OrchestrationObjectiveAuthEnvelope -User 'u' -Project 'p' -Runtime 'V1' -Grants $script:GFull -Operation 'settlement' -Resource $fx6.wid -Decision 'settlement'
-$wAmb = Set-OrchestrationTaskWorkerResult -TaskId $fx6.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx6.f.tasks -FlagsPath $fx6.f.flags -TelemetryRoot $fx6.f.tele -SettlementContext $fx6.ctx
-Assert-PAThat ((($null -ne $wAmb) -and [bool]$wAmb.ok) -and ([long]$wAmb.revision -eq 5)) 'S2 ambiguous fixture: canonical kernel write lands (rev 5, receipt still claimed)'
+$rp6dir = Get-NDGoalReceiptDir -RootDir $fx6.f.receipt -GoalId $fx6.gid
+Assert-PAThat (-not [string]::IsNullOrWhiteSpace([string]$rp6dir)) 'S2 ambiguous fixture receipt dir resolves'
+$rp6 = Join-Path ([string]$rp6dir) ($fx6.ndk + '.json')
+$raw6 = ConvertFrom-Json ([IO.File]::ReadAllText($rp6, [Text.Encoding]::UTF8))
+Add-Member -InputObject $raw6 -Name 'settle_attempt_status' -Value 'candidate_pass' -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_claimed_evidence' -Value @('criterion:0') -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_child_session_id' -Value ([string]$fx6.child) -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_session_id' -Value ([string]$fx6.sess) -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_message_id' -Value ([string]$fx6.msg) -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_call_id' -Value ([string]$fx6.call) -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_caller_agent' -Value 'planner' -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_target_agent' -Value 'coder' -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_attempt_at' -Value ([DateTime]::UtcNow.ToString('o')) -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_evidence_created' -Value $true -MemberType NoteProperty -Force
+Add-Member -InputObject $raw6 -Name 'settle_evidence_id' -Value (Get-NativeDispatchHash32 's2-f6-evidence') -MemberType NoteProperty -Force
+Write-PAFile -Path $rp6 -Text (ConvertTo-Json -InputObject $raw6 -Depth 20 -Compress)
+$ctx6 = Add-S2ReceiptLoc (Copy-S2Ctx $fx6.ctx) -ReceiptRoot $fx6.f.receipt -GoalId $fx6.gid
+$wAmb = Set-OrchestrationTaskWorkerResult -TaskId $fx6.tid -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $fx6.f.tasks -FlagsPath $fx6.f.flags -TelemetryRoot $fx6.f.tele -SettlementContext $ctx6
+Assert-PAThat ((($null -ne $wAmb) -and [bool]$wAmb.ok) -and ([long]$wAmb.revision -eq 5)) 'S2 ambiguous fixture: proven kernel write lands (rev 5, receipt still claimed)'
 $st6 = New-ProductiveSettleImpl -TaskId $fx6.tid -AttemptRole 'coder' -SessionId $fx6.sess -TasksDir $fx6.f.tasks -FlagsPath $fx6.f.flags -TelemetryRoot $fx6.f.tele -OwnerId 'owner-s2' -Generation $fx6.gen -GoalStoreDir $fx6.f.goal -DispatchStoreDir $fx6.f.dispatch -WorkerStatus 'candidate_pass' -WorkerProducedBy 'coder' -WorkerEvidence @('criterion:0') -Tracker (New-PATracker $null) -NativeSettlement $fx6.ctx -Productive
 Assert-PAThat ($null -eq (& $st6.impl $snap6.intent $snap6.intent['receipt'] $live6.goal $authS6)) 'S2 ambiguous commit stays fail-closed/manual (no advance, no rewrite)'
 Assert-PAThat ((Get-PATaskRev $fx6.tid $fx6.f.tasks) -eq 5) 'S2 ambiguous commit writes nothing new'
@@ -694,6 +783,48 @@ Assert-PAThat (([bool]$res8.ok -and ([long]$res8.reconciled -eq 1)) -and ([long]
 Assert-PAThat (((Get-PATaskRev $fx8.tid $fx8.f.tasks) -eq 5) -and (Test-PAWorkerResult $fx8.tid $fx8.f.tasks)) 'S2 entry-point settle writes the single canonical worker result (rev 4 to 5)'
 $after8 = Get-OrchestrationDispatchIntent -GoalId $fx8.gid -WorkItemId $fx8.wid -ActionRevision 1 -StoreDir $fx8.f.dispatch
 Assert-PAThat (([bool]$after8.ok -and ([string]$after8.intent['state'] -ceq 'settled')) -and ([string]$after8.intent['settlement_receipt'].idempotency_key -ceq $key8)) 'S2 entry-point settle persists bound settlement receipt in the diary'
+# S2-11: GoalStoreDir omitido no ND-Settle => resolve o default e liquida.
+$defGoal = Get-OrchestrationGoalStoreDir -StoreDir ''
+Assert-PAThat (-not [string]::IsNullOrWhiteSpace($defGoal)) 'S2 default goal store resolves non-empty'
+$f9 = New-S2Root
+$gid9 = ('PA-S2-G3-' + ([guid]::NewGuid().ToString('N').Substring(0, 8)).ToUpperInvariant())
+$tid9 = ('pa-task-s2-g3-' + ([guid]::NewGuid().ToString('N').Substring(0, 8)).ToLowerInvariant())
+$wid9 = 'w-s2-g3'
+$sess9 = 'pa-session-s2-g3'
+$sv9 = New-PAActiveGoal $gid9 $defGoal
+Assert-PAThat ([bool]$sv9.ok) 'S2 default-store goal created'
+$own9 = Acquire-OrchestrationGoalOwnership -GoalId $gid9 -OwnerId 'owner-s2' -ExpectedRevision ([long]$sv9.revision) -StoreDir $defGoal
+Assert-PAThat ([bool]$own9.ok) 'S2 default-store ownership acquired'
+$gen9 = [long]$own9.ownership['generation']
+$t9 = New-OrchestrationTask -TaskId $tid9 -Objective 's2 default store fixture' -Actor 'owner-s2' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -BaseRevision 'rev-a' -ReadScopes @('scope-a') -SettlementPolicy 'canonical-native-settle' -AttemptBudget 3 -TasksDir $f9.tasks -FlagsPath $f9.flags -TelemetryRoot $f9.tele
+Assert-PAThat ([bool]$t9.ok) 'S2 default-store task created marked'
+$r91 = Invoke-OrchestrationTaskTransition -TaskId $tid9 -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision ([int]$t9.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $f9.tasks -FlagsPath $f9.flags -TelemetryRoot $f9.tele
+$r92 = Invoke-OrchestrationTaskTransition -TaskId $tid9 -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision ([int]$r91.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $f9.tasks -FlagsPath $f9.flags -TelemetryRoot $f9.tele
+Assert-PAThat ([bool]$r92.ok) 'S2 default-store task implementing'
+$grev9 = [long](Get-OrchestrationGoal -GoalId $gid9 -StoreDir $defGoal).goal['revision']
+$add9 = Add-OrchestrationGoalTaskPersisted -GoalId $gid9 -TaskId $tid9 -ExpectedRevision $grev9 -StoreDir $defGoal -OwnerId 'owner-s2' -OwnershipGeneration $gen9
+Assert-PAThat ([bool]$add9.ok) 'S2 default-store task attached'
+$ev9 = (New-OrchestrationObjectiveEvent -GoalId $gid9 -Type 'task-settled' -WorkItemId $wid9 -ActionRevision 1).event
+$grevLive9 = [long](Get-OrchestrationGoal -GoalId $gid9 -StoreDir $defGoal).goal['revision']
+$res9 = Invoke-ProductiveObjectiveEvent -Event $ev9 -GoalStoreDir $defGoal -DispatchStoreDir $f9.dispatch -CheckpointStoreDir $f9.ckpt -TasksDir $f9.tasks -FlagsPath $f9.flags -TelemetryRoot $f9.tele -TaskId $tid9 -AttemptRole 'coder' -SessionId $sess9 -OwnerId 'owner-s2' -Generation $gen9 -ExpectedRevision $grevLive9 -User 'u' -Project 'p' -Runtime 'V1' -Grants 'ops allow:dispatch' -Productive
+Assert-PAThat (([bool]$res9.ok -and [bool]$res9.dispatched) -and ([string]$res9.decision -ceq 'settlement-pending')) 'S2 default-store dispatch stays pending'
+$ndk9 = Get-NativeDispatchHash32 ('s2-key-g3-' + $gid9)
+$ph9 = Get-NativeDispatchHash32 ('s2-prompt-g3-' + $gid9)
+$ni9 = New-OrchestrationNativeDispatchIntent -TaskId $tid9 -TaskExpectedRevision 4 -Agent 'coder' -PromptHash $ph9 -Scope @('scope-a') -AcceptanceCriteria @('criterion:0') -IdempotencyKey $ndk9 -Owner 'owner-s2' -OwnershipGeneration $gen9 -BaseRevision 'rev-a'
+Assert-PAThat ([bool]$ni9.ok) 'S2 default-store intent ok'
+$authND9 = @{ explicit_allow = $true; goal_id = $gid9; owner = 'owner-s2'; generation = $gen9; source = 'planner' }
+$p9 = Invoke-OrchestrationNativeDispatchPrepare -Intent $ni9.intent -Authorization $authND9 -SessionId $sess9 -ReceiptDir $f9.receipt -TasksDir $f9.tasks -FlagsPath $f9.flags
+Assert-PAThat ([bool]$p9.ok) 'S2 default-store prepare ok without GoalStoreDir'
+$msg9 = 'msg-s2-g3'
+$call9 = 'call-s2-g3'
+$child9 = 'ses-s2-g3-child'
+$c9 = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $ndk9 -Authorization $authND9 -SessionId $sess9 -MessageId $msg9 -CallId $call9 -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$p9.prepared_fingerprint) -ReceiptDir $f9.receipt -TasksDir $f9.tasks -FlagsPath $f9.flags
+Assert-PAThat ([bool]$c9.ok) 'S2 default-store claim ok without GoalStoreDir'
+$s9 = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $ndk9 -Authorization $authND9 -ChildSessionId $child9 -SessionId $sess9 -MessageId $msg9 -CallId $call9 -CallerAgent 'planner' -TargetAgent 'coder' -PreparedFingerprint ([string]$p9.prepared_fingerprint) -TaskId $tid9 -Result @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } -ReceiptDir $f9.receipt -EvidenceStoreDir $f9.evidence -TasksDir $f9.tasks -FlagsPath $f9.flags
+Assert-PAThat ((($null -ne $s9) -and [bool]$s9.ok) -and [bool]$s9.settled) 'S2 settle succeeds with omitted GoalStoreDir (resolved default in context)'
+Assert-PAThat (((Get-PATaskRev $tid9 $f9.tasks) -eq 5) -and (Test-PAWorkerResult $tid9 $f9.tasks)) 'S2 omitted-store settle writes the canonical worker result'
+try { $gf9 = Get-GKGoalFilePath -StoreDir $defGoal -GoalId $gid9; if (-not [string]::IsNullOrWhiteSpace($gf9)) { Remove-Item -LiteralPath $gf9 -Force -ErrorAction SilentlyContinue } } catch { }
+try { Remove-Item -LiteralPath $f9.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $rt.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $rc.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $rh.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }

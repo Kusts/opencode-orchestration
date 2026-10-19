@@ -6395,6 +6395,123 @@ function Write-NDSettleEvidence {
     }
 }
 
+function Test-OrchestrationNativeDispatchSettlementProof {
+    <#
+    .SYNOPSIS
+        Prova de liquidacao a partir do recibo duravel (F1-S2-FIX1).
+    .DESCRIPTION
+        Read-only, nunca lanca. Confere que o contexto de settlement
+        apresentado ao kernel corresponde a um claim REAL persistido:
+        forma completa do contexto, contencao do diretorio do recibo,
+        recibo 'claimed' legivel com integridade semantica, Intent
+        reconstruida correlacionada campo a campo e marcadores de
+        tentativa/evidencia escritos pelo ND-Settle imediatamente antes
+        da escrita no kernel. Um chamador direto que fabrique 32-hex sem
+        passar pelo prepare/claim/markers do ND-Settle e recusado aqui.
+        Qualquer falha => ok=$false com reason curta e estavel, sem
+        incluir paths. Devolve tambem evidence_id e phase do recibo.
+    #>
+    [CmdletBinding()]
+    param(
+        $SettlementContext = $null,
+        [string]$TaskId = '',
+        [string]$Status = '',
+        [string]$ProducedBy = '',
+        [string[]]$ClaimedEvidence = @(),
+        [long]$ExpectedRevision = 0
+    )
+    $refuse = {
+        param([string]$Why)
+        return [pscustomobject]@{ ok = $false; reason = $Why; evidence_id = ''; phase = '' }
+    }
+    try {
+        if ($null -eq $SettlementContext) { return (& $refuse 'proof-receipt-absent') }
+        $tid = ([string](Get-NDValue $SettlementContext 'task_id' '')).Trim()
+        $gid = ([string](Get-NDValue $SettlementContext 'goal_id' '')).Trim()
+        $own = ([string](Get-NDValue $SettlementContext 'owner' '')).Trim()
+        $gen = [long]0
+        try { $gen = [long](Get-NDValue $SettlementContext 'generation' 0) } catch { $gen = 0 }
+        $gsdir = ([string](Get-NDValue $SettlementContext 'goal_store_dir' '')).Trim()
+        $rroot = ([string](Get-NDValue $SettlementContext 'receipt_root' '')).Trim()
+        $rdir = ([string](Get-NDValue $SettlementContext 'receipt_dir' '')).Trim()
+        $rident = ([string](Get-NDValue $SettlementContext 'receipt_ident' '')).Trim()
+        $evdir = ([string](Get-NDValue $SettlementContext 'evidence_store_dir' '')).Trim()
+        $key = ([string](Get-NDValue $SettlementContext 'idempotency_key' '')).Trim().ToLowerInvariant()
+        $fp = ([string](Get-NDValue $SettlementContext 'prepared_fingerprint' '')).Trim().ToLowerInvariant()
+        $parent = ([string](Get-NDValue $SettlementContext 'parent_session_id' '')).Trim()
+        $msg = ([string](Get-NDValue $SettlementContext 'message_id' '')).Trim()
+        $call = ([string](Get-NDValue $SettlementContext 'call_id' '')).Trim()
+        $caller = ([string](Get-NDValue $SettlementContext 'caller_agent' '')).Trim()
+        $target = ([string](Get-NDValue $SettlementContext 'target_agent' '')).Trim()
+        $child = ([string](Get-NDValue $SettlementContext 'child_session_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid) -or [string]::IsNullOrWhiteSpace($gid) -or [string]::IsNullOrWhiteSpace($own)) { return (& $refuse 'proof-shape-invalid') }
+        if ([string]::IsNullOrWhiteSpace($gsdir) -or [string]::IsNullOrWhiteSpace($rroot) -or [string]::IsNullOrWhiteSpace($evdir)) { return (& $refuse 'proof-shape-invalid') }
+        if ([string]::IsNullOrWhiteSpace($rdir) -or [string]::IsNullOrWhiteSpace($rident)) { return (& $refuse 'proof-shape-invalid') }
+        if ([string]::IsNullOrWhiteSpace($parent) -or [string]::IsNullOrWhiteSpace($msg) -or [string]::IsNullOrWhiteSpace($call)) { return (& $refuse 'proof-shape-invalid') }
+        if ([string]::IsNullOrWhiteSpace($caller) -or [string]::IsNullOrWhiteSpace($target) -or [string]::IsNullOrWhiteSpace($child)) { return (& $refuse 'proof-shape-invalid') }
+        if ($gen -lt 1) { return (& $refuse 'proof-shape-invalid') }
+        if (($key -cnotmatch '^[a-f0-9]{32}$') -or ($fp -cnotmatch '^[a-f0-9]{32}$')) { return (& $refuse 'proof-shape-invalid') }
+        $stNorm = ([string]$Status).Trim().ToLowerInvariant()
+        if (@('candidate_pass', 'failed', 'blocked') -cnotcontains $stNorm) { return (& $refuse 'proof-shape-invalid') }
+        $prodNorm = ([string]$ProducedBy).Trim()
+        if ([string]::IsNullOrWhiteSpace($prodNorm)) { return (& $refuse 'proof-shape-invalid') }
+        if ([long]$ExpectedRevision -lt 1) { return (& $refuse 'proof-shape-invalid') }
+        # contencao: receipt_dir tem de estar DENTRO de receipt_root
+        # (GetFullPath + separador, case-insensitive). Sem incluir paths.
+        $fullRoot = ''
+        $fullDir = ''
+        try {
+            $fullRoot = [IO.Path]::GetFullPath($rroot)
+            $fullDir = [IO.Path]::GetFullPath($rdir)
+        }
+        catch { return (& $refuse 'proof-receipt-dir-invalid') }
+        $sep = [string][IO.Path]::DirectorySeparatorChar
+        $rootP = ($fullRoot.TrimEnd('\', '/') + $sep)
+        if (($fullDir.Length -le $fullRoot.TrimEnd('\', '/').Length) -or (-not $fullDir.StartsWith($rootP, [StringComparison]::OrdinalIgnoreCase))) { return (& $refuse 'proof-receipt-dir-invalid') }
+        # recibo autoritativo: SOMENTE 'claimed' prova claim liqudavel;
+        # 'settled' seria duplicata e nao escreve kernel por este caminho.
+        $rd = Read-NDReceipt -Dir $rdir -Key $key -Expected $rident -AllowHandoffPhases
+        if (($null -eq $rd) -or (-not [bool](Get-NDValue $rd 'ok' $false))) { return (& $refuse 'proof-receipt-absent') }
+        $rec = Get-NDValue $rd 'receipt' $null
+        if ($null -eq $rec) { return (& $refuse 'proof-receipt-absent') }
+        $phase = ([string](Get-NDValue $rec 'phase' '')).Trim().ToLowerInvariant()
+        if ($phase -cne 'claimed') { return (& $refuse 'proof-phase-not-claimed') }
+        $integ = Test-NDReceiptSemanticIntegrity -Receipt $rec -GoalId $gid -IdempotencyKey $key
+        if (($null -eq $integ) -or (-not [bool](Get-NDValue $integ 'ok' $false))) { return (& $refuse 'proof-integrity-invalid') }
+        $view = Get-NDReceiptIntentView -Receipt $rec
+        if ($null -eq $view) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $view 'task_id' '')).Trim() -cne ([string]$TaskId).Trim()) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $view 'task_id' '')).Trim() -cne $tid) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $view 'agent' '')).Trim() -cne $target) { return (& $refuse 'proof-intent-mismatch') }
+        if ($target -cne $prodNorm) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $view 'owner' '')).Trim() -cne $own) { return (& $refuse 'proof-intent-mismatch') }
+        if ([long](Get-NDValue $view 'ownership_generation' 0) -ne $gen) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $view 'idempotency_key' '')).Trim().ToLowerInvariant() -cne $key) { return (& $refuse 'proof-intent-mismatch') }
+        if ([long](Get-NDValue $view 'task_expected_revision' 0) -ne [long]$ExpectedRevision) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $rec 'goal_id' '')).Trim() -cne $gid) { return (& $refuse 'proof-intent-mismatch') }
+        if (([string](Get-NDValue $rec 'prepared_fingerprint' '')).Trim().ToLowerInvariant() -cne $fp) { return (& $refuse 'proof-intent-mismatch') }
+        # marcadores da tentativa: escritos pelo ND-Settle imediatamente
+        # antes da escrita no kernel, correlacionados campo a campo.
+        $aStatus = ([string](Get-NDValue $rec 'settle_attempt_status' '')).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($aStatus) -or ($aStatus -cne $stNorm)) { return (& $refuse 'proof-attempt-mismatch') }
+        $aRefs = @((Get-NDValue $rec 'settle_attempt_claimed_evidence' @()))
+        if (-not (Test-NDCandidateResultMatch -Status $stNorm -Refs @($ClaimedEvidence) -OtherStatus $aStatus -OtherRefs $aRefs)) { return (& $refuse 'proof-attempt-mismatch') }
+        if (([string](Get-NDValue $rec 'settle_attempt_child_session_id' '')).Trim() -cne $child) { return (& $refuse 'proof-attempt-mismatch') }
+        if (([string](Get-NDValue $rec 'settle_attempt_session_id' '')).Trim() -cne $parent) { return (& $refuse 'proof-attempt-mismatch') }
+        if (([string](Get-NDValue $rec 'settle_attempt_message_id' '')).Trim() -cne $msg) { return (& $refuse 'proof-attempt-mismatch') }
+        if (([string](Get-NDValue $rec 'settle_attempt_call_id' '')).Trim() -cne $call) { return (& $refuse 'proof-attempt-mismatch') }
+        if (([string](Get-NDValue $rec 'settle_attempt_caller_agent' '')).Trim() -cne $caller) { return (& $refuse 'proof-attempt-mismatch') }
+        if (([string](Get-NDValue $rec 'settle_attempt_target_agent' '')).Trim() -cne $target) { return (& $refuse 'proof-attempt-mismatch') }
+        # evidencia vinculada: criada exatamente true + id nao vazio.
+        $evC = Get-NDValue $rec 'settle_evidence_created' $null
+        if (($evC -isnot [bool]) -or (-not $evC)) { return (& $refuse 'proof-evidence-missing') }
+        $evId = ([string](Get-NDValue $rec 'settle_evidence_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($evId)) { return (& $refuse 'proof-evidence-missing') }
+        return [pscustomobject]@{ ok = $true; reason = ''; evidence_id = $evId; phase = $phase }
+    }
+    catch { return [pscustomobject]@{ ok = $false; reason = 'proof-internal-error'; evidence_id = ''; phase = '' } }
+}
+
 function Invoke-OrchestrationNativeDispatchSettle {
     <#
     .SYNOPSIS
@@ -7131,14 +7248,25 @@ function Invoke-OrchestrationNativeDispatchSettle {
             # marcadas 'canonical-native-settle' recusam sem ele. O contexto
             # e construido AQUI, dos locais ja validados - nunca fabricado
             # de SessionId/binding de outro caminho.
+            # F1-S2-FIX1: resolve o goal store (default quando omitido) e
+            # ancora o recibo ao diretorio/identidade resolvidos, para que
+            # o kernel confira a prova contra o registro duravel real.
+            $goalStoreResolved = ([string]$GoalStoreDir).Trim()
+            try {
+                $gsdCmd = Get-Command Get-OrchestrationGoalStoreDir -ErrorAction SilentlyContinue
+                if ($null -ne $gsdCmd) { $goalStoreResolved = ([string](Get-OrchestrationGoalStoreDir -StoreDir $GoalStoreDir)).Trim() }
+            }
+            catch { $goalStoreResolved = ([string]$GoalStoreDir).Trim() }
             $settleCtx = [ordered]@{
                 task_id              = $storedTask
                 goal_id              = $ndGoalId
                 owner                = $authOwner
                 generation           = $authGen
                 goal_revision        = $liveGoalRev
-                goal_store_dir       = $GoalStoreDir
+                goal_store_dir       = $goalStoreResolved
                 receipt_root         = $dir
+                receipt_dir          = $rDir
+                receipt_ident        = $rIdent
                 evidence_store_dir   = $evDirResolved
                 idempotency_key      = $key
                 prepared_fingerprint = $settleFp

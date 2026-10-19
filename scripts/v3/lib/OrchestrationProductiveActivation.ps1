@@ -1159,11 +1159,13 @@ function Add-PAProductiveNote {
 function Get-ProductiveSettlementProjection {
     # F1-S2: projecao OBSERVAVEL dos estados candidate/persisted/verified/
     # advanced. Nao liquida, nao verifica e nao avanca: apenas le os stores
-    # existentes. Cada estado sai como present/absent/unknown (unknown quando
-    # nao ha prova legivel). 'advanced' le os stores existentes: o estado do
-    # intent no ObjectiveRuntime e o advance record do ND-Advance; nenhuma
-    # regra nova "advance exige verified" e criada - os estados sao
-    # independentes. Nunca lanca.
+    # existentes. candidate/persisted/verified saem como present/absent/
+    # unknown (unknown quando nao ha prova legivel). 'advanced' le o estado
+    # do intent no ObjectiveRuntime e INTERPRETA o advance record do
+    # ND-Advance (nunca basta existir): estados present|pending|blocked|
+    # failed|unknown|absent conforme move/ok/preparo e correlacao
+    # goal_id/settled_key; nenhuma regra "advance exige verified" e criada -
+    # os estados sao independentes. Nunca lanca.
     [CmdletBinding()]
     param(
         [string]$TaskId = '',
@@ -1242,21 +1244,81 @@ function Get-ProductiveSettlementProjection {
             $advanced = [pscustomobject]@{ state = 'present'; ref = $advRef }
         }
         if ([string]$advanced.state -cne 'present') {
+            # F1-S2-FIX1: o registro ND-Advance e interpretado e
+            # correlacionado - nunca basta existir. goal_id e settled_key
+            # (quando AdvanceKey informado) tem de casar; ok=false, move
+            # BLOCKED e falhas viram estados proprios em vez de 'present'.
             $advKnown = $false
-            $advPresent = $false
+            $advState = ''
+            $advRef = ''
             if ((-not [string]::IsNullOrWhiteSpace([string]$AdvanceDir)) -and (-not [string]::IsNullOrWhiteSpace([string]$AdvanceKey))) {
                 try {
                     $advCmd = Get-Command Read-NDAdvanceRecord -ErrorAction SilentlyContinue
                     if ($null -ne $advCmd) {
-                        $advKnown = $true
                         $advRec = Read-NDAdvanceRecord -AdvanceDir ([string]$AdvanceDir) -Key ([string]$AdvanceKey)
-                        if ($null -ne $advRec) { $advPresent = $true }
+                        if ($null -ne $advRec) {
+                            $advKnown = $true
+                            $advGoal = ([string](Get-PAFieldValue $advRec 'goal_id' '')).Trim()
+                            $advSettled = ([string](Get-PAFieldValue $advRec 'settled_key' '')).Trim().ToLowerInvariant()
+                            if (((-not [string]::IsNullOrWhiteSpace([string]$GoalId)) -and ($advGoal -cne ([string]$GoalId).Trim())) -or ($advSettled -cne ([string]$AdvanceKey).Trim().ToLowerInvariant())) {
+                                $advState = 'unknown'
+                                $advRef = 'nd-advance:correlation-mismatch'
+                            }
+                            else {
+                                $advOk = Get-PAFieldValue $advRec 'ok' $null
+                                $advMove = ([string](Get-PAFieldValue $advRec 'move' '')).Trim().ToUpperInvariant()
+                                $advReason = ([string](Get-PAFieldValue $advRec 'reason' '')).Trim()
+                                $advMoveReason = ([string](Get-PAFieldValue $advRec 'move_reason' '')).Trim()
+                                $advFinReason = ([string](Get-PAFieldValue $advRec 'finalize_reason' '')).Trim()
+                                if ($advMove -ceq 'BLOCKED') {
+                                    $advState = 'blocked'
+                                    $advRef = 'nd-advance:blocked'
+                                    if (-not [string]::IsNullOrWhiteSpace($advMoveReason)) { $advRef = ('nd-advance:blocked:' + $advMoveReason) }
+                                }
+                                elseif (($advOk -is [bool]) -and (-not $advOk)) {
+                                    $advState = 'failed'
+                                    $advRef = 'nd-advance:failed'
+                                    if (-not [string]::IsNullOrWhiteSpace($advReason)) { $advRef = ('nd-advance:failed:' + $advReason) }
+                                }
+                                elseif (($advMove -ceq 'CONTINUE') -or ($advMove -ceq 'RETRY')) {
+                                    $advPrep = Get-PAFieldValue $advRec 'prepared' $false
+                                    $advNextKey = ([string](Get-PAFieldValue $advRec 'next_idempotency_key' '')).Trim().ToLowerInvariant()
+                                    $advNextTask = ([string](Get-PAFieldValue $advRec 'next_task_id' '')).Trim()
+                                    $advNextAgent = ([string](Get-PAFieldValue $advRec 'next_agent' '')).Trim()
+                                    $advKeyOk = ($advNextKey -cmatch '^[a-f0-9]{32}$')
+                                    if ((($advPrep -is [bool]) -and $advPrep) -and $advKeyOk -and (-not [string]::IsNullOrWhiteSpace($advNextTask)) -and (-not [string]::IsNullOrWhiteSpace($advNextAgent))) {
+                                        $advState = 'present'
+                                        $advRef = ('nd-advance:' + $advMove + ':prepared')
+                                    }
+                                    else {
+                                        $advState = 'pending'
+                                        $advRef = ('nd-advance:' + $advMove + ':unprepared')
+                                    }
+                                }
+                                elseif ($advMove -ceq 'COMPLETE') {
+                                    if (($advOk -is [bool]) -and $advOk) {
+                                        $advState = 'present'
+                                        $advRef = 'nd-advance:COMPLETE'
+                                        if (-not [string]::IsNullOrWhiteSpace($advFinReason)) { $advRef = ('nd-advance:COMPLETE:' + $advFinReason) }
+                                    }
+                                    else {
+                                        $advState = 'unknown'
+                                        $advRef = 'nd-advance:COMPLETE:unproven'
+                                    }
+                                }
+                                else {
+                                    $advState = 'pending'
+                                    $advRef = 'nd-advance:pending'
+                                    if (-not [string]::IsNullOrWhiteSpace($advMove)) { $advRef = ('nd-advance:pending:' + $advMove) }
+                                }
+                            }
+                        }
                     }
                 }
-                catch { $advKnown = $false; $advPresent = $false }
+                catch { $advKnown = $false; $advState = ''; $advRef = '' }
             }
-            if ($advPresent) {
-                $advanced = [pscustomobject]@{ state = 'present'; ref = 'nd-advance:record' }
+            if (-not [string]::IsNullOrWhiteSpace($advState)) {
+                $advanced = [pscustomobject]@{ state = $advState; ref = $advRef }
             }
             elseif ((-not $orKnown) -and (-not $advKnown)) {
                 $advanced = [pscustomobject]@{ state = 'unknown'; ref = '' }

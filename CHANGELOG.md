@@ -30,6 +30,18 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   `OrchestrationProductiveActivation` (delegação com recibo real, HOLD,
   divergência, fencing/lease, duplicata divergente, ambíguo, legada,
   verificação separada, projeção) + suíte do kernel verde (legado intacto).
+  - **Endurecimento F1-S2-FIX1** (reviewer + security-reviewer, mesma branch):
+    prova durável do recibo (`Test-OrchestrationNativeDispatchSettlementProof`):
+    o kernel só escreve em task marcada quando o contexto corresponde a um
+    claim `claimed` real com integridade semântica, Intent correlacionada e
+    marcadores de tentativa/evidência do ND-Settle — contexto fabricado
+    (32-hex sem recibo) é recusado como `SETTLEMENT_CONTEXT_UNVERIFIED`
+    (prova indisponível: `SETTLEMENT_PROOF_UNAVAILABLE`); contexto do ND-Settle
+    ancora `receipt_dir`/`receipt_ident` contidos em `receipt_root` e resolve
+    `goal_store_dir` via default quando omitido. Projeção `advanced`
+    interpretada (present|pending|blocked|failed|unknown|absent, com correlação
+    goal_id/settled_key) em vez de `present` para qualquer registro; comentário
+    do lock do goal corrigido para leitura lock-free honesta.
 
 - **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
   `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
