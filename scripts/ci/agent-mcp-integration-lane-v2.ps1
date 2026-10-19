@@ -549,6 +549,15 @@ function New-LaneProfile([string]$ProfileId) {
     $authCopied = $false
     $npmCache = Join-Path $root 'npm-cache'
     try { if (-not (Test-Path -LiteralPath $npmCache -PathType Container)) { New-Item -ItemType Directory -Path $npmCache -Force | Out-Null } } catch { }
+    # FIXTURE(S5S6-BROWSER-FIX): dirs lane-owned (sob TargetHome, nunca TEMP
+    # real/usuario real): TEMP/TMP dos filhos + user-data-dir distinto por MCP.
+    $laneTmp = Join-Path $TargetHome 'lane-tmp'
+    try { if (-not (Test-Path -LiteralPath $laneTmp -PathType Container)) { New-Item -ItemType Directory -Path $laneTmp -Force | Out-Null } } catch { }
+    $browserPw = Join-Path $root 'browser-profile-pw'
+    $browserDt = Join-Path $root 'browser-profile-dt'
+    foreach ($bd in @($browserPw, $browserDt)) {
+        try { if (-not (Test-Path -LiteralPath $bd -PathType Container)) { New-Item -ItemType Directory -Path $bd -Force | Out-Null } } catch { }
+    }
     $npmRcBlank = Join-Path $root 'npmrc-blank'
     try { if (-not (Test-Path -LiteralPath $npmRcBlank -PathType Leaf)) { [IO.File]::WriteAllText($npmRcBlank, "# lane-owned blank npmrc`n", (New-Object Text.UTF8Encoding $false)) } } catch { }
     $servePwEnv = @{
@@ -571,6 +580,9 @@ function New-LaneProfile([string]$ProfileId) {
         home     = $profHome
         cwd      = $cwd
         db       = $dbPath
+        lane_tmp = $laneTmp
+        browser_pw = $browserPw
+        browser_dt = $browserDt
         cfg_path = (Join-Path $xdg 'opencode\opencode.json')
         env      = $servePwEnv
         auth_store = [bool]$authCopied
@@ -661,6 +673,25 @@ function Start-LaneOwnedProcess {
         }
         foreach ($r in @($EnvRemove)) {
             try { [void]$psi.EnvironmentVariables.Remove([string]$r) } catch { }
+        }
+        # FIXTURE(S5S6-BROWSER-FIX): TEMP/TMP lane-owned sob TargetHome para os
+        # filhos serve/fixture (browser/MCP nao tocam TEMP real do usuario).
+        # Fail-closed: falha de preparacao aborta o start (nunca segue com
+        # TEMP/TMP herdado).
+        try {
+            if ([string]::IsNullOrWhiteSpace($TargetHome)) { throw 'TargetHome vazio (sem TEMP lane-owned)' }
+            $laneTmpOwned = Join-Path $TargetHome 'lane-tmp'
+            if (-not (Test-Path -LiteralPath $laneTmpOwned -PathType Container)) { New-Item -ItemType Directory -Path $laneTmpOwned -Force | Out-Null }
+            if (-not (Test-Path -LiteralPath $laneTmpOwned -PathType Container)) { throw ('lane-tmp indisponivel: ' + $laneTmpOwned) }
+            $psi.EnvironmentVariables['TEMP'] = $laneTmpOwned
+            $psi.EnvironmentVariables['TMP'] = $laneTmpOwned
+        } catch {
+            try { [void](Close-RuntimeJobObject -Job $job) } catch { }
+            $prepMsg = ''
+            try { $prepMsg = [string]$_.Exception.Message } catch { $prepMsg = '' }
+            if ([string]::IsNullOrWhiteSpace($prepMsg)) { $prepMsg = 'falha ao preparar lane-tmp' }
+            $res.reason = ('TEMP lane-owned indisponivel (fail-closed antes do start): ' + (Get-LaneSafeText $prepMsg 160))
+            return $res
         }
         $p = [System.Diagnostics.Process]::Start($psi)
         if ($null -eq $p) {
@@ -957,12 +988,12 @@ try {
         servers = [ordered]@{
             playwright = [ordered]@{
                 type = 'local'
-                command = @('npx', '-y', '@playwright/mcp@0.0.83', '--headless', '--isolated')
+                command = @('npx', '-y', '@playwright/mcp@0.0.83', '--headless', '--isolated', '--user-data-dir', ([string]$profTesting.browser_pw))
                 disabled = $false
             }
             'chrome-devtools' = [ordered]@{
                 type = 'local'
-                command = @('npx', '-y', 'chrome-devtools-mcp@1.10.1', '--headless', '--isolated', '--no-usage-statistics', '--no-performance-crux')
+                command = @('npx', '-y', 'chrome-devtools-mcp@1.10.1', '--headless', '--isolated', '--no-usage-statistics', '--no-performance-crux', '--userDataDir', ([string]$profTesting.browser_dt))
                 disabled = $false
             }
         }
@@ -1206,6 +1237,11 @@ try {
                         $psi.EnvironmentVariables['HOME'] = $npmHome3
                         $psi.EnvironmentVariables['USERPROFILE'] = $npmHome3
                         $psi.EnvironmentVariables['npm_config_cache'] = $npmCache3
+                        # FIXTURE(S5S6-BROWSER-FIX): mesmo env lane-owned dos filhos serve.
+                        $laneTmp3 = Join-Path $TargetHome 'lane-tmp'
+                        try { if (-not (Test-Path -LiteralPath $laneTmp3 -PathType Container)) { New-Item -ItemType Directory -Path $laneTmp3 -Force | Out-Null } } catch { }
+                        $psi.EnvironmentVariables['TEMP'] = $laneTmp3
+                        $psi.EnvironmentVariables['TMP'] = $laneTmp3
                         foreach ($r in @($script:SensitiveEnvRemove)) {
                             try { [void]$psi.EnvironmentVariables.Remove([string]$r) } catch { }
                         }
@@ -1553,6 +1589,11 @@ try {
                                     $ipsi.EnvironmentVariables['HOME'] = $npmHomeV
                                     $ipsi.EnvironmentVariables['USERPROFILE'] = $npmHomeV
                                     $ipsi.EnvironmentVariables['npm_config_cache'] = $npmCacheV
+                                    # FIXTURE(S5S6-BROWSER-FIX): mesmo env lane-owned dos filhos serve.
+                                    $laneTmpV = Join-Path $TargetHome 'lane-tmp'
+                                    try { if (-not (Test-Path -LiteralPath $laneTmpV -PathType Container)) { New-Item -ItemType Directory -Path $laneTmpV -Force | Out-Null } } catch { }
+                                    $ipsi.EnvironmentVariables['TEMP'] = $laneTmpV
+                                    $ipsi.EnvironmentVariables['TMP'] = $laneTmpV
                                     $ip = [System.Diagnostics.Process]::Start($ipsi)
                                     $iadd = Add-RuntimeJobProcess -Job $ijob -Process $ip
                                     if ([bool]$iadd.Ok) {
