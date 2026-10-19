@@ -2179,9 +2179,10 @@ function Stop-WatchdogVerifiedProcess {
         is held by the caller until exit is confirmed, and the Kill
         failure path consults ONLY the same instance (HasExited), never
         a fresh PID lookup that could observe a recycled PID. Without
-        an instance, one resolution happens here and a proven-gone PID
-        maps to structured already_exited (never throws); an
-        uninspectable PID maps to WATCHDOG_INTERRUPT_FAILED (F4).
+        an instance the call fails closed with
+        WATCHDOG_INTERRUPT_FAILED (P1-01-HARDEN: the PID-only fallback
+        never resolves or kills by PID, so a foreign live PID can never
+        be stopped through this entry).
         stop_failure (test-only) simulates an OS refusal. Single Stop
         attempt, no retry loop. Maps every outcome to a structured
         result, never throws.
@@ -2198,20 +2199,8 @@ function Stop-WatchdogVerifiedProcess {
         }
         $inst = $ProcessInstance
         $ownsFallback = $false
-        $pidInt = [int]$ProcessId
         if ($null -eq $inst) {
-            if ($pidInt -lt 1) {
-                return (New-WatchdogError -Code 'WATCHDOG_INTERRUPT_FAILED' -Extra @{ detail = 'no verified process instance' })
-            }
-            $q = Get-WatchdogLiveProcess -ProcessId $pidInt -FaultInject $fi
-            if ([bool]$q.inspection_failed) {
-                return (New-WatchdogError -Code 'WATCHDOG_INTERRUPT_FAILED' -Extra @{ detail = 'process identity is not inspectable' })
-            }
-            if (-not [bool]$q.found) {
-                return [PSCustomObject]@{ ok = $true; already_exited = $true }
-            }
-            $inst = $q.process
-            $ownsFallback = $true
+            return (New-WatchdogError -Code 'WATCHDOG_INTERRUPT_FAILED' -Extra @{ detail = 'no verified process instance' })
         }
         try { if ([bool]$inst.HasExited) { if ($ownsFallback) { Close-WatchdogProcessHandle -Instance $inst }; return [PSCustomObject]@{ ok = $true; already_exited = $true } } }
         catch { }
