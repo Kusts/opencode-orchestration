@@ -57,13 +57,36 @@ foreach ($lib in @(
 }
 
 # ---------- sanitizacao / evidencia ----------
-function Get-ProbeSafeText {
-    [CmdletBinding()] param($Value, [int]$Max = 200)
+$script:ProbeSanitizeFallback = $false
+function Invoke-ProbeRedactRules {
+    # Aplica TODAS as regras de redacao sobre UMA forma textual; retorna o
+    # texto redigido. Pura (sem trim/max); chamada com a forma original E a
+    # canonica desescapada. A regra escapada vem primeiro para nao deixar
+    # redacao parcial (sufixo exposto) das regras simples.
+    [CmdletBinding()] param([string]$Text = '')
+    $v = [string]$Text
     try {
-        if ($null -eq $Value) { return '' }
-        $v = [string]$Value
-        $v = $v -replace '(?i)sk-[A-Za-z0-9_-]+', '[REDACTED]'
-        $v = $v -replace '(?i)(password|token|secret|authorization)\s*[=:]\s*[^\s,;"]+', '$1=[REDACTED]'
+        $rk = '(token|password|passwd|secret|client_secret|api_key|apikey|api-key|access_token|refresh_token|authorization|credentials?|private_key)'
+        $patEscVal = '(\\?(?:"|\x27)[^"\\\x27]*(?:\\.[^"\\\x27]*)*\\?(?:"|\x27)|\d+|true|false|null)'
+        $patEsc = ('(?i)\\?(?:"|\x27)' + $rk + '\\?(?:"|\x27)\s*:\s*' + $patEscVal)
+        $v = $v -replace $patEsc, '[REDACTED]'
+        $v = $v -replace '(?i)\bBearer\s+[A-Za-z0-9\-._~+/=]+', 'Bearer [REDACTED]'
+        $v = $v -replace '(?i)\bAuthorization\s*:\s*[^\r\n;,]+', 'Authorization: [REDACTED]'
+        $patJsonDq = ('(?i)"' + $rk + '"\s*:\s*"[^"]*"')
+        $v = $v -replace $patJsonDq, '"$1":"[REDACTED]"'
+        $patJsonSq = ("(?i)'" + $rk + "'\s*:\s*'[^']*'")
+        $v = $v -replace $patJsonSq, '''$1'':''[REDACTED]'''
+        $patJsonBare = ('(?i)"' + $rk + '"\s*:\s*[^\s,;"}\]]+')
+        $v = $v -replace $patJsonBare, '"$1":"[REDACTED]"'
+        $patKv = ('(?i)\b' + $rk + '((?>\s*)[=:](?>\s*))("[^"]*"|\x27[^\x27]*\x27|[^\s,;"]+)')
+        $v = $v -replace $patKv, '$1$2[REDACTED]'
+        $v = $v -replace 'sk-[A-Za-z0-9_-]+', '[REDACTED]'
+        $v = $v -replace 'sk_[A-Za-z0-9_-]+', '[REDACTED]'
+        $v = $v -replace 'ghp_[A-Za-z0-9_-]+', '[REDACTED]'
+        $v = $v -replace 'github_pat_[A-Za-z0-9_-]+', '[REDACTED]'
+        $v = $v -replace 'xox[baprs]-[A-Za-z0-9-]+', '[REDACTED]'
+        $v = $v -replace 'AKIA[0-9A-Z]{16}', '[REDACTED]'
+        $v = $v -replace 'AIza[0-9A-Za-z\-_]{30,}', '[REDACTED]'
         try {
             if (-not [string]::IsNullOrWhiteSpace($script:ModelKeyEnvNameClean)) {
                 $escKeyName = [regex]::Escape($script:ModelKeyEnvNameClean)
@@ -81,6 +104,76 @@ function Get-ProbeSafeText {
         $v = $v -replace '(?i)C:\\Users\\[^\\/\s":;,]+', 'C:\Users\[REDACTED]'
         $v = $v -replace '(?i)/home/[^/\s":;,]+', '/home/[REDACTED]'
         $v = $v -replace '(?i)/Users/[^/\s":;,]+', '/Users/[REDACTED]'
+    } catch { }
+    return $v
+}
+function Get-ProbeResidualPatterns {
+    # Padroes compartilhados de deteccao/nuke de residual sensivel.
+    # (a) chave sensivel + valor nao-redigido (forma : e forma =);
+    # (b) prefixos de token conhecidos; (c) cauda colada a marcador
+    # (redacao parcial: sufixo exposto). Gaps atomicos impedem o \s* de
+    # recuar e invalidar o lookahead sobre valor ja redigido.
+    $rkf = '(token|password|passwd|secret|client_secret|api_key|apikey|api-key|access_token|refresh_token|authorization|credentials?|private_key)'
+    return [ordered]@{
+        keys = $rkf
+        keyColon = ('(?i)(?>\\?"?)' + $rkf + '(?>\\?"?)(?>\s*):(?>\s*)(?!(?>\\?"?)\[REDACTED)(?>\\?"?[^,;}\]]+)')
+        keyEq = ('(?i)\b' + $rkf + '(?>\s*)=(?>\s*)(?!(?>\\?"?)\[REDACTED)("[^"]*"|\x27[^\x27]*\x27|[^\s,;]+)')
+        prefixes = @('sk-[A-Za-z0-9_-]+', 'sk_[A-Za-z0-9_-]+', 'ghp_[A-Za-z0-9_-]+', 'github_pat_[A-Za-z0-9_-]+', 'xox[baprs]-[A-Za-z0-9-]+', 'AKIA[0-9A-Z]{16}', 'AIza[0-9A-Za-z\-_]{30,}')
+        dangling = '\[REDACTED[^\]]*\][A-Za-z0-9_]'
+    }
+}
+function Test-ProbeSensitiveResidual {
+    # Retorna $true se o texto ainda contem (a) chave sensivel seguida de
+    # valor que NAO comeca com [REDACTED, (b) prefixo de token conhecido,
+    # ou (c) cauda colada a marcador (redacao parcial). Fail-closed: erro
+    # presume residual.
+    [CmdletBinding()] param([string]$Text = '')
+    try {
+        $t = [string]$Text
+        if ([string]::IsNullOrEmpty($t)) { return $false }
+        $rp = Get-ProbeResidualPatterns
+        if ($t -match [string]$rp.keyColon) { return $true }
+        if ($t -match [string]$rp.keyEq) { return $true }
+        foreach ($pp in @([string[]]$rp.prefixes)) {
+            try { if ($t -match $pp) { return $true } } catch { return $true }
+        }
+        if ($t -match [string]$rp.dangling) { return $true }
+        return $false
+    } catch { return $true }
+}
+function Get-ProbeSafeText {
+    [CmdletBinding()] param($Value, [int]$Max = 200)
+    try {
+        if ($null -eq $Value) { return '' }
+        $orig = [string]$Value
+        # Formas candidatas: original + ate 3 desescapes progressivos.
+        $forms = New-Object System.Collections.ArrayList
+        [void]$forms.Add($orig)
+        $cur = $orig
+        for ($p = 1; $p -le 3; $p++) {
+            $nx = $cur -replace '\\\\', '\'
+            $nx = $nx -replace '\\"', '"'
+            if ($nx -ceq $cur) { break }
+            $cur = $nx
+            [void]$forms.Add($cur)
+        }
+        # TODAS as regras em cada forma; selecao por ausencia de residual
+        # (nunca por contagem): canonica limpa > original limpa. Se qualquer
+        # forma restante tiver residual, nuke do campo inteiro por
+        # [REDACTED-UNSAFE] + sanitize_fallback=true (fail-closed).
+        $sanList = New-Object System.Collections.ArrayList
+        foreach ($f in @($forms)) { [void]$sanList.Add((Invoke-ProbeRedactRules ([string]$f))) }
+        $sanCanon = [string]$sanList[(@($sanList).Count - 1)]
+        $sanOrig = [string]$sanList[0]
+        if (-not (Test-ProbeSensitiveResidual $sanCanon)) { $v = $sanCanon }
+        elseif (-not (Test-ProbeSensitiveResidual $sanOrig)) { $v = $sanOrig }
+        else {
+            # Fallback: nenhuma forma ficou limpa. ATRIBUI LITERALMENTE o
+            # campo inteiro (sem substituicao parcial, que deixaria cauda)
+            # e registra sanitize_fallback=true (fail-closed).
+            $v = '[REDACTED-UNSAFE]'
+            try { $script:ProbeSanitizeFallback = $true } catch { }
+        }
         $v = $v -replace '[\x00-\x1f]', ' '
         $v = $v.Trim()
         if ($v.Length -gt $Max) { $v = $v.Substring(0, $Max) }
@@ -171,6 +264,7 @@ function Write-ProbeSummary([string]$Status, [string]$Reason, [int]$Code) {
         runtime_live = $script:LiveVersion
         model_key_env = (Get-ProbeModelKeyLogToken)
         dry_run = [bool]$DryRun
+        sanitize_fallback = [bool]$script:ProbeSanitizeFallback
         checks = @($script:Checks)
         verdict = $script:Verdict
         turns = $script:TurnEvidence
@@ -323,28 +417,38 @@ function Wait-ProbeListener([int]$Port, [int]$DeadlineSeconds) {
     return $false
 }
 function Stop-ProbeOwned([string]$Why) {
-    $res = [ordered]@{ leaks = @(); stopFailures = @(); why = $Why }
+    # Fail-closed: propaga Ok/Settled de Stop e Close; qualquer estado
+    # desconhecido/incerto (nulo, excecao, Refresh/HasExited sem leitura)
+    # marca unknown e derruba ok. Sem descarte silencioso.
+    $res = [ordered]@{ leaks = @(); stopFailures = @(); closeFailures = @(); unknown = @(); ok = $false; settled = $false; why = $Why }
     try {
         foreach ($job in @($script:OwnedJobs)) {
             try {
                 $sr = Stop-RuntimeJobObject -Job $job
-                if (($null -eq $sr) -or (-not [bool]$sr.Ok)) { $res.stopFailures += 'job-stop-fail' }
-            } catch { $res.stopFailures += 'job-stop-throw' }
+                if ($null -eq $sr) { $res.stopFailures += 'job-stop-null'; $res.unknown += 'job-stop-null' }
+                elseif (-not [bool]$sr.Ok) { $res.stopFailures += 'job-stop-fail'; $res.unknown += 'job-stop-unproven' }
+                elseif (-not [bool]$sr.Settled) { $res.stopFailures += 'job-stop-unsettled' }
+            } catch { $res.stopFailures += 'job-stop-throw'; $res.unknown += 'job-stop-throw' }
         }
         Start-Sleep -Milliseconds 500
-        [void](Wait-ProbeOwnedExit 30)
+        try { [void](Wait-ProbeOwnedExit 30) } catch { $res.unknown += 'wait-exit-unknown' }
         foreach ($job in @($script:OwnedJobs)) {
-            try { [void](Close-RuntimeJobObject -Job $job) } catch { }
+            try {
+                $cr = Close-RuntimeJobObject -Job $job
+                if (($null -eq $cr) -or (-not [bool]$cr.Ok)) { $res.closeFailures += 'job-close-fail' }
+            } catch { $res.closeFailures += 'job-close-throw'; $res.unknown += 'job-close-throw' }
         }
         foreach ($p in @($script:OwnedProcs)) {
             try {
                 $p.Refresh()
-                if (-not $p.HasExited) { $res.leaks += $p.Id }
-            } catch { }
+                if (-not [bool]$p.HasExited) { $res.leaks += $p.Id }
+            } catch { $res.unknown += 'proc-state-unknown' }
         }
-    } catch { }
+    } catch { $res.unknown += 'stop-owned-throw' }
     try { $script:OwnedJobs.Clear() } catch { }
     try { $script:OwnedProcs.Clear() } catch { }
+    $res.settled = (((@($res.leaks).Count -eq 0) -and ((@($res.unknown).Count -eq 0))))
+    $res.ok = (((@($res.stopFailures).Count -eq 0) -and ((@($res.closeFailures).Count -eq 0)) -and [bool]$res.settled))
     return $res
 }
 function Wait-ProbeOwnedExit([int]$DeadlineSeconds = 30) {
@@ -514,11 +618,9 @@ function Test-ProbeMcpOperational([string]$Text, [string[]]$WantNames) {
                 $seen = $true
                 $bad = $false
                 $good = $false
-                $hasState = $false
                 try {
                     $dv = Get-JsonProp $so 'disabled' $null
                     if ($null -ne $dv) {
-                        $hasState = $true
                         $db = $false
                         try { $db = [bool]$dv } catch { $db = $false }
                         if ([bool]$db) { $bad = $true }
@@ -527,7 +629,6 @@ function Test-ProbeMcpOperational([string]$Text, [string[]]$WantNames) {
                 try {
                     $cv = Get-JsonProp $so 'connected' $null
                     if ($null -ne $cv) {
-                        $hasState = $true
                         $cb = $false
                         try { $cb = [bool]$cv } catch { $cb = $false }
                         if ([bool]$cb) { $good = $true } else { $bad = $true }
@@ -555,7 +656,6 @@ function Test-ProbeMcpOperational([string]$Text, [string[]]$WantNames) {
                     }
                 } catch { }
                 if (-not [string]::IsNullOrWhiteSpace($stText)) {
-                    $hasState = $true
                     $low = ([string]$stText).Trim().ToLowerInvariant()
                     if ($allowStatus -contains $low) { $good = $true } else { $bad = $true }
                 }
@@ -573,14 +673,16 @@ function Test-ProbeMcpOperational([string]$Text, [string[]]$WantNames) {
                         try {
                             $evv = Get-JsonProp $holder $ef $null
                             if ($evv -is [string]) {
-                                if (-not [string]::IsNullOrWhiteSpace([string]$evv)) { $bad = $true; $hasState = $true }
-                            } elseif ($null -ne $evv) { $bad = $true; $hasState = $true }
+                                if (-not [string]::IsNullOrWhiteSpace([string]$evv)) { $bad = $true }
+                            } elseif ($null -ne $evv) { $bad = $true }
                         } catch { }
                     }
                 }
                 if ($bad) { continue }
                 if ($good) { $isUp = $true; break }
-                if (-not $hasState) { $isUp = $true; break }
+                # Sem estado positivo explicito (connected/status allowlist):
+                # NAO assume operacional (fail-closed). Nome sem conexao
+                # conta como degradado e bloqueia a jusante.
             }
             if ($isUp) { [void]$found.Add($wn) }
             elseif ($seen) { [void]$degraded.Add($wn) }
@@ -999,10 +1101,12 @@ function Get-ProbeToolEvidence([string]$Text) {
                 $head = [string]$line
                 $ix = $head.IndexOf(' out=[')
                 if ($ix -ge 0) { $head = $head.Substring(0, $ix) }
-                $m = [regex]::Match($head, '(?im)^\s*TOOL name=([A-Za-z0-9_.\-]+) status=([A-Za-z0-9_.\-]+)')
+                $m = [regex]::Match($head, '(?im)^\s*TOOL name=([A-Za-z0-9_.\-]+) status=([A-Za-z0-9_.\-]*)')
                 if ([bool]$m.Success) {
-                    [void]$names.Add(($m.Groups[1].Value + '/' + $m.Groups[2].Value))
-                    [void]$lines.Add(($m.Groups[1].Value + ' ' + $m.Groups[2].Value))
+                    $mstat = [string]$m.Groups[2].Value
+                    if ([string]::IsNullOrWhiteSpace($mstat)) { $mstat = 'unknown' }
+                    [void]$names.Add(($m.Groups[1].Value + '/' + $mstat))
+                    [void]$lines.Add(($m.Groups[1].Value + ' ' + $mstat))
                 }
             } catch { }
         }
@@ -1036,6 +1140,7 @@ function Convert-ProbeMessageJsonToToolText([string]$RawJson) {
                         if ($tp -ceq 'tool') {
                             $nm = [string](Get-JsonProp $it 'name' (Get-JsonProp $it 'tool' ''))
                             $st = [string](Get-JsonProp (Get-JsonProp $it 'state' $null) 'status' '')
+                            if ([string]::IsNullOrWhiteSpace($st)) { $st = 'unknown' }
                             $ot = ''
                             try {
                                 $tx = @()
@@ -1056,18 +1161,41 @@ function Get-ProbeSessionMessageToolEvidence {
     # Prova por turno independente do modelo: le o transcript pos-turno via
     # GET /api/session/:id/message e conta registros type=tool.
     [CmdletBinding()] param([string]$ServeUrl = '', $ApiEnv = $null, [string[]]$ApiRemove = @(), [string]$WorkDir = '', [string]$SessionId = '')
-    $res = [ordered]@{ ok = $false; count = 0; names = @(); head = ''; reason = '' }
+    $res = [ordered]@{ ok = $false; parse_ok = $false; count = 0; names = @(); head = ''; reason = '' }
     try {
         if ([string]::IsNullOrWhiteSpace($SessionId)) { $res.reason = 'session vazia'; return $res }
         if (-not (Test-ProbeLocalhostUrl $ServeUrl)) { $res.reason = 'URL fora de localhost (guard)'; return $res }
         $mr = Invoke-PreflightBoundedExe -File $script:Exe -ArgsLine ('api --server ' + $ServeUrl + ' GET /api/session/' + $SessionId + '/message') -WorkDir $WorkDir -EnvTable $ApiEnv -EnvRemove $ApiRemove -TimeoutMs 30000 -MaxChars 524288
         if ((-not [bool]$mr.Finished) -or ([int]$mr.ExitCode -ne 0)) { $res.reason = 'GET message falhou'; return $res }
-        $txt = Convert-ProbeMessageJsonToToolText ([string]$mr.Output)
+        # msg.ok so vale com transcript VALIDO e COMPLETO: GET exit 0 com
+        # JSON invalido/truncado (conversor devolveria '') nao e prova de
+        # nada => ok=false, parse_ok=false => veredito inconclusive.
+        # JSON valido tambem nao basta: parse_ok=true SO com envelope de
+        # transcript (root objeto + data array tipado); 42, {}, {"error":...}
+        # sao resposta valida mas nao transcript => parse_ok=false.
+        $rawOut = [string]$mr.Output
+        if ([string]::IsNullOrWhiteSpace($rawOut)) { $res.reason = 'GET message vazio (truncado)'; return $res }
+        $chkJson = $null
+        try { $chkJson = ConvertFrom-Json $rawOut } catch { $chkJson = $null }
+        # Envelope de transcript: root objeto + propriedade data ARRAY
+        # (Get-JsonProp desenrolaria array vazio para $null; por isso le
+        # Properties['data'] direto e exige [System.Array]).
+        $envelopeOk = $false
+        try {
+            if (($null -ne $chkJson) -and ($chkJson -isnot [string]) -and ($chkJson -isnot [System.Collections.IEnumerable])) {
+                $dataProp = $null
+                try { $dataProp = $chkJson.PSObject.Properties['data'] } catch { $dataProp = $null }
+                if (($null -ne $dataProp) -and ($dataProp.Value -is [System.Array])) { $envelopeOk = $true }
+            }
+        } catch { $envelopeOk = $false }
+        if (-not [bool]$envelopeOk) { $res.reason = 'GET message sem envelope data[] valido (nao e transcript)'; return $res }
+        $txt = Convert-ProbeMessageJsonToToolText $rawOut
         # Ordem: extrai do texto ESTRUTURADO antes de sanitizar/truncar
         # (sanitize colapsa quebras e truncate elimina registros; sanitize
         # serve so para gravar evidencia). Sem rede adicional, sem log.
         $ev = Get-ProbeToolEvidence $txt
         $safe = Get-ProbeSafeText $txt 2000
+        $res.parse_ok = $true
         $res.ok = $true
         $res.count = [int]$ev.count
         $res.names = @($ev.names)
@@ -1120,6 +1248,73 @@ function Get-ProbeDiscoveryScore([string]$Text) {
         }
     } catch { }
     return $res
+}
+
+function Get-ProbeMcpToolCounts($Names) {
+    # Prova ESTRUTURAL por sessao: conta tool calls da superficie MCP
+    # (mesmo conjunto do tool_hits) com status de execucao. Exclui a chamada
+    # `subagent` em si e tools nao relacionadas. failed/denied/unknown nao
+    # provam execucao (vao para other e bloqueiam H0).
+    $exec = New-Object System.Collections.ArrayList
+    $other = New-Object System.Collections.ArrayList
+    try {
+        foreach ($n in @($Names)) {
+            try {
+                $s = [string]$n
+                if ([string]::IsNullOrWhiteSpace($s)) { continue }
+                if ($s -match '(?i)^subagent/') { continue }
+                $ix = $s.IndexOf('/')
+                if ($ix -le 0) { continue }
+                $tool = $s.Substring(0, $ix)
+                $st = $s.Substring($ix + 1)
+                if ($tool -notmatch '(?i)^(browser_navigate|browser_snapshot|list_console_messages|take_snapshot|navigate_page)$') { continue }
+                if ($st -match '(?i)^(completed|complete|success|ok|done)$') { [void]$exec.Add($s) }
+                else { [void]$other.Add($s) }
+            } catch { }
+        }
+    } catch { }
+    return [ordered]@{ executed = @($exec); other = @($other) }
+}
+
+function Get-ProbeVerdict {
+    # Decisao 100% ESTRUTURAL H1/H0/inconclusive. Presenca (H1) = tool MCP
+    # executada/completed em parent-A ou child (subagent excluida).
+    # Ausencia (H0) = ambos transcripts completos/validos + zero registros
+    # MCP estruturais. Mencao textual NUNCA cria presenca nem ausencia.
+    # Leitura invalida/parcial ou timeout => inconclusive. Failed/denied/
+    # unknown bloqueiam H0 sem estabelecer H1 => inconclusive.
+    [CmdletBinding()] param(
+        [bool]$TurnAOk = $false,
+        [bool]$TurnBOk = $false,
+        [bool]$MsgAOk = $false,
+        [bool]$ChildMsgOk = $false,
+        [string[]]$ParentANames = @(),
+        [string[]]$ChildNames = @())
+    $res = [ordered]@{ decision = 'inconclusive'; reason = ''; basis = 'textual'; mcp_a = $null; mcp_child = $null }
+    try {
+        $mA = Get-ProbeMcpToolCounts $ParentANames
+        $mC = Get-ProbeMcpToolCounts $ChildNames
+        $res.mcp_a = $mA
+        $res.mcp_child = $mC
+        if (-not [bool]$TurnAOk) { $res.reason = 'turno A sem ok (timeout/falha); sem decisao'; return $res }
+        if (-not [bool]$TurnBOk) { $res.reason = 'turno B sem ok (timeout/falha); sem decisao'; return $res }
+        if ((-not [bool]$MsgAOk) -or (-not [bool]$ChildMsgOk)) { $res.reason = ('transcript parcial/invalido (msgA.ok=' + [bool]$MsgAOk + ' child.ok=' + [bool]$ChildMsgOk + '); sem decisao'); return $res }
+        $res.basis = 'structural'
+        $execNames = @(@($mA.executed) + @($mC.executed))
+        $otherNames = @(@($mA.other) + @($mC.other))
+        if (@($execNames).Count -gt 0) {
+            $res.decision = 'H1'
+            $res.reason = ('base=structural; presenca: tool MCP executada [' + ((@($execNames) | ForEach-Object { [string]$_ }) -join ',') + ']')
+            return $res
+        }
+        if (@($otherNames).Count -eq 0) {
+            $res.decision = 'H0'
+            $res.reason = 'base=structural; ausencia verificada: ambos transcripts completos e zero tools MCP estruturais'
+            return $res
+        }
+        $res.reason = ('base=structural; tool MCP com status nao-executado [' + ((@($otherNames) | ForEach-Object { [string]$_ }) -join ',') + ']; sem prova de execucao nem de ausencia')
+        return $res
+    } catch { $res.reason = 'veredito indisponivel (fail-closed inconclusive)'; return $res }
 }
 
 $script:Verdict = [ordered]@{ decision = 'not-run'; reason = '' }
@@ -1269,7 +1464,7 @@ try {
         [void](Wait-ProbeOwnedExit 30)
         $removed = Remove-ProbeTargetHome 5
         $residue = @(Get-ProbeSensitiveResidue)
-        $cleanOk = (((@($stop.leaks).Count -eq 0) -and (@($stop.stopFailures).Count -eq 0) -and [bool]$removed -and (@($residue).Count -eq 0)))
+        $cleanOk = (((@($stop.leaks).Count -eq 0) -and (@($stop.stopFailures).Count -eq 0) -and (@($stop.closeFailures).Count -eq 0) -and (@($stop.unknown).Count -eq 0) -and [bool]$removed -and (@($residue).Count -eq 0)))
         Add-ProbeCheck 'dryrun_cleanup' ([bool]$cleanOk) ('leaks=' + @($stop.leaks).Count + ' stop-failures=' + @($stop.stopFailures).Count + ' removed=' + [bool]$removed + ' residue=[' + ((@($residue) | ForEach-Object { Get-ProbeSafeText ([string]$_) 80 }) -join ',') + ']')
         if (-not [bool]$cleanOk) {
             $script:Verdict = [ordered]@{ decision = 'cleanup-failed'; reason = 'residuo de cleanup em dry-run (fail-closed)' }
@@ -1338,6 +1533,9 @@ try {
         $cmsgB = Get-ProbeSessionMessageToolEvidence -ServeUrl $serveUrl -ApiEnv $auth.env -ApiRemove $script:ApiRemove -WorkDir ([string]$profTesting.cwd) -SessionId $childIdB
     }
     Add-ProbeCheck 'turn_b_child_tool' ([bool]$cmsgB.ok) ('count=' + [int]$cmsgB.count + ' names=[' + (($cmsgB.names | ForEach-Object { Get-ProbeSafeText ([string]$_) 60 }) -join ',') + '] ' + [string]$cmsgB.reason)
+    # Veredito 100% estrutural (texto nunca decide); computado antes da
+    # evidencia para que probe-ab.json carregue mcp counts + basis.
+    $vd = Get-ProbeVerdict -TurnAOk ([bool]$turnA.ok) -TurnBOk ([bool]$turnB.ok) -MsgAOk ([bool]$msgA.ok) -ChildMsgOk ([bool]$cmsgB.ok) -ParentANames @($msgA.names) -ChildNames @($cmsgB.names)
     $script:TurnEvidence = [ordered]@{
         turn_a = [ordered]@{
             exit = [int]$turnA.exit
@@ -1345,7 +1543,7 @@ try {
             turn_stdout_head = (Get-ProbeSafeText $turnA.out_stdout 500)
             turn_stderr_head = (Get-ProbeSafeText $turnA.out_stderr 500)
             preturn = [ordered]@{ queries = [int]$preA.queries; elapsed_ms = [int]$preA.elapsed_ms; found = @($preA.found); missing = @($preA.missing) }
-            parent_tool = [ordered]@{ ok = [bool]$msgA.ok; count = [int]$msgA.count; names = @($msgA.names) }
+            parent_tool = [ordered]@{ ok = [bool]$msgA.ok; count = [int]$msgA.count; names = @($msgA.names); mcp_executed = @($vd.mcp_a.executed); mcp_other = @($vd.mcp_a.other) }
             parent_tool_head = (Get-ProbeSafeText $msgA.head 500)
         }
         turn_b = [ordered]@{
@@ -1356,9 +1554,10 @@ try {
             preturn = [ordered]@{ queries = [int]$preB.queries; elapsed_ms = [int]$preB.elapsed_ms; found = @($preB.found); missing = @($preB.missing) }
             parent_tool = [ordered]@{ ok = [bool]$msgB.ok; count = [int]$msgB.count; names = @($msgB.names) }
             parent_tool_head = (Get-ProbeSafeText $msgB.head 500)
-            child_tool = [ordered]@{ ok = [bool]$cmsgB.ok; count = [int]$cmsgB.count; names = @($cmsgB.names) }
+            child_tool = [ordered]@{ ok = [bool]$cmsgB.ok; count = [int]$cmsgB.count; names = @($cmsgB.names); mcp_executed = @($vd.mcp_child.executed); mcp_other = @($vd.mcp_child.other) }
             child_tool_head = (Get-ProbeSafeText $cmsgB.head 500)
         }
+        verdict = [ordered]@{ decision = [string]$vd.decision; reason = [string]$vd.reason; basis = [string]$vd.basis }
     }
     [void](Write-ProbeJson ([ordered]@{
         prompt_sha256_a = $shaA
@@ -1366,51 +1565,63 @@ try {
         child_agents_b = @($childAgentsB)
         score_a = $scoreA
         score_b = $scoreB
+        mcp_parent_a = $vd.mcp_a
+        mcp_child = $vd.mcp_child
         turn_a = $script:TurnEvidence.turn_a
         turn_b = $script:TurnEvidence.turn_b
+        verdict = $script:TurnEvidence.verdict
         at = (Get-ProbeTimestampUtc)
     }) (Join-Path $script:EvidenceDir 'probe-ab.json'))
 
-    # ---------- 6. decisao H1 vs H0 ----------
-    $aSees = ([bool]$scoreA.sees_playwright -and [bool]$scoreA.sees_devtools)
-    $bSees = ([bool]$scoreB.sees_playwright -and [bool]$scoreB.sees_devtools)
-    if ($aSees -and (-not $bSees) -and $childDebugger) {
-        $script:Verdict = [ordered]@{ decision = 'H1'; reason = 'parent ve os 2 MCPs; debugger delegado nao ve (propagacao falha)' }
-        Write-ProbeSummary 'completed' 'H1: propagacao falha (A ve, B nao ve; child debugger comprovado).' 0
-    } elseif ($aSees -and $bSees) {
-        $script:Verdict = [ordered]@{ decision = 'H0'; reason = 'ambos veem os 2 MCPs (propagacao ok)' }
-        Write-ProbeSummary 'completed' 'H0: propagacao ok (A e B veem os 2 MCPs).' 0
+    # ---------- 6. decisao H1/H0 (presenca/ausencia estrutural; texto nunca decide) ----------
+    if ([string]$vd.decision -ceq 'H1') {
+        $script:Verdict = [ordered]@{ decision = 'H1'; reason = [string]$vd.reason; basis = [string]$vd.basis }
+        Write-ProbeSummary 'completed' ('H1: presenca estrutural de tool MCP executada (' + [string]$vd.reason + ').') 0
+    } elseif ([string]$vd.decision -ceq 'H0') {
+        $script:Verdict = [ordered]@{ decision = 'H0'; reason = [string]$vd.reason; basis = [string]$vd.basis }
+        Write-ProbeSummary 'completed' ('H0: ausencia estrutural verificada (' + [string]$vd.reason + ').') 0
     } else {
-        $script:Verdict = [ordered]@{ decision = 'inconclusive'; reason = ('a_sees=' + $aSees + ' b_sees=' + $bSees + ' child_debugger=' + $childDebugger) }
-        Write-ProbeSummary 'blocked' ('inconclusivo (a_sees=' + $aSees + ' b_sees=' + $bSees + ' child_debugger=' + $childDebugger + ')') 0
+        $script:Verdict = [ordered]@{ decision = 'inconclusive'; reason = [string]$vd.reason; basis = [string]$vd.basis }
+        Write-ProbeSummary 'blocked' ('inconclusivo (' + [string]$vd.reason + ')') 0
     }
 } finally {
     $cleanupFailed = $false
     $cleanupResidueNames = @()
     $cleanupRemoved = $true
     $cleanupLeaks = 0
+    $cleanupStopBad = $false
+    $cleanupCloseBad = $false
+    $cleanupUnknown = $false
     try {
         foreach ($job in @($script:OwnedJobs)) {
-            try { [void](Stop-RuntimeJobObject -Job $job) } catch { }
+            try {
+                $fsr = Stop-RuntimeJobObject -Job $job
+                if ($null -eq $fsr) { $cleanupStopBad = $true; $cleanupUnknown = $true }
+                elseif (-not [bool]$fsr.Ok) { $cleanupStopBad = $true; $cleanupUnknown = $true }
+                elseif (-not [bool]$fsr.Settled) { $cleanupStopBad = $true }
+            } catch { $cleanupStopBad = $true; $cleanupUnknown = $true }
         }
-    } catch { }
-    try { [void](Wait-ProbeOwnedExit 30) } catch { }
+    } catch { $cleanupStopBad = $true; $cleanupUnknown = $true }
+    try { [void](Wait-ProbeOwnedExit 30) } catch { $cleanupUnknown = $true }
     try {
         foreach ($job in @($script:OwnedJobs)) {
-            try { [void](Close-RuntimeJobObject -Job $job) } catch { }
+            try {
+                $fcr = Close-RuntimeJobObject -Job $job
+                if (($null -eq $fcr) -or (-not [bool]$fcr.Ok)) { $cleanupCloseBad = $true }
+            } catch { $cleanupCloseBad = $true; $cleanupUnknown = $true }
         }
-    } catch { }
+    } catch { $cleanupCloseBad = $true; $cleanupUnknown = $true }
     try {
         foreach ($p in @($script:OwnedProcs)) {
             try {
                 $p.Refresh()
                 if (-not [bool]$p.HasExited) { $cleanupLeaks += 1 }
-            } catch { }
+            } catch { $cleanupUnknown = $true }
         }
-    } catch { }
+    } catch { $cleanupUnknown = $true }
     try { $cleanupRemoved = [bool](Remove-ProbeTargetHome 5) } catch { $cleanupRemoved = $false }
     try { $cleanupResidueNames = @(Get-ProbeSensitiveResidue) } catch { $cleanupResidueNames = @('TargetHome-present') }
-    if (([int]$cleanupLeaks -gt 0) -or (-not [bool]$cleanupRemoved) -or (@($cleanupResidueNames).Count -gt 0)) { $cleanupFailed = $true }
+    if (([int]$cleanupLeaks -gt 0) -or [bool]$cleanupStopBad -or [bool]$cleanupCloseBad -or [bool]$cleanupUnknown -or (-not [bool]$cleanupRemoved) -or (@($cleanupResidueNames).Count -gt 0)) { $cleanupFailed = $true }
     try {
         if ((-not [bool]$script:SummaryWritten) -and (-not [string]::IsNullOrWhiteSpace($script:EvidenceDir))) {
             if ([bool]$cleanupFailed) {
@@ -1421,6 +1632,7 @@ try {
                     probe = 'mcp-subagent-propagation-probe'
                     status = 'failed'
                     reason = (Get-ProbeSafeText ('cleanup incompleto: leaks=' + [int]$cleanupLeaks + ' removed=' + [bool]$cleanupRemoved + ' residue=[' + $residueList + '] (nomes apenas)') 400)
+                    sanitize_fallback = [bool]$script:ProbeSanitizeFallback
                     verdict = $script:Verdict
                     checks = @($script:Checks)
                     turns = $script:TurnEvidence
@@ -1432,6 +1644,7 @@ try {
                 $summary = [ordered]@{
                     probe = 'mcp-subagent-propagation-probe'
                     status = 'completed-finally'
+                    sanitize_fallback = [bool]$script:ProbeSanitizeFallback
                     verdict = $script:Verdict
                     checks = @($script:Checks)
                     turns = $script:TurnEvidence
@@ -1446,6 +1659,7 @@ try {
                     probe = 'mcp-subagent-propagation-probe'
                     status = 'failed'
                     reason = (Get-ProbeSafeText ('cleanup incompleto apos summary: leaks=' + [int]$cleanupLeaks + ' removed=' + [bool]$cleanupRemoved + ' residue=[' + $residueList + '] (nomes apenas)') 400)
+                    sanitize_fallback = [bool]$script:ProbeSanitizeFallback
                     verdict = [ordered]@{ decision = 'cleanup-failed'; reason = 'residuo de cleanup (fail-closed)' }
                     checks = @($script:Checks)
                     turns = $script:TurnEvidence
