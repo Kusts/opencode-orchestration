@@ -965,6 +965,67 @@ console.error("FIXTURE-ERROR-42: widget render failed (deterministic marker)");
     }
 }
 
+$script:LaneSensitiveLeafNames = @('auth.json', 'account.json', 'kv.json', 'model.json', 'service.json')
+function Remove-LaneTargetHome([int]$Retries = 5) {
+    # Espelho adaptado de Remove-ProbeTargetHome: remove com retry e
+    # verifica ausencia (fail-closed). Sem segredo em log (sem log aqui).
+    try {
+        if ([string]::IsNullOrWhiteSpace($TargetHome)) { return $true }
+        if (-not (Test-Path -LiteralPath $TargetHome)) { return $true }
+        if ($Retries -lt 1) { $Retries = 1 }
+        if ($Retries -gt 10) { $Retries = 10 }
+        for ($i = 1; $i -le $Retries; $i++) {
+            try { Remove-Item -LiteralPath $TargetHome -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+            try {
+                if (-not (Test-Path -LiteralPath $TargetHome)) { return $true }
+            } catch { }
+            Start-Sleep -Milliseconds 1000
+        }
+        try { return (-not (Test-Path -LiteralPath $TargetHome)) } catch { return $false }
+    } catch { return $false }
+}
+function Get-LaneSensitiveResidue {
+    # Espelho adaptado de Get-ProbeSensitiveResidue: retorna NOMES apenas
+    # (nunca conteudo/valor/caminho completo). Lista restrita aos sensiveis
+    # da lane (5 nomes + *.db; copycreds.py e helper lane-owned, nao segredo).
+    $residue = New-Object System.Collections.ArrayList
+    try {
+        if ([string]::IsNullOrWhiteSpace($TargetHome)) { return @() }
+        if (-not (Test-Path -LiteralPath $TargetHome)) { return @() }
+        try {
+            $items = Get-ChildItem -LiteralPath $TargetHome -Recurse -Force -ErrorAction SilentlyContinue
+        } catch { $items = @() }
+        foreach ($it in @($items)) {
+            try {
+                $leaf = [string]$it.Name
+                if ([string]::IsNullOrWhiteSpace($leaf)) { continue }
+                $low = $leaf.ToLowerInvariant()
+                $hit = $false
+                foreach ($sn in @($script:LaneSensitiveLeafNames)) {
+                    if ($low -ceq ([string]$sn).ToLowerInvariant()) { $hit = $true; break }
+                }
+                if (-not $hit) {
+                    try {
+                        if ($low.EndsWith('.db')) { $hit = $true }
+                    } catch { }
+                }
+                if ([bool]$hit) {
+                    $safeLeaf = (Get-LaneSafeText $leaf 80)
+                    if ([string]::IsNullOrWhiteSpace($safeLeaf)) { $safeLeaf = 'unreadable-name' }
+                    if (-not ($residue -contains $safeLeaf)) { [void]$residue.Add($safeLeaf) }
+                }
+                if (@($residue).Count -ge 20) { break }
+            } catch { }
+        }
+        if ((@($residue).Count -eq 0)) {
+            [void]$residue.Add('TargetHome-present')
+        }
+    } catch {
+        return @('TargetHome-present')
+    }
+    return @($residue)
+}
+
 try {
     # ---------- 1. pin vs binario vivo (drift registrado; prossegue com o vivo) ----------
     $pinv = $null
@@ -2011,23 +2072,98 @@ try {
     if ($fails -gt 0) { Write-LaneSummaryAndExit 'failed' ($fails.ToString() + ' cenario(s) fail.') 1 }
     Write-LaneSummaryAndExit 'completed' 'sem fail (apenas pass-real/blocked).' 0
 } finally {
+    # DECISAO (fail-closed, sem mascarar cenarios): falha de cleanup aqui NAO
+    # reescreve as linhas de cenario ja decididas; registra check
+    # 'finally_cleanup' ok=false + sidecar lane-cleanup.json (nomes apenas,
+    # sem segredo) e falha fail-closed (summary failed quando ainda nao
+    # gravado; exit 1 em qualquer caso de residuo). Espelha o padrao do
+    # probe (espera saida, remove com retry, verifica sensiveis).
+    $cleanupFailed = $false
+    $cleanupResidueNames = @()
+    $cleanupRemoved = $true
+    $cleanupLeaks = 0
+    $cleanupStopFail = 0
+    $cleanupCloseFail = 0
+    $cleanupUnknown = 0
     try {
         foreach ($job in @($script:OwnedJobs)) {
-            try { [void](Stop-RuntimeJobObject -Job $job) } catch { }
+            $sr = $null
+            try { $sr = Stop-RuntimeJobObject -Job $job } catch { $sr = $null }
+            if (($null -eq $sr) -or (-not [bool]$sr.Ok) -or (-not [bool]$sr.Settled)) { $cleanupStopFail += 1 }
         }
+    } catch { $cleanupUnknown += 1 }
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            $alive = @()
+            foreach ($p in @($script:OwnedProcs)) {
+                try {
+                    $p.Refresh()
+                    if (-not [bool]$p.HasExited) { $alive += 1 }
+                } catch { $cleanupUnknown += 1; $alive += 1 }
+            }
+            if (@($alive).Count -eq 0) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTime]::UtcNow -lt $deadline)
+    } catch { $cleanupUnknown += 1 }
+    try {
         foreach ($job in @($script:OwnedJobs)) {
-            try { [void](Close-RuntimeJobObject -Job $job) } catch { }
+            $cr = $null
+            try { $cr = Close-RuntimeJobObject -Job $job } catch { $cr = $null }
+            if (($null -eq $cr) -or (-not [bool]$cr.Ok)) { $cleanupCloseFail += 1 }
         }
-    } catch { }
+    } catch { $cleanupUnknown += 1 }
     try {
-        if (-not [string]::IsNullOrWhiteSpace($TargetHome) -and (Test-Path -LiteralPath $TargetHome)) {
-            Remove-Item -LiteralPath $TargetHome -Recurse -Force -ErrorAction SilentlyContinue
+        foreach ($p in @($script:OwnedProcs)) {
+            try {
+                $p.Refresh()
+                if (-not [bool]$p.HasExited) { $cleanupLeaks += 1 }
+            } catch { $cleanupUnknown += 1 }
         }
-    } catch { }
+    } catch { $cleanupUnknown += 1 }
+    try { $cleanupRemoved = [bool](Remove-LaneTargetHome 5) } catch { $cleanupRemoved = $false }
+    try { $cleanupResidueNames = @(Get-LaneSensitiveResidue) } catch { $cleanupResidueNames = @('TargetHome-present') }
+    if (([int]$cleanupLeaks -gt 0) -or ([int]$cleanupStopFail -gt 0) -or ([int]$cleanupCloseFail -gt 0) -or ([int]$cleanupUnknown -gt 0) -or (-not [bool]$cleanupRemoved) -or (@($cleanupResidueNames).Count -gt 0)) { $cleanupFailed = $true }
     try {
+        $residueList = ((@($cleanupResidueNames) | ForEach-Object { Get-LaneSafeText ([string]$_) 80 }) -join ',')
+        $cleanupDetail = ('leaks=' + [int]$cleanupLeaks + ' stop-failures=' + [int]$cleanupStopFail + ' close-failures=' + [int]$cleanupCloseFail + ' unknown=' + [int]$cleanupUnknown + ' removed=' + [bool]$cleanupRemoved + ' residue=[' + $residueList + '] (nomes apenas)')
+        if ([bool]$cleanupFailed) {
+            try { Add-LaneCheck 'finally_cleanup' $false $cleanupDetail } catch { }
+            try { Add-LaneNote ('finally_cleanup falhou: ' + $cleanupDetail) } catch { }
+        } else {
+            try { Add-LaneCheck 'finally_cleanup' $true $cleanupDetail } catch { }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($script:EvidenceDir)) {
+            [void](Write-LaneJson ([ordered]@{
+                lane     = 'agent-mcp-integration-lane-v2'
+                cleanup  = 'finally'
+                ok       = (-not [bool]$cleanupFailed)
+                leaks    = [int]$cleanupLeaks
+                stop_failures = [int]$cleanupStopFail
+                close_failures = [int]$cleanupCloseFail
+                unknown  = [int]$cleanupUnknown
+                removed  = [bool]$cleanupRemoved
+                residue  = @($cleanupResidueNames)
+                at       = (Get-LaneTimestampUtc)
+            }) (Join-Path $script:EvidenceDir 'lane-cleanup.json'))
+        }
         if ((-not [bool]$script:SummaryWritten) -and (-not [string]::IsNullOrWhiteSpace($script:EvidenceDir))) {
-            $summary = New-LaneSummary -Status 'completed-finally' -Reason 'saida via finally (cleanup executado)'
+            if ([bool]$cleanupFailed) {
+                $summary = New-LaneSummary -Status 'failed' -Reason ('cleanup incompleto no finally: ' + $cleanupDetail)
+            } else {
+                $summary = New-LaneSummary -Status 'completed-finally' -Reason 'saida via finally (cleanup executado)'
+            }
             [void](Write-LaneJson $summary (Join-Path $script:EvidenceDir 'lane-summary.json'))
+            $script:SummaryWritten = $true
+        }
+        if ([bool]$cleanupFailed) {
+            try { Write-Host ('[agent-mcp-lane] failed: cleanup incompleto no finally (nomes apenas): [' + $residueList + ']') } catch { }
+            exit 1
         }
     } catch { }
+    # Fallback fail-closed (espelha o probe): $cleanupFailed foi computado na
+    # linha acima do try; qualquer throw dentro do try cai no catch vazio e
+    # pularia o 'exit 1' interno. Este fallback incondicional garante exit 1
+    # com residuo mesmo quando o bloco try acima falha parcialmente.
+    if ([bool]$cleanupFailed) { exit 1 }
 }
