@@ -6,6 +6,18 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
+  `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
+  schema estrito; contexto só de arquivo com teto de 64 KiB em bytes e UTF-8
+  estrito; prompt ancorado no recibo durável; saída sem authority) + modo
+  isolado no plugin `g1-dispatch-admission` com hook `execute.before`
+  deny-only para `subagent` (tool-first; spawn `shell:false`; material
+  canônico reconstruído e conferido antes do hash; nunca `allow:true`;
+  fail-closed). Testes: 102 asserts PS (5.1+pwsh) + 41 node (2 de integração
+  com subprocesso real); regressão `objective-step` 130/130. Verificação:
+  tester PASS; reviewer APPROVED (4 rodadas); security-reviewer APPROVED
+  (fixture-only, limitações declaradas no código).
+
 ## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
 
 Rodada de refinamento funcional 2026-10-17/19 (plano em
