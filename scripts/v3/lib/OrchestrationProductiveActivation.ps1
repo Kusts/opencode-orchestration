@@ -672,17 +672,94 @@ function New-ProductiveDispatchImpl {
     }
 }
 
+function Test-PANativeSettlementContext {
+    # F1-S2: valida o contexto nativo explicito da liquidacao e sua
+    # correlacao com o binding PA duravel. NUNCA fabrica identidade:
+    # todo id nativo vem carregado no contexto; valores de SessionId ou
+    # do binding PA sao apenas COMPARADOS, nunca convertidos em
+    # proveniencia nativa. Ausencia ou divergencia => @{ok=$false}
+    # (HOLD observavel, zero escrita). Nunca lanca.
+    [CmdletBinding()]
+    param($Native = $null, $Binding = $null, $Snap = $null, [string]$WorkerStatus = '', [string]$WorkerProducedBy = '', [string]$TaskId = '', [string]$RunId = '', [string]$Role = '', [string]$Owner = '', [long]$Generation = 0)
+    try {
+        $deny = [pscustomobject]@{ ok = $false }
+        if (($null -eq $Native) -or ($null -eq $Binding)) { return $deny }
+        $ntask = ([string](Get-PAFieldValue $Native 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($ntask)) { return $deny }
+        if (($ntask -cne ([string]$TaskId).Trim()) -or ($ntask -cne ([string](Get-PAFieldValue $Binding 'task_id' '')))) { return $deny }
+        $nkey = ([string](Get-PAFieldValue $Native 'idempotency_key' '')).Trim().ToLowerInvariant()
+        if ($nkey -cnotmatch '^[a-f0-9]{32}$') { return $deny }
+        $nfp = ([string](Get-PAFieldValue $Native 'prepared_fingerprint' '')).Trim().ToLowerInvariant()
+        if ($nfp -cnotmatch '^[a-f0-9]{32}$') { return $deny }
+        $nparent = ([string](Get-PAFieldValue $Native 'parent_session_id' '')).Trim()
+        $nmsg = ([string](Get-PAFieldValue $Native 'message_id' '')).Trim()
+        $ncall = ([string](Get-PAFieldValue $Native 'call_id' '')).Trim()
+        $ncaller = ([string](Get-PAFieldValue $Native 'caller_agent' '')).Trim()
+        $ntarget = ([string](Get-PAFieldValue $Native 'target_agent' '')).Trim()
+        $nchild = ([string](Get-PAFieldValue $Native 'child_session_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($nparent) -or [string]::IsNullOrWhiteSpace($nmsg) -or [string]::IsNullOrWhiteSpace($ncall)) { return $deny }
+        if ([string]::IsNullOrWhiteSpace($ncaller) -or [string]::IsNullOrWhiteSpace($ntarget) -or [string]::IsNullOrWhiteSpace($nchild)) { return $deny }
+        if ($nchild -ceq $nparent) { return $deny }
+        if ($ncaller -ceq $ntarget) { return $deny }
+        if (($nparent -cne ([string]$RunId).Trim()) -or ($nparent -cne ([string](Get-PAFieldValue $Binding 'run_id' '')))) { return $deny }
+        $broles = ([string](Get-PAFieldValue $Binding 'attempt_role' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($broles)) { return $deny }
+        if (($ntarget -cne ([string]$Role).Trim()) -or ($ntarget -cne ([string]$WorkerProducedBy).Trim()) -or ($ntarget -cne $broles)) { return $deny }
+        $nroot = ([string](Get-PAFieldValue $Native 'receipt_root' '')).Trim()
+        $ngdir = ([string](Get-PAFieldValue $Native 'goal_store_dir' '')).Trim()
+        $nevdir = ([string](Get-PAFieldValue $Native 'evidence_store_dir' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($nroot) -or [string]::IsNullOrWhiteSpace($ngdir) -or [string]::IsNullOrWhiteSpace($nevdir)) { return $deny }
+        $nref = ([string](Get-PAFieldValue $Native 'reference' '')).Trim()
+        if ((-not [string]::IsNullOrWhiteSpace($nref)) -and ($nref -cnotmatch '^[a-f0-9]{32}$')) { return $deny }
+        $nauth = Get-PAFieldValue $Native 'authorization' $null
+        if (($null -eq $nauth) -or ((-not ($nauth -is [System.Collections.IDictionary])) -and (-not ($nauth -is [pscustomobject])))) { return $deny }
+        $agid = ([string](Get-PAFieldValue $nauth 'goal_id' '')).Trim()
+        $aown = ([string](Get-PAFieldValue $nauth 'owner' '')).Trim()
+        $agen = Get-PALongValue (Get-PAFieldValue $nauth 'generation' $null) -1
+        if ([string]::IsNullOrWhiteSpace($agid) -or [string]::IsNullOrWhiteSpace($aown) -or ($agen -lt 1)) { return $deny }
+        $bgid = ([string](Get-PAFieldValue $Binding 'goal_id' '')).Trim()
+        $bown = ([string](Get-PAFieldValue $Binding 'owner' '')).Trim()
+        $bgen = Get-PALongValue (Get-PAFieldValue $Binding 'generation' $null) -1
+        if ($agid -cne $bgid) { return $deny }
+        if (($aown -cne $bown) -or ($aown -cne ([string]$Owner).Trim())) { return $deny }
+        if (($agen -ne $bgen) -or ($agen -ne [long]$Generation)) { return $deny }
+        if ($null -ne $Snap) {
+            $snapGid = ([string](Get-PAFieldValue $Snap 'goal_id' '')).Trim()
+            if ((-not [string]::IsNullOrWhiteSpace($snapGid)) -and ($agid -cne $snapGid)) { return $deny }
+        }
+        $aallow = Get-PAFieldValue $nauth 'explicit_allow' $false
+        if (($aallow -isnot [bool]) -or (-not $aallow)) { return $deny }
+        $asrc = ([string](Get-PAFieldValue $nauth 'source' '')).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($asrc) -or ($asrc -ceq 'test-callback')) { return $deny }
+        return [pscustomobject]@{
+            ok = $true; task_id = $ntask; idempotency_key = $nkey; prepared_fingerprint = $nfp
+            parent_session_id = $nparent; message_id = $nmsg; call_id = $ncall
+            caller_agent = $ncaller; target_agent = $ntarget; child_session_id = $nchild
+            receipt_root = $nroot; goal_store_dir = $ngdir; evidence_store_dir = $nevdir
+            reference = $nref; authorization = $nauth
+        }
+    }
+    catch { return [pscustomobject]@{ ok = $false } }
+}
+
 function New-ProductiveSettleImpl {
-    # Real settle constructor over Set-OrchestrationTaskWorkerResult.
-    # Settles ONLY from a REAL worker result (status + producer +
-    # evidence, producer must equal AttemptRole) bound to the live
-    # attempt and the original binding + dispatch receipt (both
-    # MANDATORY). The full chain
+    # F1-S2: settle delegating to the canonical owner. Settles ONLY from a
+    # REAL worker result (status + producer + evidence, producer must equal
+    # AttemptRole) bound to the live attempt and the original binding +
+    # dispatch receipt (both MANDATORY), PLUS an explicit correlated native
+    # context (receipt_root, idempotency_key, prepared_fingerprint,
+    # parent_session_id, message_id, call_id, caller/target agents,
+    # child_session_id, authorization, evidence_store_dir). The full chain
     # goal/work-item/action_revision/owner/generation/task/run/key +
     # role is REQUIRED (role absent => deny); the receipt MUST carry
     # operation dispatch + destination/action with exact provenance
-    # (status/producer alone are insufficient). Without a real result
-    # settlement stays pending (never fabricated). The wrapper always
+    # (status/producer alone are insufficient). Without a real result AND a
+    # complete correlated native context, settlement stays pending (never
+    # fabricated, ZERO kernel writes). This function NEVER calls
+    # Set-OrchestrationTaskWorkerResult directly: with a valid context it
+    # delegates ONCE to Invoke-OrchestrationNativeDispatchSettle, the single
+    # canonical owner, which performs the only kernel write. Without a
+    # native context the impl HOLDs observably. The wrapper always
     # revalidates live ownership + allow + fencing INSIDE the callback
     # (B4). GoalStoreDir AND DispatchStoreDir are REQUIRED (empty =>
     # HOLD, no impl). Without -Productive no impl is returned.
@@ -704,6 +781,7 @@ function New-ProductiveSettleImpl {
         [string]$WorkerProducedBy = '',
         [string[]]$WorkerEvidence = @(),
         $Tracker = $null,
+        $NativeSettlement = $null,
         [switch]$Productive
     )
     try {
@@ -733,7 +811,7 @@ function New-ProductiveSettleImpl {
         if ([string]::IsNullOrWhiteSpace($srole)) { $srole = 'coder' }
         $wev = @($WorkerEvidence)
         $trk = New-PATracker $Tracker
-        $st = @{ task_id = $tid; role = $srole; session = $sid; tasks_dir = [string]$TasksDir; flags = [string]$FlagsPath; telemetry = [string]$TelemetryRoot; owner = $oid; generation = [long]$gen; dst = [string]$Destination; act = [string]$Action; goaldir = [string]$GoalStoreDir; binddir = [string]$DispatchStoreDir; worker = @{ status = ([string]$WorkerStatus); produced_by = ([string]$WorkerProducedBy); evidence = $wev }; tracker = $trk; armed = $true }
+        $st = @{ task_id = $tid; role = $srole; session = $sid; tasks_dir = [string]$TasksDir; flags = [string]$FlagsPath; telemetry = [string]$TelemetryRoot; owner = $oid; generation = [long]$gen; dst = [string]$Destination; act = [string]$Action; goaldir = [string]$GoalStoreDir; binddir = [string]$DispatchStoreDir; worker = @{ status = ([string]$WorkerStatus); produced_by = ([string]$WorkerProducedBy); evidence = $wev }; tracker = $trk; armed = $true; native = $NativeSettlement }
         $impl = {
             param($snap, $dispatch, $goal, $auth)
             try {
@@ -817,45 +895,32 @@ function New-ProductiveSettleImpl {
                 if ([string]::IsNullOrWhiteSpace($attRole) -or ($attRole -cne ([string]$st.role))) { return $null }
                 $trev = Get-PALongValue $trec['revision'] -1
                 if ($trev -lt 1) { return $null }
-                $haveWr = $null
-                try { if ($trec.Contains('worker_result')) { $haveWr = $trec['worker_result'] } } catch { $haveWr = $null }
-                if (($null -ne $haveWr) -and (($haveWr -is [System.Collections.IDictionary]) -or ($haveWr -is [pscustomobject]))) {
-                    $hProd = ([string](Get-PAFieldValue $haveWr 'produced_by' '')).Trim()
-                    $hStat = ([string](Get-PAFieldValue $haveWr 'status' '')).Trim().ToLowerInvariant()
-                    $hEv = Get-PAFieldValue $haveWr 'evidence' $null
-                    if ($null -eq $hEv) { $hEv = Get-PAFieldValue $haveWr 'claimed_evidence' $null }
-                    $hItems = @($hEv)
-                    $evSame = $false
-                    try {
-                        if ((@($hItems)).Count -eq (@($wEv)).Count) {
-                            $evSame = $true
-                            for ($hei = 0; $hei -lt (@($wEv)).Count; $hei++) {
-                                if ([string](@($hItems))[$hei] -cne [string](@($wEv))[$hei]) { $evSame = $false; break }
-                            }
-                        }
-                    }
-                    catch { $evSame = $false }
-                    if (($hProd -ceq $wProd) -and ($hStat -ceq $wStatus) -and $evSame) {
-                        return [pscustomobject]@{
-                            ok = $true; destination = [string]$st.dst; action = [string]$st.act
-                            task_id = [string]$st.task_id; run_id = [string]$st.session; generation = [long]$st.generation
-                            result = 'worker-result-recorded'; produced_by = $wProd; worker_status = $wStatus
-                            idempotency_key = $k; operation = 'settlement'; reason = 'productive-settle-recovered'
-                        }
-                    }
-                    return $null
-                }
-                $wr = $null
+                # F1-S2: owner unico da liquidacao. SEM contexto nativo
+                # completo e correlacionado: HOLD fail-closed, ZERO escrita
+                # no kernel (nada e fabricado a partir de SessionId ou do
+                # binding PA). Com contexto valido: UMA delegacao ao
+                # ND-Settle, o unico escritor do worker-result no kernel.
+                # Sem recuperacao por igualdade de worker_result: commit
+                # ambiguo permanece fail-closed/manual.
+                $nctx = Test-PANativeSettlementContext -Native $st.native -Binding $sbind -Snap $snap -WorkerStatus $wStatus -WorkerProducedBy $wProd -TaskId ([string]$st.task_id) -RunId ([string]$st.session) -Role ([string]$st.role) -Owner ([string]$st.owner) -Generation ([long]$st.generation)
+                if (($null -eq $nctx) -or (-not [bool](Get-PAFieldValue $nctx 'ok' $false))) { return $null }
+                $settleCmd = Get-Command Invoke-OrchestrationNativeDispatchSettle -ErrorAction SilentlyContinue
+                if ($null -eq $settleCmd) { return $null }
+                $ndResult = @{ status = $wStatus; claimed_evidence = [string[]]@($wEv) }
+                $nd = $null
                 try {
-                    $wr = Set-OrchestrationTaskWorkerResult -TaskId ([string]$st.task_id) -Status $wStatus -ClaimedEvidence ([string[]]$wEv) -ProducedBy $wProd -ExpectedRevision ([int]$trev) -StrategyApproach 'productive-dispatch' -StrategyTool 'task-kernel-record' -StrategyParams @($k) -TasksDir ([string]$st.tasks_dir) -FlagsPath ([string]$st.flags) -TelemetryRoot ([string]$st.telemetry)
+                    $nd = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey ([string](Get-PAFieldValue $nctx 'idempotency_key' '')) -Authorization (Get-PAFieldValue $nctx 'authorization' $null) -ChildSessionId ([string](Get-PAFieldValue $nctx 'child_session_id' '')) -SessionId ([string](Get-PAFieldValue $nctx 'parent_session_id' '')) -MessageId ([string](Get-PAFieldValue $nctx 'message_id' '')) -CallId ([string](Get-PAFieldValue $nctx 'call_id' '')) -CallerAgent ([string](Get-PAFieldValue $nctx 'caller_agent' '')) -TargetAgent ([string](Get-PAFieldValue $nctx 'target_agent' '')) -PreparedFingerprint ([string](Get-PAFieldValue $nctx 'prepared_fingerprint' '')) -Reference ([string](Get-PAFieldValue $nctx 'reference' '')) -TaskId ([string]$st.task_id) -Result $ndResult -ReceiptDir ([string](Get-PAFieldValue $nctx 'receipt_root' '')) -GoalStoreDir ([string](Get-PAFieldValue $nctx 'goal_store_dir' '')) -EvidenceStoreDir ([string](Get-PAFieldValue $nctx 'evidence_store_dir' '')) -TasksDir ([string]$st.tasks_dir) -FlagsPath ([string]$st.flags)
                 }
-                catch { $wr = $null }
-                if (($null -eq $wr) -or (-not [bool](Get-PAFieldValue $wr 'ok' $false))) { return $null }
+                catch { $nd = $null }
+                if (($null -eq $nd) -or (-not [bool](Get-PAFieldValue $nd 'ok' $false)) -or (-not [bool](Get-PAFieldValue $nd 'settled' $false))) { return $null }
+                $ndReason = 'productive-settle-canonical'
+                try { if ([bool](Get-PAFieldValue $nd 'duplicate' $false)) { $ndReason = 'productive-settle-canonical-duplicate' } } catch { }
                 return [pscustomobject]@{
                     ok = $true; destination = [string]$st.dst; action = [string]$st.act
                     task_id = [string]$st.task_id; run_id = [string]$st.session; generation = [long]$st.generation
                     result = 'worker-result-recorded'; produced_by = $wProd; worker_status = $wStatus
-                    idempotency_key = $k; operation = 'settlement'; reason = 'productive-settle'
+                    idempotency_key = $k; operation = 'settlement'; reason = $ndReason
+                    native_settled = [bool](Get-PAFieldValue $nd 'settled' $false); native_duplicate = [bool](Get-PAFieldValue $nd 'duplicate' $false)
                 }
             }
             catch { return $null }
@@ -1091,6 +1156,120 @@ function Add-PAProductiveNote {
     catch { return $Result }
 }
 
+function Get-ProductiveSettlementProjection {
+    # F1-S2: projecao OBSERVAVEL dos estados candidate/persisted/verified/
+    # advanced. Nao liquida, nao verifica e nao avanca: apenas le os stores
+    # existentes. Cada estado sai como present/absent/unknown (unknown quando
+    # nao ha prova legivel). 'advanced' le os stores existentes: o estado do
+    # intent no ObjectiveRuntime e o advance record do ND-Advance; nenhuma
+    # regra nova "advance exige verified" e criada - os estados sao
+    # independentes. Nunca lanca.
+    [CmdletBinding()]
+    param(
+        [string]$TaskId = '',
+        [string]$TasksDir = '',
+        [string]$GoalId = '',
+        [string]$WorkItemId = '',
+        [long]$ActionRevision = 1,
+        [string]$ObjectiveStoreDir = '',
+        [string]$AdvanceDir = '',
+        [string]$AdvanceKey = ''
+    )
+    try {
+        $unknown = [pscustomobject]@{ state = 'unknown'; ref = '' }
+        $absent = [pscustomobject]@{ state = 'absent'; ref = '' }
+        $tid = ([string]$TaskId).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid)) {
+            return [pscustomobject]@{ ok = $true; candidate = $unknown; persisted = $unknown; verified = $unknown; advanced = $unknown }
+        }
+        $trec = $null
+        try { $trec = Get-OrchestrationTask -TaskId $tid -TasksDir ([string]$TasksDir) }
+        catch { $trec = $null }
+        $terr = ''
+        if ($null -ne $trec) {
+            try {
+                if ($trec -is [System.Collections.IDictionary]) { if ($trec.Contains('error')) { $terr = ([string]$trec['error']) } }
+                else { $ep = $trec.PSObject.Properties['error']; if ($null -ne $ep) { $terr = ([string]$ep.Value) } }
+            }
+            catch { $terr = '' }
+        }
+        if (($null -eq $trec) -or (-not [string]::IsNullOrWhiteSpace($terr))) {
+            return [pscustomobject]@{ ok = $true; candidate = $unknown; persisted = $unknown; verified = $unknown; advanced = $unknown }
+        }
+        $wr = Get-PAFieldValue $trec 'worker_result' $null
+        $wrPresent = (($null -ne $wr) -and (($wr -is [System.Collections.IDictionary]) -or ($wr -is [pscustomobject])))
+        $candidate = $absent
+        $persisted = $absent
+        if ($wrPresent) {
+            $wrRev = Get-PALongValue (Get-PAFieldValue $wr 'revision' $null) -1
+            $recRev = Get-PALongValue (Get-PAFieldValue $trec 'revision' $null) -1
+            $wst = ([string](Get-PAFieldValue $wr 'status' '')).Trim().ToLowerInvariant()
+            $candidate = [pscustomobject]@{ state = 'present'; ref = ('worker_result:' + $wst + ':rev=' + [string]$wrRev) }
+            if (($wrRev -ge 1) -and ($recRev -ge $wrRev)) {
+                $persisted = [pscustomobject]@{ state = 'present'; ref = ('task-rev=' + [string]$recRev) }
+            }
+            else {
+                $persisted = [pscustomobject]@{ state = 'unknown'; ref = ('task-rev=' + [string]$recRev + ':worker-rev=' + [string]$wrRev) }
+            }
+        }
+        $verified = $absent
+        $ver = Get-PAFieldValue $trec 'verification' $null
+        if (($null -ne $ver) -and (($ver -is [System.Collections.IDictionary]) -or ($ver -is [pscustomobject]))) {
+            $vpass = Get-PAFieldValue $ver 'passed' $false
+            if (($vpass -is [bool]) -and $vpass) {
+                $verified = [pscustomobject]@{ state = 'present'; ref = 'verification:passed' }
+            }
+        }
+        $advanced = $absent
+        $advRef = ''
+        $orState = ''
+        $orKnown = $false
+        if (-not [string]::IsNullOrWhiteSpace([string]$ObjectiveStoreDir)) {
+            try {
+                $slot = Get-OrchestrationDispatchIntent -GoalId ([string]$GoalId) -WorkItemId ([string]$WorkItemId) -ActionRevision ([long]$ActionRevision) -StoreDir ([string]$ObjectiveStoreDir)
+                if (($null -ne $slot) -and [bool](Get-PAFieldValue $slot 'ok' $false)) {
+                    $intent = Get-PAFieldValue $slot 'intent' $null
+                    if ($null -ne $intent) {
+                        $orState = ([string](Get-PAFieldValue $intent 'state' '')).Trim().ToLowerInvariant()
+                        if (-not [string]::IsNullOrWhiteSpace($orState)) { $orKnown = $true }
+                    }
+                }
+            }
+            catch { $orKnown = $false }
+        }
+        if ($orKnown -and (($orState -ceq 'advanced') -or ($orState -ceq 'checkpointed'))) {
+            $advRef = ('objective-runtime:' + $orState)
+            $advanced = [pscustomobject]@{ state = 'present'; ref = $advRef }
+        }
+        if ([string]$advanced.state -cne 'present') {
+            $advKnown = $false
+            $advPresent = $false
+            if ((-not [string]::IsNullOrWhiteSpace([string]$AdvanceDir)) -and (-not [string]::IsNullOrWhiteSpace([string]$AdvanceKey))) {
+                try {
+                    $advCmd = Get-Command Read-NDAdvanceRecord -ErrorAction SilentlyContinue
+                    if ($null -ne $advCmd) {
+                        $advKnown = $true
+                        $advRec = Read-NDAdvanceRecord -AdvanceDir ([string]$AdvanceDir) -Key ([string]$AdvanceKey)
+                        if ($null -ne $advRec) { $advPresent = $true }
+                    }
+                }
+                catch { $advKnown = $false; $advPresent = $false }
+            }
+            if ($advPresent) {
+                $advanced = [pscustomobject]@{ state = 'present'; ref = 'nd-advance:record' }
+            }
+            elseif ((-not $orKnown) -and (-not $advKnown)) {
+                $advanced = [pscustomobject]@{ state = 'unknown'; ref = '' }
+            }
+        }
+        return [pscustomobject]@{ ok = $true; candidate = $candidate; persisted = $persisted; verified = $verified; advanced = $advanced }
+    }
+    catch {
+        $u = [pscustomobject]@{ state = 'unknown'; ref = '' }
+        return [pscustomobject]@{ ok = $true; candidate = $u; persisted = $u; verified = $u; advanced = $u }
+    }
+}
+
 function Invoke-ProductiveObjectiveEvent {
     # Explicit productive entry point for one executor event.
     # Without -Productive the executor runs its current intact path
@@ -1121,6 +1300,7 @@ function Invoke-ProductiveObjectiveEvent {
         [string]$WorkerProducedBy = '',
         [string[]]$WorkerEvidence = @(),
         $Tracker = $null,
+        $NativeSettlementContext = $null,
         [switch]$Productive
     )
     try {
@@ -1170,7 +1350,7 @@ function Invoke-ProductiveObjectiveEvent {
             }
         }
         $d = New-ProductiveDispatchImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'start-attempt' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -Tracker $trk -Productive:$Productive
-        $s = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $effWStatus -WorkerProducedBy $effWProd -WorkerEvidence $effWEv -Tracker $trk -Productive:$Productive
+        $s = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $effWStatus -WorkerProducedBy $effWProd -WorkerEvidence $effWEv -Tracker $trk -NativeSettlement $NativeSettlementContext -Productive:$Productive
         $c = New-ProductiveCheckpointImpl -CheckpointStoreDir $CheckpointStoreDir -GoalStoreDir $GoalStoreDir -OwnerId $OwnerId -Generation $Generation -Tracker $trk -Productive:$Productive
         if (($null -eq $d) -or (-not [bool](Get-PAFieldValue $d 'ok' $false)) -or ($null -eq $s) -or (-not [bool](Get-PAFieldValue $s 'ok' $false)) -or ($null -eq $c) -or (-not [bool](Get-PAFieldValue $c 'ok' $false))) {
             $h = [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:impl-unavailable'; dispatched = $false; duplicate = $false; decision = 'blocked'; grants_authority = $false; done_approved = $false; verified_pass = $false }
@@ -1219,6 +1399,7 @@ function Invoke-ProductiveObjectiveReconcile {
         [string[]]$WorkerEvidence = @(),
         $Tracker = $null,
         $SettleProof = $null,
+        $NativeSettlementContext = $null,
         [switch]$Productive
     )
     try {
@@ -1242,7 +1423,7 @@ function Invoke-ProductiveObjectiveReconcile {
             return (Add-PAProductiveNote $h $why $trk)
         }
         $rc = New-ProductiveReconcileImpl -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -TasksDir $TasksDir -OwnerId $OwnerId -Generation $Generation -Tracker $trk -Productive:$Productive
-        $st = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $WorkerStatus -WorkerProducedBy $WorkerProducedBy -WorkerEvidence $WorkerEvidence -Tracker $trk -Productive:$Productive
+        $st = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $WorkerStatus -WorkerProducedBy $WorkerProducedBy -WorkerEvidence $WorkerEvidence -Tracker $trk -NativeSettlement $NativeSettlementContext -Productive:$Productive
         if (($null -eq $rc) -or (-not [bool](Get-PAFieldValue $rc 'ok' $false)) -or ($null -eq $st) -or (-not [bool](Get-PAFieldValue $st 'ok' $false))) {
             $h = [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:impl-unavailable'; reconciled = 0; settled = 0; redispatched = 0; holds = 0; grants_authority = $false; done_approved = $false; verified_pass = $false }
             return (Add-PAProductiveNote $h 'hold-productive-disabled:impl-unavailable' $trk)

@@ -7000,6 +7000,10 @@ function Invoke-OrchestrationNativeDispatchSettle {
                 }
             }
             catch { $liveGoal = $null }
+            # F1-S2: revisao do goal observada nesta decisao. O kernel
+            # exige liveRev >= observada (fresca por construcao; admite
+            # avanco concorrente legitimo entre esta leitura e a escrita).
+            $liveGoalRev = [long](Get-NDValue $liveGoal 'revision' -1)
             $admit = Test-NDLiveTaskAdmission -Intent $intentView -Authorization $Authorization -Goal $liveGoal -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot
             if (-not [bool](Get-NDValue $admit 'ok' $false)) {
                 return (New-NDSettleEnvelope -Ok $false -Reason ([string](Get-NDValue $admit 'reason' 'admission-denied')) -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $childSession -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp)
@@ -7121,7 +7125,34 @@ function Invoke-OrchestrationNativeDispatchSettle {
             if (-not [bool](Get-NDValue $fenceKernel 'ok' $false)) {
                 return (New-NDSettleEnvelope -Ok $false -Reason ([string](Get-NDValue $fenceKernel 'reason' 'post-lock-fencing-changed')) -IdempotencyKey $key -SessionId $sessionId -MessageId $messageId -CallId $callId -CallerAgent $callerAgent -TargetAgent $targetAgent -ChildSessionId $childSession -Reference $reference -IntentFingerprint $storedIntentFp -PreparedFingerprint $storedFp -EvidenceCreated $evCreated -EvidenceId $evId -KernelOk $false -KernelReason ([string](Get-NDValue $fenceKernel 'reason' 'post-lock-fencing-changed')))
             }
-            $kSlot = Set-OrchestrationTaskWorkerResult -TaskId $storedTask -Status $status -ClaimedEvidence $claimed -ProducedBy $targetAgent -ExpectedRevision $storedRev -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+            # F1-S2: o caminho canonico de liquidacao encaminha o contexto
+            # nativo correlacionado ao kernel. Tasks sem settlement_policy
+            # ignoram o contexto (contrato legado preservado); tasks
+            # marcadas 'canonical-native-settle' recusam sem ele. O contexto
+            # e construido AQUI, dos locais ja validados - nunca fabricado
+            # de SessionId/binding de outro caminho.
+            $settleCtx = [ordered]@{
+                task_id              = $storedTask
+                goal_id              = $ndGoalId
+                owner                = $authOwner
+                generation           = $authGen
+                goal_revision        = $liveGoalRev
+                goal_store_dir       = $GoalStoreDir
+                receipt_root         = $dir
+                evidence_store_dir   = $evDirResolved
+                idempotency_key      = $key
+                prepared_fingerprint = $settleFp
+                parent_session_id    = $sessionId
+                message_id           = $messageId
+                call_id              = $callId
+                caller_agent         = $callerAgent
+                target_agent         = $targetAgent
+                child_session_id     = $childSession
+                status               = $status
+                claimed_evidence     = [string[]]@($claimed)
+                produced_by          = $targetAgent
+            }
+            $kSlot = Set-OrchestrationTaskWorkerResult -TaskId $storedTask -Status $status -ClaimedEvidence $claimed -ProducedBy $targetAgent -ExpectedRevision $storedRev -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot -SettlementContext $settleCtx
             if (($null -ne $kSlot) -and [bool](Get-NDValue $kSlot 'ok' $false)) {
                 $kOk = $true
                 $kWhy = ''

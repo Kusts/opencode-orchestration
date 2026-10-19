@@ -1036,6 +1036,7 @@ function New-OrchestrationTask {
         [string]$OrchestrationDecision = '',
         [string]$Project = '',
         [switch]$RequireTypedWaits,
+        [string]$SettlementPolicy = '',
         [string]$Actor = '',
         [string]$RuntimeId = 'opencode-v1',
         [int]$RuntimeGeneration = 1,
@@ -1124,6 +1125,11 @@ function New-OrchestrationTask {
         $envAllowed = Get-TaskKernelCleanList -Value $EnvironmentAllowed
         if (-not [bool]$envAllowed.valid) { return (New-TaskKernelError -Code 'INVALID_ENVIRONMENTS') }
         $projectCanon = Get-TaskKernelCanonicalText -Text ([string]$Project)
+        $settlePolicyCanon = ([string]$SettlementPolicy).Trim()
+        if ([string]::IsNullOrWhiteSpace($settlePolicyCanon)) { $settlePolicyCanon = '' }
+        if (($settlePolicyCanon -cne '') -and ($settlePolicyCanon -cne 'canonical-native-settle')) {
+            return (New-TaskKernelError -Code 'INVALID_SETTLEMENT_POLICY')
+        }
         $scopeAll = @(@($reads.items) + @($writes.items))
         $workSlot = Get-OrchestrationWorkFingerprint -Objective $objective -Scope $scopeAll -DefinitionOfDone ([string[]]$criteria.items) -Project ([string]$Project)
         if (-not [bool]$workSlot.ok) {
@@ -1250,6 +1256,7 @@ function New-OrchestrationTask {
             project                   = $projectSafe
             work_fingerprint          = $workFp
             require_typed_waits       = [bool]$RequireTypedWaits
+            settlement_policy         = (Protect-TaskKernelText -Text $settlePolicyCanon)
             active_wait               = $null
             wait_history              = @()
             compliance_verdict        = ''
@@ -1532,6 +1539,174 @@ function Invoke-OrchestrationTaskTransition {
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 
+function Get-TaskKernelSettlementValue {
+    <#
+    .SYNOPSIS
+        Reads one settlement-context field without throwing.
+    #>
+    param($Object, [string]$Name = '')
+    try {
+        if (($null -eq $Object) -or ([string]::IsNullOrWhiteSpace($Name))) { return $null }
+        if ($Object -is [System.Collections.IDictionary]) {
+            if ($Object.Contains($Name)) { return $Object[$Name] }
+            return $null
+        }
+        $p = $Object.PSObject.Properties[$Name]
+        if ($null -ne $p) { return $p.Value }
+        return $null
+    }
+    catch { return $null }
+}
+
+function Test-TaskKernelSettlementHex32 {
+    param([string]$Value = '')
+    try { return (([string]$Value).Trim().ToLowerInvariant() -cmatch '^[a-f0-9]{32}$') }
+    catch { return $false }
+}
+
+function Test-TaskKernelSettlementRefsEqual {
+    <#
+    .SYNOPSIS
+        Order-insensitive ordinal comparison of two evidence ref lists.
+    #>
+    param($A = $null, $B = $null)
+    try {
+        $la = @()
+        foreach ($e in @($A)) { $la += ([string]$e) }
+        $lb = @()
+        foreach ($e in @($B)) { $lb += ([string]$e) }
+        if (@($la).Count -ne @($lb).Count) { return $false }
+        $sa = (@($la | Sort-Object) -join "`n")
+        $sb = (@($lb | Sort-Object) -join "`n")
+        return ($sa -ceq $sb)
+    }
+    catch { return $false }
+}
+
+function Test-TaskKernelSettlementContext {
+    <#
+    .SYNOPSIS
+        F1-S2: validates the canonical settlement context + live goal binding.
+    .DESCRIPTION
+        Fail-closed. Validates shape (all native-settle fields explicit, no
+        fabricated identity: every id is carried, none derived from the
+        SessionId/binding of another path), then the LIVE goal binding:
+        goal ACTIVE, owner/generation/lease held, live goal revision at or
+        past the observed revision, and task membership in the goal when the
+        goal tracks it.
+
+        Ordering contract (goal -> task): callers invoke this BEFORE taking
+        the task file lock and AGAIN under it; the goal store owns its own
+        lock internally, so the goal observation is never taken while the
+        task lock is held. The sequence revalidation -> write is NOT atomic
+        and the task lock does not serialize goal mutation; a takeover after
+        the last revalidation settles inside the residual window (same honest
+        boundary as the ND-Settle fencing it mirrors).
+
+        Returns @{ok, reason, detail, task_id, goal_id, owner, generation,
+        goal_revision}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Context = $null)
+    $refuse = {
+        param([string]$Why, [string]$Detail = '')
+        return [pscustomobject]@{ ok = $false; reason = $Why; detail = ([string]$Detail); task_id = ''; goal_id = ''; owner = ''; generation = [long]0; goal_revision = [long]0 }
+    }
+    try {
+        if ($null -eq $Context) { return (& $refuse 'SETTLEMENT_CONTEXT_MISSING' 'no settlement context supplied') }
+        $tid = ([string](Get-TaskKernelSettlementValue $Context 'task_id')).Trim()
+        $gid = ([string](Get-TaskKernelSettlementValue $Context 'goal_id')).Trim()
+        $own = ([string](Get-TaskKernelSettlementValue $Context 'owner')).Trim()
+        $gsdir = ([string](Get-TaskKernelSettlementValue $Context 'goal_store_dir')).Trim()
+        $rroot = ([string](Get-TaskKernelSettlementValue $Context 'receipt_root')).Trim()
+        $evdir = ([string](Get-TaskKernelSettlementValue $Context 'evidence_store_dir')).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'task_id') }
+        if ([string]::IsNullOrWhiteSpace($gid)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'goal_id') }
+        if ([string]::IsNullOrWhiteSpace($own)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'owner') }
+        if ([string]::IsNullOrWhiteSpace($gsdir)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'goal_store_dir') }
+        if ([string]::IsNullOrWhiteSpace($rroot)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'receipt_root') }
+        if ([string]::IsNullOrWhiteSpace($evdir)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'evidence_store_dir') }
+        $gen = [long]-1
+        try { $gen = [long](Get-TaskKernelSettlementValue $Context 'generation') } catch { $gen = [long]-1 }
+        if ($gen -lt 1) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'generation') }
+        $grev = [long]-1
+        try { $grev = [long](Get-TaskKernelSettlementValue $Context 'goal_revision') } catch { $grev = [long]-1 }
+        if ($grev -lt 1) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'goal_revision') }
+        $key = ([string](Get-TaskKernelSettlementValue $Context 'idempotency_key')).Trim().ToLowerInvariant()
+        if (-not (Test-TaskKernelSettlementHex32 $key)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'idempotency_key') }
+        $fp = ([string](Get-TaskKernelSettlementValue $Context 'prepared_fingerprint')).Trim().ToLowerInvariant()
+        if (-not (Test-TaskKernelSettlementHex32 $fp)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'prepared_fingerprint') }
+        $parent = ([string](Get-TaskKernelSettlementValue $Context 'parent_session_id')).Trim()
+        $msg = ([string](Get-TaskKernelSettlementValue $Context 'message_id')).Trim()
+        $call = ([string](Get-TaskKernelSettlementValue $Context 'call_id')).Trim()
+        $caller = ([string](Get-TaskKernelSettlementValue $Context 'caller_agent')).Trim()
+        $target = ([string](Get-TaskKernelSettlementValue $Context 'target_agent')).Trim()
+        $child = ([string](Get-TaskKernelSettlementValue $Context 'child_session_id')).Trim()
+        if ([string]::IsNullOrWhiteSpace($parent)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'parent_session_id') }
+        if ([string]::IsNullOrWhiteSpace($msg)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'message_id') }
+        if ([string]::IsNullOrWhiteSpace($call)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'call_id') }
+        if ([string]::IsNullOrWhiteSpace($caller)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'caller_agent') }
+        if ([string]::IsNullOrWhiteSpace($target)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'target_agent') }
+        if ([string]::IsNullOrWhiteSpace($child)) { return (& $refuse 'SETTLEMENT_CONTEXT_INCOMPLETE' 'child_session_id') }
+        if ($child -ceq $parent) { return (& $refuse 'SETTLEMENT_CONTEXT_DIVERGENT' 'child_session_id') }
+        if ($caller -ceq $target) { return (& $refuse 'SETTLEMENT_CONTEXT_DIVERGENT' 'caller_agent') }
+        $goalCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
+        $ownCmd = Get-Command Test-OrchestrationGoalOwnership -ErrorAction SilentlyContinue
+        if (($null -eq $goalCmd) -or ($null -eq $ownCmd)) {
+            return (& $refuse 'SETTLEMENT_GOAL_UNAVAILABLE' 'goal kernel unavailable')
+        }
+        $slot = $null
+        try { $slot = Get-OrchestrationGoal -GoalId $gid -StoreDir $gsdir }
+        catch { $slot = $null }
+        $slotOk = $false
+        try { $slotOk = [bool](Get-TaskKernelSettlementValue $slot 'ok') } catch { $slotOk = $false }
+        if (($null -eq $slot) -or (-not $slotOk)) {
+            $why = 'goal-read-failed'
+            try {
+                $r = ([string](Get-TaskKernelSettlementValue $slot 'reason')).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($r)) { $why = $r }
+            }
+            catch { }
+            return (& $refuse 'SETTLEMENT_GOAL_READ_FAILED' $why)
+        }
+        $live = Get-TaskKernelSettlementValue $slot 'goal'
+        if ($null -eq $live) { return (& $refuse 'SETTLEMENT_GOAL_READ_FAILED' 'goal-record-missing') }
+        $gstate = ''
+        try { $gstate = (([string](Get-TaskKernelSettlementValue $live 'state')).Trim().ToUpperInvariant()) } catch { $gstate = '' }
+        if ($gstate -cne 'ACTIVE') { return (& $refuse 'SETTLEMENT_GOAL_NOT_ACTIVE' $gstate) }
+        $held = $false
+        try {
+            $ownSlot = Test-OrchestrationGoalOwnership -Goal $live -OwnerId $own -Generation $gen
+            $held = [bool](Get-TaskKernelSettlementValue $ownSlot 'held')
+        }
+        catch { $held = $false }
+        if (-not $held) { return (& $refuse 'SETTLEMENT_OWNERSHIP_NOT_HELD' '') }
+        $liveRev = [long]-1
+        try { $liveRev = [long](Get-TaskKernelSettlementValue $live 'revision') } catch { $liveRev = [long]-1 }
+        if ($liveRev -lt 1) { return (& $refuse 'SETTLEMENT_GOAL_REVISION_UNKNOWN' '') }
+        if ($liveRev -lt $grev) { return (& $refuse 'SETTLEMENT_GOAL_REVISION_MISMATCH' ('live=' + [string]$liveRev + ' observed=' + [string]$grev)) }
+        $activeList = $null
+        $hasActive = $false
+        try {
+            if ($live -is [System.Collections.IDictionary]) {
+                if ($live.Contains('active_tasks')) { $hasActive = $true; $activeList = @($live['active_tasks']) }
+            }
+            else {
+                $pp = $live.PSObject.Properties['active_tasks']
+                if ($null -ne $pp) { $hasActive = $true; $activeList = @($pp.Value) }
+            }
+        }
+        catch { $hasActive = $false; $activeList = $null }
+        if ($hasActive) {
+            $member = $false
+            try { foreach ($t in @($activeList)) { if ($tid -ceq ([string]$t)) { $member = $true; break } } } catch { $member = $false }
+            if (-not $member) { return (& $refuse 'SETTLEMENT_TASK_NOT_IN_GOAL' '') }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; detail = ''; task_id = $tid; goal_id = $gid; owner = $own; generation = $gen; goal_revision = $liveRev }
+    }
+    catch { return (& $refuse 'SETTLEMENT_CONTEXT_INVALID' 'internal-error') }
+}
+
 function Set-OrchestrationTaskWorkerResult {
     [CmdletBinding()]
     param(
@@ -1556,12 +1731,49 @@ function Set-OrchestrationTaskWorkerResult {
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
-        [string]$TelemetryRoot = ''
+        [string]$TelemetryRoot = '',
+        $SettlementContext = $null
     )
     try {
         $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
         if (-not [bool]$flags.enabled) {
             return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        # F1-S2 (goal -> task order): when a canonical settlement context is
+        # presented for a task that CARRIES a settlement policy, the live
+        # goal binding is validated BEFORE taking the task file lock, then
+        # revalidated under it. The goal store owns its own lock, so the
+        # goal observation is never taken while the task lock is held. The
+        # pre-lock peek is advisory only (the record field is immutable;
+        # the under-lock gate stays authoritative): legacy tasks (no
+        # settlement_policy) skip this entirely and keep the historical
+        # path byte-for-byte, even with a stray context presented.
+        if ($null -ne $SettlementContext) {
+            $peekPolicy = ''
+            try {
+                $peekTid = ([string]$TaskId).Trim()
+                $peekFile = Get-TaskKernelFilePath -TaskId $peekTid -TasksDir $TasksDir -RepoRoot $RepoRoot
+                if (-not [string]::IsNullOrWhiteSpace($peekFile)) {
+                    $peekSlot = Read-TaskKernelRecord -TaskFile $peekFile
+                    if (([bool]$peekSlot.found) -and (-not [bool]$peekSlot.malformed) -and ($null -ne $peekSlot.record)) {
+                        $peekRec = $peekSlot.record
+                        if ($peekRec -is [System.Collections.IDictionary]) {
+                            if ($peekRec.Contains('settlement_policy')) { $peekPolicy = ([string]$peekRec['settlement_policy']).Trim() }
+                        }
+                        else {
+                            $peekProp = $peekRec.PSObject.Properties['settlement_policy']
+                            if ($null -ne $peekProp) { $peekPolicy = ([string]$peekProp.Value).Trim() }
+                        }
+                    }
+                }
+            }
+            catch { $peekPolicy = '' }
+            if (-not [string]::IsNullOrWhiteSpace($peekPolicy)) {
+                $preCtx = Test-TaskKernelSettlementContext -Context $SettlementContext
+                if (-not [bool]$preCtx.ok) {
+                    return (New-TaskKernelError -Code ([string]$preCtx.reason) -Extra @{ detail = ([string]$preCtx.detail) })
+                }
+            }
         }
         $status = ([string]$Status).Trim().ToLowerInvariant()
         if (@('candidate_pass', 'failed', 'blocked') -cnotcontains $status) {
@@ -1621,6 +1833,57 @@ function Set-OrchestrationTaskWorkerResult {
         $from = ([string]$rec['state']).Trim().ToUpperInvariant()
         if (Test-TaskKernelTerminalState -State $from) {
             return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        # F1-S2: durable settlement policy. Tasks created without a policy
+        # (including every task created before this slice) keep the legacy
+        # contract: a presented context is ignored. Tasks marked
+        # 'canonical-native-settle' settle ONLY through the canonical owner
+        # (ND-Settle), which forwards the correlated native context; a
+        # missing, incomplete or divergent context, or a goal that is not
+        # ACTIVE/held/bound, is refused here with a stable reason and ZERO
+        # writes. Unknown policy values fail closed (never migrated).
+        $settlePolicy = ''
+        try {
+            if ($rec -is [System.Collections.IDictionary]) {
+                if ($rec.Contains('settlement_policy')) { $settlePolicy = ([string]$rec['settlement_policy']).Trim() }
+            }
+            else {
+                $spp = $rec.PSObject.Properties['settlement_policy']
+                if ($null -ne $spp) { $settlePolicy = ([string]$spp.Value).Trim() }
+            }
+        }
+        catch { $settlePolicy = '' }
+        if (-not [string]::IsNullOrWhiteSpace($settlePolicy)) {
+            if ($settlePolicy -cne 'canonical-native-settle') {
+                return (New-TaskKernelError -Code 'SETTLEMENT_POLICY_UNKNOWN' -Extra @{ detail = 'refusing rather than migrating' })
+            }
+            if ($null -eq $SettlementContext) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_MISSING' -Extra @{ detail = 'canonical settle requires a correlated native context' })
+            }
+            $ctxGate = Test-TaskKernelSettlementContext -Context $SettlementContext
+            if (-not [bool]$ctxGate.ok) {
+                return (New-TaskKernelError -Code ([string]$ctxGate.reason) -Extra @{ detail = ([string]$ctxGate.detail) })
+            }
+            if ([string]$ctxGate.task_id -cne $tid) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_DIVERGENT' -Extra @{ detail = 'task_id' })
+            }
+            $ctxStatus = ([string](Get-TaskKernelSettlementValue $SettlementContext 'status')).Trim().ToLowerInvariant()
+            if ($ctxStatus -cne $status) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_DIVERGENT' -Extra @{ detail = 'status' })
+            }
+            $ctxProd = ([string](Get-TaskKernelSettlementValue $SettlementContext 'produced_by')).Trim()
+            if (([string]::IsNullOrWhiteSpace($ctxProd)) -or ($ctxProd -cne $producer)) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_DIVERGENT' -Extra @{ detail = 'produced_by' })
+            }
+            $ctxTarget = ([string](Get-TaskKernelSettlementValue $SettlementContext 'target_agent')).Trim()
+            if (([string]::IsNullOrWhiteSpace($ctxTarget)) -or ($ctxTarget -cne $producer)) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_DIVERGENT' -Extra @{ detail = 'target_agent' })
+            }
+            $ctxRefsRaw = Get-TaskKernelSettlementValue $SettlementContext 'claimed_evidence'
+            if ($null -eq $ctxRefsRaw) { $ctxRefsRaw = Get-TaskKernelSettlementValue $SettlementContext 'evidence' }
+            if (-not (Test-TaskKernelSettlementRefsEqual -A @($ctxRefsRaw) -B @($ev.items))) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_CONTEXT_DIVERGENT' -Extra @{ detail = 'claimed_evidence' })
+            }
         }
         if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
             return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')

@@ -3103,7 +3103,8 @@ public class NDCountEnum : IEnumerable<string> {
             [string]$TasksDir = '',
             [string]$FlagsPath = '',
             [string]$RepoRoot = '',
-            [string]$TelemetryRoot = ''
+            [string]$TelemetryRoot = '',
+            $SettlementContext = $null
         )
         try {
             if ($script:hfKernelReject) { return [pscustomobject]@{ ok = $false; error = 'KERNEL_REFUSED_AFTER_EFFECT' } }

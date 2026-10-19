@@ -6,6 +6,31 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S2 — owner único do SETTLE (liquidação canônica via ND-Settle)**:
+  `Invoke-OrchestrationNativeDispatchSettle`
+  (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) passa a ser o único
+  caminho de liquidação: monta o contexto nativo correlacionado dos locais
+  já validados (recibo, chave, fingerprint, sessões, agentes, autorização,
+  stores, revisão do goal) e o encaminha ao kernel. `New-ProductiveSettleImpl`
+  (`scripts/v3/lib/OrchestrationProductiveActivation.ps1`) deixa de chamar
+  `Set-OrchestrationTaskWorkerResult` diretamente (incluindo a recuperação por
+  igualdade de worker_result, removida) e delega UMA vez ao ND-Settle com
+  contexto nativo explícito correlacionado ao binding PA; sem contexto
+  completo: HOLD fail-closed, zero escrita. `Set-OrchestrationTaskWorkerResult`
+  aceita `-SettlementContext` opcional e `New-OrchestrationTask` aceita
+  `-SettlementPolicy` opcional (`canonical-native-settle`, sem migração de
+  tasks existentes): task marcada recusa escritor não-canônico, contexto
+  ausente/incompleto/divergente ou goal fora de ACTIVE/sem ownership/sem
+  vínculo, com razões estáveis e zero escrita; task não marcada preserva o
+  contrato legado (contexto ignorado). Projeção observável
+  `Get-ProductiveSettlementProjection` (candidate/persisted/verified/advanced,
+  `unknown` sem prova legível; `advanced` lê OR + ND, sem regra nova).
+  Commit ambíguo permanece fail-closed/manual. Flags/config inalteradas (OFF);
+  S1 (bridge + plugin g1) intocado. Testes: 178 asserts PS na suite
+  `OrchestrationProductiveActivation` (delegação com recibo real, HOLD,
+  divergência, fencing/lease, duplicata divergente, ambíguo, legada,
+  verificação separada, projeção) + suíte do kernel verde (legado intacto).
+
 - **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
   `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
   schema estrito; contexto só de arquivo com teto de 64 KiB em bytes e UTF-8
