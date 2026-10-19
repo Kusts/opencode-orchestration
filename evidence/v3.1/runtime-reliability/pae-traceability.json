@@ -4,6 +4,7 @@
   "spec_source": "docs/specs/ORCHESTRATION-V3.1-RUNTIME-RELIABILITY-SPEC-ADDENDUM.md#27-acceptance-criteria",
   "program": "V3.1 Runtime Reliability, Loop Recovery & Jev MCP (Phases 21-42)",
   "live_status_file": "evidence/v3.1/runtime-reliability/program-status.json",
+  "snapshot_note": "Snapshot datado 2026-10-03, nao-vivo. Estado vigente = program-status.json (blocos update_2026_10_08/update_2026_10_19) + source/registry/capability-flags.json + source/registry/runtime-versions.json. Afirmacoes como 'todas OFF/shadow', 'watchdog OFF' e 'jevgrep HOLD' descrevem o estado ate 2026-10-03: o lote de ativacao de 2026-10-04, P29-S2/P38-S2 (2026-10-05) e a rodada 0.2.0 (2026-10-19) estao registrados no status vivo; nenhum campo deste snapshot foi reescrito.",
   "legend": {
     "done-kernel-side": "codigo + suite verde + Reviewer/Security APPROVED no kernel ou plugin. NAO implica ativacao de flag nem prova no binario real do operador.",
     "done-invariant": "propriedade estrutural verificada e mantida no registry/suites; nada depende de ambiente do operador.",

@@ -783,6 +783,18 @@
     "rr_e2e_20_inconclusive": "O pass-real do RR-20 registrado na corrida 2026-10-08 foi concedido sob o criterio anterior (match de substring sem snapshot antes/depois e sem role). Com o criterio endurecido (B1), esse veredito cai para blocked sob criterio enrijecido (rerun 2026-10-08 com harness atualizado: canario novo presente sem role assistant/tool pos-turn - canary_new=True role_post=False). Estado honesto atual: pass-real confirmados 16, 17, 19; 20 blocked-criterio-novo; 18/21/22 blocked (pernas kernel-side provadas e registradas).",
     "jev_reclassified": "evidence/v3.1/runtime-reliability/jev-transport-live-2026-10-08.json: conclusao passa a live-transport proof (binary-independent); nota de ambiente (binario local 2.0.25 vs pin 2.0.23) preservada como contexto, sem claim de conformidade de versao."
   },
+  "update_2026_10_19": {
+    "note": "Status vivo sincronizado com a release 0.2.0 (2026-10-19). Os blocos closure_2026_10_06 e update_2026_10_08 acima sao registros datados e NAO foram reescritos.",
+    "release_0_2_0": "Release 0.2.0 publicada em 2026-10-19: merge #128 (1cbeb38); tag v0.2.0 existente e publicada. A rodada de refinamento fechou 12 PRs (#108-#110, #117-#123 exceto #111-#116, #127, #128), todos com CI 6/6 verde e sem bypass. Veredito mantido PARTIAL: G1 OK; G2-G5 parciais; G6 OK.",
+    "lane_2026_10_19": "Cross-session: 3 pass-real (16/17/19) + 20 blocked-criterio-novo (B1 endurecido: canario exclusivo + snapshot pre-turn + role pos-turn) + 18/21/22 blocked (pernas kernel-side provadas e registradas). RR-E2E-21 BLOCKED_UPSTREAM (6 bracos; turno do substituto trava downstream da auth; retomada so com hipotese nova A-E de prompt-shape, nunca repetindo os mesmos parametros).",
+    "pending_futuro": [
+      "H1/H2 MCP: turnos parent seguem cegos mesmo com MCPs anexados; proximo experimento exige prompt que obrigue tool-call + verificacao de anexacao pre-turno.",
+      "live-resume no proximo PR de rotina (caller P0-05 pronto e testado em harness; prova runtime-real com PR vivo fica para lane futura).",
+      "Wirings aguardando ativacao do operador: registro do hook de arranque P31-S2; spawn real do despacho P38-S2-SPAWN; append/enable do revisor de supersessao P40-S2; caller de telemetria P41-S2 em producao.",
+      "HOLDs inalterados: runtime_grant_enforcement{v1,v2} OFF; ExecutionBudget devolve enforce=false (orcamentos efetivos via watchdog/kernel); barreira de fases = disciplina de harness (sem gate no kernel); S6 e shell/REST nivel C seguem HOLD."
+    ],
+    "fonte": "CHANGELOG.md [0.2.0] e este program-status.json (bloco update_2026_10_08)."
+  },
   "invariants": [
     "ai-memory nunca mutado (ATUALIZACAO 2026-10-03: o AI Memory PROD do operador ja roda em servidor remoto proprio — cutover executado antes de 2026-10-01; o endpoint e USER-OWNED e deliberadamente NAO registrado neste repo publico; SOBRE o listener local 127.0.0.1:49374: nao e AI Memory — e o servico de fundo do V2 CLI (opencode.exe serve --service do npm global) que o harness RESPAWN a cada sessao/restart (3 geracoes observadas em 2026-10-03: stop owned e efemero por construcao); desativacao duravel exigiria mudanca na config global do opencode do operador, fora deste repo; o processo permanece intocado por aqui)",
     "roteamento MCP generico segue desligado",
