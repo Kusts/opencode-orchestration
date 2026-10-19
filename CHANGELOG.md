@@ -4,6 +4,53 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
+
+Rodada de refinamento funcional 2026-10-17/19 (plano em
+`docs/plans/REFINEMENT-EXECUTION-2026-10-17.md`), base da release tag
+`v0.1.2` (`b38c92b`); HEAD de trabalho no início da rodada: `64972c6`.
+HEAD: `85e3b80` (merge #123). CI 6/6 verde em todos os
+merges, sem bypass. Log detalhado da rodada preservado sem reescrita em
+`[Unreleased — arquivo 2026-10-06/18]` abaixo.
+
+- **Merges (faixa #108–#123; mergeados verificados via `git log --merges origin/master`:
+  #108/#109/#110/#117/#118/#119/#120/#121/#122/#123 — sem #111–#116
+  mergeados neste histórico):**
+  - #108 `19de04a` (P0-02): `.gitignore` += `.env`, `.env.*`, `!.env.example`.
+  - #109 `fb8d066` (P0-05): caller `OrchestrationGitHubResume` + suite 107/107.
+  - #110 `3321967` (P0-06): negativos de lifecycle, só-testes (casos 2 e 7).
+  - #117 `9038574` (P1-06 S1–S4): budget-bind, scope-mismatch,
+    parent-session+fencing, cross-MCP.
+  - #118 `c9e12d8` (P1-05 S5): STEER advisory opt-in + CLOSE-vs-RETRY fail-closed.
+  - #119 `e5eff6a` (P1-08): docs (+108 ARCHITECTURE,
+    README/INSTALLATION/TROUBLESHOOTING, [Unreleased], contagem 23).
+  - #120 `8f8cca2` (P1-01): watchdog fallback fail-closed + teste foreign-live.
+  - #121 `c1c85d7` (P1-02): slices jev-advisory-summary + trigger matrix +
+    credentials doc.
+  - #122 `cd45439a` (evidências): matriz GW01–GW15, plano de refinamento,
+    proof P0-04 fases 1–3.
+  - #123 `85e3b80` (docs): fechamento da rodada no plano de refinamento
+    (gates 1–6 + merges #121/#122).
+- **Gates 1–6: PARTIAL** (avaliação honesta 2026-10-19, sem veredito final):
+  G1 OK com desvio documentado; G2/G3/G4/G5 PARCIAL; G6 OK. Sem promoção
+  antes de resume live, RR-E2E-21 com hipótese nova, MCPs com modelo e
+  decisão de release do operador.
+- **P0-03 RR-E2E-21: `BLOCKED_UPSTREAM`** — braço 6 (F5-D) refutou falta de
+  chave (probe auth ok); turno do substituto trava downstream da auth em
+  todos os modelos testados; pernas kernel-side provadas.
+- **HOLDs honestos (inalterados):** `runtime_grant_enforcement{v1,v2}` OFF;
+  `capability_router` shadow+active OFF; `skill`/`mcp`/`adaptive`/
+  `routing_telemetry`/`reconciler` OFF; Active Routing 2G OFF;
+  `bounded_execution` ON mas `ExecutionBudget` devolve `enforce=false`;
+  barreira de fases = disciplina de harness (caso 9, sem gate no kernel);
+  S6 e shell/REST nível C seguem HOLD.
+- **Limites:** #109/#110 validados em harness; prova runtime-real (kill real
+  de processo, perda real de sessão, PR vivo) fica para lane futura com
+  provider/modelo; trabalho não-mergeado do working tree (lane S5/S6,
+  GW06 Jev) fora desta release.
+
 ## [0.1.2] - 2026-10-09 - Native Worker Dispatch Bridge + Autonomous Continuation (PARTIAL)
 
 Branch `closure/native-dispatch-loop` (10 commits desde `a9550c1`, merge de
@@ -122,7 +169,7 @@ APPROVED; reviewer APPROVED por fase.
 Residuais operador/CI: smokes V1/V2 exact-runtime, 5 checks do PR,
 issue #25, green-run de distribuição no CI.
 
-## [Unreleased]
+## [Unreleased — arquivo 2026-10-06/18, preservado sem reescrita]
 
 ### Refinamento funcional P0 — mergeados #108/#109/#110 (2026-10-17/18, não lançado)
 
