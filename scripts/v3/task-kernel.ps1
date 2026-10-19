@@ -15,7 +15,7 @@
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
       watchdog-interrupt - Set-OrchestrationTaskWatchdogInterrupt (needs -TaskId -Actor -ExpectedRevision -WatchdogAttemptN -WatchdogClass; optional -WatchdogTelemetryFile)
-      watchdog-settle    - Confirm-OrchestrationTaskWatchdogSettlement (needs -TaskId -Actor -ExpectedRevision; idempotent)
+      watchdog-settle    - Confirm-OrchestrationTaskWatchdogSettlement (needs -TaskId -Actor -ExpectedRevision; idempotent; optional -WatchdogDisposition RETRY|CLOSE, default RETRY)
       get-budget    - Get-OrchestrationTaskBudget (needs -TaskId; old records derive defaults read-only)
       start-attempt - Start-OrchestrationTaskAttempt (needs -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision; optional -DebuggerEvidenceRefs/-NewEvidenceRefs string arrays for retry-gated starts; optional strategy fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -AttemptHypothesis for stall gates)
       set-budget    - Set-OrchestrationTaskBudget planner/kernel only (needs -TaskId -Actor -ExpectedRevision)
@@ -101,6 +101,7 @@ param(
     $WatchdogAttemptN = $null,
     [string]$WatchdogClass = '',
     [string]$WatchdogTelemetryFile = '',
+    [string]$WatchdogDisposition = '',
     [string]$Project = '',
     [switch]$RequireTypedWaits,
     [string]$StrategyId = '',
@@ -552,9 +553,18 @@ switch ($action) {
         Assert-TaskKernelRevision
         $ids = $ActorIdentitySource
         if ([string]::IsNullOrWhiteSpace($ids)) { $ids = 'unknown' }
+        $dispArgs = @{}
+        if ($PSBoundParameters.ContainsKey('WatchdogDisposition') -and (-not [string]::IsNullOrWhiteSpace($WatchdogDisposition))) {
+            $dispNorm = ([string]$WatchdogDisposition).Trim().ToUpperInvariant()
+            if (($dispNorm -cne 'RETRY') -and ($dispNorm -cne 'CLOSE')) {
+                Write-TaskKernelCliError 'watchdog-settle: -WatchdogDisposition exige RETRY|CLOSE.'
+                exit 2
+            }
+            $dispArgs['Disposition'] = $dispNorm
+        }
         $result = Confirm-OrchestrationTaskWatchdogSettlement -TaskId $TaskId `
             -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) -ActorIdentitySource $ids `
-            -TasksDir $TasksDir -FlagsPath $FlagsPath
+            -TasksDir $TasksDir -FlagsPath $FlagsPath @dispArgs
     }
 }
 
