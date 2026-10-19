@@ -796,6 +796,115 @@ function Stop-LaneOwned([string]$Why) {
     try { [void]$script:LaneCleanupLog.Add($res) } catch { }
     return $res
 }
+function Restart-LaneServeAfterCredentials {
+    # CRED-ORDER-FIX: reinicia o serve owned APOS Copy-LaneCredentials OK para
+    # que o novo processo abra o DB JA com as linhas credential (o serve abre/
+    # migra o DB no startup; sem restart o provider lookup erra => no-route).
+    # Reusa MESMO env (com model-key), MESMO cwd/DB/perfil (sem recriar
+    # TargetHome). Falha => fail-closed (o chamador bloqueia). Segredos nunca
+    # vao para log (so contagem/pid/porta via reasons existentes).
+    [CmdletBinding()] param($OldServe = $null, [string]$FilePath = '', [string[]]$ArgumentList = @(), $EnvTable = $null, [string[]]$EnvRemove = @(), [string]$WorkDir = '', [string]$LogName = 'serve-restart', [int]$Port = 0, [int]$TimeoutSeconds = 60)
+    $res = [ordered]@{ ok = $false; reason = ''; serve = $null }
+    try {
+        # GATE-0 (fail-closed antes do start): identidade ausente => sem start.
+        # OldServe/.job/.proc sao exigidos incondicionalmente; ausencia de
+        # qualquer um reprova antes de qualquer start (sem segredo em log).
+        if ($null -eq $OldServe) {
+            $res.reason = 'serve restart: OldServe ausente (fail-closed antes do start)'
+            return $res
+        }
+        $oldJob = $null
+        $oldProc = $null
+        try { $oldJob = $OldServe.job } catch { $oldJob = $null }
+        try { $oldProc = $OldServe.proc } catch { $oldProc = $null }
+        if ($null -eq $oldJob) {
+            $res.reason = 'serve restart: OldServe sem job (fail-closed antes do start)'
+            return $res
+        }
+        if ($null -eq $oldProc) {
+            $res.reason = 'serve restart: OldServe sem proc (fail-closed antes do start)'
+            return $res
+        }
+        # GATE-1 (fail-closed antes do start): o stop do job antigo precisa
+        # retornar prova (Ok + Settled). Resultado descartado/excecao ignorada
+        # aqui significava: processo antigo podia seguir atendendo a porta
+        # enquanto o novo falhava o bind, com ok=true falso.
+        $sr = $null
+        try { $sr = Stop-RuntimeJobObject -Job $oldJob } catch { $sr = $null }
+        if (($null -eq $sr) -or (-not [bool]$sr.Ok) -or (-not [bool]$sr.Settled)) {
+            $detail = 'stop sem prova (fail-closed antes do start)'
+            try {
+                if ($null -ne $sr) { $detail = (Get-LaneSafeText (([string]$sr.Api) + ' ' + ([string]$sr.Reason) + ' remaining=' + ([string]$sr.Remaining)) 160) }
+            } catch { }
+            $res.reason = ('serve restart: stop do processo antigo sem confirmacao: ' + $detail)
+            return $res
+        }
+        # GATE-2 (fail-closed antes do start): o processo antigo precisa ter
+        # saida observada (HasExited) antes de qualquer start. Estado
+        # desconhecido (Refresh lancou e nunca observou HasExited) tambem
+        # reprova: sem prova de saida, sem start.
+        $oldExited = $false
+        try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while ([DateTime]::UtcNow -lt $deadline) {
+                try { $oldProc.Refresh() } catch { break }
+                if ([bool]$oldProc.HasExited) { $oldExited = $true; break }
+                Start-Sleep -Milliseconds 500
+            }
+        } catch { $oldExited = $false }
+        if (-not [bool]$oldExited) {
+            $res.reason = 'serve restart: processo antigo nao confirmou saida (fail-closed antes do start)'
+            return $res
+        }
+        $re = Start-LaneOwnedProcess -FilePath $FilePath -ArgumentList $ArgumentList -EnvTable $EnvTable -EnvRemove $EnvRemove -WorkDir $WorkDir -LogName $LogName
+        if (-not [bool]$re.ok) { $res.reason = ('serve restart nao iniciou: ' + $re.reason); return $res }
+        # GATE-3 (pos-start): o novo processo precisa estar vivo; se morreu
+        # entre o start e a checagem, tenta encerrar o job (best-effort, sem
+        # vazar estado) e reprova em vez de alegar restart ok.
+        $newAlive = $false
+        try {
+            if ($null -ne $re.proc) {
+                try { $re.proc.Refresh() } catch { }
+                if (-not [bool]$re.proc.HasExited) { $newAlive = $true }
+            }
+        } catch { $newAlive = $false }
+        if (-not [bool]$newAlive) {
+            try { if ($null -ne $re.job) { [void](Stop-RuntimeJobObject -Job $re.job) } } catch { }
+            $res.reason = 'serve restart: novo processo nao esta vivo (fail-closed)'
+            return $res
+        }
+        if (-not (Wait-LaneListener -Port $Port -DeadlineSeconds $TimeoutSeconds)) {
+            try { if ($null -ne $re.job) { [void](Stop-RuntimeJobObject -Job $re.job) } } catch { }
+            $res.reason = 'serve restart sem listener (infra)'
+            return $res
+        }
+        # GATE-4 (pos-start): o listener precisa ser atribuivel ao novo
+        # processo (OwningPID == pid do novo processo). So checar a porta
+        # aceitava o caso em que o antigo ainda atendia e o novo falhou o
+        # bind. Divergencia ou consulta sem prova => best-effort stop do
+        # novo job + fail-closed. So pid/porta em log (sem segredo).
+        $newPid = 0
+        try { $newPid = [int]$re.proc.Id } catch { $newPid = 0 }
+        $lnPid = 0
+        $lnProven = $false
+        try {
+            $ln = Get-PreflightNetTCPListenerBounded -Port $Port -TimeoutMs 4000
+            if (($null -ne $ln) -and [bool]$ln.QuerySucceeded -and [bool]$ln.Exists) {
+                $lnPid = [int]$ln.OwningPID
+                $lnProven = $true
+            }
+        } catch { $lnProven = $false }
+        if ((-not [bool]$lnProven) -or ($newPid -le 0) -or ($lnPid -ne $newPid)) {
+            try { if ($null -ne $re.job) { [void](Stop-RuntimeJobObject -Job $re.job) } } catch { }
+            $res.reason = ('serve restart: listener nao atribuivel ao novo processo (pid novo=' + $newPid + ' pid listener=' + $lnPid + ')')
+            return $res
+        }
+        $res.ok = $true
+        $res.serve = $re
+        $res.reason = 'serve restart ok (pos-credential)'
+        return $res
+    } catch { $res.reason = (Get-LaneSafeText $_.Exception.Message 160); return $res }
+}
 
 # ---------- fixture (deterministica; FixtureDir opt-in, senao gerada em TEMP) ----------
 function Get-LaneFixture {
@@ -1370,7 +1479,9 @@ try {
             $script:ModelSetup = $st
             return $st
         }
-        $serveProc = Start-LaneOwnedProcess -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcTesting") -EnvTable (Get-LaneModelChildEnv -BaseEnv $profTesting.env) -EnvRemove ($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { ($_ -cne $script:ModelKeyEnvNameClean) -and ($_ -cne 'OPENCODE_PASSWORD') })) -WorkDir ([string]$profTesting.cwd) -LogName 'serve-testing-model'
+        $serveEnvT = (Get-LaneModelChildEnv -BaseEnv $profTesting.env)
+        $serveRmT = ($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { ($_ -cne $script:ModelKeyEnvNameClean) -and ($_ -cne 'OPENCODE_PASSWORD') }))
+        $serveProc = Start-LaneOwnedProcess -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcTesting") -EnvTable $serveEnvT -EnvRemove $serveRmT -WorkDir ([string]$profTesting.cwd) -LogName 'serve-testing-model'
         if (-not [bool]$serveProc.ok) { $st.reason = ('serve testing nao iniciou: ' + $serveProc.reason); $script:ModelSetup = $st; return $st }
         if (-not (Wait-LaneListener -Port $portSvcTesting -DeadlineSeconds $ServeTimeoutSeconds)) {
             $st.reason = 'serve testing sem listener (infra)'
@@ -1379,6 +1490,13 @@ try {
         }
         $cc = Copy-LaneCredentials ([string]$profTesting.db)
         if (-not [bool]$cc.ok) { $st.reason = ('credential store indisponivel: ' + [string]$cc.reason); $script:ModelSetup = $st; return $st }
+        # CRED-ORDER-FIX: restart do MESMO serve (mesmo env/model-key, mesmo
+        # cwd/DB/perfil) para o novo processo ler o DB ja com credential.
+        # Sem restart quando copy falhar (fail-closed acima). Turnos so apos
+        # o serve pos-restart com listener ok.
+        $rsT = Restart-LaneServeAfterCredentials -OldServe $serveProc -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcTesting") -EnvTable $serveEnvT -EnvRemove $serveRmT -WorkDir ([string]$profTesting.cwd) -LogName 'serve-testing-model' -Port $portSvcTesting -TimeoutSeconds $ServeTimeoutSeconds
+        if (-not [bool]$rsT.ok) { $st.reason = ('serve restart pos-credential: ' + [string]$rsT.reason); $script:ModelSetup = $st; return $st }
+        $serveProc = $rsT.serve
         $st.cred_rows = [int]$cc.rows
         $st.ok = $true
         $st.fixture = $fx
@@ -1731,7 +1849,9 @@ try {
             } else {
                 # SECFIX: importacao de credenciais SOMENTE aqui (pos-gate S7).
                 [void](Import-LaneProfileCredentials $profDefault)
-                $serveD = Start-LaneOwnedProcess -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcDefault") -EnvTable (Get-LaneModelChildEnv -BaseEnv $profDefault.env) -EnvRemove ($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { ($_ -cne $script:ModelKeyEnvNameClean) -and ($_ -cne 'OPENCODE_PASSWORD') })) -WorkDir ([string]$profDefault.cwd) -LogName 'serve-default'
+                $serveEnvD = (Get-LaneModelChildEnv -BaseEnv $profDefault.env)
+                $serveRmD = ($script:IsoRemove + ($script:SensitiveEnvRemove | Where-Object { ($_ -cne $script:ModelKeyEnvNameClean) -and ($_ -cne 'OPENCODE_PASSWORD') }))
+                $serveD = Start-LaneOwnedProcess -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcDefault") -EnvTable $serveEnvD -EnvRemove $serveRmD -WorkDir ([string]$profDefault.cwd) -LogName 'serve-default'
                 if (-not [bool]$serveD.ok) {
                     [void](Add-ScenarioProof $proofs 'serve-default' $false $serveD.reason)
                     Set-ScenarioResult 'S7' 'blocked' ('serve default nao iniciou: ' + $serveD.reason) $proofs $coverage
@@ -1744,6 +1864,17 @@ try {
                     if (-not [bool]$cc7.ok) {
                         Set-ScenarioResult 'S7' 'blocked' ('credential store indisponivel: ' + [string]$cc7.reason) $proofs $coverage
                     } else {
+                    # CRED-ORDER-FIX (espelho S7): restart do MESMO serve
+                    # (mesmo env/model-key, mesmo cwd/DB/perfil) para o novo
+                    # processo ler o DB ja com credential. Sessao/turnos so
+                    # apos o serve pos-restart com listener ok; sem restart
+                    # quando copy falhar (fail-closed acima).
+                    $rs7 = Restart-LaneServeAfterCredentials -OldServe $serveD -FilePath $script:Exe -ArgumentList @('serve', '--port', "$portSvcDefault") -EnvTable $serveEnvD -EnvRemove $serveRmD -WorkDir ([string]$profDefault.cwd) -LogName 'serve-default' -Port $portSvcDefault -TimeoutSeconds $ServeTimeoutSeconds
+                    [void](Add-ScenarioProof $proofs 'serve-restart' ([bool]$rs7.ok) ([string]$rs7.reason))
+                    if (-not [bool]$rs7.ok) {
+                        Set-ScenarioResult 'S7' 'blocked' ('serve restart pos-credential: ' + [string]$rs7.reason) $proofs $coverage
+                    } else {
+                    $serveD = $rs7.serve
                     $urlD = ('http://127.0.0.1:' + $portSvcDefault)
                     $sess = New-LaneApiSession -ServerUrl $urlD -EnvTable $profDefault.env -Cwd ([string]$profDefault.cwd)
                     if (-not [bool]$sess.ok) {
@@ -1816,6 +1947,7 @@ try {
                             }
                             }
                         }
+                    }
                     }
                 }
             }
