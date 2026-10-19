@@ -29,8 +29,8 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 ## Versionamento
 
-- Versão atual: `0.1.2` (ver `VERSION`); tag `v0.1.2` (→ `b38c92b`) marca esta release.
-- Tags `v0.1.1` e `v1.0` (legada, anterior ao versionamento formal) marcam releases anteriores e são preservadas como histórico.
+- Versão atual: `0.2.0` (ver `VERSION`); tag `v0.2.0` (a criar pelo operador) marca esta release.
+- Tags `v0.1.2`, `v0.1.1` e `v1.0` (legada, anterior ao versionamento formal) marcam releases anteriores e são preservadas como histórico.
 - `V3` / `V3.1` / `Pxx` são programas internos históricos, não versões do pacote.
 - Índice SPEC/PLAN/ADR em [docs/specs/INDEX.md](docs/specs/INDEX.md); histórico de mudanças em [CHANGELOG.md](CHANGELOG.md).
 
