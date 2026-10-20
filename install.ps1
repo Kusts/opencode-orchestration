@@ -53,8 +53,28 @@ param(
   [switch]$ProvisionRuntime,
   [Parameter(DontShow)]
   [ValidateSet('backup', 'stage', 'cas', 'apply-half', 'apply-json', 'manifest')]
-  [string]$InjectFailureAfter = ''
+  [string]$InjectFailureAfter = '',
+  # O7.1/O7.2: bundle import modes (default Off). Shadow = report-only.
+  # Canary = report + per-agent comparison vs desired snapshots (no active
+  # writes beyond the normal install). Active = permissions sourced from the
+  # bundle (standalone only; refused when Config owns the global text).
+  # Bodies still come from repo snapshots (bundle carries metadata only).
+  [string]$BundlePath = '',
+  [ValidateSet('Off', 'Shadow', 'Canary', 'Active')]
+  [string]$BundleMode = 'Off'
 )
+
+# O7.1 early usage validation (before ANY write).
+if ((($BundleMode -ieq 'Shadow') -or ($BundleMode -ieq 'Canary') -or ($BundleMode -ieq 'Active')) -and ([string]::IsNullOrWhiteSpace($BundlePath))) {
+  Write-Host '[bundle] -BundlePath ausente com -BundleMode Shadow/Canary/Active (fail-closed, nada foi escrito).' -ForegroundColor Red
+  exit 2
+}
+# BundleMode is a V2-standalone concept: the Both path provisions isolated
+# profiles without reaching the bundle gates below (fail-closed, exit 2).
+if (($BundleMode -ine 'Off') -and ($Runtime -ieq 'Both')) {
+  Write-Host '[bundle] -BundleMode Shadow/Canary/Active incompatível com -Runtime Both (fail-closed, nada foi escrito).' -ForegroundColor Red
+  exit 2
+}
 
 # -Runtime (Auto|V1|V2|Both), default Auto. Phase 6 (V3.1): V1 e V2 ATIVOS
 # (fluxos nativos por runtime, mesma transacao backup+stage+CAS+apply+
@@ -576,7 +596,7 @@ function Merge-ManagedOpencodeConfig($Existing, $Desired) {
 # permissions e array: substituicao integral quando o canonico diverge
 # (ordem broad-first do template e significativa no runtime V2).
 
-function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents) {
+function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents, [switch]$SkipPermissions) {
   $appliedPaths = New-Object System.Collections.ArrayList
   if ($null -eq $ExistingAgents) {
     $ExistingAgents = (New-Object PSObject)
@@ -584,13 +604,20 @@ function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents) {
   foreach ($key in @($DesiredAgents.PSObject.Properties.Name)) {
     $desiredEntry = $DesiredAgents.$key
     if (-not (Has-Member $ExistingAgents $key)) {
-      Set-Prop $ExistingAgents $key (($desiredEntry | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
+      if ($SkipPermissions -and (Has-Member $desiredEntry 'permissions')) {
+        $stripped = ($desiredEntry | ConvertTo-Json -Depth 32) | ConvertFrom-Json
+        $stripped.PSObject.Properties.Remove('permissions')
+        Set-Prop $ExistingAgents $key $stripped
+      }
+      else {
+        Set-Prop $ExistingAgents $key (($desiredEntry | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
+      }
     }
     else {
       $node = $ExistingAgents.$key
       if ($key -eq 'build') {
         if (Set-PropIfDifferent $node 'mode' $desiredEntry.mode) { }
-        if (Has-Member $desiredEntry 'permissions') {
+        if ((-not $SkipPermissions) -and (Has-Member $desiredEntry 'permissions')) {
           if (Set-PropIfDifferent $node 'permissions' $desiredEntry.permissions) { }
         }
         Remove-Prop $node 'model'
@@ -607,14 +634,14 @@ function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents) {
         if (Has-Member $desiredEntry 'model') {
           if (Set-PropIfDifferent $node 'model' $desiredEntry.model) { }
         }
-        if (Has-Member $desiredEntry 'permissions') {
+        if ((-not $SkipPermissions) -and (Has-Member $desiredEntry 'permissions')) {
           if (Set-PropIfDifferent $node 'permissions' $desiredEntry.permissions) { }
         }
       }
     }
     if ($key -eq 'build') {
       [void]$appliedPaths.Add('agents.build.mode')
-      [void]$appliedPaths.Add('agents.build.permissions')
+      if (-not $SkipPermissions) { [void]$appliedPaths.Add('agents.build.permissions') }
       [void]$appliedPaths.Add('agents.build.model=ABSENT')
     }
     elseif ($key -eq 'title') {
@@ -623,7 +650,7 @@ function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents) {
     else {
       [void]$appliedPaths.Add('agents.' + $key + '.mode')
       [void]$appliedPaths.Add('agents.' + $key + '.model')
-      [void]$appliedPaths.Add('agents.' + $key + '.permissions')
+      if (-not $SkipPermissions) { [void]$appliedPaths.Add('agents.' + $key + '.permissions') }
     }
   }
   return @{ Agents = $ExistingAgents; ManagedPaths = $appliedPaths }
@@ -649,7 +676,7 @@ function Get-DesiredManagedPathsV2($Desired) {
   return $paths
 }
 
-function Merge-ManagedOpencodeConfigV2($Existing, $Desired) {
+function Merge-ManagedOpencodeConfigV2($Existing, $Desired, [switch]$SkipPermissions) {
   $managedPaths = New-Object System.Collections.ArrayList
   foreach ($top in @('$schema', 'model', 'default_agent')) {
     if (Set-PropIfDifferent $Existing $top $Desired.$top) { }
@@ -663,7 +690,7 @@ function Merge-ManagedOpencodeConfigV2($Existing, $Desired) {
   if (-not (Has-Member $Existing 'agents') -or ($null -eq $Existing.agents)) {
     Set-Prop $Existing 'agents' (New-Object PSObject)
   }
-  $agentRes = Merge-ManagedAgentConfigV2 $Existing.agents $Desired.agents
+  $agentRes = Merge-ManagedAgentConfigV2 $Existing.agents $Desired.agents -SkipPermissions:$SkipPermissions
   foreach ($p in $agentRes.ManagedPaths) { [void]$managedPaths.Add($p) }
   return @{ Config = $Existing; ManagedPaths = $managedPaths }
 }
@@ -1286,6 +1313,67 @@ else {
   $desired = $tmplRes.Desired
 }
 
+# O2.1 owner detection happens BEFORE any bundle override: Active/Canary
+# decisions and the agents-md merge all depend on it.
+$agentsTargetPath = Join-Path $ocDir 'AGENTS.md'
+$existingAgentsMd = $null
+if (Test-Path -LiteralPath $agentsTargetPath -PathType Leaf) { $existingAgentsMd = Read-Utf8 $agentsTargetPath }
+# O2.1: Config owns the global text when its namespaced marker is present.
+# The installer then writes NO global text, NO agents/*.md editable forks and
+# NO agents.*.permissions (Config canonical). Standalone mode keeps installing
+# snapshots, recorded as SNAPSHOT_COMPAT in the manifest.
+$ConfigOwnsGlobal = (($null -ne $existingAgentsMd) -and ($existingAgentsMd -match '<!-- agent-config:global:start -->') -and ($existingAgentsMd -match '<!-- agent-config:global:end -->'))
+if ($ConfigOwnsGlobal) {
+  Write-Host '[install] Config owner detectado (agent-config:global): texto global, perfis agents/* e agents.*.permissions NAO serao escritos.' -ForegroundColor Cyan
+}
+if ($ConfigOwnsGlobal -and (-not $IsV2)) {
+  Write-Host '[install] Config owner (agent-config:global) exige o caminho V2: instalacao V1 recusada (fail-closed; V1 frozen). Use -Runtime V2.' -ForegroundColor Red
+  exit 3
+}
+
+# O7.2 Active: permissions sourced from the bundle (standalone V2 only).
+# Refused when Config owns the global text (its reconciler is canonical),
+# when runtime is not V2, or on any divergence (unknown agent / mode
+# mismatch). Bodies still come from repo snapshots (bundle is metadata).
+$bundleActive = $null
+if ($BundleMode -ieq 'Active') {
+  if ($ConfigOwnsGlobal) {
+    Write-Host '[bundle-active] recusado: Config owns agents.*.permissions (fail-closed).' -ForegroundColor Red
+    exit 3
+  }
+  if (-not $IsV2) {
+    Write-Host '[bundle-active] exige -Runtime V2 (fail-closed).' -ForegroundColor Red
+    exit 3
+  }
+  . (Join-Path (Join-Path (Join-Path $RepoRoot 'scripts') 'v3') (Join-Path 'lib' 'AgentProfileBundleConsumer.ps1'))
+  $bLoadA = Read-AgentProfileBundle -LiteralPath $BundlePath
+  if (-not $bLoadA.Ok) {
+    Write-Host ('[bundle-active] bundle invalido: ' + $bLoadA.Code + ' (fail-closed, nada foi escrito).') -ForegroundColor Red
+    exit 2
+  }
+  if ($bLoadA.Bundle.target_runtime -cne 'opencode-v2') {
+    Write-Host '[bundle-active] target_runtime deve ser opencode-v2 (fail-closed).' -ForegroundColor Red
+    exit 2
+  }
+  $appliedA = 0; $mismA = @()
+  foreach ($bp in @($bLoadA.Bundle.agent_profiles)) {
+    $bid = [string]$bp.agent_id
+    $rr = Resolve-BundleAgentProfile -Bundle $bLoadA.Bundle -AgentId $bid
+    if (-not $rr.Ok) { $mismA += $bid; continue }
+    if (-not (Has-Member $desired.agents $bid)) { $mismA += $bid; continue }
+    if ([string]$desired.agents.$bid.mode -cne [string]$rr.Profile.mode) { $mismA += ($bid + ':mode'); continue }
+    $permsA = @($rr.Profile.native_permissions | ForEach-Object { [ordered]@{ action = [string]$_.action; resource = [string]$_.resource; effect = [string]$_.effect } })
+    $desired.agents.$bid.permissions = $permsA
+    $appliedA++
+  }
+  if ($mismA.Count -gt 0) {
+    Write-Host ('[bundle-active] DIVERGENT: ' + ($mismA -join ',') + ' (fail-closed, nada foi escrito).') -ForegroundColor Red
+    exit 2
+  }
+  $bundleActive = [ordered]@{ mode = 'Active'; code = $bLoadA.Code; agents = $appliedA; bundle_id = [string]$bLoadA.Bundle.bundle_id; file_sha256 = (Get-FileHashSafe -Path $BundlePath) }
+  Write-Host ('[bundle-active] permissions de ' + $appliedA + ' agentes vindas do bundle ' + [string]$bLoadA.Bundle.bundle_id) -ForegroundColor Cyan
+}
+
 # Conteudo desejado em memoria (sem writes) -----------------------------------
 $header = @'
 <!-- GENERATED FILE: direct edits will be overwritten. -->
@@ -1298,9 +1386,6 @@ if ($IsV2) { $adapterRel = 'source\adapters\opencode-v2.md' }
 $adapterBody = Read-Utf8 (Join-Path $RepoRoot $adapterRel)
 $agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $TargetHome $RepoRoot
 
-$agentsTargetPath = Join-Path $ocDir 'AGENTS.md'
-$existingAgentsMd = $null
-if (Test-Path -LiteralPath $agentsTargetPath -PathType Leaf) { $existingAgentsMd = Read-Utf8 $agentsTargetPath }
 $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $header
 
 $repoEsc = $RepoRoot.Replace('\', '\\')
@@ -1401,16 +1486,29 @@ $managedPaths = @()
 # consumers; o pacote nao adota mais nenhuma chave (ownership trim).
 $adoptedNow = @()
 if ($null -eq $existingJsonObj) {
-  $mergedObj = $desired
+  if ($ConfigOwnsGlobal -and $IsV2) {
+    $mergedObj = (($desired | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
+    if (($null -ne $mergedObj) -and (Has-Member $mergedObj 'agents') -and ($null -ne $mergedObj.agents)) {
+      foreach ($ak in @($mergedObj.agents.PSObject.Properties.Name)) {
+        Remove-Prop $mergedObj.agents.$ak 'permissions'
+      }
+    }
+  }
+  else {
+    $mergedObj = $desired
+  }
   if ($IsV2) { $managedPaths = @(Get-DesiredManagedPathsV2 $desired) }
   else { $managedPaths = @(Get-DesiredManagedPaths $desired) }
+  if ($ConfigOwnsGlobal -and $IsV2) {
+    $managedPaths = @($managedPaths | Where-Object { $_ -notmatch '\.permissions$' })
+  }
 }
 else {
   $clone = (Strip-JsoncComments $existingJsonRaw) | ConvertFrom-Json
   if ($IsV2) {
-    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired
+    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired -SkipPermissions:$ConfigOwnsGlobal
     $mergedObj = $mergeRes.Config
-    $managedPaths = @(Get-DesiredManagedPathsV2 $desired)
+    $managedPaths = @($mergeRes.ManagedPaths)
   }
   else {
     $mergeRes = Merge-ManagedOpencodeConfig $clone $desired
@@ -1425,9 +1523,14 @@ $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 # SourcePath na fonte canonica, StagePath e DestinationPath derivados por
 # Join-Path a partir do RelativePath (nunca por Substring de FullName).
 $ops = New-Object System.Collections.ArrayList
-[void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
-foreach ($a in $agentFiles) {
-  [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
+if ($ConfigOwnsGlobal) {
+  Write-Host '[install] SKIP agents-md/agents: dono agent-config (sem fork editavel; snapshot nao instalado).' -ForegroundColor Cyan
+}
+else {
+  [void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
+  foreach ($a in $agentFiles) {
+    [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
+  }
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
@@ -1482,9 +1585,17 @@ function File-Plan([string]$Dst, [string]$DesiredText, [string]$Label) {
   if ($a -eq $b) { Add-Plan 'SKIP' ($Label + ' (inalterado)') }
   else { Add-Plan 'UPDATE' $Label }
 }
-File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
-foreach ($a in $agentFiles) {
-  File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name)
+if ($ConfigOwnsGlobal) {
+  Add-Plan 'SKIP' 'AGENTS.md (dono agent-config:global; texto global nao aplicado)'
+  foreach ($a in $agentFiles) {
+    Add-Plan 'SKIP' (('agents/' + $a.Name) + ' (dono agent-config; sem fork editavel)')
+  }
+}
+else {
+  File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
+  foreach ($a in $agentFiles) {
+    File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name)
+  }
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
@@ -1732,13 +1843,20 @@ try {
     $stageConfigPath = Join-Path $stageDir $configRelPath
     try { (Read-Utf8 $stageConfigPath) | ConvertFrom-Json | Out-Null }
     catch { $stageErrs += ('stage ' + $configFileName + ' nao parseia: ' + $_.Exception.Message) }
-    $stageAllText = (Read-Utf8 (Join-Path $stageDir 'AGENTS.md')) + "`n" + (Read-Utf8 $stageConfigPath)
+    $stageAllText = (Read-Utf8 $stageConfigPath)
     foreach ($a in $agentFiles) { $stageAllText += "`n" + $a.Text }
+    $stageAgentsPath = Join-Path $stageDir 'AGENTS.md'
+    if (Test-Path -LiteralPath $stageAgentsPath -PathType Leaf) {
+      $stageAllText = (Read-Utf8 $stageAgentsPath) + "`n" + $stageAllText
+      $stAgents = Read-Utf8 $stageAgentsPath
+      $cStart = ([regex]::Matches($stAgents, [regex]::Escape($MarkStart))).Count
+      $cEnd = ([regex]::Matches($stAgents, [regex]::Escape($MarkEnd))).Count
+      if (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
+    }
+    elseif (-not $ConfigOwnsGlobal) {
+      $stageErrs += 'stage AGENTS.md ausente sem Config owner (fail-closed).'
+    }
     if ((Count-TokenMarkers $stageAllText) -ne 0) { $stageErrs += 'stage contem tokens {{...}} nao resolvidos.' }
-    $stAgents = Read-Utf8 (Join-Path $stageDir 'AGENTS.md')
-    $cStart = ([regex]::Matches($stAgents, [regex]::Escape($MarkStart))).Count
-    $cEnd = ([regex]::Matches($stAgents, [regex]::Escape($MarkEnd))).Count
-    if (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
     if ($stageErrs.Count -gt 0) {
       foreach ($e in $stageErrs) { Write-Host ('STAGE INVALIDO: ' + $e) -ForegroundColor Red }
       throw 'stage validation failed'
@@ -1932,6 +2050,9 @@ try {
     $snapshotPaths = @()
     if ($IsV2) { $snapshotPaths = @(Get-DesiredManagedPathsV2 $desired) }
     else { $snapshotPaths = @(Get-DesiredManagedPaths $desired) }
+    if ($ConfigOwnsGlobal -and $IsV2) {
+      $snapshotPaths = @($snapshotPaths | Where-Object { $_ -notmatch '\.permissions$' })
+    }
     foreach ($mp in $snapshotPaths) {
       try {
         if ($mp -eq 'agent.build.model=ABSENT') { $snapshot[$mp] = 'ABSENT'; continue }
@@ -1980,12 +2101,81 @@ try {
       }
       catch { }
     }
+    # O7.1 shadow: bundle import evaluation, report-only. Never writes the
+    # target: loads the bundle, resolves every profile, compares ids with the
+    # installed snapshots and records the result in the manifest. Canary /
+    # Active modes do NOT exist (cutover P1): nothing here mutates config.
+    $bundleShadow = $null
+    if ($BundleMode -ieq 'Shadow') {
+      # (BundlePath presence already validated before any write.)
+      . (Join-Path (Join-Path (Join-Path $RepoRoot 'scripts') 'v3') (Join-Path 'lib' 'AgentProfileBundleConsumer.ps1'))
+      $bLoad = Read-AgentProfileBundle -LiteralPath $BundlePath
+      $bResolved = 0; $bTotal = 0; $bIds = @()
+      if ($bLoad.Ok) {
+        $bTotal = @($bLoad.Bundle.agent_profiles).Count
+        foreach ($bp in @($bLoad.Bundle.agent_profiles)) {
+          $rr = Resolve-BundleAgentProfile -Bundle $bLoad.Bundle -AgentId ([string]$bp.agent_id)
+          if ($rr.Ok) { $bResolved++; $bIds += [string]$bp.agent_id }
+        }
+      }
+      $snapIds = @($agentFiles | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) })
+      $onlyBundle = @($bIds | Where-Object { $snapIds -notcontains $_ })
+      $onlySnap = @($snapIds | Where-Object { $bIds -notcontains $_ })
+      $parity = (($bLoad.Ok) -and ($bResolved -eq $bTotal) -and ($onlyBundle.Count -eq 0) -and ($onlySnap.Count -eq 0))
+      $bundleShadow = [ordered]@{
+        mode = 'Shadow'; code = $bLoad.Code; resolved = $bResolved; total = $bTotal
+        parity = $(if ($parity) { 'MATCH' } else { 'DIVERGENT' })
+        only_in_bundle = @($onlyBundle); only_in_snapshots = @($onlySnap)
+        findings = @($bLoad.Findings | ForEach-Object { $_.Code })
+      }
+      Write-Host ('[bundle-shadow] ' + $bLoad.Code + ' resolved=' + $bResolved + '/' + $bTotal + ' parity=' + $bundleShadow.parity) -ForegroundColor Cyan
+    }
+    # O7.2 Canary: per-agent mode+permissions comparison vs desired snapshots.
+    # Order-sensitive: permission arrays compare as exact sequences
+    # (last-match-wins semantics; sorting would mask allow/deny inversions).
+    # Report-only (no active writes); manifest records digest + verdict.
+    $bundleCanary = $null
+    if ($BundleMode -ieq 'Canary') {
+      . (Join-Path (Join-Path (Join-Path $RepoRoot 'scripts') 'v3') (Join-Path 'lib' 'AgentProfileBundleConsumer.ps1'))
+      $bLoadC = Read-AgentProfileBundle -LiteralPath $BundlePath
+      $matchC = @(); $divC = @(); $seenC = @{}
+      if ($bLoadC.Ok) {
+        foreach ($bp in @($bLoadC.Bundle.agent_profiles)) {
+          $cid = [string]$bp.agent_id
+          $seenC[$cid] = $true
+          $rc = Resolve-BundleAgentProfile -Bundle $bLoadC.Bundle -AgentId $cid
+          if ((-not $rc.Ok) -or (-not (Has-Member $desired.agents $cid))) { $divC += $cid; continue }
+          $dm = [string]$desired.agents.$cid.mode
+          $bm = [string]$rc.Profile.mode
+          $dp = @(($desired.agents.$cid.permissions | ForEach-Object { [string]$_.action + '|' + [string]$_.resource + '|' + [string]$_.effect }))
+          $bpc = @(($rc.Profile.native_permissions | ForEach-Object { [string]$_.action + '|' + [string]$_.resource + '|' + [string]$_.effect }))
+          $same = (($dp.Count -eq $bpc.Count))
+          if ($same) { for ($pi = 0; $pi -lt $dp.Count; $pi++) { if ($dp[$pi] -cne $bpc[$pi]) { $same = $false; break } } }
+          if (($dm -ceq $bm) -and $same) { $matchC += $cid } else { $divC += $cid }
+        }
+        foreach ($dk in @($desired.agents.PSObject.Properties.Name)) {
+          if (-not $seenC.ContainsKey([string]$dk)) { $divC += ([string]$dk + ':absent-from-bundle') }
+        }
+      }
+      $bundleCanary = [ordered]@{
+        mode = 'Canary'; code = $bLoadC.Code; file_sha256 = (Get-FileHashSafe -Path $BundlePath)
+        matched = @($matchC); divergent = @($divC)
+        verdict = $(if ($bLoadC.Ok -and ($divC.Count -eq 0)) { 'MATCH' } else { 'DIVERGENT' })
+      }
+      Write-Host ('[bundle-canary] ' + $bLoadC.Code + ' match=' + $matchC.Count + ' divergent=' + $divC.Count) -ForegroundColor Cyan
+    }
     $manifest = [ordered]@{
       package_version = $PackageVersion
       installed_at = (Get-Date).ToString('o')
       source_revision = $rev
       target_home = $TargetHome
       runtime = [ordered]@{ id = $RuntimeId; generation = $RuntimeGeneration; profile = $RuntimeProfile }
+      bundle_shadow = $bundleShadow
+      bundle_canary = $bundleCanary
+      bundle_active = $bundleActive
+      config_ownership = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
+      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'agents/*.md profiles', 'agents.*.permissions') } else { @() })
+      snapshot_provenance = $(if ($ConfigOwnsGlobal) { 'consumer-shadow (no editable fork installed)' } else { 'SNAPSHOT_COMPAT (generated copies; not editable sources)' })
       managed_files = @($managedFiles)
       managed_config_paths = @($managedPaths)
       adopted_paths = @($adoptedUnion)
