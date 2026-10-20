@@ -291,3 +291,8 @@ plano atualizados; PR separado, merge commit, sem squash.
   validação de forma antes da reentrada verbatim (variante 9 de S13e
   `action-to-blocked-with-ok-result`, assert de checkpoint e sentinela
   S17); suíte 1083 asserts em PS5.1 e pwsh.
+- CI (2026-10-20): a suíte é descoberta pelo runner V3
+  (`scripts/v3/lib/*.tests.ps1`); o step V3 do ps7/v2 lane passou de 40
+  para 60 min e os jobs de 50 para 75 min para absorver a suíte
+  multiprocesso. Nenhum skip/continue-on-error; os testes continuam
+  integralmente executados.
