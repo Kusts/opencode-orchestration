@@ -398,10 +398,12 @@ function Read-SRRecoveryRecord {
     .DESCRIPTION
         Returns @{present, valid, record, reason}. Absence (no file) is
         present=$false. A non-regular/reparse entry, unreadable text,
-        non-object JSON, or wrong schema shape is present=$true,
-        valid=$false: the caller must preserve and refuse, never treat as
-        absent and never overwrite. Correlation (goal/key match) is left to
-        the caller, which refuses on mismatch the same way. Never throws.
+        non-object JSON, wrong schema shape, mistyped fields, broken
+        correlations, or an assignment fingerprint that does not rebind
+        the persisted fields is present=$true, valid=$false: the caller
+        must preserve and refuse, never treat as absent and never
+        overwrite. Correlation (goal/key match) is left to the caller,
+        which refuses on mismatch the same way. Never throws.
     #>
     [CmdletBinding()]
     param([string]$AdvanceDir = '', [string]$Key = '')
@@ -433,6 +435,10 @@ function Read-SRRecoveryRecord {
         if ([string]::IsNullOrWhiteSpace($text)) {
             return [pscustomobject]@{ present = $true; valid = $false; record = $null; reason = 'recovery-record-illegible' }
         }
+        # The bounded reader preserves a leading BOM while canonical .NET
+        # writers may emit one: drop U+FEFF before shape/parse so a
+        # BOM-prefixed record still validates (same rationale as evidence).
+        $text = $text.TrimStart([char]0xFEFF)
         $rootCmd = Get-Command Test-NDJsonObjectRootText -ErrorAction SilentlyContinue
         if (($null -ne $rootCmd) -and (-not (Test-NDJsonObjectRootText -Text $text))) {
             return [pscustomobject]@{ present = $true; valid = $false; record = $null; reason = 'recovery-record-illegible' }
@@ -441,6 +447,20 @@ function Read-SRRecoveryRecord {
         try { $raw = ConvertFrom-Json $text } catch { $raw = $null }
         if ($null -eq $raw) {
             return [pscustomobject]@{ present = $true; valid = $false; record = $null; reason = 'recovery-record-illegible' }
+        }
+        # pwsh parses ISO-8601 JSON strings into [DateTime] while PS 5.1
+        # keeps them as strings. Normalize the two timestamp fields back
+        # to round-trip strings at the read boundary so validation and all
+        # consumers see the canonical shape on both hosts (the fingerprint
+        # never covers timestamps).
+        foreach ($tn in @('created_at', 'recorded_at')) {
+            try {
+                $tv = Get-SRValue $raw $tn $null
+                if ($tv -is [DateTime]) {
+                    $raw | Add-Member -NotePropertyName $tn -NotePropertyValue (([DateTime]$tv).ToUniversalTime().ToString('o')) -Force
+                }
+            }
+            catch { }
         }
         $sv = Get-SRValue $raw 'schema_version' $null
         if (($sv -is [array]) -or ([long]$sv -ne 1)) {
@@ -454,9 +474,240 @@ function Read-SRRecoveryRecord {
         if (($ph -is [array]) -or (@('reserved', 'recorded') -cnotcontains ([string]$ph).Trim())) {
             return [pscustomobject]@{ present = $true; valid = $false; record = $null; reason = 'recovery-record-illegible' }
         }
+        # #6 (F1-S4-FIX2): full structural validation + fingerprint
+        # rebinding before any acceptance. Tampered-but-parseable records
+        # fail here and are preserved + refused by the caller.
+        if (-not (Test-SRRecoveryRecordShape -Record $raw -AdvanceDir $AdvanceDir -Key $k)) {
+            return [pscustomobject]@{ present = $true; valid = $false; record = $null; reason = 'recovery-record-illegible' }
+        }
         return [pscustomobject]@{ present = $true; valid = $true; record = $raw; reason = '' }
     }
     catch { return [pscustomobject]@{ present = $true; valid = $false; record = $null; reason = 'recovery-record-illegible' } }
+}
+
+function Get-SRRawValue {
+    <#
+    .SYNOPSIS
+        Raw JSON token read without pipeline unrolling (FIX3B-class).
+    .DESCRIPTION
+        `return $prop.Value` unrolls a single-element array into its scalar,
+        so a `[true]`/`[1]`/`["x"]` token would pass a scalar shape check.
+        This helper classifies the RAW token kind before any coercion:
+        absent/null/string/integer/bool/array/object/other. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Object = $null, [string]$Name = '')
+    try {
+        if (($null -eq $Object) -or ([string]::IsNullOrWhiteSpace($Name))) {
+            return [pscustomobject]@{ found = $false; kind = 'absent'; value = $null }
+        }
+        $val = $null
+        $found = $false
+        if ($Object -is [System.Collections.IDictionary]) {
+            if ($Object.Contains($Name)) { $val = $Object[$Name]; $found = $true }
+        }
+        else {
+            $pp = $null
+            try { $pp = $Object.PSObject.Properties[$Name] } catch { $pp = $null }
+            if ($null -ne $pp) { $val = $pp.Value; $found = $true }
+        }
+        if (-not $found) { return [pscustomobject]@{ found = $false; kind = 'absent'; value = $null } }
+        if ($null -eq $val) { return [pscustomobject]@{ found = $true; kind = 'null'; value = $null } }
+        if ($val -is [array]) { return [pscustomobject]@{ found = $true; kind = 'array'; value = $null } }
+        if ($val -is [bool]) { return [pscustomobject]@{ found = $true; kind = 'bool'; value = $val } }
+        if (($val -is [int]) -or ($val -is [long])) { return [pscustomobject]@{ found = $true; kind = 'integer'; value = [long]$val } }
+        if ($val -is [string]) { return [pscustomobject]@{ found = $true; kind = 'string'; value = $val } }
+        if (($val -is [System.Collections.IDictionary]) -or ($val -is [pscustomobject])) { return [pscustomobject]@{ found = $true; kind = 'object'; value = $val } }
+        return [pscustomobject]@{ found = $true; kind = 'other'; value = $null }
+    }
+    catch { return [pscustomobject]@{ found = $false; kind = 'absent'; value = $null } }
+}
+
+function Test-SRFieldString {
+    <#
+    .SYNOPSIS
+        Strict raw-token string check (anti array-collapse, FIX3B-style).
+    #>
+    [CmdletBinding()]
+    param($Object = $null, [string]$Name = '', [switch]$AllowEmpty, [int]$MaxLength = 4096, [string]$Pattern = '')
+    try {
+        $t = $null
+        try { $t = Get-SRRawValue -Object $Object -Name $Name } catch { $t = $null }
+        if (($null -eq $t) -or (-not [bool](Get-SRValue $t 'found' $false)) -or (([string](Get-SRValue $t 'kind' '')) -cne 'string')) {
+            return [pscustomobject]@{ ok = $false; value = '' }
+        }
+        $s = ([string](Get-SRValue $t 'value' ''))
+        if ($s.Length -gt $MaxLength) {
+            return [pscustomobject]@{ ok = $false; value = '' }
+        }
+        if ([string]::IsNullOrWhiteSpace($s)) {
+            if ($AllowEmpty) { return [pscustomobject]@{ ok = $true; value = '' } }
+            return [pscustomobject]@{ ok = $false; value = '' }
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($Pattern)) -and (($s.Trim() -cnotmatch $Pattern))) {
+            return [pscustomobject]@{ ok = $false; value = '' }
+        }
+        return [pscustomobject]@{ ok = $true; value = $s }
+    }
+    catch { return [pscustomobject]@{ ok = $false; value = '' } }
+}
+
+function Test-SRFieldBool {
+    [CmdletBinding()]
+    param($Object = $null, [string]$Name = '')
+    try {
+        $t = $null
+        try { $t = Get-SRRawValue -Object $Object -Name $Name } catch { $t = $null }
+        if (($null -eq $t) -or (-not [bool](Get-SRValue $t 'found' $false)) -or (([string](Get-SRValue $t 'kind' '')) -cne 'bool')) {
+            return [pscustomobject]@{ ok = $false; value = $false }
+        }
+        return [pscustomobject]@{ ok = $true; value = [bool](Get-SRValue $t 'value' $false) }
+    }
+    catch { return [pscustomobject]@{ ok = $false; value = $false } }
+}
+
+function Test-SRFieldLong {
+    [CmdletBinding()]
+    param($Object = $null, [string]$Name = '', [long]$Min = 0)
+    try {
+        $t = $null
+        try { $t = Get-SRRawValue -Object $Object -Name $Name } catch { $t = $null }
+        if (($null -eq $t) -or (-not [bool](Get-SRValue $t 'found' $false)) -or (([string](Get-SRValue $t 'kind' '')) -cne 'integer')) {
+            return [pscustomobject]@{ ok = $false; value = [long]-1 }
+        }
+        $l = [long](Get-SRValue $t 'value' -1)
+        if ($l -lt [long]$Min) {
+            return [pscustomobject]@{ ok = $false; value = [long]-1 }
+        }
+        return [pscustomobject]@{ ok = $true; value = $l }
+    }
+    catch { return [pscustomobject]@{ ok = $false; value = [long]-1 } }
+}
+
+function Test-SRRecoveryRecordShape {
+    <#
+    .SYNOPSIS
+        Full structural validation of a parsed recovery record (#6).
+    .DESCRIPTION
+        Read-only, never throws. Beyond root/schema checks: field types
+        (arrays/objects/scalars rejected where a raw token is required),
+        closed action/reason enumerations, proof-ref correlation against
+        the derived canonical paths, and fingerprint recomputation over
+        the closed intent-action set (the recorded action is the effective
+        terminal disposition, so every legitimate intent is tried).
+        Tampered-but-parseable records fail here and are preserved +
+        refused by the caller. Never trusts the record as authority.
+    #>
+    [CmdletBinding()]
+    param($Record = $null, [string]$AdvanceDir = '', [string]$Key = '')
+    try {
+        if ($null -eq $Record) { return $false }
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        if ($k -cnotmatch '^[a-f0-9]{32}$') { return $false }
+        if ([string]::IsNullOrWhiteSpace($AdvanceDir)) { return $false }
+        $fGid = Test-SRFieldString -Object $Record -Name 'goal_id' -MaxLength 64 -Pattern '^[A-Za-z0-9._:-]{1,64}$'
+        if (-not [bool]$fGid.ok) { return $false }
+        $fKey = Test-SRFieldString -Object $Record -Name 'settled_key' -MaxLength 32 -Pattern '^[a-f0-9]{32}$'
+        if ((-not [bool]$fKey.ok) -or (([string]$fKey.value).Trim().ToLowerInvariant() -cne $k)) { return $false }
+        $fTask = Test-SRFieldString -Object $Record -Name 'source_task_id' -MaxLength 256
+        if (-not [bool]$fTask.ok) { return $false }
+        $fSub = Test-SRFieldString -Object $Record -Name 'substitute_session_id' -MaxLength 128 -Pattern '^[A-Za-z0-9._:-]{1,128}$'
+        if (-not [bool]$fSub.ok) { return $false }
+        $fOwn = Test-SRFieldString -Object $Record -Name 'authorization_owner' -MaxLength 128
+        if (-not [bool]$fOwn.ok) { return $false }
+        $fGen = Test-SRFieldLong -Object $Record -Name 'authorization_generation' -Min 1
+        if (-not [bool]$fGen.ok) { return $false }
+        $fSrc = Test-SRFieldString -Object $Record -Name 'authorization_source' -MaxLength 128
+        if (-not [bool]$fSrc.ok) { return $false }
+        $fRc = Test-SRFieldString -Object $Record -Name 'reason_code' -MaxLength 64
+        if (-not [bool]$fRc.ok) { return $false }
+        $rcChk = $null
+        try { $rcChk = Test-SRReasonCode -ReasonCode ([string]$fRc.value) } catch { $rcChk = $null }
+        if (($null -eq $rcChk) -or (-not [bool](Get-SRValue $rcChk 'ok' $false))) { return $false }
+        $fAct = Test-SRFieldString -Object $Record -Name 'action' -MaxLength 64
+        if (-not [bool]$fAct.ok) { return $false }
+        if (@('replay-prepared', 'replay-terminal', 'blocked-manual', 'blocked') -cnotcontains ([string]$fAct.value).Trim()) { return $false }
+        $proofRaw = $null
+        try { $proofRaw = Get-SRRawValue -Object $Record -Name 'proof_refs' } catch { $proofRaw = $null }
+        if (($null -eq $proofRaw) -or (-not [bool](Get-SRValue $proofRaw 'found' $false)) -or (([string](Get-SRValue $proofRaw 'kind' '')) -cne 'object')) { return $false }
+        $proof = Get-SRValue $proofRaw 'value' $null
+        if ($null -eq $proof) { return $false }
+        $goalRoot = ''
+        try { $goalRoot = Split-Path -Path ([string]$AdvanceDir).Trim() -Parent } catch { $goalRoot = '' }
+        if ([string]::IsNullOrWhiteSpace($goalRoot)) { return $false }
+        $expReceipt = Join-Path $goalRoot ($k + '.json')
+        $expAdvance = Join-Path ([string]$AdvanceDir).Trim() ($k + '.advance.json')
+        $fRecRef = Test-SRFieldString -Object $proof -Name 'receipt' -MaxLength 512
+        if ((-not [bool]$fRecRef.ok) -or (([string]$fRecRef.value) -cne $expReceipt)) { return $false }
+        $fAdvRef = Test-SRFieldString -Object $proof -Name 'advance' -MaxLength 512
+        if ((-not [bool]$fAdvRef.ok) -or (([string]$fAdvRef.value) -cne $expAdvance)) { return $false }
+        $fEv = Test-SRFieldString -Object $proof -Name 'evidence_id' -MaxLength 128 -AllowEmpty
+        if (-not [bool]$fEv.ok) { return $false }
+        $fRev = Test-SRFieldLong -Object $proof -Name 'candidate_revision' -Min -1
+        if (-not [bool]$fRev.ok) { return $false }
+        $fNk = Test-SRFieldString -Object $proof -Name 'next_key' -MaxLength 32 -AllowEmpty
+        if (-not [bool]$fNk.ok) { return $false }
+        if ((-not [string]::IsNullOrWhiteSpace([string]$fNk.value)) -and (([string]$fNk.value).Trim().ToLowerInvariant() -cnotmatch '^[a-f0-9]{32}$')) { return $false }
+        $fNfp = Test-SRFieldString -Object $proof -Name 'next_intent_fingerprint' -MaxLength 32 -AllowEmpty
+        if (-not [bool]$fNfp.ok) { return $false }
+        if ((-not [string]::IsNullOrWhiteSpace([string]$fNfp.value)) -and (([string]$fNfp.value).Trim().ToLowerInvariant() -cnotmatch '^[a-f0-9]{32}$')) { return $false }
+        $fSess = Test-SRFieldString -Object $proof -Name 'original_prepare_session_id' -MaxLength 256 -AllowEmpty
+        if (-not [bool]$fSess.ok) { return $false }
+        $fPhase = Test-SRFieldString -Object $Record -Name 'phase' -MaxLength 16
+        if (-not [bool]$fPhase.ok) { return $false }
+        $phase = ([string]$fPhase.value).Trim()
+        if (@('reserved', 'recorded') -cnotcontains $phase) { return $false }
+        $fCreated = Test-SRFieldString -Object $Record -Name 'created_at' -MaxLength 64
+        if (-not [bool]$fCreated.ok) { return $false }
+        $fRecorded = Test-SRFieldString -Object $Record -Name 'recorded_at' -MaxLength 64 -AllowEmpty
+        if (-not [bool]$fRecorded.ok) { return $false }
+        if (($phase -ceq 'recorded') -and ([string]::IsNullOrWhiteSpace([string]$fRecorded.value))) { return $false }
+        $resRaw = $null
+        try { $resRaw = Get-SRRawValue -Object $Record -Name 'result' } catch { $resRaw = $null }
+        if (($null -eq $resRaw) -or (-not [bool](Get-SRValue $resRaw 'found' $false)) -or (([string](Get-SRValue $resRaw 'kind' '')) -cne 'object')) { return $false }
+        $res = Get-SRValue $resRaw 'value' $null
+        if ($null -eq $res) { return $false }
+        $rOk = Test-SRFieldBool -Object $res -Name 'ok'
+        if (-not [bool]$rOk.ok) { return $false }
+        $rReason = Test-SRFieldString -Object $res -Name 'reason' -MaxLength 128
+        if (-not [bool]$rReason.ok) { return $false }
+        $rCause = Test-SRFieldString -Object $res -Name 'cause_reason' -MaxLength 256 -AllowEmpty
+        if (-not [bool]$rCause.ok) { return $false }
+        $rPrep = Test-SRFieldBool -Object $res -Name 'prepared'
+        if (-not [bool]$rPrep.ok) { return $false }
+        $rNRef = Test-SRFieldString -Object $res -Name 'next_reference' -MaxLength 512 -AllowEmpty
+        if (-not [bool]$rNRef.ok) { return $false }
+        $rNKey = Test-SRFieldString -Object $res -Name 'next_idempotency_key' -MaxLength 32 -AllowEmpty
+        if (-not [bool]$rNKey.ok) { return $false }
+        if ((-not [string]::IsNullOrWhiteSpace([string]$rNKey.value)) -and (([string]$rNKey.value).Trim().ToLowerInvariant() -cnotmatch '^[a-f0-9]{32}$')) { return $false }
+        $rCkId = Test-SRFieldString -Object $res -Name 'checkpoint_id' -MaxLength 32 -AllowEmpty
+        if (-not [bool]$rCkId.ok) { return $false }
+        if ((-not [string]::IsNullOrWhiteSpace([string]$rCkId.value)) -and (([string]$rCkId.value).Trim() -cnotmatch '^[a-f0-9]{16}$')) { return $false }
+        $rCkOk = Test-SRFieldBool -Object $res -Name 'checkpoint_ok'
+        if (-not [bool]$rCkOk.ok) { return $false }
+        $effRaw = $null
+        try { $effRaw = Get-SRRawValue -Object $res -Name 'effects' } catch { $effRaw = $null }
+        if (($null -eq $effRaw) -or (-not [bool](Get-SRValue $effRaw 'found' $false)) -or (([string](Get-SRValue $effRaw 'kind' '')) -cne 'object')) { return $false }
+        $rEff = Get-SRValue $effRaw 'value' $null
+        if ($null -eq $rEff) { return $false }
+        foreach ($en in @('domain_mutated', 'attribution_written', 'checkpoint_written')) {
+            $ev = Test-SRFieldBool -Object $rEff -Name $en
+            if (-not [bool]$ev.ok) { return $false }
+        }
+        $storedFp = ([string](Get-SRValue $Record 'assignment_fingerprint' '')).Trim()
+        $matched = $false
+        foreach ($candAction in @('replay-prepared', 'replay-terminal', 'blocked-manual')) {
+            $fp2 = ''
+            try {
+                $fp2 = Get-SRAssignmentFingerprint -SubstituteSessionId ([string]$fSub.value) -Owner ([string]$fOwn.value) -Generation ([long]$fGen.value) -Source ([string]$fSrc.value) -Action $candAction -ReasonCode ([string]$fRc.value) -GoalId ([string]$fGid.value) -SettledKey $k -SourceTaskId ([string]$fTask.value) -ReceiptRef ([string]$fRecRef.value) -EvidenceId ([string]$fEv.value) -CandidateRevision ([long]$fRev.value) -NextKey ([string]$fNk.value) -NextIntentFingerprint ([string]$fNfp.value) -OriginalPrepareSessionId ([string]$fSess.value)
+            }
+            catch { $fp2 = '' }
+            if ((-not [string]::IsNullOrWhiteSpace($fp2)) -and ($fp2 -ceq $storedFp)) { $matched = $true; break }
+        }
+        if (-not $matched) { return $false }
+        return $true
+    }
+    catch { return $false }
 }
 
 function Write-SRRecoveryRecord {
@@ -578,13 +829,14 @@ function Invoke-OrchestrationSettledRecovery {
         Order (fail-closed): request/session shape -> canonical goal read
         (COMPLETED recognized without mutation) -> live authorization +
         ownership -> canonical advance/receipt reads + successor binding
-        for prepared replay + classification BEFORE any attribution ->
-        recovery lock -> revalidate authorization/ownership/lease and live
-        goal state (a wait may outlive them; COMPLETED while waiting is
-        recognized) -> re-read advance + successor -> reserve ->
-        allowed action only (S3a replay of prepared/terminal already
-        validated; checkpoint rebuild from canonical records;
-        blocked-manual as record-only) -> recorded -> release.
+        for prepared replay + strict recovery-record validation ->
+        classification BEFORE any attribution -> recovery lock, revalidate
+        authorization/ownership/lease and live goal state (a wait may
+        outlive them; COMPLETED while waiting is recognized) -> re-read
+        advance + successor -> reserve -> allowed action only (S3a replay
+        of prepared/terminal already validated; checkpoint rebuild from
+        canonical records; blocked-manual as record-only) -> recorded ->
+        release (partial failure after S3a preserves known effects).
 
         Refusals before attribution write nothing (no domain write, no
         attribution). executor_calls is always 0.
@@ -927,6 +1179,14 @@ function Invoke-OrchestrationSettledRecovery {
             # decision (existence, prepared phase, goal/key/task/agent/
             # reference). Missing/divergent/corrupt successor refuses
             # without creating a PREPARE.
+            # #5 (F1-S4-FIX2): a provided NextIntent is also compared to
+            # the recorded successor (key/task/agent). A divergent
+            # NextIntent never proves intent and never steers the replay:
+            # refusal without replay and without attribution.
+            $nvKey = ([string]$nextView.key)
+            if ((-not [string]::IsNullOrWhiteSpace($nvKey)) -and ((($nvKey -cne $advNextKey) -or (([string]$nextView.task_id -cne $advNextTask)) -or (([string]$nextView.agent -cne $advNextAgent))))) {
+                return (New-SRRefusal -Reason 'recovery-intent-unproven' -Cause 'successor-intent-divergent' -GoalId $gid -SettledKey $sk -ManualFollowup $true)
+            }
             $succChk = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef
             if (-not [bool](Get-SRValue $succChk 'ok' $false)) {
                 return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause ([string](Get-SRValue $succChk 'cause' 'successor-unproven')) -GoalId $gid -SettledKey $sk -ManualFollowup $true)
@@ -965,6 +1225,10 @@ function Invoke-OrchestrationSettledRecovery {
         $recRef = Join-Path $rDir ($sk + '.json')
         $proofNextKey = ([string]$nextView.key)
         if ([string]::IsNullOrWhiteSpace($proofNextKey)) { $proofNextKey = $advNextKey }
+        # #5 (F1-S4-FIX2): on replay paths the causal next key is the
+        # recorded successor, never the caller-supplied NextIntent (a
+        # divergent NextIntent already refused above).
+        if ((($intended -ceq 'replay-prepared') -or ($intended -ceq 'replay-terminal'))) { $proofNextKey = $advNextKey }
         $fp = Get-SRAssignmentFingerprint -SubstituteSessionId $sub -Owner $authOwner -Generation $authGen -Source $authSource -Action $intended -ReasonCode $rc -GoalId $gid -SettledKey $sk -SourceTaskId $srcTask -ReceiptRef $recRef -EvidenceId $evId -CandidateRevision $recExpected -NextKey $proofNextKey -NextIntentFingerprint ([string]$nextView.fingerprint) -OriginalPrepareSessionId $origPrepSession
         if ([string]::IsNullOrWhiteSpace($fp)) {
             return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause 'assignment-fingerprint-failed' -GoalId $gid -SettledKey $sk -ManualFollowup $true)
@@ -1052,7 +1316,13 @@ function Invoke-OrchestrationSettledRecovery {
                     $rCkId = ([string](Get-SRValue $curRes 'checkpoint_id' ''))
                     $rCkOk = $false
                     try { $rCkOk = [bool](Get-SRValue $curRes 'checkpoint_ok' $false) } catch { $rCkOk = $false }
-                    $rNextK = ([string](Get-SRValue (Get-SRValue $curRec 'proof_refs' $null) 'next_key' ''))
+                    # #5 (F1-S4-FIX2): reproduce the recorded terminal result
+                    # verbatim (references included); proof refs are only a
+                    # fallback for records written without the envelope key.
+                    $rNextK = ([string](Get-SRValue $curRes 'next_idempotency_key' ''))
+                    if ([string]::IsNullOrWhiteSpace($rNextK)) {
+                        $rNextK = ([string](Get-SRValue (Get-SRValue $curRec 'proof_refs' $null) 'next_key' ''))
+                    }
                     $rMan = $false
                     if ($curAction -ceq 'blocked-manual') { $rMan = $true }
                     return (New-SREnvelope -Ok $rOk -Action $curAction -Reason $rReason -CauseReason $rCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $rNextK -NextReference $rNextRef -Prepared $rPrep -CheckpointId $rCkId -CheckpointOk $rCkOk -Effects (New-SREffects -DomainMutated ([bool](Get-SRValue (Get-SRValue $curRes 'effects' $null) 'domain_mutated' $false)) -AttributionWritten $true -CheckpointWritten ([bool](Get-SRValue (Get-SRValue $curRes 'effects' $null) 'checkpoint_written' $false))) -ManualFollowup $rMan)
@@ -1106,7 +1376,7 @@ function Invoke-OrchestrationSettledRecovery {
             if ($intended -ceq 'blocked-manual') {
                 $resBody = [ordered]@{
                     ok = $true; reason = 'recovery-pending-manual-required'; cause_reason = $manualCause
-                    prepared = $false; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false
+                    prepared = $false; next_idempotency_key = ''; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false
                     effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false }
                 }
                 if ($manualCause -cne 'recovery-pending-manual-required') {
@@ -1133,7 +1403,10 @@ function Invoke-OrchestrationSettledRecovery {
                 $record['phase'] = 'recorded'
                 $record['recorded_at'] = ([DateTime]::UtcNow.ToString('o'))
                 if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowReservedUpdate -ExpectedFingerprint $fp)) {
-                    return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'record-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
+                    # #4 (F1-S4-FIX2): the reserve already wrote the
+                    # attribution. Report the failure with the known
+                    # effect instead of a zero-effect refusal.
+                    return (New-SREnvelope -Ok $false -Action 'blocked-manual' -Reason 'recovery-record-write-failed' -CauseReason 'record-failed' -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects -AttributionWritten $true) -ManualFollowup $true)
                 }
                 return (New-SREnvelope -Ok $true -Action 'blocked-manual' -Reason ([string]$resBody['reason']) -CauseReason $manualCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects -AttributionWritten $true) -ManualFollowup $true)
             }
@@ -1144,7 +1417,7 @@ function Invoke-OrchestrationSettledRecovery {
             # forwarded: replay consumes the recorded successor only.
             $resvBody = [ordered]@{
                 ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'
-                prepared = $false; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false
+                prepared = $false; next_idempotency_key = ''; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false
                 effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false }
             }
             $record = [ordered]@{
@@ -1167,7 +1440,11 @@ function Invoke-OrchestrationSettledRecovery {
             }
             $sc = $null
             try {
-                $sc = Invoke-OrchestrationSettledContinuation -GoalId $gid -SettledKey $sk -Authorization $Authorization -SessionId $sub -CheckpointDir $CheckpointDir -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $ReceiptDir -TasksDir $TasksDir -FlagsPath $FlagsPath
+                # #3 (F1-S4-FIX2): forward the resolved receipt root and the
+                # caller RepoRoot so the delegated continuation resolves the
+                # same namespace the classification read (an omitted
+                # ReceiptDir with an explicit RepoRoot must not diverge).
+                $sc = Invoke-OrchestrationSettledContinuation -GoalId $gid -SettledKey $sk -Authorization $Authorization -SessionId $sub -CheckpointDir $CheckpointDir -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $recRoot -RepoRoot $RepoRoot -TasksDir $TasksDir -FlagsPath $FlagsPath
             }
             catch { $sc = $null }
             $scOk = $false
@@ -1227,17 +1504,25 @@ function Invoke-OrchestrationSettledRecovery {
             }
             $resBody = [ordered]@{
                 ok = $scOk; reason = $scReason; cause_reason = $scCause
-                prepared = $scPrep; next_reference = $scNextRef; checkpoint_id = $scCkId; checkpoint_ok = $scCkOk
+                prepared = $scPrep; next_idempotency_key = $scNextKey; next_reference = $scNextRef; checkpoint_id = $scCkId; checkpoint_ok = $scCkOk
                 effects = [ordered]@{ domain_mutated = $domainTouched; attribution_written = $true; checkpoint_written = $scCkOk }
             }
+            # #5 (F1-S4-FIX2): persist the effective terminal envelope
+            # (action incl.), not the initial intent, so a reentry
+            # reproduces exactly the recorded terminal result.
+            $finAction = $intended
+            if (-not $scOk) { $finAction = 'blocked' }
+            $record['action'] = $finAction
             $record['result'] = $resBody
             $record['phase'] = 'recorded'
             $record['recorded_at'] = ([DateTime]::UtcNow.ToString('o'))
             if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowReservedUpdate -ExpectedFingerprint $fp)) {
-                return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'record-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
+                # #4 (F1-S4-FIX2): the delegation may already have acted
+                # (COMPLETE CAS, checkpoint). Report the failure with the
+                # known effects, references and uncertain state instead of
+                # a zero-effect refusal.
+                return (New-SREnvelope -Ok $false -Action $finAction -Reason 'recovery-record-write-failed' -CauseReason 'record-failed-after-replay' -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $scNextKey -NextReference $scNextRef -Prepared $scPrep -CheckpointId $scCkId -CheckpointOk $scCkOk -Effects (New-SREffects -DomainMutated $domainTouched -AttributionWritten $true -CheckpointWritten $scCkOk) -ManualFollowup $true)
             }
-            $finAction = $intended
-            if (-not $scOk) { $finAction = 'blocked' }
             return (New-SREnvelope -Ok $scOk -Action $finAction -Reason $scReason -CauseReason $scCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $scNextKey -NextReference $scNextRef -Prepared $scPrep -CheckpointId $scCkId -CheckpointOk $scCkOk -Effects (New-SREffects -DomainMutated $domainTouched -AttributionWritten $true -CheckpointWritten $scCkOk))
         }
         finally {

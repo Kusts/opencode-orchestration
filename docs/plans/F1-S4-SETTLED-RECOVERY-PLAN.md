@@ -146,6 +146,10 @@ created_at, recorded_at
   advance para o caminho prepared/terminal.
 - Reutilizar as defesas de identidade de diretório/reparse do ND quando
   aplicáveis; não criar store paralelo.
+- Cobertura multiprocesso com processos externos reais (F1-S4-FIX2,
+  2026-10-20): mesma atribuição (determinística), atribuições distintas
+  (mismatch sem sobrescrita) e timeout do lock; o que vale é o lock
+  exclusivo por settled key, não o processo chamador.
 
 ### 4.4 Fluxo
 

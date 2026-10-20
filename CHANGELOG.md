@@ -39,19 +39,24 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   ilegível/não-arquivo/reparse é preservado e recusado.
   `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
   como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
-  (821 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  (996 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
   COMPLETE válido/recusado, sessão/auth/owner, takeover sem transferência
   implícita, pending manual/recusa, receipt pending/claimed/prepared,
   evidência ausente/ilegível/decorrelacionada, worker superseded,
   checkpoint rebuild honesto, registros corrompidos/divergentes/crash,
-  lock entre processos, revalidação pós-lock (F1a determinística + F1b
-  com espera real sob lock), vínculo do sucessor (removido/corrompido/
-  referência trocada + re-checagem sob lock + controle válido),
+  lock exclusivo multiprocesso com processos externos reais (mesma
+  atribuição determinística, atribuições distintas, timeout do lock),
+  revalidação pós-lock (F1a determinística + F1b com espera real sob
+  lock), vínculo do sucessor (removido/corrompido/referência trocada +
+  re-checagem sob lock + controle válido + NextIntent divergente),
+  registro estruturalmente adulterado rejeitado/preservado (6 variantes),
+  falha parcial preserva efeitos conhecidos, RepoRoot encaminhado à S3a,
   adversarial remoção/troca/downgrade, sentinela
   zero worker/CLAIM/SETTLE/PREPARE, regressão sem `SettledKey`); S3a
-  (658 asserts) e ND handoff/advance (2151 asserts) verdes em ambos os
-  hosts. Sem claim runtime-real/G3/S6/enforcement; sem mudança em
-  S3a/AL, ND, TaskKernel, plugin, grants ou flags.
+  (658 asserts), ND handoff/advance (2151 asserts) e ND receipts
+  (208 asserts) verdes em ambos os hosts. Sem claim runtime-real/G3/S6/
+  enforcement; sem mudança em S3a/AL, ND, TaskKernel, plugin, grants ou
+  flags.
 
 - **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
   F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/

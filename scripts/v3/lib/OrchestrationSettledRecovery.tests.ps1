@@ -143,23 +143,25 @@ try {
     }
 
     function Invoke-SRWalk {
-        param($Goal, $Intent, [string]$Agent = 'coder', $Result = $null, [string]$Child = 'ses_s4_child', [string]$Call = 'call_s4_1')
+        param($Goal, $Intent, [string]$Agent = 'coder', $Result = $null, [string]$Child = 'ses_s4_child', [string]$Call = 'call_s4_1', [string]$Receipts = '')
+        $rr = $Receipts
+        if ([string]::IsNullOrWhiteSpace($rr)) { $rr = $script:srEnv.recs }
         $key = ([string](Get-SRValue $Intent 'idempotency_key' '')).Trim().ToLowerInvariant()
         $tid = ([string](Get-SRValue $Intent 'task_id' '')).Trim()
         $prep = Invoke-OrchestrationNativeDispatchPrepare -Intent $Intent -Authorization $Goal.auth -SessionId 'ses_s4_parent' `
-            -ReceiptDir $script:srEnv.recs -GoalStoreDir $script:srEnv.goals -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags
+            -ReceiptDir $rr -GoalStoreDir $script:srEnv.goals -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags
         Assert-SR ([bool]$prep.ok) ('[F] prepared ' + $tid) ([string]$prep.reason)
         $fp = ([string]$prep.prepared_fingerprint)
         $ref = ([string]$prep.reference)
         $claim = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $key -Authorization $Goal.auth -SessionId 'ses_s4_parent' `
             -MessageId 'msg_s4_call' -CallId $Call -CallerAgent 'planner' -TargetAgent $Agent -PreparedFingerprint $fp `
-            -ReceiptDir $script:srEnv.recs -GoalStoreDir $script:srEnv.goals -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags
+            -ReceiptDir $rr -GoalStoreDir $script:srEnv.goals -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags
         Assert-SR (([bool]$claim.ok) -and ([bool]$claim.claimed)) ('[F] claimed ' + $tid) ([string]$claim.reason)
         $cand = $Result
         if ($null -eq $cand) { $cand = @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') } }
         $settle = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $key -Authorization $Goal.auth -ChildSessionId $Child `
             -SessionId 'ses_s4_parent' -MessageId 'msg_s4_call' -CallId $Call -CallerAgent 'planner' -TargetAgent $Agent `
-            -PreparedFingerprint $fp -Reference $ref -TaskId $tid -Result $cand -ReceiptDir $script:srEnv.recs `
+            -PreparedFingerprint $fp -Reference $ref -TaskId $tid -Result $cand -ReceiptDir $rr `
             -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags
         Assert-SR (([bool]$settle.ok) -and ([bool]$settle.settled)) ('[F] settled ' + $tid) ([string]$settle.reason)
         return [pscustomobject]@{ key = $key; task_id = $tid; evidence_id = ([string]$settle.evidence_id) }
@@ -287,19 +289,25 @@ try {
     }
 
     function Invoke-SRRecovery {
-        param($GoalId, $Key, $Auth, [string]$Sub = 'ses_s4_sub', [string]$ReasonCode = 'substitute-timeout', $NextIntent = $null, [int]$LockTimeoutMs = 5000, [string]$CkptDir = '', [string]$Receipts = '')
+        param($GoalId, $Key, $Auth, [string]$Sub = 'ses_s4_sub', [string]$ReasonCode = 'substitute-timeout', $NextIntent = $null, [int]$LockTimeoutMs = 5000, [string]$CkptDir = '', [string]$Receipts = '', [string]$RepoRoot = '')
         $cd = $CkptDir
         if ([string]::IsNullOrWhiteSpace($cd)) { $cd = $script:srEnv.ckpts }
         $rr = $Receipts
-        if ([string]::IsNullOrWhiteSpace($rr)) { $rr = $script:srEnv.recs }
+        if ([string]::IsNullOrWhiteSpace($rr)) {
+            # An explicitly forwarded RepoRoot with an omitted ReceiptDir
+            # lets S4 resolve the namespace itself (F3); otherwise the
+            # hermetic env default applies.
+            if ((-not $PSBoundParameters.ContainsKey('Receipts')) -and (-not [string]::IsNullOrWhiteSpace($RepoRoot))) { $rr = '' }
+            else { $rr = $script:srEnv.recs }
+        }
         if ($null -eq $NextIntent) {
             $r = Invoke-OrchestrationSettledRecovery -GoalId $GoalId -SettledKey $Key -Authorization $Auth -SubstituteSessionId $Sub -ReasonCode $ReasonCode `
-                -CheckpointDir $cd -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs -ReceiptDir $rr `
+                -CheckpointDir $cd -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs -ReceiptDir $rr -RepoRoot $RepoRoot `
                 -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -LockTimeoutMs $LockTimeoutMs
         }
         else {
             $r = Invoke-OrchestrationSettledRecovery -GoalId $GoalId -SettledKey $Key -Authorization $Auth -SubstituteSessionId $Sub -ReasonCode $ReasonCode -NextIntent $NextIntent `
-                -CheckpointDir $cd -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs -ReceiptDir $rr `
+                -CheckpointDir $cd -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs -ReceiptDir $rr -RepoRoot $RepoRoot `
                 -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -LockTimeoutMs $LockTimeoutMs
         }
         Assert-SR (([int]$r.executor_calls -eq 0)) '[X] executor_calls is always 0' ('calls=' + [string]$r.executor_calls)
@@ -320,6 +328,91 @@ try {
         Set-Item -Path 'function:Get-OrchestrationNextMove' -Value ({ param($Status) return [pscustomobject]@{ move = $m; reason = $r; stop_reason = $s; remaining_count = 1 } }.GetNewClosure())
     }
     function Restore-SRStubMove { Set-Item -Path 'function:Get-OrchestrationNextMove' -Value $script:srOrigMove }
+
+    function Get-SRChildExe {
+        try { return ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) }
+        catch { return '' }
+    }
+
+    function Start-SRChildRecovery {
+        <#
+        .SYNOPSIS
+            Runs one S4 recovery in a REAL external OS process.
+        .DESCRIPTION
+            Writes a small runner script into the hermetic temp root and
+            spawns the current PowerShell executable with it. The child
+            dot-sources the same libs, invokes the recovery once, and
+            writes a JSON summary to its own out file. Returns the process
+            handle plus paths; the caller waits via Wait-SRChildRecovery.
+            Never throws: failures surface as $null result.
+        #>
+        [CmdletBinding()]
+        param($GoalId, $Key, [string]$Owner = '', [long]$Gen = 0, [string]$Source = 'planner', [bool]$Allow = $true, [string]$Sub = 'ses_s4_sub', [string]$ReasonCode = 'substitute-timeout', [string]$Receipts = '', [int]$LockTimeoutMs = 25000)
+        try {
+            $tag = [guid]::NewGuid().ToString('N')
+            $runner = Join-Path $script:srEnv.root ('sr-child-' + $tag + '.ps1')
+            $out = Join-Path $script:srEnv.root ('sr-child-' + $tag + '.out.json')
+            $allowFlag = '0'
+            if ($Allow) { $allowFlag = '1' }
+            $rr = $Receipts
+            if ([string]::IsNullOrWhiteSpace($rr)) { $rr = $script:srEnv.recs }
+            $runnerText = @'
+param([string]$LibDir, [string]$GoalId, [string]$Key, [string]$Owner, [long]$Gen, [string]$Source, [string]$AllowFlag, [string]$Sub, [string]$Reason, [string]$Ckpt, [string]$Goals, [string]$Evs, [string]$Recs, [string]$Tasks, [string]$Flags, [int]$LockMs, [string]$Out)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $LibDir 'OrchestrationGoalKernel.ps1')
+. (Join-Path $LibDir 'OrchestrationGoalCheckpoint.ps1')
+. (Join-Path $LibDir 'OrchestrationNativeDispatch.ps1')
+. (Join-Path $LibDir 'OrchestrationTaskKernel.ps1')
+. (Join-Path $LibDir 'OrchestrationAutonomousLoop.ps1')
+. (Join-Path $LibDir 'OrchestrationSettledRecovery.ps1')
+try {
+    $allow = ([string]$AllowFlag -ceq '1')
+    $auth = @{ explicit_allow = $allow; goal_id = $GoalId; owner = $Owner; generation = [long]$Gen; source = $Source }
+    $r = Invoke-OrchestrationSettledRecovery -GoalId $GoalId -SettledKey $Key -Authorization $auth -SubstituteSessionId $Sub -ReasonCode $Reason -CheckpointDir $Ckpt -GoalStoreDir $Goals -EvidenceStoreDir $Evs -ReceiptDir $Recs -TasksDir $Tasks -FlagsPath $Flags -LockTimeoutMs $LockMs
+    $o = [pscustomobject]@{ ok = [bool]$r.ok; reason = ([string]$r.reason); cause = ([string]$r.cause_reason); action = ([string]$r.action); prepared = [bool]$r.prepared; fp = ([string]$r.assignment_fingerprint); next = ([string]$r.next_idempotency_key); calls = [int]$r.executor_calls }
+    [IO.File]::WriteAllText($Out, ($o | ConvertTo-Json -Compress), [Text.Encoding]::UTF8)
+    exit 0
+}
+catch {
+    try { [IO.File]::WriteAllText($Out, '{"ok":false,"reason":"child-exception"}', [Text.Encoding]::UTF8) } catch { }
+    exit 2
+}
+'@
+            [IO.File]::WriteAllText($runner, $runnerText, ([Text.UTF8Encoding]::new($false)))
+            $exe = Get-SRChildExe
+            if ([string]::IsNullOrWhiteSpace($exe)) { return $null }
+            $qArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $runner, $PSScriptRoot, $GoalId, $Key, $Owner, ([string]$Gen), $Source, $allowFlag, $Sub, $ReasonCode, $script:srEnv.ckpts, $script:srEnv.goals, $script:srEnv.evs, $rr, $script:srEnv.tasks, $script:srEnv.flags, ([string]$LockTimeoutMs), $out)
+            $flat = New-Object System.Collections.ArrayList
+            foreach ($a in @($qArgs)) { [void]$flat.Add(('"' + ([string]$a).Replace('"', '""') + '"')) }
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $exe
+            $psi.Arguments = ($flat.ToArray() -join ' ')
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $p = [System.Diagnostics.Process]::Start($psi)
+            if ($null -eq $p) { return $null }
+            return [pscustomobject]@{ process = $p; out = $out; runner = $runner }
+        }
+        catch { return $null }
+    }
+
+    function Wait-SRChildRecovery {
+        [CmdletBinding()]
+        param($Child = $null, [int]$TimeoutSec = 120)
+        try {
+            if ($null -eq $Child) { return $null }
+            $done = $Child.process.WaitForExit([int]$TimeoutSec * 1000)
+            if (-not $done) { try { $Child.process.Kill() } catch { }; return $null }
+            if ($Child.process.ExitCode -ne 0) {
+                if (-not (Test-Path -LiteralPath $Child.out -PathType Leaf)) { return $null }
+            }
+            if (-not (Test-Path -LiteralPath $Child.out -PathType Leaf)) { return $null }
+            $res = $null
+            try { $res = ConvertFrom-Json ([IO.File]::ReadAllText($Child.out, [Text.Encoding]::UTF8)) } catch { $res = $null }
+            return $res
+        }
+        catch { return $null }
+    }
 
     try {
         # ---------- S1. prepared replay + deterministic re-entry ----------
@@ -460,6 +553,9 @@ try {
         Assert-SR ((([string]$liveAfter5['state'] -ceq 'ACTIVE') -and ([long]$liveAfter5['revision'] -eq $revBefore5))) '[S5] the goal stays ACTIVE untouched' ([string]$liveAfter5['state'])
         $rec5 = Get-SRRecoveryRecord -GoalId $ids5.goal -Key $key5
         Assert-SR (($null -ne $rec5) -and ([string]$rec5.phase -ceq 'recorded') -and ([bool]$rec5.result.ok -eq $false)) '[S5] the honest refusal is recorded' ''
+        Assert-SR (([string]$rec5.action -ceq 'blocked')) '[S5] the recorded action is the effective terminal envelope' ([string]$rec5.action)
+        $r5b = Invoke-SRRecovery -GoalId $ids5.goal -Key $key5 -Auth $g5.auth -Sub 'ses_s4_sub_A'
+        Assert-SR (((-not [bool]$r5b.ok) -and ([string]$r5b.action -ceq 'blocked') -and ([string]$r5b.reason -ceq 'continuation-completion-unproven') -and ([string]$r5b.assignment_fingerprint -ceq [string]$r5.assignment_fingerprint))) '[S5] re-entry reproduces the recorded terminal result' ('action=' + [string]$r5b.action)
 
         # ---------- S6. auth/session/ownership refusals, zero write ----------
         $ids6 = New-SRIds -Tag 'auth'
@@ -573,6 +669,11 @@ try {
         $r8b = Invoke-SRRecovery -GoalId $ids8.goal -Key $key8 -Auth $g8.auth -Sub 'ses_s4_sub_B' -NextIntent $ghostIntent8
         Assert-SR (((-not [bool]$r8b.ok) -and ([string]$r8b.reason -ceq 'recovery-intent-unproven'))) '[S8] same key with divergent content is unproven' ('reason=' + [string]$r8b.reason + ' cause=' + [string]$r8b.cause_reason)
         Assert-SR (-not (Test-Path -LiteralPath (Get-SRRecoveryPath -GoalId $ids8.goal -Key $ghostKey8))) '[S8] the divergent intent wrote no attribution' ''
+        # Long suite ahead: renew the S8 goal lease while live so later
+        # sections reusing this goal (S13b/S13c) test record readability,
+        # not ownership expiry.
+        $renewS8 = Renew-OrchestrationGoalOwnership -GoalId $ids8.goal -OwnerId 'planner-1' -Generation $g8.gen -StoreDir $script:srEnv.goals -LeaseTtlMs 600000
+        Assert-SR ([bool]$renewS8.ok) '[S8] the fixture lease is renewed' ([string]$renewS8.reason)
         $ids8c = New-SRIds -Tag 'pendbare'
         $g8c = New-SRGoal -GoalId $ids8c.goal
         New-SRTask -TaskId $ids8c.task -GoalId $ids8c.goal -Gen $g8c.gen -Risk 'low'
@@ -844,6 +945,47 @@ try {
         Assert-SR (Test-Path -LiteralPath (Get-SRRecoveryPath -GoalId $ids13d.goal -Key $key13d) -PathType Container) '[S13d] the blocking directory was preserved' ''
         Remove-Item -LiteralPath (Get-SRRecoveryPath -GoalId $ids13d.goal -Key $key13d) -Force -ErrorAction SilentlyContinue
 
+        # ---------- S13e. parseable-but-tampered records are rejected, never trusted ----------
+        $ids13e = New-SRIds -Tag 'tamper'
+        $g13e = New-SRGoal -GoalId $ids13e.goal
+        New-SRTask -TaskId $ids13e.task -GoalId $ids13e.goal -Gen $g13e.gen -Risk 'low'
+        New-SRTask -TaskId $ids13e.next -GoalId $ids13e.goal -Gen $g13e.gen -Risk 'low'
+        $key13e = Get-NativeDispatchHash32 ('s4-settled-' + $ids13e.task)
+        $intent13e = New-SRIntent -TaskId $ids13e.task -Rev (Get-SRTaskRev -TaskId $ids13e.task) -Key $key13e -Gen $g13e.gen
+        $null = Invoke-SRWalk -Goal $g13e -Intent $intent13e -Call 'call_s4_g5'
+        Invoke-SRToReviewing -TaskId $ids13e.task
+        Set-SRVerification -TaskId $ids13e.task
+        Set-SRReview -TaskId $ids13e.task
+        Invoke-SRComplete -TaskId $ids13e.task
+        $nextKey13e = Get-NativeDispatchHash32 ('s4-next-' + $ids13e.next)
+        $intentNext13e = New-SRIntent -TaskId $ids13e.next -Rev (Get-SRTaskRev -TaskId $ids13e.next) -Key $nextKey13e -Gen $g13e.gen
+        $sc13e = Invoke-OrchestrationSettledContinuation -GoalId $ids13e.goal -SettledKey $key13e -Authorization $g13e.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNext13e
+        Assert-SR (([bool]$sc13e.ok) -and [bool]$sc13e.prepared) '[S13e] setup continuation prepares' ([string]$sc13e.reason)
+        $r13e = Invoke-SRRecovery -GoalId $ids13e.goal -Key $key13e -Auth $g13e.auth -Sub 'ses_s4_sub_A'
+        Assert-SR (([bool]$r13e.ok) -and ([string]$r13e.action -ceq 'replay-prepared')) '[S13e] setup recovery records' ([string]$r13e.action)
+        $recPath13e = Get-SRRecoveryPath -GoalId $ids13e.goal -Key $key13e
+        $validBytes13e = [IO.File]::ReadAllText($recPath13e, [Text.Encoding]::UTF8)
+        function Invoke-SRTamperCase { param([string]$Name, [scriptblock]$Mutate, [string]$Cause = 'recovery-record-illegible')
+            $raw = ConvertFrom-Json $validBytes13e
+            & $Mutate $raw
+            $tampered = ($raw | ConvertTo-Json -Depth 12 -Compress)
+            [IO.File]::WriteAllText($recPath13e, $tampered, ([Text.UTF8Encoding]::new($false)))
+            $rt = Invoke-SRRecovery -GoalId $ids13e.goal -Key $key13e -Auth $g13e.auth -Sub 'ses_s4_sub_A'
+            Assert-SR (((-not [bool]$rt.ok) -and ([string]$rt.reason -ceq 'recovery-record-uncertain') -and ([string]$rt.cause_reason -ceq $Cause))) ('[S13e] tampered record refused: ' + $Name) ('cause=' + [string]$rt.cause_reason)
+            Assert-SR (([IO.File]::ReadAllText($recPath13e, [Text.Encoding]::UTF8) -ceq $tampered)) ('[S13e] tampered record preserved: ' + $Name) ''
+            [IO.File]::WriteAllText($recPath13e, $validBytes13e, ([Text.UTF8Encoding]::new($false)))
+        }
+        Invoke-SRTamperCase -Name 'action-outside-closed-set' -Mutate { param($o) $o.action = 'completed' }
+        Invoke-SRTamperCase -Name 'result-ok-wrong-type' -Mutate { param($o) $o.result.ok = 'yes' }
+        Invoke-SRTamperCase -Name 'effects-array-collapse' -Mutate { param($o) $o.result.effects.domain_mutated = @($true) }
+        Invoke-SRTamperCase -Name 'next-key-swapped' -Mutate { param($o) $o.proof_refs.next_key = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }
+        Invoke-SRTamperCase -Name 'fingerprint-replaced' -Mutate { param($o) $o.assignment_fingerprint = 'ffffffffffffffffffffffffffffffff' }
+        Invoke-SRTamperCase -Name 'evidence-unbound' -Mutate { param($o) $o.proof_refs.evidence_id = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' }
+        $r13eB = Invoke-SRRecovery -GoalId $ids13e.goal -Key $key13e -Auth $g13e.auth -Sub 'ses_s4_sub_A'
+        Assert-SR (([bool]$r13eB.ok) -and ([string]$r13eB.action -ceq 'replay-prepared') -and ([string]$r13eB.assignment_fingerprint -ceq [string]$r13e.assignment_fingerprint)) '[S13e] the restored record replays deterministically' ('ok=' + [string]$r13eB.ok + ' action=' + [string]$r13eB.action + ' reason=' + [string]$r13eB.reason + ' cause=' + [string]$r13eB.cause_reason)
+
         # ---------- S14. crash window: reserved re-executes, divergent holds ----------
         $ids14 = New-SRIds -Tag 'crash'
         $g14 = New-SRGoal -GoalId $ids14.goal
@@ -884,7 +1026,7 @@ try {
             reason_code = 'substitute-crash'; action = 'replay-prepared'
             proof_refs = [ordered]@{ receipt = (Join-Path $rDir14 ($key14 + '.json')); advance = (Join-Path ([string](Get-SRValue $advDir14 'dir' '')) ($key14 + '.advance.json')); evidence_id = $evId14; candidate_revision = [long]$recExp14; next_key = ([string](Get-SRValue $adv14 'next_idempotency_key' '')); next_intent_fingerprint = ''; original_prepare_session_id = $origSess14 }
             phase = 'reserved'
-            result = [ordered]@{ ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'; prepared = $false; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
+            result = [ordered]@{ ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'; prepared = $false; next_idempotency_key = ''; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
             created_at = ([DateTime]::UtcNow.ToString('o')); recorded_at = ''
         }
         Assert-SR ([bool](Write-SRRecoveryRecord -AdvanceDir ([string](Get-SRValue $advDir14 'dir' '')) -Ident ([string](Get-SRValue $advDir14 'ident' '')) -Key $key14 -Record $reserved14)) '[S14] a reserved record simulates the crash' ''
@@ -1261,7 +1403,7 @@ try {
             reason_code = 'substitute-timeout'; action = 'replay-prepared'
             proof_refs = [ordered]@{ receipt = (Join-Path $rDirF2d ($keyF2d + '.json')); advance = (Join-Path ([string](Get-SRValue $advDirF2d 'dir' '')) ($keyF2d + '.advance.json')); evidence_id = $evIdF2d; candidate_revision = [long]$recExpF2d; next_key = ([string](Get-SRValue $advF2d 'next_idempotency_key' '')); next_intent_fingerprint = ''; original_prepare_session_id = $origSessF2d }
             phase = 'reserved'
-            result = [ordered]@{ ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'; prepared = $false; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
+            result = [ordered]@{ ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'; prepared = $false; next_idempotency_key = ''; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
             created_at = ([DateTime]::UtcNow.ToString('o')); recorded_at = ''
         }
         Assert-SR ([bool](Write-SRRecoveryRecord -AdvanceDir ([string](Get-SRValue $advDirF2d 'dir' '')) -Ident ([string](Get-SRValue $advDirF2d 'ident' '')) -Key $keyF2d -Record $reservedF2d)) '[F2d] a reserved record simulates the crash' ''
@@ -1291,6 +1433,161 @@ try {
         Assert-SR (([bool]$scF2e.ok) -and [bool]$scF2e.prepared) '[F2e] setup continuation prepares' ([string]$scF2e.reason)
         $rF2e = Invoke-SRRecovery -GoalId $idsF2e.goal -Key $keyF2e -Auth $gF2e.auth -Sub 'ses_s4_sub_A'
         Assert-SR (([bool]$rF2e.ok) -and ([string]$rF2e.action -ceq 'replay-prepared') -and ([bool]$rF2e.prepared) -and ([string]$rF2e.next_idempotency_key -ceq $nextKeyF2e)) '[F2e] a bound successor still replays' ('action=' + [string]$rF2e.action)
+
+        # ---------- F2f. divergent NextIntent never steers a prepared replay ----------
+        $idsF2f = New-SRIds -Tag 'succdiv'
+        $gF2f = New-SRGoal -GoalId $idsF2f.goal
+        New-SRTask -TaskId $idsF2f.task -GoalId $idsF2f.goal -Gen $gF2f.gen -Risk 'low'
+        New-SRTask -TaskId $idsF2f.next -GoalId $idsF2f.goal -Gen $gF2f.gen -Risk 'low'
+        $keyF2f = Get-NativeDispatchHash32 ('s4-settled-' + $idsF2f.task)
+        $intentF2f = New-SRIntent -TaskId $idsF2f.task -Rev (Get-SRTaskRev -TaskId $idsF2f.task) -Key $keyF2f -Gen $gF2f.gen
+        $null = Invoke-SRWalk -Goal $gF2f -Intent $intentF2f -Call 'call_s4_n6'
+        Invoke-SRToReviewing -TaskId $idsF2f.task
+        Set-SRVerification -TaskId $idsF2f.task
+        Set-SRReview -TaskId $idsF2f.task
+        Invoke-SRComplete -TaskId $idsF2f.task
+        $nextKeyF2f = Get-NativeDispatchHash32 ('s4-next-' + $idsF2f.next)
+        $intentNextF2f = New-SRIntent -TaskId $idsF2f.next -Rev (Get-SRTaskRev -TaskId $idsF2f.next) -Key $nextKeyF2f -Gen $gF2f.gen
+        $scF2f = Invoke-OrchestrationSettledContinuation -GoalId $idsF2f.goal -SettledKey $keyF2f -Authorization $gF2f.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF2f
+        Assert-SR (([bool]$scF2f.ok) -and [bool]$scF2f.prepared) '[F2f] setup continuation prepares' ([string]$scF2f.reason)
+        $ghostF2f = ('s4-ghost-f2f-' + [string]$script:srSeq)
+        New-SRTask -TaskId $ghostF2f -GoalId $idsF2f.goal -Gen $gF2f.gen -Risk 'low'
+        $ghostKeyF2f = Get-NativeDispatchHash32 ('s4-ghost-next-' + $idsF2f.next)
+        $ghostIntentF2f = New-SRIntent -TaskId $ghostF2f -Rev (Get-SRTaskRev -TaskId $ghostF2f) -Key $ghostKeyF2f -Gen $gF2f.gen
+        $rF2f = Invoke-SRRecovery -GoalId $idsF2f.goal -Key $keyF2f -Auth $gF2f.auth -Sub 'ses_s4_sub_A' -NextIntent $ghostIntentF2f
+        Assert-SR (((-not [bool]$rF2f.ok) -and ([string]$rF2f.reason -ceq 'recovery-intent-unproven') -and ([string]$rF2f.cause_reason -ceq 'successor-intent-divergent') -and (-not [bool]$rF2f.prepared))) '[F2f] a divergent NextIntent never steers the replay' ('cause=' + [string]$rF2f.cause_reason)
+        Assert-SR (-not (Test-Path -LiteralPath (Get-SRRecoveryPath -GoalId $idsF2f.goal -Key $keyF2f))) '[F2f] the divergent intent attributed nothing' ''
+        Assert-SR (-not (Test-Path -LiteralPath (Get-SRReceiptPath -GoalId $idsF2f.goal -Key $ghostKeyF2f))) '[F2f] the divergent intent prepared nothing' ''
+
+        # ---------- S15b. two external processes, same attribution ----------
+        $idsMP1 = New-SRIds -Tag 'mpsame'
+        $gMP1 = New-SRGoal -GoalId $idsMP1.goal
+        New-SRTask -TaskId $idsMP1.task -GoalId $idsMP1.goal -Gen $gMP1.gen -Risk 'low'
+        New-SRTask -TaskId $idsMP1.next -GoalId $idsMP1.goal -Gen $gMP1.gen -Risk 'low'
+        $keyMP1 = Get-NativeDispatchHash32 ('s4-settled-' + $idsMP1.task)
+        $intentMP1 = New-SRIntent -TaskId $idsMP1.task -Rev (Get-SRTaskRev -TaskId $idsMP1.task) -Key $keyMP1 -Gen $gMP1.gen
+        $null = Invoke-SRWalk -Goal $gMP1 -Intent $intentMP1 -Call 'call_s4_m1'
+        Invoke-SRToReviewing -TaskId $idsMP1.task
+        Set-SRVerification -TaskId $idsMP1.task
+        Set-SRReview -TaskId $idsMP1.task
+        Invoke-SRComplete -TaskId $idsMP1.task
+        $nextKeyMP1 = Get-NativeDispatchHash32 ('s4-next-' + $idsMP1.next)
+        $intentNextMP1 = New-SRIntent -TaskId $idsMP1.next -Rev (Get-SRTaskRev -TaskId $idsMP1.next) -Key $nextKeyMP1 -Gen $gMP1.gen
+        $scMP1 = Invoke-OrchestrationSettledContinuation -GoalId $idsMP1.goal -SettledKey $keyMP1 -Authorization $gMP1.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextMP1
+        Assert-SR (([bool]$scMP1.ok) -and [bool]$scMP1.prepared) '[S15b] setup continuation prepares' ([string]$scMP1.reason)
+        $revBeforeMP1 = [long]((Get-SRLiveGoal -GoalId $idsMP1.goal)['revision'])
+        $chA = Start-SRChildRecovery -GoalId $idsMP1.goal -Key $keyMP1 -Owner 'planner-1' -Gen $gMP1.gen -Source 'planner' -Allow $true -Sub 'ses_s4_sub_mp' -LockTimeoutMs 20000
+        $chB = Start-SRChildRecovery -GoalId $idsMP1.goal -Key $keyMP1 -Owner 'planner-1' -Gen $gMP1.gen -Source 'planner' -Allow $true -Sub 'ses_s4_sub_mp' -LockTimeoutMs 20000
+        Assert-SR (($null -ne $chA) -and ($null -ne $chB)) '[S15b] two external recovery processes start' ''
+        $raMP1 = Wait-SRChildRecovery -Child $chA
+        $rbMP1 = Wait-SRChildRecovery -Child $chB
+        Assert-SR (($null -ne $raMP1) -and ($null -ne $rbMP1)) '[S15b] both external processes answer' ''
+        Assert-SR (([bool]$raMP1.ok) -and ([bool]$rbMP1.ok) -and ([string]$raMP1.action -ceq 'replay-prepared') -and ([string]$rbMP1.action -ceq 'replay-prepared') -and ([string]$raMP1.fp -ceq [string]$rbMP1.fp) -and ([string]$raMP1.next -ceq $nextKeyMP1) -and ([string]$rbMP1.next -ceq $nextKeyMP1) -and ([int]$raMP1.calls -eq 0) -and ([int]$rbMP1.calls -eq 0)) '[S15b] concurrent same attributions replay deterministically' ('a=' + [string]$raMP1.action + '/' + [string]$rbMP1.action)
+        $recMP1 = Get-SRRecoveryRecord -GoalId $idsMP1.goal -Key $keyMP1
+        Assert-SR (($null -ne $recMP1) -and ([string]$recMP1.phase -ceq 'recorded') -and ([string]$recMP1.assignment_fingerprint -ceq [string]$raMP1.fp)) '[S15b] a single attribution record stands' ''
+        $succCountMP1 = @(Get-ChildItem -LiteralPath (Get-NDGoalReceiptDir -RootDir $script:srEnv.recs -GoalId $idsMP1.goal) -Filter '*.json' -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq ($nextKeyMP1 + '.json') }).Count
+        Assert-SR ($succCountMP1 -eq 1) '[S15b] exactly one successor exists' ([string]$succCountMP1)
+        $liveAfterMP1 = Get-SRLiveGoal -GoalId $idsMP1.goal
+        Assert-SR ((([string]$liveAfterMP1['state'] -ceq 'ACTIVE') -and ([long]$liveAfterMP1['revision'] -eq $revBeforeMP1))) '[S15b] the goal is untouched by the concurrent replay' ([string]$liveAfterMP1['state'])
+
+        # ---------- S15c. two external processes, divergent attributions ----------
+        $idsMP2 = New-SRIds -Tag 'mpdiv'
+        $gMP2 = New-SRGoal -GoalId $idsMP2.goal
+        New-SRTask -TaskId $idsMP2.task -GoalId $idsMP2.goal -Gen $gMP2.gen -Risk 'low'
+        New-SRTask -TaskId $idsMP2.next -GoalId $idsMP2.goal -Gen $gMP2.gen -Risk 'low'
+        $keyMP2 = Get-NativeDispatchHash32 ('s4-settled-' + $idsMP2.task)
+        $intentMP2 = New-SRIntent -TaskId $idsMP2.task -Rev (Get-SRTaskRev -TaskId $idsMP2.task) -Key $keyMP2 -Gen $gMP2.gen
+        $null = Invoke-SRWalk -Goal $gMP2 -Intent $intentMP2 -Call 'call_s4_m2'
+        Invoke-SRToReviewing -TaskId $idsMP2.task
+        Set-SRVerification -TaskId $idsMP2.task
+        Set-SRReview -TaskId $idsMP2.task
+        Invoke-SRComplete -TaskId $idsMP2.task
+        $nextKeyMP2 = Get-NativeDispatchHash32 ('s4-next-' + $idsMP2.next)
+        $intentNextMP2 = New-SRIntent -TaskId $idsMP2.next -Rev (Get-SRTaskRev -TaskId $idsMP2.next) -Key $nextKeyMP2 -Gen $gMP2.gen
+        $scMP2 = Invoke-OrchestrationSettledContinuation -GoalId $idsMP2.goal -SettledKey $keyMP2 -Authorization $gMP2.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextMP2
+        Assert-SR (([bool]$scMP2.ok) -and [bool]$scMP2.prepared) '[S15c] setup continuation prepares' ([string]$scMP2.reason)
+        $chC = Start-SRChildRecovery -GoalId $idsMP2.goal -Key $keyMP2 -Owner 'planner-1' -Gen $gMP2.gen -Source 'planner' -Allow $true -Sub 'ses_s4_sub_mpC' -LockTimeoutMs 20000
+        $chD = Start-SRChildRecovery -GoalId $idsMP2.goal -Key $keyMP2 -Owner 'planner-1' -Gen $gMP2.gen -Source 'planner' -Allow $true -Sub 'ses_s4_sub_mpD' -LockTimeoutMs 20000
+        Assert-SR (($null -ne $chC) -and ($null -ne $chD)) '[S15c] two external recovery processes start' ''
+        $rcMP2 = Wait-SRChildRecovery -Child $chC
+        $rdMP2 = Wait-SRChildRecovery -Child $chD
+        Assert-SR (($null -ne $rcMP2) -and ($null -ne $rdMP2)) '[S15c] both external processes answer' ''
+        $winC = ([bool]$rcMP2.ok -and ([string]$rcMP2.action -ceq 'replay-prepared'))
+        $winD = ([bool]$rdMP2.ok -and ([string]$rdMP2.action -ceq 'replay-prepared'))
+        Assert-SR ((($winC -and (-not $winD)) -or (($winD -and (-not $winC))))) '[S15c] exactly one attribution wins' ('c=' + [string]$rcMP2.action + '/' + [string]$rcMP2.reason + ' d=' + [string]$rdMP2.action + '/' + [string]$rdMP2.reason)
+        $loserMP2 = $rdMP2
+        $winnerMP2 = $rcMP2
+        if ($winD) { $loserMP2 = $rcMP2; $winnerMP2 = $rdMP2 }
+        Assert-SR ((([string]$loserMP2.reason -ceq 'recovery-assignment-mismatch') -and ([int]$loserMP2.calls -eq 0) -and ([int]$winnerMP2.calls -eq 0))) '[S15c] the divergent attribution is refused without writes' ([string]$loserMP2.reason)
+        $recMP2 = Get-SRRecoveryRecord -GoalId $idsMP2.goal -Key $keyMP2
+        Assert-SR (($null -ne $recMP2) -and ([string]$recMP2.phase -ceq 'recorded') -and ([string]$recMP2.assignment_fingerprint -ceq [string]$winnerMP2.fp) -and ([string]$recMP2.action -ceq 'replay-prepared')) '[S15c] the winner record stands, never overwritten' ''
+
+        # ---------- S15d. external process times out on a held lock ----------
+        $idsMP3 = New-SRIds -Tag 'mplock'
+        $gMP3 = New-SRGoal -GoalId $idsMP3.goal
+        New-SRTask -TaskId $idsMP3.task -GoalId $idsMP3.goal -Gen $gMP3.gen -Risk 'low'
+        $keyMP3 = Get-NativeDispatchHash32 ('s4-settled-' + $idsMP3.task)
+        $intentMP3 = New-SRIntent -TaskId $idsMP3.task -Rev (Get-SRTaskRev -TaskId $idsMP3.task) -Key $keyMP3 -Gen $gMP3.gen
+        $null = Invoke-SRWalk -Goal $gMP3 -Intent $intentMP3 -Call 'call_s4_m3'
+        $nextKeyMP3 = Get-NativeDispatchHash32 ('s4-next-mp-' + $idsMP3.task)
+        $advDirMP3b = Get-SRAdvanceDir -GoalId $idsMP3.goal
+        $pendingMP3 = [ordered]@{
+            schema_version = 1; ok = $true; reason = ''; goal_id = $idsMP3.goal; settled_key = $keyMP3
+            move = 'CONTINUE'; move_reason = 's4-mp3-pending'; stop_reason = ''; prepared = $false
+            next_idempotency_key = $nextKeyMP3; next_reference = ''; next_task_id = ''; next_agent = ''
+            prepare_reason = ''; goal_state = 'ACTIVE'; goal_revision = 0; finalize_reason = ''
+            recorded_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        Assert-SR ([bool](Write-NDAdvanceRecord -AdvanceDir ([string](Get-SRValue $advDirMP3b 'dir' '')) -Ident ([string](Get-SRValue $advDirMP3b 'ident' '')) -Key $keyMP3 -Record $pendingMP3)) '[S15d] a pending advance routes the waiter to the lock' ''
+        $advDirMP3 = Get-SRAdvanceDir -GoalId $idsMP3.goal
+        $lockPathMP3 = Join-Path ([string](Get-SRValue $advDirMP3 'dir' '')) ('.recovery-' + $keyMP3 + '.lock')
+        $heldMP3 = [IO.File]::Open($lockPathMP3, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $chE = $null
+        try {
+            $chE = Start-SRChildRecovery -GoalId $idsMP3.goal -Key $keyMP3 -Owner 'planner-1' -Gen $gMP3.gen -Source 'planner' -Allow $true -Sub 'ses_s4_sub_mpE' -LockTimeoutMs 2000
+            Assert-SR ($null -ne $chE) '[S15d] an external process starts against the held lock' ''
+            $reMP3 = Wait-SRChildRecovery -Child $chE -TimeoutSec 60
+            Assert-SR (($null -ne $reMP3) -and (-not [bool]$reMP3.ok) -and ([string]$reMP3.reason -ceq 'recovery-lock-busy') -and ([int]$reMP3.calls -eq 0)) '[S15d] the external waiter refuses busy' ('reason=' + [string]$reMP3.reason)
+            Assert-SR (-not (Test-Path -LiteralPath (Get-SRRecoveryPath -GoalId $idsMP3.goal -Key $keyMP3))) '[S15d] the timed-out waiter wrote nothing' ''
+        }
+        finally { try { if ($null -ne $heldMP3) { $heldMP3.Dispose() } } catch { }; $heldMP3 = $null }
+
+        # ---------- F3. RepoRoot is forwarded to the S3a delegation ----------
+        $fakeRepoF3 = Join-Path $tempRoot 'fakerepo'
+        New-Item -ItemType Directory -Path $fakeRepoF3 -Force | Out-Null
+        $recsF3 = Join-Path (Join-Path $fakeRepoF3 'cache') 'native-dispatch-receipts'
+        New-Item -ItemType Directory -Path $recsF3 -Force | Out-Null
+        $idsF3 = New-SRIds -Tag 'reporoot'
+        $gF3 = New-SRGoal -GoalId $idsF3.goal
+        New-SRTask -TaskId $idsF3.task -GoalId $idsF3.goal -Gen $gF3.gen -Risk 'low'
+        New-SRTask -TaskId $idsF3.next -GoalId $idsF3.goal -Gen $gF3.gen -Risk 'low'
+        $keyF3 = Get-NativeDispatchHash32 ('s4-settled-' + $idsF3.task)
+        $intentF3 = New-SRIntent -TaskId $idsF3.task -Rev (Get-SRTaskRev -TaskId $idsF3.task) -Key $keyF3 -Gen $gF3.gen
+        $null = Invoke-SRWalk -Goal $gF3 -Intent $intentF3 -Call 'call_s4_r1' -Receipts $recsF3
+        Invoke-SRToReviewing -TaskId $idsF3.task
+        Set-SRVerification -TaskId $idsF3.task
+        Set-SRReview -TaskId $idsF3.task
+        Invoke-SRComplete -TaskId $idsF3.task
+        $nextKeyF3 = Get-NativeDispatchHash32 ('s4-next-' + $idsF3.next)
+        $intentNextF3 = New-SRIntent -TaskId $idsF3.next -Rev (Get-SRTaskRev -TaskId $idsF3.next) -Key $nextKeyF3 -Gen $gF3.gen
+        $scF3 = Invoke-OrchestrationSettledContinuation -GoalId $idsF3.goal -SettledKey $keyF3 -Authorization $gF3.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $recsF3 -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF3
+        Assert-SR (([bool]$scF3.ok) -and [bool]$scF3.prepared) '[F3] setup continuation prepares under the explicit root' ([string]$scF3.reason)
+        # NOTE: -Receipts is deliberately omitted here so the module
+        # resolves the namespace from the forwarded RepoRoot (F3).
+        $rF3 = Invoke-SRRecovery -GoalId $idsF3.goal -Key $keyF3 -Auth $gF3.auth -Sub 'ses_s4_sub_A' -RepoRoot $fakeRepoF3
+        Assert-SR (([bool]$rF3.ok) -and ([string]$rF3.action -ceq 'replay-prepared') -and ([bool]$rF3.prepared) -and ([string]$rF3.next_idempotency_key -ceq $nextKeyF3)) '[F3] an omitted ReceiptDir resolves via the forwarded RepoRoot' ('action=' + [string]$rF3.action)
+        $advIsoF3 = Get-NDAdvanceDir -RootDir $recsF3 -GoalId $idsF3.goal
+        Assert-SR (Test-Path -LiteralPath (Join-Path ([string](Get-SRValue $advIsoF3 'dir' '')) ($keyF3 + '.recovery.json')) -PathType Leaf) '[F3] the attribution lands in the forwarded namespace' ''
+        $defaultNativeRoot = Get-OrchestrationDispatchRepoRoot -RepoRoot ''
+        Assert-SR (-not (Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $defaultNativeRoot 'cache') 'native-dispatch-receipts') (Get-NativeDispatchHash32 $idsF3.goal)))) '[F3] the default repo tree gained no goal namespace' ''
 
         # ---------- S17. sentinel: zero worker/CLAIM/SETTLE/PREPARE ----------
         $modPath = Join-Path $PSScriptRoot 'OrchestrationSettledRecovery.ps1'
@@ -1340,7 +1637,7 @@ try {
             Assert-SR ($bad -eq 0) ('[ASCII] ' + [IO.Path]::GetFileName($p)) ([string]$bad)
         }
         $roots = @(Get-ChildItem -LiteralPath $script:srEnv.root -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object)
-        $knownRoots = @('checkpoints', 'evidence', 'goals', 'receipts', 'recs-f2b', 'recs-f2c', 'recs-swap', 'tasks', 'telemetry')
+        $knownRoots = @('checkpoints', 'evidence', 'fakerepo', 'goals', 'receipts', 'recs-f2b', 'recs-f2c', 'recs-swap', 'tasks', 'telemetry')
         $extraRoots = @(Compare-Object -ReferenceObject $knownRoots -DifferenceObject @($roots) | Where-Object { $_.SideIndicator -ceq '=>' } | ForEach-Object { $_.InputObject })
         Assert-SR (@($extraRoots).Count -eq 0) '[HYG] no parallel store was created' (@($extraRoots) -join ',')
     }
