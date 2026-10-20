@@ -584,6 +584,28 @@ function New-SCRefusal {
     return (New-SCEnvelope -Ok $false -Action $Action -Reason $Reason -CauseReason $Cause -GoalId $GoalId -SettledKey $SettledKey)
 }
 
+function Test-SCEvidenceIdContained {
+    <#
+    .SYNOPSIS
+        Contencao do evidence_id antes de compor caminho (F6).
+    .DESCRIPTION
+        Puro, nunca lanca. Recusa id com raiz, separador (GetFileName
+        diverge do original) ou parent ('..'): impede escape do diretorio
+        do evidence store via Join-Path. Nao afirma existencia.
+    #>
+    [CmdletBinding()]
+    param([string]$EvidenceId = '')
+    try {
+        $id = ([string]$EvidenceId).Trim()
+        if ([string]::IsNullOrWhiteSpace($id)) { return $false }
+        if ([IO.Path]::IsPathRooted($id)) { return $false }
+        if (([IO.Path]::GetFileName($id) -cne $id)) { return $false }
+        if ($id.Contains('..')) { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
 function Get-SCSettlementProof {
     <#
     .SYNOPSIS
@@ -636,6 +658,8 @@ function Get-SCSettlementProof {
         $evId = ([string](Get-ALValue $rec 'settle_evidence_id' '')).Trim()
         if ([string]::IsNullOrWhiteSpace($evId)) { $evId = ([string](Get-ALValue $rec 'evidence_id' '')).Trim() }
         if ([string]::IsNullOrWhiteSpace($evId)) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-missing'; throw 'sc-deny' }
+        # F6: contencao do evidence_id antes de compor qualquer caminho.
+        if (-not (Test-SCEvidenceIdContained -EvidenceId $evId)) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-id-invalid'; throw 'sc-deny' }
         $integCmd = Get-Command Test-NDReceiptSemanticIntegrity -ErrorAction SilentlyContinue
         if ($null -eq $integCmd) { $denyReason = 'continuation-settlement-uncertain'; $denyCause = 'integrity-check-unavailable'; throw 'sc-deny' }
         $integ = $null
@@ -653,6 +677,12 @@ function Get-SCSettlementProof {
             $settleRefs = @((Get-ALValue $wrNode 'claimed_evidence' @()))
         }
         if ([string]::IsNullOrWhiteSpace($settleStatus)) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'settle-status-missing'; throw 'sc-deny' }
+        # F5: a revisao esperada pelo recibo settled ancora o worker_result
+        # que a prova pode consumir: sem ela nao ha como saber se o
+        # resultado persistido e o desta liquidacao ou de outra posterior.
+        $recExpected = [long]-1
+        try { $recExpected = [long](Get-ALValue $rec 'task_expected_revision' -1) } catch { $recExpected = [long]-1 }
+        if ($recExpected -lt 1) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'receipt-task-revision-missing'; throw 'sc-deny' }
         $taskCmd = Get-Command Get-OrchestrationTask -ErrorAction SilentlyContinue
         if ($null -eq $taskCmd) { $denyReason = 'continuation-settlement-uncertain'; $denyCause = 'taskkernel-unavailable'; throw 'sc-deny' }
         $task = $null
@@ -679,12 +709,23 @@ function Get-SCSettlementProof {
         $match = $false
         try { $match = [bool](Test-NDCandidateResultMatch -Status $settleStatus -Refs @($settleRefs) -OtherStatus $wStatus -OtherRefs @($wRefs)) } catch { $match = $false }
         if (-not $match) { $denyReason = 'continuation-task-result-mismatch'; $denyCause = 'worker-result-divergent'; throw 'sc-deny' }
+        # F5: mesmo status/refs iguais, um worker_result de outra liquidacao
+        # (revisao avancada alem da esperada por este recibo) nao autoriza:
+        # a aprovacao do candidato novo nao herda a do antigo.
+        if (($recExpected + 1) -ne $wRev) { $denyReason = 'continuation-task-result-mismatch'; $denyCause = 'worker-result-superseded'; throw 'sc-deny' }
         if ([string]::IsNullOrWhiteSpace($EvidenceStoreDir)) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-store-missing'; throw 'sc-deny' }
         $evPath = Join-Path ([string]$EvidenceStoreDir).Trim() ($evId + '.json')
         if (-not (Test-Path -LiteralPath $evPath -PathType Leaf)) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-file-missing'; throw 'sc-deny' }
+        # F3: falha de leitura/parse da evidencia e estado incerto (nao
+        # prova de ausencia): quem sumiu ou corrompeu o arquivo nao se
+        # distingue aqui; zero efeito em ambos os casos.
+        $evText = $null
+        $evReadOk = $true
+        try { $evText = [IO.File]::ReadAllText($evPath, [Text.Encoding]::UTF8) } catch { $evReadOk = $false; $evText = $null }
+        if (-not $evReadOk) { $denyReason = 'continuation-settlement-uncertain'; $denyCause = 'evidence-unreadable'; throw 'sc-deny' }
         $evRaw = $null
-        try { $evRaw = ConvertFrom-Json ([IO.File]::ReadAllText($evPath, [Text.Encoding]::UTF8)) } catch { $evRaw = $null }
-        if ($null -eq $evRaw) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-unreadable'; throw 'sc-deny' }
+        try { $evRaw = ConvertFrom-Json $evText } catch { $evRaw = $null }
+        if ($null -eq $evRaw) { $denyReason = 'continuation-settlement-uncertain'; $denyCause = 'evidence-unreadable'; throw 'sc-deny' }
         if (([string](Get-ALValue $evRaw 'evidence_id' '')).Trim() -cne $evId) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-id-mismatch'; throw 'sc-deny' }
         if (([string](Get-ALValue $evRaw 'task_id' '')).Trim() -cne $tid) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-task-mismatch'; throw 'sc-deny' }
         if (([string](Get-ALValue $evRaw 'run_id' '')).Trim().ToLowerInvariant() -cne $sk) { $denyReason = 'continuation-settlement-unproven'; $denyCause = 'evidence-key-mismatch'; throw 'sc-deny' }
@@ -693,6 +734,10 @@ function Get-SCSettlementProof {
             worker_status = $wStatus; worker_refs = @($wRefs); worker_revision = $wRev
             task_id = $tid; task_state = (([string](Get-ALValue $task 'state' '')).Trim().ToUpperInvariant())
             task_risk = (([string](Get-ALValue $task 'risk' '')).Trim().ToLowerInvariant())
+            task_objective = ([string](Get-ALValue $task 'objective' ''))
+            task_type = (([string](Get-ALValue $task 'task_type' '')).Trim())
+            task_scopes = @(@((Get-ALValue $task 'read_scopes' @())) + @((Get-ALValue $task 'write_scopes' @())))
+            task_project = ([string](Get-ALValue $task 'project' ''))
             verification = (Get-ALValue $task 'verification' $null)
             review = (Get-ALValue $task 'review' $null)
             security_review = (Get-ALValue $task 'security_review' $null)
@@ -704,6 +749,7 @@ function Get-SCSettlementProof {
             ok = $false; reason = $denyReason; cause = $denyCause; receipt = $null; task = $null; evidence_id = ''
             worker_status = ''; worker_refs = @(); worker_revision = [long]-1
             task_id = ''; task_state = ''; task_risk = ''
+            task_objective = ''; task_type = ''; task_scopes = @(); task_project = ''
             verification = $null; review = $null; security_review = $null
         }
     }
@@ -715,12 +761,14 @@ function Test-SCContinueGate {
         Gate de verificacao/review para o move CONTINUE (records vivos).
     .DESCRIPTION
         Nivel efetivo da policy real (source/registry/validation-policy.json
-        via Get-OrchestrationValidationLevel) sobre o risco vivo da task;
-        risco/level desconhecido ou policy ilegivel => policy-unavailable
-        (fail-closed, nunca assume L0). L0/L1/L2 exigem verificacao passada
-        e fresca + review aprovado e fresco (o reviewer exigido pelo DONE);
-        L3 exige ainda security-review aprovado e fresco. Nao confia em
-        CompletedRoles do chamador: tudo e lido do registro vivo da task.
+        via Get-OrchestrationValidationLevel) sobre o descritor canonico da
+        task (risco + tipo + projeto + objetivo/escopos); hard triggers do
+        texto (auth/credentials/payments/...) elevam a L3. Risco/level
+        desconhecido ou policy ilegivel => policy-unavailable (fail-closed,
+        nunca assume L0). L0/L1/L2 exigem verificacao passada e fresca +
+        review aprovado e fresco (o reviewer exigido pelo DONE); L3 exige
+        ainda security-review aprovado e fresco. Nada de descritor livre do
+        caller: tudo e lido do registro vivo da task.
         manual_verification_required chega como passed=$false e bloqueia.
     #>
     [CmdletBinding()]
@@ -738,9 +786,17 @@ function Test-SCContinueGate {
         if ($null -eq $lvlCmd) {
             return [pscustomobject][ordered]@{ ok = $false; reason = 'continuation-policy-unavailable'; cause = 'level-helper-unavailable'; level = '' }
         }
+        # F1: descritor montado do REGISTRO CANONICO (nunca do caller).
         $risk = ([string](Get-ALValue $Proof 'task_risk' ''))
+        $descSummary = (([string](Get-ALValue $Proof 'task_objective' '')) + ' ' + ((@(Get-ALValue $Proof 'task_scopes' @())) -join ' '))
+        $desc = @{
+            risk      = $risk
+            operation = ([string](Get-ALValue $Proof 'task_type' ''))
+            domain    = ([string](Get-ALValue $Proof 'task_project' ''))
+            summary   = $descSummary
+        }
         $verdict = $null
-        try { $verdict = Get-OrchestrationValidationLevel -Descriptor @{ risk = $risk } -Policy $Policy } catch { $verdict = $null }
+        try { $verdict = Get-OrchestrationValidationLevel -Descriptor $desc -Policy $Policy } catch { $verdict = $null }
         $level = ''
         $vStatus = 'unknown'
         try { $level = ([string](Get-ALValue $verdict 'level' '')) } catch { }
@@ -855,6 +911,44 @@ function Save-SCContinuationCheckpoint {
     }
     catch {
         return [pscustomobject][ordered]@{ ok = $false; checkpoint_id = ''; checkpoint_ok = $false }
+    }
+}
+
+function Test-SCCompletionAuthorization {
+    <#
+    .SYNOPSIS
+        Autorizacao viva antes de qualquer CAS de conclusao (F4).
+    .DESCRIPTION
+        Read-only, nunca lanca. Exige goal_id da autorizacao igual ao goal
+        da continuacao e veredito admitido do helper autoridade do ND
+        (`Test-NativeDispatchAuthorization`): explicit_allow real,
+        source diferente de test-callback, goal nao terminal, ownership
+        viva. Nao confia em owner/generation presentes por si sos.
+    #>
+    [CmdletBinding()]
+    param([string]$GoalId = '', $Authorization = $null, [string]$GoalStoreDir = '')
+    try {
+        $gid = ([string]$GoalId).Trim()
+        $authGoal = ''
+        try { $authGoal = ([string](Get-ALValue $Authorization 'goal_id' '')).Trim() } catch { $authGoal = '' }
+        if ([string]::IsNullOrWhiteSpace($authGoal) -or ($authGoal -cne $gid)) {
+            return [pscustomobject][ordered]@{ ok = $false; reason = 'auth-goal-mismatch' }
+        }
+        $authCmd = Get-Command Test-NativeDispatchAuthorization -ErrorAction SilentlyContinue
+        if ($null -eq $authCmd) {
+            return [pscustomobject][ordered]@{ ok = $false; reason = 'auth-check-unavailable' }
+        }
+        $slot = $null
+        try { $slot = Test-NativeDispatchAuthorization -Authorization $Authorization -GoalStoreDir $GoalStoreDir } catch { $slot = $null }
+        if (($null -eq $slot) -or (-not [bool](Get-ALValue $slot 'admitted' $false))) {
+            $why = 'authorization-denied'
+            try { if (-not [string]::IsNullOrWhiteSpace([string](Get-ALValue $slot 'reason' ''))) { $why = ([string](Get-ALValue $slot 'reason' '')) } } catch { }
+            return [pscustomobject][ordered]@{ ok = $false; reason = $why }
+        }
+        return [pscustomobject][ordered]@{ ok = $true; reason = '' }
+    }
+    catch {
+        return [pscustomobject][ordered]@{ ok = $false; reason = 'auth-check-unavailable' }
     }
 }
 
@@ -984,6 +1078,13 @@ function Invoke-OrchestrationSettledContinuation {
                     if ($pStop -cne 'OBJECTIVE_COMPLETED') {
                         $ckBlk = Save-SCContinuationCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir -SettledKey $sk -Move $pMove -StopReason $pStop -AdvanceRecordRef $advRecPath -NextIdempotencyKey '' -NextReference '' -Prepared $false
                         return (New-SCEnvelope -Ok $true -Action 'blocked' -Reason ('stop:' + $pStop) -CauseReason 'advance-record-replay' -GoalId $gid -SettledKey $sk -Move $pMove -StopReason $pStop -AdvanceRecordRef $advRecPath -CheckpointId ([string](Get-ALValue $ckBlk 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckBlk 'checkpoint_ok' $false)))
+                    }
+                    # F4: autorizacao viva antes de qualquer CAS (zero CAS
+                    # sem admissao do helper autoridade do ND).
+                    $authzRep = Test-SCCompletionAuthorization -GoalId $gid -Authorization $Authorization -GoalStoreDir $GoalStoreDir
+                    if (-not [bool](Get-ALValue $authzRep 'ok' $false)) {
+                        $ckAuthRep = Save-SCContinuationCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir -SettledKey $sk -Move $pMove -StopReason $pStop -AdvanceRecordRef $advRecPath -NextIdempotencyKey '' -NextReference '' -Prepared $false
+                        return (New-SCEnvelope -Ok $false -Action 'blocked' -Reason 'continuation-completion-unproven' -CauseReason ('authorization:' + [string](Get-ALValue $authzRep 'reason' '')) -GoalId $gid -SettledKey $sk -Move $pMove -StopReason $pStop -AdvanceRecordRef $advRecPath -CheckpointId ([string](Get-ALValue $ckAuthRep 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckAuthRep 'checkpoint_ok' $false)))
                     }
                     $finRep = Invoke-ALObjectiveCompletion -Goal $liveGoal -GoalStoreDir $GoalStoreDir -Authorization $Authorization
                     $finRepGoal = Get-ALValue $finRep 'goal' $liveGoal
@@ -1158,16 +1259,24 @@ function Invoke-OrchestrationSettledContinuation {
         $advNextKey = ([string](Get-ALValue $adv 'idempotency_key' '')).Trim().ToLowerInvariant()
         $advNextRef = ([string](Get-ALValue $adv 'reference' ''))
         $advStop = (([string](Get-ALValue $adv 'stop_reason' '')).Trim().ToUpperInvariant())
-        if ($advOk -and ((@('CONTINUE', 'RETRY') -ccontains $advMove)) -and [bool](Get-ALValue $adv 'prepared' $false)) {
+        # F2: o PREPARE e efeito mesmo quando o ADVANCE devolve ok=false
+        # (ex.: advance-record-write-failed apos preparar). Le `prepared`
+        # independente de `ok` e preserva o efeito em vez de colapsar em
+        # recusa sem efeito. Move divergente continua recusado.
+        $advPrepared = [bool](Get-ALValue $adv 'prepared' $false)
+        if (((@('CONTINUE', 'RETRY') -ccontains $advMove)) -and $advPrepared) {
             if ($advMove -cne $moveName) {
                 return (New-SCRefusal -Reason 'continuation-settlement-uncertain' -Cause 'advance-move-diverged' -GoalId $gid -SettledKey $sk)
             }
             # Pos-PREPARE confirmado: falha de checkpoint NAO e zero-efeito.
             $ckPrep = Save-SCContinuationCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir -SettledKey $sk -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -NextIdempotencyKey $advNextKey -NextReference $advNextRef -Prepared $true
-            $prepWhy = 'prepared'
-            $ckPrepOk = [bool](Get-ALValue $ckPrep 'checkpoint_ok' $false)
-            if (-not [bool](Get-ALValue $ckPrep 'ok' $false)) { $prepWhy = 'continuation-checkpoint-required' }
-            return (New-SCEnvelope -Ok $true -Action 'prepared' -Reason $prepWhy -CauseReason $advCause -GoalId $gid -SettledKey $sk -EvidenceId $evIdP -CandidateRevision $wRevP -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -NextIdempotencyKey $advNextKey -NextReference $advNextRef -Prepared $true -CheckpointId ([string](Get-ALValue $ckPrep 'checkpoint_id' '')) -CheckpointOk $ckPrepOk)
+            if ($advOk) {
+                $prepWhy = 'prepared'
+                $ckPrepOk = [bool](Get-ALValue $ckPrep 'checkpoint_ok' $false)
+                if (-not [bool](Get-ALValue $ckPrep 'ok' $false)) { $prepWhy = 'continuation-checkpoint-required' }
+                return (New-SCEnvelope -Ok $true -Action 'prepared' -Reason $prepWhy -CauseReason $advCause -GoalId $gid -SettledKey $sk -EvidenceId $evIdP -CandidateRevision $wRevP -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -NextIdempotencyKey $advNextKey -NextReference $advNextRef -Prepared $true -CheckpointId ([string](Get-ALValue $ckPrep 'checkpoint_id' '')) -CheckpointOk $ckPrepOk)
+            }
+            return (New-SCEnvelope -Ok $false -Action 'prepared' -Reason 'continuation-settlement-uncertain' -CauseReason $advReason -GoalId $gid -SettledKey $sk -EvidenceId $evIdP -CandidateRevision $wRevP -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -NextIdempotencyKey $advNextKey -NextReference $advNextRef -Prepared $true -CheckpointId ([string](Get-ALValue $ckPrep 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckPrep 'checkpoint_ok' $false)))
         }
         if ($advOk -and ($advMove -ceq 'REPLAN')) {
             $replanWhy = $advCause
@@ -1179,6 +1288,13 @@ function Invoke-OrchestrationSettledContinuation {
             if ($advStop -cne 'OBJECTIVE_COMPLETED') {
                 $ckStop = Save-SCContinuationCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir -SettledKey $sk -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -NextIdempotencyKey '' -NextReference '' -Prepared $false
                 return (New-SCEnvelope -Ok $true -Action 'blocked' -Reason ('stop:' + $advStop) -CauseReason $advCause -GoalId $gid -SettledKey $sk -EvidenceId $evIdP -CandidateRevision $wRevP -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -CheckpointId ([string](Get-ALValue $ckStop 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckStop 'checkpoint_ok' $false)))
+            }
+            # F4: autorizacao viva antes de qualquer CAS (zero CAS sem
+            # admissao do helper autoridade do ND).
+            $authzFin = Test-SCCompletionAuthorization -GoalId $gid -Authorization $Authorization -GoalStoreDir $GoalStoreDir
+            if (-not [bool](Get-ALValue $authzFin 'ok' $false)) {
+                $ckAuthFin = Save-SCContinuationCheckpoint -Goal $liveGoal -CheckpointDir $CheckpointDir -SettledKey $sk -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -NextIdempotencyKey '' -NextReference '' -Prepared $false
+                return (New-SCEnvelope -Ok $false -Action 'blocked' -Reason 'continuation-completion-unproven' -CauseReason ('authorization:' + [string](Get-ALValue $authzFin 'reason' '')) -GoalId $gid -SettledKey $sk -EvidenceId $evIdP -CandidateRevision $wRevP -Move $advMove -StopReason $advStop -AdvanceRecordRef $advRef -CheckpointId ([string](Get-ALValue $ckAuthFin 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckAuthFin 'checkpoint_ok' $false)))
             }
             $fin = Invoke-ALObjectiveCompletion -Goal $liveGoal -GoalStoreDir $GoalStoreDir -Authorization $Authorization
             $finGoal = Get-ALValue $fin 'goal' $liveGoal

@@ -1,6 +1,7 @@
 # F1 S3a — Settled Continuation (fixture-only) — PLANO
 
 Status: **IMPLEMENTADO (fixture-only)** — branch `feat/f1-s3a-settled-continuation`.
+Revisão FIX1 aplicada (achados F1–F7 de reviewer/security, mesma branch).
 Base: memo do architect (F1-S3A-DESIGN) + discovery F1-S3-DISCOVERY.
 Escopo: fixture-only; **não** fecha G3/S6 (runtime-real/quota).
 
@@ -157,3 +158,45 @@ Fixtures provam uma única sucessão causal, bloqueios seguros, correção sem f
 - Limites honestos: evidência é existência+correlação de arquivo/ids
   (sem recomputo do hash canônico); sem prova de consumo autônomo pelo
   LLM, Reviewer real, cross-session, recovery S4, enforcement ou quota.
+
+## Notas da revisão FIX1 (achados F1–F7, mesma branch, sem tocar ND)
+
+- F1 (HIGH) hard triggers descartados: a prova passou a devolver
+  `task_objective`/`task_type`/`task_scopes`/`task_project` do registro
+  canônico e o gate monta o descritor
+  `{risk, operation, domain, summary}` — objetivo/escopo com `auth`
+  (ex.: `fix auth flow`) eleva a L3 mesmo com risk low; sem
+  security-review => `continuation-review-required/security-review-missing`
+  (S13 prova bloqueio + desbloqueio após aprovação). Nada de descritor
+  livre do caller.
+- F2 (HIGH) efeito do PREPARE preservado: `$advPrepared` é lido
+  independente de `$advOk`; com `!ok + prepared` o envelope devolve
+  `ok=false, action=prepared, prepared=true` com chave/ref e motivo
+  `continuation-settlement-uncertain` (S14-honesto abaixo). Move divergente
+  continua recusado.
+- F3 (MEDIUM) evidência ilegível: `Test-Path` falso => unproven
+  (`evidence-file-missing`, S11b intacto); exceção em leitura/parse =>
+  `continuation-settlement-uncertain` (`evidence-unreadable`, S15).
+- F4 (MEDIUM) replay COMPLETE exige autorização viva ANTES de qualquer
+  CAS: `Test-SCCompletionAuthorization` (goal_id confere + veredito do
+  helper autoridade `Test-NativeDispatchAuthorization`); falha =>
+  `continuation-completion-unproven` com `authorization:<motivo>`, zero
+  CAS (S16: `explicit_allow=false`, `test-callback` e replay válido).
+- F5 (MEDIUM) settlement antigo não herda aprovação: a prova lê
+  `task_expected_revision` do recibo e exige
+  `(recExpected + 1) == worker_result.revision`; senão
+  `continuation-task-result-mismatch/worker-result-superseded` antes do
+  gate/prepare (S17 com K1/K2 da mesma task).
+- F6 contenção do `evidence_id` (guard `Test-SCEvidenceIdContained`,
+  unit-testado) antes do `Join-Path`; F7 goal PAUSED =>
+  `advance-stale-goal` sem reativação (S18).
+- S14-honesto (limite do fault injection sem ganchos no ND): o ND grava o
+  registro pendente ANTES do PREPARE e o próprio ADVANCE recusa
+  `advance-intent-unknown` quando o path existe mas é ilegível — um
+  diretório no path do advance NUNCA chega ao PREPARE (zero-efeito,
+  provado em S14). O ramo F2 (falha de gravação PÓS-PREPARE com
+  `prepared=true`, envelope de efeito preservado) está implementado, mas
+  sua ativação exige falha de FS entre as duas escritas do ADVANCE,
+  indeterminística de fora sem ganchos no ND (proibidos aqui); o caminho
+  simétrico pós-PREPARE com checkpoint (S11d) é o testado. Gap explícito,
+  sem assert mascarado.

@@ -6,6 +6,23 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
+  F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
+  `task_project` do registro canônico e o gate monta o descritor
+  `{risk, operation, domain, summary}` (hard triggers voltam a elevar a
+  L3; objetivo com `auth` exige security-review — S13). F2: `$advPrepared`
+  lido independente de `$advOk`; falha pós-PREPARE preserva o efeito
+  (`ok=false, action=prepared`, S14-honesto documenta o limite do fault
+  injection sem ganchos no ND). F3: evidência ilegível separa
+  ausente=unproven de ilegível=uncertain (S15; S11b intacto). F4: replay e
+  caminho COMPLETE exigem autorização viva via `Test-SCCompletionAuthorization`
+  (helper autoridade do ND) antes de qualquer CAS (S16). F5: a prova exige
+  `(task_expected_revision + 1) == worker_result.revision`, senão
+  `worker-result-superseded` (S17 K1/K2). F6: contenção do `evidence_id`
+  antes do `Join-Path` (unit do guard). F7: goal PAUSED recusa sem
+  reativar (S18). Nova suite com 606 asserts (PS 5.1+pwsh); AL 47/47 e F3
+  verdes. Sem claim runtime-real/G3/S6.
+
 - **F1 S3a — continuação pós-settlement (fixture-only)**:
   `Invoke-OrchestrationSettledContinuation`
   (`scripts/v3/lib/OrchestrationAutonomousLoop.ps1`) consome UMA
@@ -27,11 +44,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   Controller) e finalize com `-FinalizeGoalOnComplete` só com
   `OBJECTIVE_COMPLETED` + critérios verificados (stop de política
   registra `goal-finalize-refused:policy-stop`, nunca completa; D5b do
-  Handoff marca `progress=1/1`, D5d prova a recusa). Testes: nova suite
-  `OrchestrationSettledContinuation` (458 asserts PS 5.1+pwsh: CONTINUE,
-  RETRY, REPLAN, BLOCKED, COMPLETE válido/recusado, review ausente/stale/
-  negativo, L3 sem security, manual/unknown profile, replay/duplo prepare,
-  registros corrompidos/uncertain, checkpoint pós-PREPARE, compat legada)
+  Handoff marca `progress=1/1`, D5d prova a recusa). Testes: suite
+  `OrchestrationSettledContinuation` (606 asserts PS 5.1+pwsh após FIX1:
+  S1–S12 + triggers L3, fault de record, evidência ilegível, replay sem
+  auth, K1/K2, PAUSED, guard de evidence_id)
   + suítes `AutonomousLoop` (47/47) e `NativeDispatch` (4/4, Handoff
   2151 asserts) verdes. Sem claim de G3/autonomia runtime-real/recovery
   S4; sem mudança em TaskKernel/validation-policy/plugin/flags/enforcement.

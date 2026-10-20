@@ -110,8 +110,10 @@ try {
     }
 
     function New-SCTask {
-        param([string]$TaskId, [string]$GoalId, [long]$Gen, [string]$Risk = 'low')
-        $c = New-OrchestrationTask -TaskId $TaskId -Objective ('s3 obj ' + $TaskId) -TaskType 'implementation' `
+        param([string]$TaskId, [string]$GoalId, [long]$Gen, [string]$Risk = 'low', [string]$Objective = '')
+        $obj = $Objective
+        if ([string]::IsNullOrWhiteSpace($obj)) { $obj = ('s3 obj ' + $TaskId) }
+        $c = New-OrchestrationTask -TaskId $TaskId -Objective $obj -TaskType 'implementation' `
             -Risk $Risk -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
             -RuntimeVersion '2.0.18' -BaseRevision 's3-base' -ReadScopes @('s3/a.txt') -WriteScopes @('s3/a.txt') `
             -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 `
@@ -238,6 +240,15 @@ try {
         $st = Get-NDAdvanceDir -RootDir $script:scEnv.recs -GoalId $GoalId
         if (-not [bool](Get-SCValue $st 'ok' $false)) { return '' }
         return (Join-Path ([string](Get-SCValue $st 'dir' '')) ($Key + '.advance.json'))
+    }
+
+    function New-SCStatus { param([bool]$Completed = $false, [bool]$Authorized = $true, [string]$BlockerKind = '', [string[]]$Remaining = @('s3-work'))
+        return @{
+            objective_completed = [bool]$Completed; remaining_work = [string[]]$Remaining
+            authorized = [bool]$Authorized; blocker_kind = ([string]$BlockerKind)
+            progress_possible = $true; strategy_change = $false; context_degraded = $false
+            last_failure = $null; terminal_blocker = $null; consecutive_no_progress = [long]0
+        }
     }
 
     $script:scOrigMove = (Get-Item -Path 'function:Get-OrchestrationNextMove').ScriptBlock
@@ -555,14 +566,6 @@ try {
         Assert-SC ($null -eq (Get-SCReceipt -GoalId $ids9b.goal -Key $otherKey9b)) '[S9c] the divergent intent prepared no second successor' ''
 
         # ---------- 10. ND hardening: replay e finalize ----------
-        function New-SCStatus { param([bool]$Completed = $false, [bool]$Authorized = $true, [string]$BlockerKind = '', [string[]]$Remaining = @('s3-work'))
-            return @{
-                objective_completed = [bool]$Completed; remaining_work = [string[]]$Remaining
-                authorized = [bool]$Authorized; blocker_kind = ([string]$BlockerKind)
-                progress_possible = $true; strategy_change = $false; context_degraded = $false
-                last_failure = $null; terminal_blocker = $null; consecutive_no_progress = [long]0
-            }
-        }
         $ids10a = New-SCIds -Tag 'ndreplay'
         $g10a = New-SCGoal -GoalId $ids10a.goal -Criteria @('s3-crit-a')
         New-SCTask -TaskId $ids10a.task -GoalId $ids10a.goal -Gen $g10a.gen -Risk 'low'
@@ -707,6 +710,160 @@ try {
         Assert-SC (([string]$s12.action -ceq 'dispatch_intent')) '[S12] without SettledKey the legacy path is intact' ('action=' + [string]$s12.action + ' reason=' + [string]$s12.reason)
         Assert-SC (($null -ne $s12.dispatch_intent) -and ([string]$s12.dispatch_intent.task_id -ceq $ids12.task)) '[S12] legacy intent binds the task' ''
         Assert-SC ([bool]$s12.checkpoint_ok) '[S12] legacy step checkpoints' ([string]$s12.checkpoint_id)
+
+        # ---------- 13. F1: hard trigger eleva a L3 ----------
+        $ids13 = New-SCIds -Tag 'trigger'
+        $g13 = New-SCGoal -GoalId $ids13.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        New-SCTask -TaskId $ids13.task -GoalId $ids13.goal -Gen $g13.gen -Risk 'low' -Objective 'fix auth flow'
+        New-SCTask -TaskId $ids13.next -GoalId $ids13.goal -Gen $g13.gen -Risk 'low' -Objective 'fix auth flow follow-up'
+        $key13 = Get-NativeDispatchHash32 ('s3-settled-' + $ids13.task)
+        $intent13 = New-SCIntent -TaskId $ids13.task -Rev (Get-SCTaskRev -TaskId $ids13.task) -Key $key13 -Gen $g13.gen
+        $null = Invoke-SCWalk -Goal $g13 -Intent $intent13 -Call 'call_s3_h1'
+        Invoke-SCToReviewing -TaskId $ids13.task
+        Set-SCVerification -TaskId $ids13.task
+        Set-SCReview -TaskId $ids13.task
+        $nextKey13 = Get-NativeDispatchHash32 ('s3-next-' + $ids13.next)
+        $intentNext13 = New-SCIntent -TaskId $ids13.next -Rev (Get-SCTaskRev -TaskId $ids13.next) -Key $nextKey13 -Gen $g13.gen
+        $c13 = Invoke-SCContinuation -Goal $g13 -Key $key13 -NextIntent $intentNext13
+        Assert-SC (((-not [bool]$c13.ok) -and ([string]$c13.reason -ceq 'continuation-review-required') -and ([string]$c13.cause_reason -ceq 'security-review-missing') -and (-not [bool]$c13.prepared))) '[S13] an auth trigger requires security review even at low risk' ('reason=' + [string]$c13.reason + ' cause=' + [string]$c13.cause_reason)
+        Assert-SC ($null -eq (Get-SCReceipt -GoalId $ids13.goal -Key $nextKey13)) '[S13] the trigger blocks without preparing' ''
+        Set-SCReview -TaskId $ids13.task -Kind 'security' -Status 'approved' -By 'security-1'
+        Invoke-SCComplete -TaskId $ids13.task
+        $c13b = Invoke-SCContinuation -Goal $g13 -Key $key13 -NextIntent $intentNext13
+        Assert-SC (([bool]$c13b.ok) -and ([string]$c13b.action -ceq 'prepared') -and ([bool]$c13b.prepared) -and ([string]$c13b.next_idempotency_key -ceq $nextKey13)) '[S13] the approved security review unlocks the continuation' ('action=' + [string]$c13b.action + ' reason=' + [string]$c13b.reason)
+        Assert-SC (([int]$c13b.executor_calls -eq 0)) '[S13] no worker ever executed' ('calls=' + [string]$c13b.executor_calls)
+
+        # ---------- 14. F2: diretorio no path do advance e zero-efeito ----------
+        # Um diretorio no path do advance record nao vira ausencia: o
+        # proprio ADVANCE recusa em advance-intent-unknown antes de
+        # consultar o Controller, admitir ou preparar (corrupcao nunca e
+        # ausencia). A S3a propaga a recusa com zero-efeito. (O ramo F2 de
+        # falha pos-PREPARE com prepared=true exige troca de FS no meio do
+        # ADVANCE e nao e deterministicamente reproduzivel sem ganchos no
+        # ND: ver notas do plano.)
+        $ids14 = New-SCIds -Tag 'recfail'
+        $g14 = New-SCGoal -GoalId $ids14.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        New-SCTask -TaskId $ids14.task -GoalId $ids14.goal -Gen $g14.gen -Risk 'low'
+        New-SCTask -TaskId $ids14.next -GoalId $ids14.goal -Gen $g14.gen -Risk 'low'
+        $key14 = Get-NativeDispatchHash32 ('s3-settled-' + $ids14.task)
+        $intent14 = New-SCIntent -TaskId $ids14.task -Rev (Get-SCTaskRev -TaskId $ids14.task) -Key $key14 -Gen $g14.gen
+        $null = Invoke-SCWalk -Goal $g14 -Intent $intent14 -Call 'call_s3_h2'
+        Invoke-SCToReviewing -TaskId $ids14.task
+        Set-SCVerification -TaskId $ids14.task
+        Set-SCReview -TaskId $ids14.task
+        Invoke-SCComplete -TaskId $ids14.task
+        $nextKey14 = Get-NativeDispatchHash32 ('s3-next-' + $ids14.next)
+        $intentNext14 = New-SCIntent -TaskId $ids14.next -Rev (Get-SCTaskRev -TaskId $ids14.next) -Key $nextKey14 -Gen $g14.gen
+        $advPath14 = Get-SCAdvancePath -GoalId $ids14.goal -Key $key14
+        New-Item -ItemType Directory -Path $advPath14 -Force | Out-Null
+        $c14 = Invoke-SCContinuation -Goal $g14 -Key $key14 -NextIntent $intentNext14
+        Assert-SC (((-not [bool]$c14.ok) -and ([string]$c14.reason -ceq 'advance-intent-unknown') -and (-not [bool]$c14.prepared))) '[S14] a directory at the advance path is zero-effect' ('reason=' + [string]$c14.reason + ' cause=' + [string]$c14.cause_reason)
+        Assert-SC (([string]::IsNullOrWhiteSpace([string]$c14.next_idempotency_key))) '[S14] no successor key is returned' ([string]$c14.next_idempotency_key)
+        Assert-SC ((Test-Path -LiteralPath $advPath14 -PathType Container)) '[S14] the blocking directory was preserved' ''
+        Assert-SC ($null -eq (Get-SCReceipt -GoalId $ids14.goal -Key $nextKey14)) '[S14] the blocked record prepared no successor' ''
+        Assert-SC (([string]::IsNullOrWhiteSpace([string]$c14.checkpoint_id) -and (-not [bool]$c14.checkpoint_ok))) '[S14] no checkpoint on the refused path' ''
+
+        # ---------- 15. F3: evidencia ilegivel e uncertain ----------
+        $ids15 = New-SCIds -Tag 'badev'
+        $g15 = New-SCGoal -GoalId $ids15.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        New-SCTask -TaskId $ids15.task -GoalId $ids15.goal -Gen $g15.gen -Risk 'low'
+        New-SCTask -TaskId $ids15.next -GoalId $ids15.goal -Gen $g15.gen -Risk 'low'
+        $key15 = Get-NativeDispatchHash32 ('s3-settled-' + $ids15.task)
+        $intent15 = New-SCIntent -TaskId $ids15.task -Rev (Get-SCTaskRev -TaskId $ids15.task) -Key $key15 -Gen $g15.gen
+        $walk15 = Invoke-SCWalk -Goal $g15 -Intent $intent15 -Call 'call_s3_h3'
+        $evPath15 = Join-Path $script:scEnv.evs ([string]$walk15.evidence_id + '.json')
+        [IO.File]::WriteAllText($evPath15, '{ evidencia-invalida', [Text.Encoding]::UTF8)
+        $nextKey15 = Get-NativeDispatchHash32 ('s3-next-' + $ids15.next)
+        $intentNext15 = New-SCIntent -TaskId $ids15.next -Rev (Get-SCTaskRev -TaskId $ids15.next) -Key $nextKey15 -Gen $g15.gen
+        $c15 = Invoke-SCContinuation -Goal $g15 -Key $key15 -NextIntent $intentNext15
+        Assert-SC (((-not [bool]$c15.ok) -and ([string]$c15.reason -ceq 'continuation-settlement-uncertain') -and ([string]$c15.cause_reason -ceq 'evidence-unreadable') -and (-not [bool]$c15.prepared))) '[S15] an unreadable evidence file is uncertain' ('reason=' + [string]$c15.reason + ' cause=' + [string]$c15.cause_reason)
+        Assert-SC ($null -eq (Get-SCReceipt -GoalId $ids15.goal -Key $nextKey15)) '[S15] the unreadable evidence prepared nothing' ''
+
+        # ---------- 16. F4: replay COMPLETE exige autorizacao viva ----------
+        $ids16 = New-SCIds -Tag 'noauth'
+        $g16 = New-SCGoal -GoalId $ids16.goal -Criteria @('s3-crit-a')
+        New-SCTask -TaskId $ids16.task -GoalId $ids16.goal -Gen $g16.gen -Risk 'low'
+        $key16 = Get-NativeDispatchHash32 ('s3-settled-' + $ids16.task)
+        $intent16 = New-SCIntent -TaskId $ids16.task -Rev (Get-SCTaskRev -TaskId $ids16.task) -Key $key16 -Gen $g16.gen
+        $null = Invoke-SCWalk -Goal $g16 -Intent $intent16 -Call 'call_s3_h4'
+        Update-SCProgress -GoalId $ids16.goal -Gen $g16.gen -Satisfied 1 -Total 1
+        $a16 = Invoke-OrchestrationNativeDispatchAdvance -GoalId $ids16.goal -SettledKey $key16 -Authorization $g16.auth `
+            -ObjectiveStatus (New-SCStatus -Completed $true -Remaining @()) -SessionId 'ses_s3_parent' `
+            -ReceiptDir $script:scEnv.recs -GoalStoreDir $script:scEnv.goals -TasksDir $script:scEnv.tasks -FlagsPath $script:scEnv.flags
+        Assert-SC (([bool]$a16.ok) -and ([string]$a16.move -ceq 'COMPLETE') -and (-not [bool]$a16.prepared)) '[S16] the COMPLETE decision is recorded without finalizing' ('reason=' + [string]$a16.reason)
+        $liveBefore16 = Get-SCLiveGoal -GoalId $ids16.goal
+        $revBefore16 = [long]$liveBefore16['revision']
+        $authDeny16 = @{ explicit_allow = $false; goal_id = $ids16.goal; owner = 'planner-1'; generation = $g16.gen; source = 'planner' }
+        $c16a = Invoke-OrchestrationSettledContinuation -GoalId $ids16.goal -SettledKey $key16 -Authorization $authDeny16 `
+            -SessionId 'ses_s3_parent' -CheckpointDir $script:scEnv.ckpts -GoalStoreDir $script:scEnv.goals -EvidenceStoreDir $script:scEnv.evs `
+            -ReceiptDir $script:scEnv.recs -TasksDir $script:scEnv.tasks -FlagsPath $script:scEnv.flags
+        Assert-SC (((-not [bool]$c16a.ok) -and ([string]$c16a.action -ceq 'blocked') -and ([string]$c16a.reason -ceq 'continuation-completion-unproven') -and ([string]$c16a.cause_reason -ceq 'authorization:explicit-allow-required'))) '[S16] denied auth blocks the replayed completion' ('reason=' + [string]$c16a.reason + ' cause=' + [string]$c16a.cause_reason)
+        $liveAfter16a = Get-SCLiveGoal -GoalId $ids16.goal
+        Assert-SC ((([string]$liveAfter16a['state'] -ceq 'ACTIVE') -and ([long]$liveAfter16a['revision'] -eq $revBefore16))) '[S16] the denied replay performs zero CAS' ([string]$liveAfter16a['state'])
+        $authCb16 = @{ explicit_allow = $true; goal_id = $ids16.goal; owner = 'planner-1'; generation = $g16.gen; source = 'test-callback' }
+        $c16b = Invoke-OrchestrationSettledContinuation -GoalId $ids16.goal -SettledKey $key16 -Authorization $authCb16 `
+            -SessionId 'ses_s3_parent' -CheckpointDir $script:scEnv.ckpts -GoalStoreDir $script:scEnv.goals -EvidenceStoreDir $script:scEnv.evs `
+            -ReceiptDir $script:scEnv.recs -TasksDir $script:scEnv.tasks -FlagsPath $script:scEnv.flags
+        Assert-SC (((-not [bool]$c16b.ok) -and ([string]$c16b.reason -ceq 'continuation-completion-unproven') -and ([string]$c16b.cause_reason -ceq 'authorization:test-callback-never-authorizes-production'))) '[S16] a test-callback source never authorizes completion' ('cause=' + [string]$c16b.cause_reason)
+        $liveAfter16b = Get-SCLiveGoal -GoalId $ids16.goal
+        Assert-SC ((([string]$liveAfter16b['state'] -ceq 'ACTIVE') -and ([long]$liveAfter16b['revision'] -eq $revBefore16))) '[S16] the callback replay performs zero CAS' ([string]$liveAfter16b['state'])
+        $c16c = Invoke-SCContinuation -Goal $g16 -Key $key16
+        Assert-SC (([bool]$c16c.ok) -and ([string]$c16c.action -ceq 'completed')) '[S16] the valid auth completes via replayed CAS' ('action=' + [string]$c16c.action + ' reason=' + [string]$c16c.reason)
+        $liveAfter16c = Get-SCLiveGoal -GoalId $ids16.goal
+        Assert-SC ([string]$liveAfter16c['state'] -ceq 'COMPLETED') '[S16] the goal is COMPLETED' ([string]$liveAfter16c['state'])
+
+        # ---------- 17. F5: settlement antigo nao herda aprovacao ----------
+        $ids17 = New-SCIds -Tag 'stalek'
+        $g17 = New-SCGoal -GoalId $ids17.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        New-SCTask -TaskId $ids17.task -GoalId $ids17.goal -Gen $g17.gen -Risk 'low'
+        New-SCTask -TaskId $ids17.next -GoalId $ids17.goal -Gen $g17.gen -Risk 'low'
+        New-SCTask -TaskId ($ids17.next + '-b') -GoalId $ids17.goal -Gen $g17.gen -Risk 'low'
+        $key17a = Get-NativeDispatchHash32 ('s3-settled-' + $ids17.task + '-k1')
+        $intent17a = New-SCIntent -TaskId $ids17.task -Rev (Get-SCTaskRev -TaskId $ids17.task) -Key $key17a -Gen $g17.gen
+        $null = Invoke-SCWalk -Goal $g17 -Intent $intent17a -Call 'call_s3_h5'
+        $key17b = Get-NativeDispatchHash32 ('s3-settled-' + $ids17.task + '-k2')
+        $intent17b = New-SCIntent -TaskId $ids17.task -Rev (Get-SCTaskRev -TaskId $ids17.task) -Key $key17b -Gen $g17.gen
+        $null = Invoke-SCWalk -Goal $g17 -Intent $intent17b -Call 'call_s3_h6'
+        Invoke-SCToReviewing -TaskId $ids17.task
+        Set-SCVerification -TaskId $ids17.task
+        Set-SCReview -TaskId $ids17.task
+        Invoke-SCComplete -TaskId $ids17.task
+        $nextKey17a = Get-NativeDispatchHash32 ('s3-next-' + $ids17.next)
+        $intentNext17a = New-SCIntent -TaskId $ids17.next -Rev (Get-SCTaskRev -TaskId $ids17.next) -Key $nextKey17a -Gen $g17.gen
+        $c17a = Invoke-SCContinuation -Goal $g17 -Key $key17a -NextIntent $intentNext17a
+        Assert-SC (((-not [bool]$c17a.ok) -and ([string]$c17a.reason -ceq 'continuation-task-result-mismatch') -and ([string]$c17a.cause_reason -ceq 'worker-result-superseded') -and (-not [bool]$c17a.prepared))) '[S17] the old settlement never inherits the new approval' ('reason=' + [string]$c17a.reason + ' cause=' + [string]$c17a.cause_reason)
+        Assert-SC (($null -eq (Get-SCAdvanceRecord -GoalId $ids17.goal -Key $key17a)) -and ($null -eq (Get-SCReceipt -GoalId $ids17.goal -Key $nextKey17a))) '[S17] the old key reserves no successor' ''
+        $nextKey17b = Get-NativeDispatchHash32 ('s3-next-' + $ids17.next + '-b')
+        $intentNext17b = New-SCIntent -TaskId ($ids17.next + '-b') -Rev (Get-SCTaskRev -TaskId ($ids17.next + '-b')) -Key $nextKey17b -Gen $g17.gen
+        $c17b = Invoke-SCContinuation -Goal $g17 -Key $key17b -NextIntent $intentNext17b
+        Assert-SC (([bool]$c17b.ok) -and ([string]$c17b.action -ceq 'prepared') -and ([bool]$c17b.prepared) -and ([string]$c17b.next_idempotency_key -ceq $nextKey17b)) '[S17] the current settlement prepares exactly one successor' ('action=' + [string]$c17b.action)
+        Assert-SC (([int]$c17b.executor_calls -eq 0)) '[S17] no worker ever executed' ('calls=' + [string]$c17b.executor_calls)
+
+        # ---------- 18. F7: goal nao-ACTIVE ----------
+        $ids18 = New-SCIds -Tag 'paused'
+        $g18 = New-SCGoal -GoalId $ids18.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        New-SCTask -TaskId $ids18.task -GoalId $ids18.goal -Gen $g18.gen -Risk 'low'
+        New-SCTask -TaskId $ids18.next -GoalId $ids18.goal -Gen $g18.gen -Risk 'low'
+        $key18 = Get-NativeDispatchHash32 ('s3-settled-' + $ids18.task)
+        $intent18 = New-SCIntent -TaskId $ids18.task -Rev (Get-SCTaskRev -TaskId $ids18.task) -Key $key18 -Gen $g18.gen
+        $null = Invoke-SCWalk -Goal $g18 -Intent $intent18 -Call 'call_s3_h7'
+        $live18 = Get-SCLiveGoal -GoalId $ids18.goal
+        $paused18 = Set-OrchestrationGoalStatePersisted -GoalId $ids18.goal -ToState 'PAUSED' -ExpectedRevision ([long]$live18['revision']) -StoreDir $script:scEnv.goals -OwnerId 'planner-1' -OwnershipGeneration $g18.gen
+        Assert-SC ([bool]$paused18.ok) '[S18] the fixture goal is paused' ([string]$paused18.reason)
+        $nextKey18 = Get-NativeDispatchHash32 ('s3-next-' + $ids18.next)
+        $intentNext18 = New-SCIntent -TaskId $ids18.next -Rev (Get-SCTaskRev -TaskId $ids18.next) -Key $nextKey18 -Gen $g18.gen
+        $c18 = Invoke-SCContinuation -Goal $g18 -Key $key18 -NextIntent $intentNext18
+        Assert-SC (((-not [bool]$c18.ok) -and ([string]$c18.reason -ceq 'advance-stale-goal') -and ([string]$c18.cause_reason -ceq 'goal-not-active:PAUSED') -and (-not [bool]$c18.prepared))) '[S18] a paused goal refuses without reactivating' ('reason=' + [string]$c18.reason)
+        $liveAfter18 = Get-SCLiveGoal -GoalId $ids18.goal
+        Assert-SC ([string]$liveAfter18['state'] -ceq 'PAUSED') '[S18] the goal stays paused' ([string]$liveAfter18['state'])
+        Assert-SC (($null -eq (Get-SCAdvanceRecord -GoalId $ids18.goal -Key $key18)) -and ($null -eq (Get-SCReceipt -GoalId $ids18.goal -Key $nextKey18))) '[S18] the paused goal prepares nothing' ''
+
+        # ---------- F6: contencao do evidence_id (unit do guard) ----------
+        Assert-SC ([bool](Test-SCEvidenceIdContained -EvidenceId 'a07f42c1bcedfb255e127d71c666491e')) '[F6] a plain evidence id is contained' ''
+        Assert-SC ((-not [bool](Test-SCEvidenceIdContained -EvidenceId '../escape'))) '[F6] parent traversal is rejected' ''
+        Assert-SC ((-not [bool](Test-SCEvidenceIdContained -EvidenceId '/abs/path'))) '[F6] an absolute path is rejected' ''
+        Assert-SC ((-not [bool](Test-SCEvidenceIdContained -EvidenceId 'sub/dir'))) '[F6] a subpath is rejected' ''
+        Assert-SC ((-not [bool](Test-SCEvidenceIdContained -EvidenceId ''))) '[F6] an empty id is rejected' ''
 
         # ---------- hygiene ----------
         $s3aPath = Join-Path $PSScriptRoot 'OrchestrationAutonomousLoop.ps1'
