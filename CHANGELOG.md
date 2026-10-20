@@ -6,6 +6,54 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
+  F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
+  `task_project` do registro canônico e o gate monta o descritor
+  `{risk, operation, domain, summary}` (hard triggers voltam a elevar a
+  L3; objetivo com `auth` exige security-review — S13). F2: `$advPrepared`
+  lido independente de `$advOk`; falha pós-PREPARE preserva o efeito
+  (`ok=false, action=prepared`, S14-honesto documenta o limite do fault
+  injection sem ganchos no ND). F3: evidência ilegível separa
+  ausente=unproven de ilegível=uncertain (S15; S11b intacto). F4: replay e
+  caminho COMPLETE exigem autorização viva via `Test-SCCompletionAuthorization`
+  (helper autoridade do ND) antes de qualquer CAS (S16). F5: a prova exige
+  `(task_expected_revision + 1) == worker_result.revision`, senão
+  `worker-result-superseded` (S17 K1/K2). F6: contenção do `evidence_id`
+  antes do `Join-Path` (unit do guard). F7: goal PAUSED recusa sem
+  reativar (S18). S13b: descritor inclui o contexto canônico do goal vivo
+  (objective + criteria) além da task. S14b: unit do ramo F2 (double do
+  ADVANCE no escopo do teste, advance chamado exatamente 1 vez, envelope
+  de efeito preservado). Nova suite com 658 asserts (PS 5.1+pwsh); AL
+  47/47 e F3 verdes. Sem claim runtime-real/G3/S6.
+
+- **F1 S3a — continuação pós-settlement (fixture-only)**:
+  `Invoke-OrchestrationSettledContinuation`
+  (`scripts/v3/lib/OrchestrationAutonomousLoop.ps1`) consome UMA
+  liquidação canônica (recibo `settled` + evidência + `worker_result` do
+  kernel, tudo relido — nunca `verified/aprovado` do chamador) e compõe
+  prova do settlement + gates de verificação/review (nível efetivo da
+  policy real; L3 exige security-review; risco desconhecido falha
+  fechado) + decisão do Controller + `ND-ADVANCE` (sem
+  `-FinalizeGoalOnComplete`) + checkpoint correlacionado (schema intacto
+  + sidecar `<checkpoint_id>.settled-continuation.json`). Termina em
+  `prepared`/`replan_required`/`blocked`/`completed`; `ok` = processamento
+  válido, `completed` só após CAS; `executor_calls` sempre 0; zero-efeito
+  antes do ADVANCE; pós-PREPARE com checkpoint falho devolve
+  `prepared=true` + chave (`continuation-checkpoint-required`).
+  `Invoke-OrchestrationObjectiveStep` ganha `-SettledKey`/`-NextIntent`
+  (encaminha uma vez; sem eles, legado intacto). Ramo COMPLETE fatorado
+  em `Invoke-ALObjectiveCompletion` e reutilizado. ND: replay
+  CONTINUE/RETRY pendente preserva a decisão gravada (sem reconsulta ao
+  Controller) e finalize com `-FinalizeGoalOnComplete` só com
+  `OBJECTIVE_COMPLETED` + critérios verificados (stop de política
+  registra `goal-finalize-refused:policy-stop`, nunca completa; D5b do
+  Handoff marca `progress=1/1`, D5d prova a recusa). Testes: suite
+  `OrchestrationSettledContinuation` (658 asserts PS 5.1+pwsh após
+  FIX1/FIX1B: S1–S18, F6, S14b unit, S13b com trigger no goal)
+  + suítes `AutonomousLoop` (47/47) e `NativeDispatch` (4/4, Handoff
+  2151 asserts) verdes. Sem claim de G3/autonomia runtime-real/recovery
+  S4; sem mudança em TaskKernel/validation-policy/plugin/flags/enforcement.
+
 - **F1 S2 — owner único do SETTLE (liquidação canônica via ND-Settle)**:
   `Invoke-OrchestrationNativeDispatchSettle`
   (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) passa a ser o único
