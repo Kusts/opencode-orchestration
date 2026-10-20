@@ -77,9 +77,9 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   troca/downgrade, sentinela zero worker/CLAIM/SETTLE/PREPARE, regressão
   sem `SettledKey`); S3a (658 asserts), ND handoff/advance (2151 asserts)
   e ND receipts (208 asserts) verdes em ambos os hosts. O runner V3
-  descobre a suíte (`scripts/v3/lib/*.tests.ps1`); o step V3 do ps7/v2 lane
-  foi elevado de 40 para 60 min e os jobs de 50 para 75 para absorver a
-  suíte multiprocesso — sem skip/continue-on-error. Sem claim
+  descobre a suíte (`scripts/v3/lib/*.tests.ps1`); os steps V3 dos jobs
+  ps51/ps7/v2 lane foram elevados para 60 min e os jobs para 75 para
+  absorver a suíte multiprocesso — sem skip/continue-on-error. Sem claim
   runtime-real/G3/S6/enforcement; sem mudança em S3a/AL, ND, TaskKernel,
   plugin, grants ou flags.
 
