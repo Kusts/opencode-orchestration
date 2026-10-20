@@ -76,9 +76,26 @@ function goodDoc() {
     call_binding_material: CALL_MATERIAL,
     target_agent: 'coder',
     tool: 'subagent',
+    grant_projection: {
+      ok: true,
+      source_revision: 'c'.repeat(32),
+      denied: [],
+      reason: 'grant-projection-clear',
+      authority: false,
+    },
     grants_authority: false,
     verified_pass: false,
     done_approved: false,
+  };
+}
+
+function clearProjection() {
+  return {
+    ok: true,
+    source_revision: 'c'.repeat(32),
+    denied: [],
+    reason: 'grant-projection-clear',
+    authority: false,
   };
 }
 
@@ -692,4 +709,240 @@ test('R4b: measureIsolatedRequestBytes is a lower bound in bytes', () => {
     caller: 'p', target: 't', args: circular,
   });
   assert.ok(circResult === -1 || circResult > 65536);
+});
+
+// F1-S5 grant projection (deny-only observation, fixture only).
+// parse: strict shape, exact keys, authority===false, 32hex-or-empty
+// revision, bounded denied list. handler: claim refusal first, then
+// projection gates (unevaluated/invalid/absent/denied deny, clear
+// abstains, never allow).
+
+function s5Parse(doc) {
+  return T.parseIsolatedClaimResponse(JSON.stringify(doc), {
+    session_id: 'ses-01',
+    message_id: 'msg-01',
+    call_id: 'call-01',
+    target_agent: 'coder',
+    caller_agent: 'planner',
+    tool: 'subagent',
+    idempotency_key: 'a'.repeat(32),
+    prepared_fingerprint: 'b'.repeat(32),
+  });
+}
+
+test('S5 parse: clear projection accepted', () => {
+  const r = s5Parse(goodDoc());
+  assert.equal(r.ok, true);
+});
+
+test('S5 parse: missing grant_projection refuses', () => {
+  const doc = goodDoc();
+  delete doc.grant_projection;
+  const r = s5Parse(doc);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'isolated-grant-projection-invalid');
+});
+
+test('S5 parse: projection as scalar/array refuses', () => {
+  for (const gp of ['x', 7, ['a'], null]) {
+    const doc = goodDoc();
+    doc.grant_projection = gp;
+    const r = s5Parse(doc);
+    assert.equal(r.ok, false, JSON.stringify(gp));
+    assert.equal(r.reason, 'isolated-grant-projection-invalid');
+  }
+});
+
+test('S5 parse: extra/missing key in projection refuses', () => {
+  const extra = goodDoc();
+  extra.grant_projection.extra = 'nope';
+  assert.equal(s5Parse(extra).reason, 'isolated-grant-projection-invalid');
+  const missing = goodDoc();
+  delete missing.grant_projection.denied;
+  assert.equal(s5Parse(missing).reason, 'isolated-grant-projection-invalid');
+});
+
+test('S5 parse: __proto__ key in projection refuses', () => {
+  const doc = goodDoc();
+  const raw = JSON.stringify(doc).replace(
+    '"grant_projection":{',
+    '"grant_projection":{"__proto__":{"x":1},'
+  );
+  const r = s5Parse(JSON.parse(raw));
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'isolated-grant-projection-invalid');
+});
+
+test('S5 parse: authority true/missing refuses, false passes', () => {
+  const t = goodDoc();
+  t.grant_projection.authority = true;
+  assert.equal(s5Parse(t).reason, 'isolated-grant-projection-invalid');
+  const m = goodDoc();
+  delete m.grant_projection.authority;
+  assert.equal(s5Parse(m).reason, 'isolated-grant-projection-invalid');
+});
+
+test('S5 parse: ok non-boolean refuses', () => {
+  const doc = goodDoc();
+  doc.grant_projection.ok = 1;
+  assert.equal(s5Parse(doc).reason, 'isolated-grant-projection-invalid');
+});
+
+test('S5 parse: source_revision 32hex or empty accepted, else refused', () => {
+  const empty = goodDoc();
+  empty.grant_projection = {
+    ok: false, source_revision: '', denied: [],
+    reason: 'grant-source-not-evaluated', authority: false,
+  };
+  assert.equal(s5Parse(empty).ok, true);
+  for (const bad of ['ZZZ', 'c'.repeat(31), 'c'.repeat(33), 'C'.repeat(32), 7, ['c'.repeat(32)]]) {
+    const doc = goodDoc();
+    doc.grant_projection.source_revision = bad;
+    const r = s5Parse(doc);
+    assert.equal(r.ok, false, JSON.stringify(bad));
+    assert.equal(r.reason, 'isolated-grant-projection-invalid');
+  }
+});
+
+test('S5 parse: reason bounds enforced', () => {
+  const emptyReason = goodDoc();
+  emptyReason.grant_projection.reason = '';
+  assert.equal(s5Parse(emptyReason).reason, 'isolated-grant-projection-invalid');
+  const longReason = goodDoc();
+  longReason.grant_projection.reason = 'x'.repeat(129);
+  assert.equal(s5Parse(longReason).reason, 'isolated-grant-projection-invalid');
+  const numReason = goodDoc();
+  numReason.grant_projection.reason = 7;
+  assert.equal(s5Parse(numReason).reason, 'isolated-grant-projection-invalid');
+});
+
+test('S5 parse: denied must be a bounded array of {grant, reason}', () => {
+  const notArray = goodDoc();
+  notArray.grant_projection.denied = 'fs.read';
+  assert.equal(s5Parse(notArray).reason, 'isolated-grant-projection-invalid');
+  const big = goodDoc();
+  big.grant_projection.denied = [];
+  for (let i = 0; i < 65; i++) big.grant_projection.denied.push({ grant: 'g' + i, reason: 'grant-not-effective' });
+  assert.equal(s5Parse(big).reason, 'isolated-grant-projection-invalid');
+  const cases = [
+    { grant: 'fs.read' },
+    { reason: 'grant-not-effective' },
+    { grant: 'fs.read', reason: 'grant-not-effective', extra: 1 },
+    { grant: 7, reason: 'grant-not-effective' },
+    { grant: '', reason: 'grant-not-effective' },
+    { grant: 'x'.repeat(129), reason: 'grant-not-effective' },
+    { grant: 'fs.read', reason: '' },
+    { grant: 'fs.read', reason: 'x'.repeat(65) },
+    { grant: 'fs.read', reason: 7 },
+    'nope',
+  ];
+  for (const entry of cases) {
+    const doc = goodDoc();
+    doc.grant_projection.denied = [entry];
+    const r = s5Parse(doc);
+    assert.equal(r.ok, false, JSON.stringify(entry));
+    assert.equal(r.reason, 'isolated-grant-projection-invalid');
+  }
+});
+
+test('S5 parse: denied one-element array shape enforced (no unroll hazard)', () => {
+  const doc = goodDoc();
+  doc.grant_projection.denied = [{ grant: 'fs.read', reason: 'grant-not-effective' }];
+  assert.equal(s5Parse(doc).ok, true);
+});
+
+test('S5 handler: clear projection abstains (S1 behavior, never allow)', async () => {
+  const calls = [];
+  const handler = makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(goodDoc()))));
+  assert.equal(await handler(goodInput()), undefined);
+  assert.equal(calls.length, 1);
+});
+
+test('S5 handler: denied projection denies isolated-grant-denied', async () => {
+  const doc = goodDoc();
+  doc.grant_projection = {
+    ok: true, source_revision: 'c'.repeat(32),
+    denied: [{ grant: 'fs.read', reason: 'grant-not-effective' }],
+    reason: 'grant-projection-denied', authority: false,
+  };
+  const calls = [];
+  const handler = makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(doc))));
+  await assert.rejects(handler(goodInput()), /isolated-grant-denied/);
+});
+
+test('S5 handler: unevaluated projection denies with sanitized reason', async () => {
+  const doc = goodDoc();
+  doc.ok = true;
+  doc.claimed = true;
+  doc.grant_projection = {
+    ok: false, source_revision: '', denied: [],
+    reason: 'grant-source-not-evaluated', authority: false,
+  };
+  const calls = [];
+  const handler = makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(doc))));
+  await assert.rejects(handler(goodInput()), /isolated-grant-projection-grant-source-not-evaluated/);
+});
+
+test('S5 handler: claim refusal wins over projection (order)', async () => {
+  const doc = goodDoc();
+  doc.ok = false;
+  doc.claimed = false;
+  doc.reason = 'claim-already-consumed';
+  doc.grant_projection = {
+    ok: false, source_revision: '', denied: [],
+    reason: 'grant-source-not-evaluated', authority: false,
+  };
+  const calls = [];
+  const handler = makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(doc))));
+  await assert.rejects(handler(goodInput()), /isolated-claim-refused-claim-already-consumed/);
+});
+
+test('S5 handler: missing/invalid projection denies (never abstains)', async () => {
+  const missing = goodDoc();
+  delete missing.grant_projection;
+  const calls = [];
+  await assert.rejects(
+    makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(missing))))(goodInput()),
+    /isolated-grant-projection-invalid/
+  );
+  const forged = goodDoc();
+  forged.grant_projection.authority = true;
+  const calls2 = [];
+  await assert.rejects(
+    makeHandler(baseCfg(), stubSpawn(calls2, successScript(JSON.stringify(forged))))(goodInput()),
+    /isolated-grant-projection-invalid/
+  );
+});
+
+test('S5 handler: never returns allow across projection outcomes', async () => {
+  const docs = [
+    goodDoc(),
+    (() => { const d = goodDoc(); d.grant_projection.denied = [{ grant: 'x', reason: 'grant-not-effective' }]; d.grant_projection.reason = 'grant-projection-denied'; return d; })(),
+    (() => { const d = goodDoc(); d.grant_projection.ok = false; d.grant_projection.reason = 'grant-source-unavailable'; return d; })(),
+    (() => { const d = goodDoc(); d.ok = false; d.claimed = false; d.reason = 'claim-fingerprint-mismatch'; return d; })(),
+  ];
+  for (const doc of docs) {
+    const calls = [];
+    const handler = makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(doc))));
+    let threw = false;
+    let out = null;
+    try { out = await handler(goodInput()); } catch (e) {
+      threw = true;
+      assert.ok(e instanceof Error);
+      assert.match(e.message, /^g1-isolated-claim denied: [a-z0-9_-]{1,64}$/);
+      assert.equal(e.code, 'G1_ISOLATED_CLAIM_DENY');
+    }
+    if (threw) continue;
+    assert.equal(out, undefined);
+  }
+});
+
+test('S5 regression: S1 suite still passes with projection in shape', async () => {
+  // The positive-claim, authority-pin, binding and coercion tests above
+  // already run against goodDoc() WITH grant_projection; this pins the
+  // 18-key exact shape explicitly.
+  const r = s5Parse(goodDoc());
+  assert.equal(r.ok, true);
+  assert.equal(Object.keys(r.doc).length, 18);
+  assert.deepEqual(Object.keys(r.doc.grant_projection).sort(), ['authority', 'denied', 'ok', 'reason', 'source_revision']);
 });

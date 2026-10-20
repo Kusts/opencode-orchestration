@@ -175,7 +175,7 @@ function Get-ClaimKey {
 }
 
 function Write-ClaimContext {
-    param($Fx, [string]$PreparedFp = '', [string]$PromptHash = '', $TemplateOverride = $null, [string]$AuthOverridePath = '')
+    param($Fx, [string]$PreparedFp = '', [string]$PromptHash = '', $TemplateOverride = $null, [string]$AuthOverridePath = '', $RuntimeGrants = $null, $EnvironmentGrants = $null, $HumanApproved = $null, [switch]$OmitGrantFields)
     $pfp = $PreparedFp
     if ([string]::IsNullOrWhiteSpace($pfp)) { $pfp = ([string]$Fx.prep.prepared_fingerprint) }
     $eh = $PromptHash
@@ -186,6 +186,16 @@ function Write-ClaimContext {
     $authPath = Join-Path ([string]$Fx.tempRoot) 'auth.json'
     if (-not [string]::IsNullOrWhiteSpace($AuthOverridePath)) { $authPath = $AuthOverridePath }
     else { Write-Fixture -Path $authPath -Text (([pscustomobject]$Fx.auth | ConvertTo-Json -Depth 6 -Compress) + "`n") }
+    # F1-S5 defaults: runtime/env cover the fixture task grants so the happy
+    # path projects clear. Two distinct elements on purpose (exercises the
+    # multi-grant path); the kernel intersection keeps the effective set
+    # task-bounded, so the extra element never widens anything.
+    $rt = @('fs.read', 'git.diff')
+    if (($null -ne $RuntimeGrants) -and ($RuntimeGrants -is [System.Array])) { $rt = @($RuntimeGrants) }
+    $ev = @('fs.read', 'git.diff')
+    if (($null -ne $EnvironmentGrants) -and ($EnvironmentGrants -is [System.Array])) { $ev = @($EnvironmentGrants) }
+    $ha = $false
+    if (($null -ne $HumanApproved) -and ($HumanApproved -is [bool])) { $ha = [bool]$HumanApproved }
     $ctx = [ordered]@{
         schema_version = 1
         receipt_dir = ([string]$Fx.receiptDir)
@@ -199,6 +209,14 @@ function Write-ClaimContext {
         expected_target_agent = 'coder'
         expected_prompt_hash = $eh
         expected_args_template = $tmpl
+        runtime_capability_grants = @($rt)
+        environment_grants = @($ev)
+        human_approved = [bool]$ha
+    }
+    if ($OmitGrantFields) {
+        $ctx.Remove('runtime_capability_grants')
+        $ctx.Remove('environment_grants')
+        $ctx.Remove('human_approved')
     }
     $ctxPath = Join-Path ([string]$Fx.tempRoot) ('claim-context-' + [guid]::NewGuid().ToString('N') + '.json')
     Write-Fixture -Path $ctxPath -Text (([pscustomobject]$ctx | ConvertTo-Json -Depth 6 -Compress) + "`n")
@@ -250,6 +268,19 @@ try {
     }
     Assert-That ($cliText -cnotmatch 'Invoke-OrchestrationNativeDispatch(\s|"''|$)') 'CLI never calls legacy dispatch path' 'legacy invoke present'
     Assert-That (([regex]::Matches($cliText, 'Invoke-OrchestrationNativeDispatchClaim\s+-IdempotencyKey')).Count -eq 1) 'CLI calls the CLAIM entrypoint exactly once' 'call-site count differs'
+    Assert-That ($cliText -cmatch 'runtime_capability_grants') 'CLI context carries runtime_capability_grants (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'environment_grants') 'CLI context carries environment_grants (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'human_approved') 'CLI context carries human_approved (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'grant_projection') 'CLI envelope carries grant_projection (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'Get-NDGrantSourceSnapshot') 'CLI snapshots the grant source (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'Test-NDGrantProjection') 'CLI projects deny-only (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'New-NCGrantProjectionRefused') 'CLI refused projection helper present (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'grant-source-not-evaluated') 'CLI refused projection reason present (S5)' 'missing'
+    $projText = [IO.File]::ReadAllText((Join-Path $v3 'lib\OrchestrationNativeDispatchGrantProjection.ps1'), [Text.Encoding]::UTF8)
+    Assert-That ($projText -cnotmatch 'allow = \$true') 'projection lib never allows (literal, S5)' 'literal true present'
+    Assert-That ($projText -cnotmatch 'authority\s+=\s+\$true') 'projection lib never grants authority (literal, S5)' 'literal true present'
+    Assert-That ($projText -cmatch 'authority\s+=\s+\$false') 'projection lib pins authority false (S5)' 'missing'
+    Assert-That ($projText -cnotmatch 'Invoke-OrchestrationNativeDispatchClaim') 'projection lib never claims' 'claim call present'
     Assert-That ($cliText -cmatch 'grants_authority\s+=\s+\$false') 'CLI pins grants_authority false' 'missing'
     Assert-That ($cliText -cmatch 'done_approved\s+=\s+\$false') 'CLI pins done_approved false' 'missing'
     Assert-That ($cliText -cmatch 'verified_pass\s+=\s+\$false') 'CLI pins verified_pass false' 'missing'
@@ -314,6 +345,15 @@ try {
         $lines = @($rPos.Text -split "`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         Assert-That (@($lines).Count -eq 1) 'positive output is a single JSON line' ("lines=" + @($lines).Count)
         Assert-That ($rPos.Text.Length -le 65536) 'positive output within 64 KiB' ("len=" + $rPos.Text.Length)
+        $gpPos = $dPos.grant_projection
+        Assert-That (($null -ne $gpPos)) 'positive envelope carries grant_projection (S5)' $rPos.Text
+        if ($null -ne $gpPos) {
+            Assert-That (([bool]$gpPos.ok) -and (([string]$gpPos.reason) -ceq 'grant-projection-clear')) 'positive projection clear (S5)' $rPos.Text
+            $gpDeniedEmpty = (($null -eq $gpPos.denied) -or (@($gpPos.denied).Count -eq 0))
+            Assert-That $gpDeniedEmpty 'positive projection denies nothing (S5)' $rPos.Text
+            Assert-That ([bool]$gpPos.authority -eq $false) 'positive projection authority false (S5)' $rPos.Text
+            Assert-That (Test-NCHex32 -Value ([string]$gpPos.source_revision)) 'positive projection source_revision 32hex (S5)' $rPos.Text
+        }
     }
     $rcPos = Get-ReceiptDoc -Fx $fx
     Assert-That (($null -ne $rcPos) -and ([string]$rcPos.phase -ceq 'claimed') -and ([string]$rcPos.handoff_state -ceq 'DISPATCH_UNCERTAIN')) 'receipt transitioned prepared -> claimed' 'phase mismatch'
@@ -349,6 +389,58 @@ try {
     $rcRep = Get-ReceiptDoc -Fx $fx
     Assert-That (($null -ne $rcRep) -and ([string]$rcRep.phase -ceq 'claimed')) 'replay kept the claimed reservation' 'phase changed'
 
+    # ---------- F1-S5: grant projection over the canonical task grants ----------
+    $fxD = New-ClaimFixture -Suffix 's5deny'
+    $ctxD = Write-ClaimContext -Fx $fxD -RuntimeGrants @('git.diff', 'shell.validation') -EnvironmentGrants @('git.diff', 'shell.validation')
+    $rD = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxD) -ContextPath $ctxD
+    $dD = Read-JsonDoc -Text $rD.Text
+    Assert-That (($rD.Code -eq 0) -and ($null -ne $dD) -and ([bool]$dD.ok) -and ([bool]$dD.claimed)) 'narrowed runtime/env still claims (projection is observation)' ("Exit $($rD.Code) :: $($rD.Text)")
+    if ($null -ne $dD) {
+        $gpD = $dD.grant_projection
+        Assert-That (($null -ne $gpD) -and ([bool]$gpD.ok) -and (([string]$gpD.reason) -ceq 'grant-projection-denied')) 'narrowed runtime/env projects denied (S5)' $rD.Text
+        $dDenied = @($gpD.denied)
+        Assert-That ((@($dDenied).Count -eq 1) -and (([string]$dDenied[0].grant) -ceq 'fs.read') -and (([string]$dDenied[0].reason) -ceq 'grant-not-effective')) 'denied entry names the uncovered task grant (S5)' $rD.Text
+        Assert-That ([bool]$gpD.authority -eq $false) 'denied projection authority false (S5)' $rD.Text
+        Assert-That (Test-NCHex32 -Value ([string]$gpD.source_revision)) 'denied projection source_revision 32hex (S5)' $rD.Text
+        Assert-That (([bool]$dD.grants_authority -eq $false) -and ([bool]$dD.done_approved -eq $false) -and ([bool]$dD.verified_pass -eq $false)) 'denied projection keeps zero authority pins (S5)' $rD.Text
+    }
+    $fxO = New-ClaimFixture -Suffix 's5omit'
+    $ctxO = Write-ClaimContext -Fx $fxO -OmitGrantFields
+    $rO = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxO) -ContextPath $ctxO
+    $dO = Read-JsonDoc -Text $rO.Text
+    Assert-That (($rO.Code -eq 0) -and ($null -ne $dO) -and ([bool]$dO.ok) -and ([bool]$dO.claimed)) 'omitted grant fields still claim (defaults fail-closed)' ("Exit $($rO.Code) :: $($rO.Text)")
+    if ($null -ne $dO) {
+        $gpO = $dO.grant_projection
+        Assert-That (($null -ne $gpO) -and ([bool]$gpO.ok) -and (([string]$gpO.reason) -ceq 'grant-projection-denied')) 'omitted grant fields project denied (empty effective, S5)' $rO.Text
+    }
+    # strict context types for the S5 fields (exit 2, nothing coerced)
+    $ctxTextD = [IO.File]::ReadAllText($ctxD, [Text.Encoding]::UTF8)
+    $ctxScalarPath = Join-Path ([string]$fxD.tempRoot) 'ctx-s5-scalar.json'
+    Write-Fixture -Path $ctxScalarPath -Text (($ctxTextD -replace '"runtime_capability_grants":\[[^\]]*\]', '"runtime_capability_grants":"fs.read"') + "`n")
+    $rScalar = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxD) -ContextPath $ctxScalarPath
+    $dScalar = Read-JsonDoc -Text $rScalar.Text
+    Assert-That (($rScalar.Code -eq 2) -and ($null -ne $dScalar) -and (-not [bool]$dScalar.ok) -and (([string]$dScalar.reason) -ceq 'invalid-context')) 'scalar runtime grants => exit 2, never coerced (S5)' ("Exit $($rScalar.Code) :: $($rScalar.Text)")
+    $ctxNumHaPath = Join-Path ([string]$fxD.tempRoot) 'ctx-s5-numha.json'
+    Write-Fixture -Path $ctxNumHaPath -Text (($ctxTextD -replace '"human_approved":(true|false)', '"human_approved":1') + "`n")
+    $rNumHa = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxD) -ContextPath $ctxNumHaPath
+    $dNumHa = Read-JsonDoc -Text $rNumHa.Text
+    Assert-That (($rNumHa.Code -eq 2) -and ($null -ne $dNumHa) -and (-not [bool]$dNumHa.ok) -and (([string]$dNumHa.reason) -ceq 'invalid-context')) 'numeric human_approved => exit 2, never coerced (S5)' ("Exit $($rNumHa.Code) :: $($rNumHa.Text)")
+    $ctxStrHaPath = Join-Path ([string]$fxD.tempRoot) 'ctx-s5-strha.json'
+    Write-Fixture -Path $ctxStrHaPath -Text (($ctxTextD -replace '"human_approved":(true|false)', '"human_approved":"true"') + "`n")
+    $rStrHa = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxD) -ContextPath $ctxStrHaPath
+    $dStrHa = Read-JsonDoc -Text $rStrHa.Text
+    Assert-That (($rStrHa.Code -eq 2) -and ($null -ne $dStrHa) -and (-not [bool]$dStrHa.ok) -and (([string]$dStrHa.reason) -ceq 'invalid-context')) 'string human_approved => exit 2, never coerced (S5)' ("Exit $($rStrHa.Code) :: $($rStrHa.Text)")
+    $ctxNumArrPath = Join-Path ([string]$fxD.tempRoot) 'ctx-s5-numarr.json'
+    Write-Fixture -Path $ctxNumArrPath -Text (($ctxTextD -replace '"environment_grants":\[[^\]]*\]', '"environment_grants":["fs.read",7]') + "`n")
+    $rNumArr = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxD) -ContextPath $ctxNumArrPath
+    $dNumArr = Read-JsonDoc -Text $rNumArr.Text
+    Assert-That (($rNumArr.Code -eq 2) -and ($null -ne $dNumArr) -and (-not [bool]$dNumArr.ok) -and (([string]$dNumArr.reason) -ceq 'invalid-context')) 'numeric array element => exit 2 (S5)' ("Exit $($rNumArr.Code) :: $($rNumArr.Text)")
+    $ctxUnknownPath = Join-Path ([string]$fxD.tempRoot) 'ctx-s5-unknown.json'
+    Write-Fixture -Path $ctxUnknownPath -Text (($ctxTextD -replace '"schema_version":1', '"schema_version":1,"zzz_unknown":1') + "`n")
+    $rUnknown = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxD) -ContextPath $ctxUnknownPath
+    $dUnknown = Read-JsonDoc -Text $rUnknown.Text
+    Assert-That (($rUnknown.Code -eq 2) -and ($null -ne $dUnknown) -and (-not [bool]$dUnknown.ok) -and (([string]$dUnknown.reason) -ceq 'invalid-context')) 'unknown context field => exit 2 (S5)' ("Exit $($rUnknown.Code) :: $($rUnknown.Text)")
+
     # ---------- NEGATIVE: expired lease ----------
     $fxL = New-ClaimFixture -Suffix 's1lease'
     $shr = Renew-OrchestrationGoalOwnership -GoalId ([string]$fxL.goalId) -OwnerId 'planner-1' -Generation ([long]$fxL.gen) -StoreDir ([string]$fxL.goalDir) -LeaseTtlMs 1
@@ -358,6 +450,12 @@ try {
     $rL = Invoke-BridgeCli -RequestText (New-ClaimRequest -Fx $fxL) -ContextPath $ctxL
     $dL = Read-JsonDoc -Text $rL.Text
     Assert-That (($rL.Code -eq 0) -and ($null -ne $dL) -and (-not [bool]$dL.ok) -and (-not [bool]$dL.claimed)) 'expired lease => refused exit 0' ("Exit $($rL.Code) :: $($rL.Text)")
+    if ($null -ne $dL) {
+        $gpL = $dL.grant_projection
+        Assert-That (($null -ne $gpL) -and (-not [bool]$gpL.ok) -and (([string]$gpL.reason) -ceq 'grant-source-not-evaluated')) 'refusal carries unevaluated grant_projection (S5)' $rL.Text
+        $gpLDeniedEmpty = (($null -eq $gpL.denied) -or (@($gpL.denied).Count -eq 0))
+        Assert-That ($gpLDeniedEmpty -and ([string]$gpL.source_revision -ceq '') -and ([bool]$gpL.authority -eq $false)) 'refused projection shape empty revision zero authority (S5)' $rL.Text
+    }
     $rcL = Get-ReceiptDoc -Fx $fxL
     Assert-That (($null -ne $rcL) -and ([string]$rcL.phase -ceq 'prepared')) 'expired lease never consumes the prepared receipt' 'phase changed'
 
@@ -503,11 +601,10 @@ try {
     $rArgsArr = Invoke-BridgeCli -RequestText $tArgsArr -ContextPath $ctxS
     $dArgsArr = Read-JsonDoc -Text $rArgsArr.Text
     Assert-That (($rArgsArr.Code -eq 2) -and ($null -ne $dArgsArr) -and (-not [bool]$dArgsArr.ok)) 'args [{...}] => exit 2, array preserved' ("Exit $($rArgsArr.Code) :: $($rArgsArr.Text)")
-    $ctxTextArr = $ctxTextS.TrimEnd()
-    $ctxTextArr = $ctxTextArr -replace '"expected_args_template":\{', '"expected_args_template":[{'
-    $ctxTextArr = $ctxTextArr.Substring(0, $ctxTextArr.Length - 1) + ']}'
+    $ctxArrDoc = ($ctxTextS | ConvertFrom-Json)
+    $ctxArrDoc.expected_args_template = @($ctxArrDoc.expected_args_template)
     $ctxArrPath = Join-Path ([string]$fxS.tempRoot) 'ctx-arr.json'
-    Write-Fixture -Path $ctxArrPath -Text ($ctxTextArr + "`n")
+    Write-Fixture -Path $ctxArrPath -Text (([pscustomobject]$ctxArrDoc | ConvertTo-Json -Depth 6 -Compress) + "`n")
     $rCtxArr = Invoke-BridgeCli -RequestText $baseReq -ContextPath $ctxArrPath
     $dCtxArr = Read-JsonDoc -Text $rCtxArr.Text
     Assert-That (($rCtxArr.Code -eq 2) -and ($null -ne $dCtxArr) -and (-not [bool]$dCtxArr.ok) -and ([string]$dCtxArr.reason -ceq 'invalid-context')) 'template [{...}] => exit 2, array preserved' ("Exit $($rCtxArr.Code) :: $($rCtxArr.Text)")
@@ -633,7 +730,7 @@ catch {
 }
 finally {
     try {
-        foreach ($root in @($fx.tempRoot, $fxL.tempRoot, $fxG.tempRoot, $fxF.tempRoot, $fxR.tempRoot, $fxP.tempRoot, $fxT.tempRoot, $fxA.tempRoot, $fxJ.tempRoot, $fxH.tempRoot, $fxK.tempRoot, $fxS.tempRoot, $fxB.tempRoot, $fxR5.tempRoot, $fxE.tempRoot)) {
+        foreach ($root in @($fx.tempRoot, $fxL.tempRoot, $fxG.tempRoot, $fxF.tempRoot, $fxR.tempRoot, $fxP.tempRoot, $fxT.tempRoot, $fxA.tempRoot, $fxJ.tempRoot, $fxH.tempRoot, $fxK.tempRoot, $fxS.tempRoot, $fxB.tempRoot, $fxR5.tempRoot, $fxE.tempRoot, $fxD.tempRoot, $fxO.tempRoot)) {
             if ((-not [string]::IsNullOrWhiteSpace($root)) -and (Test-Path -LiteralPath $root -PathType Container)) {
                 Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
             }
