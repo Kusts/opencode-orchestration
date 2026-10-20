@@ -1,0 +1,138 @@
+{
+    "lane":  "agent-mcp-integration-lane-v2",
+    "purpose":  "integracao agent-\u003eMCP (tester-\u003ePlaywright, debugger-\u003eDevTools) em runtime REAL com binario V2 vivo",
+    "date":  "2026-10-19",
+    "started_at":  "2026-10-19T11:33:31.7075686Z",
+    "finished_at":  "2026-10-19T11:41:43.9869024Z",
+    "status":  "completed",
+    "reason":  "sem fail (apenas pass-real/blocked).",
+    "runtime_pin":  "2.0.23",
+    "runtime_live":  "2.0.23",
+    "pin_drift":  false,
+    "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "model_key_env":  "model-key-env=opencode_go_api",
+    "scenarios":  [
+                      {
+                          "scenario_id":  "S5",
+                          "status":  "blocked",
+                          "detail":  "turn TIMEOUT 240s (infra/modelo).",
+                          "proofs":  [
+                                         {
+                                             "proof":  "model-setup",
+                                             "ok":  true,
+                                             "detail":  "fixture+serve owned; model-key-env=opencode_go_api"
+                                         },
+                                         {
+                                             "proof":  "credential-store",
+                                             "ok":  true,
+                                             "detail":  "credential rows=8 no DB isolado"
+                                         },
+                                         {
+                                             "proof":  "session-created",
+                                             "ok":  true,
+                                             "detail":  "id len=30"
+                                         },
+                                         {
+                                             "proof":  "model-turn",
+                                             "ok":  false,
+                                             "detail":  "TIMEOUT 240s"
+                                         },
+                                         {
+                                             "proof":  "turn-output-head",
+                                             "ok":  true,
+                                             "detail":  "{\"type\":\"step_start\",\"timestamp\":1792409624520,\"sessionID\":\"ses_eac0faf68ffejGp36oPNvRI6VG\",\"part\":{\"id\":\"prt_153f05fc8001R1kcuT3Jvzmyd9\",\"sessionID\":\"ses_eac0faf68ffejGp36oPNvRI6VG\",\"messageID\":\"msg_153f057e7001IwGEOFntB9fmw5\",\"type\":\"step-start\"}}  {\"type\":\"text\",\"timestamp\":1792409624943,\"sessionID\":\"ses_eac0faf68ffejGp36oPNvRI6VG\",\"part\":{\"id\":\"prt_153f0616c001F2LLK61AHPt1IA\",\"sessionID\":\"ses_eac0faf68ffejGp36oPNvRI6VG\",\"messageID\":\"msg_153f057e7001IwGEOFntB9fmw5\",\"type\":\"text\",\"text\":\"Delegating your 3-click check to the tester.\",\"time\":{\"start\":1792409624940,\"end\":1792409624943}}}  {\"type\":\"tool_use\",\"timestamp\":1792409638725,\"sessionID\":\"ses_eac0faf68ffejGp36oPNvRI6VG\",\"part\":{\"partID\":\"prt_153f06184001D5lo4a2jYJhRX2\",\"sessionID\":\"ses_eac0faf68ffejGp36oPNvRI6VG\",\"messageID\":\"msg_153f057e7001IwGEOFntB9fmw5\",\"type\":\"tool\",\"id\":\"call_01a153f05f12703181c88d71e5c2dc46\",\"tool\":\"subagent\",\"state\":{\"status\":\"completed\",\"input\":{\"agent\":\"tester\",\"description\":\"Click test button 3 times\",\"prompt\":\"Open [REDACTED-URL] with the Playwright browser tools ONLY - browser_navigate, browser_snapshot, browser_click. Do NOT read the page via shell, curl, cat or any file tool. Click the button id count-btn exactly 3 times, read span id count, and report CLICKS_DONE=-n-.\"},\"output\":\"\u003csubagent sessionID=\\\"ses_eac0f9cbbffeFcWP0ShAG0ubQB\\\" state=\\\"completed\\\"\u003e\\nPlaywright `browser_navigate` failed - browser could not launch. No page access, no clicks performed.\\n\\nError (reproduced twice):\\n`async initializeServer: Target page, context or browser has been closed`\\nChrome launch flags included `--user-data-dir=C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\playwright_chromiumdev_profile-*` yet Chrome stderr: `DevTools remote debugging requires a non-default data directory. Specify this using --user-data-dir.`\\n\\nUsed ONLY allowed tools via Code Mode `execute`:\\n- `tools.playwright.browser_navigate({url:\\\"[REDACTED-URL]\"})`\\n- `tools.playwright.browser_snapshot({})`\\n\\nBoth attempts failed at"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-19T11:37:42.3176446Z"
+                      },
+                      {
+                          "scenario_id":  "S6",
+                          "status":  "blocked",
+                          "detail":  "turn TIMEOUT 240s (infra/modelo).",
+                          "proofs":  [
+                                         {
+                                             "proof":  "model-setup",
+                                             "ok":  true,
+                                             "detail":  "fixture+serve owned; model-key-env=opencode_go_api"
+                                         },
+                                         {
+                                             "proof":  "credential-store",
+                                             "ok":  true,
+                                             "detail":  "credential rows=8 no DB isolado"
+                                         },
+                                         {
+                                             "proof":  "session-created",
+                                             "ok":  true,
+                                             "detail":  "id len=30"
+                                         },
+                                         {
+                                             "proof":  "model-turn",
+                                             "ok":  false,
+                                             "detail":  "TIMEOUT 240s"
+                                         },
+                                         {
+                                             "proof":  "turn-output-head",
+                                             "ok":  true,
+                                             "detail":  "{\"type\":\"step_start\",\"timestamp\":1792409870563,\"sessionID\":\"ses_eac0bfee5ffebXQdxKaMR6spkn\",\"part\":{\"id\":\"prt_153f420e3001mcWFy2M23uMK0G\",\"sessionID\":\"ses_eac0bfee5ffebXQdxKaMR6spkn\",\"messageID\":\"msg_153f4020f0019Utn5VxBibGoWW\",\"type\":\"step-start\"}}"
+                                         }
+                                     ],
+                          "coverage":  [
+
+                                       ],
+                          "at":  "2026-10-19T11:41:43.9714680Z"
+                      }
+                  ],
+    "scenario_counts":  {
+                            "pass_real":  0,
+                            "fail":  0,
+                            "blocked":  2
+                        },
+    "checks":  [
+                   {
+                       "check":  "binary_live_resolved",
+                       "ok":  true,
+                       "detail":  "vivo=2.0.23 pin=2.0.23 pin_drift=False (prossegue com o binario vivo documentado)"
+                   },
+                   {
+                       "check":  "profiles_isolated_temp",
+                       "ok":  true,
+                       "detail":  "testing+default sob TargetHome exclusivo; OPENCODE_DB distintos (convencao lane-owned)"
+                   },
+                   {
+                       "check":  "auth_store_deferred",
+                       "ok":  true,
+                       "detail":  "perfis iniciam SEM credencial; importacao adiada para pos-gate opt-in via Import-LaneProfileCredentials (S5/S6/S7); segredos morrem com TargetHome"
+                   },
+                   {
+                       "check":  "configs_from_template",
+                       "ok":  true,
+                       "detail":  "agents.build/tester/debugger extraidos em runtime + 14 restricoes MCP materializadas (deny code-exec, ask evaluate); modelos: cheap=opencode-go/muse-spark-1.3-contributor strong=openai/gpt-6.1-sol; testing com 2 MCPs, default sem mcp"
+                   },
+                   {
+                       "check":  "isolation_testing",
+                       "ok":  true,
+                       "detail":  "debug paths resolve em TEMP; sem ~/.config (toca-home=False)"
+                   },
+                   {
+                       "check":  "isolation_default",
+                       "ok":  true,
+                       "detail":  "debug paths resolve em TEMP; sem ~/.config (toca-home=False)"
+                   },
+                   {
+                       "check":  "service_ports_isolated",
+                       "ok":  true,
+                       "detail":  "testing=55451 default=55452 fixture=55453; 49374 recusada"
+                   }
+               ],
+    "notes":  [
+                  "model-key opt-in (model-key-env=opencode_go_api); passthrough pontual SOMENTE aos filhos opencode run de S5/S6/S7"
+              ],
+    "evidence_records":  [
+
+                         ],
+    "isolation":  "dois perfis XDG isolados em TEMP + OPENCODE_DB distintos (convencao lane-owned); -CleanEnvironment nos filhos Spike; cwd nos perfis; stdin fechado",
+    "job_backstop":  "Job Object com KILL_ON_JOB_CLOSE criado ANTES de cada processo owned de longa vida; contem somente processos desta lane"
+}

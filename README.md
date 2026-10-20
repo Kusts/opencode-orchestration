@@ -22,15 +22,15 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | Requisito | Suporte |
 |---|---|
 | OpenCode **V1.x** (pacote npm `opencode-ai`) | ⚠️ Legado, frozen (issue #62) — funcional para perfis existentes; CI legado validou com **1.18.34** (`opencode --version` responde `1.x`). Sem certificação de features novas. |
-| OpenCode **V2** (pacote `@opencode/cli`) | ✅ Prospectivo (programa V3.1) — validado com **2.0.23** (`opencode --version` responde `2.x`); render/config/permissões **nativos V2** e plugin dual-runtime. Camada `experimental.policies` e lane de CI própria ainda pendentes (ver [CHANGELOG](CHANGELOG.md)). |
+| OpenCode **V2** (pacote `@opencode/cli`) | ✅ Prospectivo (programa V3.1) — validado com **2.0.23** (`opencode --version` responde `2.x`); render/config/permissões **nativos V2** e plugin dual-runtime. Camada `experimental.policies` em HOLD (Phase 5, ver [docs/PERMISSIONS.md](docs/PERMISSIONS.md)); lanes de CI próprias existem (`ci-v2-lane` + `ci-smoke-opencode-v2`), com o smoke implícito como observação (`continue-on-error`, HOLD Etapa I). Ver [CHANGELOG](CHANGELOG.md) [0.2.0]. |
 | V1 **e** V2 na mesma máquina | ✅ Via perfis isolados (`.\install.ps1 -Runtime Both`) — migração/manutenção de perfis legados; fail-closed sem binários provados. |
 | Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
 | `bun` ou `npm` — dependência do plugin (`@opencode/plugin@2.0.23` no V2, recomendado; `@opencode-ai/plugin@1.18.34` no V1 legado) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
 
 ## Versionamento
 
-- Versão atual: `0.1.2` (ver `VERSION`); tag `v0.1.2` (→ `b38c92b`) marca esta release.
-- Tags `v0.1.1` e `v1.0` (legada, anterior ao versionamento formal) marcam releases anteriores e são preservadas como histórico.
+- Versão atual: `0.2.0` (ver `VERSION`); tag `v0.2.0` publicada em 2026-10-19 (merge #128) marca esta release.
+- Tags `v0.1.2`, `v0.1.1` e `v1.0` (legada, anterior ao versionamento formal) marcam releases anteriores e são preservadas como histórico.
 - `V3` / `V3.1` / `Pxx` são programas internos históricos, não versões do pacote.
 - Índice SPEC/PLAN/ADR em [docs/specs/INDEX.md](docs/specs/INDEX.md); histórico de mudanças em [CHANGELOG.md](CHANGELOG.md).
 

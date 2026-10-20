@@ -4,6 +4,210 @@ Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+- **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
+  que não seja ordinalmente igual ao próprio `.Trim()` (espaços
+  iniciais/finais → `grant-source-registry-invalid`): o kernel trima os
+  baselines, de modo que texto acolchoado (`"git.push "`) passaria nas
+  verificações literais de universo/sensíveis e resolveria para o grant
+  sensível na interseção. Cenário exato do reviewer + variantes
+  (leading-space, baseline acolchoado com universo limpo, tab) cobertos;
+  caminhos válidos/F1/F2 sem regressão. Suítes: projeção 124 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
+- **F1 S5 FIX2 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: `Test-NDGPRegistrySemantics` rejeita baseline com grant sensível
+  (lista canônica via `Get-TaskKernelSensitiveGrants`, sem duplicar;
+  helper ausente → inválido fail-closed); cenário do reviewer
+  (`git.push` em universo+baseline+3 listas, sem aprovação) →
+  `grant-source-registry-invalid`, nunca clear; caminho legítimo com
+  aprovação e baselines limpos continua clear. F2: ramo com
+  `-ExpectedRevision` ligado exige `Task.revision` presente e inteiro
+  exato (`"3"`/`3.0`/`null`/ausente → mismatch; sem vínculo mantém o
+  comportamento). DOC: CHANGELOG do FIX1 citava
+  `grant-source-registry-mismatch` (inexistente) → alinhado para
+  `grant-source-registry-invalid`. Suítes: projeção 119 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
+- **F1 S5 FIX1 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: o snapshot valida semanticamente o registry canônico antes da
+  interseção (versão inteira 1, `grants` array de strings únicas/não
+  vazias como universo, `role_baselines` objeto de arrays com todo
+  baseline ∈ universo, sem coerção); desvio → novo código fail-closed
+  `grant-source-registry-invalid`. F2: a projeção é vinculada à revisão
+  do recibo (`receipt.task_expected_revision` via novo parâmetro
+  `-ExpectedRevision` e entry point `Get-NCGrantProjectionFromClaim` na
+  bridge); divergência pós-CLAIM → `grant-source-task-revision-mismatch`
+  (hook nega). Suítes: projeção 106 asserts, bridge S1 145 asserts, node
+  60 testes; typecheck `pwsh` V1/V2/DUAL + bundle + `[typecheck:g1]` verdes.
+
+- **F1 S5 — projeção deny-only de grants de origem (fixture-only)**:
+  nova lib `scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1`
+  (`Get-NDGrantSourceSnapshot`: lê a task canônica + papel do recibo e chama
+  a interseção do kernel `Get-OrchestrationEffectiveGrants` sem
+  reimplementá-la; `Test-NDGrantProjection`: projeção pura deny-only,
+  ordinal, universo fechado — nunca allow, nunca autoridade;
+  `source_revision` = hash32 de `taskrev + flags + grants efetivos`).
+  `scripts/v3/native-dispatch-claim.ps1` ganha contexto estrito aditivo
+  (`runtime_capability_grants`/`environment_grants`/`human_approved`,
+  defaults fail-closed) e o envelope `grant_projection` (inclusive no
+  fallback `encode-failed`; avaliado só em claim ok+claimed; refusal =
+  `grant-source-not-evaluated`). `plugins/g1-dispatch-admission` valida o
+  shape exato (`authority===false`, 32hex-ou-vazio, deny list bounded) e o
+  handler nega em `ok!==true`/`denied>0` (recusa do claim primeiro; clear =
+  abstém, S1 intacto). `scripts/ci/typecheck-plugin.ps1` executa os node
+  tests do `g1-dispatch-admission`. Novas suítes: projeção PS 81 asserts
+  (PS5.1+pwsh), bridge S1 134 asserts (PS5.1+pwsh), node 59 testes.
+  Sem flag/registry/ND/kernel/TS alterados; sem autoridade/runtime-real.
+
+- **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
+  F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
+  `task_project` do registro canônico e o gate monta o descritor
+  `{risk, operation, domain, summary}` (hard triggers voltam a elevar a
+  L3; objetivo com `auth` exige security-review — S13). F2: `$advPrepared`
+  lido independente de `$advOk`; falha pós-PREPARE preserva o efeito
+  (`ok=false, action=prepared`, S14-honesto documenta o limite do fault
+  injection sem ganchos no ND). F3: evidência ilegível separa
+  ausente=unproven de ilegível=uncertain (S15; S11b intacto). F4: replay e
+  caminho COMPLETE exigem autorização viva via `Test-SCCompletionAuthorization`
+  (helper autoridade do ND) antes de qualquer CAS (S16). F5: a prova exige
+  `(task_expected_revision + 1) == worker_result.revision`, senão
+  `worker-result-superseded` (S17 K1/K2). F6: contenção do `evidence_id`
+  antes do `Join-Path` (unit do guard). F7: goal PAUSED recusa sem
+  reativar (S18). S13b: descritor inclui o contexto canônico do goal vivo
+  (objective + criteria) além da task. S14b: unit do ramo F2 (double do
+  ADVANCE no escopo do teste, advance chamado exatamente 1 vez, envelope
+  de efeito preservado). Nova suite com 658 asserts (PS 5.1+pwsh); AL
+  47/47 e F3 verdes. Sem claim runtime-real/G3/S6.
+
+- **F1 S3a — continuação pós-settlement (fixture-only)**:
+  `Invoke-OrchestrationSettledContinuation`
+  (`scripts/v3/lib/OrchestrationAutonomousLoop.ps1`) consome UMA
+  liquidação canônica (recibo `settled` + evidência + `worker_result` do
+  kernel, tudo relido — nunca `verified/aprovado` do chamador) e compõe
+  prova do settlement + gates de verificação/review (nível efetivo da
+  policy real; L3 exige security-review; risco desconhecido falha
+  fechado) + decisão do Controller + `ND-ADVANCE` (sem
+  `-FinalizeGoalOnComplete`) + checkpoint correlacionado (schema intacto
+  + sidecar `<checkpoint_id>.settled-continuation.json`). Termina em
+  `prepared`/`replan_required`/`blocked`/`completed`; `ok` = processamento
+  válido, `completed` só após CAS; `executor_calls` sempre 0; zero-efeito
+  antes do ADVANCE; pós-PREPARE com checkpoint falho devolve
+  `prepared=true` + chave (`continuation-checkpoint-required`).
+  `Invoke-OrchestrationObjectiveStep` ganha `-SettledKey`/`-NextIntent`
+  (encaminha uma vez; sem eles, legado intacto). Ramo COMPLETE fatorado
+  em `Invoke-ALObjectiveCompletion` e reutilizado. ND: replay
+  CONTINUE/RETRY pendente preserva a decisão gravada (sem reconsulta ao
+  Controller) e finalize com `-FinalizeGoalOnComplete` só com
+  `OBJECTIVE_COMPLETED` + critérios verificados (stop de política
+  registra `goal-finalize-refused:policy-stop`, nunca completa; D5b do
+  Handoff marca `progress=1/1`, D5d prova a recusa). Testes: suite
+  `OrchestrationSettledContinuation` (658 asserts PS 5.1+pwsh após
+  FIX1/FIX1B: S1–S18, F6, S14b unit, S13b com trigger no goal)
+  + suítes `AutonomousLoop` (47/47) e `NativeDispatch` (4/4, Handoff
+  2151 asserts) verdes. Sem claim de G3/autonomia runtime-real/recovery
+  S4; sem mudança em TaskKernel/validation-policy/plugin/flags/enforcement.
+
+- **F1 S2 — owner único do SETTLE (liquidação canônica via ND-Settle)**:
+  `Invoke-OrchestrationNativeDispatchSettle`
+  (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) passa a ser o único
+  caminho de liquidação: monta o contexto nativo correlacionado dos locais
+  já validados (recibo, chave, fingerprint, sessões, agentes, autorização,
+  stores, revisão do goal) e o encaminha ao kernel. `New-ProductiveSettleImpl`
+  (`scripts/v3/lib/OrchestrationProductiveActivation.ps1`) deixa de chamar
+  `Set-OrchestrationTaskWorkerResult` diretamente (incluindo a recuperação por
+  igualdade de worker_result, removida) e delega UMA vez ao ND-Settle com
+  contexto nativo explícito correlacionado ao binding PA; sem contexto
+  completo: HOLD fail-closed, zero escrita. `Set-OrchestrationTaskWorkerResult`
+  aceita `-SettlementContext` opcional e `New-OrchestrationTask` aceita
+  `-SettlementPolicy` opcional (`canonical-native-settle`, sem migração de
+  tasks existentes): task marcada recusa escritor não-canônico, contexto
+  ausente/incompleto/divergente ou goal fora de ACTIVE/sem ownership/sem
+  vínculo, com razões estáveis e zero escrita; task não marcada preserva o
+  contrato legado (contexto ignorado). Projeção observável
+  `Get-ProductiveSettlementProjection` (candidate/persisted/verified/advanced,
+  `unknown` sem prova legível; `advanced` lê OR + ND, sem regra nova).
+  Commit ambíguo permanece fail-closed/manual. Flags/config inalteradas (OFF);
+  S1 (bridge + plugin g1) intocado. Testes: 178 asserts PS na suite
+  `OrchestrationProductiveActivation` (delegação com recibo real, HOLD,
+  divergência, fencing/lease, duplicata divergente, ambíguo, legada,
+  verificação separada, projeção) + suíte do kernel verde (legado intacto).
+  - **Endurecimento F1-S2-FIX1** (reviewer + security-reviewer, mesma branch):
+    prova durável do recibo (`Test-OrchestrationNativeDispatchSettlementProof`):
+    o kernel só escreve em task marcada quando o contexto corresponde a um
+    claim `claimed` real com integridade semântica, Intent correlacionada e
+    marcadores de tentativa/evidência do ND-Settle — contexto fabricado
+    (32-hex sem recibo) é recusado como `SETTLEMENT_CONTEXT_UNVERIFIED`
+    (prova indisponível: `SETTLEMENT_PROOF_UNAVAILABLE`); contexto do ND-Settle
+    ancora `receipt_dir`/`receipt_ident` contidos em `receipt_root` e resolve
+    `goal_store_dir` via default quando omitido. Projeção `advanced`
+    interpretada (present|pending|blocked|failed|unknown|absent, com correlação
+    goal_id/settled_key) em vez de `present` para qualquer registro; comentário
+    do lock do goal corrigido para leitura lock-free honesta. A prova é de
+    consistência/estado durável sob o contrato SEC7 do ND (`ReceiptDir`
+    confiável por escolha do chamador, produtor exclusivo): não autentica o
+    processo escritor nem protege contra produtor comprometido; as janelas
+    residuais entre revalidação e persistência permanecem documentadas.
+
+- **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
+  `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
+  schema estrito; contexto só de arquivo com teto de 64 KiB em bytes e UTF-8
+  estrito; prompt ancorado no recibo durável; saída sem authority) + modo
+  isolado no plugin `g1-dispatch-admission` com hook `execute.before`
+  deny-only para `subagent` (tool-first; spawn `shell:false`; material
+  canônico reconstruído e conferido antes do hash; nunca `allow:true`;
+  fail-closed). Testes: 102 asserts PS (5.1+pwsh) + 41 node (2 de integração
+  com subprocesso real); regressão `objective-step` 130/130. Verificação:
+  tester PASS; reviewer APPROVED (4 rodadas); security-reviewer APPROVED
+  (fixture-only, limitações declaradas no código).
+
+## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
+
+Rodada de refinamento funcional 2026-10-17/19 (plano em
+`docs/plans/REFINEMENT-EXECUTION-2026-10-17.md`), base da release tag
+`v0.1.2` (`b38c92b`); HEAD de trabalho no início da rodada: `64972c6`.
+HEAD: `85e3b80` (merge #123). CI 6/6 verde em todos os
+merges, sem bypass. Log detalhado da rodada preservado sem reescrita em
+`[Unreleased — arquivo 2026-10-06/18]` abaixo.
+
+- **Merges (faixa #108–#123; mergeados verificados via `git log --merges origin/master`:
+  #108/#109/#110/#117/#118/#119/#120/#121/#122/#123 — sem #111–#116
+  mergeados neste histórico):**
+  - #108 `19de04a` (P0-02): `.gitignore` += `.env`, `.env.*`, `!.env.example`.
+  - #109 `fb8d066` (P0-05): caller `OrchestrationGitHubResume` + suite 107/107.
+  - #110 `3321967` (P0-06): negativos de lifecycle, só-testes (casos 2 e 7).
+  - #117 `9038574` (P1-06 S1–S4): budget-bind, scope-mismatch,
+    parent-session+fencing, cross-MCP.
+  - #118 `c9e12d8` (P1-05 S5): STEER advisory opt-in + CLOSE-vs-RETRY fail-closed.
+  - #119 `e5eff6a` (P1-08): docs (+108 ARCHITECTURE,
+    README/INSTALLATION/TROUBLESHOOTING, [Unreleased], contagem 23).
+  - #120 `8f8cca2` (P1-01): watchdog fallback fail-closed + teste foreign-live.
+  - #121 `c1c85d7` (P1-02): slices jev-advisory-summary + trigger matrix +
+    credentials doc.
+  - #122 `cd45439a` (evidências): matriz GW01–GW15, plano de refinamento,
+    proof P0-04 fases 1–3.
+  - #123 `85e3b80` (docs): fechamento da rodada no plano de refinamento
+    (gates 1–6 + merges #121/#122).
+- **Gates 1–6: PARTIAL** (avaliação honesta 2026-10-19, sem veredito final):
+  G1 OK com desvio documentado; G2/G3/G4/G5 PARCIAL; G6 OK. Sem promoção
+  antes de resume live, RR-E2E-21 com hipótese nova, MCPs com modelo e
+  decisão de release do operador.
+- **P0-03 RR-E2E-21: `BLOCKED_UPSTREAM`** — braço 6 (F5-D) refutou falta de
+  chave (probe auth ok); turno do substituto trava downstream da auth em
+  todos os modelos testados; pernas kernel-side provadas.
+- **HOLDs honestos (inalterados):** `runtime_grant_enforcement{v1,v2}` OFF;
+  `capability_router` shadow+active OFF; `skill`/`mcp`/`adaptive`/
+  `routing_telemetry`/`reconciler` OFF; Active Routing 2G OFF;
+  `bounded_execution` ON mas `ExecutionBudget` devolve `enforce=false`;
+  barreira de fases = disciplina de harness (caso 9, sem gate no kernel);
+  S6 e shell/REST nível C seguem HOLD.
+- **Limites:** #109/#110 validados em harness; prova runtime-real (kill real
+  de processo, perda real de sessão, PR vivo) fica para lane futura com
+  provider/modelo; trabalho não-mergeado do working tree (lane S5/S6,
+  GW06 Jev) fora desta release.
+
 ## [0.1.2] - 2026-10-09 - Native Worker Dispatch Bridge + Autonomous Continuation (PARTIAL)
 
 Branch `closure/native-dispatch-loop` (10 commits desde `a9550c1`, merge de
@@ -122,7 +326,7 @@ APPROVED; reviewer APPROVED por fase.
 Residuais operador/CI: smokes V1/V2 exact-runtime, 5 checks do PR,
 issue #25, green-run de distribuição no CI.
 
-## [Unreleased]
+## [Unreleased — arquivo 2026-10-06/18, preservado sem reescrita]
 
 ### Refinamento funcional P0 — mergeados #108/#109/#110 (2026-10-17/18, não lançado)
 
