@@ -200,7 +200,7 @@ function Test-SRSuccessorBinding {
         under the lock (F1-S4-FIX1, 2026-10-20).
     #>
     [CmdletBinding()]
-    param([string]$ReceiptDir = '', [string]$Expected = '', [string]$GoalId = '', [string]$NextKey = '', [string]$NextTask = '', [string]$NextAgent = '', [string]$NextReference = '')
+    param([string]$ReceiptDir = '', [string]$Expected = '', [string]$GoalId = '', [string]$NextKey = '', [string]$NextTask = '', [string]$NextAgent = '', [string]$NextReference = '', [string]$IntentKey = '', [string]$IntentTask = '', [string]$IntentAgent = '', [string]$IntentFingerprint = '')
     try {
         $nk = ([string]$NextKey).Trim().ToLowerInvariant()
         if ($nk -cnotmatch '^[a-f0-9]{32}$') {
@@ -208,6 +208,12 @@ function Test-SRSuccessorBinding {
         }
         if ([string]::IsNullOrWhiteSpace($NextTask) -or [string]::IsNullOrWhiteSpace($NextAgent) -or [string]::IsNullOrWhiteSpace($NextReference)) {
             return [pscustomobject]@{ ok = $false; cause = 'successor-binding-incomplete' }
+        }
+        $ik = ([string]$IntentKey).Trim().ToLowerInvariant()
+        if (-not [string]::IsNullOrWhiteSpace($ik)) {
+            if (($ik -cne $nk) -or (([string]$IntentTask).Trim() -cne ([string]$NextTask).Trim()) -or (([string]$IntentAgent).Trim() -cne ([string]$NextAgent).Trim())) {
+                return [pscustomobject]@{ ok = $false; cause = 'successor-intent-divergent' }
+            }
         }
         $rd = $null
         try { $rd = Read-NDReceipt -Dir $ReceiptDir -Key $nk -Expected $Expected -AllowHandoffPhases } catch { $rd = $null }
@@ -244,9 +250,153 @@ function Test-SRSuccessorBinding {
         if (([string](Get-SRValue $srec 'reference' '')).Trim() -cne ([string]$NextReference).Trim()) {
             return [pscustomobject]@{ ok = $false; cause = 'successor-reference-mismatch' }
         }
+        $ifp = ([string]$IntentFingerprint).Trim().ToLowerInvariant()
+        if (-not [string]::IsNullOrWhiteSpace($ifp)) {
+            $rfp = ''
+            try { $rfp = (([string](Get-SRValue $srec 'intent_fingerprint' '')).Trim().ToLowerInvariant()) } catch { $rfp = '' }
+            if ([string]::IsNullOrWhiteSpace($rfp) -or ($rfp -cne $ifp)) {
+                return [pscustomobject]@{ ok = $false; cause = 'successor-intent-divergent' }
+            }
+        }
+        $sInteg = $null
+        try { $sInteg = Test-NDReceiptSemanticIntegrity -Receipt $srec -GoalId ([string]$GoalId).Trim() -IdempotencyKey $nk } catch { $sInteg = $null }
+        if (($null -eq $sInteg) -or (-not [bool](Get-SRValue $sInteg 'ok' $false))) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-integrity-invalid' }
+        }
         return [pscustomobject]@{ ok = $true; cause = '' }
     }
     catch { return [pscustomobject]@{ ok = $false; cause = 'successor-unproven' } }
+}
+
+function Get-SRFileHashHex {
+    <#
+    .SYNOPSIS
+        SHA256 hex of a file, bounded and reparse-aware. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$Path = '', [int]$MaxBytes = 4194304)
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+        $rpCmd = Get-Command Test-NDPathWithoutReparsePoint -ErrorAction SilentlyContinue
+        if (($null -ne $rpCmd) -and (-not (Test-NDPathWithoutReparsePoint -Path $Path))) { return '' }
+        $cap = [int]$MaxBytes
+        if ($cap -lt 1) { $cap = 1 }
+        $fs = $null
+        try {
+            $fs = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+            if ($fs.Length -gt [long]$cap) { return '' }
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+                $h = $sha.ComputeHash($fs)
+                return (([BitConverter]::ToString($h)).Replace('-', '').ToLowerInvariant())
+            }
+            finally { try { $sha.Dispose() } catch { } }
+        }
+        finally { try { if ($null -ne $fs) { $fs.Dispose() } } catch { } }
+    }
+    catch { return '' }
+}
+
+function Test-SRSettledSnapshot {
+    <#
+    .SYNOPSIS
+        Post-lock settlement revalidation against the pre-lock snapshot.
+    .DESCRIPTION
+        Read-only, never throws. Re-reads the settled receipt, the live
+        worker_result and the evidence file and requires byte/status/
+        revision/evidence identity with the classification-time snapshot.
+        Any removal or alteration during the lock wait refuses with an
+        honest changed-* cause (the caller maps it to a no-write,
+        no-checkpoint refusal). Never triggers effects.
+    #>
+    [CmdletBinding()]
+    param($Snapshot = $null, [string]$GoalId = '', [string]$SettledKey = '', [string]$ReceiptDir = '', [string]$Expected = '', [string]$TasksDir = '', [string]$RepoRoot = '', [string]$EvidenceStoreDir = '')
+    try {
+        $gid = ([string]$GoalId).Trim()
+        $sk = ([string]$SettledKey).Trim().ToLowerInvariant()
+        if (($null -eq $Snapshot) -or ($gid -cnotmatch '^[A-Za-z0-9._:-]{1,64}$') -or ($sk -cnotmatch '^[a-f0-9]{32}$')) {
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-proof-unavailable' }
+        }
+        $expTask = ([string](Get-SRValue $Snapshot 'task' ''))
+        $expRev = [long]-1
+        try { $expRev = [long](Get-SRValue $Snapshot 'expected' -1) } catch { $expRev = [long]-1 }
+        $expHash = ([string](Get-SRValue $Snapshot 'receipt_hash' ''))
+        $expWRev = [long]-1
+        try { $expWRev = [long](Get-SRValue $Snapshot 'wrev' -1) } catch { $expWRev = [long]-1 }
+        $expWStatus = ([string](Get-SRValue $Snapshot 'wstatus' ''))
+        $expWRefs = @((Get-SRValue $Snapshot 'wrefs' @()))
+        $expEvId = ([string](Get-SRValue $Snapshot 'evid' ''))
+        $expEvHash = ([string](Get-SRValue $Snapshot 'evhash' ''))
+        $rd = $null
+        try { $rd = Read-NDReceipt -Dir ([string]$ReceiptDir).Trim() -Key $sk -Expected ([string]$Expected).Trim() -AllowHandoffPhases } catch { $rd = $null }
+        if (($null -eq $rd) -or (-not [bool](Get-SRValue $rd 'ok' $false))) {
+            $present = $false
+            try { $present = [bool](Get-SRValue $rd 'present' $false) } catch { $present = $false }
+            if (-not $present) { return [pscustomobject]@{ ok = $false; cause = 'settlement-receipt-absent' } }
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-receipt-unreadable' }
+        }
+        $rec = Get-SRValue $rd 'receipt' $null
+        if ($null -eq $rec) { return [pscustomobject]@{ ok = $false; cause = 'settlement-receipt-unreadable' } }
+        if ((([string](Get-SRValue $rec 'phase' '')).Trim().ToLowerInvariant()) -cne 'settled') {
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-phase-changed' }
+        }
+        if ((([string](Get-SRValue $rec 'goal_id' '')).Trim() -cne $gid)) {
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-goal-changed' }
+        }
+        $rk = ''
+        try { $rk = (([string](Get-SRValue $rec 'idempotency_key' '')).Trim().ToLowerInvariant()) } catch { $rk = '' }
+        if ($rk -cne $sk) { return [pscustomobject]@{ ok = $false; cause = 'settlement-key-changed' } }
+        if ((([string](Get-SRValue $rec 'task_id' '')).Trim() -cne $expTask)) {
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-task-changed' }
+        }
+        $re = [long]-1
+        try { $re = [long](Get-SRValue $rec 'task_expected_revision' -1) } catch { $re = [long]-1 }
+        if ($re -ne $expRev) { return [pscustomobject]@{ ok = $false; cause = 'settlement-revision-changed' } }
+        $rcPath = Join-Path ([string]$ReceiptDir).Trim() ($sk + '.json')
+        $rcHash = ''
+        try { $rcHash = Get-SRFileHashHex -Path $rcPath } catch { $rcHash = '' }
+        if ([string]::IsNullOrWhiteSpace($expHash) -or ($rcHash -cne $expHash)) {
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-receipt-changed' }
+        }
+        $tk = $null
+        try { $tk = Get-OrchestrationTask -TaskId $expTask -TasksDir ([string]$TasksDir).Trim() -RepoRoot ([string]$RepoRoot).Trim() } catch { $tk = $null }
+        $terr = ''
+        try {
+            if ($null -ne $tk) {
+                if ($tk -is [System.Collections.IDictionary]) { if ($tk.Contains('error')) { $terr = ([string]$tk['error']) } }
+                else { $ep = $tk.PSObject.Properties['error']; if ($null -ne $ep) { $terr = ([string]$ep.Value) } }
+            }
+        }
+        catch { $terr = '' }
+        if (($null -eq $tk) -or (-not [string]::IsNullOrWhiteSpace($terr))) {
+            return [pscustomobject]@{ ok = $false; cause = 'settlement-task-unreadable' }
+        }
+        $wr = Get-SRValue $tk 'worker_result' $null
+        if ($null -eq $wr) { return [pscustomobject]@{ ok = $false; cause = 'worker-result-missing' } }
+        $wrv = [long]-1
+        try { $wrv = [long](Get-SRValue $wr 'revision' -1) } catch { $wrv = [long]-1 }
+        if ($wrv -ne $expWRev) { return [pscustomobject]@{ ok = $false; cause = 'worker-result-changed' } }
+        if ((([string](Get-SRValue $wr 'status' '')).Trim().ToLowerInvariant() -cne ([string]$expWStatus).Trim().ToLowerInvariant())) {
+            return [pscustomobject]@{ ok = $false; cause = 'worker-result-changed' }
+        }
+        $wrf = @((Get-SRValue $wr 'claimed_evidence' @()))
+        if (@($wrf).Count -ne @($expWRefs).Count) { return [pscustomobject]@{ ok = $false; cause = 'worker-result-changed' } }
+        for ($wi = 0; $wi -lt @($wrf).Count; $wi++) {
+            if (([string]@($wrf)[$wi] -cne [string]@($expWRefs)[$wi])) { return [pscustomobject]@{ ok = $false; cause = 'worker-result-changed' } }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($expEvHash)) {
+            if ([string]::IsNullOrWhiteSpace($expEvId)) { return [pscustomobject]@{ ok = $false; cause = 'settlement-evidence-changed' } }
+            $evPath = Join-Path ([string]$EvidenceStoreDir).Trim() ($expEvId + '.json')
+            $evHash = ''
+            try { $evHash = Get-SRFileHashHex -Path $evPath } catch { $evHash = '' }
+            if ([string]::IsNullOrWhiteSpace($evHash) -or ($evHash -cne $expEvHash)) {
+                return [pscustomobject]@{ ok = $false; cause = 'settlement-evidence-changed' }
+            }
+        }
+        return [pscustomobject]@{ ok = $true; cause = '' }
+    }
+    catch { return [pscustomobject]@{ ok = $false; cause = 'settlement-proof-unavailable' } }
 }
 
 function Get-SRNextIntentView {
@@ -626,7 +776,19 @@ function Test-SRRecoveryRecordShape {
         if (($null -eq $rcChk) -or (-not [bool](Get-SRValue $rcChk 'ok' $false))) { return $false }
         $fAct = Test-SRFieldString -Object $Record -Name 'action' -MaxLength 64
         if (-not [bool]$fAct.ok) { return $false }
-        if (@('replay-prepared', 'replay-terminal', 'blocked-manual', 'blocked') -cnotcontains ([string]$fAct.value).Trim()) { return $false }
+        $actVal = ([string]$fAct.value).Trim()
+        if (@('replay-prepared', 'replay-terminal', 'blocked-manual', 'blocked') -cnotcontains $actVal) { return $false }
+        # #4 (F1-S4-FIX3): the persisted initial intent binds the
+        # fingerprint; the recorded action must be a valid terminal
+        # disposition of that intent (no silent action swap).
+        $fInt = Test-SRFieldString -Object $Record -Name 'intended_action' -MaxLength 64
+        if (-not [bool]$fInt.ok) { return $false }
+        $intVal = ([string]$fInt.value).Trim()
+        $transitionOk = $false
+        if ((($intVal -ceq 'replay-prepared') -and (($actVal -ceq 'replay-prepared') -or ($actVal -ceq 'blocked')))) { $transitionOk = $true }
+        if ((($intVal -ceq 'replay-terminal') -and (($actVal -ceq 'replay-terminal') -or ($actVal -ceq 'blocked')))) { $transitionOk = $true }
+        if ((($intVal -ceq 'blocked-manual') -and ($actVal -ceq 'blocked-manual'))) { $transitionOk = $true }
+        if (-not $transitionOk) { return $false }
         $proofRaw = $null
         try { $proofRaw = Get-SRRawValue -Object $Record -Name 'proof_refs' } catch { $proofRaw = $null }
         if (($null -eq $proofRaw) -or (-not [bool](Get-SRValue $proofRaw 'found' $false)) -or (([string](Get-SRValue $proofRaw 'kind' '')) -cne 'object')) { return $false }
@@ -694,16 +856,32 @@ function Test-SRRecoveryRecordShape {
             $ev = Test-SRFieldBool -Object $rEff -Name $en
             if (-not [bool]$ev.ok) { return $false }
         }
-        $storedFp = ([string](Get-SRValue $Record 'assignment_fingerprint' '')).Trim()
-        $matched = $false
-        foreach ($candAction in @('replay-prepared', 'replay-terminal', 'blocked-manual')) {
-            $fp2 = ''
-            try {
-                $fp2 = Get-SRAssignmentFingerprint -SubstituteSessionId ([string]$fSub.value) -Owner ([string]$fOwn.value) -Generation ([long]$fGen.value) -Source ([string]$fSrc.value) -Action $candAction -ReasonCode ([string]$fRc.value) -GoalId ([string]$fGid.value) -SettledKey $k -SourceTaskId ([string]$fTask.value) -ReceiptRef ([string]$fRecRef.value) -EvidenceId ([string]$fEv.value) -CandidateRevision ([long]$fRev.value) -NextKey ([string]$fNk.value) -NextIntentFingerprint ([string]$fNfp.value) -OriginalPrepareSessionId ([string]$fSess.value)
-            }
-            catch { $fp2 = '' }
-            if ((-not [string]::IsNullOrWhiteSpace($fp2)) -and ($fp2 -ceq $storedFp)) { $matched = $true; break }
+        # #4 (F1-S4-FIX3): action/effect consistency with the recorded
+        # terminal action. Reserved records are promises, not effects:
+        # prepared/next-key requirements apply only once recorded.
+        if (($actVal -ceq 'replay-prepared') -and ($phase -ceq 'recorded')) {
+            if (-not [bool]$rOk.value) { return $false }
+            if (-not [bool]$rPrep.value) { return $false }
+            if ([string]::IsNullOrWhiteSpace([string]$rNKey.value)) { return $false }
         }
+        if ($actVal -ceq 'blocked-manual') {
+            if ([bool]$rPrep.value) { return $false }
+            if (-not [bool]$rOk.value) { return $false }
+            $effDm = Test-SRFieldBool -Object $rEff -Name 'domain_mutated'
+            if (-not [bool]$effDm.ok) { return $false }
+            if ([bool]$effDm.value) { return $false }
+        }
+        $storedFp = ([string](Get-SRValue $Record 'assignment_fingerprint' '')).Trim()
+        # #4 (F1-S4-FIX3): rebind the fingerprint with the persisted
+        # initial intent only (no candidate sweep). A stored action that
+        # is not a valid terminal of the bound intent fails here.
+        $matched = $false
+        $fp2 = ''
+        try {
+            $fp2 = Get-SRAssignmentFingerprint -SubstituteSessionId ([string]$fSub.value) -Owner ([string]$fOwn.value) -Generation ([long]$fGen.value) -Source ([string]$fSrc.value) -Action $intVal -ReasonCode ([string]$fRc.value) -GoalId ([string]$fGid.value) -SettledKey $k -SourceTaskId ([string]$fTask.value) -ReceiptRef ([string]$fRecRef.value) -EvidenceId ([string]$fEv.value) -CandidateRevision ([long]$fRev.value) -NextKey ([string]$fNk.value) -NextIntentFingerprint ([string]$fNfp.value) -OriginalPrepareSessionId ([string]$fSess.value)
+        }
+        catch { $fp2 = '' }
+        if ((-not [string]::IsNullOrWhiteSpace($fp2)) -and ($fp2 -ceq $storedFp)) { $matched = $true }
         if (-not $matched) { return $false }
         return $true
     }
@@ -772,6 +950,41 @@ function Write-SRRecoveryRecord {
         return $true
     }
     catch { return $false }
+}
+
+function Publish-SRRecoveryRecord {
+    <#
+    .SYNOPSIS
+        Publish with disambiguated outcome (F1-S4-FIX3 #3).
+    .DESCRIPTION
+        Wraps Write-SRRecoveryRecord. A bare $false conflates "nothing was
+        written" with "the write landed but the post-write proof failed".
+        On failure this re-reads the canonical record once: present + valid
+        + same fingerprint means the publication effected (proceed as
+        written); verified absence means nothing was published (caller
+        refuses without attribution); anything else is uncertain (caller
+        reports the known references with manual followup, never presuming
+        success). Returns 'written', 'published', 'absent' or 'uncertain'.
+        Never throws; never writes.
+    #>
+    [CmdletBinding()]
+    param([string]$AdvanceDir = '', [string]$Ident = '', [string]$Key = '', $Record = $null, [switch]$AllowUpdate, [string]$ExpectedFingerprint = '')
+    try {
+        $w = $false
+        try { $w = Write-SRRecoveryRecord -AdvanceDir $AdvanceDir -Ident $Ident -Key $Key -Record $Record -AllowReservedUpdate:$AllowUpdate -ExpectedFingerprint $ExpectedFingerprint } catch { $w = $false }
+        if ($w) { return 'written' }
+        $k = ([string]$Key).Trim().ToLowerInvariant()
+        $cur = $null
+        try { $cur = Read-SRRecoveryRecord -AdvanceDir $AdvanceDir -Key $k } catch { $cur = $null }
+        if (($null -eq $cur) -or (-not [bool](Get-SRValue $cur 'present' $false))) { return 'absent' }
+        if (-not [bool](Get-SRValue $cur 'valid' $false)) { return 'uncertain' }
+        $curRec = Get-SRValue $cur 'record' $null
+        if ($null -eq $curRec) { return 'uncertain' }
+        $curFp = ([string](Get-SRValue $curRec 'assignment_fingerprint' '')).Trim()
+        if ($curFp -cne ([string]$ExpectedFingerprint).Trim()) { return 'uncertain' }
+        return 'published'
+    }
+    catch { return 'uncertain' }
 }
 
 function Save-SRRecoveryCheckpoint {
@@ -1174,22 +1387,20 @@ function Invoke-OrchestrationSettledRecovery {
             $manualCause = 'evidence-file-missing'
         }
         elseif ($advPrepared -and ((@('CONTINUE', 'RETRY') -ccontains $advMove))) {
-            # F2 (F1-S4-FIX1, 2026-10-20): a prepared advance only replays
-            # when the canonical successor receipt binds the recorded
-            # decision (existence, prepared phase, goal/key/task/agent/
-            # reference). Missing/divergent/corrupt successor refuses
-            # without creating a PREPARE.
-            # #5 (F1-S4-FIX2): a provided NextIntent is also compared to
-            # the recorded successor (key/task/agent). A divergent
-            # NextIntent never proves intent and never steers the replay:
-            # refusal without replay and without attribution.
-            $nvKey = ([string]$nextView.key)
-            if ((-not [string]::IsNullOrWhiteSpace($nvKey)) -and ((($nvKey -cne $advNextKey) -or (([string]$nextView.task_id -cne $advNextTask)) -or (([string]$nextView.agent -cne $advNextAgent))))) {
-                return (New-SRRefusal -Reason 'recovery-intent-unproven' -Cause 'successor-intent-divergent' -GoalId $gid -SettledKey $sk -ManualFollowup $true)
-            }
-            $succChk = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef
+            # F2 (F1-S4-FIX1, 2026-10-20) + #2 (F1-S4-FIX3): a prepared
+            # advance only replays when the canonical successor receipt
+            # binds the recorded decision (existence, prepared phase,
+            # goal/key/task/agent/reference, caller NextIntent by full
+            # fingerprint when provided, recalculated semantic integrity
+            # over the stored session). Missing/divergent/corrupt successor
+            # refuses without creating a PREPARE.
+            $succChk = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef -IntentKey ([string]$nextView.key) -IntentTask ([string]$nextView.task_id) -IntentAgent ([string]$nextView.agent) -IntentFingerprint ([string]$nextView.fingerprint)
             if (-not [bool](Get-SRValue $succChk 'ok' $false)) {
-                return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause ([string](Get-SRValue $succChk 'cause' 'successor-unproven')) -GoalId $gid -SettledKey $sk -ManualFollowup $true)
+                $succCause = ([string](Get-SRValue $succChk 'cause' 'successor-unproven'))
+                if ($succCause -ceq 'successor-intent-divergent') {
+                    return (New-SRRefusal -Reason 'recovery-intent-unproven' -Cause $succCause -GoalId $gid -SettledKey $sk -ManualFollowup $true)
+                }
+                return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause $succCause -GoalId $gid -SettledKey $sk -ManualFollowup $true)
             }
             $intended = 'replay-prepared'
         }
@@ -1232,6 +1443,23 @@ function Invoke-OrchestrationSettledRecovery {
         $fp = Get-SRAssignmentFingerprint -SubstituteSessionId $sub -Owner $authOwner -Generation $authGen -Source $authSource -Action $intended -ReasonCode $rc -GoalId $gid -SettledKey $sk -SourceTaskId $srcTask -ReceiptRef $recRef -EvidenceId $evId -CandidateRevision $recExpected -NextKey $proofNextKey -NextIntentFingerprint ([string]$nextView.fingerprint) -OriginalPrepareSessionId $origPrepSession
         if ([string]::IsNullOrWhiteSpace($fp)) {
             return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause 'assignment-fingerprint-failed' -GoalId $gid -SettledKey $sk -ManualFollowup $true)
+        }
+        # #1 (F1-S4-FIX3): snapshot of the settlement proof for the
+        # post-lock revalidation (receipt bytes, worker binding,
+        # evidence bytes). Non-settled receipts carry no binding.
+        $settleSnap = $null
+        if ($recPhase -ceq 'settled') {
+            $rcHashLive = ''
+            try { $rcHashLive = Get-SRFileHashHex -Path $recRef } catch { $rcHashLive = '' }
+            $evHashLive = ''
+            if (-not $evMissing) {
+                try { $evHashLive = Get-SRFileHashHex -Path $evPath } catch { $evHashLive = '' }
+            }
+            $settleSnap = [ordered]@{
+                task = $srcTask; expected = [long]$recExpected; receipt_hash = $rcHashLive
+                wrev = [long]$wRev; wstatus = ([string]$wStatus); wrefs = @($wRefs)
+                evid = $evId; evhash = $evHashLive
+            }
         }
         # Recovery lock (dedicated file, bounded wait). Contention refuses
         # busy; identity/reparse divergence refuses uncertain.
@@ -1358,9 +1586,24 @@ function Invoke-OrchestrationSettledRecovery {
             # wait (removed/swapped/corrupted while blocked refuses with no
             # write and no attribution). Terminal replays mint no successor.
             if (($intended -ceq 'replay-prepared') -and (-not $advAbsent)) {
-                $succRe = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef
+                $succRe = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef -IntentKey ([string]$nextView.key) -IntentTask ([string]$nextView.task_id) -IntentAgent ([string]$nextView.agent) -IntentFingerprint ([string]$nextView.fingerprint)
                 if (-not [bool](Get-SRValue $succRe 'ok' $false)) {
-                    return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause ([string](Get-SRValue $succRe 'cause' 'successor-unproven')) -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
+                    $succReCause = ([string](Get-SRValue $succRe 'cause' 'successor-unproven'))
+                    if ($succReCause -ceq 'successor-intent-divergent') {
+                        return (New-SRRefusal -Reason 'recovery-intent-unproven' -Cause $succReCause -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
+                    }
+                    return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause $succReCause -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
+                }
+            }
+            # #1 (F1-S4-FIX3): re-read and re-bind the settlement proof
+            # after the wait (receipt, worker_result, evidence). A removal
+            # or alteration during the wait refuses with no write and no
+            # checkpoint, even if the advance record itself is unchanged.
+            if ($recPhase -ceq 'settled') {
+                $settleRe = Test-SRSettledSnapshot -Snapshot $settleSnap -GoalId $gid -SettledKey $sk -ReceiptDir $rDir -Expected $rIdent -TasksDir $TasksDir -RepoRoot $RepoRoot -EvidenceStoreDir $EvidenceStoreDir
+                if (-not [bool](Get-SRValue $settleRe 'ok' $false)) {
+                    $settleCause = ([string](Get-SRValue $settleRe 'cause' 'settlement-proof-unavailable'))
+                    return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause ('settlement-changed-under-lock:' + $settleCause) -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
                 }
             }
             $proofRefs = [ordered]@{
@@ -1386,27 +1629,29 @@ function Invoke-OrchestrationSettledRecovery {
                     schema_version = 1; goal_id = $gid; settled_key = $sk; source_task_id = $srcTask
                     assignment_fingerprint = $fp; substitute_session_id = $sub
                     authorization_owner = $authOwner; authorization_generation = [long]$authGen; authorization_source = $authSource
-                    reason_code = $rc; action = 'blocked-manual'; proof_refs = $proofRefs
+                    reason_code = $rc; action = 'blocked-manual'; intended_action = 'blocked-manual'; proof_refs = $proofRefs
                     phase = 'reserved'; result = $resBody; created_at = $nowIso; recorded_at = ''
                 }
                 $isUpdate = [bool](Get-SRValue $cur 'present' $false)
-                if ($isUpdate) {
-                    if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowReservedUpdate -ExpectedFingerprint $fp)) {
+                $pubReserve = 'absent'
+                try { $pubReserve = Publish-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowUpdate:$isUpdate -ExpectedFingerprint $fp } catch { $pubReserve = 'uncertain' }
+                if (($pubReserve -ne 'written') -and ($pubReserve -ne 'published')) {
+                    if ($pubReserve -ceq 'uncertain') {
+                        return (New-SREnvelope -Ok $false -Action 'blocked-manual' -Reason 'recovery-record-write-failed' -CauseReason 'reserve-unverified' -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects) -ManualFollowup $true)
+                    }
+                    if ($isUpdate) {
                         return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'reserve-update-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
                     }
-                }
-                else {
-                    if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record)) {
-                        return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'reserve-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
-                    }
+                    return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'reserve-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
                 }
                 $record['phase'] = 'recorded'
                 $record['recorded_at'] = ([DateTime]::UtcNow.ToString('o'))
-                if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowReservedUpdate -ExpectedFingerprint $fp)) {
-                    # #4 (F1-S4-FIX2): the reserve already wrote the
-                    # attribution. Report the failure with the known
-                    # effect instead of a zero-effect refusal.
-                    return (New-SREnvelope -Ok $false -Action 'blocked-manual' -Reason 'recovery-record-write-failed' -CauseReason 'record-failed' -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects -AttributionWritten $true) -ManualFollowup $true)
+                $pubRecord = 'absent'
+                try { $pubRecord = Publish-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowUpdate -ExpectedFingerprint $fp } catch { $pubRecord = 'uncertain' }
+                if (($pubRecord -ne 'written') -and ($pubRecord -ne 'published')) {
+                    $finCause = 'record-failed'
+                    if ($pubRecord -ceq 'uncertain') { $finCause = 'record-unverified' }
+                    return (New-SREnvelope -Ok $false -Action 'blocked-manual' -Reason 'recovery-record-write-failed' -CauseReason $finCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects -AttributionWritten $true) -ManualFollowup $true)
                 }
                 return (New-SREnvelope -Ok $true -Action 'blocked-manual' -Reason ([string]$resBody['reason']) -CauseReason $manualCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects -AttributionWritten $true) -ManualFollowup $true)
             }
@@ -1424,19 +1669,20 @@ function Invoke-OrchestrationSettledRecovery {
                 schema_version = 1; goal_id = $gid; settled_key = $sk; source_task_id = $srcTask
                 assignment_fingerprint = $fp; substitute_session_id = $sub
                 authorization_owner = $authOwner; authorization_generation = [long]$authGen; authorization_source = $authSource
-                reason_code = $rc; action = $intended; proof_refs = $proofRefs
+                reason_code = $rc; action = $intended; intended_action = $intended; proof_refs = $proofRefs
                 phase = 'reserved'; result = $resvBody; created_at = $nowIso; recorded_at = ''
             }
             $isUpdate = [bool](Get-SRValue $cur 'present' $false)
-            if ($isUpdate) {
-                if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowReservedUpdate -ExpectedFingerprint $fp)) {
+            $pubReserve = 'absent'
+            try { $pubReserve = Publish-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowUpdate:$isUpdate -ExpectedFingerprint $fp } catch { $pubReserve = 'uncertain' }
+            if (($pubReserve -ne 'written') -and ($pubReserve -ne 'published')) {
+                if ($pubReserve -ceq 'uncertain') {
+                    return (New-SREnvelope -Ok $false -Action $intended -Reason 'recovery-record-write-failed' -CauseReason 'reserve-unverified' -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $proofNextKey -Prepared $false -Effects (New-SREffects) -ManualFollowup $true)
+                }
+                if ($isUpdate) {
                     return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'reserve-update-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
                 }
-            }
-            else {
-                if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record)) {
-                    return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'reserve-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
-                }
+                return (New-SRRefusal -Reason 'recovery-record-write-failed' -Cause 'reserve-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp)
             }
             $sc = $null
             try {
@@ -1516,12 +1762,16 @@ function Invoke-OrchestrationSettledRecovery {
             $record['result'] = $resBody
             $record['phase'] = 'recorded'
             $record['recorded_at'] = ([DateTime]::UtcNow.ToString('o'))
-            if (-not (Write-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowReservedUpdate -ExpectedFingerprint $fp)) {
-                # #4 (F1-S4-FIX2): the delegation may already have acted
+            $pubRecord = 'absent'
+            try { $pubRecord = Publish-SRRecoveryRecord -AdvanceDir $advDir -Ident $advIdent -Key $sk -Record $record -AllowUpdate -ExpectedFingerprint $fp } catch { $pubRecord = 'uncertain' }
+            if (($pubRecord -ne 'written') -and ($pubRecord -ne 'published')) {
+                # #4 (F1-S4-FIX2/FIX3): the delegation may already have acted
                 # (COMPLETE CAS, checkpoint). Report the failure with the
                 # known effects, references and uncertain state instead of
                 # a zero-effect refusal.
-                return (New-SREnvelope -Ok $false -Action $finAction -Reason 'recovery-record-write-failed' -CauseReason 'record-failed-after-replay' -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $scNextKey -NextReference $scNextRef -Prepared $scPrep -CheckpointId $scCkId -CheckpointOk $scCkOk -Effects (New-SREffects -DomainMutated $domainTouched -AttributionWritten $true -CheckpointWritten $scCkOk) -ManualFollowup $true)
+                $finCause = 'record-failed-after-replay'
+                if ($pubRecord -ceq 'uncertain') { $finCause = 'record-unverified-after-replay' }
+                return (New-SREnvelope -Ok $false -Action $finAction -Reason 'recovery-record-write-failed' -CauseReason $finCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $scNextKey -NextReference $scNextRef -Prepared $scPrep -CheckpointId $scCkId -CheckpointOk $scCkOk -Effects (New-SREffects -DomainMutated $domainTouched -AttributionWritten $true -CheckpointWritten $scCkOk) -ManualFollowup $true)
             }
             return (New-SREnvelope -Ok $scOk -Action $finAction -Reason $scReason -CauseReason $scCause -GoalId $gid -SettledKey $sk -RecoveryRecordRef (Join-Path $advDir ($sk + '.recovery.json')) -AssignmentFingerprint $fp -NextIdempotencyKey $scNextKey -NextReference $scNextRef -Prepared $scPrep -CheckpointId $scCkId -CheckpointOk $scCkOk -Effects (New-SREffects -DomainMutated $domainTouched -AttributionWritten $true -CheckpointWritten $scCkOk))
         }

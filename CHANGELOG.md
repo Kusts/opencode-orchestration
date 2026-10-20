@@ -22,10 +22,19 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   vivo do goal logo após adquirir o lock, antes de qualquer escrita ou
   delegação (F1-S4-FIX1); COMPLETE só com gate/CAS da S3a. O recibo
   sucessor é validado antes de anunciar `prepared` ou delegar o replay
-  (existência, fase `prepared`, correlação goal/key/task/agent/reference;
-  ausente/divergente/corrompido recusa `recovery-successor-unproven`
-  sem PREPARE). Checkpoint ausente é reconstruído de registros canônicos
-  (uma tentativa, falha registrada com honestidade).
+  (existência, fase `prepared`, correlação goal/key/task/agent/reference,
+  fingerprint integral do NextIntent quando fornecido, integridade
+  semântica recalculada; ausente/divergente/corrompido recusa
+  `recovery-successor-unproven` sem PREPARE). Após o lock, o settlement
+  é revalidado por comparação (recibo byte-a-byte, binding do
+  `worker_result`, hash da evidência); mudança durante a espera recusa
+  sem escrita nem checkpoint (F1-S4-FIX3). Publicação com desambiguação
+  (`written`/`published`/`absent`/`uncertain`): falha parcial preserva
+  efeitos/referências conhecidos + follow-up manual. O registro carrega
+  `intended_action` vinculado ao fingerprint e só aceita transições
+  válidas para o terminal gravado (a reentrada reproduz o envelope
+  terminal verbatim). Checkpoint ausente é reconstruído de registros
+  canônicos (uma tentativa, falha registrada com honestidade).
   Pending/ambíguo vira `blocked-manual` atribuído (só o registro;
   `domain_mutated=false`) ou recusa (`recovery-intent-unproven`,
   `recovery-no-continuation`); pending automático e ADVANCE próprio são
@@ -39,24 +48,30 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   ilegível/não-arquivo/reparse é preservado e recusado.
   `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
   como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
-  (996 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
-  COMPLETE válido/recusado, sessão/auth/owner, takeover sem transferência
-  implícita, pending manual/recusa, receipt pending/claimed/prepared,
-  evidência ausente/ilegível/decorrelacionada, worker superseded,
-  checkpoint rebuild honesto, registros corrompidos/divergentes/crash,
-  lock exclusivo multiprocesso com processos externos reais (mesma
-  atribuição determinística, atribuições distintas, timeout do lock),
-  revalidação pós-lock (F1a determinística + F1b com espera real sob
-  lock), vínculo do sucessor (removido/corrompido/referência trocada +
-  re-checagem sob lock + controle válido + NextIntent divergente),
-  registro estruturalmente adulterado rejeitado/preservado (6 variantes),
-  falha parcial preserva efeitos conhecidos, RepoRoot encaminhado à S3a,
-  adversarial remoção/troca/downgrade, sentinela
-  zero worker/CLAIM/SETTLE/PREPARE, regressão sem `SettledKey`); S3a
-  (658 asserts), ND handoff/advance (2151 asserts) e ND receipts
-  (208 asserts) verdes em ambos os hosts. Sem claim runtime-real/G3/S6/
-  enforcement; sem mudança em S3a/AL, ND, TaskKernel, plugin, grants ou
-  flags.
+  (1072 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  COMPLETE válido/recusado (+reentrada idêntica ao terminal gravado),
+  sessão/auth/owner, takeover sem transferência implícita, pending
+  manual/recusa, receipt pending/claimed/prepared, evidência ausente/
+  ilegível/decorrelacionada, worker superseded, checkpoint rebuild
+  honesto, registros corrompidos/divergentes/crash, lock exclusivo
+  multiprocesso com processos externos reais e barreira observável
+  (mesma atribuição determinística, atribuições distintas, timeout do
+  lock), revalidação pós-lock (F1a determinística + F1b com takeover
+  durante a espera real + F1c com recibo do settlement adulterado durante
+  a espera + F2d com sucessor removido durante a espera), vínculo do
+  sucessor (removido/corrompido/referência trocada/tamper de scope com
+  nominais intactos + fingerprint do NextIntent + re-checagem sob lock +
+  controle válido + NextIntent divergente), registro com
+  `intended_action`/transições validadas e adulteração rejeitada
+  (8 variantes incl. troca entre ações permitidas), desambiguação de
+  publicação (`published`/`uncertain`/`absent` como unidade S13f), falha
+  parcial e escrita ambígua preservando efeitos conhecidos, RepoRoot encaminhado
+  à S3a (namespace idêntico com/sem ReceiptDir), adversarial remoção/
+  troca/downgrade, sentinela zero worker/CLAIM/SETTLE/PREPARE, regressão
+  sem `SettledKey`); S3a (658 asserts), ND handoff/advance (2151 asserts)
+  e ND receipts (208 asserts) verdes em ambos os hosts. Sem claim
+  runtime-real/G3/S6/enforcement; sem mudança em S3a/AL, ND, TaskKernel,
+  plugin, grants ou flags.
 
 - **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
   F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/

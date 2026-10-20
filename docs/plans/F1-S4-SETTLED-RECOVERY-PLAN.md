@@ -117,12 +117,15 @@ assignment_fingerprint
 substitute_session_id
 authorization_owner, authorization_generation, authorization_source
 reason_code
-action
+action (= envelope terminal efetivo: `replay-*` quando ok, `blocked` quando
+  recusado, `blocked-manual` na atribuição manual)
+intended_action (intenção classificada que o fingerprint vincula;
+  F1-S4-FIX3: a transição registrada→terminal é validada)
 proof_refs { receipt, advance, evidence_id, candidate_revision,
              next_key, next_intent_fingerprint, original_prepare_session_id }
 phase = reserved | recorded
-result { ok, reason, cause_reason, prepared, next_reference,
-         checkpoint_id, checkpoint_ok, effects }
+result { ok, reason, cause_reason, prepared, next_idempotency_key,
+         next_reference, checkpoint_id, checkpoint_ok, effects }
 created_at, recorded_at
 ```
 - `assignment_fingerprint`: hash determinístico de sessão substituta,
@@ -258,3 +261,23 @@ plano atualizados; PR separado, merge commit, sem squash.
   atômica entre stores e sem runtime-real.
 - A S4 integral só reabre com contrato ND `reuse-only`/prova integral de
   intent + decisão de operador + reviewer/security.
+
+## 11. Nota F1-S4-FIX3 (2026-10-20) — endurecimento pós-lock e de registro
+
+- Revalidação do settlement sob o lock (recibo + `worker_result` +
+  evidência idênticos à classificação; divergência → recusa sem escrita
+  nem checkpoint). A S3a delegada continua sem revalidar auth após o
+  despacho — janela residual declarada (§10).
+- Sucessor com integridade semântica recalculada + fingerprint integral
+  do NextIntent quando fornecido.
+- Publicação com desambiguação (written/published/absent/uncertain);
+  falha parcial preserva efeitos/referências conhecidos + followup manual.
+- `intended_action` persistido e vinculado ao fingerprint (sem varredura
+  de candidatos); transição intenção→terminal validada; `result`
+  carrega o envelope terminal efetivo, reproduzido verbatim na reentrada.
+- Cobertura multiprocesso com barreira observável (mesma atribuição,
+  atribuições distintas, timeout do lock); F1b força o takeover, F1c o
+  recibo adulterado e F2d o sucessor removido durante a espera do lock.
+  F2g fixa o tamper de scope com nominais intactos
+  (`successor-integrity-invalid`); S13f fixa a desambiguação
+  `published`/`uncertain`/`absent` do `Publish-SRRecoveryRecord`.
