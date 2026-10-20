@@ -149,6 +149,106 @@ function Test-SRSubstituteSession {
     catch { return [pscustomobject]@{ ok = $false; reason = 'recovery-request-invalid' } }
 }
 
+function Test-SRAuthorization {
+    <#
+    .SYNOPSIS
+        Correlated live authorization + ownership/fencing, fail-closed.
+    .DESCRIPTION
+        Read-only, never throws. Checks the correlated goal id first (exact
+        match, never implicit authority), then the ND authority helper
+        (explicit allow, non-callback source, live goal, live lease).
+        Returns @{ok, stale, cause}: stale marks fencing/lease loss
+        (ownership-not-held*) so the caller refuses recovery-ownership-stale
+        instead of recovery-authorization-denied. Used both at entry and
+        after the recovery-lock wait (F1-S4-FIX1, 2026-10-20): the entry
+        admission may have expired or been superseded while blocked.
+    #>
+    [CmdletBinding()]
+    param($Authorization = $null, [string]$GoalId = '', [string]$GoalStoreDir = '')
+    try {
+        $gid = ([string]$GoalId).Trim()
+        $authGoal = ''
+        try { $authGoal = ([string](Get-SRValue $Authorization 'goal_id' '')).Trim() } catch { $authGoal = '' }
+        if ([string]::IsNullOrWhiteSpace($authGoal) -or ($authGoal -cne $gid)) {
+            return [pscustomobject]@{ ok = $false; stale = $false; cause = 'auth-goal-mismatch' }
+        }
+        $slot = $null
+        try { $slot = Test-NativeDispatchAuthorization -Authorization $Authorization -GoalStoreDir $GoalStoreDir } catch { $slot = $null }
+        if (($null -eq $slot) -or (-not [bool](Get-SRValue $slot 'admitted' $false))) {
+            $why = 'authorization-denied'
+            try { if (-not [string]::IsNullOrWhiteSpace([string](Get-SRValue $slot 'reason' ''))) { $why = ([string](Get-SRValue $slot 'reason' '')) } } catch { }
+            $stale = ($why -like 'ownership-not-held*')
+            return [pscustomobject]@{ ok = $false; stale = [bool]$stale; cause = $why }
+        }
+        return [pscustomobject]@{ ok = $true; stale = $false; cause = '' }
+    }
+    catch { return [pscustomobject]@{ ok = $false; stale = $false; cause = 'authorization-denied' } }
+}
+
+function Test-SRSuccessorBinding {
+    <#
+    .SYNOPSIS
+        Canonical successor receipt binding for a prepared replay (F2).
+    .DESCRIPTION
+        Read-only, never throws. A prepared advance only replays when the
+        canonical successor receipt exists in prepared phase and binds the
+        recorded decision field by field: goal, key, task, agent and
+        reference against next_idempotency_key/next_task_id/next_agent/
+        next_reference. Absent/divergent/corrupt successor refuses with an
+        honest cause; the caller maps it to recovery-successor-unproven and
+        never creates a PREPARE. Checked at classification and repeated
+        under the lock (F1-S4-FIX1, 2026-10-20).
+    #>
+    [CmdletBinding()]
+    param([string]$ReceiptDir = '', [string]$Expected = '', [string]$GoalId = '', [string]$NextKey = '', [string]$NextTask = '', [string]$NextAgent = '', [string]$NextReference = '')
+    try {
+        $nk = ([string]$NextKey).Trim().ToLowerInvariant()
+        if ($nk -cnotmatch '^[a-f0-9]{32}$') {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-key-invalid' }
+        }
+        if ([string]::IsNullOrWhiteSpace($NextTask) -or [string]::IsNullOrWhiteSpace($NextAgent) -or [string]::IsNullOrWhiteSpace($NextReference)) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-binding-incomplete' }
+        }
+        $rd = $null
+        try { $rd = Read-NDReceipt -Dir $ReceiptDir -Key $nk -Expected $Expected -AllowHandoffPhases } catch { $rd = $null }
+        if (($null -eq $rd) -or (-not [bool](Get-SRValue $rd 'ok' $false))) {
+            $present = $false
+            try { $present = [bool](Get-SRValue $rd 'present' $false) } catch { $present = $false }
+            if (-not $present) {
+                return [pscustomobject]@{ ok = $false; cause = 'successor-receipt-absent' }
+            }
+            return [pscustomobject]@{ ok = $false; cause = 'successor-receipt-unreadable' }
+        }
+        $srec = Get-SRValue $rd 'receipt' $null
+        if ($null -eq $srec) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-receipt-unreadable' }
+        }
+        $sphase = (([string](Get-SRValue $srec 'phase' '')).Trim().ToLowerInvariant())
+        if ($sphase -cne 'prepared') {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-phase-unexpected' }
+        }
+        if (([string](Get-SRValue $srec 'goal_id' '')).Trim() -cne ([string]$GoalId).Trim()) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-goal-mismatch' }
+        }
+        $skey = ''
+        try { $skey = (([string](Get-SRValue $srec 'idempotency_key' '')).Trim().ToLowerInvariant()) } catch { $skey = '' }
+        if ($skey -cne $nk) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-key-mismatch' }
+        }
+        if (([string](Get-SRValue $srec 'task_id' '')).Trim() -cne ([string]$NextTask).Trim()) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-task-mismatch' }
+        }
+        if (([string](Get-SRValue $srec 'agent' '')).Trim() -cne ([string]$NextAgent).Trim()) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-agent-mismatch' }
+        }
+        if (([string](Get-SRValue $srec 'reference' '')).Trim() -cne ([string]$NextReference).Trim()) {
+            return [pscustomobject]@{ ok = $false; cause = 'successor-reference-mismatch' }
+        }
+        return [pscustomobject]@{ ok = $true; cause = '' }
+    }
+    catch { return [pscustomobject]@{ ok = $false; cause = 'successor-unproven' } }
+}
+
 function Get-SRNextIntentView {
     <#
     .SYNOPSIS
@@ -477,8 +577,11 @@ function Invoke-OrchestrationSettledRecovery {
 
         Order (fail-closed): request/session shape -> canonical goal read
         (COMPLETED recognized without mutation) -> live authorization +
-        ownership -> canonical advance/receipt reads + classification
-        BEFORE any attribution -> recovery lock -> re-read + reserve ->
+        ownership -> canonical advance/receipt reads + successor binding
+        for prepared replay + classification BEFORE any attribution ->
+        recovery lock -> revalidate authorization/ownership/lease and live
+        goal state (a wait may outlive them; COMPLETED while waiting is
+        recognized) -> re-read advance + successor -> reserve ->
         allowed action only (S3a replay of prepared/terminal already
         validated; checkpoint rebuild from canonical records;
         blocked-manual as record-only) -> recorded -> release.
@@ -549,22 +652,18 @@ function Invoke-OrchestrationSettledRecovery {
         }
         # Live authorization + ownership/fencing (explicit allow, correlated
         # goal, live lease). Never trusts owner/generation by presence.
-        $authGoal = ''
-        try { $authGoal = ([string](Get-SRValue $Authorization 'goal_id' '')).Trim() } catch { $authGoal = '' }
-        if ([string]::IsNullOrWhiteSpace($authGoal) -or ($authGoal -cne $gid)) {
-            return (New-SRRefusal -Reason 'recovery-authorization-denied' -Cause 'auth-goal-mismatch' -GoalId $gid -SettledKey $sk)
-        }
-        $authSlot = $null
-        try { $authSlot = Test-NativeDispatchAuthorization -Authorization $Authorization -GoalStoreDir $GoalStoreDir } catch { $authSlot = $null }
-        if (($null -eq $authSlot) -or (-not [bool](Get-SRValue $authSlot 'admitted' $false))) {
-            $why = 'authorization-denied'
-            try { if (-not [string]::IsNullOrWhiteSpace([string](Get-SRValue $authSlot 'reason' ''))) { $why = ([string](Get-SRValue $authSlot 'reason' '')) } } catch { }
-            if ($why -like 'ownership-not-held*') {
-                return (New-SRRefusal -Reason 'recovery-ownership-stale' -Cause $why -GoalId $gid -SettledKey $sk)
+        # Revalidated after the lock wait below (F1-S4-FIX1): the wait may
+        # outlive the lease or a takeover.
+        $authChk = Test-SRAuthorization -Authorization $Authorization -GoalId $gid -GoalStoreDir $GoalStoreDir
+        if (-not [bool](Get-SRValue $authChk 'ok' $false)) {
+            $ac = ([string](Get-SRValue $authChk 'cause' 'authorization-denied'))
+            if ([bool](Get-SRValue $authChk 'stale' $false)) {
+                return (New-SRRefusal -Reason 'recovery-ownership-stale' -Cause $ac -GoalId $gid -SettledKey $sk)
             }
-            return (New-SRRefusal -Reason 'recovery-authorization-denied' -Cause $why -GoalId $gid -SettledKey $sk)
+            return (New-SRRefusal -Reason 'recovery-authorization-denied' -Cause $ac -GoalId $gid -SettledKey $sk)
         }
         $authOwner = ([string](Get-SRValue $Authorization 'owner' '')).Trim()
+        # (entry admission checked above)
         $authGen = [long]0
         try { $authGen = [long](Get-SRValue $Authorization 'generation' 0) } catch { $authGen = 0 }
         $authSource = ([string](Get-SRValue $Authorization 'source' '')).Trim().ToLowerInvariant()
@@ -823,6 +922,15 @@ function Invoke-OrchestrationSettledRecovery {
             $manualCause = 'evidence-file-missing'
         }
         elseif ($advPrepared -and ((@('CONTINUE', 'RETRY') -ccontains $advMove))) {
+            # F2 (F1-S4-FIX1, 2026-10-20): a prepared advance only replays
+            # when the canonical successor receipt binds the recorded
+            # decision (existence, prepared phase, goal/key/task/agent/
+            # reference). Missing/divergent/corrupt successor refuses
+            # without creating a PREPARE.
+            $succChk = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef
+            if (-not [bool](Get-SRValue $succChk 'ok' $false)) {
+                return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause ([string](Get-SRValue $succChk 'cause' 'successor-unproven')) -GoalId $gid -SettledKey $sk -ManualFollowup $true)
+            }
             $intended = 'replay-prepared'
         }
         elseif ((-not $advPrepared) -and ((@('REPLAN', 'BLOCKED', 'COMPLETE') -ccontains $advMove))) {
@@ -873,6 +981,45 @@ function Invoke-OrchestrationSettledRecovery {
             return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause $lockWhy -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
         }
         try {
+            # F1 (F1-S4-FIX1, 2026-10-20): revalidate authority AFTER the
+            # wait. The entry admission may have expired (lease) or been
+            # superseded (takeover) while blocked on the lock. Any new
+            # write or delegation needs a live correlated authorization +
+            # fencing plus a live goal read: COMPLETED while waiting is
+            # recognized without mutation; a moved goal refuses. Failure
+            # writes nothing (no attribution, no checkpoint); the lock
+            # releases in finally below.
+            $authRe = Test-SRAuthorization -Authorization $Authorization -GoalId $gid -GoalStoreDir $GoalStoreDir
+            if (-not [bool](Get-SRValue $authRe 'ok' $false)) {
+                $ac2 = ([string](Get-SRValue $authRe 'cause' 'authorization-denied'))
+                if ($ac2 -like 'goal-terminal*') {
+                    $gsWait = $null
+                    try { $gsWait = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $gsWait = $null }
+                    $liveWait = $null
+                    if (($null -ne $gsWait) -and [bool](Get-SRValue $gsWait 'ok' $false)) { $liveWait = Get-SRValue $gsWait 'goal' $null }
+                    if (($null -ne $liveWait) -and ((([string](Get-SRValue $liveWait 'state' '')).Trim().ToUpperInvariant()) -ceq 'COMPLETED')) {
+                        return (New-SREnvelope -Ok $true -Action 'already-completed' -Reason 'recovery-already-completed' -GoalId $gid -SettledKey $sk -Effects (New-SREffects))
+                    }
+                }
+                if ([bool](Get-SRValue $authRe 'stale' $false)) {
+                    return (New-SRRefusal -Reason 'recovery-ownership-stale' -Cause $ac2 -GoalId $gid -SettledKey $sk -Fingerprint $fp)
+                }
+                return (New-SRRefusal -Reason 'recovery-authorization-denied' -Cause $ac2 -GoalId $gid -SettledKey $sk -Fingerprint $fp)
+            }
+            $gsWait = $null
+            try { $gsWait = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $gsWait = $null }
+            $liveWait = $null
+            if (($null -ne $gsWait) -and [bool](Get-SRValue $gsWait 'ok' $false)) { $liveWait = Get-SRValue $gsWait 'goal' $null }
+            if ($null -eq $liveWait) {
+                return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause 'goal-reread-failed' -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
+            }
+            $waitState = (([string](Get-SRValue $liveWait 'state' '')).Trim().ToUpperInvariant())
+            if ($waitState -ceq 'COMPLETED') {
+                return (New-SREnvelope -Ok $true -Action 'already-completed' -Reason 'recovery-already-completed' -GoalId $gid -SettledKey $sk -Effects (New-SREffects))
+            }
+            if ($waitState -cne 'ACTIVE') {
+                return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause ('goal-not-active:' + $waitState) -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
+            }
             # Re-read under the lock: same attribution replays/recorded;
             # divergent attribution never overwrites; reserved re-executes
             # from canonical stores (a crash proves nothing).
@@ -935,6 +1082,15 @@ function Invoke-OrchestrationSettledRecovery {
                 }
                 else {
                     return (New-SRRefusal -Reason 'recovery-record-uncertain' -Cause 'advance-unreadable-under-lock' -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
+                }
+            }
+            # F2 under the lock: re-compare the successor binding after the
+            # wait (removed/swapped/corrupted while blocked refuses with no
+            # write and no attribution). Terminal replays mint no successor.
+            if (($intended -ceq 'replay-prepared') -and (-not $advAbsent)) {
+                $succRe = Test-SRSuccessorBinding -ReceiptDir $rDir -Expected $rIdent -GoalId $gid -NextKey $advNextKey -NextTask $advNextTask -NextAgent $advNextAgent -NextReference $advNextRef
+                if (-not [bool](Get-SRValue $succRe 'ok' $false)) {
+                    return (New-SRRefusal -Reason 'recovery-successor-unproven' -Cause ([string](Get-SRValue $succRe 'cause' 'successor-unproven')) -GoalId $gid -SettledKey $sk -Fingerprint $fp -ManualFollowup $true)
                 }
             }
             $proofRefs = [ordered]@{

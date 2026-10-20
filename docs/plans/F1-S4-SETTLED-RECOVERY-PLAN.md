@@ -97,7 +97,11 @@ Códigos: `recovery-request-invalid`, `recovery-authorization-denied`,
 `recovery-record-uncertain`, `recovery-lock-busy`,
 `recovery-intent-unproven`, `recovery-pending-manual-required`,
 `recovery-settlement-ambiguous`, `recovery-record-write-failed`,
-`recovery-no-continuation`, `recovery-already-completed`.
+`recovery-no-continuation`, `recovery-already-completed`,
+`recovery-successor-unproven` (nota F1-S4-FIX1, 2026-10-20: recusa honesta
+quando o recibo sucessor do replay `prepared` está ausente, ilegível,
+divergente ou com fase inesperada; sem PREPARE, sem checkpoint, sem
+atribuição de sucesso).
 Códigos S3a/ND preservados em `cause_reason`; nunca fabricar COMPLETE.
 
 ### 4.2 Registro de recovery
@@ -148,23 +152,28 @@ created_at, recorded_at
 1. Validar pedido, sessão, GoalId/SettledKey e autorização correlacionada
    (`Test-NativeDispatchAuthorization`; goal exatamente igual).
 2. Ler goal e registros canônicos (advance, recibo, evidência, task,
-   worker_result, checkpoint).
-3. Classificar o estado **antes** de criar atribuição (tabela §5).
-4. Para ação mutante permitida: adquirir lock, reler, resolver o registro
-   existente (mesma atribuição → replay/terminal; divergente → mismatch;
-   `reserved` → reler efeitos) e reservar.
+   worker_result, sucessor `prepared` quando houver, checkpoint).
+3. Classificar o estado **antes** de criar atribuição (tabela §5),
+   incluindo a vinculação do sucessor para replay `prepared`.
+4. Para ação mutante permitida: adquirir lock, **revalidar autorização/
+   ownership/lease e estado vivo do goal** (F1-S4-FIX1, 2026-10-20: a
+   espera pode exceder o lease ou um takeover; COMPLETED na espera é
+   reconhecido sem mutação), reler advance + sucessor, resolver o
+   registro existente (mesma atribuição → replay/terminal; divergente →
+   mismatch; `reserved` → reler efeitos) e reservar.
 5. Executar somente a ação permitida: replay S3a `prepared`/terminal já
    validado; reconstrução de checkpoint a partir de registros canônicos;
    `blocked-manual` (somente registro).
 6. Persistir `recorded` com resultado honesto; liberar lock.
-7. Recusas de entrada/cross-goal/estado não suportado: sem escritura de
-   domínio e sem atribuição (quando inválidas).
+7. Recusas de entrada/cross-goal/estado não suportado/sucessor não
+   vinculado: sem escritura de domínio e sem atribuição (quando
+   inválidas; o pós-lock também não escreve).
 
 ## 5. Tabela de estados
 
 | Estado | Ação permitida / prova | Recusa e efeitos |
 |---|---|---|
-| Advance `prepared=true` | Auth viva, settlement válido, correlação e integridade do sucessor; replay S3a/checkpoint | Nenhum PREPARE/worker; não rebindar sessão |
+| Advance `prepared=true` | Auth viva, settlement válido, correlação e integridade do sucessor (recibo `prepared` com goal/key/task/agent/reference vinculados); replay S3a/checkpoint | Sucessor ausente/divergente: recusa `recovery-successor-unproven`, sem PREPARE; não rebindar sessão |
 | Advance terminal COMPLETE, goal ACTIVE | Settlement válido, stop `OBJECTIVE_COMPLETED`, auth viva; S3a valida conclusão e CAS | Sem gate/CAS válido: bloqueio, nunca sucesso presumido |
 | Goal já COMPLETED | Reconhecer por leitura canônica; sem novo CAS | Sem nova atribuição mutante |
 | Advance BLOCKED/REPLAN | Replay atribuído com vínculos válidos | Nenhuma mutação do goal |

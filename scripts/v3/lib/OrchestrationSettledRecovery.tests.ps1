@@ -1035,6 +1035,263 @@ try {
         Assert-SR (([bool]$r16c.ok) -and ([string]$r16c.action -ceq 'blocked-manual') -and (-not [bool]$r16c.prepared)) '[S16] a downgraded advance is manual, never replayed as prepared' ([string]$r16c.reason)
         Assert-SR ((Get-SRFileHex -Path $succPath16c) -ceq $succHash16c) '[S16] the recorded successor is untouched' ''
 
+        # ---------- F1a. post-lock takeover refuses without writes ----------
+        $idsF1a = New-SRIds -Tag 'postlock'
+        $gF1a = New-SRGoal -GoalId $idsF1a.goal
+        New-SRTask -TaskId $idsF1a.task -GoalId $idsF1a.goal -Gen $gF1a.gen -Risk 'low'
+        New-SRTask -TaskId $idsF1a.next -GoalId $idsF1a.goal -Gen $gF1a.gen -Risk 'low'
+        $keyF1a = Get-NativeDispatchHash32 ('s4-settled-' + $idsF1a.task)
+        $intentF1a = New-SRIntent -TaskId $idsF1a.task -Rev (Get-SRTaskRev -TaskId $idsF1a.task) -Key $keyF1a -Gen $gF1a.gen
+        $null = Invoke-SRWalk -Goal $gF1a -Intent $intentF1a -Call 'call_s4_q1'
+        Invoke-SRToReviewing -TaskId $idsF1a.task
+        Set-SRVerification -TaskId $idsF1a.task
+        Set-SRReview -TaskId $idsF1a.task
+        Invoke-SRComplete -TaskId $idsF1a.task
+        $nextKeyF1a = Get-NativeDispatchHash32 ('s4-next-' + $idsF1a.next)
+        $intentNextF1a = New-SRIntent -TaskId $idsF1a.next -Rev (Get-SRTaskRev -TaskId $idsF1a.next) -Key $nextKeyF1a -Gen $gF1a.gen
+        $scF1a = Invoke-OrchestrationSettledContinuation -GoalId $idsF1a.goal -SettledKey $keyF1a -Authorization $gF1a.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF1a
+        Assert-SR (([bool]$scF1a.ok) -and [bool]$scF1a.prepared) '[F1a] setup continuation prepares' ([string]$scF1a.reason)
+        $rF1a = Invoke-SRRecovery -GoalId $idsF1a.goal -Key $keyF1a -Auth $gF1a.auth -Sub 'ses_s4_sub_f1a'
+        Assert-SR (([bool]$rF1a.ok) -and ([string]$rF1a.action -ceq 'replay-prepared')) '[F1a] first recovery replays while the lease is live' ([string]$rF1a.action)
+        $recTextF1a = [IO.File]::ReadAllText((Get-SRRecoveryPath -GoalId $idsF1a.goal -Key $keyF1a), [Text.Encoding]::UTF8)
+        $ckptCountF1a = @(Get-ChildItem -LiteralPath $script:srEnv.ckpts -File -ErrorAction SilentlyContinue).Count
+        $renewF1a = Renew-OrchestrationGoalOwnership -GoalId $idsF1a.goal -OwnerId 'planner-1' -Generation $gF1a.gen -StoreDir $script:srEnv.goals -LeaseTtlMs 200
+        Assert-SR ([bool]$renewF1a.ok) '[F1a] the lease is shortened while live' ([string]$renewF1a.reason)
+        Start-Sleep -Milliseconds 600
+        $takeF1a = Takeover-OrchestrationGoalOwnership -GoalId $idsF1a.goal -OwnerId 'planner-2' -StoreDir $script:srEnv.goals
+        Assert-SR ([bool]$takeF1a.ok) '[F1a] an external takeover lands' ([string]$takeF1a.reason)
+        $revAfterTakeF1a = [long]((Get-SRLiveGoal -GoalId $idsF1a.goal)['revision'])
+        $rF1a2 = Invoke-SRRecovery -GoalId $idsF1a.goal -Key $keyF1a -Auth $gF1a.auth -Sub 'ses_s4_sub_f1a'
+        Assert-SR (((-not [bool]$rF1a2.ok) -and ([string]$rF1a2.reason -ceq 'recovery-ownership-stale'))) '[F1a] post-lock revalidation refuses the stale token' ('cause=' + [string]$rF1a2.cause_reason)
+        Assert-SR (([IO.File]::ReadAllText((Get-SRRecoveryPath -GoalId $idsF1a.goal -Key $keyF1a), [Text.Encoding]::UTF8) -ceq $recTextF1a)) '[F1a] the recorded result is byte-identical' ''
+        Assert-SR (@(Get-ChildItem -LiteralPath $script:srEnv.ckpts -File -ErrorAction SilentlyContinue).Count -eq $ckptCountF1a) '[F1a] no checkpoint was written after the takeover' ''
+        Assert-SR ([long]((Get-SRLiveGoal -GoalId $idsF1a.goal)['revision']) -eq $revAfterTakeF1a) '[F1a] the goal was not touched by the refused recovery' ''
+
+        # ---------- F1b. admitted request waits on the lock while a takeover lands ----------
+        $idsF1b = New-SRIds -Tag 'lockwait'
+        $gF1b = New-SRGoal -GoalId $idsF1b.goal
+        New-SRTask -TaskId $idsF1b.task -GoalId $idsF1b.goal -Gen $gF1b.gen -Risk 'low'
+        New-SRTask -TaskId $idsF1b.next -GoalId $idsF1b.goal -Gen $gF1b.gen -Risk 'low'
+        $keyF1b = Get-NativeDispatchHash32 ('s4-settled-' + $idsF1b.task)
+        $intentF1b = New-SRIntent -TaskId $idsF1b.task -Rev (Get-SRTaskRev -TaskId $idsF1b.task) -Key $keyF1b -Gen $gF1b.gen
+        $null = Invoke-SRWalk -Goal $gF1b -Intent $intentF1b -Call 'call_s4_q2'
+        Invoke-SRToReviewing -TaskId $idsF1b.task
+        Set-SRVerification -TaskId $idsF1b.task
+        Set-SRReview -TaskId $idsF1b.task
+        Invoke-SRComplete -TaskId $idsF1b.task
+        $nextKeyF1b = Get-NativeDispatchHash32 ('s4-next-' + $idsF1b.next)
+        $intentNextF1b = New-SRIntent -TaskId $idsF1b.next -Rev (Get-SRTaskRev -TaskId $idsF1b.next) -Key $nextKeyF1b -Gen $gF1b.gen
+        $scF1b = Invoke-OrchestrationSettledContinuation -GoalId $idsF1b.goal -SettledKey $keyF1b -Authorization $gF1b.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF1b
+        Assert-SR (([bool]$scF1b.ok) -and [bool]$scF1b.prepared) '[F1b] setup continuation prepares' ([string]$scF1b.reason)
+        $advDirF1b = Get-SRAdvanceDir -GoalId $idsF1b.goal
+        $lockPathF1b = Join-Path ([string](Get-SRValue $advDirF1b 'dir' '')) ('.recovery-' + $keyF1b + '.lock')
+        $heldF1b = [IO.File]::Open($lockPathF1b, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $jobF1b = $null
+        try {
+            $jobF1b = Start-Job -ScriptBlock {
+                param($LibDir, $GoalId, $Key, $Auth, $Sub, $Ckpt, $Goals, $Evs, $Recs, $Tasks, $Flags)
+                . (Join-Path $LibDir 'OrchestrationGoalKernel.ps1')
+                . (Join-Path $LibDir 'OrchestrationGoalCheckpoint.ps1')
+                . (Join-Path $LibDir 'OrchestrationNativeDispatch.ps1')
+                . (Join-Path $LibDir 'OrchestrationTaskKernel.ps1')
+                . (Join-Path $LibDir 'OrchestrationAutonomousLoop.ps1')
+                . (Join-Path $LibDir 'OrchestrationSettledRecovery.ps1')
+                try {
+                    $r = Invoke-OrchestrationSettledRecovery -GoalId $GoalId -SettledKey $Key -Authorization $Auth -SubstituteSessionId $Sub -ReasonCode 'substitute-timeout' `
+                        -CheckpointDir $Ckpt -GoalStoreDir $Goals -EvidenceStoreDir $Evs -ReceiptDir $Recs -TasksDir $Tasks -FlagsPath $Flags -LockTimeoutMs 25000
+                    return [pscustomobject]@{ ok = [bool]$r.ok; reason = ([string]$r.reason); cause = ([string]$r.cause_reason); action = ([string]$r.action); calls = [int]$r.executor_calls }
+                }
+                catch { return [pscustomobject]@{ ok = $false; reason = 'job-exception'; cause = ([string]$_.Exception.Message); action = ''; calls = -1 } }
+            } -ArgumentList @($PSScriptRoot, $idsF1b.goal, $keyF1b, $gF1b.auth, 'ses_s4_sub_f1b', $script:srEnv.ckpts, $script:srEnv.goals, $script:srEnv.evs, $script:srEnv.recs, $script:srEnv.tasks, $script:srEnv.flags)
+            Start-Sleep -Milliseconds 4000
+            $renewF1b = Renew-OrchestrationGoalOwnership -GoalId $idsF1b.goal -OwnerId 'planner-1' -Generation $gF1b.gen -StoreDir $script:srEnv.goals -LeaseTtlMs 200
+            Assert-SR ([bool]$renewF1b.ok) '[F1b] the lease is shortened while the request waits' ([string]$renewF1b.reason)
+            Start-Sleep -Milliseconds 600
+            $takeF1b = Takeover-OrchestrationGoalOwnership -GoalId $idsF1b.goal -OwnerId 'planner-2' -StoreDir $script:srEnv.goals
+            Assert-SR ([bool]$takeF1b.ok) '[F1b] the takeover lands while the request waits' ([string]$takeF1b.reason)
+        }
+        finally { try { if ($null -ne $heldF1b) { $heldF1b.Dispose() } } catch { }; $heldF1b = $null }
+        # Snapshot AFTER the takeover: the goal file legitimately moved;
+        # only the waiting S4 call runs from here on.
+        $snapF1b = Get-SRSnapshot
+        $ckptCountF1b = @(Get-ChildItem -LiteralPath $script:srEnv.ckpts -File -ErrorAction SilentlyContinue).Count
+        $jwF1b = Wait-Job -Job $jobF1b -Timeout 60
+        Assert-SR (($null -ne $jwF1b) -and ([string]$jwF1b.State -ceq 'Completed')) '[F1b] the waiting request finishes' ([string]$jwF1b.State)
+        $jrF1b = Receive-Job -Job $jobF1b
+        Remove-Job -Job $jobF1b -Force -ErrorAction SilentlyContinue
+        Assert-SR (((-not [bool]$jrF1b.ok) -and ([string]$jrF1b.reason -ceq 'recovery-ownership-stale') -and ([int]$jrF1b.calls -eq 0))) '[F1b] the waited request refuses without writes' ('reason=' + [string]$jrF1b.reason + ' cause=' + [string]$jrF1b.cause)
+        Assert-SR (-not (Test-Path -LiteralPath (Get-SRRecoveryPath -GoalId $idsF1b.goal -Key $keyF1b))) '[F1b] the refused wait attributed nothing' ''
+        Assert-SR ((Get-SRSnapshot) -ceq $snapF1b) '[F1b] domain hashes are unchanged' ''
+        Assert-SR (@(Get-ChildItem -LiteralPath $script:srEnv.ckpts -File -ErrorAction SilentlyContinue).Count -eq $ckptCountF1b) '[F1b] no checkpoint was written' ''
+
+        # ---------- F2a. successor removed refuses without PREPARE ----------
+        $idsF2a = New-SRIds -Tag 'nosucc'
+        $gF2a = New-SRGoal -GoalId $idsF2a.goal
+        New-SRTask -TaskId $idsF2a.task -GoalId $idsF2a.goal -Gen $gF2a.gen -Risk 'low'
+        New-SRTask -TaskId $idsF2a.next -GoalId $idsF2a.goal -Gen $gF2a.gen -Risk 'low'
+        $keyF2a = Get-NativeDispatchHash32 ('s4-settled-' + $idsF2a.task)
+        $intentF2a = New-SRIntent -TaskId $idsF2a.task -Rev (Get-SRTaskRev -TaskId $idsF2a.task) -Key $keyF2a -Gen $gF2a.gen
+        $null = Invoke-SRWalk -Goal $gF2a -Intent $intentF2a -Call 'call_s4_n1'
+        Invoke-SRToReviewing -TaskId $idsF2a.task
+        Set-SRVerification -TaskId $idsF2a.task
+        Set-SRReview -TaskId $idsF2a.task
+        Invoke-SRComplete -TaskId $idsF2a.task
+        $nextKeyF2a = Get-NativeDispatchHash32 ('s4-next-' + $idsF2a.next)
+        $intentNextF2a = New-SRIntent -TaskId $idsF2a.next -Rev (Get-SRTaskRev -TaskId $idsF2a.next) -Key $nextKeyF2a -Gen $gF2a.gen
+        $scF2a = Invoke-OrchestrationSettledContinuation -GoalId $idsF2a.goal -SettledKey $keyF2a -Authorization $gF2a.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF2a
+        Assert-SR (([bool]$scF2a.ok) -and [bool]$scF2a.prepared) '[F2a] setup continuation prepares' ([string]$scF2a.reason)
+        $advTextF2a = [IO.File]::ReadAllText((Join-Path ([string](Get-SRValue (Get-SRAdvanceDir -GoalId $idsF2a.goal) 'dir' '')) ($keyF2a + '.advance.json')), [Text.Encoding]::UTF8)
+        Remove-Item -LiteralPath (Get-SRReceiptPath -GoalId $idsF2a.goal -Key $nextKeyF2a) -Force -ErrorAction Stop
+        $rF2a = Invoke-SRRecovery -GoalId $idsF2a.goal -Key $keyF2a -Auth $gF2a.auth -Sub 'ses_s4_sub_A'
+        Assert-SR (((-not [bool]$rF2a.ok) -and ([string]$rF2a.reason -ceq 'recovery-successor-unproven') -and ([string]$rF2a.cause_reason -ceq 'successor-receipt-absent') -and (-not [bool]$rF2a.prepared))) '[F2a] a removed successor refuses without announcing prepared' ('cause=' + [string]$rF2a.cause_reason)
+        Assert-SR (-not (Test-Path -LiteralPath (Get-SRRecoveryPath -GoalId $idsF2a.goal -Key $keyF2a))) '[F2a] the refusal attributed nothing' ''
+        Assert-SR (-not (Test-Path -LiteralPath (Get-SRReceiptPath -GoalId $idsF2a.goal -Key $nextKeyF2a))) '[F2a] no PREPARE recreated the successor' ''
+        Assert-SR (([IO.File]::ReadAllText((Join-Path ([string](Get-SRValue (Get-SRAdvanceDir -GoalId $idsF2a.goal) 'dir' '')) ($keyF2a + '.advance.json')), [Text.Encoding]::UTF8) -ceq $advTextF2a)) '[F2a] the advance decision is untouched' ''
+
+        # ---------- F2b. successor corrupted refuses ----------
+        $idsF2b = New-SRIds -Tag 'succorr'
+        $gF2b = New-SRGoal -GoalId $idsF2b.goal
+        New-SRTask -TaskId $idsF2b.task -GoalId $idsF2b.goal -Gen $gF2b.gen -Risk 'low'
+        New-SRTask -TaskId $idsF2b.next -GoalId $idsF2b.goal -Gen $gF2b.gen -Risk 'low'
+        $keyF2b = Get-NativeDispatchHash32 ('s4-settled-' + $idsF2b.task)
+        $intentF2b = New-SRIntent -TaskId $idsF2b.task -Rev (Get-SRTaskRev -TaskId $idsF2b.task) -Key $keyF2b -Gen $gF2b.gen
+        $null = Invoke-SRWalk -Goal $gF2b -Intent $intentF2b -Call 'call_s4_n2'
+        Invoke-SRToReviewing -TaskId $idsF2b.task
+        Set-SRVerification -TaskId $idsF2b.task
+        Set-SRReview -TaskId $idsF2b.task
+        Invoke-SRComplete -TaskId $idsF2b.task
+        $nextKeyF2b = Get-NativeDispatchHash32 ('s4-next-' + $idsF2b.next)
+        $intentNextF2b = New-SRIntent -TaskId $idsF2b.next -Rev (Get-SRTaskRev -TaskId $idsF2b.next) -Key $nextKeyF2b -Gen $gF2b.gen
+        $scF2b = Invoke-OrchestrationSettledContinuation -GoalId $idsF2b.goal -SettledKey $keyF2b -Authorization $gF2b.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF2b
+        Assert-SR (([bool]$scF2b.ok) -and [bool]$scF2b.prepared) '[F2b] setup continuation prepares' ([string]$scF2b.reason)
+        # Isolated root: the corrupted successor must never poison the
+        # shared root scan (fail-closed CLAIM would refuse later fixtures).
+        $recsF2b = Join-Path $tempRoot 'recs-f2b'
+        New-Item -ItemType Directory -Path $recsF2b -Force | Out-Null
+        $subSrcF2b = Get-NDGoalReceiptDir -RootDir $script:srEnv.recs -GoalId $idsF2b.goal
+        $subDstF2b = Get-NDGoalReceiptDir -RootDir $recsF2b -GoalId $idsF2b.goal
+        Copy-Item -Path (Join-Path $subSrcF2b '*') -Destination $subDstF2b -Recurse -Force
+        [IO.File]::WriteAllText((Join-Path $subDstF2b ($nextKeyF2b + '.json')), '{ truncado', [Text.Encoding]::UTF8)
+        $advIsoF2b = Get-NDAdvanceDir -RootDir $recsF2b -GoalId $idsF2b.goal
+        $recPathIsoF2b = Join-Path ([string](Get-SRValue $advIsoF2b 'dir' '')) ($keyF2b + '.recovery.json')
+        $rF2b = Invoke-SRRecovery -GoalId $idsF2b.goal -Key $keyF2b -Auth $gF2b.auth -Sub 'ses_s4_sub_A' -Receipts $recsF2b
+        Assert-SR (((-not [bool]$rF2b.ok) -and ([string]$rF2b.reason -ceq 'recovery-successor-unproven') -and ([string]$rF2b.cause_reason -ceq 'successor-receipt-unreadable'))) '[F2b] a corrupted successor refuses' ('cause=' + [string]$rF2b.cause_reason)
+        Assert-SR (-not (Test-Path -LiteralPath $recPathIsoF2b)) '[F2b] the refusal attributed nothing' ''
+
+        # ---------- F2c. successor reference swapped refuses ----------
+        $idsF2c = New-SRIds -Tag 'sucref'
+        $gF2c = New-SRGoal -GoalId $idsF2c.goal
+        New-SRTask -TaskId $idsF2c.task -GoalId $idsF2c.goal -Gen $gF2c.gen -Risk 'low'
+        New-SRTask -TaskId $idsF2c.next -GoalId $idsF2c.goal -Gen $gF2c.gen -Risk 'low'
+        $keyF2c = Get-NativeDispatchHash32 ('s4-settled-' + $idsF2c.task)
+        $intentF2c = New-SRIntent -TaskId $idsF2c.task -Rev (Get-SRTaskRev -TaskId $idsF2c.task) -Key $keyF2c -Gen $gF2c.gen
+        $null = Invoke-SRWalk -Goal $gF2c -Intent $intentF2c -Call 'call_s4_n3'
+        Invoke-SRToReviewing -TaskId $idsF2c.task
+        Set-SRVerification -TaskId $idsF2c.task
+        Set-SRReview -TaskId $idsF2c.task
+        Invoke-SRComplete -TaskId $idsF2c.task
+        $nextKeyF2c = Get-NativeDispatchHash32 ('s4-next-' + $idsF2c.next)
+        $intentNextF2c = New-SRIntent -TaskId $idsF2c.next -Rev (Get-SRTaskRev -TaskId $idsF2c.next) -Key $nextKeyF2c -Gen $gF2c.gen
+        $scF2c = Invoke-OrchestrationSettledContinuation -GoalId $idsF2c.goal -SettledKey $keyF2c -Authorization $gF2c.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF2c
+        Assert-SR (([bool]$scF2c.ok) -and [bool]$scF2c.prepared) '[F2c] setup continuation prepares' ([string]$scF2c.reason)
+        # Isolated root: the decorrelated successor must never poison the
+        # shared root scan (the prepared phase revalidates semantic
+        # integrity on every CLAIM scan).
+        $recsF2c = Join-Path $tempRoot 'recs-f2c'
+        New-Item -ItemType Directory -Path $recsF2c -Force | Out-Null
+        $subSrcF2c = Get-NDGoalReceiptDir -RootDir $script:srEnv.recs -GoalId $idsF2c.goal
+        $subDstF2c = Get-NDGoalReceiptDir -RootDir $recsF2c -GoalId $idsF2c.goal
+        Copy-Item -Path (Join-Path $subSrcF2c '*') -Destination $subDstF2c -Recurse -Force
+        $succPathF2c = Join-Path $subDstF2c ($nextKeyF2c + '.json')
+        $succRawF2c = ConvertFrom-Json ([IO.File]::ReadAllText($succPathF2c, [Text.Encoding]::UTF8))
+        $succRawF2c.reference = 'ffffffffffffffffffffffffffffffff'
+        [IO.File]::WriteAllText($succPathF2c, (ConvertTo-Json -InputObject $succRawF2c -Depth 8 -Compress), [Text.Encoding]::UTF8)
+        $advIsoF2c = Get-NDAdvanceDir -RootDir $recsF2c -GoalId $idsF2c.goal
+        $recPathIsoF2c = Join-Path ([string](Get-SRValue $advIsoF2c 'dir' '')) ($keyF2c + '.recovery.json')
+        $rF2c = Invoke-SRRecovery -GoalId $idsF2c.goal -Key $keyF2c -Auth $gF2c.auth -Sub 'ses_s4_sub_A' -Receipts $recsF2c
+        Assert-SR (((-not [bool]$rF2c.ok) -and ([string]$rF2c.reason -ceq 'recovery-successor-unproven') -and ([string]$rF2c.cause_reason -ceq 'successor-reference-mismatch'))) '[F2c] a swapped successor reference refuses' ('cause=' + [string]$rF2c.cause_reason)
+        Assert-SR (-not (Test-Path -LiteralPath $recPathIsoF2c)) '[F2c] the refusal attributed nothing' ''
+
+        # ---------- F2d. reserved crash + missing successor re-checks under the lock ----------
+        $idsF2d = New-SRIds -Tag 'succcrash'
+        $gF2d = New-SRGoal -GoalId $idsF2d.goal
+        New-SRTask -TaskId $idsF2d.task -GoalId $idsF2d.goal -Gen $gF2d.gen -Risk 'low'
+        New-SRTask -TaskId $idsF2d.next -GoalId $idsF2d.goal -Gen $gF2d.gen -Risk 'low'
+        $keyF2d = Get-NativeDispatchHash32 ('s4-settled-' + $idsF2d.task)
+        $intentF2d = New-SRIntent -TaskId $idsF2d.task -Rev (Get-SRTaskRev -TaskId $idsF2d.task) -Key $keyF2d -Gen $gF2d.gen
+        $walkF2d = Invoke-SRWalk -Goal $gF2d -Intent $intentF2d -Call 'call_s4_n4'
+        Invoke-SRToReviewing -TaskId $idsF2d.task
+        Set-SRVerification -TaskId $idsF2d.task
+        Set-SRReview -TaskId $idsF2d.task
+        Invoke-SRComplete -TaskId $idsF2d.task
+        $nextKeyF2d = Get-NativeDispatchHash32 ('s4-next-' + $idsF2d.next)
+        $intentNextF2d = New-SRIntent -TaskId $idsF2d.next -Rev (Get-SRTaskRev -TaskId $idsF2d.next) -Key $nextKeyF2d -Gen $gF2d.gen
+        $scF2d = Invoke-OrchestrationSettledContinuation -GoalId $idsF2d.goal -SettledKey $keyF2d -Authorization $gF2d.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF2d
+        Assert-SR (([bool]$scF2d.ok) -and [bool]$scF2d.prepared) '[F2d] setup continuation prepares' ([string]$scF2d.reason)
+        Remove-Item -LiteralPath (Get-SRRecoveryPath -GoalId $idsF2d.goal -Key $keyF2d) -Force -ErrorAction SilentlyContinue
+        $advF2d = Get-SRAdvanceRecord -GoalId $idsF2d.goal -Key $keyF2d
+        $recF2draw = Get-SRReceipt -GoalId $idsF2d.goal -Key $keyF2d
+        $rDirF2d = Get-NDGoalReceiptDir -RootDir $script:srEnv.recs -GoalId $idsF2d.goal
+        $origSessF2d = ([string](Get-SRValue $recF2draw 'settle_session_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($origSessF2d)) { $origSessF2d = ([string](Get-SRValue $recF2draw 'claim_session_id' '')).Trim() }
+        $evIdF2d = ([string](Get-SRValue $recF2draw 'settle_evidence_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($evIdF2d)) { $evIdF2d = ([string](Get-SRValue $recF2draw 'evidence_id' '')).Trim() }
+        $recExpF2d = [long](Get-SRValue $recF2draw 'task_expected_revision' -1)
+        $fpF2d = Get-SRAssignmentFingerprint -SubstituteSessionId 'ses_s4_sub_f2d' -Owner 'planner-1' -Generation $gF2d.gen -Source 'planner' `
+            -Action 'replay-prepared' -ReasonCode 'substitute-timeout' -GoalId $idsF2d.goal -SettledKey $keyF2d -SourceTaskId $idsF2d.task `
+            -ReceiptRef (Join-Path $rDirF2d ($keyF2d + '.json')) -EvidenceId $evIdF2d -CandidateRevision $recExpF2d `
+            -NextKey ([string](Get-SRValue $advF2d 'next_idempotency_key' '')) -NextIntentFingerprint '' -OriginalPrepareSessionId $origSessF2d
+        $advDirF2d = Get-SRAdvanceDir -GoalId $idsF2d.goal
+        $reservedF2d = [ordered]@{
+            schema_version = 1; goal_id = $idsF2d.goal; settled_key = $keyF2d; source_task_id = $idsF2d.task
+            assignment_fingerprint = $fpF2d; substitute_session_id = 'ses_s4_sub_f2d'
+            authorization_owner = 'planner-1'; authorization_generation = [long]$gF2d.gen; authorization_source = 'planner'
+            reason_code = 'substitute-timeout'; action = 'replay-prepared'
+            proof_refs = [ordered]@{ receipt = (Join-Path $rDirF2d ($keyF2d + '.json')); advance = (Join-Path ([string](Get-SRValue $advDirF2d 'dir' '')) ($keyF2d + '.advance.json')); evidence_id = $evIdF2d; candidate_revision = [long]$recExpF2d; next_key = ([string](Get-SRValue $advF2d 'next_idempotency_key' '')); next_intent_fingerprint = ''; original_prepare_session_id = $origSessF2d }
+            phase = 'reserved'
+            result = [ordered]@{ ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'; prepared = $false; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
+            created_at = ([DateTime]::UtcNow.ToString('o')); recorded_at = ''
+        }
+        Assert-SR ([bool](Write-SRRecoveryRecord -AdvanceDir ([string](Get-SRValue $advDirF2d 'dir' '')) -Ident ([string](Get-SRValue $advDirF2d 'ident' '')) -Key $keyF2d -Record $reservedF2d)) '[F2d] a reserved record simulates the crash' ''
+        Remove-Item -LiteralPath (Get-SRReceiptPath -GoalId $idsF2d.goal -Key $nextKeyF2d) -Force -ErrorAction Stop
+        $rF2d = Invoke-SRRecovery -GoalId $idsF2d.goal -Key $keyF2d -Auth $gF2d.auth -Sub 'ses_s4_sub_f2d'
+        Assert-SR (((-not [bool]$rF2d.ok) -and ([string]$rF2d.reason -ceq 'recovery-successor-unproven') -and ([string]$rF2d.cause_reason -ceq 'successor-receipt-absent') -and (-not [bool]$rF2d.prepared))) '[F2d] reserved with a vanished successor refuses under the lock' ('cause=' + [string]$rF2d.cause_reason)
+        $recF2d = Get-SRRecoveryRecord -GoalId $idsF2d.goal -Key $keyF2d
+        Assert-SR ((([string]$recF2d.phase -ceq 'reserved') -and ([string]$recF2d.assignment_fingerprint -ceq $fpF2d))) '[F2d] the reserved record is preserved, never presumed' ''
+
+        # ---------- F2e. valid successor still replays ----------
+        $idsF2e = New-SRIds -Tag 'succok'
+        $gF2e = New-SRGoal -GoalId $idsF2e.goal
+        New-SRTask -TaskId $idsF2e.task -GoalId $idsF2e.goal -Gen $gF2e.gen -Risk 'low'
+        New-SRTask -TaskId $idsF2e.next -GoalId $idsF2e.goal -Gen $gF2e.gen -Risk 'low'
+        $keyF2e = Get-NativeDispatchHash32 ('s4-settled-' + $idsF2e.task)
+        $intentF2e = New-SRIntent -TaskId $idsF2e.task -Rev (Get-SRTaskRev -TaskId $idsF2e.task) -Key $keyF2e -Gen $gF2e.gen
+        $null = Invoke-SRWalk -Goal $gF2e -Intent $intentF2e -Call 'call_s4_n5'
+        Invoke-SRToReviewing -TaskId $idsF2e.task
+        Set-SRVerification -TaskId $idsF2e.task
+        Set-SRReview -TaskId $idsF2e.task
+        Invoke-SRComplete -TaskId $idsF2e.task
+        $nextKeyF2e = Get-NativeDispatchHash32 ('s4-next-' + $idsF2e.next)
+        $intentNextF2e = New-SRIntent -TaskId $idsF2e.next -Rev (Get-SRTaskRev -TaskId $idsF2e.next) -Key $nextKeyF2e -Gen $gF2e.gen
+        $scF2e = Invoke-OrchestrationSettledContinuation -GoalId $idsF2e.goal -SettledKey $keyF2e -Authorization $gF2e.auth `
+            -SessionId 'ses_s4_parent' -CheckpointDir $script:srEnv.ckpts -GoalStoreDir $script:srEnv.goals -EvidenceStoreDir $script:srEnv.evs `
+            -ReceiptDir $script:srEnv.recs -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -NextIntent $intentNextF2e
+        Assert-SR (([bool]$scF2e.ok) -and [bool]$scF2e.prepared) '[F2e] setup continuation prepares' ([string]$scF2e.reason)
+        $rF2e = Invoke-SRRecovery -GoalId $idsF2e.goal -Key $keyF2e -Auth $gF2e.auth -Sub 'ses_s4_sub_A'
+        Assert-SR (([bool]$rF2e.ok) -and ([string]$rF2e.action -ceq 'replay-prepared') -and ([bool]$rF2e.prepared) -and ([string]$rF2e.next_idempotency_key -ceq $nextKeyF2e)) '[F2e] a bound successor still replays' ('action=' + [string]$rF2e.action)
+
         # ---------- S17. sentinel: zero worker/CLAIM/SETTLE/PREPARE ----------
         $modPath = Join-Path $PSScriptRoot 'OrchestrationSettledRecovery.ps1'
         $modText = [IO.File]::ReadAllText($modPath, [Text.Encoding]::UTF8)
@@ -1083,7 +1340,7 @@ try {
             Assert-SR ($bad -eq 0) ('[ASCII] ' + [IO.Path]::GetFileName($p)) ([string]$bad)
         }
         $roots = @(Get-ChildItem -LiteralPath $script:srEnv.root -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object)
-        $knownRoots = @('checkpoints', 'evidence', 'goals', 'receipts', 'recs-swap', 'tasks', 'telemetry')
+        $knownRoots = @('checkpoints', 'evidence', 'goals', 'receipts', 'recs-f2b', 'recs-f2c', 'recs-swap', 'tasks', 'telemetry')
         $extraRoots = @(Compare-Object -ReferenceObject $knownRoots -DifferenceObject @($roots) | Where-Object { $_.SideIndicator -ceq '=>' } | ForEach-Object { $_.InputObject })
         Assert-SR (@($extraRoots).Count -eq 0) '[HYG] no parallel store was created' (@($extraRoots) -join ',')
     }
