@@ -6,6 +6,42 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S4 limitada — recovery atribuído por sessão substituta (fixture-only)**:
+  `Invoke-OrchestrationSettledRecovery`
+  (`scripts/v3/lib/OrchestrationSettledRecovery.ps1`) permite que uma sessão
+  substituta (descritor de host, nunca capability) solicite a recuperação de
+  um advance `prepared`/terminal já validado, com atribuição durável
+  (sessão substituta, owner/generation/source, motivo, goal/settled
+  key/task e vínculos causais em `assignment_fingerprint` determinístico
+  sem timestamp) em `<settledKey>.recovery.json` (`reserved`/`recorded`,
+  escrita atômica sem sobrescrever; mesma atribuição reexecuta
+  deterministicamente, divergente recusa `recovery-assignment-mismatch`).
+  O replay é delegado à continuação S3a (pré-condições revalidadas: auth
+  viva, ownership/fencing, settlement válido, correlação, integridade;
+  COMPLETE só com gate/CAS da S3a); checkpoint ausente é reconstruído de
+  registros canônicos (uma tentativa, falha registrada com honestidade).
+  Pending/ambíguo vira `blocked-manual` atribuído (só o registro;
+  `domain_mutated=false`) ou recusa (`recovery-intent-unproven`,
+  `recovery-no-continuation`); pending automático e ADVANCE próprio são
+  HOLD/manual — nenhum novo PREPARE/CLAIM/SETTLE/worker, nenhuma mutação
+  de goal/task/receipt/advance em `blocked-manual`, nenhuma aquisição ou
+  transferência de owner. Lock dedicado `.recovery-<key>.lock` (distinto
+  dos locks do ND, timeout limitado → `recovery-lock-busy`); `reserved`
+  após crash relê os stores canônicos, nunca presume sucesso; registro
+  ilegível/não-arquivo/reparse é preservado e recusado.
+  `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
+  como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
+  (634 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  COMPLETE válido/recusado, sessão/auth/owner, takeover sem transferência
+  implícita, pending manual/recusa, receipt pending/claimed/prepared,
+  evidência ausente/ilegível/decorrelacionada, worker superseded,
+  checkpoint rebuild honesto, registros corrompidos/divergentes/crash,
+  lock entre processos, adversarial remoção/troca/downgrade, sentinela
+  zero worker/CLAIM/SETTLE/PREPARE, regressão sem `SettledKey`); S3a
+  (658 asserts) e ND handoff/advance (2151 asserts) verdes em ambos os
+  hosts. Sem claim runtime-real/G3/S6/enforcement; sem mudança em
+  S3a/AL, ND, TaskKernel, plugin, grants ou flags.
+
 - **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
   F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
   `task_project` do registro canônico e o gate monta o descritor
