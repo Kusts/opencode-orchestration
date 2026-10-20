@@ -1,6 +1,6 @@
 # F1 S3a — Settled Continuation (fixture-only) — PLANO
 
-Status: **DRAFT** — depende do merge do PR #132 (S2). Não implementar antes.
+Status: **IMPLEMENTADO (fixture-only)** — branch `feat/f1-s3a-settled-continuation`.
 Base: memo do architect (F1-S3A-DESIGN) + discovery F1-S3-DISCOVERY.
 Escopo: fixture-only; **não** fecha G3/S6 (runtime-real/quota).
 
@@ -123,3 +123,37 @@ Evitar alterar TaskKernel/validation-policy para resolver a divergência L0/L1 n
 ## DONE de S3a
 
 Fixtures provam uma única sucessão causal, bloqueios seguros, correção sem falso DONE e conclusão global só com gate+CAS; regressões afetadas verdes; reviews independentes encerrados. **Sem claim de G3/autonomia runtime-real/recovery S4.**
+
+## Notas de implementação (fatia entregue)
+
+- `Invoke-OrchestrationSettledContinuation` em
+  `scripts/v3/lib/OrchestrationAutonomousLoop.ps1` + suite
+  `scripts/v3/lib/OrchestrationSettledContinuation.tests.ps1`
+  (458 asserts PS 5.1+pwsh, 12 cenários + ND hardening + compat).
+- `Invoke-OrchestrationObjectiveStep` ganha `-SettledKey`/`-NextIntent`
+  (+`-SessionId`); com `SettledKey` encaminha UMA vez e retorna o envelope
+  da continuação; sem ela, legado intacto (provado em S12 + suite AL 47/47).
+- Ramo COMPLETE do step fatorado em `Invoke-ALObjectiveCompletion`
+  (releitura viva → gate → CAS); S3a reutiliza (COMPLETE válido e replay
+  terminal); nenhuma duplicação do driver.
+- ND endurecimento 1 (replay preserva decisão gravada, sem reconsulta ao
+  Controller) + endurecimento 2 (finalize com `-FinalizeGoalOnComplete`
+  só com `stop_reason=OBJECTIVE_COMPLETED` E critérios verificados no
+  goal vivo; stop de política registra
+  `goal-finalize-refused:policy-stop`, nunca completa). D5b do Handoff
+  marca `progress=1/1` antes do finalize (caso legítimo preservado) +
+  D5d prova a recusa por stop de política.
+- Checkpoint: schema existente intacto; correlação via sidecar
+  `<checkpoint_id>.settled-continuation.json` (retrocompatível, aditivo).
+- Nível efetivo via policy real (`Get-OrchestrationValidationLevel`
+  sobre o risco vivo; default conservador L2; desconhecido/ilegível =>
+  `continuation-policy-unavailable`); L0/L1/L2 exigem verificação passada
+  e fresca + review aprovado e fresco; L3 exige ainda security-review.
+- S3a nunca recupera pendente sozinha (`advance-record-pending` =>
+  `continuation-settlement-uncertain`, zero efeito); S4/manual reconcilia.
+  Descoberta de fixture: o scan do claim varre a raiz inteira e recusa
+  fail-closed em registro ilegível — o cenário de recibo corrompido usa
+  raiz de recibos isolada para não vazar para outros cenários.
+- Limites honestos: evidência é existência+correlação de arquivo/ids
+  (sem recomputo do hash canônico); sem prova de consumo autônomo pelo
+  LLM, Reviewer real, cross-session, recovery S4, enforcement ou quota.

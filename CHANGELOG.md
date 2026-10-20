@@ -6,6 +6,36 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S3a — continuação pós-settlement (fixture-only)**:
+  `Invoke-OrchestrationSettledContinuation`
+  (`scripts/v3/lib/OrchestrationAutonomousLoop.ps1`) consome UMA
+  liquidação canônica (recibo `settled` + evidência + `worker_result` do
+  kernel, tudo relido — nunca `verified/aprovado` do chamador) e compõe
+  prova do settlement + gates de verificação/review (nível efetivo da
+  policy real; L3 exige security-review; risco desconhecido falha
+  fechado) + decisão do Controller + `ND-ADVANCE` (sem
+  `-FinalizeGoalOnComplete`) + checkpoint correlacionado (schema intacto
+  + sidecar `<checkpoint_id>.settled-continuation.json`). Termina em
+  `prepared`/`replan_required`/`blocked`/`completed`; `ok` = processamento
+  válido, `completed` só após CAS; `executor_calls` sempre 0; zero-efeito
+  antes do ADVANCE; pós-PREPARE com checkpoint falho devolve
+  `prepared=true` + chave (`continuation-checkpoint-required`).
+  `Invoke-OrchestrationObjectiveStep` ganha `-SettledKey`/`-NextIntent`
+  (encaminha uma vez; sem eles, legado intacto). Ramo COMPLETE fatorado
+  em `Invoke-ALObjectiveCompletion` e reutilizado. ND: replay
+  CONTINUE/RETRY pendente preserva a decisão gravada (sem reconsulta ao
+  Controller) e finalize com `-FinalizeGoalOnComplete` só com
+  `OBJECTIVE_COMPLETED` + critérios verificados (stop de política
+  registra `goal-finalize-refused:policy-stop`, nunca completa; D5b do
+  Handoff marca `progress=1/1`, D5d prova a recusa). Testes: nova suite
+  `OrchestrationSettledContinuation` (458 asserts PS 5.1+pwsh: CONTINUE,
+  RETRY, REPLAN, BLOCKED, COMPLETE válido/recusado, review ausente/stale/
+  negativo, L3 sem security, manual/unknown profile, replay/duplo prepare,
+  registros corrompidos/uncertain, checkpoint pós-PREPARE, compat legada)
+  + suítes `AutonomousLoop` (47/47) e `NativeDispatch` (4/4, Handoff
+  2151 asserts) verdes. Sem claim de G3/autonomia runtime-real/recovery
+  S4; sem mudança em TaskKernel/validation-policy/plugin/flags/enforcement.
+
 - **F1 S2 — owner único do SETTLE (liquidação canônica via ND-Settle)**:
   `Invoke-OrchestrationNativeDispatchSettle`
   (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) passa a ser o único

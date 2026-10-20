@@ -8219,6 +8219,12 @@ function Invoke-OrchestrationNativeDispatchAdvance {
         #      segundo sucessor nasceria para a mesma liquidacao.
         $advRecPath = Join-Path ([string](Get-NDValue $advDirEarly 'dir' '')) ($sk + '.advance.json')
         $prior = Read-NDAdvanceRecord -AdvanceDir ([string](Get-NDValue $advDirEarly 'dir' '')) -Key $sk
+        # S3a-FIX (replay preserva decisao): pendente de CONTINUE/RETRY
+        #      com o MESMO intent reutiliza move/motivo/stop GRAVADOS, sem
+        #      reconsultar o Controller (ver desvio em (d)/(e) abaixo).
+        $recordedReplayMove = ''
+        $recordedReplayReason = ''
+        $recordedReplayStop = ''
         if (($null -eq $prior) -and (Test-Path -LiteralPath $advRecPath)) {
             return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-intent-unknown' -GoalId $gid -SettledKey $sk)
         }
@@ -8249,10 +8255,29 @@ function Invoke-OrchestrationNativeDispatchAdvance {
                 if (([string]::IsNullOrWhiteSpace($curNextKey)) -or ($curNextKey -cne $priorNext)) {
                     return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-intent-mismatch' -GoalId $gid -SettledKey $sk)
                 }
+                # S3a-FIX: so CONTINUE/RETRY chegam aqui (terminal retorna
+                #      acima); a decisao gravada e preservada e o Controller
+                #      NAO e reconsultado no replay (desvio em (d)/(e)).
+                $recordedReplayMove = $priorMove
+                $recordedReplayReason = ([string](Get-NDValue $prior 'move_reason' ''))
+                $recordedReplayStop = ([string](Get-NDValue $prior 'stop_reason' ''))
             }
         }
         # (d) status do objetivo.
+        # S3a-FIX (replay preserva decisao): com pendente de
+        #      CONTINUE/RETRY e o MESMO intent, move/motivo/stop GRAVADOS
+        #      sao reutilizados e o Controller NAO e reconsultado: drift
+        #      de controller entre a queda e a recuperacao nunca troca a
+        #      decisao reservada. Sem replay, deriva e consulta normais.
         $status = $ObjectiveStatus
+        $replaySkipsController = (-not [string]::IsNullOrWhiteSpace($recordedReplayMove))
+        if ($replaySkipsController) {
+            $move = $recordedReplayMove
+            $moveReason = $recordedReplayReason
+            $stopReason = $recordedReplayStop
+            $status = $null
+        }
+        if (-not $replaySkipsController) {
         if ($null -eq $status) {
             $activeTasks = @()
             try { $activeTasks = @((Get-NDValue $goal 'active_tasks' @())) } catch { $activeTasks = @() }
@@ -8314,6 +8339,7 @@ function Invoke-OrchestrationNativeDispatchAdvance {
         if ($accepted -cnotcontains $move) {
             return (New-NDAdvanceEnvelope -Ok $false -Reason 'advance-move-unknown' -GoalId $gid -SettledKey $sk -Move $move -MoveReason $moveReason -StopReason $stopReason)
         }
+        } # S3a-FIX: fim do desvio sem-replay (replay usa a decisao gravada)
         # (f) revalidacao viva da proxima task (so quando existir).
         $admitReason = ''
         $budgetReason = ''
@@ -8367,12 +8393,40 @@ function Invoke-OrchestrationNativeDispatchAdvance {
             }
         }
         # (g)+(h) decisao persistida e, so em CONTINUE/RETRY, PREPARE.
+        # S3a-FIX (finalize gated): -FinalizeGoalOnComplete so finaliza
+        #      com stop_reason=OBJECTIVE_COMPLETED E criterios verificados
+        #      no goal vivo (progress.satisfied >= total > 0). Stop de
+        #      politica (POLICY_BLOCKED, autoridade, etc.) ou gate fechado
+        #      NUNCA completa o goal: registra a recusa em finalize_reason
+        #      e segue com o envelope COMPLETE sem mutar o goal. O CAS
+        #      continua autoritativo para revisao/fencing.
         $finalizeReason = ''
         if ($move -ceq 'COMPLETE') {
             if ($FinalizeGoalOnComplete) {
-                $fin = Set-OrchestrationGoalStatePersisted -GoalId $gid -ToState 'COMPLETED' -ExpectedRevision $goalRevision -StoreDir $GoalStoreDir -OwnerId $authOwner -OwnershipGeneration $authGen
-                if (($null -eq $fin) -or (-not [bool](Get-NDValue $fin 'ok' $false))) {
-                    $finalizeReason = ([string](Get-NDValue $fin 'reason' 'goal-finalize-refused'))
+                $stopNorm = (([string]$stopReason).Trim().ToUpperInvariant())
+                if ($stopNorm -cne 'OBJECTIVE_COMPLETED') {
+                    $finalizeReason = 'goal-finalize-refused:policy-stop'
+                }
+                else {
+                    $finSat = [long]-1
+                    $finTot = [long]-1
+                    try {
+                        $finProg = Get-NDValue $goal 'progress' $null
+                        if ($null -ne $finProg) {
+                            $finSat = [long](Get-NDValue $finProg 'satisfied' -1)
+                            $finTot = [long](Get-NDValue $finProg 'total' -1)
+                        }
+                    }
+                    catch { $finSat = [long]-1; $finTot = [long]-1 }
+                    if (($finTot -le 0) -or ($finSat -lt 0) -or ($finSat -lt $finTot)) {
+                        $finalizeReason = 'goal-finalize-refused:criteria-unverified'
+                    }
+                    else {
+                        $fin = Set-OrchestrationGoalStatePersisted -GoalId $gid -ToState 'COMPLETED' -ExpectedRevision $goalRevision -StoreDir $GoalStoreDir -OwnerId $authOwner -OwnershipGeneration $authGen
+                        if (($null -eq $fin) -or (-not [bool](Get-NDValue $fin 'ok' $false))) {
+                            $finalizeReason = ([string](Get-NDValue $fin 'reason' 'goal-finalize-refused'))
+                        }
+                    }
                 }
             }
             else { $finalizeReason = 'goal-finalization-not-requested' }
