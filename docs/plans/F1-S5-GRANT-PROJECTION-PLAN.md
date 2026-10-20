@@ -252,3 +252,24 @@ Riscos/residual:
 - `git diff --stat` e `git diff --check`.
 - Revisões reviewer/security e seus achados resolvidos.
 - Nenhuma flag/registry/ND/kernel alterados (diff restrito à lista da seção 7).
+
+## 11. Nota de implementação (2026-10-20, sem reescrever o histórico)
+
+- `Get-NDGrantSourceSnapshot` ganhou o parâmetro opcional `-FlagsPath`
+  (a entrada da seção 5.1 não o listava): a bridge sempre passa o
+  `flags_path` do contexto; vazio/relativo → `grant-source-invalid`,
+  ilegível → `grant-source-unavailable`. A "revisão dos flags" é o hash32
+  do texto cru do arquivo (`ndgrant1;taskrev=<rev>;flags=<hash>;grants=<..>`).
+- Contexto: os 3 campos novos são OPCIONAIS (12 obrigatórios + 3
+  opcionais); ausente/null = defaults fail-closed (`[]`/`[]`/`false`),
+  o que projeta deny (efetivo vazio) sem impedir o claim.
+- A projeção avalia SOMENTE em claim `ok=true/claimed=true` (inclusive
+  quando a lib de claim recusou mas o envelope existe); qualquer refusal
+  ou erro mantém `grant-source-not-evaluated`.
+- Verificado empiricamente no host: arrays JSON ANINHADOS (incl. 1
+  elemento e `[]`) são preservados pelo `ConvertFrom-Json` em PS 5.1 e
+  PS7; o achatamento a escalar só ocorre no nível raiz e no pipeline
+  (coberto pelos holders crus). A rejeição estrita continua valendo para
+  escalares (sem coerção).
+- Fixtures S1: defaults de contexto cobrem os grants da task com 2
+  elementos (`fs.read,git.diff`; interseção mantém o efetivo = task).

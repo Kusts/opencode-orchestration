@@ -6,6 +6,25 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S5 — projeção deny-only de grants de origem (fixture-only)**:
+  nova lib `scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1`
+  (`Get-NDGrantSourceSnapshot`: lê a task canônica + papel do recibo e chama
+  a interseção do kernel `Get-OrchestrationEffectiveGrants` sem
+  reimplementá-la; `Test-NDGrantProjection`: projeção pura deny-only,
+  ordinal, universo fechado — nunca allow, nunca autoridade;
+  `source_revision` = hash32 de `taskrev + flags + grants efetivos`).
+  `scripts/v3/native-dispatch-claim.ps1` ganha contexto estrito aditivo
+  (`runtime_capability_grants`/`environment_grants`/`human_approved`,
+  defaults fail-closed) e o envelope `grant_projection` (inclusive no
+  fallback `encode-failed`; avaliado só em claim ok+claimed; refusal =
+  `grant-source-not-evaluated`). `plugins/g1-dispatch-admission` valida o
+  shape exato (`authority===false`, 32hex-ou-vazio, deny list bounded) e o
+  handler nega em `ok!==true`/`denied>0` (recusa do claim primeiro; clear =
+  abstém, S1 intacto). `scripts/ci/typecheck-plugin.ps1` executa os node
+  tests do `g1-dispatch-admission`. Novas suítes: projeção PS 81 asserts
+  (PS5.1+pwsh), bridge S1 134 asserts (PS5.1+pwsh), node 59 testes.
+  Sem flag/registry/ND/kernel/TS alterados; sem autoridade/runtime-real.
+
 - **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
   F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
   `task_project` do registro canônico e o gate monta o descritor
