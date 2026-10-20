@@ -297,3 +297,31 @@ Riscos/residual:
   hook nega, nunca allow). Cobertura determinística: lib (match/mismatch/
   string/stale) + entry point da bridge (avanço real da task rev 1→2 com
   mesmos grants → mismatch; caminho válido → clear).
+
+## 13. Nota FIX2 (2026-10-20, sem reescrever o histórico)
+
+- F1 (sensíveis em baseline): `Test-NDGPRegistrySemantics` agora também
+  rejeita qualquer baseline contendo grant sensível, lendo a lista
+  canônica via `Get-TaskKernelSensitiveGrants` (sem duplicar o literal;
+  helper ausente → registry inválido fail-closed). Cenário do reviewer
+  (universo+baseline com `git.push`, três listas presentes,
+  `HumanApproved=false`) → `grant-source-registry-invalid`, nunca clear.
+  O caminho legítimo (sensível só em task/runtime/env + aprovação, com
+  baselines limpos) continua clear — é o kernel que adiciona o sensível,
+  não o baseline. Códigos efetivos: `grant-source-registry-missing`
+  (arquivo ausente), `grant-source-registry-invalid` (todo desvio de
+  conteúdo). Correção DOC: o CHANGELOG do FIX1 citava
+  `grant-source-registry-mismatch` (inexistente); alinhado para
+  `grant-source-registry-invalid`, igual ao código, aos testes e a esta
+  nota.
+- F2 (coerção de `Task.revision`): no ramo com `-ExpectedRevision`
+  ligado, a revisão relida da task agora exige presença e tipo inteiro
+  exato (`int`/`long`, sem `[long]` coercivo): `"3"`/`3.0`/`$null`/
+  ausente → `grant-source-task-revision-mismatch`, mesmo que o texto
+  coagido coincidisse. Ramo sem vínculo (`$null`, só chamadores diretos
+  da lib) mantém o comportamento anterior (revisão só alimenta o hash).
+- Cobertura FIX2: lib 13 novos asserts (cenário sensível exato do
+  reviewer, laço sobre `Get-TaskKernelSensitiveGrants`, caminho legítimo
+  com aprovação, string/fracionário/null/ausente/inteiro-exato/sem
+  vínculo); bridge e node sem casos novos (sem mudança de shape ou gate:
+  os códigos fluem pelos gates existentes, já cobertos).

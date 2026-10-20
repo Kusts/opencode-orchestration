@@ -227,6 +227,24 @@ try {
     $outGrants = @((Get-NDGPRawField -Object $snapOut -Name 'grants').value)
     Assert-GP (([bool]$snapOut.ok) -and ($outGrants -cnotcontains 'deploy.production') -and ($outGrants -ccontains 'fs.read')) 'snapshot grant outside baseline excluded' (@($outGrants) -join ',')
 
+    # ---------- F1-FIX2: sensitive grants rejected in baselines ----------
+    # Exact reviewer scenario: universe+baseline carry git.push, present in
+    # all three lists, HumanApproved=false. The plain intersection would
+    # keep it and project clear; the semantic check must refuse first.
+    $regSensBase = Join-Path $tempRoot 'sensbase-registry.json'
+    Write-GPFixture -Path $regSensBase -Text '{"version":1,"grants":["fs.read","git.push"],"role_baselines":{"coder":["fs.read","git.push"]}}'
+    $taskSensBase = New-GPTask -Grants @('fs.read', 'git.push') -Revision 1
+    $snapSensBase = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskSensBase -RuntimeCapabilityGrants @('fs.read', 'git.push') -EnvironmentGrants @('fs.read', 'git.push') -HumanApproved:$false -GrantsPath $regSensBase -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ((-not [bool]$snapSensBase.ok) -and (([string]$snapSensBase.reason) -ceq 'grant-source-registry-invalid')) 'FIX2 sensitive in baseline registry-invalid even with all lists present (never clear)' ([string]$snapSensBase.reason)
+    Assert-GP ([bool]$snapSensBase.authority -eq $false) 'FIX2 sensitive baseline keeps authority false' ''
+    foreach ($sg in @(Get-TaskKernelSensitiveGrants)) {
+        $sgp = Join-Path $tempRoot 'sens-one.json'
+        Write-GPFixture -Path $sgp -Text ('{"version":1,"grants":["fs.read","' + [string]$sg + '"],"role_baselines":{"coder":["fs.read","' + [string]$sg + '"]}}')
+        $ssr = Get-NDGrantSourceSnapshot -Role 'coder' -Task (New-GPTask -Grants @('fs.read') -Revision 1) -RuntimeCapabilityGrants @('fs.read') -EnvironmentGrants @('fs.read') -HumanApproved:$false -GrantsPath $sgp -FlagsPath $flagsPath -RepoRoot $repoRoot
+        Assert-GP ((-not [bool]$ssr.ok) -and (([string]$ssr.reason) -ceq 'grant-source-registry-invalid')) ("FIX2 sensitive baseline rejected: " + [string]$sg) ([string]$ssr.reason)
+    }
+    $projSensLegit = Test-NDGrantProjection -Snapshot $snapSensOn -RequestedGrants @('fs.read', 'git.push')
+    Assert-GP (([bool]$projSensLegit.ok) -and (([string]$projSensLegit.reason) -ceq 'grant-projection-clear')) 'FIX2 legit sensitive path (approval, clean baselines) still clear' ([string]$projSensLegit.reason)
     # ---------- F2: revision binding ----------
     $snapMatch = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
     Assert-GP ([bool]$snapMatch.ok) 'F2 matching expected revision ok' ([string]$snapMatch.reason)
@@ -237,6 +255,25 @@ try {
     Assert-GP ((-not [bool]$snapExpStr.ok) -and (([string]$snapExpStr.reason) -ceq 'grant-source-task-revision-mismatch')) 'F2 string expected revision mismatch (no coercion)' ([string]$snapExpStr.reason)
     $snapExpZero = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 0
     Assert-GP ((-not [bool]$snapExpZero.ok) -and (([string]$snapExpZero.reason) -ceq 'grant-source-task-revision-mismatch')) 'F2 stale expected revision mismatch' ([string]$snapExpZero.reason)
+
+    # ---------- F2-FIX2: exact integer task revision (no coercion) ----------
+    $taskStrRev = [pscustomobject][ordered]@{ task_id = 'gp-x'; revision = '3'; grants = @('fs.read', 'git.diff') }
+    $snapStrRev = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskStrRev -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
+    Assert-GP ((-not [bool]$snapStrRev.ok) -and (([string]$snapStrRev.reason) -ceq 'grant-source-task-revision-mismatch')) 'FIX2 string task revision mismatch (no coercion)' ([string]$snapStrRev.reason)
+    $taskDblRev = [pscustomobject][ordered]@{ task_id = 'gp-x'; revision = 3.0; grants = @('fs.read', 'git.diff') }
+    $snapDblRev = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskDblRev -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
+    Assert-GP ((-not [bool]$snapDblRev.ok) -and (([string]$snapDblRev.reason) -ceq 'grant-source-task-revision-mismatch')) 'FIX2 fractional task revision mismatch' ([string]$snapDblRev.reason)
+    $taskNullRev = [pscustomobject][ordered]@{ task_id = 'gp-x'; revision = $null; grants = @('fs.read', 'git.diff') }
+    $snapNullRev = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskNullRev -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
+    Assert-GP ((-not [bool]$snapNullRev.ok) -and (([string]$snapNullRev.reason) -ceq 'grant-source-task-revision-mismatch')) 'FIX2 null task revision mismatch' ([string]$snapNullRev.reason)
+    $taskNoRev = [pscustomobject][ordered]@{ task_id = 'gp-x'; grants = @('fs.read', 'git.diff') }
+    $snapNoRev = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskNoRev -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
+    Assert-GP ((-not [bool]$snapNoRev.ok) -and (([string]$snapNoRev.reason) -ceq 'grant-source-task-revision-mismatch')) 'FIX2 missing task revision mismatch' ([string]$snapNoRev.reason)
+    $taskIntRev = [pscustomobject][ordered]@{ task_id = 'gp-x'; revision = [int]3; grants = @('fs.read', 'git.diff') }
+    $snapIntRev = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskIntRev -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
+    Assert-GP ([bool]$snapIntRev.ok) 'FIX2 exact int task revision ok' ([string]$snapIntRev.reason)
+    $snapUnboundStr = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskStrRev -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ([bool]$snapUnboundStr.ok) 'FIX2 unbound string revision ok (no binding to violate)' ([string]$snapUnboundStr.reason)
 
     # ---------- snapshot: strict input types ----------
     $snapHA1 = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read') -EnvironmentGrants @('fs.read') -HumanApproved 1 -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot

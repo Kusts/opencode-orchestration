@@ -154,10 +154,17 @@ function Test-NDGPRegistrySemantics {
         intersection: version must be the exact integer 1, `grants` must be
         an array of unique non-empty strings (the universe), and
         `role_baselines` must be an object of arrays whose every entry is a
-        non-empty string within the universe and unique per baseline. Empty
+        non-empty string within the universe, unique per baseline, and
+        NEVER a sensitive grant (F1-FIX2: sensitive grants live in no
+        baseline per the kernel contract - approval is a restriction,
+        never a source; a baseline carrying one would let the plain
+        intersection keep it with HumanApproved=false). Empty
         baseline arrays are allowed (effective empty = deny-by-default,
         safe direction). Scalars, nulls, wrong types and duplicates are
-        rejected, never coerced.
+        rejected, never coerced. The sensitive list is read from the
+        canonical Get-TaskKernelSensitiveGrants (no duplicated literal);
+        when that helper is unavailable the registry is rejected
+        fail-closed.
         Relationship to Assert-OrchestrationGrantsJson (canonical repo
         gate): that gate adds policy opinions (required universe members,
         sensitive-in-baseline bans, identity sources, read-only probes) and
@@ -194,6 +201,18 @@ function Test-NDGPRegistrySemantics {
         if (-not [bool]$bField.found) { return @{ valid = $false } }
         $keysSlot = Get-NDGPObjectKeys -Object $bField.value
         if (-not [bool]$keysSlot.valid) { return @{ valid = $false } }
+        $sensSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        try {
+            if ($null -eq (Get-Command Get-TaskKernelSensitiveGrants -ErrorAction SilentlyContinue)) {
+                return @{ valid = $false }
+            }
+            foreach ($sg in @(Get-TaskKernelSensitiveGrants)) {
+                if (-not ($sg -is [string])) { return @{ valid = $false } }
+                if ([string]::IsNullOrWhiteSpace([string]$sg)) { return @{ valid = $false } }
+                [void]$sensSet.Add([string]$sg)
+            }
+        }
+        catch { return @{ valid = $false } }
         foreach ($rk in @($keysSlot.keys)) {
             $entryHolder = Get-NDGPRawField -Object $bField.value -Name ([string]$rk)
             if (-not [bool]$entryHolder.found) { return @{ valid = $false } }
@@ -207,6 +226,7 @@ function Test-NDGPRegistrySemantics {
                 if ([string]::IsNullOrWhiteSpace([string]$g)) { return @{ valid = $false } }
                 if (-not $seen.Add([string]$g)) { return @{ valid = $false } }
                 if (-not $universe.Contains([string]$g)) { return @{ valid = $false } }
+                if ($sensSet.Contains([string]$g)) { return @{ valid = $false } }
             }
         }
         return @{ valid = $true }
@@ -341,6 +361,10 @@ function Get-NDGrantSourceSnapshot {
         # Unbound ($null) means no check (direct lib callers only). Any
         # non-integer expectation or divergence fails closed with the
         # mismatch code, never with a projection.
+        # F2-FIX2: Task.revision itself must be present and an exact integer
+        # (int/long, no [long] coercion of "3"/3.1/null/missing). A re-read
+        # task with an invalid revision type fails the binding even when the
+        # coerced text would match.
         if ($null -ne $ExpectedRevision) {
             $expOk = $false
             $expLong = [long]0
@@ -351,7 +375,16 @@ function Get-NDGrantSourceSnapshot {
                 }
             }
             catch { $expOk = $false }
-            if ((-not $expOk) -or ($revText -cne ([string]$expLong))) {
+            $taskRevOk = $false
+            $taskRevLong = [long]0
+            try {
+                if ([bool]$revField.found -and ((($revField.value -is [int]) -or ($revField.value -is [long])))) {
+                    $taskRevLong = [long]$revField.value
+                    $taskRevOk = $true
+                }
+            }
+            catch { $taskRevOk = $false }
+            if ((-not $expOk) -or (-not $taskRevOk) -or ($taskRevLong -ne $expLong)) {
                 return (New-NDGPSnapshotFail -Reason 'grant-source-task-revision-mismatch')
             }
         }
