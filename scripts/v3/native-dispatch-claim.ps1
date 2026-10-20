@@ -108,11 +108,14 @@
       effect. It never means the effect ran or anything was verified.
       On a successful claim (ok=true/claimed=true) grant_projection carries
       the F1-S5 deny-only projection over the canonical task grants (deny
-      list only, never allow, never authority); on any refusal or claim
+      list only, never allow, never authority, F2 revision-bound); on any
+      refusal or claim
       error it is the refused shape {ok:false, source_revision:'', denied:
       [], reason:'grant-source-not-evaluated', authority:false} - the caller
       (isolated hook) denies on it fail-closed. The encode-failed fallback
-      literal carries the same refused shape.
+      literal carries the same refused shape. F2: the re-read task is bound
+      to receipt.task_expected_revision; divergence refuses with
+      grant-source-task-revision-mismatch.
 
     HASH ALGORITHM NOTE: Get-NativeDispatchHash32 is SHA-256 over UTF-8
     bytes, hex-lowercased, truncated to 32 characters. The plugin
@@ -199,6 +202,106 @@ function New-NCGrantProjectionRefused {
         denied          = @()
         reason          = $r
         authority       = $false
+    }
+}
+
+function Get-NCGrantProjectionFromClaim {
+    # F1-S5 projection entry point (deny-only observation). Reads the
+    # canonical task AFTER the durable CLAIM and binds it to the receipt
+    # revision (F2): the re-read task revision must equal
+    # receipt.task_expected_revision (the same pair the canonical
+    # Test-NDLiveTaskAdmission compares). A concurrent mutation between
+    # the CLAIM commit and this re-read - or an unreadable binding -
+    # refuses with grant-source-task-revision-mismatch instead of
+    # evaluating a substituted grant set. Never throws: every failure
+    # returns the refused shape (the isolated hook denies on it
+    # fail-closed). Never widens, never authorizes, never writes.
+    param(
+        $PreReceipt = $null,
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        $RuntimeGrants = $null,
+        $EnvironmentGrants = $null,
+        $HumanApproved = $false,
+        [string]$RepoRoot = '',
+        [string]$LibDir = ''
+    )
+    try {
+        $projLib = Join-Path ([string]$LibDir) 'OrchestrationNativeDispatchGrantProjection.ps1'
+        if (Test-Path -LiteralPath $projLib -PathType Leaf) { . $projLib }
+        $projCmdsOk = $true
+        foreach ($pc in @('Get-NDGrantSourceSnapshot', 'Test-NDGrantProjection', 'Get-OrchestrationEffectiveGrants', 'Get-OrchestrationTask', 'Get-TaskKernelDefaultGrantsPath', 'Get-NativeDispatchHash32')) {
+            try {
+                if ($null -eq (Get-Command $pc -ErrorAction SilentlyContinue)) { $projCmdsOk = $false; break }
+            }
+            catch { $projCmdsOk = $false; break }
+        }
+        if (-not $projCmdsOk) { throw 'grant-source-unavailable' }
+        if (-not ($HumanApproved -is [bool])) { throw 'grant-source-invalid' }
+        $root = ([string]$RepoRoot).Trim()
+        if ([string]::IsNullOrWhiteSpace($root)) {
+            try { $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } catch { $root = '' }
+        }
+        $recTaskId = ([string](Get-NCValue $PreReceipt 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($recTaskId)) { throw 'grant-source-task-missing' }
+        $recAgent = ([string](Get-NCValue $PreReceipt 'agent' '')).Trim()
+        $expHolder = Get-NCRawField -Object $PreReceipt -Name 'task_expected_revision'
+        $expRev = $null
+        if ([bool]$expHolder.found -and (($expHolder.value -is [int]) -or ($expHolder.value -is [long]))) {
+            $expRev = [long]$expHolder.value
+        }
+        if ($null -eq $expRev) { throw 'grant-source-task-revision-mismatch' }
+        $gpPath = ''
+        try { $gpPath = ([string](Get-TaskKernelDefaultGrantsPath -RepoRoot $root)).Trim() } catch { $gpPath = '' }
+        $taskRec = $null
+        try { $taskRec = Get-OrchestrationTask -TaskId $recTaskId -TasksDir ([string]$TasksDir) -RepoRoot $root } catch { $taskRec = $null }
+        $snap = Get-NDGrantSourceSnapshot -Role $recAgent -Task $taskRec -RuntimeCapabilityGrants $RuntimeGrants -EnvironmentGrants $EnvironmentGrants -HumanApproved:$HumanApproved -GrantsPath $gpPath -FlagsPath ([string]$FlagsPath) -RepoRoot $root -ExpectedRevision $expRev
+        if (-not [bool](Get-NCValue $snap 'ok' $false)) {
+            throw ([string](Get-NCValue $snap 'reason' 'grant-source-unavailable'))
+        }
+        $reqArr = @()
+        $reqOk = $true
+        $tgHolder = Get-NCRawField -Object $taskRec -Name 'grants'
+        if (-not [bool]$tgHolder.found) { $reqOk = $false }
+        else {
+            $tgv = $tgHolder.value
+            if ($null -eq $tgv) { $reqArr = @() }
+            elseif ($tgv -is [string]) {
+                if ([string]::IsNullOrWhiteSpace([string]$tgv)) { $reqOk = $false }
+                else { $reqArr = @([string]$tgv) }
+            }
+            elseif ($tgv -is [System.Array]) {
+                $rqList = @()
+                foreach ($qe in @($tgv)) {
+                    if (-not ($qe -is [string])) { $reqOk = $false; break }
+                    if ([string]::IsNullOrWhiteSpace([string]$qe)) { $reqOk = $false; break }
+                    $rqList += @([string]$qe)
+                }
+                if ($reqOk) { $reqArr = @($rqList) }
+            }
+            else { $reqOk = $false }
+        }
+        if (-not $reqOk) { throw 'grant-source-invalid' }
+        $proj = Test-NDGrantProjection -Snapshot $snap -RequestedGrants $reqArr
+        if (-not [bool](Get-NCValue $proj 'ok' $false)) {
+            throw ([string](Get-NCValue $proj 'reason' 'grant-projection-invalid'))
+        }
+        $deniedOut = @()
+        try { $deniedOut = @((Get-NCValue $proj 'denied' @())) } catch { $deniedOut = @() }
+        return [pscustomobject][ordered]@{
+            ok              = $true
+            source_revision = ([string](Get-NCValue $snap 'source_revision' ''))
+            denied          = @($deniedOut)
+            reason          = ([string](Get-NCValue $proj 'reason' ''))
+            authority       = $false
+        }
+    }
+    catch {
+        $pw = ''
+        try { $pw = ([string]$_.Exception.Message).Trim() } catch { $pw = '' }
+        if ([string]::IsNullOrWhiteSpace($pw)) { $pw = 'grant-source-unavailable' }
+        if ($pw -cnotmatch '\A[a-z0-9][a-z0-9-]{0,63}\z') { $pw = 'grant-source-unavailable' }
+        return (New-NCGrantProjectionRefused -Reason $pw)
     }
 }
 
@@ -900,12 +1003,12 @@ if (-not [string]::IsNullOrWhiteSpace($Action)) {
         exit 1
     }
     # ---------- F1-S5 grant projection (deny-only observation) ----------
-    # Runs ONLY after a successful durable CLAIM. It NEVER widens the claim,
-    # NEVER authorizes and NEVER writes: it reads the canonical task (via
-    # tasks_dir + the durable receipt task_id), snapshots the effective
-    # grants through the kernel intersection and projects the requested
-    # task grants. Any failure leaves the refused shape (the isolated hook
-    # denies on it fail-closed); the claim observation itself is untouched.
+    # Runs ONLY after a successful durable CLAIM. See
+    # Get-NCGrantProjectionFromClaim for the F2 revision binding: the
+    # re-read task must match receipt.task_expected_revision. It NEVER
+    # widens the claim, NEVER authorizes and NEVER writes. Any failure
+    # leaves the refused shape (the isolated hook denies on it
+    # fail-closed); the claim observation itself is untouched.
     $grantProj = New-NCGrantProjectionRefused -Reason 'grant-source-not-evaluated'
     $claimOk = $false
     try { $claimOk = (([bool](Get-NCValue $claim 'ok' $false)) -and ([bool](Get-NCValue $claim 'claimed' $false))) } catch { $claimOk = $false }
@@ -913,72 +1016,7 @@ if (-not [string]::IsNullOrWhiteSpace($Action)) {
     # (ok=true/claimed=true). Any refusal or claim error keeps the refused
     # shape (the isolated hook denies on it fail-closed).
     if ($claimOk) {
-    try {
-        $projLib = Join-Path $libDir 'OrchestrationNativeDispatchGrantProjection.ps1'
-        if (Test-Path -LiteralPath $projLib -PathType Leaf) { . $projLib }
-        $projCmdsOk = $true
-        foreach ($pc in @('Get-NDGrantSourceSnapshot', 'Test-NDGrantProjection', 'Get-OrchestrationEffectiveGrants', 'Get-OrchestrationTask', 'Get-TaskKernelDefaultGrantsPath', 'Get-NativeDispatchHash32')) {
-            try {
-                if ($null -eq (Get-Command $pc -ErrorAction SilentlyContinue)) { $projCmdsOk = $false; break }
-            }
-            catch { $projCmdsOk = $false; break }
-        }
-        if (-not $projCmdsOk) { throw 'grant-source-unavailable' }
-        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-        $recTaskId = ([string](Get-NCValue $preReceipt 'task_id' '')).Trim()
-        $recAgent = ([string](Get-NCValue $preReceipt 'agent' '')).Trim()
-        $gpPath = ''
-        try { $gpPath = ([string](Get-TaskKernelDefaultGrantsPath -RepoRoot $repoRoot)).Trim() } catch { $gpPath = '' }
-        $taskRec = $null
-        try { $taskRec = Get-OrchestrationTask -TaskId $recTaskId -TasksDir $tDir -RepoRoot $repoRoot } catch { $taskRec = $null }
-        $snap = Get-NDGrantSourceSnapshot -Role $recAgent -Task $taskRec -RuntimeCapabilityGrants $runtimeArr -EnvironmentGrants $envArr -HumanApproved:$humanBool -GrantsPath $gpPath -FlagsPath $fPath -RepoRoot $repoRoot
-        if (-not [bool](Get-NCValue $snap 'ok' $false)) {
-            throw ([string](Get-NCValue $snap 'reason' 'grant-source-unavailable'))
-        }
-        $reqArr = @()
-        $reqOk = $true
-        $tgHolder = Get-NCRawField -Object $taskRec -Name 'grants'
-        if (-not [bool]$tgHolder.found) { $reqOk = $false }
-        else {
-            $tgv = $tgHolder.value
-            if ($null -eq $tgv) { $reqArr = @() }
-            elseif ($tgv -is [string]) {
-                if ([string]::IsNullOrWhiteSpace([string]$tgv)) { $reqOk = $false }
-                else { $reqArr = @([string]$tgv) }
-            }
-            elseif ($tgv -is [System.Array]) {
-                $rqList = @()
-                foreach ($qe in @($tgv)) {
-                    if (-not ($qe -is [string])) { $reqOk = $false; break }
-                    if ([string]::IsNullOrWhiteSpace([string]$qe)) { $reqOk = $false; break }
-                    $rqList += @([string]$qe)
-                }
-                if ($reqOk) { $reqArr = @($rqList) }
-            }
-            else { $reqOk = $false }
-        }
-        if (-not $reqOk) { throw 'grant-source-invalid' }
-        $proj = Test-NDGrantProjection -Snapshot $snap -RequestedGrants $reqArr
-        if (-not [bool](Get-NCValue $proj 'ok' $false)) {
-            throw ([string](Get-NCValue $proj 'reason' 'grant-projection-invalid'))
-        }
-        $deniedOut = @()
-        try { $deniedOut = @((Get-NCValue $proj 'denied' @())) } catch { $deniedOut = @() }
-        $grantProj = [pscustomobject][ordered]@{
-            ok              = $true
-            source_revision = ([string](Get-NCValue $snap 'source_revision' ''))
-            denied          = @($deniedOut)
-            reason          = ([string](Get-NCValue $proj 'reason' ''))
-            authority       = $false
-        }
-    }
-    catch {
-        $pw = ''
-        try { $pw = ([string]$_.Exception.Message).Trim() } catch { $pw = '' }
-        if ([string]::IsNullOrWhiteSpace($pw)) { $pw = 'grant-source-unavailable' }
-        if ($pw -cnotmatch '\A[a-z0-9][a-z0-9-]{0,63}\z') { $pw = 'grant-source-unavailable' }
-        $grantProj = New-NCGrantProjectionRefused -Reason $pw
-    }
+        $grantProj = Get-NCGrantProjectionFromClaim -PreReceipt $preReceipt -TasksDir $tDir -FlagsPath $fPath -RuntimeGrants $runtimeArr -EnvironmentGrants $envArr -HumanApproved:$humanBool -RepoRoot '' -LibDir $libDir
     }
     Write-NCEnvelope (New-NCOkEnvelope -Claim $claim -Key $key -PreparedFp $pfp -CallFp $cfp -CallMaterial $cfpMaterial -TargetAgent $target -ToolName $tool -GrantProjection $grantProj)
     exit 0

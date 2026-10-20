@@ -157,11 +157,53 @@ try {
     $badReg = Join-Path $tempRoot 'bad-registry.json'
     Write-GPFixture -Path $badReg -Text '{not json'
     $snapBR = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @() -EnvironmentGrants @() -HumanApproved:$false -GrantsPath $badReg -FlagsPath $flagsPath -RepoRoot $repoRoot
-    Assert-GP ((-not [bool]$snapBR.ok) -and (([string]$snapBR.reason) -ceq 'grant-source-invalid')) 'snapshot malformed registry invalid' ([string]$snapBR.reason)
+    Assert-GP ((-not [bool]$snapBR.ok) -and (([string]$snapBR.reason) -ceq 'grant-source-registry-invalid')) 'snapshot malformed registry registry-invalid (F1)' ([string]$snapBR.reason)
     $thinReg = Join-Path $tempRoot 'thin-registry.json'
     Write-GPFixture -Path $thinReg -Text '{"version":1}'
     $snapTR = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @() -EnvironmentGrants @() -HumanApproved:$false -GrantsPath $thinReg -FlagsPath $flagsPath -RepoRoot $repoRoot
-    Assert-GP ((-not [bool]$snapTR.ok) -and (([string]$snapTR.reason) -ceq 'grant-source-invalid')) 'snapshot registry without keys invalid' ([string]$snapTR.reason)
+    Assert-GP ((-not [bool]$snapTR.ok) -and (([string]$snapTR.reason) -ceq 'grant-source-registry-invalid')) 'snapshot registry without keys registry-invalid (F1)' ([string]$snapTR.reason)
+
+    # ---------- F1: registry semantics (fail-closed before intersection) ----------
+    $regEvil = Join-Path $tempRoot 'evil-registry.json'
+    Write-GPFixture -Path $regEvil -Text '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":["fs.read","no.such.grant"]}}'
+    $taskEvil = New-GPTask -Grants @('fs.read', 'no.such.grant') -Revision 1
+    $snapEvil = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskEvil -RuntimeCapabilityGrants @('fs.read', 'no.such.grant') -EnvironmentGrants @('fs.read', 'no.such.grant') -HumanApproved:$false -GrantsPath $regEvil -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ((-not [bool]$snapEvil.ok) -and (([string]$snapEvil.reason) -ceq 'grant-source-registry-invalid')) 'F1 unknown baseline grant registry-invalid (no bogus clear)' ([string]$snapEvil.reason)
+    Assert-GP ([bool]$snapEvil.authority -eq $false) 'F1 evil registry keeps authority false' ''
+    $regSmall = Join-Path $tempRoot 'small-registry.json'
+    Write-GPFixture -Path $regSmall -Text '{"version":1,"grants":["fs.read","git.diff"],"role_baselines":{"coder":["fs.read"]}}'
+    $snapSmall = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $regSmall -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP (([bool]$snapSmall.ok) -and (@((Get-NDGPRawField -Object $snapSmall -Name 'grants').value).Count -eq 1)) 'F1 minimal valid registry ok' ([string]$snapSmall.reason)
+    $regEmptyBase = Join-Path $tempRoot 'emptybase-registry.json'
+    Write-GPFixture -Path $regEmptyBase -Text '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":[]}}'
+    $snapEmptyBase = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read') -EnvironmentGrants @('fs.read') -HumanApproved:$false -GrantsPath $regEmptyBase -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP (([bool]$snapEmptyBase.ok) -and (@((Get-NDGPRawField -Object $snapEmptyBase -Name 'grants').value).Count -eq 0)) 'F1 empty baseline array valid with empty effective' ([string]$snapEmptyBase.reason)
+    $regCases = @(
+        @{ name = 'null grants'; text = '{"version":1,"grants":null,"role_baselines":{"coder":[]}}' },
+        @{ name = 'scalar grants'; text = '{"version":1,"grants":"fs.read","role_baselines":{"coder":[]}}' },
+        @{ name = 'duplicate grants'; text = '{"version":1,"grants":["fs.read","fs.read"],"role_baselines":{"coder":[]}}' },
+        @{ name = 'empty-string grant'; text = '{"version":1,"grants":["fs.read"," "],"role_baselines":{"coder":[]}}' },
+        @{ name = 'numeric grant'; text = '{"version":1,"grants":["fs.read",7],"role_baselines":{"coder":[]}}' },
+        @{ name = 'null baselines'; text = '{"version":1,"grants":["fs.read"],"role_baselines":null}' },
+        @{ name = 'array baselines'; text = '{"version":1,"grants":["fs.read"],"role_baselines":[]}' },
+        @{ name = 'scalar baselines'; text = '{"version":1,"grants":["fs.read"],"role_baselines":"x"}' },
+        @{ name = 'scalar baseline value'; text = '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":"fs.read"}}' },
+        @{ name = 'null baseline value'; text = '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":null}}' },
+        @{ name = 'duplicate baseline entry'; text = '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":["fs.read","fs.read"]}}' },
+        @{ name = 'numeric baseline entry'; text = '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":[7]}}' },
+        @{ name = 'blank baseline entry'; text = '{"version":1,"grants":["fs.read"],"role_baselines":{"coder":[""]}}' },
+        @{ name = 'version 2'; text = '{"version":2,"grants":["fs.read"],"role_baselines":{"coder":[]}}' },
+        @{ name = 'string version'; text = '{"version":"1","grants":["fs.read"],"role_baselines":{"coder":[]}}' },
+        @{ name = 'missing version'; text = '{"grants":["fs.read"],"role_baselines":{"coder":[]}}' }
+    )
+    $regIdx = 0
+    foreach ($rc in $regCases) {
+        $regIdx++
+        $rp = Join-Path $tempRoot ('f1-reg-' + $regIdx + '.json')
+        Write-GPFixture -Path $rp -Text $rc.text
+        $sr = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read') -EnvironmentGrants @('fs.read') -HumanApproved:$false -GrantsPath $rp -FlagsPath $flagsPath -RepoRoot $repoRoot
+        Assert-GP ((-not [bool]$sr.ok) -and (([string]$sr.reason) -ceq 'grant-source-registry-invalid') -and ([bool]$sr.authority -eq $false)) ("F1 registry case: " + $rc.name) ([string]$sr.reason)
+    }
 
     # ---------- snapshot: empty runtime/env (fail-closed intersection) ----------
     $snapEmpty = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @() -EnvironmentGrants @() -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot
@@ -184,6 +226,17 @@ try {
     $snapOut = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskOut -RuntimeCapabilityGrants @('fs.read', 'deploy.production') -EnvironmentGrants @('fs.read', 'deploy.production') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot
     $outGrants = @((Get-NDGPRawField -Object $snapOut -Name 'grants').value)
     Assert-GP (([bool]$snapOut.ok) -and ($outGrants -cnotcontains 'deploy.production') -and ($outGrants -ccontains 'fs.read')) 'snapshot grant outside baseline excluded' (@($outGrants) -join ',')
+
+    # ---------- F2: revision binding ----------
+    $snapMatch = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
+    Assert-GP ([bool]$snapMatch.ok) 'F2 matching expected revision ok' ([string]$snapMatch.reason)
+    $snapMismatch = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 4
+    Assert-GP ((-not [bool]$snapMismatch.ok) -and (([string]$snapMismatch.reason) -ceq 'grant-source-task-revision-mismatch')) 'F2 divergent revision mismatch' ([string]$snapMismatch.reason)
+    Assert-GP ([bool]$snapMismatch.authority -eq $false) 'F2 mismatch keeps authority false' ''
+    $snapExpStr = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision '3'
+    Assert-GP ((-not [bool]$snapExpStr.ok) -and (([string]$snapExpStr.reason) -ceq 'grant-source-task-revision-mismatch')) 'F2 string expected revision mismatch (no coercion)' ([string]$snapExpStr.reason)
+    $snapExpZero = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 0
+    Assert-GP ((-not [bool]$snapExpZero.ok) -and (([string]$snapExpZero.reason) -ceq 'grant-source-task-revision-mismatch')) 'F2 stale expected revision mismatch' ([string]$snapExpZero.reason)
 
     # ---------- snapshot: strict input types ----------
     $snapHA1 = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read') -EnvironmentGrants @('fs.read') -HumanApproved 1 -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot

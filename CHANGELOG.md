@@ -6,6 +6,18 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S5 FIX1 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: o snapshot valida semanticamente o registry canônico antes da
+  interseção (versão inteira 1, `grants` array de strings únicas/não
+  vazias como universo, `role_baselines` objeto de arrays com todo
+  baseline ∈ universo, sem coerção); desvio → novo código fail-closed
+  `grant-source-registry-mismatch`. F2: a projeção é vinculada à revisão
+  do recibo (`receipt.task_expected_revision` via novo parâmetro
+  `-ExpectedRevision` e entry point `Get-NCGrantProjectionFromClaim` na
+  bridge); divergência pós-CLAIM → `grant-source-task-revision-mismatch`
+  (hook nega). Suítes: projeção 106 asserts, bridge S1 145 asserts, node
+  60 testes; typecheck `pwsh` V1/V2/DUAL + bundle + `[typecheck:g1]` verdes.
+
 - **F1 S5 — projeção deny-only de grants de origem (fixture-only)**:
   nova lib `scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1`
   (`Get-NDGrantSourceSnapshot`: lê a task canônica + papel do recibo e chama

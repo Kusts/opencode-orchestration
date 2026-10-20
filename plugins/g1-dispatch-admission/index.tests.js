@@ -883,6 +883,17 @@ test('S5 handler: unevaluated projection denies with sanitized reason', async ()
   await assert.rejects(handler(goodInput()), /isolated-grant-projection-grant-source-not-evaluated/);
 });
 
+test('S5 handler: revision-mismatch projection denies with its code', async () => {
+  const doc = goodDoc();
+  doc.grant_projection = {
+    ok: false, source_revision: '', denied: [],
+    reason: 'grant-source-task-revision-mismatch', authority: false,
+  };
+  const calls = [];
+  const handler = makeHandler(baseCfg(), stubSpawn(calls, successScript(JSON.stringify(doc))));
+  await assert.rejects(handler(goodInput()), /isolated-grant-projection-grant-source-task-revision-mismatch/);
+});
+
 test('S5 handler: claim refusal wins over projection (order)', async () => {
   const doc = goodDoc();
   doc.ok = false;

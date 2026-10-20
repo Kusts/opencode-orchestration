@@ -119,10 +119,114 @@ function Test-NDGPStringArray {
     catch { return @{ valid = $false; items = @() } }
 }
 
+function Get-NDGPObjectKeys {
+    # Object key enumeration without pipeline unrolling: IDictionary keys
+    # or PSCustomObject property names. Anything else is not an object.
+    param($Object = $null)
+    try {
+        if ($null -eq $Object) { return @{ valid = $false; keys = @() } }
+        if ($Object -is [System.Array]) { return @{ valid = $false; keys = @() } }
+        if ($Object -is [string]) { return @{ valid = $false; keys = @() } }
+        if ($Object -is [System.Collections.IDictionary]) {
+            return @{ valid = $true; keys = @($Object.Keys) }
+        }
+        if ($Object -is [PSCustomObject]) {
+            $names = @()
+            foreach ($p in @($Object.PSObject.Properties)) {
+                try { $names += @([string]$p.Name) } catch { }
+            }
+            return @{ valid = $true; keys = @($names) }
+        }
+        return @{ valid = $false; keys = @() }
+    }
+    catch { return @{ valid = $false; keys = @() } }
+}
+
+function Test-NDGPRegistrySemantics {
+    <#
+    .SYNOPSIS
+        F1 fail-closed semantic check of the canonical grants registry.
+    .DESCRIPTION
+        The kernel reads baselines WITHOUT validating universe membership
+        (Get-OrchestrationRoleBaseline), so a registry whose baseline lists
+        an unknown grant could yield an unknown effective grant and a bogus
+        clear projection. This check closes that hole BEFORE the
+        intersection: version must be the exact integer 1, `grants` must be
+        an array of unique non-empty strings (the universe), and
+        `role_baselines` must be an object of arrays whose every entry is a
+        non-empty string within the universe and unique per baseline. Empty
+        baseline arrays are allowed (effective empty = deny-by-default,
+        safe direction). Scalars, nulls, wrong types and duplicates are
+        rejected, never coerced.
+        Relationship to Assert-OrchestrationGrantsJson (canonical repo
+        gate): that gate adds policy opinions (required universe members,
+        sensitive-in-baseline bans, identity sources, read-only probes) and
+        coerces scalars; this check is the strict runtime subset for the
+        fail-closed snapshot path. Returns @{ valid } only.
+    #>
+    [CmdletBinding()]
+    param($Doc = $null)
+    try {
+        if ($null -eq $Doc) { return @{ valid = $false } }
+        $verField = Get-NDGPRawField -Object $Doc -Name 'version'
+        if (-not [bool]$verField.found) { return @{ valid = $false } }
+        $verOk = $false
+        try {
+            if ((($verField.value -is [int]) -or ($verField.value -is [long])) -and ([long]$verField.value -eq 1)) {
+                $verOk = $true
+            }
+        }
+        catch { $verOk = $false }
+        if (-not $verOk) { return @{ valid = $false } }
+        $gField = Get-NDGPRawField -Object $Doc -Name 'grants'
+        if (-not [bool]$gField.found) { return @{ valid = $false } }
+        $gRaw = $gField.value
+        if (($null -eq $gRaw) -or ($gRaw -is [string]) -or (-not ($gRaw -is [System.Array]))) {
+            return @{ valid = $false }
+        }
+        $universe = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        foreach ($g in @($gRaw)) {
+            if (-not ($g -is [string])) { return @{ valid = $false } }
+            if ([string]::IsNullOrWhiteSpace([string]$g)) { return @{ valid = $false } }
+            if (-not $universe.Add([string]$g)) { return @{ valid = $false } }
+        }
+        $bField = Get-NDGPRawField -Object $Doc -Name 'role_baselines'
+        if (-not [bool]$bField.found) { return @{ valid = $false } }
+        $keysSlot = Get-NDGPObjectKeys -Object $bField.value
+        if (-not [bool]$keysSlot.valid) { return @{ valid = $false } }
+        foreach ($rk in @($keysSlot.keys)) {
+            $entryHolder = Get-NDGPRawField -Object $bField.value -Name ([string]$rk)
+            if (-not [bool]$entryHolder.found) { return @{ valid = $false } }
+            $entry = $entryHolder.value
+            if (($null -eq $entry) -or ($entry -is [string]) -or (-not ($entry -is [System.Array]))) {
+                return @{ valid = $false }
+            }
+            $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+            foreach ($g in @($entry)) {
+                if (-not ($g -is [string])) { return @{ valid = $false } }
+                if ([string]::IsNullOrWhiteSpace([string]$g)) { return @{ valid = $false } }
+                if (-not $seen.Add([string]$g)) { return @{ valid = $false } }
+                if (-not $universe.Contains([string]$g)) { return @{ valid = $false } }
+            }
+        }
+        return @{ valid = $true }
+    }
+    catch { return @{ valid = $false } }
+}
+
 function Get-NDGrantSourceSnapshot {
     <#
     .SYNOPSIS
         Snapshot canonico dos grants de origem (D1). Fail-closed, sem autoridade.
+    .DESCRIPTION
+        Erros fail-closed: grant-source-task-missing,
+        grant-source-role-missing, grant-source-registry-missing,
+        grant-source-registry-invalid (F1: JSON ilegivel ou semanticamente
+        invalido - universo/baselines), grant-source-invalid,
+        grant-source-task-revision-mismatch (F2: -ExpectedRevision ligado e
+        divergente da task relida), grant-source-unavailable.
+        -ExpectedRevision ($null = sem vinculo) recebe a revisao vinculada
+        ao recibo (receipt.task_expected_revision) e deve ser inteiro.
     #>
     [CmdletBinding()]
     param(
@@ -133,7 +237,8 @@ function Get-NDGrantSourceSnapshot {
         $HumanApproved = $false,
         [string]$GrantsPath = '',
         [string]$FlagsPath = '',
-        [string]$RepoRoot = ''
+        [string]$RepoRoot = '',
+        $ExpectedRevision = $null
     )
     try {
         $role = ([string]$Role).Trim()
@@ -191,14 +296,17 @@ function Get-NDGrantSourceSnapshot {
         try {
             $regText = [IO.File]::ReadAllText($gp, [Text.UTF8Encoding]::new($false))
             $regDoc = ($regText | ConvertFrom-Json)
-            if ($null -eq $regDoc) { return (New-NDGPSnapshotFail -Reason 'grant-source-invalid') }
-            $gField = Get-NDGPRawField -Object $regDoc -Name 'grants'
-            $bField = Get-NDGPRawField -Object $regDoc -Name 'role_baselines'
-            if ((-not [bool]$gField.found) -or (-not [bool]$bField.found)) {
-                return (New-NDGPSnapshotFail -Reason 'grant-source-invalid')
-            }
+            if ($null -eq $regDoc) { return (New-NDGPSnapshotFail -Reason 'grant-source-registry-invalid') }
         }
-        catch { return (New-NDGPSnapshotFail -Reason 'grant-source-invalid') }
+        catch { return (New-NDGPSnapshotFail -Reason 'grant-source-registry-invalid') }
+        # F1: semantic validation BEFORE the intersection. The kernel reads
+        # baselines without universe checks, so an unknown baseline grant
+        # present in all three lists would yield an unknown effective grant
+        # and a bogus clear. Any semantic deviation fails closed here.
+        $semSlot = Test-NDGPRegistrySemantics -Doc $regDoc
+        if (-not [bool]$semSlot.valid) {
+            return (New-NDGPSnapshotFail -Reason 'grant-source-registry-invalid')
+        }
         $tgField = Get-NDGPRawField -Object $Task -Name 'grants'
         $taskGrants = @()
         if (-not [bool]$tgField.found) {
@@ -225,6 +333,27 @@ function Get-NDGrantSourceSnapshot {
         $revText = '0'
         if ([bool]$revField.found) {
             try { $revText = ([string]([long]$revField.value)) } catch { $revText = '0' }
+        }
+        # F2: revision binding. When -ExpectedRevision is bound (the bridge
+        # passes receipt.task_expected_revision), the re-read task revision
+        # must equal it: a concurrent mutation between the CLAIM commit and
+        # this re-read must not silently substitute the requested grants.
+        # Unbound ($null) means no check (direct lib callers only). Any
+        # non-integer expectation or divergence fails closed with the
+        # mismatch code, never with a projection.
+        if ($null -ne $ExpectedRevision) {
+            $expOk = $false
+            $expLong = [long]0
+            try {
+                if ((($ExpectedRevision -is [int]) -or ($ExpectedRevision -is [long]))) {
+                    $expLong = [long]$ExpectedRevision
+                    $expOk = $true
+                }
+            }
+            catch { $expOk = $false }
+            if ((-not $expOk) -or ($revText -cne ([string]$expLong))) {
+                return (New-NDGPSnapshotFail -Reason 'grant-source-task-revision-mismatch')
+            }
         }
         $fp = ([string]$FlagsPath).Trim()
         if ([string]::IsNullOrWhiteSpace($fp) -or (-not [IO.Path]::IsPathRooted($fp))) {

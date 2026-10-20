@@ -276,9 +276,14 @@ try {
     Assert-That ($cliText -cmatch 'Test-NDGrantProjection') 'CLI projects deny-only (S5)' 'missing'
     Assert-That ($cliText -cmatch 'New-NCGrantProjectionRefused') 'CLI refused projection helper present (S5)' 'missing'
     Assert-That ($cliText -cmatch 'grant-source-not-evaluated') 'CLI refused projection reason present (S5)' 'missing'
+    Assert-That ($cliText -cmatch 'Get-NCGrantProjectionFromClaim') 'CLI projection entry point present (F2)' 'missing'
+    Assert-That ($cliText -cmatch 'task_expected_revision') 'CLI binds projection to receipt revision (F2)' 'missing'
+    Assert-That ($cliText -cmatch 'grant-source-task-revision-mismatch') 'CLI revision mismatch code present (F2)' 'missing'
     $projText = [IO.File]::ReadAllText((Join-Path $v3 'lib\OrchestrationNativeDispatchGrantProjection.ps1'), [Text.Encoding]::UTF8)
     Assert-That ($projText -cnotmatch 'allow = \$true') 'projection lib never allows (literal, S5)' 'literal true present'
     Assert-That ($projText -cnotmatch 'authority\s+=\s+\$true') 'projection lib never grants authority (literal, S5)' 'literal true present'
+    Assert-That ($projText -cmatch 'Test-NDGPRegistrySemantics') 'projection lib validates registry semantics (F1)' 'missing'
+    Assert-That ($projText -cmatch 'grant-source-registry-invalid') 'projection lib registry-invalid code present (F1)' 'missing'
     Assert-That ($projText -cmatch 'authority\s+=\s+\$false') 'projection lib pins authority false (S5)' 'missing'
     Assert-That ($projText -cnotmatch 'Invoke-OrchestrationNativeDispatchClaim') 'projection lib never claims' 'claim call present'
     Assert-That ($cliText -cmatch 'grants_authority\s+=\s+\$false') 'CLI pins grants_authority false' 'missing'
@@ -413,6 +418,26 @@ try {
         $gpO = $dO.grant_projection
         Assert-That (($null -ne $gpO) -and ([bool]$gpO.ok) -and (([string]$gpO.reason) -ceq 'grant-projection-denied')) 'omitted grant fields project denied (empty effective, S5)' $rO.Text
     }
+
+    # ---------- F1-S5 FIX1 F2: projection bound to the receipt revision ----------
+    # Deterministic race simulation at the bridge entry point (no child
+    # process): prepare pins task revision 1 in the receipt; advance the
+    # kernel task to revision 2 (same grants); the entry point must refuse
+    # with grant-source-task-revision-mismatch instead of projecting.
+    $fxM = New-ClaimFixture -Suffix 's5race'
+    $rcM = Get-ReceiptDoc -Fx $fxM
+    Assert-That (($null -ne $rcM) -and ([long]$rcM.task_expected_revision -eq 1)) '[F] receipt binds task revision 1' 'receipt unreadable'
+    $wrM = Set-OrchestrationTaskWorkerResult -TaskId ([string]$fxM.taskId) -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision 1 -TasksDir ([string]$fxM.tasksDir) -FlagsPath ([string]$fxM.flagsPath) -TelemetryRoot ([string]$fxM.tempRoot)
+    Assert-That ([bool]$wrM.ok) '[F] kernel task advanced past the prepared revision' ([string]$wrM.error)
+    $gpM = Get-NCGrantProjectionFromClaim -PreReceipt $rcM -TasksDir ([string]$fxM.tasksDir) -FlagsPath ([string]$fxM.flagsPath) -RuntimeGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -RepoRoot $repo -LibDir (Join-Path $v3 'lib')
+    Assert-That (($null -ne $gpM) -and (-not [bool]$gpM.ok) -and (([string]$gpM.reason) -ceq 'grant-source-task-revision-mismatch')) 'post-claim task mutation refuses with revision-mismatch (F2)' (($gpM | ConvertTo-Json -Depth 6 -Compress))
+    Assert-That (([string]$gpM.source_revision -ceq '') -and ([bool]$gpM.authority -eq $false)) 'mismatch projection shape empty revision zero authority (F2)' ''
+    $gpMDeniedEmpty = (($null -eq $gpM.denied) -or (@($gpM.denied).Count -eq 0))
+    Assert-That $gpMDeniedEmpty 'mismatch projection denies nothing (refused, F2)' ''
+    $fxV = New-ClaimFixture -Suffix 's5bound'
+    $rcV = Get-ReceiptDoc -Fx $fxV
+    $gpV = Get-NCGrantProjectionFromClaim -PreReceipt $rcV -TasksDir ([string]$fxV.tasksDir) -FlagsPath ([string]$fxV.flagsPath) -RuntimeGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -RepoRoot $repo -LibDir (Join-Path $v3 'lib')
+    Assert-That (($null -ne $gpV) -and ([bool]$gpV.ok) -and (([string]$gpV.reason) -ceq 'grant-projection-clear')) 'bound revision projects clear on the valid path (F2)' (($gpV | ConvertTo-Json -Depth 6 -Compress))
     # strict context types for the S5 fields (exit 2, nothing coerced)
     $ctxTextD = [IO.File]::ReadAllText($ctxD, [Text.Encoding]::UTF8)
     $ctxScalarPath = Join-Path ([string]$fxD.tempRoot) 'ctx-s5-scalar.json'
@@ -730,7 +755,7 @@ catch {
 }
 finally {
     try {
-        foreach ($root in @($fx.tempRoot, $fxL.tempRoot, $fxG.tempRoot, $fxF.tempRoot, $fxR.tempRoot, $fxP.tempRoot, $fxT.tempRoot, $fxA.tempRoot, $fxJ.tempRoot, $fxH.tempRoot, $fxK.tempRoot, $fxS.tempRoot, $fxB.tempRoot, $fxR5.tempRoot, $fxE.tempRoot, $fxD.tempRoot, $fxO.tempRoot)) {
+        foreach ($root in @($fx.tempRoot, $fxL.tempRoot, $fxG.tempRoot, $fxF.tempRoot, $fxR.tempRoot, $fxP.tempRoot, $fxT.tempRoot, $fxA.tempRoot, $fxJ.tempRoot, $fxH.tempRoot, $fxK.tempRoot, $fxS.tempRoot, $fxB.tempRoot, $fxR5.tempRoot, $fxE.tempRoot, $fxD.tempRoot, $fxO.tempRoot, $fxM.tempRoot, $fxV.tempRoot)) {
             if ((-not [string]::IsNullOrWhiteSpace($root)) -and (Test-Path -LiteralPath $root -PathType Container)) {
                 Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
             }

@@ -273,3 +273,27 @@ Riscos/residual:
   escalares (sem coerção).
 - Fixtures S1: defaults de contexto cobrem os grants da task com 2
   elementos (`fs.read,git.diff`; interseção mantém o efetivo = task).
+
+## 12. Nota FIX1 (2026-10-20, sem reescrever o histórico)
+
+- F1: o snapshot valida a semântica do registry canônico ANTES da
+  interseção (`Test-NDGPRegistrySemantics`): versão inteira 1, `grants`
+  array de strings únicas/não vazias (universo), `role_baselines` objeto
+  de arrays com todo baseline ∈ universo e sem duplicatas, sem coerção
+  (baseline vazio permitido: efetivo vazio = deny-by-default, direção
+  segura). Qualquer desvio — inclusive JSON ilegível ou chaves ausentes,
+  antes `grant-source-invalid` — agora é `grant-source-registry-missing`
+  (arquivo ausente) ou `grant-source-registry-invalid` (conteúdo).
+  Relação com `Assert-OrchestrationGrantsJson`: aquele gate é de
+  consistência do repo (exige universo completo, proíbe sensíveis em
+  baseline, exige identity sources); este é o subconjunto estrito de
+  runtime para o caminho fail-closed.
+- F2: `Get-NDGrantSourceSnapshot` ganhou `-ExpectedRevision` opcional
+  (`$null` = sem vínculo, só para chamadores diretos da lib); a bridge
+  extraiu `Get-NCGrantProjectionFromClaim` e sempre passa
+  `receipt.task_expected_revision` (inteiro do recibo durável; ausente ou
+  não-inteiro também recusa). Divergência pós-CLAIM →
+  `grant-source-task-revision-mismatch` (ok=false, authority=false; o
+  hook nega, nunca allow). Cobertura determinística: lib (match/mismatch/
+  string/stale) + entry point da bridge (avanço real da task rev 1→2 com
+  mesmos grants → mismatch; caminho válido → clear).
