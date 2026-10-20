@@ -276,4 +276,29 @@ if ((-not $bundleText.Contains('orchestration-enforcement:')) -or (-not $bundleT
   exit 1
 }
 Write-Host '[typecheck] bundle regenerado e validado (marcadores ok).'
+
+# F1-S5: com os tipos validados, executa os testes node do plugin isolado
+# g1-dispatch-admission (sem build, `node --test` no arquivo de testes).
+# Nao altera o typecheck do orchestration-enforcement acima.
+$g1TestFile = Join-Path $RepoRoot 'plugins\g1-dispatch-admission\index.tests.js'
+if (-not (Test-Path -LiteralPath $g1TestFile -PathType Leaf)) {
+  Write-Host ("[typecheck:g1] FALHA: arquivo de testes nao encontrado em " + $g1TestFile + ".")
+  exit 1
+}
+$nodeCmd = Get-Command 'node' -ErrorAction SilentlyContinue
+if ($null -eq $nodeCmd) {
+  Write-Host '[typecheck:g1] FALHA de ambiente: node nao encontrado no PATH (este gate exige node; o workflow o provisiona). Nao e erro do plugin.'
+  exit 1
+}
+Write-Host '[typecheck:g1] node --test plugins\g1-dispatch-admission\index.tests.js ...'
+$g1Out = Join-Path $base ('oo-typecheck-g1-out-' + [guid]::NewGuid().ToString('N') + '.log')
+$g1Err = Join-Path $base ('oo-typecheck-g1-err-' + [guid]::NewGuid().ToString('N') + '.log')
+$g1Proc = Start-Process -FilePath 'cmd' -ArgumentList @('/c', 'node --test "plugins\g1-dispatch-admission\index.tests.js"') -NoNewWindow -Wait -PassThru -WorkingDirectory $RepoRoot -RedirectStandardOutput $g1Out -RedirectStandardError $g1Err
+if ($g1Proc.ExitCode -ne 0) {
+  Write-Host '[typecheck:g1] FALHA: node tests do g1-dispatch-admission falharam (output abaixo).'
+  Show-FileTail -Path $g1Out
+  Show-FileTail -Path $g1Err
+  exit 1
+}
+Write-Host '[typecheck:g1] PASS: node tests do g1-dispatch-admission verdes.'
 exit 0

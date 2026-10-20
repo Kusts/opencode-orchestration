@@ -29,8 +29,18 @@
         "expected_caller_agent": "<agent>",
         "expected_target_agent": "<agent>",
         "expected_prompt_hash": "<32 hex>",
-        "expected_args_template": { "<key>": "<string value>" }
+        "expected_args_template": { "<key>": "<string value>" },
+        "runtime_capability_grants": ["<grant>", ...],
+        "environment_grants": ["<grant>", ...],
+        "human_approved": false
       }
+      runtime_capability_grants / environment_grants: strict arrays of
+      non-empty strings (no coercion; a bare scalar is rejected as
+      invalid-context). Absent/null means [] (fail-closed: the kernel
+      intersection with an empty set is empty). human_approved: exact
+      JSON bool (absent means false; number/string rejected). Nested
+      single-element JSON arrays stay arrays on both PS 5.1 and PS7
+      (verified); only top-level scalars unroll, which never occur here.
       All paths must be absolute. Stores are used ONLY under these explicit
       dirs; no repository default is ever consulted. expected_args_template
       is a flat string map (empty object allowed): the request args must
@@ -82,6 +92,11 @@
         "call_binding_material": "<exact canonical string hashed>",
         "target_agent": "<echo of the request target>",
         "tool": "<echo of the request tool>",
+        "grant_projection": {
+          "ok": <bool>, "source_revision": "<32hex or ''>",
+          "denied": [{ "grant": "<g>", "reason": "<code>" }],
+          "reason": "<code>", "authority": false
+        },
         "grants_authority": false, "verified_pass": false,
         "done_approved": false
       }
@@ -91,6 +106,16 @@
       ok=true/claimed=true means ONLY that the durable 'prepared' ->
       'claimed' (DISPATCH_UNCERTAIN) transition was persisted BEFORE the
       effect. It never means the effect ran or anything was verified.
+      On a successful claim (ok=true/claimed=true) grant_projection carries
+      the F1-S5 deny-only projection over the canonical task grants (deny
+      list only, never allow, never authority, F2 revision-bound); on any
+      refusal or claim
+      error it is the refused shape {ok:false, source_revision:'', denied:
+      [], reason:'grant-source-not-evaluated', authority:false} - the caller
+      (isolated hook) denies on it fail-closed. The encode-failed fallback
+      literal carries the same refused shape. F2: the re-read task is bound
+      to receipt.task_expected_revision; divergence refuses with
+      grant-source-task-revision-mismatch.
 
     HASH ALGORITHM NOTE: Get-NativeDispatchHash32 is SHA-256 over UTF-8
     bytes, hex-lowercased, truncated to 32 characters. The plugin
@@ -113,6 +138,11 @@
         ownership external to the agent.
       * This bridge never writes an admission file: it consumes the
         durable receipt and returns an observation only.
+      * The grant_projection is an observation computed from the same
+        fixture-owned context/task/registry inputs: whoever can write them
+        forges the projection. The hook validates shape and authority pins
+        (authority===false, 32hex revision, bounded deny list), never the
+        producer (residual, same as S1).
 
     Exit codes: 0 = valid observation (whose ok may be false on refusal),
     2 = invalid input, 1 = internal/dependency failure. The process itself
@@ -159,6 +189,122 @@ function Get-NCPropertyNames {
     catch { return @() }
 }
 
+function New-NCGrantProjectionRefused {
+    # F1-S5 refused shape: evaluation never ran (claim refused or bridge
+    # error). Empty deny list, never authority. The isolated hook denies
+    # on ok=false fail-closed.
+    param([string]$Reason = 'grant-source-not-evaluated')
+    $r = ([string]$Reason).Trim()
+    if ([string]::IsNullOrWhiteSpace($r)) { $r = 'grant-source-not-evaluated' }
+    return [pscustomobject][ordered]@{
+        ok              = $false
+        source_revision = ''
+        denied          = @()
+        reason          = $r
+        authority       = $false
+    }
+}
+
+function Get-NCGrantProjectionFromClaim {
+    # F1-S5 projection entry point (deny-only observation). Reads the
+    # canonical task AFTER the durable CLAIM and binds it to the receipt
+    # revision (F2): the re-read task revision must equal
+    # receipt.task_expected_revision (the same pair the canonical
+    # Test-NDLiveTaskAdmission compares). A concurrent mutation between
+    # the CLAIM commit and this re-read - or an unreadable binding -
+    # refuses with grant-source-task-revision-mismatch instead of
+    # evaluating a substituted grant set. Never throws: every failure
+    # returns the refused shape (the isolated hook denies on it
+    # fail-closed). Never widens, never authorizes, never writes.
+    param(
+        $PreReceipt = $null,
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        $RuntimeGrants = $null,
+        $EnvironmentGrants = $null,
+        $HumanApproved = $false,
+        [string]$RepoRoot = '',
+        [string]$LibDir = ''
+    )
+    try {
+        $projLib = Join-Path ([string]$LibDir) 'OrchestrationNativeDispatchGrantProjection.ps1'
+        if (Test-Path -LiteralPath $projLib -PathType Leaf) { . $projLib }
+        $projCmdsOk = $true
+        foreach ($pc in @('Get-NDGrantSourceSnapshot', 'Test-NDGrantProjection', 'Get-OrchestrationEffectiveGrants', 'Get-OrchestrationTask', 'Get-TaskKernelDefaultGrantsPath', 'Get-NativeDispatchHash32')) {
+            try {
+                if ($null -eq (Get-Command $pc -ErrorAction SilentlyContinue)) { $projCmdsOk = $false; break }
+            }
+            catch { $projCmdsOk = $false; break }
+        }
+        if (-not $projCmdsOk) { throw 'grant-source-unavailable' }
+        if (-not ($HumanApproved -is [bool])) { throw 'grant-source-invalid' }
+        $root = ([string]$RepoRoot).Trim()
+        if ([string]::IsNullOrWhiteSpace($root)) {
+            try { $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } catch { $root = '' }
+        }
+        $recTaskId = ([string](Get-NCValue $PreReceipt 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($recTaskId)) { throw 'grant-source-task-missing' }
+        $recAgent = ([string](Get-NCValue $PreReceipt 'agent' '')).Trim()
+        $expHolder = Get-NCRawField -Object $PreReceipt -Name 'task_expected_revision'
+        $expRev = $null
+        if ([bool]$expHolder.found -and (($expHolder.value -is [int]) -or ($expHolder.value -is [long]))) {
+            $expRev = [long]$expHolder.value
+        }
+        if ($null -eq $expRev) { throw 'grant-source-task-revision-mismatch' }
+        $gpPath = ''
+        try { $gpPath = ([string](Get-TaskKernelDefaultGrantsPath -RepoRoot $root)).Trim() } catch { $gpPath = '' }
+        $taskRec = $null
+        try { $taskRec = Get-OrchestrationTask -TaskId $recTaskId -TasksDir ([string]$TasksDir) -RepoRoot $root } catch { $taskRec = $null }
+        $snap = Get-NDGrantSourceSnapshot -Role $recAgent -Task $taskRec -RuntimeCapabilityGrants $RuntimeGrants -EnvironmentGrants $EnvironmentGrants -HumanApproved:$HumanApproved -GrantsPath $gpPath -FlagsPath ([string]$FlagsPath) -RepoRoot $root -ExpectedRevision $expRev
+        if (-not [bool](Get-NCValue $snap 'ok' $false)) {
+            throw ([string](Get-NCValue $snap 'reason' 'grant-source-unavailable'))
+        }
+        $reqArr = @()
+        $reqOk = $true
+        $tgHolder = Get-NCRawField -Object $taskRec -Name 'grants'
+        if (-not [bool]$tgHolder.found) { $reqOk = $false }
+        else {
+            $tgv = $tgHolder.value
+            if ($null -eq $tgv) { $reqArr = @() }
+            elseif ($tgv -is [string]) {
+                if ([string]::IsNullOrWhiteSpace([string]$tgv)) { $reqOk = $false }
+                else { $reqArr = @([string]$tgv) }
+            }
+            elseif ($tgv -is [System.Array]) {
+                $rqList = @()
+                foreach ($qe in @($tgv)) {
+                    if (-not ($qe -is [string])) { $reqOk = $false; break }
+                    if ([string]::IsNullOrWhiteSpace([string]$qe)) { $reqOk = $false; break }
+                    $rqList += @([string]$qe)
+                }
+                if ($reqOk) { $reqArr = @($rqList) }
+            }
+            else { $reqOk = $false }
+        }
+        if (-not $reqOk) { throw 'grant-source-invalid' }
+        $proj = Test-NDGrantProjection -Snapshot $snap -RequestedGrants $reqArr
+        if (-not [bool](Get-NCValue $proj 'ok' $false)) {
+            throw ([string](Get-NCValue $proj 'reason' 'grant-projection-invalid'))
+        }
+        $deniedOut = @()
+        try { $deniedOut = @((Get-NCValue $proj 'denied' @())) } catch { $deniedOut = @() }
+        return [pscustomobject][ordered]@{
+            ok              = $true
+            source_revision = ([string](Get-NCValue $snap 'source_revision' ''))
+            denied          = @($deniedOut)
+            reason          = ([string](Get-NCValue $proj 'reason' ''))
+            authority       = $false
+        }
+    }
+    catch {
+        $pw = ''
+        try { $pw = ([string]$_.Exception.Message).Trim() } catch { $pw = '' }
+        if ([string]::IsNullOrWhiteSpace($pw)) { $pw = 'grant-source-unavailable' }
+        if ($pw -cnotmatch '\A[a-z0-9][a-z0-9-]{0,63}\z') { $pw = 'grant-source-unavailable' }
+        return (New-NCGrantProjectionRefused -Reason $pw)
+    }
+}
+
 function Write-NCEnvelope {
     param($Envelope)
     try {
@@ -168,7 +314,7 @@ function Write-NCEnvelope {
         Write-Output $text
     }
     catch {
-        Write-Output '{"schema_version":1,"operation":"claim","ok":false,"claimed":false,"reason":"encode-failed","idempotency_key":"","prepared_fingerprint":"","session_id":"","message_id":"","call_id":"","call_fingerprint":"","call_binding_material":"","target_agent":"","tool":"","grants_authority":false,"verified_pass":false,"done_approved":false}'
+        Write-Output '{"schema_version":1,"operation":"claim","ok":false,"claimed":false,"reason":"encode-failed","idempotency_key":"","prepared_fingerprint":"","session_id":"","message_id":"","call_id":"","call_fingerprint":"","call_binding_material":"","target_agent":"","tool":"","grant_projection":{"ok":false,"source_revision":"","denied":[],"reason":"grant-source-not-evaluated","authority":false},"grants_authority":false,"verified_pass":false,"done_approved":false}'
     }
 }
 
@@ -201,6 +347,7 @@ function New-NCEnvelope {
         call_binding_material = ([string]$CallMaterial)
         target_agent         = ([string]$TargetAgent)
         tool                 = ([string]$ToolName)
+        grant_projection     = (New-NCGrantProjectionRefused)
         grants_authority     = $false
         verified_pass        = $false
         done_approved        = $false
@@ -208,7 +355,9 @@ function New-NCEnvelope {
 }
 
 function New-NCOkEnvelope {
-    param($Claim, [string]$Key = '', [string]$PreparedFp = '', [string]$CallFp = '', [string]$CallMaterial = '', [string]$TargetAgent = '', [string]$ToolName = '')
+    param($Claim, [string]$Key = '', [string]$PreparedFp = '', [string]$CallFp = '', [string]$CallMaterial = '', [string]$TargetAgent = '', [string]$ToolName = '', $GrantProjection = $null)
+    $gp = $GrantProjection
+    if ($null -eq $gp) { $gp = New-NCGrantProjectionRefused }
     return [pscustomobject][ordered]@{
         schema_version       = 1
         operation            = 'claim'
@@ -224,6 +373,7 @@ function New-NCOkEnvelope {
         call_binding_material = ([string]$CallMaterial)
         target_agent         = ([string]$TargetAgent)
         tool                 = ([string]$ToolName)
+        grant_projection     = $gp
         grants_authority     = $false
         verified_pass        = $false
         done_approved        = $false
@@ -425,13 +575,19 @@ if (-not [string]::IsNullOrWhiteSpace($Action)) {
         exit 2
     }
     $ctx = $ctxSlot.doc
-    $ctxAllowed = @('schema_version', 'receipt_dir', 'goal_store_dir', 'tasks_dir', 'flags_path', 'authorization_file', 'idempotency_key', 'prepared_fingerprint', 'expected_caller_agent', 'expected_target_agent', 'expected_prompt_hash', 'expected_args_template')
+    $ctxAllowed = @('schema_version', 'receipt_dir', 'goal_store_dir', 'tasks_dir', 'flags_path', 'authorization_file', 'idempotency_key', 'prepared_fingerprint', 'expected_caller_agent', 'expected_target_agent', 'expected_prompt_hash', 'expected_args_template', 'runtime_capability_grants', 'environment_grants', 'human_approved')
+    $ctxRequired = @('schema_version', 'receipt_dir', 'goal_store_dir', 'tasks_dir', 'flags_path', 'authorization_file', 'idempotency_key', 'prepared_fingerprint', 'expected_caller_agent', 'expected_target_agent', 'expected_prompt_hash', 'expected_args_template')
     $ctxNames = @(Get-NCPropertyNames -Object $ctx)
+    # F1-S5: the three grant source fields are OPTIONAL (absent/null means
+    # the fail-closed defaults); every other field is required and no
+    # unknown field is tolerated.
     $ctxStrict = $true
-    if (@($ctxNames).Count -ne @($ctxAllowed).Count) { $ctxStrict = $false }
-    else {
-        foreach ($cn in @($ctxNames)) {
-            if ($ctxAllowed -cnotcontains $cn) { $ctxStrict = $false; break }
+    foreach ($cn in @($ctxNames)) {
+        if ($ctxAllowed -cnotcontains $cn) { $ctxStrict = $false; break }
+    }
+    if ($ctxStrict) {
+        foreach ($cr in @($ctxRequired)) {
+            if ($ctxNames -cnotcontains $cr) { $ctxStrict = $false; break }
         }
     }
     if (-not $ctxStrict) {
@@ -515,6 +671,61 @@ if (-not [string]::IsNullOrWhiteSpace($Action)) {
     if (-not $tmplOk) {
         Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'invalid-context')
         exit 2
+    }
+    # F1-S5: the three grant source fields are OPTIONAL (absent/null means
+    # the fail-closed defaults); every other field is required and no
+    # unknown field is tolerated. Arrays must be real arrays of non-empty
+    # strings: a scalar is rejected, never coerced.
+    $runtimeArr = @()
+    $rtField = Get-NCRawField -Object $ctx -Name 'runtime_capability_grants'
+    if ([bool]$rtField.found -and ($null -ne $rtField.value)) {
+        $rtRaw = $rtField.value
+        if (($rtRaw -is [string]) -or (-not ($rtRaw -is [System.Array]))) {
+            Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'invalid-context')
+            exit 2
+        }
+        $rtOk = $true
+        $rtList = @()
+        foreach ($re in @($rtRaw)) {
+            if (-not ($re -is [string])) { $rtOk = $false; break }
+            if ([string]::IsNullOrWhiteSpace([string]$re)) { $rtOk = $false; break }
+            $rtList += @([string]$re)
+        }
+        if (-not $rtOk) {
+            Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'invalid-context')
+            exit 2
+        }
+        $runtimeArr = @($rtList)
+    }
+    $envArr = @()
+    $evField = Get-NCRawField -Object $ctx -Name 'environment_grants'
+    if ([bool]$evField.found -and ($null -ne $evField.value)) {
+        $evRaw = $evField.value
+        if (($evRaw -is [string]) -or (-not ($evRaw -is [System.Array]))) {
+            Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'invalid-context')
+            exit 2
+        }
+        $evOk = $true
+        $evList = @()
+        foreach ($ee in @($evRaw)) {
+            if (-not ($ee -is [string])) { $evOk = $false; break }
+            if ([string]::IsNullOrWhiteSpace([string]$ee)) { $evOk = $false; break }
+            $evList += @([string]$ee)
+        }
+        if (-not $evOk) {
+            Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'invalid-context')
+            exit 2
+        }
+        $envArr = @($evList)
+    }
+    $humanBool = $false
+    $haField = Get-NCRawField -Object $ctx -Name 'human_approved'
+    if ([bool]$haField.found -and ($null -ne $haField.value)) {
+        if (-not ($haField.value -is [bool])) {
+            Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'invalid-context')
+            exit 2
+        }
+        $humanBool = [bool]$haField.value
     }
     $authSlot = Read-NCJsonFile -Path $aFile -MaxBytes 65536
     if (-not [bool]$authSlot.ok) {
@@ -791,6 +1002,22 @@ if (-not [string]::IsNullOrWhiteSpace($Action)) {
         Write-NCEnvelope (New-NCEnvelope -Ok $false -Reason 'claim-internal-error' -Key $key -PreparedFp $pfp -SessionId $sid -MessageId $mid -CallId $cid -CallFp $cfp -CallMaterial $cfpMaterial -TargetAgent $target -ToolName $tool)
         exit 1
     }
-    Write-NCEnvelope (New-NCOkEnvelope -Claim $claim -Key $key -PreparedFp $pfp -CallFp $cfp -CallMaterial $cfpMaterial -TargetAgent $target -ToolName $tool)
+    # ---------- F1-S5 grant projection (deny-only observation) ----------
+    # Runs ONLY after a successful durable CLAIM. See
+    # Get-NCGrantProjectionFromClaim for the F2 revision binding: the
+    # re-read task must match receipt.task_expected_revision. It NEVER
+    # widens the claim, NEVER authorizes and NEVER writes. Any failure
+    # leaves the refused shape (the isolated hook denies on it
+    # fail-closed); the claim observation itself is untouched.
+    $grantProj = New-NCGrantProjectionRefused -Reason 'grant-source-not-evaluated'
+    $claimOk = $false
+    try { $claimOk = (([bool](Get-NCValue $claim 'ok' $false)) -and ([bool](Get-NCValue $claim 'claimed' $false))) } catch { $claimOk = $false }
+    # F1-S5: the projection evaluates ONLY on a successful durable CLAIM
+    # (ok=true/claimed=true). Any refusal or claim error keeps the refused
+    # shape (the isolated hook denies on it fail-closed).
+    if ($claimOk) {
+        $grantProj = Get-NCGrantProjectionFromClaim -PreReceipt $preReceipt -TasksDir $tDir -FlagsPath $fPath -RuntimeGrants $runtimeArr -EnvironmentGrants $envArr -HumanApproved:$humanBool -RepoRoot '' -LibDir $libDir
+    }
+    Write-NCEnvelope (New-NCOkEnvelope -Claim $claim -Key $key -PreparedFp $pfp -CallFp $cfp -CallMaterial $cfpMaterial -TargetAgent $target -ToolName $tool -GrantProjection $grantProj)
     exit 0
 }

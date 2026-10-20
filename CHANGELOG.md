@@ -6,6 +6,62 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
+  que não seja ordinalmente igual ao próprio `.Trim()` (espaços
+  iniciais/finais → `grant-source-registry-invalid`): o kernel trima os
+  baselines, de modo que texto acolchoado (`"git.push "`) passaria nas
+  verificações literais de universo/sensíveis e resolveria para o grant
+  sensível na interseção. Cenário exato do reviewer + variantes
+  (leading-space, baseline acolchoado com universo limpo, tab) cobertos;
+  caminhos válidos/F1/F2 sem regressão. Suítes: projeção 124 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
+- **F1 S5 FIX2 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: `Test-NDGPRegistrySemantics` rejeita baseline com grant sensível
+  (lista canônica via `Get-TaskKernelSensitiveGrants`, sem duplicar;
+  helper ausente → inválido fail-closed); cenário do reviewer
+  (`git.push` em universo+baseline+3 listas, sem aprovação) →
+  `grant-source-registry-invalid`, nunca clear; caminho legítimo com
+  aprovação e baselines limpos continua clear. F2: ramo com
+  `-ExpectedRevision` ligado exige `Task.revision` presente e inteiro
+  exato (`"3"`/`3.0`/`null`/ausente → mismatch; sem vínculo mantém o
+  comportamento). DOC: CHANGELOG do FIX1 citava
+  `grant-source-registry-mismatch` (inexistente) → alinhado para
+  `grant-source-registry-invalid`. Suítes: projeção 119 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
+- **F1 S5 FIX1 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: o snapshot valida semanticamente o registry canônico antes da
+  interseção (versão inteira 1, `grants` array de strings únicas/não
+  vazias como universo, `role_baselines` objeto de arrays com todo
+  baseline ∈ universo, sem coerção); desvio → novo código fail-closed
+  `grant-source-registry-invalid`. F2: a projeção é vinculada à revisão
+  do recibo (`receipt.task_expected_revision` via novo parâmetro
+  `-ExpectedRevision` e entry point `Get-NCGrantProjectionFromClaim` na
+  bridge); divergência pós-CLAIM → `grant-source-task-revision-mismatch`
+  (hook nega). Suítes: projeção 106 asserts, bridge S1 145 asserts, node
+  60 testes; typecheck `pwsh` V1/V2/DUAL + bundle + `[typecheck:g1]` verdes.
+
+- **F1 S5 — projeção deny-only de grants de origem (fixture-only)**:
+  nova lib `scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1`
+  (`Get-NDGrantSourceSnapshot`: lê a task canônica + papel do recibo e chama
+  a interseção do kernel `Get-OrchestrationEffectiveGrants` sem
+  reimplementá-la; `Test-NDGrantProjection`: projeção pura deny-only,
+  ordinal, universo fechado — nunca allow, nunca autoridade;
+  `source_revision` = hash32 de `taskrev + flags + grants efetivos`).
+  `scripts/v3/native-dispatch-claim.ps1` ganha contexto estrito aditivo
+  (`runtime_capability_grants`/`environment_grants`/`human_approved`,
+  defaults fail-closed) e o envelope `grant_projection` (inclusive no
+  fallback `encode-failed`; avaliado só em claim ok+claimed; refusal =
+  `grant-source-not-evaluated`). `plugins/g1-dispatch-admission` valida o
+  shape exato (`authority===false`, 32hex-ou-vazio, deny list bounded) e o
+  handler nega em `ok!==true`/`denied>0` (recusa do claim primeiro; clear =
+  abstém, S1 intacto). `scripts/ci/typecheck-plugin.ps1` executa os node
+  tests do `g1-dispatch-admission`. Novas suítes: projeção PS 81 asserts
+  (PS5.1+pwsh), bridge S1 134 asserts (PS5.1+pwsh), node 59 testes.
+  Sem flag/registry/ND/kernel/TS alterados; sem autoridade/runtime-real.
+
 - **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
   F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
   `task_project` do registro canônico e o gate monta o descritor
