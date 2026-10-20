@@ -6,6 +6,83 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S4 limitada — recovery atribuído por sessão substituta (fixture-only)**:
+  `Invoke-OrchestrationSettledRecovery`
+  (`scripts/v3/lib/OrchestrationSettledRecovery.ps1`) permite que uma sessão
+  substituta (descritor de host, nunca capability) solicite a recuperação de
+  um advance `prepared`/terminal já validado, com atribuição durável
+  (sessão substituta, owner/generation/source, motivo, goal/settled
+  key/task e vínculos causais em `assignment_fingerprint` determinístico
+  sem timestamp) em `<settledKey>.recovery.json` (`reserved`/`recorded`,
+  escrita atômica sem sobrescrever; mesma atribuição reexecuta
+  deterministicamente, divergente recusa `recovery-assignment-mismatch`).
+  O replay é delegado à continuação S3a: pré-condições na entrada (auth
+  viva, ownership/fencing, settlement válido, correlação, integridade,
+  evidência vinculada) + revalidação de auth/ownership/lease e estado
+  vivo do goal logo após adquirir o lock, antes de qualquer escrita ou
+  delegação (F1-S4-FIX1); COMPLETE só com gate/CAS da S3a. O recibo
+  sucessor é validado antes de anunciar `prepared` ou delegar o replay
+  (existência, fase `prepared`, correlação goal/key/task/agent/reference,
+  fingerprint integral do NextIntent quando fornecido, integridade
+  semântica recalculada; ausente/divergente/corrompido recusa
+  `recovery-successor-unproven` sem PREPARE). Após o lock, o settlement
+  é revalidado por comparação (recibo byte-a-byte, binding do
+  `worker_result`, hash da evidência); mudança durante a espera recusa
+  sem escrita nem checkpoint (F1-S4-FIX3). Publicação com desambiguação
+  (`written`/`published`/`absent`/`uncertain`): falha parcial preserva
+  efeitos/referências conhecidos + follow-up manual. O registro carrega
+  `intended_action` vinculado ao fingerprint e só aceita transições
+  válidas para o terminal gravado (a reentrada reproduz o envelope
+  terminal verbatim); terminais `blocked` exigem `ok=false` (e
+  `prepared=true` exige `next_key`), recusando a troca apenas da ação que
+  preservaria um resultado de sucesso (F1-S4-FIX5). Checkpoint ausente é
+  reconstruído de registros
+  canônicos (uma tentativa, falha registrada com honestidade).
+  Pending/ambíguo vira `blocked-manual` atribuído (só o registro;
+  `domain_mutated=false`) ou recusa (`recovery-intent-unproven`,
+  `recovery-no-continuation`); pending automático e ADVANCE próprio são
+  HOLD/manual — nenhum novo PREPARE/CLAIM/SETTLE/worker, nenhuma mutação
+  de goal/task/receipt/advance em `blocked-manual`, nenhuma aquisição ou
+  transferência de owner. A janela pós-delegação (S3a escreve checkpoint/
+  prepared/BLOCKED/REPLAN sem revalidar auth) segue residual declarada.
+  Lock dedicado `.recovery-<key>.lock` (distinto
+  dos locks do ND, timeout limitado → `recovery-lock-busy`); `reserved`
+  após crash relê os stores canônicos, nunca presume sucesso; registro
+  ilegível/não-arquivo/reparse é preservado e recusado.
+  `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
+  como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
+  (1083 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  COMPLETE válido/recusado (+reentrada idêntica ao terminal gravado),
+  sessão/auth/owner, takeover sem transferência implícita, pending
+  manual/recusa, receipt pending/claimed/prepared, evidência ausente/
+  ilegível/decorrelacionada, worker superseded, checkpoint rebuild
+  honesto, registros corrompidos/divergentes/crash, lock exclusivo
+  multiprocesso com processos externos reais e barreira observável
+  (mesma atribuição determinística, atribuições distintas, timeout do
+  lock), revalidação pós-lock (F1a determinística + F1b com takeover
+  durante a espera real + F1c com recibo do settlement adulterado durante
+  a espera + F2d com sucessor removido durante a espera), vínculo do
+  sucessor (removido/corrompido/referência trocada/tamper de scope com
+  nominais intactos + fingerprint do NextIntent + re-checagem sob lock +
+  controle válido + NextIntent divergente), registro com
+  `intended_action`/transições validadas e adulteração rejeitada
+  (9 variantes incl. troca entre ações permitidas e troca para `blocked`
+  mantendo o resultado de sucesso), desambiguação de
+  publicação (`published` somente com fase/intenção/ação/resultado
+  solicitados comprovados — reserva anterior com mesmo fingerprint
+  nunca prova finalização, S13g — mais `published`/`uncertain`/`absent`
+  como unidade S13f), falha parcial e escrita ambígua preservando efeitos
+  conhecidos, RepoRoot encaminhado
+  à S3a (namespace idêntico com/sem ReceiptDir), adversarial remoção/
+  troca/downgrade, sentinela zero worker/CLAIM/SETTLE/PREPARE, regressão
+  sem `SettledKey`); S3a (658 asserts), ND handoff/advance (2151 asserts)
+  e ND receipts (208 asserts) verdes em ambos os hosts. O runner V3
+  descobre a suíte (`scripts/v3/lib/*.tests.ps1`); os steps V3 dos jobs
+  ps51/ps7/v2 lane foram elevados para 60 min e os jobs para 75 para
+  absorver a suíte multiprocesso — sem skip/continue-on-error. Sem claim
+  runtime-real/G3/S6/enforcement; sem mudança em S3a/AL, ND, TaskKernel,
+  plugin, grants ou flags.
+
 - **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
   `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
   que não seja ordinalmente igual ao próprio `.Trim()` (espaços
