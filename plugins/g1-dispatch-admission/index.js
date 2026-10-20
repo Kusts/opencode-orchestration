@@ -291,10 +291,16 @@ function readReceiptClaimed(absolutePath, bind) {
 //     ok:true + claimed:true observation;
 //   * every other outcome - missing bridge, hash divergence, timeout,
 //     oversized/invalid output, non-zero exit, missing fields, authority
-//     pins set, unknown input shape - throws a sanitized pre-effect error
-//     (fail-closed);
+//     pins set, grant projection missing/invalid/denied, unknown input
+//     shape - throws a sanitized pre-effect error (fail-closed);
 //   * it NEVER returns allow:true, never mutates the input/args, never
 //     overrides another hook's denial and never authorizes anything.
+//     F1-S5: the bridge observation also carries the deny-only
+//     grant_projection (snapshot of the kernel grant intersection over the
+//     canonical task grants). The handler denies when the projection is
+//     missing/invalid/unevaluated or lists any denied grant; a clear
+//     projection abstains exactly like the S1 ok:true + claimed:true path.
+//     Refusal order is claim first, projection second.
 // Residuals (documented, not claimed): the hook observes the host-provided
 // input shape; independent provenance still belongs to the host. Setup with
 // incomplete isolated config throws (invalid fixture) instead of silently
@@ -736,7 +742,12 @@ function parseIsolatedClaimResponse(stdout, binding) {
     return { ok: false, reason: 'isolated-bridge-output-invalid' };
   }
   if (!isPlainObject(doc)) return { ok: false, reason: 'isolated-bridge-output-invalid' };
-  const want = ['schema_version', 'operation', 'ok', 'claimed', 'reason', 'idempotency_key', 'prepared_fingerprint', 'session_id', 'message_id', 'call_id', 'call_fingerprint', 'call_binding_material', 'target_agent', 'tool', 'grants_authority', 'verified_pass', 'done_approved'];
+  // F1-S5: a missing projection is a projection error, not a generic
+  // shape error (the caller denies on it either way).
+  if (!Object.prototype.hasOwnProperty.call(doc, 'grant_projection')) {
+    return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  }
+  const want = ['schema_version', 'operation', 'ok', 'claimed', 'reason', 'idempotency_key', 'prepared_fingerprint', 'session_id', 'message_id', 'call_id', 'call_fingerprint', 'call_binding_material', 'target_agent', 'tool', 'grant_projection', 'grants_authority', 'verified_pass', 'done_approved'];
   const keys = Object.keys(doc);
   if (keys.length !== want.length) return { ok: false, reason: 'isolated-bridge-output-shape' };
   for (const k of want) {
@@ -796,6 +807,45 @@ function parseIsolatedClaimResponse(stdout, binding) {
   }
   if (doc.grants_authority !== false || doc.verified_pass !== false || doc.done_approved !== false) {
     return { ok: false, reason: 'isolated-authority-pin-violated' };
+  }
+  // F1-S5 grant projection (deny-only observation, additive): strict shape,
+  // exact keys, authority===false, 32hex-or-empty revision, bounded deny
+  // list. Any deviation refuses; the caller then denies fail-closed.
+  const gp = doc.grant_projection;
+  if (!isPlainObject(gp)) return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  const gpWant = ['ok', 'source_revision', 'denied', 'reason', 'authority'];
+  const gpKeys = Object.keys(gp);
+  if (gpKeys.length !== gpWant.length) return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  for (const k of gpWant) {
+    if (!Object.prototype.hasOwnProperty.call(gp, k)) {
+      return { ok: false, reason: 'isolated-grant-projection-invalid' };
+    }
+  }
+  if (typeof gp.ok !== 'boolean') return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  if (typeof gp.source_revision !== 'string') return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  if (gp.source_revision !== '' && !/^[a-f0-9]{32}$/.test(gp.source_revision)) {
+    return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  }
+  if (typeof gp.reason !== 'string' || gp.reason.length === 0 || gp.reason.length > 128) {
+    return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  }
+  if (gp.authority !== false) return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  if (!Array.isArray(gp.denied) || gp.denied.length > 64) {
+    return { ok: false, reason: 'isolated-grant-projection-invalid' };
+  }
+  for (const entry of gp.denied) {
+    if (!isPlainObject(entry)) return { ok: false, reason: 'isolated-grant-projection-invalid' };
+    const entryKeys = Object.keys(entry);
+    if (entryKeys.length !== 2) return { ok: false, reason: 'isolated-grant-projection-invalid' };
+    if (!Object.prototype.hasOwnProperty.call(entry, 'grant') || !Object.prototype.hasOwnProperty.call(entry, 'reason')) {
+      return { ok: false, reason: 'isolated-grant-projection-invalid' };
+    }
+    if (typeof entry.grant !== 'string' || entry.grant.length === 0 || entry.grant.length > 128) {
+      return { ok: false, reason: 'isolated-grant-projection-invalid' };
+    }
+    if (typeof entry.reason !== 'string' || entry.reason.length === 0 || entry.reason.length > 64) {
+      return { ok: false, reason: 'isolated-grant-projection-invalid' };
+    }
   }
   // R1: the response hashes must equal the setup-time context bindings.
   if (typeof binding.idempotency_key === 'string' && binding.idempotency_key !== '' && doc.idempotency_key !== binding.idempotency_key) {
@@ -936,8 +986,22 @@ function makeIsolatedClaimHandler(cfg, deps) {
       prepared_fingerprint: (cfg && typeof cfg.expectedPreparedFingerprint === 'string') ? cfg.expectedPreparedFingerprint : '',
     });
     if (!parsed.ok) throw isolatedDeny(parsed.reason);
-    if (parsed.doc.ok === true && parsed.doc.claimed === true) return undefined;
-    throw isolatedDeny('isolated-claim-refused-' + sanitizeIsolatedCode(parsed.doc.reason));
+    // F1-S5: the claim refusal wins first (existing S1 behavior); then the
+    // deny-only grant projection: unevaluated or denied projections refuse,
+    // a clear projection abstains (the host permission policy decides; this
+    // hook never returns allow:true).
+    if (parsed.doc.ok !== true || parsed.doc.claimed !== true) {
+      throw isolatedDeny('isolated-claim-refused-' + sanitizeIsolatedCode(parsed.doc.reason));
+    }
+    const gp = parsed.doc.grant_projection;
+    if (!gp || gp.ok !== true) {
+      const why = (gp && typeof gp.reason === 'string' && gp.reason !== '') ? gp.reason : 'unknown';
+      throw isolatedDeny('isolated-grant-projection-' + sanitizeIsolatedCode(why));
+    }
+    if (Array.isArray(gp.denied) && gp.denied.length > 0) {
+      throw isolatedDeny('isolated-grant-denied');
+    }
+    return undefined;
   };
 }
 
