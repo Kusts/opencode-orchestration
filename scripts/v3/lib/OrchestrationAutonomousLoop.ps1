@@ -762,17 +762,19 @@ function Test-SCContinueGate {
     .DESCRIPTION
         Nivel efetivo da policy real (source/registry/validation-policy.json
         via Get-OrchestrationValidationLevel) sobre o descritor canonico da
-        task (risco + tipo + projeto + objetivo/escopos); hard triggers do
-        texto (auth/credentials/payments/...) elevam a L3. Risco/level
+        task (risco + tipo + projeto + objetivo/escopos) AMPLIADO com o
+        contexto canonico do goal vivo (objective + criteria): um goal
+        "payments/auth" com task generica tambem eleva a L3. Hard triggers
+        do texto (auth/credentials/payments/...) elevam a L3. Risco/level
         desconhecido ou policy ilegivel => policy-unavailable (fail-closed,
         nunca assume L0). L0/L1/L2 exigem verificacao passada e fresca +
         review aprovado e fresco (o reviewer exigido pelo DONE); L3 exige
         ainda security-review aprovado e fresco. Nada de descritor livre do
-        caller: tudo e lido do registro vivo da task.
+        caller: tudo e lido dos registros vivos (task + goal).
         manual_verification_required chega como passed=$false e bloqueia.
     #>
     [CmdletBinding()]
-    param($Proof = $null, $Policy = $null)
+    param($Proof = $null, $Policy = $null, $Goal = $null)
     try {
         if ($null -eq $Proof) {
             return [pscustomobject][ordered]@{ ok = $false; reason = 'continuation-verification-required'; cause = 'proof-missing'; level = '' }
@@ -786,9 +788,14 @@ function Test-SCContinueGate {
         if ($null -eq $lvlCmd) {
             return [pscustomobject][ordered]@{ ok = $false; reason = 'continuation-policy-unavailable'; cause = 'level-helper-unavailable'; level = '' }
         }
-        # F1: descritor montado do REGISTRO CANONICO (nunca do caller).
+        # F1: descritor montado dos REGISTROS CANONICOS (nunca do caller):
+        # task (risco + tipo + projeto + objetivo/escopos) + goal vivo
+        # (objective + criteria). Goal "payments/auth" com task generica
+        # tambem eleva a L3.
         $risk = ([string](Get-ALValue $Proof 'task_risk' ''))
-        $descSummary = (([string](Get-ALValue $Proof 'task_objective' '')) + ' ' + ((@(Get-ALValue $Proof 'task_scopes' @())) -join ' '))
+        $goalObj = ([string](Get-ALValue $Goal 'objective' ''))
+        $goalCrit = ((@(Get-ALValue $Goal 'criteria' @())) -join ' ')
+        $descSummary = ($goalObj + ' ' + $goalCrit + ' ' + ([string](Get-ALValue $Proof 'task_objective' '')) + ' ' + ((@(Get-ALValue $Proof 'task_scopes' @())) -join ' '))
         $desc = @{
             risk      = $risk
             operation = ([string](Get-ALValue $Proof 'task_type' ''))
@@ -1189,7 +1196,7 @@ function Invoke-OrchestrationSettledContinuation {
             $nextForAdvance = $NextIntent
         }
         if ($moveName -ceq 'CONTINUE') {
-            $cg = Test-SCContinueGate -Proof $proof -Policy $null
+            $cg = Test-SCContinueGate -Proof $proof -Policy $null -Goal $liveGoal
             if (-not [bool](Get-ALValue $cg 'ok' $false)) {
                 return (New-SCRefusal -Reason ([string](Get-ALValue $cg 'reason' '')) -Cause ([string](Get-ALValue $cg 'cause' '')) -GoalId $gid -SettledKey $sk)
             }

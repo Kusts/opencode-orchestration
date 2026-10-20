@@ -20,8 +20,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   `(task_expected_revision + 1) == worker_result.revision`, senão
   `worker-result-superseded` (S17 K1/K2). F6: contenção do `evidence_id`
   antes do `Join-Path` (unit do guard). F7: goal PAUSED recusa sem
-  reativar (S18). Nova suite com 606 asserts (PS 5.1+pwsh); AL 47/47 e F3
-  verdes. Sem claim runtime-real/G3/S6.
+  reativar (S18). S13b: descritor inclui o contexto canônico do goal vivo
+  (objective + criteria) além da task. S14b: unit do ramo F2 (double do
+  ADVANCE no escopo do teste, advance chamado exatamente 1 vez, envelope
+  de efeito preservado). Nova suite com 658 asserts (PS 5.1+pwsh); AL
+  47/47 e F3 verdes. Sem claim runtime-real/G3/S6.
 
 - **F1 S3a — continuação pós-settlement (fixture-only)**:
   `Invoke-OrchestrationSettledContinuation`
@@ -45,9 +48,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   `OBJECTIVE_COMPLETED` + critérios verificados (stop de política
   registra `goal-finalize-refused:policy-stop`, nunca completa; D5b do
   Handoff marca `progress=1/1`, D5d prova a recusa). Testes: suite
-  `OrchestrationSettledContinuation` (606 asserts PS 5.1+pwsh após FIX1:
-  S1–S12 + triggers L3, fault de record, evidência ilegível, replay sem
-  auth, K1/K2, PAUSED, guard de evidence_id)
+  `OrchestrationSettledContinuation` (658 asserts PS 5.1+pwsh após
+  FIX1/FIX1B: S1–S18, F6, S14b unit, S13b com trigger no goal)
   + suítes `AutonomousLoop` (47/47) e `NativeDispatch` (4/4, Handoff
   2151 asserts) verdes. Sem claim de G3/autonomia runtime-real/recovery
   S4; sem mudança em TaskKernel/validation-policy/plugin/flags/enforcement.

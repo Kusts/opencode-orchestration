@@ -130,7 +130,7 @@ Fixtures provam uma única sucessão causal, bloqueios seguros, correção sem f
 - `Invoke-OrchestrationSettledContinuation` em
   `scripts/v3/lib/OrchestrationAutonomousLoop.ps1` + suite
   `scripts/v3/lib/OrchestrationSettledContinuation.tests.ps1`
-  (458 asserts PS 5.1+pwsh, 12 cenários + ND hardening + compat).
+  (658 asserts PS 5.1+pwsh, S1–S18 + F6 + ND hardening + compat).
 - `Invoke-OrchestrationObjectiveStep` ganha `-SettledKey`/`-NextIntent`
   (+`-SessionId`); com `SettledKey` encaminha UMA vez e retorna o envelope
   da continuação; sem ela, legado intacto (provado em S12 + suite AL 47/47).
@@ -195,8 +195,10 @@ Fixtures provam uma única sucessão causal, bloqueios seguros, correção sem f
   `advance-intent-unknown` quando o path existe mas é ilegível — um
   diretório no path do advance NUNCA chega ao PREPARE (zero-efeito,
   provado em S14). O ramo F2 (falha de gravação PÓS-PREPARE com
-  `prepared=true`, envelope de efeito preservado) está implementado, mas
-  sua ativação exige falha de FS entre as duas escritas do ADVANCE,
-  indeterminística de fora sem ganchos no ND (proibidos aqui); o caminho
-  simétrico pós-PREPARE com checkpoint (S11d) é o testado. Gap explícito,
-  sem assert mascarado.
+  `prepared=true`, envelope de efeito preservado) está implementado e é
+  coberto pelo unit S14b (double do ADVANCE no escopo do teste, advance
+  chamado exatamente 1 vez, chave/ref/checkpoint preservados); o caminho
+  simétrico pós-PREPARE com checkpoint (S11d) segue testado.
+- FIX1B: descritor do gate inclui o contexto canônico do goal vivo
+  (objective + criteria) além da task (S13b: goal `payments migration`
+  com task genérica eleva a L3); S13 (task `fix auth flow`) mantido.

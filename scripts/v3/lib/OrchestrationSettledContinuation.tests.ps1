@@ -733,6 +733,32 @@ try {
         Assert-SC (([bool]$c13b.ok) -and ([string]$c13b.action -ceq 'prepared') -and ([bool]$c13b.prepared) -and ([string]$c13b.next_idempotency_key -ceq $nextKey13)) '[S13] the approved security review unlocks the continuation' ('action=' + [string]$c13b.action + ' reason=' + [string]$c13b.reason)
         Assert-SC (([int]$c13b.executor_calls -eq 0)) '[S13] no worker ever executed' ('calls=' + [string]$c13b.executor_calls)
 
+        # ---------- 13b. F1: trigger no GOAL eleva a L3 ----------
+        $ids13b = New-SCIds -Tag 'goaltrigger'
+        $g13bGoal = New-SCGoal -GoalId $ids13b.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        # O goal vivo carrega o texto sensivel; a task e generica.
+        $live13b = Get-SCLiveGoal -GoalId $ids13b.goal
+        $upd13b = Update-OrchestrationGoal -GoalId $ids13b.goal -ExpectedRevision ([long]$live13b['revision']) `
+            -Fields @{ objective = 'payments migration' } -StoreDir $script:scEnv.goals -OwnerId 'planner-1' -OwnershipGeneration $g13bGoal.gen
+        Assert-SC ([bool]$upd13b.ok) '[S13b] the goal carries a sensitive objective' ([string]$upd13b.reason)
+        New-SCTask -TaskId $ids13b.task -GoalId $ids13b.goal -Gen $g13bGoal.gen -Risk 'low'
+        New-SCTask -TaskId $ids13b.next -GoalId $ids13b.goal -Gen $g13bGoal.gen -Risk 'low'
+        $key13b = Get-NativeDispatchHash32 ('s3-settled-' + $ids13b.task)
+        $intent13b = New-SCIntent -TaskId $ids13b.task -Rev (Get-SCTaskRev -TaskId $ids13b.task) -Key $key13b -Gen $g13bGoal.gen
+        $null = Invoke-SCWalk -Goal $g13bGoal -Intent $intent13b -Call 'call_s3_h8'
+        Invoke-SCToReviewing -TaskId $ids13b.task
+        Set-SCVerification -TaskId $ids13b.task
+        Set-SCReview -TaskId $ids13b.task
+        $nextKey13b = Get-NativeDispatchHash32 ('s3-next-' + $ids13b.next)
+        $intentNext13b = New-SCIntent -TaskId $ids13b.next -Rev (Get-SCTaskRev -TaskId $ids13b.next) -Key $nextKey13b -Gen $g13bGoal.gen
+        $c13c = Invoke-SCContinuation -Goal $g13bGoal -Key $key13b -NextIntent $intentNext13b
+        Assert-SC (((-not [bool]$c13c.ok) -and ([string]$c13c.reason -ceq 'continuation-review-required') -and ([string]$c13c.cause_reason -ceq 'security-review-missing') -and (-not [bool]$c13c.prepared))) '[S13b] a goal trigger requires security review with a generic task' ('reason=' + [string]$c13c.reason + ' cause=' + [string]$c13c.cause_reason)
+        Assert-SC ($null -eq (Get-SCReceipt -GoalId $ids13b.goal -Key $nextKey13b)) '[S13b] the goal trigger blocks without preparing' ''
+        Set-SCReview -TaskId $ids13b.task -Kind 'security' -Status 'approved' -By 'security-1'
+        Invoke-SCComplete -TaskId $ids13b.task
+        $c13d = Invoke-SCContinuation -Goal $g13bGoal -Key $key13b -NextIntent $intentNext13b
+        Assert-SC (([bool]$c13d.ok) -and ([string]$c13d.action -ceq 'prepared') -and ([bool]$c13d.prepared) -and ([string]$c13d.next_idempotency_key -ceq $nextKey13b)) '[S13b] the approved security review unlocks the goal trigger' ('action=' + [string]$c13d.action + ' reason=' + [string]$c13d.reason)
+
         # ---------- 14. F2: diretorio no path do advance e zero-efeito ----------
         # Um diretorio no path do advance record nao vira ausencia: o
         # proprio ADVANCE recusa em advance-intent-unknown antes de
@@ -762,6 +788,62 @@ try {
         Assert-SC ((Test-Path -LiteralPath $advPath14 -PathType Container)) '[S14] the blocking directory was preserved' ''
         Assert-SC ($null -eq (Get-SCReceipt -GoalId $ids14.goal -Key $nextKey14)) '[S14] the blocked record prepared no successor' ''
         Assert-SC (([string]::IsNullOrWhiteSpace([string]$c14.checkpoint_id) -and (-not [bool]$c14.checkpoint_ok))) '[S14] no checkpoint on the refused path' ''
+
+        # ---------- 14b. F2: unit do envelope prepared+!ok ----------
+        # Teste unitario do tratamento do envelope ND: o S14 honesto prova
+        # a recusa real do ND antes do PREPARE; aqui o ADVANCE e substituido
+        # no escopo do teste (mesmo padrao de Set-SCStubMove) por um double
+        # que devolve prepared=true com ok=false, e a S3a deve preservar o
+        # efeito em vez de colapsar em recusa sem efeito.
+        $ids14b = New-SCIds -Tag 'prepeff'
+        $g14b = New-SCGoal -GoalId $ids14b.goal -Criteria @('s3-crit-a', 's3-crit-b')
+        New-SCTask -TaskId $ids14b.task -GoalId $ids14b.goal -Gen $g14b.gen -Risk 'low'
+        New-SCTask -TaskId $ids14b.next -GoalId $ids14b.goal -Gen $g14b.gen -Risk 'low'
+        $key14b = Get-NativeDispatchHash32 ('s3-settled-' + $ids14b.task)
+        $intent14b = New-SCIntent -TaskId $ids14b.task -Rev (Get-SCTaskRev -TaskId $ids14b.task) -Key $key14b -Gen $g14b.gen
+        $null = Invoke-SCWalk -Goal $g14b -Intent $intent14b -Call 'call_s3_h9'
+        Invoke-SCToReviewing -TaskId $ids14b.task
+        Set-SCVerification -TaskId $ids14b.task
+        Set-SCReview -TaskId $ids14b.task
+        Invoke-SCComplete -TaskId $ids14b.task
+        $nextKey14b = Get-NativeDispatchHash32 ('s3-next-' + $ids14b.next)
+        $intentNext14b = New-SCIntent -TaskId $ids14b.next -Rev (Get-SCTaskRev -TaskId $ids14b.next) -Key $nextKey14b -Gen $g14b.gen
+        # Sem GetNewClosure: o bloco precisa enxergar $script: da suite
+        # (closure criaria modulo dinamico proprio e o contador nao seria
+        # observado aqui); ref fixo no corpo, sem captura de local.
+        $script:scAdvCalls = 0
+        $script:scAdvOrig = (Get-Item -Path 'function:Invoke-OrchestrationNativeDispatchAdvance').ScriptBlock
+        Set-Item -Path 'function:Invoke-OrchestrationNativeDispatchAdvance' -Value {
+            param([string]$GoalId = '', [string]$SettledKey = '', $Authorization = $null, $ObjectiveStatus = $null, $NextIntent = $null,
+                [string]$SessionId = '', [string]$ReceiptDir = '', [string]$RepoRoot = '', [string]$GoalStoreDir = '',
+                [string]$TasksDir = '', [string]$FlagsPath = '', [int]$LockTimeoutMs = 60000)
+            $script:scAdvCalls++
+            $nk = ''
+            try {
+                $rn = $NextIntent
+                if ($null -ne $rn) {
+                    if ($rn -is [System.Collections.IDictionary]) { if ($rn.Contains('intent')) { $rn = $rn['intent'] } }
+                    else { $pp = $rn.PSObject.Properties['intent']; if ($null -ne $pp) { $rn = $pp.Value } }
+                }
+                if ($null -eq $rn) { $rn = $NextIntent }
+                if ($rn -is [System.Collections.IDictionary]) { $nk = ([string]$rn['idempotency_key']) }
+                else { $ep = $rn.PSObject.Properties['idempotency_key']; if ($null -ne $ep) { $nk = ([string]$ep.Value) } }
+            }
+            catch { $nk = '' }
+            return [pscustomobject][ordered]@{
+                ok = $false; reason = 'advance-record-write-failed'; move = 'CONTINUE'; move_reason = 'progress-continue'
+                stop_reason = 'CONTINUE'; goal_id = ([string]$GoalId); settled_key = ([string]$SettledKey)
+                prepared = $true; idempotency_key = ([string]$nk).Trim().ToLowerInvariant(); reference = 'ref_s14b_stub'
+                task_id = ''; agent = ''; record_path = ''; executor_calls = 0
+            }
+        }
+        try { $c14b = Invoke-SCContinuation -Goal $g14b -Key $key14b -NextIntent $intentNext14b }
+        finally { Set-Item -Path 'function:Invoke-OrchestrationNativeDispatchAdvance' -Value $script:scAdvOrig }
+        Assert-SC (((-not [bool]$c14b.ok) -and ([string]$c14b.action -ceq 'prepared') -and ([bool]$c14b.prepared))) '[S14b] the prepared effect is preserved on advance failure' ('action=' + [string]$c14b.action + ' reason=' + [string]$c14b.reason)
+        Assert-SC ((([string]$c14b.reason -ceq 'continuation-settlement-uncertain') -and ([string]$c14b.cause_reason -ceq 'advance-record-write-failed'))) '[S14b] the failure cause is explicit' ('cause=' + [string]$c14b.cause_reason)
+        Assert-SC ((([string]$c14b.next_idempotency_key -ceq $nextKey14b) -and ([string]$c14b.next_reference -ceq 'ref_s14b_stub'))) '[S14b] the prepared key and reference survive' ('key=' + [string]$c14b.next_idempotency_key)
+        Assert-SC ([bool]$c14b.checkpoint_ok) '[S14b] the prepared checkpoint is written' ([string]$c14b.checkpoint_id)
+        Assert-SC (([int]$script:scAdvCalls -eq 1)) '[S14b] the advance ran exactly once' ('calls=' + [string]$script:scAdvCalls)
 
         # ---------- 15. F3: evidencia ilegivel e uncertain ----------
         $ids15 = New-SCIds -Tag 'badev'
