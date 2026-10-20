@@ -33,7 +33,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   efeitos/referências conhecidos + follow-up manual. O registro carrega
   `intended_action` vinculado ao fingerprint e só aceita transições
   válidas para o terminal gravado (a reentrada reproduz o envelope
-  terminal verbatim). Checkpoint ausente é reconstruído de registros
+  terminal verbatim); terminais `blocked` exigem `ok=false` (e
+  `prepared=true` exige `next_key`), recusando a troca apenas da ação que
+  preservaria um resultado de sucesso (F1-S4-FIX5). Checkpoint ausente é
+  reconstruído de registros
   canônicos (uma tentativa, falha registrada com honestidade).
   Pending/ambíguo vira `blocked-manual` atribuído (só o registro;
   `domain_mutated=false`) ou recusa (`recovery-intent-unproven`,
@@ -48,7 +51,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   ilegível/não-arquivo/reparse é preservado e recusado.
   `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
   como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
-  (1078 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  (1083 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
   COMPLETE válido/recusado (+reentrada idêntica ao terminal gravado),
   sessão/auth/owner, takeover sem transferência implícita, pending
   manual/recusa, receipt pending/claimed/prepared, evidência ausente/
@@ -63,7 +66,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   nominais intactos + fingerprint do NextIntent + re-checagem sob lock +
   controle válido + NextIntent divergente), registro com
   `intended_action`/transições validadas e adulteração rejeitada
-  (8 variantes incl. troca entre ações permitidas), desambiguação de
+  (9 variantes incl. troca entre ações permitidas e troca para `blocked`
+  mantendo o resultado de sucesso), desambiguação de
   publicação (`published` somente com fase/intenção/ação/resultado
   solicitados comprovados — reserva anterior com mesmo fingerprint
   nunca prova finalização, S13g — mais `published`/`uncertain`/`absent`

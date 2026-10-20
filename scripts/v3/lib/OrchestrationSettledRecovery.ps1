@@ -871,6 +871,15 @@ function Test-SRRecoveryRecordShape {
             if (-not [bool]$effDm.ok) { return $false }
             if ([bool]$effDm.value) { return $false }
         }
+        # F2 (F1-S4-FIX5): blocked terminals never carry a success result.
+        # Flipping only the action of a valid prepared record to blocked
+        # keeps a permitted transition and a valid fingerprint (both bind
+        # the intent), so only the action/result coherence refuses it here
+        # before the verbatim reentry path could reproduce it.
+        if ($actVal -ceq 'blocked') {
+            if ([bool]$rOk.value) { return $false }
+            if ([bool]$rPrep.value -and [string]::IsNullOrWhiteSpace([string]$rNKey.value)) { return $false }
+        }
         $storedFp = ([string](Get-SRValue $Record 'assignment_fingerprint' '')).Trim()
         # #4 (F1-S4-FIX3): rebind the fingerprint with the persisted
         # initial intent only (no candidate sweep). A stored action that

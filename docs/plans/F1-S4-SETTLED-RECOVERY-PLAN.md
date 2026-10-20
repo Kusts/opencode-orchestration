@@ -285,3 +285,9 @@ plano atualizados; PR separado, merge commit, sem squash.
   comprovada (fase/intenção/ação/resultado); reserva anterior com o mesmo
   fingerprint → `uncertain` com efeitos/referências conhecidos +
   follow-up manual (S13g; sentinela S17).
+- F1-S4-FIX5 (2026-10-20): terminais `blocked` exigem `result.ok=false`
+  (e `prepared=true` exige `next_key`); a troca apenas de `action`
+  `prepared`→`blocked` mantendo o resultado de sucesso é recusada na
+  validação de forma antes da reentrada verbatim (variante 9 de S13e
+  `action-to-blocked-with-ok-result`, assert de checkpoint e sentinela
+  S17); suíte 1083 asserts em PS5.1 e pwsh.

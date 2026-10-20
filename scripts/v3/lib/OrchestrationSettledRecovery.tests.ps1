@@ -1065,6 +1065,12 @@ catch {
         Invoke-SRTamperCase -Name 'evidence-unbound' -Mutate { param($o) $o.proof_refs.evidence_id = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' }
         Invoke-SRTamperCase -Name 'action-swapped-to-permitted' -Mutate { param($o) $o.action = 'blocked-manual' }
         Invoke-SRTamperCase -Name 'intended-action-swapped' -Mutate { param($o) $o.intended_action = 'replay-terminal' }
+        # F2 (F1-S4-FIX5): only the action flipped to blocked, original
+        # success result kept. The transition is permitted and the
+        # fingerprint still binds, so only action/result coherence refuses.
+        $ckpt13eBlocked = @(Get-ChildItem -LiteralPath $script:srEnv.ckpts -File -ErrorAction SilentlyContinue).Count
+        Invoke-SRTamperCase -Name 'action-to-blocked-with-ok-result' -Mutate { param($o) $o.action = 'blocked' }
+        Assert-SR ((@(Get-ChildItem -LiteralPath $script:srEnv.ckpts -File -ErrorAction SilentlyContinue).Count -eq $ckpt13eBlocked)) '[S13e] the blocked-action tamper wrote no checkpoint' ''
         $r13eB = Invoke-SRRecovery -GoalId $ids13e.goal -Key $key13e -Auth $g13e.auth -Sub 'ses_s4_sub_A'
         Assert-SR (([bool]$r13eB.ok) -and ([string]$r13eB.action -ceq 'replay-prepared') -and ([string]$r13eB.assignment_fingerprint -ceq [string]$r13e.assignment_fingerprint)) '[S13e] the restored record replays deterministically' ('ok=' + [string]$r13eB.ok + ' action=' + [string]$r13eB.action + ' reason=' + [string]$r13eB.reason + ' cause=' + [string]$r13eB.cause_reason)
 
@@ -1872,6 +1878,7 @@ catch {
         Assert-SR (($modText -match 'intended_action')) '[S17] the assigned intent is persisted and bound' ''
         Assert-SR (($modText -match 'record-unverified-after-replay|reserve-unverified')) '[S17] partial failures are distinguished from no-effect refusals' ''
         Assert-SR (($modText -match 'never proves a requested')) '[S17] a reservation never proves finalization' ''
+        Assert-SR (($modText -match 'blocked terminals never carry')) '[S17] blocked terminals never carry success' ''
         Assert-SR ((($modText -notmatch 'Start-Process') -and ($modText -notmatch 'Invoke-WebRequest') -and ($modText -notmatch 'HttpClient') -and ($modText -notmatch 'while\s*\(\s*\$true'))) '[S17] no spawn/network/busy-loop' ''
 
         # ---------- S18. compatibility without SettledKey ----------
