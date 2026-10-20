@@ -6,6 +6,47 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S2 — owner único do SETTLE (liquidação canônica via ND-Settle)**:
+  `Invoke-OrchestrationNativeDispatchSettle`
+  (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) passa a ser o único
+  caminho de liquidação: monta o contexto nativo correlacionado dos locais
+  já validados (recibo, chave, fingerprint, sessões, agentes, autorização,
+  stores, revisão do goal) e o encaminha ao kernel. `New-ProductiveSettleImpl`
+  (`scripts/v3/lib/OrchestrationProductiveActivation.ps1`) deixa de chamar
+  `Set-OrchestrationTaskWorkerResult` diretamente (incluindo a recuperação por
+  igualdade de worker_result, removida) e delega UMA vez ao ND-Settle com
+  contexto nativo explícito correlacionado ao binding PA; sem contexto
+  completo: HOLD fail-closed, zero escrita. `Set-OrchestrationTaskWorkerResult`
+  aceita `-SettlementContext` opcional e `New-OrchestrationTask` aceita
+  `-SettlementPolicy` opcional (`canonical-native-settle`, sem migração de
+  tasks existentes): task marcada recusa escritor não-canônico, contexto
+  ausente/incompleto/divergente ou goal fora de ACTIVE/sem ownership/sem
+  vínculo, com razões estáveis e zero escrita; task não marcada preserva o
+  contrato legado (contexto ignorado). Projeção observável
+  `Get-ProductiveSettlementProjection` (candidate/persisted/verified/advanced,
+  `unknown` sem prova legível; `advanced` lê OR + ND, sem regra nova).
+  Commit ambíguo permanece fail-closed/manual. Flags/config inalteradas (OFF);
+  S1 (bridge + plugin g1) intocado. Testes: 178 asserts PS na suite
+  `OrchestrationProductiveActivation` (delegação com recibo real, HOLD,
+  divergência, fencing/lease, duplicata divergente, ambíguo, legada,
+  verificação separada, projeção) + suíte do kernel verde (legado intacto).
+  - **Endurecimento F1-S2-FIX1** (reviewer + security-reviewer, mesma branch):
+    prova durável do recibo (`Test-OrchestrationNativeDispatchSettlementProof`):
+    o kernel só escreve em task marcada quando o contexto corresponde a um
+    claim `claimed` real com integridade semântica, Intent correlacionada e
+    marcadores de tentativa/evidência do ND-Settle — contexto fabricado
+    (32-hex sem recibo) é recusado como `SETTLEMENT_CONTEXT_UNVERIFIED`
+    (prova indisponível: `SETTLEMENT_PROOF_UNAVAILABLE`); contexto do ND-Settle
+    ancora `receipt_dir`/`receipt_ident` contidos em `receipt_root` e resolve
+    `goal_store_dir` via default quando omitido. Projeção `advanced`
+    interpretada (present|pending|blocked|failed|unknown|absent, com correlação
+    goal_id/settled_key) em vez de `present` para qualquer registro; comentário
+    do lock do goal corrigido para leitura lock-free honesta. A prova é de
+    consistência/estado durável sob o contrato SEC7 do ND (`ReceiptDir`
+    confiável por escolha do chamador, produtor exclusivo): não autentica o
+    processo escritor nem protege contra produtor comprometido; as janelas
+    residuais entre revalidação e persistência permanecem documentadas.
+
 - **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
   `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
   schema estrito; contexto só de arquivo com teto de 64 KiB em bytes e UTF-8
