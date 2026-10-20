@@ -158,7 +158,12 @@ function Test-NDGPRegistrySemantics {
         NEVER a sensitive grant (F1-FIX2: sensitive grants live in no
         baseline per the kernel contract - approval is a restriction,
         never a source; a baseline carrying one would let the plain
-        intersection keep it with HumanApproved=false). Empty
+        intersection keep it with HumanApproved=false). F1-FIX3: any
+        universe/baseline string not ordinally equal to its own .Trim()
+        (leading/trailing whitespace) is rejected - the kernel trims
+        baseline entries, so padded text would compare clean here and
+        resolve dirty there (e.g. "git.push " passing the sensitive
+        check and trimming into git.push). Empty
         baseline arrays are allowed (effective empty = deny-by-default,
         safe direction). Scalars, nulls, wrong types and duplicates are
         rejected, never coerced. The sensitive list is read from the
@@ -195,6 +200,7 @@ function Test-NDGPRegistrySemantics {
         foreach ($g in @($gRaw)) {
             if (-not ($g -is [string])) { return @{ valid = $false } }
             if ([string]::IsNullOrWhiteSpace([string]$g)) { return @{ valid = $false } }
+            if ([string]$g -cne (([string]$g).Trim())) { return @{ valid = $false } }
             if (-not $universe.Add([string]$g)) { return @{ valid = $false } }
         }
         $bField = Get-NDGPRawField -Object $Doc -Name 'role_baselines'
@@ -224,6 +230,7 @@ function Test-NDGPRegistrySemantics {
             foreach ($g in @($entry)) {
                 if (-not ($g -is [string])) { return @{ valid = $false } }
                 if ([string]::IsNullOrWhiteSpace([string]$g)) { return @{ valid = $false } }
+                if ([string]$g -cne (([string]$g).Trim())) { return @{ valid = $false } }
                 if (-not $seen.Add([string]$g)) { return @{ valid = $false } }
                 if (-not $universe.Contains([string]$g)) { return @{ valid = $false } }
                 if ($sensSet.Contains([string]$g)) { return @{ valid = $false } }

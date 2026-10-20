@@ -6,6 +6,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
+  que não seja ordinalmente igual ao próprio `.Trim()` (espaços
+  iniciais/finais → `grant-source-registry-invalid`): o kernel trima os
+  baselines, de modo que texto acolchoado (`"git.push "`) passaria nas
+  verificações literais de universo/sensíveis e resolveria para o grant
+  sensível na interseção. Cenário exato do reviewer + variantes
+  (leading-space, baseline acolchoado com universo limpo, tab) cobertos;
+  caminhos válidos/F1/F2 sem regressão. Suítes: projeção 124 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
 - **F1 S5 FIX2 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
   F1: `Test-NDGPRegistrySemantics` rejeita baseline com grant sensível
   (lista canônica via `Get-TaskKernelSensitiveGrants`, sem duplicar;

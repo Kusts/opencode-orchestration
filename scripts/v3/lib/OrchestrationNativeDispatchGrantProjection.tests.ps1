@@ -245,6 +245,30 @@ try {
     }
     $projSensLegit = Test-NDGrantProjection -Snapshot $snapSensOn -RequestedGrants @('fs.read', 'git.push')
     Assert-GP (([bool]$projSensLegit.ok) -and (([string]$projSensLegit.reason) -ceq 'grant-projection-clear')) 'FIX2 legit sensitive path (approval, clean baselines) still clear' ([string]$projSensLegit.reason)
+
+    # ---------- F1-FIX3: padded registry strings rejected (kernel trims) ----------
+    # Exact reviewer scenario: "git.push " (trailing space) in universe and
+    # baseline, present in all three lists, HumanApproved=false. The padded
+    # text would pass literal membership/sensitive checks and trim into
+    # git.push in the kernel intersection, projecting a bogus clear.
+    $regPad = Join-Path $tempRoot 'pad-registry.json'
+    Write-GPFixture -Path $regPad -Text '{"version":1,"grants":["git.push "],"role_baselines":{"coder":["git.push "]}}'
+    $taskPad = New-GPTask -Grants @('git.push') -Revision 1
+    $snapPad = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskPad -RuntimeCapabilityGrants @('git.push') -EnvironmentGrants @('git.push') -HumanApproved:$false -GrantsPath $regPad -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ((-not [bool]$snapPad.ok) -and (([string]$snapPad.reason) -ceq 'grant-source-registry-invalid')) 'FIX3 padded sensitive registry-invalid (never clear)' ([string]$snapPad.reason)
+    Assert-GP ([bool]$snapPad.authority -eq $false) 'FIX3 padded registry keeps authority false' ''
+    $regLead = Join-Path $tempRoot 'lead-registry.json'
+    Write-GPFixture -Path $regLead -Text '{"version":1,"grants":[" git.push"],"role_baselines":{"coder":[" git.push"]}}'
+    $snapLead = Get-NDGrantSourceSnapshot -Role 'coder' -Task $taskPad -RuntimeCapabilityGrants @('git.push') -EnvironmentGrants @('git.push') -HumanApproved:$false -GrantsPath $regLead -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ((-not [bool]$snapLead.ok) -and (([string]$snapLead.reason) -ceq 'grant-source-registry-invalid')) 'FIX3 leading-space registry-invalid' ([string]$snapLead.reason)
+    $regPadBase = Join-Path $tempRoot 'padbase-registry.json'
+    Write-GPFixture -Path $regPadBase -Text '{"version":1,"grants":["fs.read","git.push"],"role_baselines":{"coder":["fs.read"," git.push"]}}'
+    $snapPadBase = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $regPadBase -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ((-not [bool]$snapPadBase.ok) -and (([string]$snapPadBase.reason) -ceq 'grant-source-registry-invalid')) 'FIX3 padded baseline with clean universe registry-invalid' ([string]$snapPadBase.reason)
+    $regTab = Join-Path $tempRoot 'tab-registry.json'
+    Write-GPFixture -Path $regTab -Text ('{"version":1,"grants":["fs.read' + "`t" + '"],"role_baselines":{"coder":[]}}')
+    $snapTab = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read') -EnvironmentGrants @('fs.read') -HumanApproved:$false -GrantsPath $regTab -FlagsPath $flagsPath -RepoRoot $repoRoot
+    Assert-GP ((-not [bool]$snapTab.ok) -and (([string]$snapTab.reason) -ceq 'grant-source-registry-invalid')) 'FIX3 tab-padded universe registry-invalid' ([string]$snapTab.reason)
     # ---------- F2: revision binding ----------
     $snapMatch = Get-NDGrantSourceSnapshot -Role 'coder' -Task $task -RuntimeCapabilityGrants @('fs.read', 'git.diff') -EnvironmentGrants @('fs.read', 'git.diff') -HumanApproved:$false -GrantsPath $canonGrants -FlagsPath $flagsPath -RepoRoot $repoRoot -ExpectedRevision 3
     Assert-GP ([bool]$snapMatch.ok) 'F2 matching expected revision ok' ([string]$snapMatch.reason)

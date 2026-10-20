@@ -325,3 +325,20 @@ Riscos/residual:
   com aprovação, string/fracionário/null/ausente/inteiro-exato/sem
   vínculo); bridge e node sem casos novos (sem mudança de shape ou gate:
   os códigos fluem pelos gates existentes, já cobertos).
+
+## 14. Nota FIX3 (2026-10-20, sem reescrever o histórico)
+
+- F1 (whitespace em grants do registry): `Test-NDGPRegistrySemantics`
+  agora rejeita qualquer string de universo/baseline que não seja
+  ordinalmente igual ao próprio `.Trim()` — antes das verificações de
+  pertencimento e sensibilidade. O kernel trima os baselines
+  (`Get-TaskKernelCleanList`), de modo que `"git.push "` (universo +
+  baseline acolchoados, três listas presentes, sem aprovação) passaria
+  nas comparações literais e resolveria para `git.push` na interseção com
+  clear indevido; agora é `grant-source-registry-invalid` fail-closed.
+  Interseção e kernel intocados (só a validação estrita).
+- Cobertura FIX3: lib 5 novos asserts (cenário exato do reviewer,
+  leading-space, baseline acolchoado com universo limpo, tab, authority
+  false no refusal); regressão F1/F2/caminhos válidos verde; bridge
+  (registry canônico limpo) e node (sem novo shape/código) sem casos
+  novos.
