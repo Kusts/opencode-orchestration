@@ -48,7 +48,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   ilegível/não-arquivo/reparse é preservado e recusado.
   `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
   como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
-  (1072 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  (1078 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
   COMPLETE válido/recusado (+reentrada idêntica ao terminal gravado),
   sessão/auth/owner, takeover sem transferência implícita, pending
   manual/recusa, receipt pending/claimed/prepared, evidência ausente/
@@ -64,8 +64,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   controle válido + NextIntent divergente), registro com
   `intended_action`/transições validadas e adulteração rejeitada
   (8 variantes incl. troca entre ações permitidas), desambiguação de
-  publicação (`published`/`uncertain`/`absent` como unidade S13f), falha
-  parcial e escrita ambígua preservando efeitos conhecidos, RepoRoot encaminhado
+  publicação (`published` somente com fase/intenção/ação/resultado
+  solicitados comprovados — reserva anterior com mesmo fingerprint
+  nunca prova finalização, S13g — mais `published`/`uncertain`/`absent`
+  como unidade S13f), falha parcial e escrita ambígua preservando efeitos
+  conhecidos, RepoRoot encaminhado
   à S3a (namespace idêntico com/sem ReceiptDir), adversarial remoção/
   troca/downgrade, sentinela zero worker/CLAIM/SETTLE/PREPARE, regressão
   sem `SettledKey`); S3a (658 asserts), ND handoff/advance (2151 asserts)

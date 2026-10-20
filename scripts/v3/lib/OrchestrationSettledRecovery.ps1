@@ -955,17 +955,22 @@ function Write-SRRecoveryRecord {
 function Publish-SRRecoveryRecord {
     <#
     .SYNOPSIS
-        Publish with disambiguated outcome (F1-S4-FIX3 #3).
+        Publish with disambiguated outcome (F1-S4-FIX3 #3, F1-S4-FIX4 F3).
     .DESCRIPTION
         Wraps Write-SRRecoveryRecord. A bare $false conflates "nothing was
         written" with "the write landed but the post-write proof failed".
         On failure this re-reads the canonical record once: present + valid
-        + same fingerprint means the publication effected (proceed as
-        written); verified absence means nothing was published (caller
-        refuses without attribution); anything else is uncertain (caller
-        reports the known references with manual followup, never presuming
-        success). Returns 'written', 'published', 'absent' or 'uncertain'.
-        Never throws; never writes.
+        + same fingerprint + the REQUESTED phase/intent/action/result means
+        the publication effected (proceed as written); verified absence
+        means nothing was published (caller refuses without attribution);
+        anything else is uncertain (caller reports the known references
+        with manual followup, never presuming success). The fingerprint
+        identifies the attribution, not the specific publication: a prior
+        reservation with the same fingerprint never proves a requested
+        finalization (phase recorded), so it reports uncertain and the
+        callers surface the known effects with manual followup. Returns
+        'written', 'published', 'absent' or 'uncertain'. Never throws;
+        never writes.
     #>
     [CmdletBinding()]
     param([string]$AdvanceDir = '', [string]$Ident = '', [string]$Key = '', $Record = $null, [switch]$AllowUpdate, [string]$ExpectedFingerprint = '')
@@ -982,6 +987,31 @@ function Publish-SRRecoveryRecord {
         if ($null -eq $curRec) { return 'uncertain' }
         $curFp = ([string](Get-SRValue $curRec 'assignment_fingerprint' '')).Trim()
         if ($curFp -cne ([string]$ExpectedFingerprint).Trim()) { return 'uncertain' }
+        # F3 (F1-S4-FIX4): the fingerprint binds the attribution, not the
+        # publication. A stored reservation with the same fingerprint must
+        # never satisfy a requested finalization: 'published' requires the
+        # stored record to prove the REQUESTED phase/intent/action/result.
+        if ($null -eq $Record) { return 'uncertain' }
+        $reqPhase = ([string](Get-SRValue $Record 'phase' '')).Trim()
+        $curPhase = ([string](Get-SRValue $curRec 'phase' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($reqPhase) -or ($curPhase -cne $reqPhase)) { return 'uncertain' }
+        $reqInt = ([string](Get-SRValue $Record 'intended_action' '')).Trim()
+        $curInt = ([string](Get-SRValue $curRec 'intended_action' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($reqInt) -or ($curInt -cne $reqInt)) { return 'uncertain' }
+        $reqAct = ([string](Get-SRValue $Record 'action' '')).Trim()
+        $curAct = ([string](Get-SRValue $curRec 'action' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($reqAct) -or ($curAct -cne $reqAct)) { return 'uncertain' }
+        $reqRes = Get-SRValue $Record 'result' $null
+        $curRes = Get-SRValue $curRec 'result' $null
+        if (($null -eq $reqRes) -or ($null -eq $curRes)) { return 'uncertain' }
+        $reqOk = $false
+        try { $reqOk = [bool](Get-SRValue $reqRes 'ok' $false) } catch { $reqOk = $false }
+        $curOk = $false
+        try { $curOk = [bool](Get-SRValue $curRes 'ok' $false) } catch { $curOk = $false }
+        if ($reqOk -ne $curOk) { return 'uncertain' }
+        foreach ($rf in @('reason', 'cause_reason')) {
+            if (([string](Get-SRValue $reqRes $rf '')) -cne ([string](Get-SRValue $curRes $rf ''))) { return 'uncertain' }
+        }
         return 'published'
     }
     catch { return 'uncertain' }

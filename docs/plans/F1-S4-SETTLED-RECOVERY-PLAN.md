@@ -281,3 +281,7 @@ plano atualizados; PR separado, merge commit, sem squash.
   F2g fixa o tamper de scope com nominais intactos
   (`successor-integrity-invalid`); S13f fixa a desambiguação
   `published`/`uncertain`/`absent` do `Publish-SRRecoveryRecord`.
+- F1-S4-FIX4 F3 (2026-10-20): `published` exige a publicação solicitada
+  comprovada (fase/intenção/ação/resultado); reserva anterior com o mesmo
+  fingerprint → `uncertain` com efeitos/referências conhecidos +
+  follow-up manual (S13g; sentinela S17).

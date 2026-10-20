@@ -1085,6 +1085,45 @@ catch {
         $pubAbsent13f = Publish-SRRecoveryRecord -AdvanceDir (Join-Path $tempRoot 'adv-missing-13f') -Ident 'bogus-ident' -Key $key13e -Record $divergent13f -ExpectedFingerprint 'dddddddddddddddddddddddddddddddd'
         Assert-SR (($pubAbsent13f -ceq 'absent')) '[S13f] a failed publish with verified absence reports absent' ([string]$pubAbsent13f)
 
+        # ---------- S13g. a prior reservation never proves finalization (F3) ----------
+        $key13g = Get-NativeDispatchHash32 ('s4-f3-reserve-' + $ids13e.task)
+        $goalRoot13g = ''
+        try { $goalRoot13g = Split-Path -Path $advPath13f -Parent } catch { $goalRoot13g = '' }
+        $recRef13g = Join-Path $goalRoot13g ($key13g + '.json')
+        $advRef13g = Join-Path $advPath13f ($key13g + '.advance.json')
+        $fp13g = Get-SRAssignmentFingerprint -SubstituteSessionId ([string](Get-SRValue $stored13f 'substitute_session_id' '')) -Owner ([string](Get-SRValue $stored13f 'authorization_owner' '')) -Generation ([long](Get-SRValue $stored13f 'authorization_generation' 0)) -Source ([string](Get-SRValue $stored13f 'authorization_source' '')) -Action 'replay-prepared' -ReasonCode ([string](Get-SRValue $stored13f 'reason_code' '')) -GoalId $ids13e.goal -SettledKey $key13g -SourceTaskId ([string](Get-SRValue $stored13f 'source_task_id' '')) -ReceiptRef $recRef13g -EvidenceId ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'evidence_id' '')) -CandidateRevision ([long](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'candidate_revision' -1)) -NextKey ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'next_key' '')) -NextIntentFingerprint ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'next_intent_fingerprint' '')) -OriginalPrepareSessionId ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'original_prepare_session_id' ''))
+        Assert-SR (-not [string]::IsNullOrWhiteSpace($fp13g)) '[S13g] the reservation fingerprint binds' ''
+        $proof13g = [ordered]@{ receipt = $recRef13g; advance = $advRef13g; evidence_id = ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'evidence_id' '')); candidate_revision = ([long](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'candidate_revision' -1)); next_key = ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'next_key' '')); next_intent_fingerprint = ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'next_intent_fingerprint' '')); original_prepare_session_id = ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'original_prepare_session_id' '')) }
+        $resvStub13g = [ordered]@{ ok = $false; reason = 'recovery-reserved'; cause_reason = 'reserved-before-replay'; prepared = $false; next_idempotency_key = ''; next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
+        $reserved13g = [ordered]@{
+            schema_version = 1; goal_id = $ids13e.goal; settled_key = $key13g; source_task_id = ([string](Get-SRValue $stored13f 'source_task_id' ''))
+            assignment_fingerprint = $fp13g; substitute_session_id = ([string](Get-SRValue $stored13f 'substitute_session_id' ''))
+            authorization_owner = ([string](Get-SRValue $stored13f 'authorization_owner' '')); authorization_generation = ([long](Get-SRValue $stored13f 'authorization_generation' 0)); authorization_source = ([string](Get-SRValue $stored13f 'authorization_source' ''))
+            reason_code = ([string](Get-SRValue $stored13f 'reason_code' '')); action = 'replay-prepared'; intended_action = 'replay-prepared'; proof_refs = $proof13g
+            phase = 'reserved'; result = $resvStub13g; created_at = ([DateTime]::UtcNow.ToString('o')); recorded_at = ''
+        }
+        Assert-SR ([bool](Write-SRRecoveryRecord -AdvanceDir $advPath13f -Ident $advIdent13f -Key $key13g -Record $reserved13g)) '[S13g] a reservation is stored for the finalization race' ''
+        $recPath13g = Join-Path $advPath13f ($key13g + '.recovery.json')
+        $reservedBytes13g = [IO.File]::ReadAllText($recPath13g, [Text.Encoding]::UTF8)
+        # Control (non-vacuous): the reservation itself is recognized, so
+        # the stored record reads present + valid with this fingerprint.
+        $pubResv13g = Publish-SRRecoveryRecord -AdvanceDir $advPath13f -Ident $advIdent13f -Key $key13g -Record $reserved13g -ExpectedFingerprint $fp13g
+        Assert-SR (($pubResv13g -ceq 'published')) '[S13g] the reservation itself is recognized' ([string]$pubResv13g)
+        # F3: the final update fails before replacing the reservation. The
+        # re-read finds a valid reservation with the same fingerprint, but
+        # that never proves the requested recorded finalization.
+        $finRes13g = [ordered]@{ ok = $true; reason = 'recovery-test-final'; cause_reason = 'test-final-cause'; prepared = $true; next_idempotency_key = ([string](Get-SRValue (Get-SRValue $stored13f 'proof_refs' $null) 'next_key' '')); next_reference = ''; checkpoint_id = ''; checkpoint_ok = $false; effects = [ordered]@{ domain_mutated = $false; attribution_written = $true; checkpoint_written = $false } }
+        $final13g = [ordered]@{
+            schema_version = 1; goal_id = $ids13e.goal; settled_key = $key13g; source_task_id = ([string](Get-SRValue $stored13f 'source_task_id' ''))
+            assignment_fingerprint = $fp13g; substitute_session_id = ([string](Get-SRValue $stored13f 'substitute_session_id' ''))
+            authorization_owner = ([string](Get-SRValue $stored13f 'authorization_owner' '')); authorization_generation = ([long](Get-SRValue $stored13f 'authorization_generation' 0)); authorization_source = ([string](Get-SRValue $stored13f 'authorization_source' ''))
+            reason_code = ([string](Get-SRValue $stored13f 'reason_code' '')); action = 'replay-prepared'; intended_action = 'replay-prepared'; proof_refs = $proof13g
+            phase = 'recorded'; result = $finRes13g; created_at = ([string](Get-SRValue $reserved13g 'created_at' '')); recorded_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        $pubFin13g = Publish-SRRecoveryRecord -AdvanceDir $advPath13f -Ident $advIdent13f -Key $key13g -Record $final13g -ExpectedFingerprint $fp13g
+        Assert-SR (($pubFin13g -ceq 'uncertain')) '[S13g] a prior reservation never proves finalization' ([string]$pubFin13g)
+        Assert-SR (([IO.File]::ReadAllText($recPath13g, [Text.Encoding]::UTF8) -ceq $reservedBytes13g)) '[S13g] the stored reservation was preserved, never presumed recorded' ''
+
         # ---------- S14. crash window: reserved re-executes, divergent holds ----------
         $ids14 = New-SRIds -Tag 'crash'
         $g14 = New-SRGoal -GoalId $ids14.goal
@@ -1832,6 +1871,7 @@ catch {
         Assert-SR (($modText -match 'successor-integrity-invalid')) '[S17] successor semantic integrity is enforced' ''
         Assert-SR (($modText -match 'intended_action')) '[S17] the assigned intent is persisted and bound' ''
         Assert-SR (($modText -match 'record-unverified-after-replay|reserve-unverified')) '[S17] partial failures are distinguished from no-effect refusals' ''
+        Assert-SR (($modText -match 'never proves a requested')) '[S17] a reservation never proves finalization' ''
         Assert-SR ((($modText -notmatch 'Start-Process') -and ($modText -notmatch 'Invoke-WebRequest') -and ($modText -notmatch 'HttpClient') -and ($modText -notmatch 'while\s*\(\s*\$true'))) '[S17] no spawn/network/busy-loop' ''
 
         # ---------- S18. compatibility without SettledKey ----------
