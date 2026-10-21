@@ -932,11 +932,9 @@ autorizacao: `READY` (executor ausente) notifica sem falso sucesso, e
 
 Origem: branch `p1-05-steer-close`, commit `a0850cc` (suite nova
 `OrchestrationWatchdogSteerClose.tests.ps1` 62/62 + enforcement 432/432,
-reviewer APPROVED + security APPROVED). **Estado honesto neste checkout: o
-codigo S5 ainda nao esta em `master`** (HEAD `ec5f8b1` nao contem
-`a0850cc`); a secao descreve o contrato aprovado, nao capacidade presente
-na arvore. Recomendacao: merge via PR com CI verde antes de referenciar o
-comportamento como vigente.
+reviewer APPROVED + security APPROVED). **Correção factual 2026-10-19: S5
+mergeado via PR #118** (`c9e12d8`, contido em `origin/master`); a seção
+descreve o contrato vigente.
 
 - **STEER opt-in (default OFF).** `Invoke-WatchdogProcessInterrupt` aceita
   `-InterruptMode`: ausente ou `KILL` = caminho limitado de kill (default

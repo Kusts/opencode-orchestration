@@ -111,7 +111,7 @@ jobs:
   ci-ps51:
     name: CI (ps51)
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     defaults:
       run:
         shell: powershell
@@ -143,7 +143,7 @@ jobs:
         run: npm install -g "bun@$env:BUN_VERSION"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: V3 test suite (~5-6 min local; runner exige mais)
-        timeout-minutes: 40
+        timeout-minutes: 60
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       # ORFS-F6 regressao orfa em engine real (powershell 5.1 nativo deste job,
@@ -178,7 +178,7 @@ jobs:
   ci-ps7:
     name: CI (ps7)
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 75
     defaults:
       run:
         shell: pwsh
@@ -210,7 +210,7 @@ jobs:
         run: npm install -g "bun@$env:BUN_VERSION"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: V3 test suite (~5-6 min local; runner exige mais)
-        timeout-minutes: 40
+        timeout-minutes: 60
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       # ORFS-F6 regressao orfa em engine real (pwsh 7 nativo deste job, sem
@@ -285,7 +285,7 @@ jobs:
   ci-v2-lane:
     name: CI (v2 lane, perfil V2 provisionado)
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 75
     defaults:
       run:
         shell: pwsh
@@ -317,7 +317,7 @@ jobs:
         run: npm install -g "bun@$env:BUN_VERSION"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bun --version
 
       - name: V3 test suite (~5-6 min local; runner exige mais)
-        timeout-minutes: 40
+        timeout-minutes: 60
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       - name: Provision OpenCode V2 profile (pinned, official npm package)

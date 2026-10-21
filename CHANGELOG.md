@@ -6,6 +6,318 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Permissões do debugger: shell amplo como no tester (2026-10-20)** —
+  `source/agents/debugger.md` troca o deny-default + allowlist de diagnóstico
+  por `"*": allow` + mesmos denies/asks do tester, `edit: deny`/`task: deny`
+  mantidos, corpo adaptado (blocker `DIAGNOSIS_CAPABILITY_UNAVAILABLE`).
+  Contrato novo `scripts/runtime/debugger-shell-permissions.tests.ps1`;
+  `agent-translation.tests.ps1` passa a exigir catch-all allow também no
+  debugger; docs (`PERMISSIONS.md`, `SECURITY.md`, adapters) movem debugger
+  para validator-shell. Decisão explícita do operador; owner determinístico
+  (hard exclusion `permission_change`).
+- **F7 F1 S6 — wiring produtivo 3 fases (harness-only, HARNESS_PASS)**:
+  `scripts/v3/productive-three-phase-harness.tests.ps1` (Etapa D):
+  FASE 1 (RED) fixture com conteúdo verificável (goal/task TEMP + payload
+  de bytes conhecidos); settle via owner canônico com auth explícita
+  (exatamente 1 escrita kernel) e CONTINUE bloqueado sem verificação
+  (`continuation-verification-required`). FASE 2 (RED→GREEN) validação
+  real detecta erro intencional (review `changes_required` bloqueia
+  CONTINUE e recusa DONE, sem false DONE; corrigido com review approved +
+  DONE, o harness re-chama a continuação sozinho). FASE 3 (GREEN) a
+  re-chamada prepara exatamente 1 sucessor via ObjectiveStep SettledKey
+  (advance único, sucessor intocado, `executor_calls` 0, goal ainda
+  ACTIVE). Negativos: duplicata (replay único), task errada/lease
+  expirada (HOLD), review reject (bloqueado, sem DONE). `SOFT_ADVISORY`:
+  fixtures sintetizam host proofs e validam só plumbing (binding + tier
+  persistido), nunca atestação real do host. Suite de wiring 70 asserts +
+  harness 33 asserts, reviewer APPROVED. Veredito HARNESS_PASS;
+  RUNTIME_REAL_PASS não alegado (gap: child session observada no host +
+  proof por canal confiável). Sem claim runtime-real/G3/S6/enforcement;
+  flags OFF.
+
+- **F7 F3 — reconcile one-shot de resume (harness-only, HARNESS_PASS)**:
+  `scripts/v3/github-resume-reconcile.ps1` + suite
+  (`github-resume-reconcile.tests.ps1`, 116 asserts): formato one-shot
+  (sem sleep/loop/timer/retry/watcher/daemon/rede/merge), autoridade
+  pinada (ghwait é transporte, Kernel é autoridade, sem segundo store),
+  reconcile por ghwait via `Get-OrchestrationGitHubWaits` + snapshot de
+  fixture + `Test-OrchestrationGitHubResume` com flags vivas, Confirm
+  (CAS) RESUME-only + unblock do Kernel referenciando o fingerprint do
+  `active_wait`, READY notify-only; fault injection (CI pending→success/
+  failure, review changes-requested, SHA superseded, duplicata, fora de
+  ordem, restart antes/depois da persistência, cancel, expiry, 2
+  watchers, falha de auth ⇒ HOLD, binding-first kernel-first, pending-
+  confirm, conflito de CAS). HARNESS_PASS apenas — nunca AUTO_RESUME
+  (o gap de scheduling segue documentado; retomada real exige
+  scheduling/provider). Reviewer APPROVED. Sem claim runtime-real/
+  G3/S6/enforcement; flags OFF.
+
+- **F7 F4 O5 — link pinado delivery+resume (fixture, SOFT_ADVISORY)**:
+  `scripts/v3/interop-pinned-gate-link.tests.ps1` (12 casos, reviewer
+  APPROVED): compositor in-test `Invoke-O5Link` (única entrada
+  produtiva exercitada) — pin do bundle vigente + elegibilidade de merge
+  + readiness de resume ⇒ gate pinado; recibos só SOFT_ADVISORY/
+  CONFIRMED sobre EXECUTED, FAILED/UNKNOWN viram REMEDIATE/RECONCILE
+  com recibo nulo; nunca MEDIATED_ENFORCED, nunca DONE, nunca merge;
+  pin stale zera executor+persist; SHA antigo nunca autoriza HEAD novo;
+  self review nunca conta como independente; UNKNOWN reconcilia com
+  exatamente 1 chamada de executor. Sem claim runtime-real/G3/S6/
+  enforcement; flags OFF.
+
+- **F7 F6 — watchdog: fixture determinística de enforcement (harness)**:
+  fixture determinística do caminho de enforcement do watchdog
+  (interrupção kernel-side deadline/NO_PROGRESS ⇒ kill CIM+JobObject
+  pinado, em isolamento); suite 460 PASS / 0 FAIL, sem relaxar
+  fail-closed (`WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` preservado como
+  token do registro sem binding de processo provado; identidades não
+  prováveis ⇒ recusa, nunca kill). Sem claim de enforcement runtime-real/
+  G3/S6; flags OFF (ativação segue decisão do operador com evidência
+  `exact-binary-live`).
+
+- **F7 F5 — MCP→subagent mapeado (S5 blocked / S6 fail)**:
+  causa mapeada sem correção (experimento T0–T2: turno parent não lista
+  MCP tools no serve isolado; medidas `GET /api/mcp` pré-turno +
+  transcript do child + tool calls; stop em `provider.no-route`/
+  TIMEOUT>240s/2x exit=1 rápido). S5 segue blocked, S6 fail; lane
+  (`evidence/agent-mcp-integration/lane-S5S6-2026-10-19*.json`) e quota
+  de modelo seguem pendentes do operador. Nenhum claim; nenhuma flag
+  tocada.
+
+- **F7 — arquivos da rodada (working tree sobre `ee8c47b`; classificar
+  M/?? via `git status --short` antes do PR — ambiente desta task sem
+  shell, lista por escopo delegado):** confirmados em disco
+  `scripts/v3/productive-three-phase-harness.tests.ps1`,
+  `scripts/v3/github-resume-reconcile.ps1`,
+  `scripts/v3/github-resume-reconcile.tests.ps1`,
+  `scripts/v3/interop-pinned-gate-link.tests.ps1`,
+  suite/fixture de enforcement do watchdog desta sessão,
+  `CHANGELOG.md` ([Unreleased] este bloco) e
+  `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` (novo);
+  base `ee8c47b` = merge do PR #135. Issues #51 #86 #116 #69 #70
+  seguem OPEN; 0 PRs abertos; nada publicado, nada commitado.
+
+- **F1 S4 limitada — recovery atribuído por sessão substituta (fixture-only)**:
+  `Invoke-OrchestrationSettledRecovery`
+  (`scripts/v3/lib/OrchestrationSettledRecovery.ps1`) permite que uma sessão
+  substituta (descritor de host, nunca capability) solicite a recuperação de
+  um advance `prepared`/terminal já validado, com atribuição durável
+  (sessão substituta, owner/generation/source, motivo, goal/settled
+  key/task e vínculos causais em `assignment_fingerprint` determinístico
+  sem timestamp) em `<settledKey>.recovery.json` (`reserved`/`recorded`,
+  escrita atômica sem sobrescrever; mesma atribuição reexecuta
+  deterministicamente, divergente recusa `recovery-assignment-mismatch`).
+  O replay é delegado à continuação S3a: pré-condições na entrada (auth
+  viva, ownership/fencing, settlement válido, correlação, integridade,
+  evidência vinculada) + revalidação de auth/ownership/lease e estado
+  vivo do goal logo após adquirir o lock, antes de qualquer escrita ou
+  delegação (F1-S4-FIX1); COMPLETE só com gate/CAS da S3a. O recibo
+  sucessor é validado antes de anunciar `prepared` ou delegar o replay
+  (existência, fase `prepared`, correlação goal/key/task/agent/reference,
+  fingerprint integral do NextIntent quando fornecido, integridade
+  semântica recalculada; ausente/divergente/corrompido recusa
+  `recovery-successor-unproven` sem PREPARE). Após o lock, o settlement
+  é revalidado por comparação (recibo byte-a-byte, binding do
+  `worker_result`, hash da evidência); mudança durante a espera recusa
+  sem escrita nem checkpoint (F1-S4-FIX3). Publicação com desambiguação
+  (`written`/`published`/`absent`/`uncertain`): falha parcial preserva
+  efeitos/referências conhecidos + follow-up manual. O registro carrega
+  `intended_action` vinculado ao fingerprint e só aceita transições
+  válidas para o terminal gravado (a reentrada reproduz o envelope
+  terminal verbatim); terminais `blocked` exigem `ok=false` (e
+  `prepared=true` exige `next_key`), recusando a troca apenas da ação que
+  preservaria um resultado de sucesso (F1-S4-FIX5). Checkpoint ausente é
+  reconstruído de registros
+  canônicos (uma tentativa, falha registrada com honestidade).
+  Pending/ambíguo vira `blocked-manual` atribuído (só o registro;
+  `domain_mutated=false`) ou recusa (`recovery-intent-unproven`,
+  `recovery-no-continuation`); pending automático e ADVANCE próprio são
+  HOLD/manual — nenhum novo PREPARE/CLAIM/SETTLE/worker, nenhuma mutação
+  de goal/task/receipt/advance em `blocked-manual`, nenhuma aquisição ou
+  transferência de owner. A janela pós-delegação (S3a escreve checkpoint/
+  prepared/BLOCKED/REPLAN sem revalidar auth) segue residual declarada.
+  Lock dedicado `.recovery-<key>.lock` (distinto
+  dos locks do ND, timeout limitado → `recovery-lock-busy`); `reserved`
+  após crash relê os stores canônicos, nunca presume sucesso; registro
+  ilegível/não-arquivo/reparse é preservado e recusado.
+  `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
+  como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
+  (1083 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  COMPLETE válido/recusado (+reentrada idêntica ao terminal gravado),
+  sessão/auth/owner, takeover sem transferência implícita, pending
+  manual/recusa, receipt pending/claimed/prepared, evidência ausente/
+  ilegível/decorrelacionada, worker superseded, checkpoint rebuild
+  honesto, registros corrompidos/divergentes/crash, lock exclusivo
+  multiprocesso com processos externos reais e barreira observável
+  (mesma atribuição determinística, atribuições distintas, timeout do
+  lock), revalidação pós-lock (F1a determinística + F1b com takeover
+  durante a espera real + F1c com recibo do settlement adulterado durante
+  a espera + F2d com sucessor removido durante a espera), vínculo do
+  sucessor (removido/corrompido/referência trocada/tamper de scope com
+  nominais intactos + fingerprint do NextIntent + re-checagem sob lock +
+  controle válido + NextIntent divergente), registro com
+  `intended_action`/transições validadas e adulteração rejeitada
+  (9 variantes incl. troca entre ações permitidas e troca para `blocked`
+  mantendo o resultado de sucesso), desambiguação de
+  publicação (`published` somente com fase/intenção/ação/resultado
+  solicitados comprovados — reserva anterior com mesmo fingerprint
+  nunca prova finalização, S13g — mais `published`/`uncertain`/`absent`
+  como unidade S13f), falha parcial e escrita ambígua preservando efeitos
+  conhecidos, RepoRoot encaminhado
+  à S3a (namespace idêntico com/sem ReceiptDir), adversarial remoção/
+  troca/downgrade, sentinela zero worker/CLAIM/SETTLE/PREPARE, regressão
+  sem `SettledKey`); S3a (658 asserts), ND handoff/advance (2151 asserts)
+  e ND receipts (208 asserts) verdes em ambos os hosts. O runner V3
+  descobre a suíte (`scripts/v3/lib/*.tests.ps1`); os steps V3 dos jobs
+  ps51/ps7/v2 lane foram elevados para 60 min e os jobs para 75 para
+  absorver a suíte multiprocesso — sem skip/continue-on-error. Sem claim
+  runtime-real/G3/S6/enforcement; sem mudança em S3a/AL, ND, TaskKernel,
+  plugin, grants ou flags.
+
+- **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
+  que não seja ordinalmente igual ao próprio `.Trim()` (espaços
+  iniciais/finais → `grant-source-registry-invalid`): o kernel trima os
+  baselines, de modo que texto acolchoado (`"git.push "`) passaria nas
+  verificações literais de universo/sensíveis e resolveria para o grant
+  sensível na interseção. Cenário exato do reviewer + variantes
+  (leading-space, baseline acolchoado com universo limpo, tab) cobertos;
+  caminhos válidos/F1/F2 sem regressão. Suítes: projeção 124 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
+- **F1 S5 FIX2 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: `Test-NDGPRegistrySemantics` rejeita baseline com grant sensível
+  (lista canônica via `Get-TaskKernelSensitiveGrants`, sem duplicar;
+  helper ausente → inválido fail-closed); cenário do reviewer
+  (`git.push` em universo+baseline+3 listas, sem aprovação) →
+  `grant-source-registry-invalid`, nunca clear; caminho legítimo com
+  aprovação e baselines limpos continua clear. F2: ramo com
+  `-ExpectedRevision` ligado exige `Task.revision` presente e inteiro
+  exato (`"3"`/`3.0`/`null`/ausente → mismatch; sem vínculo mantém o
+  comportamento). DOC: CHANGELOG do FIX1 citava
+  `grant-source-registry-mismatch` (inexistente) → alinhado para
+  `grant-source-registry-invalid`. Suítes: projeção 119 asserts
+  (PS5.1+pwsh), bridge S1 145 asserts (PS5.1+pwsh), node 60 testes.
+
+- **F1 S5 FIX1 — achados do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
+  F1: o snapshot valida semanticamente o registry canônico antes da
+  interseção (versão inteira 1, `grants` array de strings únicas/não
+  vazias como universo, `role_baselines` objeto de arrays com todo
+  baseline ∈ universo, sem coerção); desvio → novo código fail-closed
+  `grant-source-registry-invalid`. F2: a projeção é vinculada à revisão
+  do recibo (`receipt.task_expected_revision` via novo parâmetro
+  `-ExpectedRevision` e entry point `Get-NCGrantProjectionFromClaim` na
+  bridge); divergência pós-CLAIM → `grant-source-task-revision-mismatch`
+  (hook nega). Suítes: projeção 106 asserts, bridge S1 145 asserts, node
+  60 testes; typecheck `pwsh` V1/V2/DUAL + bundle + `[typecheck:g1]` verdes.
+
+- **F1 S5 — projeção deny-only de grants de origem (fixture-only)**:
+  nova lib `scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1`
+  (`Get-NDGrantSourceSnapshot`: lê a task canônica + papel do recibo e chama
+  a interseção do kernel `Get-OrchestrationEffectiveGrants` sem
+  reimplementá-la; `Test-NDGrantProjection`: projeção pura deny-only,
+  ordinal, universo fechado — nunca allow, nunca autoridade;
+  `source_revision` = hash32 de `taskrev + flags + grants efetivos`).
+  `scripts/v3/native-dispatch-claim.ps1` ganha contexto estrito aditivo
+  (`runtime_capability_grants`/`environment_grants`/`human_approved`,
+  defaults fail-closed) e o envelope `grant_projection` (inclusive no
+  fallback `encode-failed`; avaliado só em claim ok+claimed; refusal =
+  `grant-source-not-evaluated`). `plugins/g1-dispatch-admission` valida o
+  shape exato (`authority===false`, 32hex-ou-vazio, deny list bounded) e o
+  handler nega em `ok!==true`/`denied>0` (recusa do claim primeiro; clear =
+  abstém, S1 intacto). `scripts/ci/typecheck-plugin.ps1` executa os node
+  tests do `g1-dispatch-admission`. Novas suítes: projeção PS 81 asserts
+  (PS5.1+pwsh), bridge S1 134 asserts (PS5.1+pwsh), node 59 testes.
+  Sem flag/registry/ND/kernel/TS alterados; sem autoridade/runtime-real.
+
+- **F1 S3a FIX1 — achados da revisão (sem tocar ND/TaskKernel)**:
+  F1: a prova passa a devolver `task_objective`/`task_type`/`task_scopes`/
+  `task_project` do registro canônico e o gate monta o descritor
+  `{risk, operation, domain, summary}` (hard triggers voltam a elevar a
+  L3; objetivo com `auth` exige security-review — S13). F2: `$advPrepared`
+  lido independente de `$advOk`; falha pós-PREPARE preserva o efeito
+  (`ok=false, action=prepared`, S14-honesto documenta o limite do fault
+  injection sem ganchos no ND). F3: evidência ilegível separa
+  ausente=unproven de ilegível=uncertain (S15; S11b intacto). F4: replay e
+  caminho COMPLETE exigem autorização viva via `Test-SCCompletionAuthorization`
+  (helper autoridade do ND) antes de qualquer CAS (S16). F5: a prova exige
+  `(task_expected_revision + 1) == worker_result.revision`, senão
+  `worker-result-superseded` (S17 K1/K2). F6: contenção do `evidence_id`
+  antes do `Join-Path` (unit do guard). F7: goal PAUSED recusa sem
+  reativar (S18). S13b: descritor inclui o contexto canônico do goal vivo
+  (objective + criteria) além da task. S14b: unit do ramo F2 (double do
+  ADVANCE no escopo do teste, advance chamado exatamente 1 vez, envelope
+  de efeito preservado). Nova suite com 658 asserts (PS 5.1+pwsh); AL
+  47/47 e F3 verdes. Sem claim runtime-real/G3/S6.
+
+- **F1 S3a — continuação pós-settlement (fixture-only)**:
+  `Invoke-OrchestrationSettledContinuation`
+  (`scripts/v3/lib/OrchestrationAutonomousLoop.ps1`) consome UMA
+  liquidação canônica (recibo `settled` + evidência + `worker_result` do
+  kernel, tudo relido — nunca `verified/aprovado` do chamador) e compõe
+  prova do settlement + gates de verificação/review (nível efetivo da
+  policy real; L3 exige security-review; risco desconhecido falha
+  fechado) + decisão do Controller + `ND-ADVANCE` (sem
+  `-FinalizeGoalOnComplete`) + checkpoint correlacionado (schema intacto
+  + sidecar `<checkpoint_id>.settled-continuation.json`). Termina em
+  `prepared`/`replan_required`/`blocked`/`completed`; `ok` = processamento
+  válido, `completed` só após CAS; `executor_calls` sempre 0; zero-efeito
+  antes do ADVANCE; pós-PREPARE com checkpoint falho devolve
+  `prepared=true` + chave (`continuation-checkpoint-required`).
+  `Invoke-OrchestrationObjectiveStep` ganha `-SettledKey`/`-NextIntent`
+  (encaminha uma vez; sem eles, legado intacto). Ramo COMPLETE fatorado
+  em `Invoke-ALObjectiveCompletion` e reutilizado. ND: replay
+  CONTINUE/RETRY pendente preserva a decisão gravada (sem reconsulta ao
+  Controller) e finalize com `-FinalizeGoalOnComplete` só com
+  `OBJECTIVE_COMPLETED` + critérios verificados (stop de política
+  registra `goal-finalize-refused:policy-stop`, nunca completa; D5b do
+  Handoff marca `progress=1/1`, D5d prova a recusa). Testes: suite
+  `OrchestrationSettledContinuation` (658 asserts PS 5.1+pwsh após
+  FIX1/FIX1B: S1–S18, F6, S14b unit, S13b com trigger no goal)
+  + suítes `AutonomousLoop` (47/47) e `NativeDispatch` (4/4, Handoff
+  2151 asserts) verdes. Sem claim de G3/autonomia runtime-real/recovery
+  S4; sem mudança em TaskKernel/validation-policy/plugin/flags/enforcement.
+
+- **F1 S2 — owner único do SETTLE (liquidação canônica via ND-Settle)**:
+  `Invoke-OrchestrationNativeDispatchSettle`
+  (`scripts/v3/lib/OrchestrationNativeDispatch.ps1`) passa a ser o único
+  caminho de liquidação: monta o contexto nativo correlacionado dos locais
+  já validados (recibo, chave, fingerprint, sessões, agentes, autorização,
+  stores, revisão do goal) e o encaminha ao kernel. `New-ProductiveSettleImpl`
+  (`scripts/v3/lib/OrchestrationProductiveActivation.ps1`) deixa de chamar
+  `Set-OrchestrationTaskWorkerResult` diretamente (incluindo a recuperação por
+  igualdade de worker_result, removida) e delega UMA vez ao ND-Settle com
+  contexto nativo explícito correlacionado ao binding PA; sem contexto
+  completo: HOLD fail-closed, zero escrita. `Set-OrchestrationTaskWorkerResult`
+  aceita `-SettlementContext` opcional e `New-OrchestrationTask` aceita
+  `-SettlementPolicy` opcional (`canonical-native-settle`, sem migração de
+  tasks existentes): task marcada recusa escritor não-canônico, contexto
+  ausente/incompleto/divergente ou goal fora de ACTIVE/sem ownership/sem
+  vínculo, com razões estáveis e zero escrita; task não marcada preserva o
+  contrato legado (contexto ignorado). Projeção observável
+  `Get-ProductiveSettlementProjection` (candidate/persisted/verified/advanced,
+  `unknown` sem prova legível; `advanced` lê OR + ND, sem regra nova).
+  Commit ambíguo permanece fail-closed/manual. Flags/config inalteradas (OFF);
+  S1 (bridge + plugin g1) intocado. Testes: 178 asserts PS na suite
+  `OrchestrationProductiveActivation` (delegação com recibo real, HOLD,
+  divergência, fencing/lease, duplicata divergente, ambíguo, legada,
+  verificação separada, projeção) + suíte do kernel verde (legado intacto).
+  - **Endurecimento F1-S2-FIX1** (reviewer + security-reviewer, mesma branch):
+    prova durável do recibo (`Test-OrchestrationNativeDispatchSettlementProof`):
+    o kernel só escreve em task marcada quando o contexto corresponde a um
+    claim `claimed` real com integridade semântica, Intent correlacionada e
+    marcadores de tentativa/evidência do ND-Settle — contexto fabricado
+    (32-hex sem recibo) é recusado como `SETTLEMENT_CONTEXT_UNVERIFIED`
+    (prova indisponível: `SETTLEMENT_PROOF_UNAVAILABLE`); contexto do ND-Settle
+    ancora `receipt_dir`/`receipt_ident` contidos em `receipt_root` e resolve
+    `goal_store_dir` via default quando omitido. Projeção `advanced`
+    interpretada (present|pending|blocked|failed|unknown|absent, com correlação
+    goal_id/settled_key) em vez de `present` para qualquer registro; comentário
+    do lock do goal corrigido para leitura lock-free honesta. A prova é de
+    consistência/estado durável sob o contrato SEC7 do ND (`ReceiptDir`
+    confiável por escolha do chamador, produtor exclusivo): não autentica o
+    processo escritor nem protege contra produtor comprometido; as janelas
+    residuais entre revalidação e persistência permanecem documentadas.
+
 - **F1 S1 — bridge de claim nativo + hook deny-only (fixture-only)** (PR #131,
   `744926f`): `scripts/v3/native-dispatch-claim.ps1` (ação única `claim`;
   schema estrito; contexto só de arquivo com teto de 64 KiB em bytes e UTF-8
@@ -17,6 +329,38 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   com subprocesso real); regressão `objective-step` 130/130. Verificação:
   tester PASS; reviewer APPROVED (4 rodadas); security-reviewer APPROVED
   (fixture-only, limitações declaradas no código).
+
+- **F7 — lanes 20/10 (sem claim novo, sem commit)**: MCP
+  (`evidence/agent-mcp-integration/lane-summary.json`, pin 2.0.23, sem
+  drift): S1–S4 `pass-real`, S5–S7 `blocked`
+  (`OPERATOR_ACTION_REQUIRED` — `ModelKeyEnvName` ausente/vazio, quota
+  preservada), S8 `pass-real`, 0 fail. RR-E2E-21
+  (`evidence/v3.1/runtime-reliability/session-lane-2026-10-20/lane-summary.json`,
+  pin 2.0.23): `blocked` parcial — detach+rebind real + estado/histórico
+  kernel-side provados; turno do substituto exige provider de modelo,
+  `required_activation` não exercitado; probes 7 `ambiguous` + 1
+  `unsupported` (`session-permission-narrowing`), sem promoção.
+  `package-consistency` 15/16 (check 16 FAIL ambiental — `Get-FileHash`
+  ausente no runspace, pré-existente, sem relação com as mudanças);
+  enforcement watchdog 460/0 PASS (mantido). Flags OFF; sem claim de
+  enforcement runtime-real/DONE/G3; issues #51 #86 #116 #69 #70 OPEN.
+
+- **F7 — suíte V3 integral 20/10 (2 runs, sem claim de CI verde)**:
+  run 1 PASS 105 / FAIL 8 / SKIP 5 / TOTAL 118 (log truncado, 8 sem
+  atribuição); run 2 (log completo
+  `C:/Users/walis/AppData/Local/Temp/opencode/v3-full-20261020.log`) 4
+  FAILs nomeados, todos alheios ao diff — (1) `session-bootstrap-context`
+  w14 paridade PS7 (runtime generation unknown/not-probed neste env) +
+  (2) `CapabilityObservability` + (3) `CapabilitySkillUtility` + (4)
+  `shadow-route` pelo assert "opencode.json vivo inalterado (prefixo
+  DE22307F)", divergência user-owned pré-existente/não-bloqueante; nenhum
+  toca ProductiveActivation/GitHubResume/WatchdogEnforcement. Suítes da
+  rodada todas PASS no runner integral: `github-resume-reconcile`,
+  `interop-pinned-gate-link`, `WatchdogEnforcement` (178s),
+  `productive-settle-continuation` (34s),
+  `productive-three-phase-harness`. Variância 8→4 = flake não atribuído,
+  sem claim; nenhum FAIL atribuível às mudanças. Detalhe em
+  `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` §9.1.
 
 ## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
 

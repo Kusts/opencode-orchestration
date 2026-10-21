@@ -84,10 +84,10 @@ Liquidação de watchdog via `watchdog-settle -WatchdogDisposition
 RETRY|CLOSE` (`RETRY` = repetível via `ATTEMPT_GATE`; `CLOSE` =
 terminal-sem-retry, `WATCHDOG_CLOSED_NO_RETRY`). O contrato completo vive
 em `docs/ARCHITECTURE.md` (caller de resume P0-05 e S5 STEER/CLOSE) — sem
-duplicação aqui. Aviso: **S5 fora do `master` até merge — ver
-ARCHITECTURE.md**.
+duplicação aqui. Nota factual: **S5 mergeado via PR #118** (`c9e12d8`,
+verificado em git); contrato vigente.
 
-## Programa Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; flags de rollout ativas desde 2026-10-04; release gate pendente do operador)
+## Programa Phases 21-42 (revisão 2026-10-01, reconciliada em 2026-10-05; nota 2026-10-19: release gate V3.1 = PASS (2026-10-06); rodada 0.2.0 PARTIAL, tag `v0.2.0` publicada 2026-10-19; pendências vivas em `evidence/v3.1/runtime-reliability/program-status.json` e `CHANGELOG.md`) (runtime reliability - P21-P25 consolidadas, P26-P42 code-complete kernel-side/plugin; flags de rollout ativas desde 2026-10-04)
 
 Estado vivo em
 `evidence/v3.1/runtime-reliability/program-status.json`; flags em

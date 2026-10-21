@@ -3103,7 +3103,8 @@ public class NDCountEnum : IEnumerable<string> {
             [string]$TasksDir = '',
             [string]$FlagsPath = '',
             [string]$RepoRoot = '',
-            [string]$TelemetryRoot = ''
+            [string]$TelemetryRoot = '',
+            $SettlementContext = $null
         )
         try {
             if ($script:hfKernelReject) { return [pscustomobject]@{ ok = $false; error = 'KERNEL_REFUSED_AFTER_EFFECT' } }
@@ -4927,10 +4928,24 @@ public class NDCountEnum : IEnumerable<string> {
     Assert-HF ([string]$goalD5['state'] -ceq 'ACTIVE') '[D5] without the explicit finalize switch the goal state is untouched' ('state=' + [string]$goalD5['state'])
     $fxD5b = New-G1SettledAdvanceFixture -Suffix 'g1d5b'
     $revD5b = [long]((Get-OrchestrationGoal -GoalId $fxD5b.fx.goal -StoreDir $goalDir).goal['revision'])
+    # S3a-FIX (finalize gated): o caminho legitimo exige criterios
+    # verificados no goal vivo; o fixture marca progress 1/1 antes.
+    $liveD5b = (Get-OrchestrationGoal -GoalId $fxD5b.fx.goal -StoreDir $goalDir).goal
+    $upD5b = Update-OrchestrationGoal -GoalId $fxD5b.fx.goal -ExpectedRevision ([long]$liveD5b['revision']) -Fields @{ progress = @{ satisfied = 1; total = 1 } } -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $fxD5b.fx.gen
+    Assert-HF ([bool]$upD5b.ok) '[D5b] the fixture goal carries verified criteria' ([string]$upD5b.reason)
     $aD5b = Invoke-G1Advance -Fx $fxD5b -Status (New-G1Status -Completed $true -Progress $false) -NextIntent $fxD5b.nextIntent -SettledKey $fxD5b.settledKey -Finalize
     Assert-HF (([bool]$aD5b.ok) -and (-not [bool]$aD5b.prepared) -and ([string]$aD5b.move -ceq 'COMPLETE')) '[D5b] COMPLETE with the finalize switch still does not prepare' ([string]$aD5b.reason)
     $goalD5b = (Get-OrchestrationGoal -GoalId $fxD5b.fx.goal -StoreDir $goalDir).goal
     Assert-HF ([string]$goalD5b['state'] -ceq 'COMPLETED') '[D5b] the goal was finalized through the CAS path' ('state=' + [string]$goalD5b['state'])
+    # S3a-FIX (D5d): stop de politica com -Finalize NAO finaliza.
+    $fxD5d = New-G1SettledAdvanceFixture -Suffix 'g1d5d'
+    $stD5d = @{ objective_completed = $false; remaining_work = @(); authorized = $false; blocker_kind = 'policy'; progress_possible = $false; strategy_change = $false; context_degraded = $false; last_failure = $null; terminal_blocker = $null; consecutive_no_progress = [long]0 }
+    $aD5d = Invoke-G1Advance -Fx $fxD5d -Status $stD5d -NextIntent $fxD5d.nextIntent -SettledKey $fxD5d.settledKey -Finalize
+    Assert-HF (([bool]$aD5d.ok) -and (-not [bool]$aD5d.prepared) -and ([string]$aD5d.move -ceq 'COMPLETE')) '[D5d] a policy stop records COMPLETE without preparing' ([string]$aD5d.reason)
+    $goalD5d = (Get-OrchestrationGoal -GoalId $fxD5d.fx.goal -StoreDir $goalDir).goal
+    Assert-HF ([string]$goalD5d['state'] -ceq 'ACTIVE') '[D5d] a policy stop never finalizes the goal' ('state=' + [string]$goalD5d['state'])
+    $recD5d = Get-G1AdvanceRecord -GoalId $fxD5d.fx.goal -SettledKey $fxD5d.settledKey
+    Assert-HF (([string]$recD5d.finalize_reason -ceq 'goal-finalize-refused:policy-stop')) '[D5d] the finalize refusal is recorded' ([string]$recD5d.finalize_reason)
     $aD5c = Invoke-G1Advance -Fx $fxD5b -Status (New-G1Status -Completed $true -Progress $false) -NextIntent $fxD5b.nextIntent -SettledKey (Get-NativeDispatchHash32 'g1-settled-d5b2') -Finalize
     Assert-HF ((-not [bool]$aD5c.ok) -and ([string]$aD5c.reason -ceq 'advance-stale-goal')) '[D5c] a terminal goal refuses the next advance (stale)' ([string]$aD5c.reason)
 
