@@ -742,6 +742,109 @@ function Test-PANativeSettlementContext {
     catch { return [pscustomobject]@{ ok = $false } }
 }
 
+function Test-PASettleProvenanceRequirement {
+    # S6 Etapa C: provenance gate for the productive settle port.
+    # Strict mode REQUIRES a transported provenance proof: absent =>
+    # HOLD (manual), never auto-advance. Non-strict legacy mode keeps
+    # the previous contract (proof optional, ND-Settle decides alone),
+    # so pre-S6 fixtures without provenance keep passing. The binding
+    # itself is validated by the ND-Settle provenance gate; here only
+    # presence under strictness is enforced. Never throws.
+    [CmdletBinding()]
+    param($NativeProof = $null, [bool]$Strict = $false)
+    try {
+        if ([bool]$Strict -and ($null -eq $NativeProof)) {
+            return [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:settle-provenance-required'; proof = $null; strict = $true }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; proof = $NativeProof; strict = [bool]$Strict }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:settle-provenance-required'; proof = $null; strict = [bool]$Strict }
+    }
+}
+
+function Get-PAEffectiveProvenance {
+    # Resolves the effective provenance proof + strict flag from the
+    # explicit constructor args or the native settlement context keys
+    # ('provenance_proof' / 'strict_provenance'). Explicit args win;
+    # context keys are only compared, never fabricated. Never throws.
+    [CmdletBinding()]
+    param($ExplicitProof = $null, [bool]$ExplicitStrict = $false, $Native = $null)
+    try {
+        $proof = $ExplicitProof
+        try {
+            if (($null -eq $proof) -and ($null -ne $Native)) {
+                $proof = Get-PAFieldValue $Native 'provenance_proof' $null
+            }
+        }
+        catch { }
+        $strict = [bool]$ExplicitStrict
+        try {
+            if ($null -ne $Native) {
+                if ([bool](Get-PAFieldValue $Native 'strict_provenance' $false)) { $strict = $true }
+            }
+        }
+        catch { }
+        return [pscustomobject]@{ proof = $proof; strict = [bool]$strict }
+    }
+    catch {
+        return [pscustomobject]@{ proof = $null; strict = [bool]$ExplicitStrict }
+    }
+}
+
+function Test-PAContinuationAuthorization {
+    # S6 Etapa C hardening (review HIGH-1): explicit continuation
+    # authorization for the settle-then-continue port. Never synthesizes
+    # approval: $null or a mismatched shape is HOLD, never allow.
+    # Requires a boolean explicit_allow, a non-test-callback source, a
+    # goal/owner/generation fencing identical to the settle fencing, and
+    # a live admission (goal non-terminal + ownership held) re-read from
+    # the store. An optional 'operation' declaration, when present, must
+    # name the continuation effect (advance or terminalize; terminalize
+    # also covers COMPLETE finalization through the same envelope). The
+    # downstream ADVANCE/COMPLETE gates own operation enforcement; this
+    # gate only binds the authorization to this goal and fencing.
+    # Side-effect free (no activation log writes): read-only. Never
+    # throws. SOFT_ADVISORY note: the host attestation itself travels on
+    # the caller channel; this gate validates binding + liveness, it does
+    # not attest the channel.
+    [CmdletBinding()]
+    param($Authorization = $null, [string]$GoalId = '', [string]$OwnerId = '', [long]$Generation = 0, [string]$GoalStoreDir = '')
+    try {
+        if ($null -eq $Authorization) { return @{ ok = $false; reason = 'continuation-authorization-required' } }
+        if ((($Authorization -isnot [System.Collections.IDictionary]) -and ($Authorization -isnot [pscustomobject]))) { return @{ ok = $false; reason = 'continuation-authorization-required' } }
+        $allow = Get-PAFieldValue $Authorization 'explicit_allow' $false
+        if (($allow -isnot [bool]) -or (-not $allow)) { return @{ ok = $false; reason = 'continuation-authorization-denied:explicit-allow-required' } }
+        $src = ([string](Get-PAFieldValue $Authorization 'source' '')).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($src) -or ($src -ceq 'test-callback')) { return @{ ok = $false; reason = 'continuation-authorization-denied:invalid-source' } }
+        $agid = ([string](Get-PAFieldValue $Authorization 'goal_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($agid) -or ($agid -cne ([string]$GoalId).Trim())) { return @{ ok = $false; reason = 'continuation-authorization-denied:auth-goal-mismatch' } }
+        $aown = ([string](Get-PAFieldValue $Authorization 'owner' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($aown) -or ($aown -cne ([string]$OwnerId).Trim())) { return @{ ok = $false; reason = 'continuation-authorization-denied:auth-fencing-mismatch' } }
+        $agen = Get-PALongValue (Get-PAFieldValue $Authorization 'generation' $null) -1
+        if ($agen -ne [long]$Generation) { return @{ ok = $false; reason = 'continuation-authorization-denied:auth-fencing-mismatch' } }
+        $aop = ([string](Get-PAFieldValue $Authorization 'operation' '')).Trim().ToLowerInvariant()
+        if ((-not [string]::IsNullOrWhiteSpace($aop)) -and ((@('advance', 'terminalize') -cnotcontains $aop))) { return @{ ok = $false; reason = 'continuation-authorization-denied:auth-operation-mismatch' } }
+        if ([string]::IsNullOrWhiteSpace([string]$GoalStoreDir)) { return @{ ok = $false; reason = 'continuation-authorization-denied:goal-store-required' } }
+        $live = $null
+        try {
+            $slot = Get-OrchestrationGoal -GoalId ([string]$GoalId).Trim() -StoreDir $GoalStoreDir
+            if (($null -ne $slot) -and ([bool](Get-PAFieldValue $slot 'ok' $false))) { $live = Get-PAFieldValue $slot 'goal' $null }
+        }
+        catch { $live = $null }
+        if ($null -eq $live) { return @{ ok = $false; reason = 'continuation-authorization-denied:goal-read-failed' } }
+        $stt = ''
+        try { $stt = (([string](Get-PAFieldValue $live 'state' '')).Trim().ToUpperInvariant()) } catch { $stt = '' }
+        if (@('COMPLETED', 'EXHAUSTED', 'CANCELLED') -ccontains $stt) { return @{ ok = $false; reason = 'continuation-authorization-denied:goal-terminal' } }
+        $own = $null
+        try { $own = Test-OrchestrationGoalOwnership -Goal $live -OwnerId ([string]$OwnerId).Trim() -Generation ([long]$Generation) }
+        catch { $own = $null }
+        if (($null -eq $own) -or (-not [bool](Get-PAFieldValue $own 'held' $false))) { return @{ ok = $false; reason = 'continuation-authorization-denied:ownership-not-held' } }
+        return @{ ok = $true; reason = '' }
+    }
+    catch { return @{ ok = $false; reason = 'continuation-authorization-denied:internal-error' } }
+}
+
 function New-ProductiveSettleImpl {
     # F1-S2: settle delegating to the canonical owner. Settles ONLY from a
     # REAL worker result (status + producer + evidence, producer must equal
@@ -782,6 +885,8 @@ function New-ProductiveSettleImpl {
         [string[]]$WorkerEvidence = @(),
         $Tracker = $null,
         $NativeSettlement = $null,
+        $ProvenanceProof = $null,
+        [switch]$StrictProvenance,
         [switch]$Productive
     )
     try {
@@ -811,7 +916,7 @@ function New-ProductiveSettleImpl {
         if ([string]::IsNullOrWhiteSpace($srole)) { $srole = 'coder' }
         $wev = @($WorkerEvidence)
         $trk = New-PATracker $Tracker
-        $st = @{ task_id = $tid; role = $srole; session = $sid; tasks_dir = [string]$TasksDir; flags = [string]$FlagsPath; telemetry = [string]$TelemetryRoot; owner = $oid; generation = [long]$gen; dst = [string]$Destination; act = [string]$Action; goaldir = [string]$GoalStoreDir; binddir = [string]$DispatchStoreDir; worker = @{ status = ([string]$WorkerStatus); produced_by = ([string]$WorkerProducedBy); evidence = $wev }; tracker = $trk; armed = $true; native = $NativeSettlement }
+        $st = @{ task_id = $tid; role = $srole; session = $sid; tasks_dir = [string]$TasksDir; flags = [string]$FlagsPath; telemetry = [string]$TelemetryRoot; owner = $oid; generation = [long]$gen; dst = [string]$Destination; act = [string]$Action; goaldir = [string]$GoalStoreDir; binddir = [string]$DispatchStoreDir; worker = @{ status = ([string]$WorkerStatus); produced_by = ([string]$WorkerProducedBy); evidence = $wev }; tracker = $trk; armed = $true; native = $NativeSettlement; proof = $ProvenanceProof; strict = [bool]$StrictProvenance }
         $impl = {
             param($snap, $dispatch, $goal, $auth)
             try {
@@ -904,12 +1009,46 @@ function New-ProductiveSettleImpl {
                 # ambiguo permanece fail-closed/manual.
                 $nctx = Test-PANativeSettlementContext -Native $st.native -Binding $sbind -Snap $snap -WorkerStatus $wStatus -WorkerProducedBy $wProd -TaskId ([string]$st.task_id) -RunId ([string]$st.session) -Role ([string]$st.role) -Owner ([string]$st.owner) -Generation ([long]$st.generation)
                 if (($null -eq $nctx) -or (-not [bool](Get-PAFieldValue $nctx 'ok' $false))) { return $null }
+                # S6 Etapa C: resolve + enforce the provenance gate BEFORE
+                # any ND-Settle call. Strict without proof => HOLD, zero
+                # writes. Legacy (non-strict, no proof) keeps the previous
+                # contract: ND-Settle runs exactly as before.
+                $effProv = $null
+                try { $effProv = Get-PAEffectiveProvenance -ExplicitProof $st.proof -ExplicitStrict ([bool]$st.strict) -Native $st.native }
+                catch { $effProv = $null }
+                if ($null -eq $effProv) { return $null }
+                $provReq = $null
+                try { $provReq = Test-PASettleProvenanceRequirement -NativeProof (Get-PAFieldValue $effProv 'proof' $null) -Strict ([bool](Get-PAFieldValue $effProv 'strict' $false)) }
+                catch { $provReq = $null }
+                if (($null -eq $provReq) -or (-not [bool](Get-PAFieldValue $provReq 'ok' $false))) { return $null }
                 $settleCmd = Get-Command Invoke-OrchestrationNativeDispatchSettle -ErrorAction SilentlyContinue
                 if ($null -eq $settleCmd) { return $null }
                 $ndResult = @{ status = $wStatus; claimed_evidence = [string[]]@($wEv) }
                 $nd = $null
                 try {
-                    $nd = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey ([string](Get-PAFieldValue $nctx 'idempotency_key' '')) -Authorization (Get-PAFieldValue $nctx 'authorization' $null) -ChildSessionId ([string](Get-PAFieldValue $nctx 'child_session_id' '')) -SessionId ([string](Get-PAFieldValue $nctx 'parent_session_id' '')) -MessageId ([string](Get-PAFieldValue $nctx 'message_id' '')) -CallId ([string](Get-PAFieldValue $nctx 'call_id' '')) -CallerAgent ([string](Get-PAFieldValue $nctx 'caller_agent' '')) -TargetAgent ([string](Get-PAFieldValue $nctx 'target_agent' '')) -PreparedFingerprint ([string](Get-PAFieldValue $nctx 'prepared_fingerprint' '')) -Reference ([string](Get-PAFieldValue $nctx 'reference' '')) -TaskId ([string]$st.task_id) -Result $ndResult -ReceiptDir ([string](Get-PAFieldValue $nctx 'receipt_root' '')) -GoalStoreDir ([string](Get-PAFieldValue $nctx 'goal_store_dir' '')) -EvidenceStoreDir ([string](Get-PAFieldValue $nctx 'evidence_store_dir' '')) -TasksDir ([string]$st.tasks_dir) -FlagsPath ([string]$st.flags)
+                    $ndArgs = @{
+                        IdempotencyKey = ([string](Get-PAFieldValue $nctx 'idempotency_key' ''))
+                        Authorization = (Get-PAFieldValue $nctx 'authorization' $null)
+                        ChildSessionId = ([string](Get-PAFieldValue $nctx 'child_session_id' ''))
+                        SessionId = ([string](Get-PAFieldValue $nctx 'parent_session_id' ''))
+                        MessageId = ([string](Get-PAFieldValue $nctx 'message_id' ''))
+                        CallId = ([string](Get-PAFieldValue $nctx 'call_id' ''))
+                        CallerAgent = ([string](Get-PAFieldValue $nctx 'caller_agent' ''))
+                        TargetAgent = ([string](Get-PAFieldValue $nctx 'target_agent' ''))
+                        PreparedFingerprint = ([string](Get-PAFieldValue $nctx 'prepared_fingerprint' ''))
+                        Reference = ([string](Get-PAFieldValue $nctx 'reference' ''))
+                        TaskId = ([string]$st.task_id)
+                        Result = $ndResult
+                        ReceiptDir = ([string](Get-PAFieldValue $nctx 'receipt_root' ''))
+                        GoalStoreDir = ([string](Get-PAFieldValue $nctx 'goal_store_dir' ''))
+                        EvidenceStoreDir = ([string](Get-PAFieldValue $nctx 'evidence_store_dir' ''))
+                        TasksDir = ([string]$st.tasks_dir)
+                        FlagsPath = ([string]$st.flags)
+                    }
+                    $effProof = Get-PAFieldValue $provReq 'proof' $null
+                    if ($null -ne $effProof) { $ndArgs['ProvenanceProof'] = $effProof }
+                    if ([bool](Get-PAFieldValue $provReq 'strict' $false)) { $ndArgs['StrictProvenance'] = $true }
+                    $nd = Invoke-OrchestrationNativeDispatchSettle @ndArgs
                 }
                 catch { $nd = $null }
                 if (($null -eq $nd) -or (-not [bool](Get-PAFieldValue $nd 'ok' $false)) -or (-not [bool](Get-PAFieldValue $nd 'settled' $false))) { return $null }
@@ -1363,6 +1502,8 @@ function Invoke-ProductiveObjectiveEvent {
         [string[]]$WorkerEvidence = @(),
         $Tracker = $null,
         $NativeSettlementContext = $null,
+        $ProvenanceProof = $null,
+        [switch]$StrictProvenance,
         [switch]$Productive
     )
     try {
@@ -1412,7 +1553,7 @@ function Invoke-ProductiveObjectiveEvent {
             }
         }
         $d = New-ProductiveDispatchImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'start-attempt' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -Tracker $trk -Productive:$Productive
-        $s = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $effWStatus -WorkerProducedBy $effWProd -WorkerEvidence $effWEv -Tracker $trk -NativeSettlement $NativeSettlementContext -Productive:$Productive
+        $s = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $effWStatus -WorkerProducedBy $effWProd -WorkerEvidence $effWEv -Tracker $trk -NativeSettlement $NativeSettlementContext -ProvenanceProof $ProvenanceProof -StrictProvenance:$StrictProvenance -Productive:$Productive
         $c = New-ProductiveCheckpointImpl -CheckpointStoreDir $CheckpointStoreDir -GoalStoreDir $GoalStoreDir -OwnerId $OwnerId -Generation $Generation -Tracker $trk -Productive:$Productive
         if (($null -eq $d) -or (-not [bool](Get-PAFieldValue $d 'ok' $false)) -or ($null -eq $s) -or (-not [bool](Get-PAFieldValue $s 'ok' $false)) -or ($null -eq $c) -or (-not [bool](Get-PAFieldValue $c 'ok' $false))) {
             $h = [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:impl-unavailable'; dispatched = $false; duplicate = $false; decision = 'blocked'; grants_authority = $false; done_approved = $false; verified_pass = $false }
@@ -1462,6 +1603,8 @@ function Invoke-ProductiveObjectiveReconcile {
         $Tracker = $null,
         $SettleProof = $null,
         $NativeSettlementContext = $null,
+        $ProvenanceProof = $null,
+        [switch]$StrictProvenance,
         [switch]$Productive
     )
     try {
@@ -1485,7 +1628,7 @@ function Invoke-ProductiveObjectiveReconcile {
             return (Add-PAProductiveNote $h $why $trk)
         }
         $rc = New-ProductiveReconcileImpl -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -TasksDir $TasksDir -OwnerId $OwnerId -Generation $Generation -Tracker $trk -Productive:$Productive
-        $st = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $WorkerStatus -WorkerProducedBy $WorkerProducedBy -WorkerEvidence $WorkerEvidence -Tracker $trk -NativeSettlement $NativeSettlementContext -Productive:$Productive
+        $st = New-ProductiveSettleImpl -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -OwnerId $OwnerId -Generation $Generation -Destination 'task-kernel' -Action 'worker-result' -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -WorkerStatus $WorkerStatus -WorkerProducedBy $WorkerProducedBy -WorkerEvidence $WorkerEvidence -Tracker $trk -NativeSettlement $NativeSettlementContext -ProvenanceProof $ProvenanceProof -StrictProvenance:$StrictProvenance -Productive:$Productive
         if (($null -eq $rc) -or (-not [bool](Get-PAFieldValue $rc 'ok' $false)) -or ($null -eq $st) -or (-not [bool](Get-PAFieldValue $st 'ok' $false))) {
             $h = [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:impl-unavailable'; reconciled = 0; settled = 0; redispatched = 0; holds = 0; grants_authority = $false; done_approved = $false; verified_pass = $false }
             return (Add-PAProductiveNote $h 'hold-productive-disabled:impl-unavailable' $trk)
@@ -1502,6 +1645,410 @@ function Invoke-ProductiveObjectiveReconcile {
     }
     catch {
         $h = [pscustomobject]@{ ok = $false; reason = 'hold-productive-disabled:internal-error'; reconciled = 0; settled = 0; redispatched = 0; holds = 0; grants_authority = $false; done_approved = $false; verified_pass = $false }
+        try { return (Add-PAProductiveNote $h 'hold-productive-disabled:internal-error' $Tracker) } catch { return $h }
+    }
+}
+
+function Invoke-ProductiveSettleAndContinue {
+    # S6 Etapa C: settle-then-continue wiring on the productive port.
+    # Settles ONCE via the canonical owner (reconcile entry point, which
+    # threads provenance + strictness to ND-Settle), then - ONLY when the
+    # settlement is proven (settled >= 1, or a hardened replay proof:
+    # exact-revision diary + correlated native receipt + persisted
+    # provenance tier + proof binding under strictness) - calls
+    # Invoke-OrchestrationObjectiveStep -SettledKey for the SAME native key.
+    # A reconcile refusal (authorization/fencing/CAS) is preserved and
+    # never routed around: no diary consult, no continuation. Continuation
+    # requires an explicit -ContinuationAuthorization bound to this goal
+    # and fencing (never synthesized); absent/mismatched authorization
+    # HOLDS with the settlement proven. The continuation runs OUTSIDE any
+    # The continuation runs OUTSIDE any store lock (the reconcile call
+    # already returned), re-reads the settled proof + live gates
+    # (validation/review/conclusion) WITHOUT re-settling, and NEVER
+    # executes the successor: CONTINUE prepares a successor ref for the
+    # Planner via the real ND-ADVANCE CLAIM path only. Settlement and
+    # continuation results stay separate fields. Without provenance under
+    # strictness => HOLD/manual, never auto-advance. Never throws.
+    [CmdletBinding()]
+    param(
+        [string]$GoalId = '',
+        [string]$GoalStoreDir = '',
+        [string]$DispatchStoreDir = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$TelemetryRoot = '',
+        [string]$ReceiptDir = '',
+        [string]$EvidenceStoreDir = '',
+        [string]$RepoRoot = '',
+        [string]$CheckpointDir = '',
+        [string]$ControllerPath = '',
+        [string]$TaskId = '',
+        [string]$AttemptRole = 'coder',
+        [string]$SessionId = 'productive-session',
+        [string]$OwnerId = '',
+        [long]$Generation = 0,
+        [long]$ExpectedRevision = 0,
+        [string]$User = '',
+        [string]$Project = '',
+        [string]$Runtime = '',
+        [string]$Grants = '',
+        $WorkerStatus = '',
+        [string]$WorkerProducedBy = '',
+        [string[]]$WorkerEvidence = @(),
+        [string]$WorkItemId = '',
+        [long]$ActionRevision = 1,
+        $NativeSettlementContext = $null,
+        $ProvenanceProof = $null,
+        [bool]$StrictProvenance = $true,
+        $NextIntent = $null,
+        $ContinuationAuthorization = $null,
+        $Tracker = $null,
+        [switch]$Productive
+    )
+    try {
+        $trk = New-PATracker $Tracker
+        $holdBase = [pscustomobject][ordered]@{
+            ok = $false; reason = ''; settled = $false; duplicate = $false
+            settled_key = ''; goal_id = ([string]$GoalId).Trim()
+            settlement = $null; continuation = $null; continuation_attempted = $false
+            grants_authority = $false; done_approved = $false; verified_pass = $false
+            executor_calls = 0
+        }
+        if (-not [bool]$Productive) {
+            $holdBase.reason = 'hold-productive-disabled:productive-absent'
+            return (Add-PAProductiveNote $holdBase 'hold-productive-disabled:productive-absent' $trk)
+        }
+        $strictEff = [bool]$StrictProvenance
+        try {
+            if (($null -ne $NativeSettlementContext) -and [bool](Get-PAFieldValue $NativeSettlementContext 'strict_provenance' $false)) { $strictEff = $true }
+        }
+        catch { }
+        $effProof = $ProvenanceProof
+        try {
+            if (($null -eq $effProof) -and ($null -ne $NativeSettlementContext)) {
+                $effProof = Get-PAFieldValue $NativeSettlementContext 'provenance_proof' $null
+            }
+        }
+        catch { }
+        if ($strictEff -and ($null -eq $effProof)) {
+            $holdBase.reason = 'hold-productive-disabled:settle-provenance-required'
+            return (Add-PAProductiveNote $holdBase 'hold-productive-disabled:settle-provenance-required' $trk)
+        }
+        $ndk = ''
+        try {
+            if ($null -ne $NativeSettlementContext) {
+                $ndk = ([string](Get-PAFieldValue $NativeSettlementContext 'idempotency_key' '')).Trim().ToLowerInvariant()
+            }
+        }
+        catch { $ndk = '' }
+        if ($ndk -cnotmatch '^[a-f0-9]{32}$') {
+            $holdBase.reason = 'hold-productive-disabled:settle-provenance-required'
+            return (Add-PAProductiveNote $holdBase 'hold-productive-disabled:settle-provenance-required' $trk)
+        }
+        $holdBase.settled_key = $ndk
+        # (1) settle via the canonical owner (locks are held + released
+        # inside this call; nothing after this line runs under a lock).
+        # The diary settle proof is MANDATORY for the executor to run the
+        # settle impl: it binds destination/action/fencing to the PA diary
+        # key (goal/work-item/revision), never to native ids.
+        $paKey = ''
+        try { $paKey = Get-OrchestrationObjectiveIdempotencyKey -GoalId ([string]$GoalId).Trim() -WorkItemId ([string]$WorkItemId).Trim() -ActionRevision ([long]$ActionRevision) }
+        catch { $paKey = '' }
+        if ([string]::IsNullOrWhiteSpace($paKey)) {
+            $holdBase.reason = 'hold-productive-disabled:invalid-event'
+            return (Add-PAProductiveNote $holdBase 'hold-productive-disabled:invalid-event' $trk)
+        }
+        $diaryProof = @{ destination = 'task-kernel'; action = 'worker-result'; fencing_owner = ([string]$OwnerId).Trim(); fencing_generation = [long]$Generation; idempotency_key = $paKey }
+        $rec = $null
+        try {
+            $useStrict = $false
+            if ($strictEff) { $useStrict = $true }
+            if ($useStrict) {
+                $rec = Invoke-ProductiveObjectiveReconcile -GoalId $GoalId -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -OwnerId $OwnerId -Generation $Generation -ExpectedRevision $ExpectedRevision -User $User -Project $Project -Runtime $Runtime -Grants $Grants -WorkerStatus $WorkerStatus -WorkerProducedBy $WorkerProducedBy -WorkerEvidence $WorkerEvidence -Tracker $trk -SettleProof $diaryProof -NativeSettlementContext $NativeSettlementContext -ProvenanceProof $effProof -StrictProvenance -Productive:$Productive
+            }
+            else {
+                $rec = Invoke-ProductiveObjectiveReconcile -GoalId $GoalId -GoalStoreDir $GoalStoreDir -DispatchStoreDir $DispatchStoreDir -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot -TaskId $TaskId -AttemptRole $AttemptRole -SessionId $SessionId -OwnerId $OwnerId -Generation $Generation -ExpectedRevision $ExpectedRevision -User $User -Project $Project -Runtime $Runtime -Grants $Grants -WorkerStatus $WorkerStatus -WorkerProducedBy $WorkerProducedBy -WorkerEvidence $WorkerEvidence -Tracker $trk -SettleProof $diaryProof -NativeSettlementContext $NativeSettlementContext -ProvenanceProof $effProof -Productive:$Productive
+            }
+        }
+        catch { $rec = $null }
+        if ($null -eq $rec) {
+            $holdBase.reason = 'internal-error'
+            $holdBase.settlement = $null
+            return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+        }
+        $holdBase.settlement = $rec
+        $settledNow = ([long](Get-PAFieldValue $rec 'settled' 0) -ge 1)
+        if (-not $settledNow) {
+            # S6 hardening (review HIGH-1): a reconcile refusal is
+            # preserved, never routed around. ok=false for
+            # authorization/fencing/CAS reasons (POLICY-BLOCKED,
+            # owner-rejected, revision-conflict, goal failures) HOLDS
+            # with the denial reason: no diary consult, no
+            # continuation. Only the benign no-op
+            # ('reconcile-no-admitted-intent' with no embedded denial:
+            # every intent already settled) may enter the replay-proof
+            # path below, where the settlement is re-proven from the
+            # correlated NATIVE receipt (never from the diary alone).
+            $recOk = $false
+            $recReason = ''
+            try { $recOk = [bool](Get-PAFieldValue $rec 'ok' $false) } catch { $recOk = $false }
+            try { $recReason = ([string](Get-PAFieldValue $rec 'reason' '')).Trim() } catch { $recReason = '' }
+            if (-not $recOk) {
+                if ($recReason -cne 'reconcile-no-admitted-intent') {
+                    if ([string]::IsNullOrWhiteSpace($recReason)) { $recReason = 'settlement-denied' }
+                    $holdBase.reason = ('productive-settle-denied:' + $recReason)
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+            }
+            # Replay-proof path. MEDIUM: the diary is consulted at the
+            # RECEIVED revision with an exact-key match; revision 1 is
+            # never a fallback (a settled revision 1 never authorizes a
+            # revision 2 request, and a revision 2 replay never reads a
+            # revision 1 record).
+            $diarySettled = $false
+            $diaryWhy = 'settlement-pending'
+            try {
+                if (-not [string]::IsNullOrWhiteSpace([string]$WorkItemId)) {
+                    $diary = Get-OrchestrationDispatchIntent -GoalId ([string]$GoalId).Trim() -WorkItemId ([string]$WorkItemId).Trim() -ActionRevision ([long]$ActionRevision) -StoreDir $DispatchStoreDir
+                    if (($null -ne $diary) -and [bool](Get-PAFieldValue $diary 'ok' $false)) {
+                        $diaryIntent = Get-PAFieldValue $diary 'intent' $null
+                        if ($null -ne $diaryIntent) {
+                            $dState = ([string](Get-PAFieldValue $diaryIntent 'state' '')).Trim()
+                            $dRev = Get-PALongValue (Get-PAFieldValue $diaryIntent 'action_revision' $null) -1
+                            $dKey = ([string](Get-PAFieldValue $diaryIntent 'key' '')).Trim()
+                            if (($dState -ceq 'settled') -and ($dRev -eq [long]$ActionRevision) -and ($dKey -ceq $paKey)) {
+                                $diarySettled = $true
+                            }
+                            elseif ($dState -cne 'settled') { $diaryWhy = 'settlement-pending' }
+                            else { $diaryWhy = 'settlement-key-mismatch' }
+                        }
+                    }
+                }
+            }
+            catch { $diarySettled = $false; $diaryWhy = 'continuation-settlement-uncertain' }
+            if (-not $diarySettled) {
+                $holdBase.reason = $diaryWhy
+                return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+            }
+            # S6 CORR (review HIGH): the replay correlates the diary
+            # record with the requested PA binding BEFORE any native
+            # receipt consult. Two settlements of the same goal share
+            # the goal id but never the diary key/binding: diary of A
+            # + context/proof of B must HOLD here. The persisted
+            # settlement receipt binds task/run/key; the durable PA
+            # binding binds goal/work-item/revision/task/run/owner/
+            # generation. Either side absent or divergent => HOLD,
+            # never a replay. Never throws; never synthesizes.
+            $diaryCorrOk = $false
+            try {
+                $srCorr = Get-PAFieldValue $diaryIntent 'settlement_receipt' $null
+                $srTask = ([string](Get-PAFieldValue $srCorr 'task_id' '')).Trim()
+                $srRun = ([string](Get-PAFieldValue $srCorr 'run_id' '')).Trim()
+                $srKey = ([string](Get-PAFieldValue $srCorr 'idempotency_key' '')).Trim().ToLowerInvariant()
+                if ($srTask -ceq ([string]$TaskId).Trim() -and $srRun -ceq ([string]$SessionId).Trim() -and $srKey -ceq $paKey) {
+                    $pbCorr = $null
+                    try { $pbCorr = Get-PABinding -Dir $DispatchStoreDir -Key $paKey } catch { $pbCorr = $null }
+                    if (((Test-PABindingComplete $pbCorr) -and ([string](Get-PAFieldValue $pbCorr 'task_id' '') -ceq ([string]$TaskId).Trim())) -and ([string](Get-PAFieldValue $pbCorr 'run_id' '') -ceq ([string]$SessionId).Trim())) {
+                        if ((([string](Get-PAFieldValue $pbCorr 'goal_id' '') -ceq ([string]$GoalId).Trim()) -and ([string](Get-PAFieldValue $pbCorr 'work_item_id' '') -ceq ([string]$WorkItemId).Trim())) -and ((Get-PALongValue (Get-PAFieldValue $pbCorr 'action_revision' $null) -1) -eq [long]$ActionRevision)) {
+                            if (([string](Get-PAFieldValue $pbCorr 'owner' '') -ceq ([string]$OwnerId).Trim()) -and ((Get-PALongValue (Get-PAFieldValue $pbCorr 'generation' $null) -1) -eq [long]$Generation)) {
+                                $diaryCorrOk = $true
+                            }
+                        }
+                    }
+                }
+            }
+            catch { $diaryCorrOk = $false }
+            if (-not $diaryCorrOk) {
+                $holdBase.reason = 'settlement-correlation-mismatch'
+                return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+            }
+            if ($strictEff) {
+                # S6 hardening (review HIGH-2): a strict replay is proven
+                # by the correlated NATIVE receipt, never by the diary
+                # alone (this closes the ND-Settle 6991-7000 bypass: a
+                # proven duplicate is only strict when the STORED record
+                # already carries an observed+ provenance tier, and the
+                # presented proof must bind to the persisted claim). The
+                # legacy non-strict contract is unchanged: without
+                # strictness the exact diary record suffices, as before.
+                # SOFT_ADVISORY note: the presented proof travels on the
+                # caller channel; enforcement here is binding of the
+                # presented proof against the persisted receipt + the
+                # persisted tier, never attestation of the channel.
+                $scProofCmd = Get-Command Get-SCSettlementProof -ErrorAction SilentlyContinue
+                if ($null -eq $scProofCmd) {
+                    $holdBase.reason = 'continuation-settlement-uncertain:proof-helper-unavailable'
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+                $scProof = $null
+                try { $scProof = Get-SCSettlementProof -GoalId ([string]$GoalId).Trim() -SettledKey $ndk -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -TasksDir $TasksDir }
+                catch { $scProof = $null }
+                if (($null -eq $scProof) -or (-not [bool](Get-PAFieldValue $scProof 'ok' $false))) {
+                    $scWhy = 'continuation-settlement-unproven'
+                    $scCause = ''
+                    try {
+                        if (($null -ne $scProof) -and (-not [string]::IsNullOrWhiteSpace([string](Get-PAFieldValue $scProof 'reason' '')))) { $scWhy = ([string](Get-PAFieldValue $scProof 'reason' '')) }
+                        if (($null -ne $scProof) -and (-not [string]::IsNullOrWhiteSpace([string](Get-PAFieldValue $scProof 'cause' '')))) { $scCause = (':' + [string](Get-PAFieldValue $scProof 'cause' '')) }
+                    }
+                    catch { }
+                    $holdBase.reason = ($scWhy + $scCause)
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+                $scReceipt = Get-PAFieldValue $scProof 'receipt' $null
+                $tier = ''
+                try { $tier = (([string](Get-PAFieldValue $scReceipt 'settle_provenance_tier' '')).Trim().ToLowerInvariant()) } catch { $tier = '' }
+                if ((($tier -cne 'observed') -and ($tier -cne 'corroborated'))) {
+                    $holdBase.reason = 'productive-settle-provenance-unproven:replay-without-persisted-tier'
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+                $bindCmd = Get-Command Test-NDProvenanceBinding -ErrorAction SilentlyContinue
+                if ($null -eq $bindCmd) {
+                    $holdBase.reason = 'continuation-settlement-uncertain:provenance-helper-unavailable'
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+                $bClaimSession = ''
+                $bClaimCall = ''
+                $bChild = ''
+                try {
+                    $bClaimSession = ([string](Get-PAFieldValue $scReceipt 'settle_session_id' '')).Trim()
+                    $bClaimCall = ([string](Get-PAFieldValue $scReceipt 'settle_call_id' '')).Trim()
+                    $bChild = ([string](Get-PAFieldValue $scReceipt 'settle_child_session_id' '')).Trim()
+                }
+                catch { }
+                $bRefs = @()
+                try { $bRefs = @((Get-PAFieldValue $scProof 'worker_refs' @())) } catch { $bRefs = @() }
+                $bind = $null
+                try { $bind = Test-NDProvenanceBinding -ProvenanceProof $effProof -ClaimSessionId $bClaimSession -ClaimCallId $bClaimCall -IdempotencyKey $ndk -ChildSessionId $bChild -ExpectedClaimedEvidence $bRefs -Strict }
+                catch { $bind = $null }
+                if (($null -eq $bind) -or (-not [bool](Get-PAFieldValue $bind 'ok' $false))) {
+                    $bWhy = 'provenance-binding-unproven'
+                    try { if (($null -ne $bind) -and (-not [string]::IsNullOrWhiteSpace([string](Get-PAFieldValue $bind 'reason' '')))) { $bWhy = ([string](Get-PAFieldValue $bind 'reason' '')) } } catch { }
+                    $holdBase.reason = ('productive-settle-provenance-unproven:' + $bWhy)
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+                # S6 CORR (review HIGH, strict): the native receipt and
+                # the presented proof must correlate with the REQUESTED
+                # binding (TaskId/SessionId/call/child/key), not just
+                # with each other. Diary of A + proof of B pass the two
+                # independent checks above; the cross-tuple match below
+                # HOLDS that mix. Never synthesizes; any absence or
+                # divergence => HOLD. Never throws.
+                $corrOk = $false
+                try {
+                    $reqTask = ([string]$TaskId).Trim()
+                    $reqSess = ([string]$SessionId).Trim()
+                    $ctxTask = ([string](Get-PAFieldValue $NativeSettlementContext 'task_id' '')).Trim()
+                    $ctxParent = ([string](Get-PAFieldValue $NativeSettlementContext 'parent_session_id' '')).Trim()
+                    $ctxCall = ([string](Get-PAFieldValue $NativeSettlementContext 'call_id' '')).Trim()
+                    $ctxChild = ([string](Get-PAFieldValue $NativeSettlementContext 'child_session_id' '')).Trim()
+                    $ctxMsg = ([string](Get-PAFieldValue $NativeSettlementContext 'message_id' '')).Trim()
+                    $ctxKey = ([string](Get-PAFieldValue $NativeSettlementContext 'idempotency_key' '')).Trim().ToLowerInvariant()
+                    $recTask = ([string](Get-PAFieldValue $scReceipt 'task_id' '')).Trim()
+                    $recGoal = ([string](Get-PAFieldValue $scReceipt 'goal_id' '')).Trim()
+                    $recKey = ([string](Get-PAFieldValue $scReceipt 'idempotency_key' '')).Trim().ToLowerInvariant()
+                    $recSess = ([string](Get-PAFieldValue $scReceipt 'settle_session_id' '')).Trim()
+                    $recCall = ([string](Get-PAFieldValue $scReceipt 'settle_call_id' '')).Trim()
+                    $recChild = ([string](Get-PAFieldValue $scReceipt 'settle_child_session_id' '')).Trim()
+                    $recMsg = ([string](Get-PAFieldValue $scReceipt 'settle_message_id' '')).Trim()
+                    $prChild = ([string](Get-PAFieldValue $effProof 'child_session_id' '')).Trim()
+                    $prParent = ([string](Get-PAFieldValue $effProof 'parent_session_id' '')).Trim()
+                    $prCall = ([string](Get-PAFieldValue $effProof 'call_id' '')).Trim()
+                    $prKey = ([string](Get-PAFieldValue $effProof 'idempotency_key' '')).Trim().ToLowerInvariant()
+                    if ($recTask -ceq $reqTask -and $recTask -ceq $ctxTask -and $recGoal -ceq ([string]$GoalId).Trim() -and $recKey -ceq $ndk) {
+                        if ($recSess -ceq $reqSess -and $recSess -ceq $ctxParent -and $recCall -ceq $ctxCall -and $recChild -ceq $ctxChild) {
+                            if ($prChild -ceq $ctxChild -and $prParent -ceq $ctxParent -and $prCall -ceq $ctxCall -and $prKey -ceq $ndk) {
+                                if (([string]::IsNullOrWhiteSpace($recMsg) -or ($recMsg -ceq $ctxMsg)) -and ($ctxKey -ceq $ndk)) {
+                                    $corrOk = $true
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { $corrOk = $false }
+                if (-not $corrOk) {
+                    $holdBase.reason = 'productive-settle-correlation-mismatch'
+                    return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+                }
+            }
+            $holdBase.duplicate = $true
+        }
+        try {
+            if ([bool](Get-PAFieldValue $rec 'duplicate' $false)) { $holdBase.duplicate = $true }
+        }
+        catch { }
+        # (2) continuation OUTSIDE locks: live goal re-read, gates
+        # re-evaluated, no re-settle, no successor execution.
+        $liveGoal = $null
+        try {
+            $slot = Get-OrchestrationGoal -GoalId ([string]$GoalId).Trim() -StoreDir $GoalStoreDir
+            if (($null -ne $slot) -and [bool](Get-PAFieldValue $slot 'ok' $false)) {
+                $liveGoal = Get-PAFieldValue $slot 'goal' $null
+            }
+        }
+        catch { $liveGoal = $null }
+        if ($null -eq $liveGoal) {
+            $holdBase.reason = 'continuation-settlement-uncertain'
+            $holdBase.settled = $true
+            return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+        }
+        # S6 hardening (review HIGH-1): continuation requires an explicit
+        # authorization bound to this goal and fencing. Approval is never
+        # synthesized: absent or mismatched authorization HOLDS with the
+        # settlement proven (settled=true) and no continuation attempted.
+        # The downstream ADVANCE/COMPLETE gates re-validate admission.
+        $contAuth = $ContinuationAuthorization
+        if ($null -eq $contAuth) {
+            $holdBase.reason = 'continuation-authorization-required'
+            $holdBase.settled = $true
+            return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+        }
+        $authCheck = $null
+        try { $authCheck = Test-PAContinuationAuthorization -Authorization $contAuth -GoalId ([string]$GoalId) -OwnerId ([string]$OwnerId) -Generation ([long]$Generation) -GoalStoreDir $GoalStoreDir }
+        catch { $authCheck = $null }
+        if (($null -eq $authCheck) -or (-not [bool](Get-PAFieldValue $authCheck 'ok' $false))) {
+            $authWhy = 'continuation-authorization-denied'
+            try { if (($null -ne $authCheck) -and (-not [string]::IsNullOrWhiteSpace([string](Get-PAFieldValue $authCheck 'reason' '')))) { $authWhy = ([string](Get-PAFieldValue $authCheck 'reason' '')) } } catch { }
+            $holdBase.reason = $authWhy
+            $holdBase.settled = $true
+            return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+        }
+        $cont = $null
+        try {
+            if ($null -ne $NextIntent) {
+                $cont = Invoke-OrchestrationObjectiveStep -Goal $liveGoal -SettledKey $ndk -Authorization $contAuth -SessionId ([string]$SessionId).Trim() -CheckpointDir $CheckpointDir -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -TasksDir $TasksDir -FlagsPath $FlagsPath -ControllerPath $ControllerPath -NextIntent $NextIntent
+            }
+            else {
+                $cont = Invoke-OrchestrationObjectiveStep -Goal $liveGoal -SettledKey $ndk -Authorization $contAuth -SessionId ([string]$SessionId).Trim() -CheckpointDir $CheckpointDir -GoalStoreDir $GoalStoreDir -EvidenceStoreDir $EvidenceStoreDir -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -TasksDir $TasksDir -FlagsPath $FlagsPath -ControllerPath $ControllerPath
+            }
+        }
+        catch { $cont = $null }
+        $holdBase.continuation_attempted = $true
+        $holdBase.continuation = $cont
+        $holdBase.settled = $true
+        if (($null -ne $cont) -and [bool](Get-PAFieldValue $cont 'ok' $false)) {
+            $holdBase.ok = $true
+            $holdBase.reason = 'productive-settle-and-continue'
+        }
+        else {
+            $holdBase.ok = $true
+            $holdBase.reason = 'productive-settled-continuation-held'
+            try {
+                if (($null -ne $cont) -and (-not [string]::IsNullOrWhiteSpace([string](Get-PAFieldValue $cont 'reason' '')))) {
+                    $holdBase.reason = ('productive-settled-continuation-held:' + [string](Get-PAFieldValue $cont 'reason' ''))
+                }
+            }
+            catch { }
+        }
+        return (Add-PAProductiveNote $holdBase 'engaged' $trk)
+    }
+    catch {
+        $h = [pscustomobject][ordered]@{
+            ok = $false; reason = 'hold-productive-disabled:internal-error'; settled = $false; duplicate = $false
+            settled_key = ''; goal_id = ([string]$GoalId).Trim()
+            settlement = $null; continuation = $null; continuation_attempted = $false
+            grants_authority = $false; done_approved = $false; verified_pass = $false
+            executor_calls = 0
+        }
         try { return (Add-PAProductiveNote $h 'hold-productive-disabled:internal-error' $Tracker) } catch { return $h }
     }
 }

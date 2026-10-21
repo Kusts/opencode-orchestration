@@ -21,6 +21,15 @@
     Wait-Job -Timeout + Stop-Job/Remove-Job cleanup); a deadline breach
     aborts the job and FAILS the scenario instead of hanging the suite.
 
+    Suite tiers (docs only; no coverage removed): Fast = pure
+    dispatcher/ownership asserts without sleeps; Integration = real
+    single-child interrupt/settlement with bounded waits; Runtime =
+    multi-level trees, CLI/deadline harnesses and fault-injection
+    paths (slower CIM/tree windows); Extended = adversarial/negative
+    guards (foreign-live, DIAG-FB redaction). Scenarios 8a/18 are
+    Integration (deterministic handshake, no conhost); 18-R is the
+    live-to-CIM fail-closed regression.
+
     Covers (PLAN Phase 26 required tests):
       1. hung worker => HARD_TIMEOUT => interrupt on a REAL child
          process created by the test (REAL-deadline job); child exits;
@@ -799,6 +808,147 @@ function Wait-EnforceReady {
     catch { return $false }
 }
 
+function New-EnforceHandshakePaths {
+    <#
+    .SYNOPSIS
+        Paths for one handshake child (ready/release/script). Never throws.
+    #>
+    param([string]$Dir, [string]$Tag)
+    try {
+        $d = ([string]$Dir).Trim()
+        $t = ([string]$Tag).Trim()
+        if ([string]::IsNullOrWhiteSpace($t)) { $t = 'hs' }
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        return @{
+            dir = $d
+            ready = (Join-Path $d ($t + '.ready'))
+            release = (Join-Path $d ($t + '.release'))
+            script = (Join-Path $d ($t + '.ps1'))
+        }
+    }
+    catch { return @{ dir = ''; ready = ''; release = ''; script = '' } }
+}
+
+function Write-EnforceHandshakeScript {
+    <#
+    .SYNOPSIS
+        Handshake child: signals ready, then BLOCKS on the release file
+        (bounded 20s) before exiting. The test registers the binding
+        while the child is provably alive, then authorizes the exit, so
+        the child can never die before registration (no fixed-sleep
+        race). Never throws.
+    #>
+    param([string]$ScriptPath, [string]$ReadyPath, [string]$ReleasePath)
+    try {
+        $rd = ([string]$ReadyPath -replace "'", "''")
+        $rl = ([string]$ReleasePath -replace "'", "''")
+        $body = @(
+            "`$ErrorActionPreference = 'Stop'",
+            "[IO.File]::WriteAllText('$rd','ready')",
+            "`$sw=[Diagnostics.Stopwatch]::StartNew()",
+            "while(`$sw.Elapsed.TotalSeconds -lt 20){",
+            "  try{ if([IO.File]::Exists('$rl')){ break } }catch{}",
+            "  Start-Sleep -Milliseconds 100",
+            "}"
+        ) -join "`n"
+        Write-EnforceFixture -Path $ScriptPath -Text $body
+        return $true
+    }
+    catch { return $false }
+}
+
+function Start-EnforceHandshakeChild {
+    <#
+    .SYNOPSIS
+        Spawns a handshake script WITHOUT a console (CreateNoWindow +
+        UseShellExecute=false): no conhost sibling is ever created, so
+        the CIM children snapshot of this root is deterministically
+        empty after it exits (no transient conhost residue to drain).
+        Registers the process in $script:enfChildren. Never throws
+        (returns $null on failure).
+    #>
+    param([string]$ScriptPath)
+    try {
+        $shell = Get-EnforceShell
+        $arg = ('-NoProfile -File ' + (ConvertTo-EnforceArg ([string]$ScriptPath)))
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $shell
+        $psi.Arguments = $arg
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $psi
+        [void]$p.Start()
+        [void]$script:enfChildren.Add($p)
+        return $p
+    }
+    catch { return $null }
+}
+
+function Wait-EnforceHandshakeReady {
+    <#
+    .SYNOPSIS
+        Bounded poll for the handshake ready file. Never throws.
+    #>
+    param([string]$ReadyPath, [int]$TimeoutMs = 10000)
+    try {
+        $budget = [int]$TimeoutMs
+        if ($budget -lt 0) { $budget = 0 }
+        if ($budget -gt 30000) { $budget = 30000 }
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($sw.ElapsedMilliseconds -lt [long]$budget) {
+            try { if (Test-Path -LiteralPath ([string]$ReadyPath) -PathType Leaf) { $sw.Stop(); return $true } } catch { }
+            Start-Sleep -Milliseconds 100
+        }
+        $sw.Stop()
+        return $false
+    }
+    catch { return $false }
+}
+
+function Confirm-EnforceExit {
+    <#
+    .SYNOPSIS
+        Bounded exit confirmation via the OWN handle (WaitForExit) plus
+        a Get-Process gone poll. Returns @{exited; elapsed_ms}. Never
+        throws, never extends any suite timeout.
+    #>
+    param($Proc, [int]$TimeoutMs = 10000)
+    try {
+        $budget = [int]$TimeoutMs
+        if ($budget -lt 0) { $budget = 0 }
+        if ($budget -gt 30000) { $budget = 30000 }
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $exited = $false
+        try {
+            try { $Proc.Refresh() } catch { }
+            $exited = [bool]$Proc.WaitForExit([int]$budget)
+        }
+        catch { $exited = $false }
+        while ((-not $exited) -and ($sw.ElapsedMilliseconds -lt [long]$budget)) {
+            $alive = $true
+            try {
+                $lv = Get-Process -Id ([int]$Proc.Id) -ErrorAction Stop
+                $alive = ($null -ne $lv)
+            }
+            catch { $alive = $false }
+            if (-not $alive) { $exited = $true; break }
+            Start-Sleep -Milliseconds 200
+        }
+        if (-not $exited) {
+            try {
+                $lv2 = Get-Process -Id ([int]$Proc.Id) -ErrorAction Stop
+                $exited = ($null -eq $lv2)
+            }
+            catch { $exited = $true }
+        }
+        $ms = [int]$sw.ElapsedMilliseconds
+        $sw.Stop()
+        return [PSCustomObject]@{ exited = [bool]$exited; elapsed_ms = [int]$ms }
+    }
+    catch { return [PSCustomObject]@{ exited = $false; elapsed_ms = -1 } }
+}
+
 function Register-EnforceBound {
     param(
         [string]$TaskId, [string]$SessionId, $Child, $Budget, $StartedAt,
@@ -1082,22 +1232,50 @@ try {
     $sw7.Stop()
     Assert-Enforce (($sw7.Elapsed.TotalSeconds -lt 90)) 'scenario 7 externally bounded' ([string][int]$sw7.Elapsed.TotalSeconds + 's')
 
-    # 8a. short-lived child exits alone before Stop => ALREADY_EXITED, no exception.
+    # 8a. handshake child exits only after release => ALREADY_EXITED, no exception.
+    # (F6-CODER-WATCHDOG-FIX: deterministic fixture. Old shape used
+    # Start-EnforceShortChild + fixed 4s sleep with a console child, so a
+    # transient conhost sibling could interleave the gone-path CIM
+    # snapshot and flake the settlement. New shape: CreateNoWindow child
+    # (no conhost ever) + ready/release handshake (never exits before
+    # registration) + bounded handle exit confirmation. No timeout raised.)
     $sw8 = [System.Diagnostics.Stopwatch]::StartNew()
-    $c8 = Start-EnforceShortChild -SleepMs 300
+    $hs8 = New-EnforceHandshakePaths -Dir (Join-Path $tempRoot 'hs8') -Tag 'hs8'
+    [void](Write-EnforceHandshakeScript -ScriptPath $hs8.script -ReadyPath $hs8.ready -ReleasePath $hs8.release)
+    $sw8Ready = [System.Diagnostics.Stopwatch]::StartNew()
+    $c8 = Start-EnforceHandshakeChild -ScriptPath $hs8.script
+    Assert-Enforce (($null -ne $c8)) 'handshake child spawned (no console)' ''
+    $ready8 = Wait-EnforceHandshakeReady -ReadyPath $hs8.ready -TimeoutMs 10000
+    $sw8Ready.Stop()
+    Assert-Enforce ([bool]$ready8) 'handshake child signaled ready (bounded)' ([string][int]$sw8Ready.ElapsedMilliseconds + 'ms')
     $b8 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
     $t8 = (Get-Date).ToUniversalTime()
     $r8 = Register-EnforceBound -TaskId 'wd-enf-8' -SessionId 'wd-enf-sess-8' -Child $c8 -Budget $b8 -StartedAt $t8 -FlagsPath $flagsEnforce -Repo $repo
-    Assert-Enforce ([bool]$r8.ok) 'short-lived register bound' ''
-    Start-Sleep -Milliseconds 4000
-    Assert-Enforce (-not (Test-EnforceAlive -Proc $c8)) 'short child already gone on its own' ''
+    Assert-Enforce ([bool]$r8.ok) 'handshake register bound (identity/proof captured while alive)' ([string]$r8.error)
+    try { [IO.File]::WriteAllText($hs8.release, 'go') } catch { }
+    $conf8 = Confirm-EnforceExit -Proc $c8 -TimeoutMs 10000
+    Assert-Enforce ([bool]$conf8.exited) 'handshake child exited after release (bounded handle confirmation)' ([string][int]$conf8.elapsed_ms + 'ms')
+    Assert-Enforce (-not (Test-EnforceAlive -Proc $c8)) 'handshake child gone on its own after release' ''
     $a8 = $null
     for ($i = 0; $i -lt 5; $i++) {
         $a8 = Add-OrchestrationWatchdogAction -TaskId 'wd-enf-8' -AttemptN 1 -SessionId 'wd-enf-sess-8' -Tool 'shell' -Arguments 'git status --short' -Target 'repo' -HasProgress $false -AtUtc ($t8.AddSeconds(2 + $i)) -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
     }
-    Assert-Enforce (([bool]$a8.ok) -and (-not [bool]$a8.interrupted) -and ([string]$a8.enforcement.settlement -ceq 'ALREADY_EXITED')) 'exited-alone settles ALREADY_EXITED without exception' ([string]$a8.enforcement.settlement)
+    $set8 = ''
+    try { $set8 = ([string]$a8.enforcement.settlement).Trim() } catch { $set8 = '' }
+    if (-not (([bool]$a8.ok) -and (-not [bool]$a8.interrupted) -and ($set8 -ceq 'ALREADY_EXITED'))) {
+        try {
+            $__e8 = '<err>'; try { $__e8 = (Format-EnforceDiagField 'error' $a8.error) } catch { $__e8 = '<err>' }
+            $__s8d = '<err>'; try { $__s8d = (Format-EnforceDiagField 'settlement' $set8) } catch { $__s8d = '<err>' }
+            Write-Host ('[DIAG-8A] ok=' + (Format-EnforceDiagToken ([bool]$a8.ok)) + '; interrupted=' + (Format-EnforceDiagToken ([bool]$a8.interrupted)) + '; error=' + $__e8 + '; settlement=' + $__s8d + '; ready_ms=' + [string][int]$sw8Ready.ElapsedMilliseconds + '; exit_ms=' + [string][int]$conf8.elapsed_ms)
+        } catch { Write-Host '[DIAG-8A] <diag-unavailable>' }
+    }
+    Assert-Enforce (([bool]$a8.ok) -and (-not [bool]$a8.interrupted) -and ($set8 -ceq 'ALREADY_EXITED')) 'exited-alone settles ALREADY_EXITED without exception' $set8
+    Assert-Enforce (($set8 -cne 'REFUSED')) 'ALREADY_EXITED is never a masked REFUSED' $set8
     $s8 = Get-OrchestrationWatchdogSettlement -TaskId 'wd-enf-8' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
-    Assert-Enforce (([string]$s8.settlement -ceq 'ALREADY_EXITED')) 'ALREADY_EXITED queryable' ([string]$s8.settlement)
+    $pset8 = ''
+    try { $pset8 = ([string]$s8.settlement).Trim() } catch { $pset8 = '' }
+    Assert-Enforce (($pset8 -ceq 'ALREADY_EXITED')) 'ALREADY_EXITED queryable (persisted)' $pset8
+    Assert-Enforce (($pset8 -cne 'REFUSED')) 'persisted settlement is never REFUSED here' $pset8
 
     # 8b. divergent ownership => REFUSED, process intact. A genuine own
     # child whose live parent IS the test process still passes the parent
@@ -1831,18 +2009,72 @@ try {
     Assert-Enforce ((([bool]$d18.ok) -and ([bool]$d18.settled_before) -and ([string]$d18.settlement -ceq 'SETTLED') -and ([bool]$d18.interrupted))) 'F6 direct repeat idempotent via ANY entry (no degradation)' ([string]$d18.settlement)
     Assert-Enforce (([int]$script:WatchdogLiveQueryCount -eq 0)) 'F6 direct repeat issues zero live queries' ('queries=' + [string][int]$script:WatchdogLiveQueryCount)
     Assert-Enforce ((Wait-EnforceExit -Proc $c18 -TimeoutMs 8000) -and (-not (Test-EnforceAlive -Proc $c18))) 'F6 settled child is gone' ''
-    $c18c = Start-EnforceShortChild -SleepMs 300
+    # F6 second half: same deterministic handshake as 8a (no fixed 4s
+    # sleep, no console child, bounded handle confirmation).
+    $hs18 = New-EnforceHandshakePaths -Dir (Join-Path $tempRoot 'hs18') -Tag 'hs18'
+    [void](Write-EnforceHandshakeScript -ScriptPath $hs18.script -ReadyPath $hs18.ready -ReleasePath $hs18.release)
+    $sw18Ready = [System.Diagnostics.Stopwatch]::StartNew()
+    $c18c = Start-EnforceHandshakeChild -ScriptPath $hs18.script
+    Assert-Enforce (($null -ne $c18c)) 'F6 handshake child spawned (no console)' ''
+    $ready18 = Wait-EnforceHandshakeReady -ReadyPath $hs18.ready -TimeoutMs 10000
+    $sw18Ready.Stop()
+    Assert-Enforce ([bool]$ready18) 'F6 handshake child signaled ready (bounded)' ([string][int]$sw18Ready.ElapsedMilliseconds + 'ms')
     $b18c = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
     $t18c = (Get-Date).ToUniversalTime()
     $r18c = Register-EnforceBound -TaskId 'wd-fix1-alr' -SessionId 'wd-fix1-sess-alr' -Child $c18c -Budget $b18c -StartedAt $t18c -FlagsPath $flagsEnforce -Repo $repo
-    Assert-Enforce ([bool]$r18c.ok) 'F6 ALREADY_EXITED register bound' ''
-    Start-Sleep -Milliseconds 4000
-    Assert-Enforce (-not (Test-EnforceAlive -Proc $c18c)) 'F6 short child already gone on its own' ''
+    Assert-Enforce ([bool]$r18c.ok) 'F6 ALREADY_EXITED register bound' ([string]$r18c.error)
+    try { [IO.File]::WriteAllText($hs18.release, 'go') } catch { }
+    $conf18 = Confirm-EnforceExit -Proc $c18c -TimeoutMs 10000
+    Assert-Enforce ([bool]$conf18.exited) 'F6 handshake child exited after release (bounded handle confirmation)' ([string][int]$conf18.elapsed_ms + 'ms')
+    Assert-Enforce (-not (Test-EnforceAlive -Proc $c18c)) 'F6 handshake child gone on its own' ''
     $exec18c = $script:WatchdogExecutions['wd-fix1-alr']
     $d18c = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix1-alr' -Execution $exec18c -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
-    Assert-Enforce (([string]$d18c.settlement -ceq 'ALREADY_EXITED') -and (-not [bool]$d18c.interrupted)) 'F6 direct ALREADY_EXITED intact' ([string]$d18c.settlement)
+    $set18c = ''
+    try { $set18c = ([string]$d18c.settlement).Trim() } catch { $set18c = '' }
+    if (-not (($set18c -ceq 'ALREADY_EXITED') -and (-not [bool]$d18c.interrupted))) {
+        try {
+            $__e18 = '<err>'; try { $__e18 = (Format-EnforceDiagField 'error' $d18c.error) } catch { $__e18 = '<err>' }
+            $__s18 = '<err>'; try { $__s18 = (Format-EnforceDiagField 'settlement' $set18c) } catch { $__s18 = '<err>' }
+            Write-Host ('[DIAG-18] ok=' + (Format-EnforceDiagToken ([bool]$d18c.ok)) + '; interrupted=' + (Format-EnforceDiagToken ([bool]$d18c.interrupted)) + '; error=' + $__e18 + '; settlement=' + $__s18 + '; ready_ms=' + [string][int]$sw18Ready.ElapsedMilliseconds + '; exit_ms=' + [string][int]$conf18.elapsed_ms)
+        } catch { Write-Host '[DIAG-18] <diag-unavailable>' }
+    }
+    Assert-Enforce (($set18c -ceq 'ALREADY_EXITED') -and (-not [bool]$d18c.interrupted)) 'F6 direct ALREADY_EXITED intact' $set18c
+    Assert-Enforce (($set18c -cne 'REFUSED')) 'F6 ALREADY_EXITED is never a masked REFUSED' $set18c
     $d18c2 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix1-alr' -Execution $exec18c -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
     Assert-Enforce ((([string]$d18c2.settlement -ceq 'ALREADY_EXITED') -and (-not [bool]$d18c2.interrupted) -and ([bool]$d18c2.settled_before))) 'F6 ALREADY_EXITED direct repeat intact' ([string]$d18c2.settlement)
+    # 18-R. live-to-CIM regression (fail-closed): the same gone root with
+    # an unverifiable CIM tree (tree_enum_failure) must REFUSE safely and
+    # must never terminalize as ALREADY_EXITED success. No new timeout.
+    $sw18r = [System.Diagnostics.Stopwatch]::StartNew()
+    $hs18r = New-EnforceHandshakePaths -Dir (Join-Path $tempRoot 'hs18r') -Tag 'hs18r'
+    [void](Write-EnforceHandshakeScript -ScriptPath $hs18r.script -ReadyPath $hs18r.ready -ReleasePath $hs18r.release)
+    $c18r = Start-EnforceHandshakeChild -ScriptPath $hs18r.script
+    Assert-Enforce (($null -ne $c18r)) '18-R handshake child spawned (no console)' ''
+    Assert-Enforce ([bool](Wait-EnforceHandshakeReady -ReadyPath $hs18r.ready -TimeoutMs 10000)) '18-R ready (bounded)' ''
+    $b18r = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
+    $r18r = Register-EnforceBound -TaskId 'wd-fix1-alr-r' -SessionId 'wd-fix1-sess-alr-r' -Child $c18r -Budget $b18r -StartedAt (Get-Date).ToUniversalTime() -FlagsPath $flagsEnforce -Repo $repo
+    Assert-Enforce ([bool]$r18r.ok) '18-R register bound while alive' ([string]$r18r.error)
+    try { [IO.File]::WriteAllText($hs18r.release, 'go') } catch { }
+    $conf18r = Confirm-EnforceExit -Proc $c18r -TimeoutMs 10000
+    Assert-Enforce ([bool]$conf18r.exited) '18-R root gone after release (bounded)' ([string][int]$conf18r.elapsed_ms + 'ms')
+    $exec18r = $script:WatchdogExecutions['wd-fix1-alr-r']
+    $d18r = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix1-alr-r' -Execution $exec18r -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo -FaultInject 'tree_enum_failure'
+    $set18r = ''
+    try { $set18r = ([string]$d18r.settlement).Trim() } catch { $set18r = '' }
+    if ([string]::IsNullOrWhiteSpace($set18r)) {
+        try { $s18r = Get-OrchestrationWatchdogSettlement -TaskId 'wd-fix1-alr-r' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot; $set18r = ([string]$s18r.settlement).Trim() } catch { $set18r = '' }
+    }
+    $err18r = ''
+    try { $err18r = ([string]$d18r.error).Trim() } catch { $err18r = '' }
+    if (-not (($err18r -ceq 'WATCHDOG_INTERRUPT_REFUSED') -and ($set18r -ceq 'REFUSED'))) {
+        try { Write-Host ('[DIAG-18R] error=' + (Format-EnforceDiagField 'error' $err18r) + '; settlement=' + (Format-EnforceDiagField 'settlement' $set18r) + '; exit_ms=' + (Format-EnforceDiagToken ([string][int]$conf18r.elapsed_ms))) } catch { Write-Host '[DIAG-18R] <diag-unavailable>' }
+    }
+    Assert-Enforce (($err18r -ceq 'WATCHDOG_INTERRUPT_REFUSED')) '18-R unverifiable CIM tree refuses safely' $err18r
+    Assert-Enforce (($set18r -ceq 'REFUSED')) '18-R refusal persisted REFUSED, never ALREADY_EXITED' $set18r
+    Assert-Enforce (($set18r -cne 'ALREADY_EXITED')) '18-R REFUSED is never accepted as ALREADY_EXITED success' $set18r
+    Stop-EnforceSafety -Proc $c18r
+    $sw18r.Stop()
+    Assert-Enforce (($sw18r.Elapsed.TotalSeconds -lt 60)) 'regression 18-R externally bounded' ([string][int]$sw18r.Elapsed.TotalSeconds + 's')
     $sw18.Stop()
     Assert-Enforce (($sw18.Elapsed.TotalSeconds -lt 90)) 'scenario 18 externally bounded' ([string][int]$sw18.Elapsed.TotalSeconds + 's')
 
