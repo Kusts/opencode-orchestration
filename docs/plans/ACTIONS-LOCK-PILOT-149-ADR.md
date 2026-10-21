@@ -103,16 +103,33 @@ Regras de leitura (policy vigente):
   (`docs/github-lifecycle-policy.md:76-78`).
 
 **Critério de aceite do piloto no PR final:** run `pull_request` do HEAD do PR
-com `ci.yml` (SHA `11bd719… # v4.2.2`, inalterado) + `actions.lock`
-observacional commitados, 5/5 checks requeridos verdes, sem `rerun` fora da
-regra acima. Até lá, o status after-piloto é formalmente **pendente**.
+com `ci.yml` (SHA `11bd719… # v4.2.2`, inalterado) verde nos 5/5 checks
+requeridos, sem `rerun` fora da regra acima. O `actions.lock` **não** é
+commitado neste PR: validado localmente (`valid: true`, §3), mas sua presença
+no repo causa `startup_failure` no CI (runs `39638927354` e `39640014101`,
+0s, sem jobs; após remoção, run `39640221801` iniciou normalmente) —
+evidência de que o servidor ainda não aceita a combinação SHA+lock sem
+enforcement. Re-commit do lock **somente** com enforcement opt-in futuro
+(seção 7.1). Até lá, o status after-piloto é formalmente **pendente**.
 
 ## 3. Lockfile validado + stale test (AC3)
 
-Artefato: `.github/workflows/actions.lock` (13 linhas, `version: 'v0.0.3'`),
-workflows → `actions/checkout@v4.2.2`
-(`.github/workflows/actions.lock:5-7`), dependência com `ref`/`commit`/
-`owner_id`/`repo_id` (`.github/workflows/actions.lock:9-13`).
+Artefato (validado localmente, **não** commitado — ver §3.1): conteúdo de
+`.github/workflows/actions.lock` (13 linhas, `version: 'v0.0.3'`),
+workflows → `actions/checkout@v4.2.2`, dependência com `ref`/`commit`/
+`owner_id`/`repo_id` (`ref: 'v4.2.2'`, `commit: 'sha1-11bd719…'`,
+`owner_id: 44036562`, `repo_id: 197814629`).
+
+### 3.1 Por que o lock não é commitado neste PR
+
+`gh actions-lock --verify-local/--verify` = `valid: true` localmente, mas o
+CI do GitHub retorna `startup_failure` (0s, zero jobs, sem check-runs) nos
+runs `39638927354` e `39640014101` com o lock commitado; removido o lock, o
+run `39640221801` iniciou normalmente. Diagnóstico: o servidor ainda não
+aceita a combinação workflow-em-SHA + lock-em-tag sem enforcement opt-in.
+Decisão (coerente com o HIGH do review: preservar SHA): manter o lock como
+artefato local documentado aqui, sem commit, até enforcement opt-in + forma
+(tag) aceita pelo servidor. Re-commit **somente** nesse cenário futuro.
 
 Comandos executados pelo host (piloto local) e saídas resumidas:
 
@@ -263,9 +280,10 @@ neste PR:
   (registry de runtimes, bun, plugins: intocados).
 - [ ] Nenhuma plataforma central, nenhum bloqueio rígido sem benefício.
 - [ ] Arquivos tocados: este ADR novo
-  (`docs/plans/ACTIONS-LOCK-PILOT-149-ADR.md`) + o lockfile observacional
-  novo (`.github/workflows/actions.lock`, 13 linhas, gerado por
-  `gh actions-lock`). `ci.yml`, INDEX e registry **não** foram editados
+  (`docs/plans/ACTIONS-LOCK-PILOT-149-ADR.md`). O lockfile
+  (`.github/workflows/actions.lock`, 13 linhas) foi gerado e validado
+  localmente, mas **não** commitado: causa `startup_failure` no CI (§3.1).
+  `ci.yml`, INDEX e registry **não** foram editados
   (`git diff` de `ci.yml` = vazio; SHA preservado nas 6 linhas).
 
 ## 7. Recomendação por repo — ADOPT / HOLD / REJECT (AC7)
@@ -273,7 +291,8 @@ neste PR:
 ### 7.1 Este repo (`opencode-orchestration`): HOLD
 
 **Recomendação: HOLD** — `ci.yml` INALTERADO (SHA `11bd719… # v4.2.2` nas
-6 linhas) + `actions.lock` como artefato observacional, sem enforcement e
+6 linhas), lockfile validado localmente mas **não commitado** (§3.1:
+`startup_failure` no CI com o lock presente), sem enforcement e
 sem step verify no CI.
 
 Justificativa: tag + lock sem enforcement seria regressão — troca a
