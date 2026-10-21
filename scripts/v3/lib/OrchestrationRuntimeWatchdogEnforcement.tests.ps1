@@ -1190,6 +1190,7 @@ try {
 
     # 7. successful interrupt: exit confirmed, settlement queryable.
     $sw7 = [System.Diagnostics.Stopwatch]::StartNew()
+    $fbFail7 = [int]$script:failed
     $c7 = Start-EnforceChild -SleepSeconds 120
     $b7 = New-EnforceBudget -Steps 64 -Wall 30 -NoProg 25
     $r7 = Register-EnforceBound -TaskId 'wd-enf-7' -SessionId 'wd-enf-sess-7' -Child $c7 -Budget $b7 -StartedAt ((Get-Date).ToUniversalTime().AddSeconds(-31)) -FlagsPath $flagsEnforce -Repo $repo
@@ -1212,7 +1213,10 @@ try {
     }
     catch { Write-Host '[DIAG-7] <diag-unavailable>' }
     Assert-Enforce ([bool]$r7.ok) 'settlement register bound' ''
+    $swEval7 = [System.Diagnostics.Stopwatch]::StartNew()
     $e7 = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+    $swEval7.Stop()
+    $evalMs7 = [int]$swEval7.ElapsedMilliseconds
     Assert-Enforce (([bool]$e7.interrupted) -and ([string]$e7.enforcement.settlement -ceq 'SETTLED')) 'interrupt settles SETTLED' ([string]$e7.enforcement.settlement)
     $s7 = Get-OrchestrationWatchdogSettlement -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
     try {
@@ -1229,6 +1233,36 @@ try {
     $e7b = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot -IncludeEnforcement
     Assert-Enforce (([string]$e7b.settlement.settlement -ceq 'SETTLED')) 'Eval -IncludeEnforcement carries settlement' ''
     Assert-Enforce ((Wait-EnforceExit -Proc $c7 -TimeoutMs 8000) -and (-not (Test-EnforceAlive -Proc $c7))) 'settled child is gone' ''
+    if ([int]$script:failed -gt [int]$fbFail7) {
+        try {
+            $__e7err7 = '<err>'; try { $__e7err7 = (Format-EnforceDiagField 'error' $e7.enforcement.error) } catch { $__e7err7 = '<err>' }
+            $__e7det7 = '<err>'; try { $__e7det7 = (Format-EnforceDiagField 'detail' $e7.enforcement.detail) } catch { $__e7det7 = '<err>' }
+            $__refRaw7 = ''; try { $__refRaw7 = ([string]$script:WatchdogExecutions['wd-enf-7']['enforcement']['refusal_detail']).Trim() } catch { $__refRaw7 = '' }
+            $__refNorm7 = '[UNRECOGNIZED-TEXT]'
+            try {
+                if ([string]::IsNullOrWhiteSpace($__refRaw7)) { $__refNorm7 = '<absent>' }
+                elseif ($__refRaw7 -ceq 'tree-deadline-exceeded') { $__refNorm7 = 'TREE-DEADLINE-EXCEEDED' }
+                elseif ($__refRaw7 -ceq 'tree-unverifiable') { $__refNorm7 = 'TREE-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'tree-limit-exceeded') { $__refNorm7 = 'TREE-LIMIT-EXCEEDED' }
+                elseif ($__refRaw7 -ceq 'ancestor-unverifiable') { $__refNorm7 = 'ANCESTOR-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'ancestor-ambiguous') { $__refNorm7 = 'ANCESTOR-AMBIGUOUS' }
+                elseif ($__refRaw7 -ceq 'descendant-unverifiable') { $__refNorm7 = 'DESCENDANT-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'descendant-ambiguous') { $__refNorm7 = 'DESCENDANT-AMBIGUOUS' }
+                elseif ($__refRaw7 -ceq 'start-time-unverifiable') { $__refNorm7 = 'START-TIME-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'start-time-mismatch') { $__refNorm7 = 'START-TIME-MISMATCH' }
+                elseif ($__refRaw7 -ceq 'attribution-unverifiable') { $__refNorm7 = 'ATTRIBUTION-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'verified-instance-missing') { $__refNorm7 = 'VERIFIED-INSTANCE-MISSING' }
+                elseif ($__refRaw7 -ceq 'path-mismatch') { $__refNorm7 = 'PATH-MISMATCH' }
+                elseif ($__refRaw7 -ceq 'path-unverifiable') { $__refNorm7 = 'PATH-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'parent-mismatch') { $__refNorm7 = 'PARENT-MISMATCH' }
+                elseif ($__refRaw7 -ceq 'parent-unverifiable') { $__refNorm7 = 'PARENT-UNVERIFIABLE' }
+                elseif ($__refRaw7 -ceq 'proof-unavailable') { $__refNorm7 = 'PROOF-UNAVAILABLE' }
+            } catch { $__refNorm7 = '<err>' }
+            $__refOut7 = '<err>'; try { $__refOut7 = (Format-EnforceDiagToken $__refNorm7) } catch { $__refOut7 = '<err>' }
+            $__evalMs7s = '<err>'; try { $__evalMs7s = [string][int]$evalMs7 } catch { $__evalMs7s = '<err>' }
+            Write-Host ('[DIAG-7] fail e_err=' + $__e7err7 + '; e_detail=' + $__e7det7 + '; refusal=' + $__refOut7 + '; eval_ms=' + $__evalMs7s + '; e_interrupted=' + (Format-EnforceDiagToken ([bool]$e7.interrupted)) + '; e_settlement=' + (Format-EnforceDiagField 'settlement' $e7.enforcement.settlement) + '; e_class=' + (Format-EnforceDiagField 'classification' $e7.enforcement.classification))
+        } catch { Write-Host '[DIAG-7] <diag-unavailable>' }
+    }
     $sw7.Stop()
     Assert-Enforce (($sw7.Elapsed.TotalSeconds -lt 90)) 'scenario 7 externally bounded' ([string][int]$sw7.Elapsed.TotalSeconds + 's')
 
