@@ -140,13 +140,28 @@ function Test-OrchestrationDoneCompliance {
         if (($c -cne 'trivial') -and ($c -cne 'non_trivial')) { return 'NON_COMPLIANT_INVALID_TASK_CLASS' }
         if ($c -ceq 'trivial') {
             $dr = ([string]$DirectReason).Trim()
+            $shape = ([string]$ExecutionShape).Trim()
+
+            # Rota formal DIRECT_VERIFIED para tarefas comprovadamente triviais e de baixo risco
+            if ($d -ceq 'DIRECT_VERIFIED') {
+                if ($shape -ieq 'DIRECT_VERIFIED') {
+                    if ($dr -like 'DIRECT_VERIFIED_*') {
+                        return 'COMPLIANT'
+                    }
+                    if ([string]::IsNullOrWhiteSpace($dr)) {
+                        return 'NON_COMPLIANT_MISSING_DIRECT_REASON'
+                    }
+                    return 'NON_COMPLIANT_INVALID_DIRECT_REASON'
+                }
+                return 'NON_COMPLIANT_INVALID_DECISION'
+            }
+
             if (-not [string]::IsNullOrWhiteSpace($dr)) {
                 if ($dr -like 'DIRECT_*') { return 'NON_COMPLIANT_DEPRECATED_DIRECT' }
                 return 'NON_COMPLIANT_INVALID_DIRECT_REASON'
             }
             # TDR-F1-11: ramo trivial exige Decision SINGLE_WORKER (vazia cai aqui).
             if ($d -cne 'SINGLE_WORKER') { return 'NON_COMPLIANT_INVALID_DECISION' }
-            $shape = ([string]$ExecutionShape).Trim()
             if ([string]::IsNullOrWhiteSpace($shape)) { return 'NON_COMPLIANT_MISSING_DIRECT_REASON' }
             if ($shape -ieq 'SINGLE_WORKER') {
                 # TDR-F1-11: trivial tambem exige participacao observada.
@@ -334,7 +349,8 @@ function Get-OrchestrationPreflight {
         [bool]$RouterHealthy = $true,
         [bool]$RegistryFresh = $true,
         [bool]$RegistryOk = $true,
-        [string[]]$Allowlist
+        [string[]]$Allowlist,
+        [string]$ExecutionStrategy = ''
     )
     try {
         $obj = ([string]$Objective)
@@ -433,6 +449,10 @@ function Get-OrchestrationPreflight {
         catch { $isTrivial = $false }
 
         if ($isTrivial) {
+            if ($ExecutionStrategy -ieq 'DIRECT_VERIFIED') {
+                $checkDirect = 'Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason DIRECT_VERIFIED_LOW_RISK_LOCALIZED'
+                return (& $mkResult 'DIRECT_VERIFIED' 'trivial' 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' @() '' 'OK' $checkDirect)
+            }
             $swAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
             if (@($swAgents).Count -eq 0) { $swAgents = @('coder') }
             return (& $mkResult 'SINGLE_WORKER' 'trivial' '' @($swAgents) '' 'OK' $checkSingle)

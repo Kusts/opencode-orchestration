@@ -67,9 +67,9 @@ $results = [ordered]@{
     host_runtime = if ($null -ne $doctorReport) { $doctorReport.runtime_identity } else { @{ generation = 2; runtime_id = "opencode-v2"; version_string = "synthetic/hermetic" } }
     gates = [ordered]@{}
     compatibility_matrix = @(
-        [ordered]@{ version = "2.0.23"; profile = "certified-baseline"; status = "PASS_CERTIFIED"; note = "CI pinned reproducibly" },
-        [ordered]@{ version = "2.0.28-2.0.32"; profile = "historical-candidate"; status = "PASS_COMPATIBLE"; note = "Subcommands and permissions match V2 specification" },
-        [ordered]@{ version = "2.1.2"; profile = "active-host"; status = if ($null -ne $doctorReport -and $doctorReport.overall_verdict -eq 'COMPATIBLE_WITH_HOLDS') { "PASS_REAL" } else { "HARNESS_PASS" }; note = "Dynamic capability detection verified" }
+        [ordered]@{ version = "2.0.23"; profile = "certified-baseline"; status = "PASS_PINNED_BASELINE"; note = "CI pinned reproducibly in runtime-versions.json" },
+        [ordered]@{ version = "2.0.28-2.0.32"; profile = "historical-candidate"; status = "SPEC_COMPATIBLE_UNTESTED"; note = "Subcommands and permissions match specification; candidate pending host binary" },
+        [ordered]@{ version = "2.1.2"; profile = "active-host"; status = if ($null -ne $doctorReport -and $doctorReport.overall_verdict -eq 'COMPATIBLE_WITH_HOLDS') { "HARNESS_PASS" } else { "HARNESS_PASS" }; note = "Dynamic capability detection verified (surface-level)" }
     )
     overall_status = "PENDING"
 }
@@ -92,48 +92,52 @@ catch {
 }
 
 # Gate 2: Concurrency & Async Jobs Safety (Issue #146)
-# Valida gravação transacional concorrente em arquivo compartilhado simulando múltiplos coders/testers
+# Valida exclusão mútua atômica via FileShare.None prevenindo corrupção em escritas concorrentes
 try {
     $tempFile = [System.IO.Path]::GetTempFileName()
     try {
         [System.IO.File]::WriteAllText($tempFile, "header`r`n", [System.Text.Encoding]::UTF8)
         
-        $appendSuccessCount = 0
-        $appendCollisionCount = 0
+        # 1. Abre com FileShare.None (exclusão estrita)
+        $stream1 = [System.IO.File]::Open($tempFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         
-        # Simula 10 tentativas rápidas de append atômico com exclusão
-        for ($i = 0; $i -lt 10; $i++) {
-            $written = $false
-            try {
-                $stream = [System.IO.File]::Open($tempFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-                $lineBytes = [System.Text.Encoding]::UTF8.GetBytes("worker-$i-data`r`n")
-                $stream.Write($lineBytes, 0, $lineBytes.Length)
-                $stream.Flush()
-                $stream.Close()
-                $stream.Dispose()
-                $written = $true
-            }
-            catch {
-                $written = $false
-            }
-
-            if ($written) { $appendSuccessCount++ }
-            else { $appendCollisionCount++ }
+        # 2. Tentativa concorrente deve ser bloqueada pelo SO lançando IOException
+        $collisionBlocked = $false
+        try {
+            $stream2 = [System.IO.File]::Open($tempFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $stream2.Close()
+            $stream2.Dispose()
+        }
+        catch [System.IO.IOException] {
+            $collisionBlocked = $true
+        }
+        catch {
+            $collisionBlocked = $true
         }
 
-        $allLines = [System.IO.File]::ReadAllLines($tempFile)
-        $noInterleaving = ($allLines[0] -eq "header")
-        foreach ($l in $allLines) {
-            if ($l -notmatch '^header$' -and $l -notmatch '^worker-\d+-data$') {
-                $noInterleaving = $false
-            }
+        # 3. Libera o lock e valida escrita subsequente desimpedida
+        $stream1.Close()
+        $stream1.Dispose()
+
+        $secondWriteOk = $false
+        try {
+            $stream3 = [System.IO.File]::Open($tempFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes("worker-data`r`n")
+            $stream3.Write($bytes, 0, $bytes.Length)
+            $stream3.Flush()
+            $stream3.Close()
+            $stream3.Dispose()
+            $secondWriteOk = $true
+        }
+        catch {
+            $secondWriteOk = $false
         }
 
-        $concurrencyOk = ($appendSuccessCount -ge 5 -and $noInterleaving)
+        $concurrencyOk = ($collisionBlocked -and $secondWriteOk)
         $results.gates['G2_ASYNC_CONCURRENCY_INTEGRITY'] = [ordered]@{
             status = if ($concurrencyOk) { "PASS" } else { "FAIL" }
-            type = "IN_PROCESS_VERIFIED"
-            detail = "Atomic FileShare.None bounds prevented lost or corrupted interleaved writes ($appendSuccessCount appends, 0 corrupted lines)"
+            type = "IN_PROCESS_LOCK_CONTRACT"
+            detail = "Atomic FileShare.None bounds prevented lost or corrupted interleaved writes (collision blocked = $collisionBlocked, second write = $secondWriteOk)"
         }
         if (-not $concurrencyOk) { $allPass = $false }
     }
@@ -207,21 +211,23 @@ catch {
 }
 
 # Gate 5: Worktree & Protected Master Boundary (#140, #141)
-# Valida que o script protect-master.ps1 continue fail-closed
+# Valida operacionalmente que protect-master.ps1 barra mutações na branch master
 try {
     $protectScript = Join-Path $RepoRoot 'scripts\v3\protect-master.ps1'
     $protectOk = $false
     if (Test-Path -LiteralPath $protectScript -PathType Leaf) {
-        # Testa a regra estática de branch protegida
-        $protectCode = [System.IO.File]::ReadAllText($protectScript)
-        if ($protectCode -match 'master' -and $protectCode -match 'exit 1') {
+        . $protectScript
+        $denyPushMaster = Test-GitOperationAllowed -CommandLine 'git push origin master' -CurrentBranch 'feat/x'
+        $denyCommitMaster = Test-GitOperationAllowed -CommandLine 'git commit -m "fix"' -CurrentBranch 'master'
+        $allowFeaturePush = Test-GitOperationAllowed -CommandLine 'git push origin feat/x' -CurrentBranch 'feat/x'
+        if (-not [bool]$denyPushMaster.allowed -and -not [bool]$denyCommitMaster.allowed -and [bool]$allowFeaturePush.allowed) {
             $protectOk = $true
         }
     }
     $results.gates['G5_GIT_PROTECTION_BOUNDARY'] = [ordered]@{
         status = if ($protectOk) { "PASS" } else { "FAIL" }
-        type = "SECURITY_POLICY"
-        detail = "Master branch mutation boundary is enforced fail-closed by protect-master.ps1"
+        type = "SECURITY_POLICY_EXECUTED"
+        detail = "Master branch mutation boundary is enforced fail-closed by protect-master.ps1 (push and commit denied on master, feature branch allowed)"
     }
     if (-not $protectOk) { $allPass = $false }
 }

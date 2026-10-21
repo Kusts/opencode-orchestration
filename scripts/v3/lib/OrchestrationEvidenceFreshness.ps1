@@ -80,8 +80,29 @@ function Test-OrchestrationEvidenceFreshness {
         }
     }
 
+    # Contrato obrigatório: head_sha e timestamp são campos fundamentais de proveniência (fail-closed)
+    if ([string]::IsNullOrWhiteSpace($evHead)) {
+        return [pscustomobject]@{
+            ok               = $false
+            verdict          = 'invalid-evidence'
+            reason           = 'missing-head-sha'
+            refresh_required = $true
+            target           = $TargetTransition
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($evStamp)) {
+        return [pscustomobject]@{
+            ok               = $false
+            verdict          = 'invalid-evidence'
+            reason           = 'missing-timestamp'
+            refresh_required = $true
+            target           = $TargetTransition
+        }
+    }
+
     # 1. Checagem de divergência de HEAD (mudança de commit invalida teste/CI prévio)
-    if (-not [string]::IsNullOrWhiteSpace($CurrentHeadSha) -and -not [string]::IsNullOrWhiteSpace($evHead)) {
+    if (-not [string]::IsNullOrWhiteSpace($CurrentHeadSha)) {
         if (-not [string]::Equals($CurrentHeadSha.Trim(), $evHead.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
             return [pscustomobject]@{
                 ok               = $false
@@ -94,18 +115,18 @@ function Test-OrchestrationEvidenceFreshness {
     }
 
     # 2. Checagem de limite temporal de frescor
-    if ($MaxAgeSeconds -gt 0 -and -not [string]::IsNullOrWhiteSpace($evStamp)) {
-        $evInstant = ConvertTo-UtcDateTimeOffset -Stamp $evStamp
-        if ($evInstant -eq [DateTimeOffset]::MinValue) {
-            return [pscustomobject]@{
-                ok               = $false
-                verdict          = 'invalid-evidence'
-                reason           = 'timestamp-unparseable'
-                refresh_required = $true
-                target           = $TargetTransition
-            }
+    $evInstant = ConvertTo-UtcDateTimeOffset -Stamp $evStamp
+    if ($evInstant -eq [DateTimeOffset]::MinValue) {
+        return [pscustomobject]@{
+            ok               = $false
+            verdict          = 'invalid-evidence'
+            reason           = 'timestamp-unparseable'
+            refresh_required = $true
+            target           = $TargetTransition
         }
+    }
 
+    if ($MaxAgeSeconds -gt 0) {
         $nowInstant = [DateTimeOffset]::UtcNow
         if (-not [string]::IsNullOrWhiteSpace($NowUtc)) {
             $parsedNow = ConvertTo-UtcDateTimeOffset -Stamp $NowUtc

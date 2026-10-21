@@ -42,7 +42,7 @@ Assert-Gate ($report.gates.G5_GIT_PROTECTION_BOUNDARY.status -eq "PASS") "G5 Git
 # 3. Verificação da matriz de compatibilidade
 Assert-Gate ($report.compatibility_matrix.Count -eq 3) "Matriz cobre exatamente 3 perfis (2.0.23, 2.0.28-2.0.32, 2.1.2)"
 $pBaseline = $report.compatibility_matrix | Where-Object { $_.version -eq "2.0.23" }
-Assert-Gate ($pBaseline.profile -eq "certified-baseline" -and $pBaseline.status -eq "PASS_CERTIFIED") "2.0.23 é certified-baseline"
+Assert-Gate ($pBaseline.profile -eq "certified-baseline" -and $pBaseline.status -eq "PASS_PINNED_BASELINE") "2.0.23 é certified-baseline com status PASS_PINNED_BASELINE"
 $pActive = $report.compatibility_matrix | Where-Object { $_.version -eq "2.1.2" }
 Assert-Gate ($pActive.profile -eq "active-host") "2.1.2 é active-host"
 

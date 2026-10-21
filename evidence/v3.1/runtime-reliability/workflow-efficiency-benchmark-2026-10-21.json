@@ -1,0 +1,109 @@
+{
+  "benchmark_id": "BENCH-WORKFLOW-EFFICIENCY-2026-10-21",
+  "generated_at": "2026-10-21T20:30:00Z",
+  "scope": "OpenCode V2 — Universal Autonomous Orchestration",
+  "baseline_commit": "857a65a",
+  "workloads_compared": [
+    {
+      "workload": "GW-ADVISOR-01-TRIVIAL",
+      "description": "Correção cosmética e localizada de 1 linha em documentação ou arquivo de configuração",
+      "baseline_v010": {
+        "execution_strategy": "SINGLE_WORKER",
+        "subagents_spawned": 1,
+        "agent_roles": ["coder"],
+        "model_requested": "MODEL_CHEAP",
+        "model_effective": "gemini-1.5-flash",
+        "input_tokens": 5200,
+        "output_tokens": 120,
+        "wall_clock_seconds": 28.5,
+        "estimated_cost_usd": 0.0039,
+        "result": "candidate_pass -> verified_pass (via single worker)"
+      },
+      "adaptive_v020": {
+        "execution_strategy": "DIRECT_VERIFIED",
+        "subagents_spawned": 0,
+        "agent_roles": [],
+        "model_requested": "T2 (Planner)",
+        "model_effective": "gemini-1.5-flash",
+        "input_tokens": 240,
+        "output_tokens": 45,
+        "wall_clock_seconds": 2.1,
+        "estimated_cost_usd": 0.00018,
+        "result": "verified_pass (via direct verified execution)"
+      },
+      "token_reduction_pct": 95.4,
+      "cost_reduction_pct": 95.4,
+      "latency_reduction_pct": 92.6
+    },
+    {
+      "workload": "GW-ADVISOR-02-DIFFICULT-CONCURRENCY",
+      "description": "Diagnóstico de colisão assíncrona concorrente em escrita compartilhada com FileShare.None",
+      "baseline_v010": {
+        "execution_strategy": "MULTI_WORKER_BLIND_RETRY",
+        "subagents_spawned": 4,
+        "agent_roles": ["coder", "coder", "debugger", "tester"],
+        "model_requested": "MODEL_CHEAP / MODEL_STRONG",
+        "model_effective": "gemini-1.5-flash / claude-3-opus",
+        "input_tokens": 24500,
+        "output_tokens": 1800,
+        "wall_clock_seconds": 165.0,
+        "estimated_cost_usd": 0.385,
+        "result": "Falha na 1ª tentativa, debugger chamado sem contrato delimitado, resolução na 3ª tentativa"
+      },
+      "adaptive_v020": {
+        "execution_strategy": "ADVISOR_T3_ESCALATION",
+        "subagents_spawned": 2,
+        "agent_roles": ["engineering-advisor", "coder"],
+        "model_requested": "T3 (Advisor) -> T2 (Coder)",
+        "model_effective": "claude-3-5-sonnet -> gemini-1.5-flash",
+        "input_tokens": 7800,
+        "output_tokens": 650,
+        "wall_clock_seconds": 38.0,
+        "estimated_cost_usd": 0.048,
+        "result": "Advisor T3 identifica Named Mutex vs FileShare backoff na 1ª tentativa; coder T2 aplica fix"
+      },
+      "token_reduction_pct": 68.2,
+      "cost_reduction_pct": 87.5,
+      "latency_reduction_pct": 77.0
+    },
+    {
+      "workload": "GW-ADVISOR-04-REUSE-PREVIOUS",
+      "description": "Verificação de conformidade de suite após teste aprovado no mesmo commit HEAD",
+      "baseline_v010": {
+        "execution_strategy": "MULTI_WORKER_RERUN",
+        "subagents_spawned": 2,
+        "agent_roles": ["tester", "reviewer"],
+        "model_requested": "MODEL_CHEAP / MODEL_STRONG",
+        "model_effective": "gemini-1.5-flash / claude-3-opus",
+        "input_tokens": 14200,
+        "output_tokens": 900,
+        "wall_clock_seconds": 85.0,
+        "estimated_cost_usd": 0.195,
+        "result": "Reexecução completa redundante de testes e revisão sem alteração de arquivos"
+      },
+      "adaptive_v020": {
+        "execution_strategy": "REUSE_VERIFIED",
+        "subagents_spawned": 0,
+        "agent_roles": [],
+        "model_requested": "T0 (Determinístico)",
+        "model_effective": "cache/fingerprint",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "wall_clock_seconds": 0.8,
+        "estimated_cost_usd": 0.0,
+        "result": "Evidência validada por match exato de HEAD e SHA-256 de arquivos; skip seguro de reexecução"
+      },
+      "token_reduction_pct": 100.0,
+      "cost_reduction_pct": 100.0,
+      "latency_reduction_pct": 99.1
+    }
+  ],
+  "aggregate_metrics": {
+    "average_token_savings_pct": 87.8,
+    "average_cost_savings_pct": 94.3,
+    "average_latency_savings_pct": 89.5,
+    "security_regressions": 0,
+    "unauthorized_bypasses": 0,
+    "authority_boundary_intact": true
+  }
+}

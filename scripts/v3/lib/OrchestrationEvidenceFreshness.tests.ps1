@@ -70,6 +70,15 @@ Assert-Freshness ($resSuperseded.verdict -eq 'stale-superseded') "Verdict é 'st
 $resNull = Test-OrchestrationEvidenceFreshness -Evidence $null -CurrentHeadSha $headA
 Assert-Freshness ($resNull.ok -eq $false -and $resNull.verdict -eq 'invalid-evidence') "Evidência nula retorna invalid-evidence"
 
+$resMissingHead = Test-OrchestrationEvidenceFreshness -Evidence @{ timestamp = "2026-10-21T17:55:00Z" } -CurrentHeadSha $headA
+Assert-Freshness ($resMissingHead.ok -eq $false -and $resMissingHead.reason -eq 'missing-head-sha') "Evidência sem head_sha retorna missing-head-sha (fail-closed)"
+
+$resMissingStamp = Test-OrchestrationEvidenceFreshness -Evidence @{ head_sha = $headA } -CurrentHeadSha $headA
+Assert-Freshness ($resMissingStamp.ok -eq $false -and $resMissingStamp.reason -eq 'missing-timestamp') "Evidência sem timestamp retorna missing-timestamp (fail-closed)"
+
+$resBadStamp = Test-OrchestrationEvidenceFreshness -Evidence @{ head_sha = $headA; timestamp = "invalid-date" } -CurrentHeadSha $headA
+Assert-Freshness ($resBadStamp.ok -eq $false -and $resBadStamp.reason -eq 'timestamp-unparseable') "Timestamp corrompido retorna timestamp-unparseable"
+
 # 6. Gate de DONE (Test-OrchestrationDoneAllowedByEvidence)
 $emptyDone = Test-OrchestrationDoneAllowedByEvidence -EvidenceItems @()
 Assert-Freshness ($emptyDone.allowed -eq $false -and $emptyDone.reason -eq 'no-evidence-provided') "Lista vazia não autoriza DONE"

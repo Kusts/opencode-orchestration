@@ -179,6 +179,9 @@ if ($coreProbe.Ok -and (-not [string]::IsNullOrWhiteSpace($coreProbe.Output))) {
 
     $report.capabilities['cli_core'] = [ordered]@{
         status = "SUPPORTED"
+        verification_type = "RUNTIME_OPERATIONAL_VERIFIED"
+        operational_verified = $true
+        certification_level = "RUNTIME_CERTIFIED"
         evidence = $verString
         contract = "opencode --version exit 0"
     }
@@ -186,6 +189,9 @@ if ($coreProbe.Ok -and (-not [string]::IsNullOrWhiteSpace($coreProbe.Output))) {
 else {
     $report.capabilities['cli_core'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "ProbeFailed: $($coreProbe.Reason)"
         contract = "opencode --version exit 0"
     }
@@ -198,13 +204,19 @@ if (Test-Path -LiteralPath $templateV2 -PathType Leaf) {
     if ($rawTmpl -match 'subagent_depth' -and $rawTmpl -match 'agents') {
         $report.capabilities['subagent_execution'] = [ordered]@{
             status = "SUPPORTED"
-            evidence = "template V2 configures subagent_depth with agents block"
+            verification_type = "TEMPLATE_SPECIFIED"
+            operational_verified = $false
+            certification_level = "UNPROVEN_SURFACE"
+            evidence = "template V2 configures subagent_depth with agents block (template inspection, non-operational)"
             contract = "opencode.v2.json.tmpl defines subagent delegation boundaries"
         }
     }
     else {
         $report.capabilities['subagent_execution'] = [ordered]@{
             status = "DEGRADED"
+            verification_type = "TEMPLATE_SPECIFIED"
+            operational_verified = $false
+            certification_level = "UNPROVEN_SURFACE"
             evidence = "template V2 missing required subagent markers"
             contract = "opencode.v2.json.tmpl defines subagent delegation boundaries"
         }
@@ -213,6 +225,9 @@ if (Test-Path -LiteralPath $templateV2 -PathType Leaf) {
 else {
     $report.capabilities['subagent_execution'] = [ordered]@{
         status = "UNKNOWN"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "template file not accessible at $templateV2"
         contract = "opencode.v2.json.tmpl defines subagent delegation boundaries"
     }
@@ -223,13 +238,19 @@ $sessionProbe = Invoke-CapabilityCommand -CommandName $BinaryCommand -SubArgumen
 if ($sessionProbe.Ok -and $sessionProbe.Output -match 'list' -and $sessionProbe.Output -match 'delete') {
     $report.capabilities['session_management'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "subcommands session list/delete/export verified"
+        verification_type = "CLI_SURFACE_DETECTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "subcommands session list/delete/export verified via CLI surface syntax"
         contract = "opencode session [list|delete|export]"
     }
 }
 else {
     $report.capabilities['session_management'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "subcommand session not supported or incomplete"
         contract = "opencode session [list|delete|export]"
     }
@@ -240,13 +261,19 @@ $serviceProbe = Invoke-CapabilityCommand -CommandName $BinaryCommand -SubArgumen
 if ($serviceProbe.Ok -and $serviceProbe.Output -match 'status' -and $serviceProbe.Output -match 'start') {
     $report.capabilities['service_management'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "subcommands service status/start/stop verified"
+        verification_type = "CLI_SURFACE_DETECTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "subcommands service status/start/stop verified via CLI surface syntax"
         contract = "opencode service [status|start|stop]"
     }
 }
 else {
     $report.capabilities['service_management'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "subcommand service not available"
         contract = "opencode service [status|start|stop]"
     }
@@ -257,13 +284,19 @@ $mcpProbe = Invoke-CapabilityCommand -CommandName $BinaryCommand -SubArguments @
 if ($mcpProbe.Ok -and $mcpProbe.Output -match 'list' -and $mcpProbe.Output -match 'add') {
     $report.capabilities['mcp_client'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "subcommands mcp list/add/auth verified"
+        verification_type = "CLI_SURFACE_DETECTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "subcommands mcp list/add/auth verified via CLI surface syntax"
         contract = "opencode mcp [list|add|auth]"
     }
 }
 else {
     $report.capabilities['mcp_client'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "subcommand mcp not available"
         contract = "opencode mcp [list|add|auth]"
     }
@@ -287,6 +320,9 @@ $g1Ok = (Test-Path -LiteralPath $g1Admission -PathType Leaf)
 if ($pluginProbe.Ok -and $bundleOk -and $g1Ok) {
     $report.capabilities['plugin_system'] = [ordered]@{
         status = "SUPPORTED"
+        verification_type = "BUNDLE_VERIFIED"
+        operational_verified = $false
+        certification_level = "HERMETIC_HARNESS"
         evidence = "subcommand plugin available, orchestration-enforcement bundle + sidecar verified, g1-dispatch-admission active"
         contract = "opencode plugin CLI + plugin bundle sidecar match + g1 admission"
     }
@@ -294,6 +330,9 @@ if ($pluginProbe.Ok -and $bundleOk -and $g1Ok) {
 elseif ($pluginProbe.Ok -and ($bundleOk -or $g1Ok)) {
     $report.capabilities['plugin_system'] = [ordered]@{
         status = "SUPPORTED"
+        verification_type = "BUNDLE_VERIFIED"
+        operational_verified = $false
+        certification_level = "HERMETIC_HARNESS"
         evidence = "subcommand plugin available, plugins present"
         contract = "opencode plugin CLI + plugin bundle match"
     }
@@ -301,6 +340,9 @@ elseif ($pluginProbe.Ok -and ($bundleOk -or $g1Ok)) {
 elseif ($pluginProbe.Ok) {
     $report.capabilities['plugin_system'] = [ordered]@{
         status = "DEGRADED"
+        verification_type = "CLI_SURFACE_DETECTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "subcommand plugin available but plugin bundles missing"
         contract = "opencode plugin CLI + plugin bundle sidecar match"
     }
@@ -308,6 +350,9 @@ elseif ($pluginProbe.Ok) {
 else {
     $report.capabilities['plugin_system'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "plugin subcommand not available on host"
         contract = "opencode plugin CLI + plugin bundle sidecar match"
     }
@@ -317,14 +362,20 @@ else {
 if ($env:OS -eq 'Windows_NT') {
     $report.capabilities['pty_terminal'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "Windows terminal PTY integration enabled; backstop Job Objects active in orchestration runtime"
+        verification_type = "PLATFORM_ASSUMED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "Windows OS detected; interactive PTY not operationally probed (backstop Job Objects active in orchestration runtime)"
         contract = "Windows PTY console streaming + Job Object leak protection"
     }
 }
 else {
     $report.capabilities['pty_terminal'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "POSIX PTY execution environment"
+        verification_type = "PLATFORM_ASSUMED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "POSIX environment detected; PTY not operationally probed"
         contract = "POSIX terminal streaming"
     }
 }
@@ -334,13 +385,19 @@ $apiProbe = Invoke-CapabilityCommand -CommandName $BinaryCommand -SubArguments @
 if ($apiProbe.Ok -and $apiProbe.Output -match 'OpenAPI') {
     $report.capabilities['api_surface'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "subcommand api OpenAPI request surface verified"
+        verification_type = "CLI_SURFACE_DETECTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "subcommand api OpenAPI request surface verified via CLI surface syntax"
         contract = "opencode api <operation|method path>"
     }
 }
 else {
     $report.capabilities['api_surface'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "subcommand api OpenAPI request surface not available"
         contract = "opencode api <operation|method path>"
     }
@@ -351,13 +408,19 @@ $modelsProbe = Invoke-CapabilityCommand -CommandName $BinaryCommand -SubArgument
 if ($modelsProbe.Ok -and $modelsProbe.Output -match 'models') {
     $report.capabilities['models_discovery'] = [ordered]@{
         status = "SUPPORTED"
-        evidence = "subcommand models discovery verified"
+        verification_type = "CLI_SURFACE_DETECTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
+        evidence = "subcommand models discovery verified via CLI surface syntax"
         contract = "opencode models [list]"
     }
 }
 else {
     $report.capabilities['models_discovery'] = [ordered]@{
         status = "UNSUPPORTED"
+        verification_type = "UNSUPPORTED"
+        operational_verified = $false
+        certification_level = "UNPROVEN_SURFACE"
         evidence = "subcommand models discovery not available"
         contract = "opencode models [list]"
     }

@@ -20,7 +20,8 @@ param(
     [string[]]$SecondaryDomains,
     [string]$RouterHealthy,
     [string]$RegistryFresh,
-    [string]$RegistryOk
+    [string]$RegistryOk,
+    [string]$ExecutionStrategy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -114,7 +115,7 @@ else {
 if ([string]::IsNullOrWhiteSpace($risk)) { $risk = 'unknown' }
 
 try {
-    $res = Get-OrchestrationPreflight -Objective $objective -TaskType $taskType -Domain $domain -Risk $risk -ReadWrite $readWrite -SecondaryDomains $sec -RouterHealthy $flagRouterHealthy -RegistryFresh $flagRegistryFresh -RegistryOk $flagRegistryOk
+    $res = Get-OrchestrationPreflight -Objective $objective -TaskType $taskType -Domain $domain -Risk $risk -ReadWrite $readWrite -SecondaryDomains $sec -RouterHealthy $flagRouterHealthy -RegistryFresh $flagRegistryFresh -RegistryOk $flagRegistryOk -ExecutionStrategy $ExecutionStrategy
     $out = [ordered]@{
         tool                   = 'orchestration-preflight.ps1'
         preflight_version      = 1

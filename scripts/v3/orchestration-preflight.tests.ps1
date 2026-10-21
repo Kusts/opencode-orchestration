@@ -144,6 +144,18 @@ try {
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'MULTI_WORKER') -ceq 'NON_COMPLIANT_DEPRECATED_DIRECT') '15 trivial wrong shape => NON_COMPLIANT_DEPRECATED_DIRECT' 'expected deprecated'
     Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER') -ceq 'NON_COMPLIANT_MISSING_DIRECT_REASON') '15 trivial with nothing => NON_COMPLIANT_MISSING_*' 'expected missing'
 
+    # 15b) DIRECT_VERIFIED: rota direta autorizada para tarefas triviais
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15b DIRECT_VERIFIED trivial zero-worker => COMPLIANT' 'expected compliant'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason '' -ActualWorkerParticipation 0) -ceq 'NON_COMPLIANT_MISSING_DIRECT_REASON') '15b DIRECT_VERIFIED missing reason => MISSING_DIRECT_REASON' 'expected missing reason'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'SINGLE_WORKER' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0) -ceq 'NON_COMPLIANT_INVALID_DECISION') '15b DIRECT_VERIFIED mismatched shape => INVALID_DECISION' 'expected invalid decision'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'non_trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0) -ceq 'ORCHESTRATION_POLICY_BYPASS') '15b DIRECT_VERIFIED on non-trivial => BYPASS' 'expected bypass'
+
+    # Preflight com estrategia DIRECT_VERIFIED
+    $rd = Get-OrchestrationPreflight -Objective 'fix typo in header' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'DIRECT_VERIFIED'
+    Assert-That (($rd.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($rd.selected_agents).Count -eq 0) -and ($rd.bypass_verdict -ceq 'OK')) 'preflight DIRECT_VERIFIED produces direct decision without subagents' 'expected direct'
+    $rnt = Get-OrchestrationPreflight -Objective 'implement database migration' -TaskType 'implementation' -Domain 'database' -Risk 'high' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
+    Assert-That ($rnt.orchestration_decision -cne 'DIRECT_VERIFIED') 'preflight DIRECT_VERIFIED rejects non-trivial task' 'expected non-direct'
+
     # 16) CLI: malformed health string fails closed to fallback
     $c3 = Invoke-PreflightCliRaw -Argv @('-Objective', 'implement bounded edit for retry queue', '-TaskType', 'implementation', '-Domain', 'backend', '-Risk', 'medium', '-ReadWrite', 'write', '-RouterHealthy', 'maybe')
     $o3 = Get-JsonTail -Text $c3.Text
