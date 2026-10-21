@@ -50,5 +50,8 @@
     "runtime_grant_enforcement":  {
                                       "v1":  false,
                                       "v2":  false
-                                  }
+                                  },
+    "model_router_pilot":  {
+                               "enabled":  false
+                           }
 }

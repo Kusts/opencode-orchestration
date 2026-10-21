@@ -344,9 +344,85 @@ function Invoke-OrchestrationObjectiveStep {
                 return (New-ALStepEnvelope -Ok $false -Action 'needs-dispatch-spec' -Reason $why -Goal $Goal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
             }
             $intent = Get-ALValue $intentSlot 'intent' $null
+            # F3-PILOT-BEGIN (kill switch: apagar este bloco inteiro restaura baseline puro; os dois wrappers F3-PILOT abaixo viram no-op com $__pilotRouting=$null)
+            $__pilotRouting = $null
+            try {
+                $__pilotFlagsOn = $false
+                try {
+                    if ((-not [string]::IsNullOrWhiteSpace($FlagsPath)) -and (Test-Path -LiteralPath $FlagsPath -PathType Leaf)) {
+                        $__pilotRaw = [IO.File]::ReadAllText($FlagsPath)
+                        $__pilotNode = $null
+                        try { $__pilotNode = (($__pilotRaw | ConvertFrom-Json).model_router_pilot) } catch { $__pilotNode = $null }
+                        if ($null -ne $__pilotNode) {
+                            $__pilotFlag = $null
+                            try { $__pilotProp = $__pilotNode.PSObject.Properties['enabled']; if ($null -ne $__pilotProp) { $__pilotFlag = $__pilotProp.Value } } catch { $__pilotFlag = $null }
+                            if (($__pilotFlag -is [bool]) -and ([bool]$__pilotFlag)) { $__pilotFlagsOn = $true }
+                        }
+                    }
+                }
+                catch { $__pilotFlagsOn = $false }
+                if ([bool]$__pilotFlagsOn) {
+                    . (Join-Path $PSScriptRoot 'OrchestrationModelRouting.ps1')
+                    $__pilotAgent = (([string](Get-ALValue $spec 'agent' '')).Trim())
+                    $__pilotClass = (([string](Get-ALValue $spec 'task_class' '')).Trim().ToLowerInvariant())
+                    $__pilotMap = @{ trivial = @('coder'); research = @('explorer', 'researcher') }
+                    $__pilotClassOk = (($__pilotMap.ContainsKey($__pilotClass)) -and ($__pilotMap[$__pilotClass] -ccontains $__pilotAgent))
+                    if ([bool]$__pilotClassOk) {
+                        $__pilotGoalId = (([string](Get-ALValue $Goal 'goal_id' '')).Trim().Replace('"', ''))
+                        $__pilotTaskId = (([string](Get-ALValue $spec 'task_id' '')).Trim().Replace('"', ''))
+                        $__pilotReq = New-ModelRoutingRequest -TaskId $__pilotTaskId -Role $__pilotAgent -TaskClass $__pilotClass -Risk 'LOW' -Candidates @('cheap') -Fallback 'cheap'
+                        $__pilotProp = New-ModelRoutingResult -Selected 'cheap' -Reason 'BASELINE_SUFFICIENT' -Confidence 0.9 -Fallback 'cheap' -PolicyRefs @('F3-PILOT trivial/research cheap') -EvidenceRefs @('NO_EVIDENCE_YET')
+                        $__pilotConsumed = 0
+                        $__pilotLogPath = ''
+                        try {
+                            if (-not [string]::IsNullOrWhiteSpace($EvidenceStoreDir)) { $__pilotLogPath = (Join-Path ([string]$EvidenceStoreDir).Trim() 'model-router-pilot.jsonl') }
+                            if ((-not [string]::IsNullOrWhiteSpace($__pilotLogPath)) -and (Test-Path -LiteralPath $__pilotLogPath -PathType Leaf)) {
+                                foreach ($__pilotLine in @([IO.File]::ReadAllLines($__pilotLogPath))) {
+                                    try {
+                                        $__pilotEntry = ($__pilotLine | ConvertFrom-Json)
+                                        if (([string]$__pilotEntry.goal_id -ceq $__pilotGoalId) -and ([bool]$__pilotEntry.escalation_consumed)) { $__pilotConsumed++ }
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                        catch { $__pilotConsumed = 0 }
+                        $__pilotQuotaOut = ([long]$__pilotConsumed -ge 2)
+                        $__pilotChecked = Test-ModelRoutingEnvelope -Request $__pilotReq -Proposed $__pilotProp -PlannerApproved $false -PaidAuthorized $false -QuotaExhausted $__pilotQuotaOut -DeniedModels @()
+                        $__pilotModelOk = (([string](Get-ModelRoutingField -Object $__pilotChecked -Name 'selected') -ceq 'cheap'))
+                        $__pilotUse = ((-not [bool](Get-ModelRoutingField -Object $__pilotChecked -Name 'denied')) -and (-not [bool](Get-ModelRoutingField -Object $__pilotChecked -Name 'fallback_used')) -and ([bool]$__pilotModelOk))
+                        $__pilotRouting = [pscustomobject][ordered]@{
+                            applied = [bool]$__pilotUse
+                            selected = ([string](Get-ModelRoutingField -Object $__pilotChecked -Name 'selected'))
+                            fallback = ([string](Get-ModelRoutingField -Object $__pilotChecked -Name 'fallback'))
+                            reason = ([string](Get-ModelRoutingField -Object $__pilotChecked -Name 'reason'))
+                            denied = [bool](Get-ModelRoutingField -Object $__pilotChecked -Name 'denied')
+                            fallback_used = [bool](Get-ModelRoutingField -Object $__pilotChecked -Name 'fallback_used')
+                            escalation_consumed = [bool](Get-ModelRoutingField -Object $__pilotChecked -Name 'escalation_consumed')
+                            task_class = $__pilotClass
+                            role = $__pilotAgent
+                        }
+                        try {
+                            if ((-not [string]::IsNullOrWhiteSpace($__pilotLogPath)) -and (Test-Path -LiteralPath ([string]$EvidenceStoreDir).Trim() -PathType Container)) {
+                                $__pilotDeniedS = 'false'; if ([bool]$__pilotRouting.denied) { $__pilotDeniedS = 'true' }
+                                $__pilotFbUsedS = 'false'; if ([bool]$__pilotRouting.fallback_used) { $__pilotFbUsedS = 'true' }
+                                $__pilotEscS = 'false'; if ([bool]$__pilotRouting.escalation_consumed) { $__pilotEscS = 'true' }
+                                $__pilotAppliedS = 'false'; if ([bool]$__pilotRouting.applied) { $__pilotAppliedS = 'true' }
+                                $__pilotOut = ('{"goal_id":"' + $__pilotGoalId + '","task_id":"' + $__pilotTaskId + '","task_class":"' + $__pilotClass + '","role":"' + $__pilotAgent + '","selected":"' + ([string]$__pilotRouting.selected) + '","fallback":"' + ([string]$__pilotRouting.fallback) + '","reason":"' + ([string]$__pilotRouting.reason) + '","denied":' + $__pilotDeniedS + ',"fallback_used":' + $__pilotFbUsedS + ',"escalation_consumed":' + $__pilotEscS + ',"applied":' + $__pilotAppliedS + '}')
+                                [IO.File]::AppendAllText($__pilotLogPath, ($__pilotOut + "`r`n"))
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { $__pilotRouting = $null }
+            # F3-PILOT-END
             if ($null -eq $Executor) {
                 $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
-                return (New-ALStepEnvelope -Ok $true -Action 'dispatch_intent' -Reason 'planner-executes-via-subagent' -Goal $Goal -NextMove $move -Intent $intent -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                $__stepEnv = (New-ALStepEnvelope -Ok $true -Action 'dispatch_intent' -Reason 'planner-executes-via-subagent' -Goal $Goal -NextMove $move -Intent $intent -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+                if ($null -ne $__pilotRouting) { $__stepEnv | Add-Member -NotePropertyName 'model_routing' -NotePropertyValue $__pilotRouting -Force } # F3-PILOT wrapper (no-op sem o bloco)
+                return $__stepEnv
             }
             $disp = $null
             try {
@@ -358,7 +434,9 @@ function Invoke-OrchestrationObjectiveStep {
                 return (New-ALStepEnvelope -Ok $false -Action 'dispatched' -Reason 'dispatch-failed' -Goal $Goal -NextMove $move -Intent $intent -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
             }
             $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
-            return (New-ALStepEnvelope -Ok ([bool](Get-ALValue $disp 'ok' $false)) -Action 'dispatched' -Reason ([string](Get-ALValue $disp 'reason' '')) -Goal $Goal -NextMove $move -Intent $intent -Dispatch $disp -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+            $__stepEnv2 = (New-ALStepEnvelope -Ok ([bool](Get-ALValue $disp 'ok' $false)) -Action 'dispatched' -Reason ([string](Get-ALValue $disp 'reason' '')) -Goal $Goal -NextMove $move -Intent $intent -Dispatch $disp -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
+            if ($null -ne $__pilotRouting) { $__stepEnv2 | Add-Member -NotePropertyName 'model_routing' -NotePropertyValue $__pilotRouting -Force } # F3-PILOT wrapper (no-op sem o bloco)
+            return $__stepEnv2
         }
         $ckpt = Save-ALStepCheckpoint -Goal $Goal -CheckpointDir $CheckpointDir
         return (New-ALStepEnvelope -Ok $true -Action 'replan' -Reason ('move:' + $moveName) -Goal $Goal -NextMove $move -CheckpointId ([string](Get-ALValue $ckpt 'checkpoint_id' '')) -CheckpointOk ([bool](Get-ALValue $ckpt 'ok' $false)) -Watchdog $watchdog)
