@@ -1,0 +1,97 @@
+<#!
+.SYNOPSIS
+    Testes unitarios para OrchestrationModelRouter.ps1 (Issues #99, #102, #146).
+.DESCRIPTION
+    Valida a selecao dinamica de tiers T0..T4, matriz de admissibilidade dos 19 agentes,
+    invariantes de seguranca e fallback fail-closed.
+    Compativel com PowerShell 5.1 e PowerShell 7. ASCII-only.
+#>
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1')
+
+$passed = 0
+$total = 0
+
+function Assert-Router([bool]$Condition, [string]$Message) {
+    $script:total++
+    if (-not $Condition) {
+        throw "FAIL: $Message"
+    }
+    $script:passed++
+    Write-Host "[PASS] $Message"
+}
+
+# 1. DIRECT_VERIFIED & T0
+$sel = Resolve-OrchestrationModelSelection -AgentName 'coder' -IsTrivialDirect $true
+Assert-Router ($sel.Status -eq 'SELECTED') "DIRECT_VERIFIED retorna status SELECTED"
+Assert-Router ($sel.Tier -eq 'T0') "DIRECT_VERIFIED retorna Tier T0"
+Assert-Router ($sel.ModelToken -eq 'NONE_DIRECT_VERIFIED') "DIRECT_VERIFIED nao usa token de modelo"
+Assert-Router ($sel.EstimatedCostMultiplier -eq 0.0) "DIRECT_VERIFIED tem custo zero"
+Assert-Router ($sel.IsCompliant -eq $true) "DIRECT_VERIFIED e compliant"
+
+# 2. Agente desconhecido
+$selUnknown = Resolve-OrchestrationModelSelection -AgentName 'unknown-intruder'
+Assert-Router ($selUnknown.Status -eq 'REJECTED') "Agente desconhecido e rejeitado"
+Assert-Router ($selUnknown.IsCompliant -eq $false) "Agente desconhecido nao e compliant"
+
+# 3. Reviewer: admissibilidade e escalonamento
+$selRevLow = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'low' -Complexity 'simple'
+Assert-Router ($selRevLow.Tier -eq 'T2') "Reviewer low-risk/simple seleciona T2 economico"
+Assert-Router ($selRevLow.ModelToken -eq 'MODEL_CHEAP') "Reviewer T2 usa MODEL_CHEAP"
+
+$selRevMed = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'medium' -Complexity 'medium'
+Assert-Router ($selRevMed.Tier -eq 'T3') "Reviewer medium seleciona T3"
+Assert-Router ($selRevMed.ModelToken -eq 'MODEL_STRONG') "Reviewer T3 usa MODEL_STRONG"
+
+$selRevHigh = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -Complexity 'complex'
+Assert-Router ($selRevHigh.Tier -eq 'T4') "Reviewer high-risk seleciona T4"
+Assert-Router ($selRevHigh.ModelToken -eq 'MODEL_STRONG') "Reviewer T4 usa MODEL_STRONG"
+
+# 4. Security Reviewer: invariantes de seguranca
+$selSecLow = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial'
+Assert-Router ($selSecLow.Tier -eq 'T3') "Security-reviewer nunca usa T1/T2 mesmo em low-risk"
+Assert-Router ($selSecLow.ModelToken -eq 'MODEL_STRONG') "Security-reviewer usa MODEL_STRONG"
+
+$selSecCrit = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex'
+Assert-Router ($selSecCrit.Tier -eq 'T4') "Security-reviewer critical seleciona T4"
+
+# 5. Coder: escalonamento e invariante de custo
+$selCoderDef = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -Complexity 'medium'
+Assert-Router ($selCoderDef.Tier -eq 'T2') "Coder default seleciona T2"
+Assert-Router ($selCoderDef.ModelToken -eq 'MODEL_CHEAP') "Coder default usa MODEL_CHEAP"
+
+$selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0
+Assert-Router ($selCoderRetry.Tier -eq 'T3') "Coder complex seleciona T3"
+
+$selCoderNoT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0
+Assert-Router ($selCoderNoT4.Tier -ne 'T4') "Coder sem falha anterior nao pode receber T4"
+
+$selCoderT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2
+Assert-Router ($selCoderT4.Tier -eq 'T4') "Coder com 2 falhas em complex escala para T4"
+
+# 6. Engineering Advisor: escalonamento dinamico
+$selAdvLow = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple'
+Assert-Router ($selAdvLow.Tier -eq 'T2') "Advisor simples seleciona T2 economico"
+
+$selAdvMed = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'medium' -Complexity 'medium'
+Assert-Router ($selAdvMed.Tier -eq 'T3') "Advisor standard seleciona T3"
+
+$selAdvDeadlock = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex'
+Assert-Router ($selAdvDeadlock.Tier -eq 'T4') "Advisor complex/deadlock escala para T4"
+
+# 7. Explorer: limites estritos
+$selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex'
+Assert-Router ($selExp.Tier -in @('T0', 'T1', 'T2')) "Explorer restrito a T0..T2"
+Assert-Router ($selExp.Tier -notin @('T3', 'T4')) "Explorer proibido em T3 e T4"
+
+# 8. Tratamento de flag de override nativo
+$selNoProof = Resolve-OrchestrationModelSelection -AgentName 'coder' -NativeModelOverrideProven $false
+Assert-Router ($selNoProof.OverrideNote -match 'unproven') "Nota de fallback quando override e unproven"
+
+$selProof = Resolve-OrchestrationModelSelection -AgentName 'coder' -NativeModelOverrideProven $true
+Assert-Router ($selProof.OverrideNote -eq '') "Sem nota quando override e proven"
+
+Write-Host "Total: $total | Passed: $passed | Failed: 0"

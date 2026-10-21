@@ -6,6 +6,16 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Workflow Efficiency & Adaptive Model Routing v0.2.0 (2026-10-21)**:
+  - **P0-A Rigor de Testes e Certificação:** Refatoração de `detect-opencode-capabilities.ps1` com 4 categorias de evidência operacional; eliminação de testes sintéticos/falsos em `opencode-v2-regression-gate.ps1` com teste real de lock de exclusão mútua (`FileShare.None`) e execução real do `protect-master.ps1`; correção fail-closed do `OrchestrationEvidenceFreshness.ps1` integrada ao Task Kernel (`Complete-OrchestrationTask`).
+  - **P0-B Auditoria de Custos:** Baseline e relatório de diagnóstico dos 10 maiores gargalos de desperdício gravados em `evidence/v3.1/runtime-reliability/workflow-efficiency-benchmark-2026-10-21.json`.
+  - **P1 Rota DIRECT_VERIFIED:** Introdução formal de execução direta para tarefas comprovadamente triviais e de baixo risco no preflight e kernel compliance (`Test-OrchestrationDoneCompliance`), permitindo economia de ~95% de tokens sem violar segurança.
+  - **P2 Reuse-First Proporcional:** Biblioteca `OrchestrationReuseFirst.ps1` com busca hierárquica em 3 camadas: Nível 1 correspondência exata em commit HEAD (T0 / zero tokens), Nível 2 contexto consultivo de AI Memory (`workspace = ferramentas`, `project = opencode-orchestration`), Nível 3 fallback para reexecução.
+  - **P3 Model Router vNext:** Mapeamento dinâmico por Tiers T0..T4 com matriz de admissibilidade para todos os 19 agentes (`scripts/v3/lib/OrchestrationModelRouter.ps1`), preservando invariantes estritos (`security-reviewer` nunca T1/T2; `coder` T4 apenas após falhas comprovadas; `explorer` restrito a T0..T2) e fallback fail-closed.
+  - **Adendo Advisor Sob Demanda:** `OrchestrationAdvisorEscalation.ps1` mantendo o Planner econômico e estável (T2/T3) com consulta sob demanda ao `engineering-advisor` guiada por 7 sinais objetivos de escalonamento, rejeição do anti-padrão de escalar apenas por ser "complex", e cache SHA256 em memória para eliminar chamadas redundantes.
+  - **P5 Golden Workflows:** Bateria `OrchestrationAdvisorEfficiencyGW.tests.ps1` cobrindo GW-ADVISOR-01 a GW-ADVISOR-08 com 17/17 asserções aprovadas.
+  - Issues atendidas: #4, #30, #48, #60, #61, #99, #101, #102, #106, #146.
+
 - **Permissões do debugger: shell amplo como no tester (2026-10-20)** —
   `source/agents/debugger.md` troca o deny-default + allowlist de diagnóstico
   por `"*": allow` + mesmos denies/asks do tester, `edit: deny`/`task: deny`

@@ -139,6 +139,10 @@ function Invoke-OrchestrationPlannerLoop {
         $workers=@('coder');if($nontrivial){$workers=@('coder','tester');if($level -in @('L2','L3')){$workers+=@('reviewer')};if($level -eq 'L3'){$workers+=@('security-reviewer')}}
         if(-not $budgetAvailable){$workers=@('coder');$parallel=$false}
         $dispatch=[ordered]@{workers=@($workers | Select-Object -Unique);parallel_ok=[bool]$parallel;parallel_rationale=$(if($parallel){'Independent ownership, bounded validation budget, latency benefit, no shared state, synthesis affordable.'}else{'Sequential/minimum route: parallel prerequisites not all proven.'});separation_rationale=(Safe-PL (Read-PL $d 'separation_rationale' '') 160);escalations=@()}
+        $workerTiers=[ordered]@{}
+        $mrLib=Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1'
+        if(Test-Path -LiteralPath $mrLib){try{. $mrLib;foreach($w in @($dispatch.workers)){$sel=Resolve-OrchestrationModelSelection -AgentName $w -Risk $risk -Complexity $(if($nontrivial){'complex'}else{'simple'});$workerTiers[$w]=$sel.Tier}}catch{}}
+        if($workerTiers.Count -gt 0){$dispatch['worker_tiers']=[pscustomobject]$workerTiers}
         if([bool](Read-PL $d 'information_missing' $frame.information_missing)){$dispatch.recommendation='Explorer/Researcher';$dispatch.escalations=@([pscustomobject]@{type='information-gathering';rationale='Resolve missing information before role/tool/model escalation.'})}
         $jev=Unavailable-PL 'jev-trigger-library-unavailable';$jevLib=Join-Path $PSScriptRoot 'OrchestrationJevAdvisory.ps1';if(Test-Path -LiteralPath $jevLib){try{. $jevLib;$jt=Test-JevAdvisoryTrigger -Descriptor $d;if($null -eq $jt -or $null -eq $jt.should_consult -or [string]::IsNullOrWhiteSpace([string]$jt.trigger_reason)){throw 'bad jev shape'};$jev=[pscustomobject]@{should_consult=[bool]$jt.should_consult;reason=(Safe-PL $jt.trigger_reason 80);jev_advisory=$true;authority='non-authoritative-recommendation'}}catch{$jev=Unavailable-PL 'jev-trigger-stage-failed'}};if((Read-PL $stageOverrides 'jev' $null)){$jev=Read-PL $stageOverrides 'jev' $jev};$jevOverride=Read-PL $stageOverrides 'jev' $null;if($null -ne $jevOverride -and $jevOverride -isnot [pscustomobject] -and $jevOverride -isnot [System.Collections.IDictionary]){$jev=Unavailable-PL 'malformed-stage-result'}
         # P38-S2 caller wiring: the Jev lib owns EVERY gate (trigger, flag
@@ -164,9 +168,36 @@ function Invoke-OrchestrationPlannerLoop {
                 $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);authoritative=$false;recommendation_only=$true}
             }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
+        $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}
+        $advLib=Join-Path $PSScriptRoot 'OrchestrationAdvisorEscalation.ps1'
+        $advSignal=[string](Read-PL $d 'advisor_escalation_signal' '')
+        if(-not [string]::IsNullOrWhiteSpace($advSignal) -and (Test-Path -LiteralPath $advLib)){
+            try{
+                . $advLib
+                $advReq=@{
+                    task_id=[string](Read-PL $d 'task_id' 'planner-task');
+                    trigger_signal=$advSignal;
+                    justification=[string](Read-PL $d 'advisor_justification' 'Escalation triggered by planner loop.');
+                    question=[string](Read-PL $d 'advisor_question' $objective);
+                    context_summary=$objectiveForState;
+                    alternatives_evaluated=@((Read-PL $d 'alternatives' @()));
+                    constraints=@((Read-PL $d 'constraints' @()));
+                    known_evidence=@((Read-PL $d 'evidence' @()));
+                    head_sha=[string](Read-PL $d 'head_sha' '')
+                }
+                $advResp=Invoke-AdvisorConsultation -Request $advReq
+                if($null -ne $advResp){
+                    $recText=[string](Read-PL $advResp 'RecommendedOption' '')
+                    $actText=[string](Read-PL $advResp 'ActionableNextStep' '')
+                    $advisorAdvisory=[ordered]@{consulted=$true;status=[string]$advResp.Status;consultation_id=[string]$advResp.ConsultationId;recommendation=(Safe-PL $recText 160);actionable_step=(Safe-PL $actText 160);from_cache=[bool]$advResp.FromCache;tier=[string]$advResp.ModelTierUsed;authoritative=$false;recommendation_only=$true}
+                }
+            }catch{
+                $advisorAdvisory=[ordered]@{consulted=$false;status='error';reason='advisor-escalation-failed';authoritative=$false;recommendation_only=$true}
+            }
+        }
         $missing=@($roles)
         if($invalidDescriptor){$level='L2';$roles=@('coder','tester','reviewer');$completion=Unavailable-PL 'invalid-descriptor-conservative';$mode=[pscustomobject]@{mode='C';rationale='Invalid descriptor; conservative fallback.'};$workers=@('coder');$parallel=$false;$validation=[pscustomobject]@{status='unavailable';level='L2';required_roles=$roles};$dispatch.workers=$workers;$dispatch.parallel_ok=$false;$dispatch.escalations=@()}
-        $plan=[ordered]@{frame=$frame;reuse=$reuse;simplicity=[pscustomobject]@{status='ok';contract=$simple};risk_uncertainty=[ordered]@{risk=$risk;uncertainty=$uncertainty};execution_mode=$mode;budget_reservation=$budget;dispatch_plan=$dispatch;validation=[pscustomobject]@{status=$validation.status;level=$level;required_roles=$roles};validation_gaps=[ordered]@{missing_roles=$roles;missing_evidence=@()};complete_requirements=$completion;jev_triggers=$jev;jev_advisory=[ordered]@{authoritative=$false;kernel_authority='planner/kernel';recommendation_only=$true};jev_advisory_result=$jevAdvisory;stop_condition=(Safe-PL (Read-PL $d 'stop_condition' 'Stop when sufficient evidence supports the current decision; do not expand scope.') 300);generated_at=(Safe-PL $stamp 80);timestamp_note=$timestampNote}
+        $plan=[ordered]@{frame=$frame;reuse=$reuse;simplicity=[pscustomobject]@{status='ok';contract=$simple};risk_uncertainty=[ordered]@{risk=$risk;uncertainty=$uncertainty};execution_mode=$mode;budget_reservation=$budget;dispatch_plan=$dispatch;validation=[pscustomobject]@{status=$validation.status;level=$level;required_roles=$roles};validation_gaps=[ordered]@{missing_roles=$roles;missing_evidence=@()};complete_requirements=$completion;jev_triggers=$jev;jev_advisory=[ordered]@{authoritative=$false;kernel_authority='planner/kernel';recommendation_only=$true};jev_advisory_result=$jevAdvisory;advisor_advisory=$advisorAdvisory;stop_condition=(Safe-PL (Read-PL $d 'stop_condition' 'Stop when sufficient evidence supports the current decision; do not expand scope.') 300);generated_at=(Safe-PL $stamp 80);timestamp_note=$timestampNote}
         $plan=Clean-PL $plan
         $json=ConvertTo-Json -InputObject $plan -Depth 16 -Compress
         if([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192){$plan.reuse=Unavailable-PL 'discarded-plan-size';$plan.simplicity=[pscustomobject]@{status='unavailable';reason='discarded-plan-size'};$plan.jev_triggers=Unavailable-PL 'discarded-plan-size';$plan.jev_advisory_result=JevNotConsulted-PL 'discarded-plan-size';$plan.validation_gaps.missing_evidence=@();$json=ConvertTo-Json -InputObject $plan -Depth 12 -Compress}
