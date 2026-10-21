@@ -52,6 +52,6 @@
                                       "v2":  false
                                   },
     "model_router_pilot":  {
-                               "enabled":  false
+                               "enabled":  true
                            }
 }

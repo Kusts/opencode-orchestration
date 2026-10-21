@@ -322,12 +322,14 @@ try {
     Assert-PL (([int]$outside.Count -eq 2)) '[KILL] exactly two wrapper lines' ([string]$outside.Count)
     Assert-PL (([IO.File]::ReadAllText($alPath) -notmatch 'New-OrchestrationNativeDispatchIntent[^;]*-Model\b')) '[KILL] Intent call site gains no model param' ''
 
-    # ---------- registry default: pilot OFF ----------
+    # ---------- registry: pilot ACTIVATED by explicit human gate (issue #99) ----------
+    # Activation authorized 2026-10-21: pilot ON with same-tier effect only.
+    # Kill switch = set enabled:false (or remove the F3-PILOT block).
     $regPath = Join-Path $PSScriptRoot '..\..\..\source\registry\capability-flags.json'
     $regPath = [IO.Path]::GetFullPath($regPath)
     Assert-PL ((Test-Path -LiteralPath $regPath -PathType Leaf)) '[REG] capability-flags.json found' ($regPath)
     $reg = ([IO.File]::ReadAllText($regPath) | ConvertFrom-Json)
-    Assert-PL ((($null -ne $reg.model_router_pilot) -and ($reg.model_router_pilot.enabled -is [bool]) -and (-not [bool]$reg.model_router_pilot.enabled))) '[REG] model_router_pilot.enabled is false' ''
+    Assert-PL ((($null -ne $reg.model_router_pilot) -and ($reg.model_router_pilot.enabled -is [bool]) -and ([bool]$reg.model_router_pilot.enabled))) '[REG] model_router_pilot.enabled is true (activated)' ''
 
     # ---------- hygiene: ASCII only ----------
     foreach ($p in @($alPath, (Join-Path $PSScriptRoot 'OrchestrationModelRouterPilot.tests.ps1'), $regPath)) {
