@@ -6,6 +6,87 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F7 F1 S6 — wiring produtivo 3 fases (harness-only, HARNESS_PASS)**:
+  `scripts/v3/productive-three-phase-harness.tests.ps1` (Etapa D):
+  FASE 1 (RED) fixture com conteúdo verificável (goal/task TEMP + payload
+  de bytes conhecidos); settle via owner canônico com auth explícita
+  (exatamente 1 escrita kernel) e CONTINUE bloqueado sem verificação
+  (`continuation-verification-required`). FASE 2 (RED→GREEN) validação
+  real detecta erro intencional (review `changes_required` bloqueia
+  CONTINUE e recusa DONE, sem false DONE; corrigido com review approved +
+  DONE, o harness re-chama a continuação sozinho). FASE 3 (GREEN) a
+  re-chamada prepara exatamente 1 sucessor via ObjectiveStep SettledKey
+  (advance único, sucessor intocado, `executor_calls` 0, goal ainda
+  ACTIVE). Negativos: duplicata (replay único), task errada/lease
+  expirada (HOLD), review reject (bloqueado, sem DONE). `SOFT_ADVISORY`:
+  fixtures sintetizam host proofs e validam só plumbing (binding + tier
+  persistido), nunca atestação real do host. Suite de wiring 70 asserts +
+  harness 33 asserts, reviewer APPROVED. Veredito HARNESS_PASS;
+  RUNTIME_REAL_PASS não alegado (gap: child session observada no host +
+  proof por canal confiável). Sem claim runtime-real/G3/S6/enforcement;
+  flags OFF.
+
+- **F7 F3 — reconcile one-shot de resume (harness-only, HARNESS_PASS)**:
+  `scripts/v3/github-resume-reconcile.ps1` + suite
+  (`github-resume-reconcile.tests.ps1`, 116 asserts): formato one-shot
+  (sem sleep/loop/timer/retry/watcher/daemon/rede/merge), autoridade
+  pinada (ghwait é transporte, Kernel é autoridade, sem segundo store),
+  reconcile por ghwait via `Get-OrchestrationGitHubWaits` + snapshot de
+  fixture + `Test-OrchestrationGitHubResume` com flags vivas, Confirm
+  (CAS) RESUME-only + unblock do Kernel referenciando o fingerprint do
+  `active_wait`, READY notify-only; fault injection (CI pending→success/
+  failure, review changes-requested, SHA superseded, duplicata, fora de
+  ordem, restart antes/depois da persistência, cancel, expiry, 2
+  watchers, falha de auth ⇒ HOLD, binding-first kernel-first, pending-
+  confirm, conflito de CAS). HARNESS_PASS apenas — nunca AUTO_RESUME
+  (o gap de scheduling segue documentado; retomada real exige
+  scheduling/provider). Reviewer APPROVED. Sem claim runtime-real/
+  G3/S6/enforcement; flags OFF.
+
+- **F7 F4 O5 — link pinado delivery+resume (fixture, SOFT_ADVISORY)**:
+  `scripts/v3/interop-pinned-gate-link.tests.ps1` (12 casos, reviewer
+  APPROVED): compositor in-test `Invoke-O5Link` (única entrada
+  produtiva exercitada) — pin do bundle vigente + elegibilidade de merge
+  + readiness de resume ⇒ gate pinado; recibos só SOFT_ADVISORY/
+  CONFIRMED sobre EXECUTED, FAILED/UNKNOWN viram REMEDIATE/RECONCILE
+  com recibo nulo; nunca MEDIATED_ENFORCED, nunca DONE, nunca merge;
+  pin stale zera executor+persist; SHA antigo nunca autoriza HEAD novo;
+  self review nunca conta como independente; UNKNOWN reconcilia com
+  exatamente 1 chamada de executor. Sem claim runtime-real/G3/S6/
+  enforcement; flags OFF.
+
+- **F7 F6 — watchdog: fixture determinística de enforcement (harness)**:
+  fixture determinística do caminho de enforcement do watchdog
+  (interrupção kernel-side deadline/NO_PROGRESS ⇒ kill CIM+JobObject
+  pinado, em isolamento); suite 460 PASS / 0 FAIL, sem relaxar
+  fail-closed (`WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` preservado como
+  token do registro sem binding de processo provado; identidades não
+  prováveis ⇒ recusa, nunca kill). Sem claim de enforcement runtime-real/
+  G3/S6; flags OFF (ativação segue decisão do operador com evidência
+  `exact-binary-live`).
+
+- **F7 F5 — MCP→subagent mapeado (S5 blocked / S6 fail)**:
+  causa mapeada sem correção (experimento T0–T2: turno parent não lista
+  MCP tools no serve isolado; medidas `GET /api/mcp` pré-turno +
+  transcript do child + tool calls; stop em `provider.no-route`/
+  TIMEOUT>240s/2x exit=1 rápido). S5 segue blocked, S6 fail; lane
+  (`evidence/agent-mcp-integration/lane-S5S6-2026-10-19*.json`) e quota
+  de modelo seguem pendentes do operador. Nenhum claim; nenhuma flag
+  tocada.
+
+- **F7 — arquivos da rodada (working tree sobre `ee8c47b`; classificar
+  M/?? via `git status --short` antes do PR — ambiente desta task sem
+  shell, lista por escopo delegado):** confirmados em disco
+  `scripts/v3/productive-three-phase-harness.tests.ps1`,
+  `scripts/v3/github-resume-reconcile.ps1`,
+  `scripts/v3/github-resume-reconcile.tests.ps1`,
+  `scripts/v3/interop-pinned-gate-link.tests.ps1`,
+  suite/fixture de enforcement do watchdog desta sessão,
+  `CHANGELOG.md` ([Unreleased] este bloco) e
+  `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` (novo);
+  base `ee8c47b` = merge do PR #135. Issues #51 #86 #116 #69 #70
+  seguem OPEN; 0 PRs abertos; nada publicado, nada commitado.
+
 - **F1 S4 limitada — recovery atribuído por sessão substituta (fixture-only)**:
   `Invoke-OrchestrationSettledRecovery`
   (`scripts/v3/lib/OrchestrationSettledRecovery.ps1`) permite que uma sessão
@@ -239,6 +320,38 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   com subprocesso real); regressão `objective-step` 130/130. Verificação:
   tester PASS; reviewer APPROVED (4 rodadas); security-reviewer APPROVED
   (fixture-only, limitações declaradas no código).
+
+- **F7 — lanes 20/10 (sem claim novo, sem commit)**: MCP
+  (`evidence/agent-mcp-integration/lane-summary.json`, pin 2.0.23, sem
+  drift): S1–S4 `pass-real`, S5–S7 `blocked`
+  (`OPERATOR_ACTION_REQUIRED` — `ModelKeyEnvName` ausente/vazio, quota
+  preservada), S8 `pass-real`, 0 fail. RR-E2E-21
+  (`evidence/v3.1/runtime-reliability/session-lane-2026-10-20/lane-summary.json`,
+  pin 2.0.23): `blocked` parcial — detach+rebind real + estado/histórico
+  kernel-side provados; turno do substituto exige provider de modelo,
+  `required_activation` não exercitado; probes 7 `ambiguous` + 1
+  `unsupported` (`session-permission-narrowing`), sem promoção.
+  `package-consistency` 15/16 (check 16 FAIL ambiental — `Get-FileHash`
+  ausente no runspace, pré-existente, sem relação com as mudanças);
+  enforcement watchdog 460/0 PASS (mantido). Flags OFF; sem claim de
+  enforcement runtime-real/DONE/G3; issues #51 #86 #116 #69 #70 OPEN.
+
+- **F7 — suíte V3 integral 20/10 (2 runs, sem claim de CI verde)**:
+  run 1 PASS 105 / FAIL 8 / SKIP 5 / TOTAL 118 (log truncado, 8 sem
+  atribuição); run 2 (log completo
+  `C:/Users/walis/AppData/Local/Temp/opencode/v3-full-20261020.log`) 4
+  FAILs nomeados, todos alheios ao diff — (1) `session-bootstrap-context`
+  w14 paridade PS7 (runtime generation unknown/not-probed neste env) +
+  (2) `CapabilityObservability` + (3) `CapabilitySkillUtility` + (4)
+  `shadow-route` pelo assert "opencode.json vivo inalterado (prefixo
+  DE22307F)", divergência user-owned pré-existente/não-bloqueante; nenhum
+  toca ProductiveActivation/GitHubResume/WatchdogEnforcement. Suítes da
+  rodada todas PASS no runner integral: `github-resume-reconcile`,
+  `interop-pinned-gate-link`, `WatchdogEnforcement` (178s),
+  `productive-settle-continuation` (34s),
+  `productive-three-phase-harness`. Variância 8→4 = flake não atribuído,
+  sem claim; nenhum FAIL atribuível às mudanças. Detalhe em
+  `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` §9.1.
 
 ## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
 

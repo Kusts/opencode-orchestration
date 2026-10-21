@@ -13,7 +13,12 @@
     no transcripts: persisted contracts carry only bounded identifiers and
     stable codes. Readiness is NEVER reimplemented here: Test-... reuses
     Get-OrchestrationGitHubReadiness from OrchestrationDelivery.ps1 via
-    lazy dot-source (same idiom as github-await.ps1). Authority pins: every
+    lazy dot-source (same idiom as github-await.ps1). Compare-and-swap
+    writes are serialized by a single-try advisory sidecar lock
+    (<waitfile>.waitlock, no wait/sleep; contention fails closed with
+    wait-lock-busy). The lock serializes cooperating writers that go
+    through Write-GHRSWaitDocument; it is not an OS-mandatory lock
+    against foreign writers. Authority pins: every
     envelope reports grants_authority=false, done_approved=false,
     merge_authority=false, kernel_mutated=false. resume_authorized=true only
     on a RESUME decision, consumed by the invoking Planner session as a
@@ -304,6 +309,13 @@ function Write-GHRSWaitDocument {
         catch { return @{ ok = $false; reason = 'encode-failed' } }
         $dir = [IO.Path]::GetDirectoryName($p)
         if ([string]::IsNullOrWhiteSpace($dir)) { return @{ ok = $false; reason = 'invalid-wait-file' } }
+        $lockPath = ($p + '.waitlock')
+        $lockFs = $null
+        try {
+            $lockFs = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        }
+        catch { return @{ ok = $false; reason = 'wait-lock-busy' } }
+        try {
         $tmp = Join-Path $dir (('.tmp-' + [IO.Path]::GetRandomFileName()) + '.json')
         try { [IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding $false)) }
         catch {
@@ -332,6 +344,22 @@ function Write-GHRSWaitDocument {
             return @{ ok = $false; reason = 'wait-persist-failed' }
         }
         return @{ ok = $true; reason = '' }
+        }
+        finally {
+            try {
+                if ($null -ne $lockFs) {
+                    try { $lockFs.Close() } catch { }
+                    try { $lockFs.Dispose() } catch { }
+                }
+            }
+            catch { }
+            try {
+                if (-not [string]::IsNullOrWhiteSpace($lockPath)) {
+                    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+            catch { }
+        }
     }
     catch { return @{ ok = $false; reason = 'internal-error' } }
 }

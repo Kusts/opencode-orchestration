@@ -1,16 +1,16 @@
 {
     "lane":  "agent-mcp-integration-lane-v2",
     "purpose":  "integracao agent-\u003eMCP (tester-\u003ePlaywright, debugger-\u003eDevTools) em runtime REAL com binario V2 vivo",
-    "date":  "2026-10-12",
-    "started_at":  "2026-10-12T22:43:07.3411009Z",
-    "finished_at":  "2026-10-12T22:43:41.6082287Z",
+    "date":  "2026-10-20",
+    "started_at":  "2026-10-20T20:42:02.6648099Z",
+    "finished_at":  "2026-10-20T20:42:54.4999814Z",
     "status":  "completed",
     "reason":  "sem fail (apenas pass-real/blocked).",
     "runtime_pin":  "2.0.23",
     "runtime_live":  "2.0.23",
     "pin_drift":  false,
     "binary":  "~\\.opencode-orchestration\\profiles\\v2\\runtime\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
-    "model_key_env":  "model-key-env=\u003cunset\u003e",
+    "model_key_env":  "model-key-env=OPENCODE_API_KEY",
     "scenarios":  [
                       {
                           "scenario_id":  "S1",
@@ -25,7 +25,7 @@
                                          {
                                              "proof":  "mcp-connect-testing",
                                              "ok":  true,
-                                             "detail":  "queries=2 elapsed_ms=5619"
+                                             "detail":  "queries=2 elapsed_ms=5594"
                                          },
                                          {
                                              "proof":  "testing-exposes-playwright",
@@ -38,6 +38,11 @@
                                              "detail":  "serve dedicado + GET /api/mcp"
                                          },
                                          {
+                                             "proof":  "cleanup-testing",
+                                             "ok":  true,
+                                             "detail":  "Stop-LaneOwned acumulado na LaneCleanupLog: leaks=0 stop-failures=0"
+                                         },
+                                         {
                                              "proof":  "serve-auth-default",
                                              "ok":  true,
                                              "detail":  "segredo do serve em memoria (nunca logado)"
@@ -45,18 +50,23 @@
                                          {
                                              "proof":  "mcp-connect-default",
                                              "ok":  true,
-                                             "detail":  "queries=1 elapsed_ms=880"
+                                             "detail":  "queries=1 elapsed_ms=241"
                                          },
                                          {
                                              "proof":  "default-zero-browser",
                                              "ok":  true,
                                              "detail":  "serve dedicado + GET /api/mcp"
+                                         },
+                                         {
+                                             "proof":  "cleanup-default",
+                                             "ok":  true,
+                                             "detail":  "Stop-LaneOwned acumulado na LaneCleanupLog: leaks=0 stop-failures=0"
                                          }
                                      ],
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:22.3706258Z"
+                          "at":  "2026-10-20T20:42:18.0995879Z"
                       },
                       {
                           "scenario_id":  "S2",
@@ -76,7 +86,7 @@
                                          {
                                              "proof":  "mcp-connect",
                                              "ok":  true,
-                                             "detail":  "queries=2 elapsed_ms=5818"
+                                             "detail":  "queries=2 elapsed_ms=5427"
                                          },
                                          {
                                              "proof":  "api-mcp-playwright",
@@ -97,7 +107,7 @@
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:30.8185104Z"
+                          "at":  "2026-10-20T20:42:24.5094702Z"
                       },
                       {
                           "scenario_id":  "S3",
@@ -112,18 +122,18 @@
                                          {
                                              "proof":  "stdio-tools-playwright",
                                              "ok":  true,
-                                             "detail":  "tools=25 min=25 startup_ms=3901"
+                                             "detail":  "tools=25 min=25 startup_ms=14841"
                                          },
                                          {
                                              "proof":  "stdio-tools-devtools",
                                              "ok":  true,
-                                             "detail":  "tools=30 min=30 startup_ms=3394"
+                                             "detail":  "tools=30 min=30 startup_ms=11411"
                                          }
                                      ],
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:39.6746846Z"
+                          "at":  "2026-10-20T20:42:52.3171503Z"
                       },
                       {
                           "scenario_id":  "S4",
@@ -144,55 +154,55 @@
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:39.6875177Z"
+                          "at":  "2026-10-20T20:42:52.3365603Z"
                       },
                       {
                           "scenario_id":  "S5",
                           "status":  "blocked",
-                          "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=\u003cunset\u003e)",
+                          "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_API_KEY)",
                           "proofs":  [
                                          {
                                              "proof":  "model-setup",
                                              "ok":  false,
-                                             "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=\u003cunset\u003e)"
+                                             "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_API_KEY)"
                                          }
                                      ],
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:39.7122034Z"
+                          "at":  "2026-10-20T20:42:52.3466905Z"
                       },
                       {
                           "scenario_id":  "S6",
                           "status":  "blocked",
-                          "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=\u003cunset\u003e)",
+                          "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_API_KEY)",
                           "proofs":  [
                                          {
                                              "proof":  "model-setup",
                                              "ok":  false,
-                                             "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=\u003cunset\u003e)"
+                                             "detail":  "OPERATOR_ACTION_REQUIRED: ModelKeyEnvName ausente ou vazio (model-key-env=OPENCODE_API_KEY)"
                                          }
                                      ],
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:39.7158520Z"
+                          "at":  "2026-10-20T20:42:52.3497707Z"
                       },
                       {
                           "scenario_id":  "S7",
                           "status":  "blocked",
-                          "detail":  "OPERATOR_ACTION_REQUIRED: model-key-env=\u003cunset\u003e",
+                          "detail":  "OPERATOR_ACTION_REQUIRED: model-key-env=OPENCODE_API_KEY",
                           "proofs":  [
                                          {
                                              "proof":  "model-gate",
                                              "ok":  false,
-                                             "detail":  "OPERATOR_ACTION_REQUIRED (model-key-env=\u003cunset\u003e)"
+                                             "detail":  "OPERATOR_ACTION_REQUIRED (model-key-env=OPENCODE_API_KEY)"
                                          }
                                      ],
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:39.7158520Z"
+                          "at":  "2026-10-20T20:42:52.3546180Z"
                       },
                       {
                           "scenario_id":  "S8",
@@ -207,7 +217,12 @@
                                          {
                                              "proof":  "owned-stopped",
                                              "ok":  true,
-                                             "detail":  "leaks=0"
+                                             "detail":  "leaks=0 stop-failures=0"
+                                         },
+                                         {
+                                             "proof":  "cleanup-attempts-all",
+                                             "ok":  true,
+                                             "detail":  "tentativas anteriores com leak/falha=0 (LaneCleanupLog: todas as tentativas consideradas)"
                                          },
                                          {
                                              "proof":  "temp-profiles-removed",
@@ -223,7 +238,7 @@
                           "coverage":  [
 
                                        ],
-                          "at":  "2026-10-12T22:43:41.5947298Z"
+                          "at":  "2026-10-20T20:42:54.4493065Z"
                       }
                   ],
     "scenario_counts":  {
@@ -243,9 +258,9 @@
                        "detail":  "testing+default sob TargetHome exclusivo; OPENCODE_DB distintos (convencao lane-owned)"
                    },
                    {
-                       "check":  "auth_store_copied",
+                       "check":  "auth_store_deferred",
                        "ok":  true,
-                       "detail":  "auth.json/account.json copiados para XDG_DATA isolado (model auth via store; segredos morrem com TargetHome)"
+                       "detail":  "perfis iniciam SEM credencial; importacao adiada para pos-gate opt-in via Import-LaneProfileCredentials (S5/S6/S7); segredos morrem com TargetHome"
                    },
                    {
                        "check":  "configs_from_template",
@@ -265,10 +280,11 @@
                    {
                        "check":  "service_ports_isolated",
                        "ok":  true,
-                       "detail":  "testing=63693 default=63694 fixture=63695; 49374 recusada"
+                       "detail":  "testing=64653 default=64654 fixture=64655; 49374 recusada"
                    }
                ],
     "notes":  [
+                  "model-key opt-in (model-key-env=OPENCODE_API_KEY); passthrough pontual SOMENTE aos filhos opencode run de S5/S6/S7",
                   "S2 sem debug config (TIMEOUT provado); usa serve owned + GET /api/mcp"
               ],
     "evidence_records":  [
@@ -282,8 +298,8 @@
                                  "mcp_id":  "n/a",
                                  "tool_id":  "n/a",
                                  "invocation_status":  "cleanup",
-                                 "result_status":  "leaks=0 removed=True",
-                                 "timestamp":  "2026-10-12T22:43:41.5841748Z",
+                                 "result_status":  "leaks=0 stop-failures=0 removed=True",
+                                 "timestamp":  "2026-10-20T20:42:54.4345765Z",
                                  "evidence_source":  "Stop-LaneOwned + Remove-Item TargetHome",
                                  "prompt_sha256":  "n/a"
                              }
