@@ -137,7 +137,11 @@ git pull
 
 O instalador é idempotente e ownership-aware: só atualiza o que pertence ao
 pacote; customização sua com hash divergente é mantida (o uninstall avisa
-com `KEEP` em vez de remover).
+com `KEEP` em vez de remover). Interop Agent Config (2026-10-19, gates O0–O6
+fechados): com marker `agent-config:global` presente, o instalador não
+escreve texto global, perfis `agents/*` nem `agents.*.permissions`
+(dono agent-config); o manifest registra `config_ownership` + proveniência.
+V1 permanece frozen. Cutover (desligar cópia global) pendente de decisão P1.
 
 ## Remover
 

@@ -15,6 +15,163 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   debugger; docs (`PERMISSIONS.md`, `SECURITY.md`, adapters) movem debugger
   para validator-shell. Decisão explícita do operador; owner determinístico
   (hard exclusion `permission_change`).
+- **F7 F1 S6 — wiring produtivo 3 fases (harness-only, HARNESS_PASS)**:
+  `scripts/v3/productive-three-phase-harness.tests.ps1` (Etapa D):
+  FASE 1 (RED) fixture com conteúdo verificável (goal/task TEMP + payload
+  de bytes conhecidos); settle via owner canônico com auth explícita
+  (exatamente 1 escrita kernel) e CONTINUE bloqueado sem verificação
+  (`continuation-verification-required`). FASE 2 (RED→GREEN) validação
+  real detecta erro intencional (review `changes_required` bloqueia
+  CONTINUE e recusa DONE, sem false DONE; corrigido com review approved +
+  DONE, o harness re-chama a continuação sozinho). FASE 3 (GREEN) a
+  re-chamada prepara exatamente 1 sucessor via ObjectiveStep SettledKey
+  (advance único, sucessor intocado, `executor_calls` 0, goal ainda
+  ACTIVE). Negativos: duplicata (replay único), task errada/lease
+  expirada (HOLD), review reject (bloqueado, sem DONE). `SOFT_ADVISORY`:
+  fixtures sintetizam host proofs e validam só plumbing (binding + tier
+  persistido), nunca atestação real do host. Suite de wiring 70 asserts +
+  harness 33 asserts, reviewer APPROVED. Veredito HARNESS_PASS;
+  RUNTIME_REAL_PASS não alegado (gap: child session observada no host +
+  proof por canal confiável). Sem claim runtime-real/G3/S6/enforcement;
+  flags OFF.
+
+- **F7 F3 — reconcile one-shot de resume (harness-only, HARNESS_PASS)**:
+  `scripts/v3/github-resume-reconcile.ps1` + suite
+  (`github-resume-reconcile.tests.ps1`, 116 asserts): formato one-shot
+  (sem sleep/loop/timer/retry/watcher/daemon/rede/merge), autoridade
+  pinada (ghwait é transporte, Kernel é autoridade, sem segundo store),
+  reconcile por ghwait via `Get-OrchestrationGitHubWaits` + snapshot de
+  fixture + `Test-OrchestrationGitHubResume` com flags vivas, Confirm
+  (CAS) RESUME-only + unblock do Kernel referenciando o fingerprint do
+  `active_wait`, READY notify-only; fault injection (CI pending→success/
+  failure, review changes-requested, SHA superseded, duplicata, fora de
+  ordem, restart antes/depois da persistência, cancel, expiry, 2
+  watchers, falha de auth ⇒ HOLD, binding-first kernel-first, pending-
+  confirm, conflito de CAS). HARNESS_PASS apenas — nunca AUTO_RESUME
+  (o gap de scheduling segue documentado; retomada real exige
+  scheduling/provider). Reviewer APPROVED. Sem claim runtime-real/
+  G3/S6/enforcement; flags OFF.
+
+- **F7 F4 O5 — link pinado delivery+resume (fixture, SOFT_ADVISORY)**:
+  `scripts/v3/interop-pinned-gate-link.tests.ps1` (12 casos, reviewer
+  APPROVED): compositor in-test `Invoke-O5Link` (única entrada
+  produtiva exercitada) — pin do bundle vigente + elegibilidade de merge
+  + readiness de resume ⇒ gate pinado; recibos só SOFT_ADVISORY/
+  CONFIRMED sobre EXECUTED, FAILED/UNKNOWN viram REMEDIATE/RECONCILE
+  com recibo nulo; nunca MEDIATED_ENFORCED, nunca DONE, nunca merge;
+  pin stale zera executor+persist; SHA antigo nunca autoriza HEAD novo;
+  self review nunca conta como independente; UNKNOWN reconcilia com
+  exatamente 1 chamada de executor. Sem claim runtime-real/G3/S6/
+  enforcement; flags OFF.
+
+- **F7 F6 — watchdog: fixture determinística de enforcement (harness)**:
+  fixture determinística do caminho de enforcement do watchdog
+  (interrupção kernel-side deadline/NO_PROGRESS ⇒ kill CIM+JobObject
+  pinado, em isolamento); suite 460 PASS / 0 FAIL, sem relaxar
+  fail-closed (`WATCHDOG_ENFORCEMENT_NOT_IMPLEMENTED` preservado como
+  token do registro sem binding de processo provado; identidades não
+  prováveis ⇒ recusa, nunca kill). Sem claim de enforcement runtime-real/
+  G3/S6; flags OFF (ativação segue decisão do operador com evidência
+  `exact-binary-live`).
+
+- **F7 F5 — MCP→subagent mapeado (S5 blocked / S6 fail)**:
+  causa mapeada sem correção (experimento T0–T2: turno parent não lista
+  MCP tools no serve isolado; medidas `GET /api/mcp` pré-turno +
+  transcript do child + tool calls; stop em `provider.no-route`/
+  TIMEOUT>240s/2x exit=1 rápido). S5 segue blocked, S6 fail; lane
+  (`evidence/agent-mcp-integration/lane-S5S6-2026-10-19*.json`) e quota
+  de modelo seguem pendentes do operador. Nenhum claim; nenhuma flag
+  tocada.
+
+- **F7 — arquivos da rodada (working tree sobre `ee8c47b`; classificar
+  M/?? via `git status --short` antes do PR — ambiente desta task sem
+  shell, lista por escopo delegado):** confirmados em disco
+  `scripts/v3/productive-three-phase-harness.tests.ps1`,
+  `scripts/v3/github-resume-reconcile.ps1`,
+  `scripts/v3/github-resume-reconcile.tests.ps1`,
+  `scripts/v3/interop-pinned-gate-link.tests.ps1`,
+  suite/fixture de enforcement do watchdog desta sessão,
+  `CHANGELOG.md` ([Unreleased] este bloco) e
+  `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` (novo);
+  base `ee8c47b` = merge do PR #135. Issues #51 #86 #116 #69 #70
+  seguem OPEN; 0 PRs abertos; nada publicado, nada commitado.
+
+- **F1 S4 limitada — recovery atribuído por sessão substituta (fixture-only)**:
+  `Invoke-OrchestrationSettledRecovery`
+  (`scripts/v3/lib/OrchestrationSettledRecovery.ps1`) permite que uma sessão
+  substituta (descritor de host, nunca capability) solicite a recuperação de
+  um advance `prepared`/terminal já validado, com atribuição durável
+  (sessão substituta, owner/generation/source, motivo, goal/settled
+  key/task e vínculos causais em `assignment_fingerprint` determinístico
+  sem timestamp) em `<settledKey>.recovery.json` (`reserved`/`recorded`,
+  escrita atômica sem sobrescrever; mesma atribuição reexecuta
+  deterministicamente, divergente recusa `recovery-assignment-mismatch`).
+  O replay é delegado à continuação S3a: pré-condições na entrada (auth
+  viva, ownership/fencing, settlement válido, correlação, integridade,
+  evidência vinculada) + revalidação de auth/ownership/lease e estado
+  vivo do goal logo após adquirir o lock, antes de qualquer escrita ou
+  delegação (F1-S4-FIX1); COMPLETE só com gate/CAS da S3a. O recibo
+  sucessor é validado antes de anunciar `prepared` ou delegar o replay
+  (existência, fase `prepared`, correlação goal/key/task/agent/reference,
+  fingerprint integral do NextIntent quando fornecido, integridade
+  semântica recalculada; ausente/divergente/corrompido recusa
+  `recovery-successor-unproven` sem PREPARE). Após o lock, o settlement
+  é revalidado por comparação (recibo byte-a-byte, binding do
+  `worker_result`, hash da evidência); mudança durante a espera recusa
+  sem escrita nem checkpoint (F1-S4-FIX3). Publicação com desambiguação
+  (`written`/`published`/`absent`/`uncertain`): falha parcial preserva
+  efeitos/referências conhecidos + follow-up manual. O registro carrega
+  `intended_action` vinculado ao fingerprint e só aceita transições
+  válidas para o terminal gravado (a reentrada reproduz o envelope
+  terminal verbatim); terminais `blocked` exigem `ok=false` (e
+  `prepared=true` exige `next_key`), recusando a troca apenas da ação que
+  preservaria um resultado de sucesso (F1-S4-FIX5). Checkpoint ausente é
+  reconstruído de registros
+  canônicos (uma tentativa, falha registrada com honestidade).
+  Pending/ambíguo vira `blocked-manual` atribuído (só o registro;
+  `domain_mutated=false`) ou recusa (`recovery-intent-unproven`,
+  `recovery-no-continuation`); pending automático e ADVANCE próprio são
+  HOLD/manual — nenhum novo PREPARE/CLAIM/SETTLE/worker, nenhuma mutação
+  de goal/task/receipt/advance em `blocked-manual`, nenhuma aquisição ou
+  transferência de owner. A janela pós-delegação (S3a escreve checkpoint/
+  prepared/BLOCKED/REPLAN sem revalidar auth) segue residual declarada.
+  Lock dedicado `.recovery-<key>.lock` (distinto
+  dos locks do ND, timeout limitado → `recovery-lock-busy`); `reserved`
+  após crash relê os stores canônicos, nunca presume sucesso; registro
+  ilegível/não-arquivo/reparse é preservado e recusado.
+  `executor_calls` sempre 0; sem `Outcome`/`approved`/`verified`/`force`
+  como autoridade. Nova suíte `OrchestrationSettledRecovery.tests.ps1`
+  (1083 asserts em PS 5.1 e pwsh 7.6.7: prepared/terminal replay,
+  COMPLETE válido/recusado (+reentrada idêntica ao terminal gravado),
+  sessão/auth/owner, takeover sem transferência implícita, pending
+  manual/recusa, receipt pending/claimed/prepared, evidência ausente/
+  ilegível/decorrelacionada, worker superseded, checkpoint rebuild
+  honesto, registros corrompidos/divergentes/crash, lock exclusivo
+  multiprocesso com processos externos reais e barreira observável
+  (mesma atribuição determinística, atribuições distintas, timeout do
+  lock), revalidação pós-lock (F1a determinística + F1b com takeover
+  durante a espera real + F1c com recibo do settlement adulterado durante
+  a espera + F2d com sucessor removido durante a espera), vínculo do
+  sucessor (removido/corrompido/referência trocada/tamper de scope com
+  nominais intactos + fingerprint do NextIntent + re-checagem sob lock +
+  controle válido + NextIntent divergente), registro com
+  `intended_action`/transições validadas e adulteração rejeitada
+  (9 variantes incl. troca entre ações permitidas e troca para `blocked`
+  mantendo o resultado de sucesso), desambiguação de
+  publicação (`published` somente com fase/intenção/ação/resultado
+  solicitados comprovados — reserva anterior com mesmo fingerprint
+  nunca prova finalização, S13g — mais `published`/`uncertain`/`absent`
+  como unidade S13f), falha parcial e escrita ambígua preservando efeitos
+  conhecidos, RepoRoot encaminhado
+  à S3a (namespace idêntico com/sem ReceiptDir), adversarial remoção/
+  troca/downgrade, sentinela zero worker/CLAIM/SETTLE/PREPARE, regressão
+  sem `SettledKey`); S3a (658 asserts), ND handoff/advance (2151 asserts)
+  e ND receipts (208 asserts) verdes em ambos os hosts. O runner V3
+  descobre a suíte (`scripts/v3/lib/*.tests.ps1`); os steps V3 dos jobs
+  ps51/ps7/v2 lane foram elevados para 60 min e os jobs para 75 para
+  absorver a suíte multiprocesso — sem skip/continue-on-error. Sem claim
+  runtime-real/G3/S6/enforcement; sem mudança em S3a/AL, ND, TaskKernel,
+  plugin, grants ou flags.
 
 - **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
   `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
@@ -172,6 +329,38 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   com subprocesso real); regressão `objective-step` 130/130. Verificação:
   tester PASS; reviewer APPROVED (4 rodadas); security-reviewer APPROVED
   (fixture-only, limitações declaradas no código).
+
+- **F7 — lanes 20/10 (sem claim novo, sem commit)**: MCP
+  (`evidence/agent-mcp-integration/lane-summary.json`, pin 2.0.23, sem
+  drift): S1–S4 `pass-real`, S5–S7 `blocked`
+  (`OPERATOR_ACTION_REQUIRED` — `ModelKeyEnvName` ausente/vazio, quota
+  preservada), S8 `pass-real`, 0 fail. RR-E2E-21
+  (`evidence/v3.1/runtime-reliability/session-lane-2026-10-20/lane-summary.json`,
+  pin 2.0.23): `blocked` parcial — detach+rebind real + estado/histórico
+  kernel-side provados; turno do substituto exige provider de modelo,
+  `required_activation` não exercitado; probes 7 `ambiguous` + 1
+  `unsupported` (`session-permission-narrowing`), sem promoção.
+  `package-consistency` 15/16 (check 16 FAIL ambiental — `Get-FileHash`
+  ausente no runspace, pré-existente, sem relação com as mudanças);
+  enforcement watchdog 460/0 PASS (mantido). Flags OFF; sem claim de
+  enforcement runtime-real/DONE/G3; issues #51 #86 #116 #69 #70 OPEN.
+
+- **F7 — suíte V3 integral 20/10 (2 runs, sem claim de CI verde)**:
+  run 1 PASS 105 / FAIL 8 / SKIP 5 / TOTAL 118 (log truncado, 8 sem
+  atribuição); run 2 (log completo
+  `C:/Users/walis/AppData/Local/Temp/opencode/v3-full-20261020.log`) 4
+  FAILs nomeados, todos alheios ao diff — (1) `session-bootstrap-context`
+  w14 paridade PS7 (runtime generation unknown/not-probed neste env) +
+  (2) `CapabilityObservability` + (3) `CapabilitySkillUtility` + (4)
+  `shadow-route` pelo assert "opencode.json vivo inalterado (prefixo
+  DE22307F)", divergência user-owned pré-existente/não-bloqueante; nenhum
+  toca ProductiveActivation/GitHubResume/WatchdogEnforcement. Suítes da
+  rodada todas PASS no runner integral: `github-resume-reconcile`,
+  `interop-pinned-gate-link`, `WatchdogEnforcement` (178s),
+  `productive-settle-continuation` (34s),
+  `productive-three-phase-harness`. Variância 8→4 = flake não atribuído,
+  sem claim; nenhum FAIL atribuível às mudanças. Detalhe em
+  `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` §9.1.
 
 ## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
 
