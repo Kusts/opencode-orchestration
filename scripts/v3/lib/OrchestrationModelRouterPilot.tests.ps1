@@ -3,11 +3,19 @@
     F3 pilot envelope tests (issue #99, PLAN section 5).
 .DESCRIPTION
     Dot-sourceable suite (no execution on load beyond the asserts below).
-    Covers the opt-in F3-PILOT block in lib/OrchestrationAutonomousLoop.ps1:
+    Covers the opt-in F3-PILOT block in lib/OrchestrationAutonomousLoop.ps1,
+    expanded by F4 to the full cheap matrix (SPEC section 5, PLAN section 6):
     OFF (absent or enabled:false) behaves exactly like baseline; ON applies
-    ONLY for pilot classes (trivial->coder, research->explorer/researcher)
-    with a valid envelope (denied=false, fallback_used=false) and a
-    matrix model ('cheap'); every other case stays on baseline. The Intent
+    ONLY for cheap-matrix pairs (coder/implementation+trivial, explorer/
+    analysis+research, researcher/research, tester/testing+validation,
+    docs-manager/documentation, database-engineer/migration+implementation,
+    frontend/backend/ai/automation/infra-engineer implementation,
+    requirements-analyst/engineering-advisor/skeptic+infra-engineer
+    planning, product-designer/design) with a valid envelope
+    (denied=false, fallback_used=false) and a matrix model ('cheap');
+    every other case stays on baseline. Strong pool (reviewer, debugger,
+    security-reviewer, architect) and infra_mutation (infra-engineer+
+    migration) never route: silent baseline, no telemetry. The Intent
     contract is never extended (no 'model' field). Denied/fallback_used
     fixtures prove the exact gate signals the block consumes. Kill-switch
     confinement is checked statically: all pilot code lives between
@@ -159,15 +167,96 @@ try {
     Assert-PL (([string]$sRes.model_routing.selected -ceq 'cheap')) '[ON-research] selected is cheap' ([string]$sRes.model_routing.selected)
     Assert-PL (($sRes.dispatch_intent.PSObject.Properties.Name -notcontains 'model')) '[ON-research] intent still has no model field' ''
 
-    # ---------- ON + non-pilot class: baseline, silent ----------
-    $specImpl = Get-PLStepSpec -TaskId 'pl-task-3' -Agent 'coder' -TaskClass 'implementation' -PromptHash $ph -Gen $gen
+    # ---------- ON + non-matrix class: baseline, silent ----------
+    $specImplDenied = Get-PLStepSpec -TaskId 'pl-task-3' -Agent 'coder' -TaskClass 'review' -PromptHash $ph -Gen $gen
     $nBefore = 0
     if (Test-Path -LiteralPath $logOn -PathType Leaf) { $nBefore = ([int]@([IO.File]::ReadAllLines($logOn) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count) }
-    $sImpl = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specImpl -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
-    Assert-PL (([string]$sImpl.action -ceq 'dispatch_intent')) '[ON-impl] action is dispatch_intent' ([string]$sImpl.action)
-    Assert-PL (($sImpl.PSObject.Properties.Name -notcontains 'model_routing')) '[ON-impl] no model_routing note (baseline)' ''
+    $sImpl = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specImplDenied -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (([string]$sImpl.action -ceq 'dispatch_intent')) '[ON-review-class] action is dispatch_intent' ([string]$sImpl.action)
+    Assert-PL (($sImpl.PSObject.Properties.Name -notcontains 'model_routing')) '[ON-review-class] no model_routing note (baseline)' ''
     $nAfter = ([int]@([IO.File]::ReadAllLines($logOn) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count)
-    Assert-PL (([int]$nAfter -eq [int]$nBefore)) '[ON-impl] no telemetry line for skipped class' ('' + $nBefore + '->' + $nAfter)
+    Assert-PL (([int]$nAfter -eq [int]$nBefore)) '[ON-review-class] no telemetry line for skipped class' ('' + $nBefore + '->' + $nAfter)
+
+    # ---------- F4: expanded cheap matrix is eligible ----------
+    $specF4Impl = Get-PLStepSpec -TaskId 'pl-task-5' -Agent 'coder' -TaskClass 'implementation' -PromptHash $ph -Gen $gen
+    $sF4Impl = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Impl -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (([string]$sF4Impl.action -ceq 'dispatch_intent')) '[F4-impl] action is dispatch_intent' ([string]$sF4Impl.action)
+    $sF4ImplOff = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Impl -GoalStoreDir $goalDir -EvidenceStoreDir $evOff -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOff
+    Assert-PL (((Get-PLIntentSig $sF4Impl) -ceq (Get-PLIntentSig $sF4ImplOff))) '[F4-impl] intent bytes identical to baseline' ''
+    Assert-PL (($sF4Impl.dispatch_intent.PSObject.Properties.Name -notcontains 'model')) '[F4-impl] intent still has no model field' ''
+    Assert-PL (($sF4Impl.PSObject.Properties.Name -contains 'model_routing')) '[F4-impl] envelope carries model_routing note' ''
+    Assert-PL (([bool]$sF4Impl.model_routing.applied)) '[F4-impl] applied is true' ''
+    Assert-PL (([string]$sF4Impl.model_routing.selected -ceq 'cheap')) '[F4-impl] selected is cheap' ([string]$sF4Impl.model_routing.selected)
+
+    $specF4Test = Get-PLStepSpec -TaskId 'pl-task-6' -Agent 'tester' -TaskClass 'testing' -PromptHash $ph -Gen $gen
+    $sF4Test = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Test -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Test.PSObject.Properties.Name -contains 'model_routing')) '[F4-testing] envelope carries note' ''
+    Assert-PL (([bool]$sF4Test.model_routing.applied)) '[F4-testing] applied is true' ''
+    Assert-PL (([string]$sF4Test.model_routing.selected -ceq 'cheap')) '[F4-testing] selected is cheap' ([string]$sF4Test.model_routing.selected)
+    Assert-PL (($sF4Test.dispatch_intent.PSObject.Properties.Name -notcontains 'model')) '[F4-testing] intent still has no model field' ''
+
+    $specF4Docs = Get-PLStepSpec -TaskId 'pl-task-7' -Agent 'docs-manager' -TaskClass 'documentation' -PromptHash $ph -Gen $gen
+    $sF4Docs = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Docs -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Docs.PSObject.Properties.Name -contains 'model_routing')) '[F4-docs] envelope carries note' ''
+    Assert-PL (([bool]$sF4Docs.model_routing.applied)) '[F4-docs] applied is true' ''
+
+    $specF4Plan = Get-PLStepSpec -TaskId 'pl-task-8' -Agent 'requirements-analyst' -TaskClass 'planning' -PromptHash $ph -Gen $gen
+    $sF4Plan = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Plan -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Plan.PSObject.Properties.Name -contains 'model_routing')) '[F4-planning] envelope carries note' ''
+    Assert-PL (([bool]$sF4Plan.model_routing.applied)) '[F4-planning] applied is true' ''
+
+    $specF4Design = Get-PLStepSpec -TaskId 'pl-task-9' -Agent 'product-designer' -TaskClass 'design' -PromptHash $ph -Gen $gen
+    $sF4Design = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Design -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Design.PSObject.Properties.Name -contains 'model_routing')) '[F4-design] envelope carries note' ''
+    Assert-PL (([bool]$sF4Design.model_routing.applied)) '[F4-design] applied is true' ''
+
+    $specF4Mig = Get-PLStepSpec -TaskId 'pl-task-10' -Agent 'database-engineer' -TaskClass 'migration' -PromptHash $ph -Gen $gen
+    $sF4Mig = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Mig -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Mig.PSObject.Properties.Name -contains 'model_routing')) '[F4-migration] envelope carries note' ''
+    Assert-PL (([bool]$sF4Mig.model_routing.applied)) '[F4-migration] applied is true' ''
+
+    $specF4Anal = Get-PLStepSpec -TaskId 'pl-task-11' -Agent 'explorer' -TaskClass 'analysis' -PromptHash $ph -Gen $gen
+    $sF4Anal = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Anal -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Anal.PSObject.Properties.Name -contains 'model_routing')) '[F4-analysis] envelope carries note' ''
+    Assert-PL (([bool]$sF4Anal.model_routing.applied)) '[F4-analysis] applied is true' ''
+
+    $specF4Front = Get-PLStepSpec -TaskId 'pl-task-12' -Agent 'frontend-engineer' -TaskClass 'implementation' -PromptHash $ph -Gen $gen
+    $sF4Front = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Front -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sF4Front.PSObject.Properties.Name -contains 'model_routing')) '[F4-frontend] envelope carries note' ''
+    Assert-PL (([bool]$sF4Front.model_routing.applied)) '[F4-frontend] applied is true' ''
+
+    # ---------- F4 OFF: expanded class behaves like baseline when flag OFF ----------
+    $sF4Off = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specF4Test -GoalStoreDir $goalDir -EvidenceStoreDir $evOff -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOff
+    Assert-PL (($sF4Off.PSObject.Properties.Name -notcontains 'model_routing')) '[F4-OFF] expanded class has no note when flag OFF' ''
+
+    # ---------- F4 prohibited: strong pool never routes ----------
+    $specStrongDebug = Get-PLStepSpec -TaskId 'pl-task-13' -Agent 'debugger' -TaskClass 'debugging' -PromptHash $ph -Gen $gen
+    $sStrongDebug = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specStrongDebug -GoalStoreDir $goalDir -EvidenceStoreDir $evOn2 -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (([string]$sStrongDebug.action -ceq 'dispatch_intent')) '[F4-debugger] action is dispatch_intent' ([string]$sStrongDebug.action)
+    Assert-PL (($sStrongDebug.PSObject.Properties.Name -notcontains 'model_routing')) '[F4-debugger] strong pool never routed (baseline)' ''
+    Assert-PL (($sStrongDebug.dispatch_intent.PSObject.Properties.Name -notcontains 'model')) '[F4-debugger] intent still has no model field' ''
+
+    $specStrongArch = Get-PLStepSpec -TaskId 'pl-task-14' -Agent 'architect' -TaskClass 'planning' -PromptHash $ph -Gen $gen
+    $sStrongArch = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specStrongArch -GoalStoreDir $goalDir -EvidenceStoreDir $evOn2 -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sStrongArch.PSObject.Properties.Name -notcontains 'model_routing')) '[F4-architect] strong pool never routed (baseline)' ''
+
+    $specStrongSec = Get-PLStepSpec -TaskId 'pl-task-15' -Agent 'security-reviewer' -TaskClass 'review' -PromptHash $ph -Gen $gen
+    $sStrongSec = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specStrongSec -GoalStoreDir $goalDir -EvidenceStoreDir $evOn2 -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sStrongSec.PSObject.Properties.Name -notcontains 'model_routing')) '[F4-security] strong pool never routed (baseline)' ''
+
+    # ---------- F4 prohibited: infra_mutation never routes ----------
+    $specInfraMut = Get-PLStepSpec -TaskId 'pl-task-16' -Agent 'infra-engineer' -TaskClass 'migration' -PromptHash $ph -Gen $gen
+    $nMutBefore = ([int]@([IO.File]::ReadAllLines($logOn) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count)
+    $sInfraMut = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specInfraMut -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (([string]$sInfraMut.action -ceq 'dispatch_intent')) '[F4-infra-mutation] action is dispatch_intent' ([string]$sInfraMut.action)
+    Assert-PL (($sInfraMut.PSObject.Properties.Name -notcontains 'model_routing')) '[F4-infra-mutation] never routed (baseline)' ''
+    $nMutAfter = ([int]@([IO.File]::ReadAllLines($logOn) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count)
+    Assert-PL (([int]$nMutAfter -eq [int]$nMutBefore)) '[F4-infra-mutation] no telemetry line' ('' + $nMutBefore + '->' + $nMutAfter)
+
+    # ---------- F4 prohibited: debugging class claimed by cheap agent stays baseline ----------
+    $specCheapDebug = Get-PLStepSpec -TaskId 'pl-task-17' -Agent 'coder' -TaskClass 'debugging' -PromptHash $ph -Gen $gen
+    $sCheapDebug = Invoke-OrchestrationObjectiveStep -Goal $goal0 -CheckpointDir $ckptDir -Authorization $authOk -DispatchSpec $specCheapDebug -GoalStoreDir $goalDir -EvidenceStoreDir $evOn -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsOn
+    Assert-PL (($sCheapDebug.PSObject.Properties.Name -notcontains 'model_routing')) '[F4-cheap-debugging] non-matrix pair stays baseline' ''
 
     # ---------- ON + sensitive role: baseline, silent ----------
     $specSens = Get-PLStepSpec -TaskId 'pl-task-4' -Agent 'reviewer' -TaskClass 'trivial' -PromptHash $ph -Gen $gen

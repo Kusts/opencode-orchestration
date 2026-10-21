@@ -365,13 +365,16 @@ function Invoke-OrchestrationObjectiveStep {
                     . (Join-Path $PSScriptRoot 'OrchestrationModelRouting.ps1')
                     $__pilotAgent = (([string](Get-ALValue $spec 'agent' '')).Trim())
                     $__pilotClass = (([string](Get-ALValue $spec 'task_class' '')).Trim().ToLowerInvariant())
-                    $__pilotMap = @{ trivial = @('coder'); research = @('explorer', 'researcher') }
-                    $__pilotClassOk = (($__pilotMap.ContainsKey($__pilotClass)) -and ($__pilotMap[$__pilotClass] -ccontains $__pilotAgent))
+                    $__pilotDenied = @('reviewer', 'debugger', 'security-reviewer', 'architect')
+                    $__pilotDeniedHit = ($__pilotDenied -ccontains $__pilotAgent)
+                    $__pilotInfraMutation = (([string]$__pilotAgent -ceq 'infra-engineer') -and ([string]$__pilotClass -ceq 'migration'))
+                    $__pilotMap = @{ trivial = @('coder'); implementation = @('coder', 'frontend-engineer', 'backend-engineer', 'database-engineer', 'ai-agent-engineer', 'automation-engineer', 'infra-engineer'); research = @('explorer', 'researcher'); analysis = @('explorer'); testing = @('tester'); validation = @('tester'); documentation = @('docs-manager'); migration = @('database-engineer'); planning = @('requirements-analyst', 'engineering-advisor', 'skeptic', 'infra-engineer'); design = @('product-designer') }
+                    $__pilotClassOk = ((-not [bool]$__pilotDeniedHit) -and (-not [bool]$__pilotInfraMutation) -and ($__pilotMap.ContainsKey($__pilotClass)) -and ($__pilotMap[$__pilotClass] -ccontains $__pilotAgent))
                     if ([bool]$__pilotClassOk) {
                         $__pilotGoalId = (([string](Get-ALValue $Goal 'goal_id' '')).Trim().Replace('"', ''))
                         $__pilotTaskId = (([string](Get-ALValue $spec 'task_id' '')).Trim().Replace('"', ''))
                         $__pilotReq = New-ModelRoutingRequest -TaskId $__pilotTaskId -Role $__pilotAgent -TaskClass $__pilotClass -Risk 'LOW' -Candidates @('cheap') -Fallback 'cheap'
-                        $__pilotProp = New-ModelRoutingResult -Selected 'cheap' -Reason 'BASELINE_SUFFICIENT' -Confidence 0.9 -Fallback 'cheap' -PolicyRefs @('F3-PILOT trivial/research cheap') -EvidenceRefs @('NO_EVIDENCE_YET')
+                        $__pilotProp = New-ModelRoutingResult -Selected 'cheap' -Reason 'BASELINE_SUFFICIENT' -Confidence 0.9 -Fallback 'cheap' -PolicyRefs @('F4-PILOT cheap-matrix') -EvidenceRefs @('NO_EVIDENCE_YET')
                         $__pilotConsumed = 0
                         $__pilotLogPath = ''
                         try {
