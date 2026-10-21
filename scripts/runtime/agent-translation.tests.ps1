@@ -188,6 +188,12 @@ Assert-Ok ((@($t.ShellRules)).Count -gt 10) 'tester shell map amplo' ('rules=' +
 Assert-Ok ([string]$t.BashKind -ceq 'map') 'tester bash em mapa' ([string]$t.BashKind)
 Assert-Ok ([bool]$t.HasCatchAll -and ([string]$t.CatchAllEffect -ceq 'allow')) 'tester catch-all allow (shell amplo)' ([string]$t.CatchAllEffect)
 
+$d = $canonById['debugger']
+Assert-Ok (([string]$d.Edit -ceq 'deny') -and ([bool]$d.EditPresent)) 'debugger edit deny' ([string]$d.Edit)
+Assert-Ok ((@($d.ShellRules)).Count -gt 10) 'debugger shell map amplo' ('rules=' + (@($d.ShellRules)).Count)
+Assert-Ok ([string]$d.BashKind -ceq 'map') 'debugger bash em mapa' ([string]$d.BashKind)
+Assert-Ok ([bool]$d.HasCatchAll -and ([string]$d.CatchAllEffect -ceq 'allow')) 'debugger catch-all allow (shell amplo)' ([string]$d.CatchAllEffect)
+
 foreach ($stem in @('reviewer', 'security-reviewer', 'architect')) {
   $c = $canonById[$stem]
   Assert-Ok ([string]$c.Model -ceq '{{MODEL_STRONG}}' ) ($stem + ' MODEL_STRONG canonico') ([string]$c.Model)

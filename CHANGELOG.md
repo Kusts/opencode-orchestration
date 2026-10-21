@@ -6,6 +6,16 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Permissões do debugger: shell amplo como no tester (2026-10-20)** —
+  `source/agents/debugger.md` troca o deny-default + allowlist de diagnóstico
+  por `"*": allow` + mesmos denies/asks do tester, `edit: deny`/`task: deny`
+  mantidos, corpo adaptado (blocker `DIAGNOSIS_CAPABILITY_UNAVAILABLE`).
+  Contrato novo `scripts/runtime/debugger-shell-permissions.tests.ps1`;
+  `agent-translation.tests.ps1` passa a exigir catch-all allow também no
+  debugger; docs (`PERMISSIONS.md`, `SECURITY.md`, adapters) movem debugger
+  para validator-shell. Decisão explícita do operador; owner determinístico
+  (hard exclusion `permission_change`).
+
 - **F1 S5 FIX3 — achado do reviewer (sem tocar ND/TaskKernel/registry/TS)**:
   `Test-NDGPRegistrySemantics` rejeita qualquer string de universo/baseline
   que não seja ordinalmente igual ao próprio `.Trim()` (espaços
