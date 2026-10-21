@@ -445,6 +445,8 @@ com evidência.
   `opencode.json` + `task: deny` nos agentes). Hierarquia rasa sempre.
 - Tester valida sem modificar a aplicação (`edit: deny` + `bash` allow-default
   com denies de destruição/elevação/mutação Git e `ask` de deploy/publish).
+- Debugger diagnostica sem modificar a aplicação (`edit: deny` + `bash` allow-default
+  com denies de destruição/elevação/mutação Git e `ask` de deploy/publish).
 - Reviewer é read-only e independente; ignora estilo sem impacto.
 - Architect é advisor: não implementa, não edita, não coordena workers; a
   decisão final é do Planner.

@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Permissões do debugger: shell amplo como no tester (2026-10-20)** —
+  `source/agents/debugger.md` troca o deny-default + allowlist de diagnóstico
+  por `"*": allow` + mesmos denies/asks do tester, `edit: deny`/`task: deny`
+  mantidos, corpo adaptado (blocker `DIAGNOSIS_CAPABILITY_UNAVAILABLE`).
+  Contrato novo `scripts/runtime/debugger-shell-permissions.tests.ps1`;
+  `agent-translation.tests.ps1` passa a exigir catch-all allow também no
+  debugger; docs (`PERMISSIONS.md`, `SECURITY.md`, adapters) movem debugger
+  para validator-shell. Decisão explícita do operador; owner determinístico
+  (hard exclusion `permission_change`).
 - **F7 F1 S6 — wiring produtivo 3 fases (harness-only, HARNESS_PASS)**:
   `scripts/v3/productive-three-phase-harness.tests.ps1` (Etapa D):
   FASE 1 (RED) fixture com conteúdo verificável (goal/task TEMP + payload

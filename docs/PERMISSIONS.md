@@ -29,12 +29,14 @@ sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não 
 | infra-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | docs-manager | writer-no-shell | allow | deny | runtime-enforced + prompt-enforced |
 | tester | validator-shell | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
-| debugger | diagnostic | deny | deny-default + allowlist de diagnóstico | runtime-enforced + planner-enforced |
+| debugger | validator-shell (diagnóstico) | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
 
 Classes: **read-only** = sem escrita, sem shell; **writer-shell** = edita + shell amplo com
 negações/confirmações pontuais; **writer-no-shell** = edita, sem shell; **diagnostic** =
-sem escrita + shell restrito a allowlist explícita; **validator-shell** = ferramenta de
-edição bloqueada (`edit: deny`) + shell allow-default com negações destrutivas (tester) —
+sem escrita + shell restrito a allowlist explícita (legado; nenhum agente usa mais —
+tester e debugger migraram para validator-shell); **validator-shell** = ferramenta de
+edição bloqueada (`edit: deny`) + shell allow-default com negações destrutivas (tester,
+debugger) —
 escrita via shell não coberta por negações é proibição comportamental
 (prompt/planner-enforced), não barreira de runtime.
 
@@ -104,7 +106,7 @@ claim além do testado.
   Contenção real dessas rotas é planner-enforced (contrato + ownership), não do glob.
 - `ask` é **controle de confirmação, não bloqueio incondicional**: no modo auto do
   runtime ele é auto-aprovado. `deny` é o único bloqueio no mapa.
-- `tester` usa **shell allow-default** (`"*": allow`) com denies de destruição
+- `tester` e `debugger` usam **shell allow-default** (`"*": allow`) com denies de destruição
   (`rm`, `del`, `erase`, `rd`, `rmdir`, `ri`, `Remove-Item`, `truncate`, `shred`,
   `dd`, `format`), elevação (`sudo`, `su`, `runas`, `gsudo`, `doas`), mutação
   Git (`push`, `reset`, `clean`, `rebase`, `merge`, `commit`, `branch -D`),
@@ -129,9 +131,10 @@ claim além do testado.
 - Para o Tester, `Permission denied` de rota destrutiva/elevação encerra a
   rota: sem reformulação por outro shell, wrapper, interpretador ou elevação
   que produza o mesmo efeito; o corpo define o blocker estruturado
-  `VALIDATION_CAPABILITY_UNAVAILABLE`. O matcher é string-matching: conteúdo
-  dentro de wrappers não é contido pelo glob (asserção honesta na suíte
-  `tester-shell-permissions.tests.ps1`). Sem mudança em parser/allowlist do
+  `VALIDATION_CAPABILITY_UNAVAILABLE`. Para o Debugger, a mesma regra vale com
+  o blocker `DIAGNOSIS_CAPABILITY_UNAVAILABLE`. O matcher é string-matching: conteúdo
+  dentro de wrappers não é contido pelo glob (asserção honesta nas suítes
+  `tester-shell-permissions.tests.ps1` e `debugger-shell-permissions.tests.ps1`). Sem mudança em parser/allowlist do
   runtime — o contrato é o frontmatter canônico + corpo do agente.
 
 ## Camada kernel-enforced (V3.1)
@@ -193,3 +196,10 @@ elevação e mutação Git, `ask` para deploy/publish/infra e
 `scripts/runtime/tester-shell-permissions.tests.ps1`. Escrita via shell
 não listada continua sendo proibição comportamental (prompt/Planner),
 não barreira de runtime.
+
+**Mudança de 2026-10-20 (decisão do operador).** As permissões do agente
+`debugger` seguem o mesmo modelo validator-shell do `tester`: shell amplo
+(`"*": allow`) com as mesmas negações/asks, `edit: deny`/`task: deny`
+mantidos, corpo adaptado para diagnóstico (blocker
+`DIAGNOSIS_CAPABILITY_UNAVAILABLE`) — suíte
+`scripts/runtime/debugger-shell-permissions.tests.ps1`.
