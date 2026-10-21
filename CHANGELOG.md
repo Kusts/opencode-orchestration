@@ -6,6 +6,12 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **DevTelemetry local agregada (fatia 1, 2026-10-21)**:
+  - **Biblioteca Core:** `scripts/v3/lib/DevTelemetry.ps1` com append atômico de linha única em `cache/v3/telemetry/dev/`, retenção automática diária com cap de 30 dias, sanitização estrita de secrets (`sk-*`, `ghp_*`, `AKIA*`, Bearer, JWT) e restrição rigorosa por regex contra vazamentos de dados (82/82 PASS em `DevTelemetry.tests.ps1`).
+  - **Relatório e Publicação Confinada:** `scripts/dev-telemetry-report.ps1` com export determinístico e publicação manual confinada (`-Publish`) em `evidence/dev-telemetry/latest.json`, `latest.md` e histórico ISO por semana (`history/YYYY-Www.json`), com validação e mitigação contra reparse points/symlinks e substituição segura via `.tmp`/`.bak`.
+  - **Ganchos Passivos e Resilientes:** Try/catch silenciosos fail-open integrados em `scripts/v3/run-v3-tests.ps1`, `tests/distribution/run-distribution-tests.ps1`, `scripts/test-package-consistency.ps1`, `scripts/v3/orchestration-preflight.ps1` e `scripts/ci/plugin-healthcheck.ps1`, garantindo zero impacto em falhas ou ausência de arquivos.
+  - **Documentação Normativa:** `docs/DEV-TELEMETRY.md` especificando schema v1, garantias de confinamento e ausência de tráfego de rede ou bancos de dados pesados.
+
 - **Workflow Efficiency & Adaptive Model Routing v0.2.0 (2026-10-21)**:
   - **P0-A Rigor de Testes e Certificação:** Refatoração de `detect-opencode-capabilities.ps1` com 4 categorias de evidência operacional; eliminação de testes sintéticos/falsos em `opencode-v2-regression-gate.ps1` com teste real de lock de exclusão mútua (`FileShare.None`) e execução real do `protect-master.ps1`; correção fail-closed do `OrchestrationEvidenceFreshness.ps1` integrada ao Task Kernel (`Complete-OrchestrationTask`).
   - **P0-B Auditoria de Custos:** Baseline e relatório de diagnóstico dos 10 maiores gargalos de desperdício gravados em `evidence/v3.1/runtime-reliability/workflow-efficiency-benchmark-2026-10-21.json`.
