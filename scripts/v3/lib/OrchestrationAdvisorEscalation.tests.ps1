@@ -59,7 +59,7 @@ Assert-Advisor ($badSig.Admitted -eq $false) "Sinal nao homologado e rejeitado"
 $shortJust = Test-AdvisorEscalationSignal -Signal 'verified_deadlock' -Justification 'curto'
 Assert-Advisor ($shortJust.Admitted -eq $false) "Justificativa muito curta e rejeitada"
 
-# 6. Invocacao do Advisor e Contrato Estruturado
+# 6. Invocacao do Advisor sem probe: Fail-Closed com PROOF_ABSENT (sem recomendacao ficticia)
 Clear-AdvisorConsultationCache
 
 $req = @{
@@ -77,18 +77,40 @@ $req = @{
 $modelSel = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex'
 $resp = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel
 
-Assert-Advisor ($resp.Status -eq 'COMPLETED') "Consulta valida retorna Status COMPLETED"
-Assert-Advisor (-not [string]::IsNullOrWhiteSpace($resp.RecommendedOption)) "Retorna opcao recomendada"
-Assert-Advisor (-not [string]::IsNullOrWhiteSpace($resp.ActionableNextStep)) "Retorna proxima acao acionavel"
+Assert-Advisor ($resp.Status -eq 'PROOF_ABSENT') "Consulta sem despacho nativo retorna PROOF_ABSENT honesto"
+Assert-Advisor ($null -eq $resp.RecommendedOption) "Nunca retorna recomendacao fabricada sem consulta real"
+Assert-Advisor ($null -eq $resp.ActionableNextStep) "Sem acao acionavel sem consulta real"
+Assert-Advisor ($resp.Reason -eq 'NATIVE_DISPATCH_UNAVAILABLE') "Motivo explicita indisponibilidade de despacho nativo"
 Assert-Advisor ($resp.IsAdvisory -eq $true) "Advisor e estritamente advisory"
 Assert-Advisor ($resp.Authoritative -eq $false) "Advisor nunca e autoritativo"
 Assert-Advisor ($resp.FromCache -eq $false) "Primeira consulta nao vem do cache"
-Assert-Advisor ($resp.ModelTierUsed -eq 'T4') "ModelRouter selecionou T4 para complex/deadlock"
+
+# 6b. Invocacao do Advisor com Probe/Executor efetivo
+Clear-AdvisorConsultationCache
+$mockProbe = {
+    param($r, $m)
+    return [pscustomobject]@{
+        Status               = 'COMPLETED'
+        ConsultationId       = "ADV-PROBE-001"
+        RecommendedOption    = "Adotar Exponential Backoff"
+        ActionableNextStep   = "Aplicar fix delimitado em Concurrency.ps1"
+        ModelTierUsed        = $m.Tier
+        ModelTokenUsed       = $m.ModelToken
+        IsAdvisory           = $true
+        Authoritative        = $false
+        FromCache            = $false
+    }
+}
+$probedResp = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel -AdvisorProbe $mockProbe
+Assert-Advisor ($probedResp.Status -eq 'COMPLETED') "Consulta com probe retorna Status COMPLETED"
+Assert-Advisor ($probedResp.RecommendedOption -eq 'Adotar Exponential Backoff') "Retorna opcao recomendada efetiva"
+Assert-Advisor ($probedResp.ActionableNextStep -eq 'Aplicar fix delimitado em Concurrency.ps1') "Retorna proxima acao acionavel"
+Assert-Advisor ($probedResp.FromCache -eq $false) "Primeira consulta nao vem do cache"
 
 # 7. Cache delimitado de consultas (evita duplicacao de tokens)
-$respCached = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel
+$respCached = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel -AdvisorProbe $mockProbe
 Assert-Advisor ($respCached.FromCache -eq $true) "Segunda consulta com mesmos parametros vem do cache"
-Assert-Advisor ($respCached.ConsultationId -eq $resp.ConsultationId) "Mesmo ConsultationId recuperado do cache"
+Assert-Advisor ($respCached.ConsultationId -eq $probedResp.ConsultationId) "Mesmo ConsultationId recuperado do cache"
 
 # 8. Rejeicao quando sinal for invalido no fluxo completo
 $badReq = @{

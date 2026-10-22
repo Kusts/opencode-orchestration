@@ -79,19 +79,49 @@ Assert-Router ($selAdvLow.Tier -eq 'T2') "Advisor simples seleciona T2 economico
 $selAdvMed = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'medium' -Complexity 'medium'
 Assert-Router ($selAdvMed.Tier -eq 'T3') "Advisor standard seleciona T3"
 
-$selAdvDeadlock = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex'
-Assert-Router ($selAdvDeadlock.Tier -eq 'T4') "Advisor complex/deadlock escala para T4"
+$selAdvComplexNoFail = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 0
+Assert-Router ($selAdvComplexNoFail.Tier -eq 'T3') "Advisor apenas com rotulo complex permanece em T3 (sem escalonamento cego para T4)"
+
+$selAdvDeadlock = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2
+Assert-Router ($selAdvDeadlock.Tier -eq 'T4') "Advisor com deadlock comprovado (>= 2 falhas) escala para T4"
 
 # 7. Explorer: limites estritos
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex'
 Assert-Router ($selExp.Tier -in @('T0', 'T1', 'T2')) "Explorer restrito a T0..T2"
 Assert-Router ($selExp.Tier -notin @('T3', 'T4')) "Explorer proibido em T3 e T4"
 
-# 8. Tratamento de flag de override nativo
+# 8. Tratamento de flag de override nativo e PROOF_ABSENT
 $selNoProof = Resolve-OrchestrationModelSelection -AgentName 'coder' -NativeModelOverrideProven $false
+Assert-Router ($selNoProof.ProofStatus -eq 'PROOF_ABSENT') "ProofStatus e PROOF_ABSENT quando override e unproven"
+Assert-Router ($selNoProof.RuntimeTierProven -eq $false) "RuntimeTierProven e false quando override e unproven"
 Assert-Router ($selNoProof.OverrideNote -match 'unproven') "Nota de fallback quando override e unproven"
 
 $selProof = Resolve-OrchestrationModelSelection -AgentName 'coder' -NativeModelOverrideProven $true
+Assert-Router ($selProof.ProofStatus -eq 'PROVEN') "ProofStatus e PROVEN quando override e comprovado"
+Assert-Router ($selProof.RuntimeTierProven -eq $true) "RuntimeTierProven e true quando comprovado"
 Assert-Router ($selProof.OverrideNote -eq '') "Sem nota quando override e proven"
+
+# 9. Resolucao por catalogo e selecao autorizada
+$catT2 = Resolve-CatalogModel -Tier 'T2'
+Assert-Router ($catT2.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "Catalogo mapeia T2 para modelo economico"
+Assert-Router ($catT2.IsAuthorized -eq $true) "T2 e autorizado por padrao"
+
+$catT4Unauth = Resolve-CatalogModel -Tier 'T4' -Risk 'medium' -FailureCount 0
+Assert-Router ($catT4Unauth.IsAuthorized -eq $false) "T4 e nao autorizado sem alto risco ou falhas comprovadas"
+
+$catT4Auth = Resolve-CatalogModel -Tier 'T4' -Risk 'critical' -FailureCount 0
+Assert-Router ($catT4Auth.IsAuthorized -eq $true) "T4 e autorizado sob risco critical"
+
+# 10. Verificacao do modelo efetivamente executado
+$verifAbsent = Test-ExecutedModelVerification -RequestedSelection $selNoProof -NativeModelOverrideProven $false
+Assert-Router ($verifAbsent.ProofStatus -eq 'PROOF_ABSENT') "Verificacao sem override nativo retorna PROOF_ABSENT"
+
+$verifMatch = Test-ExecutedModelVerification -RequestedSelection $selProof -ExecutedModelEvent @{ Model = $selProof.CatalogModel } -NativeModelOverrideProven $true
+Assert-Router ($verifMatch.VerifiedMatch -eq $true) "Verificacao confirma match exato do modelo executado"
+Assert-Router ($verifMatch.ProofStatus -eq 'VERIFIED_MATCH') "ProofStatus VERIFIED_MATCH comprovado"
+
+$verifMismatch = Test-ExecutedModelVerification -RequestedSelection $selProof -ExecutedModelEvent @{ Model = 'other-unauthorized-model' } -NativeModelOverrideProven $true
+Assert-Router ($verifMismatch.VerifiedMatch -eq $false) "Verificacao detecta modelo divergente"
+Assert-Router ($verifMismatch.ProofStatus -eq 'TIER_MISMATCH') "ProofStatus TIER_MISMATCH registrado"
 
 Write-Host "Total: $total | Passed: $passed | Failed: 0"

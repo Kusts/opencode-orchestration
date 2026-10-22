@@ -142,6 +142,125 @@ $script:AgentModelAdmissibility = @{
     }
 }
 
+# Standard Model Catalog mapping tiers to catalog definitions and default authorization
+$script:DefaultModelCatalog = @{
+    'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';  Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
+    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
+    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-sol';      Authorized = $true }
+    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6-sol';      Authorized = $false } # T4 requires verified authorization
+}
+
+function Resolve-CatalogModel {
+    <#
+    .SYNOPSIS
+        Resolves catalog model entry, token and authorization for a requested tier.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Tier,
+
+        [Parameter(Mandatory = $false)]
+        $Catalog = $null,
+
+        [Parameter(Mandatory = $false)]
+        [int]$FailureCount = 0,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Risk = 'medium'
+    )
+
+    $cat = if ($null -ne $Catalog) { $Catalog } else { $script:DefaultModelCatalog }
+    $entry = if ($cat.ContainsKey($Tier)) { $cat[$Tier] } else { $script:DefaultModelCatalog['T2'] }
+
+    $token = [string]$entry.Token
+    $catModel = [string]$entry.CatalogModel
+    $authorized = [bool]$entry.Authorized
+
+    # T4 authorization rule: frontier models are authorized ONLY under high/critical risk or verified failures >= 2
+    if ($Tier -eq 'T4') {
+        if ($Risk -in @('high', 'critical') -or $FailureCount -ge 2) {
+            $authorized = $true
+        } else {
+            $authorized = $false
+        }
+    }
+
+    return [pscustomobject]@{
+        Tier         = $Tier
+        ModelToken   = $token
+        CatalogModel = $catModel
+        IsAuthorized = $authorized
+    }
+}
+
+function Test-ExecutedModelVerification {
+    <#
+    .SYNOPSIS
+        Verifies whether the actual executed model matches the requested model routing.
+    .DESCRIPTION
+        Fails closed: if NativeModelOverrideProven is false or no proof of dynamic override exists,
+        flags that the runtime tier is unproven and records PROOF_ABSENT.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $RequestedSelection,
+
+        [Parameter(Mandatory = $false)]
+        $ExecutedModelEvent = $null,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$NativeModelOverrideProven = $false
+    )
+
+    $reqTier = [string]$RequestedSelection.Tier
+    $reqModel = [string]$RequestedSelection.CatalogModel
+    $reqToken = [string]$RequestedSelection.ModelToken
+
+    if (-not $NativeModelOverrideProven) {
+        return [pscustomobject]@{
+            VerifiedMatch       = $false
+            ProofStatus         = 'PROOF_ABSENT'
+            RuntimeTierProven   = $false
+            Reason              = 'Native dynamic model override unproven in current runtime. Falling back to host template configuration.'
+            RequestedTier       = $reqTier
+            EffectiveTier       = [string]$RequestedSelection.FallbackTier
+            EffectiveModelToken = [string]$RequestedSelection.FallbackToken
+        }
+    }
+
+    if ($null -eq $ExecutedModelEvent) {
+        return [pscustomobject]@{
+            VerifiedMatch       = $false
+            ProofStatus         = 'EXECUTION_UNVERIFIED'
+            RuntimeTierProven   = $false
+            Reason              = 'No executed model event or telemetry provided for verification.'
+            RequestedTier       = $reqTier
+            EffectiveTier       = $null
+            EffectiveModelToken = $null
+        }
+    }
+
+    $actModel = [string]$ExecutedModelEvent.Model
+    if ([string]::IsNullOrWhiteSpace($actModel)) {
+        $actModel = [string]$ExecutedModelEvent.model
+    }
+
+    $isMatch = ($actModel -eq $reqModel -or $actModel -eq $reqToken)
+
+    return [pscustomobject]@{
+        VerifiedMatch       = $isMatch
+        ProofStatus         = if ($isMatch) { 'VERIFIED_MATCH' } else { 'TIER_MISMATCH' }
+        RuntimeTierProven   = $isMatch
+        Reason              = if ($isMatch) { 'Executed model matches requested tier.' } else { "Executed model '$actModel' does not match requested model '$reqModel'." }
+        RequestedTier       = $reqTier
+        EffectiveTier       = if ($isMatch) { $reqTier } else { 'UNKNOWN' }
+        EffectiveModelToken = $actModel
+    }
+}
+
 function Resolve-OrchestrationModelSelection {
     <#
     .SYNOPSIS
@@ -159,6 +278,8 @@ function Resolve-OrchestrationModelSelection {
     .PARAMETER NativeModelOverrideProven
         Whether native OpenCode V2 supports model parameter in subagent tool calls.
         Default is $false (fail-closed fallback to standard template token).
+    .PARAMETER ModelCatalog
+        Optional catalog mapping tier to model definitions.
     #>
     [CmdletBinding()]
     param(
@@ -180,7 +301,10 @@ function Resolve-OrchestrationModelSelection {
         [bool]$IsTrivialDirect = $false,
 
         [Parameter(Mandatory = $false)]
-        [bool]$NativeModelOverrideProven = $false
+        [bool]$NativeModelOverrideProven = $false,
+
+        [Parameter(Mandatory = $false)]
+        $ModelCatalog = $null
     )
 
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
@@ -209,6 +333,10 @@ function Resolve-OrchestrationModelSelection {
             Tier                      = 'T0'
             TierName                  = 'Deterministic'
             ModelToken                = 'NONE_DIRECT_VERIFIED'
+            CatalogModel              = 'none (deterministic)'
+            AuthorizedSelection       = $true
+            RuntimeTierProven         = $true
+            ProofStatus               = 'PROVEN_DIRECT_VERIFIED'
             AdmissibleTiers           = @('T0')
             SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
             EstimatedCostMultiplier   = 0.0
@@ -236,7 +364,7 @@ function Resolve-OrchestrationModelSelection {
         }
     }
     elseif ($cleanAgent -eq 'security-reviewer') {
-        if ($Risk -in @('high', 'critical') -or $Complexity -eq 'complex') {
+        if ($Risk -in @('high', 'critical')) {
             $selectedTier = 'T4'
             $reason = "Frontier tier T4 selected for high/critical security review."
         } else {
@@ -245,9 +373,9 @@ function Resolve-OrchestrationModelSelection {
         }
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
-        if ($FailureCount -ge 2 -or $Complexity -eq 'complex') {
+        if ($FailureCount -ge 2) {
             $selectedTier = 'T4'
-            $reason = "Frontier tier T4 selected for deadlock consult or complex advisor query."
+            $reason = "Frontier tier T4 selected for deadlock consult after $FailureCount prior failures."
         } elseif ($Complexity -in @('trivial', 'simple') -and $Risk -eq 'low') {
             $selectedTier = 'T2'
             $reason = "Economical tier T2 selected for simple technical clarity check."
@@ -257,10 +385,10 @@ function Resolve-OrchestrationModelSelection {
         }
     }
     elseif ($cleanAgent -eq 'coder') {
-        if ($FailureCount -ge 2 -and $Complexity -eq 'complex') {
+        if ($FailureCount -ge 2) {
             $selectedTier = 'T4'
-            $reason = "Frontier tier T4 escalated after $FailureCount prior failures on complex task."
-        } elseif ($Complexity -eq 'complex' -or $FailureCount -eq 1) {
+            $reason = "Frontier tier T4 escalated after $FailureCount prior failures."
+        } elseif ($FailureCount -eq 1 -or $Complexity -eq 'complex') {
             $selectedTier = 'T3'
             $reason = "Capable tier T3 selected for complex coding or retry."
         } else {
@@ -297,6 +425,14 @@ function Resolve-OrchestrationModelSelection {
         $reason = "Cost invariant enforced: coder prohibited from T4 without at least 2 demonstrated failures."
     }
 
+    # Catalog and authorization check
+    $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk
+    if (-not $catalogRes.IsAuthorized) {
+        $selectedTier = $admissibility.DefaultTier
+        $reason = "Tier '$($catalogRes.Tier)' was unauthorized. Degraded to default '$selectedTier'."
+        $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk
+    }
+
     # Resolve token name
     $modelToken = if ($selectedTier -in @('T3', 'T4')) { 'MODEL_STRONG' } else { 'MODEL_CHEAP' }
     $tierMeta = $script:ModelTiers[$selectedTier]
@@ -306,6 +442,9 @@ function Resolve-OrchestrationModelSelection {
     # and provide conservative fallback token for standard template resolution
     $effectiveToken = $modelToken
     $overrideNote = ''
+    $proofStatus = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
+    $runtimeTierProven = [bool]$NativeModelOverrideProven
+
     if (-not $NativeModelOverrideProven) {
         $overrideNote = 'Native subagent model parameter unproven in OpenCode V2. Using conservative template token fallback.'
     }
@@ -316,6 +455,10 @@ function Resolve-OrchestrationModelSelection {
         Tier                      = $selectedTier
         TierName                  = $tierMeta.Name
         ModelToken                = $effectiveToken
+        CatalogModel              = $catalogRes.CatalogModel
+        AuthorizedSelection       = $catalogRes.IsAuthorized
+        RuntimeTierProven         = $runtimeTierProven
+        ProofStatus               = $proofStatus
         AdmissibleTiers           = $admissibleTiers
         SelectionReason           = $reason
         EstimatedCostMultiplier   = $tierMeta.RelativeCost

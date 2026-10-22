@@ -94,6 +94,52 @@ $allowedDone = Test-OrchestrationDoneAllowedByEvidence -EvidenceItems $allFreshI
 Assert-Freshness ($allowedDone.allowed -eq $true) "Conjunto 100% fresco autoriza DONE"
 Assert-Freshness ($allowedDone.reason -eq 'all-evidence-fresh') "Motivo é all-evidence-fresh"
 
+# 7. Integracao com EvidenceRef
+$refVerified = @{
+    schema_version     = 1
+    evidence_id        = 'ev-001'
+    hash               = $headA
+    created_at         = "2026-10-21T17:55:00Z"
+    verification_state = 'verified'
+    artifact_ref       = 'build/test.log'
+}
+$resRefVer = Test-OrchestrationEvidenceFreshness -Evidence $refVerified -CurrentHeadSha $headA -MaxAgeSeconds 3600 -NowUtc $nowIso
+Assert-Freshness ($resRefVer.ok -eq $true) "EvidenceRef verificado e fresh e ok=true"
+
+$refStale = @{
+    schema_version     = 1
+    evidence_id        = 'ev-002'
+    hash               = $headA
+    created_at         = "2026-10-21T17:55:00Z"
+    verification_state = 'stale'
+    artifact_ref       = 'build/test.log'
+}
+$resRefStale = Test-OrchestrationEvidenceFreshness -Evidence $refStale -CurrentHeadSha $headA -MaxAgeSeconds 3600 -NowUtc $nowIso
+Assert-Freshness ($resRefStale.ok -eq $false -and $resRefStale.verdict -eq 'stale-superseded') "EvidenceRef com status stale e rejeitado como stale-superseded"
+
+$refUnverified = @{
+    schema_version     = 1
+    evidence_id        = 'ev-003'
+    hash               = $headA
+    created_at         = "2026-10-21T17:55:00Z"
+    verification_state = 'unverified'
+    artifact_ref       = 'build/test.log'
+}
+$resRefUnver = Test-OrchestrationEvidenceFreshness -Evidence $refUnverified -CurrentHeadSha $headA -MaxAgeSeconds 3600 -NowUtc $nowIso
+Assert-Freshness ($resRefUnver.ok -eq $false -and $resRefUnver.reason -eq 'evidence-unverified') "EvidenceRef unverified e rejeitado sem prova"
+
+# 8. Declaracao de execucao NAO e prova de execucao
+$declItem = @{
+    head_sha        = $headA
+    timestamp       = "2026-10-21T17:55:00Z"
+    declared_only   = $true
+}
+$resDecl = Test-OrchestrationEvidenceFreshness -Evidence $declItem -CurrentHeadSha $headA -MaxAgeSeconds 3600 -NowUtc $nowIso
+Assert-Freshness ($resDecl.ok -eq $false -and $resDecl.reason -eq 'declaration-not-execution-proof') "Declaracao de execucao pura e rejeitada como prova"
+
+$doneBlockedByDecl = Test-OrchestrationDoneAllowedByEvidence -EvidenceItems @($declItem) -CurrentHeadSha $headA -MaxAgeSeconds 3600 -NowUtc $nowIso
+Assert-Freshness ($doneBlockedByDecl.allowed -eq $false -and $doneBlockedByDecl.reason -eq 'EVIDENCE_STALE_BLOCKED') "DONE e bloqueado quando evidencia e mera declaracao"
+
 Write-Host ""
 Write-Host "TEST RESULTS: $passed / $total passed (0 skipped)"
 Write-Host "[SUMMARY] pass $passed fail 0"

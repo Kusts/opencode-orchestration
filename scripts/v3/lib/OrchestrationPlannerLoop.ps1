@@ -185,11 +185,13 @@ function Invoke-OrchestrationPlannerLoop {
                     known_evidence=@((Read-PL $d 'evidence' @()));
                     head_sha=[string](Read-PL $d 'head_sha' '')
                 }
-                $advResp=Invoke-AdvisorConsultation -Request $advReq
+                $advProbe=Read-PL $o 'advisor_probe' $null
+                $advResp=Invoke-AdvisorConsultation -Request $advReq -AdvisorProbe $advProbe
                 if($null -ne $advResp){
                     $recText=[string](Read-PL $advResp 'RecommendedOption' '')
                     $actText=[string](Read-PL $advResp 'ActionableNextStep' '')
-                    $advisorAdvisory=[ordered]@{consulted=$true;status=[string]$advResp.Status;consultation_id=[string]$advResp.ConsultationId;recommendation=(Safe-PL $recText 160);actionable_step=(Safe-PL $actText 160);from_cache=[bool]$advResp.FromCache;tier=[string]$advResp.ModelTierUsed;authoritative=$false;recommendation_only=$true}
+                    $isConsulted=($advResp.Status -eq 'COMPLETED' -and -not [string]::IsNullOrWhiteSpace($recText))
+                    $advisorAdvisory=[ordered]@{consulted=$isConsulted;status=[string]$advResp.Status;reason=[string](Read-PL $advResp 'Reason' '');consultation_id=[string]$advResp.ConsultationId;recommendation=$(if($isConsulted){Safe-PL $recText 160}else{''});actionable_step=$(if($isConsulted){Safe-PL $actText 160}else{''});from_cache=[bool]$advResp.FromCache;tier=[string]$advResp.ModelTierUsed;authoritative=$false;recommendation_only=$true}
                 }
             }catch{
                 $advisorAdvisory=[ordered]@{consulted=$false;status='error';reason='advisor-escalation-failed';authoritative=$false;recommendation_only=$true}

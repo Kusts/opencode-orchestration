@@ -55,6 +55,28 @@ try {
     Assert-Reuse ($resDrift.Status -eq 'REEXECUTION_REQUIRED') "Head drift forca REEXECUTION_REQUIRED"
     Assert-Reuse ($null -eq $resDrift.ReusedEvidence) "Nenhuma evidencia reutilizada apos drift"
 
+    # 2b. Rejeicao de task_id isolado quando commit SHA nao coincide
+    $resTaskIdOnly = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-REUSE-001' -Objective 'Verificar suite' -CurrentHeadSha '' -EvidenceStoreDir $tmpStore
+    Assert-Reuse ($resTaskIdOnly.Status -eq 'REEXECUTION_REQUIRED') "task_id isolado sem HEAD SHA valido e estritamente rejeitado"
+
+    # 2c. Validacao de File Fingerprints
+    $fpsValid = @{ 'src/module.ps1' = 'hash-module-v1' }
+    $fpsDrift = @{ 'src/module.ps1' = 'hash-module-v2-drifted' }
+    $evWithFps = @{
+        task_id             = 'TASK-REUSE-FPS'
+        head_sha            = $headSha
+        timestamp           = [DateTime]::UtcNow.ToString('o')
+        source_fingerprints = $fpsValid
+        type                = 'test-verification'
+    }
+    Set-Content -LiteralPath (Join-Path $tmpStore 'evidence-fps.json') -Value (ConvertTo-Json -InputObject $evWithFps) -Encoding UTF8
+
+    $resFpsMatch = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-REUSE-FPS' -Objective 'Verificar module' -CurrentHeadSha $headSha -SourceFingerprints $fpsValid -EvidenceStoreDir $tmpStore
+    Assert-Reuse ($resFpsMatch.Status -eq 'REUSED_EXACT') "Fingerprints identicos permitem REUSED_EXACT"
+
+    $resFpsDrift = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-REUSE-FPS' -Objective 'Verificar module' -CurrentHeadSha $headSha -SourceFingerprints $fpsDrift -EvidenceStoreDir $tmpStore
+    Assert-Reuse ($resFpsDrift.Status -eq 'REEXECUTION_REQUIRED') "Drift em file fingerprints forca REEXECUTION_REQUIRED (nao aceita task_id)"
+
     # 3. Consulta consultiva ao AI Memory quando nao ha correspondencia exata
     $probeMem = {
         param($tid, $obj)

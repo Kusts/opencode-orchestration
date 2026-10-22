@@ -3514,10 +3514,11 @@ function Test-OrchestrationTaskCompletion {
         if ($rr.Count -eq 0 -and -not [bool]$AcceptEmptyResidualRisks) {
             $reasons.Add('residual-risks-not-recorded') | Out-Null
         }
-        # Issue #106: Evidence Freshness check before DONE
+        # Issue #106: Evidence Freshness check before DONE (evaluating evidence, evidence_items, evidence_refs)
         $evItems = @()
-        if ($null -ne $rec['evidence']) { $evItems = @($rec['evidence']) }
-        elseif ($null -ne $rec['evidence_items']) { $evItems = @($rec['evidence_items']) }
+        if ($null -ne $rec['evidence']) { $evItems += @($rec['evidence']) }
+        if ($null -ne $rec['evidence_items']) { $evItems += @($rec['evidence_items']) }
+        if ($null -ne $rec['evidence_refs']) { $evItems += @($rec['evidence_refs']) }
         if ($evItems.Count -gt 0) {
             try {
                 $freshnessLib = Join-Path $PSScriptRoot 'OrchestrationEvidenceFreshness.ps1'

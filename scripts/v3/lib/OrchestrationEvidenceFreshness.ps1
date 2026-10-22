@@ -67,14 +67,61 @@ function Test-OrchestrationEvidenceFreshness {
     }
 
     $evHead = [string](Get-EvidenceFieldValue $Evidence 'head_sha' '')
-    $evStamp = [string](Get-EvidenceFieldValue $Evidence 'timestamp' '')
-    $evSuperseded = [bool](Get-EvidenceFieldValue $Evidence 'superseded' $false)
+    if ([string]::IsNullOrWhiteSpace($evHead)) {
+        $evHead = [string](Get-EvidenceFieldValue $Evidence 'base_revision' '')
+    }
+    if ([string]::IsNullOrWhiteSpace($evHead)) {
+        $evHead = [string](Get-EvidenceFieldValue $Evidence 'hash' '')
+    }
 
+    $evStamp = [string](Get-EvidenceFieldValue $Evidence 'timestamp' '')
+    if ([string]::IsNullOrWhiteSpace($evStamp)) {
+        $evStamp = [string](Get-EvidenceFieldValue $Evidence 'created_at' '')
+    }
+
+    $evSuperseded = [bool](Get-EvidenceFieldValue $Evidence 'superseded' $false)
     if ($evSuperseded) {
         return [pscustomobject]@{
             ok               = $false
             verdict          = 'stale-superseded'
             reason           = 'evidence-explicitly-superseded'
+            refresh_required = $true
+            target           = $TargetTransition
+        }
+    }
+
+    # Integracao com EvidenceRef: verificar verification_state
+    $verState = [string](Get-EvidenceFieldValue $Evidence 'verification_state' '')
+    if (-not [string]::IsNullOrWhiteSpace($verState)) {
+        if ($verState -in @('stale', 'revoked')) {
+            return [pscustomobject]@{
+                ok               = $false
+                verdict          = 'stale-superseded'
+                reason           = "evidence-state-$verState"
+                refresh_required = $true
+                target           = $TargetTransition
+            }
+        }
+        if ($verState -eq 'unverified') {
+            return [pscustomobject]@{
+                ok               = $false
+                verdict          = 'invalid-evidence'
+                reason           = 'evidence-unverified'
+                refresh_required = $true
+                target           = $TargetTransition
+            }
+        }
+    }
+
+    # Declaracao de execucao NAO e prova de execucao (fail-closed)
+    $isDeclaredOnly = [bool](Get-EvidenceFieldValue $Evidence 'declared_only' $false)
+    $isExecDeclared = [bool](Get-EvidenceFieldValue $Evidence 'execution_declared' $false)
+    $isClaimOnly = [bool](Get-EvidenceFieldValue $Evidence 'claim_only' $false)
+    if ($isDeclaredOnly -or $isExecDeclared -or $isClaimOnly) {
+        return [pscustomobject]@{
+            ok               = $false
+            verdict          = 'invalid-evidence'
+            reason           = 'declaration-not-execution-proof'
             refresh_required = $true
             target           = $TargetTransition
         }

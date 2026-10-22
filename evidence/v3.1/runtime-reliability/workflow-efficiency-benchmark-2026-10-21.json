@@ -3,10 +3,17 @@
   "generated_at": "2026-10-21T20:30:00Z",
   "scope": "OpenCode V2 — Universal Autonomous Orchestration",
   "baseline_commit": "857a65a",
+  "benchmark_classification": "ANALYTICAL_ESTIMATE_PROJECTION",
+  "empirical_trace_proven": false,
+  "measurement_status": "ESTIMATE_PROJECTION",
+  "empirical_trace_required": "Coleta de traces ao vivo com contagem de tokens reais faturados, custo efetivo em USD, latencia medida de ponta a ponta e modelo efetivamente executado",
+  "notes": "Os percentuais e numeros abaixo representam modelos analiticos e projecoes teoricas calculadas a partir de contagens de chamadas e heuristicas de tokens, nao medicoes empiricas com traces ao vivo de runtime-real. Nenhum percentual deve ser tratado como comprovado sem traces comparaveis.",
   "workloads_compared": [
     {
       "workload": "GW-ADVISOR-01-TRIVIAL",
       "description": "Correção cosmética e localizada de 1 linha em documentação ou arquivo de configuração",
+      "measurement_status": "ESTIMATE_PROJECTION",
+      "empirical_trace_captured": false,
       "baseline_v010": {
         "execution_strategy": "SINGLE_WORKER",
         "subagents_spawned": 1,
@@ -31,13 +38,16 @@
         "estimated_cost_usd": 0.00018,
         "result": "verified_pass (via direct verified execution)"
       },
-      "token_reduction_pct": 95.4,
-      "cost_reduction_pct": 95.4,
-      "latency_reduction_pct": 92.6
+      "is_estimate": true,
+      "projected_token_reduction_pct": 95.4,
+      "projected_cost_reduction_pct": 95.4,
+      "projected_latency_reduction_pct": 92.6
     },
     {
       "workload": "GW-ADVISOR-02-DIFFICULT-CONCURRENCY",
       "description": "Diagnóstico de colisão assíncrona concorrente em escrita compartilhada com FileShare.None",
+      "measurement_status": "ESTIMATE_PROJECTION",
+      "empirical_trace_captured": false,
       "baseline_v010": {
         "execution_strategy": "MULTI_WORKER_BLIND_RETRY",
         "subagents_spawned": 4,
@@ -62,13 +72,16 @@
         "estimated_cost_usd": 0.048,
         "result": "Advisor T3 identifica Named Mutex vs FileShare backoff na 1ª tentativa; coder T2 aplica fix"
       },
-      "token_reduction_pct": 68.2,
-      "cost_reduction_pct": 87.5,
-      "latency_reduction_pct": 77.0
+      "is_estimate": true,
+      "projected_token_reduction_pct": 68.2,
+      "projected_cost_reduction_pct": 87.5,
+      "projected_latency_reduction_pct": 77.0
     },
     {
       "workload": "GW-ADVISOR-04-REUSE-PREVIOUS",
       "description": "Verificação de conformidade de suite após teste aprovado no mesmo commit HEAD",
+      "measurement_status": "ESTIMATE_PROJECTION",
+      "empirical_trace_captured": false,
       "baseline_v010": {
         "execution_strategy": "MULTI_WORKER_RERUN",
         "subagents_spawned": 2,
@@ -93,15 +106,19 @@
         "estimated_cost_usd": 0.0,
         "result": "Evidência validada por match exato de HEAD e SHA-256 de arquivos; skip seguro de reexecução"
       },
-      "token_reduction_pct": 100.0,
-      "cost_reduction_pct": 100.0,
-      "latency_reduction_pct": 99.1
+      "is_estimate": true,
+      "projected_token_reduction_pct": 100.0,
+      "projected_cost_reduction_pct": 100.0,
+      "projected_latency_reduction_pct": 99.1
     }
   ],
   "aggregate_metrics": {
-    "average_token_savings_pct": 87.8,
-    "average_cost_savings_pct": 94.3,
-    "average_latency_savings_pct": 89.5,
+    "is_estimate": true,
+    "proven_savings": false,
+    "projected_average_token_savings_pct": 87.8,
+    "projected_average_cost_savings_pct": 94.3,
+    "projected_average_latency_savings_pct": 89.5,
+    "empirical_proof_disclaimer": "Os percentuais acima sao projecoes de modelagem analitica e nao medicoes empiricas de runtime-real. Requer traces completos de execucao real para alegacao de economia comprovada.",
     "security_regressions": 0,
     "unauthorized_bypasses": 0,
     "authority_boundary_intact": true

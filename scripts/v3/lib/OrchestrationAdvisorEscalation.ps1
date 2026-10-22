@@ -151,7 +151,10 @@ function Invoke-AdvisorConsultation {
         [object]$ModelRouterSelection = $null,
 
         [Parameter(Mandatory = $false)]
-        [scriptblock]$AdvisorProbe = $null
+        [scriptblock]$AdvisorProbe = $null,
+
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$NativeExecutor = $null
     )
 
     function Get-Field($obj, [string]$name, $default = $null) {
@@ -211,23 +214,27 @@ function Invoke-AdvisorConsultation {
     $tier = if ($ModelRouterSelection) { $ModelRouterSelection.Tier } else { 'T3' }
     $modelToken = if ($ModelRouterSelection) { $ModelRouterSelection.ModelToken } else { 'MODEL_STRONG' }
 
-    # 4. Invoke Advisor (via Probe seam if provided, or return structured consult envelope)
+    # 4. Invoke Advisor (via Probe/Executor seam if provided, or return PROOF_ABSENT envelope)
     $consultationId = "ADV-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 6))"
     
     $response = $null
     if ($null -ne $AdvisorProbe) {
         $response = & $AdvisorProbe $Request $ModelRouterSelection
+    } elseif ($null -ne $NativeExecutor) {
+        $response = & $NativeExecutor $Request $ModelRouterSelection
     } else {
-        # Standard bounded advisory response stub for runtime consumption
+        # Standalone runtime without native executor/probe: fail-closed with PROOF_ABSENT.
+        # Fabricated recommendations are never returned as real consultations.
         $response = [pscustomobject]@{
-            Status               = 'COMPLETED'
+            Status               = 'PROOF_ABSENT'
+            Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
             ConsultationId       = $consultationId
-            RecommendedOption    = "Prioritize verifiable incremental fix over broad refactoring."
-            Rationale            = "Evidence shows failure is isolated; risk asymmetry favors bounded intervention."
-            Risks                = @("Potential edge-case regressions if validation scope is too narrow.")
-            RejectionReasons     = @("Rejected full rewrite due to unverified blast radius.")
-            ActionableNextStep   = "Apply minimal bounded fix to target function and execute L2 verification."
-            FallbackIfFailed     = "Escalate to debugger with newly gathered trace."
+            RecommendedOption    = $null
+            Rationale            = "Native dispatch of engineering-advisor not executed or proof absent."
+            Risks                = @()
+            RejectionReasons     = @()
+            ActionableNextStep   = $null
+            FallbackIfFailed     = $null
             ModelTierUsed        = $tier
             ModelTokenUsed       = $modelToken
             IsAdvisory           = $true
@@ -241,11 +248,13 @@ function Invoke-AdvisorConsultation {
     $response.Authoritative = $false
     $response.FromCache = $false
 
-    # Store in bounded cache
-    if ($script:AdvisorConsultationCache.Count -ge 50) {
-        $script:AdvisorConsultationCache.Clear()
+    # Store in bounded cache (only completed consultations are cached)
+    if ($response.Status -eq 'COMPLETED') {
+        if ($script:AdvisorConsultationCache.Count -ge 50) {
+            $script:AdvisorConsultationCache.Clear()
+        }
+        $script:AdvisorConsultationCache[$cacheKey] = $response
     }
-    $script:AdvisorConsultationCache[$cacheKey] = $response
 
     return $response
 }
