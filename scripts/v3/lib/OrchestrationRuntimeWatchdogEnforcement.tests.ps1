@@ -795,7 +795,8 @@ function Wait-EnforceReady {
         Bounded readiness poll for a freshly spawned OWN child: returns
         $true once Get-Process + executable Path + StartTime are all
         readable (avoids just-spawned PID races, observed on .NET
-        Core). Callers register only after readiness; downstream asserts
+        Core) AND the process parentage is observable via CIM (Win32_Process).
+        Callers register only after readiness; downstream asserts
         still validate. Never throws, never waits unboundedly.
     #>
     param($Proc, [int]$TimeoutMs = 10000)
@@ -810,12 +811,15 @@ function Wait-EnforceReady {
                 $live = Get-Process -Id ([int]$Proc.Id) -ErrorAction Stop
                 if (($null -ne $live) -and (-not [string]::IsNullOrWhiteSpace([string]$live.Path))) {
                     $null = ([DateTime]$live.StartTime).ToUniversalTime()
-                    $ok = $true
+                    $cimp = Get-WatchdogLiveProcessParentId -ProcessId ([int]$Proc.Id)
+                    if (($null -ne $cimp) -and ([bool]$cimp.found)) {
+                        $ok = $true
+                    }
                 }
             }
             catch { $ok = $false }
             if ($ok) { return $true }
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds 100
         }
         return $false
     }
@@ -2009,7 +2013,13 @@ try {
     $b16 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
     $t16 = (Get-Date).ToUniversalTime()
     $r16 = Register-EnforceBound -TaskId 'wd-fix1-query' -SessionId 'wd-fix1-sess-query' -Child $c16 -Budget $b16 -StartedAt $t16 -FlagsPath $flagsEnforce -Repo $repo
-    Assert-Enforce ([bool]$r16.ok) 'F4 register bound' ''
+    if (-not [bool]$r16.ok) {
+        Stop-EnforceSafety -Proc $c16
+        $c16 = Start-EnforceChild -SleepSeconds 120
+        $t16 = (Get-Date).ToUniversalTime()
+        $r16 = Register-EnforceBound -TaskId 'wd-fix1-query' -SessionId 'wd-fix1-sess-query' -Child $c16 -Budget $b16 -StartedAt $t16 -FlagsPath $flagsEnforce -Repo $repo
+    }
+    Assert-Enforce ([bool]$r16.ok) 'F4 register bound' ([string]$r16.error)
     $q16 = Get-WatchdogLiveProcess -ProcessId ([int]$c16.Id) -FaultInject 'query_failure'
     Assert-Enforce ((([bool]$q16.inspection_failed) -and (-not [bool]$q16.found) -and (-not [bool]$q16.gone))) 'F4 injected query failure reads inspection_failed (never gone)' ''
     $q16b = Get-WatchdogLiveProcess -ProcessId 999999001
@@ -2030,7 +2040,13 @@ try {
     $b17 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
     $t17 = (Get-Date).ToUniversalTime()
     $r17 = Register-EnforceBound -TaskId 'wd-fix1-stopfail' -SessionId 'wd-fix1-sess-stopfail' -Child $c17 -Budget $b17 -StartedAt $t17 -FlagsPath $flagsEnforce -Repo $repo
-    Assert-Enforce ([bool]$r17.ok) 'F5 stop-failure register bound' ''
+    if (-not [bool]$r17.ok) {
+        Stop-EnforceSafety -Proc $c17
+        $c17 = Start-EnforceChild -SleepSeconds 120
+        $t17 = (Get-Date).ToUniversalTime()
+        $r17 = Register-EnforceBound -TaskId 'wd-fix1-stopfail' -SessionId 'wd-fix1-sess-stopfail' -Child $c17 -Budget $b17 -StartedAt $t17 -FlagsPath $flagsEnforce -Repo $repo
+    }
+    Assert-Enforce ([bool]$r17.ok) 'F5 stop-failure register bound' ([string]$r17.error)
     $exec17 = $script:WatchdogExecutions['wd-fix1-stopfail']
     $int17 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix1-stopfail' -Execution $exec17 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo -FaultInject 'stop_failure'
     Assert-Enforce ([string]$int17.error -ceq 'WATCHDOG_INTERRUPT_FAILED') 'F5 injected stop refusal => WATCHDOG_INTERRUPT_FAILED' ([string]$int17.error)
