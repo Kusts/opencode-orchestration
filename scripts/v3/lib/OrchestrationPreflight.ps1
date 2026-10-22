@@ -435,23 +435,32 @@ function Get-OrchestrationPreflight {
         }
 
         $isTrivial = $false
+        $directReason = 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED'
         try {
             $lenOk = (($objTrim.Length -gt 0) -and ($objTrim.Length -le 140))
             $riskOk = ($rk -ceq 'low')
-            $rwOk = ($rw -ceq 'read')
-            # Triviality requires an EXPLICIT trivial work-type; prose words
-            # only corroborate (they pick the token) and never establish it.
-            $typeOk = (($tt -ceq 'trivial') -or ($tt -ceq 'lookup') -or ($tt -ceq 'read') -or ($tt -ceq 'cosmetic') -or ($tt -ceq 'formatting'))
+            $typeOk = (($tt -ceq 'trivial') -or ($tt -ceq 'lookup') -or ($tt -ceq 'read') -or ($tt -ceq 'cosmetic') -or ($tt -ceq 'formatting') -or ($tt -ceq 'typo') -or ($tt -ceq 'micro_edit'))
             $localizedOk = (@($sec).Count -le 1)
             $archHit = Test-OrchestrationArchitectureDecision -Objective $obj -TaskType $tt -Domain $dom
-            if ($lenOk -and $riskOk -and $rwOk -and $typeOk -and $localizedOk -and (-not $archHit)) { $isTrivial = $true }
+            $sensitiveHit = Test-OrchestrationKeyword -Blob $blob -Words @('permission', 'permissions', 'permissao', 'permissoes', 'security', 'auth', 'secret', 'credential', 'token', 'opencode.json', 'kernel', 'protect-master', 'delete', 'drop', 'database', 'migration')
+
+            $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit))
+            $isMicroEditWrite = ($lenOk -and $riskOk -and ($rw -ceq 'write') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $sensitiveHit) -and ($dom -in @('docs', 'documentation', 'comments', 'formatting', 'metadata', 'chore')))
+
+            if ($isReadTrivial) {
+                $isTrivial = $true
+                $directReason = 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED'
+            } elseif ($isMicroEditWrite) {
+                $isTrivial = $true
+                $directReason = 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK'
+            }
         }
         catch { $isTrivial = $false }
 
         if ($isTrivial) {
             if ($ExecutionStrategy -ieq 'DIRECT_VERIFIED') {
-                $checkDirect = 'Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason DIRECT_VERIFIED_LOW_RISK_LOCALIZED'
-                return (& $mkResult 'DIRECT_VERIFIED' 'trivial' 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' @() '' 'OK' $checkDirect)
+                $checkDirect = "Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason $directReason"
+                return (& $mkResult 'DIRECT_VERIFIED' 'trivial' $directReason @() '' 'OK' $checkDirect)
             }
             $swAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
             if (@($swAgents).Count -eq 0) { $swAgents = @('coder') }

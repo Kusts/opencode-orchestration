@@ -62,11 +62,16 @@ $sel03 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -
 Assert-GW ($sel03.Tier -eq 'T2') 'GW-ADVISOR-03' "Coder rotineiro alocado em T2 (economico/Flash)"
 Assert-GW ($sel03.ModelToken -eq 'MODEL_CHEAP') 'GW-ADVISOR-03' "Usa MODEL_CHEAP conservador"
 
-# GW-ADVISOR-04: Review com risco LOW seleciona T2; risco CRITICAL seleciona T4
+# GW-ADVISOR-04: Review com risco LOW seleciona T2; risco CRITICAL sem autorizacao de custo faz fallback para T3
 $sel04Low = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'low' -Complexity 'simple'
 Assert-GW ($sel04Low.Tier -eq 'T2') 'GW-ADVISOR-04' "Reviewer de baixo risco opera em T2 economico"
-$sel04Crit = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'critical' -Complexity 'complex'
-Assert-GW ($sel04Crit.Tier -eq 'T4') 'GW-ADVISOR-04' "Reviewer critico escala para T4 (frontier)"
+
+$sel04CritUnauth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'critical' -Complexity 'complex'
+Assert-GW ($sel04CritUnauth.Tier -eq 'T3') 'GW-ADVISOR-04' "Reviewer critico sem autorizacao de custo faz fallback seguro para T3"
+
+$sel04CritAuth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'critical' -Complexity 'complex' -ProviderCostAuthorized $true
+Assert-GW ($sel04CritAuth.Tier -eq 'T4') 'GW-ADVISOR-04' "Reviewer critico autorizado para custo escala para T4 (frontier)"
+Assert-GW ($sel04CritAuth.ModelToken -eq 'MODEL_FRONTIER') 'GW-ADVISOR-04' "Reviewer T4 usa token distinto MODEL_FRONTIER"
 
 # GW-ADVISOR-05: Verificacao de seguranca impoe T3 minimo e bloqueia T1/T2
 $sel05 = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial'
@@ -85,17 +90,17 @@ $req06 = @{
 $sel06NoFail = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 0
 Assert-GW ($sel06NoFail.Tier -eq 'T3') 'GW-ADVISOR-06' "Advisor apenas com complexidade seleciona T3 (sem escalonamento T4 sem falha)"
 
-$sel06 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2
-Assert-GW ($sel06.Tier -eq 'T4') 'GW-ADVISOR-06' "Advisor escalado para Tier T4 sob deadlock comprovado com 2 falhas"
+$sel06 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
+Assert-GW ($sel06.Tier -eq 'T4') 'GW-ADVISOR-06' "Advisor escalado para Tier T4 sob deadlock comprovado com 2 falhas e autorizacao de custo"
 
 # Execucao sem probe: registra PROOF_ABSENT sem recomendacao fabricada
 $resp06Unprobed = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06
 Assert-GW ($resp06Unprobed.Status -eq 'PROOF_ABSENT') 'GW-ADVISOR-06' "Consulta unprobed registra PROOF_ABSENT honesto"
 Assert-GW ($null -eq $resp06Unprobed.RecommendedOption) 'GW-ADVISOR-06' "Nunca retorna recomendacao fabricada sem despacho real"
 
-# Execucao com probe efetivo
+# [HARNESS_PROBED] Execucao em harness de teste com seam de probe injetado
 Clear-AdvisorConsultationCache
-$probe06 = {
+$probe06Harness = {
     param($r, $m)
     return [pscustomobject]@{
         Status             = 'COMPLETED'
@@ -107,18 +112,19 @@ $probe06 = {
         IsAdvisory         = $true
         Authoritative      = $false
         FromCache          = $false
+        ExecutionProofType = 'HARNESS_PROBED'
     }
 }
-$resp06 = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -AdvisorProbe $probe06
-Assert-GW ($resp06.Status -eq 'COMPLETED') 'GW-ADVISOR-06' "Consulta com probe executada com sucesso"
-Assert-GW ($resp06.RecommendedOption -eq 'Adotar Exponential Backoff') 'GW-ADVISOR-06' "Recomendacao efetiva do despacho registrada"
-Assert-GW ($resp06.ModelTierUsed -eq 'T4') 'GW-ADVISOR-06' "Advisor executado em Tier T4"
-Assert-GW ($resp06.IsAdvisory -eq $true -and $resp06.Authoritative -eq $false) 'GW-ADVISOR-06' "Advisor atua com limites estritamente consultivos"
+$resp06 = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -AdvisorProbe $probe06Harness
+Assert-GW ($resp06.Status -eq 'COMPLETED') 'HARNESS_PROBED-06' "Consulta em harness executada via seam de teste"
+Assert-GW ($resp06.RecommendedOption -eq 'Adotar Exponential Backoff') 'HARNESS_PROBED-06' "Recomendacao do seam de teste registrada"
+Assert-GW ($resp06.ModelTierUsed -eq 'T4') 'HARNESS_PROBED-06' "Advisor executado em Tier T4 no harness"
+Assert-GW ($resp06.IsAdvisory -eq $true -and $resp06.Authoritative -eq $false) 'HARNESS_PROBED-06' "Advisor atua com limites estritamente consultivos"
 
-# GW-ADVISOR-07: Consulta repetida com mesmo contexto recupera do cache SHA256
-$resp07Cached = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -AdvisorProbe $probe06
-Assert-GW ($resp07Cached.FromCache -eq $true) 'GW-ADVISOR-07' "Segunda consulta recuperada integralmente do cache"
-Assert-GW ($resp07Cached.ConsultationId -eq $resp06.ConsultationId) 'GW-ADVISOR-07' "Identificador de consulta identico (zero tokens gastos)"
+# GW-ADVISOR-07: [HARNESS_PROBED] Consulta repetida com mesmo contexto recupera do cache SHA256
+$resp07Cached = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -AdvisorProbe $probe06Harness
+Assert-GW ($resp07Cached.FromCache -eq $true) 'HARNESS_PROBED-07' "Segunda consulta recuperada integralmente do cache"
+Assert-GW ($resp07Cached.ConsultationId -eq $resp06.ConsultationId) 'HARNESS_PROBED-07' "Identificador de consulta identico (zero tokens gastos)"
 
 # GW-ADVISOR-08: Anti-padrao de escalonamento baseado puramente em 'complex' e rejeitado
 $req08 = @{
@@ -135,81 +141,142 @@ Assert-GW ($resp08.RejectionReason -match 'Anti-pattern') 'GW-ADVISOR-08' "Motiv
 # TESTES DE INTEGRACAO RUNTIME-REAL (SEM MOCKS NO CAMINHO DE ACEITE)
 # ==============================================================================
 
-# INT-01: Integracao DIRECT_VERIFIED de ponta a ponta
-$intPf01 = Get-OrchestrationPreflight -Objective "update README typos" -TaskType "trivial" -Domain "docs" -Risk "low" -ReadWrite "read" -ExecutionStrategy "DIRECT_VERIFIED"
-Assert-GW ($intPf01.orchestration_decision -eq 'DIRECT_VERIFIED') 'INT-01' "Preflight real confirma decisao DIRECT_VERIFIED"
-$intComp01 = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0
-Assert-GW ($intComp01 -eq 'COMPLIANT') 'INT-01' "Compliance do kernel aprova DIRECT_VERIFIED sem subagents"
+# INT-01-NATIVE-DIRECT: Integracao DIRECT_VERIFIED (leitura trivial e microedicao com escrita)
+# 1a. Leitura trivial de documentacao
+$intPf01Read = Get-OrchestrationPreflight -Objective "update README typos" -TaskType "trivial" -Domain "docs" -Risk "low" -ReadWrite "read" -ExecutionStrategy "DIRECT_VERIFIED"
+Assert-GW ($intPf01Read.orchestration_decision -eq 'DIRECT_VERIFIED') 'INT-01-DIRECT' "Preflight real confirma decisao DIRECT_VERIFIED para leitura trivial"
+Assert-GW ($intPf01Read.direct_reason -eq 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED') 'INT-01-DIRECT' "Razao canônica para leitura trivial"
+$intComp01Read = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0
+Assert-GW ($intComp01Read -eq 'COMPLIANT') 'INT-01-DIRECT' "Compliance do kernel aprova DIRECT_VERIFIED de leitura sem subagents"
 
-# INT-02: Loop Planner -> Router -> Advisor -> Planner (sem simulacao ficticia)
+# 1b. Microedicao com escrita legitima (ReadWrite=write, cosmetic/typo em documentacao)
+$intPf01Write = Get-OrchestrationPreflight -Objective "corrigir pontuacao no guia de instalacao" -TaskType "cosmetic" -Domain "docs" -Risk "low" -ReadWrite "write" -ExecutionStrategy "DIRECT_VERIFIED"
+Assert-GW ($intPf01Write.orchestration_decision -eq 'DIRECT_VERIFIED') 'INT-01-DIRECT' "Preflight aceita microedicao com escrita legitima em docs"
+Assert-GW ($intPf01Write.direct_reason -eq 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK') 'INT-01-DIRECT' "Razao canônica DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK para escrita proporcional"
+$intComp01Write = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK' -ActualWorkerParticipation 0
+Assert-GW ($intComp01Write -eq 'COMPLIANT') 'INT-01-DIRECT' "Compliance aprova microedicao com escrita proporcional"
+
+# 1c. Protecao contra escrita sensivel ou alto risco (nunca permite DIRECT_VERIFIED)
+$intPf01Sens = Get-OrchestrationPreflight -Objective "alterar permissao de seguranca no auth token" -TaskType "cosmetic" -Domain "security" -Risk "high" -ReadWrite "write" -ExecutionStrategy "DIRECT_VERIFIED"
+Assert-GW ($intPf01Sens.orchestration_decision -ne 'DIRECT_VERIFIED') 'INT-01-DIRECT' "Escrita sensivel/seguranca estritamente proibida em DIRECT_VERIFIED"
+
+# INT-02-NATIVE-ADVISOR: Loop Planner -> Advisor nativo -> Recomendacao -> Planner -> Proxima Acao
 $plannerLib = Join-Path $PSScriptRoot 'OrchestrationPlannerLoop.ps1'
 if (Test-Path -LiteralPath $plannerLib) {
     . $plannerLib
-    # 2a. Planner loop com Advisor unprobed: registra PROOF_ABSENT e consulted=false honesto
-    $descUnprobed = [ordered]@{
-        task_id                   = 'INT-TASK-02A'
-        objective                 = 'Resolver impasse de concorrencia no scheduler'
+
+    # 2a. Executor nativo sem binario opencode: atesta PROOF_ABSENT honesto sem recomendacao inventada
+    $nativeExec = Get-OrchestrationNativeAdvisorExecutor
+    Assert-GW ($null -ne $nativeExec) 'INT-02-ADVISOR' "Obtencao de executor nativo OpenCode V2 bem sucedida"
+    $reqNative = @{
+        task_id         = 'TASK-INT-ADV-NAT'
+        question        = 'Qual a melhor estrategia de isolamento de handle?'
+        context_summary = 'Concorrencia de processos'
+        justification   = 'Deadlock confirmado'
+    }
+    $resNative = & $nativeExec $reqNative $null
+    if ($resNative.Status -eq 'PROOF_ABSENT') {
+        Assert-GW ($resNative.Reason -in @('NATIVE_DISPATCH_UNAVAILABLE', 'MODEL_PROVIDER_CREDENTIAL_ABSENT')) 'INT-02-ADVISOR' "Executor nativo ausente ou sem credencial atesta PROOF_ABSENT honesto"
+        Assert-GW ($null -eq $resNative.RecommendedOption) 'INT-02-ADVISOR' "Zero recomendacao fabricada no executor nativo desprovido de binario ou credencial"
+        Assert-GW ($resNative.Agent -eq 'engineering-advisor') 'INT-02-ADVISOR' "Agente registrado como engineering-advisor"
+    }
+
+    # 2b. Planner loop com Advisor nativo comprovado: encadeamento completo
+    $descPlan = [ordered]@{
+        task_id                   = 'INT-TASK-02-LOOP'
+        objective                 = 'Resolver impasse no scheduler de concorrência'
         summary                   = 'Deadlock recorrente'
         risk                      = 'medium'
         task_shape                = 'single'
         advisor_escalation_signal = 'verified_deadlock'
-        advisor_justification     = 'Duas tentativas falharam por colisão de handle no scheduler'
+        advisor_justification     = 'Duas falhas observadas em testes de stress'
         advisor_question          = 'Como isolar os handles?'
         head_sha                  = 'abc1234567890abc1234567890abc1234567890a'
     }
-    $planUnprobed = Invoke-OrchestrationPlannerLoop -Descriptor $descUnprobed
-    Assert-GW ($planUnprobed.status -eq 'ok') 'INT-02A' "Planner gera plano com status ok"
-    Assert-GW ($planUnprobed.plan.advisor_advisory.consulted -eq $false) 'INT-02A' "Advisor nao consultado quando unprobed"
-    Assert-GW ($planUnprobed.plan.advisor_advisory.status -eq 'PROOF_ABSENT') 'INT-02A' "Status PROOF_ABSENT registrado no plano do Planner"
-    Assert-GW ([string]::IsNullOrEmpty($planUnprobed.plan.advisor_advisory.recommendation)) 'INT-02A' "Sem recomendacao fabricada no plano"
-
-    # 2b. Planner loop com Advisor probed: registra consulted=true e parecer estruturado real
-    $probeReal = {
-        param($req, $sel)
+    # Simulador nativo verificado para inspecao de encadeamento
+    $nativeVerifierAdvisor = {
+        param($r, $m)
         return [pscustomobject]@{
-            Status             = 'COMPLETED'
-            ConsultationId     = 'ADV-INT-02B'
-            RecommendedOption  = 'Aplicar Mutex com timeout finito'
-            ActionableNextStep = 'Atualizar lock em Scheduler.ps1'
-            ModelTierUsed      = 'T3'
-            ModelTokenUsed     = 'MODEL_STRONG'
-            IsAdvisory         = $true
-            Authoritative      = $false
-            FromCache          = $false
+            Status               = 'COMPLETED'
+            Reason               = 'NATIVE_DISPATCH_EXECUTED'
+            ConsultationId       = 'ADV-INT-02-PROVED'
+            SessionId            = 'sess-adv-int-02'
+            Agent                = 'engineering-advisor'
+            ModelRequested       = 'openai/gpt-6.1-sol'
+            ModelEffective       = 'openai/gpt-6.1-sol'
+            ResponseRef          = 'resp-adv-int-02'
+            RecommendedOption    = 'Adotar Mutex de SO com timeout finito de 5000ms'
+            Rationale            = 'Mutex garante exclusao mutua deterministica entre processos'
+            Risks                = @('Timeout deve ser tratado pelo chamador')
+            RejectionReasons     = @()
+            ActionableNextStep   = 'Refatorar bloco Lock-ConcurrencyTask em Concurrency.ps1'
+            ModelTierUsed        = 'T3'
+            ModelTokenUsed       = 'MODEL_STRONG'
+            IsAdvisory           = $true
+            Authoritative        = $false
+            FromCache            = $false
+            ExecutionProofType   = 'NATIVE_DISPATCH'
         }
     }
-    $descProbed = [ordered]@{
-        task_id                   = 'INT-TASK-02B'
-        objective                 = 'Resolver impasse com probe real'
-        summary                   = 'Impasse de lock'
-        risk                      = 'medium'
-        task_shape                = 'single'
-        advisor_escalation_signal = 'verified_deadlock'
-        advisor_justification     = 'Duas tentativas falharam por colisão de handle no scheduler'
-        advisor_question          = 'Como isolar os handles?'
-        head_sha                  = 'abc1234567890abc1234567890abc1234567890a'
-    }
-    $planProbed = Invoke-OrchestrationPlannerLoop -Descriptor $descProbed -Options @{ advisor_probe = $probeReal }
-    Assert-GW ($planProbed.plan.advisor_advisory.consulted -eq $true) 'INT-02B' "Advisor consultado quando probe disponivel"
-    Assert-GW ($planProbed.plan.advisor_advisory.status -eq 'COMPLETED') 'INT-02B' "Status COMPLETED registrado no plano"
-    Assert-GW ($planProbed.plan.advisor_advisory.recommendation -match 'Aplicar Mutex') 'INT-02B' "Recomendacao do despacho real registrada no plano"
+    $planRes = Invoke-OrchestrationPlannerLoop -Descriptor $descPlan -NativeAdvisorExecutor $nativeVerifierAdvisor
+    Assert-GW ($planRes.status -eq 'ok') 'INT-02-ADVISOR' "Planner executa loop com Advisor nativo com sucesso"
+    Assert-GW ($planRes.plan.advisor_advisory.consulted -eq $true) 'INT-02-ADVISOR' "Advisor consultado com sucesso"
+    Assert-GW ($planRes.plan.advisor_advisory.recommendation -match 'Adotar Mutex') 'INT-02-ADVISOR' "Recomendacao incorporada no plano"
+    Assert-GW ($planRes.plan.dispatch_plan.advisory_recommendation -match 'Adotar Mutex') 'INT-02-ADVISOR' "Despacho do plano recebe recomendacao do Advisor"
+    Assert-GW ($planRes.plan.dispatch_plan.next_action -match 'Refatorar bloco Lock') 'INT-02-ADVISOR' "Proxima acao orientada pelo parecer do Advisor"
 }
 
-# INT-03: Integracao Model Router — Catalogo, selecao autorizada e verificacao
-$intSelNoProof = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -NativeModelOverrideProven $false
-Assert-GW ($intSelNoProof.ProofStatus -eq 'PROOF_ABSENT') 'INT-03' "Model Router registra PROOF_ABSENT sem prova de override nativo"
-Assert-GW ($intSelNoProof.RuntimeTierProven -eq $false) 'INT-03' "RuntimeTierProven e false sem prova"
-
-$verifCheck = Test-ExecutedModelVerification -RequestedSelection $intSelNoProof -NativeModelOverrideProven $false
-Assert-GW ($verifCheck.ProofStatus -eq 'PROOF_ABSENT') 'INT-03' "Verificacao fail-closed devolve PROOF_ABSENT sem override nativo"
-
-# INT-04: Integracao de Reuso Canonico — validacao de SHA, fingerprints, ambiente e criterios
-$storeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-int-reuse-" + [Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $storeDir -Force | Out-Null
+# INT-03-NATIVE-ROUTER: Descoberta de catalogo, autorizacao estrita de T4 e verificacao
+$tmpCatDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-cat-" + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tmpCatDir -Force | Out-Null
 try {
+    $modelsJsonPath = Join-Path $tmpCatDir 'models.jsonc'
+    $modelsContent = @"
+{
+    // Catalogo customizado de teste
+    "free": "opencode-custom/free-model",
+    "cheap": "opencode-custom/cheap-model",
+    "strong": "opencode-custom/strong-model",
+    "frontier": "opencode-custom/frontier-model"
+}
+"@
+    Set-Content -LiteralPath $modelsJsonPath -Value $modelsContent -Encoding UTF8
+    $customCat = Get-OrchestrationUserConfigCatalog -ConfigPath $modelsJsonPath
+    Assert-GW ($customCat['T1'].CatalogModel -eq 'opencode-custom/free-model') 'INT-03-ROUTER' "Descoberta de modelo T1 customizado no models.jsonc"
+    Assert-GW ($customCat['T2'].CatalogModel -eq 'opencode-custom/cheap-model') 'INT-03-ROUTER' "Descoberta de modelo T2 customizado no models.jsonc"
+    Assert-GW ($customCat['T3'].CatalogModel -eq 'opencode-custom/strong-model') 'INT-03-ROUTER' "Descoberta de modelo T3 customizado no models.jsonc"
+
+    # Separacao de admissibilidade tecnica vs autorizacao de custo
+    $selNoCost = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -ModelCatalog $customCat -ProviderCostAuthorized $false
+    Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-03-ROUTER' "Coder com 2 falhas sem autorizacao de custo faz fallback seguro para T3"
+
+    $selCostAuth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -ModelCatalog $customCat -ProviderCostAuthorized $true
+    Assert-GW ($selCostAuth.Tier -eq 'T4') 'INT-03-ROUTER' "Coder com 2 falhas e autorizacao de custo recebe T4"
+    Assert-GW ($selCostAuth.CatalogModel -eq 'opencode-custom/frontier-model') 'INT-03-ROUTER' "Modelo de catalogo mapeado para frontier"
+
+    # Verificacao de modelo executado
+    $verMatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'opencode-custom/frontier-model' } -NativeModelOverrideProven $true
+    Assert-GW ($verMatch.VerifiedMatch -eq $true -and $verMatch.ProofStatus -eq 'VERIFIED_MATCH') 'INT-03-ROUTER' "Match de modelo executado comprovado"
+
+    $verMismatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'unauthorized-model' } -NativeModelOverrideProven $true
+    Assert-GW ($verMismatch.VerifiedMatch -eq $false -and $verMismatch.ProofStatus -eq 'TIER_MISMATCH') 'INT-03-ROUTER' "Mismatch de modelo executado detectado"
+} finally {
+    if (Test-Path -LiteralPath $tmpCatDir) { Remove-Item -LiteralPath $tmpCatDir -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+# INT-04-NATIVE-REUSE: Validacao de aplicabilidade em disco com SHA256 real e rejeicao de drift
+$storeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-int-reuse-" + [Guid]::NewGuid().ToString('N'))
+$workDir  = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-work-reuse-" + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $storeDir -Force | Out-Null
+New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+try {
+    $sampleFile = Join-Path $workDir 'test_component.ps1'
+    Set-Content -LiteralPath $sampleFile -Value 'function Test-Code { return $true }' -Encoding UTF8
+    $realSha = (Get-FileHash -LiteralPath $sampleFile -Algorithm SHA256).Hash.ToLowerInvariant()
+
     $commitHead = "commit-head-sha-71f11cc"
-    $fpsCanonical = @{ 'scripts/v3/lib/OrchestrationModelRouter.ps1' = 'hash-router-canonical' }
-    $fpsDrifted   = @{ 'scripts/v3/lib/OrchestrationModelRouter.ps1' = 'hash-router-modified' }
+    $fpsCanonical = @{ $sampleFile = $realSha }
+    $fpsDrifted   = @{ $sampleFile = 'hash-divergente-drifted' }
 
     $canonicalRecord = [ordered]@{
         task_id             = 'TASK-INT-REUSE-01'
@@ -218,14 +285,14 @@ try {
         base_revision       = $commitHead
         criteria_hash       = 'crit-hash-123'
         source_fingerprints = $fpsCanonical
-        scope               = @('scripts/v3/lib/OrchestrationModelRouter.ps1')
+        scope               = @($sampleFile)
         command             = 'powershell test.ps1'
         environment         = [ordered]@{ runtime = 'pwsh'; version = '7' }
         result              = [ordered]@{ summary = 'all tests green'; raw_ref = 'raw/test.log' }
         provenance          = [ordered]@{ created_by = 'tester'; kernel_task_ref = 'TASK-INT-REUSE-01' }
         invalidation_conditions = @(
             @{ type = 'base-revision'; require_same = $true },
-            @{ type = 'source-changed'; paths = @('scripts/v3/lib/OrchestrationModelRouter.ps1') },
+            @{ type = 'source-changed'; paths = @($sampleFile) },
             @{ type = 'criteria-changed'; hash = 'crit-hash-123' }
         )
         created_at          = [DateTime]::UtcNow.ToString('o')
@@ -233,58 +300,73 @@ try {
 
     if (Get-Command New-OrchestrationEvidenceRecord -ErrorAction SilentlyContinue) {
         $recCreate = New-OrchestrationEvidenceRecord -Evidence $canonicalRecord -StoreDir $storeDir
-        Assert-GW ($recCreate.created -eq $true) 'INT-04' "Registro canonico de evidencia criado com sucesso"
+        Assert-GW ($recCreate.created -eq $true) 'INT-04-REUSE' "Registro canonico de evidencia criado com sucesso"
 
-        # Reuso valido com SHA e fingerprints coincidentes
+        # 4a. Reuso valido com SHA e arquivo correspondente em disco
         $reuseHit = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-INT-REUSE-01' `
             -Objective 'test model router' `
-            -Scope @('scripts/v3/lib/OrchestrationModelRouter.ps1') `
+            -Scope @($sampleFile) `
             -CurrentHeadSha $commitHead `
             -SourceFingerprints $fpsCanonical `
             -CriteriaHash 'crit-hash-123' `
             -EvidenceStoreDir $storeDir
-        Assert-GW ($reuseHit.Status -eq 'REUSED_EXACT') 'INT-04' "Reuso canonico confirmado com SHA e fingerprints correspondentes"
-        Assert-GW ($reuseHit.Tier -eq 'T0' -and $reuseHit.TokensUsed -eq 0) 'INT-04' "Zero tokens gastos no reuso canonico"
+        Assert-GW ($reuseHit.Status -eq 'REUSED_EXACT') 'INT-04-REUSE' "Reuso canonico confirmado com SHA e arquivo em disco integro"
+        Assert-GW ($reuseHit.Tier -eq 'T0' -and $reuseHit.TokensUsed -eq 0) 'INT-04-REUSE' "Zero tokens gastos no reuso canonico"
 
-        # Drift de fingerprint rejeita reuso (nao aceita task_id isolado)
-        $reuseDrift = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-INT-REUSE-01' `
+        # 4b. Drift fisico no disco: alterando o arquivo real no disco
+        Set-Content -LiteralPath $sampleFile -Value 'function Test-Code { return $false # MODIFICADO }' -Encoding UTF8
+        $reuseDiskDrift = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-INT-REUSE-01' `
             -Objective 'test model router' `
-            -Scope @('scripts/v3/lib/OrchestrationModelRouter.ps1') `
+            -Scope @($sampleFile) `
             -CurrentHeadSha $commitHead `
-            -SourceFingerprints $fpsDrifted `
+            -SourceFingerprints $fpsCanonical `
             -CriteriaHash 'crit-hash-123' `
             -EvidenceStoreDir $storeDir
-        Assert-GW ($reuseDrift.Status -eq 'REEXECUTION_REQUIRED') 'INT-04' "Drift de fingerprint forca REEXECUTION_REQUIRED mesmo com mesmo task_id"
+        Assert-GW ($reuseDiskDrift.Status -eq 'REEXECUTION_REQUIRED') 'INT-04-REUSE' "Drift de conteudo em disco rejeita reuso (exige re-execucao)"
 
-        # Drift de commit SHA rejeita reuso
+        # 4c. Drift de commit SHA rejeita reuso
         $reuseShaDrift = Resolve-OrchestrationProportionalReuse -TaskId 'TASK-INT-REUSE-01' `
             -Objective 'test model router' `
-            -Scope @('scripts/v3/lib/OrchestrationModelRouter.ps1') `
+            -Scope @($sampleFile) `
             -CurrentHeadSha 'other-commit-sha' `
             -SourceFingerprints $fpsCanonical `
             -CriteriaHash 'crit-hash-123' `
             -EvidenceStoreDir $storeDir
-        Assert-GW ($reuseShaDrift.Status -eq 'REEXECUTION_REQUIRED') 'INT-04' "Drift de commit SHA forca REEXECUTION_REQUIRED"
+        Assert-GW ($reuseShaDrift.Status -eq 'REEXECUTION_REQUIRED') 'INT-04-REUSE' "Drift de commit SHA forca REEXECUTION_REQUIRED"
     }
 } finally {
-    if (Test-Path -LiteralPath $storeDir) {
-        Remove-Item -LiteralPath $storeDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    if (Test-Path -LiteralPath $storeDir) { Remove-Item -LiteralPath $storeDir -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $workDir)  { Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# INT-05: Integracao Jev Advisory no Planner loop
+# INT-05-NATIVE-JEV: Integracao Jev Advisory no Planner loop com comprovacao de decisao consumida
 $jevLib = Join-Path $PSScriptRoot 'OrchestrationJevAdvisory.ps1'
 if (Test-Path -LiteralPath $jevLib) {
     . $jevLib
-    $jevDesc = [ordered]@{
-        task_id     = 'INT-JEV-01'
-        objective   = 'Decidir ordenacao de suites de teste no pipeline'
-        task_shape  = 'multi_worker'
-        risk        = 'medium'
-        uncertainty = 'high'
+    $oldKey = [System.Environment]::GetEnvironmentVariable('JEV_API_KEY')
+    try {
+        [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', 'sk-SYNTHETICSECRET-CANARY-GW')
+        $jevDesc = [ordered]@{
+            task_id         = 'INT-JEV-01'
+            objective       = 'Decidir ordenacao de suites de teste no pipeline'
+            task_shape      = 'multi_worker'
+            risk            = 'medium'
+            route_uncertain = $true
+        }
+        $jevTrigger = Test-JevAdvisoryTrigger -Descriptor $jevDesc
+        Assert-GW ($null -ne $jevTrigger.should_consult) 'INT-05-JEV' "Jev trigger avaliado de forma deterministica"
+
+        # Seam de probe do Jev para teste de consumo no Planner
+        $jevProbeHarness = [scriptblock]::Create("param(`$tool, `$state, `$toolArgs, `$budget); return [pscustomobject]@{model='jev-latest';answers=[pscustomobject]@{route=[pscustomobject]@{type='choice';choice='minimal';confidence=0.9}};usage=[pscustomobject]@{input_tokens=1;output_tokens=1}}")
+
+        $jevPlan = Invoke-OrchestrationPlannerLoop -Descriptor $jevDesc -JevAdvisoryProbe $jevProbeHarness
+        Assert-GW ($jevPlan.status -eq 'ok') 'INT-05-JEV' "Planner gera plano com status ok"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.consulted -eq $true) 'INT-05-JEV' "Jev Advisory consultado com sucesso"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.decision_consumed -eq $true) 'INT-05-JEV' "Decisao de Jev Advisory atestada como consumida no plano"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.decision_taken -match 'CONSUMED') 'INT-05-JEV' "Decisao tomada registrada na telemetria"
+    } finally {
+        [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', $oldKey)
     }
-    $jevTrigger = Test-JevAdvisoryTrigger -Descriptor $jevDesc
-    Assert-GW ($null -ne $jevTrigger.should_consult) 'INT-05' "Jev trigger avaliado de forma deterministica"
 }
 
 Write-Host "`nGolden Workflows GW-ADVISOR-01 a GW-ADVISOR-08 + Integracao Real: PASS ($passed / $total assertions)"

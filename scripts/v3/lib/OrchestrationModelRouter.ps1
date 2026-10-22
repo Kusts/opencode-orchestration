@@ -144,17 +144,94 @@ $script:AgentModelAdmissibility = @{
 
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
-    'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';  Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
+    'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/space-bunny-free';              Authorized = $true }
     'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
-    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-sol';      Authorized = $true }
-    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6-sol';      Authorized = $false } # T4 requires verified authorization
+    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-sol';                      Authorized = $true }
+    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/o3-mini';                          Authorized = $false } # T4 requires explicit cost authorization
+}
+
+function Get-OrchestrationUserConfigCatalog {
+    <#
+    .SYNOPSIS
+        Discovers effective models from user configuration (models.jsonc / models.json / env).
+    .DESCRIPTION
+        Reads effective model catalog from:
+          1. -ConfigPath if provided
+          2. models.jsonc / models.json in current directory or ~/.config/opencode/
+          3. Environment variables (MODEL_PLANNER, MODEL_CHEAP, MODEL_STRONG, MODEL_FRONTIER)
+          4. Fallback to documented defaults from models.example.jsonc
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$ConfigPath = ''
+    )
+
+    $cat = @{
+        'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Authorized = $true }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/space-bunny-free';              Authorized = $true }
+        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
+        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-sol';                      Authorized = $true }
+        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/o3-mini';                          Authorized = $false }
+    }
+
+    $candPaths = @()
+    if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) { $candPaths += $ConfigPath }
+    $candPaths += (Join-Path (Get-Location) 'models.jsonc')
+    $candPaths += (Join-Path (Get-Location) 'models.json')
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:USERPROFILE)) {
+        $candPaths += (Join-Path (Join-Path ([string]$env:USERPROFILE) '.config\opencode') 'models.jsonc')
+        $candPaths += (Join-Path (Join-Path ([string]$env:USERPROFILE) '.config\opencode') 'models.json')
+    }
+
+    foreach ($p in $candPaths) {
+        if (Test-Path -LiteralPath $p -PathType Leaf) {
+            try {
+                $raw = Get-Content -LiteralPath $p -Raw -ErrorAction Stop
+                # Strip simple // comments if jsonc
+                $jsonText = $raw -replace '(?m)^\s*//.*$', ''
+                $parsed = ConvertFrom-Json -InputObject $jsonText -ErrorAction Stop
+                if ($null -ne $parsed) {
+                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.free)) {
+                        $cat['T1'].CatalogModel = [string]$parsed.free
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.cheap)) {
+                        $cat['T2'].CatalogModel = [string]$parsed.cheap
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.strong)) {
+                        $cat['T3'].CatalogModel = [string]$parsed.strong
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.frontier)) {
+                        $cat['T4'].CatalogModel = [string]$parsed.frontier
+                    }
+                    break
+                }
+            } catch { }
+        }
+    }
+
+    # Environment overrides
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_FREE))     { $cat['T1'].CatalogModel = [string]$env:MODEL_FREE }
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_CHEAP))    { $cat['T2'].CatalogModel = [string]$env:MODEL_CHEAP }
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_STRONG))   { $cat['T3'].CatalogModel = [string]$env:MODEL_STRONG }
+    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_FRONTIER)) { $cat['T4'].CatalogModel = [string]$env:MODEL_FRONTIER }
+
+    # Cost authorization flag from environment
+    if ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') {
+        $cat['T4'].Authorized = $true
+    }
+
+    return $cat
 }
 
 function Resolve-CatalogModel {
     <#
     .SYNOPSIS
         Resolves catalog model entry, token and authorization for a requested tier.
+    .DESCRIPTION
+        Separates technical admissibility from provider/cost authorization.
+        T4 is NEVER authorized merely by task risk or failure count; explicit cost authorization is required.
     #>
     [CmdletBinding()]
     param(
@@ -168,30 +245,37 @@ function Resolve-CatalogModel {
         [int]$FailureCount = 0,
 
         [Parameter(Mandatory = $false)]
-        [string]$Risk = 'medium'
+        [string]$Risk = 'medium',
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ProviderCostAuthorized = $false
     )
 
-    $cat = if ($null -ne $Catalog) { $Catalog } else { $script:DefaultModelCatalog }
-    $entry = if ($cat.ContainsKey($Tier)) { $cat[$Tier] } else { $script:DefaultModelCatalog['T2'] }
+    $cat = if ($null -ne $Catalog) { $Catalog } else { Get-OrchestrationUserConfigCatalog }
+    $entry = if ($cat.ContainsKey($Tier)) { $cat[$Tier] } else { $cat['T2'] }
 
     $token = [string]$entry.Token
     $catModel = [string]$entry.CatalogModel
     $authorized = [bool]$entry.Authorized
 
-    # T4 authorization rule: frontier models are authorized ONLY under high/critical risk or verified failures >= 2
+    # Strict separation of technical admissibility vs provider/cost authorization:
+    # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
     if ($Tier -eq 'T4') {
-        if ($Risk -in @('high', 'critical') -or $FailureCount -ge 2) {
+        if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
             $authorized = $true
         } else {
+            # Never authorize T4 solely by risk or failure count
             $authorized = $false
         }
     }
 
     return [pscustomobject]@{
-        Tier         = $Tier
-        ModelToken   = $token
-        CatalogModel = $catModel
-        IsAuthorized = $authorized
+        Tier                   = $Tier
+        ModelToken             = $token
+        CatalogModel           = $catModel
+        IsAuthorized           = $authorized
+        ProviderCostAuthorized = ($authorized -or $ProviderCostAuthorized)
+        FallbackTier           = if ($Tier -eq 'T4' -and -not $authorized) { 'T3' } else { $Tier }
     }
 }
 
@@ -304,6 +388,9 @@ function Resolve-OrchestrationModelSelection {
         [bool]$NativeModelOverrideProven = $false,
 
         [Parameter(Mandatory = $false)]
+        [bool]$ProviderCostAuthorized = $false,
+
+        [Parameter(Mandatory = $false)]
         $ModelCatalog = $null
     )
 
@@ -333,6 +420,7 @@ function Resolve-OrchestrationModelSelection {
             Tier                      = 'T0'
             TierName                  = 'Deterministic'
             ModelToken                = 'NONE_DIRECT_VERIFIED'
+            EffectiveModelToken       = 'NONE_DIRECT_VERIFIED'
             CatalogModel              = 'none (deterministic)'
             AuthorizedSelection       = $true
             RuntimeTierProven         = $true
@@ -425,22 +513,31 @@ function Resolve-OrchestrationModelSelection {
         $reason = "Cost invariant enforced: coder prohibited from T4 without at least 2 demonstrated failures."
     }
 
-    # Catalog and authorization check
-    $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk
+    # Catalog and authorization check: separate technical justification from explicit cost authorization
+    $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized
     if (-not $catalogRes.IsAuthorized) {
-        $selectedTier = $admissibility.DefaultTier
-        $reason = "Tier '$($catalogRes.Tier)' was unauthorized. Degraded to default '$selectedTier'."
-        $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk
+        $degradedTier = if ($selectedTier -eq 'T4') { 'T3' } else { $admissibility.DefaultTier }
+        $reason = "Tier '$($catalogRes.Tier)' was unauthorized (cost/provider authorization absent). Degraded to '$degradedTier'."
+        $selectedTier = $degradedTier
+        $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized
     }
 
-    # Resolve token name
-    $modelToken = if ($selectedTier -in @('T3', 'T4')) { 'MODEL_STRONG' } else { 'MODEL_CHEAP' }
+    # Resolve token name directly from resolved catalog entry (no reduction to cheap/strong pool)
+    $modelToken = [string]$catalogRes.ModelToken
     $tierMeta = $script:ModelTiers[$selectedTier]
 
+    $fallbackDefaultTier = $admissibility.DefaultTier
+    $fallbackDefaultToken = switch ($fallbackDefaultTier) {
+        'T4' { 'MODEL_FRONTIER' }
+        'T3' { 'MODEL_STRONG' }
+        'T1' { 'MODEL_FREE' }
+        default { 'MODEL_CHEAP' }
+    }
+
     # Handle native override proof
-    # If native subagent model override is NOT proven, we must inform caller
+    # If native subagent model override is NOT proven, we inform caller
     # and provide conservative fallback token for standard template resolution
-    $effectiveToken = $modelToken
+    $effectiveToken = if ($NativeModelOverrideProven) { $modelToken } else { $fallbackDefaultToken }
     $overrideNote = ''
     $proofStatus = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
     $runtimeTierProven = [bool]$NativeModelOverrideProven
@@ -454,7 +551,8 @@ function Resolve-OrchestrationModelSelection {
         Agent                     = $cleanAgent
         Tier                      = $selectedTier
         TierName                  = $tierMeta.Name
-        ModelToken                = $effectiveToken
+        ModelToken                = $modelToken
+        EffectiveModelToken       = $effectiveToken
         CatalogModel              = $catalogRes.CatalogModel
         AuthorizedSelection       = $catalogRes.IsAuthorized
         RuntimeTierProven         = $runtimeTierProven
@@ -462,8 +560,8 @@ function Resolve-OrchestrationModelSelection {
         AdmissibleTiers           = $admissibleTiers
         SelectionReason           = $reason
         EstimatedCostMultiplier   = $tierMeta.RelativeCost
-        FallbackTier              = $admissibility.DefaultTier
-        FallbackToken             = if ($admissibility.DefaultTier -in @('T3', 'T4')) { 'MODEL_STRONG' } else { 'MODEL_CHEAP' }
+        FallbackTier              = $fallbackDefaultTier
+        FallbackToken             = $fallbackDefaultToken
         NativeModelOverrideProven = $NativeModelOverrideProven
         OverrideNote              = $overrideNote
         IsCompliant               = $true

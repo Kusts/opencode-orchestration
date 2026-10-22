@@ -91,6 +91,17 @@ function Test-AdvisorEscalationSignal {
     }
 }
 
+function Get-AdvisorField($obj, [string]$name, $default = $null) {
+    if ($null -eq $obj) { return $default }
+    if ($obj -is [System.Collections.IDictionary]) {
+        if ($obj.Contains($name)) { return $obj[$name] }
+        return $default
+    }
+    $prop = $obj.PSObject.Properties[$name]
+    if ($prop) { return $prop.Value }
+    return $default
+}
+
 function Get-AdvisorConsultationCacheKey {
     <#
     .SYNOPSIS
@@ -122,6 +133,217 @@ function Get-AdvisorConsultationCacheKey {
     return $sb.ToString()
 }
 
+function Get-OrchestrationNativeAdvisorExecutor {
+    <#
+    .SYNOPSIS
+        Returns the native OpenCode V2 executor for engineering-advisor consultations.
+    .DESCRIPTION
+        Reutiliza a infraestrutura de execucao nativa do OpenCode V2 sem duplicar dispatchers.
+        Se o ambiente nativo estiver indisponivel, falha fechado com PROOF_ABSENT.
+        Registra SessionId, Agent, ModelRequested, ModelEffective e ResponseRef.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return {
+        param($Req, $ModelSel)
+
+        $taskId = [string](Get-AdvisorField $Req 'task_id' 'advisor-task')
+        $question = [string](Get-AdvisorField $Req 'question' '')
+        $context = [string](Get-AdvisorField $Req 'context_summary' '')
+        $justification = [string](Get-AdvisorField $Req 'justification' '')
+        $reqModel = if ($ModelSel) { [string]$ModelSel.CatalogModel } else { 'MODEL_STRONG' }
+        $reqTier = if ($ModelSel) { [string]$ModelSel.Tier } else { 'T3' }
+
+        # 1. Checagem de disponibilidade do runtime nativo OpenCode V2
+        $opencodeBin = $null
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:OPENCODE_BIN) -and (Test-Path -LiteralPath ([string]$env:OPENCODE_BIN) -PathType Leaf)) {
+            $opencodeBin = [string]$env:OPENCODE_BIN
+        } else {
+            $cmd = Get-Command opencode -ErrorAction SilentlyContinue
+            if ($null -ne $cmd -and -not [string]::IsNullOrWhiteSpace([string]$cmd.Source)) {
+                $opencodeBin = [string]$cmd.Source
+            }
+        }
+
+        $consultationId = "ADV-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 6))"
+        $sessionId = "sess-adv-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+
+        if ([string]::IsNullOrWhiteSpace($opencodeBin)) {
+            return [pscustomobject]@{
+                Status               = 'PROOF_ABSENT'
+                Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
+                ConsultationId       = $consultationId
+                SessionId            = $null
+                Agent                = 'engineering-advisor'
+                ModelRequested       = $reqModel
+                ModelEffective       = $null
+                ResponseRef          = $null
+                RecommendedOption    = $null
+                Rationale            = "Native OpenCode binary unavailable. Proof of execution absent."
+                Risks                = @()
+                RejectionReasons     = @()
+                ActionableNextStep   = $null
+                ModelTierUsed        = $reqTier
+                ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                IsAdvisory           = $true
+                Authoritative        = $false
+                FromCache            = $false
+                ExecutionProofType   = 'NONE'
+            }
+        }
+
+        # 2. Checagem de disponibilidade de provider/credencial para o modelo solicitado
+        $hasKey = (-not [string]::IsNullOrWhiteSpace($env:OPENCODE_API_KEY) -or `
+                   -not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY) -or `
+                   -not [string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY) -or `
+                   -not [string]::IsNullOrWhiteSpace($env:OPENCODE_GO_API_KEY))
+
+        if (-not $hasKey) {
+            return [pscustomobject]@{
+                Status               = 'PROOF_ABSENT'
+                Reason               = 'MODEL_PROVIDER_CREDENTIAL_ABSENT'
+                ConsultationId       = $consultationId
+                SessionId            = $sessionId
+                Agent                = 'engineering-advisor'
+                ModelRequested       = $reqModel
+                ModelEffective       = $null
+                ResponseRef          = $null
+                RecommendedOption    = $null
+                Rationale            = "No active model provider API key detected in environment. Execution unperformed."
+                Risks                = @()
+                RejectionReasons     = @()
+                ActionableNextStep   = $null
+                ModelTierUsed        = $reqTier
+                ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                IsAdvisory           = $true
+                Authoritative        = $false
+                FromCache            = $false
+                ExecutionProofType   = 'NONE'
+            }
+        }
+
+        # 3. Execucao nativa quando binario e credenciais disponiveis (com timeout estrito de 10s)
+        try {
+            $prompt = @"
+[CONSULTATION: $consultationId]
+TASK: $taskId
+QUESTION: $question
+JUSTIFICATION: $justification
+CONTEXT: $context
+"@
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $opencodeBin
+            $psi.Arguments = "run --agent engineering-advisor --model `"$reqModel`" --session `"$sessionId`" `"$prompt`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $completed = $proc.WaitForExit(10000)
+
+            if (-not $completed) {
+                try { $proc.Kill() } catch { }
+                return [pscustomobject]@{
+                    Status               = 'PROOF_ABSENT'
+                    Reason               = 'NATIVE_DISPATCH_TIMEOUT'
+                    ConsultationId       = $consultationId
+                    SessionId            = $sessionId
+                    Agent                = 'engineering-advisor'
+                    ModelRequested       = $reqModel
+                    ModelEffective       = $null
+                    ResponseRef          = $null
+                    RecommendedOption    = $null
+                    Rationale            = "Native advisor execution exceeded bounded timeout of 10000ms."
+                    Risks                = @()
+                    RejectionReasons     = @()
+                    ActionableNextStep   = $null
+                    ModelTierUsed        = $reqTier
+                    ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                    IsAdvisory           = $true
+                    Authoritative        = $false
+                    FromCache            = $false
+                    ExecutionProofType   = 'NONE'
+                }
+            }
+
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $stderr = $proc.StandardError.ReadToEnd()
+            $exitCode = $proc.ExitCode
+            $combinedOutput = "$stdout`n$stderr".Trim()
+
+            if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($combinedOutput)) {
+                return [pscustomobject]@{
+                    Status               = 'COMPLETED'
+                    Reason               = 'NATIVE_DISPATCH_EXECUTED'
+                    ConsultationId       = $consultationId
+                    SessionId            = $sessionId
+                    Agent                = 'engineering-advisor'
+                    ModelRequested       = $reqModel
+                    ModelEffective       = $reqModel
+                    ResponseRef          = "resp-$consultationId"
+                    RecommendedOption    = $combinedOutput
+                    Rationale            = "Native execution via OpenCode V2 engineering-advisor."
+                    Risks                = @()
+                    RejectionReasons     = @()
+                    ActionableNextStep   = "Follow recommendation from engineering-advisor."
+                    ModelTierUsed        = $reqTier
+                    ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                    IsAdvisory           = $true
+                    Authoritative        = $false
+                    FromCache            = $false
+                    ExecutionProofType   = 'NATIVE_OPENCODE_V2'
+                }
+            } else {
+                return [pscustomobject]@{
+                    Status               = 'PROOF_ABSENT'
+                    Reason               = 'NATIVE_EXECUTION_FAILED_OR_NO_OUTPUT'
+                    ConsultationId       = $consultationId
+                    SessionId            = $sessionId
+                    Agent                = 'engineering-advisor'
+                    ModelRequested       = $reqModel
+                    ModelEffective       = $null
+                    ResponseRef          = $null
+                    RecommendedOption    = $null
+                    Rationale            = "OpenCode process exited with code $exitCode or produced empty output."
+                    Risks                = @()
+                    RejectionReasons     = @()
+                    ActionableNextStep   = $null
+                    ModelTierUsed        = $reqTier
+                    ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                    IsAdvisory           = $true
+                    Authoritative        = $false
+                    FromCache            = $false
+                    ExecutionProofType   = 'NONE'
+                }
+            }
+        } catch {
+            return [pscustomobject]@{
+                Status               = 'PROOF_ABSENT'
+                Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
+                ConsultationId       = $consultationId
+                SessionId            = $sessionId
+                Agent                = 'engineering-advisor'
+                ModelRequested       = $reqModel
+                ModelEffective       = $null
+                ResponseRef          = $null
+                RecommendedOption    = $null
+                Rationale            = "Exception during native dispatch: $($_.Exception.Message)"
+                Risks                = @()
+                RejectionReasons     = @()
+                ActionableNextStep   = $null
+                ModelTierUsed        = $reqTier
+                ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                IsAdvisory           = $true
+                Authoritative        = $false
+                FromCache            = $false
+                ExecutionProofType   = 'DISPATCH_EXCEPTION'
+            }
+        }
+    }
+}
+
 function Invoke-AdvisorConsultation {
     <#
     .SYNOPSIS
@@ -140,7 +362,9 @@ function Invoke-AdvisorConsultation {
     .PARAMETER ModelRouterSelection
         Selection object from Resolve-OrchestrationModelSelection for engineering-advisor.
     .PARAMETER AdvisorProbe
-        Optional scriptblock seam for testing / mock response.
+        Optional scriptblock seam for testing / simulated probe (strictly separated from production).
+    .PARAMETER NativeExecutor
+        Optional scriptblock seam for native execution override.
     #>
     [CmdletBinding()]
     param(
@@ -185,6 +409,11 @@ function Invoke-AdvisorConsultation {
         return [pscustomobject]@{
             Status               = 'REJECTED'
             ConsultationId       = "ADV-ERR-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+            SessionId            = $null
+            Agent                = 'engineering-advisor'
+            ModelRequested       = $null
+            ModelEffective       = $null
+            ResponseRef          = $null
             RejectionReason      = $signalCheck.Reason
             RecommendedOption    = $null
             ActionableNextStep   = 'Retrieve missing evidence or formulate concrete escalation signal.'
@@ -213,22 +442,41 @@ function Invoke-AdvisorConsultation {
 
     $tier = if ($ModelRouterSelection) { $ModelRouterSelection.Tier } else { 'T3' }
     $modelToken = if ($ModelRouterSelection) { $ModelRouterSelection.ModelToken } else { 'MODEL_STRONG' }
+    $modelCatalog = if ($ModelRouterSelection) { [string]$ModelRouterSelection.CatalogModel } else { 'openai/gpt-6.1-sol' }
 
-    # 4. Invoke Advisor (via Probe/Executor seam if provided, or return PROOF_ABSENT envelope)
+    # 4. Invoke Advisor:
+    #    (a) AdvisorProbe seam if provided (strictly for harness tests)
+    #    (b) NativeExecutor seam if provided
+    #    (c) Default native executor via OpenCode V2
+    #    (d) If unexecutable, fail-closed with PROOF_ABSENT envelope
     $consultationId = "ADV-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 6))"
     
     $response = $null
     if ($null -ne $AdvisorProbe) {
+        # Strict separation: test probes are executed here only
         $response = & $AdvisorProbe $Request $ModelRouterSelection
     } elseif ($null -ne $NativeExecutor) {
         $response = & $NativeExecutor $Request $ModelRouterSelection
     } else {
-        # Standalone runtime without native executor/probe: fail-closed with PROOF_ABSENT.
+        # Attempt default native executor
+        $defaultExec = Get-OrchestrationNativeAdvisorExecutor
+        if ($null -ne $defaultExec) {
+            $response = & $defaultExec $Request $ModelRouterSelection
+        }
+    }
+
+    if ($null -eq $response) {
+        # Standalone runtime without native execution: fail-closed with PROOF_ABSENT.
         # Fabricated recommendations are never returned as real consultations.
         $response = [pscustomobject]@{
             Status               = 'PROOF_ABSENT'
             Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
             ConsultationId       = $consultationId
+            SessionId            = $null
+            Agent                = 'engineering-advisor'
+            ModelRequested       = $modelCatalog
+            ModelEffective       = $null
+            ResponseRef          = $null
             RecommendedOption    = $null
             Rationale            = "Native dispatch of engineering-advisor not executed or proof absent."
             Risks                = @()
@@ -240,6 +488,7 @@ function Invoke-AdvisorConsultation {
             IsAdvisory           = $true
             Authoritative        = $false
             FromCache            = $false
+            ExecutionProofType   = 'PROOF_ABSENT'
         }
     }
 

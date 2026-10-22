@@ -46,17 +46,27 @@ $selRevMed = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'me
 Assert-Router ($selRevMed.Tier -eq 'T3') "Reviewer medium seleciona T3"
 Assert-Router ($selRevMed.ModelToken -eq 'MODEL_STRONG') "Reviewer T3 usa MODEL_STRONG"
 
-$selRevHigh = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -Complexity 'complex'
-Assert-Router ($selRevHigh.Tier -eq 'T4') "Reviewer high-risk seleciona T4"
-Assert-Router ($selRevHigh.ModelToken -eq 'MODEL_STRONG') "Reviewer T4 usa MODEL_STRONG"
+# Sem autorizacao de custo explicita, high-risk faz fallback para T3 (T4 nao e autorizado so por risco)
+$selRevHighUnauth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -Complexity 'complex'
+Assert-Router ($selRevHighUnauth.Tier -eq 'T3') "Reviewer high-risk sem autorizacao de custo faz fallback seguro para T3"
+Assert-Router ($selRevHighUnauth.ModelToken -eq 'MODEL_STRONG') "Reviewer degradado para T3 usa MODEL_STRONG"
+
+# Com autorizacao explicita de custo, reviewer high-risk recebe T4 com token MODEL_FRONTIER
+$selRevHighAuth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -Complexity 'complex' -ProviderCostAuthorized $true
+Assert-Router ($selRevHighAuth.Tier -eq 'T4') "Reviewer high-risk com autorizacao de custo seleciona T4"
+Assert-Router ($selRevHighAuth.ModelToken -eq 'MODEL_FRONTIER') "Reviewer T4 usa token distinto MODEL_FRONTIER"
 
 # 4. Security Reviewer: invariantes de seguranca
 $selSecLow = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial'
 Assert-Router ($selSecLow.Tier -eq 'T3') "Security-reviewer nunca usa T1/T2 mesmo em low-risk"
 Assert-Router ($selSecLow.ModelToken -eq 'MODEL_STRONG') "Security-reviewer usa MODEL_STRONG"
 
-$selSecCrit = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex'
-Assert-Router ($selSecCrit.Tier -eq 'T4') "Security-reviewer critical seleciona T4"
+$selSecCritUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex'
+Assert-Router ($selSecCritUnauth.Tier -eq 'T3') "Security-reviewer critical sem autorizacao de custo faz fallback seguro para T3"
+
+$selSecCritAuth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex' -ProviderCostAuthorized $true
+Assert-Router ($selSecCritAuth.Tier -eq 'T4') "Security-reviewer critical autorizado seleciona T4"
+Assert-Router ($selSecCritAuth.ModelToken -eq 'MODEL_FRONTIER') "Security-reviewer T4 usa token distinto MODEL_FRONTIER"
 
 # 5. Coder: escalonamento e invariante de custo
 $selCoderDef = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -Complexity 'medium'
@@ -69,8 +79,12 @@ Assert-Router ($selCoderRetry.Tier -eq 'T3') "Coder complex seleciona T3"
 $selCoderNoT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0
 Assert-Router ($selCoderNoT4.Tier -ne 'T4') "Coder sem falha anterior nao pode receber T4"
 
-$selCoderT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2
-Assert-Router ($selCoderT4.Tier -eq 'T4') "Coder com 2 falhas em complex escala para T4"
+$selCoderT4Unauth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2
+Assert-Router ($selCoderT4Unauth.Tier -eq 'T3') "Coder com 2 falhas sem autorizacao de custo faz fallback para T3"
+
+$selCoderT4Auth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
+Assert-Router ($selCoderT4Auth.Tier -eq 'T4') "Coder com 2 falhas e autorizacao de custo escala para T4"
+Assert-Router ($selCoderT4Auth.ModelToken -eq 'MODEL_FRONTIER') "Coder T4 usa token distinto MODEL_FRONTIER"
 
 # 6. Engineering Advisor: escalonamento dinamico
 $selAdvLow = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple'
@@ -82,8 +96,12 @@ Assert-Router ($selAdvMed.Tier -eq 'T3') "Advisor standard seleciona T3"
 $selAdvComplexNoFail = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 0
 Assert-Router ($selAdvComplexNoFail.Tier -eq 'T3') "Advisor apenas com rotulo complex permanece em T3 (sem escalonamento cego para T4)"
 
-$selAdvDeadlock = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2
-Assert-Router ($selAdvDeadlock.Tier -eq 'T4') "Advisor com deadlock comprovado (>= 2 falhas) escala para T4"
+$selAdvDeadlockUnauth = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2
+Assert-Router ($selAdvDeadlockUnauth.Tier -eq 'T3') "Advisor com deadlock sem autorizacao de custo faz fallback seguro para T3"
+
+$selAdvDeadlockAuth = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
+Assert-Router ($selAdvDeadlockAuth.Tier -eq 'T4') "Advisor com deadlock e autorizacao de custo escala para T4"
+Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_FRONTIER') "Advisor T4 usa token distinto MODEL_FRONTIER"
 
 # 7. Explorer: limites estritos
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex'
@@ -106,11 +124,11 @@ $catT2 = Resolve-CatalogModel -Tier 'T2'
 Assert-Router ($catT2.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "Catalogo mapeia T2 para modelo economico"
 Assert-Router ($catT2.IsAuthorized -eq $true) "T2 e autorizado por padrao"
 
-$catT4Unauth = Resolve-CatalogModel -Tier 'T4' -Risk 'medium' -FailureCount 0
-Assert-Router ($catT4Unauth.IsAuthorized -eq $false) "T4 e nao autorizado sem alto risco ou falhas comprovadas"
+$catT4Unauth = Resolve-CatalogModel -Tier 'T4' -Risk 'critical' -FailureCount 2
+Assert-Router ($catT4Unauth.IsAuthorized -eq $false) "T4 nunca e autorizado apenas por risco ou falhas sem autorizacao de custo"
 
-$catT4Auth = Resolve-CatalogModel -Tier 'T4' -Risk 'critical' -FailureCount 0
-Assert-Router ($catT4Auth.IsAuthorized -eq $true) "T4 e autorizado sob risco critical"
+$catT4Auth = Resolve-CatalogModel -Tier 'T4' -ProviderCostAuthorized $true
+Assert-Router ($catT4Auth.IsAuthorized -eq $true) "T4 e autorizado sob autorizacao explicita de custo"
 
 # 10. Verificacao do modelo efetivamente executado
 $verifAbsent = Test-ExecutedModelVerification -RequestedSelection $selNoProof -NativeModelOverrideProven $false

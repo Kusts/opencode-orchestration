@@ -26,6 +26,108 @@ try {
 }
 catch { }
 
+function Test-OrchestrationReusableApplicability {
+    <#
+    .SYNOPSIS
+        Valida rigorosamente se uma evidencia candidata a reuso permanece aplicavel no disco.
+    .DESCRIPTION
+        Garante que requisitos de SHA, criterios, escopo e ambiente nao sejam ignorados por campos vazios.
+        Verifica a integridade dos arquivos no disco atual contra os fingerprints gravados.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Evidence,
+
+        [Parameter(Mandatory = $false)]
+        [string]$CurrentHeadSha = '',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$CurrentScope = @(),
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$CurrentSourceFingerprints = @{},
+
+        [Parameter(Mandatory = $false)]
+        [string]$CurrentCriteriaHash = '',
+
+        [Parameter(Mandatory = $false)]
+        $CurrentEnv = @{}
+    )
+
+    if ($null -eq $Evidence) {
+        return @{ Applicable = $false; Reason = 'evidence-null' }
+    }
+
+    # 1. SHA mandatorio em ambas as pontas
+    $evHead = [string]$Evidence.head_sha
+    if ([string]::IsNullOrWhiteSpace($evHead)) { $evHead = [string]$Evidence.base_revision }
+    if ([string]::IsNullOrWhiteSpace($CurrentHeadSha) -or [string]::IsNullOrWhiteSpace($evHead)) {
+        return @{ Applicable = $false; Reason = 'head-sha-missing' }
+    }
+    if ($evHead -cne $CurrentHeadSha) {
+        return @{ Applicable = $false; Reason = 'head-sha-mismatch' }
+    }
+
+    # 2. Criterios de aceite: se presentes na evidencia ou no pedido, devem coincidir
+    $evCritHash = [string]$Evidence.criteria_hash
+    if (-not [string]::IsNullOrWhiteSpace($evCritHash) -or -not [string]::IsNullOrWhiteSpace($CurrentCriteriaHash)) {
+        if ([string]::IsNullOrWhiteSpace($evCritHash) -or [string]::IsNullOrWhiteSpace($CurrentCriteriaHash) -or ($evCritHash -cne $CurrentCriteriaHash)) {
+            return @{ Applicable = $false; Reason = 'criteria-hash-mismatch' }
+        }
+    }
+
+    # 3. Escopo e Fingerprints de arquivos no disco
+    $evFps = $Evidence.source_fingerprints
+    $targetFps = @{}
+    if ($null -ne $evFps) {
+        if ($evFps -is [System.Collections.IDictionary]) {
+            foreach ($k in $evFps.Keys) { $targetFps[$k] = $evFps[$k] }
+        } else {
+            foreach ($p in $evFps.PSObject.Properties) { $targetFps[$p.Name] = $p.Value }
+        }
+    }
+    if ($CurrentSourceFingerprints.Count -gt 0) {
+        foreach ($k in $CurrentSourceFingerprints.Keys) {
+            if (-not $targetFps.ContainsKey($k)) { $targetFps[$k] = $CurrentSourceFingerprints[$k] }
+        }
+    }
+
+    # Se ha escopo definido no pedido ou na evidencia, verificar se arquivos existem no disco e se batem
+    $combinedScope = @()
+    if ($null -ne $CurrentScope) { $combinedScope += $CurrentScope }
+    if ($null -ne $Evidence.scope) { $combinedScope += @($Evidence.scope) }
+    $combinedScope = @($combinedScope | Select-Object -Unique)
+
+    foreach ($fileRel in $combinedScope) {
+        if ([string]::IsNullOrWhiteSpace($fileRel)) { continue }
+        if (Test-Path -LiteralPath $fileRel -PathType Leaf) {
+            if ($targetFps.ContainsKey($fileRel)) {
+                try {
+                    $diskSha = (Get-FileHash -LiteralPath $fileRel -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                    $recSha = ([string]$targetFps[$fileRel]).ToLowerInvariant()
+                    if ($diskSha -ne $recSha) {
+                        return @{ Applicable = $false; Reason = "disk-content-drift-in-$fileRel" }
+                    }
+                } catch {
+                    return @{ Applicable = $false; Reason = "disk-read-failed-in-$fileRel" }
+                }
+            }
+        }
+    }
+
+    # 4. Ambiente (runtime / versao): se presente na evidencia e no pedido, validar compatibilidade
+    if ($null -ne $Evidence.environment -and $null -ne $CurrentEnv -and ($CurrentEnv -is [System.Collections.IDictionary] -or $CurrentEnv -is [pscustomobject])) {
+        $evRt = if ($Evidence.environment.runtime) { [string]$Evidence.environment.runtime } else { '' }
+        $curRt = if ($CurrentEnv -is [System.Collections.IDictionary]) { [string]$CurrentEnv['runtime'] } else { [string]$CurrentEnv.runtime }
+        if (-not [string]::IsNullOrWhiteSpace($evRt) -and -not [string]::IsNullOrWhiteSpace($curRt) -and ($evRt -cne $curRt)) {
+            return @{ Applicable = $false; Reason = 'environment-runtime-mismatch' }
+        }
+    }
+
+    return @{ Applicable = $true; Reason = 'all-requirements-validated' }
+}
+
 function Resolve-OrchestrationProportionalReuse {
     <#
     .SYNOPSIS
@@ -140,7 +242,17 @@ function Resolve-OrchestrationProportionalReuse {
                     -MaxResults 5 `
                     -QueryError ([ref]$qErr)
                 if ($null -ne $hits -and @($hits).Count -gt 0) {
-                    $exactCandidate = $hits[0]
+                    $hit = $hits[0]
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hit.evidence_id)) {
+                        $fullPath = Join-Path $EvidenceStoreDir ("$($hit.evidence_id).json")
+                        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+                            $exactCandidate = ConvertFrom-Json (Get-Content -LiteralPath $fullPath -Raw -ErrorAction Stop)
+                        } else {
+                            $exactCandidate = $hit
+                        }
+                    } else {
+                        $exactCandidate = $hit
+                    }
                     $exactReason = "Canonical evidence match validated via Find-ReusableOrchestrationEvidence on HEAD '$CurrentHeadSha'."
                 }
             } catch { }
@@ -194,6 +306,19 @@ function Resolve-OrchestrationProportionalReuse {
                     }
                 } catch { }
             }
+        }
+    }
+
+    if ($null -ne $exactCandidate) {
+        $appCheck = Test-OrchestrationReusableApplicability -Evidence $exactCandidate `
+            -CurrentHeadSha $CurrentHeadSha `
+            -CurrentScope $Scope `
+            -CurrentSourceFingerprints $SourceFingerprints `
+            -CurrentCriteriaHash $CriteriaHash `
+            -CurrentEnv $CurrentEnv
+        if (-not [bool]$appCheck.Applicable) {
+            $exactCandidate = $null
+            $exactReason = "Candidate discarded: $($appCheck.Reason)"
         }
     }
 

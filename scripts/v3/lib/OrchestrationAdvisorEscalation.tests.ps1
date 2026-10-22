@@ -80,7 +80,7 @@ $resp = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel
 Assert-Advisor ($resp.Status -eq 'PROOF_ABSENT') "Consulta sem despacho nativo retorna PROOF_ABSENT honesto"
 Assert-Advisor ($null -eq $resp.RecommendedOption) "Nunca retorna recomendacao fabricada sem consulta real"
 Assert-Advisor ($null -eq $resp.ActionableNextStep) "Sem acao acionavel sem consulta real"
-Assert-Advisor ($resp.Reason -eq 'NATIVE_DISPATCH_UNAVAILABLE') "Motivo explicita indisponibilidade de despacho nativo"
+Assert-Advisor ($resp.Reason -in @('NATIVE_DISPATCH_UNAVAILABLE', 'MODEL_PROVIDER_CREDENTIAL_ABSENT')) "Motivo explicita indisponibilidade de despacho nativo ou credencial ausente"
 Assert-Advisor ($resp.IsAdvisory -eq $true) "Advisor e estritamente advisory"
 Assert-Advisor ($resp.Authoritative -eq $false) "Advisor nunca e autoritativo"
 Assert-Advisor ($resp.FromCache -eq $false) "Primeira consulta nao vem do cache"

@@ -19,7 +19,14 @@ param()
 
 function Invoke-OrchestrationPlannerLoop {
     [CmdletBinding()]
-    param($Descriptor,$Options=$null,[scriptblock]$JevAdvisoryProbe=$null,[int]$JevAdvisoryBudgetSecondsOverride=0)
+    param(
+        $Descriptor,
+        $Options = $null,
+        [scriptblock]$JevAdvisoryProbe = $null,
+        [int]$JevAdvisoryBudgetSecondsOverride = 0,
+        [scriptblock]$AdvisorProbe = $null,
+        [scriptblock]$NativeAdvisorExecutor = $null
+    )
     $root=Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
     function Read-PL($o,[string]$n,$d=$null) { if($null -eq $o){return $d};if($o -is [System.Collections.IDictionary]){if($o.Contains($n)){return $o[$n]};return $d};$p=$o.PSObject.Properties[$n];if($p){return $p.Value};return $d }
     # Secret redaction. The Authorization: Bearer form is redacted FIRST and
@@ -165,7 +172,7 @@ function Invoke-OrchestrationPlannerLoop {
                 try{$budgetS=[int](Read-PL $raw 'budget_s' 0)}catch{$budgetS=0}
                 $sum='no-advisory-recommendation'
                 if($consulted -and ($null -ne $rawOut)){try{$sum=Safe-PL (Get-JevAdvisoryOutputSummary -Tool ([string](Read-PL $raw 'tool' $jevToolName)) -Output $rawOut) 120}catch{$sum='advisory-summary-unavailable'};if([string]::IsNullOrWhiteSpace($sum)){$sum='advisory-summary-unavailable'}}
-                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);authoritative=$false;recommendation_only=$true}
+                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$consulted;decision_taken=$(if($consulted){Safe-PL ("CONSUMED: " + $sum) 120}else{'NOT_CONSUMED'});authoritative=$false;recommendation_only=$true}
             }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
         $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}
@@ -185,13 +192,39 @@ function Invoke-OrchestrationPlannerLoop {
                     known_evidence=@((Read-PL $d 'evidence' @()));
                     head_sha=[string](Read-PL $d 'head_sha' '')
                 }
-                $advProbe=Read-PL $o 'advisor_probe' $null
-                $advResp=Invoke-AdvisorConsultation -Request $advReq -AdvisorProbe $advProbe
+                $advProbe = if ($AdvisorProbe) { $AdvisorProbe } else { Read-PL $o 'advisor_probe' $null }
+                $advNativeExec = if ($NativeAdvisorExecutor) { $NativeAdvisorExecutor } else { Read-PL $o 'native_advisor_executor' $null }
+                $advResp = Invoke-AdvisorConsultation -Request $advReq -AdvisorProbe $advProbe -NativeExecutor $advNativeExec
                 if($null -ne $advResp){
                     $recText=[string](Read-PL $advResp 'RecommendedOption' '')
                     $actText=[string](Read-PL $advResp 'ActionableNextStep' '')
                     $isConsulted=($advResp.Status -eq 'COMPLETED' -and -not [string]::IsNullOrWhiteSpace($recText))
-                    $advisorAdvisory=[ordered]@{consulted=$isConsulted;status=[string]$advResp.Status;reason=[string](Read-PL $advResp 'Reason' '');consultation_id=[string]$advResp.ConsultationId;recommendation=$(if($isConsulted){Safe-PL $recText 160}else{''});actionable_step=$(if($isConsulted){Safe-PL $actText 160}else{''});from_cache=[bool]$advResp.FromCache;tier=[string]$advResp.ModelTierUsed;authoritative=$false;recommendation_only=$true}
+                    $advisorAdvisory=[ordered]@{
+                        consulted=$isConsulted;
+                        status=[string]$advResp.Status;
+                        reason=[string](Read-PL $advResp 'Reason' '');
+                        consultation_id=[string]$advResp.ConsultationId;
+                        session_id=[string](Read-PL $advResp 'SessionId' '');
+                        agent='engineering-advisor';
+                        model_requested=[string](Read-PL $advResp 'ModelRequested' (Read-PL $advResp 'ModelTierUsed' ''));
+                        model_effective=[string](Read-PL $advResp 'ModelEffective' (Read-PL $advResp 'ModelTokenUsed' ''));
+                        response_ref=[string](Read-PL $advResp 'ResponseRef' (Read-PL $advResp 'ConsultationId' ''));
+                        recommendation=$(if($isConsulted){Safe-PL $recText 160}else{''});
+                        actionable_step=$(if($isConsulted){Safe-PL $actText 160}else{''});
+                        from_cache=[bool]$advResp.FromCache;
+                        tier=[string]$advResp.ModelTierUsed;
+                        execution_proof_type=[string](Read-PL $advResp 'ExecutionProofType' 'NONE');
+                        authoritative=$false;
+                        recommendation_only=$true
+                    }
+                    if($isConsulted -and -not [string]::IsNullOrWhiteSpace($actText)){
+                        $dispatch['next_action']=Safe-PL $actText 160
+                        $dispatch['advisory_recommendation']=Safe-PL $recText 160
+                        $dispatch.escalations+=@([pscustomobject]@{
+                            type='advisor-guidance';
+                            rationale=Safe-PL "Advisor recommended: $recText | Next action: $actText" 200
+                        })
+                    }
                 }
             }catch{
                 $advisorAdvisory=[ordered]@{consulted=$false;status='error';reason='advisor-escalation-failed';authoritative=$false;recommendation_only=$true}
