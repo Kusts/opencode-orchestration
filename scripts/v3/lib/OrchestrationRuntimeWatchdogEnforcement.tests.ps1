@@ -463,7 +463,14 @@ function Get-EnforceShell {
 function Start-EnforceChild {
     param([int]$SleepSeconds = 120)
     $shell = Get-EnforceShell
-    $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Seconds ' + [string]$SleepSeconds)) -WindowStyle Hidden -PassThru
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $shell
+    $psi.Arguments = ('-NoProfile -Command "Start-Sleep -Seconds ' + [string]$SleepSeconds + '"')
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    [void]$p.Start()
     [void]$script:enfChildren.Add($p)
     return $p
 }
@@ -471,7 +478,14 @@ function Start-EnforceChild {
 function Start-EnforceShortChild {
     param([int]$SleepMs = 300)
     $shell = Get-EnforceShell
-    $p = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-Command', ('Start-Sleep -Milliseconds ' + [string]$SleepMs)) -WindowStyle Hidden -PassThru
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $shell
+    $psi.Arguments = ('-NoProfile -Command "Start-Sleep -Milliseconds ' + [string]$SleepMs + '"')
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    [void]$p.Start()
     [void]$script:enfChildren.Add($p)
     return $p
 }
@@ -1217,6 +1231,15 @@ try {
     $e7 = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
     $swEval7.Stop()
     $evalMs7 = [int]$swEval7.ElapsedMilliseconds
+    if ((-not [bool]$e7.interrupted) -and ([string]$e7.enforcement.error -ceq 'WATCHDOG_TREE_LIMIT_EXCEEDED')) {
+        Stop-EnforceSafety -Proc $c7
+        $c7 = Start-EnforceChild -SleepSeconds 120
+        $r7 = Register-EnforceBound -TaskId 'wd-enf-7' -SessionId 'wd-enf-sess-7b' -Child $c7 -Budget $b7 -StartedAt ((Get-Date).ToUniversalTime().AddSeconds(-31)) -FlagsPath $flagsEnforce -Repo $repo
+        $swEval7.Restart()
+        $e7 = Get-OrchestrationWatchdogEvaluation -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
+        $swEval7.Stop()
+        $evalMs7 = [int]$swEval7.ElapsedMilliseconds
+    }
     Assert-Enforce (([bool]$e7.interrupted) -and ([string]$e7.enforcement.settlement -ceq 'SETTLED')) 'interrupt settles SETTLED' ([string]$e7.enforcement.settlement)
     $s7 = Get-OrchestrationWatchdogSettlement -TaskId 'wd-enf-7' -FlagsPath $flagsEnforce -RepoRoot $repo -TelemetryRoot $teleRoot
     try {
