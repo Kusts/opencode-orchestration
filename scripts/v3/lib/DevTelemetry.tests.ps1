@@ -593,6 +593,145 @@ try {
             Assert-That $plugOk 'plugin_health metrics round-trip into snapshot' 'plugin metrics wrong'
         }
         finally { Remove-DevTeleTempRepo $tmpRepo15 }
+
+        # 23. record CLI: APPROVED recorded in child process, INVALID rejected (subprocess, split stdout/stderr)
+        $tmpCli = New-DevTeleTempRepo
+        try {
+            $cliPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'dev-telemetry-record.ps1'
+            Assert-That (Test-Path -LiteralPath $cliPath -PathType Leaf) 'record CLI file exists' $cliPath
+            $cliEngine = Join-Path $PSHOME 'powershell.exe'
+            try { if ($PSVersionTable.PSEdition -ceq 'Core') { $cliEngine = Join-Path $PSHOME 'pwsh.exe' } } catch { }
+            Assert-That (Test-Path -LiteralPath $cliEngine -PathType Leaf) 'cli engine exists' $cliEngine
+            function Invoke-DevTeleCliProc {
+                param([string]$Engine, [string[]]$CliArgs)
+                $outFile = Join-Path ([IO.Path]::GetTempPath()) ('devcli-out-' + [guid]::NewGuid().ToString('N') + '.txt')
+                $errFile = Join-Path ([IO.Path]::GetTempPath()) ('devcli-err-' + [guid]::NewGuid().ToString('N') + '.txt')
+                $code = 999
+                try {
+                    $quoted = @()
+                    foreach ($a in $CliArgs) {
+                        $s = [string]$a
+                        if (($s -eq '') -or ($s -match '[\s"]')) {
+                            $q = $s -replace '"', '""'
+                            $quoted += ('"' + $q + '"')
+                        }
+                        else { $quoted += $s }
+                    }
+                    $argString = ($quoted -join ' ')
+                    $proc = Start-Process -FilePath $Engine -ArgumentList $argString -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+                    try { $code = [int]$proc.ExitCode } catch { $code = 999 }
+                }
+                catch { $code = 999 }
+                $outTxt = ''
+                try { if (Test-Path -LiteralPath $outFile) { $outTxt = [IO.File]::ReadAllText($outFile, [Text.Encoding]::UTF8) } else { $outTxt = '' } } catch { $outTxt = 'READFAIL' }
+                $errTxt = ''
+                try { if (Test-Path -LiteralPath $errFile) { $errTxt = [IO.File]::ReadAllText($errFile, [Text.Encoding]::UTF8) } else { $errTxt = '' } } catch { $errTxt = 'READFAIL' }
+                $outLines = @()
+                try {
+                    if (-not [string]::IsNullOrEmpty($outTxt)) {
+                        $normalizedOut = [string]$outTxt
+                        if ($normalizedOut.EndsWith("`r`n")) { $normalizedOut = $normalizedOut.Substring(0, $normalizedOut.Length - 2) }
+                        elseif ($normalizedOut.EndsWith("`n") -or $normalizedOut.EndsWith("`r")) { $normalizedOut = $normalizedOut.Substring(0, $normalizedOut.Length - 1) }
+                        if (-not [string]::IsNullOrEmpty($normalizedOut)) {
+                            $outLines = @($normalizedOut -split "\r?\n")
+                        }
+                    }
+                }
+                catch { $outLines = @('SPLITFAIL') }
+                try { if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue } } catch { }
+                try { if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue } } catch { }
+                return ([PSCustomObject]@{ Code = $code; Lines = $outLines; Count = @($outLines).Count; Err = $errTxt; Stdout = $outTxt })
+            }
+            function Get-DevTeleRawText([string]$Repo) {
+                $t = ''
+                try {
+                    foreach ($ff in @(Get-ChildItem -LiteralPath (Join-Path $Repo 'cache\v3\telemetry\dev') -Filter 'dev-*.jsonl' -File -ErrorAction Stop)) {
+                        $t += [IO.File]::ReadAllText($ff.FullName, [Text.Encoding]::UTF8)
+                    }
+                }
+                catch { $t = '' }
+                return $t
+            }
+            function Get-DevTeleRawCount([string]$Repo) {
+                $c = 0
+                try {
+                    $t = Get-DevTeleRawText -Repo $Repo
+                    if (-not [string]::IsNullOrEmpty($t)) {
+                        $c = @((([string]$t) -split "`n") | Where-Object { ([string]$_) -ne '' }).Count
+                    }
+                }
+                catch { $c = -1 }
+                return $c
+            }
+            $extraLinesScript = Join-Path ([IO.Path]::GetTempPath()) ('extra-lines-' + [guid]::NewGuid().ToString('N') + '.ps1')
+            try {
+                [IO.File]::WriteAllText($extraLinesScript, "Write-Output 'x'; Write-Output ''", [Text.Encoding]::ASCII)
+                $rExtraLines = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $extraLinesScript)
+                Assert-That ([int]$rExtraLines.Count -eq 2) 'extra blank stdout line is counted' ([string]$rExtraLines.Count)
+            }
+            finally { try { Remove-Item -LiteralPath $extraLinesScript -Force -ErrorAction SilentlyContinue } catch { } }
+            $rOk = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli, '-Verdict', 'APPROVED', '-Now', '2026-10-21T12:00:00Z')
+            Assert-That ([int]$rOk.Code -eq 0) 'record CLI APPROVED exit 0' ([string]$rOk.Code)
+            Assert-That ([int]$rOk.Count -eq 1) 'record CLI APPROVED stdout exactly 1 line' ([string]$rOk.Count)
+            $okLine = $false
+            try { $okLine = (([int]$rOk.Count -eq 1) -and ([string]$rOk.Lines[0] -match 'recorded review_outcome=APPROVED')) } catch { $okLine = $false }
+            Assert-That $okLine 'record CLI stdout confirms APPROVED' ([string]$rOk.Lines)
+            Assert-That (([string]$rOk.Err) -ceq '') 'record CLI APPROVED stderr empty' ([string]$rOk.Err)
+            $rawCli = Get-DevTeleRawText -Repo $tmpCli
+            Assert-That (($rawCli -match '"kind":"review_outcome"') -and ($rawCli -match '"verdict":"APPROVED"')) 'record CLI jsonl has kind+verdict' 'content missing'
+            Assert-That ($rawCli -match '"timestamp":"2026-10-21T12:00:00') 'record CLI timestamp prefix 2026-10-21T12:00:00' 'timestamp missing'
+            $beforeBad = Get-DevTeleRawCount -Repo $tmpCli
+            $rBad = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli, '-Verdict', 'INVALID')
+            Assert-That ([int]$rBad.Code -eq 2) 'record CLI INVALID exit 2' ([string]$rBad.Code)
+            Assert-That ([int]$rBad.Count -eq 1) 'record CLI INVALID stdout exactly 1 line' ([string]$rBad.Count)
+            $badLine = $false
+            try { $badLine = (([int]$rBad.Count -eq 1) -and ([string]$rBad.Lines[0] -ceq 'dev-telemetry: failed to record review_outcome')) } catch { $badLine = $false }
+            Assert-That $badLine 'record CLI INVALID stdout exact fail line' ([string]$rBad.Lines)
+            Assert-That (([string]$rBad.Err) -ceq '') 'record CLI INVALID stderr empty' ([string]$rBad.Err)
+            $afterBad = Get-DevTeleRawCount -Repo $tmpCli
+            Assert-That (($afterBad -eq $beforeBad) -and ($rawCli -notmatch 'INVALID')) 'record CLI INVALID writes no event' ([string]$afterBad)
+            $beforeMissing = Get-DevTeleRawCount -Repo $tmpCli
+            $rMissing = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli)
+            Assert-That ([int]$rMissing.Code -eq 2) 'record CLI missing Verdict exit 2' ([string]$rMissing.Code)
+            Assert-That ([int]$rMissing.Count -eq 1) 'record CLI missing Verdict stdout exactly 1 line' ([string]$rMissing.Count)
+            $missLine = $false
+            try { $missLine = (([int]$rMissing.Count -eq 1) -and ([string]$rMissing.Lines[0] -ceq 'dev-telemetry: failed to record review_outcome')) } catch { $missLine = $false }
+            Assert-That $missLine 'record CLI missing Verdict stdout exact fail line' ([string]$rMissing.Lines)
+            Assert-That (([string]$rMissing.Err) -ceq '') 'record CLI missing Verdict stderr empty' ([string]$rMissing.Err)
+            $afterMissing = Get-DevTeleRawCount -Repo $tmpCli
+            Assert-That ($afterMissing -eq $beforeMissing) 'record CLI missing Verdict writes no event' ([string]$afterMissing)
+            $beforeLf = Get-DevTeleRawCount -Repo $tmpCli
+            $rLf = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli, '-Verdict', 'APPROVED', '-Source', ("planner`n"))
+            Assert-That ([int]$rLf.Code -eq 2) 'record CLI Source LF exit 2' ([string]$rLf.Code)
+            Assert-That ([int]$rLf.Count -eq 1) 'record CLI Source LF stdout exactly 1 line' ([string]$rLf.Count)
+            $lfLine = $false
+            try { $lfLine = (([int]$rLf.Count -eq 1) -and ([string]$rLf.Lines[0] -ceq 'dev-telemetry: failed to record review_outcome')) } catch { $lfLine = $false }
+            Assert-That $lfLine 'record CLI Source LF stdout exact fail line' ([string]$rLf.Lines)
+            Assert-That (([string]$rLf.Err) -ceq '') 'record CLI Source LF stderr empty' ([string]$rLf.Err)
+            $afterLf = Get-DevTeleRawCount -Repo $tmpCli
+            Assert-That ($afterLf -eq $beforeLf) 'record CLI Source LF writes no event' ([string]$afterLf)
+            $beforeDet = Get-DevTeleRawCount -Repo $tmpCli
+            $rDet = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli, '-Verdict', 'APPROVED', '-Detail', 'bad detail with space')
+            Assert-That ([int]$rDet.Code -eq 2) 'record CLI bad Detail exit 2' ([string]$rDet.Code)
+            Assert-That ([int]$rDet.Count -eq 1) 'record CLI bad Detail stdout exactly 1 line' ([string]$rDet.Count)
+            $detLine = $false
+            try { $detLine = (([int]$rDet.Count -eq 1) -and ([string]$rDet.Lines[0] -ceq 'dev-telemetry: failed to record review_outcome')) } catch { $detLine = $false }
+            Assert-That $detLine 'record CLI bad Detail stdout exact fail line' ([string]$rDet.Lines)
+            Assert-That (([string]$rDet.Err) -ceq '') 'record CLI bad Detail stderr empty' ([string]$rDet.Err)
+            $afterDet = Get-DevTeleRawCount -Repo $tmpCli
+            Assert-That ($afterDet -eq $beforeDet) 'record CLI bad Detail writes no event' ([string]$afterDet)
+            $fileRepo = Join-Path ([IO.Path]::GetTempPath()) ('devrepo-file-' + [guid]::NewGuid().ToString('N') + '.tmp')
+            try { [IO.File]::WriteAllText($fileRepo, 'x', [Text.UTF8Encoding]::new($false)) } catch { }
+            $rWrite = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $fileRepo, '-Verdict', 'APPROVED')
+            Assert-That ([int]$rWrite.Code -eq 1) 'record CLI write failure exit 1' ([string]$rWrite.Code)
+            Assert-That ([int]$rWrite.Count -eq 1) 'record CLI write failure stdout exactly 1 line' ([string]$rWrite.Count)
+            $wLine = $false
+            try { $wLine = (([int]$rWrite.Count -eq 1) -and ([string]$rWrite.Lines[0] -ceq 'dev-telemetry: failed to record review_outcome')) } catch { $wLine = $false }
+            Assert-That $wLine 'record CLI write failure stdout exact fail line' ([string]$rWrite.Lines)
+            Assert-That (([string]$rWrite.Err) -ceq '') 'record CLI write failure stderr empty' ([string]$rWrite.Err)
+            try { if (Test-Path -LiteralPath $fileRepo) { Remove-Item -LiteralPath $fileRepo -Force -ErrorAction SilentlyContinue } } catch { }
+        }
+        finally { Remove-DevTeleTempRepo $tmpCli }
     }
     finally { Remove-DevTeleTempRepo $tmpRepo }
 }

@@ -6,8 +6,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **DevTelemetry review_outcome CLI (2026-10-21)**: `scripts/dev-telemetry-record.ps1` registra 1 evento `review_outcome` (`APPROVED`/`CHANGES_REQUIRED`) com validacao estrita de argumentos (exit 2) e linha unica de saida; o agregado expoe `review.total/approved/changes_required`; sem captura automatica (o Planner registra ao encerrar).
+
 - **DevTelemetry local agregada (fatia 1, 2026-10-21)**:
-  - **Biblioteca Core:** `scripts/v3/lib/DevTelemetry.ps1` com append atômico de linha única em `cache/v3/telemetry/dev/`, retenção automática diária com cap de 30 dias, sanitização estrita de secrets (`sk-*`, `ghp_*`, `AKIA*`, Bearer, JWT) e restrição rigorosa por regex contra vazamentos de dados (82/82 PASS em `DevTelemetry.tests.ps1`).
+  - **Biblioteca Core:** `scripts/v3/lib/DevTelemetry.ps1` com append atômico de linha única em `cache/v3/telemetry/dev/`, retenção automática diária com cap de 30 dias, sanitização estrita de secrets (`sk-*`, `ghp_*`, `AKIA*`, Bearer, JWT) e restrição rigorosa por regex contra vazamentos de dados (115/115 PASS em `DevTelemetry.tests.ps1`).
   - **Relatório e Publicação Confinada:** `scripts/dev-telemetry-report.ps1` com export determinístico e publicação manual confinada (`-Publish`) em `evidence/dev-telemetry/latest.json`, `latest.md` e histórico ISO por semana (`history/YYYY-Www.json`), com validação e mitigação contra reparse points/symlinks e substituição segura via `.tmp`/`.bak`.
   - **Ganchos Passivos e Resilientes:** Try/catch silenciosos fail-open integrados em `scripts/v3/run-v3-tests.ps1`, `tests/distribution/run-distribution-tests.ps1`, `scripts/test-package-consistency.ps1`, `scripts/v3/orchestration-preflight.ps1` e `scripts/ci/plugin-healthcheck.ps1`, garantindo zero impacto em falhas ou ausência de arquivos.
   - **Documentação Normativa:** `docs/DEV-TELEMETRY.md` especificando schema v1, garantias de confinamento e ausência de tráfego de rede ou bancos de dados pesados.

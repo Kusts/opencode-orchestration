@@ -37,18 +37,12 @@ rejeita a linha se o JSON final contiver padrao de segredo.
    reparse nem container, caminho canonico dentro do diretorio
    permitido), escrito em arquivo temporario no mesmo diretorio
     (`.<nome>.<guid>.tmp`) e efetivado com `[IO.File]::Replace(tmp, dest, backup)` quando o destino existe (backup `.<nome>.<guid>.bak` no mesmo diretorio, removido apos o sucesso) ou `[IO.File]::Move(tmp, dest)` quando nao existe -- nunca `WriteAllText` direto nem `Move-Item -Force`.
-   (`.<nome>.tmp`) e `.bak` seguem o mesmo confinamento e checagem de reparse.
+    Temp (`.<nome>.<guid>.tmp`) e backup (`.<nome>.<guid>.bak`) seguem o mesmo confinamento e checagem de reparse.
    O que tambem mitiga hardlink (substitui a entrada em vez de escrever atraves dela). Recusa/falha (inclusive destino travado) => remove temp/backup e retorna `$false` sem tocar no destino (conteudo antigo intacto).
    Corrida delete-entre-checagem-e-replace: se `Replace` lancar `FileNotFoundException` e o destino sumiu, tenta `Move` UMA vez; nunca cai para `Move-Item -Force`.
    Allowlist do
    `.gitignore` cobre `evidence/dev-telemetry/` para que o resto de
    `evidence/*` continue ignorado.
-2. Publicada (explicita, versionada):
-   `evidence/dev-telemetry/latest.json` + `latest.md` e
-   `evidence/dev-telemetry/history/YYYY-Www.json` (semana ISO) -- somente
-   quando alguem roda com `-Publish`. Allowlist do `.gitignore` cobre
-   `evidence/dev-telemetry/` para que o resto de `evidence/*` continue
-   ignorado.
 
 ## Como rodar
 
@@ -61,6 +55,17 @@ pwsh -NoProfile -File scripts/dev-telemetry-report.ps1 -Publish
 Saida: exatamente uma linha
 `dev-telemetry: events=N suites=R pass=P fail=F publish=on|off`, exit 0
 (exit 2 so para argumento invalido).
+
+## Registrar review outcome
+
+O sinal de review nao e automatico: o Planner registra ao encerrar.
+
+```powershell
+powershell -NoProfile -File scripts/dev-telemetry-record.ps1 -Verdict APPROVED
+powershell -NoProfile -File scripts/dev-telemetry-record.ps1 -Verdict CHANGES_REQUIRED -Detail reviewer-findings
+```
+
+O agregado expoe `review.total/approved/changes_required` em `latest.json`.
 
 ## Ganchos automaticos
 
