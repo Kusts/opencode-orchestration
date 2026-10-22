@@ -730,6 +730,86 @@ try {
             Assert-That $wLine 'record CLI write failure stdout exact fail line' ([string]$rWrite.Lines)
             Assert-That (([string]$rWrite.Err) -ceq '') 'record CLI write failure stderr empty' ([string]$rWrite.Err)
             try { if (Test-Path -LiteralPath $fileRepo) { Remove-Item -LiteralPath $fileRepo -Force -ErrorAction SilentlyContinue } } catch { }
+
+            # 24. review severity/source aggregation (synthetic)
+            $rv1 = New-DevTelemetryEvent -Kind 'review_outcome' -Source 'planner' -Verdict 'APPROVED' -Severity 'NONE' -Timestamp '2026-10-20T10:00:00Z'
+            $rv2 = New-DevTelemetryEvent -Kind 'review_outcome' -Source 'security-reviewer' -Verdict 'CHANGES_REQUIRED' -Severity 'HIGH' -Timestamp '2026-10-20T11:00:00Z'
+            $rv3 = New-DevTelemetryEvent -Kind 'review_outcome' -Source 'security-reviewer' -Verdict 'CHANGES_REQUIRED' -Severity 'CRITICAL' -Timestamp '2026-10-20T12:00:00Z'
+            $snapRv = New-DevTelemetrySnapshot -Events @($rv1, $rv2, $rv3) -WindowDays 30 -GeneratedAt '2026-10-21T00:00:00Z'
+            $rvOk = $false
+            try {
+                $rvOk = (($null -ne $snapRv) -and ([int]$snapRv.review.total -eq 3) -and ([int]$snapRv.review.approved -eq 1) -and ([int]$snapRv.review.changes_required -eq 2) -and ([int]$snapRv.review.by_source.planner -eq 1) -and ([int]$snapRv.review.by_source.'security-reviewer' -eq 2) -and ([int]$snapRv.review.by_severity.NONE -eq 1) -and ([int]$snapRv.review.by_severity.HIGH -eq 1) -and ([int]$snapRv.review.by_severity.CRITICAL -eq 1) -and ([int]$snapRv.review.high_or_critical -eq 2))
+            } catch { $rvOk = $false }
+            Assert-That $rvOk 'review by_source/by_severity/high_or_critical' 'review aggregation wrong'
+
+            # 25. review trim, deterministic order, markdown and event-object paths
+            $sevTrimEv = New-DevTelemetryEvent -Kind 'review_outcome' -Source 'planner' -Verdict 'APPROVED' -Severity ' medium ' -Timestamp '2026-10-20T13:00:00Z'
+            $sevTrimOk = $false
+            try { $sevTrimOk = (($null -ne $sevTrimEv) -and ([string]$sevTrimEv.severity -ceq 'MEDIUM')) } catch { $sevTrimOk = $false }
+            Assert-That $sevTrimOk 'severity trimmed+uppercased in event' 'trim/uppercase wrong'
+            $orderOk = $false
+            try {
+                $srcOrder = [string](@($snapRv.review.by_source.PSObject.Properties | ForEach-Object { $_.Name }) -join ',')
+                $sevOrder = [string](@($snapRv.review.by_severity.PSObject.Properties | ForEach-Object { $_.Name }) -join ',')
+                $orderOk = (($srcOrder -ceq 'planner,security-reviewer') -and ($sevOrder -ceq 'CRITICAL,HIGH,NONE'))
+            } catch { $orderOk = $false }
+            Assert-That $orderOk 'review breakdown deterministic order' 'order wrong'
+            $mdRv = ''
+            try { $mdRv = [string](New-DevTelemetryMarkdown -Snapshot $snapRv) } catch { $mdRv = '' }
+            $mdRvOk = $false
+            try {
+                $mdRvOk = (($mdRv -match '### by source') -and ($mdRv -match '### by severity') -and ($mdRv -match '\| high_or_critical \| 2 \|') -and ($mdRv -match '\| security-reviewer \| 2 \|') -and ($mdRv -match '\| CRITICAL \| 1 \|'))
+            } catch { $mdRvOk = $false }
+            Assert-That $mdRvOk 'review markdown includes breakdown tables' 'markdown wrong'
+            $tmpObj = New-DevTeleTempRepo
+            try {
+                $evSnake = [PSCustomObject]@{ kind = 'review_outcome'; source = 'security-reviewer'; verdict = 'CHANGES_REQUIRED'; severity = 'HIGH'; timestamp = '2026-10-20T14:00:00Z' }
+                $evPascal = [PSCustomObject]@{ Kind = 'review_outcome'; Source = 'security-reviewer'; Verdict = 'CHANGES_REQUIRED'; Severity = 'LOW'; Timestamp = '2026-10-20T15:00:00Z' }
+                $wSnake = $false
+                $wPascal = $false
+                try { $wSnake = Write-DevTelemetryEvent -Event $evSnake -RepoRoot $tmpObj } catch { $wSnake = 'THREW' }
+                try { $wPascal = Write-DevTelemetryEvent -Event $evPascal -RepoRoot $tmpObj } catch { $wPascal = 'THREW' }
+                Assert-That (($wSnake -eq $true) -and ($wPascal -eq $true)) 'event object severity write snake+Pascal' ([string]$wSnake + '/' + [string]$wPascal)
+                $snapObj = $null
+                try { $snapObj = Export-DevTelemetrySnapshot -RepoRoot $tmpObj -WindowDays 30 -Now '2026-10-21T00:00:00Z' } catch { $snapObj = $null }
+                $objOk = $false
+                try {
+                    $objOk = (($null -ne $snapObj) -and ([int]$snapObj.review.total -eq 2) -and ([int]$snapObj.review.by_source.'security-reviewer' -eq 2) -and ([int]$snapObj.review.by_severity.HIGH -eq 1) -and ([int]$snapObj.review.by_severity.LOW -eq 1))
+                } catch { $objOk = $false }
+                Assert-That $objOk 'event object severity round-trip snake+Pascal' 'object round-trip wrong'
+            }
+            finally { Remove-DevTeleTempRepo $tmpObj }
+
+            # 26. review CLI severity/source + raw round-trip
+            $beforeSev = Get-DevTeleRawCount -Repo $tmpCli
+            $rSev = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli, '-Verdict', 'CHANGES_REQUIRED', '-Severity', 'high', '-Source', 'security-reviewer', '-Now', '2026-10-21T12:10:00Z')
+            Assert-That ([int]$rSev.Code -eq 0) 'record CLI severity exit 0' ([string]$rSev.Code)
+            Assert-That ([int]$rSev.Count -eq 1) 'record CLI severity stdout exactly 1 line' ([string]$rSev.Count)
+            $sevLineOk = $false
+            try { $sevLineOk = (([int]$rSev.Count -eq 1) -and ([string]$rSev.Lines[0] -match 'recorded review_outcome=CHANGES_REQUIRED source=security-reviewer severity=HIGH')) } catch { $sevLineOk = $false }
+            Assert-That $sevLineOk 'record CLI severity stdout normalized' ([string]$rSev.Lines)
+            Assert-That (([string]$rSev.Err) -ceq '') 'record CLI severity stderr empty' ([string]$rSev.Err)
+            $afterSev = Get-DevTeleRawCount -Repo $tmpCli
+            Assert-That ($afterSev -eq ($beforeSev + 1)) 'record CLI severity writes exactly one event' ([string]$afterSev)
+            $rawSev = Get-DevTeleRawText -Repo $tmpCli
+            Assert-That (($rawSev -match '"severity":"HIGH"') -and ($rawSev -match '"source":"security-reviewer"')) 'record CLI jsonl has severity+source' 'content missing'
+            $snapCli = $null
+            try { $snapCli = Export-DevTelemetrySnapshot -RepoRoot $tmpCli -WindowDays 30 -Now '2026-10-21T13:00:00Z' } catch { $snapCli = $null }
+            $cliRvOk = $false
+            try {
+                $cliRvOk = (($null -ne $snapCli) -and ([int]$snapCli.review.total -eq 2) -and ([int]$snapCli.review.approved -eq 1) -and ([int]$snapCli.review.changes_required -eq 1) -and ([int]$snapCli.review.by_source.planner -eq 1) -and ([int]$snapCli.review.by_source.'security-reviewer' -eq 1) -and ([int]$snapCli.review.by_severity.UNSPECIFIED -eq 1) -and ([int]$snapCli.review.by_severity.HIGH -eq 1) -and ([int]$snapCli.review.high_or_critical -eq 1))
+            } catch { $cliRvOk = $false }
+            Assert-That $cliRvOk 'review CLI severity round-trip into snapshot' 'review CLI aggregation wrong'
+            $beforeBadSev = Get-DevTeleRawCount -Repo $tmpCli
+            $rBadSev = Invoke-DevTeleCliProc -Engine $cliEngine -CliArgs @('-NoProfile', '-File', $cliPath, '-RepoRoot', $tmpCli, '-Verdict', 'APPROVED', '-Severity', 'INVALID')
+            Assert-That ([int]$rBadSev.Code -eq 2) 'record CLI invalid severity exit 2' ([string]$rBadSev.Code)
+            Assert-That ([int]$rBadSev.Count -eq 1) 'record CLI invalid severity stdout exactly 1 line' ([string]$rBadSev.Count)
+            $badSevLine = $false
+            try { $badSevLine = (([int]$rBadSev.Count -eq 1) -and ([string]$rBadSev.Lines[0] -ceq 'dev-telemetry: failed to record review_outcome')) } catch { $badSevLine = $false }
+            Assert-That $badSevLine 'record CLI invalid severity stdout exact fail line' ([string]$rBadSev.Lines)
+            Assert-That (([string]$rBadSev.Err) -ceq '') 'record CLI invalid severity stderr empty' ([string]$rBadSev.Err)
+            $afterBadSev = Get-DevTeleRawCount -Repo $tmpCli
+            Assert-That ($afterBadSev -eq $beforeBadSev) 'record CLI invalid severity writes no event' ([string]$afterBadSev)
         }
         finally { Remove-DevTeleTempRepo $tmpCli }
     }

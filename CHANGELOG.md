@@ -6,6 +6,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **DevTelemetry review severity**: registro opcional de severidade e breakdown agregado por origem/severidade, incluindo contagem high/critical.
+
 - **DevTelemetry review_outcome CLI (2026-10-21)**: `scripts/dev-telemetry-record.ps1` registra 1 evento `review_outcome` (`APPROVED`/`CHANGES_REQUIRED`) com validacao estrita de argumentos (exit 2) e linha unica de saida; o agregado expoe `review.total/approved/changes_required`; sem captura automatica (o Planner registra ao encerrar).
 
 - **DevTelemetry local agregada (fatia 1, 2026-10-21)**:

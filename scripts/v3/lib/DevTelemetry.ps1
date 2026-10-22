@@ -98,6 +98,16 @@ function Get-DevTelemetryVerdict {
     return ''
 }
 
+function Get-DevTelemetrySeverity {
+    [CmdletBinding()]
+    param([string]$Severity)
+    try {
+        $s = ([string]$Severity).Trim().ToUpperInvariant()
+        if (@('NONE','LOW','MEDIUM','HIGH','CRITICAL') -ccontains $s) { return $s }
+    } catch { }
+    return ''
+}
+
 function Get-DevTelemetryEngine {
     [CmdletBinding()]
     param([string]$Engine)
@@ -221,7 +231,8 @@ function New-DevTelemetryEvent {
         [string]$FallbackReason = '',
         [string]$Engine = '',
         [string]$Detail = '',
-        [string]$Timestamp = ''
+        [string]$Timestamp = '',
+        [string]$Severity = ''
     )
     try {
         $k = Get-DevTelemetryKind -Kind $Kind
@@ -238,6 +249,8 @@ function New-DevTelemetryEvent {
         if (-not [string]::IsNullOrWhiteSpace($suiteClean)) { $ev['suite'] = $suiteClean }
         $verClean = Get-DevTelemetryVerdict -Verdict $Verdict
         if (-not [string]::IsNullOrWhiteSpace($verClean)) { $ev['verdict'] = $verClean }
+        $severityClean = Get-DevTelemetrySeverity -Severity $Severity
+        if (-not [string]::IsNullOrWhiteSpace($severityClean)) { $ev['severity'] = $severityClean }
         if ($null -ne $ExitCode -and -not ($ExitCode -is [bool])) {
             try {
                 $ecStr = ([string]$ExitCode).Trim()
@@ -539,6 +552,7 @@ function Write-DevTelemetryEvent {
         [string]$Engine = '',
         [string]$Detail = '',
         [string]$Timestamp = '',
+        [string]$Severity = '',
         [string]$RepoRoot = '',
         [string]$TelemetryPath = ''
     )
@@ -579,7 +593,8 @@ function Write-DevTelemetryEvent {
                     -FallbackReason ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'fallback_reason')) `
                     -Engine ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'engine')) `
                     -Detail ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'detail')) `
-                    -Timestamp ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'timestamp')))
+                    -Timestamp ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'timestamp')) `
+                    -Severity ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'severity')))
                 if ($null -eq $norm -and $null -ne (Get-DevTelemetryNodeProp -Node $Event -Name 'Kind')) {
                     $norm = (New-DevTelemetryEvent `
                         -Kind ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'Kind')) `
@@ -597,11 +612,12 @@ function Write-DevTelemetryEvent {
                         -FallbackReason ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'FallbackReason')) `
                         -Engine ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'Engine')) `
                         -Detail ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'Detail')) `
-                        -Timestamp ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'Timestamp')))
+                        -Timestamp ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'Timestamp')) `
+                        -Severity ([string](Get-DevTelemetryNodeProp -Node $Event -Name 'Severity')))
                 }
             }
             else {
-                $norm = (New-DevTelemetryEvent -Kind $Kind -Source $Source -Suite $Suite -Verdict $Verdict -ExitCode $ExitCode -DurationMs $DurationMs -Counts $Counts -Metrics $Metrics -Decision $Decision -TaskClass $TaskClass -Risk $Risk -Agents $Agents -FallbackReason $FallbackReason -Engine $Engine -Detail $Detail -Timestamp $Timestamp)
+                $norm = (New-DevTelemetryEvent -Kind $Kind -Source $Source -Suite $Suite -Verdict $Verdict -ExitCode $ExitCode -DurationMs $DurationMs -Counts $Counts -Metrics $Metrics -Decision $Decision -TaskClass $TaskClass -Risk $Risk -Agents $Agents -FallbackReason $FallbackReason -Engine $Engine -Detail $Detail -Timestamp $Timestamp -Severity $Severity)
             }
         }
         catch { $norm = $null }
@@ -755,6 +771,7 @@ function Read-DevTelemetryEvents {
                                 -FallbackReason ([string](Get-DevTelemetryNodeProp -Node $obj -Name 'fallback_reason')) `
                                 -Engine ([string](Get-DevTelemetryNodeProp -Node $obj -Name 'engine')) `
                                 -Detail ([string](Get-DevTelemetryNodeProp -Node $obj -Name 'detail')) `
+                                -Severity ([string](Get-DevTelemetryNodeProp -Node $obj -Name 'severity')) `
                                 -Timestamp $tsRawObj)
                         }
                         catch { $norm = $null; continue }
@@ -913,6 +930,9 @@ function New-DevTelemetrySnapshot {
         $revTotal = 0
         $revApproved = 0
         $revChanges = 0
+        $revBySource = @{}
+        $revBySeverity = @{}
+        $revHighCritical = 0
         foreach ($e in $items) {
             try {
                 if ($null -eq $e) { continue }
@@ -999,6 +1019,15 @@ function New-DevTelemetrySnapshot {
                 }
                 elseif ($kind -ceq 'review_outcome') {
                     $revTotal++
+                    $src = ([string](Get-DevTelemetryNodeProp -Node $e -Name 'source')).Trim()
+                    if ([string]::IsNullOrWhiteSpace($src)) { $src = 'unknown' }
+                    if (-not $revBySource.ContainsKey($src)) { $revBySource[$src] = 0 }
+                    $revBySource[$src]++
+                    $sev = Get-DevTelemetrySeverity -Severity ([string](Get-DevTelemetryNodeProp -Node $e -Name 'severity'))
+                    if ([string]::IsNullOrWhiteSpace($sev)) { $sev = 'UNSPECIFIED' }
+                    if (-not $revBySeverity.ContainsKey($sev)) { $revBySeverity[$sev] = 0 }
+                    $revBySeverity[$sev]++
+                    if ($sev -ceq 'HIGH' -or $sev -ceq 'CRITICAL') { $revHighCritical++ }
                     $vd = ([string](Get-DevTelemetryNodeProp -Node $e -Name 'verdict')).Trim().ToUpperInvariant()
                     if ($vd -ceq 'APPROVED') { $revApproved++ }
                     elseif ($vd -ceq 'CHANGES_REQUIRED') { $revChanges++ }
@@ -1073,6 +1102,10 @@ function New-DevTelemetrySnapshot {
         foreach ($kk in @($preByRisk.Keys | Sort-Object)) { $byRk[$kk] = [int]$preByRisk[$kk] }
         $byAg = [ordered]@{}
         foreach ($kk in @($preAgents.Keys | Sort-Object)) { $byAg[$kk] = [int]$preAgents[$kk] }
+        $revSrcSorted = [ordered]@{}
+        foreach ($kk in @($revBySource.Keys | Sort-Object)) { $revSrcSorted[$kk] = [int]$revBySource[$kk] }
+        $revSevSorted = [ordered]@{}
+        foreach ($kk in @($revBySeverity.Keys | Sort-Object)) { $revSevSorted[$kk] = [int]$revBySeverity[$kk] }
         $plugOverall = ''
         $plugLoad = 0
         $plugExp = 0
@@ -1131,6 +1164,9 @@ function New-DevTelemetrySnapshot {
                 total            = [int]$revTotal
                 approved         = [int]$revApproved
                 changes_required = [int]$revChanges
+                by_source        = ([PSCustomObject]$revSrcSorted)
+                by_severity      = ([PSCustomObject]$revSevSorted)
+                high_or_critical = [int]$revHighCritical
             }
             gates        = [PSCustomObject]@{
                 reports      = [int]$gateReports
@@ -1456,6 +1492,19 @@ function New-DevTelemetryMarkdown {
                 [void]$lines.Add(('| total | ' + [int](Get-DevTelemetryNodeProp -Node $rv -Name 'total') + ' |'))
                 [void]$lines.Add(('| approved | ' + [int](Get-DevTelemetryNodeProp -Node $rv -Name 'approved') + ' |'))
                 [void]$lines.Add(('| changes_required | ' + [int](Get-DevTelemetryNodeProp -Node $rv -Name 'changes_required') + ' |'))
+                [void]$lines.Add(('| high_or_critical | ' + [int](Get-DevTelemetryNodeProp -Node $rv -Name 'high_or_critical') + ' |'))
+                foreach ($groupName in @('by_source','by_severity')) {
+                    [void]$lines.Add('')
+                    [void]$lines.Add(('### ' + $groupName.Replace('_',' ')))
+                    $group = Get-DevTelemetryNodeProp -Node $rv -Name $groupName
+                    $props = @($group.PSObject.Properties | Sort-Object Name)
+                    if ($props.Count -eq 0) { [void]$lines.Add('no data') }
+                    else {
+                        [void]$lines.Add('| valor | count |')
+                        [void]$lines.Add('| --- | ---: |')
+                        foreach ($prop in $props) { [void]$lines.Add(('| ' + $prop.Name + ' | ' + [int]$prop.Value + ' |')) }
+                    }
+                }
             } catch { [void]$lines.Add('no data') }
         }
         [void]$lines.Add('')

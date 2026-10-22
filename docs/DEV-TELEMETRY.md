@@ -1,4 +1,4 @@
-# DEV-TELEMETRY (fatia 1)
+# DEV-TELEMETRY
 
 Telemetria local de desenvolvimento, agregada e explicita. Nada sai da maquina:
 nao ha rede, OTEL, SQLite nem envio automatico. A publicacao em
@@ -63,9 +63,15 @@ O sinal de review nao e automatico: o Planner registra ao encerrar.
 ```powershell
 powershell -NoProfile -File scripts/dev-telemetry-record.ps1 -Verdict APPROVED
 powershell -NoProfile -File scripts/dev-telemetry-record.ps1 -Verdict CHANGES_REQUIRED -Detail reviewer-findings
+powershell -NoProfile -File scripts/dev-telemetry-record.ps1 -Verdict CHANGES_REQUIRED -Severity HIGH -Source security-reviewer
 ```
 
-O agregado expoe `review.total/approved/changes_required` em `latest.json`.
+`Severity` e opcional: `NONE|LOW|MEDIUM|HIGH|CRITICAL` (trim + uppercase).
+Valor invalido => exit 2, uma linha de saida, nenhum evento. No sucesso, a
+linha inclui ` severity=<VALOR>` quando informado. O agregado expoe
+`review.total/approved/changes_required`, `by_source` e `by_severity` (contagens
+ordenadas deterministicamente), alem de `high_or_critical`. Eventos antigos ou
+sem severity contam como `UNSPECIFIED`.
 
 ## Ganchos automaticos
 
@@ -91,7 +97,7 @@ original segue normalmente, sem mudar stdout nem exit code.
 ## Schema v1 (resumo)
 
 Campos: `schema=1`, `timestamp` (UTC ISO `o`), `kind`, `source`, `suite`,
-`verdict`, `exit_code`, `duration_ms`, `counts`, `metrics`, `decision`,
+`verdict`, `severity` (opcional: `NONE|LOW|MEDIUM|HIGH|CRITICAL`), `exit_code`, `duration_ms`, `counts`, `metrics`, `decision`,
 `task_class`, `risk`, `agents` (max 8), `fallback_reason`, `engine`,
 `detail`. So campos presentes/validos sao emitidos.
 
@@ -122,7 +128,7 @@ suites[] (runs/pass/fail/skip/error/pass_rate/p50_ms/p95_ms por
 nearest-rank/flaky_transitions), flaky[] (transicao FAIL/ERROR->PASS em
 ordem temporal), slowest[] (top 5 por p95_ms), preflight
 (total/by_decision/fallback_rate/by_task_class/by_risk/agents), plugin
-(reports/latest_*), review (total/approved/changes_required), gates
+(reports/latest_*), review (total/approved/changes_required/by_source/by_severity/high_or_critical), gates
 (reports/pass/fail/checks_total/checks_fail). `pass_rate` (totals e por
 suite) = `pass / (pass + fail + error)`: SKIP nao entra no denominador e e
 reportado separadamente em `skip`; denominador 0 => 0.0.
