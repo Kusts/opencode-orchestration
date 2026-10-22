@@ -333,6 +333,36 @@ try {
             -CriteriaHash 'crit-hash-123' `
             -EvidenceStoreDir $storeDir
         Assert-GW ($reuseShaDrift.Status -eq 'REEXECUTION_REQUIRED') 'INT-04-REUSE' "Drift de commit SHA forca REEXECUTION_REQUIRED"
+
+        # 4d. Arquivo do escopo ausente no disco: rejeita reuso fail-closed
+        $missingFile = Join-Path $workDir 'non_existent_file.ps1'
+        $appMissing = Test-OrchestrationReusableApplicability -Evidence $canonicalRecord `
+            -CurrentHeadSha $commitHead `
+            -CurrentCriteriaHash 'crit-hash-123' `
+            -CurrentScope @($missingFile) `
+            -CurrentSourceFingerprints @{ $missingFile = 'some-sha-value' }
+        Assert-GW ($appMissing.Applicable -eq $false) 'INT-04-REUSE' "Arquivo ausente no disco rejeita reuso fail-closed"
+        Assert-GW ($appMissing.Reason -match 'scope-file-missing') 'INT-04-REUSE' "Razao explicita de arquivo ausente"
+
+        # 4e. Path traversal fora do workspace: rejeita reuso fail-closed
+        $appTraversal = Test-OrchestrationReusableApplicability -Evidence $canonicalRecord `
+            -CurrentHeadSha $commitHead `
+            -CurrentCriteriaHash 'crit-hash-123' `
+            -CurrentScope @('../../etc/passwd') `
+            -CurrentSourceFingerprints @{ '../../etc/passwd' = 'dummy' }
+        Assert-GW ($appTraversal.Applicable -eq $false) 'INT-04-REUSE' "Path traversal fora do workspace rejeita reuso fail-closed"
+        Assert-GW ($appTraversal.Reason -eq 'scope-path-traversal-detected') 'INT-04-REUSE' "Razao explicita scope-path-traversal-detected"
+
+        # 4f. Incompatibilidade de versao do runtime: rejeita reuso
+        Set-Content -LiteralPath $sampleFile -Value 'function Test-Code { return $true }' -Encoding UTF8
+        $appVerMismatch = Test-OrchestrationReusableApplicability -Evidence $canonicalRecord `
+            -CurrentHeadSha $commitHead `
+            -CurrentCriteriaHash 'crit-hash-123' `
+            -CurrentScope @($sampleFile) `
+            -CurrentSourceFingerprints $fpsCanonical `
+            -CurrentEnv @{ runtime = 'pwsh'; version = '8.0-incompatible' }
+        Assert-GW ($appVerMismatch.Applicable -eq $false) 'INT-04-REUSE' "Incompatibilidade de versao do runtime rejeita reuso"
+        Assert-GW ($appVerMismatch.Reason -eq 'environment-version-mismatch') 'INT-04-REUSE' "Razao explicita environment-version-mismatch"
     }
 } finally {
     if (Test-Path -LiteralPath $storeDir) { Remove-Item -LiteralPath $storeDir -Recurse -Force -ErrorAction SilentlyContinue }
@@ -347,11 +377,16 @@ if (Test-Path -LiteralPath $jevLib) {
     try {
         [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', 'sk-SYNTHETICSECRET-CANARY-GW')
         $jevDesc = [ordered]@{
-            task_id         = 'INT-JEV-01'
-            objective       = 'Decidir ordenacao de suites de teste no pipeline'
-            task_shape      = 'multi_worker'
-            risk            = 'medium'
-            route_uncertain = $true
+            task_id              = 'INT-JEV-01'
+            objective            = 'Decidir ordenacao de suites de teste no pipeline'
+            task_shape           = 'multi_worker'
+            risk                 = 'medium'
+            route_uncertain      = $true
+            work_independent     = $true
+            ownership_clear      = $true
+            shared_state         = $false
+            latency_benefit      = $true
+            synthesis_affordable = $true
         }
         $jevTrigger = Test-JevAdvisoryTrigger -Descriptor $jevDesc
         Assert-GW ($null -ne $jevTrigger.should_consult) 'INT-05-JEV' "Jev trigger avaliado de forma deterministica"
@@ -364,6 +399,29 @@ if (Test-Path -LiteralPath $jevLib) {
         Assert-GW ($jevPlan.plan.jev_advisory_result.consulted -eq $true) 'INT-05-JEV' "Jev Advisory consultado com sucesso"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_consumed -eq $true) 'INT-05-JEV' "Decisao de Jev Advisory atestada como consumida no plano"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_taken -match 'CONSUMED') 'INT-05-JEV' "Decisao tomada registrada na telemetria"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.decision_applied -eq $true) 'INT-05-JEV' "Decisao aplicada efetivamente como parecer consultivo"
+        Assert-GW ($jevPlan.plan.dispatch_plan.parallel_ok -eq $true) 'INT-05-JEV' "Paralelismo com gates comprovados preservado fielmente (Jev advisory-only nao derruba gates deterministcos)"
+
+        # 5b. Fallback deterministico quando Jev falha: plano continua integro
+        $jevDescFail = [ordered]@{
+            task_id              = 'INT-JEV-02-FAIL'
+            objective            = 'Testar tolerancia a falha no gateway Jev'
+            task_shape           = 'multi_worker'
+            risk                 = 'medium'
+            route_uncertain      = $true
+            work_independent     = $true
+            ownership_clear      = $true
+            shared_state         = $false
+            latency_benefit      = $true
+            synthesis_affordable = $true
+        }
+        $jevProbeFail = [scriptblock]::Create("param(`$tool, `$state, `$toolArgs, `$budget); throw 'Jev gateway network timeout'")
+        $jevPlanFallback = Invoke-OrchestrationPlannerLoop -Descriptor $jevDescFail -JevAdvisoryProbe $jevProbeFail
+        Assert-GW ($jevPlanFallback.status -eq 'ok') 'INT-05-JEV' "Planner continua com plano integro sob falha do Jev (fallback gracioso)"
+        Assert-GW ($jevPlanFallback.plan.jev_advisory_result.status -eq 'JEV_UNAVAILABLE') 'INT-05-JEV' "Jev registrado como JEV_UNAVAILABLE sob falha"
+        Assert-GW ([bool]$jevPlanFallback.plan.jev_advisory_result.fallback_continue) 'INT-05-JEV' "Flag fallback_continue atestada no envelope"
+        Assert-GW (-not [bool]$jevPlanFallback.plan.jev_advisory_result.decision_consumed) 'INT-05-JEV' "Nenhuma decisao consumida sob falha do Jev"
+        Assert-GW (-not [bool]$jevPlanFallback.plan.jev_advisory_result.decision_applied) 'INT-05-JEV' "Nenhuma decisao aplicada sob falha do Jev"
     } finally {
         [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', $oldKey)
     }

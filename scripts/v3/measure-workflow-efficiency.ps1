@@ -139,6 +139,15 @@ $advReq = @{
 $advRes = & $advExec $advReq $null
 $swAdv.Stop()
 
+$advTokensIn = 0
+$advTokensOut = 0
+$advCost = 0.0
+if ($advRes.Status -eq 'COMPLETED') {
+    $advTokensIn = if ($advRes.TokensInput) { [int]$advRes.TokensInput } else { 0 }
+    $advTokensOut = if ($advRes.TokensOutput) { [int]$advRes.TokensOutput } else { 0 }
+    $advCost = if ($advRes.CostUsd) { [double]$advRes.CostUsd } else { 0.0 }
+}
+
 $results.workloads += [ordered]@{
     workload_id            = "WL-03-NATIVE-ADVISOR-DISPATCH"
     description            = "Consulta ao engineering-advisor nativo via OpenCode V2 com verificacao de prova"
@@ -148,9 +157,9 @@ $results.workloads += [ordered]@{
     model_requested        = "T3 (Capable / Strong)"
     model_effective        = if ($advRes.ModelEffective) { $advRes.ModelEffective } else { "none (dispatch unexecuted)" }
     model_tier             = "T3"
-    tokens_input           = if ($advRes.Status -eq 'COMPLETED') { 4200 } else { 0 }
-    tokens_output          = if ($advRes.Status -eq 'COMPLETED') { 380 } else { 0 }
-    estimated_cost_usd     = if ($advRes.Status -eq 'COMPLETED') { 0.018 } else { 0.0 }
+    tokens_input           = $advTokensIn
+    tokens_output          = $advTokensOut
+    estimated_cost_usd     = $advCost
     retries                = 0
     cache_hit              = [bool]$advRes.FromCache
     compliance_verdict     = "COMPLIANT"
@@ -197,7 +206,7 @@ try {
     [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', $oldKey)
 }
 
-# 5. Agregacao de Custo-to-DONE total
+# 5. Agregacao de Custo de Componentes Medidos (Nao extrapola para cost-to-DONE integral)
 $totalTokens = 0
 $totalCost = 0.0
 $totalMs = 0.0
@@ -207,10 +216,13 @@ foreach ($w in $results.workloads) {
     $totalMs     += [double]$w.wall_clock_ms
 }
 
-$results['aggregate_cost_to_done'] = [ordered]@{
+$results['aggregate_measured_components'] = [ordered]@{
+    measurement_scope        = "Component and controlled workload benchmarks"
+    status                   = "CONTROLLED_MEASUREMENT_PASS"
+    note                     = "Component benchmarks measured with exact evidence; complete autonomous task cost-to-DONE requires continuous multi-turn session trace."
     total_workloads_measured = $results.workloads.Count
-    total_tokens             = $totalTokens
-    total_estimated_cost_usd = [Math]::Round($totalCost, 5)
+    total_tokens_measured    = $totalTokens
+    total_cost_usd_measured  = [Math]::Round($totalCost, 5)
     total_latency_ms         = [Math]::Round($totalMs, 2)
     planner_included         = $true
     workers_included         = $true

@@ -99,19 +99,36 @@ function Test-OrchestrationReusableApplicability {
     if ($null -ne $Evidence.scope) { $combinedScope += @($Evidence.scope) }
     $combinedScope = @($combinedScope | Select-Object -Unique)
 
+    $currentWorkDir = (Get-Location).Path
+    $workDirFull = [System.IO.Path]::GetFullPath($currentWorkDir)
+
     foreach ($fileRel in $combinedScope) {
         if ([string]::IsNullOrWhiteSpace($fileRel)) { continue }
-        if (Test-Path -LiteralPath $fileRel -PathType Leaf) {
-            if ($targetFps.ContainsKey($fileRel)) {
-                try {
-                    $diskSha = (Get-FileHash -LiteralPath $fileRel -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
-                    $recSha = ([string]$targetFps[$fileRel]).ToLowerInvariant()
-                    if ($diskSha -ne $recSha) {
-                        return @{ Applicable = $false; Reason = "disk-content-drift-in-$fileRel" }
-                    }
-                } catch {
-                    return @{ Applicable = $false; Reason = "disk-read-failed-in-$fileRel" }
+
+        # Validacao rigorosa de escopo: prevencao contra path traversal relativo fora do workspace autorizado
+        try {
+            $isRooted = [System.IO.Path]::IsPathRooted($fileRel)
+            $fullFilePath = if ($isRooted) { [System.IO.Path]::GetFullPath($fileRel) } else { [System.IO.Path]::GetFullPath((Join-Path $workDirFull $fileRel)) }
+            if (-not $isRooted -and -not $fullFilePath.StartsWith($workDirFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }
+            }
+        } catch {
+            return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }
+        }
+
+        # Exigencia rigorosa: se o fingerprint foi registrado, arquivo ausente ou inacessivel invalida o reuso
+        if ($targetFps.ContainsKey($fileRel)) {
+            if (-not (Test-Path -LiteralPath $fileRel -PathType Leaf)) {
+                return @{ Applicable = $false; Reason = "scope-file-missing-in-$fileRel" }
+            }
+            try {
+                $diskSha = (Get-FileHash -LiteralPath $fileRel -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                $recSha = ([string]$targetFps[$fileRel]).ToLowerInvariant()
+                if ($diskSha -ne $recSha) {
+                    return @{ Applicable = $false; Reason = "disk-content-drift-in-$fileRel" }
                 }
+            } catch {
+                return @{ Applicable = $false; Reason = "disk-read-failed-in-$fileRel" }
             }
         }
     }
@@ -122,6 +139,12 @@ function Test-OrchestrationReusableApplicability {
         $curRt = if ($CurrentEnv -is [System.Collections.IDictionary]) { [string]$CurrentEnv['runtime'] } else { [string]$CurrentEnv.runtime }
         if (-not [string]::IsNullOrWhiteSpace($evRt) -and -not [string]::IsNullOrWhiteSpace($curRt) -and ($evRt -cne $curRt)) {
             return @{ Applicable = $false; Reason = 'environment-runtime-mismatch' }
+        }
+
+        $evVer = if ($Evidence.environment.version) { [string]$Evidence.environment.version } else { '' }
+        $curVer = if ($CurrentEnv -is [System.Collections.IDictionary]) { [string]$CurrentEnv['version'] } else { [string]$CurrentEnv.version }
+        if (-not [string]::IsNullOrWhiteSpace($evVer) -and -not [string]::IsNullOrWhiteSpace($curVer) -and ($evVer -cne $curVer)) {
+            return @{ Applicable = $false; Reason = 'environment-version-mismatch' }
         }
     }
 

@@ -172,7 +172,12 @@ function Invoke-OrchestrationPlannerLoop {
                 try{$budgetS=[int](Read-PL $raw 'budget_s' 0)}catch{$budgetS=0}
                 $sum='no-advisory-recommendation'
                 if($consulted -and ($null -ne $rawOut)){try{$sum=Safe-PL (Get-JevAdvisoryOutputSummary -Tool ([string](Read-PL $raw 'tool' $jevToolName)) -Output $rawOut) 120}catch{$sum='advisory-summary-unavailable'};if([string]::IsNullOrWhiteSpace($sum)){$sum='advisory-summary-unavailable'}}
-                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$consulted;decision_taken=$(if($consulted){Safe-PL ("CONSUMED: " + $sum) 120}else{'NOT_CONSUMED'});authoritative=$false;recommendation_only=$true}
+                $rawStatus = [string](Read-PL $raw 'status' '')
+                $decisionConsumed = ($consulted -and ($null -ne $rawOut) -and ($rawStatus -in @('OK', 'JEV_ADVISORY_OK')))
+                $decisionTaken = if ($decisionConsumed) { Safe-PL ("CONSUMED: " + $sum) 120 } else { 'NOT_CONSUMED' }
+                $applied = $decisionConsumed
+                $strategyAdapted = $false
+                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$decisionConsumed;decision_taken=$decisionTaken;decision_applied=$applied;strategy_adapted=$strategyAdapted;authoritative=$false;recommendation_only=$true}
             }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
         $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}
@@ -206,8 +211,8 @@ function Invoke-OrchestrationPlannerLoop {
                         consultation_id=[string]$advResp.ConsultationId;
                         session_id=[string](Read-PL $advResp 'SessionId' '');
                         agent='engineering-advisor';
-                        model_requested=[string](Read-PL $advResp 'ModelRequested' (Read-PL $advResp 'ModelTierUsed' ''));
-                        model_effective=[string](Read-PL $advResp 'ModelEffective' (Read-PL $advResp 'ModelTokenUsed' ''));
+                        model_requested=[string](Read-PL $advResp 'ModelRequested' '');
+                        model_effective=[string](Read-PL $advResp 'ModelEffective' '');
                         response_ref=[string](Read-PL $advResp 'ResponseRef' (Read-PL $advResp 'ConsultationId' ''));
                         recommendation=$(if($isConsulted){Safe-PL $recText 160}else{''});
                         actionable_step=$(if($isConsulted){Safe-PL $actText 160}else{''});

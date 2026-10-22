@@ -1,6 +1,6 @@
 ﻿{
-    "measurement_id":  "MEASURE-WORKFLOW-EFFICIENCY-20261022-215304",
-    "measured_at":  "2026-10-22T21:53:04.0966834Z",
+    "measurement_id":  "MEASURE-WORKFLOW-EFFICIENCY-20261022-224241",
+    "measured_at":  "2026-10-22T22:42:41.7571760Z",
     "scope":  "OpenCode V2 -- Universal Autonomous Adaptive Workflow",
     "baseline_audit_commit":  "edbbb44477edb6a7bc4721a7305126c52d8f672b",
     "classification":  "CONTROLLED_EMPIRICAL_MEASUREMENT",
@@ -11,7 +11,7 @@
                           "workload_id":  "WL-01-DIRECT-VERIFIED-MICRO-EDIT",
                           "description":  "Microedicao simples e reversivel com escrita em documentacao (sem worker subordinado)",
                           "execution_strategy":  "DIRECT_VERIFIED",
-                          "wall_clock_ms":  129.55,
+                          "wall_clock_ms":  143.74,
                           "subagents_spawned":  0,
                           "model_requested":  "T0 (Deterministic)",
                           "model_effective":  "none (deterministic)",
@@ -29,7 +29,7 @@
                           "workload_id":  "WL-02-CANONICAL-REUSE-VERIFIED",
                           "description":  "Reuso exato de evidencia canonica com verificacao fisica de SHA256 em disco",
                           "execution_strategy":  "REUSE_VERIFIED",
-                          "wall_clock_ms":  213.69,
+                          "wall_clock_ms":  236.89,
                           "subagents_spawned":  0,
                           "model_requested":  "T0 (Exact Reuse)",
                           "model_effective":  "none (deterministic)",
@@ -47,7 +47,7 @@
                           "workload_id":  "WL-03-NATIVE-ADVISOR-DISPATCH",
                           "description":  "Consulta ao engineering-advisor nativo via OpenCode V2 com verificacao de prova",
                           "execution_strategy":  "NATIVE_ADVISOR_ESCALATION",
-                          "wall_clock_ms":  22.32,
+                          "wall_clock_ms":  47.53,
                           "subagents_spawned":  0,
                           "model_requested":  "T3 (Capable / Strong)",
                           "model_effective":  "none (dispatch unexecuted)",
@@ -60,13 +60,13 @@
                           "compliance_verdict":  "COMPLIANT",
                           "verified_result":  "PROOF_ABSENT",
                           "proof_type":  "PROOF_ABSENT",
-                          "proof_absence_reason":  "MODEL_PROVIDER_CREDENTIAL_ABSENT"
+                          "proof_absence_reason":  "NATIVE_DISPATCH_UNAVAILABLE"
                       },
                       {
                           "workload_id":  "WL-04-JEV-ADVISORY-PLANNER-LOOP",
                           "description":  "Planejamento adaptativo com Jev Advisory trigger, execucao e consumo de parecer",
                           "execution_strategy":  "ADVISORY_ENRICHED_PLANNING",
-                          "wall_clock_ms":  963.78,
+                          "wall_clock_ms":  1095.76,
                           "subagents_spawned":  0,
                           "model_requested":  "Jev Decide Tool / Planner",
                           "model_effective":  "jev-latest",
@@ -81,14 +81,17 @@
                           "proof_type":  "CONTROLLED_HARNESS_MEASURED"
                       }
                   ],
-    "aggregate_cost_to_done":  {
-                                   "total_workloads_measured":  4,
-                                   "total_tokens":  180,
-                                   "total_estimated_cost_usd":  0.0003,
-                                   "total_latency_ms":  1329.34,
-                                   "planner_included":  true,
-                                   "workers_included":  true,
-                                   "advisor_included":  true,
-                                   "jev_included":  true
-                               }
+    "aggregate_measured_components":  {
+                                          "measurement_scope":  "Component and controlled workload benchmarks",
+                                          "status":  "CONTROLLED_MEASUREMENT_PASS",
+                                          "note":  "Component benchmarks measured with exact evidence; complete autonomous task cost-to-DONE requires continuous multi-turn session trace.",
+                                          "total_workloads_measured":  4,
+                                          "total_tokens_measured":  180,
+                                          "total_cost_usd_measured":  0.0003,
+                                          "total_latency_ms":  1523.92,
+                                          "planner_included":  true,
+                                          "workers_included":  true,
+                                          "advisor_included":  true,
+                                          "jev_included":  true
+                                      }
 }

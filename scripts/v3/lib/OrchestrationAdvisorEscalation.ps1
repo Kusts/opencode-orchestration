@@ -102,6 +102,117 @@ function Get-AdvisorField($obj, [string]$name, $default = $null) {
     return $default
 }
 
+function Test-OrchestrationOpenCodeAuthenticated {
+    <#
+    .SYNOPSIS
+        Verifica se ha provedores autenticados no OpenCode (env vars, auth.json ou auth list).
+    .DESCRIPTION
+        Nao depende exclusivamente de variaveis de ambiente e nao expoe segredos.
+    #>
+    [CmdletBinding()]
+    param()
+
+    # 1. Variaveis de ambiente explicitas
+    if (-not [string]::IsNullOrWhiteSpace($env:OPENCODE_API_KEY) -or `
+        -not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY) -or `
+        -not [string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY) -or `
+        -not [string]::IsNullOrWhiteSpace($env:OPENCODE_GO_API_KEY) -or `
+        -not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -or `
+        -not [string]::IsNullOrWhiteSpace($env:OPENROUTER_API_KEY)) {
+        return $true
+    }
+
+    # 2. Arquivo auth.json local do OpenCode
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+    if (-not [string]::IsNullOrWhiteSpace($homeDir)) {
+        $authPath = Join-Path (Join-Path (Join-Path $homeDir '.local') 'share\opencode') 'auth.json'
+        if (Test-Path -LiteralPath $authPath -PathType Leaf) {
+            try {
+                if ((Get-Item -LiteralPath $authPath).Length -gt 5) {
+                    return $true
+                }
+            } catch { }
+        }
+    }
+
+    # 3. CLI auth list se disponivel
+    try {
+        $authLines = @(opencode auth list 2>&1)
+        if ($authLines.Count -gt 0 -and ($authLines -match 'stored' -or $authLines -match 'environment')) {
+            return $true
+        }
+    } catch { }
+
+    return $false
+}
+
+function Get-OrchestrationSessionHostEvidence {
+    <#
+    .SYNOPSIS
+        Extrai evidencias de execucao real de uma sessao nativa via opencode session export.
+    .DESCRIPTION
+        Coleta SessionId, Agent, ModelEffective, Tokens, Cost e Outcome reais do host.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionId,
+
+        [Parameter(Mandatory = $false)]
+        [string]$OpencodeBin = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SessionId)) { return $null }
+
+    $bin = if (-not [string]::IsNullOrWhiteSpace($OpencodeBin)) { $OpencodeBin } else { 'opencode' }
+    try {
+        $raw = & $bin session export --sanitize $SessionId 2>&1 | Out-String
+        if ([string]::IsNullOrWhiteSpace($raw) -or $raw -match 'error:') { return $null }
+        $parsed = ConvertFrom-Json -InputObject $raw -ErrorAction Stop
+        if ($null -eq $parsed -or $null -eq $parsed.info) { return $null }
+
+        $effModel = $null
+        if ($parsed.info.model) {
+            $pId = [string]$parsed.info.model.providerID
+            $mId = [string]$parsed.info.model.id
+            $effModel = if (-not [string]::IsNullOrWhiteSpace($pId) -and -not [string]::IsNullOrWhiteSpace($mId)) { "$pId/$mId" } else { $mId }
+        }
+
+        $assistantText = ''
+        if ($parsed.messages) {
+            foreach ($msg in @($parsed.messages)) {
+                if ($msg.type -eq 'assistant' -and -not [string]::IsNullOrWhiteSpace([string]$msg.text)) {
+                    $assistantText = [string]$msg.text
+                }
+            }
+        }
+
+        $tokensIn = 0; $tokensOut = 0; $tokensReas = 0
+        if ($parsed.info.tokens) {
+            try { $tokensIn = [int]$parsed.info.tokens.input } catch { }
+            try { $tokensOut = [int]$parsed.info.tokens.output } catch { }
+            try { $tokensReas = [int]$parsed.info.tokens.reasoning } catch { }
+        }
+        $costUsd = 0.0
+        try { $costUsd = [double]$parsed.info.cost } catch { }
+
+        return [pscustomobject]@{
+            SessionId        = [string]$parsed.info.id
+            Agent            = [string]$parsed.info.agent
+            Outcome          = [string]$parsed.info.outcome
+            EffectiveModel   = $effModel
+            TokensInput      = $tokensIn
+            TokensOutput     = $tokensOut
+            TokensReasoning  = $tokensReas
+            CostUsd          = $costUsd
+            AssistantMessage = $assistantText
+            RawError         = if ($parsed.info.outcome -eq 'failed') { "Session outcome reported failed" } else { $null }
+        }
+    } catch {
+        return $null
+    }
+}
+
 function Get-AdvisorConsultationCacheKey {
     <#
     .SYNOPSIS
@@ -167,7 +278,6 @@ function Get-OrchestrationNativeAdvisorExecutor {
         }
 
         $consultationId = "ADV-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 6))"
-        $sessionId = "sess-adv-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 
         if ([string]::IsNullOrWhiteSpace($opencodeBin)) {
             return [pscustomobject]@{
@@ -194,23 +304,19 @@ function Get-OrchestrationNativeAdvisorExecutor {
         }
 
         # 2. Checagem de disponibilidade de provider/credencial para o modelo solicitado
-        $hasKey = (-not [string]::IsNullOrWhiteSpace($env:OPENCODE_API_KEY) -or `
-                   -not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY) -or `
-                   -not [string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY) -or `
-                   -not [string]::IsNullOrWhiteSpace($env:OPENCODE_GO_API_KEY))
-
-        if (-not $hasKey) {
+        $isAuth = Test-OrchestrationOpenCodeAuthenticated
+        if (-not $isAuth) {
             return [pscustomobject]@{
                 Status               = 'PROOF_ABSENT'
                 Reason               = 'MODEL_PROVIDER_CREDENTIAL_ABSENT'
                 ConsultationId       = $consultationId
-                SessionId            = $sessionId
+                SessionId            = $null
                 Agent                = 'engineering-advisor'
                 ModelRequested       = $reqModel
                 ModelEffective       = $null
                 ResponseRef          = $null
                 RecommendedOption    = $null
-                Rationale            = "No active model provider API key detected in environment. Execution unperformed."
+                Rationale            = "No active model provider credentials detected via environment or auth storage. Execution unperformed."
                 Risks                = @()
                 RejectionReasons     = @()
                 ActionableNextStep   = $null
@@ -223,7 +329,26 @@ function Get-OrchestrationNativeAdvisorExecutor {
             }
         }
 
-        # 3. Execucao nativa quando binario e credenciais disponiveis (com timeout estrito de 10s)
+        # 3. Timeout configuravel (default 30s, sem timeout rigido de 10s)
+        $timeoutMs = 30000
+        $reqTimeout = Get-AdvisorField $Req 'timeout_ms' $null
+        if ($null -ne $reqTimeout -and [int]$reqTimeout -gt 0) {
+            $timeoutMs = [int]$reqTimeout
+        } else {
+            $budgetSec = Get-AdvisorField $Req 'budget_seconds' $null
+            if ($null -ne $budgetSec -and [int]$budgetSec -gt 0) {
+                $timeoutMs = [int]($budgetSec * 1000)
+            }
+        }
+
+        # 4. Resolucao de sessao nativa: reaproveita sessao pai do Planner se disponivel;
+        #    se nova sessao, NAO inventa ID falso (evita corromper storage do OpenCode).
+        $parentSession = Get-AdvisorField $Req 'parent_session_id' $null
+        if ([string]::IsNullOrWhiteSpace($parentSession) -and -not [string]::IsNullOrWhiteSpace($env:OPENCODE_SESSION_ID)) {
+            $parentSession = [string]$env:OPENCODE_SESSION_ID
+        }
+
+        # 5. Execucao nativa quando binario e credenciais disponiveis
         try {
             $prompt = @"
 [CONSULTATION: $consultationId]
@@ -234,14 +359,20 @@ CONTEXT: $context
 "@
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $opencodeBin
-            $psi.Arguments = "run --agent engineering-advisor --model `"$reqModel`" --session `"$sessionId`" `"$prompt`""
+            $argParts = @('run', '--agent', 'engineering-advisor', '--model', "`"$reqModel`"", '--title', "`"Advisor: $consultationId`"")
+            if (-not [string]::IsNullOrWhiteSpace($parentSession)) {
+                $argParts += @('--session', "`"$parentSession`"")
+            }
+            $safePrompt = $prompt.Replace('"', '\"')
+            $argParts += "`"$safePrompt`""
+            $psi.Arguments = ($argParts -join ' ')
             $psi.UseShellExecute = $false
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
             $psi.CreateNoWindow = $true
 
             $proc = [System.Diagnostics.Process]::Start($psi)
-            $completed = $proc.WaitForExit(10000)
+            $completed = $proc.WaitForExit($timeoutMs)
 
             if (-not $completed) {
                 try { $proc.Kill() } catch { }
@@ -249,13 +380,13 @@ CONTEXT: $context
                     Status               = 'PROOF_ABSENT'
                     Reason               = 'NATIVE_DISPATCH_TIMEOUT'
                     ConsultationId       = $consultationId
-                    SessionId            = $sessionId
+                    SessionId            = $parentSession
                     Agent                = 'engineering-advisor'
                     ModelRequested       = $reqModel
                     ModelEffective       = $null
                     ResponseRef          = $null
                     RecommendedOption    = $null
-                    Rationale            = "Native advisor execution exceeded bounded timeout of 10000ms."
+                    Rationale            = "Native advisor execution exceeded bounded timeout of $($timeoutMs)ms."
                     Risks                = @()
                     RejectionReasons     = @()
                     ActionableNextStep   = $null
@@ -274,14 +405,32 @@ CONTEXT: $context
             $combinedOutput = "$stdout`n$stderr".Trim()
 
             if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($combinedOutput)) {
+                # Tentar extrair session ID e telemetria real do host via session export
+                $targetSessionId = $parentSession
+                if ([string]::IsNullOrWhiteSpace($targetSessionId) -and $combinedOutput -match '(?i)session[:\s]+([a-zA-Z0-9_-]+)') {
+                    $targetSessionId = $matches[1]
+                }
+
+                $hostEvidence = if (-not [string]::IsNullOrWhiteSpace($targetSessionId)) {
+                    Get-OrchestrationSessionHostEvidence -SessionId $targetSessionId -OpencodeBin $opencodeBin
+                } else { $null }
+
+                $effModel = if ($null -ne $hostEvidence -and -not [string]::IsNullOrWhiteSpace($hostEvidence.EffectiveModel)) {
+                    $hostEvidence.EffectiveModel
+                } else {
+                    $null
+                }
+
+                $proofType = if ($null -ne $effModel) { 'NATIVE_OPENCODE_V2' } else { 'PARTIAL' }
+
                 return [pscustomobject]@{
                     Status               = 'COMPLETED'
                     Reason               = 'NATIVE_DISPATCH_EXECUTED'
                     ConsultationId       = $consultationId
-                    SessionId            = $sessionId
+                    SessionId            = if ($hostEvidence) { $hostEvidence.SessionId } else { $targetSessionId }
                     Agent                = 'engineering-advisor'
                     ModelRequested       = $reqModel
-                    ModelEffective       = $reqModel
+                    ModelEffective       = $effModel
                     ResponseRef          = "resp-$consultationId"
                     RecommendedOption    = $combinedOutput
                     Rationale            = "Native execution via OpenCode V2 engineering-advisor."
@@ -293,14 +442,17 @@ CONTEXT: $context
                     IsAdvisory           = $true
                     Authoritative        = $false
                     FromCache            = $false
-                    ExecutionProofType   = 'NATIVE_OPENCODE_V2'
+                    ExecutionProofType   = $proofType
+                    TokensInput          = if ($hostEvidence) { $hostEvidence.TokensInput } else { 0 }
+                    TokensOutput         = if ($hostEvidence) { $hostEvidence.TokensOutput } else { 0 }
+                    CostUsd              = if ($hostEvidence) { $hostEvidence.CostUsd } else { 0.0 }
                 }
             } else {
                 return [pscustomobject]@{
                     Status               = 'PROOF_ABSENT'
                     Reason               = 'NATIVE_EXECUTION_FAILED_OR_NO_OUTPUT'
                     ConsultationId       = $consultationId
-                    SessionId            = $sessionId
+                    SessionId            = $parentSession
                     Agent                = 'engineering-advisor'
                     ModelRequested       = $reqModel
                     ModelEffective       = $null

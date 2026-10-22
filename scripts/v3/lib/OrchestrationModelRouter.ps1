@@ -145,10 +145,10 @@ $script:AgentModelAdmissibility = @{
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/space-bunny-free';              Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/beam-free';                     Authorized = $true }
     'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
     'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-sol';                      Authorized = $true }
-    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/o3-mini';                          Authorized = $false } # T4 requires explicit cost authorization
+    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol-fast';                 Authorized = $false } # T4 requires explicit cost authorization
 }
 
 function Get-OrchestrationUserConfigCatalog {
@@ -170,10 +170,10 @@ function Get-OrchestrationUserConfigCatalog {
 
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/space-bunny-free';              Authorized = $true }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/beam-free';                     Authorized = $true }
         'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
         'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-sol';                      Authorized = $true }
-        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/o3-mini';                          Authorized = $false }
+        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol-fast';                 Authorized = $false }
     }
 
     $candPaths = @()
@@ -440,30 +440,30 @@ function Resolve-OrchestrationModelSelection {
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
     if ($cleanAgent -eq 'reviewer') {
-        if ($Risk -in @('high', 'critical')) {
+        if ($Risk -in @('high', 'critical') -and ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))) {
             $selectedTier = 'T4'
-            $reason = "Elevated to T4 due to $Risk risk on reviewer role."
+            $reason = "Elevated to T4 due to $Risk risk on reviewer role with explicit cost authorization."
         } elseif ($Risk -eq 'low' -and $Complexity -in @('trivial', 'simple')) {
             $selectedTier = 'T2'
             $reason = "Economical tier T2 admitted for low-risk, simple review."
         } else {
             $selectedTier = 'T3'
-            $reason = "Standard capable tier T3 for medium review."
+            $reason = "Standard capable tier T3 for review."
         }
     }
     elseif ($cleanAgent -eq 'security-reviewer') {
-        if ($Risk -in @('high', 'critical')) {
+        if ($Risk -in @('high', 'critical') -and ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))) {
             $selectedTier = 'T4'
-            $reason = "Frontier tier T4 selected for high/critical security review."
+            $reason = "Frontier tier T4 selected for high/critical security review with explicit cost authorization."
         } else {
             $selectedTier = 'T3'
             $reason = "Capable tier T3 selected for standard security review."
         }
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
-        if ($FailureCount -ge 2) {
+        if ($FailureCount -ge 2 -and ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))) {
             $selectedTier = 'T4'
-            $reason = "Frontier tier T4 selected for deadlock consult after $FailureCount prior failures."
+            $reason = "Frontier tier T4 selected for deadlock consult after $FailureCount prior failures with explicit cost authorization."
         } elseif ($Complexity -in @('trivial', 'simple') -and $Risk -eq 'low') {
             $selectedTier = 'T2'
             $reason = "Economical tier T2 selected for simple technical clarity check."
