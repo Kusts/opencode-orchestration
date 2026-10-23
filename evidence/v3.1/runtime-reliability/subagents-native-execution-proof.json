@@ -1,0 +1,60 @@
+﻿{
+    "proof_title":  "Comprovacao de Execucao Real de Subagents (Native-First OpenCode V2)",
+    "task_id":  "task-native-subagents-20261023-222414",
+    "timestamp":  "2026-10-23T22:26:08.8533880Z",
+    "orchestration_shape":  "MULTI_WORKER",
+    "compliance_verdict":  "COMPLIANT",
+    "kernel_state":  "DONE",
+    "kernel_revision":  9,
+    "total_tokens_input":  174432,
+    "total_tokens_output":  2007,
+    "total_cost_usd":  0.011105,
+    "subagents_executed":  [
+                               {
+                                   "agent":  "coder",
+                                   "session_id":  "ses_e95229982ffeN4Wzomd4tYslTc",
+                                   "model_effective":  "opencode-go/muse-spark-1.3-contributor",
+                                   "outcome":  "succeeded",
+                                   "tokens_input":  48007,
+                                   "tokens_output":  918,
+                                   "tokens_reasoning":  2091,
+                                   "cost_usd":  0.0059759860000000008,
+                                   "assistant_excerpt":  "STATUS: done — função fornecida, sem edição em arquivos do repo.\n\nCHANGES:\n- Nenhum arquivo alterado (escopo: fornecer definição apenas).\n- Definição proposta:\n```powershell\nfunction Format-OrchestrationSummary {\n    param(\n        [string]$Title,\n        [string]$Status\n    )\n    return \"[$Status] $Title\"\n}\n```\n\nVALIDATION:\n- `powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\walis\\AppData\\Local\\Temp\\opencode\\validate-format-summary.ps1` com chamada `Format-OrchestrationSummary -Title \u0027Deploy\u0027 -Status \u0027DONE\u0027` → resultado `[DONE] Deploy` (PASS). Arquivo temporário removido após validação.\n\nRISKS: Nenhum — sem alteração de estado; função pura sem efeitos colaterais.\n\nRECOMMENDATION: Integrar a definição no módulo/script indicado pelo Planner, mantendo a assinatura `[string]$Title, [string]$Status`.\n",
+                                   "elapsed_ms":  23795,
+                                   "kernel_action":  "candidate_pass",
+                                   "kernel_revision":  4
+                               },
+                               {
+                                   "agent":  "tester",
+                                   "session_id":  "ses_e9521f6adffeTFYm3R2uEwu6DH",
+                                   "model_effective":  "opencode-go/muse-spark-1.3-contributor",
+                                   "outcome":  "succeeded",
+                                   "tokens_input":  47057,
+                                   "tokens_output":  748,
+                                   "tokens_reasoning":  185,
+                                   "cost_usd":  0.005129266,
+                                   "assistant_excerpt":  "STATUS: candidate_pass\nKEY_FINDINGS:\n- Função `Format-OrchestrationSummary` executada com `Title=\u0027Task 1\u0027`, `Status=\u0027OK\u0027` retorna exatamente `[OK] Task 1`.\n- Definição conferida em `evidence/v3.1/runtime-reliability/artifacts/NativeSummaryUtil.ps1` (linhas 1-7): `return \"[$Status] $Title\"` — determinística e sem efeitos colaterais.\nEVIDENCE:\n- Comando: `powershell -NoProfile -Command \". \u0027.../NativeSummaryUtil.ps1\u0027; Format-OrchestrationSummary -Title \u0027Task 1\u0027 -Status \u0027OK\u0027\"`\n- Saída observada: `[OK] Task 1`\n- Critério: `criterion:0:saída exata \u0027[OK] Task 1\u0027` — atendido.\nVALIDATION: teste funcional direto executado (1/1 passou); sem lint/typecheck/build aplicável a snippet PowerShell isolado.\nBLOCKERS: nenhum.\nRISKS: nenhum material — cobertura restrita ao caso único solicitado; outros inputs/edge cases não testados.\nRECOMMENDATION: aceitar como `candidate_pass` para o critério testado; `verified_pass`/`DONE` ficam com verificador/kernel.\n\n---\nPASS | TESTS EXECUTED: 1 (Format-OrchestrationSummary Title=\u0027Task 1\u0027 Status=\u0027OK\u0027 → \u0027[OK] Task 1\u0027) | FAILURES: 0 | REGRESSIONS: nenhuma observada | UNTESTED RISKS: outros valores de Title/Status não cobertos por este escopo | RECOMMENDATION: aprovado para o caso validado\n",
+                                   "elapsed_ms":  15977,
+                                   "kernel_action":  "verified_pass",
+                                   "kernel_revision":  6
+                               },
+                               {
+                                   "agent":  "reviewer",
+                                   "session_id":  "ses_e95217687ffeMQuEW4T5olnnde",
+                                   "model_effective":  "openai/gpt-6.1-sol",
+                                   "outcome":  "succeeded",
+                                   "tokens_input":  79368,
+                                   "tokens_output":  341,
+                                   "tokens_reasoning":  25,
+                                   "cost_usd":  0,
+                                   "assistant_excerpt":  "**STATUS:** candidate_pass\n\n**KEY_FINDINGS:** Nenhum defeito identificado no escopo solicitado.\n\n**EVIDENCE:** `evidence/v3.1/runtime-reliability/artifacts/NativeSummaryUtil.ps1:1–7`\n- Parâmetros tipados como `string` e obrigatórios.\n- Retorno conforme o contrato: `[STATUS] Title`.\n- Interpolação não executa o conteúdo dos parâmetros como código.\n- Sem efeitos colaterais ou dependências externas.\n\n**VALIDATION:** Inspeção estática; não executei testes. Para `Title=\u0027Task 1\u0027` e `Status=\u0027OK\u0027`, a expressão produz `[OK] Task 1`.\n\n**RISKS:** Entradas vazias/nulas são rejeitadas pelos parâmetros obrigatórios. Caracteres de controle são preservados; não há contrato de sanitização para logs.\n\n**RECOMMENDATION:** Aprovar a função para o contrato de formatação informado.\n\nAPPROVED",
+                                   "elapsed_ms":  21112,
+                                   "kernel_action":  "approved",
+                                   "kernel_revision":  8
+                               }
+                           ],
+    "artifact":  {
+                     "path":  "evidence/v3.1/runtime-reliability/artifacts/NativeSummaryUtil.ps1",
+                     "sha256":  "d86ad6e3941903132284825a6be137b5210719d86101406356f8cdac2ca0ec3c"
+                 }
+}

@@ -21,6 +21,35 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
     - **RF-06 (Governança e Metadados):** Atualização dos pins de runtime em `SECURITY.md` para `1.18.34` (V1) e `2.0.23` (V2), e alinhamento do debugger na taxonomia `validator-shell`.
 
 
+- **Refinamento Native-First e Workflow Efficiency (Follow-up PR #151/#153, 2026-10-23)**:
+  - **P0 — Promoção Indevida de PARTIAL_PROOF Corrigida no Planner Loop:**
+    - Revisão e ajuste de `scripts/v3/lib/OrchestrationPlannerLoop.ps1`: pareceres `PARTIAL_PROOF`, incluindo divergência de modelo (`MODEL_DIVERGENT`) e evidências parciais de host, agora acionam estritamente ação de investigação (`$dispatch['action'] = 'investigate'`, `$dispatch['advisory_recommendation'] = "PARTIAL_PROOF_INVESTIGATION: ..."`), nunca sendo promovidos automaticamente para recomendação executável ou implementação sem validação.
+    - Preservada integralmente a autonomia do Planner para investigar e resolver impasses sem aprovação humana desnecessária.
+    - Testes dedicados em `OrchestrationPlannerLoop.tests.ps1` validando `COMPLETED_VERIFIED`, `PARTIAL_PROOF`, `MODEL_DIVERGENT`, `PROOF_ABSENT`, parecer `BLOCKED` e recomendação executável (68/68 checks PASS).
+  - **P0 — Validação de Concorrência Real com Processos Efetivamente Concorrentes (INT-08):**
+    - Substituição completa de chamadas sequenciais no cenário INT-08 por dois subprocessos reais PowerShell executados simultaneamente via `System.Diagnostics.ProcessStartInfo` com barreira de sincronização em arquivo compartilhado.
+    - Comprovação rigorosa de exclusão mútua na região crítica por intervalos de tempo estritamente disjuntos (`$w1Exit -le $w2Entry -or $w2Exit -le $w1Entry`).
+    - Validação de integridade sem lost updates (contador compartilhado = 2), timeout determinístico sob disputa (200ms) e recuperação robusta de processo detentor caído (`AbandonedMutexException`).
+    - Desacoplamento completo do teste de componente de concorrência de suposta cadeia de subagents simulada pelo próprio harness.
+  - **P0 — Reconciliação Honesta do Piloto do Advisor:**
+    - Inspeção forense da sessão real `ses_e96e5375fffeA5ajprNBwKuRHq`: comprovado que apenas o Turno 1 ocorreu no host OpenCode V2 (`STATUS: BLOCKED — ADV-20261023-141205-89c797`), exigindo reprodução mínima com dois processos concorrentes.
+    - Reconciliação do registro em `evidence/v3.1/runtime-reliability/pilot-real-adaptive-workflow-result.json`: classificação honesta do Turno 1 como `COMPLETED_VERIFIED` e do Turno 2 como `UNCONSULTED_IN_HOST_SESSION` / `PLANNER_AUTONOMOUS_SYNTHESIS` (sem fabricação de evidências de consulta não ocorrida), documentando a decisão posterior autônoma do Planner ao recolher a reprodução e sintetizar a arquitetura sem aprovação humana desnecessária.
+  - **P1 — Prova de Execução Real dos Subagents via OpenCode V2 Nativo:**
+    - Execução do fluxo completo de ponta a ponta utilizando a infraestrutura nativa da CLI OpenCode V2 (`opencode run --format json --agent <agent>`):
+      - `coder`: sessão real `ses_e95229982ffeN4Wzomd4tYslTc`, modelo `opencode-go/muse-spark-1.3-contributor`, 48.007 tokens in, 918 out, custo $0.005976 USD, gerando utilitário com SHA256 em disco e registrando `candidate_pass` (rev 4) no Task Kernel.
+      - `tester`: sessão real `ses_e9521f6adffeTFYm3R2uEwu6DH`, modelo `opencode-go/muse-spark-1.3-contributor`, 47.057 tokens in, 748 out, custo $0.005129 USD, validando determinismo da função e registrando `verified_pass` (rev 6) no Task Kernel.
+      - `reviewer`: sessão real `ses_e95217687ffeMQuEW4T5olnnde`, modelo `openai/gpt-6.1-sol`, 79.368 tokens in, 341 out, custo $0 USD, inspecionando e registrando `approved` (rev 8) no Task Kernel.
+      - Task Kernel: transição final autorizada para `DONE` (rev 9) com compliance `COMPLIANT`.
+    - Relatório estruturado durável persistido em `evidence/v3.1/runtime-reliability/subagents-native-execution-proof.json`.
+  - **P1 — Roteamento de Modelos, Jev Advisory e Custos:**
+    - `OrchestrationModelRouter.ps1`: verificação de invariante fail-closed eliminando presunção de fonte para autorizações T4 vazias em `Get-OrchestrationModelRouterReceipt`.
+    - `OrchestrationAdvisorEscalation.ps1`: remoção da heurística de string baseada no nome da tarefa (`$taskId -match 'test'`), substituída por identificação estritamente explícita do contexto de teste no cache (`$IsTest`, `$AdvisorProbe`, `is_test`).
+    - `OrchestrationPlannerLoop.ps1`: separação formal dos estados do ciclo de vida consultivo do Jev (`advice_received`, `advice_evaluated`, `advice_accepted`, `advice_applied` e `advice_state`).
+    - Medição honesta de tokens e custos, mantendo `'UNKNOWN'` e sem reivindicação de economia não demonstrada em execuções incompletas ou simuladas.
+  - **Rastreabilidade e Validação:**
+    - Issues atendidas: #51 (Native Worker Execution Proof), #61 (Model Router T4 Cost Authorization), #137 (Advisor Escalation & Partial Proof), #19 (Jev Advisory Lifecycle States), #60 (Concurrency & Task Kernel Isolation).
+    - Suítes de validação aprovadas: `OrchestrationAdvisorEfficiencyGW.tests.ps1` (145/145 PASS), `OrchestrationPlannerLoop.tests.ps1` (68/68 PASS), `test-package-consistency.ps1` (16/16 OK).
+
 - **Fechamento e Correções Formais das Frentes Native-First e Workflow Efficiency (PR #151, 2026-10-23)**:
   - **P0 — Resolução da Contradição do Piloto e Interpretação Estruturada do Advisor:**
     - Diagnóstico da causa-raiz: `Invoke-AdvisorConsultation` avaliava apenas código de saída do processo e outcome da sessão, despejando a saída textual bruta em `RecommendedOption` mesmo quando o Advisor emitia explicitamente `STATUS: BLOCKED` (exigindo reprodução mínima com dois processos concorrentes). O Planner, por sua vez, enxergava `Status == COMPLETED` e transicionava imediatamente para `IMPLEMENTING`, resultando em worker `coder` emitindo um arquivo JSON declarativo citando o parecer bloqueado e terminando em falso `DONE`.

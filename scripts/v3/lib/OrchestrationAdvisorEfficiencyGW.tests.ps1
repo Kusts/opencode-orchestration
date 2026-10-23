@@ -549,9 +549,11 @@ if (Test-Path -LiteralPath $jevLib) {
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_consumed -eq $true) 'INT-05-JEV' "Decisao de Jev Advisory atestada como consumida no plano"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_taken -match 'CONSUMED') 'INT-05-JEV' "Decisao tomada registrada na telemetria"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_applied -eq $true) 'INT-05-JEV' "Decisao aplicada efetivamente como parecer consultivo"
-        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_state -eq 'ADVICE_APPLIED') 'INT-05-JEV' "Estado do ciclo de conselho e ADVICE_APPLIED"
         Assert-GW ($jevPlan.plan.jev_advisory_result.advice_received -eq $true) 'INT-05-JEV' "Recebimento do conselho (ADVICE_RECEIVED) atestado"
         Assert-GW ($jevPlan.plan.jev_advisory_result.advice_evaluated -eq $true) 'INT-05-JEV' "Avaliacao do conselho (ADVICE_EVALUATED) atestada"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_accepted -eq $true) 'INT-05-JEV' "Parecer Jev aceito perante policy (ADVICE_ACCEPTED) atestado"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_applied -eq $false) 'INT-05-JEV' "Parecer Jev nao aplicado para alterar rota quando estrategia original preservada"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_state -eq 'ADVICE_ACCEPTED') 'INT-05-JEV' "Estado do ciclo de conselho e ADVICE_ACCEPTED quando preserva rota"
         Assert-GW ($jevPlan.plan.jev_advisory_result.influence_type -in @('STRATEGY_ADAPTED', 'ORIGINAL_STRATEGY_PRESERVED')) 'INT-05-JEV' "Tipo de influencia de estrategia demonstrado"
         Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.strategy_prior) 'INT-05-JEV' "Estrategia previa registrada no envelope Jev"
         Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.strategy_posterior) 'INT-05-JEV' "Estrategia posterior registrada no envelope Jev"
@@ -761,40 +763,41 @@ if (Test-Path -LiteralPath $jevLib) {
     }
 
     # -------------------------------------------------------------------------------------------------
-    # INT-08: CADEIA NATIVE-FIRST REAL: PEQUENO OBJETIVO DE CONCORRENCIA (P0 / P1)
+    # INT-08: TESTE DE COMPONENTE DE CONCORRENCIA DETERMINISTICA (P0)
     # -------------------------------------------------------------------------------------------------
-    # Demonstrar Planner, Advisor, Coder, Tester/Verifier, Reviewer e Task Kernel com execucao real de codigo.
-    # Nao aceitar arquivo JSON descritivo como substituto de implementacao e teste de concorrencia.
+    # Substitui chamadas sequenciais por processos efetivamente concorrentes com barreira de inicio.
+    # Valida disputa real, exclusao mutua temporal estrita, timeout e recuperacao de Mutex abandonado.
+    # Teste de componente estritamente separado de testes com agentes nativos.
     $kernelLib = Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1'
     if (Test-Path -LiteralPath $kernelLib) {
         . $kernelLib
-        $tmpTaskDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-native-first-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+        $tmpTaskDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-concurrency-comp-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
         [void][System.IO.Directory]::CreateDirectory($tmpTaskDir)
         $realCodeDir = Join-Path $tmpTaskDir 'code'
         [void][System.IO.Directory]::CreateDirectory($realCodeDir)
 
         try {
-            $taskIdReal = 'task-native-concurrency-real'
+            $taskIdReal = 'task-concurrency-component-mutex'
 
-            # 1. Planejamento e criacao no Kernel (Planner)
+            # 1. Planejamento e criacao no Kernel (rastreamento de componente no Kernel)
             $taskInit = New-OrchestrationTask `
                 -TaskId $taskIdReal `
                 -Actor 'planner' `
-                -Objective 'Implementar exclusao mutua deterministica com System.Threading.Mutex' `
+                -Objective 'Implementar e validar exclusao mutua deterministica com System.Threading.Mutex sob concorrencia real' `
                 -TaskType 'investigation' `
                 -Risk 'medium' `
-                -AcceptanceCriteria @('criterion:0:mutex_lock_verified') `
+                -AcceptanceCriteria @('criterion:0:mutex_concurrency_verified', 'criterion:1:mutex_timeout_verified', 'criterion:2:mutex_abandon_recovery_verified') `
                 -ExpectedArtifacts @('code/LockResource.ps1') `
                 -TasksDir $tmpTaskDir
 
-            Assert-GW ($taskInit.ok -and $taskInit.state -eq 'DISCOVERING') 'INT-08-NATIVE-CHAIN' "Task inicializada no Kernel em DISCOVERING pelo Planner"
+            Assert-GW ($taskInit.ok -and $taskInit.state -eq 'DISCOVERING') 'INT-08-CONCURRENCY-COMPONENT' "Task de componente inicializada no Kernel em DISCOVERING"
 
             # Transicao DISCOVERING -> PLANNING -> IMPLEMENTING
             $stepPlan = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
             $stepImpl = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
-            Assert-GW ($stepImpl.ok -and $stepImpl.to -eq 'IMPLEMENTING') 'INT-08-NATIVE-CHAIN' "Task avancada para IMPLEMENTING com revisao CAS 3"
+            Assert-GW ($stepImpl.ok -and $stepImpl.to -eq 'IMPLEMENTING') 'INT-08-CONCURRENCY-COMPONENT' "Task de componente avancada para IMPLEMENTING"
 
-            # 2. Coder implementa codigo .ps1 real com System.Threading.Mutex (nao mero JSON estatico!)
+            # 2. Implementacao de LockResource.ps1 com suporte a crash recovery e timeout
             $codeFile = Join-Path $realCodeDir 'LockResource.ps1'
             $codeContent = @'
 function Invoke-ExclusiveWork {
@@ -824,57 +827,177 @@ function Invoke-ExclusiveWork {
 '@
             [System.IO.File]::WriteAllText($codeFile, $codeContent, [System.Text.Encoding]::UTF8)
             $codeSha = (Get-FileHash -Path $codeFile -Algorithm SHA256).Hash.ToLowerInvariant()
-            Assert-GW (Test-Path -LiteralPath $codeFile -PathType Leaf) 'INT-08-NATIVE-CHAIN' "Worker Coder gerou arquivo .ps1 de implementacao real em disco"
+            Assert-GW (Test-Path -LiteralPath $codeFile -PathType Leaf) 'INT-08-CONCURRENCY-COMPONENT' "Arquivo .ps1 de implementacao de exclusao mutua gravado em disco"
 
-            # 3. Tester executa teste de concorrencia real entre duas acoes exclusivas
-            $sharedTestFile = Join-Path $tmpTaskDir 'shared-counter.txt'
-            [System.IO.File]::WriteAllText($sharedTestFile, "0", [System.Text.Encoding]::UTF8)
+            # 3. Teste de Concorrencia Real com Barreira de Inicio e Processos Separados
+            $workerConcurrencyFile = Join-Path $tmpTaskDir 'WorkerConcurrency.ps1'
+            $barrierFile = Join-Path $tmpTaskDir 'barrier.txt'
+            $sharedCounterFile = Join-Path $tmpTaskDir 'shared-counter.txt'
+            $timelineLogFile = Join-Path $tmpTaskDir 'timeline.log'
+            $lockNameReal = 'Global\GW_Advisor_ConcLock_' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 
-            . $codeFile
-            $tAction = {
-                $v = [int][System.IO.File]::ReadAllText($sharedTestFile)
-                Start-Sleep -Milliseconds 50
-                [System.IO.File]::WriteAllText($sharedTestFile, ($v + 1).ToString(), [System.Text.Encoding]::UTF8)
-                return "OK"
+            [System.IO.File]::WriteAllText($sharedCounterFile, "0", [System.Text.Encoding]::UTF8)
+            [System.IO.File]::WriteAllText($timelineLogFile, "", [System.Text.Encoding]::UTF8)
+
+            $workerScriptContent = @'
+param([string]$CodePath, [string]$LockName, [string]$Barrier, [string]$Counter, [string]$Log, [string]$WorkerId)
+$script:CodePath = $CodePath
+$script:Barrier = $Barrier
+$script:Counter = $Counter
+$script:Log = $Log
+$script:WorkerId = $WorkerId
+. $script:CodePath
+while (-not (Test-Path -LiteralPath $script:Barrier)) {
+    Start-Sleep -Milliseconds 10
+}
+$action = {
+    $entry = [DateTime]::UtcNow.Ticks
+    [System.IO.File]::AppendAllText($script:Log, ($script:WorkerId + ':ENTRY:' + $entry + [Environment]::NewLine), [System.Text.Encoding]::UTF8)
+    $val = [int][System.IO.File]::ReadAllText($script:Counter)
+    Start-Sleep -Milliseconds 120
+    [System.IO.File]::WriteAllText($script:Counter, ($val + 1).ToString(), [System.Text.Encoding]::UTF8)
+    $exit = [DateTime]::UtcNow.Ticks
+    [System.IO.File]::AppendAllText($script:Log, ($script:WorkerId + ':EXIT:' + $exit + [Environment]::NewLine), [System.Text.Encoding]::UTF8)
+    return "OK"
+}
+Invoke-ExclusiveWork -LockName $LockName -Action $action -TimeoutMs 5000 | Out-Null
+'@
+            [System.IO.File]::WriteAllText($workerConcurrencyFile, $workerScriptContent, [System.Text.Encoding]::UTF8)
+
+            function Start-GWConcurrencyChild {
+                param([string]$Arguments)
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = 'powershell.exe'
+                $psi.Arguments = $Arguments
+                $psi.UseShellExecute = $false
+                $psi.CreateNoWindow = $true
+                return [System.Diagnostics.Process]::Start($psi)
             }
-            $r1 = Invoke-ExclusiveWork -LockName 'Global\GW_Advisor_Test_Lock' -Action $tAction -TimeoutMs 2000
-            $r2 = Invoke-ExclusiveWork -LockName 'Global\GW_Advisor_Test_Lock' -Action $tAction -TimeoutMs 2000
-            $finalCount = [int][System.IO.File]::ReadAllText($sharedTestFile)
 
-            Assert-GW ($r1 -eq 'OK' -and $r2 -eq 'OK' -and $finalCount -eq 2) 'INT-08-NATIVE-CHAIN' "Tester comprova exclusao mutua real sem colisoes de concorrencia"
+            $p1 = Start-GWConcurrencyChild "-NoProfile -ExecutionPolicy Bypass -File `"$workerConcurrencyFile`" `"$codeFile`" `"$lockNameReal`" `"$barrierFile`" `"$sharedCounterFile`" `"$timelineLogFile`" W1"
+            $p2 = Start-GWConcurrencyChild "-NoProfile -ExecutionPolicy Bypass -File `"$workerConcurrencyFile`" `"$codeFile`" `"$lockNameReal`" `"$barrierFile`" `"$sharedCounterFile`" `"$timelineLogFile`" W2"
 
-            # 4. Worker Coder registra candidate_pass com evidencia do codigo e do teste
+            # Aguarda ambos os processos chegarem a barreira
+            Start-Sleep -Milliseconds 300
+            # Libera barreira de inicio simultaneamente
+            [System.IO.File]::WriteAllText($barrierFile, "START", [System.Text.Encoding]::UTF8)
+
+            $p1.WaitForExit(10000) | Out-Null
+            $p2.WaitForExit(10000) | Out-Null
+
+            $finalCount = [int][System.IO.File]::ReadAllText($sharedCounterFile)
+            $logLines = [System.IO.File]::ReadAllLines($timelineLogFile)
+
+            # Analise temporal estrita:
+            $w1Entry = [int64]0; $w1Exit = [int64]0; $w2Entry = [int64]0; $w2Exit = [int64]0
+            foreach ($rawLine in $logLines) {
+                $line = $rawLine.Trim()
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $parts = $line.Split(':')
+                if ($parts.Length -eq 3) {
+                    $w = $parts[0].Trim(); $type = $parts[1].Trim(); $ticks = [int64]$parts[2].Trim()
+                    if ($w -eq 'W1' -and $type -eq 'ENTRY') { $w1Entry = $ticks }
+                    if ($w -eq 'W1' -and $type -eq 'EXIT') { $w1Exit = $ticks }
+                    if ($w -eq 'W2' -and $type -eq 'ENTRY') { $w2Entry = $ticks }
+                    if ($w -eq 'W2' -and $type -eq 'EXIT') { $w2Exit = $ticks }
+                }
+            }
+            $isDisjoint = ($w1Entry -gt 0 -and $w1Exit -gt 0 -and $w2Entry -gt 0 -and $w2Exit -gt 0) -and (($w1Exit -le $w2Entry) -or ($w2Exit -le $w1Entry))
+
+            Assert-GW ($p1.ExitCode -eq 0 -and $p2.ExitCode -eq 0) 'INT-08-CONCURRENCY-COMPONENT' "Ambos os processos concorrentes concluem com exit code 0"
+            Assert-GW ($isDisjoint -eq $true) 'INT-08-CONCURRENCY-COMPONENT' "Regiao critica comprovadamente exclusiva: intervalos de execucao no tempo sao estritamente disjuntos"
+            Assert-GW ($finalCount -eq 2) 'INT-08-CONCURRENCY-COMPONENT' "Integridade do resultado comprovada sem lost updates (contador compartilhado = 2)"
+
+            # 4. Validar Disputa com Timeout Deterministico
+            $timeoutErrFile = Join-Path $tmpTaskDir 'timeout.err'
+            $workerTimeoutFile = Join-Path $tmpTaskDir 'WorkerTimeout.ps1'
+            $workerTimeoutContent = @'
+param([string]$CodePath, [string]$LockName, [string]$ErrFile)
+. $CodePath
+try {
+    Invoke-ExclusiveWork -LockName $LockName -Action { Start-Sleep -Milliseconds 100 } -TimeoutMs 200 | Out-Null
+} catch {
+    [System.IO.File]::WriteAllText($ErrFile, $_.Exception.Message, [System.Text.Encoding]::UTF8)
+}
+'@
+            [System.IO.File]::WriteAllText($workerTimeoutFile, $workerTimeoutContent, [System.Text.Encoding]::UTF8)
+
+            $timeoutLockName = 'Global\GW_TimeoutLock_' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+            $holderMutex = New-Object System.Threading.Mutex($false, $timeoutLockName)
+            $holderMutex.WaitOne(1000, $false) | Out-Null
+            try {
+                $pt = Start-GWConcurrencyChild "-NoProfile -ExecutionPolicy Bypass -File `"$workerTimeoutFile`" `"$codeFile`" `"$timeoutLockName`" `"$timeoutErrFile`""
+                $pt.WaitForExit(5000) | Out-Null
+                $timeoutMsg = if (Test-Path -LiteralPath $timeoutErrFile) { [System.IO.File]::ReadAllText($timeoutErrFile) } else { '' }
+                Assert-GW ($timeoutMsg -match 'Failed to acquire mutex within 200 ms') 'INT-08-CONCURRENCY-COMPONENT' "Disputa com timeout expira de forma deterministica sem travamento indefinido"
+            } finally {
+                $holderMutex.ReleaseMutex()
+                $holderMutex.Dispose()
+            }
+
+            # 5. Validar Tratamento de Mutex Abandonado (AbandonedMutexException Recovery)
+            $abandonLockName = 'Global\GW_AbandonLock_' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+            $workerCrashFile = Join-Path $tmpTaskDir 'WorkerCrash.ps1'
+            $workerCrashContent = @'
+param([string]$LockName)
+$m = New-Object System.Threading.Mutex($false, $LockName)
+$m.WaitOne(2000, $false) | Out-Null
+# Crash deliberado: encerra processo imediatamente sem ReleaseMutex
+[System.Environment]::Exit(42)
+'@
+            [System.IO.File]::WriteAllText($workerCrashFile, $workerCrashContent, [System.Text.Encoding]::UTF8)
+
+            $workerRecoverFile = Join-Path $tmpTaskDir 'WorkerRecover.ps1'
+            $abandonRecoverFile = Join-Path $tmpTaskDir 'abandon.ok'
+            $workerRecoverContent = @'
+param([string]$CodePath, [string]$LockName, [string]$OkFile)
+. $CodePath
+$res = Invoke-ExclusiveWork -LockName $LockName -Action { return "RECOVERED_AFTER_ABANDONED" } -TimeoutMs 2000
+[System.IO.File]::WriteAllText($OkFile, $res, [System.Text.Encoding]::UTF8)
+'@
+            [System.IO.File]::WriteAllText($workerRecoverFile, $workerRecoverContent, [System.Text.Encoding]::UTF8)
+
+            $pCrash = Start-GWConcurrencyChild "-NoProfile -ExecutionPolicy Bypass -File `"$workerCrashFile`" `"$abandonLockName`""
+            $pCrash.WaitForExit(5000) | Out-Null
+
+            $pRec = Start-GWConcurrencyChild "-NoProfile -ExecutionPolicy Bypass -File `"$workerRecoverFile`" `"$codeFile`" `"$abandonLockName`" `"$abandonRecoverFile`""
+            $pRec.WaitForExit(5000) | Out-Null
+
+            $abandonResult = if (Test-Path -LiteralPath $abandonRecoverFile) { [System.IO.File]::ReadAllText($abandonRecoverFile) } else { '' }
+            Assert-GW ($abandonResult -eq 'RECOVERED_AFTER_ABANDONED') 'INT-08-CONCURRENCY-COMPONENT' "Tratamento de AbandonedMutexException recupera posse com seguranca apos crash de processo detentor"
+
+            # 6. Rastreabilidade e Conclusao no Task Kernel
             $wrkRes = Set-OrchestrationTaskWorkerResult `
                 -TaskId $taskIdReal `
                 -ProducedBy 'coder' `
                 -Status 'candidate_pass' `
-                -ClaimedEvidence @("criterion:0:mutex_lock_verified", "file:$codeFile", "sha256:$codeSha") `
+                -ClaimedEvidence @("criterion:0:mutex_concurrency_verified", "criterion:1:mutex_timeout_verified", "criterion:2:mutex_abandon_recovery_verified", "file:$codeFile", "sha256:$codeSha") `
                 -ExpectedRevision 3 `
                 -TasksDir $tmpTaskDir
 
-            Assert-GW ($wrkRes.ok -and $wrkRes.worker_status -eq 'candidate_pass') 'INT-08-NATIVE-CHAIN' "Coder registra candidate_pass com SHA256 e caminho de arquivo de codigo real"
+            Assert-GW ($wrkRes.ok -and $wrkRes.worker_status -eq 'candidate_pass') 'INT-08-CONCURRENCY-COMPONENT' "Registro candidate_pass com SHA256 do codigo e criterios de concorrencia no Kernel"
 
-            # 5. Kernel avanca para VALIDATING e atesta verificacao formal
+            # Transicao IMPLEMENTING -> VALIDATING -> verified_pass
             $stepVal = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 4 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
             $verPayload = @{
                 status   = 'verified_pass'
-                evidence = @("criterion:0:mutex_lock_verified")
+                evidence = @("criterion:0:mutex_concurrency_verified", "criterion:1:mutex_timeout_verified", "criterion:2:mutex_abandon_recovery_verified")
             } | ConvertTo-Json -Compress
 
             $verSet = Set-OrchestrationTaskVerification `
                 -TaskId $taskIdReal `
                 -VerifierEvidenceJson $verPayload `
                 -Passed $true `
-                -Evidence @("criterion:0:mutex_lock_verified") `
+                -Evidence @("criterion:0:mutex_concurrency_verified", "criterion:1:mutex_timeout_verified", "criterion:2:mutex_abandon_recovery_verified") `
                 -ExpectedRevision 5 `
                 -TasksDir $tmpTaskDir
 
-            Assert-GW ($verSet.ok -and $verSet.passed -eq $true) 'INT-08-NATIVE-CHAIN' "Kernel registra verified_pass comprovado"
+            Assert-GW ($verSet.ok -and $verSet.passed -eq $true) 'INT-08-CONCURRENCY-COMPONENT' "Kernel atesta verified_pass dos criterios de concorrencia comprovados empiricamente"
 
-            # 6. Reviewer independente inspeciona o arquivo .ps1 em disco e aprova
+            # Transicao VALIDATING -> REVIEWING -> approved
             $stepRev = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 6 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
             $independentReviewCheck = (Get-Content -Path $codeFile -Raw) -match 'AbandonedMutexException' -and (Test-Path -LiteralPath $codeFile)
-            Assert-GW ($independentReviewCheck -eq $true) 'INT-08-NATIVE-CHAIN' "Reviewer independente confirma que implementacao possui tratamento de AbandonedMutexException"
+            Assert-GW ($independentReviewCheck -eq $true) 'INT-08-CONCURRENCY-COMPONENT' "Revisao independente confirma que implementacao possui tratamento de AbandonedMutexException"
 
             $revSet = Set-OrchestrationTaskReview `
                 -TaskId $taskIdReal `
@@ -884,9 +1007,9 @@ function Invoke-ExclusiveWork {
                 -ExpectedRevision 7 `
                 -TasksDir $tmpTaskDir
 
-            Assert-GW ($revSet.ok -and $revSet.status -eq 'approved') 'INT-08-NATIVE-CHAIN' "Reviewer emite status approved independente"
+            Assert-GW ($revSet.ok -and $revSet.status -eq 'approved') 'INT-08-CONCURRENCY-COMPONENT' "Revisao formal independente aprovada no Kernel"
 
-            # 7. Task Kernel autoriza conclusao formal para DONE com compliance COMPLIANT
+            # 7. Conclusao formal para DONE no Task Kernel
             $doneRes = Complete-OrchestrationTask `
                 -TaskId $taskIdReal `
                 -Actor 'task-kernel' `
@@ -896,8 +1019,8 @@ function Invoke-ExclusiveWork {
                 -ActorIdentitySource 'explicit-cli' `
                 -TasksDir $tmpTaskDir
 
-            Assert-GW ($doneRes.ok -and $doneRes.state -eq 'DONE') 'INT-08-NATIVE-CHAIN' "Kernel autoriza transicao final para DONE em conformidade COMPLIANT"
-            Assert-GW ($doneRes.revision -eq 9) 'INT-08-NATIVE-CHAIN' "Revisao final CAS 9 alcancada em estado DONE"
+            Assert-GW ($doneRes.ok -and $doneRes.state -eq 'DONE') 'INT-08-CONCURRENCY-COMPONENT' "Kernel autoriza transicao final para DONE em conformidade COMPLIANT"
+            Assert-GW ($doneRes.revision -eq 9) 'INT-08-CONCURRENCY-COMPONENT' "Revisao final CAS 9 alcancada em estado DONE"
         } finally {
             if (Test-Path -LiteralPath $tmpTaskDir) {
                 Remove-Item -LiteralPath $tmpTaskDir -Recurse -Force -ErrorAction SilentlyContinue

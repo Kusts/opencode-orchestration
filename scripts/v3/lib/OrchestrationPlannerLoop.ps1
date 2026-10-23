@@ -39,7 +39,7 @@ function Invoke-OrchestrationPlannerLoop {
     function Unavailable-PL($why){return [pscustomobject]@{status='unavailable';reason=$why}}
     # Closed "not consulted" envelope for the Jev result record: same keys the
     # lib returns, no advice invented and never authoritative.
-    function JevNotConsulted-PL($why){return [ordered]@{status='unavailable';reason=(Safe-PL $why 48);consulted=$false;would_consult=$false;evaluated=$false;advice_state='NOT_CONSULTED';advice_received=$false;advice_evaluated=$false;advice_applied=$false;decision_applied=$false;influence_type='ORIGINAL_STRATEGY_PRESERVED';strategy_prior='unspecified';strategy_posterior='unspecified';adaptation_rationale=(Safe-PL $why 120);fallback_continue=$true;blocked=$false;authoritative=$false;recommendation_only=$true}}
+    function JevNotConsulted-PL($why){return [ordered]@{status='unavailable';reason=(Safe-PL $why 48);consulted=$false;would_consult=$false;evaluated=$false;advice_state='NOT_CONSULTED';advice_received=$false;advice_evaluated=$false;advice_accepted=$false;advice_applied=$false;decision_applied=$false;influence_type='ORIGINAL_STRATEGY_PRESERVED';strategy_prior='unspecified';strategy_posterior='unspecified';adaptation_rationale=(Safe-PL $why 120);fallback_continue=$true;blocked=$false;authoritative=$false;recommendation_only=$true}}
     # Resolve the process REAL home once: USERPROFILE, the HOME environment
     # variable, and the PowerShell $HOME automatic variable (read-only, so it
     # is only ever READ here). Distinct values are deduplicated case
@@ -228,23 +228,26 @@ function Invoke-OrchestrationPlannerLoop {
                 $sum='no-advisory-recommendation'
                 if($consulted -and ($null -ne $rawOut)){try{$sum=Safe-PL (Get-JevAdvisoryOutputSummary -Tool ([string](Read-PL $raw 'tool' $jevToolName)) -Output $rawOut) 120}catch{$sum='advisory-summary-unavailable'};if([string]::IsNullOrWhiteSpace($sum)){$sum='advisory-summary-unavailable'}}
                 $rawStatus = [string](Read-PL $raw 'status' '')
-                $evaluated = ($consulted -and ($null -ne $rawOut) -and ($rawStatus -in @('OK', 'JEV_ADVISORY_OK')))
+                $adviceReceived = ($consulted -and ($null -ne $rawOut))
+                $evaluated = ($adviceReceived -and ($rawStatus -in @('OK', 'JEV_ADVISORY_OK')))
                 $decisionConsumed = $evaluated
                 $decisionTaken = if ($decisionConsumed) { Safe-PL ("CONSUMED: " + $sum) 120 } else { 'NOT_CONSUMED' }
-                $applied = $decisionConsumed
+                $isJevBlocked = [bool](Read-PL $raw 'blocked' $false)
+                $adviceAccepted = ($evaluated -and (-not $isJevBlocked))
+                $decisionApplied = $decisionConsumed
                 $strategyPrior = if ($parallel) { 'parallel-fanout' } else { 'sequential-minimum' }
                 $strategyPosterior = $strategyPrior
-                $adviceReceived = $consulted -and ($null -ne $rawOut)
+                $applied = ($adviceAccepted -and ($strategyPosterior -ne $strategyPrior))
                 $adviceEvaluated = $evaluated
                 $adviceApplied = $applied
-                $adviceState = if ($adviceApplied) { 'ADVICE_APPLIED' } elseif ($adviceEvaluated) { 'ADVICE_EVALUATED' } elseif ($adviceReceived) { 'ADVICE_RECEIVED' } else { 'NOT_CONSULTED' }
+                $adviceState = if ($adviceApplied) { 'ADVICE_APPLIED' } elseif ($adviceAccepted) { 'ADVICE_ACCEPTED' } elseif ($adviceEvaluated) { 'ADVICE_EVALUATED' } elseif ($adviceReceived) { 'ADVICE_RECEIVED' } else { 'NOT_CONSULTED' }
                 $influenceType = if ($strategyPosterior -ne $strategyPrior) { 'STRATEGY_ADAPTED' } else { 'ORIGINAL_STRATEGY_PRESERVED' }
                 $adaptRationale = if ($decisionConsumed) {
                     Safe-PL "Advisory evaluated with recommendation '$sum'. Strategy '$strategyPrior' preserved (consistent with deterministic gates; advisory-only)." 160
                 } else {
                     Safe-PL "Jev consultation unavailable or unverified. Fallback to deterministic route '$strategyPrior'." 160
                 }
-                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);evaluated=$evaluated;advice_state=$adviceState;advice_received=$adviceReceived;advice_evaluated=$adviceEvaluated;advice_applied=$adviceApplied;fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$decisionConsumed;decision_taken=$decisionTaken;decision_applied=$applied;influence_type=$influenceType;strategy_prior=$strategyPrior;strategy_posterior=$strategyPosterior;adaptation_rationale=$adaptRationale;authoritative=$false;recommendation_only=$true}
+                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);evaluated=$evaluated;advice_state=$adviceState;advice_received=$adviceReceived;advice_evaluated=$adviceEvaluated;advice_accepted=$adviceAccepted;advice_applied=$adviceApplied;fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$decisionConsumed;decision_taken=$decisionTaken;decision_applied=$decisionApplied;influence_type=$influenceType;strategy_prior=$strategyPrior;strategy_posterior=$strategyPosterior;adaptation_rationale=$adaptRationale;authoritative=$false;recommendation_only=$true}
             }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
         $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}
@@ -264,7 +267,8 @@ function Invoke-OrchestrationPlannerLoop {
                     constraints=@((Read-PL $d 'constraints' @()));
                     known_evidence=@((Read-PL $d 'known_evidence' (Read-PL $d 'evidence' @())));
                     head_sha=[string](Read-PL $d 'head_sha' '');
-                    disable_native=[bool](Read-PL $d 'disable_native_advisor' (Read-PL $o 'disable_native_advisor' $false))
+                    disable_native=[bool](Read-PL $d 'disable_native_advisor' (Read-PL $o 'disable_native_advisor' $false));
+                    is_test=[bool](Read-PL $d 'is_test' (Read-PL $o 'is_test' $false))
                 }
                 $advProbe = if ($AdvisorProbe) { $AdvisorProbe } else { Read-PL $o 'advisor_probe' $null }
                 $advNativeExec = if ($NativeAdvisorExecutor) { $NativeAdvisorExecutor } else { Read-PL $o 'native_advisor_executor' $null }
@@ -273,8 +277,16 @@ function Invoke-OrchestrationPlannerLoop {
                 if($null -ne $advResp){
                     $recText=[string](Read-PL $advResp 'RecommendedOption' '')
                     $actText=[string](Read-PL $advResp 'ActionableNextStep' '')
-                    $isConsulted=($advResp.Status -in @('COMPLETED', 'PARTIAL_PROOF') -and -not [string]::IsNullOrWhiteSpace($recText))
-                    $advStance = if ($advResp.AdvisoryStance) { [string]$advResp.AdvisoryStance } else { 'EXECUTABLE_RECOMMENDATION' }
+                    $advStatus=[string](Read-PL $advResp 'Status' '')
+                    $advProofType=[string](Read-PL $advResp 'ExecutionProofType' 'NONE')
+                    $advReason=[string](Read-PL $advResp 'Reason' '')
+
+                    $isProofAbsent = ($advStatus -in @('PROOF_ABSENT', 'REJECTED', 'ERROR') -or $advProofType -eq 'PROOF_ABSENT')
+                    $isPartialProof = (-not $isProofAbsent) -and ($advStatus -eq 'PARTIAL_PROOF' -or $advProofType -in @('PARTIAL_PROOF', 'MODEL_DIVERGENT', 'HOST_EVIDENCE_VERIFIED', 'RESULT_RECEIVED', 'PROCESS_EXITED', 'DISPATCH_EXCEPTION'))
+                    $isCompletedVerified = (-not $isProofAbsent) -and (-not $isPartialProof) -and ($advStatus -eq 'COMPLETED' -and $advProofType -in @('COMPLETED_VERIFIED', 'HARNESS_PROBED', 'NATIVE_DISPATCH'))
+
+                    $isConsulted = (-not $isProofAbsent) -and (-not [string]::IsNullOrWhiteSpace($recText))
+                    $advStance = if ($advResp.AdvisoryStance) { [string]$advResp.AdvisoryStance } else { if ($isPartialProof) { 'INVESTIGATION_NEEDED' } else { 'EXECUTABLE_RECOMMENDATION' } }
                     $isAdvBlocked = [bool](Read-PL $advResp 'IsBlocked' ($advStance -in @('BLOCKED_MISSING_EVIDENCE', 'REJECTED')))
                     $requiresInv = [bool](Read-PL $advResp 'RequiresInvestigation' ($advStance -in @('BLOCKED_MISSING_EVIDENCE', 'INVESTIGATION_NEEDED')))
                     $missingEv = [string](Read-PL $advResp 'MissingEvidence' '')
@@ -282,8 +294,8 @@ function Invoke-OrchestrationPlannerLoop {
 
                     $advisorAdvisory=[ordered]@{
                         consulted=$isConsulted;
-                        status=[string]$advResp.Status;
-                        reason=[string](Read-PL $advResp 'Reason' '');
+                        status=$advStatus;
+                        reason=$advReason;
                         advisory_stance=$advStance;
                         is_blocked=$isAdvBlocked;
                         requires_investigation=$requiresInv;
@@ -299,7 +311,7 @@ function Invoke-OrchestrationPlannerLoop {
                         actionable_step=$(if($isConsulted){Safe-PL $actText 160}else{''});
                         from_cache=[bool]$advResp.FromCache;
                         tier=[string]$advResp.ModelTierUsed;
-                        execution_proof_type=[string](Read-PL $advResp 'ExecutionProofType' 'NONE');
+                        execution_proof_type=$advProofType;
                         authoritative=$false;
                         recommendation_only=$true
                     }
@@ -310,7 +322,21 @@ function Invoke-OrchestrationPlannerLoop {
                                 type='advisor-guidance-inadmissible-slice-preserved';
                                 rationale=Safe-PL "Advisor recommended: $recText | Slice remains $($dispatch['action']) pending resolution" 200
                             })
+                        } elseif ($isPartialProof) {
+                            # PARTIAL_PROOF (inclusive MODEL_DIVERGENT): fornece pistas para investigacao autonoma,
+                            # mas NUNCA e promovido a recomendacao executavel produtiva ('implement').
+                            $dispatch['action']='investigate'
+                            $dispatch['next_action']=if(-not [string]::IsNullOrWhiteSpace($actText)){Safe-PL $actText 160}else{Safe-PL "Investigate partial advisory proof ($advReason)" 160}
+                            $dispatch['advisory_recommendation']=Safe-PL ("PARTIAL_PROOF_INVESTIGATION: " + $recText) 160
+                            $dispatch.escalations+=@([pscustomobject]@{
+                                type='advisor-partial-proof-investigation';
+                                rationale=Safe-PL "Advisor consultation unproven or divergent ($advReason). Autonomous planner investigation maintained: $actText" 200
+                            })
+                            if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
+                                $advisorMissingEvidence += @("ADVISORY_PENDING: " + (Safe-PL $missingEv 120))
+                            }
                         } elseif ($isAdvBlocked -or $requiresInv) {
+                            # Parecer BLOCKED: preserva autonomia do Planner para investigar e resolver impasses sem aprovacao humana desnecessaria
                             $dispatch['action']='investigate'
                             $dispatch['next_action']=Safe-PL $actText 160
                             $dispatch['advisory_recommendation']=Safe-PL ("BLOCKED_PENDING_EVIDENCE: " + $recText) 160
@@ -321,7 +347,8 @@ function Invoke-OrchestrationPlannerLoop {
                             if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
                                 $advisorMissingEvidence += @("ADVISORY_PENDING: " + (Safe-PL $missingEv 120))
                             }
-                        } else {
+                        } elseif ($isCompletedVerified) {
+                            # Apenas recomendacao executavel COMPLETED_VERIFIED e promovida a 'implement'
                             $dispatch['action']='implement'
                             $dispatch['next_action']=Safe-PL $actText 160
                             $dispatch['advisory_recommendation']=Safe-PL $recText 160

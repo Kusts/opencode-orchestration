@@ -910,7 +910,10 @@ function Invoke-AdvisorConsultation {
         [scriptblock]$NativeExecutor = $null,
 
         [Parameter(Mandatory = $false)]
-        [switch]$DisableNativeExecutor
+        [switch]$DisableNativeExecutor,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$IsTest
     )
 
     function Get-Field($obj, [string]$name, $default = $null) {
@@ -936,9 +939,8 @@ function Invoke-AdvisorConsultation {
     $infoMissing = [bool](Get-Field $Request 'information_missing' $false)
 
     # Contexto de teste vs producao para isolamento estrito de cache
-    $isTestContext = ($null -ne $AdvisorProbe) -or `
-                     ([bool](Get-Field $Request 'is_test' $false)) -or `
-                     ($taskId -match '(?i)test|mock|probe|gw-advisor|int-02')
+    # Identificacao estritamente explicita: flag no Request, switch do comando ou presenca de AdvisorProbe
+    $isTestContext = $IsTest.IsPresent -or ($null -ne $AdvisorProbe) -or ([bool](Get-Field $Request 'is_test' $false))
 
     $activeCache = if ($isTestContext) { $script:AdvisorTestCache } else { $script:AdvisorProductionCache }
 
