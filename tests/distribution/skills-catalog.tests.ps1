@@ -127,12 +127,12 @@ if ($null -ne $cat) {
       $invAgents = @(@($inv.rows | Where-Object { [string]$_.root -ceq 'agents' }) | ForEach-Object { [string]$_.id })
       $invOpOnly = @(@($inv.rows | Where-Object { ([string]$_.root -ceq 'opencode') -and (-not [bool]$_.also_in_agents) }) | ForEach-Object { [string]$_.id })
       $expected = @($invAgents + $invOpOnly)
-      if ($invAgents.Count -ne 103) { [void]$invErrs.Add(('inventario agents != 103: ' + $invAgents.Count)) }
-      if ($invOpOnly.Count -ne 2) { [void]$invErrs.Add(('inventario opencode-only != 2: ' + $invOpOnly.Count)) }
+      if ($invAgents.Count -ne 105) { [void]$invErrs.Add(('inventario agents != 105: ' + $invAgents.Count)) }
+      if ($invOpOnly.Count -ne 3) { [void]$invErrs.Add(('inventario opencode-only != 3: ' + $invOpOnly.Count)) }
       $d1 = @(Compare-Object $expected $ids | ForEach-Object { $_.InputObject })
       if ($d1.Count -gt 0) { [void]$invErrs.Add(('catalogo != inventario: ' + ($d1 -join ','))) }
     } catch { [void]$invErrs.Add(('inventario ilegivel: ' + $_.Exception.Message)) }
-    Assert ($invErrs.Count -eq 0) 'catalogo == inventario versionado (103 + 2, sem sobra/falta)' ($invErrs -join ' | ')
+    Assert ($invErrs.Count -eq 0) 'catalogo == inventario versionado (105 + 3, sem sobra/falta)' ($invErrs -join ' | ')
   }
 
   # Cobertura total quando os roots da maquina existem (SKIP em CI/runner limpo).
@@ -145,7 +145,7 @@ if ($null -ne $cat) {
     $diskOpOnly = @(Get-ChildItem -LiteralPath $opencodeRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Where-Object { $diskAgents -notcontains $_ })
     $missingOp = @($diskOpOnly | Where-Object { $ids -notcontains $_ })
     Assert ($missingOp.Count -eq 0) 'catalogo cobre skills so-opencode' ($missingOp -join ',')
-    Assert (($ids.Count -eq ($diskAgents.Count + $diskOpOnly.Count))) 'catalogo sem sobra (105 = 103 + 2)' ('catalogo=' + $ids.Count + ' disco=' + ($diskAgents.Count + $diskOpOnly.Count))
+    Assert (($ids.Count -eq ($diskAgents.Count + $diskOpOnly.Count))) 'catalogo sem sobra (108 = 105 + 3)' ('catalogo=' + $ids.Count + ' disco=' + ($diskAgents.Count + $diskOpOnly.Count))
 
     $hcJson = ''
     try { $hcJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $hcPath -Json 2>&1 | Out-String } catch { $hcJson = '' }

@@ -432,7 +432,7 @@ param(
   [string]$WorkFile = ''
 )
 $ErrorActionPreference = 'Continue'
-try { [IO.File]::WriteAllText($ReadyFile, ('ready ' + $PID)) } catch { exit 9 }
+try { [IO.File]::WriteAllText($ReadyFile, ('ready ' + $PID), [System.Text.UTF8Encoding]::new($false)) } catch { exit 9 }
 $nl = [Environment]::NewLine
 if ($Mode -eq 'complete') { exit 0 }
 if ($Mode -eq 'hang') { Start-Sleep -Seconds $Seconds; exit 0 }

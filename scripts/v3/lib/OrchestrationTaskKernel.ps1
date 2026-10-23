@@ -444,7 +444,7 @@ function Enter-TaskKernelFileLock {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$TaskFile,
-        [int]$Retries = 20,
+        [int]$Retries = 80,
         [int]$DelayMs = 100
     )
     $out = @{ acquired = $false; handle = $null; lockFile = ([string]$TaskFile + '.lock') }

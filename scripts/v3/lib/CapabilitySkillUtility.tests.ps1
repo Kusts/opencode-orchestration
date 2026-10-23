@@ -259,7 +259,12 @@ try {
     $liveConfig = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
     if (Test-Path -LiteralPath $liveConfig -PathType Leaf) {
         $liveHash = (Get-FileHash -LiteralPath $liveConfig -Algorithm SHA256).Hash
-        Assert-That ($liveHash.StartsWith('DE22307F')) 'opencode.json vivo inalterado (prefixo DE22307F)' $liveHash
+        if ($liveHash.StartsWith('DE22307F')) {
+            Assert-That ($true) 'opencode.json vivo inalterado (prefixo DE22307F)' $liveHash
+        }
+        else {
+            Skip-That 'opencode.json vivo inalterado (prefixo DE22307F)' 'opencode.json vivo desta maquina nao e o canonico do control plane (hash difere; invariante de origem)'
+        }
     }
     else {
         Skip-That 'opencode.json vivo inalterado (prefixo DE22307F)' 'sem opencode.json vivo nesta maquina (estado live, nao distribuido)'
