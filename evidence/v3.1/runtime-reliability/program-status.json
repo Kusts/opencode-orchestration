@@ -36,6 +36,11 @@
       {
         "date": "2026-10-05",
         "state": "sem mudanca de flag; mudanca de comportamento em P29-S2 (transporte HTTP real), P38-S2 (wiring do chamador) e P26-JOB-WIRING (backstop de Job Object no enforcement)"
+      },
+      {
+        "date": "2026-10-21",
+        "state": "Workflow Efficiency v0.2.0: rota DIRECT_VERIFIED ativada para tarefas triviais; Model Router vNext tiers T0..T4; engineering-advisor sob demanda com 7 sinais de escalonamento e cache SHA256; suite Golden Workflows GW-ADVISOR-01 a 08 17/17 PASS.",
+        "evidence": "evidence/v3.1/runtime-reliability/workflow-efficiency-benchmark-2026-10-21.json"
       }
     ],
     "capability_registry": {

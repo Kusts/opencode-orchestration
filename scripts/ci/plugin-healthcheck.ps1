@@ -315,5 +315,22 @@ $result = [ordered]@{
   diagnostic_only = $true
   engine = $engineInfo
 }
+try {
+  $teleVerdict = 'PASS'
+  if ([string]$overall -cne 'PASS') { $teleVerdict = 'FAIL' }
+  $telePresent = 0
+  try { if ($telemetry.present -eq $true) { $telePresent = 1 } } catch { $telePresent = 0 }
+  $telePluginsPresent = 0
+  try { $telePluginsPresent = @($ExpectedActive).Count } catch { $telePluginsPresent = 0 }
+  $teleRepo = $RepoRoot
+  if ([string]::IsNullOrWhiteSpace($teleRepo)) {
+    $teleRepo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+  }
+  $teleLib = Join-Path $teleRepo 'scripts\v3\lib\DevTelemetry.ps1'
+  if (Test-Path -LiteralPath $teleLib -PathType Leaf) {
+    . $teleLib
+    $null = Write-DevTelemetryEvent -Kind 'plugin_health' -Source 'plugin-healthcheck' -Verdict $teleVerdict -Metrics @{ load_errors = [int]$loadErrors; expected_load_errors = [int]$expectedLoadErrors; telemetry_present = [int]$telePresent; plugins_present = [int]$telePluginsPresent } -RepoRoot $teleRepo
+  }
+} catch { }
 $result | ConvertTo-Json -Depth 5
 if ($overall -eq "FAIL") { exit 1 } else { exit 0 }

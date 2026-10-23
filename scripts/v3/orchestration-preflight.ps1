@@ -20,7 +20,8 @@ param(
     [string[]]$SecondaryDomains,
     [string]$RouterHealthy,
     [string]$RegistryFresh,
-    [string]$RegistryOk
+    [string]$RegistryOk,
+    [string]$ExecutionStrategy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -114,7 +115,15 @@ else {
 if ([string]::IsNullOrWhiteSpace($risk)) { $risk = 'unknown' }
 
 try {
-    $res = Get-OrchestrationPreflight -Objective $objective -TaskType $taskType -Domain $domain -Risk $risk -ReadWrite $readWrite -SecondaryDomains $sec -RouterHealthy $flagRouterHealthy -RegistryFresh $flagRegistryFresh -RegistryOk $flagRegistryOk
+    $res = Get-OrchestrationPreflight -Objective $objective -TaskType $taskType -Domain $domain -Risk $risk -ReadWrite $readWrite -SecondaryDomains $sec -RouterHealthy $flagRouterHealthy -RegistryFresh $flagRegistryFresh -RegistryOk $flagRegistryOk -ExecutionStrategy $ExecutionStrategy
+    try {
+      $teleLib = Join-Path $v3root 'lib\DevTelemetry.ps1'
+      if (Test-Path -LiteralPath $teleLib -PathType Leaf) {
+        . $teleLib
+        $teleRepo = (Split-Path -Parent (Split-Path -Parent $v3root))
+        $null = Write-DevTelemetryEvent -Kind 'preflight_decision' -Source 'preflight' -Decision ([string]$res.orchestration_decision) -TaskClass ([string]$res.task_class) -Risk $risk -Agents @($res.selected_agents) -FallbackReason ([string]$res.fallback_reason) -Verdict 'UNKNOWN' -RepoRoot $teleRepo
+      }
+    } catch { }
     $out = [ordered]@{
         tool                   = 'orchestration-preflight.ps1'
         preflight_version      = 1
@@ -131,6 +140,14 @@ try {
     exit 0
 }
 catch {
+    try {
+        $teleLib2 = Join-Path $v3root 'lib\DevTelemetry.ps1'
+        if (Test-Path -LiteralPath $teleLib2 -PathType Leaf) {
+          . $teleLib2
+          $teleRepo2 = (Split-Path -Parent (Split-Path -Parent $v3root))
+          $null = Write-DevTelemetryEvent -Kind 'preflight_decision' -Source 'preflight' -Decision 'DETERMINISTIC_FALLBACK' -TaskClass 'non_trivial' -FallbackReason 'preflight_internal_error' -Verdict 'UNKNOWN' -RepoRoot $teleRepo2
+        }
+    } catch { }
     try {
         $fallback = [ordered]@{
             tool                   = 'orchestration-preflight.ps1'

@@ -7,6 +7,7 @@
 #>
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$teleWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 $script:nOk = 0
 $script:nBad = 0
@@ -552,5 +553,17 @@ catch { Report-Fail '16 bundle do plugin autocontido + sidecar' $_.Exception.Mes
 
 Write-Host ''
 Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 16)')
+try {
+  $teleMs = 0
+  try { $teleWatch.Stop(); $teleMs = [int]$teleWatch.ElapsedMilliseconds } catch { $teleMs = 0 }
+  $teleVerdict = 'PASS'
+  $teleCode = 0
+  if ($script:nBad -gt 0) { $teleVerdict = 'FAIL'; $teleCode = 1 }
+  $teleLib = Join-Path $RepoRoot 'scripts\v3\lib\DevTelemetry.ps1'
+  if (Test-Path -LiteralPath $teleLib -PathType Leaf) {
+    . $teleLib
+    $null = Write-DevTelemetryEvent -Kind 'gate_result' -Source 'package-consistency' -Verdict $teleVerdict -ExitCode $teleCode -DurationMs $teleMs -Counts @{ pass = [int]$script:nOk; fail = [int]$script:nBad; total = 16 } -RepoRoot $RepoRoot
+  }
+} catch { }
 if ($script:nBad -gt 0) { exit 1 }
 exit 0

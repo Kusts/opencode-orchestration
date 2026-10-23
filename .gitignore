@@ -13,6 +13,7 @@ evidence/*
 !evidence/agent-mcp-integration/
 !evidence/v0.1.0/
 !evidence/closure/
+!evidence/dev-telemetry/
 evidence/closure/*
 !evidence/closure/*.md
 cache/

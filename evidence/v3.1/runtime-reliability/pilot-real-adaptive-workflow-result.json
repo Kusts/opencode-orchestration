@@ -1,0 +1,196 @@
+{
+    "task_id":  "pilot-adaptive-20261023-141203",
+    "agents":  [
+                   "planner",
+                   "model-router",
+                   "engineering-advisor",
+                   "coder",
+                   "tester",
+                   "reviewer",
+                   "task-kernel"
+               ],
+    "session_id":  "ses_e96e5375fffeA5ajprNBwKuRHq",
+    "parent_session_id":  "",
+    "model_requested":  "openai/gpt-6.1-sol-fast",
+    "model_effective":  "openai/gpt-6.1-sol-fast",
+    "execution_proof":  "COMPLETED_VERIFIED",
+    "advisor_status":  "COMPLETED",
+    "tokens_input":  38547,
+    "tokens_output":  258,
+    "cost_usd":  0,
+    "kernel_state":  "DONE",
+    "compliance_verdict":  "COMPLIANT",
+    "receipts":  {
+                     "planner":  {
+                                     "status":  "ok",
+                                     "task_id":  "pilot-adaptive-20261023-141203",
+                                     "objective":  "Resolver impasse de concorrencia e validar isolamento de processo",
+                                     "advisor_consulted":  true,
+                                     "initial_advisory_stance":  "BLOCKED_MISSING_EVIDENCE",
+                                     "initial_missing_evidence":  [
+                                                                      "Arquivos/simbolos do scheduler e recurso protegido.",
+                                                                      "Erro ou reproducao da concorrencia com dois processos concorrentes."
+                                                                  ],
+                                     "investigation_autonomous_action":  "Executar reproducao minima com dois processos concorrentes em arquivo compartilhado",
+                                     "resolved_advisory_stance":  "EXECUTABLE_RECOMMENDATION",
+                                     "advisory_recommendation":  "Adotar System.Threading.Mutex com recuperacao de AbandonedMutexException apos reproducao de concorrencia comprovada",
+                                     "next_action":  "Implementar e validar exclusao mutua com System.Threading.Mutex no worker coder",
+                                     "workers_allocated":  [
+                                                               "coder",
+                                                               "tester",
+                                                               "reviewer"
+                                                           ],
+                                     "timestamp":  "2026-10-23T14:13:07.1586284Z"
+                                 },
+                     "router":  {
+                                    "stage":  "model_routing",
+                                    "agent":  "engineering-advisor",
+                                    "tier":  "T4",
+                                    "catalog_model":  "openai/gpt-6.1-sol-fast",
+                                    "model_token":  "MODEL_FRONTIER",
+                                    "provider_cost_authorized":  true,
+                                    "cost_authorization_source":  "GLOBAL_ENV_OPENCODE_T4_AUTHORIZED",
+                                    "cost_authorization_evidence":  "env:OPENCODE_T4_AUTHORIZED=true",
+                                    "cost_budget":  "standard_t4_budget",
+                                    "timestamp":  "2026-10-23T14:12:05.1396091Z"
+                                },
+                     "advisor":  {
+                                     "consultation_id":  "ADV-20261023-141205-89c797",
+                                     "session_id":  "ses_e96e5375fffeA5ajprNBwKuRHq",
+                                     "parent_session_id":  "",
+                                     "agent":  "engineering-advisor",
+                                     "model_requested":  "openai/gpt-6.1-sol-fast",
+                                     "model_effective":  "openai/gpt-6.1-sol-fast",
+                                     "execution_proof_type":  "COMPLETED_VERIFIED",
+                                     "status":  "COMPLETED",
+                                     "tokens_input":  38547,
+                                     "tokens_output":  258,
+                                     "cost_usd":  0,
+                                     "turn_1_opinion":  {
+                                                            "stance":  "BLOCKED_MISSING_EVIDENCE",
+                                                            "is_blocked":  true,
+                                                            "diagnosis":  "informacao insuficiente para escolher o mecanismo. Handles compartilhados nao demonstra que Mutex resolva a causa; incerteza alta.",
+                                                            "missing_evidence":  "reproducao minima referenciada com dois processos concorrentes",
+                                                            "next_action":  "fornecer uma reproducao minima referenciada com dois processos concorrentes, resultado esperado e falha observada."
+                                                        },
+                                     "turn_2_opinion":  {
+                                                            "stance":  "EXECUTABLE_RECOMMENDATION",
+                                                            "is_blocked":  false,
+                                                            "recommended_option":  "Adotar System.Threading.Mutex com captura explicita de AbandonedMutexException",
+                                                            "next_action":  "Implementar exclusao mutua deterministica com suporte a crash recovery"
+                                                        },
+                                     "recommendation":  "Adotar System.Threading.Mutex com captura explicita de AbandonedMutexException",
+                                     "actionable_step":  "Implementar exclusao mutua deterministica com suporte a crash recovery",
+                                     "timestamp":  "2026-10-23T14:12:33.4981000Z"
+                                 },
+                     "coder":  {
+                                   "worker":  "coder",
+                                   "status":  "candidate_pass",
+                                   "claimed_evidence":  [
+                                                            "criterion:0:mutex_lock_verified",
+                                                            "file:evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                                                            "sha256:f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba"
+                                                        ],
+                                   "artifact_path":  "evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                                   "artifact_sha256":  "f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba",
+                                   "revision":  4,
+                                   "timestamp":  "2026-10-23T14:13:08.1978111Z"
+                               },
+                     "tester":  {
+                                    "worker":  "tester",
+                                    "status":  "verified_pass",
+                                    "verified_evidence":  [
+                                                              "criterion:0:mutex_lock_verified",
+                                                              "test:two_concurrent_exclusive_actions_serialized",
+                                                              "result:shared_counter_equals_2"
+                                                          ],
+                                    "checks_passed":  2,
+                                    "revision":  6,
+                                    "timestamp":  "2026-10-23T14:13:08.9500000Z"
+                                },
+                     "reviewer":  {
+                                      "worker":  "reviewer",
+                                      "status":  "approved",
+                                      "verified_evidence":  "evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                                      "verified_evidence_sha256":  "f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba",
+                                      "checks_passed":  3,
+                                      "revision":  8,
+                                      "timestamp":  "2026-10-23T14:13:09.4900715Z"
+                                  },
+                     "task_kernel":  {
+                                         "task_id":  "pilot-adaptive-20261023-141203",
+                                         "initial_state":  "DISCOVERING",
+                                         "final_state":  "DONE",
+                                         "revision":  9,
+                                         "compliance_verdict":  "COMPLIANT",
+                                         "verified_pass":  true,
+                                         "timestamp":  "2026-10-23T14:13:09.9694254Z"
+                                     }
+                 },
+    "transitions":  [
+                        {
+                            "step":  1,
+                            "from":  "NONE",
+                            "to":  "DISCOVERING",
+                            "actor":  "planner",
+                            "revision":  1,
+                            "time":  "2026-10-23T14:12:05.0538522Z"
+                        },
+                        {
+                            "step":  2,
+                            "from":  "DISCOVERING",
+                            "to":  "PLANNING",
+                            "actor":  "planner",
+                            "revision":  2,
+                            "time":  "2026-10-23T14:13:07.4189703Z"
+                        },
+                        {
+                            "step":  3,
+                            "from":  "PLANNING",
+                            "to":  "IMPLEMENTING",
+                            "actor":  "planner",
+                            "revision":  3,
+                            "time":  "2026-10-23T14:13:07.7342736Z"
+                        },
+                        {
+                            "step":  4,
+                            "from":  "IMPLEMENTING",
+                            "to":  "VALIDATING",
+                            "actor":  "planner",
+                            "revision":  5,
+                            "time":  "2026-10-23T14:13:08.5026054Z"
+                        },
+                        {
+                            "step":  5,
+                            "from":  "VALIDATING",
+                            "to":  "REVIEWING",
+                            "actor":  "reviewer",
+                            "revision":  7,
+                            "time":  "2026-10-23T14:13:09.1856465Z"
+                        },
+                        {
+                            "step":  6,
+                            "from":  "REVIEWING",
+                            "to":  "DONE",
+                            "actor":  "task-kernel",
+                            "revision":  9,
+                            "time":  "2026-10-23T14:13:09.9694254Z"
+                        }
+                    ],
+    "artifact":  {
+                     "path":  "evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                     "sha256":  "f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba",
+                     "solution":  "System.Threading.Mutex with AbandonedMutexException recovery",
+                     "recommendation_applied":  "Adotar System.Threading.Mutex com captura explicita de AbandonedMutexException",
+                     "timestamp":  "2026-10-23T14:13:09.9704505Z"
+                 },
+    "reproduction_commands":  [
+                                  "powershell -NoProfile -Command \"$p = Get-OrchestrationPreflight -Objective \u0027Resolver impasse de concorrencia e validar isolamento de processo\u0027 -TaskType \u0027investigation\u0027 -Domain \u0027runtime-reliability\u0027 -Risk \u0027medium\u0027 -ReadWrite \u0027write\u0027; $p.orchestration_decision\"",
+                                  "powershell -NoProfile -Command \"$m = Resolve-OrchestrationModelSelection -AgentName \u0027engineering-advisor\u0027 -Complexity \u0027complex\u0027 -FailureCount 2 -ProviderCostAuthorized $true; $m.CatalogModel\"",
+                                  "powershell -NoProfile -Command \"$r = Invoke-AdvisorConsultation -Request @{ task_id = \u0027pilot-adaptive-20261023-141203\u0027; trigger_signal = \u0027verified_deadlock\u0027; justification = \u0027Falhas de concorrencia com handles compartilhados exigem isolamento de Mutex\u0027; question = \u0027Qual a melhor abordagem para exclusao mutua deterministica entre processos PowerShell no Windows?\u0027 }; $r.ExecutionProofType\"",
+                                  "powershell -NoProfile -Command \"$l = Invoke-OrchestrationPlannerLoop -Descriptor @{ task_id = \u0027pilot-adaptive-20261023-141203\u0027; objective = \u0027Resolver impasse de concorrencia\u0027; advisor_escalation_signal = \u0027verified_deadlock\u0027; advisor_justification = \u0027Deadlock verificado\u0027 }; $l.plan.advisor_advisory.consulted\"",
+                                  "powershell -NoProfile -Command \"Test-Path -LiteralPath \u0027evidence\\v3.1\\runtime-reliability\\artifacts\\LockResource.ps1\u0027\"",
+                                  "powershell -NoProfile -Command \"$t = Get-OrchestrationTaskState -TaskId \u0027pilot-adaptive-20261023-141203\u0027; $t.state\"",
+                                  "powershell -NoProfile -Command \"Test-OrchestrationDoneCompliance -TaskClass \u0027non_trivial\u0027 -Decision \u0027MULTI_WORKER\u0027 -ActualWorkerParticipation 3\""
+                              ]
+}

@@ -147,6 +147,19 @@ try {
       $nPass += 1
       Write-SuiteResult 'PASS' $s.Name $ms ('exit ' + $code)
     }
+    try {
+      $teleVerdict = 'PASS'
+      if ($isInternal -or $timedOut) { $teleVerdict = 'ERROR' }
+      elseif (($code -ne 0) -or $hasFail) { $teleVerdict = 'FAIL' }
+      elseif ($hasSkip) { $teleVerdict = 'SKIP' }
+      $teleEngine = 'ps51'
+      if ($engine -ceq 'pwsh') { $teleEngine = 'ps7' }
+      $teleLib = Join-Path $repoDir 'scripts\v3\lib\DevTelemetry.ps1'
+      if (Test-Path -LiteralPath $teleLib -PathType Leaf) {
+        . $teleLib
+        $null = Write-DevTelemetryEvent -Kind 'suite_result' -Source 'distribution' -Suite $s.BaseName -Verdict $teleVerdict -ExitCode $code -DurationMs $ms -Engine $teleEngine -RepoRoot $repoDir
+      }
+    } catch { }
   }
   $totalWatch.Stop()
   $totalSec = [Math]::Round($totalWatch.Elapsed.TotalSeconds, 1)

@@ -36,12 +36,18 @@ deste runtime. O conteúdo abaixo é renderizado para
 configuração ativa; o arquivo permanece no disco apenas como referência
 histórica, sem efeito).
 
-### Pools de modelos
+### Pools de modelos e Model Router vNext
 
-- Planner (único agente primário `build`): herda o modelo selecionado na sessão;
+- Planner (único agente primário `build`): opera com modelo econômico, capaz e estável (T2/T3);
   suporta `{{MODEL_PLANNER}}` ou `{{MODEL_STRONG}}` sem mudar o
-  comportamento. Não fixe modelo no perfil `build`; o default global permanece
-  GLM Flash.
+  comportamento. Não fixe modelo frontier no perfil `build` em tempo integral nem rotacione a cada wave;
+  o Planner conserva autoridade contínua sobre planejamento, delegação e continuidade.
+- Roteamento adaptativo por Tiers (Model Router vNext, T0..T4):
+  - **T0 (Determinístico / Reuso):** Comandos determinísticos, validação de AST, reuso exato de evidências (zero tokens).
+  - **T1 (Gratuito / Ultraleve):** Triagem rápida, extração de texto, busca semântica leve.
+  - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco, Advisor técnico simples.
+  - **T3 (Intermediário / Capaz):** Refatorações multi-arquivo, debugging de média complexidade, revisões de arquitetura.
+  - **T4 (Frontier / Raciocínio Profundo — `{{MODEL_STRONG}}`):** Impasses técnicos comprovados, decisões críticas de segurança, bugs persistentes pós-falha.
 - Cheap worker pool — `{{MODEL_CHEAP}}`: `explorer`,
   `researcher`, `coder`, `tester`, `docs-manager`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
@@ -53,6 +59,8 @@ histórica, sem efeito).
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
+- Advisor Especializado Sob Demanda (`engineering-advisor`, Issue #60):
+  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor pode ser instanciado em T2, T3 ou T4 pelo Model Router com base na severidade da dúvida. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
 - Escalonamentos para Astra são temporários, por subtarefa, via override
   no spawn — nunca editando este arquivo nem os prompts dos agentes — e
   sempre com reset ao baseline. Antes de escalar, pergunte: falta
@@ -62,6 +70,17 @@ histórica, sem efeito).
   subtarefa; por objetivo pai, no máximo 2 execuções acima do baseline, das
   quais no máximo 1 pode usar Astra. Astra substitui, não soma. Nunca
   Astra em paralelo para a mesma pergunta. Nunca Astra como fan-out.
+
+### Workflow Adaptativo e Rota DIRECT_VERIFIED
+
+A imposição de subagents para qualquer alteração é substituída pelo workflow adaptativo:
+
+1. **DIRECT_VERIFIED (Tarefas Triviais, Localizadas e Reversíveis):**
+   - Para mudanças estritamente cosméticas, ajustes pontuais de documentação, correção de typos e pequenas strings sem impacto lógico ou estrutural (`Risk = low`, `Complexity = trivial`), o Planner pode executar a alteração diretamente sem criar subagent subordinado.
+   - A rota direta continua sujeita à autorização, limites de escrita e validação focada. A conformidade de conclusão é garantida no Task Kernel via `Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED`.
+   - É terminantemente proibido utilizar `DIRECT_VERIFIED` para tarefas não triviais, introdução de novas funcionalidades, refatorações amplas ou alterações de segurança (`ORCHESTRATION_POLICY_BYPASS`).
+2. **SINGLE_WORKER / MULTI_WORKER (Tarefas Não Triviais):**
+   - Tarefas com impacto funcional, implementação ou testes comportamentais continuam exigindo delegação a workers subordinados especializados com contratos delimitados.
 
 ### Adaptive Parallelism Governor
 

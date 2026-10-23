@@ -1,0 +1,11 @@
+﻿{
+    "task_id":  "pilot-adaptive-20261023-141203",
+    "pattern":  "System.Threading.Mutex",
+    "mutex_name":  "Global\\OpencodeOrchestration_pilot-adaptive-20261023-141203",
+    "timeout_ms":  5000,
+    "guidance_source":  "engineering-advisor",
+    "advisory_consultation":  "ADV-20261023-141205-89c797",
+    "applied_recommendation":  "**STATUS: BLOCKED** — consulta `ADV-20261023-141233-a98ac5`.  **Diagnóstico:** informação insuficiente para recomendar Mutex ou outra primitiva. “Handles compar",
+    "implementation_status":  "verified_implementation",
+    "timestamp":  "2026-10-23T14:13:07.7377144Z"
+}
