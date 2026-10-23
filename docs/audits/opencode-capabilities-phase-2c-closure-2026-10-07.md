@@ -254,14 +254,15 @@ Branch `feat/capabilities-phase-2c` (de `e8e6876`); commits fatiados
 a preencher após abertura do PR.
 
 - branch: `feat/capabilities-phase-2c`
-- HEAD: (preencher no merge)
-- PR: (a abrir)
-- CI: suites 2C verdes localmente; CI completo no PR
+- HEAD: `da648da` (+ commit de closure desta secao)
+- PR: #27 (base master)
+- CI: 5/5 PASS (run 37620604025: CI ps51, CI ps7, smoke V1, smoke V2, v2 lane)
 - review: reviewer + security-reviewer (ciclo planner) — rodada 1 retornou
   CHANGES_REQUIRED (4 achados: contrato profile-agents, Supabase prod-write,
   run_code_unsafe=RCE, deny-default financeiro); todos integrados (REV1) com
-  novos asserts; revalidação 48/48 + 8/8; rodada 2 pendente no PR
-- merge: após CI verde + review final
+  novos asserts; rodada 2 exigiu asserts por campo + wording RCE (REV2);
+  rodada 3 (delta REV2) APPROVED; tester candidate_pass 48/48 + 8/8
+- merge: após CI verde + review final (hash registrado abaixo)
 
 ## 36. Final Verdict
 

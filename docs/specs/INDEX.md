@@ -80,3 +80,14 @@ Este índice mapeia todas as especificações e planos técnicos mantidos no rep
 | [AGENT-CONFIG-INTEROP-PLAN.md](../plans/AGENT-CONFIG-INTEROP-PLAN.md) | proposed | Plano consumidor O0–O7 com repo externo agent-config |
 | [SPEC interoperabilidade — Agent Config](https://github.com/kust-projetos/agent-config/blob/docs/interop-config-orchestration-20261019/docs/agent/AGENT-CONFIG-ORCHESTRATION-INTEROP-SPEC.md) | proposed | Contrato normativo entre repositórios, 28 cenários de aceite |
 | [ADR-INTEROP-001 — Agent Config](https://github.com/kust-projetos/agent-config/blob/docs/interop-config-orchestration-20261019/docs/governance/ADR-INTEROP-001-SINGLE-OWNER-CONFIG-EXECUTION.md) | proposed | Config canônico versus Orquestração executora, migração sem overwrite |
+
+---
+
+## 7. Auditorias do Repositório e Validação Contínua
+
+| Documento | Status | Assunto |
+| :--- | :--- | :--- |
+| [FULL-VALIDATION-SPEC-AND-PLAN-2026-10-23.md](../plans/FULL-VALIDATION-SPEC-AND-PLAN-2026-10-23.md) | active | SPEC & Plan de Auditoria Completa e Hardening E2E (RF-01 a RF-06) |
+| [COMPLETE-AUDIT-AND-VALIDATION-REPORT-2026-10-23.md](../audits/COMPLETE-AUDIT-AND-VALIDATION-REPORT-2026-10-23.md) | audit | Relatório consolidado da auditoria profunda de 2026-10-23 |
+| [opencode-capabilities-local-audit-2026-10-06.md](../audits/opencode-capabilities-local-audit-2026-10-06.md) | historical | Inventário e auditoria de ambiente e capacidades OpenCode (2026-10-06) |
+

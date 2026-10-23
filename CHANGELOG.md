@@ -6,6 +6,21 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Auditoria Completa, Consolidação Documental e Hardening E2E (PR #153 e Adendos, 2026-10-23)**:
+  - **Auditorias Integradas ao Repositório:**
+    - Incorporação do relatório completo de auditoria profunda do repositório (`docs/audits/COMPLETE-AUDIT-AND-VALIDATION-REPORT-2026-10-23.md`), cobrindo matriz nominal vs real, status de testes, holds normativos e plano de hardening RF-01..RF-06.
+    - Incorporação do plano técnico de validação e estabilização (`docs/plans/FULL-VALIDATION-SPEC-AND-PLAN-2026-10-23.md`).
+    - Integração do inventário histórico de ambiente e capacidades OpenCode (`docs/audits/opencode-capabilities-local-audit-2026-10-06.md`) e atualização dos metadados de fechamento da Fase 2C (`docs/audits/opencode-capabilities-phase-2c-closure-2026-10-07.md`).
+    - Atualização do índice de especificações técnicas `docs/specs/INDEX.md` com a nova seção de auditorias e validação contínua.
+  - **Hardening e Correções Entregues (PR #153):**
+    - **RF-01 (Task Kernel File Lock):** Elevação da janela de tentativa de aquisição de lock de 20 para 80 retries ($DelayMs = 100ms, teto de 8,0s), eliminando `LOCK_TIMEOUT` sob alta concorrência em Windows.
+    - **RF-05 (Watchdog UTF-8 no-BOM):** Gravação explícita em UTF-8 sem BOM via `[System.Text.UTF8Encoding]::new($false)` no arquivo `$ReadyFile` do `watchdog-real-lane-v2.ps1` garantindo paridade total entre PowerShell 5.1 e PS 7+.
+    - **RF-04 (Otimização do Typecheck de Plugins):** Timeout de `bun add` no Windows reduzido de 420s (7 min) para 35s antes do fallback determinístico para `npm install`, acelerando a execução da lane de CI de 21 min para ~3 min (PASS exit 0).
+    - **RF-03 (Sincronização do Catálogo de Skills):** Catalogação formal das 3 skills gerenciadas pelo usuário no host (`find-skills`, `maestri-chat`, `cli-tooling`), elevando o catálogo para 108 skills e zerando alertas na distribuição.
+    - **RF-02 (Assert Tolerante a Divergências DE22307F):** Alinhamento das suítes de teste de observabilidade de capacidades para emitir `Skip-That` informativo quando a config viva divergir na origem, mantendo asserção estrita contra mutação pelo CLI.
+    - **RF-06 (Governança e Metadados):** Atualização dos pins de runtime em `SECURITY.md` para `1.18.34` (V1) e `2.0.23` (V2), e alinhamento do debugger na taxonomia `validator-shell`.
+
+
 - **Fechamento e Correções Formais das Frentes Native-First e Workflow Efficiency (PR #151, 2026-10-23)**:
   - **P0 — Resolução da Contradição do Piloto e Interpretação Estruturada do Advisor:**
     - Diagnóstico da causa-raiz: `Invoke-AdvisorConsultation` avaliava apenas código de saída do processo e outcome da sessão, despejando a saída textual bruta em `RecommendedOption` mesmo quando o Advisor emitia explicitamente `STATUS: BLOCKED` (exigindo reprodução mínima com dois processos concorrentes). O Planner, por sua vez, enxergava `Status == COMPLETED` e transicionava imediatamente para `IMPLEMENTING`, resultando em worker `coder` emitindo um arquivo JSON declarativo citando o parecer bloqueado e terminando em falso `DONE`.
