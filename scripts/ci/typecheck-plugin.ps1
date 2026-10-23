@@ -140,16 +140,14 @@ function Invoke-Track {
   $quoted = @()
   foreach ($d in $Deps) { $quoted += ('"' + $d + '"') }
   $addLine = 'bun add ' + ($quoted -join ' ')
-  # Cap do bun add configuravel (default 420s): sob o runner V3 (300s/suite)
-  # as suites fixam OO_TYPECHECK_BUN_MS baixo para cair no fallback npm
-  # rapido quando o resolver do bun trava; invocacao direta usa o default.
-  $bunMs = 420000
+  # Cap do bun add configuravel (default 35s para corte rapido ao fallback npm quando o resolver do bun trava no Windows; invocacao com OO_TYPECHECK_BUN_MS customiza):
+  $bunMs = 35000
   try {
     if (-not [string]::IsNullOrWhiteSpace($env:OO_TYPECHECK_BUN_MS)) {
       $parsed = [int]$env:OO_TYPECHECK_BUN_MS
-      if ($parsed -ge 30000) { $bunMs = $parsed }
+      if ($parsed -ge 10000) { $bunMs = $parsed }
     }
-  } catch { $bunMs = 420000 }
+  } catch { $bunMs = 35000 }
   $addProc = Start-Process -FilePath 'cmd' -ArgumentList @('/c', $addLine) -NoNewWindow -PassThru -WorkingDirectory $workDir -RedirectStandardOutput $addOut -RedirectStandardError $addErr
   $bunDone = $addProc.WaitForExit($bunMs)
   if (-not $bunDone) {

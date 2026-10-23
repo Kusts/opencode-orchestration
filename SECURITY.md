@@ -8,8 +8,8 @@
 | < 1.0 (pré-release, ex. `1.0.0-hardening`) | ❌ Não |
 
 Nota sobre o runtime: este pacote suporta o **OpenCode V1.x** (validado
-com 1.18.32) e, desde o programa V3.1, o **OpenCode V2** (`@opencode/cli`,
-validado com 2.0.18) com render/config/permissões nativos e plugin
+com 1.18.34, pin em `source/registry/runtime-versions.json`) e, desde o programa V3.1, o **OpenCode V2** (`@opencode/cli`,
+validado com 2.0.23) com render/config/permissões nativos e plugin
 dual-runtime. O enforcement V2 usa as permissões nativas ordenadas
 (last-match-wins, broad-first); a camada `experimental.policies` (hard-deny)
 ainda não está ativada. V1 e V2 lado a lado só via perfis isolados
@@ -18,7 +18,7 @@ ainda não está ativada. V1 e V2 lado a lado só via perfis isolados
 ## Resumo da política
 
 - **Boundaries**: classes de permissão por agente (read-only /
-  writer-shell / writer-no-shell / diagnostic) e barreiras
+  writer-shell / writer-no-shell / validator-shell) e barreiras
   runtime/prompt/planner-enforced. Workers nunca delegam
   (`subagent_depth: 1`).
 - **Credenciais**: o repo contém só nomes de chaves, nunca valores.

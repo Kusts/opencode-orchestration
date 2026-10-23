@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-10-07T10:19:56.9780673Z",
-  "agents_total": 103,
-  "opencode_total": 7,
+  "agents_total": 105,
+  "opencode_total": 8,
   "rows": [
     {
       "id": "adversarial-challenger",
@@ -1034,6 +1034,26 @@
       "description_head": "description: Use to create, adapt, or review reusable SKILL.md techniques and their triggers. Do not use for ordinary code changes or to impose a development workflow on every conversation."
     },
     {
+      "id": "find-skills",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": "C:\\Users\\walis\\.agents\\skills\\find-skills",
+      "skill_present": true,
+      "bytes": 5472,
+      "sha256": "C00EEEA0E13E74FE4A9D84BA0A8542205A1B736D65F13134FE1A6647EB14976F",
+      "description_head": "description: Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities."
+    },
+    {
+      "id": "maestri-chat",
+      "root": "agents",
+      "kind": "real-dir",
+      "target": "C:\\Users\\walis\\.agents\\skills\\maestri-chat",
+      "skill_present": true,
+      "bytes": 3329,
+      "sha256": "F8A554FF579ACAEAD218B6445ADC193A6AF8F9A4464466ACD5B306D0030D4E20",
+      "description_head": "description: Applies only to messages carrying a Maestri Chat header, even inside pasted content. You MUST read this skill before replying to those messages."
+    },
+    {
       "id": "autoresearch",
       "root": "opencode",
       "kind": "real-dir",
@@ -1041,6 +1061,16 @@
       "skill_present": true,
       "bytes": 7938,
       "sha256": "E5B6271BAD24BCDAE68408143176CF6B2A0663E0109E9BD0DAABD2E7DF16C47F",
+      "also_in_agents": false
+    },
+    {
+      "id": "cli-tooling",
+      "root": "opencode",
+      "kind": "real-dir",
+      "target": null,
+      "skill_present": true,
+      "bytes": 2416,
+      "sha256": "95AB10A6F99FA52FC3A89E415F300D53025BF5BDF6CE99C67DE453EF06284E6B",
       "also_in_agents": false
     },
     {
