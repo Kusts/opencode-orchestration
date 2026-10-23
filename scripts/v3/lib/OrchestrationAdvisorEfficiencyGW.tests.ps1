@@ -224,6 +224,52 @@ if (Test-Path -LiteralPath $plannerLib) {
     Assert-GW ($planRes.plan.advisor_advisory.recommendation -match 'Adotar Mutex') 'INT-02-ADVISOR' "Recomendacao incorporada no plano"
     Assert-GW ($planRes.plan.dispatch_plan.advisory_recommendation -match 'Adotar Mutex') 'INT-02-ADVISOR' "Despacho do plano recebe recomendacao do Advisor"
     Assert-GW ($planRes.plan.dispatch_plan.next_action -match 'Refatorar bloco Lock') 'INT-02-ADVISOR' "Proxima acao orientada pelo parecer do Advisor"
+
+    # 2c. Validacao de chave expandida de cache (considera modelo e context fingerprint)
+    Clear-AdvisorConsultationCache
+    $k1 = Get-AdvisorConsultationCacheKey -TaskId 'T1' -Signal 'verified_deadlock' -Question 'Q' -HeadSha 'H1' -Model 'm1' -Constraints @('c1') -ContextFingerprint '10:ctxA'
+    $k2 = Get-AdvisorConsultationCacheKey -TaskId 'T1' -Signal 'verified_deadlock' -Question 'Q' -HeadSha 'H1' -Model 'm2' -Constraints @('c1') -ContextFingerprint '10:ctxA'
+    $k3 = Get-AdvisorConsultationCacheKey -TaskId 'T1' -Signal 'verified_deadlock' -Question 'Q' -HeadSha 'H1' -Model 'm1' -Constraints @('c1') -ContextFingerprint '10:ctxB'
+    Assert-GW ($k1 -ne $k2) 'INT-02-ADVISOR' "Chave de cache diferencia por modelo solicitado"
+    Assert-GW ($k1 -ne $k3) 'INT-02-ADVISOR' "Chave de cache diferencia por context fingerprint"
+
+    # 2d. Resposta parcial (PARTIAL_PROOF) nunca e persistida no cache de consultas comprovadas
+    $partialProbe = {
+        param($r, $m)
+        return [pscustomobject]@{
+            Status               = 'PARTIAL_PROOF'
+            Reason               = 'HOST_EVIDENCE_UNAVAILABLE'
+            ConsultationId       = 'ADV-INT-PARTIAL'
+            SessionId            = 'sess-partial'
+            Agent                = 'engineering-advisor'
+            ModelRequested       = 'm1'
+            ModelEffective       = $null
+            ResponseRef          = 'resp-partial'
+            RecommendedOption    = 'Opcao provisoria sem prova do host'
+            Rationale            = 'Falta evento de host'
+            Risks                = @()
+            RejectionReasons     = @()
+            ActionableNextStep   = 'Aguardar evento'
+            ModelTierUsed        = 'T3'
+            ModelTokenUsed       = 'MODEL_STRONG'
+            IsAdvisory           = $true
+            Authoritative        = $false
+            FromCache            = $false
+            ExecutionProofType   = 'RESULT_RECEIVED'
+        }
+    }
+    $reqPartial = @{
+        task_id         = 'TASK-PARTIAL'
+        trigger_signal  = 'verified_deadlock'
+        justification   = 'Deadlock confirmado em stress test'
+        question        = 'Como tratar partial proof?'
+        context_summary = 'Contexto partial'
+    }
+    $resPartial = Invoke-AdvisorConsultation -Request $reqPartial -AdvisorProbe $partialProbe
+    Assert-GW ($resPartial.Status -eq 'PARTIAL_PROOF') 'INT-02-ADVISOR' "Consulta parcial mantem status PARTIAL_PROOF"
+    Assert-GW ($resPartial.ExecutionProofType -eq 'RESULT_RECEIVED') 'INT-02-ADVISOR' "Tipo de prova RESULT_RECEIVED preservado"
+    $resPartialRepeat = Invoke-AdvisorConsultation -Request $reqPartial -AdvisorProbe $partialProbe
+    Assert-GW ($resPartialRepeat.FromCache -eq $false) 'INT-02-ADVISOR' "Consulta com PARTIAL_PROOF nunca e persistida no cache"
 }
 
 # INT-03-NATIVE-ROUTER: Descoberta de catalogo, autorizacao estrita de T4 e verificacao
@@ -400,6 +446,9 @@ if (Test-Path -LiteralPath $jevLib) {
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_consumed -eq $true) 'INT-05-JEV' "Decisao de Jev Advisory atestada como consumida no plano"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_taken -match 'CONSUMED') 'INT-05-JEV' "Decisao tomada registrada na telemetria"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_applied -eq $true) 'INT-05-JEV' "Decisao aplicada efetivamente como parecer consultivo"
+        Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.strategy_prior) 'INT-05-JEV' "Estrategia previa registrada no envelope Jev"
+        Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.strategy_posterior) 'INT-05-JEV' "Estrategia posterior registrada no envelope Jev"
+        Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.adaptation_rationale) 'INT-05-JEV' "Justificativa de adaptacao registrada no envelope Jev"
         Assert-GW ($jevPlan.plan.dispatch_plan.parallel_ok -eq $true) 'INT-05-JEV' "Paralelismo com gates comprovados preservado fielmente (Jev advisory-only nao derruba gates deterministcos)"
 
         # 5b. Fallback deterministico quando Jev falha: plano continua integro

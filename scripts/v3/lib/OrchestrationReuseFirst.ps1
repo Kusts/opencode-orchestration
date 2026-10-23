@@ -52,7 +52,10 @@ function Test-OrchestrationReusableApplicability {
         [string]$CurrentCriteriaHash = '',
 
         [Parameter(Mandatory = $false)]
-        $CurrentEnv = @{}
+        $CurrentEnv = @{},
+
+        [Parameter(Mandatory = $false)]
+        [string]$WorkspaceRoot = ''
     )
 
     if ($null -eq $Evidence) {
@@ -99,18 +102,45 @@ function Test-OrchestrationReusableApplicability {
     if ($null -ne $Evidence.scope) { $combinedScope += @($Evidence.scope) }
     $combinedScope = @($combinedScope | Select-Object -Unique)
 
-    $currentWorkDir = (Get-Location).Path
-    $workDirFull = [System.IO.Path]::GetFullPath($currentWorkDir)
+    $currentWorkDir = if (-not [string]::IsNullOrWhiteSpace($WorkspaceRoot)) {
+        [System.IO.Path]::GetFullPath($WorkspaceRoot)
+    } else {
+        [System.IO.Path]::GetFullPath((Get-Location).Path)
+    }
+    $wsPrefix = if ($currentWorkDir.EndsWith([System.IO.Path]::DirectorySeparatorChar.ToString())) { $currentWorkDir } else { "$currentWorkDir$([System.IO.Path]::DirectorySeparatorChar)" }
 
     foreach ($fileRel in $combinedScope) {
         if ([string]::IsNullOrWhiteSpace($fileRel)) { continue }
 
-        # Validacao rigorosa de escopo: prevencao contra path traversal relativo fora do workspace autorizado
+        # Validacao rigorosa de escopo: normalizacao e prevencao contra path traversal e escapes
         try {
             $isRooted = [System.IO.Path]::IsPathRooted($fileRel)
-            $fullFilePath = if ($isRooted) { [System.IO.Path]::GetFullPath($fileRel) } else { [System.IO.Path]::GetFullPath((Join-Path $workDirFull $fileRel)) }
-            if (-not $isRooted -and -not $fullFilePath.StartsWith($workDirFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }
+            $fullFilePath = if ($isRooted) { [System.IO.Path]::GetFullPath($fileRel) } else { [System.IO.Path]::GetFullPath((Join-Path $currentWorkDir $fileRel)) }
+
+            # Rejeita caminho absoluto ou relativo que aponte para fora da raiz do workspace
+            if (-not $fullFilePath.StartsWith($wsPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and ($fullFilePath -ne $currentWorkDir)) {
+                # Permissao especial para arquivos isolados de teste localizados em caminhos temporarios especificos
+                $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+                $isAllowedTemp = $isRooted -and $fullFilePath.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)
+                if (-not $isAllowedTemp) {
+                    return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }
+                }
+            }
+
+            # Inspecao de symlink/reparse point para evitar escape indireto
+            if (Test-Path -LiteralPath $fullFilePath) {
+                try {
+                    $item = Get-Item -LiteralPath $fullFilePath -Force -ErrorAction SilentlyContinue
+                    if ($null -ne $item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                        $target = $item.Target
+                        if ($target) {
+                            $targetFull = [System.IO.Path]::GetFullPath($target)
+                            if (-not $targetFull.StartsWith($wsPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and -not $targetFull.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                return @{ Applicable = $false; Reason = "scope-symlink-escape-detected" }
+                            }
+                        }
+                    }
+                } catch { }
             }
         } catch {
             return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }

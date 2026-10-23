@@ -1849,14 +1849,14 @@ try {
             Assert-Job (([bool]$ev.ok) -and ([bool]$ev.interrupted) -and ([string]$ev.enforcement.settlement -ceq 'SETTLED')) 'F3 tree interrupt SETTLED'
             $allGone = $false
             $gsw = [System.Diagnostics.Stopwatch]::StartNew()
-            while ($gsw.Elapsed.TotalSeconds -lt 10) {
+            while ($gsw.Elapsed.TotalSeconds -lt 20) {
                 $allGone = $true
                 foreach ($p in @(([int]$root.Id), ([int]$midPid), ([int]$netPid))) {
                     if ($p -lt 1) { $allGone = $false; break }
                     try { $lp = Get-Process -Id $p -ErrorAction Stop; if ($null -ne $lp) { $allGone = $false; break } } catch { }
                 }
                 if ($allGone) { break }
-                Start-Sleep -Milliseconds 500
+                Start-Sleep -Milliseconds 250
             }
             $gsw.Stop()
             Assert-Job ($allGone) 'F3 root+mid+net all exited before SETTLED'

@@ -217,6 +217,8 @@ function Get-AdvisorConsultationCacheKey {
     <#
     .SYNOPSIS
         Computes a deterministic SHA256 cache key from bounded consultation inputs.
+    .DESCRIPTION
+        Considera TaskId, Signal, Question, HeadSha, Model, Constraints e ContextFingerprint.
     #>
     [CmdletBinding()]
     param(
@@ -230,10 +232,27 @@ function Get-AdvisorConsultationCacheKey {
         [string]$Question,
 
         [Parameter(Mandatory = $false)]
-        [string]$HeadSha = ''
+        [string]$HeadSha = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$Model = '',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$Constraints = @(),
+
+        [Parameter(Mandatory = $false)]
+        [string]$ContextFingerprint = ''
     )
 
-    $canonicalString = "task:$($TaskId.Trim().ToLowerInvariant())|signal:$($Signal.Trim().ToLowerInvariant())|q:$($Question.Trim().ToLowerInvariant())|head:$($HeadSha.Trim().ToLowerInvariant())"
+    $cleanTask = if ($TaskId) { $TaskId.Trim().ToLowerInvariant() } else { '' }
+    $cleanSig  = if ($Signal) { $Signal.Trim().ToLowerInvariant() } else { '' }
+    $cleanQ    = if ($Question) { $Question.Trim().ToLowerInvariant() } else { '' }
+    $cleanHead = if ($HeadSha) { $HeadSha.Trim().ToLowerInvariant() } else { '' }
+    $cleanMod  = if ($Model) { $Model.Trim().ToLowerInvariant() } else { '' }
+    $cleanCtx  = if ($ContextFingerprint) { $ContextFingerprint.Trim().ToLowerInvariant() } else { '' }
+    $sortedConstraints = if ($Constraints) { @($Constraints | ForEach-Object { [string]$_.Trim().ToLowerInvariant() } | Sort-Object) -join ';' } else { '' }
+
+    $canonicalString = "task:$cleanTask|signal:$cleanSig|q:$cleanQ|head:$cleanHead|model:$cleanMod|constraints:$sortedConstraints|context:$cleanCtx"
     $hasher = [System.Security.Cryptography.SHA256]::Create()
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($canonicalString)
     $hashBytes = $hasher.ComputeHash($bytes)
@@ -361,7 +380,7 @@ CONTEXT: $context
             $psi.FileName = $opencodeBin
             $argParts = @('run', '--agent', 'engineering-advisor', '--model', "`"$reqModel`"", '--title', "`"Advisor: $consultationId`"")
             if (-not [string]::IsNullOrWhiteSpace($parentSession)) {
-                $argParts += @('--session', "`"$parentSession`"")
+                $argParts += @('--session', "`"$parentSession`"", '--fork')
             }
             $safePrompt = $prompt.Replace('"', '\"')
             $argParts += "`"$safePrompt`""
@@ -404,48 +423,105 @@ CONTEXT: $context
             $exitCode = $proc.ExitCode
             $combinedOutput = "$stdout`n$stderr".Trim()
 
-            if ($exitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($combinedOutput)) {
-                # Tentar extrair session ID e telemetria real do host via session export
+            if ($exitCode -eq 0) {
+                # PROCESS_EXITED comprovado
+                if ([string]::IsNullOrWhiteSpace($combinedOutput)) {
+                    return [pscustomobject]@{
+                        Status               = 'PROOF_ABSENT'
+                        Reason               = 'PROCESS_EXITED_EMPTY_OUTPUT'
+                        ConsultationId       = $consultationId
+                        SessionId            = $parentSession
+                        Agent                = 'engineering-advisor'
+                        ModelRequested       = $reqModel
+                        ModelEffective       = $null
+                        ResponseRef          = $null
+                        RecommendedOption    = $null
+                        Rationale            = "Native process exited with code 0 but produced no output."
+                        Risks                = @()
+                        RejectionReasons     = @()
+                        ActionableNextStep   = $null
+                        ModelTierUsed        = $reqTier
+                        ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                        IsAdvisory           = $true
+                        Authoritative        = $false
+                        FromCache            = $false
+                        ExecutionProofType   = 'PROCESS_EXITED'
+                    }
+                }
+
+                # RESULT_RECEIVED comprovado
                 $targetSessionId = $parentSession
                 if ([string]::IsNullOrWhiteSpace($targetSessionId) -and $combinedOutput -match '(?i)session[:\s]+([a-zA-Z0-9_-]+)') {
                     $targetSessionId = $matches[1]
                 }
 
+                # HOST_EVIDENCE_VERIFIED tentativa
                 $hostEvidence = if (-not [string]::IsNullOrWhiteSpace($targetSessionId)) {
                     Get-OrchestrationSessionHostEvidence -SessionId $targetSessionId -OpencodeBin $opencodeBin
                 } else { $null }
 
-                $effModel = if ($null -ne $hostEvidence -and -not [string]::IsNullOrWhiteSpace($hostEvidence.EffectiveModel)) {
+                $hasHostEvidence = ($null -ne $hostEvidence)
+                $effModel = if ($hasHostEvidence -and -not [string]::IsNullOrWhiteSpace($hostEvidence.EffectiveModel)) {
                     $hostEvidence.EffectiveModel
+                } else { $null }
+
+                $agentMatches = ($hasHostEvidence -and $hostEvidence.Agent -eq 'engineering-advisor')
+                $isFullyProven = ($hasHostEvidence -and $agentMatches -and (-not [string]::IsNullOrWhiteSpace($effModel)))
+
+                if ($isFullyProven) {
+                    # COMPLETED_VERIFIED comprovado
+                    return [pscustomobject]@{
+                        Status               = 'COMPLETED'
+                        Reason               = 'COMPLETED_VERIFIED'
+                        ConsultationId       = $consultationId
+                        SessionId            = $hostEvidence.SessionId
+                        Agent                = 'engineering-advisor'
+                        ModelRequested       = $reqModel
+                        ModelEffective       = $effModel
+                        ResponseRef          = "resp-$consultationId"
+                        RecommendedOption    = $combinedOutput
+                        Rationale            = "Native execution verified with host session evidence, exact agent and effective model."
+                        Risks                = @()
+                        RejectionReasons     = @()
+                        ActionableNextStep   = "Follow recommendation from engineering-advisor."
+                        ModelTierUsed        = $reqTier
+                        ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                        IsAdvisory           = $true
+                        Authoritative        = $false
+                        FromCache            = $false
+                        ExecutionProofType   = 'COMPLETED_VERIFIED'
+                        TokensInput          = $hostEvidence.TokensInput
+                        TokensOutput         = $hostEvidence.TokensOutput
+                        CostUsd              = $hostEvidence.CostUsd
+                    }
                 } else {
-                    $null
-                }
-
-                $proofType = if ($null -ne $effModel) { 'NATIVE_OPENCODE_V2' } else { 'PARTIAL' }
-
-                return [pscustomobject]@{
-                    Status               = 'COMPLETED'
-                    Reason               = 'NATIVE_DISPATCH_EXECUTED'
-                    ConsultationId       = $consultationId
-                    SessionId            = if ($hostEvidence) { $hostEvidence.SessionId } else { $targetSessionId }
-                    Agent                = 'engineering-advisor'
-                    ModelRequested       = $reqModel
-                    ModelEffective       = $effModel
-                    ResponseRef          = "resp-$consultationId"
-                    RecommendedOption    = $combinedOutput
-                    Rationale            = "Native execution via OpenCode V2 engineering-advisor."
-                    Risks                = @()
-                    RejectionReasons     = @()
-                    ActionableNextStep   = "Follow recommendation from engineering-advisor."
-                    ModelTierUsed        = $reqTier
-                    ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
-                    IsAdvisory           = $true
-                    Authoritative        = $false
-                    FromCache            = $false
-                    ExecutionProofType   = $proofType
-                    TokensInput          = if ($hostEvidence) { $hostEvidence.TokensInput } else { 0 }
-                    TokensOutput         = if ($hostEvidence) { $hostEvidence.TokensOutput } else { 0 }
-                    CostUsd              = if ($hostEvidence) { $hostEvidence.CostUsd } else { 0.0 }
+                    # Faltou verificacao completa do host (modelo efetivo ou sessao ausente)
+                    # NUNCA declarar execucao integralmente verificada nem inferir modelo
+                    $proofType = if ($hasHostEvidence) { 'HOST_EVIDENCE_VERIFIED' } else { 'RESULT_RECEIVED' }
+                    return [pscustomobject]@{
+                        Status               = 'PARTIAL_PROOF'
+                        Reason               = 'HOST_EVIDENCE_UNVERIFIED'
+                        ConsultationId       = $consultationId
+                        SessionId            = $targetSessionId
+                        Agent                = 'engineering-advisor'
+                        ModelRequested       = $reqModel
+                        ModelEffective       = $null
+                        ResponseRef          = "resp-$consultationId"
+                        RecommendedOption    = $combinedOutput
+                        Rationale            = "Process exited and text received, but host session evidence could not fully verify effective model or agent."
+                        Risks                = @('Execution unproven on host session store; cannot be cached as verified.')
+                        RejectionReasons     = @()
+                        ActionableNextStep   = "Consider verifying provider route or configuring dedicated session export."
+                        ModelTierUsed        = $reqTier
+                        ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                        IsAdvisory           = $true
+                        Authoritative        = $false
+                        FromCache            = $false
+                        ExecutionProofType   = $proofType
+                        TokensInput          = if ($hostEvidence) { $hostEvidence.TokensInput } else { $null }
+                        TokensOutput         = if ($hostEvidence) { $hostEvidence.TokensOutput } else { $null }
+                        CostUsd              = if ($hostEvidence -and $hostEvidence.CostUsd) { $hostEvidence.CostUsd } else { 'UNKNOWN' }
+                    }
                 }
             } else {
                 return [pscustomobject]@{
@@ -575,15 +651,7 @@ function Invoke-AdvisorConsultation {
         }
     }
 
-    # 2. Check Cache
-    $cacheKey = Get-AdvisorConsultationCacheKey -TaskId $taskId -Signal $signal -Question $question -HeadSha $headSha
-    if ($script:AdvisorConsultationCache.ContainsKey($cacheKey)) {
-        $cached = $script:AdvisorConsultationCache[$cacheKey]
-        $cached.FromCache = $true
-        return $cached
-    }
-
-    # 3. Resolve Model Tier if not provided
+    # 2. Resolve Model Tier if not provided (needed for cache key)
     if ($null -eq $ModelRouterSelection) {
         $routerLib = Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1'
         if (Test-Path -LiteralPath $routerLib) {
@@ -596,6 +664,21 @@ function Invoke-AdvisorConsultation {
     $modelToken = if ($ModelRouterSelection) { $ModelRouterSelection.ModelToken } else { 'MODEL_STRONG' }
     $modelCatalog = if ($ModelRouterSelection) { [string]$ModelRouterSelection.CatalogModel } else { 'openai/gpt-6.1-sol' }
 
+    # Context fingerprint for cache isolation
+    $ctxText = "$contextSummary|$(@($knownEvidence) -join ';')"
+    $ctxBytes = [System.Text.Encoding]::UTF8.GetBytes($ctxText)
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    $ctxHash = [System.BitConverter]::ToString($hasher.ComputeHash($ctxBytes)).Replace('-', '').ToLowerInvariant()
+    $ctxFingerprint = "$($ctxText.Length):$($ctxHash.Substring(0, 16))"
+
+    # 3. Check Cache com chave expandida (considera Task, Signal, Question, Head, Model, Constraints e ContextFingerprint)
+    $cacheKey = Get-AdvisorConsultationCacheKey -TaskId $taskId -Signal $signal -Question $question -HeadSha $headSha -Model $modelCatalog -Constraints $constraints -ContextFingerprint $ctxFingerprint
+    if ($script:AdvisorConsultationCache.ContainsKey($cacheKey)) {
+        $cached = $script:AdvisorConsultationCache[$cacheKey]
+        $cached.FromCache = $true
+        return $cached
+    }
+
     # 4. Invoke Advisor:
     #    (a) AdvisorProbe seam if provided (strictly for harness tests)
     #    (b) NativeExecutor seam if provided
@@ -607,6 +690,9 @@ function Invoke-AdvisorConsultation {
     if ($null -ne $AdvisorProbe) {
         # Strict separation: test probes are executed here only
         $response = & $AdvisorProbe $Request $ModelRouterSelection
+        if ($null -ne $response -and (-not $response.PSObject.Properties['ExecutionProofType'] -or [string]::IsNullOrWhiteSpace($response.ExecutionProofType))) {
+            $response | Add-Member -NotePropertyName ExecutionProofType -NotePropertyValue 'HARNESS_PROBED' -Force
+        }
     } elseif ($null -ne $NativeExecutor) {
         $response = & $NativeExecutor $Request $ModelRouterSelection
     } else {
@@ -649,8 +735,8 @@ function Invoke-AdvisorConsultation {
     $response.Authoritative = $false
     $response.FromCache = $false
 
-    # Store in bounded cache (only completed consultations are cached)
-    if ($response.Status -eq 'COMPLETED') {
+    # Store in bounded cache (APENAS consultas COMPLETED_VERIFIED ou HARNESS_PROBED sao armazenadas)
+    if ($response.Status -eq 'COMPLETED' -and $response.ExecutionProofType -in @('COMPLETED_VERIFIED', 'HARNESS_PROBED')) {
         if ($script:AdvisorConsultationCache.Count -ge 50) {
             $script:AdvisorConsultationCache.Clear()
         }

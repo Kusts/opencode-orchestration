@@ -157,15 +157,16 @@ $results.workloads += [ordered]@{
     model_requested        = "T3 (Capable / Strong)"
     model_effective        = if ($advRes.ModelEffective) { $advRes.ModelEffective } else { "none (dispatch unexecuted)" }
     model_tier             = "T3"
-    tokens_input           = $advTokensIn
-    tokens_output          = $advTokensOut
-    estimated_cost_usd     = $advCost
+    tokens_input           = if ($advRes.Status -eq 'COMPLETED') { $advTokensIn } else { $null }
+    tokens_output          = if ($advRes.Status -eq 'COMPLETED') { $advTokensOut } else { $null }
+    estimated_cost_usd     = if ($advRes.Status -eq 'COMPLETED') { $advCost } else { "UNKNOWN" }
+    cost_status            = if ($advRes.Status -eq 'COMPLETED') { "MEASURED_HOST_EVIDENCE" } else { "UNKNOWN_UNEXECUTED" }
     retries                = 0
     cache_hit              = [bool]$advRes.FromCache
     compliance_verdict     = "COMPLIANT"
     verified_result        = $advRes.Status
     proof_type             = if ($advRes.Status -eq 'COMPLETED') { "RUNTIME_REAL_PASS" } else { "PROOF_ABSENT" }
-    proof_absence_reason   = if ($advRes.Status -eq 'PROOF_ABSENT') { $advRes.Reason } else { $null }
+    proof_absence_reason   = if ($advRes.Status -in @('PROOF_ABSENT', 'PARTIAL_PROOF')) { $advRes.Reason } else { $null }
 }
 
 # 4. Medicao JEV ADVISORY + PLANNER LOOP (Consumo e integracao no plano)
@@ -185,35 +186,49 @@ try {
     $swJev.Stop()
 
     $results.workloads += [ordered]@{
-        workload_id            = "WL-04-JEV-ADVISORY-PLANNER-LOOP"
-        description            = "Planejamento adaptativo com Jev Advisory trigger, execucao e consumo de parecer"
-        execution_strategy     = "ADVISORY_ENRICHED_PLANNING"
-        wall_clock_ms          = [Math]::Round($swJev.Elapsed.TotalMilliseconds, 2)
-        subagents_spawned      = 0
-        model_requested        = "Jev Decide Tool / Planner"
-        model_effective        = "jev-latest"
-        model_tier             = "Advisory"
-        tokens_input           = 150
-        tokens_output          = 30
-        estimated_cost_usd     = 0.0003
-        retries                = 0
-        cache_hit              = $false
-        compliance_verdict     = "COMPLIANT"
-        verified_result        = "DECISION_CONSUMED_IN_PLAN"
-        proof_type             = "CONTROLLED_HARNESS_MEASURED"
+        workload_id             = "WL-04-JEV-ADVISORY-PLANNER-LOOP"
+        description             = "Planejamento adaptativo com Jev Advisory trigger, execucao e consumo de parecer"
+        execution_strategy      = "ADVISORY_ENRICHED_PLANNING"
+        wall_clock_ms           = [Math]::Round($swJev.Elapsed.TotalMilliseconds, 2)
+        subagents_spawned       = 0
+        model_requested         = "Jev Decide Tool / Planner"
+        model_effective         = "jev-latest"
+        model_tier              = "Advisory"
+        tokens_input            = $null
+        tokens_output           = $null
+        simulated_input_tokens  = 150
+        simulated_output_tokens = 30
+        estimated_cost_usd      = "UNKNOWN"
+        cost_status             = "SYNTHETIC_SIMULATION"
+        retries                 = 0
+        cache_hit               = $false
+        compliance_verdict      = "COMPLIANT"
+        verified_result         = "DECISION_CONSUMED_IN_PLAN"
+        proof_type              = "CONTROLLED_HARNESS_SIMULATION"
     }
 } finally {
     [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', $oldKey)
 }
 
 # 5. Agregacao de Custo de Componentes Medidos (Nao extrapola para cost-to-DONE integral)
-$totalTokens = 0
-$totalCost = 0.0
+$measuredTokens = 0
+$measuredCost = 0.0
 $totalMs = 0.0
+$allCostsKnown = $true
+
 foreach ($w in $results.workloads) {
-    $totalTokens += ([int]$w.tokens_input + [int]$w.tokens_output)
-    $totalCost   += [double]$w.estimated_cost_usd
-    $totalMs     += [double]$w.wall_clock_ms
+    if ($null -ne $w.tokens_input -and ($w.tokens_input -is [int])) {
+        $measuredTokens += [int]$w.tokens_input
+    }
+    if ($null -ne $w.tokens_output -and ($w.tokens_output -is [int])) {
+        $measuredTokens += [int]$w.tokens_output
+    }
+    if ($w.estimated_cost_usd -is [double] -or $w.estimated_cost_usd -is [int]) {
+        $measuredCost += [double]$w.estimated_cost_usd
+    } else {
+        $allCostsKnown = $false
+    }
+    $totalMs += [double]$w.wall_clock_ms
 }
 
 $results['aggregate_measured_components'] = [ordered]@{
@@ -221,13 +236,14 @@ $results['aggregate_measured_components'] = [ordered]@{
     status                   = "CONTROLLED_MEASUREMENT_PASS"
     note                     = "Component benchmarks measured with exact evidence; complete autonomous task cost-to-DONE requires continuous multi-turn session trace."
     total_workloads_measured = $results.workloads.Count
-    total_tokens_measured    = $totalTokens
-    total_cost_usd_measured  = [Math]::Round($totalCost, 5)
+    total_tokens_measured    = $measuredTokens
+    total_cost_usd_measured  = if ($allCostsKnown) { [Math]::Round($measuredCost, 5) } else { "UNKNOWN" }
     total_latency_ms         = [Math]::Round($totalMs, 2)
     planner_included         = $true
-    workers_included         = $true
+    workers_included         = $false
     advisor_included         = $true
     jev_included             = $true
+    cost_to_done_claimed     = $false
 }
 
 $jsonOut = ConvertTo-Json -InputObject $results -Depth 10
@@ -242,7 +258,7 @@ if (-not (Test-Path -LiteralPath $outDir -PathType Container)) {
 }
 
 [System.IO.File]::WriteAllText($OutputPath, $jsonOut, [System.Text.Encoding]::UTF8)
-$costVal = $results.aggregate_cost_to_done.total_estimated_cost_usd
-$latVal  = $results.aggregate_cost_to_done.total_latency_ms
+$costVal = $results.aggregate_measured_components.total_cost_usd_measured
+$latVal  = $results.aggregate_measured_components.total_latency_ms
 Write-Host "Medicoes empiricas geradas com sucesso em: $OutputPath"
-Write-Host "Total workloads: $($results.workloads.Count) | Total latencia: $($latVal)ms | Custo total: `$$($costVal)"
+Write-Host "Total workloads: $($results.workloads.Count) | Total latencia: $($latVal)ms | Custo total medido: $costVal"
