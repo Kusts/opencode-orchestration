@@ -420,6 +420,110 @@ Assert-True ($telemetrySummary.first_pass_acceptance_rate -gt 0) "First pass acc
 
 
 
+# 23. Regressao C1: Risco critico ou alto com fatia DIRECT nao pode ser rebaixado
+if (Test-Path -LiteralPath $plannerLib) {
+    $sliceDirectDangerous = New-OrchestrationDeliverySlice `
+        -SliceId 'slice-danger' `
+        -Outcome 'Dangerous credential operation' `
+        -Scope @('Rotate root secret') `
+        -AcceptanceCriteria @($c1) `
+        -RiskLevel 'low' `
+        -ValidationProfile 'DIRECT'
+
+    $descCrit = @{ objective = 'Wipe keys'; risk = 'critical'; delivery_slice = $sliceDirectDangerous }
+    $pCrit = Invoke-OrchestrationPlannerLoop -Descriptor $descCrit
+    Assert-Equal $pCrit.plan.risk_uncertainty.risk 'critical' "PlannerLoop must NOT downgrade critical descriptor risk to low"
+    Assert-Equal $pCrit.plan.validation.level 'L3' "PlannerLoop must preserve L3 validation level for critical descriptor"
+    Assert-True ($pCrit.plan.dispatch_plan.workers -contains 'security-reviewer') "Critical task with DIRECT slice must keep security-reviewer"
+
+    $descHigh = @{ objective = 'High risk migration'; risk = 'high'; delivery_slice = $sliceDirectDangerous }
+    $pHigh = Invoke-OrchestrationPlannerLoop -Descriptor $descHigh
+    Assert-Equal $pHigh.plan.risk_uncertainty.risk 'high' "PlannerLoop must NOT downgrade high descriptor risk to low"
+    Assert-Equal $pHigh.plan.validation.level 'L3' "PlannerLoop must preserve high validation level"
+
+    # Fatia inadmissivel deve alterar action para subdivide
+    $pInadm = Invoke-OrchestrationPlannerLoop -Descriptor $descLarge
+    Assert-Equal $pInadm.plan.dispatch_plan.action 'subdivide' "Inadmissible slice must set dispatch action to subdivide"
+    Assert-True ($pInadm.plan.dispatch_plan.next_action -match 'Subdivide') "Next action must indicate subdivision required"
+}
+
+# 24. Regressao C2 / INV-01: Criterio obrigatorio pendente com opcional aprovado proibe DONE
+$cMandPending = New-OrchestrationAcceptanceCriterion -CriterionId 'AC-MAND-PENDING' -Required $true -Status 'pending'
+$cOptApproved = New-OrchestrationAcceptanceCriterion -CriterionId 'AC-OPT-APPROVED' -Required $false -Status 'verified_pass' -EvidenceRef 'ev-opt'
+$sliceInv01Test = New-OrchestrationDeliverySlice `
+    -SliceId 'slice-inv01-reg' `
+    -Outcome 'Test mandatory pending with optional approved' `
+    -Scope @('Core feature') `
+    -AcceptanceCriteria @($cMandPending, $cOptApproved)
+
+$matInv01Test = Test-OrchestrationSliceMaturity -Slice $sliceInv01Test
+$doneInv01Test = Test-OrchestrationSliceDoneAllowed -Slice $sliceInv01Test
+Assert-True ($matInv01Test.maturity_state -ne 'VALIDATED' -and $matInv01Test.maturity_state -ne 'DONE') "INV-01: Maturity must not be VALIDATED or DONE when mandatory criterion is pending"
+Assert-True (-not $matInv01Test.can_advance_to_done) "INV-01: can_advance_to_done must be false when mandatory criterion is pending"
+Assert-True (-not $doneInv01Test.allowed) "INV-01: Done must be forbidden when mandatory criterion is pending"
+
+# 25. Regressao C3: Subdivisao com 12 escopos e 3 criterios preserva 100% dos escopos
+$sc12Items = 1..12 | ForEach-Object { "Unique scope item $_" }
+$cr3Items = 1..3 | ForEach-Object { New-OrchestrationAcceptanceCriterion -CriterionId "C-R-$_" -Given 'G' -When 'W' -Then 'T' -Oracle 'O' }
+$sliceCase12_3 = New-OrchestrationDeliverySlice -SliceId 'slice-12-3' -Outcome '12 scopes 3 criteria' -Scope $sc12Items -AcceptanceCriteria $cr3Items
+$parts12_3 = Split-OrchestrationDeliverySlice -Slice $sliceCase12_3 -MaxItemsPerSlice 4
+
+$recoveredScopes12 = New-Object System.Collections.ArrayList
+foreach ($p in $parts12_3) {
+    foreach ($sc in $p.scope) {
+        if ($sc -like 'Unique scope item *') { [void]$recoveredScopes12.Add($sc) }
+    }
+}
+Assert-Equal $recoveredScopes12.Count 12 "C3: Subdividing 12 scopes with 3 criteria must preserve all 12 scope items"
+
+# 26. Regressao C3: Subdivisao com limite <= 0 nao causa loop infinito
+$partsLimitZero = Split-OrchestrationDeliverySlice -Slice $sliceCase12_3 -MaxItemsPerSlice 0
+Assert-True ($partsLimitZero.Count -gt 0) "C3: MaxItemsPerSlice=0 must be sanitized and return without infinite loop"
+
+# 27. Regressao C4: Evidencia inexistente em store exigido e rejeitada fail-closed
+$cGhostEv = New-OrchestrationAcceptanceCriterion -CriterionId 'AC-GHOST' -Required $true -Status 'verified_pass' -EvidenceRef 'non-existent-sha256'
+$sliceGhost = New-OrchestrationDeliverySlice -SliceId 'slice-ghost' -Outcome 'Ghost evidence slice' -Scope @('Core') -AcceptanceCriteria @($cGhostEv)
+$matGhost = Test-OrchestrationSliceMaturity -Slice $sliceGhost -RuntimeContext @{ require_evidence_store_validation = $true; mock_evidence_store = @{} }
+Assert-True (-not $matGhost.can_advance_to_done) "C4: Non-existent evidence in store must not advance to done"
+
+# 28. Regressao C5: Deteccao de dependencias circulares multi-fatia
+$sNodeA = New-OrchestrationDeliverySlice -SliceId 'slice-node-A' -Outcome 'Outcome A' -Scope @('A') -Dependencies @('slice-node-B') -AcceptanceCriteria @($c1)
+$sNodeB = New-OrchestrationDeliverySlice -SliceId 'slice-node-B' -Outcome 'Outcome B' -Scope @('B') -Dependencies @('slice-node-A') -AcceptanceCriteria @($c1)
+$depResult = Test-OrchestrationDeliverySliceDependencies -Slices @($sNodeA, $sNodeB)
+Assert-True (-not $depResult.valid) "C5: Cyclic dependencies between multiple slices must be detected and rejected"
+Assert-True ($depResult.cycles.Count -gt 0) "C5: Cycle path must be reported"
+
+# 29. Regressao C6: Persistencia no GoalKernel (next_move.delivery_slice)
+$goalLibPath = Join-Path $ScriptDir 'OrchestrationGoalKernel.ps1'
+if (Test-Path -LiteralPath $goalLibPath) {
+    . $goalLibPath
+    $tempGoalDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gtest_" + [Guid]::NewGuid().ToString('N'))
+    [void](New-Item -ItemType Directory -Path $tempGoalDir -Force)
+    try {
+        $gRecord = (New-OrchestrationGoal -GoalId 'goal-durable-01' -Objective 'Durable goal test' -StoreDir $tempGoalDir).goal
+        $syncedDurable = Sync-OrchestrationDeliverySliceToGoal -Goal $gRecord -Slice $sliceFullyVerified
+        $saveDurableRes = Save-OrchestrationGoal -Goal $syncedDurable -StoreDir $tempGoalDir
+        Assert-True $saveDurableRes.ok "Goal with synced delivery slice must save successfully"
+
+        $reloadedDurable = (Get-OrchestrationGoal -GoalId 'goal-durable-01' -StoreDir $tempGoalDir).goal
+        Assert-Equal $reloadedDurable.next_move.delivery_slice.slice_id 'slice-verified-ok' "Durable delivery slice id must survive disk reload"
+        Assert-Equal $reloadedDurable.next_move.delivery_slice.maturity 'VALIDATED' "Durable delivery slice maturity must survive disk reload"
+    } finally {
+        if (Test-Path -LiteralPath $tempGoalDir) { Remove-Item -LiteralPath $tempGoalDir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# 30. Regressao Telemetria: false_done_count detecta falso DONE
+$sliceFalselyDone = New-OrchestrationDeliverySlice `
+    -SliceId 'slice-falsely-done' `
+    -Outcome 'Fake DONE slice' `
+    -Scope @('Scope') `
+    -AcceptanceCriteria @($cMandPending) `
+    -MaturityState 'DONE'
+
+$telemWithFalseDone = Get-OrchestrationSliceTelemetrySummary -Slices @($sliceFalselyDone)
+Assert-Equal $telemWithFalseDone.false_done_count 1 "Telemetry must accurately report false_done_count for unverified DONE slices"
+
 Write-Host "Total assertions: $script:TotalAssertions"
 Write-Host "Failed assertions: $script:FailedAssertions"
 

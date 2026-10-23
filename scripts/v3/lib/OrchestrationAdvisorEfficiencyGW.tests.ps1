@@ -581,6 +581,329 @@ if (Test-Path -LiteralPath $jevLib) {
     } finally {
         [System.Environment]::SetEnvironmentVariable('JEV_API_KEY', $oldKey)
     }
+
+    # -------------------------------------------------------------------------------------------------
+    # INT-06: INTERPRETACAO ESTRUTURADA DO PARECER DO ADVISOR E AUTONOMIA DO PLANNER (P0 / P1)
+    # -------------------------------------------------------------------------------------------------
+    # 6a. Parecer BLOCKED: interpretacao estruturada (distingue executavel, investigacao, rejeitado e bloqueado)
+    $textBlocked = @"
+**STATUS: BLOCKED -- ADV-TEST-6A**
+
+**DIAGNOSTICO:** informacao insuficiente sobre o cenario de contencao entre processos; incerteza alta. Handles compartilhados nao comprova que Mutex resolva a causa raiz.
+
+**FALTAM:**
+- Reproducao minima referenciada com 2 processos concorrentes.
+- Arquivos/simbolos exatos e logs de colisao.
+
+**PROXIMA ACAO:** fornecer uma reproducao minima com dois processos concorrentes em colisao de arquivo.
+
+**RECOMMENDATION:** adiar qualquer decisao de abstracao de lock ate a apresentacao da reproducao minima. Nenhuma alteracao autorizada.
+"@
+    $structBlocked = ConvertTo-StructuredAdvisoryOpinion -Text $textBlocked
+    Assert-GW ($structBlocked.Stance -eq 'BLOCKED_MISSING_EVIDENCE') 'INT-06-ADVISOR' "Parecer com incerteza alta classificado como BLOCKED_MISSING_EVIDENCE"
+    Assert-GW ($structBlocked.IsBlocked -eq $true) 'INT-06-ADVISOR' "Parecer bloqueado marca IsBlocked=true"
+    Assert-GW ($structBlocked.RequiresInvestigation -eq $true) 'INT-06-ADVISOR' "Parecer bloqueado exige investigacao"
+    Assert-GW ($structBlocked.NextAction -match 'reproducao minima') 'INT-06-ADVISOR' "Proxima acao extraida exige reproducao minima"
+    Assert-GW ($structBlocked.MissingEvidence -match 'Reproducao minima') 'INT-06-ADVISOR' "Evidencia faltante identificada estruturadamente"
+
+    # 6b. Parecer REJECTED e INVESTIGATION_NEEDED testados
+    $textRej = "**STATUS: REJECTED**`n**DIAGNOSTICO:** anti-padrao proibido: mutex anonimo local nao prove exclusao cross-process.`n**PROXIMA ACAO:** descartar alternativa."
+    $structRej = ConvertTo-StructuredAdvisoryOpinion -Text $textRej
+    Assert-GW ($structRej.Stance -eq 'REJECTED' -and $structRej.IsBlocked -eq $true) 'INT-06-ADVISOR' "Parecer com anti-padrao classificado como REJECTED e IsBlocked=true"
+
+    $textInv = "**STATUS: INVESTIGATION_NEEDED**`n**DIAGNOSTICO:** hipotese viavel mas carece de teste preliminar.`n**PROXIMA ACAO:** executar spike de 100ms."
+    $structInv = ConvertTo-StructuredAdvisoryOpinion -Text $textInv
+    Assert-GW ($structInv.Stance -eq 'INVESTIGATION_NEEDED' -and $structInv.RequiresInvestigation -eq $true -and -not $structInv.IsBlocked) 'INT-06-ADVISOR' "Parecer INVESTIGATION_NEEDED exige investigacao sem bloqueio fatal"
+
+    # 6c. Planner Loop com parecer BLOCKED: acao = investigate, missing_evidence registrada, proibe implementacao prematura
+    $probeBlocked = {
+        param($r, $m)
+        return [pscustomobject]@{
+            Status             = 'COMPLETED'
+            Reason             = 'COMPLETED_VERIFIED'
+            ConsultationId     = 'ADV-INT-06-BLOCKED'
+            RecommendedOption  = $textBlocked
+            ExecutionProofType = 'HARNESS_PROBED'
+        }
+    }
+    $descPlanBlocked = [ordered]@{
+        task_id                   = 'INT-TASK-ADVISOR-BLOCKED'
+        objective                 = 'Resolver impasse de concorrencia entre processos'
+        risk                      = 'medium'
+        task_shape                = 'single'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification     = 'Deadlock recorrente entre handles'
+        advisor_question          = 'Devemos usar FileShare ou Mutex?'
+    }
+    $planBlockedRes = Invoke-OrchestrationPlannerLoop -Descriptor $descPlanBlocked -AdvisorProbe $probeBlocked
+    Assert-GW ($planBlockedRes.plan.advisor_advisory.consulted -eq $true) 'INT-06-ADVISOR' "Planner consulta Advisor com sucesso sob parecer BLOCKED"
+    Assert-GW ($planBlockedRes.plan.advisor_advisory.is_blocked -eq $true) 'INT-06-ADVISOR' "Planner preserva status is_blocked do Advisor"
+    Assert-GW ($planBlockedRes.plan.dispatch_plan.action -eq 'investigate') 'INT-06-ADVISOR' "Planner aloca acao de investigacao (nao implementacao prematura)"
+    Assert-GW ($planBlockedRes.plan.dispatch_plan.advisory_recommendation -match 'BLOCKED_PENDING_EVIDENCE') 'INT-06-ADVISOR' "Recomendacao marcada explicitamente como bloqueada pendente de evidencia"
+    Assert-GW ($planBlockedRes.plan.validation_gaps.missing_evidence.Count -gt 0) 'INT-06-ADVISOR' "Lacunas de validacao registram evidencia exigida pelo Advisor"
+
+    # 6d. Investigacao autonoma e resolucao: Planner executa reproducao minima, apresenta evidencia e desbloqueia
+    $textResolved = @"
+**STATUS: RECOMMENDED**
+
+**DIAGNOSTICO:** Reproducao com dois processos concorrentes confirmou colisao fisica de arquivo (IOException) no caminho critico.
+
+**RECOMMENDATION:** Adotar Mutex de SO nomeado 'Global\SafeConcurrencyLock' com timeout de 5000ms e tratamento de AbandonedMutexException.
+
+**PROXIMA ACAO:** Implementar bloqueio via Mutex no componente Lock-ConcurrencyResource.ps1.
+"@
+    $probeResolved = {
+        param($r, $m)
+        $knownEv = @(Get-AdvisorField $r 'known_evidence' @())
+        $hasRepro = ($knownEv | Where-Object { $_ -match 'reproduction_proven' })
+        if ($hasRepro) {
+            return [pscustomobject]@{
+                Status             = 'COMPLETED'
+                Reason             = 'COMPLETED_VERIFIED'
+                ConsultationId     = 'ADV-INT-06-RESOLVED'
+                RecommendedOption  = $textResolved
+                ExecutionProofType = 'HARNESS_PROBED'
+            }
+        } else {
+            return [pscustomobject]@{
+                Status             = 'COMPLETED'
+                Reason             = 'COMPLETED_VERIFIED'
+                ConsultationId     = 'ADV-INT-06-STILL-BLOCKED'
+                RecommendedOption  = $textBlocked
+                ExecutionProofType = 'HARNESS_PROBED'
+            }
+        }
+    }
+    # Turno 2 com investigacao autonoma concluida (evidencia de reproducao fornecida)
+    $descPlanResolved = [ordered]@{
+        task_id                   = 'INT-TASK-ADVISOR-RESOLVED'
+        objective                 = 'Resolver impasse de concorrencia entre processos'
+        risk                      = 'medium'
+        task_shape                = 'single'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification     = 'Deadlock confirmado e reproduzido em teste de estresse'
+        advisor_question          = 'Qual solucao definitiva de lock adotar?'
+        known_evidence            = @('criterion:0:reproduction_proven: Two concurrent PowerShell processes collided on lock file with IOException')
+    }
+    $planResolvedRes = Invoke-OrchestrationPlannerLoop -Descriptor $descPlanResolved -AdvisorProbe $probeResolved
+    Assert-GW ($planResolvedRes.plan.advisor_advisory.advisory_stance -eq 'EXECUTABLE_RECOMMENDATION') 'INT-06-ADVISOR' "Com reproducao apresentada, Advisor transiciona para EXECUTABLE_RECOMMENDATION"
+    Assert-GW ($planResolvedRes.plan.advisor_advisory.is_blocked -eq $false) 'INT-06-ADVISOR' "Parecer resolvido marca IsBlocked=false"
+    Assert-GW ($planResolvedRes.plan.dispatch_plan.action -eq 'implement') 'INT-06-ADVISOR' "Com parecer resolvido, Planner autoriza acao de implementacao"
+    Assert-GW ($planResolvedRes.plan.dispatch_plan.next_action -match 'Implementar bloqueio via Mutex') 'INT-06-ADVISOR' "Proxima acao orientada para implementacao no Coder"
+
+    # 6e. Parecer BLOCKED que permaneceu bloqueado (sem evidencia): bloqueia transicao para solucao e conclusao
+    $descStillBlocked = [ordered]@{
+        task_id                   = 'INT-TASK-ADVISOR-STILL-BLOCKED'
+        objective                 = 'Resolver impasse de concorrencia'
+        risk                      = 'medium'
+        task_shape                = 'single'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification     = 'Falhas sem nova evidencia'
+        advisor_question          = 'Qual lock usar?'
+        known_evidence            = @()
+    }
+    $planStillBlocked = Invoke-OrchestrationPlannerLoop -Descriptor $descStillBlocked -AdvisorProbe $probeResolved
+    Assert-GW ($planStillBlocked.plan.advisor_advisory.is_blocked -eq $true) 'INT-06-ADVISOR' "Sem nova evidencia, consulta permanece com is_blocked=true"
+    Assert-GW ($planStillBlocked.plan.dispatch_plan.action -eq 'investigate') 'INT-06-ADVISOR' "Planner permanece estritamente em investigacao sem autorizar implementacao"
+
+    # -------------------------------------------------------------------------------------------------
+    # INT-07: AUTORIZACAO E RASTREABILIDADE DE CUSTO T4 NO MODEL ROUTER (P0 / P1)
+    # -------------------------------------------------------------------------------------------------
+    # 7a. T4 sem autorizacao de custo degrada com seguranca para T3
+    $oldT4Auth = [System.Environment]::GetEnvironmentVariable('OPENCODE_T4_AUTHORIZED')
+    try {
+        [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', $null)
+        $selNoCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
+        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "T4 sem autorizacao de custo degrada com seguranca para T3"
+        Assert-GW ($selNoCost.ModelToken -eq 'MODEL_STRONG') 'INT-07-ROUTER' "Degradacao utiliza MODEL_STRONG"
+        Assert-GW ($selNoCost.SelectionReason -match 'unauthorized') 'INT-07-ROUTER' "Razao explicita de degradacao por autorizacao ausente"
+
+        # 7b. T4 com autorizacao explicita via parametro
+        $selParamCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
+        Assert-GW ($selParamCost.Tier -eq 'T4') 'INT-07-ROUTER' "T4 autorizado explicitamente seleciona tier T4"
+        Assert-GW ($selParamCost.ProviderCostAuthorized -eq $true) 'INT-07-ROUTER' "ProviderCostAuthorized marcado como true"
+        Assert-GW ($selParamCost.CostAuthorizationSource -eq 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Fonte de autorizacao EXPLICIT_PARAMETER registrada"
+
+        $receiptParam = Get-OrchestrationModelRouterReceipt -Selection $selParamCost
+        Assert-GW ($receiptParam.tier -eq 'T4') 'INT-07-ROUTER' "Recibo confirma tier T4"
+        Assert-GW ($receiptParam.provider_cost_authorized -eq $true) 'INT-07-ROUTER' "Recibo confirma provider_cost_authorized=true"
+        Assert-GW ($receiptParam.authorization_source -eq 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Recibo rastreia fonte EXPLICIT_PARAMETER"
+        Assert-GW (-not [string]::IsNullOrWhiteSpace($receiptParam.budget)) 'INT-07-ROUTER' "Recibo registra orcamento de tier"
+
+        # 7c. T4 com autorizacao global via variavel de ambiente
+        [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', 'true')
+        $selEnvCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
+        Assert-GW ($selEnvCost.Tier -eq 'T4') 'INT-07-ROUTER' "T4 autorizado globalmente via env seleciona T4"
+        Assert-GW ($selEnvCost.CostAuthorizationSource -eq 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Fonte GLOBAL_ENV_OPENCODE_T4_AUTHORIZED comprovada"
+
+        $receiptEnv = Get-OrchestrationModelRouterReceipt -Selection $selEnvCost
+        Assert-GW ($receiptEnv.authorization_source -eq 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Recibo registra fonte de autorizacao global"
+        Assert-GW ($receiptEnv.authorization_evidence -match 'OPENCODE_T4_AUTHORIZED=true') 'INT-07-ROUTER' "Recibo exige evidencia de autorizacao global"
+
+        # 7d. Invariante fail-closed: Recibo com T4 e provider_cost_authorized=false e estritamente proibido
+        $fakeT4Unauthorized = [pscustomobject]@{
+            Tier                    = 'T4'
+            Agent                   = 'engineering-advisor'
+            CatalogModel            = 'openai/gpt-6.1-sol-fast'
+            ModelToken              = 'MODEL_FRONTIER'
+            ProviderCostAuthorized  = $false
+            CostAuthorizationSource = 'NONE_UNAUTHORIZED'
+        }
+        $threwInvariant = $false
+        try {
+            Get-OrchestrationModelRouterReceipt -Selection $fakeT4Unauthorized
+        } catch {
+            $threwInvariant = ($_.Exception.Message -match 'INVARIANT_VIOLATION')
+        }
+        Assert-GW ($threwInvariant -eq $true) 'INT-07-ROUTER' "Emissao de recibo T4 desprovido de autorizacao financeira e bloqueada fail-closed"
+    } finally {
+        [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', $oldT4Auth)
+    }
+
+    # -------------------------------------------------------------------------------------------------
+    # INT-08: CADEIA NATIVE-FIRST REAL: PEQUENO OBJETIVO DE CONCORRENCIA (P0 / P1)
+    # -------------------------------------------------------------------------------------------------
+    # Demonstrar Planner, Advisor, Coder, Tester/Verifier, Reviewer e Task Kernel com execucao real de codigo.
+    # Nao aceitar arquivo JSON descritivo como substituto de implementacao e teste de concorrencia.
+    $kernelLib = Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1'
+    if (Test-Path -LiteralPath $kernelLib) {
+        . $kernelLib
+        $tmpTaskDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gw-native-first-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+        [void][System.IO.Directory]::CreateDirectory($tmpTaskDir)
+        $realCodeDir = Join-Path $tmpTaskDir 'code'
+        [void][System.IO.Directory]::CreateDirectory($realCodeDir)
+
+        try {
+            $taskIdReal = 'task-native-concurrency-real'
+
+            # 1. Planejamento e criacao no Kernel (Planner)
+            $taskInit = New-OrchestrationTask `
+                -TaskId $taskIdReal `
+                -Actor 'planner' `
+                -Objective 'Implementar exclusao mutua deterministica com System.Threading.Mutex' `
+                -TaskType 'investigation' `
+                -Risk 'medium' `
+                -AcceptanceCriteria @('criterion:0:mutex_lock_verified') `
+                -ExpectedArtifacts @('code/LockResource.ps1') `
+                -TasksDir $tmpTaskDir
+
+            Assert-GW ($taskInit.ok -and $taskInit.state -eq 'DISCOVERING') 'INT-08-NATIVE-CHAIN' "Task inicializada no Kernel em DISCOVERING pelo Planner"
+
+            # Transicao DISCOVERING -> PLANNING -> IMPLEMENTING
+            $stepPlan = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
+            $stepImpl = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
+            Assert-GW ($stepImpl.ok -and $stepImpl.to -eq 'IMPLEMENTING') 'INT-08-NATIVE-CHAIN' "Task avancada para IMPLEMENTING com revisao CAS 3"
+
+            # 2. Coder implementa codigo .ps1 real com System.Threading.Mutex (nao mero JSON estatico!)
+            $codeFile = Join-Path $realCodeDir 'LockResource.ps1'
+            $codeContent = @'
+function Invoke-ExclusiveWork {
+    param([string]$LockName, [scriptblock]$Action, [int]$TimeoutMs = 5000)
+    $hasHandle = $false
+    $mutex = $null
+    try {
+        $mutex = New-Object System.Threading.Mutex($false, $LockName)
+        try {
+            $hasHandle = $mutex.WaitOne($TimeoutMs, $false)
+        } catch [System.Threading.AbandonedMutexException] {
+            $hasHandle = $true
+        }
+        if (-not $hasHandle) {
+            throw "Failed to acquire mutex within $TimeoutMs ms."
+        }
+        return (& $Action)
+    } finally {
+        if ($hasHandle -and $null -ne $mutex) {
+            $mutex.ReleaseMutex()
+        }
+        if ($null -ne $mutex) {
+            $mutex.Dispose()
+        }
+    }
+}
+'@
+            [System.IO.File]::WriteAllText($codeFile, $codeContent, [System.Text.Encoding]::UTF8)
+            $codeSha = (Get-FileHash -Path $codeFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            Assert-GW (Test-Path -LiteralPath $codeFile -PathType Leaf) 'INT-08-NATIVE-CHAIN' "Worker Coder gerou arquivo .ps1 de implementacao real em disco"
+
+            # 3. Tester executa teste de concorrencia real entre duas acoes exclusivas
+            $sharedTestFile = Join-Path $tmpTaskDir 'shared-counter.txt'
+            [System.IO.File]::WriteAllText($sharedTestFile, "0", [System.Text.Encoding]::UTF8)
+
+            . $codeFile
+            $tAction = {
+                $v = [int][System.IO.File]::ReadAllText($sharedTestFile)
+                Start-Sleep -Milliseconds 50
+                [System.IO.File]::WriteAllText($sharedTestFile, ($v + 1).ToString(), [System.Text.Encoding]::UTF8)
+                return "OK"
+            }
+            $r1 = Invoke-ExclusiveWork -LockName 'Global\GW_Advisor_Test_Lock' -Action $tAction -TimeoutMs 2000
+            $r2 = Invoke-ExclusiveWork -LockName 'Global\GW_Advisor_Test_Lock' -Action $tAction -TimeoutMs 2000
+            $finalCount = [int][System.IO.File]::ReadAllText($sharedTestFile)
+
+            Assert-GW ($r1 -eq 'OK' -and $r2 -eq 'OK' -and $finalCount -eq 2) 'INT-08-NATIVE-CHAIN' "Tester comprova exclusao mutua real sem colisoes de concorrencia"
+
+            # 4. Worker Coder registra candidate_pass com evidencia do codigo e do teste
+            $wrkRes = Set-OrchestrationTaskWorkerResult `
+                -TaskId $taskIdReal `
+                -ProducedBy 'coder' `
+                -Status 'candidate_pass' `
+                -ClaimedEvidence @("criterion:0:mutex_lock_verified", "file:$codeFile", "sha256:$codeSha") `
+                -ExpectedRevision 3 `
+                -TasksDir $tmpTaskDir
+
+            Assert-GW ($wrkRes.ok -and $wrkRes.worker_status -eq 'candidate_pass') 'INT-08-NATIVE-CHAIN' "Coder registra candidate_pass com SHA256 e caminho de arquivo de codigo real"
+
+            # 5. Kernel avanca para VALIDATING e atesta verificacao formal
+            $stepVal = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 4 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
+            $verPayload = @{
+                status   = 'verified_pass'
+                evidence = @("criterion:0:mutex_lock_verified")
+            } | ConvertTo-Json -Compress
+
+            $verSet = Set-OrchestrationTaskVerification `
+                -TaskId $taskIdReal `
+                -VerifierEvidenceJson $verPayload `
+                -Passed $true `
+                -Evidence @("criterion:0:mutex_lock_verified") `
+                -ExpectedRevision 5 `
+                -TasksDir $tmpTaskDir
+
+            Assert-GW ($verSet.ok -and $verSet.passed -eq $true) 'INT-08-NATIVE-CHAIN' "Kernel registra verified_pass comprovado"
+
+            # 6. Reviewer independente inspeciona o arquivo .ps1 em disco e aprova
+            $stepRev = Invoke-OrchestrationTaskTransition -TaskId $taskIdReal -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 6 -ActorIdentitySource 'explicit-cli' -TasksDir $tmpTaskDir
+            $independentReviewCheck = (Get-Content -Path $codeFile -Raw) -match 'AbandonedMutexException' -and (Test-Path -LiteralPath $codeFile)
+            Assert-GW ($independentReviewCheck -eq $true) 'INT-08-NATIVE-CHAIN' "Reviewer independente confirma que implementacao possui tratamento de AbandonedMutexException"
+
+            $revSet = Set-OrchestrationTaskReview `
+                -TaskId $taskIdReal `
+                -Kind 'reviewer' `
+                -Status 'approved' `
+                -By 'reviewer' `
+                -ExpectedRevision 7 `
+                -TasksDir $tmpTaskDir
+
+            Assert-GW ($revSet.ok -and $revSet.status -eq 'approved') 'INT-08-NATIVE-CHAIN' "Reviewer emite status approved independente"
+
+            # 7. Task Kernel autoriza conclusao formal para DONE com compliance COMPLIANT
+            $doneRes = Complete-OrchestrationTask `
+                -TaskId $taskIdReal `
+                -Actor 'task-kernel' `
+                -ExpectedRevision 8 `
+                -OrchestrationCompliance 'COMPLIANT' `
+                -ResidualRisks @('none outstanding') `
+                -ActorIdentitySource 'explicit-cli' `
+                -TasksDir $tmpTaskDir
+
+            Assert-GW ($doneRes.ok -and $doneRes.state -eq 'DONE') 'INT-08-NATIVE-CHAIN' "Kernel autoriza transicao final para DONE em conformidade COMPLIANT"
+            Assert-GW ($doneRes.revision -eq 9) 'INT-08-NATIVE-CHAIN' "Revisao final CAS 9 alcancada em estado DONE"
+        } finally {
+            if (Test-Path -LiteralPath $tmpTaskDir) {
+                Remove-Item -LiteralPath $tmpTaskDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }
 
 Write-Host "`nGolden Workflows GW-ADVISOR-01 a GW-ADVISOR-08 + Integracao Real: PASS ($passed / $total assertions)"

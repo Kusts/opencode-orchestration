@@ -132,6 +132,7 @@ function Invoke-OrchestrationPlannerLoop {
         if((Read-PL $stageOverrides 'reuse' $null)){ $reuse=Read-PL $stageOverrides 'reuse' $reuse }
         $simple=Unavailable-PL 'simplicity-library-unavailable';$simpLib=Join-Path $PSScriptRoot 'OrchestrationSimplicityPolicy.ps1';if(Test-Path -LiteralPath $simpLib){try{. $simpLib;$simple=Build-OrchestrationWorkerContractFields -Descriptor $d -Policy (Read-PL $o 'simplicity_policy' $null);if($null -eq $simple -or $simple -isnot [pscustomobject]){throw 'bad simplicity shape'}}catch{$simple=Unavailable-PL 'simplicity-stage-failed'}};if((Read-PL $stageOverrides 'simplicity' $null)){$simple=Read-PL $stageOverrides 'simplicity' $simple}
         $risk=[string](Read-PL $d 'risk' 'medium');if($risk -notin @('low','medium','high','critical')){$risk='unknown'}
+        $descRisk=$risk
         $deliverySlicePlan=$null
         $sliceObj=Read-PL $d 'delivery_slice' (Read-PL $o 'delivery_slice' $null)
         if($null -ne $sliceObj){
@@ -141,12 +142,15 @@ function Invoke-OrchestrationPlannerLoop {
                     . $sliceLib
                     $adm=Test-OrchestrationDeliverySliceAdmissibility -Slice $sliceObj
                     $valProfile=Safe-PL (Read-PL $sliceObj 'validation_profile' '') 16
+                    $sliceRisk=Safe-PL (Read-PL $sliceObj 'risk_level' '') 16
                     if($valProfile -eq 'DIRECT'){
-                        $risk='low'
-                        $level='L1'
-                        $roles=@('coder')
-                    }elseif($valProfile -eq 'HIGH_RISK'){
-                        $risk='high'
+                        if($descRisk -eq 'low'){
+                            $risk='low'
+                            $level='L1'
+                            $roles=@('coder')
+                        }
+                    }elseif($valProfile -eq 'HIGH_RISK' -or $sliceRisk -in @('high','critical')){
+                        if($descRisk -ne 'critical'){$risk='high'}
                         $level='L3'
                         $roles=@('coder','tester','reviewer','security-reviewer')
                     }
@@ -169,7 +173,7 @@ function Invoke-OrchestrationPlannerLoop {
         $completionOverride=Read-PL $stageOverrides 'complete_requirements' $null;if($null -ne $completionOverride -and ($completionOverride -is [pscustomobject] -or $completionOverride -is [System.Collections.IDictionary])){$completion=$completionOverride}
         $vOverride=Read-PL $stageOverrides 'validation' $null;if($null -ne $vOverride -and ($vOverride -is [pscustomobject] -or $vOverride -is [System.Collections.IDictionary])){if([string](Read-PL $vOverride 'level' '') -in @('L0','L1','L2','L3') -and $null -ne (Read-PL $vOverride 'required_roles' $null)){$level=[string](Read-PL $vOverride 'level' 'L3');$roles=@((Read-PL $vOverride 'required_roles' @()) | ForEach-Object {Safe-PL $_ 64});$validation=$vOverride}else{$validation=Unavailable-PL 'malformed-stage-result';$level='L3';$roles=@('coder','tester','reviewer','security-reviewer');$completion=Unavailable-PL 'malformed-stage-result'}}
         if($null -ne $deliverySlicePlan){
-            if($deliverySlicePlan.validation_profile -eq 'DIRECT'){
+            if($deliverySlicePlan.validation_profile -eq 'DIRECT' -and $risk -eq 'low'){
                 $level='L1'
                 $roles=@('coder')
                 if($validation -is [pscustomobject]){$validation.level='L1';$validation.required_roles=@('coder')}
@@ -186,6 +190,17 @@ function Invoke-OrchestrationPlannerLoop {
         $workers=@('coder');if($nontrivial){$workers=@('coder','tester');if($level -in @('L2','L3')){$workers+=@('reviewer')};if($level -eq 'L3'){$workers+=@('security-reviewer')}}
         if(-not $budgetAvailable){$workers=@('coder');$parallel=$false}
         $dispatch=[ordered]@{workers=@($workers | Select-Object -Unique);parallel_ok=[bool]$parallel;parallel_rationale=$(if($parallel){'Independent ownership, bounded validation budget, latency benefit, no shared state, synthesis affordable.'}else{'Sequential/minimum route: parallel prerequisites not all proven.'});separation_rationale=(Safe-PL (Read-PL $d 'separation_rationale' '') 160);escalations=@()}
+        if($null -ne $deliverySlicePlan -and -not $deliverySlicePlan.admissible){
+            if($deliverySlicePlan.requires_subdivision){
+                $dispatch['action']='subdivide'
+                $dispatch['next_action']=Safe-PL ("Subdivide slice '" + $deliverySlicePlan.slice_id + "' into verifiable subsets before implementation") 160
+                $dispatch.escalations+=@([pscustomobject]@{type='slice-inadmissible-subdivision-required';rationale=Safe-PL ($deliverySlicePlan.reasons -join '; ') 200})
+            }else{
+                $dispatch['action']='blocked'
+                $dispatch['next_action']=Safe-PL ("Resolve slice admissibility errors: " + ($deliverySlicePlan.reasons -join '; ')) 160
+                $dispatch.escalations+=@([pscustomobject]@{type='slice-inadmissible-contract-error';rationale=Safe-PL ($deliverySlicePlan.reasons -join '; ') 200})
+            }
+        }
         $workerTiers=[ordered]@{}
         $mrLib=Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1'
         if(Test-Path -LiteralPath $mrLib){try{. $mrLib;foreach($w in @($dispatch.workers)){$sel=Resolve-OrchestrationModelSelection -AgentName $w -Risk $risk -Complexity $(if($nontrivial){'complex'}else{'simple'});$workerTiers[$w]=$sel.Tier}}catch{}}
@@ -233,6 +248,7 @@ function Invoke-OrchestrationPlannerLoop {
             }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
         $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}
+        $advisorMissingEvidence = @()
         $advLib=Join-Path $PSScriptRoot 'OrchestrationAdvisorEscalation.ps1'
         $advSignal=[string](Read-PL $d 'advisor_escalation_signal' '')
         if(-not [string]::IsNullOrWhiteSpace($advSignal) -and (Test-Path -LiteralPath $advLib)){
@@ -246,7 +262,7 @@ function Invoke-OrchestrationPlannerLoop {
                     context_summary=$objectiveForState;
                     alternatives_evaluated=@((Read-PL $d 'alternatives' @()));
                     constraints=@((Read-PL $d 'constraints' @()));
-                    known_evidence=@((Read-PL $d 'evidence' @()));
+                    known_evidence=@((Read-PL $d 'known_evidence' (Read-PL $d 'evidence' @())));
                     head_sha=[string](Read-PL $d 'head_sha' '');
                     disable_native=[bool](Read-PL $d 'disable_native_advisor' (Read-PL $o 'disable_native_advisor' $false))
                 }
@@ -258,10 +274,21 @@ function Invoke-OrchestrationPlannerLoop {
                     $recText=[string](Read-PL $advResp 'RecommendedOption' '')
                     $actText=[string](Read-PL $advResp 'ActionableNextStep' '')
                     $isConsulted=($advResp.Status -in @('COMPLETED', 'PARTIAL_PROOF') -and -not [string]::IsNullOrWhiteSpace($recText))
+                    $advStance = if ($advResp.AdvisoryStance) { [string]$advResp.AdvisoryStance } else { 'EXECUTABLE_RECOMMENDATION' }
+                    $isAdvBlocked = [bool](Read-PL $advResp 'IsBlocked' ($advStance -in @('BLOCKED_MISSING_EVIDENCE', 'REJECTED')))
+                    $requiresInv = [bool](Read-PL $advResp 'RequiresInvestigation' ($advStance -in @('BLOCKED_MISSING_EVIDENCE', 'INVESTIGATION_NEEDED')))
+                    $missingEv = [string](Read-PL $advResp 'MissingEvidence' '')
+                    $diagText = [string](Read-PL $advResp 'Diagnosis' '')
+
                     $advisorAdvisory=[ordered]@{
                         consulted=$isConsulted;
                         status=[string]$advResp.Status;
                         reason=[string](Read-PL $advResp 'Reason' '');
+                        advisory_stance=$advStance;
+                        is_blocked=$isAdvBlocked;
+                        requires_investigation=$requiresInv;
+                        missing_evidence=$missingEv;
+                        diagnosis=$diagText;
                         consultation_id=[string]$advResp.ConsultationId;
                         session_id=[string](Read-PL $advResp 'SessionId' '');
                         agent=$(if (-not [string]::IsNullOrWhiteSpace([string]$advResp.Agent)) { [string]$advResp.Agent } else { $null });
@@ -277,12 +304,32 @@ function Invoke-OrchestrationPlannerLoop {
                         recommendation_only=$true
                     }
                     if($isConsulted -and -not [string]::IsNullOrWhiteSpace($actText)){
-                        $dispatch['next_action']=Safe-PL $actText 160
-                        $dispatch['advisory_recommendation']=Safe-PL $recText 160
-                        $dispatch.escalations+=@([pscustomobject]@{
-                            type='advisor-guidance';
-                            rationale=Safe-PL "Advisor recommended: $recText | Next action: $actText" 200
-                        })
+                        if ($dispatch['action'] -in @('subdivide', 'blocked')) {
+                            $dispatch['advisory_recommendation']=Safe-PL $recText 160
+                            $dispatch.escalations+=@([pscustomobject]@{
+                                type='advisor-guidance-inadmissible-slice-preserved';
+                                rationale=Safe-PL "Advisor recommended: $recText | Slice remains $($dispatch['action']) pending resolution" 200
+                            })
+                        } elseif ($isAdvBlocked -or $requiresInv) {
+                            $dispatch['action']='investigate'
+                            $dispatch['next_action']=Safe-PL $actText 160
+                            $dispatch['advisory_recommendation']=Safe-PL ("BLOCKED_PENDING_EVIDENCE: " + $recText) 160
+                            $dispatch.escalations+=@([pscustomobject]@{
+                                type='advisor-blocked-investigation-required';
+                                rationale=Safe-PL "Advisor returned $advStance. Investigation required: $actText" 200
+                            })
+                            if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
+                                $advisorMissingEvidence += @("ADVISORY_PENDING: " + (Safe-PL $missingEv 120))
+                            }
+                        } else {
+                            $dispatch['action']='implement'
+                            $dispatch['next_action']=Safe-PL $actText 160
+                            $dispatch['advisory_recommendation']=Safe-PL $recText 160
+                            $dispatch.escalations+=@([pscustomobject]@{
+                                type='advisor-guidance';
+                                rationale=Safe-PL "Advisor recommended: $recText | Next action: $actText" 200
+                            })
+                        }
                     }
                 }
             }catch{
@@ -291,7 +338,8 @@ function Invoke-OrchestrationPlannerLoop {
         }
         $missing=@($roles)
         if($invalidDescriptor){$level='L2';$roles=@('coder','tester','reviewer');$completion=Unavailable-PL 'invalid-descriptor-conservative';$mode=[pscustomobject]@{mode='C';rationale='Invalid descriptor; conservative fallback.'};$workers=@('coder');$parallel=$false;$validation=[pscustomobject]@{status='unavailable';level='L2';required_roles=$roles};$dispatch.workers=$workers;$dispatch.parallel_ok=$false;$dispatch.escalations=@()}
-        $plan=[ordered]@{frame=$frame;reuse=$reuse;simplicity=[pscustomobject]@{status='ok';contract=$simple};risk_uncertainty=[ordered]@{risk=$risk;uncertainty=$uncertainty};execution_mode=$mode;budget_reservation=$budget;dispatch_plan=$dispatch;validation=[pscustomobject]@{status=$validation.status;level=$level;required_roles=$roles};validation_gaps=[ordered]@{missing_roles=$roles;missing_evidence=@()};complete_requirements=$completion;jev_triggers=$jev;jev_advisory=[ordered]@{authoritative=$false;kernel_authority='planner/kernel';recommendation_only=$true};jev_advisory_result=$jevAdvisory;advisor_advisory=$advisorAdvisory;delivery_slice=$deliverySlicePlan;stop_condition=(Safe-PL (Read-PL $d 'stop_condition' 'Stop when sufficient evidence supports the current decision; do not expand scope.') 300);generated_at=(Safe-PL $stamp 80);timestamp_note=$timestampNote}
+        $allMissingEvidence = @($advisorMissingEvidence)
+        $plan=[ordered]@{frame=$frame;reuse=$reuse;simplicity=[pscustomobject]@{status='ok';contract=$simple};risk_uncertainty=[ordered]@{risk=$risk;uncertainty=$uncertainty};execution_mode=$mode;budget_reservation=$budget;dispatch_plan=$dispatch;validation=[pscustomobject]@{status=$validation.status;level=$level;required_roles=$roles};validation_gaps=[ordered]@{missing_roles=$roles;missing_evidence=$allMissingEvidence};complete_requirements=$completion;jev_triggers=$jev;jev_advisory=[ordered]@{authoritative=$false;kernel_authority='planner/kernel';recommendation_only=$true};jev_advisory_result=$jevAdvisory;advisor_advisory=$advisorAdvisory;delivery_slice=$deliverySlicePlan;stop_condition=(Safe-PL (Read-PL $d 'stop_condition' 'Stop when sufficient evidence supports the current decision; do not expand scope.') 300);generated_at=(Safe-PL $stamp 80);timestamp_note=$timestampNote}
         $plan=Clean-PL $plan
         $json=ConvertTo-Json -InputObject $plan -Depth 16 -Compress
         if([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192){$plan.reuse=Unavailable-PL 'discarded-plan-size';$plan.simplicity=[pscustomobject]@{status='unavailable';reason='discarded-plan-size'};$plan.jev_triggers=Unavailable-PL 'discarded-plan-size';$plan.jev_advisory_result=JevNotConsulted-PL 'discarded-plan-size';$plan.validation_gaps.missing_evidence=@();$json=ConvertTo-Json -InputObject $plan -Depth 12 -Compress}

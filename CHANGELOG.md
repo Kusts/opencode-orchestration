@@ -6,6 +6,28 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Fechamento e Correções Formais das Frentes Native-First e Workflow Efficiency (PR #151, 2026-10-23)**:
+  - **P0 — Resolução da Contradição do Piloto e Interpretação Estruturada do Advisor:**
+    - Diagnóstico da causa-raiz: `Invoke-AdvisorConsultation` avaliava apenas código de saída do processo e outcome da sessão, despejando a saída textual bruta em `RecommendedOption` mesmo quando o Advisor emitia explicitamente `STATUS: BLOCKED` (exigindo reprodução mínima com dois processos concorrentes). O Planner, por sua vez, enxergava `Status == COMPLETED` e transicionava imediatamente para `IMPLEMENTING`, resultando em worker `coder` emitindo um arquivo JSON declarativo citando o parecer bloqueado e terminando em falso `DONE`.
+    - Implementação de `ConvertTo-StructuredAdvisoryOpinion` em `scripts/v3/lib/OrchestrationAdvisorEscalation.ps1`, distinguindo com precisão as 4 posturas estruturadas (`EXECUTABLE_RECOMMENDATION`, `INVESTIGATION_NEEDED`, `REJECTED`, `BLOCKED_MISSING_EVIDENCE`) e extraindo campos estruturados (`Diagnosis`, `MissingEvidence`, `NextAction`, `RecommendedOption`, `RollbackPlan`).
+    - Integração no `Invoke-OrchestrationPlannerLoop`: diante de parecer `is_blocked = true` ou `requires_investigation = true`, o Planner aloca ação `investigate`, preenche `validation_gaps.missing_evidence` e orienta `next_action` para a reprodução exigida pelo parecer, impedindo avanço prematuro para implementação.
+    - Autonomia investigativa: o Planner pode investigar autonomamente e alimentar `known_evidence` na re-escalação do Advisor até alcançar `EXECUTABLE_RECOMMENDATION`, sem necessidade de intervenção manual para cada passo.
+  - **P0 — Rastreabilidade e Autorização Efetiva de Custo do Modelo (T4):**
+    - Diagnóstico: o recibo de model routing anterior emitia `"provider_cost_authorized": false` sob tier `"T4"`.
+    - Implementado rastreamento rigoroso em `Resolve-CatalogModel` e `Resolve-OrchestrationModelSelection`: captura da fonte efetiva (`EXPLICIT_PARAMETER` ou `GLOBAL_ENV_OPENCODE_T4_AUTHORIZED`), da evidência de autorização e do orçamento do tier (`standard_t4_budget`).
+    - Invariante fail-closed em `Get-OrchestrationModelRouterReceipt`: lançamento de erro estruturado `INVARIANT_VIOLATION` caso um recibo para tier T4 seja requisitado sem autorização financeira comprovada (`provider_cost_authorized == true`).
+  - **P0 — Verificação Real da Cadeia Native-First (Workers e Código Executável):**
+    - Separação e comprovação rigorosa de cada ator da cadeia: Planner (`DISCOVERING` -> `PLANNING`), Advisor (pareceres estruturados turn 1 `BLOCKED` -> turn 2 `EXECUTABLE`), Coder, Tester, Reviewer e Task Kernel.
+    - Rejeição formal de arquivos JSON descritivos como substituto de implementação de concorrência: o worker Coder gera arquivo de código real em disco (`evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1`, SHA256 `f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba`) implementando exclusão mútua interprocessos com `System.Threading.Mutex` e tratamento de `AbandonedMutexException`.
+    - Execução de teste de concorrência real serializando duas execuções concorrentes exclusivas sobre contador em disco compartilhado (`shared_counter == 2`).
+    - Revisão independente e verificação formal no Task Kernel até conclusão em `DONE` (rev 9) com `COMPLIANT`.
+  - **P1 — Testes Focados:**
+    - Suíte de integração `OrchestrationAdvisorEfficiencyGW.tests.ps1` expandida com cenários dedicados:
+      - `INT-06-ADVISOR`: Parecer `BLOCKED` seguido de investigação autônoma e resolução para `EXECUTABLE_RECOMMENDATION`; e validação de parecer que permanece bloqueado retendo o estado de investigação.
+      - `INT-07-ROUTER`: Degradação segura para T3 na ausência de autorização financeira; autorização explícita via parâmetro e via ambiente global (`$env:OPENCODE_T4_AUTHORIZED`); e bloqueio fail-closed de recibo T4 desautorizado.
+      - `INT-08-NATIVE-CHAIN`: Execução real completa de código em disco, teste de concorrência, candidato do coder com SHA256, verificação formal e aprovação independente do reviewer.
+    - Suítes unitárias `OrchestrationAdvisorEscalation.tests.ps1` (28/28 PASS), `OrchestrationPlannerLoop.tests.ps1` (41/41 PASS), `OrchestrationModelRouter.tests.ps1` (50/50 PASS) e Golden Workflows integrados (139/139 assertions PASS).
+
 - **Fechamento e Validação Produtiva do Workflow Adaptativo no OpenCode V2 (PR #151, 2026-10-23)**:
   - **P0 — Ligação Padrão Planner -> Advisor sem Mocks:**
     - `Invoke-AdvisorConsultation` conectado diretamente ao executor nativo OpenCode V2 por padrão no fluxo produtivo normal quando nenhum probe ou executor for fornecido manualmente, preservando a autoridade do Task Kernel.

@@ -97,6 +97,124 @@ function Test-AdvisorEscalationSignal {
     }
 }
 
+function ConvertTo-StructuredAdvisoryOpinion {
+    <#
+    .SYNOPSIS
+        Parses advisory text into a structured opinion object.
+    .DESCRIPTION
+        Distinguishes:
+        - EXECUTABLE_RECOMMENDATION: Concrete, validated actionable recommendation ready for implementation.
+        - INVESTIGATION_NEEDED: Premature to choose; reproduction or further investigation required.
+        - REJECTED: Proposed direction or anti-pattern rejected.
+        - BLOCKED_MISSING_EVIDENCE: Blocked due to lack of evidence, reproduction, or necessary data.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Text = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return [pscustomobject]@{
+            Stance                 = 'BLOCKED_MISSING_EVIDENCE'
+            IsBlocked              = $true
+            RequiresInvestigation  = $true
+            Diagnosis              = 'No advice text received or empty consultation.'
+            MissingEvidence        = 'Consultation response text is missing.'
+            NextAction             = 'Provide context and query to engineering-advisor.'
+            RecommendedOption      = $null
+            RollbackPlan           = 'Maintain current state; do not make changes.'
+            RawText                = ''
+        }
+    }
+
+    $raw = $Text.Trim()
+    $stance = 'EXECUTABLE_RECOMMENDATION'
+
+    # Stance evaluation
+    if ($raw -match '(?i)\b(?:STATUS:\s*BLOCKED|\*\*STATUS:\s*BLOCKED|STATUS\s*:\s*BLOCKED)\b' -or `
+        $raw -match '(?i)informação insuficiente' -or `
+        $raw -match '(?i)incerteza alta' -or `
+        $raw -match '(?i)não escolher ainda' -or `
+        $raw -match '(?i)bloqueio por falta de evidência') {
+        $stance = 'BLOCKED_MISSING_EVIDENCE'
+    } elseif ($raw -match '(?i)\b(?:STATUS:\s*INVESTIGATION_NEEDED|\*\*STATUS:\s*INVESTIGATION_NEEDED|investigação necessária)\b' -or `
+              $raw -match '(?i)fornecer uma reprodução mínima' -or `
+              $raw -match '(?i)reproduzir antes de decidir') {
+        $stance = 'INVESTIGATION_NEEDED'
+    } elseif ($raw -match '(?i)\b(?:STATUS:\s*REJECTED|\*\*STATUS:\s*REJECTED|parecer rejeitado|anti-padrão proibido)\b') {
+        $stance = 'REJECTED'
+    } else {
+        $stance = 'EXECUTABLE_RECOMMENDATION'
+    }
+
+    $isBlocked = ($stance -in @('BLOCKED_MISSING_EVIDENCE', 'REJECTED'))
+    $requiresInv = ($stance -in @('BLOCKED_MISSING_EVIDENCE', 'INVESTIGATION_NEEDED'))
+
+    # Extract Diagnosis
+    $diag = ''
+    if ($raw -match '(?i)(?:\*\*DIAGN[\p{L}\w]?STICO:\*\*|DIAGN[\p{L}\w]?STICO:|\*\*DIAGNOSIS:\*\*|DIAGNOSIS:)\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)') {
+        $diag = $matches[1].Trim()
+    }
+
+    # Extract Missing Evidence
+    $missingEv = ''
+    if ($raw -match '(?i)(?:\*\*FALTAM:\*\*|FALTAM:|Evid[\p{L}\w]{1,2}ncia necess[\p{L}\w]{1,2}ria:|\*\*Evid[\p{L}\w]{1,2}ncia necess[\p{L}\w]{1,2}ria:\*\*|\*\*MISSING:\*\*|MISSING:)\s*([\s\S]*?)(?=\n\s*\*\*[A-Za-z0-9_ ]+:|\Z)') {
+        $missingEv = $matches[1].Trim()
+    }
+
+    # Extract Next Action
+    $nextAct = ''
+    if ($raw -match '(?i)(?:\*\*PR[\p{L}\w]?XIMA\s+A[\p{L}\w]{1,2}O:\*\*|PR[\p{L}\w]?XIMA\s+A[\p{L}\w]{1,2}O:|\*\*UMA\s+pr[\p{L}\w]?xima\s+a[\p{L}\w]{1,2}o:\*\*|UMA\s+pr[\p{L}\w]?xima\s+a[\p{L}\w]{1,2}o:|\*\*NEXT ACTION:\*\*|NEXT ACTION:)\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)') {
+        $nextAct = $matches[1].Trim()
+    }
+
+    # Extract Recommendation
+    $rec = ''
+    if ($raw -match '(?i)(?:\*\*RECOMMENDATION:\*\*|\*\*RECOMENDA[\p{L}\w]{1,2}O:\*\*|RECOMMENDATION:|RECOMENDA[\p{L}\w]{1,2}O:)\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)') {
+        $rec = $matches[1].Trim()
+    }
+
+    # Extract Rollback
+    $rollback = ''
+    if ($raw -match '(?i)(?:\*\*Rollback:\*\*|Rollback:|\*\*ROLLBACK:\*\*)\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)') {
+        $rollback = $matches[1].Trim()
+    }
+
+    # Fallbacks
+    if ([string]::IsNullOrWhiteSpace($nextAct)) {
+        if ($isBlocked -or $requiresInv) {
+            $nextAct = if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
+                $firstLine = ($missingEv -split "`r?`n")[0].Trim().TrimStart('-').Trim()
+                "Investigate and collect missing evidence: $firstLine"
+            } else {
+                "Provide minimal reproduction and required evidence before choosing mechanism."
+            }
+        } else {
+            $nextAct = if (-not [string]::IsNullOrWhiteSpace($rec)) { $rec } else { "Follow executable recommendation." }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($rec)) {
+        $rec = if ($isBlocked) {
+            if (-not [string]::IsNullOrWhiteSpace($diag)) { "Adviser blocked pending evidence: $diag" } else { "Adviser blocked pending evidence; maintain current strategy." }
+        } else {
+            $raw.Substring(0, [Math]::Min(160, $raw.Length))
+        }
+    }
+
+    return [pscustomobject]@{
+        Stance                = $stance
+        IsBlocked             = $isBlocked
+        RequiresInvestigation = $requiresInv
+        Diagnosis             = $diag
+        MissingEvidence       = $missingEv
+        NextAction            = $nextAct
+        RecommendedOption     = $rec
+        RollbackPlan          = $rollback
+        RawText               = $raw
+    }
+}
+
 function Get-AdvisorField($obj, [string]$name, $default = $null) {
     if ($null -eq $obj) { return $default }
     if ($obj -is [System.Collections.IDictionary]) {
@@ -608,30 +726,38 @@ CONTEXT: $context
 
                 if ($hasHostEvidence -and $outcomeSucceeded -and $agentMatches -and $sessionCorrelated -and $modelMatches) {
                     # COMPLETED_VERIFIED comprovado com todas as evidencias obrigatorias validas
+                    $opinion = ConvertTo-StructuredAdvisoryOpinion -Text $extractedText
                     return [pscustomobject]@{
-                        Status               = 'COMPLETED'
-                        Reason               = 'COMPLETED_VERIFIED'
-                        ConsultationId       = $consultationId
-                        SessionId            = $hostEvidence.SessionId
-                        ParentSessionId      = $parentSession
-                        Agent                = $hostAgent
-                        ModelRequested       = $reqModel
-                        ModelEffective       = $effModel
-                        ResponseRef          = "resp-$consultationId"
-                        RecommendedOption    = $extractedText
-                        Rationale            = "Native execution verified with host session evidence, exact agent, succeeded outcome, correlated session and matching model."
-                        Risks                = @()
-                        RejectionReasons     = @()
-                        ActionableNextStep   = "Follow recommendation from engineering-advisor."
-                        ModelTierUsed        = $reqTier
-                        ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
-                        IsAdvisory           = $true
-                        Authoritative        = $false
-                        FromCache            = $false
-                        ExecutionProofType   = 'COMPLETED_VERIFIED'
-                        TokensInput          = $hostEvidence.TokensInput
-                        TokensOutput         = $hostEvidence.TokensOutput
-                        CostUsd              = $hostEvidence.CostUsd
+                        Status                = 'COMPLETED'
+                        Reason                = 'COMPLETED_VERIFIED'
+                        ConsultationId        = $consultationId
+                        SessionId             = $hostEvidence.SessionId
+                        ParentSessionId       = $parentSession
+                        Agent                 = $hostAgent
+                        ModelRequested        = $reqModel
+                        ModelEffective        = $effModel
+                        ResponseRef           = "resp-$consultationId"
+                        RecommendedOption     = $opinion.RecommendedOption
+                        AdvisoryStance        = $opinion.Stance
+                        IsBlocked             = $opinion.IsBlocked
+                        RequiresInvestigation = $opinion.RequiresInvestigation
+                        Diagnosis             = $opinion.Diagnosis
+                        MissingEvidence       = $opinion.MissingEvidence
+                        ActionableNextStep    = $opinion.NextAction
+                        RollbackPlan          = $opinion.RollbackPlan
+                        RawResponseText       = $extractedText
+                        Rationale             = "Native execution verified with host session evidence, exact agent, succeeded outcome, correlated session and matching model."
+                        Risks                 = @()
+                        RejectionReasons      = @()
+                        ModelTierUsed         = $reqTier
+                        ModelTokenUsed        = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                        IsAdvisory            = $true
+                        Authoritative         = $false
+                        FromCache             = $false
+                        ExecutionProofType    = 'COMPLETED_VERIFIED'
+                        TokensInput           = $hostEvidence.TokensInput
+                        TokensOutput          = $hostEvidence.TokensOutput
+                        CostUsd               = $hostEvidence.CostUsd
                     }
                 } elseif ($hasHostEvidence -and $outcomeSucceeded -and $agentMatches -and $sessionCorrelated -and $isModelDivergent) {
                     # MODEL_DIVERGENT: executou e comprovou sessao/agente/outcome, mas modelo efetivo divergiu do solicitado
@@ -916,10 +1042,65 @@ function Invoke-AdvisorConsultation {
         }
     }
 
+    # Structured interpretation of advisory opinion (only when consultation actually returned an opinion)
+    if ($response.Status -notin @('PROOF_ABSENT', 'REJECTED')) {
+        $textForStructuring = if (-not [string]::IsNullOrWhiteSpace($response.RecommendedOption)) {
+            [string]$response.RecommendedOption
+        } elseif (-not [string]::IsNullOrWhiteSpace($response.Rationale)) {
+            [string]$response.Rationale
+        } else { '' }
+
+        $structuredOpinion = ConvertTo-StructuredAdvisoryOpinion -Text $textForStructuring
+        if (-not $response.PSObject.Properties['AdvisoryStance']) {
+            $response | Add-Member -NotePropertyName AdvisoryStance -NotePropertyValue $structuredOpinion.Stance -Force
+        }
+        if (-not $response.PSObject.Properties['IsBlocked']) {
+            $response | Add-Member -NotePropertyName IsBlocked -NotePropertyValue $structuredOpinion.IsBlocked -Force
+        }
+        if (-not $response.PSObject.Properties['RequiresInvestigation']) {
+            $response | Add-Member -NotePropertyName RequiresInvestigation -NotePropertyValue $structuredOpinion.RequiresInvestigation -Force
+        }
+        if (-not $response.PSObject.Properties['Diagnosis']) {
+            $response | Add-Member -NotePropertyName Diagnosis -NotePropertyValue $structuredOpinion.Diagnosis -Force
+        }
+        if (-not $response.PSObject.Properties['MissingEvidence']) {
+            $response | Add-Member -NotePropertyName MissingEvidence -NotePropertyValue $structuredOpinion.MissingEvidence -Force
+        }
+        if (-not $response.PSObject.Properties['StructuredOpinion']) {
+            $response | Add-Member -NotePropertyName StructuredOpinion -NotePropertyValue $structuredOpinion -Force
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($structuredOpinion.NextAction) -and (-not $response.PSObject.Properties['ActionableNextStep'] -or $response.ActionableNextStep -eq 'Follow recommendation from engineering-advisor.' -or [string]::IsNullOrWhiteSpace($response.ActionableNextStep))) {
+            $response | Add-Member -NotePropertyName ActionableNextStep -NotePropertyValue $structuredOpinion.NextAction -Force
+        }
+    } else {
+        if (-not $response.PSObject.Properties['AdvisoryStance']) {
+            $response | Add-Member -NotePropertyName AdvisoryStance -NotePropertyValue 'NONE' -Force
+        }
+        if (-not $response.PSObject.Properties['IsBlocked']) {
+            $response | Add-Member -NotePropertyName IsBlocked -NotePropertyValue $false -Force
+        }
+        if (-not $response.PSObject.Properties['RequiresInvestigation']) {
+            $response | Add-Member -NotePropertyName RequiresInvestigation -NotePropertyValue $false -Force
+        }
+    }
+
     # Enforce strict advisory boundaries
-    $response.IsAdvisory = $true
-    $response.Authoritative = $false
-    $response.FromCache = $false
+    if (-not $response.PSObject.Properties['IsAdvisory']) {
+        $response | Add-Member -NotePropertyName IsAdvisory -NotePropertyValue $true -Force
+    } else {
+        $response.IsAdvisory = $true
+    }
+    if (-not $response.PSObject.Properties['Authoritative']) {
+        $response | Add-Member -NotePropertyName Authoritative -NotePropertyValue $false -Force
+    } else {
+        $response.Authoritative = $false
+    }
+    if (-not $response.PSObject.Properties['FromCache']) {
+        $response | Add-Member -NotePropertyName FromCache -NotePropertyValue $false -Force
+    } else {
+        $response.FromCache = $false
+    }
 
     # Store in bounded cache (APENAS consultas COMPLETED_VERIFIED ou HARNESS_PROBED sao armazenadas)
     # Modelos divergentes ou provas parciais NUNCA sao armazenados em cache

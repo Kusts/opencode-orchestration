@@ -257,25 +257,39 @@ function Resolve-CatalogModel {
     $token = [string]$entry.Token
     $catModel = [string]$entry.CatalogModel
     $authorized = [bool]$entry.Authorized
+    $authSource = 'STANDARD_CATALOG'
+    $authEvidence = 'catalog:default'
+    $budget = if (-not [string]::IsNullOrWhiteSpace($env:OPENCODE_T4_BUDGET_USD)) { [string]$env:OPENCODE_T4_BUDGET_USD } else { 'standard_tier_budget' }
 
     # Strict separation of technical admissibility vs provider/cost authorization:
     # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
     if ($Tier -eq 'T4') {
-        if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
+        if ($ProviderCostAuthorized) {
             $authorized = $true
+            $authSource = 'EXPLICIT_PARAMETER'
+            $authEvidence = 'parameter:ProviderCostAuthorized=true'
+        } elseif ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') {
+            $authorized = $true
+            $authSource = 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED'
+            $authEvidence = 'env:OPENCODE_T4_AUTHORIZED=true'
         } else {
             # Never authorize T4 solely by risk or failure count
             $authorized = $false
+            $authSource = 'NONE_UNAUTHORIZED'
+            $authEvidence = 'none'
         }
     }
 
     return [pscustomobject]@{
-        Tier                   = $Tier
-        ModelToken             = $token
-        CatalogModel           = $catModel
-        IsAuthorized           = $authorized
-        ProviderCostAuthorized = ($authorized -or $ProviderCostAuthorized)
-        FallbackTier           = if ($Tier -eq 'T4' -and -not $authorized) { 'T3' } else { $Tier }
+        Tier                      = $Tier
+        ModelToken                = $token
+        CatalogModel              = $catModel
+        IsAuthorized              = $authorized
+        ProviderCostAuthorized    = $authorized
+        CostAuthorizationSource   = $authSource
+        CostAuthorizationEvidence = $authEvidence
+        CostBudget                = $budget
+        FallbackTier              = if ($Tier -eq 'T4' -and -not $authorized) { 'T3' } else { $Tier }
     }
 }
 
@@ -440,9 +454,14 @@ function Resolve-OrchestrationModelSelection {
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
     if ($cleanAgent -eq 'reviewer') {
-        if ($Risk -in @('high', 'critical') -and ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))) {
-            $selectedTier = 'T4'
-            $reason = "Elevated to T4 due to $Risk risk on reviewer role with explicit cost authorization."
+        if ($Risk -in @('high', 'critical')) {
+            if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
+                $selectedTier = 'T4'
+                $reason = "Elevated to T4 due to $Risk risk on reviewer role with explicit cost authorization."
+            } else {
+                $selectedTier = 'T3'
+                $reason = "Tier 'T4' was unauthorized (provider_cost_authorized=false) for reviewer under $Risk risk. Degraded to 'T3'."
+            }
         } elseif ($Risk -eq 'low' -and $Complexity -in @('trivial', 'simple')) {
             $selectedTier = 'T2'
             $reason = "Economical tier T2 admitted for low-risk, simple review."
@@ -452,18 +471,28 @@ function Resolve-OrchestrationModelSelection {
         }
     }
     elseif ($cleanAgent -eq 'security-reviewer') {
-        if ($Risk -in @('high', 'critical') -and ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))) {
-            $selectedTier = 'T4'
-            $reason = "Frontier tier T4 selected for high/critical security review with explicit cost authorization."
+        if ($Risk -in @('high', 'critical')) {
+            if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
+                $selectedTier = 'T4'
+                $reason = "Frontier tier T4 selected for high/critical security review with explicit cost authorization."
+            } else {
+                $selectedTier = 'T3'
+                $reason = "Tier 'T4' was unauthorized (provider_cost_authorized=false) for security review under $Risk risk. Degraded to 'T3'."
+            }
         } else {
             $selectedTier = 'T3'
             $reason = "Capable tier T3 selected for standard security review."
         }
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
-        if ($FailureCount -ge 2 -and ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))) {
-            $selectedTier = 'T4'
-            $reason = "Frontier tier T4 selected for deadlock consult after $FailureCount prior failures with explicit cost authorization."
+        if ($FailureCount -ge 2) {
+            if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
+                $selectedTier = 'T4'
+                $reason = "Frontier tier T4 selected for deadlock consult after $FailureCount prior failures with explicit cost authorization."
+            } else {
+                $selectedTier = 'T3'
+                $reason = "Tier 'T4' was unauthorized (provider_cost_authorized=false) for engineering-advisor with $FailureCount failures. Degraded to 'T3'."
+            }
         } elseif ($Complexity -in @('trivial', 'simple') -and $Risk -eq 'low') {
             $selectedTier = 'T2'
             $reason = "Economical tier T2 selected for simple technical clarity check."
@@ -555,6 +584,10 @@ function Resolve-OrchestrationModelSelection {
         EffectiveModelToken       = $effectiveToken
         CatalogModel              = $catalogRes.CatalogModel
         AuthorizedSelection       = $catalogRes.IsAuthorized
+        ProviderCostAuthorized    = [bool]$catalogRes.ProviderCostAuthorized
+        CostAuthorizationSource   = [string]$catalogRes.CostAuthorizationSource
+        CostAuthorizationEvidence = [string]$catalogRes.CostAuthorizationEvidence
+        CostBudget                = [string]$catalogRes.CostBudget
         RuntimeTierProven         = $runtimeTierProven
         ProofStatus               = $proofStatus
         AdmissibleTiers           = $admissibleTiers
@@ -565,5 +598,48 @@ function Resolve-OrchestrationModelSelection {
         NativeModelOverrideProven = $NativeModelOverrideProven
         OverrideNote              = $overrideNote
         IsCompliant               = $true
+    }
+}
+
+function Get-OrchestrationModelRouterReceipt {
+    <#
+    .SYNOPSIS
+        Generates an authoritative, verifiable receipt for a model routing selection.
+    .DESCRIPTION
+        Enforces that T4 selections record the explicit or global authorization source,
+        budget, and evidence. Ensures that a receipt never contains Tier T4 with
+        provider_cost_authorized=false.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Selection
+    )
+
+    if ($null -eq $Selection) {
+        throw "Selection cannot be null."
+    }
+
+    $tier = [string]$Selection.Tier
+    $isCostAuth = [bool]$Selection.ProviderCostAuthorized
+    $authSource = [string]$Selection.CostAuthorizationSource
+    $authEv = [string]$Selection.CostAuthorizationEvidence
+    $budget = [string]$Selection.CostBudget
+
+    if ($tier -eq 'T4' -and -not $isCostAuth) {
+        throw "INVARIANT_VIOLATION: A model routing receipt cannot have Tier T4 with provider_cost_authorized=false."
+    }
+
+    return [ordered]@{
+        stage                    = 'model_routing'
+        agent                    = [string]$Selection.Agent
+        tier                     = $tier
+        catalog_model            = [string]$Selection.CatalogModel
+        model_token              = [string]$Selection.ModelToken
+        provider_cost_authorized = $isCostAuth
+        authorization_source     = if (-not [string]::IsNullOrWhiteSpace($authSource)) { $authSource } else { if ($isCostAuth) { 'EXPLICIT_PARAMETER' } else { 'NONE_UNAUTHORIZED' } }
+        authorization_evidence   = if (-not [string]::IsNullOrWhiteSpace($authEv)) { $authEv } else { if ($isCostAuth) { 'authorized' } else { 'none' } }
+        budget                   = if (-not [string]::IsNullOrWhiteSpace($budget)) { $budget } else { 'standard_tier_budget' }
+        timestamp                = [DateTime]::UtcNow.ToString('o')
     }
 }

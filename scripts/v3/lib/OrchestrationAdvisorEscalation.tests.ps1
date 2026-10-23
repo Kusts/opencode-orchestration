@@ -75,7 +75,7 @@ $req = @{
 }
 
 $modelSel = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex'
-$resp = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel
+$resp = Invoke-AdvisorConsultation -Request $req -ModelRouterSelection $modelSel -DisableNativeExecutor
 
 Assert-Advisor ($resp.Status -eq 'PROOF_ABSENT') "Consulta sem despacho nativo retorna PROOF_ABSENT honesto"
 Assert-Advisor ($null -eq $resp.RecommendedOption) "Nunca retorna recomendacao fabricada sem consulta real"

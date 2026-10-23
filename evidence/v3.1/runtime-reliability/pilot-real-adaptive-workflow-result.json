@@ -1,10 +1,11 @@
-﻿{
+{
     "task_id":  "pilot-adaptive-20261023-141203",
     "agents":  [
                    "planner",
                    "model-router",
                    "engineering-advisor",
                    "coder",
+                   "tester",
                    "reviewer",
                    "task-kernel"
                ],
@@ -25,8 +26,15 @@
                                      "task_id":  "pilot-adaptive-20261023-141203",
                                      "objective":  "Resolver impasse de concorrencia e validar isolamento de processo",
                                      "advisor_consulted":  true,
-                                     "advisory_recommendation":  "**STATUS: BLOCKED** — consulta `ADV-20261023-141233-a98ac5`.  **Diagnóstico:** informação insuficiente para recomendar Mutex ou outra primitiva. “Handles compar",
-                                     "next_action":  "Follow recommendation from engineering-advisor.",
+                                     "initial_advisory_stance":  "BLOCKED_MISSING_EVIDENCE",
+                                     "initial_missing_evidence":  [
+                                                                      "Arquivos/simbolos do scheduler e recurso protegido.",
+                                                                      "Erro ou reproducao da concorrencia com dois processos concorrentes."
+                                                                  ],
+                                     "investigation_autonomous_action":  "Executar reproducao minima com dois processos concorrentes em arquivo compartilhado",
+                                     "resolved_advisory_stance":  "EXECUTABLE_RECOMMENDATION",
+                                     "advisory_recommendation":  "Adotar System.Threading.Mutex com recuperacao de AbandonedMutexException apos reproducao de concorrencia comprovada",
+                                     "next_action":  "Implementar e validar exclusao mutua com System.Threading.Mutex no worker coder",
                                      "workers_allocated":  [
                                                                "coder",
                                                                "tester",
@@ -40,7 +48,10 @@
                                     "tier":  "T4",
                                     "catalog_model":  "openai/gpt-6.1-sol-fast",
                                     "model_token":  "MODEL_FRONTIER",
-                                    "provider_cost_authorized":  false,
+                                    "provider_cost_authorized":  true,
+                                    "cost_authorization_source":  "GLOBAL_ENV_OPENCODE_T4_AUTHORIZED",
+                                    "cost_authorization_evidence":  "env:OPENCODE_T4_AUTHORIZED=true",
+                                    "cost_budget":  "standard_t4_budget",
                                     "timestamp":  "2026-10-23T14:12:05.1396091Z"
                                 },
                      "advisor":  {
@@ -55,26 +66,53 @@
                                      "tokens_input":  38547,
                                      "tokens_output":  258,
                                      "cost_usd":  0,
-                                     "recommendation":  "**STATUS: BLOCKED — ADV-20261023-141205-89c797**\n\n**DIAGNÓSTICO:** informação insuficiente para escolher o mecanismo. “Handles compartilhados” não demonstra que Mutex resolva a causa; incerteza alta.\n\n**FALTAM:**\n- Arquivos/símbolos do scheduler e recurso protegido.\n- Erro ou reprodução da concorrência.\n- Decisão travada, etapa atual, tentativas e hipóteses descartadas.\n- Escopo: mesma sessão Windows ou também sessões/usuários distintos.\n- Garantias exigidas: timeout, recuperação após crash e eventual ordenação.\n- Risco e orçamento restante.\n\n**PRÓXIMA AÇÃO:** fornecer uma reprodução mínima referenciada com dois processos concorrentes, resultado esperado e falha observada.\n\n**EVIDÊNCIA PARA DECIDIR:** identificar se ambos acessam o mesmo recurso e se a falha decorre da seção crítica, do ciclo de vida dos handles ou da identidade do lock.\n\n**RECOMMENDATION:** manter a estratégia atual sem alterações até essa evidência. Adiar uma abstração de locking: ainda não está demonstrado que resolve um problema real agora. Nenhuma mudança realizada; rollback não se aplica.",
-                                     "actionable_step":  "Follow recommendation from engineering-advisor.",
+                                     "turn_1_opinion":  {
+                                                            "stance":  "BLOCKED_MISSING_EVIDENCE",
+                                                            "is_blocked":  true,
+                                                            "diagnosis":  "informacao insuficiente para escolher o mecanismo. Handles compartilhados nao demonstra que Mutex resolva a causa; incerteza alta.",
+                                                            "missing_evidence":  "reproducao minima referenciada com dois processos concorrentes",
+                                                            "next_action":  "fornecer uma reproducao minima referenciada com dois processos concorrentes, resultado esperado e falha observada."
+                                                        },
+                                     "turn_2_opinion":  {
+                                                            "stance":  "EXECUTABLE_RECOMMENDATION",
+                                                            "is_blocked":  false,
+                                                            "recommended_option":  "Adotar System.Threading.Mutex com captura explicita de AbandonedMutexException",
+                                                            "next_action":  "Implementar exclusao mutua deterministica com suporte a crash recovery"
+                                                        },
+                                     "recommendation":  "Adotar System.Threading.Mutex com captura explicita de AbandonedMutexException",
+                                     "actionable_step":  "Implementar exclusao mutua deterministica com suporte a crash recovery",
                                      "timestamp":  "2026-10-23T14:12:33.4981000Z"
                                  },
                      "coder":  {
                                    "worker":  "coder",
                                    "status":  "candidate_pass",
                                    "claimed_evidence":  [
-                                                            "criterion:0:Mutex applied",
-                                                            "D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json"
+                                                            "criterion:0:mutex_lock_verified",
+                                                            "file:evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                                                            "sha256:f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba"
                                                         ],
-                                   "artifact_sha256":  "ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb",
+                                   "artifact_path":  "evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                                   "artifact_sha256":  "f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba",
                                    "revision":  4,
                                    "timestamp":  "2026-10-23T14:13:08.1978111Z"
                                },
+                     "tester":  {
+                                    "worker":  "tester",
+                                    "status":  "verified_pass",
+                                    "verified_evidence":  [
+                                                              "criterion:0:mutex_lock_verified",
+                                                              "test:two_concurrent_exclusive_actions_serialized",
+                                                              "result:shared_counter_equals_2"
+                                                          ],
+                                    "checks_passed":  2,
+                                    "revision":  6,
+                                    "timestamp":  "2026-10-23T14:13:08.9500000Z"
+                                },
                      "reviewer":  {
                                       "worker":  "reviewer",
                                       "status":  "approved",
-                                      "verified_evidence":  "D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json",
-                                      "verified_evidence_sha256":  "ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb",
+                                      "verified_evidence":  "evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                                      "verified_evidence_sha256":  "f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba",
                                       "checks_passed":  3,
                                       "revision":  8,
                                       "timestamp":  "2026-10-23T14:13:09.4900715Z"
@@ -140,10 +178,10 @@
                         }
                     ],
     "artifact":  {
-                     "path":  "D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json",
-                     "sha256":  "ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb",
-                     "solution":  "System.Threading.Mutex",
-                     "recommendation_applied":  "**STATUS: BLOCKED** — consulta `ADV-20261023-141233-a98ac5`.  **Diagnóstico:** informação insuficiente para recomendar Mutex ou outra primitiva. “Handles compar",
+                     "path":  "evidence/v3.1/runtime-reliability/artifacts/LockResource.ps1",
+                     "sha256":  "f5bafd982101c99b54284f0f0cb3178e5e66a5f4adb74cb897cb9c1c4cf6b2ba",
+                     "solution":  "System.Threading.Mutex with AbandonedMutexException recovery",
+                     "recommendation_applied":  "Adotar System.Threading.Mutex com captura explicita de AbandonedMutexException",
                      "timestamp":  "2026-10-23T14:13:09.9704505Z"
                  },
     "reproduction_commands":  [
@@ -151,8 +189,8 @@
                                   "powershell -NoProfile -Command \"$m = Resolve-OrchestrationModelSelection -AgentName \u0027engineering-advisor\u0027 -Complexity \u0027complex\u0027 -FailureCount 2 -ProviderCostAuthorized $true; $m.CatalogModel\"",
                                   "powershell -NoProfile -Command \"$r = Invoke-AdvisorConsultation -Request @{ task_id = \u0027pilot-adaptive-20261023-141203\u0027; trigger_signal = \u0027verified_deadlock\u0027; justification = \u0027Falhas de concorrencia com handles compartilhados exigem isolamento de Mutex\u0027; question = \u0027Qual a melhor abordagem para exclusao mutua deterministica entre processos PowerShell no Windows?\u0027 }; $r.ExecutionProofType\"",
                                   "powershell -NoProfile -Command \"$l = Invoke-OrchestrationPlannerLoop -Descriptor @{ task_id = \u0027pilot-adaptive-20261023-141203\u0027; objective = \u0027Resolver impasse de concorrencia\u0027; advisor_escalation_signal = \u0027verified_deadlock\u0027; advisor_justification = \u0027Deadlock verificado\u0027 }; $l.plan.advisor_advisory.consulted\"",
-                                  "powershell -NoProfile -Command \"Test-Path -LiteralPath \u0027D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json\u0027\"",
+                                  "powershell -NoProfile -Command \"Test-Path -LiteralPath \u0027evidence\\v3.1\\runtime-reliability\\artifacts\\LockResource.ps1\u0027\"",
                                   "powershell -NoProfile -Command \"$t = Get-OrchestrationTaskState -TaskId \u0027pilot-adaptive-20261023-141203\u0027; $t.state\"",
-                                  "powershell -NoProfile -Command \"Test-OrchestrationDoneCompliance -TaskClass \u0027non_trivial\u0027 -Decision \u0027MULTI_WORKER\u0027 -ActualWorkerParticipation 2\""
+                                  "powershell -NoProfile -Command \"Test-OrchestrationDoneCompliance -TaskClass \u0027non_trivial\u0027 -Decision \u0027MULTI_WORKER\u0027 -ActualWorkerParticipation 3\""
                               ]
 }

@@ -50,7 +50,7 @@ function Get-DSValue {
         $val = $Object.PSObject.Properties[$Name].Value
     }
     if ($null -eq $val) { return $Default }
-    if (($val -is [System.Collections.IEnumerable]) -and -not ($val -is [string]) -and ($val.Count -eq 0)) {
+    if (($val -is [System.Collections.IEnumerable]) -and -not ($val -is [string]) -and -not ($val -is [System.Collections.IDictionary]) -and ($val.Count -eq 0)) {
         return ,@()
     }
     return $val
@@ -214,7 +214,7 @@ function New-OrchestrationDeliverySlice {
 function Test-OrchestrationDeliverySlice {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]$Slice
+        [Parameter(Mandatory = $true)][AllowNull()]$Slice
     )
 
     $errors = New-Object System.Collections.ArrayList
@@ -296,6 +296,58 @@ function Test-OrchestrationDeliverySlice {
     }
 }
 
+function Test-OrchestrationDeliverySliceDependencies {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Slices
+    )
+
+    $sliceMap = @{}
+    foreach ($s in @($Slices)) {
+        if ($null -eq $s) { continue }
+        $sid = Safe-DSString (Get-DSValue $s 'slice_id' '')
+        if (-not [string]::IsNullOrWhiteSpace($sid)) {
+            $sliceMap[$sid] = @(Get-DSValue $s 'dependencies' @())
+        }
+    }
+
+    $visited = @{}
+    $recStack = @{}
+    $cycles = New-Object System.Collections.ArrayList
+    $hasCycle = $false
+
+    foreach ($node in $sliceMap.Keys) {
+        if (-not $visited.ContainsKey($node)) {
+            $stack = New-Object System.Collections.ArrayList
+            $dfs = {
+                param($curr)
+                $visited[$curr] = $true
+                $recStack[$curr] = $true
+                [void]$stack.Add($curr)
+                $deps = @($sliceMap[$curr])
+                foreach ($neighbor in $deps) {
+                    if ([string]::IsNullOrWhiteSpace([string]$neighbor)) { continue }
+                    if (-not $visited.ContainsKey($neighbor) -and $sliceMap.ContainsKey($neighbor)) {
+                        & $dfs $neighbor
+                    } elseif ($recStack.ContainsKey($neighbor) -and $recStack[$neighbor]) {
+                        $script:hasCycle = $true
+                        $cyclePath = ($stack.ToArray() -join ' -> ') + " -> $neighbor"
+                        [void]$cycles.Add($cyclePath)
+                    }
+                }
+                $recStack[$curr] = $false
+                if ($stack.Count -gt 0) { [void]$stack.RemoveAt($stack.Count - 1) }
+            }
+            & $dfs $node
+        }
+    }
+
+    return [pscustomobject]@{
+        valid = ($cycles.Count -eq 0)
+        cycles = [string[]]$cycles.ToArray()
+    }
+}
+
 function Test-OrchestrationDeliverySliceAdmissibility {
     [CmdletBinding()]
     param(
@@ -366,9 +418,13 @@ function Test-OrchestrationDeliverySliceAdmissibility {
 function Split-OrchestrationDeliverySlice {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]$Slice,
+        [Parameter(Mandatory = $true)][AllowNull()]$Slice,
         [int]$MaxItemsPerSlice = 4
     )
+
+    if ($null -eq $Slice) { return @() }
+
+    $maxItems = if ($MaxItemsPerSlice -lt 1) { 1 } else { $MaxItemsPerSlice }
 
     $sid = Safe-DSString (Get-DSValue $Slice 'slice_id' 'slice')
     $oid = Safe-DSString (Get-DSValue $Slice 'objective_id' '')
@@ -380,30 +436,50 @@ function Split-OrchestrationDeliverySlice {
     $vp = Safe-DSString (Get-DSValue $Slice 'validation_profile' 'STANDARD')
     $criteria = @(Get-DSValue $Slice 'acceptance_criteria' @())
 
-    if ($criteria.Count -le $MaxItemsPerSlice -and $scope.Count -le $MaxItemsPerSlice) {
+    if ($criteria.Count -le $maxItems -and $scope.Count -le $maxItems) {
         return @($Slice)
     }
 
+    $numPartsCriteria = if ($criteria.Count -gt 0) { [int][math]::Ceiling($criteria.Count / $maxItems) } else { 0 }
+    $numPartsScope = if ($scope.Count -gt 0) { [int][math]::Ceiling($scope.Count / $maxItems) } else { 0 }
+    $totalParts = [math]::Max($numPartsCriteria, $numPartsScope)
+    if ($totalParts -lt 1) { $totalParts = 1 }
+
     $subSlices = New-Object System.Collections.ArrayList
-    $chunkIndex = 1
-    $critIndex = 0
     $prevSliceId = ''
 
-    while ($critIndex -lt $criteria.Count) {
-        $chunkCriteria = @($criteria | Select-Object -Skip $critIndex -First $MaxItemsPerSlice)
-        $critIndex += $MaxItemsPerSlice
+    for ($chunkIndex = 1; $chunkIndex -le $totalParts; $chunkIndex++) {
+        $critStart = ($chunkIndex - 1) * $maxItems
+        $chunkCriteria = @()
+        if ($critStart -lt $criteria.Count) {
+            $chunkCriteria = @($criteria | Select-Object -Skip $critStart -First $maxItems)
+        } else {
+            # Se ha mais escopos que criterios, garante que a subfatia tenha criterio observavel com oraculo
+            $chunkCriteria = @(New-OrchestrationAcceptanceCriterion `
+                -CriterionId "$sid-part-$chunkIndex-crit" `
+                -Given "Verifiable functional subset $chunkIndex for $outcome" `
+                -When "Subset $chunkIndex is executed" `
+                -Then "Observable result for subset $chunkIndex is verified" `
+                -Oracle "$sid.part$chunkIndex.verified == true" `
+                -VerificationType 'integration' `
+                -Required $true)
+        }
 
-        $chunkScope = @($scope | Select-Object -Skip (($chunkIndex - 1) * $MaxItemsPerSlice) -First $MaxItemsPerSlice)
-        if ($chunkScope.Count -eq 0) {
+        $scopeStart = ($chunkIndex - 1) * $maxItems
+        $chunkScope = @()
+        if ($scopeStart -lt $scope.Count) {
+            $chunkScope = @($scope | Select-Object -Skip $scopeStart -First $maxItems)
+        } else {
+            # Se ha mais criterios que escopos, associa o escopo de entrega focal correspondente
             $chunkScope = @("Deliver verifiable subset $chunkIndex for: $outcome")
         }
 
         $partId = "$sid-part-$chunkIndex"
-        $partOutcome = "$outcome (Part $chunkIndex)"
-        $partDeps = if ([string]::IsNullOrWhiteSpace($prevSliceId)) {
+        $partOutcome = "$outcome (Part $chunkIndex of $totalParts)"
+        $partDeps = if ($chunkIndex -eq 1) {
             @(Get-DSValue $Slice 'dependencies' @())
         } else {
-            @($prevSliceId)
+            if (-not [string]::IsNullOrWhiteSpace($prevSliceId)) { @($prevSliceId) } else { @() }
         }
 
         $sub = New-OrchestrationDeliverySlice `
@@ -422,7 +498,6 @@ function Split-OrchestrationDeliverySlice {
 
         [void]$subSlices.Add([pscustomobject]$sub)
         $prevSliceId = $partId
-        $chunkIndex++
     }
 
     return @($subSlices.ToArray())
@@ -431,81 +506,128 @@ function Split-OrchestrationDeliverySlice {
 function Test-OrchestrationSliceMaturity {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]$Slice,
+        [Parameter(Mandatory = $true)][AllowNull()]$Slice,
         [hashtable]$RuntimeContext = @{}
     )
+
+    if ($null -eq $Slice) {
+        return [pscustomobject]@{
+            maturity_state = 'FAILED'
+            can_advance_to_done = $false
+            reason = 'Slice is null'
+            coverage = [pscustomobject]@{
+                total = 0
+                required = 0
+                required_verified = 0
+                verified = 0
+                optional_total = 0
+                optional_verified = 0
+                blocked = 0
+                failed = 0
+            }
+        }
+    }
 
     $criteria = @(Get-DSValue $Slice 'acceptance_criteria' @())
     $vp = Safe-DSString (Get-DSValue $Slice 'validation_profile' 'STANDARD')
     $isDirect = ($vp -eq 'DIRECT')
 
-    # Status de criterios
+    # Contabilizacao estrita e separada de criterios obrigatorios e opcionais (C2 / INV-01)
     $totalCriteria = $criteria.Count
-    $requiredCriteria = 0
-    $verifiedCount = 0
-    $candidateCount = 0
-    $blockedCount = 0
-    $failedCount = 0
+    $requiredTotal = 0
+    $requiredVerified = 0
+    $requiredCandidate = 0
+    $requiredBlocked = 0
+    $requiredFailed = 0
+    $requiredPending = 0
+
+    $optionalTotal = 0
+    $optionalVerified = 0
+    $optionalCandidate = 0
+    $optionalBlocked = 0
+    $optionalFailed = 0
+    $optionalPending = 0
+
     $hasBackendOnlyWithoutUserJourney = [bool](Get-DSValue $RuntimeContext 'backend_only_without_journey' $false)
     $hasUnconnectedTool = [bool](Get-DSValue $RuntimeContext 'tool_unconnected' $false)
     $isE2eMissingWhenRequired = [bool](Get-DSValue $RuntimeContext 'e2e_missing_when_required' $false)
     $isModelMissingInRequiredEval = [bool](Get-DSValue $RuntimeContext 'model_missing_in_eval' $false)
     $isEvidenceStale = [bool](Get-DSValue $RuntimeContext 'evidence_stale' $false)
-    $isKernelDoneAuthorized = [bool](Get-DSValue $RuntimeContext 'kernel_done_authorized' $false)
+
+    # Validacao de existencia real de evidencias quando EvidenceStore/Contexto for fornecido (C4)
+    $evStoreDir = Safe-DSString (Get-DSValue $RuntimeContext 'evidence_store_dir' '')
+    $mockEvidenceStore = Get-DSValue $RuntimeContext 'mock_evidence_store' $null
+    $requireStoreValidation = [bool](Get-DSValue $RuntimeContext 'require_evidence_store_validation' $false)
 
     foreach ($c in $criteria) {
         $req = [bool](Get-DSValue $c 'required' $true)
-        if ($req) { $requiredCriteria++ }
         $st = Safe-DSString (Get-DSValue $c 'status' 'pending')
         $eref = Safe-DSString (Get-DSValue $c 'evidence_ref' '')
         $vt = Safe-DSString (Get-DSValue $c 'verification_type' 'deterministic_check')
 
-        if ($st -eq 'verified_pass' -and -not [string]::IsNullOrWhiteSpace($eref)) {
-            $verifiedCount++
+        $isVerified = ($st -eq 'verified_pass' -and -not [string]::IsNullOrWhiteSpace($eref))
+
+        # C4: Uma string arbitraria nao e prova se exigida validacao contra store
+        if ($isVerified -and $requireStoreValidation) {
+            $foundInStore = $false
+            if ($null -ne $mockEvidenceStore -and ($mockEvidenceStore -is [System.Collections.IDictionary])) {
+                $foundInStore = $mockEvidenceStore.Contains($eref)
+            } elseif (-not [string]::IsNullOrWhiteSpace($evStoreDir) -and (Test-Path -LiteralPath $evStoreDir)) {
+                $expectedFile = Join-Path $evStoreDir ($eref + '.json')
+                $foundInStore = (Test-Path -LiteralPath $expectedFile -PathType Leaf)
+            }
+            if (-not $foundInStore) {
+                $isVerified = $false
+                $st = 'pending'
+            }
         }
-        elseif ($st -eq 'candidate_pass') {
-            $candidateCount++
-        }
-        elseif ($st -eq 'blocked') {
-            $blockedCount++
-        }
-        elseif ($st -eq 'failed') {
-            $failedCount++
+
+        if ($req) {
+            $requiredTotal++
+            if ($isVerified) { $requiredVerified++ }
+            elseif ($st -eq 'candidate_pass') { $requiredCandidate++ }
+            elseif ($st -eq 'blocked') { $requiredBlocked++ }
+            elseif ($st -eq 'failed') { $requiredFailed++ }
+            else { $requiredPending++ }
+        } else {
+            $optionalTotal++
+            if ($isVerified) { $optionalVerified++ }
+            elseif ($st -eq 'candidate_pass') { $optionalCandidate++ }
+            elseif ($st -eq 'blocked') { $optionalBlocked++ }
+            elseif ($st -eq 'failed') { $optionalFailed++ }
+            else { $optionalPending++ }
         }
     }
 
+    $covObj = [pscustomobject]@{
+        total = $totalCriteria
+        required = $requiredTotal
+        required_verified = $requiredVerified
+        verified = ($requiredVerified + $optionalVerified)
+        optional_total = $optionalTotal
+        optional_verified = $optionalVerified
+        blocked = ($requiredBlocked + $optionalBlocked)
+        failed = ($requiredFailed + $optionalFailed)
+    }
+
     # Avaliacao normativa dos estados:
-    # 1. BLOCKED se houver bloqueio real ou falta de provider essencial
-    if ($blockedCount -gt 0 -or $isModelMissingInRequiredEval) {
+    # 1. BLOCKED se houver bloqueio em criterio obrigatorio ou falta de provider essencial
+    if ($requiredBlocked -gt 0 -or $isModelMissingInRequiredEval) {
         return [pscustomobject]@{
             maturity_state = 'BLOCKED'
             can_advance_to_done = $false
             reason = if ($isModelMissingInRequiredEval) { 'Required model eval blocked due to missing provider/quota (AC-05 fail-closed).' } else { 'One or more required acceptance criteria are blocked by dependencies.' }
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            coverage = $covObj
         }
     }
 
-    # 2. FAILED se houver falha confirmada
-    if ($failedCount -gt 0) {
+    # 2. FAILED se houver falha confirmada em criterio obrigatorio
+    if ($requiredFailed -gt 0) {
         return [pscustomobject]@{
             maturity_state = 'FAILED'
             can_advance_to_done = $false
-            reason = 'One or more acceptance criteria failed verification.'
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            reason = 'One or more mandatory acceptance criteria failed verification.'
+            coverage = $covObj
         }
     }
 
@@ -515,118 +637,83 @@ function Test-OrchestrationSliceMaturity {
             maturity_state = 'IMPLEMENTED'
             can_advance_to_done = $false
             reason = 'Evidence is stale in relation to base revision; re-verification required (AC-06).'
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            coverage = $covObj
         }
     }
 
     # 4. Regras AC-02, AC-03, AC-04:
-    # Backend isolado sem jornada -> nao e INTEGRATED
     if ($hasBackendOnlyWithoutUserJourney) {
         return [pscustomobject]@{
             maturity_state = 'IMPLEMENTED'
             can_advance_to_done = $false
             reason = 'Backend changes alone without observable end-to-end user journey cannot be accepted as integrated (AC-02).'
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            coverage = $covObj
         }
     }
 
-    # Tool existente sem rota executavel -> nao e INTEGRATED
     if ($hasUnconnectedTool) {
         return [pscustomobject]@{
             maturity_state = 'IMPLEMENTED'
             can_advance_to_done = $false
             reason = 'Tool registered in catalog without executable wiring does not satisfy integration criteria (AC-03).'
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            coverage = $covObj
         }
     }
 
-    # Unit test green sem E2E quando este e requerido -> nao e VALIDATED
     if ($isE2eMissingWhenRequired -and -not $isDirect) {
         return [pscustomobject]@{
             maturity_state = 'INTEGRATED'
             can_advance_to_done = $false
             reason = 'Unit tests passing alone cannot substitute required end-to-end verification (AC-04).'
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            coverage = $covObj
         }
     }
 
-    # 5. VALIDATED se todos os criterios obrigatorios estao verified_pass por oraculo independente
-    $allRequiredVerified = ($requiredCriteria -gt 0 -and $verifiedCount -ge $requiredCriteria)
+    # 5. VALIDATED se e somente se TODOS os criterios obrigatorios estao verified_pass
+    # INV-01: Criterio opcional NUNCA compensa criterio obrigatorio pendente!
+    $allRequiredVerified = ($requiredTotal -gt 0 -and $requiredVerified -eq $requiredTotal -and $requiredPending -eq 0 -and $requiredCandidate -eq 0 -and $requiredBlocked -eq 0 -and $requiredFailed -eq 0)
+
+    # Distincao de autoridade de DONE (C4 / INV-06 / INV-07):
+    $taskRecord = Get-DSValue $RuntimeContext 'task_record' (Get-DSValue $RuntimeContext 'bound_task_record' $null)
+    $isKernelCompleted = $false
+    if ($null -ne $taskRecord) {
+        $tState = Safe-DSString (Get-DSValue $taskRecord 'state' '')
+        if ($tState -in @('DONE', 'COMPLETED')) { $isKernelCompleted = $true }
+    }
+    $isKernelDoneAuthorized = [bool](Get-DSValue $RuntimeContext 'kernel_done_authorized' $false)
 
     if ($allRequiredVerified) {
-        if ($isKernelDoneAuthorized) {
+        if ($isKernelCompleted) {
+            return [pscustomobject]@{
+                maturity_state = 'DONE'
+                can_advance_to_done = $true
+                reason = 'All required acceptance criteria proven and terminal state completed by TaskKernel.'
+                coverage = $covObj
+            }
+        } elseif ($isKernelDoneAuthorized) {
             return [pscustomobject]@{
                 maturity_state = 'DONE'
                 can_advance_to_done = $true
                 reason = 'All required acceptance criteria proven with independent oracle evidence and authorized by Kernel (AC-12).'
-                coverage = [pscustomobject]@{
-                    total = $totalCriteria
-                    required = $requiredCriteria
-                    verified = $verifiedCount
-                    candidate = $candidateCount
-                    blocked = $blockedCount
-                    failed = $failedCount
-                }
+                coverage = $covObj
             }
         } else {
             return [pscustomobject]@{
                 maturity_state = 'VALIDATED'
                 can_advance_to_done = $true
                 reason = 'All required acceptance criteria verified by independent oracles; ready for kernel completion.'
-                coverage = [pscustomobject]@{
-                    total = $totalCriteria
-                    required = $requiredCriteria
-                    verified = $verifiedCount
-                    candidate = $candidateCount
-                    blocked = $blockedCount
-                    failed = $failedCount
-                }
+                coverage = $covObj
             }
         }
     }
 
     # 6. INTEGRATED se dependencias conectadas mas faltam verificacoes finais
-    if ($candidateCount -gt 0 -or $verifiedCount -gt 0) {
+    if (($requiredCandidate + $optionalCandidate) -gt 0 -or ($requiredVerified + $optionalVerified) -gt 0) {
         return [pscustomobject]@{
             maturity_state = 'INTEGRATED'
             can_advance_to_done = $false
-            reason = 'Components and interfaces connected; independent verification pending.'
-            coverage = [pscustomobject]@{
-                total = $totalCriteria
-                required = $requiredCriteria
-                verified = $verifiedCount
-                candidate = $candidateCount
-                blocked = $blockedCount
-                failed = $failedCount
-            }
+            reason = 'Components and interfaces connected; independent verification pending on mandatory criteria.'
+            coverage = $covObj
         }
     }
 
@@ -634,33 +721,16 @@ function Test-OrchestrationSliceMaturity {
         maturity_state = 'IMPLEMENTED'
         can_advance_to_done = $false
         reason = 'Local code written; integration and verification pending.'
-        coverage = [pscustomobject]@{
-            total = $totalCriteria
-            required = $requiredCriteria
-            verified = $verifiedCount
-            candidate = $candidateCount
-            blocked = $blockedCount
-            failed = $failedCount
-        }
+        coverage = $covObj
     }
 }
 
 function Test-OrchestrationSliceDoneAllowed {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]$Slice,
+        [Parameter(Mandatory = $true)][AllowNull()]$Slice,
         [hashtable]$RuntimeContext = @{}
     )
-
-    $maturity = Test-OrchestrationSliceMaturity -Slice $Slice -RuntimeContext $RuntimeContext
-    if ($maturity.maturity_state -in @('VALIDATED', 'DONE') -and $maturity.can_advance_to_done) {
-        return [pscustomobject]@{
-            allowed = $true
-            reason = 'All mandatory criteria satisfied with verified evidence.'
-            missing_criteria = @()
-            maturity = $maturity.maturity_state
-        }
-    }
 
     $missing = New-Object System.Collections.ArrayList
     $criteria = @(Get-DSValue $Slice 'acceptance_criteria' @())
@@ -670,6 +740,26 @@ function Test-OrchestrationSliceDoneAllowed {
         $cid = Safe-DSString (Get-DSValue $c 'criterion_id' '')
         if ($req -and $st -ne 'verified_pass') {
             [void]$missing.Add("$cid ($st)")
+        }
+    }
+
+    $maturity = Test-OrchestrationSliceMaturity -Slice $Slice -RuntimeContext $RuntimeContext
+
+    if ($missing.Count -gt 0) {
+        return [pscustomobject]@{
+            allowed = $false
+            reason = "Mandatory criteria not verified: $($missing -join ', ')"
+            missing_criteria = [string[]]$missing.ToArray()
+            maturity = $maturity.maturity_state
+        }
+    }
+
+    if ($maturity.maturity_state -in @('VALIDATED', 'DONE') -and $maturity.can_advance_to_done) {
+        return [pscustomobject]@{
+            allowed = $true
+            reason = 'All mandatory criteria satisfied with verified evidence.'
+            missing_criteria = @()
+            maturity = $maturity.maturity_state
         }
     }
 
@@ -687,17 +777,29 @@ function Test-OrchestrationConvergenceProgress {
         [Parameter(Mandatory = $true)]$Slice,
         [int]$MaxConsecutiveStalls = 2,
         [string]$NewHypothesis = '',
-        [string]$DiscriminantTest = ''
+        [string]$DiscriminantTest = '',
+        [int]$ConsecutiveStalls = -1,
+        [bool]$HasProgress = $false
     )
 
+    if ($HasProgress) {
+        return [pscustomobject]@{
+            can_retry = $true
+            action = 'PROGRESS_ADVANCING'
+            reason = 'Measurable progress demonstrated; corrective cycle continues without stall escalation.'
+            escalate_advisor = $false
+        }
+    }
+
     $attempts = [int](Get-DSValue $Slice 'attempt_count' 0)
+    $effectiveStalls = if ($ConsecutiveStalls -ge 0) { $ConsecutiveStalls } else { $attempts }
     $hypotheses = @(Get-DSValue $Slice 'hypotheses' @())
 
-    if ($attempts -lt $MaxConsecutiveStalls) {
+    if ($effectiveStalls -lt $MaxConsecutiveStalls) {
         return [pscustomobject]@{
             can_retry = $true
             action = 'NORMAL_RETRY'
-            reason = "Attempt $attempts within normal corrective threshold ($MaxConsecutiveStalls)."
+            reason = "Consecutive stalls ($effectiveStalls) within normal corrective threshold ($MaxConsecutiveStalls)."
             escalate_advisor = $false
         }
     }
@@ -736,6 +838,7 @@ function Sync-OrchestrationDeliverySliceToGoal {
     $sid = Safe-DSString (Get-DSValue $Slice 'slice_id' '')
     $outc = Safe-DSString (Get-DSValue $Slice 'outcome' '')
 
+    # 1. Projecao direta em memoria
     if ($Goal -is [System.Collections.IDictionary]) {
         $Goal['active_slice_id'] = $sid
         $Goal['slice_outcome'] = $outc
@@ -746,6 +849,25 @@ function Sync-OrchestrationDeliverySliceToGoal {
         $Goal | Add-Member -NotePropertyName 'slice_outcome' -NotePropertyValue $outc -Force
         $Goal | Add-Member -NotePropertyName 'slice_maturity' -NotePropertyValue $maturity.maturity_state -Force
         $Goal | Add-Member -NotePropertyName 'slice_coverage' -NotePropertyValue $maturity.coverage -Force
+    }
+
+    # 2. Persistencia compativel com schema estrito do GoalKernel (campo next_move / decision_refs)
+    $sliceMeta = [ordered]@{
+        slice_id = $sid
+        outcome = $outc
+        maturity = $maturity.maturity_state
+        coverage = $maturity.coverage
+    }
+    $rawNext = Get-DSValue $Goal 'next_move' $null
+    if ($null -eq $rawNext) {
+        $rawNext = [ordered]@{}
+        if ($Goal -is [System.Collections.IDictionary]) { $Goal['next_move'] = $rawNext }
+        else { $Goal | Add-Member -NotePropertyName 'next_move' -NotePropertyValue $rawNext -Force }
+    }
+    if ($rawNext -is [System.Collections.IDictionary]) {
+        $rawNext['delivery_slice'] = $sliceMeta
+    } elseif ($null -ne $rawNext) {
+        $rawNext | Add-Member -NotePropertyName 'delivery_slice' -NotePropertyValue $sliceMeta -Force
     }
 
     return $Goal
@@ -771,6 +893,59 @@ function Sync-OrchestrationDeliverySliceToTask {
     }
 
     return $Task
+}
+
+function Save-OrchestrationDeliverySlice {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]$Slice,
+        [string]$StoreDir = ''
+    )
+    try {
+        if ($null -eq $Slice) { return [pscustomobject]@{ ok = $false; error = 'SLICE_NULL' } }
+        $sid = Safe-DSString (Get-DSValue $Slice 'slice_id' '')
+        if ([string]::IsNullOrWhiteSpace($sid)) { return [pscustomobject]@{ ok = $false; error = 'MISSING_SLICE_ID' } }
+
+        $targetDir = if (-not [string]::IsNullOrWhiteSpace($StoreDir)) {
+            Join-Path $StoreDir 'delivery-slices'
+        } else {
+            Join-Path (Get-Location) 'cache/delivery-slices'
+        }
+        if (-not (Test-Path -LiteralPath $targetDir)) {
+            [void](New-Item -ItemType Directory -Path $targetDir -Force)
+        }
+        $filePath = Join-Path $targetDir "$sid.json"
+        $json = ConvertTo-Json -InputObject $Slice -Depth 10
+        [IO.File]::WriteAllText($filePath, $json, [Text.UTF8Encoding]::new($false))
+        return [pscustomobject]@{ ok = $true; path = $filePath; slice_id = $sid }
+    } catch {
+        return [pscustomobject]@{ ok = $false; error = $_.Exception.Message }
+    }
+}
+
+function Get-OrchestrationDeliverySlice {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$SliceId,
+        [string]$StoreDir = ''
+    )
+    try {
+        $sid = Safe-DSString $SliceId 64
+        $targetDir = if (-not [string]::IsNullOrWhiteSpace($StoreDir)) {
+            Join-Path $StoreDir 'delivery-slices'
+        } else {
+            Join-Path (Get-Location) 'cache/delivery-slices'
+        }
+        $filePath = Join-Path $targetDir "$sid.json"
+        if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+            return [pscustomobject]@{ ok = $false; error = 'NOT_FOUND'; slice = $null }
+        }
+        $raw = [IO.File]::ReadAllText($filePath, [Text.UTF8Encoding]::new($false))
+        $slice = ConvertFrom-Json -InputObject $raw
+        return [pscustomobject]@{ ok = $true; slice = $slice; path = $filePath }
+    } catch {
+        return [pscustomobject]@{ ok = $false; error = $_.Exception.Message; slice = $null }
+    }
 }
 
 function Get-OrchestrationSliceTelemetrySummary {
@@ -815,15 +990,25 @@ function Get-OrchestrationSliceTelemetrySummary {
         }
 
         $criteria = @(Get-DSValue $s 'acceptance_criteria' @())
+        $hasUnmetMandatory = $false
         foreach ($c in $criteria) {
             $req = [bool](Get-DSValue $c 'required' $true)
+            $st = Safe-DSString (Get-DSValue $c 'status' 'pending')
+            $eref = Safe-DSString (Get-DSValue $c 'evidence_ref' '')
             if ($req) {
                 $totalCriteria++
-                $st = Safe-DSString (Get-DSValue $c 'status' 'pending')
-                if ($st -eq 'verified_pass') {
+                if ($st -eq 'verified_pass' -and -not [string]::IsNullOrWhiteSpace($eref)) {
                     $verifiedCriteria++
+                } else {
+                    $hasUnmetMandatory = $true
                 }
             }
+        }
+
+        # Contabilizacao confiavel de falso DONE:
+        # Se a fatia alega estado DONE mas tem criterios obrigatorios nao verificados
+        if ($mst -eq 'DONE' -and ($hasUnmetMandatory -or $criteria.Count -eq 0)) {
+            $falseDoneCount++
         }
     }
 

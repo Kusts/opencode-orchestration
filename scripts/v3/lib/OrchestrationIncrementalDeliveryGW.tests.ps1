@@ -30,12 +30,14 @@ $PlannerLib = Join-Path $ScriptDir 'OrchestrationPlannerLoop.ps1'
 $GoalKernelLib = Join-Path $ScriptDir 'OrchestrationGoalKernel.ps1'
 $TaskKernelLib = Join-Path $ScriptDir 'OrchestrationTaskKernel.ps1'
 $EvidenceStoreLib = Join-Path $ScriptDir 'OrchestrationEvidenceStore.ps1'
+$VerifierLib = Join-Path $ScriptDir 'OrchestrationVerifier.ps1'
 
 . $DeliverySliceLib
 . $PlannerLib
 . $GoalKernelLib
 . $TaskKernelLib
 . $EvidenceStoreLib
+if (Test-Path -LiteralPath $VerifierLib) { . $VerifierLib }
 
 $TotalChecks = 0
 $FailedChecks = 0
