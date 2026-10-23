@@ -6,6 +6,28 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Fechamento da Validação Produtiva no OpenCode V2 (PR #151, 2026-10-23)**:
+  - **P0 — Sessão e Execução Nativa do Advisor Comprovada no Host Real:**
+    - Despacho nativo de `engineering-advisor` no OpenCode V2 real via subprocesso seguro `.NET ProcessStartInfo` com fechamento explícito e imediato de `StandardInput` (eliminando o hang/deadlock de EOF no pipe do CLI V2) e drenagem assíncrona não bloqueante de stdout/stderr.
+    - Resolução robusta de binário nativo priorizando `profileV2Exe` (`.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe`) e resolução de shims `.ps1`/`.cmd`.
+    - Captura fidedigna do `sessionID` efetivo a partir dos eventos JSON nativos de streaming emitida pelo host (desassociando categoricamente a sessão filha da sessão pai).
+    - Verificação rigorosa do host via `Get-OrchestrationSessionHostEvidence`: extração de agente (`engineering-advisor`), desfecho (`succeeded`), modelo efetivo (`info.model` / `messages.model`), tokens e custo USD diretamente da CLI (`session export`).
+    - Prova empírica de execução de ponta a ponta no host real com `COMPLETED_VERIFIED` (`ses_e978f8616ffeogtIqujRj0K4cE`, modelo efetivo `opencode-go/muse-spark-1.3-contributor`, 43622 tokens in, 1405 tokens out, $0.00512 USD) e parecer técnico real baseado no repositório.
+    - Correção de conflito de variável de escopo PowerShell em `$providerId` (prevenção de colisão com a variável automática e read-only `$PID`).
+  - **P0 — Model Router Real e Piloto de 7 Etapas Concluído:**
+    - Seleção estrita do catálogo com separação entre modelos sem credencial configurada (`PROOF_ABSENT` honesto para T4 não autenticado) e despacho com modelo de catálogo ativo e autorizado.
+    - Execução e validação do fluxo completo de 7 etapas no host real: Preflight (`MULTI_WORKER`), Model Router (`T3` autorizado), Advisor nativo (`COMPLETED_VERIFIED`), Planner incorporando recomendação técnica, Worker produzindo artefato verificável, Task Kernel validando formalmente todo o ciclo CAS (`PLANNING` -> `IMPLEMENTING` -> `VALIDATING` -> `REVIEWING` -> `DONE`) e gravação da telemetria consolidada em `evidence/v3.1/runtime-reliability/pilot-real-adaptive-workflow-result.json`.
+  - **P1 — Jev Advisory e Ciclo de Conselho:**
+    - Separação estrita dos estados do ciclo consultivo: `advice_state` (`ADVICE_RECEIVED`, `ADVICE_EVALUATED`, `ADVICE_APPLIED`), flags booleanas correspondentes, tipo de influência na estratégia (`influence_type` = `STRATEGY_ADAPTED` vs `ORIGINAL_STRATEGY_PRESERVED`) e registro formal da justificativa de adaptação (`adaptation_rationale`).
+  - **P1 — Reuso Confinado e Proteção Fail-Closed:**
+    - Restrição de exceções temporárias no reuso estritamente a subpastas com prefixos de fixtures autorizadas (`gw-`, `acceptance-`, `v3-wd-`, `v3-reuse-`, etc.).
+    - Rejeição fail-closed na verificação de symlinks (`scope-symlink-verification-failed`) e rejeição determinística diante de escopo sem fingerprints suficientes (`insufficient-fingerprints`).
+  - **Bateria de Testes:**
+    - `OrchestrationAdvisorEfficiencyGW.tests.ps1`: 86/86 asserções aprovadas (100% verde).
+    - `OrchestrationPlannerLoop.tests.ps1`: 41/41 checks aprovados (100% verde).
+    - `test-package-consistency.ps1`: 16/16 checks OK (100% verde).
+
+
 - **Fechamento Final da Eficiência e Roteamento Adaptativo (PR #151, 2026-10-22)**:
   - **P0 — Prova Rigorosa do Advisor:** Bifurcação de subagents via `--session <parent> --fork` em sessão de Planner sem poluição de transcript nem executores paralelos fora do Task Kernel; separação estrita dos 4 estados operacionais (`PROCESS_EXITED`, `RESULT_RECEIVED`, `HOST_EVIDENCE_VERIFIED`, `COMPLETED_VERIFIED`); chave de cache SHA256 expandida com `$Model`, `$Constraints` e `$ContextFingerprint`; bloqueio fail-closed de cache para respostas parciais ou desprovidas de prova do host (`PARTIAL_PROOF`), eliminando qualquer risco de persistência de dados não verificados.
   - **P0 — Medição de Eficiência e Benchmarks Confinados:** Remoção completa de custos e contagens de tokens sintéticos da categoria de medidos; tratamento estrito de custo não faturado como `'UNKNOWN'` (nunca zero); segregação clara de componentes medidos de forma isolada (`workers_included = $false`, `cost_to_done_claimed = $false`) em `scripts/v3/measure-workflow-efficiency.ps1` e atualização do dataset empírico `workflow-efficiency-measurements-2026-10-22.json`.

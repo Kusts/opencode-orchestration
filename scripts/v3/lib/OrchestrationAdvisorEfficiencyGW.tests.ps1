@@ -176,8 +176,11 @@ if (Test-Path -LiteralPath $plannerLib) {
     }
     $resNative = & $nativeExec $reqNative $null
     if ($resNative.Status -eq 'PROOF_ABSENT') {
-        Assert-GW ($resNative.Reason -in @('NATIVE_DISPATCH_UNAVAILABLE', 'MODEL_PROVIDER_CREDENTIAL_ABSENT')) 'INT-02-ADVISOR' "Executor nativo ausente ou sem credencial atesta PROOF_ABSENT honesto"
+        Assert-GW ($resNative.Reason -in @('NATIVE_DISPATCH_UNAVAILABLE', 'MODEL_PROVIDER_CREDENTIAL_ABSENT', 'NATIVE_DISPATCH_TIMEOUT', 'NATIVE_EXECUTION_FAILED_OR_NO_OUTPUT')) 'INT-02-ADVISOR' "Executor nativo ausente ou sem credencial atesta PROOF_ABSENT honesto"
         Assert-GW ($null -eq $resNative.RecommendedOption) 'INT-02-ADVISOR' "Zero recomendacao fabricada no executor nativo desprovido de binario ou credencial"
+        Assert-GW ($resNative.Agent -eq 'engineering-advisor') 'INT-02-ADVISOR' "Agente registrado como engineering-advisor"
+    } else {
+        Assert-GW ($resNative.Status -in @('COMPLETED', 'PARTIAL_PROOF')) 'INT-02-ADVISOR' "Executor nativo conclui consulta real ou com prova do host"
         Assert-GW ($resNative.Agent -eq 'engineering-advisor') 'INT-02-ADVISOR' "Agente registrado como engineering-advisor"
     }
 
@@ -409,6 +412,28 @@ try {
             -CurrentEnv @{ runtime = 'pwsh'; version = '8.0-incompatible' }
         Assert-GW ($appVerMismatch.Applicable -eq $false) 'INT-04-REUSE' "Incompatibilidade de versao do runtime rejeita reuso"
         Assert-GW ($appVerMismatch.Reason -eq 'environment-version-mismatch') 'INT-04-REUSE' "Razao explicita environment-version-mismatch"
+
+        # 4g. Fingerprints insuficientes para os arquivos do escopo: rejeita reuso
+        $canonicalNoFps = [ordered]@{}
+        foreach ($k in $canonicalRecord.Keys) { $canonicalNoFps[$k] = $canonicalRecord[$k] }
+        $canonicalNoFps['source_fingerprints'] = @{}
+        $appNoFps = Test-OrchestrationReusableApplicability -Evidence $canonicalNoFps `
+            -CurrentHeadSha $commitHead `
+            -CurrentCriteriaHash 'crit-hash-123' `
+            -CurrentScope @($sampleFile) `
+            -CurrentSourceFingerprints @{}
+        Assert-GW ($appNoFps.Applicable -eq $false) 'INT-04-REUSE' "Fingerprints ausentes/insuficientes rejeitam reuso fail-closed"
+        Assert-GW ($appNoFps.Reason -eq 'insufficient-fingerprints') 'INT-04-REUSE' "Razao explicita insufficient-fingerprints"
+
+        # 4h. Arquivo temporario fora de fixture autorizada rejeita reuso
+        $unauthTemp = Join-Path ([System.IO.Path]::GetTempPath()) 'unauthorized-external-dir\file.txt'
+        $appUnauthTemp = Test-OrchestrationReusableApplicability -Evidence $canonicalRecord `
+            -CurrentHeadSha $commitHead `
+            -CurrentCriteriaHash 'crit-hash-123' `
+            -CurrentScope @($unauthTemp) `
+            -CurrentSourceFingerprints @{ $unauthTemp = 'dummy' }
+        Assert-GW ($appUnauthTemp.Applicable -eq $false) 'INT-04-REUSE' "Arquivo temporario fora de fixture autorizada rejeitado fail-closed"
+        Assert-GW ($appUnauthTemp.Reason -eq 'scope-path-traversal-detected') 'INT-04-REUSE' "Razao explicita scope-path-traversal-detected para temp nao autorizado"
     }
 } finally {
     if (Test-Path -LiteralPath $storeDir) { Remove-Item -LiteralPath $storeDir -Recurse -Force -ErrorAction SilentlyContinue }
@@ -446,6 +471,10 @@ if (Test-Path -LiteralPath $jevLib) {
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_consumed -eq $true) 'INT-05-JEV' "Decisao de Jev Advisory atestada como consumida no plano"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_taken -match 'CONSUMED') 'INT-05-JEV' "Decisao tomada registrada na telemetria"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_applied -eq $true) 'INT-05-JEV' "Decisao aplicada efetivamente como parecer consultivo"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_state -eq 'ADVICE_APPLIED') 'INT-05-JEV' "Estado do ciclo de conselho e ADVICE_APPLIED"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_received -eq $true) 'INT-05-JEV' "Recebimento do conselho (ADVICE_RECEIVED) atestado"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.advice_evaluated -eq $true) 'INT-05-JEV' "Avaliacao do conselho (ADVICE_EVALUATED) atestada"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.influence_type -in @('STRATEGY_ADAPTED', 'ORIGINAL_STRATEGY_PRESERVED')) 'INT-05-JEV' "Tipo de influencia de estrategia demonstrado"
         Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.strategy_prior) 'INT-05-JEV' "Estrategia previa registrada no envelope Jev"
         Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.strategy_posterior) 'INT-05-JEV' "Estrategia posterior registrada no envelope Jev"
         Assert-GW ($null -ne $jevPlan.plan.jev_advisory_result.adaptation_rationale) 'INT-05-JEV' "Justificativa de adaptacao registrada no envelope Jev"

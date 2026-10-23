@@ -39,7 +39,7 @@ function Invoke-OrchestrationPlannerLoop {
     function Unavailable-PL($why){return [pscustomobject]@{status='unavailable';reason=$why}}
     # Closed "not consulted" envelope for the Jev result record: same keys the
     # lib returns, no advice invented and never authoritative.
-    function JevNotConsulted-PL($why){return [ordered]@{status='unavailable';reason=(Safe-PL $why 48);consulted=$false;would_consult=$false;evaluated=$false;decision_applied=$false;strategy_prior='unspecified';strategy_posterior='unspecified';adaptation_rationale=(Safe-PL $why 120);fallback_continue=$true;blocked=$false;authoritative=$false;recommendation_only=$true}}
+    function JevNotConsulted-PL($why){return [ordered]@{status='unavailable';reason=(Safe-PL $why 48);consulted=$false;would_consult=$false;evaluated=$false;advice_state='NOT_CONSULTED';advice_received=$false;advice_evaluated=$false;advice_applied=$false;decision_applied=$false;influence_type='ORIGINAL_STRATEGY_PRESERVED';strategy_prior='unspecified';strategy_posterior='unspecified';adaptation_rationale=(Safe-PL $why 120);fallback_continue=$true;blocked=$false;authoritative=$false;recommendation_only=$true}}
     # Resolve the process REAL home once: USERPROFILE, the HOME environment
     # variable, and the PowerShell $HOME automatic variable (read-only, so it
     # is only ever READ here). Distinct values are deduplicated case
@@ -179,12 +179,17 @@ function Invoke-OrchestrationPlannerLoop {
                 $applied = $decisionConsumed
                 $strategyPrior = if ($parallel) { 'parallel-fanout' } else { 'sequential-minimum' }
                 $strategyPosterior = $strategyPrior
+                $adviceReceived = $consulted -and ($null -ne $rawOut)
+                $adviceEvaluated = $evaluated
+                $adviceApplied = $applied
+                $adviceState = if ($adviceApplied) { 'ADVICE_APPLIED' } elseif ($adviceEvaluated) { 'ADVICE_EVALUATED' } elseif ($adviceReceived) { 'ADVICE_RECEIVED' } else { 'NOT_CONSULTED' }
+                $influenceType = if ($strategyPosterior -ne $strategyPrior) { 'STRATEGY_ADAPTED' } else { 'ORIGINAL_STRATEGY_PRESERVED' }
                 $adaptRationale = if ($decisionConsumed) {
-                    Safe-PL "Advisory evaluated with recommendation '$sum'. Deterministic route '$strategyPrior' preserved (advisory-only)." 160
+                    Safe-PL "Advisory evaluated with recommendation '$sum'. Strategy '$strategyPrior' preserved (consistent with deterministic gates; advisory-only)." 160
                 } else {
                     Safe-PL "Jev consultation unavailable or unverified. Fallback to deterministic route '$strategyPrior'." 160
                 }
-                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);evaluated=$evaluated;fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$decisionConsumed;decision_taken=$decisionTaken;decision_applied=$applied;strategy_prior=$strategyPrior;strategy_posterior=$strategyPosterior;adaptation_rationale=$adaptRationale;authoritative=$false;recommendation_only=$true}
+                $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);evaluated=$evaluated;advice_state=$adviceState;advice_received=$adviceReceived;advice_evaluated=$adviceEvaluated;advice_applied=$adviceApplied;fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$decisionConsumed;decision_taken=$decisionTaken;decision_applied=$applied;influence_type=$influenceType;strategy_prior=$strategyPrior;strategy_posterior=$strategyPosterior;adaptation_rationale=$adaptRationale;authoritative=$false;recommendation_only=$true}
             }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
         $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}

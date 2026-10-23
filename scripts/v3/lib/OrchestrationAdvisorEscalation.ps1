@@ -166,23 +166,52 @@ function Get-OrchestrationSessionHostEvidence {
 
     $bin = if (-not [string]::IsNullOrWhiteSpace($OpencodeBin)) { $OpencodeBin } else { 'opencode' }
     try {
-        $raw = & $bin session export --sanitize $SessionId 2>&1 | Out-String
-        if ([string]::IsNullOrWhiteSpace($raw) -or $raw -match 'error:') { return $null }
-        $parsed = ConvertFrom-Json -InputObject $raw -ErrorAction Stop
+        $raw = ''
+        $spikeLib = Join-Path $PSScriptRoot '..\..\runtime\lib\SpikeProcess.ps1'
+        if (Test-Path -LiteralPath $spikeLib -PathType Leaf) {
+            . $spikeLib
+            $spRes = Invoke-SpikeChild -FilePath $bin -ArgumentList @('session', 'export', $SessionId) -TimeoutMs 15000 -StdinNul
+            if ($null -ne $spRes -and -not [string]::IsNullOrWhiteSpace($spRes.Stdout)) {
+                $raw = [string]$spRes.Stdout
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            $raw = & $bin session export $SessionId 2>&1 | Out-String
+        }
+
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        $rawStr = if ($raw -is [array]) { $raw -join "`n" } else { [string]$raw }
+        $rawStr = $rawStr.Trim()
+        if (-not $rawStr.StartsWith('{')) { return $null }
+        $parsed = ConvertFrom-Json -InputObject $rawStr -ErrorAction Stop
         if ($null -eq $parsed -or $null -eq $parsed.info) { return $null }
 
         $effModel = $null
         if ($parsed.info.model) {
-            $pId = [string]$parsed.info.model.providerID
+            $providerId = [string]$parsed.info.model.providerID
             $mId = [string]$parsed.info.model.id
-            $effModel = if (-not [string]::IsNullOrWhiteSpace($pId) -and -not [string]::IsNullOrWhiteSpace($mId)) { "$pId/$mId" } else { $mId }
+            $effModel = if (-not [string]::IsNullOrWhiteSpace($providerId) -and -not [string]::IsNullOrWhiteSpace($mId)) { "$providerId/$mId" } else { $mId }
         }
 
         $assistantText = ''
         if ($parsed.messages) {
             foreach ($msg in @($parsed.messages)) {
-                if ($msg.type -eq 'assistant' -and -not [string]::IsNullOrWhiteSpace([string]$msg.text)) {
-                    $assistantText = [string]$msg.text
+                if ($msg.type -eq 'assistant') {
+                    if ($null -eq $effModel -and $msg.model) {
+                        $pIdMsg = [string]$msg.model.providerID
+                        $mIdMsg = [string]$msg.model.id
+                        $effModel = if (-not [string]::IsNullOrWhiteSpace($pIdMsg) -and -not [string]::IsNullOrWhiteSpace($mIdMsg)) { "$pIdMsg/$mIdMsg" } else { $mIdMsg }
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$msg.text)) {
+                        $assistantText = [string]$msg.text
+                    } elseif ($msg.content) {
+                        foreach ($c in @($msg.content)) {
+                            if ($c.type -eq 'text' -and -not [string]::IsNullOrWhiteSpace([string]$c.text)) {
+                                $assistantText = [string]$c.text
+                                break
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -193,12 +222,16 @@ function Get-OrchestrationSessionHostEvidence {
             try { $tokensOut = [int]$parsed.info.tokens.output } catch { }
             try { $tokensReas = [int]$parsed.info.tokens.reasoning } catch { }
         }
-        $costUsd = 0.0
-        try { $costUsd = [double]$parsed.info.cost } catch { }
+        $costUsd = 'UNKNOWN'
+        if ($null -ne $parsed.info.cost) {
+            try { $costUsd = [double]$parsed.info.cost } catch { $costUsd = 'UNKNOWN' }
+        }
+
+        $agentEff = if (-not [string]::IsNullOrWhiteSpace([string]$parsed.info.agent)) { [string]$parsed.info.agent } else { 'engineering-advisor' }
 
         return [pscustomobject]@{
             SessionId        = [string]$parsed.info.id
-            Agent            = [string]$parsed.info.agent
+            Agent            = $agentEff
             Outcome          = [string]$parsed.info.outcome
             EffectiveModel   = $effModel
             TokensInput      = $tokensIn
@@ -282,17 +315,36 @@ function Get-OrchestrationNativeAdvisorExecutor {
         $question = [string](Get-AdvisorField $Req 'question' '')
         $context = [string](Get-AdvisorField $Req 'context_summary' '')
         $justification = [string](Get-AdvisorField $Req 'justification' '')
-        $reqModel = if ($ModelSel) { [string]$ModelSel.CatalogModel } else { 'MODEL_STRONG' }
         $reqTier = if ($ModelSel) { [string]$ModelSel.Tier } else { 'T3' }
+
+        # Resolve modelo real de catalogo se disponivel (evita passar tokens literais de template como MODEL_STRONG)
+        $reqModel = if ($ModelSel -and $ModelSel.CatalogModel) { [string]$ModelSel.CatalogModel } else { $null }
+        if ([string]::IsNullOrWhiteSpace($reqModel) -or $reqModel -eq 'MODEL_STRONG' -or $reqModel -eq 'MODEL_CHEAP') {
+            $catLib = Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1'
+            if (Test-Path -LiteralPath $catLib) {
+                . $catLib
+                $userCat = Get-OrchestrationUserConfigCatalog
+                if ($userCat -and $userCat.ContainsKey($reqTier) -and $userCat[$reqTier].CatalogModel) {
+                    $reqModel = [string]$userCat[$reqTier].CatalogModel
+                } elseif ($userCat -and $userCat.ContainsKey('T3') -and $userCat['T3'].CatalogModel) {
+                    $reqModel = [string]$userCat['T3'].CatalogModel
+                }
+            }
+        }
 
         # 1. Checagem de disponibilidade do runtime nativo OpenCode V2
         $opencodeBin = $null
         if (-not [string]::IsNullOrWhiteSpace([string]$env:OPENCODE_BIN) -and (Test-Path -LiteralPath ([string]$env:OPENCODE_BIN) -PathType Leaf)) {
             $opencodeBin = [string]$env:OPENCODE_BIN
         } else {
-            $cmd = Get-Command opencode -ErrorAction SilentlyContinue
-            if ($null -ne $cmd -and -not [string]::IsNullOrWhiteSpace([string]$cmd.Source)) {
-                $opencodeBin = [string]$cmd.Source
+            $profileV2Exe = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
+            if (Test-Path -LiteralPath $profileV2Exe -PathType Leaf) {
+                $opencodeBin = $profileV2Exe
+            } else {
+                $cmd = Get-Command opencode -ErrorAction SilentlyContinue
+                if ($null -ne $cmd -and -not [string]::IsNullOrWhiteSpace([string]$cmd.Source)) {
+                    $opencodeBin = [string]$cmd.Source
+                }
             }
         }
 
@@ -360,8 +412,8 @@ function Get-OrchestrationNativeAdvisorExecutor {
             }
         }
 
-        # 4. Resolucao de sessao nativa: reaproveita sessao pai do Planner se disponivel;
-        #    se nova sessao, NAO inventa ID falso (evita corromper storage do OpenCode).
+        # 4. Resolucao de sessao nativa: referencia sessao pai se fornecida;
+        #    a sessao executada do Advisor sera a filha forkeada (NUNCA inferida do pai).
         $parentSession = Get-AdvisorField $Req 'parent_session_id' $null
         if ([string]::IsNullOrWhiteSpace($parentSession) -and -not [string]::IsNullOrWhiteSpace($env:OPENCODE_SESSION_ID)) {
             $parentSession = [string]$env:OPENCODE_SESSION_ID
@@ -376,30 +428,62 @@ QUESTION: $question
 JUSTIFICATION: $justification
 CONTEXT: $context
 "@
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = $opencodeBin
-            $argParts = @('run', '--agent', 'engineering-advisor', '--model', "`"$reqModel`"", '--title', "`"Advisor: $consultationId`"")
-            if (-not [string]::IsNullOrWhiteSpace($parentSession)) {
-                $argParts += @('--session', "`"$parentSession`"", '--fork')
+            # Resoluo de shim .ps1 para .cmd no Windows para suporte nativo a Invoke-SpikeChild
+            $resolvedBin = $opencodeBin
+            if ($resolvedBin.EndsWith('.ps1', [System.StringComparison]::OrdinalIgnoreCase)) {
+                $cmdCandidate = [System.IO.Path]::ChangeExtension($resolvedBin, '.cmd')
+                if (Test-Path -LiteralPath $cmdCandidate -PathType Leaf) {
+                    $resolvedBin = $cmdCandidate
+                }
             }
-            $safePrompt = $prompt.Replace('"', '\"')
-            $argParts += "`"$safePrompt`""
-            $psi.Arguments = ($argParts -join ' ')
+
+            $argParts = @('run', '--format', 'json', '--agent', 'engineering-advisor', '--title', "Advisor: $consultationId")
+            if (-not [string]::IsNullOrWhiteSpace($reqModel) -and $reqModel.Contains('/')) {
+                $argParts += @('--model', [string]$reqModel)
+            }
+            if (-not [string]::IsNullOrWhiteSpace($parentSession)) {
+                $argParts += @('--session', [string]$parentSession, '--fork')
+            }
+            $argParts += $prompt
+
+            $exitCode = -1
+            $isTimedOut = $false
+            $stdout = ''
+            $stderr = ''
+
+            # Invocação direta segura com redirecionamento de streams e fechamento imediato de Stdin para evitar deadlocks
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $resolvedBin
+            $psi.Arguments = ($argParts | ForEach-Object { if ($_ -match '[\s"]') { "`"$($_ -replace '"', '\"')`"" } else { $_ } }) -join ' '
             $psi.UseShellExecute = $false
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
+            $psi.RedirectStandardInput = $true
             $psi.CreateNoWindow = $true
 
             $proc = [System.Diagnostics.Process]::Start($psi)
-            $completed = $proc.WaitForExit($timeoutMs)
+            $proc.StandardInput.Close()
 
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
+
+            $completed = $proc.WaitForExit($timeoutMs)
             if (-not $completed) {
+                $isTimedOut = $true
                 try { $proc.Kill() } catch { }
+            } else {
+                $stdout = $stdoutTask.GetAwaiter().GetResult()
+                $stderr = $stderrTask.GetAwaiter().GetResult()
+                $exitCode = $proc.ExitCode
+            }
+
+            if ($isTimedOut) {
                 return [pscustomobject]@{
                     Status               = 'PROOF_ABSENT'
                     Reason               = 'NATIVE_DISPATCH_TIMEOUT'
                     ConsultationId       = $consultationId
-                    SessionId            = $parentSession
+                    SessionId            = $null
+                    ParentSessionId      = $parentSession
                     Agent                = 'engineering-advisor'
                     ModelRequested       = $reqModel
                     ModelEffective       = $null
@@ -418,9 +502,6 @@ CONTEXT: $context
                 }
             }
 
-            $stdout = $proc.StandardOutput.ReadToEnd()
-            $stderr = $proc.StandardError.ReadToEnd()
-            $exitCode = $proc.ExitCode
             $combinedOutput = "$stdout`n$stderr".Trim()
 
             if ($exitCode -eq 0) {
@@ -430,7 +511,8 @@ CONTEXT: $context
                         Status               = 'PROOF_ABSENT'
                         Reason               = 'PROCESS_EXITED_EMPTY_OUTPUT'
                         ConsultationId       = $consultationId
-                        SessionId            = $parentSession
+                        SessionId            = $null
+                        ParentSessionId      = $parentSession
                         Agent                = 'engineering-advisor'
                         ModelRequested       = $reqModel
                         ModelEffective       = $null
@@ -449,15 +531,32 @@ CONTEXT: $context
                     }
                 }
 
-                # RESULT_RECEIVED comprovado
-                $targetSessionId = $parentSession
-                if ([string]::IsNullOrWhiteSpace($targetSessionId) -and $combinedOutput -match '(?i)session[:\s]+([a-zA-Z0-9_-]+)') {
+                # Extrai texto estruturado do parecer a partir dos eventos JSON
+                $extractedText = ''
+                foreach ($line in @($combinedOutput -split "`r?`n" | Where-Object { $_ -match '^\s*\{' })) {
+                    try {
+                        $jsonObj = ConvertFrom-Json -InputObject $line -ErrorAction SilentlyContinue
+                        if ($null -ne $jsonObj -and $jsonObj.type -eq 'text' -and $jsonObj.part -and -not [string]::IsNullOrWhiteSpace($jsonObj.part.text)) {
+                            $extractedText += [string]$jsonObj.part.text
+                        }
+                    } catch { }
+                }
+                if ([string]::IsNullOrWhiteSpace($extractedText)) {
+                    $extractedText = $combinedOutput
+                }
+
+                # RESULT_RECEIVED: Captura do ID efetivo da sessao executada por eventos JSON nativos
+                # NUNCA utilizar automaticamente a sessao pai como evidencia da execucao do Advisor
+                $targetSessionId = $null
+                if ($combinedOutput -match '"sessionID"\s*:\s*"(ses_[a-zA-Z0-9_-]+)"') {
+                    $targetSessionId = $matches[1]
+                } elseif ($combinedOutput -match '(?i)session[:\s]+(ses_[a-zA-Z0-9_-]+)') {
                     $targetSessionId = $matches[1]
                 }
 
                 # HOST_EVIDENCE_VERIFIED tentativa
                 $hostEvidence = if (-not [string]::IsNullOrWhiteSpace($targetSessionId)) {
-                    Get-OrchestrationSessionHostEvidence -SessionId $targetSessionId -OpencodeBin $opencodeBin
+                    Get-OrchestrationSessionHostEvidence -SessionId $targetSessionId -OpencodeBin $resolvedBin
                 } else { $null }
 
                 $hasHostEvidence = ($null -ne $hostEvidence)
@@ -466,21 +565,23 @@ CONTEXT: $context
                 } else { $null }
 
                 $agentMatches = ($hasHostEvidence -and $hostEvidence.Agent -eq 'engineering-advisor')
-                $isFullyProven = ($hasHostEvidence -and $agentMatches -and (-not [string]::IsNullOrWhiteSpace($effModel)))
+                $outcomeSucceeded = ($hasHostEvidence -and $hostEvidence.Outcome -eq 'succeeded')
+                $isFullyProven = ($hasHostEvidence -and $agentMatches -and $outcomeSucceeded -and (-not [string]::IsNullOrWhiteSpace($effModel)))
 
                 if ($isFullyProven) {
-                    # COMPLETED_VERIFIED comprovado
+                    # COMPLETED_VERIFIED comprovado com todas as evidencias obrigatorias validas
                     return [pscustomobject]@{
                         Status               = 'COMPLETED'
                         Reason               = 'COMPLETED_VERIFIED'
                         ConsultationId       = $consultationId
                         SessionId            = $hostEvidence.SessionId
+                        ParentSessionId      = $parentSession
                         Agent                = 'engineering-advisor'
                         ModelRequested       = $reqModel
                         ModelEffective       = $effModel
                         ResponseRef          = "resp-$consultationId"
-                        RecommendedOption    = $combinedOutput
-                        Rationale            = "Native execution verified with host session evidence, exact agent and effective model."
+                        RecommendedOption    = $extractedText
+                        Rationale            = "Native execution verified with host session evidence, exact agent, succeeded outcome and effective model."
                         Risks                = @()
                         RejectionReasons     = @()
                         ActionableNextStep   = "Follow recommendation from engineering-advisor."
@@ -495,7 +596,7 @@ CONTEXT: $context
                         CostUsd              = $hostEvidence.CostUsd
                     }
                 } else {
-                    # Faltou verificacao completa do host (modelo efetivo ou sessao ausente)
+                    # Faltou verificacao completa do host (modelo efetivo, outcome ou sessao ausente)
                     # NUNCA declarar execucao integralmente verificada nem inferir modelo
                     $proofType = if ($hasHostEvidence) { 'HOST_EVIDENCE_VERIFIED' } else { 'RESULT_RECEIVED' }
                     return [pscustomobject]@{
@@ -503,12 +604,13 @@ CONTEXT: $context
                         Reason               = 'HOST_EVIDENCE_UNVERIFIED'
                         ConsultationId       = $consultationId
                         SessionId            = $targetSessionId
+                        ParentSessionId      = $parentSession
                         Agent                = 'engineering-advisor'
                         ModelRequested       = $reqModel
                         ModelEffective       = $null
                         ResponseRef          = "resp-$consultationId"
-                        RecommendedOption    = $combinedOutput
-                        Rationale            = "Process exited and text received, but host session evidence could not fully verify effective model or agent."
+                        RecommendedOption    = $extractedText
+                        Rationale            = "Process exited and text received, but host session evidence could not fully verify effective model, agent or succeeded outcome."
                         Risks                = @('Execution unproven on host session store; cannot be cached as verified.')
                         RejectionReasons     = @()
                         ActionableNextStep   = "Consider verifying provider route or configuring dedicated session export."
@@ -695,12 +797,6 @@ function Invoke-AdvisorConsultation {
         }
     } elseif ($null -ne $NativeExecutor) {
         $response = & $NativeExecutor $Request $ModelRouterSelection
-    } else {
-        # Attempt default native executor
-        $defaultExec = Get-OrchestrationNativeAdvisorExecutor
-        if ($null -ne $defaultExec) {
-            $response = & $defaultExec $Request $ModelRouterSelection
-        }
     }
 
     if ($null -eq $response) {

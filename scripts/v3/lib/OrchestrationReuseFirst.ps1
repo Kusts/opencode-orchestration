@@ -90,7 +90,7 @@ function Test-OrchestrationReusableApplicability {
             foreach ($p in $evFps.PSObject.Properties) { $targetFps[$p.Name] = $p.Value }
         }
     }
-    if ($CurrentSourceFingerprints.Count -gt 0) {
+    if ($null -ne $CurrentSourceFingerprints -and ($CurrentSourceFingerprints -is [System.Collections.IDictionary])) {
         foreach ($k in $CurrentSourceFingerprints.Keys) {
             if (-not $targetFps.ContainsKey($k)) { $targetFps[$k] = $CurrentSourceFingerprints[$k] }
         }
@@ -108,9 +108,20 @@ function Test-OrchestrationReusableApplicability {
         [System.IO.Path]::GetFullPath((Get-Location).Path)
     }
     $wsPrefix = if ($currentWorkDir.EndsWith([System.IO.Path]::DirectorySeparatorChar.ToString())) { $currentWorkDir } else { "$currentWorkDir$([System.IO.Path]::DirectorySeparatorChar)" }
+    $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+
+    # 3. Validacao rigorosa de fingerprints: se ha arquivos em escopo, exige fingerprints suficientes
+    if ($combinedScope.Count -gt 0 -and $targetFps.Count -eq 0) {
+        return @{ Applicable = $false; Reason = "insufficient-fingerprints" }
+    }
 
     foreach ($fileRel in $combinedScope) {
         if ([string]::IsNullOrWhiteSpace($fileRel)) { continue }
+
+        # Exige presenca do fingerprint para cada arquivo relevante do escopo
+        if (-not $targetFps.ContainsKey($fileRel)) {
+            return @{ Applicable = $false; Reason = "insufficient-fingerprints" }
+        }
 
         # Validacao rigorosa de escopo: normalizacao e prevencao contra path traversal e escapes
         try {
@@ -119,28 +130,48 @@ function Test-OrchestrationReusableApplicability {
 
             # Rejeita caminho absoluto ou relativo que aponte para fora da raiz do workspace
             if (-not $fullFilePath.StartsWith($wsPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and ($fullFilePath -ne $currentWorkDir)) {
-                # Permissao especial para arquivos isolados de teste localizados em caminhos temporarios especificos
-                $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
-                $isAllowedTemp = $isRooted -and $fullFilePath.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)
-                if (-not $isAllowedTemp) {
+                # Restricao rigorosa: caminhos temporarios sao restritos estritamente as fixtures autorizadas
+                $isUnderTemp = $isRooted -and $fullFilePath.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)
+                $isAllowedFixture = $false
+                if ($isUnderTemp) {
+                    $relToTemp = $fullFilePath.Substring($tempRoot.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, '/')
+                    $allowedPrefixes = @('gw-', 'acceptance-', 'v3-wd-', 'v3-reuse-', 'v3-spike-', 'oo-t-')
+                    foreach ($pfx in $allowedPrefixes) {
+                        if ($relToTemp.StartsWith($pfx, [System.StringComparison]::OrdinalIgnoreCase)) {
+                            $isAllowedFixture = $true
+                            break
+                        }
+                    }
+                }
+                if (-not $isAllowedFixture) {
                     return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }
                 }
             }
 
-            # Inspecao de symlink/reparse point para evitar escape indireto
+            # Inspecao de symlink/reparse point para evitar escape indireto (falha de verificacao = nao reutilizavel)
             if (Test-Path -LiteralPath $fullFilePath) {
                 try {
-                    $item = Get-Item -LiteralPath $fullFilePath -Force -ErrorAction SilentlyContinue
+                    $item = Get-Item -LiteralPath $fullFilePath -Force -ErrorAction Stop
                     if ($null -ne $item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
                         $target = $item.Target
                         if ($target) {
                             $targetFull = [System.IO.Path]::GetFullPath($target)
-                            if (-not $targetFull.StartsWith($wsPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and -not $targetFull.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                            $targetInTemp = $targetFull.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)
+                            $targetAllowed = $false
+                            if ($targetInTemp) {
+                                $relTarget = $targetFull.Substring($tempRoot.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, '/')
+                                foreach ($pfx in @('gw-', 'acceptance-', 'v3-wd-', 'v3-reuse-', 'v3-spike-', 'oo-t-')) {
+                                    if ($relTarget.StartsWith($pfx, [System.StringComparison]::OrdinalIgnoreCase)) { $targetAllowed = $true; break }
+                                }
+                            }
+                            if (-not $targetFull.StartsWith($wsPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and -not $targetAllowed) {
                                 return @{ Applicable = $false; Reason = "scope-symlink-escape-detected" }
                             }
                         }
                     }
-                } catch { }
+                } catch {
+                    return @{ Applicable = $false; Reason = "scope-symlink-verification-failed" }
+                }
             }
         } catch {
             return @{ Applicable = $false; Reason = "scope-path-traversal-detected" }

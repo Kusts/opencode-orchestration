@@ -1,0 +1,20 @@
+﻿{
+    "task_id":  "pilot-adaptive-20261023-110603.tolower",
+    "agents":  [
+                   "planner",
+                   "engineering-advisor",
+                   "coder",
+                   "reviewer"
+               ],
+    "session_id":  "ses_e978f8616ffeogtIqujRj0K4cE",
+    "parent_session_id":  null,
+    "model_requested":  "opencode-go/muse-spark-1.3-contributor",
+    "model_effective":  "opencode-go/muse-spark-1.3-contributor",
+    "execution_proof":  "COMPLETED_VERIFIED",
+    "advisor_status":  "COMPLETED",
+    "tokens_input":  43622,
+    "tokens_output":  1405,
+    "cost_usd":  0.005120006,
+    "kernel_state":  "DONE",
+    "compliance_verdict":  "COMPLIANT"
+}
