@@ -17,8 +17,9 @@
     - AC-11: Session resumption preserves active slice, decisions, evidence, and next action.
     - AC-12: DONE authorized only by kernel mechanism with all mandatory criteria proven.
     - AC-13: Security grants and policies strictly preserved.
-    - AC-14: Downstream consumer pilot ("Meu Ted" - expense registration via chat).
+    - AC-14: Downstream consumer pilot ("Meu Ted" synthetic scenario; real pilot DEFERRED_BY_USER; HARNESS_PASS).
     - AC-15: No competing authority or state machine alongside TaskKernel/GoalKernel.
+    - AC-16: Hermetic internal integration cycle with real components (positive and negative paths).
     PS 5.1 and PS 7 compatible.
 #>
 param()
@@ -355,9 +356,9 @@ Assert-Check ($plannerSensitive.plan.validation.level -eq 'L3') "AC-13: Critical
 Assert-Check ($plannerSensitive.plan.dispatch_plan.workers -contains 'security-reviewer') "AC-13: Security reviewer mandatory for sensitive actions"
 
 # -------------------------------------------------------------
-# GW-14 / AC-14: Piloto no Meu Ted ("Registrar uma despesa pelo chat")
+# GW-14 / AC-14: Piloto no Meu Ted (Cenario Sintetico HARNESS_PASS / Piloto Real DEFERRED_BY_USER)
 # -------------------------------------------------------------
-Write-Host "--- Running Downstream Consumer Pilot: Meu Ted (AC-EXPENSE-01) ---"
+Write-Host "--- Running Downstream Consumer Pilot Synthetic Harness: Meu Ted (AC-EXPENSE-01 / HARNESS_PASS, Pilot DEFERRED_BY_USER) ---"
 
 $tedInputText = "gastei 50 de carne"
 
@@ -399,8 +400,8 @@ $sliceMeuTed = New-OrchestrationDeliverySlice `
 
 # 1. Admissibilidade da fatia do piloto
 $admTed = Test-OrchestrationDeliverySliceAdmissibility -Slice $sliceMeuTed
-Assert-Check ($admTed.admissible) "AC-14: Meu Ted chat expense slice is fully admissible"
-Assert-Check (-not $admTed.requires_subdivision) "AC-14: Focused slice does not require subdivision"
+Assert-Check ($admTed.admissible) "AC-14 [HARNESS_PASS]: Meu Ted chat expense slice is fully admissible"
+Assert-Check (-not $admTed.requires_subdivision) "AC-14 [HARNESS_PASS]: Focused slice does not require subdivision"
 
 # 2. Simulacao controlada da execucao da jornada:
 # Passo A: Intent Parser
@@ -411,7 +412,7 @@ $intentParsed = @{
     description = 'carne'
     confidence = 0.98
 }
-Assert-Check ($intentParsed.intent -eq 'register_expense' -and $intentParsed.amount -eq 50.00) "AC-14: Chat input parsed correctly into expense intent"
+Assert-Check ($intentParsed.intent -eq 'register_expense' -and $intentParsed.amount -eq 50.00) "AC-14 [HARNESS_PASS]: Chat input parsed correctly into expense intent"
 
 # Passo B: Execucao autorizada na API/servico
 $dbSimulation = New-Object System.Collections.ArrayList
@@ -426,7 +427,7 @@ $txResult = @{
 
 # Passo C: Verificacao independente no estado autoritativo
 $oracleMatches = @($dbSimulation | Where-Object { $_.amount -eq 50.00 -and $_.description -eq 'carne' -and $_.status -eq 'COMMITTED' })
-Assert-Check ($oracleMatches.Count -eq 1) "AC-14: Authoritative test database oracle verifies exactly one committed expense"
+Assert-Check ($oracleMatches.Count -eq 1) "AC-14 [HARNESS_PASS]: Authoritative test database oracle verifies exactly one committed expense"
 
 # Passo D: Emissao da evidencia formal
 $evidenceId = 'ev-meuted-expense-proven-001'
@@ -438,8 +439,8 @@ $doneTed = Test-OrchestrationSliceDoneAllowed `
     -Slice $sliceMeuTed `
     -RuntimeContext @{ kernel_done_authorized = $true }
 
-Assert-Check ($doneTed.allowed) "AC-14: Pilot journey completes successfully with authoritative verification and kernel authorization"
-Assert-Check ($doneTed.maturity -eq 'DONE') "AC-14: Pilot slice maturity advances to DONE"
+Assert-Check ($doneTed.allowed) "AC-14 [HARNESS_PASS]: Pilot journey completes successfully with authoritative verification and kernel authorization"
+Assert-Check ($doneTed.maturity -eq 'DONE') "AC-14 [HARNESS_PASS]: Pilot slice maturity advances to DONE"
 
 # -------------------------------------------------------------
 # GW-15 / AC-15: Novo workflow nao cria autoridade paralela ao TaskKernel/GoalKernel
@@ -457,6 +458,262 @@ $syncedFinal = Sync-OrchestrationDeliverySliceToGoal -Goal $activatedGoal -Slice
 Assert-Check ($syncedFinal['state'] -eq 'ACTIVE') "AC-15: GoalKernel state machine is preserved untouched"
 Assert-Check ($syncedFinal['active_slice_id'] -eq 'slice-meuted-chat-expense-01') "AC-15: DeliverySlice acts as metadata projection, not competing kernel"
 
+# -------------------------------------------------------------
+# GW-16 / AC-16: Ciclo de integracao funcional interno hermetico
+# (DeliverySlice -> PlannerLoop -> TaskKernel -> EvidenceStore -> Verifier -> Kernel Complete)
+# -------------------------------------------------------------
+Write-Host "--- Running Hermetic Internal Integration Cycle (Positive & Negative Paths) ---"
+
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("gw16-internal-" + [Guid]::NewGuid().ToString('N'))
+[void][System.IO.Directory]::CreateDirectory($tempRoot)
+
+try {
+    $tasksDir = Join-Path $tempRoot 'tasks'
+    $evidenceDir = Join-Path $tempRoot 'evidence-store'
+    $gitRepo = Join-Path $tempRoot 'repo'
+    $flagsDir = Join-Path $tempRoot 'flags'
+    $slicesDir = Join-Path $tempRoot 'slices'
+    $goalsDir = Join-Path $tempRoot 'goals'
+
+    [void][System.IO.Directory]::CreateDirectory($tasksDir)
+    [void][System.IO.Directory]::CreateDirectory($evidenceDir)
+    [void][System.IO.Directory]::CreateDirectory($gitRepo)
+    [void][System.IO.Directory]::CreateDirectory($flagsDir)
+    [void][System.IO.Directory]::CreateDirectory($slicesDir)
+    [void][System.IO.Directory]::CreateDirectory($goalsDir)
+
+    $flagsPath = Join-Path $flagsDir 'capability-flags.json'
+    @{ task_kernel = @{ enabled = $true; shadow = $false } } | ConvertTo-Json | Set-Content -Path $flagsPath -Encoding UTF8
+
+    # Git repo setup
+    & git -C $gitRepo init -q
+    & git -C $gitRepo config user.name 'GW Tester'
+    & git -C $gitRepo config user.email 'gw@test.local'
+    & git -C $gitRepo config core.autocrlf false
+    Set-Content -Path (Join-Path $gitRepo 'sample.txt') -Value "Hello World" -Encoding UTF8
+    & git -C $gitRepo add -A
+    & git -C $gitRepo commit -m "init" -q
+    $baseRev = (& git -C $gitRepo rev-parse HEAD).Trim()
+
+    # Verification policy
+    $policyPath = Join-Path $tempRoot 'verification-policy.json'
+    $profObj = New-Object PSCustomObject
+    $profObj | Add-Member -NotePropertyName 'pos-prof' -NotePropertyValue ([PSCustomObject]@{
+        class = 'test'
+        command = 'powershell -NoProfile -Command "if (Test-Path ''sample.txt'') { exit 0 } else { exit 1 }"'
+        timeout_seconds = 30
+    })
+    $profObj | Add-Member -NotePropertyName 'neg-prof' -NotePropertyValue ([PSCustomObject]@{
+        class = 'test'
+        command = 'powershell -NoProfile -Command "exit 1"'
+        timeout_seconds = 30
+    })
+    $polDoc = [ordered]@{ version = 1; default_timeout_seconds = 60; max_output_chars = 4000; profiles = $profObj }
+    (New-Object PSCustomObject -Property $polDoc | ConvertTo-Json -Depth 6 -Compress) | Set-Content -Path $policyPath -Encoding UTF8
+
+    # --- CAMINHO NEGATIVO: Fatia incompleta / evidencia invalida / conclusao recusada / estado preservado ---
+    $cNeg = New-OrchestrationAcceptanceCriterion `
+        -CriterionId 'crit-neg-001' `
+        -Given 'Repo without valid verification' `
+        -When 'Worker attempts completion with invalid evidence' `
+        -Then 'Kernel refuses DONE' `
+        -Oracle 'exit 1' `
+        -VerificationType 'automated_test' `
+        -Required $true
+
+    $sliceNeg = New-OrchestrationDeliverySlice `
+        -SliceId 'slice-neg-001' `
+        -ObjectiveId 'obj-hermetic-gw' `
+        -Outcome 'Negative verification test' `
+        -Scope @('Scope 1') `
+        -NonGoals @('Out of scope negative') `
+        -AcceptanceCriteria @($cNeg) `
+        -RiskLevel 'low' `
+        -ValidationProfile 'STANDARD'
+
+    $admNeg = Test-OrchestrationDeliverySliceAdmissibility -Slice $sliceNeg
+    Assert-Check ($admNeg.admissible) "AC-16 [Negative]: Slice is structurally admissible"
+
+    $descNeg = @{
+        objective = 'Negative hermetic task'
+        risk = 'low'
+        validation_profile = 'STANDARD'
+        delivery_slice = $sliceNeg
+    }
+    $planNeg = Invoke-OrchestrationPlannerLoop -Descriptor $descNeg
+    Assert-Check ($planNeg.plan.dispatch_plan.workers -contains 'coder') "AC-16 [Negative]: Planner routes task to implementation"
+
+    $taskNeg = New-OrchestrationTask `
+        -TaskId 'task-neg-001' `
+        -Objective 'Negative hermetic task' `
+        -TaskType 'implementation' `
+        -Risk 'low' `
+        -Actor 'planner' `
+        -AcceptanceCriteria @('crit-neg-001') `
+        -TasksDir $tasksDir `
+        -FlagsPath $flagsPath `
+        -TelemetryRoot $tempRoot
+    Assert-Check ($taskNeg.ok) "AC-16 [Negative]: Task initialized in TaskKernel"
+
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'task-neg-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'task-neg-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+
+    $null = Set-OrchestrationTaskWorkerResult `
+        -TaskId 'task-neg-001' `
+        -Status 'candidate_pass' `
+        -ClaimedEvidence @('fake-evidence-ref-999') `
+        -ProducedBy 'coder' `
+        -ExpectedRevision 3 `
+        -TasksDir $tasksDir `
+        -FlagsPath $flagsPath `
+        -TelemetryRoot $tempRoot
+
+    $matNeg1 = Test-OrchestrationSliceMaturity -Slice $sliceNeg -RuntimeContext @{
+        task_record = (Get-OrchestrationTask -TaskId 'task-neg-001' -TasksDir $tasksDir)
+        evidence_store_dir = $evidenceDir
+    }
+    Assert-Check ($matNeg1.maturity_state -ne 'DONE' -and $matNeg1.can_advance_to_done -eq $false) "AC-16 [Negative]: Slice maturity refuses DONE on worker candidate_pass alone"
+
+    $vNeg = Invoke-OrchestrationVerifier -TaskId 'task-neg-001' -RepoRoot $gitRepo -BaseRevision $baseRev -WriteScopes @() -ProfileNames @('neg-prof') -PolicyPath $policyPath -AcceptanceCriteria @('crit-neg-001')
+    Assert-Check ($vNeg.status -ne 'verified_pass') "AC-16 [Negative]: Real verifier fails on failing oracle"
+
+    $doneNeg = Test-OrchestrationSliceDoneAllowed -Slice $sliceNeg -RuntimeContext @{
+        evidence_store_dir = $evidenceDir
+        require_evidence_store_validation = $true
+    }
+    Assert-Check (-not $doneNeg.allowed) "AC-16 [Negative]: Slice done is strictly forbidden when criteria unproven"
+
+    $compNeg = Complete-OrchestrationTask -TaskId 'task-neg-001' -Actor 'planner' -ExpectedRevision 4 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+    Assert-Check (-not $compNeg.ok) "AC-16 [Negative]: Kernel refuses completion when verification and review gates are missing"
+
+    $taskNegAfter = Get-OrchestrationTask -TaskId 'task-neg-001' -TasksDir $tasksDir
+    Assert-Check ($taskNegAfter['state'] -eq 'IMPLEMENTING') "AC-16 [Negative]: Task state preserved intact in TaskKernel (not mutated to DONE)"
+
+    # --- CAMINHO POSITIVO: Fatia valida / evidencia verificada / conclusao autorizada / estado persistido ---
+    $cPos = New-OrchestrationAcceptanceCriterion `
+        -CriterionId 'crit-pos-001' `
+        -Given 'Repo with sample.txt' `
+        -When 'Verifier runs pos-prof' `
+        -Then 'Verification passes and evidence is stored' `
+        -Oracle 'powershell sample.txt exists' `
+        -VerificationType 'automated_test' `
+        -Required $true
+
+    $slicePos = New-OrchestrationDeliverySlice `
+        -SliceId 'slice-pos-001' `
+        -ObjectiveId 'obj-hermetic-gw' `
+        -Outcome 'Positive hermetic delivery verification' `
+        -Scope @('Validate sample file presence in isolated repo') `
+        -NonGoals @('Out of scope positive') `
+        -AcceptanceCriteria @($cPos) `
+        -RiskLevel 'low' `
+        -ValidationProfile 'STANDARD'
+
+    $admPos = Test-OrchestrationDeliverySliceAdmissibility -Slice $slicePos
+    Assert-Check ($admPos.admissible) "AC-16 [Positive]: Slice is structurally admissible"
+
+    $descPos = @{
+        objective = 'Positive hermetic task'
+        risk = 'low'
+        validation_profile = 'STANDARD'
+        delivery_slice = $slicePos
+    }
+    $planPos = Invoke-OrchestrationPlannerLoop -Descriptor $descPos
+    Assert-Check ($planPos.plan.dispatch_plan.workers -contains 'coder') "AC-16 [Positive]: Planner loop dispatches implementation"
+
+    $taskPos = New-OrchestrationTask `
+        -TaskId 'task-pos-001' `
+        -Objective 'Positive hermetic task' `
+        -TaskType 'implementation' `
+        -Risk 'low' `
+        -Actor 'planner' `
+        -AcceptanceCriteria @('crit-pos-001') `
+        -TasksDir $tasksDir `
+        -FlagsPath $flagsPath `
+        -TelemetryRoot $tempRoot
+    Assert-Check ($taskPos.ok) "AC-16 [Positive]: Task created in TaskKernel"
+
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'task-pos-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'task-pos-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'task-pos-001' -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 3 -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+
+    $null = Set-OrchestrationTaskWorkerResult `
+        -TaskId 'task-pos-001' `
+        -Status 'candidate_pass' `
+        -ClaimedEvidence @('criterion:0:crit-pos-001') `
+        -ProducedBy 'coder' `
+        -ExpectedRevision 4 `
+        -TasksDir $tasksDir `
+        -FlagsPath $flagsPath `
+        -TelemetryRoot $tempRoot
+
+    $vPos = Invoke-OrchestrationVerifier -TaskId 'task-pos-001' -RepoRoot $gitRepo -BaseRevision $baseRev -WriteScopes @() -ProfileNames @('pos-prof') -PolicyPath $policyPath -AcceptanceCriteria @('crit-pos-001')
+    Assert-Check ($vPos.status -eq 'verified_pass') "AC-16 [Positive]: Real verifier returns verified_pass"
+
+    $evInput = @{
+        task_id = 'task-pos-001'
+        run_id = 'run-pos-001'
+        worker_id = 'tester-pos'
+        base_revision = $baseRev
+        criteria_hash = 'hash-pos-1'
+        source_fingerprints = @{ 'sample.txt' = 'abc' }
+        scope = @('sample.txt')
+        command = 'powershell sample check'
+        environment = @{ runtime = 'powershell'; version = '5.1' }
+        result = @{ summary = 'Sample confirmed present'; raw_ref = 'raw.txt'; raw_content = 'exit 0' }
+        created_at = [DateTime]::UtcNow.ToString('o')
+        provenance = @{ created_by = 'tester'; kernel_task_ref = 'task-pos-001' }
+    }
+    $evRec = New-OrchestrationEvidenceRecord -Evidence $evInput -StoreDir $evidenceDir
+    Assert-Check ($evRec.created -and -not [string]::IsNullOrWhiteSpace($evRec.record.evidence_id)) "AC-16 [Positive]: Evidence record persisted in isolated EvidenceStore"
+    $evidenceId = $evRec.record.evidence_id
+
+    $vPosJson = ($vPos | ConvertTo-Json -Depth 6 -Compress)
+    $null = Set-OrchestrationTaskVerification -TaskId 'task-pos-001' -VerifierEvidenceJson $vPosJson -Passed $true -Evidence @(@($vPos.evidence) + $evidenceId) -ExpectedRevision 5 -TasksDir $tasksDir -FlagsPath $flagsPath
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'task-pos-001' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 6 -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+    $null = Set-OrchestrationTaskReview -TaskId 'task-pos-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $tasksDir -FlagsPath $flagsPath
+
+    $compPos = Complete-OrchestrationTask -TaskId 'task-pos-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none outstanding') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+    Assert-Check ($compPos.ok) "AC-16 [Positive]: TaskKernel authorizes terminal transition to DONE"
+
+    $taskPosRecord = Get-OrchestrationTask -TaskId 'task-pos-001' -TasksDir $tasksDir
+    Assert-Check ($taskPosRecord['state'] -eq 'DONE') "AC-16 [Positive]: Task record persisted with state DONE"
+
+    $cPos['status'] = 'verified_pass'
+    $cPos['evidence_ref'] = $evidenceId
+    $slicePos['acceptance_criteria'] = @($cPos)
+
+    $matPos = Test-OrchestrationSliceMaturity -Slice $slicePos -RuntimeContext @{
+        task_record = $taskPosRecord
+        evidence_store_dir = $evidenceDir
+        require_evidence_store_validation = $true
+    }
+    Assert-Check ($matPos.maturity_state -eq 'DONE') "AC-16 [Positive]: Slice reaches DONE maturity"
+
+    $donePos = Test-OrchestrationSliceDoneAllowed -Slice $slicePos -RuntimeContext @{
+        task_record = $taskPosRecord
+        evidence_store_dir = $evidenceDir
+        require_evidence_store_validation = $true
+    }
+    Assert-Check ($donePos.allowed) "AC-16 [Positive]: Slice Done allowed gate is satisfied"
+
+    $saveSliceRes = Save-OrchestrationDeliverySlice -Slice $slicePos -StoreDir $slicesDir
+    Assert-Check ($saveSliceRes.ok) "AC-16 [Positive]: Slice persisted to disk storage"
+
+    $reloadedRes = Get-OrchestrationDeliverySlice -SliceId 'slice-pos-001' -StoreDir $slicesDir
+    Assert-Check ($reloadedRes.ok -and $reloadedRes.slice.slice_id -eq 'slice-pos-001') "AC-16 [Positive]: Slice reloaded cleanly across session boundary"
+
+    $goal = (New-OrchestrationGoal -GoalId 'goal-pos-001' -Objective 'Positive hermetic delivery slice test').goal
+    $syncedGoal = Sync-OrchestrationDeliverySliceToGoal -Goal $goal -Slice $reloadedRes.slice
+    $null = Save-OrchestrationGoal -Goal $syncedGoal -StoreDir $goalsDir
+    $reloadedGoalRes = Get-OrchestrationGoal -GoalId 'goal-pos-001' -StoreDir $goalsDir
+    Assert-Check ($reloadedGoalRes.ok -and $reloadedGoalRes.goal.next_move.delivery_slice.slice_id -eq 'slice-pos-001') "AC-16 [Positive]: Goal persisted and reloaded with slice metadata in next_move"
+} finally {
+    if (Test-Path -LiteralPath $tempRoot) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Write-Host "=========================================================="
 Write-Host "Total checks: $script:TotalChecks"
 Write-Host "Failed checks: $script:FailedChecks"
@@ -467,5 +724,5 @@ if ($script:FailedChecks -gt 0) {
     exit 1
 }
 
-Write-Host "ALL GOLDEN WORKFLOWS PASSED (AC-01..15 VERIFIED)." -ForegroundColor Green
+Write-Host "ALL GOLDEN WORKFLOWS PASSED (AC-01..16 VERIFIED)." -ForegroundColor Green
 exit 0
