@@ -26,10 +26,16 @@ $script:AdvisorValidEscalationSignals = @(
     'risk_asymmetry'
 )
 
-# In-memory bounded cache for advisor consultations: Key -> Response object
-if ($null -eq $script:AdvisorConsultationCache) {
-    $script:AdvisorConsultationCache = @{}
+# In-memory bounded caches for advisor consultations: Key -> Response object
+# Strictly isolated: test cache never leaks to production; production never polluted by test probes.
+if ($null -eq $script:AdvisorProductionCache) {
+    $script:AdvisorProductionCache = @{}
 }
+if ($null -eq $script:AdvisorTestCache) {
+    $script:AdvisorTestCache = @{}
+}
+# Backward compatibility reference
+$script:AdvisorConsultationCache = $script:AdvisorProductionCache
 
 function Test-AdvisorEscalationSignal {
     <#
@@ -227,10 +233,12 @@ function Get-OrchestrationSessionHostEvidence {
             try { $costUsd = [double]$parsed.info.cost } catch { $costUsd = 'UNKNOWN' }
         }
 
-        $agentEff = if (-not [string]::IsNullOrWhiteSpace([string]$parsed.info.agent)) { [string]$parsed.info.agent } else { 'engineering-advisor' }
+        $agentEff = if (-not [string]::IsNullOrWhiteSpace([string]$parsed.info.agent)) { [string]$parsed.info.agent } else { $null }
+        $sessionTitle = if ($parsed.info.title) { [string]$parsed.info.title } else { $null }
 
         return [pscustomobject]@{
             SessionId        = [string]$parsed.info.id
+            Title            = $sessionTitle
             Agent            = $agentEff
             Outcome          = [string]$parsed.info.outcome
             EffectiveModel   = $effModel
@@ -239,6 +247,7 @@ function Get-OrchestrationSessionHostEvidence {
             TokensReasoning  = $tokensReas
             CostUsd          = $costUsd
             AssistantMessage = $assistantText
+            RawOutput        = $rawStr
             RawError         = if ($parsed.info.outcome -eq 'failed') { "Session outcome reported failed" } else { $null }
         }
     } catch {
@@ -356,7 +365,7 @@ function Get-OrchestrationNativeAdvisorExecutor {
                 Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
                 ConsultationId       = $consultationId
                 SessionId            = $null
-                Agent                = 'engineering-advisor'
+                Agent                = $null
                 ModelRequested       = $reqModel
                 ModelEffective       = $null
                 ResponseRef          = $null
@@ -382,7 +391,7 @@ function Get-OrchestrationNativeAdvisorExecutor {
                 Reason               = 'MODEL_PROVIDER_CREDENTIAL_ABSENT'
                 ConsultationId       = $consultationId
                 SessionId            = $null
-                Agent                = 'engineering-advisor'
+                Agent                = $null
                 ModelRequested       = $reqModel
                 ModelEffective       = $null
                 ResponseRef          = $null
@@ -484,7 +493,7 @@ CONTEXT: $context
                     ConsultationId       = $consultationId
                     SessionId            = $null
                     ParentSessionId      = $parentSession
-                    Agent                = 'engineering-advisor'
+                    Agent                = $null
                     ModelRequested       = $reqModel
                     ModelEffective       = $null
                     ResponseRef          = $null
@@ -513,7 +522,7 @@ CONTEXT: $context
                         ConsultationId       = $consultationId
                         SessionId            = $null
                         ParentSessionId      = $parentSession
-                        Agent                = 'engineering-advisor'
+                        Agent                = $null
                         ModelRequested       = $reqModel
                         ModelEffective       = $null
                         ResponseRef          = $null
@@ -564,11 +573,40 @@ CONTEXT: $context
                     $hostEvidence.EffectiveModel
                 } else { $null }
 
-                $agentMatches = ($hasHostEvidence -and $hostEvidence.Agent -eq 'engineering-advisor')
+                $hostAgent = if ($hasHostEvidence) { $hostEvidence.Agent } else { $null }
+                $agentMatches = (-not [string]::IsNullOrWhiteSpace($hostAgent) -and $hostAgent -eq 'engineering-advisor')
                 $outcomeSucceeded = ($hasHostEvidence -and $hostEvidence.Outcome -eq 'succeeded')
-                $isFullyProven = ($hasHostEvidence -and $agentMatches -and $outcomeSucceeded -and (-not [string]::IsNullOrWhiteSpace($effModel)))
 
-                if ($isFullyProven) {
+                # Correlacao estrita da sessao executada com a consulta iniciada
+                $sessionCorrelated = $false
+                if ($hasHostEvidence) {
+                    if (-not [string]::IsNullOrWhiteSpace($hostEvidence.Title) -and $hostEvidence.Title.Contains($consultationId)) {
+                        $sessionCorrelated = $true
+                    } elseif (-not [string]::IsNullOrWhiteSpace($hostEvidence.AssistantMessage) -and $hostEvidence.AssistantMessage.Contains($consultationId)) {
+                        $sessionCorrelated = $true
+                    } elseif (-not [string]::IsNullOrWhiteSpace($hostEvidence.RawOutput) -and $hostEvidence.RawOutput.Contains($consultationId)) {
+                        $sessionCorrelated = $true
+                    } elseif ($combinedOutput.Contains($targetSessionId) -and $combinedOutput.Contains($consultationId)) {
+                        $sessionCorrelated = $true
+                    }
+                }
+
+                # Comparacao entre modelo solicitado e modelo efetivo
+                $modelMatches = $false
+                $isModelDivergent = $false
+                if (-not [string]::IsNullOrWhiteSpace($reqModel) -and -not [string]::IsNullOrWhiteSpace($effModel)) {
+                    $cReq = $reqModel.Trim().ToLowerInvariant()
+                    $cEff = $effModel.Trim().ToLowerInvariant()
+                    if ($cReq -eq $cEff -or $cEff.EndsWith("/$cReq") -or $cReq.EndsWith("/$cEff")) {
+                        $modelMatches = $true
+                    } else {
+                        $isModelDivergent = $true
+                    }
+                } elseif (-not [string]::IsNullOrWhiteSpace($effModel)) {
+                    $modelMatches = $true
+                }
+
+                if ($hasHostEvidence -and $outcomeSucceeded -and $agentMatches -and $sessionCorrelated -and $modelMatches) {
                     # COMPLETED_VERIFIED comprovado com todas as evidencias obrigatorias validas
                     return [pscustomobject]@{
                         Status               = 'COMPLETED'
@@ -576,12 +614,12 @@ CONTEXT: $context
                         ConsultationId       = $consultationId
                         SessionId            = $hostEvidence.SessionId
                         ParentSessionId      = $parentSession
-                        Agent                = 'engineering-advisor'
+                        Agent                = $hostAgent
                         ModelRequested       = $reqModel
                         ModelEffective       = $effModel
                         ResponseRef          = "resp-$consultationId"
                         RecommendedOption    = $extractedText
-                        Rationale            = "Native execution verified with host session evidence, exact agent, succeeded outcome and effective model."
+                        Rationale            = "Native execution verified with host session evidence, exact agent, succeeded outcome, correlated session and matching model."
                         Risks                = @()
                         RejectionReasons     = @()
                         ActionableNextStep   = "Follow recommendation from engineering-advisor."
@@ -595,22 +633,57 @@ CONTEXT: $context
                         TokensOutput         = $hostEvidence.TokensOutput
                         CostUsd              = $hostEvidence.CostUsd
                     }
+                } elseif ($hasHostEvidence -and $outcomeSucceeded -and $agentMatches -and $sessionCorrelated -and $isModelDivergent) {
+                    # MODEL_DIVERGENT: executou e comprovou sessao/agente/outcome, mas modelo efetivo divergiu do solicitado
+                    return [pscustomobject]@{
+                        Status               = 'PARTIAL_PROOF'
+                        Reason               = 'MODEL_DIVERGENT'
+                        ConsultationId       = $consultationId
+                        SessionId            = $hostEvidence.SessionId
+                        ParentSessionId      = $parentSession
+                        Agent                = $hostAgent
+                        ModelRequested       = $reqModel
+                        ModelEffective       = $effModel
+                        ResponseRef          = "resp-$consultationId"
+                        RecommendedOption    = $extractedText
+                        Rationale            = "Process completed and session verified, but effective model ($effModel) diverged from requested model ($reqModel)."
+                        Risks                = @('Model divergence detected; effective model did not match requested catalog model.')
+                        RejectionReasons     = @()
+                        ActionableNextStep   = "Verify provider model aliases or router catalog mapping."
+                        ModelTierUsed        = $reqTier
+                        ModelTokenUsed       = if ($ModelSel) { [string]$ModelSel.ModelToken } else { 'MODEL_STRONG' }
+                        IsAdvisory           = $true
+                        Authoritative        = $false
+                        FromCache            = $false
+                        ExecutionProofType   = 'MODEL_DIVERGENT'
+                        TokensInput          = $hostEvidence.TokensInput
+                        TokensOutput         = $hostEvidence.TokensOutput
+                        CostUsd              = $hostEvidence.CostUsd
+                    }
                 } else {
-                    # Faltou verificacao completa do host (modelo efetivo, outcome ou sessao ausente)
-                    # NUNCA declarar execucao integralmente verificada nem inferir modelo
+                    # Faltou verificacao completa do host (modelo efetivo, agente, correlacao de sessao ou outcome)
+                    # NUNCA declarar execucao integralmente verificada nem inferir modelo ou agente
+                    $unverifiedReason = if ($hasHostEvidence) {
+                        if (-not $sessionCorrelated) { 'SESSION_CORRELATION_UNVERIFIED' }
+                        elseif (-not $agentMatches) { 'AGENT_UNVERIFIED' }
+                        elseif (-not $outcomeSucceeded) { 'SESSION_OUTCOME_NOT_SUCCEEDED' }
+                        else { 'HOST_EVIDENCE_INCOMPLETE' }
+                    } else {
+                        'HOST_EVIDENCE_UNVERIFIED'
+                    }
                     $proofType = if ($hasHostEvidence) { 'HOST_EVIDENCE_VERIFIED' } else { 'RESULT_RECEIVED' }
                     return [pscustomobject]@{
                         Status               = 'PARTIAL_PROOF'
-                        Reason               = 'HOST_EVIDENCE_UNVERIFIED'
+                        Reason               = $unverifiedReason
                         ConsultationId       = $consultationId
-                        SessionId            = $targetSessionId
+                        SessionId            = if ($hostEvidence) { $hostEvidence.SessionId } else { $targetSessionId }
                         ParentSessionId      = $parentSession
-                        Agent                = 'engineering-advisor'
+                        Agent                = $hostAgent
                         ModelRequested       = $reqModel
-                        ModelEffective       = $null
+                        ModelEffective       = $effModel
                         ResponseRef          = "resp-$consultationId"
                         RecommendedOption    = $extractedText
-                        Rationale            = "Process exited and text received, but host session evidence could not fully verify effective model, agent or succeeded outcome."
+                        Rationale            = "Process exited and text received, but host session evidence could not fully verify: $unverifiedReason."
                         Risks                = @('Execution unproven on host session store; cannot be cached as verified.')
                         RejectionReasons     = @()
                         ActionableNextStep   = "Consider verifying provider route or configuring dedicated session export."
@@ -631,7 +704,7 @@ CONTEXT: $context
                     Reason               = 'NATIVE_EXECUTION_FAILED_OR_NO_OUTPUT'
                     ConsultationId       = $consultationId
                     SessionId            = $parentSession
-                    Agent                = 'engineering-advisor'
+                    Agent                = $null
                     ModelRequested       = $reqModel
                     ModelEffective       = $null
                     ResponseRef          = $null
@@ -653,8 +726,8 @@ CONTEXT: $context
                 Status               = 'PROOF_ABSENT'
                 Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
                 ConsultationId       = $consultationId
-                SessionId            = $sessionId
-                Agent                = 'engineering-advisor'
+                SessionId            = $null
+                Agent                = $null
                 ModelRequested       = $reqModel
                 ModelEffective       = $null
                 ResponseRef          = $null
@@ -708,7 +781,10 @@ function Invoke-AdvisorConsultation {
         [scriptblock]$AdvisorProbe = $null,
 
         [Parameter(Mandatory = $false)]
-        [scriptblock]$NativeExecutor = $null
+        [scriptblock]$NativeExecutor = $null,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$DisableNativeExecutor
     )
 
     function Get-Field($obj, [string]$name, $default = $null) {
@@ -733,6 +809,13 @@ function Invoke-AdvisorConsultation {
     $headSha = [string](Get-Field $Request 'head_sha' '')
     $infoMissing = [bool](Get-Field $Request 'information_missing' $false)
 
+    # Contexto de teste vs producao para isolamento estrito de cache
+    $isTestContext = ($null -ne $AdvisorProbe) -or `
+                     ([bool](Get-Field $Request 'is_test' $false)) -or `
+                     ($taskId -match '(?i)test|mock|probe|gw-advisor|int-02')
+
+    $activeCache = if ($isTestContext) { $script:AdvisorTestCache } else { $script:AdvisorProductionCache }
+
     # 1. Validate Escalation Trigger
     $signalCheck = Test-AdvisorEscalationSignal -Signal $signal -Justification $justification -InformationMissing $infoMissing
     if (-not $signalCheck.Admitted) {
@@ -740,7 +823,7 @@ function Invoke-AdvisorConsultation {
             Status               = 'REJECTED'
             ConsultationId       = "ADV-ERR-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
             SessionId            = $null
-            Agent                = 'engineering-advisor'
+            Agent                = $null
             ModelRequested       = $null
             ModelEffective       = $null
             ResponseRef          = $null
@@ -773,19 +856,19 @@ function Invoke-AdvisorConsultation {
     $ctxHash = [System.BitConverter]::ToString($hasher.ComputeHash($ctxBytes)).Replace('-', '').ToLowerInvariant()
     $ctxFingerprint = "$($ctxText.Length):$($ctxHash.Substring(0, 16))"
 
-    # 3. Check Cache com chave expandida (considera Task, Signal, Question, Head, Model, Constraints e ContextFingerprint)
+    # 3. Check Cache com chave expandida no cache isolado correto
     $cacheKey = Get-AdvisorConsultationCacheKey -TaskId $taskId -Signal $signal -Question $question -HeadSha $headSha -Model $modelCatalog -Constraints $constraints -ContextFingerprint $ctxFingerprint
-    if ($script:AdvisorConsultationCache.ContainsKey($cacheKey)) {
-        $cached = $script:AdvisorConsultationCache[$cacheKey]
+    if ($activeCache.ContainsKey($cacheKey)) {
+        $cached = $activeCache[$cacheKey]
         $cached.FromCache = $true
         return $cached
     }
 
     # 4. Invoke Advisor:
     #    (a) AdvisorProbe seam if provided (strictly for harness tests)
-    #    (b) NativeExecutor seam if provided
-    #    (c) Default native executor via OpenCode V2
-    #    (d) If unexecutable, fail-closed with PROOF_ABSENT envelope
+    #    (b) NativeExecutor seam if provided (explicit override)
+    #    (c) Default native executor via OpenCode V2 (normal production flow)
+    #    (d) If unexecutable or disabled, fail-closed with PROOF_ABSENT envelope
     $consultationId = "ADV-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 6))"
     
     $response = $null
@@ -797,17 +880,24 @@ function Invoke-AdvisorConsultation {
         }
     } elseif ($null -ne $NativeExecutor) {
         $response = & $NativeExecutor $Request $ModelRouterSelection
+    } elseif (-not $DisableNativeExecutor -and -not [bool](Get-Field $Request 'disable_native' $false)) {
+        # Conexao padrao do executor nativo OpenCode V2 no fluxo produtivo normal
+        $nativeDispatch = Get-OrchestrationNativeAdvisorExecutor
+        if ($null -ne $nativeDispatch) {
+            $response = & $nativeDispatch $Request $ModelRouterSelection
+        }
     }
 
     if ($null -eq $response) {
         # Standalone runtime without native execution: fail-closed with PROOF_ABSENT.
         # Fabricated recommendations are never returned as real consultations.
+        # Nao inferir agente quando nao houver execucao comprovada.
         $response = [pscustomobject]@{
             Status               = 'PROOF_ABSENT'
             Reason               = 'NATIVE_DISPATCH_UNAVAILABLE'
             ConsultationId       = $consultationId
             SessionId            = $null
-            Agent                = 'engineering-advisor'
+            Agent                = $null
             ModelRequested       = $modelCatalog
             ModelEffective       = $null
             ResponseRef          = $null
@@ -832,11 +922,12 @@ function Invoke-AdvisorConsultation {
     $response.FromCache = $false
 
     # Store in bounded cache (APENAS consultas COMPLETED_VERIFIED ou HARNESS_PROBED sao armazenadas)
+    # Modelos divergentes ou provas parciais NUNCA sao armazenados em cache
     if ($response.Status -eq 'COMPLETED' -and $response.ExecutionProofType -in @('COMPLETED_VERIFIED', 'HARNESS_PROBED')) {
-        if ($script:AdvisorConsultationCache.Count -ge 50) {
-            $script:AdvisorConsultationCache.Clear()
+        if ($activeCache.Count -ge 50) {
+            $activeCache.Clear()
         }
-        $script:AdvisorConsultationCache[$cacheKey] = $response
+        $activeCache[$cacheKey] = $response
     }
 
     return $response
@@ -846,8 +937,27 @@ function Clear-AdvisorConsultationCache {
     <#
     .SYNOPSIS
         Clears the in-memory advisor consultation cache.
+    .PARAMETER Scope
+        Scope to clear: 'all', 'test', or 'production'. Default 'all'.
     #>
     [CmdletBinding()]
-    param()
-    $script:AdvisorConsultationCache.Clear()
+    param(
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('all', 'test', 'production')]
+        [string]$Scope = 'all'
+    )
+    switch ($Scope) {
+        'test' {
+            if ($null -ne $script:AdvisorTestCache) { $script:AdvisorTestCache.Clear() }
+        }
+        'production' {
+            if ($null -ne $script:AdvisorProductionCache) { $script:AdvisorProductionCache.Clear() }
+            $script:AdvisorConsultationCache = $script:AdvisorProductionCache
+        }
+        'all' {
+            if ($null -ne $script:AdvisorTestCache) { $script:AdvisorTestCache.Clear() }
+            if ($null -ne $script:AdvisorProductionCache) { $script:AdvisorProductionCache.Clear() }
+            $script:AdvisorConsultationCache = $script:AdvisorProductionCache
+        }
+    }
 }

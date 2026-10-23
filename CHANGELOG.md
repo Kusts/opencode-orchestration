@@ -6,26 +6,31 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **Fechamento da Validação Produtiva no OpenCode V2 (PR #151, 2026-10-23)**:
-  - **P0 — Sessão e Execução Nativa do Advisor Comprovada no Host Real:**
-    - Despacho nativo de `engineering-advisor` no OpenCode V2 real via subprocesso seguro `.NET ProcessStartInfo` com fechamento explícito e imediato de `StandardInput` (eliminando o hang/deadlock de EOF no pipe do CLI V2) e drenagem assíncrona não bloqueante de stdout/stderr.
-    - Resolução robusta de binário nativo priorizando `profileV2Exe` (`.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe`) e resolução de shims `.ps1`/`.cmd`.
-    - Captura fidedigna do `sessionID` efetivo a partir dos eventos JSON nativos de streaming emitida pelo host (desassociando categoricamente a sessão filha da sessão pai).
-    - Verificação rigorosa do host via `Get-OrchestrationSessionHostEvidence`: extração de agente (`engineering-advisor`), desfecho (`succeeded`), modelo efetivo (`info.model` / `messages.model`), tokens e custo USD diretamente da CLI (`session export`).
-    - Prova empírica de execução de ponta a ponta no host real com `COMPLETED_VERIFIED` (`ses_e978f8616ffeogtIqujRj0K4cE`, modelo efetivo `opencode-go/muse-spark-1.3-contributor`, 43622 tokens in, 1405 tokens out, $0.00512 USD) e parecer técnico real baseado no repositório.
-    - Correção de conflito de variável de escopo PowerShell em `$providerId` (prevenção de colisão com a variável automática e read-only `$PID`).
-  - **P0 — Model Router Real e Piloto de 7 Etapas Concluído:**
-    - Seleção estrita do catálogo com separação entre modelos sem credencial configurada (`PROOF_ABSENT` honesto para T4 não autenticado) e despacho com modelo de catálogo ativo e autorizado.
-    - Execução e validação do fluxo completo de 7 etapas no host real: Preflight (`MULTI_WORKER`), Model Router (`T3` autorizado), Advisor nativo (`COMPLETED_VERIFIED`), Planner incorporando recomendação técnica, Worker produzindo artefato verificável, Task Kernel validando formalmente todo o ciclo CAS (`PLANNING` -> `IMPLEMENTING` -> `VALIDATING` -> `REVIEWING` -> `DONE`) e gravação da telemetria consolidada em `evidence/v3.1/runtime-reliability/pilot-real-adaptive-workflow-result.json`.
-  - **P1 — Jev Advisory e Ciclo de Conselho:**
-    - Separação estrita dos estados do ciclo consultivo: `advice_state` (`ADVICE_RECEIVED`, `ADVICE_EVALUATED`, `ADVICE_APPLIED`), flags booleanas correspondentes, tipo de influência na estratégia (`influence_type` = `STRATEGY_ADAPTED` vs `ORIGINAL_STRATEGY_PRESERVED`) e registro formal da justificativa de adaptação (`adaptation_rationale`).
-  - **P1 — Reuso Confinado e Proteção Fail-Closed:**
-    - Restrição de exceções temporárias no reuso estritamente a subpastas com prefixos de fixtures autorizadas (`gw-`, `acceptance-`, `v3-wd-`, `v3-reuse-`, etc.).
-    - Rejeição fail-closed na verificação de symlinks (`scope-symlink-verification-failed`) e rejeição determinística diante de escopo sem fingerprints suficientes (`insufficient-fingerprints`).
-  - **Bateria de Testes:**
-    - `OrchestrationAdvisorEfficiencyGW.tests.ps1`: 86/86 asserções aprovadas (100% verde).
+- **Fechamento e Validação Produtiva do Workflow Adaptativo no OpenCode V2 (PR #151, 2026-10-23)**:
+  - **P0 — Ligação Padrão Planner -> Advisor sem Mocks:**
+    - `Invoke-AdvisorConsultation` conectado diretamente ao executor nativo OpenCode V2 por padrão no fluxo produtivo normal quando nenhum probe ou executor for fornecido manualmente, preservando a autoridade do Task Kernel.
+    - Suporte a `-DisableNativeExecutor` e parâmetro de descritor `disable_native_advisor` para controle determinístico e isolamento em testes unitários.
+  - **P0 — Prova de Execução Fortalecida, Modelo Divergente e Isolamento de Cache:**
+    - Não inferência de agente: `Get-OrchestrationSessionHostEvidence` e `Get-OrchestrationNativeAdvisorExecutor` não inferem mais `'engineering-advisor'` quando o host não declarar o agente no evento, retornando estritamente `$null`.
+    - Correlação estrita da sessão executada com a consulta iniciada (`consultation_id` no título, prompt ou saída do host).
+    - Classificação formal e separação entre execução concluída (`COMPLETED_VERIFIED`), modelo divergente (`MODEL_DIVERGENT` em `PARTIAL_PROOF`) e ausência de prova (`PROOF_ABSENT`).
+    - Isolamento estrito de cache: segregação entre `$script:AdvisorTestCache` e `$script:AdvisorProductionCache`, com escopo de limpeza configurável (`Clear-AdvisorConsultationCache -Scope 'all'|'test'|'production'`), eliminando qualquer risco de poluição cruzada entre testes e produção.
+  - **P1 — Evidência das Sete Etapas e Correção de `task_id`:**
+    - Correção na formação do `task_id` eliminando o sufixo literal `.tolower` e adotando `.ToLowerInvariant()`.
+    - Execução do piloto real de 7 etapas no host OpenCode V2 de ponta a ponta sem mocks no caminho de aceite:
+      1. Preflight e criação da tarefa no Task Kernel (`DISCOVERING`, rev 1).
+      2. Seleção de modelo de catálogo pelo Model Router (`openai/gpt-6.1-sol-fast`, T4).
+      3. Consulta nativa real ao `engineering-advisor` via OpenCode V2 (`ses_e96e5375fffeA5ajprNBwKuRHq`, `COMPLETED_VERIFIED`, 38547 tokens input, 258 tokens output).
+      4. Planner Loop incorporando a recomendação técnica via despacho nativo direto (`PLANNING`, rev 2 -> `IMPLEMENTING`, rev 3).
+      5. Worker Coder gerando artefato de solução (`pilot-adaptive-20261023-141203-solution.json`, SHA256 `ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb`) e registrando `candidate_pass` (rev 4).
+      6. Verificação formal do kernel (`VALIDATING`, rev 5 -> `verified_pass`, rev 6) e aprovação independente pelo Reviewer (`REVIEWING`, rev 7 -> `approved`, rev 8).
+      7. Conclusão formal autorizada pelo Task Kernel via `Complete-OrchestrationTask` (`DONE`, rev 9) com compliance `COMPLIANT`.
+    - Atualização de `evidence/v3.1/runtime-reliability/pilot-real-adaptive-workflow-result.json` com recibos completos de Planner, Router, Advisor, Coder, Reviewer e Task Kernel, 6 transições CAS, artefato SHA256 e comandos de reprodução auditáveis.
+  - **Validação e Testes:**
+    - `OrchestrationAdvisorEfficiencyGW.tests.ps1`: 96/96 asserções aprovadas (100% verde).
     - `OrchestrationPlannerLoop.tests.ps1`: 41/41 checks aprovados (100% verde).
     - `test-package-consistency.ps1`: 16/16 checks OK (100% verde).
+
 
 
 - **Fechamento Final da Eficiência e Roteamento Adaptativo (PR #151, 2026-10-22)**:

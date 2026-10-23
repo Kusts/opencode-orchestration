@@ -1,20 +1,158 @@
 ﻿{
-    "task_id":  "pilot-adaptive-20261023-110603.tolower",
+    "task_id":  "pilot-adaptive-20261023-141203",
     "agents":  [
                    "planner",
+                   "model-router",
                    "engineering-advisor",
                    "coder",
-                   "reviewer"
+                   "reviewer",
+                   "task-kernel"
                ],
-    "session_id":  "ses_e978f8616ffeogtIqujRj0K4cE",
-    "parent_session_id":  null,
-    "model_requested":  "opencode-go/muse-spark-1.3-contributor",
-    "model_effective":  "opencode-go/muse-spark-1.3-contributor",
+    "session_id":  "ses_e96e5375fffeA5ajprNBwKuRHq",
+    "parent_session_id":  "",
+    "model_requested":  "openai/gpt-6.1-sol-fast",
+    "model_effective":  "openai/gpt-6.1-sol-fast",
     "execution_proof":  "COMPLETED_VERIFIED",
     "advisor_status":  "COMPLETED",
-    "tokens_input":  43622,
-    "tokens_output":  1405,
-    "cost_usd":  0.005120006,
+    "tokens_input":  38547,
+    "tokens_output":  258,
+    "cost_usd":  0,
     "kernel_state":  "DONE",
-    "compliance_verdict":  "COMPLIANT"
+    "compliance_verdict":  "COMPLIANT",
+    "receipts":  {
+                     "planner":  {
+                                     "status":  "ok",
+                                     "task_id":  "pilot-adaptive-20261023-141203",
+                                     "objective":  "Resolver impasse de concorrencia e validar isolamento de processo",
+                                     "advisor_consulted":  true,
+                                     "advisory_recommendation":  "**STATUS: BLOCKED** — consulta `ADV-20261023-141233-a98ac5`.  **Diagnóstico:** informação insuficiente para recomendar Mutex ou outra primitiva. “Handles compar",
+                                     "next_action":  "Follow recommendation from engineering-advisor.",
+                                     "workers_allocated":  [
+                                                               "coder",
+                                                               "tester",
+                                                               "reviewer"
+                                                           ],
+                                     "timestamp":  "2026-10-23T14:13:07.1586284Z"
+                                 },
+                     "router":  {
+                                    "stage":  "model_routing",
+                                    "agent":  "engineering-advisor",
+                                    "tier":  "T4",
+                                    "catalog_model":  "openai/gpt-6.1-sol-fast",
+                                    "model_token":  "MODEL_FRONTIER",
+                                    "provider_cost_authorized":  false,
+                                    "timestamp":  "2026-10-23T14:12:05.1396091Z"
+                                },
+                     "advisor":  {
+                                     "consultation_id":  "ADV-20261023-141205-89c797",
+                                     "session_id":  "ses_e96e5375fffeA5ajprNBwKuRHq",
+                                     "parent_session_id":  "",
+                                     "agent":  "engineering-advisor",
+                                     "model_requested":  "openai/gpt-6.1-sol-fast",
+                                     "model_effective":  "openai/gpt-6.1-sol-fast",
+                                     "execution_proof_type":  "COMPLETED_VERIFIED",
+                                     "status":  "COMPLETED",
+                                     "tokens_input":  38547,
+                                     "tokens_output":  258,
+                                     "cost_usd":  0,
+                                     "recommendation":  "**STATUS: BLOCKED — ADV-20261023-141205-89c797**\n\n**DIAGNÓSTICO:** informação insuficiente para escolher o mecanismo. “Handles compartilhados” não demonstra que Mutex resolva a causa; incerteza alta.\n\n**FALTAM:**\n- Arquivos/símbolos do scheduler e recurso protegido.\n- Erro ou reprodução da concorrência.\n- Decisão travada, etapa atual, tentativas e hipóteses descartadas.\n- Escopo: mesma sessão Windows ou também sessões/usuários distintos.\n- Garantias exigidas: timeout, recuperação após crash e eventual ordenação.\n- Risco e orçamento restante.\n\n**PRÓXIMA AÇÃO:** fornecer uma reprodução mínima referenciada com dois processos concorrentes, resultado esperado e falha observada.\n\n**EVIDÊNCIA PARA DECIDIR:** identificar se ambos acessam o mesmo recurso e se a falha decorre da seção crítica, do ciclo de vida dos handles ou da identidade do lock.\n\n**RECOMMENDATION:** manter a estratégia atual sem alterações até essa evidência. Adiar uma abstração de locking: ainda não está demonstrado que resolve um problema real agora. Nenhuma mudança realizada; rollback não se aplica.",
+                                     "actionable_step":  "Follow recommendation from engineering-advisor.",
+                                     "timestamp":  "2026-10-23T14:12:33.4981000Z"
+                                 },
+                     "coder":  {
+                                   "worker":  "coder",
+                                   "status":  "candidate_pass",
+                                   "claimed_evidence":  [
+                                                            "criterion:0:Mutex applied",
+                                                            "D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json"
+                                                        ],
+                                   "artifact_sha256":  "ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb",
+                                   "revision":  4,
+                                   "timestamp":  "2026-10-23T14:13:08.1978111Z"
+                               },
+                     "reviewer":  {
+                                      "worker":  "reviewer",
+                                      "status":  "approved",
+                                      "verified_evidence":  "D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json",
+                                      "verified_evidence_sha256":  "ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb",
+                                      "checks_passed":  3,
+                                      "revision":  8,
+                                      "timestamp":  "2026-10-23T14:13:09.4900715Z"
+                                  },
+                     "task_kernel":  {
+                                         "task_id":  "pilot-adaptive-20261023-141203",
+                                         "initial_state":  "DISCOVERING",
+                                         "final_state":  "DONE",
+                                         "revision":  9,
+                                         "compliance_verdict":  "COMPLIANT",
+                                         "verified_pass":  true,
+                                         "timestamp":  "2026-10-23T14:13:09.9694254Z"
+                                     }
+                 },
+    "transitions":  [
+                        {
+                            "step":  1,
+                            "from":  "NONE",
+                            "to":  "DISCOVERING",
+                            "actor":  "planner",
+                            "revision":  1,
+                            "time":  "2026-10-23T14:12:05.0538522Z"
+                        },
+                        {
+                            "step":  2,
+                            "from":  "DISCOVERING",
+                            "to":  "PLANNING",
+                            "actor":  "planner",
+                            "revision":  2,
+                            "time":  "2026-10-23T14:13:07.4189703Z"
+                        },
+                        {
+                            "step":  3,
+                            "from":  "PLANNING",
+                            "to":  "IMPLEMENTING",
+                            "actor":  "planner",
+                            "revision":  3,
+                            "time":  "2026-10-23T14:13:07.7342736Z"
+                        },
+                        {
+                            "step":  4,
+                            "from":  "IMPLEMENTING",
+                            "to":  "VALIDATING",
+                            "actor":  "planner",
+                            "revision":  5,
+                            "time":  "2026-10-23T14:13:08.5026054Z"
+                        },
+                        {
+                            "step":  5,
+                            "from":  "VALIDATING",
+                            "to":  "REVIEWING",
+                            "actor":  "reviewer",
+                            "revision":  7,
+                            "time":  "2026-10-23T14:13:09.1856465Z"
+                        },
+                        {
+                            "step":  6,
+                            "from":  "REVIEWING",
+                            "to":  "DONE",
+                            "actor":  "task-kernel",
+                            "revision":  9,
+                            "time":  "2026-10-23T14:13:09.9694254Z"
+                        }
+                    ],
+    "artifact":  {
+                     "path":  "D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json",
+                     "sha256":  "ddc8eb5bb94065c895d45626b87b6430eb860328414a42e3283b76e0450e79bb",
+                     "solution":  "System.Threading.Mutex",
+                     "recommendation_applied":  "**STATUS: BLOCKED** — consulta `ADV-20261023-141233-a98ac5`.  **Diagnóstico:** informação insuficiente para recomendar Mutex ou outra primitiva. “Handles compar",
+                     "timestamp":  "2026-10-23T14:13:09.9704505Z"
+                 },
+    "reproduction_commands":  [
+                                  "powershell -NoProfile -Command \"$p = Get-OrchestrationPreflight -Objective \u0027Resolver impasse de concorrencia e validar isolamento de processo\u0027 -TaskType \u0027investigation\u0027 -Domain \u0027runtime-reliability\u0027 -Risk \u0027medium\u0027 -ReadWrite \u0027write\u0027; $p.orchestration_decision\"",
+                                  "powershell -NoProfile -Command \"$m = Resolve-OrchestrationModelSelection -AgentName \u0027engineering-advisor\u0027 -Complexity \u0027complex\u0027 -FailureCount 2 -ProviderCostAuthorized $true; $m.CatalogModel\"",
+                                  "powershell -NoProfile -Command \"$r = Invoke-AdvisorConsultation -Request @{ task_id = \u0027pilot-adaptive-20261023-141203\u0027; trigger_signal = \u0027verified_deadlock\u0027; justification = \u0027Falhas de concorrencia com handles compartilhados exigem isolamento de Mutex\u0027; question = \u0027Qual a melhor abordagem para exclusao mutua deterministica entre processos PowerShell no Windows?\u0027 }; $r.ExecutionProofType\"",
+                                  "powershell -NoProfile -Command \"$l = Invoke-OrchestrationPlannerLoop -Descriptor @{ task_id = \u0027pilot-adaptive-20261023-141203\u0027; objective = \u0027Resolver impasse de concorrencia\u0027; advisor_escalation_signal = \u0027verified_deadlock\u0027; advisor_justification = \u0027Deadlock verificado\u0027 }; $l.plan.advisor_advisory.consulted\"",
+                                  "powershell -NoProfile -Command \"Test-Path -LiteralPath \u0027D:\\projetos\\opencode-orchestration\\evidence\\v3.1\\runtime-reliability\\artifacts\\pilot-adaptive-20261023-141203-solution.json\u0027\"",
+                                  "powershell -NoProfile -Command \"$t = Get-OrchestrationTaskState -TaskId \u0027pilot-adaptive-20261023-141203\u0027; $t.state\"",
+                                  "powershell -NoProfile -Command \"Test-OrchestrationDoneCompliance -TaskClass \u0027non_trivial\u0027 -Decision \u0027MULTI_WORKER\u0027 -ActualWorkerParticipation 2\""
+                              ]
 }

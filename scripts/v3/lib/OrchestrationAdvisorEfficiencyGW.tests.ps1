@@ -93,8 +93,8 @@ Assert-GW ($sel06NoFail.Tier -eq 'T3') 'GW-ADVISOR-06' "Advisor apenas com compl
 $sel06 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
 Assert-GW ($sel06.Tier -eq 'T4') 'GW-ADVISOR-06' "Advisor escalado para Tier T4 sob deadlock comprovado com 2 falhas e autorizacao de custo"
 
-# Execucao sem probe: registra PROOF_ABSENT sem recomendacao fabricada
-$resp06Unprobed = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06
+# Execucao sem probe e com native desativado: registra PROOF_ABSENT sem recomendacao fabricada
+$resp06Unprobed = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -DisableNativeExecutor
 Assert-GW ($resp06Unprobed.Status -eq 'PROOF_ABSENT') 'GW-ADVISOR-06' "Consulta unprobed registra PROOF_ABSENT honesto"
 Assert-GW ($null -eq $resp06Unprobed.RecommendedOption) 'GW-ADVISOR-06' "Nunca retorna recomendacao fabricada sem despacho real"
 
@@ -178,9 +178,9 @@ if (Test-Path -LiteralPath $plannerLib) {
     if ($resNative.Status -eq 'PROOF_ABSENT') {
         Assert-GW ($resNative.Reason -in @('NATIVE_DISPATCH_UNAVAILABLE', 'MODEL_PROVIDER_CREDENTIAL_ABSENT', 'NATIVE_DISPATCH_TIMEOUT', 'NATIVE_EXECUTION_FAILED_OR_NO_OUTPUT')) 'INT-02-ADVISOR' "Executor nativo ausente ou sem credencial atesta PROOF_ABSENT honesto"
         Assert-GW ($null -eq $resNative.RecommendedOption) 'INT-02-ADVISOR' "Zero recomendacao fabricada no executor nativo desprovido de binario ou credencial"
-        Assert-GW ($resNative.Agent -eq 'engineering-advisor') 'INT-02-ADVISOR' "Agente registrado como engineering-advisor"
+        Assert-GW ($null -eq $resNative.Agent) 'INT-02-ADVISOR' "Agente nao inferido sob PROOF_ABSENT sem execucao real"
     } else {
-        Assert-GW ($resNative.Status -in @('COMPLETED', 'PARTIAL_PROOF')) 'INT-02-ADVISOR' "Executor nativo conclui consulta real ou com prova do host"
+        Assert-GW ($resNative.Status -in @('COMPLETED', 'PARTIAL_PROOF', 'MODEL_DIVERGENT')) 'INT-02-ADVISOR' "Executor nativo conclui consulta real ou com prova do host"
         Assert-GW ($resNative.Agent -eq 'engineering-advisor') 'INT-02-ADVISOR' "Agente registrado como engineering-advisor"
     }
 
@@ -273,6 +273,84 @@ if (Test-Path -LiteralPath $plannerLib) {
     Assert-GW ($resPartial.ExecutionProofType -eq 'RESULT_RECEIVED') 'INT-02-ADVISOR' "Tipo de prova RESULT_RECEIVED preservado"
     $resPartialRepeat = Invoke-AdvisorConsultation -Request $reqPartial -AdvisorProbe $partialProbe
     Assert-GW ($resPartialRepeat.FromCache -eq $false) 'INT-02-ADVISOR' "Consulta com PARTIAL_PROOF nunca e persistida no cache"
+
+    # 2e. Ligacao direta Planner -> Advisor sem mocks e sem injetar NativeAdvisorExecutor
+    $descPlanDirect = [ordered]@{
+        task_id                   = 'INT-TASK-DIRECT-DEFAULT'
+        objective                 = 'Resolver impasse no scheduler de concorrência'
+        summary                   = 'Deadlock recorrente'
+        risk                      = 'medium'
+        task_shape                = 'single'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification     = 'Duas falhas observadas em testes de stress'
+        advisor_question          = 'Como isolar os handles?'
+        disable_native_advisor    = $true
+    }
+    $planDirect = Invoke-OrchestrationPlannerLoop -Descriptor $descPlanDirect
+    Assert-GW ($planDirect.status -eq 'ok') 'INT-02-DIRECT-DEFAULT' "Planner invoca Advisor por padrao sem mocks e sem NativeAdvisorExecutor manual"
+    Assert-GW ($planDirect.plan.advisor_advisory.status -eq 'PROOF_ABSENT') 'INT-02-DIRECT-DEFAULT' "Sem mock e com nativo desativado, atesta PROOF_ABSENT honesto"
+    Assert-GW ($null -eq $planDirect.plan.advisor_advisory.agent) 'INT-02-DIRECT-DEFAULT' "Agente nao e inferido como engineering-advisor sob PROOF_ABSENT"
+
+    # 2f. Isolamento estrito de cache (Testes vs Producao)
+    Clear-AdvisorConsultationCache -Scope 'all'
+    $reqTestCache = @{
+        task_id        = 'TEST-CACHE-ISOLATION'
+        trigger_signal = 'verified_deadlock'
+        justification  = 'Teste de isolamento estrito de cache'
+        question       = 'Como garantir isolamento de cache?'
+        is_test        = $true
+    }
+    $probeCache = {
+        param($r, $m)
+        return [pscustomobject]@{
+            Status             = 'COMPLETED'
+            ConsultationId     = 'ADV-TEST-CACHE'
+            RecommendedOption  = 'Usar cache isolado'
+            ActionableNextStep = 'Validar isolamento'
+            ModelTierUsed      = 'T3'
+            ModelTokenUsed     = 'MODEL_STRONG'
+            IsAdvisory         = $true
+            Authoritative      = $false
+            FromCache          = $false
+            ExecutionProofType = 'HARNESS_PROBED'
+        }
+    }
+    $resTest1 = Invoke-AdvisorConsultation -Request $reqTestCache -AdvisorProbe $probeCache
+    Assert-GW ($resTest1.Status -eq 'COMPLETED') 'CACHE-ISOLATION' "Consulta de teste concluida com sucesso"
+    Assert-GW ($script:AdvisorTestCache.Count -gt 0) 'CACHE-ISOLATION' "Consulta armazenada no cache de teste"
+    Assert-GW ($script:AdvisorProductionCache.Count -eq 0) 'CACHE-ISOLATION' "Cache produtivo permanece estritamente isolado sem poluicao de teste"
+    Clear-AdvisorConsultationCache -Scope 'test'
+    Assert-GW ($script:AdvisorTestCache.Count -eq 0) 'CACHE-ISOLATION' "Limpeza de escopo 'test' esvazia exclusivamente cache de teste"
+
+    # 2g. Deteccao e classificacao formal de modelo divergente (MODEL_DIVERGENT)
+    $divergentNative = {
+        param($r, $m)
+        return [pscustomobject]@{
+            Status               = 'PARTIAL_PROOF'
+            Reason               = 'MODEL_DIVERGENT'
+            ConsultationId       = 'ADV-MODEL-DIV'
+            SessionId            = 'ses-model-div-123'
+            Agent                = 'engineering-advisor'
+            ModelRequested       = 'opencode-go/muse-spark-1.3-contributor'
+            ModelEffective       = 'openai/gpt-4o-mini'
+            ResponseRef          = 'resp-model-div'
+            RecommendedOption    = 'Opcao com modelo divergente'
+            ExecutionProofType   = 'MODEL_DIVERGENT'
+            IsAdvisory           = $true
+            Authoritative        = $false
+            FromCache            = $false
+        }
+    }
+    $reqDiv = @{
+        task_id        = 'TEST-DIVERGENT'
+        trigger_signal = 'verified_deadlock'
+        justification  = 'Teste de divergencia de modelo'
+        question       = 'Qual modelo foi usado?'
+    }
+    $resDiv = Invoke-AdvisorConsultation -Request $reqDiv -NativeExecutor $divergentNative
+    Assert-GW ($resDiv.Status -eq 'PARTIAL_PROOF') 'MODEL_DIVERGENT' "Modelo divergente nao e aceito como COMPLETED"
+    Assert-GW ($resDiv.Reason -eq 'MODEL_DIVERGENT') 'MODEL_DIVERGENT' "Reason registrado como MODEL_DIVERGENT"
+    Assert-GW ($resDiv.ExecutionProofType -eq 'MODEL_DIVERGENT') 'MODEL_DIVERGENT' "ExecutionProofType classificado como MODEL_DIVERGENT"
 }
 
 # INT-03-NATIVE-ROUTER: Descoberta de catalogo, autorizacao estrita de T4 e verificacao
