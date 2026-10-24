@@ -301,6 +301,198 @@ try{
     finally{
         try{Remove-Item -LiteralPath $f3StoreRoot -Recurse -Force -ErrorAction SilentlyContinue}catch{}
     }
+
+    # ---------- P0: Advisor Stances e Provas no Planner Loop ----------
+    if (Get-Command Clear-AdvisorConsultationCache -ErrorAction SilentlyContinue) {
+        Clear-AdvisorConsultationCache -Scope 'all'
+    }
+
+    # 1. COMPLETED_VERIFIED + recomendacao executavel -> implement
+    $probeCompleted = [scriptblock]::Create(@"
+param(`$req, `$sel)
+return [pscustomobject]@{
+    Status = 'COMPLETED'
+    Reason = 'COMPLETED_VERIFIED'
+    ExecutionProofType = 'COMPLETED_VERIFIED'
+    AdvisoryStance = 'EXECUTABLE_RECOMMENDATION'
+    IsBlocked = `$false
+    RequiresInvestigation = `$false
+    RecommendedOption = 'Adopt System.Threading.Mutex'
+    ActionableNextStep = 'Implement Mutex with AbandonedMutexException recovery'
+    ConsultationId = 'ADV-TEST-COMPLETED'
+    FromCache = `$false
+    ModelTierUsed = 'T3'
+}
+"@)
+    $descCompleted = @{
+        task_id = 'task-advisor-completed'
+        objective = 'Resolve concurrency deadlock'
+        risk = 'medium'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification = 'Deadlock observed in scheduler'
+        is_test = $true
+    }
+    $resCompleted = Invoke-OrchestrationPlannerLoop $descCompleted @{timestamp=$now;advisor_probe=$probeCompleted}
+    Assert-PL ($resCompleted.status -eq 'ok') 'advisor-completed-status-ok'
+    Assert-PL ($resCompleted.plan.dispatch_plan.action -eq 'implement') 'advisor-completed-promotes-to-implement'
+    Assert-PL ($resCompleted.plan.dispatch_plan.advisory_recommendation -eq 'Adopt System.Threading.Mutex') 'advisor-completed-rec-text'
+    Assert-PL (@($resCompleted.plan.dispatch_plan.escalations | Where-Object { $_.type -eq 'advisor-guidance' }).Count -eq 1) 'advisor-completed-guidance-escalation'
+
+    # 2. PARTIAL_PROOF (Host Evidence Incomplete) -> investigate (NUNCA implement!)
+    if (Get-Command Clear-AdvisorConsultationCache -ErrorAction SilentlyContinue) {
+        Clear-AdvisorConsultationCache -Scope 'all'
+    }
+    $probePartial = [scriptblock]::Create(@"
+param(`$req, `$sel)
+return [pscustomobject]@{
+    Status = 'PARTIAL_PROOF'
+    Reason = 'HOST_EVIDENCE_INCOMPLETE'
+    ExecutionProofType = 'HOST_EVIDENCE_VERIFIED'
+    AdvisoryStance = 'INVESTIGATION_NEEDED'
+    IsBlocked = `$false
+    RequiresInvestigation = `$true
+    RecommendedOption = 'Investigate shared handles lifetime'
+    ActionableNextStep = 'Inspect handle ownership across child processes'
+    ConsultationId = 'ADV-TEST-PARTIAL'
+    FromCache = `$false
+    ModelTierUsed = 'T3'
+}
+"@)
+    $descPartial = @{
+        task_id = 'task-advisor-partial'
+        objective = 'Resolve concurrency deadlock'
+        risk = 'medium'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification = 'Deadlock observed in scheduler'
+        is_test = $true
+    }
+    $resPartial = Invoke-OrchestrationPlannerLoop $descPartial @{timestamp=$now;advisor_probe=$probePartial}
+    Assert-PL ($resPartial.status -eq 'ok') 'advisor-partial-status-ok'
+    Assert-PL ($resPartial.plan.dispatch_plan.action -eq 'investigate') 'advisor-partial-never-promoted-to-implement'
+    Assert-PL ($resPartial.plan.dispatch_plan.action -ne 'implement') 'advisor-partial-strict-non-implement'
+    Assert-PL ($resPartial.plan.dispatch_plan.advisory_recommendation -like 'PARTIAL_PROOF_INVESTIGATION*') 'advisor-partial-rec-prefix'
+    Assert-PL (@($resPartial.plan.dispatch_plan.escalations | Where-Object { $_.type -eq 'advisor-partial-proof-investigation' }).Count -eq 1) 'advisor-partial-investigation-escalation'
+
+    # 3. MODEL_DIVERGENT (Status PARTIAL_PROOF) -> investigate (NUNCA implement!)
+    if (Get-Command Clear-AdvisorConsultationCache -ErrorAction SilentlyContinue) {
+        Clear-AdvisorConsultationCache -Scope 'all'
+    }
+    $probeDivergent = [scriptblock]::Create(@"
+param(`$req, `$sel)
+return [pscustomobject]@{
+    Status = 'PARTIAL_PROOF'
+    Reason = 'MODEL_DIVERGENT'
+    ExecutionProofType = 'MODEL_DIVERGENT'
+    AdvisoryStance = 'INVESTIGATION_NEEDED'
+    IsBlocked = `$false
+    RequiresInvestigation = `$true
+    RecommendedOption = 'Check provider model alias mapping'
+    ActionableNextStep = 'Verify router catalog and provider credentials'
+    ConsultationId = 'ADV-TEST-DIVERGENT'
+    FromCache = `$false
+    ModelTierUsed = 'T3'
+}
+"@)
+    $descDivergent = @{
+        task_id = 'task-advisor-divergent'
+        objective = 'Resolve concurrency deadlock'
+        risk = 'medium'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification = 'Deadlock observed in scheduler'
+        is_test = $true
+    }
+    $resDivergent = Invoke-OrchestrationPlannerLoop $descDivergent @{timestamp=$now;advisor_probe=$probeDivergent}
+    Assert-PL ($resDivergent.status -eq 'ok') 'advisor-divergent-status-ok'
+    Assert-PL ($resDivergent.plan.dispatch_plan.action -eq 'investigate') 'advisor-divergent-action-investigate'
+    Assert-PL ($resDivergent.plan.dispatch_plan.action -ne 'implement') 'advisor-divergent-strict-non-implement'
+    Assert-PL (@($resDivergent.plan.dispatch_plan.escalations | Where-Object { $_.type -eq 'advisor-partial-proof-investigation' }).Count -eq 1) 'advisor-divergent-investigation-escalation'
+
+    # 4. PROOF_ABSENT -> fallback deterministico, consulted=false, nao promove
+    if (Get-Command Clear-AdvisorConsultationCache -ErrorAction SilentlyContinue) {
+        Clear-AdvisorConsultationCache -Scope 'all'
+    }
+    $probeAbsent = [scriptblock]::Create(@"
+param(`$req, `$sel)
+return [pscustomobject]@{
+    Status = 'PROOF_ABSENT'
+    Reason = 'NATIVE_DISPATCH_UNAVAILABLE'
+    ExecutionProofType = 'PROOF_ABSENT'
+    AdvisoryStance = 'NOT_CONSULTED'
+    IsBlocked = `$false
+    RequiresInvestigation = `$false
+    RecommendedOption = `$null
+    ActionableNextStep = `$null
+    ConsultationId = 'ADV-TEST-ABSENT'
+    FromCache = `$false
+    ModelTierUsed = 'T3'
+}
+"@)
+    $descAbsent = @{
+        task_id = 'task-advisor-absent'
+        objective = 'Resolve concurrency deadlock'
+        risk = 'medium'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification = 'Deadlock observed in scheduler'
+        is_test = $true
+    }
+    $resAbsent = Invoke-OrchestrationPlannerLoop $descAbsent @{timestamp=$now;advisor_probe=$probeAbsent}
+    Assert-PL ($resAbsent.status -eq 'ok') 'advisor-absent-status-ok'
+    Assert-PL ($resAbsent.plan.advisor_advisory.consulted -eq $false) 'advisor-absent-consulted-false'
+    Assert-PL ($resAbsent.plan.dispatch_plan.action -ne 'implement') 'advisor-absent-no-implement'
+
+    # 5. Parecer BLOCKED (ex: BLOCKED_MISSING_EVIDENCE) -> investigate, autonomia preservada sem aprovacao humana
+    if (Get-Command Clear-AdvisorConsultationCache -ErrorAction SilentlyContinue) {
+        Clear-AdvisorConsultationCache -Scope 'all'
+    }
+    $probeBlocked = [scriptblock]::Create(@"
+param(`$req, `$sel)
+return [pscustomobject]@{
+    Status = 'COMPLETED'
+    Reason = 'COMPLETED_VERIFIED'
+    ExecutionProofType = 'COMPLETED_VERIFIED'
+    AdvisoryStance = 'BLOCKED_MISSING_EVIDENCE'
+    IsBlocked = `$true
+    RequiresInvestigation = `$true
+    RecommendedOption = 'Provide minimal concurrency reproduction'
+    ActionableNextStep = 'Execute minimal reproduction with two concurrent processes'
+    MissingEvidence = 'Two concurrent processes reproducing handle conflict'
+    ConsultationId = 'ADV-TEST-BLOCKED'
+    FromCache = `$false
+    ModelTierUsed = 'T3'
+}
+"@)
+    $descBlocked = @{
+        task_id = 'task-advisor-blocked'
+        objective = 'Resolve concurrency deadlock'
+        risk = 'medium'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification = 'Deadlock observed in scheduler'
+        is_test = $true
+    }
+    $resBlocked = Invoke-OrchestrationPlannerLoop $descBlocked @{timestamp=$now;advisor_probe=$probeBlocked}
+    Assert-PL ($resBlocked.status -eq 'ok') 'advisor-blocked-status-ok'
+    Assert-PL ($resBlocked.plan.dispatch_plan.action -eq 'investigate') 'advisor-blocked-promotes-autonomous-investigation'
+    Assert-PL ($resBlocked.plan.dispatch_plan.advisory_recommendation -like 'BLOCKED_PENDING_EVIDENCE*') 'advisor-blocked-rec-prefix'
+    Assert-PL (@($resBlocked.plan.dispatch_plan.escalations | Where-Object { $_.type -eq 'advisor-blocked-investigation-required' }).Count -eq 1) 'advisor-blocked-escalation-recorded'
+    Assert-PL (@($resBlocked.plan.validation_gaps.missing_evidence | Where-Object { $_ -match 'ADVISORY_PENDING' }).Count -ge 1) 'advisor-blocked-missing-evidence-gap'
+
+    # 6. Jev Advisory: distincao dos 4 estados (advice_received, advice_evaluated, advice_accepted, advice_applied)
+    [System.Environment]::SetEnvironmentVariable('JEV_API_KEY','sk-SYNTHETICSECRET-PLANNER-CANARY')
+    $tJevMarker = Join-Path $plTemp ('jev-eval-state-marker-' + [guid]::NewGuid().ToString('N'))
+    $tJevProbe = [scriptblock]::Create("param(`$tool,`$state,`$toolArgs,`$budget);[IO.File]::AppendAllText('$tJevMarker','hit;');return [pscustomobject]@{model='jev-latest';answers=[pscustomobject]@{route=[pscustomobject]@{type='choice';choice='minimal';confidence=0.9}};usage=[pscustomobject]@{input_tokens=1;output_tokens=1}}")
+    $tJevDesc = @{
+        objective = 'Evaluate test pipeline order'
+        risk = 'low'
+        route_uncertain = $true
+    }
+    $resJev = Invoke-OrchestrationPlannerLoop $tJevDesc $plOpt -JevAdvisoryProbe $tJevProbe
+    [System.Environment]::SetEnvironmentVariable('JEV_API_KEY',$null)
+    Assert-PL ($resJev.status -eq 'ok') 'jev-state-status-ok'
+    Assert-PL ($resJev.plan.jev_advisory_result.advice_received -eq $true) 'jev-state-advice-received'
+    Assert-PL ($resJev.plan.jev_advisory_result.advice_evaluated -eq $true) 'jev-state-advice-evaluated'
+    Assert-PL ($resJev.plan.jev_advisory_result.advice_accepted -eq $true) 'jev-state-advice-accepted'
+    Assert-PL ($resJev.plan.jev_advisory_result.advice_applied -eq $false) 'jev-state-advice-applied-false-when-strategy-preserved'
+    Assert-PL ($resJev.plan.jev_advisory_result.advice_state -eq 'ADVICE_ACCEPTED') 'jev-state-is-advice-accepted'
 }
 finally{
     try{Remove-Item -LiteralPath $plTemp -Recurse -Force -ErrorAction SilentlyContinue}catch{}

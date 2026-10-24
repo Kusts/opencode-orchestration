@@ -630,6 +630,13 @@ function Get-OrchestrationModelRouterReceipt {
         throw "INVARIANT_VIOLATION: A model routing receipt cannot have Tier T4 with provider_cost_authorized=false."
     }
 
+    if ($tier -eq 'T4' -and [string]::IsNullOrWhiteSpace($authSource)) {
+        throw "INVARIANT_VIOLATION: A model routing receipt cannot have Tier T4 with missing or presumed authorization_source."
+    }
+
+    $finalAuthSource = if (-not [string]::IsNullOrWhiteSpace($authSource)) { $authSource } else { if ($tier -eq 'T4') { 'NONE_UNAUTHORIZED' } else { 'STANDARD_CATALOG' } }
+    $finalAuthEv = if (-not [string]::IsNullOrWhiteSpace($authEv)) { $authEv } else { if ($tier -eq 'T4') { 'none' } else { 'catalog:default' } }
+
     return [ordered]@{
         stage                    = 'model_routing'
         agent                    = [string]$Selection.Agent
@@ -637,8 +644,8 @@ function Get-OrchestrationModelRouterReceipt {
         catalog_model            = [string]$Selection.CatalogModel
         model_token              = [string]$Selection.ModelToken
         provider_cost_authorized = $isCostAuth
-        authorization_source     = if (-not [string]::IsNullOrWhiteSpace($authSource)) { $authSource } else { if ($isCostAuth) { 'EXPLICIT_PARAMETER' } else { 'NONE_UNAUTHORIZED' } }
-        authorization_evidence   = if (-not [string]::IsNullOrWhiteSpace($authEv)) { $authEv } else { if ($isCostAuth) { 'authorized' } else { 'none' } }
+        authorization_source     = $finalAuthSource
+        authorization_evidence   = $finalAuthEv
         budget                   = if (-not [string]::IsNullOrWhiteSpace($budget)) { $budget } else { 'standard_tier_budget' }
         timestamp                = [DateTime]::UtcNow.ToString('o')
     }
