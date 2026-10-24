@@ -548,7 +548,7 @@ if (Test-Path -LiteralPath $jevLib) {
         Assert-GW ($jevPlan.plan.jev_advisory_result.consulted -eq $true) 'INT-05-JEV' "Jev Advisory consultado com sucesso"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_consumed -eq $true) 'INT-05-JEV' "Decisao de Jev Advisory atestada como consumida no plano"
         Assert-GW ($jevPlan.plan.jev_advisory_result.decision_taken -match 'CONSUMED') 'INT-05-JEV' "Decisao tomada registrada na telemetria"
-        Assert-GW ($jevPlan.plan.jev_advisory_result.decision_applied -eq $true) 'INT-05-JEV' "Decisao aplicada efetivamente como parecer consultivo"
+        Assert-GW ($jevPlan.plan.jev_advisory_result.decision_applied -eq $false) 'INT-05-JEV' "Decisao nao aplicada para alterar rota quando estrategia original preservada"
         Assert-GW ($jevPlan.plan.jev_advisory_result.advice_received -eq $true) 'INT-05-JEV' "Recebimento do conselho (ADVICE_RECEIVED) atestado"
         Assert-GW ($jevPlan.plan.jev_advisory_result.advice_evaluated -eq $true) 'INT-05-JEV' "Avaliacao do conselho (ADVICE_EVALUATED) atestada"
         Assert-GW ($jevPlan.plan.jev_advisory_result.advice_accepted -eq $true) 'INT-05-JEV' "Parecer Jev aceito perante policy (ADVICE_ACCEPTED) atestado"
@@ -860,7 +860,11 @@ $action = {
     [System.IO.File]::AppendAllText($script:Log, ($script:WorkerId + ':EXIT:' + $exit + [Environment]::NewLine), [System.Text.Encoding]::UTF8)
     return "OK"
 }
+$acqStart = [DateTime]::UtcNow.Ticks
+[System.IO.File]::AppendAllText($script:Log, ($script:WorkerId + ':ACQUIRE_START:' + $acqStart + [Environment]::NewLine), [System.Text.Encoding]::UTF8)
 Invoke-ExclusiveWork -LockName $LockName -Action $action -TimeoutMs 5000 | Out-Null
+$acqDone = [DateTime]::UtcNow.Ticks
+[System.IO.File]::AppendAllText($script:Log, ($script:WorkerId + ':ACQUIRE_DONE:' + $acqDone + [Environment]::NewLine), [System.Text.Encoding]::UTF8)
 '@
             [System.IO.File]::WriteAllText($workerConcurrencyFile, $workerScriptContent, [System.Text.Encoding]::UTF8)
 
@@ -888,24 +892,35 @@ Invoke-ExclusiveWork -LockName $LockName -Action $action -TimeoutMs 5000 | Out-N
             $finalCount = [int][System.IO.File]::ReadAllText($sharedCounterFile)
             $logLines = [System.IO.File]::ReadAllLines($timelineLogFile)
 
-            # Analise temporal estrita:
-            $w1Entry = [int64]0; $w1Exit = [int64]0; $w2Entry = [int64]0; $w2Exit = [int64]0
+            # Analise temporal estrita com comprovacao de disputa real:
+            $w1AcqStart = [int64]0; $w1Entry = [int64]0; $w1Exit = [int64]0
+            $w2AcqStart = [int64]0; $w2Entry = [int64]0; $w2Exit = [int64]0
             foreach ($rawLine in $logLines) {
                 $line = $rawLine.Trim()
                 if ([string]::IsNullOrWhiteSpace($line)) { continue }
                 $parts = $line.Split(':')
                 if ($parts.Length -eq 3) {
                     $w = $parts[0].Trim(); $type = $parts[1].Trim(); $ticks = [int64]$parts[2].Trim()
+                    if ($w -eq 'W1' -and $type -eq 'ACQUIRE_START') { $w1AcqStart = $ticks }
                     if ($w -eq 'W1' -and $type -eq 'ENTRY') { $w1Entry = $ticks }
                     if ($w -eq 'W1' -and $type -eq 'EXIT') { $w1Exit = $ticks }
+                    if ($w -eq 'W2' -and $type -eq 'ACQUIRE_START') { $w2AcqStart = $ticks }
                     if ($w -eq 'W2' -and $type -eq 'ENTRY') { $w2Entry = $ticks }
                     if ($w -eq 'W2' -and $type -eq 'EXIT') { $w2Exit = $ticks }
                 }
             }
             $isDisjoint = ($w1Entry -gt 0 -and $w1Exit -gt 0 -and $w2Entry -gt 0 -and $w2Exit -gt 0) -and (($w1Exit -le $w2Entry) -or ($w2Exit -le $w1Entry))
 
+            # Disputa real comprovada: o processo secundario tentou adquirir antes que o detentor liberasse a regiao critica
+            $realContention = if ($w1Entry -lt $w2Entry) {
+                ($w2AcqStart -lt $w1Exit) -and ($w2Entry -ge $w1Exit)
+            } else {
+                ($w1AcqStart -lt $w2Exit) -and ($w1Entry -ge $w2Exit)
+            }
+
             Assert-GW ($p1.ExitCode -eq 0 -and $p2.ExitCode -eq 0) 'INT-08-CONCURRENCY-COMPONENT' "Ambos os processos concorrentes concluem com exit code 0"
             Assert-GW ($isDisjoint -eq $true) 'INT-08-CONCURRENCY-COMPONENT' "Regiao critica comprovadamente exclusiva: intervalos de execucao no tempo sao estritamente disjuntos"
+            Assert-GW ($realContention -eq $true) 'INT-08-CONCURRENCY-COMPONENT' "Disputa real comprovada: processo concorrente tentou adquirir enquanto o detentor ocupava a regiao critica"
             Assert-GW ($finalCount -eq 2) 'INT-08-CONCURRENCY-COMPONENT' "Integridade do resultado comprovada sem lost updates (contador compartilhado = 2)"
 
             # 4. Validar Disputa com Timeout Deterministico

@@ -348,7 +348,15 @@ function Get-OrchestrationSessionHostEvidence {
         }
         $costUsd = 'UNKNOWN'
         if ($null -ne $parsed.info.cost) {
-            try { $costUsd = [double]$parsed.info.cost } catch { $costUsd = 'UNKNOWN' }
+            try {
+                $costVal = [double]$parsed.info.cost
+                if ($costVal -gt 0.0) {
+                    $costUsd = $costVal
+                } else {
+                    # Custo 0 ou sem tabela de cobranca na sessao deve ser estritamente UNKNOWN
+                    $costUsd = 'UNKNOWN'
+                }
+            } catch { $costUsd = 'UNKNOWN' }
         }
 
         $agentEff = if (-not [string]::IsNullOrWhiteSpace([string]$parsed.info.agent)) { [string]$parsed.info.agent } else { $null }
@@ -1104,9 +1112,14 @@ function Invoke-AdvisorConsultation {
         $response.FromCache = $false
     }
 
-    # Store in bounded cache (APENAS consultas COMPLETED_VERIFIED ou HARNESS_PROBED sao armazenadas)
+    # Store in bounded cache (APENAS consultas COMPLETED_VERIFIED ou HARNESS_PROBED em contexto de teste sao armazenadas)
     # Modelos divergentes ou provas parciais NUNCA sao armazenados em cache
-    if ($response.Status -eq 'COMPLETED' -and $response.ExecutionProofType -in @('COMPLETED_VERIFIED', 'HARNESS_PROBED')) {
+    # HARNESS_PROBED e armazenado exclusivamente em contexto de teste ($isTestContext = $true)
+    $canCache = ($response.Status -eq 'COMPLETED') -and (
+        ($response.ExecutionProofType -eq 'COMPLETED_VERIFIED') -or
+        ($response.ExecutionProofType -eq 'HARNESS_PROBED' -and $isTestContext)
+    )
+    if ($canCache) {
         if ($activeCache.Count -ge 50) {
             $activeCache.Clear()
         }

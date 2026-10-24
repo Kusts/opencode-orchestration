@@ -492,7 +492,42 @@ return [pscustomobject]@{
     Assert-PL ($resJev.plan.jev_advisory_result.advice_evaluated -eq $true) 'jev-state-advice-evaluated'
     Assert-PL ($resJev.plan.jev_advisory_result.advice_accepted -eq $true) 'jev-state-advice-accepted'
     Assert-PL ($resJev.plan.jev_advisory_result.advice_applied -eq $false) 'jev-state-advice-applied-false-when-strategy-preserved'
+    Assert-PL ($resJev.plan.jev_advisory_result.decision_applied -eq $false) 'jev-state-decision-applied-false-when-strategy-preserved'
     Assert-PL ($resJev.plan.jev_advisory_result.advice_state -eq 'ADVICE_ACCEPTED') 'jev-state-is-advice-accepted'
+
+    # 7. HARNESS_PROBED em contexto de producao (is_test = $false) NUNCA e promovido a implement
+    if (Get-Command Clear-AdvisorConsultationCache -ErrorAction SilentlyContinue) {
+        Clear-AdvisorConsultationCache -Scope 'all'
+    }
+    $probeHarnessProd = [scriptblock]::Create(@"
+param(`$req, `$sel)
+return [pscustomobject]@{
+    Status = 'COMPLETED'
+    Reason = 'HARNESS_PROBED'
+    ExecutionProofType = 'HARNESS_PROBED'
+    AdvisoryStance = 'EXECUTABLE_RECOMMENDATION'
+    IsBlocked = `$false
+    RequiresInvestigation = `$false
+    RecommendedOption = 'Use harness mock in production'
+    ActionableNextStep = 'Apply harness mock'
+    ConsultationId = 'ADV-PROBE-PROD'
+    FromCache = `$false
+    ModelTierUsed = 'T3'
+}
+"@)
+    $descHarnessProd = @{
+        task_id = 'task-advisor-harness-prod'
+        objective = 'Resolve production issue'
+        risk = 'medium'
+        advisor_escalation_signal = 'verified_deadlock'
+        advisor_justification = 'Testing harness probe in production context'
+        is_test = $false
+    }
+    $resHarnessProd = Invoke-OrchestrationPlannerLoop $descHarnessProd @{timestamp=$now;advisor_probe=$probeHarnessProd;is_test=$false}
+    Assert-PL ($resHarnessProd.status -eq 'ok') 'advisor-harness-prod-status-ok'
+    Assert-PL ($resHarnessProd.plan.dispatch_plan.action -ne 'implement') 'advisor-harness-prod-never-promoted-to-implement'
+    Assert-PL ($resHarnessProd.plan.dispatch_plan.action -eq 'investigate') 'advisor-harness-prod-action-investigate'
+    Assert-PL ($resHarnessProd.plan.dispatch_plan.advisory_recommendation -like 'PARTIAL_PROOF_INVESTIGATION*') 'advisor-harness-prod-rec-prefix'
 }
 finally{
     try{Remove-Item -LiteralPath $plTemp -Recurse -Force -ErrorAction SilentlyContinue}catch{}

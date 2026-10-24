@@ -234,12 +234,12 @@ function Invoke-OrchestrationPlannerLoop {
                 $decisionTaken = if ($decisionConsumed) { Safe-PL ("CONSUMED: " + $sum) 120 } else { 'NOT_CONSUMED' }
                 $isJevBlocked = [bool](Read-PL $raw 'blocked' $false)
                 $adviceAccepted = ($evaluated -and (-not $isJevBlocked))
-                $decisionApplied = $decisionConsumed
                 $strategyPrior = if ($parallel) { 'parallel-fanout' } else { 'sequential-minimum' }
                 $strategyPosterior = $strategyPrior
                 $applied = ($adviceAccepted -and ($strategyPosterior -ne $strategyPrior))
                 $adviceEvaluated = $evaluated
                 $adviceApplied = $applied
+                $decisionApplied = $applied
                 $adviceState = if ($adviceApplied) { 'ADVICE_APPLIED' } elseif ($adviceAccepted) { 'ADVICE_ACCEPTED' } elseif ($adviceEvaluated) { 'ADVICE_EVALUATED' } elseif ($adviceReceived) { 'ADVICE_RECEIVED' } else { 'NOT_CONSULTED' }
                 $influenceType = if ($strategyPosterior -ne $strategyPrior) { 'STRATEGY_ADAPTED' } else { 'ORIGINAL_STRATEGY_PRESERVED' }
                 $adaptRationale = if ($decisionConsumed) {
@@ -257,6 +257,10 @@ function Invoke-OrchestrationPlannerLoop {
         if(-not [string]::IsNullOrWhiteSpace($advSignal) -and (Test-Path -LiteralPath $advLib)){
             try{
                 . $advLib
+                $advProbe = if ($AdvisorProbe) { $AdvisorProbe } else { Read-PL $o 'advisor_probe' $null }
+                $advNativeExec = if ($NativeAdvisorExecutor) { $NativeAdvisorExecutor } else { Read-PL $o 'native_advisor_executor' $null }
+                $advDisableNative = [bool](Read-PL $d 'disable_native_advisor' (Read-PL $o 'disable_native_advisor' $false))
+                $isTestContext = [bool](Read-PL $d 'is_test' (Read-PL $o 'is_test' ($null -ne $advProbe)))
                 $advReq=@{
                     task_id=[string](Read-PL $d 'task_id' 'planner-task');
                     trigger_signal=$advSignal;
@@ -267,12 +271,9 @@ function Invoke-OrchestrationPlannerLoop {
                     constraints=@((Read-PL $d 'constraints' @()));
                     known_evidence=@((Read-PL $d 'known_evidence' (Read-PL $d 'evidence' @())));
                     head_sha=[string](Read-PL $d 'head_sha' '');
-                    disable_native=[bool](Read-PL $d 'disable_native_advisor' (Read-PL $o 'disable_native_advisor' $false));
-                    is_test=[bool](Read-PL $d 'is_test' (Read-PL $o 'is_test' $false))
+                    disable_native=$advDisableNative;
+                    is_test=$isTestContext
                 }
-                $advProbe = if ($AdvisorProbe) { $AdvisorProbe } else { Read-PL $o 'advisor_probe' $null }
-                $advNativeExec = if ($NativeAdvisorExecutor) { $NativeAdvisorExecutor } else { Read-PL $o 'native_advisor_executor' $null }
-                $advDisableNative = [bool](Read-PL $d 'disable_native_advisor' (Read-PL $o 'disable_native_advisor' $false))
                 $advResp = Invoke-AdvisorConsultation -Request $advReq -AdvisorProbe $advProbe -NativeExecutor $advNativeExec -DisableNativeExecutor:$advDisableNative
                 if($null -ne $advResp){
                     $recText=[string](Read-PL $advResp 'RecommendedOption' '')
@@ -282,8 +283,12 @@ function Invoke-OrchestrationPlannerLoop {
                     $advReason=[string](Read-PL $advResp 'Reason' '')
 
                     $isProofAbsent = ($advStatus -in @('PROOF_ABSENT', 'REJECTED', 'ERROR') -or $advProofType -eq 'PROOF_ABSENT')
-                    $isPartialProof = (-not $isProofAbsent) -and ($advStatus -eq 'PARTIAL_PROOF' -or $advProofType -in @('PARTIAL_PROOF', 'MODEL_DIVERGENT', 'HOST_EVIDENCE_VERIFIED', 'RESULT_RECEIVED', 'PROCESS_EXITED', 'DISPATCH_EXCEPTION'))
-                    $isCompletedVerified = (-not $isProofAbsent) -and (-not $isPartialProof) -and ($advStatus -eq 'COMPLETED' -and $advProofType -in @('COMPLETED_VERIFIED', 'HARNESS_PROBED', 'NATIVE_DISPATCH'))
+                    $isHarnessProbedInProd = ($advProofType -eq 'HARNESS_PROBED' -and -not $isTestContext)
+                    $isPartialProof = (-not $isProofAbsent) -and ($advStatus -eq 'PARTIAL_PROOF' -or $advProofType -in @('PARTIAL_PROOF', 'MODEL_DIVERGENT', 'HOST_EVIDENCE_VERIFIED', 'RESULT_RECEIVED', 'PROCESS_EXITED', 'DISPATCH_EXCEPTION') -or $isHarnessProbedInProd)
+                    $isCompletedVerified = (-not $isProofAbsent) -and (-not $isPartialProof) -and ($advStatus -eq 'COMPLETED' -and (
+                        ($isTestContext -and $advProofType -eq 'HARNESS_PROBED') -or
+                        $advProofType -in @('COMPLETED_VERIFIED', 'NATIVE_DISPATCH')
+                    ))
 
                     $isConsulted = (-not $isProofAbsent) -and (-not [string]::IsNullOrWhiteSpace($recText))
                     $advStance = if ($advResp.AdvisoryStance) { [string]$advResp.AdvisoryStance } else { if ($isPartialProof) { 'INVESTIGATION_NEEDED' } else { 'EXECUTABLE_RECOMMENDATION' } }
@@ -322,20 +327,7 @@ function Invoke-OrchestrationPlannerLoop {
                                 type='advisor-guidance-inadmissible-slice-preserved';
                                 rationale=Safe-PL "Advisor recommended: $recText | Slice remains $($dispatch['action']) pending resolution" 200
                             })
-                        } elseif ($isPartialProof) {
-                            # PARTIAL_PROOF (inclusive MODEL_DIVERGENT): fornece pistas para investigacao autonoma,
-                            # mas NUNCA e promovido a recomendacao executavel produtiva ('implement').
-                            $dispatch['action']='investigate'
-                            $dispatch['next_action']=if(-not [string]::IsNullOrWhiteSpace($actText)){Safe-PL $actText 160}else{Safe-PL "Investigate partial advisory proof ($advReason)" 160}
-                            $dispatch['advisory_recommendation']=Safe-PL ("PARTIAL_PROOF_INVESTIGATION: " + $recText) 160
-                            $dispatch.escalations+=@([pscustomobject]@{
-                                type='advisor-partial-proof-investigation';
-                                rationale=Safe-PL "Advisor consultation unproven or divergent ($advReason). Autonomous planner investigation maintained: $actText" 200
-                            })
-                            if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
-                                $advisorMissingEvidence += @("ADVISORY_PENDING: " + (Safe-PL $missingEv 120))
-                            }
-                        } elseif ($isAdvBlocked -or $requiresInv) {
+                        } elseif ($isAdvBlocked -or ($advStance -in @('BLOCKED_MISSING_EVIDENCE', 'REJECTED'))) {
                             # Parecer BLOCKED: preserva autonomia do Planner para investigar e resolver impasses sem aprovacao humana desnecessaria
                             $dispatch['action']='investigate'
                             $dispatch['next_action']=Safe-PL $actText 160
@@ -343,6 +335,19 @@ function Invoke-OrchestrationPlannerLoop {
                             $dispatch.escalations+=@([pscustomobject]@{
                                 type='advisor-blocked-investigation-required';
                                 rationale=Safe-PL "Advisor returned $advStance. Investigation required: $actText" 200
+                            })
+                            if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
+                                $advisorMissingEvidence += @("ADVISORY_PENDING: " + (Safe-PL $missingEv 120))
+                            }
+                        } elseif ($isPartialProof) {
+                            # PARTIAL_PROOF (inclusive MODEL_DIVERGENT ou HARNESS_PROBED em prod): fornece pistas para investigacao autonoma,
+                            # mas NUNCA e promovido a recomendacao executavel produtiva ('implement').
+                            $dispatch['action']='investigate'
+                            $dispatch['next_action']=if(-not [string]::IsNullOrWhiteSpace($actText)){Safe-PL $actText 160}else{Safe-PL "Investigate partial advisory proof ($advReason)" 160}
+                            $dispatch['advisory_recommendation']=Safe-PL ("PARTIAL_PROOF_INVESTIGATION: " + $recText) 160
+                            $dispatch.escalations+=@([pscustomobject]@{
+                                type='advisor-partial-proof-investigation';
+                                rationale=Safe-PL "Advisor consultation unproven or divergent ($advReason). Autonomous planner investigation maintained: $actText" 200
                             })
                             if (-not [string]::IsNullOrWhiteSpace($missingEv)) {
                                 $advisorMissingEvidence += @("ADVISORY_PENDING: " + (Safe-PL $missingEv 120))

@@ -6,6 +6,31 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Encerramento da Integração Produtiva Native-First (Follow-up Baseline 42fd6506, 2026-10-24)**:
+  - **P0 — Prova de Delegação e Execução Nativa Coordenada pelo Planner:**
+    - Substituição completa de artefatos fixos e predefinidos de harness em `scripts/v3/prove-native-subagents.ps1`:
+      1. Planner coordena o ciclo de vida via Goal Kernel (`New-OrchestrationGoal`) e Task Kernel (`New-OrchestrationTask`).
+      2. Agente Coder (`source/agents/coder.md`) recebe contrato delimitado formal via CLI nativa OpenCode V2 (`opencode run`) e produz dinamicamente a implementação no disco (`evidence/v3.1/runtime-reliability/artifacts/NativeSummaryUtil.ps1`, extração via AST do output gerado em runtime real).
+      3. Agente Tester recebe delegação delimitada, testa a função no disco e produz evidências empíricas reais com asserções observadas (`[SUCCESS] Build` e `[OK] Lint`).
+      4. Agente Reviewer inspeciona de forma independente as evidências e o código gerado, produzindo parecer formal (`APPROVED`).
+      5. Task Kernel consome os resultados observados e critérios reais, promovendo a tarefa até conformidade `COMPLIANT` e estado `DONE` (rev 9).
+      6. Planner consome os settlements do Task Kernel e conclui formalmente o objetivo (`COMPLETED`, rev 6) com envelope de correlação intacto.
+    - Captura e persistência durável dos identificadores em `evidence/v3.1/runtime-reliability/subagents-native-execution-proof.json`:
+      - Coder: sessão `ses_e926d99eeffe6QrGZJBXqEP8bb`, modelo `openai/gpt-6-luna`, `VERIFIED_MATCH`.
+      - Tester: sessão `ses_e926d046fffeHNcHaIm7deUG5V`, modelo `opencode-go/muse-spark-1.3-contributor`, `VERIFIED_MATCH`.
+      - Reviewer: sessão `ses_e926c450dffe7neyq6sWsiRrbB`, modelo `openai/gpt-6.1-sol`, `VERIFIED_MATCH`.
+  - **P1 — Correções Localizadas e Refinamento do Fluxo:**
+    - **Tratamento de HARNESS_PROBED em Produção:** Em `OrchestrationPlannerLoop.ps1`, respostas marcadas com `HARNESS_PROBED` fora de contexto de teste (`-not $isTestContext`) são estritamente categorizadas como prova parcial (`$isPartialProof`), gerando ação de investigação (`PARTIAL_PROOF_INVESTIGATION`) e nunca sendo promovidas a `COMPLETED_VERIFIED` (`implement`). Em `OrchestrationAdvisorEscalation.ps1`, cache de produção rejeita armazenamento de pareceres com probe.
+    - **Distinção Precisa no Jev Advisory:** Separação entre `decision_consumed`, `advice_accepted` e `advice_applied`. Quando o Planner avalia o parecer do Jev mas opta por manter sua estratégia autônoma fundamentada, `decision_applied` e `advice_applied` são registrados estritamente como `false`.
+    - **Influência Comprovada do Model Router:** Parâmetro `--model` injetado pelo Model Router verificado contra a sessão real com `Test-ExecutedModelVerification` -> `VERIFIED_MATCH` para todos os trabalhadores nativos.
+    - **Autorização e Custos Transparentes:** Associação explícita entre autorização de custo (`ProviderCostAuthorized`, `STANDARD_CATALOG`) e o despacho realizado. Sessões sem tarifação/faturamento no host registram estritamente `"UNKNOWN"` para custo unitário e total, eliminando anúncios de falsa gratuidade ou economia inexistente.
+    - **Disputa Efetiva em Concorrência (INT-08):** Validação temporal estrita de disputa por exclusão mútua (`$w2AcqStart < $w1Exit && $w2Entry >= $w1Exit`), comprovando que o processo concorrente disputou ativamente o recurso enquanto detido pelo primeiro processo, garantindo isolamento da região crítica e integridade sem lost updates.
+  - **Validação e Conformidade:**
+    - Package consistency: 16/16 checks OK.
+    - Planner Loop: 73/73 checks PASS.
+    - Golden Workflows & Concorrência (GW-ADVISOR-01..08 + INT-01..08): 147/147 checks PASS.
+    - `git diff --check`: 0 erros.
+
 - **Auditoria Completa, Consolidação Documental e Hardening E2E (PR #153 e Adendos, 2026-10-23)**:
   - **Auditorias Integradas ao Repositório:**
     - Incorporação do relatório completo de auditoria profunda do repositório (`docs/audits/COMPLETE-AUDIT-AND-VALIDATION-REPORT-2026-10-23.md`), cobrindo matriz nominal vs real, status de testes, holds normativos e plano de hardening RF-01..RF-06.
