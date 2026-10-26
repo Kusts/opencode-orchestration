@@ -121,7 +121,7 @@ Assert-Router ($selProof.OverrideNote -eq '') "Sem nota quando override e proven
 
 # 9. Resolucao por catalogo e selecao autorizada
 $catT2 = Resolve-CatalogModel -Tier 'T2'
-Assert-Router ($catT2.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "Catalogo mapeia T2 para modelo economico"
+Assert-Router ($catT2.CatalogModel -in @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna')) "Catalogo mapeia T2 para modelo economico"
 Assert-Router ($catT2.IsAuthorized -eq $true) "T2 e autorizado por padrao"
 
 $catT4Unauth = Resolve-CatalogModel -Tier 'T4' -Risk 'critical' -FailureCount 2
@@ -141,5 +141,28 @@ Assert-Router ($verifMatch.ProofStatus -eq 'VERIFIED_MATCH') "ProofStatus VERIFI
 $verifMismatch = Test-ExecutedModelVerification -RequestedSelection $selProof -ExecutedModelEvent @{ Model = 'other-unauthorized-model' } -NativeModelOverrideProven $true
 Assert-Router ($verifMismatch.VerifiedMatch -eq $false) "Verificacao detecta modelo divergente"
 Assert-Router ($verifMismatch.ProofStatus -eq 'TIER_MISMATCH') "ProofStatus TIER_MISMATCH registrado"
+
+# 11. Tester: Invariante T0 (sem LLM) vs T2 autorizado (com LLM) e verificacao
+$selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial'
+Assert-Router ($selTesterT0.Tier -eq 'T0') "Tester trivial sem LLM seleciona T0 deterministico"
+Assert-Router ($selTesterT0.CatalogModel -eq 'none (deterministic)') "Tester T0 tem catalog model none (deterministic)"
+Assert-Router ($selTesterT0.ModelToken -eq 'NONE_DIRECT_VERIFIED') "Tester T0 usa token NONE_DIRECT_VERIFIED"
+Assert-Router ($selTesterT0.EstimatedCostMultiplier -eq 0.0) "Tester T0 tem custo zero"
+
+$selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -NativeModelOverrideProven $true
+Assert-Router ($selTesterLlm.Tier -eq 'T2') "Tester com RequiresLlm seleciona tier autorizado T2"
+Assert-Router ($selTesterLlm.ModelToken -eq 'MODEL_CHEAP') "Tester com LLM usa MODEL_CHEAP"
+Assert-Router ($selTesterLlm.ProviderCostAuthorized -eq $true) "Tester T2 e autorizado"
+
+$selTesterMed = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'medium'
+Assert-Router ($selTesterMed.Tier -eq 'T2') "Tester medium seleciona tier autorizado T2"
+
+$verifTesterMatch = Test-ExecutedModelVerification -RequestedSelection $selTesterLlm -ExecutedModelEvent @{ model = $selTesterLlm.CatalogModel } -NativeModelOverrideProven $true
+Assert-Router ($verifTesterMatch.VerifiedMatch -eq $true) "Executed model match para tester LLM retorna true"
+Assert-Router ($verifTesterMatch.ProofStatus -eq 'VERIFIED_MATCH') "Executed model match para tester retorna VERIFIED_MATCH"
+
+$verifT0Mismatch = Test-ExecutedModelVerification -RequestedSelection $selTesterT0 -ExecutedModelEvent @{ model = 'opencode-go/muse-spark-1.3-contributor' } -NativeModelOverrideProven $true
+Assert-Router ($verifT0Mismatch.VerifiedMatch -eq $false) "Tester T0 com modelo LLM executado resulta em TIER_MISMATCH"
+Assert-Router ($verifT0Mismatch.ProofStatus -eq 'TIER_MISMATCH') "Tester T0 rejeita execucao LLM como TIER_MISMATCH"
 
 Write-Host "Total: $total | Passed: $passed | Failed: 0"

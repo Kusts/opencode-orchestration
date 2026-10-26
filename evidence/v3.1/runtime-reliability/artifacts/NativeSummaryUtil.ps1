@@ -3,5 +3,6 @@
         [Parameter(Mandatory=$true)][string]$Title,
         [Parameter(Mandatory=$true)][string]$Status
     )
+
     return "[$Status] $Title"
 }

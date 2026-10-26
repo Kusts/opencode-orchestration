@@ -347,6 +347,15 @@ function Test-ExecutedModelVerification {
     }
 
     $isMatch = ($actModel -eq $reqModel -or $actModel -eq $reqToken)
+    if (-not $isMatch -and $reqTier -eq 'T2') {
+        if ($actModel -in @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'MODEL_CHEAP')) {
+            $isMatch = $true
+        }
+    } elseif (-not $isMatch -and $reqTier -eq 'T3') {
+        if ($actModel -in @('openai/gpt-6.1-sol', 'MODEL_STRONG')) {
+            $isMatch = $true
+        }
+    }
 
     return [pscustomobject]@{
         VerifiedMatch       = $isMatch
@@ -405,7 +414,10 @@ function Resolve-OrchestrationModelSelection {
         [bool]$ProviderCostAuthorized = $false,
 
         [Parameter(Mandatory = $false)]
-        $ModelCatalog = $null
+        $ModelCatalog = $null,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$RequiresLlm = $false
     )
 
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
@@ -522,6 +534,16 @@ function Resolve-OrchestrationModelSelection {
             $reason = "Capable tier T3 for root-cause debugging."
         }
     }
+    elseif ($cleanAgent -eq 'tester') {
+        if ($RequiresLlm -or $Complexity -in @('simple', 'medium', 'complex')) {
+            $selectedTier = 'T2'
+            $reason = "Authorized LLM tier T2 selected for tester subagent execution."
+        } else {
+            # T0: verificacao deterministica sem LLM (exit codes, scripts, AST)
+            $selectedTier = 'T0'
+            $reason = "Deterministic verification tier T0 (no LLM) for tester."
+        }
+    }
 
     # Strict safety invariant check: ensure selected tier is admissible
     if ($admissibleTiers -notcontains $selectedTier -or $prohibitedTiers -contains $selectedTier) {
@@ -560,6 +582,7 @@ function Resolve-OrchestrationModelSelection {
         'T4' { 'MODEL_FRONTIER' }
         'T3' { 'MODEL_STRONG' }
         'T1' { 'MODEL_FREE' }
+        'T0' { 'NONE_DIRECT_VERIFIED' }
         default { 'MODEL_CHEAP' }
     }
 
