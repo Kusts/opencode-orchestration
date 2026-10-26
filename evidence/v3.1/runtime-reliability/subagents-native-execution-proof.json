@@ -121,11 +121,11 @@
         "comparison_title": "Comparacao de Eficiencia de Workflow: Direto/Economico vs Multi-Agente",
         "scenarios": [
             {
-                "scenario_id": "SCENARIO-01-DIRECT-ECONOMICAL",
-                "description": "Execucao direta/economica pelo Planner para tarefa de escopo pontual",
+                "scenario_id": "SCENARIO-01-DIRECT-PREFLIGHT-OVERHEAD",
+                "description": "Medicao de overhead deterministico / preflight local sem spawn de subagents",
                 "execution_shape": "DIRECT_VERIFIED",
                 "agents_involved": [
-                    "planner (direct)"
+                    "planner (preflight)"
                 ],
                 "subagents_spawned": 0,
                 "wall_clock_ms": 107.71,
@@ -133,12 +133,12 @@
                 "tokens_output": 0,
                 "tokens_total": 0,
                 "cost_usd": 0,
-                "quality_score": "PASS (Sintaxe AST valida, assercoes funcionais satisfeitas, compliance COMPLIANT)",
+                "quality_score": "DETERMINISTIC_PREFLIGHT_ONLY (Avaliacao estatica de preflight local; nao executa sintese dinamica nem testes no host; compliance do kernel rejeita DIRECT_VERIFIED para tarefa nao trivial: NON_COMPLIANT_DEPRECATED_DIRECT)",
                 "compliance": "NON_COMPLIANT_DEPRECATED_DIRECT"
             },
             {
                 "scenario_id": "SCENARIO-02-MULTI-WORKER",
-                "description": "Ciclo completo coordenado pelo Planner com Coder -> Tester -> Reviewer",
+                "description": "Ciclo produtivo completo com sintese de artefato e escrutinio independente (Planner -> Coder -> Tester -> Reviewer)",
                 "execution_shape": "MULTI_WORKER",
                 "agents_involved": [
                     "planner",
@@ -152,14 +152,14 @@
                 "tokens_output": 12398,
                 "tokens_total": 297941,
                 "cost_usd": 0.19006,
-                "quality_score": "VERIFIED_PASS (Tripla checagem: AST valido, verificacao empirica Tester PASS, revisao independente Reviewer APPROVED)",
+                "quality_score": "VERIFIED_PASS (Tripla checagem independente: sintese de codigo com AST valido, execucao empirica de testes pelo Tester no host, e revisao formal independente de seguranca pelo Reviewer)",
                 "compliance": "COMPLIANT"
             }
         ],
         "analysis": {
-            "measurement_summary": "Cenario direto medido em 107.71 ms com 0 tokens de subagents; cenario multi-agente medido em 253193 ms (253 s) com 297941 tokens e tripla checagem independente de subagents",
-            "quality_assessment": "Ambos os cenarios atingem conformidade funcional nos seus respectivos escopos; o cenario Multi-Agente acrescenta escrutinio independente contra injecao e regressoes para riscos medios/altos",
-            "controls_preserved": "Controles de custo, cache de evidencias, Advisor sob demanda e Jev preservados intactos"
+            "measurement_summary": "Cenario direto reflete overhead deterministico de preflight em 107.71 ms com 0 tokens de subagents; cenario multi-agente reflete ciclo produtivo completo de execucao e verificacao em 253193 ms (~253 s) com 297941 tokens e tripla checagem independente",
+            "quality_assessment": "Os cenarios nao possuem a mesma profundidade: o cenario direto avalia apenas regras de preflight e conformidade de politicas locais, enquanto o cenario multi-agente executa a sintese real de artefatos, testes funcionais no host e revisao independente de seguranca",
+            "controls_preserved": "Controles de custo, orcamentos de tier, cache de evidencias, Advisor sob demanda e Jev preservados intactos"
         }
     }
 }

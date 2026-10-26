@@ -293,13 +293,205 @@ function Resolve-CatalogModel {
     }
 }
 
+function Resolve-OrchestrationModelFallback {
+    <#
+    .SYNOPSIS
+        Resolves an authorized fallback model when a requested model encounters rate limits or provider errors.
+    .DESCRIPTION
+        Enforces router policy:
+          - Consults agent admissibility matrix.
+          - Strictly prohibits downgrades for Reviewer and Security-Reviewer when violating policy.
+          - Checks cost authorization for T4.
+          - Excludes already attempted models to prevent cyclic loops.
+          - When no permitted model is available, returns a structured recoverable status.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $RequestedSelection,
+
+        [Parameter(Mandatory = $false)]
+        [string]$FailedModel = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$TriggerReason = 'RATE_LIMIT',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$AttemptedModels = @(),
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ProviderCostAuthorized = $false,
+
+        [Parameter(Mandatory = $false)]
+        $ModelCatalog = $null
+    )
+
+    $agent = [string]$RequestedSelection.Agent
+    if ([string]::IsNullOrWhiteSpace($agent)) {
+        $agent = [string]$RequestedSelection.AgentName
+    }
+    $cleanAgent = if (-not [string]::IsNullOrWhiteSpace($agent)) { $agent.Trim().ToLowerInvariant() } else { 'coder' }
+    $reqTier = [string]$RequestedSelection.Tier
+    $reqModel = [string]$RequestedSelection.CatalogModel
+    $origModel = if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { $FailedModel } else { $reqModel }
+
+    # Roster of known alternative models per tier
+    $tierCandidates = @{
+        'T2' = @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna')
+        'T3' = @('openai/gpt-6.1-sol', 'opencode-custom/strong-model')
+        'T4' = @('openai/gpt-6.1-sol-fast', 'opencode-custom/frontier-model')
+    }
+
+    # Incorporate user catalog if present
+    $cat = if ($null -ne $ModelCatalog) { $ModelCatalog } else { Get-OrchestrationUserConfigCatalog }
+    if ($cat.ContainsKey($reqTier) -and -not [string]::IsNullOrWhiteSpace($cat[$reqTier].CatalogModel)) {
+        $customM = [string]$cat[$reqTier].CatalogModel
+        if ($tierCandidates.ContainsKey($reqTier) -and $tierCandidates[$reqTier] -notcontains $customM) {
+            $tierCandidates[$reqTier] = @($customM) + $tierCandidates[$reqTier]
+        }
+    }
+
+    # Retrieve agent admissibility
+    $admiss = if ($script:AgentModelAdmissibility.ContainsKey($cleanAgent)) { $script:AgentModelAdmissibility[$cleanAgent] } else { $null }
+
+    # Fallback policy per agent role:
+    # 1. Reviewer / Security-Reviewer: Downgrade below admitted tiers is strictly prohibited!
+    if ($cleanAgent -in @('reviewer', 'security-reviewer')) {
+        $isDowngradeProhibited = $true
+        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -eq 'low') {
+            $isDowngradeProhibited = $false
+        }
+
+        # Check alternative candidates in same tier ($reqTier)
+        $candidates = @()
+        if ($tierCandidates.ContainsKey($reqTier)) {
+            $candidates = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -notin $AttemptedModels })
+        }
+
+        if ($candidates.Count -gt 0) {
+            $targetModel = $candidates[0]
+            return [pscustomobject]@{
+                Status                 = 'AUTHORIZED'
+                IsAuthorized           = $true
+                FallbackModel          = $targetModel
+                AuthorizedModel        = $targetModel
+                FallbackTier           = $reqTier
+                OriginalModel          = $origModel
+                TriggerReason          = $TriggerReason
+                Reason                 = "Router authorized same-tier fallback to '$targetModel' for agent '$cleanAgent'."
+                AuthorizationSource    = 'ROUTER_POLICY'
+                ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
+                AttemptsCount          = ($AttemptedModels.Count + 1)
+                IsDowngrade            = $false
+            }
+        }
+
+        # No same-tier alternative. If downgrade requested/attempted, reject fail-closed
+        if ($isDowngradeProhibited) {
+            return [pscustomobject]@{
+                Status                 = 'REJECTED_DOWNGRADE_FORBIDDEN'
+                IsAuthorized           = $false
+                FallbackModel          = $null
+                AuthorizedModel        = $null
+                FallbackTier           = $null
+                OriginalModel          = $origModel
+                TriggerReason          = $TriggerReason
+                Reason                 = "Downgrade below tier $reqTier for agent '$cleanAgent' is prohibited by security policy."
+                AuthorizationSource    = 'ROUTER_POLICY'
+                ProviderCostAuthorized = $false
+                AttemptsCount          = ($AttemptedModels.Count + 1)
+                IsDowngrade            = $true
+            }
+        }
+    }
+
+    # 2. General agent fallback: try same tier first
+    $sameTierCandidates = @()
+    if ($tierCandidates.ContainsKey($reqTier)) {
+        $sameTierCandidates = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -notin $AttemptedModels })
+    }
+
+    if ($sameTierCandidates.Count -gt 0) {
+        $chosen = $sameTierCandidates[0]
+        return [pscustomobject]@{
+            Status                 = 'AUTHORIZED'
+            IsAuthorized           = $true
+            FallbackModel          = $chosen
+            AuthorizedModel        = $chosen
+            FallbackTier           = $reqTier
+            OriginalModel          = $origModel
+            TriggerReason          = $TriggerReason
+            Reason                 = "Router authorized same-tier alternative '$chosen' for agent '$cleanAgent'."
+            AuthorizationSource    = 'ROUTER_POLICY'
+            ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
+            AttemptsCount          = ($AttemptedModels.Count + 1)
+            IsDowngrade            = $false
+        }
+    }
+
+    # 3. If same tier is exhausted, check if agent allows upgrade (e.g. Coder T2 -> T3, if admitted and permitted)
+    if ($null -ne $admiss) {
+        $allowed = @($admiss.AdmissibleTiers)
+        $nextTier = switch ($reqTier) {
+            'T1' { 'T2' }
+            'T2' { 'T3' }
+            'T3' { if ($ProviderCostAuthorized -or $RequestedSelection.ProviderCostAuthorized) { 'T4' } else { $null } }
+            default { $null }
+        }
+        if ($null -ne $nextTier -and $allowed -contains $nextTier -and $tierCandidates.ContainsKey($nextTier)) {
+            $upCandidates = @($tierCandidates[$nextTier] | Where-Object { $_ -notin $AttemptedModels })
+            if ($upCandidates.Count -gt 0) {
+                $chosenUp = $upCandidates[0]
+                $costAuth = ($nextTier -ne 'T4' -or $ProviderCostAuthorized -or $RequestedSelection.ProviderCostAuthorized)
+                if ($costAuth) {
+                    return [pscustomobject]@{
+                        Status                 = 'AUTHORIZED'
+                        IsAuthorized           = $true
+                        FallbackModel          = $chosenUp
+                        AuthorizedModel        = $chosenUp
+                        FallbackTier           = $nextTier
+                        OriginalModel          = $origModel
+                        TriggerReason          = $TriggerReason
+                        Reason                 = "Router authorized tier escalation to '$chosenUp' ($nextTier) for agent '$cleanAgent'."
+                        AuthorizationSource    = 'ROUTER_POLICY'
+                        ProviderCostAuthorized = $costAuth
+                        AttemptsCount          = ($AttemptedModels.Count + 1)
+                        IsDowngrade            = $false
+                    }
+                }
+            }
+        }
+    }
+
+    # 4. If all options exhausted
+    return [pscustomobject]@{
+        Status                 = 'EXHAUSTED_NO_ELIGIBLE_FALLBACK'
+        IsAuthorized           = $false
+        FallbackModel          = $null
+        AuthorizedModel        = $null
+        FallbackTier           = $null
+        OriginalModel          = $origModel
+        TriggerReason          = $TriggerReason
+        Reason                 = "All admissible and authorized fallback models for agent '$cleanAgent' have been exhausted."
+        AuthorizationSource    = 'ROUTER_POLICY'
+        ProviderCostAuthorized = $false
+        AttemptsCount          = ($AttemptedModels.Count + 1)
+        IsDowngrade            = $false
+    }
+}
+
 function Test-ExecutedModelVerification {
     <#
     .SYNOPSIS
-        Verifies whether the actual executed model matches the requested model routing.
+        Verifies whether the actual executed model matches the requested model routing or an authorized fallback.
     .DESCRIPTION
-        Fails closed: if NativeModelOverrideProven is false or no proof of dynamic override exists,
-        flags that the runtime tier is unproven and records PROOF_ABSENT.
+        Fails closed:
+          - EXACT_MATCH: actual model strictly equals requested model/token and host identity is confirmed.
+          - AUTHORIZED_FALLBACK: actual model differs from requested, but a valid authorized fallback decision
+            prior to execution is proven, admissible for the agent, and matches actual host model.
+          - UNAUTHORIZED_MISMATCH: actual model differs without authorized fallback proof or violates admissibility.
+          - PROOF_ABSENT: insufficient evidence or override unproven in current runtime.
+        Preserves backward compatibility with VerifiedMatch, ProofStatus, and RuntimeTierProven.
     #>
     [CmdletBinding()]
     param(
@@ -310,7 +502,10 @@ function Test-ExecutedModelVerification {
         $ExecutedModelEvent = $null,
 
         [Parameter(Mandatory = $false)]
-        [bool]$NativeModelOverrideProven = $false
+        [bool]$NativeModelOverrideProven = $false,
+
+        [Parameter(Mandatory = $false)]
+        $AuthorizedFallback = $null
     )
 
     $reqTier = [string]$RequestedSelection.Tier
@@ -321,6 +516,9 @@ function Test-ExecutedModelVerification {
         return [pscustomobject]@{
             VerifiedMatch       = $false
             ProofStatus         = 'PROOF_ABSENT'
+            MatchKind           = 'PROOF_ABSENT'
+            IsExactMatch        = $false
+            IsAuthorizedFallback = $false
             RuntimeTierProven   = $false
             Reason              = 'Native dynamic model override unproven in current runtime. Falling back to host template configuration.'
             RequestedTier       = $reqTier
@@ -332,7 +530,10 @@ function Test-ExecutedModelVerification {
     if ($null -eq $ExecutedModelEvent) {
         return [pscustomobject]@{
             VerifiedMatch       = $false
-            ProofStatus         = 'EXECUTION_UNVERIFIED'
+            ProofStatus         = 'PROOF_ABSENT'
+            MatchKind           = 'PROOF_ABSENT'
+            IsExactMatch        = $false
+            IsAuthorizedFallback = $false
             RuntimeTierProven   = $false
             Reason              = 'No executed model event or telemetry provided for verification.'
             RequestedTier       = $reqTier
@@ -346,24 +547,140 @@ function Test-ExecutedModelVerification {
         $actModel = [string]$ExecutedModelEvent.model
     }
 
-    $isMatch = ($actModel -eq $reqModel -or $actModel -eq $reqToken)
-    if (-not $isMatch -and $reqTier -eq 'T2') {
-        if ($actModel -in @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'MODEL_CHEAP')) {
-            $isMatch = $true
-        }
-    } elseif (-not $isMatch -and $reqTier -eq 'T3') {
-        if ($actModel -in @('openai/gpt-6.1-sol', 'MODEL_STRONG')) {
-            $isMatch = $true
+    if ([string]::IsNullOrWhiteSpace($actModel)) {
+        return [pscustomobject]@{
+            VerifiedMatch       = $false
+            ProofStatus         = 'PROOF_ABSENT'
+            MatchKind           = 'PROOF_ABSENT'
+            IsExactMatch        = $false
+            IsAuthorizedFallback = $false
+            RuntimeTierProven   = $false
+            Reason              = 'Actual executed model identity is empty or unrecorded in event.'
+            RequestedTier       = $reqTier
+            EffectiveTier       = $null
+            EffectiveModelToken = $null
         }
     }
 
+    # T0 check: Deterministic execution without LLM
+    if ($reqTier -eq 'T0') {
+        $isDeterministic = ($actModel -in @('none', 'none (deterministic)', 'NONE_DIRECT_VERIFIED') -or [string]::IsNullOrWhiteSpace($actModel))
+        if (-not $isDeterministic) {
+            return [pscustomobject]@{
+                VerifiedMatch       = $false
+                ProofStatus         = 'UNAUTHORIZED_MISMATCH'
+                MatchKind           = 'UNAUTHORIZED_MISMATCH'
+                IsExactMatch        = $false
+                IsAuthorizedFallback = $false
+                RuntimeTierProven   = $false
+                Reason              = "Tier T0 is strictly deterministic and does not permit LLM execution ('$actModel')."
+                RequestedTier       = 'T0'
+                EffectiveTier       = 'UNKNOWN'
+                EffectiveModelToken = $actModel
+            }
+        } else {
+            return [pscustomobject]@{
+                VerifiedMatch       = $true
+                ProofStatus         = 'EXACT_MATCH'
+                MatchKind           = 'EXACT_MATCH'
+                IsExactMatch        = $true
+                IsAuthorizedFallback = $false
+                RuntimeTierProven   = $true
+                Reason              = 'Executed model matches requested deterministic T0.'
+                RequestedTier       = 'T0'
+                EffectiveTier       = 'T0'
+                EffectiveModelToken = $actModel
+            }
+        }
+    }
+
+    # Check for EXACT_MATCH
+    $isExact = ($actModel -eq $reqModel -or $actModel -eq $reqToken)
+    if ($isExact) {
+        return [pscustomobject]@{
+            VerifiedMatch       = $true
+            ProofStatus         = 'EXACT_MATCH'
+            MatchKind           = 'EXACT_MATCH'
+            IsExactMatch        = $true
+            IsAuthorizedFallback = $false
+            RuntimeTierProven   = $true
+            Reason              = "Executed model '$actModel' exactly matches requested model '$reqModel'."
+            RequestedTier       = $reqTier
+            EffectiveTier       = $reqTier
+            EffectiveModelToken = $actModel
+        }
+    }
+
+    # Not an exact match. Check for AUTHORIZED_FALLBACK
+    $fb = if ($null -ne $AuthorizedFallback) { $AuthorizedFallback } elseif ($ExecutedModelEvent.AuthorizedFallback) { $ExecutedModelEvent.AuthorizedFallback } elseif ($ExecutedModelEvent.fallback_decision) { $ExecutedModelEvent.fallback_decision } else { $null }
+
+    if ($null -ne $fb) {
+        $fbAuthorized = [bool]($fb.IsAuthorized -or $fb.Authorized -or $fb.Status -eq 'AUTHORIZED')
+        $fbModel = if ($fb.AuthorizedModel) { [string]$fb.AuthorizedModel } elseif ($fb.FallbackModel) { [string]$fb.FallbackModel } else { '' }
+        $agent = [string]$RequestedSelection.Agent
+        if ([string]::IsNullOrWhiteSpace($agent)) { $agent = [string]$RequestedSelection.AgentName }
+        $cleanAgent = if (-not [string]::IsNullOrWhiteSpace($agent)) { $agent.Trim().ToLowerInvariant() } else { '' }
+
+        # Verify whether the fallback model matches actual host model
+        $modelMatchesFallback = ($actModel -eq $fbModel)
+
+        # Verify admissibility for the agent
+        $admissibilityOk = $true
+        $effTier = if ($fb.FallbackTier) { [string]$fb.FallbackTier } else { $reqTier }
+        if (-not [string]::IsNullOrWhiteSpace($cleanAgent) -and $script:AgentModelAdmissibility.ContainsKey($cleanAgent)) {
+            $admiss = $script:AgentModelAdmissibility[$cleanAgent]
+            if ($admiss.ProhibitedTiers -contains $effTier -or ($admiss.AdmissibleTiers.Count -gt 0 -and $admiss.AdmissibleTiers -notcontains $effTier)) {
+                $admissibilityOk = $false
+            }
+            # Reviewer check: T2 prohibited unless low risk
+            if ($cleanAgent -eq 'reviewer' -and $effTier -eq 'T2' -and [string]$RequestedSelection.Risk -ne 'low') {
+                $admissibilityOk = $false
+            }
+            # Security-Reviewer check: T0, T1, T2 strictly prohibited
+            if ($cleanAgent -eq 'security-reviewer' -and $effTier -in @('T0', 'T1', 'T2')) {
+                $admissibilityOk = $false
+            }
+        }
+
+        # T4 cost authorization check
+        if ($effTier -eq 'T4') {
+            $t4CostAuth = ([bool]$fb.ProviderCostAuthorized -and ([string]$fb.AuthorizationSource -in @('EXPLICIT_PARAMETER', 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED', 'ROUTER_POLICY') -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))
+            if (-not $t4CostAuth -and [string]$RequestedSelection.CostAuthorizationSource -in @('EXPLICIT_PARAMETER', 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED')) {
+                $t4CostAuth = $true
+            }
+            if (-not $t4CostAuth) {
+                $admissibilityOk = $false
+            }
+        }
+
+        if ($fbAuthorized -and $modelMatchesFallback -and $admissibilityOk) {
+            return [pscustomobject]@{
+                VerifiedMatch       = $true
+                ProofStatus         = 'AUTHORIZED_FALLBACK'
+                MatchKind           = 'AUTHORIZED_FALLBACK'
+                IsExactMatch        = $false
+                IsAuthorizedFallback = $true
+                RuntimeTierProven   = $true
+                Reason              = "Executed model '$actModel' is an authorized fallback from '$reqModel' (Trigger: $($fb.TriggerReason))."
+                RequestedTier       = $reqTier
+                EffectiveTier       = $effTier
+                EffectiveModelToken = $actModel
+                FallbackDecision    = $fb
+            }
+        }
+    }
+
+    # If neither EXACT_MATCH nor AUTHORIZED_FALLBACK, it is UNAUTHORIZED_MISMATCH
     return [pscustomobject]@{
-        VerifiedMatch       = $isMatch
-        ProofStatus         = if ($isMatch) { 'VERIFIED_MATCH' } else { 'TIER_MISMATCH' }
-        RuntimeTierProven   = $isMatch
-        Reason              = if ($isMatch) { 'Executed model matches requested tier.' } else { "Executed model '$actModel' does not match requested model '$reqModel'." }
+        VerifiedMatch       = $false
+        ProofStatus         = 'UNAUTHORIZED_MISMATCH'
+        MatchKind           = 'UNAUTHORIZED_MISMATCH'
+        IsExactMatch        = $false
+        IsAuthorizedFallback = $false
+        RuntimeTierProven   = $false
+        Reason              = "Executed model '$actModel' does not match requested model '$reqModel' and no authorized fallback was proven."
         RequestedTier       = $reqTier
-        EffectiveTier       = if ($isMatch) { $reqTier } else { 'UNKNOWN' }
+        EffectiveTier       = 'UNKNOWN'
         EffectiveModelToken = $actModel
     }
 }
@@ -601,6 +918,8 @@ function Resolve-OrchestrationModelSelection {
     return [pscustomobject]@{
         Status                    = 'SELECTED'
         Agent                     = $cleanAgent
+        Risk                      = $Risk
+        Complexity                = $Complexity
         Tier                      = $selectedTier
         TierName                  = $tierMeta.Name
         ModelToken                = $modelToken
