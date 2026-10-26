@@ -1,0 +1,92 @@
+﻿{
+    "timestamp":  "2026-10-26T22:45:15.7565716Z",
+    "status":  "COMPLETED_VERIFIED",
+    "tests":  [
+                  {
+                      "test":  "Canonical Policy Loaded",
+                      "passed":  true,
+                      "details":  "Version: 1.1.0, Hash: 245a58695bf71467..."
+                  },
+                  {
+                      "test":  "Planner Model Selection",
+                      "passed":  true,
+                      "details":  "Planner alocado em Tier T3 com GPT-6 Luna"
+                  },
+                  {
+                      "test":  "Planner Provider Isolation",
+                      "passed":  true,
+                      "details":  "Provider efetivo: openai (Luna nunca redirecionado)"
+                  },
+                  {
+                      "test":  "Coder Model Selection",
+                      "passed":  true,
+                      "details":  "Coder alocado em Tier T2 com DeepSeek Flash Free"
+                  },
+                  {
+                      "test":  "Coder Provider Isolation",
+                      "passed":  true,
+                      "details":  "Provider efetivo: opencode (Console)"
+                  },
+                  {
+                      "test":  "Coder Cross-Provider Fallback",
+                      "passed":  true,
+                      "details":  "Fallback selecionou Muse Spark"
+                  },
+                  {
+                      "test":  "Cross-Provider Metrics",
+                      "passed":  true,
+                      "details":  "Transicao opencode -\u003e opencode-go rastreada"
+                  },
+                  {
+                      "test":  "Tester T0 Deterministic",
+                      "passed":  true,
+                      "details":  "Tester trivial usa T0 sem token de LLM"
+                  },
+                  {
+                      "test":  "Reviewer T3 Selection",
+                      "passed":  true,
+                      "details":  "Reviewer alocado em T3 Luna via openai"
+                  },
+                  {
+                      "test":  "Reviewer Downgrade Forbidden",
+                      "passed":  true,
+                      "details":  "Downgrade para T2 estritamente rejeitado fail-closed"
+                  },
+                  {
+                      "test":  "Post-Execution Exact Match",
+                      "passed":  true,
+                      "details":  "Verificacao comprova EXACT_MATCH"
+                  },
+                  {
+                      "test":  "Post-Execution Authorized Fallback",
+                      "passed":  true,
+                      "details":  "Verificacao comprova AUTHORIZED_FALLBACK cross-provider"
+                  },
+                  {
+                      "test":  "Post-Execution T0 Violation Detection",
+                      "passed":  true,
+                      "details":  "Tentativa de usar LLM em T0 rejeitada como UNAUTHORIZED_MISMATCH"
+                  },
+                  {
+                      "test":  "Jev Cannot Grant Permissions",
+                      "passed":  true,
+                      "details":  "Jev nunca concede permissoes (granted=false)"
+                  },
+                  {
+                      "test":  "Jev Cannot Select Paid Models",
+                      "passed":  true,
+                      "details":  "Jev nunca seleciona modelos pagos"
+                  },
+                  {
+                      "test":  "Jev Cannot Issue DONE",
+                      "passed":  true,
+                      "details":  "Jev nunca emite conclusao DONE no Task Kernel"
+                  },
+                  {
+                      "test":  "Model Router Receipt Emission",
+                      "passed":  true,
+                      "details":  "Recibo emitido com estagio model_routing e modelo gpt-6-luna"
+                  }
+              ],
+    "summary":  "Todas as 16 verificacoes de integracao produtiva passaram com sucesso."
+}
