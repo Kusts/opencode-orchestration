@@ -183,7 +183,7 @@ Assert-Router ($vSameTierNoAuth.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vS
 
 # 12.4 Modelo nao admissivel para o agente (downgrade proibido de Reviewer/Security-Reviewer)
 $selRevHigh = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true
-$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevHigh -FailedModel $selRevHigh.CatalogModel -AttemptedModels @('opencode-custom/strong-model') -TriggerReason 'RATE_LIMIT'
+$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevHigh -FailedModel $selRevHigh.CatalogModel -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'opencode-custom/strong-model') -TriggerReason 'RATE_LIMIT'
 Assert-Router ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "P0-02: Reviewer sob risco high proibe downgrade para T2"
 $fakeFb = [pscustomobject]@{ IsAuthorized = $true; FallbackModel = 'opencode-go/muse-spark-1.3-contributor'; FallbackTier = 'T2'; TriggerReason = 'RATE_LIMIT' }
 $vInadmiss = Test-ExecutedModelVerification -RequestedSelection $selRevHigh -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor'; AuthorizedFallback = $fakeFb } -NativeModelOverrideProven $true
