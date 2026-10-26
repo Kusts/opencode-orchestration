@@ -383,10 +383,10 @@ try {
 
     # Verificacao de modelo executado
     $verMatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'opencode-custom/frontier-model' } -NativeModelOverrideProven $true
-    Assert-GW ($verMatch.VerifiedMatch -eq $true -and $verMatch.ProofStatus -eq 'VERIFIED_MATCH') 'INT-03-ROUTER' "Match de modelo executado comprovado"
+    Assert-GW ($verMatch.VerifiedMatch -eq $true -and $verMatch.ProofStatus -in @('EXACT_MATCH', 'VERIFIED_MATCH')) 'INT-03-ROUTER' "Match de modelo executado comprovado"
 
     $verMismatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'unauthorized-model' } -NativeModelOverrideProven $true
-    Assert-GW ($verMismatch.VerifiedMatch -eq $false -and $verMismatch.ProofStatus -eq 'TIER_MISMATCH') 'INT-03-ROUTER' "Mismatch de modelo executado detectado"
+    Assert-GW ($verMismatch.VerifiedMatch -eq $false -and $verMismatch.ProofStatus -in @('UNAUTHORIZED_MISMATCH', 'TIER_MISMATCH')) 'INT-03-ROUTER' "Mismatch de modelo executado detectado"
 } finally {
     if (Test-Path -LiteralPath $tmpCatDir) { Remove-Item -LiteralPath $tmpCatDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

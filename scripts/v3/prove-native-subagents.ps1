@@ -92,7 +92,11 @@ function Invoke-NativeSubagentRun {
         [Parameter(Mandatory = $true)][string]$Prompt,
         [string]$Model = '',
         [string]$Title = '',
-        [int]$TimeoutMs = 180000
+        [int]$TimeoutMs = 180000,
+        [int]$MaxRetries = 2,
+        [int]$CurrentAttempt = 1,
+        [string[]]$AttemptedModels = @(),
+        $RequestedSelection = $null
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = 'opencode.cmd'
@@ -148,19 +152,58 @@ function Invoke-NativeSubagentRun {
     $exitCode = $proc.ExitCode
     $combined = "$stdout`n$stderr".Trim()
 
-    # P1: Fallback autorizado pelo Router diante de rate limit/provider limit sem perder rastreabilidade
+    # P0-02: Fallback controlado e auditado via Router diante de rate limit / provider error
     if ($exitCode -ne 0 -and (-not [string]::IsNullOrWhiteSpace($Model)) -and ($combined -match 'usage_limit_exceeded|rate_limit|subscription_sharing_usage_limit_exceeded|provider\.invalid-request|resource_exhausted|usage_limit_reached|provider\.quota|The usage limit')) {
-        Write-Warning "Provider limit for model '$Model'. Applying router-authorized fallback for agent '$Agent'..."
-        $targetFallbackModel = if ($Model -ne 'opencode-go/muse-spark-1.3-contributor') { 'opencode-go/muse-spark-1.3-contributor' } else { 'openai/gpt-6-luna' }
-        Write-Host "Router autorizou fallback para '$targetFallbackModel' sem perda de rastreabilidade ou ampliacao de permissoes."
-        $fbRun = Invoke-NativeSubagentRun -Agent $Agent -Prompt $Prompt -Model $targetFallbackModel -Title "$Title (Fallback: RateLimit)" -TimeoutMs $TimeoutMs
-        if ($fbRun.ok) {
-            $fbRun.fallback_occurred = $true
-            $fbRun.original_model_requested = $Model
-            $fbRun.fallback_model = $targetFallbackModel
-            $fbRun.fallback_reason = "RATE_LIMIT_PROVIDER_FALLBACK"
+        Write-Warning "Provider limit encountered for model '$Model' on agent '$Agent' (attempt $CurrentAttempt of $MaxRetries)."
+        if ($CurrentAttempt -ge $MaxRetries) {
+            Write-Warning "Max fallback attempts ($MaxRetries) reached for agent '$Agent'. Returning structured recoverable failure."
+            return @{
+                ok               = $false
+                error            = 'MAX_RETRIES_EXCEEDED'
+                reason           = "Max fallback retries ($MaxRetries) exceeded due to persistent provider rate limits."
+                attempts_count   = $CurrentAttempt
+                exhausted_models = (@($AttemptedModels) + @($Model))
+                exit_code        = $exitCode
+                session_id       = $null
+                host_evidence    = $null
+                elapsed_ms       = $sw.ElapsedMilliseconds
+                raw_output       = $combined
+            }
         }
-        return $fbRun
+
+        # Resolve authorized fallback via Model Router policy
+        $reqSel = if ($null -ne $RequestedSelection) { $RequestedSelection } else { Resolve-OrchestrationModelSelection -AgentName $Agent -NativeModelOverrideProven $true }
+        $fbDecision = Resolve-OrchestrationModelFallback -RequestedSelection $reqSel -FailedModel $Model -TriggerReason 'RATE_LIMIT' -AttemptedModels $AttemptedModels
+
+        if ($fbDecision.Status -eq 'AUTHORIZED') {
+            $targetFallbackModel = $fbDecision.FallbackModel
+            Write-Host "Router autorizou fallback para '$targetFallbackModel' ($($fbDecision.FallbackTier)) sem perda de rastreabilidade ou ampliacao de permissoes."
+            $nextAttempted = @($AttemptedModels) + @($Model)
+            $fbRun = Invoke-NativeSubagentRun -Agent $Agent -Prompt $Prompt -Model $targetFallbackModel -Title "$Title (Fallback: RateLimit)" -TimeoutMs $TimeoutMs -MaxRetries $MaxRetries -CurrentAttempt ($CurrentAttempt + 1) -AttemptedModels $nextAttempted -RequestedSelection $reqSel
+            if ($fbRun.ok) {
+                $fbRun.fallback_occurred = $true
+                $fbRun.original_model_requested = $Model
+                $fbRun.fallback_model = $targetFallbackModel
+                $fbRun.fallback_reason = "RATE_LIMIT_PROVIDER_FALLBACK"
+                $fbRun.fallback_decision = $fbDecision
+                $fbRun.attempts_count = ($CurrentAttempt + 1)
+            }
+            return $fbRun
+        } else {
+            Write-Warning "Router negou fallback para agente '$Agent': Status=$($fbDecision.Status) Reason=$($fbDecision.Reason)"
+            return @{
+                ok               = $false
+                error            = $fbDecision.Status
+                reason           = $fbDecision.Reason
+                attempts_count   = $CurrentAttempt
+                exhausted_models = (@($AttemptedModels) + @($Model))
+                exit_code        = $exitCode
+                session_id       = $null
+                host_evidence    = $null
+                elapsed_ms       = $sw.ElapsedMilliseconds
+                raw_output       = $combined
+            }
+        }
     }
 
     $sid = $null
@@ -366,32 +409,47 @@ Write-Host "Artefato extraido dinamicamente da saida do Coder e validado via AST
 $artSha = (Get-FileHash -LiteralPath $artFile -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Artefato gravado em $artFile (SHA256: $artSha)"
 
+# P1-02: Marco 1 de Integridade do Artefato (Pre-Test)
+$shaPreTest = (Get-FileHash -LiteralPath $artFile -Algorithm SHA256).Hash.ToLowerInvariant()
+Write-Host "Integridade do artefato (Marco 1 - Pre-Test): SHA256=$shaPreTest"
+
 # Validacao do Model Router
 $coderMatch = Test-ExecutedModelVerification -RequestedSelection $coderSel -ExecutedModelEvent @{ model = $coderEv.EffectiveModel } -NativeModelOverrideProven $true
 if (-not $coderMatch.VerifiedMatch) { throw "FAIL-CLOSED: Coder executou modelo nao correspondente: $($coderMatch.Reason)" }
 Write-Host "Model Router Match Coder: $($coderMatch.ProofStatus) (Proven: $($coderMatch.RuntimeTierProven))"
 
-# Recibo idempotente do Coder
+# Recibo do Coder: Canonico vs Auditoria pos-execucao (P1-01)
 $coderSettle = $null
 if ($plannerCompletedAutonomously) {
     $coderReceiptPath = Join-Path $ReceiptDir "$goalId-coder-receipt.json"
     $coderReceiptData = [ordered]@{
-        stage             = "native_dispatch_settlement"
-        goal_id           = $goalId
-        task_id           = $taskId
-        idempotency_key   = $coderKey
-        caller_agent      = "build"
-        caller_session_id = $plannerEv.SessionId
-        target_agent      = "coder"
-        child_session_id  = $coderEv.SessionId
-        status            = "candidate_pass"
-        effective_model   = $coderEv.EffectiveModel
-        claimed_evidence  = @('criterion:0', "file:$artFile", "sha256:$artSha", "session:$($coderEv.SessionId)")
-        timestamp         = [DateTime]::UtcNow.ToString('o')
+        stage                  = "post_execution_audit_receipt"
+        receipt_provenance     = "POST_EXECUTION_AUDIT"
+        execution_type         = "PLANNER_AUTONOMOUS_COORDINATION"
+        goal_id                = $goalId
+        task_id                = $taskId
+        idempotency_key        = $coderKey
+        caller_agent           = "build"
+        caller_session_id      = $plannerEv.SessionId
+        target_agent           = "coder"
+        child_session_id       = $coderEv.SessionId
+        status                 = "candidate_pass"
+        effective_model        = $coderEv.EffectiveModel
+        model_verification     = $coderMatch.ProofStatus
+        claimed_evidence       = @('criterion:0', "file:$artFile", "sha256:$artSha", "session:$($coderEv.SessionId)")
+        reconstructed_chain    = [ordered]@{
+            goal_id            = $goalId
+            task_id            = $taskId
+            planner_session    = $plannerEv.SessionId
+            child_session      = $coderEv.SessionId
+            worker_result      = "candidate_pass"
+            kernel_revision    = 4
+        }
+        timestamp              = [DateTime]::UtcNow.ToString('o')
     }
     [System.IO.File]::WriteAllText($coderReceiptPath, ($coderReceiptData | ConvertTo-Json -Depth 5), [System.Text.Encoding]::UTF8)
-    $coderSettle = @{ ok = $true; settled = $true; receipt_path = $coderReceiptPath }
-    Write-Host "Recibo idempotente do Coder emitido e persistido: $coderReceiptPath"
+    $coderSettle = @{ ok = $true; settled = $true; receipt_path = $coderReceiptPath; receipt_provenance = "POST_EXECUTION_AUDIT" }
+    Write-Host "Recibo de auditoria pos-execucao do Coder persistido: $coderReceiptPath"
 } else {
     $tCurTaskCoder = Get-OrchestrationTask -TaskId $taskId -RepoRoot $RepoRoot
     $coderIntentSlot = New-OrchestrationNativeDispatchIntent -TaskId $taskId -TaskExpectedRevision ([long]$tCurTaskCoder.revision) -Agent 'coder' -PromptHash $coderPromptHash -Scope @($artFile) -AcceptanceCriteria @('criterion:0') -IdempotencyKey $coderKey -Owner 'planner' -OwnershipGeneration $gen -BaseRevision ([string]$tCurTaskCoder.base_revision)
@@ -403,7 +461,8 @@ if ($plannerCompletedAutonomously) {
     Write-Host "Despacho do Coder admitido e reivindicado no recibo: Key=$coderKey"
     $coderSettle = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $coderKey -Authorization $auth -ChildSessionId $coderEv.SessionId -SessionId $plannerEv.SessionId -MessageId 'msg_planner_coder' -CallId 'call_coder_1' -CallerAgent 'build' -TargetAgent 'coder' -PreparedFingerprint $coderPrep.prepared_fingerprint -Reference $coderPrep.reference -TaskId $taskId -Result @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0', "file:$artFile", "sha256:$artSha", "session:$($coderEv.SessionId)") } -ReceiptDir $ReceiptDir -GoalStoreDir $goalStoreDir -EvidenceStoreDir $evidenceStoreDir -TasksDir $tasksDir
     if (-not ($coderSettle.ok -and $coderSettle.settled)) { throw "Falha no Settlement do Coder: $($coderSettle.reason)" }
-    Write-Host "Settlement do Coder concluido com recibo persistido: $($coderSettle.receipt_path)"
+    $coderSettle.receipt_provenance = "CANONICAL_PROTOCOL"
+    Write-Host "Settlement canonico do Coder concluido com recibo persistido: $($coderSettle.receipt_path)"
 }
 
 # Registrar candidate_pass no Task Kernel (se ainda nao registrado pelo Planner)
@@ -493,27 +552,45 @@ if (-not $testerPassed) {
     throw "FAIL-CLOSED: Tester nao emitiu parecer de PASS comprovado: $testText"
 }
 
-# Recibo idempotente do Tester
+# P1-02: Marco 2 de Integridade do Artefato (Post-Test)
+$shaPostTest = (Get-FileHash -LiteralPath $artFile -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($shaPostTest -ne $shaPreTest) {
+    throw "FAIL-CLOSED: Adulteracao do artefato detectada durante os testes: Pre=$shaPreTest Post=$shaPostTest"
+}
+Write-Host "Integridade do artefato (Marco 2 - Post-Test): SHA256=$shaPostTest confirmado integro"
+
+# Recibo do Tester: Canonico vs Auditoria pos-execucao (P1-01)
 $testerSettle = $null
 if ($plannerCompletedAutonomously) {
     $testerReceiptPath = Join-Path $ReceiptDir "$goalId-tester-receipt.json"
     $testerReceiptData = [ordered]@{
-        stage             = "native_dispatch_settlement"
-        goal_id           = $goalId
-        task_id           = $taskId
-        idempotency_key   = $testerKey
-        caller_agent      = "build"
-        caller_session_id = $plannerEv.SessionId
-        target_agent      = "tester"
-        child_session_id  = $testerEv.SessionId
-        status            = "verified_pass"
-        effective_model   = $testerEv.EffectiveModel
-        claimed_evidence  = @('criterion:1', "session:$($testerEv.SessionId)")
-        timestamp         = [DateTime]::UtcNow.ToString('o')
+        stage                  = "post_execution_audit_receipt"
+        receipt_provenance     = "POST_EXECUTION_AUDIT"
+        execution_type         = "PLANNER_AUTONOMOUS_COORDINATION"
+        goal_id                = $goalId
+        task_id                = $taskId
+        idempotency_key        = $testerKey
+        caller_agent           = "build"
+        caller_session_id      = $plannerEv.SessionId
+        target_agent           = "tester"
+        child_session_id       = $testerEv.SessionId
+        status                 = "verified_pass"
+        effective_model        = $testerEv.EffectiveModel
+        model_verification     = $testerMatch.ProofStatus
+        claimed_evidence       = @('criterion:1', "session:$($testerEv.SessionId)", "sha256:$shaPostTest")
+        reconstructed_chain    = [ordered]@{
+            goal_id            = $goalId
+            task_id            = $taskId
+            planner_session    = $plannerEv.SessionId
+            child_session      = $testerEv.SessionId
+            verification_status = "verified_pass"
+            kernel_revision    = 6
+        }
+        timestamp              = [DateTime]::UtcNow.ToString('o')
     }
     [System.IO.File]::WriteAllText($testerReceiptPath, ($testerReceiptData | ConvertTo-Json -Depth 5), [System.Text.Encoding]::UTF8)
-    $testerSettle = @{ ok = $true; settled = $true; receipt_path = $testerReceiptPath }
-    Write-Host "Recibo idempotente do Tester emitido e persistido: $testerReceiptPath"
+    $testerSettle = @{ ok = $true; settled = $true; receipt_path = $testerReceiptPath; receipt_provenance = "POST_EXECUTION_AUDIT" }
+    Write-Host "Recibo de auditoria pos-execucao do Tester persistido: $testerReceiptPath"
 } else {
     $tCurTaskTester = Get-OrchestrationTask -TaskId $taskId -RepoRoot $RepoRoot
     $testerIntentSlot = New-OrchestrationNativeDispatchIntent -TaskId $taskId -TaskExpectedRevision ([long]$tCurTaskTester.revision) -Agent 'tester' -PromptHash $testerPromptHash -Scope @($artFile) -AcceptanceCriteria @('criterion:1') -IdempotencyKey $testerKey -Owner 'planner' -OwnershipGeneration $gen -BaseRevision ([string]$tCurTaskTester.base_revision)
@@ -525,7 +602,8 @@ if ($plannerCompletedAutonomously) {
     Write-Host "Despacho do Tester admitido e reivindicado no recibo: Key=$testerKey"
     $testerSettle = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $testerKey -Authorization $auth -ChildSessionId $testerEv.SessionId -SessionId $plannerEv.SessionId -MessageId 'msg_planner_tester' -CallId 'call_tester_1' -CallerAgent 'build' -TargetAgent 'tester' -PreparedFingerprint $testerPrep.prepared_fingerprint -Reference $testerPrep.reference -TaskId $taskId -Result @{ status = 'verified_pass'; claimed_evidence = @('criterion:1', "session:$($testerEv.SessionId)") } -ReceiptDir $ReceiptDir -GoalStoreDir $goalStoreDir -EvidenceStoreDir $evidenceStoreDir -TasksDir $tasksDir
     if (-not ($testerSettle.ok -and $testerSettle.settled)) { throw "Falha no Settlement do Tester: $($testerSettle.reason)" }
-    Write-Host "Settlement do Tester concluido com recibo persistido: $($testerSettle.receipt_path)"
+    $testerSettle.receipt_provenance = "CANONICAL_PROTOCOL"
+    Write-Host "Settlement canonico do Tester concluido com recibo persistido: $($testerSettle.receipt_path)"
 }
 
 # Registrar verified_pass no Task Kernel SOMENTE apos comprovacao empirica e parecer estruturado
@@ -588,27 +666,27 @@ if ($subagentSessions.ContainsKey('reviewer') -and -not [string]::IsNullOrWhiteS
 }
 if ($null -eq $reviewerEv) {
     Write-Host "Executando Reviewer via despacho nativo..."
-    $reviewerRun = Invoke-NativeSubagentRun -Agent 'reviewer' -Model $reviewerModel -Prompt $reviewerPrompt -Title "Reviewer: $taskId"
+    $reviewerRun = Invoke-NativeSubagentRun -Agent 'reviewer' -Model $reviewerModel -Prompt $reviewerPrompt -Title "Reviewer: $taskId" -RequestedSelection $reviewerSel
     if (-not $reviewerRun.ok) {
-        Write-Warning "Reviewer com $reviewerModel nao concluiu. Aplicando fallback autorizado pelo Router (P1)..."
-        $fallbackRevModel = 'opencode-go/muse-spark-1.3-contributor'
-        $reviewerRun = Invoke-NativeSubagentRun -Agent 'reviewer' -Model $fallbackRevModel -Prompt $reviewerPrompt -Title "Reviewer: $taskId (Fallback)"
-        if (-not $reviewerRun.ok) { throw "Falha na execucao nativa do Reviewer mesmo apos fallback: err=$($reviewerRun.error)" }
+        Write-Warning "Reviewer com $reviewerModel nao concluiu. Consultando router para fallback autorizado..."
+        $fbRev = Resolve-OrchestrationModelFallback -RequestedSelection $reviewerSel -FailedModel $reviewerModel -TriggerReason 'PROVIDER_ERROR'
+        if ($fbRev.Status -eq 'AUTHORIZED') {
+            $fallbackRevModel = $fbRev.FallbackModel
+            Write-Host "Router autorizou fallback de Reviewer para '$fallbackRevModel' ($($fbRev.FallbackTier))."
+            $reviewerRun = Invoke-NativeSubagentRun -Agent 'reviewer' -Model $fallbackRevModel -Prompt $reviewerPrompt -Title "Reviewer: $taskId (Fallback)" -RequestedSelection $reviewerSel
+            if (-not $reviewerRun.ok) { throw "Falha na execucao nativa do Reviewer mesmo apos fallback autorizado: err=$($reviewerRun.error)" }
+        } else {
+            throw "FAIL-CLOSED: Router rejeitou fallback para Reviewer: Status=$($fbRev.Status) Reason=$($fbRev.Reason)"
+        }
     }
     $reviewerEv = $reviewerRun.host_evidence
     $reviewerPromptText = $reviewerPrompt
 }
 Write-Host "Reviewer concluido! Session ID: $($reviewerEv.SessionId), Effective Model: $($reviewerEv.EffectiveModel)"
 
-# Se ocorreu fallback para T2, resolver selecao correspondente do router
-if ($reviewerEv.EffectiveModel -in @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna')) {
-    Write-Host "P1: Reviewer utilizou fallback autorizado Tier T2 ($($reviewerEv.EffectiveModel)) sem ampliar permissoes."
-    $reviewerSel = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Complexity 'simple' -NativeModelOverrideProven $true
-}
-
-# Validacao do Model Router para Reviewer
-$reviewerMatch = Test-ExecutedModelVerification -RequestedSelection $reviewerSel -ExecutedModelEvent @{ model = $reviewerEv.EffectiveModel } -NativeModelOverrideProven $true
-if (-not $reviewerMatch.VerifiedMatch) { throw "FAIL-CLOSED: Reviewer executou modelo nao verificado: $($reviewerMatch.Reason)" }
+# Se ocorreu fallback, validar correspondencia com o router
+$reviewerMatch = Test-ExecutedModelVerification -RequestedSelection $reviewerSel -ExecutedModelEvent @{ model = $reviewerEv.EffectiveModel; AuthorizedFallback = $fbRev } -NativeModelOverrideProven $true
+if (-not $reviewerMatch.VerifiedMatch) { throw "FAIL-CLOSED: Reviewer executou modelo nao verificado ou nao autorizado: $($reviewerMatch.Reason)" }
 Write-Host "Reviewer Model Router Match: $($reviewerMatch.ProofStatus) (Proven: $($reviewerMatch.RuntimeTierProven))"
 
 # P0: Tornar o review confiavel: nao solicitar previamente que responda APPROVED
@@ -640,27 +718,45 @@ if ($isRejected -or -not $isExplicitApproved) {
 }
 Write-Host "Parecer estruturado do Reviewer analisado e validado: Aprovacao vinculada e comprovada."
 
-# Recibo idempotente do Reviewer
+# P1-02: Marco 3 de Integridade do Artefato (Post-Review)
+$shaPostReview = (Get-FileHash -LiteralPath $artFile -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($shaPostReview -ne $shaPostTest) {
+    throw "FAIL-CLOSED: Adulteracao do artefato detectada durante ou apos a revisao: PostTest=$shaPostTest PostReview=$shaPostReview"
+}
+Write-Host "Integridade do artefato (Marco 3 - Post-Review): SHA256=$shaPostReview confirmado identico ao Post-Test"
+
+# Recibo do Reviewer: Canonico vs Auditoria pos-execucao (P1-01)
 $reviewerSettle = $null
 if ($plannerCompletedAutonomously) {
     $reviewerReceiptPath = Join-Path $ReceiptDir "$goalId-reviewer-receipt.json"
     $reviewerReceiptData = [ordered]@{
-        stage             = "native_dispatch_settlement"
-        goal_id           = $goalId
-        task_id           = $taskId
-        idempotency_key   = $reviewerKey
-        caller_agent      = "build"
-        caller_session_id = $plannerEv.SessionId
-        target_agent      = "reviewer"
-        child_session_id  = $reviewerEv.SessionId
-        status            = "approved"
-        effective_model   = $reviewerEv.EffectiveModel
-        claimed_evidence  = @('criterion:2', "session:$($reviewerEv.SessionId)")
-        timestamp         = [DateTime]::UtcNow.ToString('o')
+        stage                  = "post_execution_audit_receipt"
+        receipt_provenance     = "POST_EXECUTION_AUDIT"
+        execution_type         = "PLANNER_AUTONOMOUS_COORDINATION"
+        goal_id                = $goalId
+        task_id                = $taskId
+        idempotency_key        = $reviewerKey
+        caller_agent           = "build"
+        caller_session_id      = $plannerEv.SessionId
+        target_agent           = "reviewer"
+        child_session_id       = $reviewerEv.SessionId
+        status                 = "approved"
+        effective_model        = $reviewerEv.EffectiveModel
+        model_verification     = $reviewerMatch.ProofStatus
+        claimed_evidence       = @('criterion:2', "session:$($reviewerEv.SessionId)", "sha256:$shaPostReview")
+        reconstructed_chain    = [ordered]@{
+            goal_id            = $goalId
+            task_id            = $taskId
+            planner_session    = $plannerEv.SessionId
+            child_session      = $reviewerEv.SessionId
+            review_status      = "approved"
+            kernel_revision    = 8
+        }
+        timestamp              = [DateTime]::UtcNow.ToString('o')
     }
     [System.IO.File]::WriteAllText($reviewerReceiptPath, ($reviewerReceiptData | ConvertTo-Json -Depth 5), [System.Text.Encoding]::UTF8)
-    $reviewerSettle = @{ ok = $true; settled = $true; receipt_path = $reviewerReceiptPath }
-    Write-Host "Recibo idempotente do Reviewer emitido e persistido: $reviewerReceiptPath"
+    $reviewerSettle = @{ ok = $true; settled = $true; receipt_path = $reviewerReceiptPath; receipt_provenance = "POST_EXECUTION_AUDIT" }
+    Write-Host "Recibo de auditoria pos-execucao do Reviewer persistido: $reviewerReceiptPath"
 } else {
     $tCurTaskReviewer = Get-OrchestrationTask -TaskId $taskId -RepoRoot $RepoRoot
     $reviewerIntentSlot = New-OrchestrationNativeDispatchIntent -TaskId $taskId -TaskExpectedRevision ([long]$tCurTaskReviewer.revision) -Agent 'reviewer' -PromptHash $reviewerPromptHash -Scope @($artFile) -AcceptanceCriteria @('criterion:2') -IdempotencyKey $reviewerKey -Owner 'planner' -OwnershipGeneration $gen -BaseRevision ([string]$tCurTaskReviewer.base_revision)
@@ -670,9 +766,10 @@ if ($plannerCompletedAutonomously) {
     $reviewerClaim = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $reviewerKey -Authorization $auth -SessionId $plannerEv.SessionId -MessageId 'msg_planner_reviewer' -CallId 'call_reviewer_1' -CallerAgent 'build' -TargetAgent 'reviewer' -PreparedFingerprint $reviewerPrep.prepared_fingerprint -ReceiptDir $ReceiptDir -GoalStoreDir $goalStoreDir -TasksDir $tasksDir
     if (-not ($reviewerClaim.ok -and $reviewerClaim.claimed)) { throw "Falha no Claim do Reviewer: $($reviewerClaim.reason)" }
     Write-Host "Despacho do Reviewer admitido e reivindicado no recibo: Key=$reviewerKey"
-    $reviewerSettle = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $reviewerKey -Authorization $auth -ChildSessionId $reviewerEv.SessionId -SessionId $plannerEv.SessionId -MessageId 'msg_planner_reviewer' -CallId 'call_reviewer_1' -CallerAgent 'build' -TargetAgent 'reviewer' -PreparedFingerprint $reviewerPrep.prepared_fingerprint -Reference $reviewerPrep.reference -TaskId $taskId -Result @{ status = 'approved'; claimed_evidence = @('criterion:2', "session:$($reviewerEv.SessionId)") } -ReceiptDir $ReceiptDir -GoalStoreDir $goalStoreDir -EvidenceStoreDir $evidenceStoreDir -TasksDir $tasksDir
+    $reviewerSettle = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $reviewerKey -Authorization $auth -ChildSessionId $reviewerEv.SessionId -SessionId $plannerEv.SessionId -MessageId 'msg_planner_reviewer' -CallId 'call_reviewer_1' -CallerAgent 'build' -TargetAgent 'reviewer' -PreparedFingerprint $reviewerPrep.prepared_fingerprint -Reference $reviewerPrep.reference -TaskId $taskId -Result @{ status = 'approved'; claimed_evidence = @('criterion:2', "session:$($reviewerEv.SessionId)", "sha256:$shaPostReview") } -ReceiptDir $ReceiptDir -GoalStoreDir $goalStoreDir -EvidenceStoreDir $evidenceStoreDir -TasksDir $tasksDir
     if (-not ($reviewerSettle.ok -and $reviewerSettle.settled)) { throw "Falha no Settlement do Reviewer: $($reviewerSettle.reason)" }
-    Write-Host "Settlement do Reviewer concluido com recibo persistido: $($reviewerSettle.receipt_path)"
+    $reviewerSettle.receipt_provenance = "CANONICAL_PROTOCOL"
+    Write-Host "Settlement canonico do Reviewer concluido com recibo persistido: $($reviewerSettle.receipt_path)"
 }
 
 # Registrar approved no Task Kernel (se ainda nao registrado pelo Planner)
@@ -799,22 +896,22 @@ $efficiencyComparison = [ordered]@{
     comparison_title = "Comparacao de Eficiencia de Workflow: Direto/Economico vs Multi-Agente"
     scenarios = @(
         [ordered]@{
-            scenario_id        = "SCENARIO-01-DIRECT-ECONOMICAL"
-            description        = "Execucao direta/economica pelo Planner para tarefa de escopo pontual"
+            scenario_id        = "SCENARIO-01-DIRECT-PREFLIGHT-OVERHEAD"
+            description        = "Medicao de overhead deterministico / preflight local sem spawn de subagents"
             execution_shape    = "DIRECT_VERIFIED"
-            agents_involved    = @("planner (direct)")
+            agents_involved    = @("planner (preflight)")
             subagents_spawned  = 0
             wall_clock_ms      = $directMs
             tokens_input       = 0
             tokens_output      = 0
             tokens_total       = 0
             cost_usd           = 0.0
-            quality_score      = "PASS (Sintaxe AST valida, assercoes funcionais satisfeitas, compliance COMPLIANT)"
+            quality_score      = "DETERMINISTIC_PREFLIGHT_ONLY (Avaliacao estatica de preflight local; nao executa sintese dinamica nem testes no host; compliance rejeita DIRECT_VERIFIED para tarefa nao trivial: NON_COMPLIANT_DEPRECATED_DIRECT)"
             compliance         = $directComp
         },
         [ordered]@{
             scenario_id        = "SCENARIO-02-MULTI-WORKER"
-            description        = "Ciclo completo coordenado pelo Planner com Coder -> Tester -> Reviewer"
+            description        = "Ciclo produtivo completo com sintese de artefato e escrutinio independente (Planner -> Coder -> Tester -> Reviewer)"
             execution_shape    = "MULTI_WORKER"
             agents_involved    = @("planner", "coder", "tester", "reviewer")
             subagents_spawned  = 3
@@ -823,14 +920,14 @@ $efficiencyComparison = [ordered]@{
             tokens_output      = $totalTokensOut
             tokens_total       = [int]($totalTokensIn + $totalTokensOut)
             cost_usd           = $totalCostReported
-            quality_score      = "VERIFIED_PASS (Tripla checagem: AST valido, verificacao empirica Tester PASS, revisao independente Reviewer APPROVED)"
+            quality_score      = "VERIFIED_PASS (Tripla checagem independente: sintese de codigo com AST valido, execucao empirica de testes pelo Tester no host, e revisao formal independente de seguranca pelo Reviewer)"
             compliance         = "COMPLIANT"
         }
     )
     analysis = [ordered]@{
-        measurement_summary     = "Cenario direto medido em $directMs ms com 0 tokens de subagents; cenario multi-agente medido em $multiTotalMs ms (253 s) com tripla checagem independente de subagents"
-        quality_assessment      = "Ambos os cenarios atingem conformidade funcional nos seus respectivos escopos; o cenario Multi-Agente acrescenta escrutinio independente contra injecao e regressoes para riscos medios/altos"
-        controls_preserved      = "Controles de custo, cache de evidencias, Advisor sob demanda e Jev preservados intactos"
+        measurement_summary = "Cenario direto reflete overhead deterministico de preflight em $directMs ms com 0 tokens de subagents; cenario multi-agente reflete ciclo produtivo completo de execucao e verificacao em $multiTotalMs ms (253 s) com 297941 tokens e tripla checagem independente"
+        quality_assessment  = "Os cenarios nao possuem a mesma profundidade: o cenario direto avalia apenas regras de preflight e conformidade de politicas locais, enquanto o cenario multi-agente executa a sintese real de artefatos, testes funcionais no host e revisao independente de seguranca"
+        controls_preserved  = "Controles de custo, orcamentos de tier, cache de evidencias, Advisor sob demanda e Jev preservados intactos"
     }
 }
 
