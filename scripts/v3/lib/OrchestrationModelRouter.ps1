@@ -595,7 +595,7 @@ function Resolve-OrchestrationModelFallback {
         # Check alternative candidates in same tier ($reqTier)
         $candidates = @()
         if ($tierCandidates.ContainsKey($reqTier)) {
-            $rawCands = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -notin $AttemptedModels })
+            $rawCands = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -ne $reqModel -and $_ -notin $AttemptedModels })
             $candidates = @(& $FilterByAllowedProviders $rawCands)
         }
 
@@ -629,7 +629,7 @@ function Resolve-OrchestrationModelFallback {
     # 2. General agent fallback: try same tier first
     $sameTierCandidates = @()
     if ($tierCandidates.ContainsKey($reqTier)) {
-        $rawSame = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -notin $AttemptedModels })
+        $rawSame = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -ne $reqModel -and $_ -notin $AttemptedModels })
         $sameTierCandidates = @(& $FilterByAllowedProviders $rawSame)
     }
 

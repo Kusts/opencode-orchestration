@@ -121,7 +121,7 @@ Assert-Router ($selProof.OverrideNote -eq '') "Sem nota quando override e proven
 
 # 9. Resolucao por catalogo e selecao autorizada
 $catT2 = Resolve-CatalogModel -Tier 'T2'
-Assert-Router ($catT2.CatalogModel -in @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna')) "Catalogo mapeia T2 para modelo economico"
+Assert-Router ($catT2.CatalogModel -in @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'opencode/space-bunny-free')) "Catalogo mapeia T2 para modelo economico"
 Assert-Router ($catT2.IsAuthorized -eq $true) "T2 e autorizado por padrao"
 
 $catT4Unauth = Resolve-CatalogModel -Tier 'T4' -Risk 'critical' -FailureCount 2
