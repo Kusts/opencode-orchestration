@@ -288,19 +288,23 @@ function Get-OrchestrationSessionHostEvidence {
 
     if ([string]::IsNullOrWhiteSpace($SessionId)) { return $null }
 
-    $bin = if (-not [string]::IsNullOrWhiteSpace($OpencodeBin)) { $OpencodeBin } else { 'opencode' }
+    $bin = if (-not [string]::IsNullOrWhiteSpace($OpencodeBin)) { $OpencodeBin } else {
+        if ($IsWindows -or $env:OS -like '*Windows*') { 'opencode.cmd' } else { 'opencode' }
+    }
     try {
         $raw = ''
-        $spikeLib = Join-Path $PSScriptRoot '..\..\runtime\lib\SpikeProcess.ps1'
-        if (Test-Path -LiteralPath $spikeLib -PathType Leaf) {
-            . $spikeLib
-            $spRes = Invoke-SpikeChild -FilePath $bin -ArgumentList @('session', 'export', $SessionId) -TimeoutMs 15000 -StdinNul
-            if ($null -ne $spRes -and -not [string]::IsNullOrWhiteSpace($spRes.Stdout)) {
-                $raw = [string]$spRes.Stdout
-            }
-        }
-        if ([string]::IsNullOrWhiteSpace($raw)) {
+        try {
             $raw = & $bin session export $SessionId 2>&1 | Out-String
+        } catch { }
+        if ([string]::IsNullOrWhiteSpace($raw) -or -not ($raw.Trim().StartsWith('{'))) {
+            $spikeLib = Join-Path $PSScriptRoot '..\..\runtime\lib\SpikeProcess.ps1'
+            if (Test-Path -LiteralPath $spikeLib -PathType Leaf) {
+                . $spikeLib
+                $spRes = Invoke-SpikeChild -FilePath $bin -ArgumentList @('session', 'export', $SessionId) -TimeoutMs 15000 -StdinNul
+                if ($null -ne $spRes -and (-not $spRes.TimedOut) -and $spRes.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($spRes.Stdout)) {
+                    $raw = [string]$spRes.Stdout
+                }
+            }
         }
 
         if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
