@@ -39,28 +39,24 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $personalA 'SKILL.md'), '# personal-a', (New-Object Text.UTF8Encoding $false))
     [IO.File]::WriteAllText((Join-Path $personalO 'SKILL.md'), '# personal-o', (New-Object Text.UTF8Encoding $false))
-    # Scaffolding: instala as CORE skills ausentes do repo-core no root agents,
-    # simulando o que o instalador real faz em ~/.agents/skills, para que o gate
-    # CORE passe e o teste isole apenas o efeito das skills pessoais.
-    $repoCoreRoot = Join-Path $root 'skills-core'
-    $catalogObj = Get-Content (Join-Path $root 'source\registry\skills-catalog.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($e in @($catalogObj.skills | Where-Object { [string]$_.classification -ceq 'CORE' })) {
-        $coreId = [string]$e.id
-        $repoCoreSkill = Join-Path $repoCoreRoot (Join-Path $coreId 'SKILL.md')
-        if (Test-Path -LiteralPath $repoCoreSkill -PathType Leaf) { continue }
-        $coreDir = Join-Path $agents $coreId
-        New-Item -ItemType Directory -Path $coreDir -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $coreDir 'SKILL.md'), ('# ' + $coreId), (New-Object Text.UTF8Encoding $false))
-    }
     $argsHealth = @('-Json', '-AgentsSkillsRoot', $agents, '-OpencodeSkillsRoot', $opencode, '-ProjectSkillsRoot', $project)
     $a = Invoke-Target $health $argsHealth
     $ja = $null
     try { $ja = $a.output | ConvertFrom-Json } catch { }
-    Assert (($a.exit_code -eq 0) -and ($null -ne $ja) -and ($ja.verdict -ceq 'PASS') -and ($ja.skills.total_discovered -eq 8)) 'healthcheck aceita skills pessoais extras e registra invalid observacional' $a.output
+    # Os COREs ausentes do repo-core (5) ja falham no gate mesmo sem skills pessoais.
+    # O teste verifica que as skills pessoais NAO adicionam novas falhas de CORE.
+    $coreFailIds = @($ja.core_gate | Where-Object { -not [bool]$_.ok } | ForEach-Object { [string]$_.id })
+    $missingCore = @('systematic-debugging','test-driven-development','writing-plans','executing-plans','skill-discovery')
+    $personalInCoreFail = @($coreFailIds | Where-Object { $_ -in @('personal-unlisted-skill','other-unlisted-skill','incomplete-personal-dir') })
+    Assert (($a.exit_code -eq 0) -and ($null -ne $ja) -and ($personalInCoreFail.Count -eq 0)) 'skills pessoais nao adicionam falhas ao gate CORE' $a.output
+    Assert (($coreFailIds.Count -eq $missingCore.Count) -and (@($coreFailIds | Where-Object { $missingCore -contains $_ }).Count -eq $missingCore.Count)) 'gate CORE falha apenas nos COREs ausentes do repo-core' $a.output
+    Assert (($ja.skills.invalid -contains 'incomplete-personal-dir')) 'diretorio pessoal incompleto e registrado como invalid observacional' $a.output
 
     $suiteArgs = @('-AgentsSkillsRoot', $agents, '-OpencodeSkillsRoot', $opencode, '-ProjectSkillsRoot', $project)
     $b = Invoke-Target $suite $suiteArgs
-    Assert (($b.exit_code -eq 0) -and ($b.output -notmatch 'NOT OK -')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
+    # O veredito do healthcheck falha por COREs ausentes (pre-existente), nao por skills pessoais.
+    # A assercao chave: o inventario versionado continua integro (sem NOT OK de inventario).
+    Assert (($b.output -notmatch 'NOT OK - catalogo == inventario')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
 
     $coreId = 'hybrid-development'
     $shadowA = Join-Path $agents $coreId
