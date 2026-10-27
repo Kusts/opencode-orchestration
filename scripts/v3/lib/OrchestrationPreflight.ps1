@@ -442,6 +442,7 @@ function Get-OrchestrationPreflight {
             $typeOk = (($tt -ceq 'trivial') -or ($tt -ceq 'lookup') -or ($tt -ceq 'read') -or ($tt -ceq 'cosmetic') -or ($tt -ceq 'formatting') -or ($tt -ceq 'typo') -or ($tt -ceq 'micro_edit'))
             $localizedOk = (@($sec).Count -le 1)
             $archHit = Test-OrchestrationArchitectureDecision -Objective $obj -TaskType $tt -Domain $dom
+            $blob = Convert-OrchestrationNormalizedText -Text (([string]$obj) + ' ' + ([string]$tt) + ' ' + ([string]$dom))
             $sensitiveHit = Test-OrchestrationKeyword -Blob $blob -Words @('permission', 'permissions', 'permissao', 'permissoes', 'security', 'auth', 'secret', 'credential', 'token', 'opencode.json', 'kernel', 'protect-master', 'delete', 'drop', 'database', 'migration')
 
             $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit))
