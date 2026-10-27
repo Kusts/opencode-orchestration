@@ -16,7 +16,10 @@
 param(
   [string]$RepoRoot = '',
   [string]$CatalogPath = '',
-  [switch]$Json
+  [switch]$Json,
+  [string]$AgentsSkillsRoot = '',
+  [string]$OpencodeSkillsRoot = '',
+  [string]$ProjectSkillsRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,6 +68,10 @@ if (($null -eq $cat) -or ($null -eq $cat.skills)) {
 $agentsRoot = Join-Path $HOME '.agents\skills'
 $opencodeRoot = Join-Path $HOME '.config\opencode\skills'
 $projectRoot = Join-Path $RepoRoot '.opencode\skills'
+# Explicit roots are test/diagnostic overrides; defaults remain unchanged.
+if (-not [string]::IsNullOrWhiteSpace($AgentsSkillsRoot)) { $agentsRoot = $AgentsSkillsRoot }
+if (-not [string]::IsNullOrWhiteSpace($OpencodeSkillsRoot)) { $opencodeRoot = $OpencodeSkillsRoot }
+if (-not [string]::IsNullOrWhiteSpace($ProjectSkillsRoot)) { $projectRoot = $ProjectSkillsRoot }
 $repoCoreRoot = Join-Path $RepoRoot 'skills-core'
 
 $agentsSkills = @(Get-SkillDirs $agentsRoot)
