@@ -408,27 +408,41 @@ function Resolve-CatalogModel {
 
     # Strict separation of technical admissibility vs provider/cost authorization:
     # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
+    # Exceptional Astra check: Astra strictly requires OPENCODE_ASTRA_AUTHORIZED='true',
+    # and general T4 cost authorization alone does NOT authorize Astra.
     if ($Tier -eq 'T4') {
-        if ($ProviderCostAuthorized) {
+        if ($catModel -match 'astra') {
+            $astraAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
+            if ($astraAuth) {
+                $authorized = $true
+                $authSource = 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED'
+                $authEvidence = 'env:OPENCODE_ASTRA_AUTHORIZED=true'
+            } else {
+                $authorized = $false
+                $authSource = 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED'
+                $authEvidence = 'none'
+            }
+        } elseif ($ProviderCostAuthorized) {
             $authorized = $true
             $authSource = 'EXPLICIT_PARAMETER'
             $authEvidence = 'parameter:ProviderCostAuthorized=true'
-        } elseif ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true' -or ($catModel -match 'astra' -and [string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')) {
+        } elseif ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') {
             $authorized = $true
-            $authSource = if ($catModel -match 'astra' -and [string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') { 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED' } else { 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED' }
-            $authEvidence = if ($catModel -match 'astra' -and [string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') { 'env:OPENCODE_ASTRA_AUTHORIZED=true' } else { 'env:OPENCODE_T4_AUTHORIZED=true' }
+            $authSource = 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED'
+            $authEvidence = 'env:OPENCODE_T4_AUTHORIZED=true'
         } else {
             # Never authorize T4 solely by risk or failure count
             $authorized = $false
             $authSource = 'NONE_UNAUTHORIZED'
             $authEvidence = 'none'
         }
-    }
-
-    # Exceptional Astra check: requires explicit exceptional budget authorization
-    if ($catModel -match 'astra') {
-        $astraAuth = ($ProviderCostAuthorized -or [string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
-        if (-not $astraAuth) {
+    } elseif ($catModel -match 'astra') {
+        $astraAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
+        if ($astraAuth) {
+            $authorized = $true
+            $authSource = 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED'
+            $authEvidence = 'env:OPENCODE_ASTRA_AUTHORIZED=true'
+        } else {
             $authorized = $false
             $authSource = 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED'
             $authEvidence = 'none'
@@ -515,24 +529,22 @@ function Resolve-OrchestrationModelFallback {
     $origModel = if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { $FailedModel } else { $reqModel }
     $origProvider = Get-ModelProviderFromId $origModel
 
-    # Roster of known alternative models per tier
+    # Build real attempt tracking set:
+    # Combines explicit AttemptedModels, FailedModel, origModel, and reqModel
+    $attemptedSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($m in $AttemptedModels) {
+        if (-not [string]::IsNullOrWhiteSpace($m)) { [void]$attemptedSet.Add($m.Trim()) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { [void]$attemptedSet.Add($FailedModel.Trim()) }
+    if (-not [string]::IsNullOrWhiteSpace($origModel)) { [void]$attemptedSet.Add($origModel.Trim()) }
+    if (-not [string]::IsNullOrWhiteSpace($reqModel)) { [void]$attemptedSet.Add($reqModel.Trim()) }
+
+    # Roster of known alternative models per tier - CANONICAL MODELS ONLY (no fictitious candidates)
     $tierCandidates = @{
         'T1' = @('opencode/beam-free')
-        'T2' = if ($origModel -eq 'opencode/deepseek-v4.1-flash-free') {
-                   @('opencode-go/muse-spark-1.3-contributor')
-               } elseif ($AttemptedModels -contains 'openai/gpt-6-luna') {
-                   @('opencode-go/muse-spark-1.3-contributor')
-               } else {
-                   @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor')
-               }
-        'T3' = if ($origModel -eq 'openai/gpt-6.1-sol' -or $reqModel -eq 'openai/gpt-6.1-sol') {
-                   @('opencode-custom/strong-model')
-               } elseif ($origModel -eq 'openai/gpt-6-luna' -or $reqModel -eq 'openai/gpt-6-luna') {
-                   @('openai/gpt-6.1-sol', 'opencode-custom/strong-model')
-               } else {
-                   @('openai/gpt-6.1-sol', 'opencode-custom/strong-model')
-               }
-        'T4' = @('openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'opencode-custom/frontier-model')
+        'T2' = @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor')
+        'T3' = @('openai/gpt-6-luna')
+        'T4' = @('openai/gpt-6.1-sol', 'openai/gpt-6-astra')
     }
 
     # Incorporate user catalog if present and user config is not ignored
@@ -541,7 +553,7 @@ function Resolve-OrchestrationModelFallback {
         if ($cat.ContainsKey($reqTier) -and -not [string]::IsNullOrWhiteSpace($cat[$reqTier].CatalogModel)) {
             $customM = [string]$cat[$reqTier].CatalogModel
             if ($tierCandidates.ContainsKey($reqTier) -and $tierCandidates[$reqTier] -notcontains $customM) {
-                if ($customM -ne $origModel -and $AttemptedModels -notcontains $customM) {
+                if (-not $attemptedSet.Contains($customM)) {
                     $tierCandidates[$reqTier] = @($tierCandidates[$reqTier]) + @($customM)
                 }
             }
@@ -579,7 +591,7 @@ function Resolve-OrchestrationModelFallback {
             Reason                 = $ReasonMsg
             AuthorizationSource    = 'ROUTER_POLICY'
             ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
-            AttemptsCount          = ($AttemptedModels.Count + 1)
+            AttemptsCount          = ($attemptedSet.Count)
             IsDowngrade            = $IsDown
         }
     }
@@ -595,16 +607,46 @@ function Resolve-OrchestrationModelFallback {
         # Check alternative candidates in same tier ($reqTier)
         $candidates = @()
         if ($tierCandidates.ContainsKey($reqTier)) {
-            $rawCands = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -ne $reqModel -and $_ -notin $AttemptedModels })
+            $rawCands = @($tierCandidates[$reqTier] | Where-Object { -not $attemptedSet.Contains($_) })
             $candidates = @(& $FilterByAllowedProviders $rawCands)
         }
 
-        if ($candidates.Count -gt 0) {
-            $targetModel = [string]$candidates[0]
-            return (& $BuildAuthorizedResult $targetModel $reqTier "Router authorized same-tier fallback to '$targetModel' for agent '$cleanAgent'." $false)
+        $validSameTierCand = $null
+        foreach ($c in $candidates) {
+            if ($c -match 'astra') {
+                if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
+                    $validSameTierCand = $c
+                    break
+                }
+            } else {
+                $validSameTierCand = $c
+                break
+            }
         }
 
-        # No same-tier alternative. If downgrade requested/attempted, reject fail-closed
+        if ($null -ne $validSameTierCand) {
+            return (& $BuildAuthorizedResult $validSameTierCand $reqTier "Router authorized same-tier fallback to '$validSameTierCand' for agent '$cleanAgent'." $false)
+        }
+
+        # No same-tier alternative. Check if Reviewer can escalate to T4 if cost authorized
+        if ($cleanAgent -eq 'reviewer' -and $reqTier -eq 'T3') {
+            $costAuth = ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
+            if ($costAuth -and $tierCandidates.ContainsKey('T4')) {
+                $rawT4 = @($tierCandidates['T4'] | Where-Object { -not $attemptedSet.Contains($_) })
+                $t4Cands = @(& $FilterByAllowedProviders $rawT4)
+                foreach ($c in $t4Cands) {
+                    if ($c -match 'astra') {
+                        if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
+                            return (& $BuildAuthorizedResult $c 'T4' "Router authorized tier escalation to '$c' (T4) for agent '$cleanAgent'." $false)
+                        }
+                    } else {
+                        return (& $BuildAuthorizedResult $c 'T4' "Router authorized tier escalation to '$c' (T4) for agent '$cleanAgent'." $false)
+                    }
+                }
+            }
+        }
+
+        # No alternative. If downgrade requested/attempted, reject fail-closed
         if ($isDowngradeProhibited) {
             return [pscustomobject]@{
                 Status                 = 'REJECTED_DOWNGRADE_FORBIDDEN'
@@ -620,7 +662,7 @@ function Resolve-OrchestrationModelFallback {
                 Reason                 = "Downgrade below tier $reqTier for agent '$cleanAgent' is prohibited by security policy."
                 AuthorizationSource    = 'ROUTER_POLICY'
                 ProviderCostAuthorized = $false
-                AttemptsCount          = ($AttemptedModels.Count + 1)
+                AttemptsCount          = ($attemptedSet.Count)
                 IsDowngrade            = $true
             }
         }
@@ -629,17 +671,18 @@ function Resolve-OrchestrationModelFallback {
     # 2. General agent fallback: try same tier first
     $sameTierCandidates = @()
     if ($tierCandidates.ContainsKey($reqTier)) {
-        $rawSame = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -ne $reqModel -and $_ -notin $AttemptedModels })
+        $rawSame = @($tierCandidates[$reqTier] | Where-Object { -not $attemptedSet.Contains($_) })
         $sameTierCandidates = @(& $FilterByAllowedProviders $rawSame)
     }
 
-    if ($sameTierCandidates.Count -gt 0) {
-        $chosen = [string]$sameTierCandidates[0]
-        # Astra check
-        if ($chosen -match 'astra' -and -not ($ProviderCostAuthorized -or [string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')) {
+    foreach ($cand in $sameTierCandidates) {
+        if ($cand -match 'astra') {
+            if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
+                return (& $BuildAuthorizedResult $cand $reqTier "Router authorized same-tier alternative '$cand' for agent '$cleanAgent'." $false)
+            }
             # Skip Astra if exceptional budget not authorized
         } else {
-            return (& $BuildAuthorizedResult $chosen $reqTier "Router authorized same-tier alternative '$chosen' for agent '$cleanAgent'." $false)
+            return (& $BuildAuthorizedResult $cand $reqTier "Router authorized same-tier alternative '$cand' for agent '$cleanAgent'." $false)
         }
     }
 
@@ -649,20 +692,22 @@ function Resolve-OrchestrationModelFallback {
         $nextTier = switch ($reqTier) {
             'T1' { 'T2' }
             'T2' { 'T3' }
-            'T3' { if ($ProviderCostAuthorized -or $RequestedSelection.ProviderCostAuthorized -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') { 'T4' } else { $null } }
+            'T3' { if ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') { 'T4' } else { $null } }
             default { $null }
         }
         if ($null -ne $nextTier -and $allowed -contains $nextTier -and $tierCandidates.ContainsKey($nextTier)) {
-            $rawUp = @($tierCandidates[$nextTier] | Where-Object { $_ -notin $AttemptedModels })
+            $rawUp = @($tierCandidates[$nextTier] | Where-Object { -not $attemptedSet.Contains($_) })
             $upCandidates = @(& $FilterByAllowedProviders $rawUp)
-            if ($upCandidates.Count -gt 0) {
-                $chosenUp = [string]$upCandidates[0]
-                $costAuth = ($nextTier -ne 'T4' -or $ProviderCostAuthorized -or $RequestedSelection.ProviderCostAuthorized -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
-                if ($chosenUp -match 'astra' -and -not ($ProviderCostAuthorized -or [string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')) {
-                    $costAuth = $false
-                }
-                if ($costAuth) {
-                    return (& $BuildAuthorizedResult $chosenUp $nextTier "Router authorized tier escalation to '$chosenUp' ($nextTier) for agent '$cleanAgent'." $false)
+            foreach ($candUp in $upCandidates) {
+                if ($candUp -match 'astra') {
+                    if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
+                        return (& $BuildAuthorizedResult $candUp $nextTier "Router authorized tier escalation to '$candUp' ($nextTier) for agent '$cleanAgent'." $false)
+                    }
+                } else {
+                    $costAuth = ($nextTier -ne 'T4' -or $ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
+                    if ($costAuth) {
+                        return (& $BuildAuthorizedResult $candUp $nextTier "Router authorized tier escalation to '$candUp' ($nextTier) for agent '$cleanAgent'." $false)
+                    }
                 }
             }
         }

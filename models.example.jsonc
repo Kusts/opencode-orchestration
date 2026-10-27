@@ -1,9 +1,12 @@
 {
   // Edite este arquivo e salve como models.jsonc (models.jsonc é ignorado pelo git).
-  // Planner: agente primário "build" — herda o modelo da sessão.
-  "planner": "zai-coding-plan/glm-5.3-flash",
-  // Pool barato: explorer, researcher, coder, tester, engineers, planning advisors.
-  "cheap": "opencode/space-bunny-free",
-  // Pool forte: reviewer, debugger, security-reviewer, architect.
-  "strong": "openai/gpt-6.1-sol"
+  // Configuração de modelos alinhada aos padrões do Dynamic Model Routing v1.1.
+  // Planner: agente primário "build" (Tier T3 - GPT-6 Luna).
+  "planner": "openai/gpt-6-luna",
+  // Pool barato: explorer, researcher, coder, tester, engineers, planning advisors (Tier T2 - DeepSeek Flash Free).
+  "cheap": "opencode/deepseek-v4.1-flash-free",
+  // Pool forte: reviewer, debugger, security-reviewer, architect (Tier T3 - GPT-6 Luna).
+  "strong": "openai/gpt-6-luna",
+  // Pool fronteira (opcional): raciocínio crítico sob autorização de custo (Tier T4 - GPT-6.1 Sol).
+  "frontier": "openai/gpt-6.1-sol"
 }

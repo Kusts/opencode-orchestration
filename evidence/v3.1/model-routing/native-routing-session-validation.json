@@ -1,92 +1,147 @@
 ﻿{
-    "timestamp":  "2026-10-26T23:32:21.9598655Z",
-    "status":  "COMPLETED_VERIFIED",
-    "tests":  [
-                  {
-                      "test":  "Canonical Policy Loaded",
-                      "passed":  true,
-                      "details":  "Version: 1.1.0, Hash: 245a58695bf71467..."
-                  },
-                  {
-                      "test":  "Planner Model Selection",
-                      "passed":  true,
-                      "details":  "Planner alocado em Tier T3 com GPT-6 Luna"
-                  },
-                  {
-                      "test":  "Planner Provider Isolation",
-                      "passed":  true,
-                      "details":  "Provider efetivo: openai (Luna nunca redirecionado)"
-                  },
-                  {
-                      "test":  "Coder Model Selection",
-                      "passed":  true,
-                      "details":  "Coder alocado em Tier T2 com DeepSeek Flash Free"
-                  },
-                  {
-                      "test":  "Coder Provider Isolation",
-                      "passed":  true,
-                      "details":  "Provider efetivo: opencode (Console)"
-                  },
-                  {
-                      "test":  "Coder Cross-Provider Fallback",
-                      "passed":  true,
-                      "details":  "Fallback selecionou Muse Spark"
-                  },
-                  {
-                      "test":  "Cross-Provider Metrics",
-                      "passed":  true,
-                      "details":  "Transicao opencode -\u003e opencode-go rastreada"
-                  },
-                  {
-                      "test":  "Tester T0 Deterministic",
-                      "passed":  true,
-                      "details":  "Tester trivial usa T0 sem token de LLM"
-                  },
-                  {
-                      "test":  "Reviewer T3 Selection",
-                      "passed":  true,
-                      "details":  "Reviewer alocado em T3 Luna via openai"
-                  },
-                  {
-                      "test":  "Reviewer Downgrade Forbidden",
-                      "passed":  true,
-                      "details":  "Downgrade para T2 estritamente rejeitado fail-closed"
-                  },
-                  {
-                      "test":  "Post-Execution Exact Match",
-                      "passed":  true,
-                      "details":  "Verificacao comprova EXACT_MATCH"
-                  },
-                  {
-                      "test":  "Post-Execution Authorized Fallback",
-                      "passed":  true,
-                      "details":  "Verificacao comprova AUTHORIZED_FALLBACK cross-provider"
-                  },
-                  {
-                      "test":  "Post-Execution T0 Violation Detection",
-                      "passed":  true,
-                      "details":  "Tentativa de usar LLM em T0 rejeitada como UNAUTHORIZED_MISMATCH"
-                  },
-                  {
-                      "test":  "Jev Cannot Grant Permissions",
-                      "passed":  true,
-                      "details":  "Jev nunca concede permissoes (granted=false)"
-                  },
-                  {
-                      "test":  "Jev Cannot Select Paid Models",
-                      "passed":  true,
-                      "details":  "Jev nunca seleciona modelos pagos"
-                  },
-                  {
-                      "test":  "Jev Cannot Issue DONE",
-                      "passed":  true,
-                      "details":  "Jev nunca emite conclusao DONE no Task Kernel"
-                  },
-                  {
-                      "test":  "Model Router Receipt Emission",
-                      "passed":  true,
-                      "details":  "Recibo emitido com estagio model_routing e modelo gpt-6-luna"
-                  }
-              ],
-    "summary":  "Todas as 16 verificacoes de integracao produtiva passaram com sucesso."
+    "timestamp":  "2026-10-27T01:05:07.2988373Z",
+    "classification":  "CONTRACT_VERIFICATION_AND_REAL_SESSION_PROOF",
+    "contract_verifications":  {
+                                   "total":  17,
+                                   "passed":  17,
+                                   "failed":  0,
+                                   "checks":  [
+                                                  {
+                                                      "check":  "Canonical Policy Loaded",
+                                                      "passed":  true,
+                                                      "details":  "Version: 1.1.0, Hash: 245a58695bf71467..."
+                                                  },
+                                                  {
+                                                      "check":  "Planner Model Selection",
+                                                      "passed":  true,
+                                                      "details":  "Planner alocado em Tier T3 com GPT-6 Luna"
+                                                  },
+                                                  {
+                                                      "check":  "Planner Provider Isolation",
+                                                      "passed":  true,
+                                                      "details":  "Provider efetivo: openai (Luna nunca redirecionado)"
+                                                  },
+                                                  {
+                                                      "check":  "Coder Model Selection",
+                                                      "passed":  true,
+                                                      "details":  "Coder alocado em Tier T2 com DeepSeek Flash Free"
+                                                  },
+                                                  {
+                                                      "check":  "Coder Provider Isolation",
+                                                      "passed":  true,
+                                                      "details":  "Provider efetivo: opencode (Console)"
+                                                  },
+                                                  {
+                                                      "check":  "Coder Cross-Provider Fallback",
+                                                      "passed":  true,
+                                                      "details":  "Fallback selecionou Muse Spark"
+                                                  },
+                                                  {
+                                                      "check":  "Cross-Provider Metrics",
+                                                      "passed":  true,
+                                                      "details":  "Transicao opencode -\u003e opencode-go rastreada"
+                                                  },
+                                                  {
+                                                      "check":  "Tester T0 Deterministic",
+                                                      "passed":  true,
+                                                      "details":  "Tester trivial usa T0 sem token de LLM"
+                                                  },
+                                                  {
+                                                      "check":  "Reviewer T3 Selection",
+                                                      "passed":  true,
+                                                      "details":  "Reviewer alocado em T3 Luna via openai"
+                                                  },
+                                                  {
+                                                      "check":  "Reviewer Downgrade Forbidden",
+                                                      "passed":  true,
+                                                      "details":  "Downgrade para T2 estritamente rejeitado fail-closed"
+                                                  },
+                                                  {
+                                                      "check":  "Post-Execution Exact Match",
+                                                      "passed":  true,
+                                                      "details":  "Verificacao comprova EXACT_MATCH"
+                                                  },
+                                                  {
+                                                      "check":  "Post-Execution Authorized Fallback",
+                                                      "passed":  true,
+                                                      "details":  "Verificacao comprova AUTHORIZED_FALLBACK cross-provider"
+                                                  },
+                                                  {
+                                                      "check":  "Post-Execution T0 Violation Detection",
+                                                      "passed":  true,
+                                                      "details":  "Tentativa de usar LLM em T0 rejeitada como UNAUTHORIZED_MISMATCH"
+                                                  },
+                                                  {
+                                                      "check":  "Jev Cannot Grant Permissions",
+                                                      "passed":  true,
+                                                      "details":  "Jev nunca concede permissoes (granted=false)"
+                                                  },
+                                                  {
+                                                      "check":  "Jev Cannot Select Paid Models",
+                                                      "passed":  true,
+                                                      "details":  "Jev nunca seleciona modelos pagos"
+                                                  },
+                                                  {
+                                                      "check":  "Jev Cannot Issue DONE",
+                                                      "passed":  true,
+                                                      "details":  "Jev nunca emite conclusao DONE no Task Kernel"
+                                                  },
+                                                  {
+                                                      "check":  "Model Router Receipt Emission",
+                                                      "passed":  true,
+                                                      "details":  "Recibo emitido com estagio model_routing e modelo gpt-6-luna"
+                                                  }
+                                              ]
+                               },
+    "productive_session_proof":  {
+                                     "proof_type":  "REAL_NATIVE_SESSION_EXPORT",
+                                     "session_id":  "ses_e854f20bfffeSk42kHTcpWr40U",
+                                     "timestamp":  "2026-10-27T00:10:45Z",
+                                     "runtime":  "opencode-v2",
+                                     "command_executed":  "opencode-v2 run --model opencode/beam-free --format json \"Responda apenas com a palavra PONG.\"",
+                                     "requested_model":  "opencode/beam-free",
+                                     "requested_tier":  "T1",
+                                     "effective_model_id":  "beam-free",
+                                     "effective_provider":  "opencode",
+                                     "outcome":  "succeeded",
+                                     "response_content":  "PONG",
+                                     "token_usage":  {
+                                                         "input":  42441,
+                                                         "output":  25,
+                                                         "reasoning":  303
+                                                     },
+                                     "verification":  {
+                                                          "verified_match":  true,
+                                                          "proof_status":  "EXACT_MATCH",
+                                                          "is_exact_match":  true,
+                                                          "is_cross_provider":  false
+                                                      },
+                                     "audit_notes":  "Sessao produtiva nativa real executada com sucesso contra o modelo gratuito Beam Free no OpenCode V2, com export de sessao e consumo de tokens registrado."
+                                 },
+    "jev_live_call":  {
+                          "live_call_attempted":  true,
+                          "environment_credentials":  {
+                                                          "JEV_API_KEY":  "ABSENT",
+                                                          "JEV_BASE_URL":  "ABSENT"
+                                                      },
+                          "proof_status":  "PROOF_ABSENT",
+                          "status":  "JEV_UNAVAILABLE",
+                          "reason":  "JEV_API_KEY absent in host environment; deterministic fallback activated (JEV_UNAVAILABLE never blocks task).",
+                          "transport_result":  {
+                                                   "status":  "JEV_UNAVAILABLE",
+                                                   "ok":  true,
+                                                   "failure":  "JEV_UNAVAILABLE",
+                                                   "consulted":  false,
+                                                   "fallback_continue":  null,
+                                                   "blocked":  false
+                                               },
+                          "authority_guard_verified":  true,
+                          "guard_result":  {
+                                               "granted":  false,
+                                               "model_selected":  false,
+                                               "done_written":  false,
+                                               "status":  "JEV_ADVISORY_CANNOT_GRANT"
+                                           }
+                      },
+    "summary":  "16 verificacoes de contrato aprovadas (16/16); 1 prova real curta de sessao produtiva comprovada no OpenCode V2 com Beam Free (ses_e854f20bfffeSk42kHTcpWr40U); chamada consultiva de Jev testada com registro explicito de PROOF_ABSENT devido a ausencia de JEV_API_KEY no ambiente host, confirmando a guarda normativa de autoridade."
 }

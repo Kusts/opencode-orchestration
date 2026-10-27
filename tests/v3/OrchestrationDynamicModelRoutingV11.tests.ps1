@@ -138,13 +138,13 @@ Assert-V11 ($fbCoderCross.FallbackProvider -eq 'opencode-go') "FallbackProvider 
 Assert-V11 ($fbCoderCross.IsCrossProvider -eq $true) "IsCrossProvider e true na transicao opencode -> opencode-go"
 
 # 3.2 Proibicao de loops e esgotamento
-$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'opencode/deepseek-v4.1-flash-free' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'opencode-custom/strong-model') -TriggerReason 'TIMEOUT'
+$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'opencode/deepseek-v4.1-flash-free' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'TIMEOUT'
 Assert-V11 ($fbCoderExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') "Fallback esgotado retorna EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 Assert-V11 ($fbCoderExhausted.IsAuthorized -eq $false) "Esgotamento nao e autorizado"
 
 # 3.3 Downgrade proibido para Reviewer
 $selRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRev -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6.1-sol', 'opencode-custom/strong-model') -TriggerReason 'QUOTA_EXCEEDED'
+$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRev -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'QUOTA_EXCEEDED'
 Assert-V11 ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "Downgrade proibido para Reviewer sob risco high"
 Assert-V11 ($fbRevDegrade.IsDowngrade -eq $true) "Tentativa marcada como downgrade proibido"
 
@@ -195,6 +195,10 @@ Assert-V11 ($selAdvDeadlockAuth.Tier -eq 'T4' -and $selAdvDeadlockAuth.selected_
 # 5.3 Astra excepcional: requer autorizacao de orcamento excepcional
 $catAstra = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } }
 Assert-V11 ($catAstra.IsAuthorized -eq $false) "Astra sem autorizacao de orcamento excepcional e recusado"
+
+$catAstraGeneral = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } } -ProviderCostAuthorized $true
+Assert-V11 ($catAstraGeneral.IsAuthorized -eq $false) "Astra com ProviderCostAuthorized=true NAO e autorizado (requer OPENCODE_ASTRA_AUTHORIZED)"
+Assert-V11 ($catAstraGeneral.CostAuthorizationSource -eq 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED') "Astra rejeitado com ASTRA_EXCEPTIONAL_BUDGET_REQUIRED"
 
 $env:OPENCODE_ASTRA_AUTHORIZED = 'true'
 $catAstraAuth = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } }
