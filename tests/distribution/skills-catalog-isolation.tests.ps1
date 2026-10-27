@@ -56,7 +56,7 @@ try {
     $b = Invoke-Target $suite $suiteArgs
     # O veredito do healthcheck falha por COREs ausentes (pre-existente), nao por skills pessoais.
     # A assercao chave: o inventario versionado continua integro (sem NOT OK de inventario).
-    Assert (($b.output -notmatch 'NOT OK - catalogo == inventario')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
+    Assert (($b.output -match 'ok - catalogo == inventario versionado')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
 
     $coreId = 'hybrid-development'
     $shadowA = Join-Path $agents $coreId
@@ -79,6 +79,7 @@ finally {
     if (Test-Path -LiteralPath $fixture) {
         Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
     }
+    Assert (-not (Test-Path -LiteralPath $fixture)) 'fixture temporaria removida ao final' $fixture
 }
 Write-Host ('PASS: ' + $pass + ' / FAIL: ' + $fail)
 if ($fail -gt 0) { exit 1 }
