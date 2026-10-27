@@ -58,7 +58,11 @@ try {
     # A assercao chave: o inventario versionado continua integro (sem NOT OK de inventario).
     # A suite sai com codigo 1 porque o healthcheck reprova os COREs ausentes (pre-existente),
     # nao por causa das skills pessoais. O invariante sob teste e a integridade do inventario.
-    Assert (($b.exit_code -eq 1) -and ($b.output -match 'ok - catalogo == inventario versionado') -and ($b.output -notmatch 'NOT OK - catalogo == inventario')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
+    # Verifica que a UNICA falha da suite e o veredito do healthcheck (COREs ausentes),
+    # sem nenhuma outra falha (inventario, schema, etc.).
+    $notOkLines = @([regex]::Matches($b.output, 'NOT OK - [^\r\n]*') | ForEach-Object { $_.Value })
+    $onlyExpectedFailure = ($notOkLines.Count -eq 1) -and ($notOkLines[0] -match 'skills-healthcheck verdict PASS')
+    Assert (($b.exit_code -eq 1) -and ($b.output -match 'ok - catalogo == inventario versionado') -and $onlyExpectedFailure) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
 
     $coreId = 'hybrid-development'
     $shadowA = Join-Path $agents $coreId
