@@ -1,5 +1,5 @@
 ﻿{
-    "timestamp":  "2026-10-27T01:05:07.2988373Z",
+    "timestamp":  "2026-10-27T02:36:44.4999705Z",
     "classification":  "CONTRACT_VERIFICATION_AND_REAL_SESSION_PROOF",
     "contract_verifications":  {
                                    "total":  17,
@@ -95,6 +95,10 @@
                                },
     "productive_session_proof":  {
                                      "proof_type":  "REAL_NATIVE_SESSION_EXPORT",
+                                     "verification_mode":  "REAL_SESSION_EXPORT_HASH_VERIFIED",
+                                     "export_accessible":  true,
+                                     "export_file":  "evidence/v3.1/model-routing/sessions/ses_e854f20bfffeSk42kHTcpWr40U.export.json",
+                                     "export_sha256":  "7F845D3424BB4656F81B5D078CCE7BF94DC692F3C8DB7B287C7361572F372B7F",
                                      "session_id":  "ses_e854f20bfffeSk42kHTcpWr40U",
                                      "timestamp":  "2026-10-27T00:10:45Z",
                                      "runtime":  "opencode-v2",
@@ -116,7 +120,7 @@
                                                           "is_exact_match":  true,
                                                           "is_cross_provider":  false
                                                       },
-                                     "audit_notes":  "Sessao produtiva nativa real executada com sucesso contra o modelo gratuito Beam Free no OpenCode V2, com export de sessao e consumo de tokens registrado."
+                                     "audit_notes":  "Sessao produtiva nativa real verificada contra o arquivo de export real (evidence/v3.1/model-routing/sessions/ses_e854f20bfffeSk42kHTcpWr40U.export.json) e seu hash SHA256 (7F845D3424BB4656F81B5D078CCE7BF94DC692F3C8DB7B287C7361572F372B7F), comprovando execucao efetiva de Beam Free no OpenCode V2 com resposta PONG e consumo de tokens registrado."
                                  },
     "jev_live_call":  {
                           "live_call_attempted":  true,

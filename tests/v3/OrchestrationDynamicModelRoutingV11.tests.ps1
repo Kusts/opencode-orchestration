@@ -136,17 +136,25 @@ Assert-V11 ($fbCoderCross.FallbackModel -eq 'opencode-go/muse-spark-1.3-contribu
 Assert-V11 ($fbCoderCross.OriginalProvider -eq 'opencode') "OriginalProvider rastreado como 'opencode'"
 Assert-V11 ($fbCoderCross.FallbackProvider -eq 'opencode-go') "FallbackProvider rastreado como 'opencode-go'"
 Assert-V11 ($fbCoderCross.IsCrossProvider -eq $true) "IsCrossProvider e true na transicao opencode -> opencode-go"
+Assert-V11 ($fbCoderCross.AttemptsCount -eq 1) "AttemptsCount rastreia 1 tentativa real"
+Assert-V11 ($fbCoderCross.ReallyAttemptedModels -contains 'opencode/deepseek-v4.1-flash-free') "ReallyAttemptedModels isola modelo que falhou"
+Assert-V11 ($fbCoderCross.PreventivelyExcluded.Count -ge 1) "PreventivelyExcluded registra candidatos descartados preventivamente"
 
 # 3.2 Proibicao de loops e esgotamento
 $fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'opencode/deepseek-v4.1-flash-free' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'TIMEOUT'
 Assert-V11 ($fbCoderExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') "Fallback esgotado retorna EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 Assert-V11 ($fbCoderExhausted.IsAuthorized -eq $false) "Esgotamento nao e autorizado"
+Assert-V11 ($fbCoderExhausted.AttemptsCount -eq 4) "AttemptsCount rastreia 4 tentativas reais"
+Assert-V11 ($fbCoderExhausted.ReallyAttemptedModels.Count -eq 4) "ReallyAttemptedModels contem exatamente os 4 modelos tentados"
 
 # 3.3 Downgrade proibido para Reviewer
 $selRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 $fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRev -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'QUOTA_EXCEEDED'
 Assert-V11 ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "Downgrade proibido para Reviewer sob risco high"
 Assert-V11 ($fbRevDegrade.IsDowngrade -eq $true) "Tentativa marcada como downgrade proibido"
+Assert-V11 ($fbRevDegrade.ReallyAttemptedModels.Count -eq 2) "ReallyAttemptedModels contem exatamente as 2 tentativas reais do Reviewer"
+$downExcl = @($fbRevDegrade.PreventivelyExcluded | Where-Object { $_.Reason -eq 'DOWNGRADE_PROHIBITED' })
+Assert-V11 ($downExcl.Count -ge 1) "PreventivelyExcluded classifica modelos inferiores como DOWNGRADE_PROHIBITED"
 
 Write-Host "=== FASE 4: VERIFICACAO POS-EXECUCAO E AUDITORIA ==="
 

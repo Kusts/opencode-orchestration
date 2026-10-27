@@ -511,7 +511,10 @@ function Resolve-OrchestrationModelFallback {
         [string[]]$AllowedProviders = @(),
 
         [Parameter(Mandatory = $false)]
-        [bool]$IgnoreUserConfig = $false
+        [bool]$IgnoreUserConfig = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = ''
     )
 
     $ignoreUser = $IgnoreUserConfig
@@ -529,48 +532,217 @@ function Resolve-OrchestrationModelFallback {
     $origModel = if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { $FailedModel } else { $reqModel }
     $origProvider = Get-ModelProviderFromId $origModel
 
-    # Build real attempt tracking set:
-    # Combines explicit AttemptedModels, FailedModel, origModel, and reqModel
-    $attemptedSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($m in $AttemptedModels) {
-        if (-not [string]::IsNullOrWhiteSpace($m)) { [void]$attemptedSet.Add($m.Trim()) }
-    }
-    if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { [void]$attemptedSet.Add($FailedModel.Trim()) }
-    if (-not [string]::IsNullOrWhiteSpace($origModel)) { [void]$attemptedSet.Add($origModel.Trim()) }
-    if (-not [string]::IsNullOrWhiteSpace($reqModel)) { [void]$attemptedSet.Add($reqModel.Trim()) }
+    # 1. Carrega politica dinamica canonica
+    $polResult = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    $policy = if ($polResult -and $polResult.Status -eq 'POLICY_LOADED') { $polResult.Policy } else { $null }
 
-    # Roster of known alternative models per tier - CANONICAL MODELS ONLY (no fictitious candidates)
-    $tierCandidates = @{
-        'T1' = @('opencode/beam-free')
-        'T2' = @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor')
-        'T3' = @('openai/gpt-6-luna')
-        'T4' = @('openai/gpt-6.1-sol', 'openai/gpt-6-astra')
+    # 2. Tracking estrito de modelos realmente tentados (passados em AttemptedModels ou FailedModel)
+    $reallyAttempted = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if ($null -ne $AttemptedModels) {
+        foreach ($m in $AttemptedModels) {
+            if (-not [string]::IsNullOrWhiteSpace($m)) { [void]$reallyAttempted.Add($m.Trim()) }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FailedModel)) {
+        [void]$reallyAttempted.Add($FailedModel.Trim())
     }
 
-    # Incorporate user catalog if present and user config is not ignored
-    if (-not $ignoreUser) {
-        $cat = if ($null -ne $ModelCatalog) { $ModelCatalog } else { Get-OrchestrationUserConfigCatalog }
-        if ($cat.ContainsKey($reqTier) -and -not [string]::IsNullOrWhiteSpace($cat[$reqTier].CatalogModel)) {
-            $customM = [string]$cat[$reqTier].CatalogModel
-            if ($tierCandidates.ContainsKey($reqTier) -and $tierCandidates[$reqTier] -notcontains $customM) {
-                if (-not $attemptedSet.Contains($customM)) {
-                    $tierCandidates[$reqTier] = @($tierCandidates[$reqTier]) + @($customM)
+    # Tracking de exclusoes preventivas (candidatos descartados antes de qualquer tentativa)
+    $preventivelyExcluded = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $RecordExclusion = {
+        param([string]$Model, [string]$Tier, [string]$Reason)
+        if ([string]::IsNullOrWhiteSpace($Model)) { return }
+        $already = $preventivelyExcluded | Where-Object { $_.Model -eq $Model -and $_.Reason -eq $Reason }
+        if (-not $already) {
+            $preventivelyExcluded.Add([pscustomobject]@{
+                Model  = $Model
+                Tier   = $Tier
+                Reason = $Reason
+            })
+        }
+    }
+
+    # Determina autorizacao de custo para T4
+    $costAuth = ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
+
+    # Admissibilidade estrita por papel do agente
+    $admiss = if ($script:AgentModelAdmissibility.ContainsKey($cleanAgent)) { $script:AgentModelAdmissibility[$cleanAgent] } else { $null }
+
+    # Funcao para obter candidatos dinamicos por tier a partir da politica efetiva
+    $GetDynamicCandidatesForTier = {
+        param([string]$TargetTier)
+        $cands = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+        if ($null -ne $policy -and $null -ne $policy.models) {
+            foreach ($prop in $policy.models.PSObject.Properties) {
+                $m = $prop.Value
+                if ($null -eq $m) { continue }
+                $mId = [string]$m.model_id
+                if ([string]::IsNullOrWhiteSpace($mId)) { continue }
+
+                $profiles = @($m.tier_profiles)
+                if ($profiles -notcontains $TargetTier) { continue }
+
+                $cands.Add([pscustomobject]@{
+                    ModelId       = $mId
+                    LogicalId     = [string]$m.id
+                    Provider      = [string]$m.provider
+                    Enabled       = [bool]$m.enabled
+                    Priority      = if ($null -ne $m.priority) { [int]$m.priority } else { 99 }
+                    EligibleRoles = @($m.eligible_roles)
+                    RequiresCost  = [bool]($m.cost_profile.requires_authorization)
+                    Exceptional   = [bool]($m.cost_profile.exceptional_budget_required)
+                    Tier          = $TargetTier
+                })
+            }
+        } else {
+            # Fallback defensivo a partir do script:DefaultModelCatalog se a politica JSON nao puder ser lida
+            if ($script:DefaultModelCatalog.ContainsKey($TargetTier)) {
+                $entry = $script:DefaultModelCatalog[$TargetTier]
+                if ($entry.CatalogModel -and $entry.CatalogModel -notmatch 'none') {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = [string]$entry.CatalogModel
+                        LogicalId     = [string]$entry.CatalogModel
+                        Provider      = [string]$entry.Provider
+                        Enabled       = $true
+                        Priority      = 1
+                        EligibleRoles = @()
+                        RequiresCost  = ($TargetTier -eq 'T4')
+                        Exceptional   = $false
+                        Tier          = $TargetTier
+                    })
+                }
+                if ($entry.AlternativeModel) {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = [string]$entry.AlternativeModel
+                        LogicalId     = [string]$entry.AlternativeModel
+                        Provider      = Get-ModelProviderFromId $entry.AlternativeModel
+                        Enabled       = $true
+                        Priority      = 2
+                        EligibleRoles = @()
+                        RequiresCost  = $false
+                        Exceptional   = $false
+                        Tier          = $TargetTier
+                    })
+                }
+                if ($entry.ExceptionalModel) {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = [string]$entry.ExceptionalModel
+                        LogicalId     = [string]$entry.ExceptionalModel
+                        Provider      = Get-ModelProviderFromId $entry.ExceptionalModel
+                        Enabled       = $true
+                        Priority      = 2
+                        EligibleRoles = @()
+                        RequiresCost  = $true
+                        Exceptional   = $true
+                        Tier          = $TargetTier
+                    })
                 }
             }
         }
-    }
 
-    # Filter candidates by AllowedProviders if specified
-    $FilterByAllowedProviders = {
-        param([string[]]$Cands)
-        if ($null -eq $AllowedProviders -or $AllowedProviders.Count -eq 0) {
-            return @($Cands)
+        # Incorporacao de modelo customizado do catalogo do usuario se houver e nao estiver ignorando
+        if (-not $ignoreUser) {
+            $cat = if ($null -ne $ModelCatalog) { $ModelCatalog } else { Get-OrchestrationUserConfigCatalog }
+            if ($null -ne $cat -and $cat.ContainsKey($TargetTier) -and -not [string]::IsNullOrWhiteSpace($cat[$TargetTier].CatalogModel)) {
+                $userModel = [string]$cat[$TargetTier].CatalogModel
+                $exists = $cands | Where-Object { $_.ModelId -eq $userModel }
+                if (-not $exists) {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = $userModel
+                        LogicalId     = $userModel
+                        Provider      = (Get-ModelProviderFromId $userModel)
+                        Enabled       = $true
+                        Priority      = 50
+                        EligibleRoles = @()
+                        RequiresCost  = ($TargetTier -eq 'T4')
+                        Exceptional   = ($userModel -match 'astra')
+                        Tier          = $TargetTier
+                    })
+                }
+            }
         }
-        return @($Cands | Where-Object { $AllowedProviders -contains (Get-ModelProviderFromId $_) })
+
+        return @($cands | Sort-Object Priority)
     }
 
-    # Retrieve agent admissibility
-    $admiss = if ($script:AgentModelAdmissibility.ContainsKey($cleanAgent)) { $script:AgentModelAdmissibility[$cleanAgent] } else { $null }
+    # Avaliacao de candidatos contra regras da politica efetiva
+    $EvaluateCandidate = {
+        param([pscustomobject]$CandObj)
+        $mId = $CandObj.ModelId
+        $tier = $CandObj.Tier
+
+        # 1. Se ja foi realmente tentado (em AttemptedModels ou FailedModel)
+        if ($reallyAttempted.Contains($mId)) {
+            & $RecordExclusion $mId $tier 'ALREADY_ATTEMPTED'
+            return $null
+        }
+
+        # 2. Se e o modelo original que falhou nesta rodada ou requisitado diretamente
+        if ($mId -eq $origModel -or ($reallyAttempted.Count -eq 0 -and $mId -eq $reqModel)) {
+            & $RecordExclusion $mId $tier 'CURRENT_REQUESTED_MODEL'
+            return $null
+        }
+
+        # 3. Se o modelo esta administrativamente desabilitado na politica
+        if (-not $CandObj.Enabled) {
+            & $RecordExclusion $mId $tier 'MODEL_DISABLED'
+            return $null
+        }
+
+        # 4. Se o provider esta administrativamente desabilitado na politica
+        if ($null -ne $policy -and $null -ne $policy.providers) {
+            $provProp = $policy.providers.PSObject.Properties[$CandObj.Provider]
+            if ($null -ne $provProp -and $null -ne $provProp.Value -and $provProp.Value.enabled -eq $false) {
+                & $RecordExclusion $mId $tier 'PROVIDER_DISABLED'
+                return $null
+            }
+        }
+
+        # 5. Se AllowedProviders foi informado e nao inclui o provider do candidato
+        if ($null -ne $AllowedProviders -and $AllowedProviders.Count -gt 0) {
+            if ($AllowedProviders -notcontains $CandObj.Provider) {
+                & $RecordExclusion $mId $tier 'PROVIDER_NOT_ALLOWED'
+                return $null
+            }
+        }
+
+        # 6. Admissibilidade por papel do agente (eligible_roles no modelo)
+        if ($CandObj.EligibleRoles.Count -gt 0 -and $CandObj.EligibleRoles -notcontains $cleanAgent) {
+            & $RecordExclusion $mId $tier 'AGENT_NOT_ELIGIBLE'
+            return $null
+        }
+
+        # 7. Admissibilidade por tier do agente ($admiss)
+        if ($null -ne $admiss) {
+            if ($admiss.ProhibitedTiers -contains $tier) {
+                & $RecordExclusion $mId $tier 'AGENT_NOT_ELIGIBLE'
+                return $null
+            }
+            if ($admiss.AdmissibleTiers.Count -gt 0 -and $admiss.AdmissibleTiers -notcontains $tier) {
+                & $RecordExclusion $mId $tier 'AGENT_NOT_ELIGIBLE'
+                return $null
+            }
+        }
+
+        # 8. Autorizacao de custo para T4
+        if ($tier -eq 'T4' -or $CandObj.RequiresCost) {
+            if (-not $costAuth) {
+                & $RecordExclusion $mId $tier 'UNAUTHORIZED_T4_COST'
+                return $null
+            }
+        }
+
+        # 9. Autorizacao excepcional para Astra
+        if ($CandObj.Exceptional -or $mId -match 'astra') {
+            if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ine 'true') {
+                & $RecordExclusion $mId $tier 'UNAUTHORIZED_ASTRA_EXCEPTIONAL'
+                return $null
+            }
+        }
+
+        return $CandObj
+    }
 
     # Helper function to build success result
     $BuildAuthorizedResult = {
@@ -591,35 +763,28 @@ function Resolve-OrchestrationModelFallback {
             Reason                 = $ReasonMsg
             AuthorizationSource    = 'ROUTER_POLICY'
             ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
-            AttemptsCount          = ($attemptedSet.Count)
+            AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
             IsDowngrade            = $IsDown
+            ReallyAttemptedModels  = @($reallyAttempted)
+            PreventivelyExcluded   = @($preventivelyExcluded)
         }
     }
 
-    # Fallback policy per agent role:
-    # 1. Reviewer / Security-Reviewer: Downgrade below admitted tiers is strictly prohibited!
+    # Politica de fallback por papel e regras de admissibilidade:
+    # 1. Reviewer / Security-Reviewer: Downgrade abaixo dos tiers admitidos e estritamente proibido!
     if ($cleanAgent -in @('reviewer', 'security-reviewer')) {
         $isDowngradeProhibited = $true
         if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -eq 'low') {
             $isDowngradeProhibited = $false
         }
 
-        # Check alternative candidates in same tier ($reqTier)
-        $candidates = @()
-        if ($tierCandidates.ContainsKey($reqTier)) {
-            $rawCands = @($tierCandidates[$reqTier] | Where-Object { -not $attemptedSet.Contains($_) })
-            $candidates = @(& $FilterByAllowedProviders $rawCands)
-        }
-
+        # Tenta candidatos no mesmo tier ($reqTier)
+        $sameTierCands = & $GetDynamicCandidatesForTier $reqTier
         $validSameTierCand = $null
-        foreach ($c in $candidates) {
-            if ($c -match 'astra') {
-                if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
-                    $validSameTierCand = $c
-                    break
-                }
-            } else {
-                $validSameTierCand = $c
+        foreach ($cand in $sameTierCands) {
+            $valid = & $EvaluateCandidate $cand
+            if ($null -ne $valid) {
+                $validSameTierCand = $valid.ModelId
                 break
             }
         }
@@ -628,26 +793,25 @@ function Resolve-OrchestrationModelFallback {
             return (& $BuildAuthorizedResult $validSameTierCand $reqTier "Router authorized same-tier fallback to '$validSameTierCand' for agent '$cleanAgent'." $false)
         }
 
-        # No same-tier alternative. Check if Reviewer can escalate to T4 if cost authorized
+        # Sem alternativa no mesmo tier. Reviewer pode escalar para T4 se autorizado por custo
         if ($cleanAgent -eq 'reviewer' -and $reqTier -eq 'T3') {
-            $costAuth = ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
-            if ($costAuth -and $tierCandidates.ContainsKey('T4')) {
-                $rawT4 = @($tierCandidates['T4'] | Where-Object { -not $attemptedSet.Contains($_) })
-                $t4Cands = @(& $FilterByAllowedProviders $rawT4)
-                foreach ($c in $t4Cands) {
-                    if ($c -match 'astra') {
-                        if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
-                            return (& $BuildAuthorizedResult $c 'T4' "Router authorized tier escalation to '$c' (T4) for agent '$cleanAgent'." $false)
-                        }
-                    } else {
-                        return (& $BuildAuthorizedResult $c 'T4' "Router authorized tier escalation to '$c' (T4) for agent '$cleanAgent'." $false)
-                    }
+            $t4Cands = & $GetDynamicCandidatesForTier 'T4'
+            foreach ($cand in $t4Cands) {
+                $valid = & $EvaluateCandidate $cand
+                if ($null -ne $valid) {
+                    return (& $BuildAuthorizedResult $valid.ModelId 'T4' "Router authorized tier escalation to '$($valid.ModelId)' (T4) for agent '$cleanAgent'." $false)
                 }
             }
         }
 
-        # No alternative. If downgrade requested/attempted, reject fail-closed
+        # Se downgrade for proibido, registra preventivamente os modelos de tiers inferiores e rejeita fail-closed
         if ($isDowngradeProhibited) {
+            foreach ($lowerTier in @('T2', 'T1')) {
+                $lowerCands = & $GetDynamicCandidatesForTier $lowerTier
+                foreach ($lc in $lowerCands) {
+                    & $RecordExclusion $lc.ModelId $lowerTier 'DOWNGRADE_PROHIBITED'
+                }
+            }
             return [pscustomobject]@{
                 Status                 = 'REJECTED_DOWNGRADE_FORBIDDEN'
                 IsAuthorized           = $false
@@ -662,58 +826,43 @@ function Resolve-OrchestrationModelFallback {
                 Reason                 = "Downgrade below tier $reqTier for agent '$cleanAgent' is prohibited by security policy."
                 AuthorizationSource    = 'ROUTER_POLICY'
                 ProviderCostAuthorized = $false
-                AttemptsCount          = ($attemptedSet.Count)
+                AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
                 IsDowngrade            = $true
+                ReallyAttemptedModels  = @($reallyAttempted)
+                PreventivelyExcluded   = @($preventivelyExcluded)
             }
         }
     }
 
-    # 2. General agent fallback: try same tier first
-    $sameTierCandidates = @()
-    if ($tierCandidates.ContainsKey($reqTier)) {
-        $rawSame = @($tierCandidates[$reqTier] | Where-Object { -not $attemptedSet.Contains($_) })
-        $sameTierCandidates = @(& $FilterByAllowedProviders $rawSame)
-    }
-
-    foreach ($cand in $sameTierCandidates) {
-        if ($cand -match 'astra') {
-            if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
-                return (& $BuildAuthorizedResult $cand $reqTier "Router authorized same-tier alternative '$cand' for agent '$cleanAgent'." $false)
-            }
-            # Skip Astra if exceptional budget not authorized
-        } else {
-            return (& $BuildAuthorizedResult $cand $reqTier "Router authorized same-tier alternative '$cand' for agent '$cleanAgent'." $false)
+    # 2. Agentes gerais: tenta candidatos no mesmo tier primeiro
+    $sameTierCands = & $GetDynamicCandidatesForTier $reqTier
+    foreach ($cand in $sameTierCands) {
+        $valid = & $EvaluateCandidate $cand
+        if ($null -ne $valid) {
+            return (& $BuildAuthorizedResult $valid.ModelId $reqTier "Router authorized same-tier alternative '$($valid.ModelId)' for agent '$cleanAgent'." $false)
         }
     }
 
-    # 3. If same tier is exhausted, check if agent allows upgrade (e.g. Coder T2 -> T3, if admitted and permitted)
+    # 3. Se o mesmo tier esta esgotado, verifica se o agente permite escalonamento de tier (upgrade)
     if ($null -ne $admiss) {
-        $allowed = @($admiss.AdmissibleTiers)
-        $nextTier = switch ($reqTier) {
-            'T1' { 'T2' }
-            'T2' { 'T3' }
-            'T3' { if ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') { 'T4' } else { $null } }
-            default { $null }
+        $candidateUpgradeTiers = switch ($reqTier) {
+            'T1' { @('T2', 'T3', 'T4') }
+            'T2' { @('T3', 'T4') }
+            'T3' { @('T4') }
+            default { @() }
         }
-        if ($null -ne $nextTier -and $allowed -contains $nextTier -and $tierCandidates.ContainsKey($nextTier)) {
-            $rawUp = @($tierCandidates[$nextTier] | Where-Object { -not $attemptedSet.Contains($_) })
-            $upCandidates = @(& $FilterByAllowedProviders $rawUp)
-            foreach ($candUp in $upCandidates) {
-                if ($candUp -match 'astra') {
-                    if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true') {
-                        return (& $BuildAuthorizedResult $candUp $nextTier "Router authorized tier escalation to '$candUp' ($nextTier) for agent '$cleanAgent'." $false)
-                    }
-                } else {
-                    $costAuth = ($nextTier -ne 'T4' -or $ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
-                    if ($costAuth) {
-                        return (& $BuildAuthorizedResult $candUp $nextTier "Router authorized tier escalation to '$candUp' ($nextTier) for agent '$cleanAgent'." $false)
-                    }
+        foreach ($nextTier in $candidateUpgradeTiers) {
+            $upCands = & $GetDynamicCandidatesForTier $nextTier
+            foreach ($candUp in $upCands) {
+                $validUp = & $EvaluateCandidate $candUp
+                if ($null -ne $validUp) {
+                    return (& $BuildAuthorizedResult $validUp.ModelId $nextTier "Router authorized tier escalation to '$($validUp.ModelId)' ($nextTier) for agent '$cleanAgent'." $false)
                 }
             }
         }
     }
 
-    # 4. If all options exhausted
+    # 4. Se todas as opcoes foram esgotadas
     return [pscustomobject]@{
         Status                 = 'EXHAUSTED_NO_ELIGIBLE_FALLBACK'
         IsAuthorized           = $false
@@ -728,8 +877,10 @@ function Resolve-OrchestrationModelFallback {
         Reason                 = "All admissible and authorized fallback models for agent '$cleanAgent' have been exhausted."
         AuthorizationSource    = 'ROUTER_POLICY'
         ProviderCostAuthorized = $false
-        AttemptsCount          = ($AttemptedModels.Count + 1)
+        AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
         IsDowngrade            = $false
+        ReallyAttemptedModels  = @($reallyAttempted)
+        PreventivelyExcluded   = @($preventivelyExcluded)
     }
 }
 

@@ -170,23 +170,40 @@ Assert-Router ($fbCoderSameTier.Status -eq 'AUTHORIZED') "A.11.1: Fallback autor
 Assert-Router ($fbCoderSameTier.FallbackModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.11.1: Fallback seleciona Muse Spark (sem candidato ficticio)"
 Assert-Router ($fbCoderSameTier.FallbackTier -eq 'T2') "A.11.1: Fallback ocorre dentro do Tier T2"
 Assert-Router ($fbCoderSameTier.IsCrossProvider -eq $true) "A.11.1: Transicao cross-provider opencode -> opencode-go rastreada"
+Assert-Router ($fbCoderSameTier.AttemptsCount -eq 1) "A.11.1: AttemptsCount reflete apenas modelos realmente tentados (1)"
+Assert-Router ($fbCoderSameTier.ReallyAttemptedModels.Count -eq 1 -and $fbCoderSameTier.ReallyAttemptedModels -contains 'opencode/deepseek-v4.1-flash-free') "A.11.1: ReallyAttemptedModels rastreia modelo que falhou"
+Assert-Router ($fbCoderSameTier.PreventivelyExcluded.Count -ge 1) "A.11.1: PreventivelyExcluded registra candidatos descartados preventivamente"
 
 # 11.2 Esgotamento do Tier T2 -> Escalonamento para T3 Luna
 $fbCoderEscalateT3 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbCoderEscalateT3.Status -eq 'AUTHORIZED') "A.11.2: Quando T2 se esgota, Coder escala para T3"
 Assert-Router ($fbCoderEscalateT3.FallbackModel -eq 'openai/gpt-6-luna') "A.11.2: Escala para GPT-6 Luna canonico"
 Assert-Router ($fbCoderEscalateT3.FallbackTier -eq 'T3') "A.11.2: FallbackTier rastreado como T3"
+Assert-Router ($fbCoderEscalateT3.AttemptsCount -eq 2) "A.11.2: AttemptsCount reflete exatamente as 2 tentativas reais anteriores"
+Assert-Router ($fbCoderEscalateT3.ReallyAttemptedModels.Count -eq 2) "A.11.2: ReallyAttemptedModels contem exatamente as 2 tentativas reais"
 
 # 11.3 Esgotamento de T2 e T3 sem autorizacao de T4 -> EXHAUSTED_NO_ELIGIBLE_FALLBACK
 $fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') -ProviderCostAuthorized $false -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbCoderExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') "A.11.3: Tentativas esgotadas retornam EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 Assert-Router ($fbCoderExhausted.IsAuthorized -eq $false) "A.11.3: Esgotamento nao e autorizado"
+Assert-Router ($fbCoderExhausted.AttemptsCount -eq 3) "A.11.3: AttemptsCount reflete exatamente as 3 tentativas reais"
+$solExclusion = $fbCoderExhausted.PreventivelyExcluded | Where-Object { $_.Model -eq 'openai/gpt-6.1-sol' }
+Assert-Router ($null -ne $solExclusion -and $solExclusion.Reason -in @('AGENT_NOT_ELIGIBLE', 'UNAUTHORIZED_T4_COST')) "A.11.3: Sol excluido preventivamente por custo/elegibilidade"
 
 # 11.4 Invariante Anti-Downgrade para Reviewer (High Risk)
 $selRevHighCan = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 $fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevHighCan -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "A.11.4: Reviewer sob risco high proibe downgrade para T2 (sem modelos ficticios)"
 Assert-Router ($fbRevDegrade.IsDowngrade -eq $true) "A.11.4: Marcado como tentativa de downgrade proibido"
+Assert-Router ($fbRevDegrade.ReallyAttemptedModels.Count -eq 2) "A.11.4: ReallyAttemptedModels contem exatamente Luna e Sol"
+$downgradeExclusions = @($fbRevDegrade.PreventivelyExcluded | Where-Object { $_.Reason -eq 'DOWNGRADE_PROHIBITED' })
+Assert-Router ($downgradeExclusions.Count -ge 1) "A.11.4: Modelos de T2/T1 registrados preventivamente com motivo DOWNGRADE_PROHIBITED"
+
+# 11.5 Filtro de AllowedProviders registra exclusao preventiva PROVIDER_NOT_ALLOWED
+$fbAllowed = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode/deepseek-v4.1-flash-free' -AllowedProviders @('opencode') -IgnoreUserConfig $true
+Assert-Router ($fbAllowed.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') "A.11.5: Sem alternativa no provider permitido esgota fallback"
+$museExcl = $fbAllowed.PreventivelyExcluded | Where-Object { $_.Model -eq 'opencode-go/muse-spark-1.3-contributor' }
+Assert-Router ($null -ne $museExcl -and $museExcl.Reason -eq 'PROVIDER_NOT_ALLOWED') "A.11.5: Muse excluido preventivamente como PROVIDER_NOT_ALLOWED"
 
 # A.12 Verificacao Pos-Execucao (Contract Verification)
 $vExact = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode/deepseek-v4.1-flash-free' } -NativeModelOverrideProven $true
@@ -217,8 +234,18 @@ Assert-Router ($vT0Llm.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vT0Llm.Veri
 Write-Host "`n=== SECAO B: TESTES DE COMPATIBILIDADE (USER CONFIG & OVERRIDES) ==="
 
 # B.1 Compatibilidade de models.example.jsonc
-$examplePath = Join-Path (Get-Location) 'models.example.jsonc'
-Assert-Router (Test-Path -LiteralPath $examplePath -PathType Leaf) "B.1: models.example.jsonc existe no repositorio"
+$exampleCandPaths = @(
+    (Join-Path (Get-Location) 'models.example.jsonc'),
+    (Join-Path $PSScriptRoot '..\..\..\models.example.jsonc')
+)
+$examplePath = $null
+foreach ($cp in $exampleCandPaths) {
+    if (Test-Path -LiteralPath $cp -PathType Leaf) {
+        $examplePath = (Resolve-Path -LiteralPath $cp).Path
+        break
+    }
+}
+Assert-Router ($null -ne $examplePath -and (Test-Path -LiteralPath $examplePath -PathType Leaf)) "B.1: models.example.jsonc existe no repositorio"
 $rawExample = Get-Content -LiteralPath $examplePath -Raw
 $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample

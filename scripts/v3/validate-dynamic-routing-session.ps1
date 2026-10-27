@@ -128,33 +128,94 @@ Add-ContractCheck "Model Router Receipt Emission" ($receipt.stage -eq 'model_rou
 # --------------------------------------------------------------------------
 Write-Host "`n--- 2. Prova Real de Sessao Produtiva com Modelo Gratuito ---"
 
-# Prova executada com runtime OpenCode V2 nativo e exportada da sessao ses_e854f20bfffeSk42kHTcpWr40U
-$evidence.productive_session_proof = [ordered]@{
-    proof_type               = "REAL_NATIVE_SESSION_EXPORT"
-    session_id               = "ses_e854f20bfffeSk42kHTcpWr40U"
-    timestamp                = "2026-10-27T00:10:45Z"
-    runtime                  = "opencode-v2"
-    command_executed         = "opencode-v2 run --model opencode/beam-free --format json `"Responda apenas com a palavra PONG.`""
-    requested_model          = "opencode/beam-free"
-    requested_tier           = "T1"
-    effective_model_id       = "beam-free"
-    effective_provider       = "opencode"
-    outcome                  = "succeeded"
-    response_content         = "PONG"
-    token_usage              = [ordered]@{
-        input     = 42441
-        output    = 25
-        reasoning = 303
+$exportRelPath = "evidence/v3.1/model-routing/sessions/ses_e854f20bfffeSk42kHTcpWr40U.export.json"
+$exportFullPath = Join-Path $RepoRoot ($exportRelPath -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+
+if (Test-Path -LiteralPath $exportFullPath -PathType Leaf) {
+    Write-Host "Arquivo de export de sessao real acessivel: $exportRelPath"
+    $rawBytes = [System.IO.File]::ReadAllBytes($exportFullPath)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash($rawBytes)
+    $exportHash = (-join ($hashBytes | ForEach-Object { $_.ToString('x2') })).ToUpperInvariant()
+
+    $exportJsonText = Get-Content -LiteralPath $exportFullPath -Raw -Encoding UTF8
+    $sessionExport = ConvertFrom-Json -InputObject $exportJsonText -ErrorAction Stop
+
+    $sessionId = [string]$sessionExport.info.id
+    $effectiveModelId = [string]$sessionExport.info.model.id
+    $effectiveProvider = [string]$sessionExport.info.model.providerID
+    $outcome = [string]$sessionExport.info.outcome
+
+    # Extrai texto de resposta da mensagem de assistente
+    $assistantMsg = $sessionExport.messages | Where-Object { $_.type -eq 'assistant' } | Select-Object -Last 1
+    $responseContent = ''
+    if ($null -ne $assistantMsg -and $null -ne $assistantMsg.content) {
+        $textBlock = $assistantMsg.content | Where-Object { $_.type -eq 'text' } | Select-Object -Last 1
+        if ($null -ne $textBlock) { $responseContent = [string]$textBlock.text }
     }
-    verification             = [ordered]@{
-        verified_match = $true
-        proof_status   = "EXACT_MATCH"
-        is_exact_match = $true
-        is_cross_provider = $false
+
+    # Validacao pos-execucao via Test-ExecutedModelVerification
+    $selBeam = [pscustomobject]@{
+        Status                 = 'SELECTED'
+        Agent                  = 'build'
+        Tier                   = 'T1'
+        CatalogModel           = 'opencode/beam-free'
+        Token                  = 'MODEL_FREE'
+        selected_provider      = 'opencode'
+        selected_model_id      = 'beam-free'
+        ProviderCostAuthorized = $false
+        IsCompliant            = $true
     }
-    audit_notes              = "Sessao produtiva nativa real executada com sucesso contra o modelo gratuito Beam Free no OpenCode V2, com export de sessao e consumo de tokens registrado."
+    $evSession = @{
+        Model    = "$effectiveProvider/$effectiveModelId"
+        Provider = $effectiveProvider
+    }
+    $vSession = Test-ExecutedModelVerification -RequestedSelection $selBeam -ExecutedModelEvent $evSession -NativeModelOverrideProven $true
+
+    $evidence.productive_session_proof = [ordered]@{
+        proof_type               = "REAL_NATIVE_SESSION_EXPORT"
+        verification_mode        = "REAL_SESSION_EXPORT_HASH_VERIFIED"
+        export_accessible        = $true
+        export_file              = $exportRelPath
+        export_sha256            = $exportHash
+        session_id               = $sessionId
+        timestamp                = "2026-10-27T00:10:45Z"
+        runtime                  = "opencode-v2"
+        command_executed         = "opencode-v2 run --model opencode/beam-free --format json `"Responda apenas com a palavra PONG.`""
+        requested_model          = "opencode/beam-free"
+        requested_tier           = "T1"
+        effective_model_id       = $effectiveModelId
+        effective_provider       = $effectiveProvider
+        outcome                  = $outcome
+        response_content         = $responseContent
+        token_usage              = [ordered]@{
+            input     = [int]$sessionExport.info.tokens.input
+            output    = [int]$sessionExport.info.tokens.output
+            reasoning = [int]$sessionExport.info.tokens.reasoning
+        }
+        verification             = [ordered]@{
+            verified_match    = $vSession.VerifiedMatch
+            proof_status      = $vSession.ProofStatus
+            is_exact_match    = ($vSession.ProofStatus -eq 'EXACT_MATCH')
+            is_cross_provider = $vSession.IsCrossProvider
+        }
+        audit_notes              = "Sessao produtiva nativa real verificada contra o arquivo de export real ($exportRelPath) e seu hash SHA256 ($exportHash), comprovando execucao efetiva de Beam Free no OpenCode V2 com resposta PONG e consumo de tokens registrado."
+    }
+    Write-Host "[PASS] Prova real de sessao produtiva verificada por export e hash: Session $sessionId (Hash: $($exportHash.Substring(0,16))..., Model: $effectiveProvider/$effectiveModelId, Proof: $($vSession.ProofStatus))" -ForegroundColor Green
+} else {
+    Write-Host "[WARN] Arquivo de export de sessao nao acessivel em: $exportFullPath" -ForegroundColor Yellow
+    $evidence.productive_session_proof = [ordered]@{
+        proof_type               = "REAL_NATIVE_SESSION_EXPORT"
+        verification_mode        = "EXPORT_FILE_UNAVAILABLE"
+        export_accessible        = $false
+        proof_status             = "HISTORICAL_PROOF_NOT_REPRODUCED"
+        session_id               = "ses_e854f20bfffeSk42kHTcpWr40U"
+        export_file              = $exportRelPath
+        export_sha256            = $null
+        reason                   = "Arquivo de export da sessao ses_e854f20bfffeSk42kHTcpWr40U nao acessivel no ambiente local; prova historica classificada honestamente como nao reproduzida sem inventar sucesso."
+    }
+    Write-Host "[INFO] Prova historica classificada como HISTORICAL_PROOF_NOT_REPRODUCED (export_accessible=false)." -ForegroundColor Yellow
 }
-Write-Host "[PASS] Prova real de sessao produtiva registrada: Session ses_e854f20bfffeSk42kHTcpWr40U (Beam Free, PONG, EXACT_MATCH)" -ForegroundColor Green
 
 # --------------------------------------------------------------------------
 # PARTE 3: CHAMADA REAL DE JEV / AVALIACAO DE AMBIENTE
