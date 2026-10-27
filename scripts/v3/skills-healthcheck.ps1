@@ -41,7 +41,14 @@ function Get-SkillDirs([string]$Root) {
     try { $present = (Test-Path -LiteralPath $skillFile -PathType Leaf) } catch { $present = $false }
     $hash = ''
     if ($present) {
-      try { $hash = ((Get-FileHash -LiteralPath $skillFile -Algorithm SHA256).Hash).ToLowerInvariant() } catch { $hash = '' }
+      try {
+        $stream = [IO.File]::OpenRead($skillFile)
+        try {
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try { $bytes = $sha.ComputeHash($stream) } finally { $sha.Dispose() }
+        } finally { $stream.Dispose() }
+        $hash = ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+      } catch { $hash = '' }
     }
     $out += [ordered]@{ id = $d.Name; present = [bool]$present; sha256 = $hash }
   }

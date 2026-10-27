@@ -39,11 +39,24 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $personalA 'SKILL.md'), '# personal-a', (New-Object Text.UTF8Encoding $false))
     [IO.File]::WriteAllText((Join-Path $personalO 'SKILL.md'), '# personal-o', (New-Object Text.UTF8Encoding $false))
+    # Scaffolding: instala as CORE skills ausentes do repo-core no root agents,
+    # simulando o que o instalador real faz em ~/.agents/skills, para que o gate
+    # CORE passe e o teste isole apenas o efeito das skills pessoais.
+    $repoCoreRoot = Join-Path $root 'skills-core'
+    $catalogObj = Get-Content (Join-Path $root 'source\registry\skills-catalog.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($e in @($catalogObj.skills | Where-Object { [string]$_.classification -ceq 'CORE' })) {
+        $coreId = [string]$e.id
+        $repoCoreSkill = Join-Path $repoCoreRoot (Join-Path $coreId 'SKILL.md')
+        if (Test-Path -LiteralPath $repoCoreSkill -PathType Leaf) { continue }
+        $coreDir = Join-Path $agents $coreId
+        New-Item -ItemType Directory -Path $coreDir -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $coreDir 'SKILL.md'), ('# ' + $coreId), (New-Object Text.UTF8Encoding $false))
+    }
     $argsHealth = @('-Json', '-AgentsSkillsRoot', $agents, '-OpencodeSkillsRoot', $opencode, '-ProjectSkillsRoot', $project)
     $a = Invoke-Target $health $argsHealth
     $ja = $null
     try { $ja = $a.output | ConvertFrom-Json } catch { }
-    Assert (($a.exit_code -eq 0) -and ($null -ne $ja) -and ($ja.verdict -ceq 'PASS') -and ($ja.skills.total_discovered -eq 3)) 'healthcheck aceita skills pessoais extras e registra invalid observacional' $a.output
+    Assert (($a.exit_code -eq 0) -and ($null -ne $ja) -and ($ja.verdict -ceq 'PASS') -and ($ja.skills.total_discovered -eq 8)) 'healthcheck aceita skills pessoais extras e registra invalid observacional' $a.output
 
     $suiteArgs = @('-AgentsSkillsRoot', $agents, '-OpencodeSkillsRoot', $opencode, '-ProjectSkillsRoot', $project)
     $b = Invoke-Target $suite $suiteArgs
