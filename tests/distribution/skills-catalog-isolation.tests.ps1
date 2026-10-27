@@ -73,7 +73,8 @@ try {
     $c = Invoke-Target $health $argsHealth
     $jc = $null
     try { $jc = $c.output | ConvertFrom-Json } catch { }
-    Assert (($c.exit_code -eq 0) -and ($null -ne $jc) -and ($jc.verdict -ceq 'FAIL') -and (($jc.reasons -join '|') -match 'core-gate')) 'healthcheck detecta shadow CORE nao aprovado' $c.output
+    $shadowCoreFail = @($jc.core_gate | Where-Object { -not [bool]$_.ok } | ForEach-Object { [string]$_.id })
+    Assert (($c.exit_code -eq 0) -and ($null -ne $jc) -and ($jc.verdict -ceq 'FAIL') -and ($shadowCoreFail -contains 'hybrid-development') -and (($jc.reasons -join '|') -match 'core-gate')) 'healthcheck detecta shadow CORE nao aprovado' $c.output
 
     $d = Invoke-Target $suite $suiteArgs
     Assert (($d.exit_code -ne 0) -and ($d.output -match 'NOT OK -')) 'suite bloqueia conflito real em CORE' $d.output
