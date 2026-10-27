@@ -56,7 +56,9 @@ try {
     $b = Invoke-Target $suite $suiteArgs
     # O veredito do healthcheck falha por COREs ausentes (pre-existente), nao por skills pessoais.
     # A assercao chave: o inventario versionado continua integro (sem NOT OK de inventario).
-    Assert (($b.output -match 'ok - catalogo == inventario versionado')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
+    # A suite sai com codigo 1 porque o healthcheck reprova os COREs ausentes (pre-existente),
+    # nao por causa das skills pessoais. O invariante sob teste e a integridade do inventario.
+    Assert (($b.exit_code -eq 1) -and ($b.output -match 'ok - catalogo == inventario versionado') -and ($b.output -notmatch 'NOT OK - catalogo == inventario')) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
 
     $coreId = 'hybrid-development'
     $shadowA = Join-Path $agents $coreId
