@@ -1,0 +1,19 @@
+{
+  "task": "model-routing-v1.2-terra",
+  "date": "2026-10-27",
+  "model": "openai/gpt-6.1-terra",
+  "provider": "openai",
+  "proof_status": "PROOF_ABSENT",
+  "reason": "No OpenAI API credentials/authorization available in this environment; Terra registration and routing validated structurally only.",
+  "validated": [
+    "Policy registry entry (enabled, T3, usage_billed, visual capabilities)",
+    "Router catalog includes terra in T3 candidates",
+    "Router selection of terra for eligible visual tasks (RequiresVisualAnalysis/TaskType)",
+    "Provider resolution via Get-ModelProviderFromId -> openai"
+  ],
+  "not_validated": [
+    "Live Responses API tool execution",
+    "Real visual task execution",
+    "Cost/usage billing"
+  ]
+}

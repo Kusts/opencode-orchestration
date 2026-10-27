@@ -111,9 +111,10 @@ Esta SPEC trata exclusivamente de roteamento de modelos e integração consultiv
 
 | ID lógico | Modelo | Provider/model ID inicial | Tier |
 |---|---|---|---|
-| beam | Beam Free | `opencode/beam-free` | T1 |
-| deepseek | DeepSeek V4.1 Flash Free | `opencode/deepseek-v4.1-flash-free` | T2 |
+| beam | Beam Free | `opencode-go/beam-free` | T1 |
+| deepseek | DeepSeek V4.1 Flash Free (desabilitado/legado) | `opencode/deepseek-v4.1-flash-free` | T2 (disabled) |
 | muse | Muse Spark 1.3 Contributor | `opencode-go/muse-spark-1.3-contributor` | T2 |
+| terra | GPT-6.1 Terra | `openai/gpt-6.1-terra` | T3 (especializado visual) |
 | luna | GPT-6 Luna | `openai/gpt-6-luna` | T3 |
 | sol | GPT-6.1 Sol | `openai/gpt-6.1-sol` | T4 |
 | astra | GPT-6 Astra | `openai/gpt-6-astra` | T4 excepcional |

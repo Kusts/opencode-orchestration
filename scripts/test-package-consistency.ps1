@@ -540,7 +540,11 @@ try {
       [void]$errs16.Add('sidecar com formato invalido (esperado SHA256 hex 64 chars + newline)')
     }
     elseif ((Test-Path -LiteralPath $bundle16 -PathType Leaf)) {
-      $h16 = ((Get-FileHash -LiteralPath $bundle16 -Algorithm SHA256).Hash).ToLowerInvariant()
+      $bytes16 = [System.IO.File]::ReadAllBytes($bundle16)
+      $sha16 = [System.Security.Cryptography.SHA256]::Create()
+      $hashBytes16 = $sha16.ComputeHash($bytes16)
+      $h16 = ([BitConverter]::ToString($hashBytes16)).Replace('-', '')
+      $h16 = $h16.ToLowerInvariant()
       if ($hex16.ToLowerInvariant() -cne $h16) {
         [void]$errs16.Add(('sidecar diverge do bundle (sidecar=' + $hex16 + ' bundle=' + $h16 + '); regenere com scripts\build-plugin.ps1'))
       }
