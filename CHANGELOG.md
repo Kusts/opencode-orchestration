@@ -6,6 +6,37 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Dynamic Model Routing & Intelligent Advisory v1.1 (2026-10-26)**:
+  - **Especificação Canônica e Plano Completo:**
+    - Documentação integral da especificação em [`docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md`](file:///docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md) e do plano executivo em [`docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md`](file:///docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md), com inventário de baseline em [`docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-INVENTORY.md`](file:///docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-INVENTORY.md) e atualização do índice [`docs/specs/INDEX.md`](file:///docs/specs/INDEX.md).
+  - **Catálogo Canônico e Providers Independentes (ADR-01 a ADR-05):**
+    - Criação de [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json) (schema `model-routing-policy/v1`, versão `1.1.0`), registrando 6 modelos, 4 providers independentes e perfis de admissibilidade para todos os 19 agentes.
+    - Isolamento estrito de providers: `opencode` (Console: Beam Free, DeepSeek V4.1 Flash Free), `opencode-go` (Muse Spark 1.3 Contributor), `openai` (GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra) e `jev` (Jev 1.13 Free - System One).
+    - Regra mandatória: GPT-6 Luna, Sol e Astra operam exclusivamente no provider `openai`, sem desvio silencioso para gateways de terceiros.
+  - **Evolução do Model Router (`OrchestrationModelRouter.ps1`):**
+    - Cálculo de integridade determinístico SHA-256 (`policy_hash`) para ancoragem de recibos.
+    - Suporte a filtros de admissibilidade por agente, complexidade e risco, com travas *fail-closed* contra downgrade de Reviewer e Security-Reviewer.
+    - Tratamento estrito do Tier T0: determinístico por design (código local, AST, lint, testes locais) com proibição terminante de invocação de LLMs.
+    - Fallback cross-provider ordenado com rastreabilidade explícita (`IsCrossProvider`, `OriginalProvider`, `FallbackProvider`) e prevenção de ciclos via lista de modelos já tentados.
+    - Gestão de custos de fronteira: autorização financeira para Tier T4 exigida explicitamente, e liberação excepcional do modelo Astra restrita a flag orçamentária (`OPENCODE_ASTRA_AUTHORIZED` ou autorização de custo formal).
+  - **Estabilidade do Planner e Advisor Inteligente Sob Demanda:**
+    - Planner (`build`) fixado estavelmente em GPT-6 Luna sem rotações prejudiciais de contexto durante o objetivo.
+    - Engineering Advisor consultivo escalável sob demanda: GPT-6 Luna (regular), GPT-6.1 Sol (deadlock/impasses) e GPT-6 Astra (excepcional).
+    - Jev 1.13 Free integrado estritamente como suporte consultivo (sem autoridade executiva, sem concessão de permissões, sem seleção de modelos e sem emissão de `DONE`).
+  - **Verificação Pós-Execução e Rastreabilidade de Recibos:**
+    - Classificação formal de auditoria em quatro estados normativos: `EXACT_MATCH`, `AUTHORIZED_FALLBACK`, `UNAUTHORIZED_MISMATCH` e `PROOF_ABSENT`.
+    - Recibos de despacho nativo com carimbo de proveniência, versão e hash de política para reconciliação contínua no Task/Goal Kernel.
+  - **Guia Operacional Completo:**
+    - Publicação de [`docs/guides/DYNAMIC-MODEL-ROUTING-OPERATIONS.md`](file:///docs/guides/DYNAMIC-MODEL-ROUTING-OPERATIONS.md) detalhando os 10 procedimentos operacionais (adicionar, substituir, trocar provider, prioridades de tiers, configuração de planner, advisor, autorização de Astra, Jev Free, investigação de divergências e rollback).
+  - **Evidências de Fechamento e Testes:**
+    - Criação do relatório durável [`evidence/v3.1/model-routing/dynamic-model-routing-v1.1-closure.json`](file:///evidence/v3.1/model-routing/dynamic-model-routing-v1.1-closure.json).
+    - `tests/v3/OrchestrationDynamicModelRoutingV11.tests.ps1`: 76/76 PASS.
+    - `scripts/v3/lib/OrchestrationModelRouter.tests.ps1`: 72/72 PASS.
+    - `scripts/v3/lib/OrchestrationNativePilotHardening.tests.ps1`: 16/16 PASS.
+    - `scripts/v3/lib/OrchestrationAdvisorEfficiencyGW.tests.ps1`: 146/146 PASS.
+    - `scripts/v3/run-v3-tests.ps1`: 27/27 suítes PASS, 0 FAIL.
+    - `scripts/test-package-consistency.ps1`: 16/16 OK.
+
 - **Encerramento da Integração Produtiva Native-First (Follow-up Baseline 42fd6506, 2026-10-24)**:
   - **P0 — Prova de Delegação e Execução Nativa Coordenada pelo Planner:**
     - Substituição completa de artefatos fixos e predefinidos de harness em `scripts/v3/prove-native-subagents.ps1`:

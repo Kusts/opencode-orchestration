@@ -64,20 +64,20 @@ Assert-Hardening ($vAbsent.ProofStatus -eq 'PROOF_ABSENT' -and $vAbsent.Verified
 # --------------------------------------------------------------------------
 # 2.1 Downgrade de Reviewer em risco medium/high e terminantemente proibido
 $selRevMed = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'medium' -NativeModelOverrideProven $true
-$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevMed -FailedModel $selRevMed.CatalogModel -AttemptedModels @('opencode-custom/strong-model') -TriggerReason 'RATE_LIMIT'
+$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevMed -FailedModel $selRevMed.CatalogModel -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "P0-02.1: Downgrade de Reviewer em risco medium e proibido fail-closed"
 
 # 2.2 Security-reviewer nunca pode receber downgrade
 $selSecRev = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -NativeModelOverrideProven $true
-$fbSecDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selSecRev -FailedModel $selSecRev.CatalogModel -AttemptedModels @('opencode-custom/strong-model') -TriggerReason 'RATE_LIMIT'
+$fbSecDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selSecRev -FailedModel $selSecRev.CatalogModel -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbSecDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "P0-02.2: Downgrade de Security-Reviewer e estritamente proibido mesmo sob risco low"
 
 # 2.3 Escalada para T3 quando tier T2 se esgota
-$fbEscalate = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT'
+$fbEscalate = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbEscalate.Status -eq 'AUTHORIZED' -and $fbEscalate.FallbackTier -eq 'T3') "P0-02.3: Quando T2 se esgota, Coder escala para T3 autorizado"
 
 # 2.4 Exaustao completa sem autorizacao de custo para T4
-$allTiersExhausted = @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'opencode-custom/strong-model')
+$allTiersExhausted = @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol')
 $fbExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'openai/gpt-6.1-sol' -AttemptedModels $allTiersExhausted -ProviderCostAuthorized $false -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbExhausted.IsAuthorized -eq $false) "P0-02.4: Tentativas esgotadas retornam EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 

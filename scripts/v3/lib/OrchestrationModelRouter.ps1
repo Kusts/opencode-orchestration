@@ -144,78 +144,212 @@ $script:AgentModelAdmissibility = @{
 
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
-    'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/beam-free';                     Authorized = $true }
-    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
-    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-sol';                      Authorized = $true }
-    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol-fast';                 Authorized = $false } # T4 requires explicit cost authorization
+    'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/beam-free';                     Provider = 'opencode';    Authorized = $true }
+    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode/deepseek-v4.1-flash-free';      Provider = 'opencode';    Authorized = $true; AlternativeModel = 'opencode-go/muse-spark-1.3-contributor' }
+    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-luna';                      Provider = 'openai';      Authorized = $true }
+    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol';                      Provider = 'openai';      Authorized = $false; ExceptionalModel = 'openai/gpt-6-astra' }
+}
+
+$script:CachedRoutingPolicy = $null
+
+function Get-ModelProviderFromId {
+    <#
+    .SYNOPSIS
+        Determines the canonical provider string for a given model ID.
+    #>
+    param([string]$ModelId)
+    if ([string]::IsNullOrWhiteSpace($ModelId)) { return 'unknown' }
+    $m = $ModelId.Trim().ToLowerInvariant()
+    if ($m.StartsWith('opencode-go/')) { return 'opencode-go' }
+    if ($m.StartsWith('opencode/')) { return 'opencode' }
+    if ($m.StartsWith('openai/')) { return 'openai' }
+    if ($m.StartsWith('jev-') -or $m.Contains('systemone')) { return 'opencode' }
+    if ($m -in @('none', 'none (deterministic)', 'none_direct_verified')) { return 'none' }
+    return 'unknown'
+}
+
+function Get-OrchestrationModelRoutingPolicy {
+    <#
+    .SYNOPSIS
+        Loads the canonical model routing policy registry (source/registry/model-routing-policy.json).
+    .DESCRIPTION
+        Returns the parsed policy object, including PolicyHash (SHA256) and policy metadata.
+        Caches policy in session memory to eliminate redundant IO.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = '',
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ForceReload = $false
+    )
+
+    if (-not $ForceReload -and $null -ne $script:CachedRoutingPolicy -and [string]::IsNullOrWhiteSpace($PolicyPath)) {
+        return $script:CachedRoutingPolicy
+    }
+
+    $candPaths = @()
+    if (-not [string]::IsNullOrWhiteSpace($PolicyPath)) {
+        $candPaths += $PolicyPath
+    }
+    if ($PSScriptRoot) {
+        $candPaths += (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\source\registry') -ErrorAction SilentlyContinue) 'model-routing-policy.json')
+    }
+    $candPaths += (Join-Path (Get-Location) 'source\registry\model-routing-policy.json')
+
+    $resolvedPath = $null
+    foreach ($cp in $candPaths) {
+        if (-not [string]::IsNullOrWhiteSpace($cp) -and (Test-Path -LiteralPath $cp -PathType Leaf)) {
+            $resolvedPath = $cp
+            break
+        }
+    }
+
+    if ($null -eq $resolvedPath) {
+        return [pscustomobject]@{
+            Status        = 'POLICY_MISSING'
+            PolicyHash    = ''
+            PolicyVersion = '1.1.0'
+            Policy        = $null
+        }
+    }
+
+    try {
+        $rawBytes = [System.IO.File]::ReadAllBytes($resolvedPath)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $hashBytes = $sha.ComputeHash($rawBytes)
+        $hashStr = -join ($hashBytes | ForEach-Object { $_.ToString('x2') })
+
+        $rawText = [System.Text.Encoding]::UTF8.GetString($rawBytes)
+        $parsed = ConvertFrom-Json -InputObject $rawText -ErrorAction Stop
+
+        $res = [pscustomobject]@{
+            Status        = 'POLICY_LOADED'
+            PolicyPath    = $resolvedPath
+            PolicyHash    = $hashStr
+            PolicyVersion = if ($parsed.policy_version) { [string]$parsed.policy_version } else { '1.1.0' }
+            Policy        = $parsed
+        }
+
+        if ([string]::IsNullOrWhiteSpace($PolicyPath)) {
+            $script:CachedRoutingPolicy = $res
+        }
+        return $res
+    }
+    catch {
+        return [pscustomobject]@{
+            Status        = 'POLICY_INVALID'
+            PolicyPath    = $resolvedPath
+            PolicyHash    = ''
+            PolicyVersion = 'unknown'
+            Policy        = $null
+            Error         = $_.Exception.Message
+        }
+    }
 }
 
 function Get-OrchestrationUserConfigCatalog {
     <#
     .SYNOPSIS
-        Discovers effective models from user configuration (models.jsonc / models.json / env).
+        Discovers effective models from user configuration (models.jsonc / models.json / env / policy registry).
     .DESCRIPTION
         Reads effective model catalog from:
           1. -ConfigPath if provided
-          2. models.jsonc / models.json in current directory or ~/.config/opencode/
-          3. Environment variables (MODEL_PLANNER, MODEL_CHEAP, MODEL_STRONG, MODEL_FRONTIER)
-          4. Fallback to documented defaults from models.example.jsonc
+          2. Canonical policy registry source/registry/model-routing-policy.json
+          3. models.jsonc / models.json in current directory or ~/.config/opencode/
+          4. Environment variables (MODEL_PLANNER, MODEL_CHEAP, MODEL_STRONG, MODEL_FRONTIER)
+          5. Fallback to documented defaults from models.example.jsonc
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
-        [string]$ConfigPath = ''
+        [string]$ConfigPath = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = '',
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IgnoreUserConfig = $false
     )
 
+    $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
+
+    $mBeam = if ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode/beam-free' }
+    $mDeepSeek = if ($null -ne $pol -and $pol.models.deepseek) { [string]$pol.models.deepseek.model_id } else { 'opencode/deepseek-v4.1-flash-free' }
+    $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
+    $mLuna = if ($null -ne $pol -and $pol.models.luna) { [string]$pol.models.luna.model_id } else { 'openai/gpt-6-luna' }
+    $mSol = if ($null -ne $pol -and $pol.models.sol) { [string]$pol.models.sol.model_id } else { 'openai/gpt-6.1-sol' }
+    $mAstra = if ($null -ne $pol -and $pol.models.astra) { [string]$pol.models.astra.model_id } else { 'openai/gpt-6-astra' }
+
     $cat = @{
-        'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/beam-free';                     Authorized = $true }
-        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Authorized = $true }
-        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-sol';                      Authorized = $true }
-        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol-fast';                 Authorized = $false }
+        'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mBeam;                                   Provider = 'opencode';    Authorized = $true }
+        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mDeepSeek;                               Provider = 'opencode';    Authorized = $true; AlternativeModel = $mMuse }
+        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mLuna;                                   Provider = 'openai';      Authorized = $true }
+        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mSol;                                    Provider = 'openai';      Authorized = $false; ExceptionalModel = $mAstra }
     }
 
-    $candPaths = @()
-    if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) { $candPaths += $ConfigPath }
-    $candPaths += (Join-Path (Get-Location) 'models.jsonc')
-    $candPaths += (Join-Path (Get-Location) 'models.json')
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:USERPROFILE)) {
-        $candPaths += (Join-Path (Join-Path ([string]$env:USERPROFILE) '.config\opencode') 'models.jsonc')
-        $candPaths += (Join-Path (Join-Path ([string]$env:USERPROFILE) '.config\opencode') 'models.json')
-    }
+    if (-not $IgnoreUserConfig) {
+        $candPaths = @()
+        if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) { $candPaths += $ConfigPath }
+        $candPaths += (Join-Path (Get-Location) 'models.jsonc')
+        $candPaths += (Join-Path (Get-Location) 'models.json')
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:USERPROFILE)) {
+            $candPaths += (Join-Path (Join-Path ([string]$env:USERPROFILE) '.config\opencode') 'models.jsonc')
+            $candPaths += (Join-Path (Join-Path ([string]$env:USERPROFILE) '.config\opencode') 'models.json')
+        }
 
-    foreach ($p in $candPaths) {
-        if (Test-Path -LiteralPath $p -PathType Leaf) {
-            try {
-                $raw = Get-Content -LiteralPath $p -Raw -ErrorAction Stop
-                # Strip simple // comments if jsonc
-                $jsonText = $raw -replace '(?m)^\s*//.*$', ''
-                $parsed = ConvertFrom-Json -InputObject $jsonText -ErrorAction Stop
-                if ($null -ne $parsed) {
-                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.free)) {
-                        $cat['T1'].CatalogModel = [string]$parsed.free
+        foreach ($p in $candPaths) {
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+                try {
+                    $raw = Get-Content -LiteralPath $p -Raw -ErrorAction Stop
+                    # Strip simple // comments if jsonc
+                    $jsonText = $raw -replace '(?m)^\s*//.*$', ''
+                    $parsed = ConvertFrom-Json -InputObject $jsonText -ErrorAction Stop
+                    if ($null -ne $parsed) {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$parsed.free)) {
+                            $cat['T1'].CatalogModel = [string]$parsed.free
+                            $cat['T1'].Provider = Get-ModelProviderFromId ([string]$parsed.free)
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace([string]$parsed.cheap)) {
+                            $cat['T2'].CatalogModel = [string]$parsed.cheap
+                            $cat['T2'].Provider = Get-ModelProviderFromId ([string]$parsed.cheap)
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace([string]$parsed.strong)) {
+                            $cat['T3'].CatalogModel = [string]$parsed.strong
+                            $cat['T3'].Provider = Get-ModelProviderFromId ([string]$parsed.strong)
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace([string]$parsed.frontier)) {
+                            $cat['T4'].CatalogModel = [string]$parsed.frontier
+                            $cat['T4'].Provider = Get-ModelProviderFromId ([string]$parsed.frontier)
+                        }
+                        break
                     }
-                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.cheap)) {
-                        $cat['T2'].CatalogModel = [string]$parsed.cheap
-                    }
-                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.strong)) {
-                        $cat['T3'].CatalogModel = [string]$parsed.strong
-                    }
-                    if (-not [string]::IsNullOrWhiteSpace([string]$parsed.frontier)) {
-                        $cat['T4'].CatalogModel = [string]$parsed.frontier
-                    }
-                    break
-                }
-            } catch { }
+                } catch { }
+            }
+        }
+
+        # Environment overrides
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_FREE)) {
+            $cat['T1'].CatalogModel = [string]$env:MODEL_FREE
+            $cat['T1'].Provider = Get-ModelProviderFromId ([string]$env:MODEL_FREE)
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_CHEAP)) {
+            $cat['T2'].CatalogModel = [string]$env:MODEL_CHEAP
+            $cat['T2'].Provider = Get-ModelProviderFromId ([string]$env:MODEL_CHEAP)
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_STRONG)) {
+            $cat['T3'].CatalogModel = [string]$env:MODEL_STRONG
+            $cat['T3'].Provider = Get-ModelProviderFromId ([string]$env:MODEL_STRONG)
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_FRONTIER)) {
+            $cat['T4'].CatalogModel = [string]$env:MODEL_FRONTIER
+            $cat['T4'].Provider = Get-ModelProviderFromId ([string]$env:MODEL_FRONTIER)
         }
     }
-
-    # Environment overrides
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_FREE))     { $cat['T1'].CatalogModel = [string]$env:MODEL_FREE }
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_CHEAP))    { $cat['T2'].CatalogModel = [string]$env:MODEL_CHEAP }
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_STRONG))   { $cat['T3'].CatalogModel = [string]$env:MODEL_STRONG }
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:MODEL_FRONTIER)) { $cat['T4'].CatalogModel = [string]$env:MODEL_FRONTIER }
 
     # Cost authorization flag from environment
     if ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') {
@@ -231,7 +365,7 @@ function Resolve-CatalogModel {
         Resolves catalog model entry, token and authorization for a requested tier.
     .DESCRIPTION
         Separates technical admissibility from provider/cost authorization.
-        T4 is NEVER authorized merely by task risk or failure count; explicit cost authorization is required.
+        T4 and Astra are NEVER authorized merely by task risk or failure count; explicit cost authorization is required.
     #>
     [CmdletBinding()]
     param(
@@ -248,23 +382,47 @@ function Resolve-CatalogModel {
         [string]$Risk = 'medium',
 
         [Parameter(Mandatory = $false)]
-        [bool]$ProviderCostAuthorized = $false
+        [bool]$ProviderCostAuthorized = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = '',
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IgnoreUserConfig = $false
     )
 
-    $cat = if ($null -ne $Catalog) { $Catalog } else { Get-OrchestrationUserConfigCatalog }
+    $cat = if ($null -ne $Catalog) { $Catalog } else { Get-OrchestrationUserConfigCatalog -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig }
     $entry = if ($cat.ContainsKey($Tier)) { $cat[$Tier] } else { $cat['T2'] }
 
     $token = [string]$entry.Token
     $catModel = [string]$entry.CatalogModel
+    $provider = if ($entry.Provider) { [string]$entry.Provider } else { Get-ModelProviderFromId $catModel }
     $authorized = [bool]$entry.Authorized
     $authSource = 'STANDARD_CATALOG'
     $authEvidence = 'catalog:default'
     $budget = if (-not [string]::IsNullOrWhiteSpace($env:OPENCODE_T4_BUDGET_USD)) { [string]$env:OPENCODE_T4_BUDGET_USD } else { 'standard_tier_budget' }
 
+    $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
+    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.1.0' }
+
     # Strict separation of technical admissibility vs provider/cost authorization:
     # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
+    # Exceptional Astra check: Astra strictly requires OPENCODE_ASTRA_AUTHORIZED='true',
+    # and general T4 cost authorization alone does NOT authorize Astra.
     if ($Tier -eq 'T4') {
-        if ($ProviderCostAuthorized) {
+        if ($catModel -match 'astra') {
+            $astraAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
+            if ($astraAuth) {
+                $authorized = $true
+                $authSource = 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED'
+                $authEvidence = 'env:OPENCODE_ASTRA_AUTHORIZED=true'
+            } else {
+                $authorized = $false
+                $authSource = 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED'
+                $authEvidence = 'none'
+            }
+        } elseif ($ProviderCostAuthorized) {
             $authorized = $true
             $authSource = 'EXPLICIT_PARAMETER'
             $authEvidence = 'parameter:ProviderCostAuthorized=true'
@@ -278,18 +436,41 @@ function Resolve-CatalogModel {
             $authSource = 'NONE_UNAUTHORIZED'
             $authEvidence = 'none'
         }
+    } elseif ($catModel -match 'astra') {
+        $astraAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
+        if ($astraAuth) {
+            $authorized = $true
+            $authSource = 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED'
+            $authEvidence = 'env:OPENCODE_ASTRA_AUTHORIZED=true'
+        } else {
+            $authorized = $false
+            $authSource = 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED'
+            $authEvidence = 'none'
+        }
+    }
+
+    $candidates = switch ($Tier) {
+        'T1' { @('opencode/beam-free', 'opencode/deepseek-v4.1-flash-free') }
+        'T2' { @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') }
+        'T3' { @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') }
+        'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra') }
+        default { @('none (deterministic)') }
     }
 
     return [pscustomobject]@{
         Tier                      = $Tier
         ModelToken                = $token
         CatalogModel              = $catModel
+        Provider                  = $provider
         IsAuthorized              = $authorized
         ProviderCostAuthorized    = $authorized
         CostAuthorizationSource   = $authSource
         CostAuthorizationEvidence = $authEvidence
         CostBudget                = $budget
         FallbackTier              = if ($Tier -eq 'T4' -and -not $authorized) { 'T3' } else { $Tier }
+        FallbackCandidates        = $candidates
+        PolicyHash                = $polHash
+        PolicyVersion             = $polVer
     }
 }
 
@@ -301,8 +482,9 @@ function Resolve-OrchestrationModelFallback {
         Enforces router policy:
           - Consults agent admissibility matrix.
           - Strictly prohibits downgrades for Reviewer and Security-Reviewer when violating policy.
-          - Checks cost authorization for T4.
+          - Checks cost authorization for T4 and exceptional budget for Astra.
           - Excludes already attempted models to prevent cyclic loops.
+          - Tracks cross-provider transitions (opencode, opencode-go, openai).
           - When no permitted model is available, returns a structured recoverable status.
     #>
     [CmdletBinding()]
@@ -323,8 +505,22 @@ function Resolve-OrchestrationModelFallback {
         [bool]$ProviderCostAuthorized = $false,
 
         [Parameter(Mandatory = $false)]
-        $ModelCatalog = $null
+        $ModelCatalog = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$AllowedProviders = @(),
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IgnoreUserConfig = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = ''
     )
+
+    $ignoreUser = $IgnoreUserConfig
+    if ($RequestedSelection -and $RequestedSelection.PSObject.Properties['IgnoreUserConfig'] -and $RequestedSelection.IgnoreUserConfig) {
+        $ignoreUser = $true
+    }
 
     $agent = [string]$RequestedSelection.Agent
     if ([string]::IsNullOrWhiteSpace($agent)) {
@@ -334,60 +530,288 @@ function Resolve-OrchestrationModelFallback {
     $reqTier = [string]$RequestedSelection.Tier
     $reqModel = [string]$RequestedSelection.CatalogModel
     $origModel = if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { $FailedModel } else { $reqModel }
+    $origProvider = Get-ModelProviderFromId $origModel
 
-    # Roster of known alternative models per tier
-    $tierCandidates = @{
-        'T2' = @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna')
-        'T3' = @('openai/gpt-6.1-sol', 'opencode-custom/strong-model')
-        'T4' = @('openai/gpt-6.1-sol-fast', 'opencode-custom/frontier-model')
+    # 1. Carrega politica dinamica canonica
+    $polResult = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    $policy = if ($polResult -and $polResult.Status -eq 'POLICY_LOADED') { $polResult.Policy } else { $null }
+
+    # 2. Tracking estrito de modelos realmente tentados (passados em AttemptedModels ou FailedModel)
+    $reallyAttempted = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if ($null -ne $AttemptedModels) {
+        foreach ($m in $AttemptedModels) {
+            if (-not [string]::IsNullOrWhiteSpace($m)) { [void]$reallyAttempted.Add($m.Trim()) }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($FailedModel)) {
+        [void]$reallyAttempted.Add($FailedModel.Trim())
     }
 
-    # Incorporate user catalog if present
-    $cat = if ($null -ne $ModelCatalog) { $ModelCatalog } else { Get-OrchestrationUserConfigCatalog }
-    if ($cat.ContainsKey($reqTier) -and -not [string]::IsNullOrWhiteSpace($cat[$reqTier].CatalogModel)) {
-        $customM = [string]$cat[$reqTier].CatalogModel
-        if ($tierCandidates.ContainsKey($reqTier) -and $tierCandidates[$reqTier] -notcontains $customM) {
-            $tierCandidates[$reqTier] = @($customM) + $tierCandidates[$reqTier]
+    # Tracking de exclusoes preventivas (candidatos descartados antes de qualquer tentativa)
+    $preventivelyExcluded = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $RecordExclusion = {
+        param([string]$Model, [string]$Tier, [string]$Reason)
+        if ([string]::IsNullOrWhiteSpace($Model)) { return }
+        $already = $preventivelyExcluded | Where-Object { $_.Model -eq $Model -and $_.Reason -eq $Reason }
+        if (-not $already) {
+            $preventivelyExcluded.Add([pscustomobject]@{
+                Model  = $Model
+                Tier   = $Tier
+                Reason = $Reason
+            })
         }
     }
 
-    # Retrieve agent admissibility
+    # Determina autorizacao de custo para T4
+    $costAuth = ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
+
+    # Admissibilidade estrita por papel do agente
     $admiss = if ($script:AgentModelAdmissibility.ContainsKey($cleanAgent)) { $script:AgentModelAdmissibility[$cleanAgent] } else { $null }
 
-    # Fallback policy per agent role:
-    # 1. Reviewer / Security-Reviewer: Downgrade below admitted tiers is strictly prohibited!
+    # Funcao para obter candidatos dinamicos por tier a partir da politica efetiva
+    $GetDynamicCandidatesForTier = {
+        param([string]$TargetTier)
+        $cands = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+        if ($null -ne $policy -and $null -ne $policy.models) {
+            foreach ($prop in $policy.models.PSObject.Properties) {
+                $m = $prop.Value
+                if ($null -eq $m) { continue }
+                $mId = [string]$m.model_id
+                if ([string]::IsNullOrWhiteSpace($mId)) { continue }
+
+                $profiles = @($m.tier_profiles)
+                if ($profiles -notcontains $TargetTier) { continue }
+
+                $cands.Add([pscustomobject]@{
+                    ModelId       = $mId
+                    LogicalId     = [string]$m.id
+                    Provider      = [string]$m.provider
+                    Enabled       = [bool]$m.enabled
+                    Priority      = if ($null -ne $m.priority) { [int]$m.priority } else { 99 }
+                    EligibleRoles = @($m.eligible_roles)
+                    RequiresCost  = [bool]($m.cost_profile.requires_authorization)
+                    Exceptional   = [bool]($m.cost_profile.exceptional_budget_required)
+                    Tier          = $TargetTier
+                })
+            }
+        } else {
+            # Fallback defensivo a partir do script:DefaultModelCatalog se a politica JSON nao puder ser lida
+            if ($script:DefaultModelCatalog.ContainsKey($TargetTier)) {
+                $entry = $script:DefaultModelCatalog[$TargetTier]
+                if ($entry.CatalogModel -and $entry.CatalogModel -notmatch 'none') {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = [string]$entry.CatalogModel
+                        LogicalId     = [string]$entry.CatalogModel
+                        Provider      = [string]$entry.Provider
+                        Enabled       = $true
+                        Priority      = 1
+                        EligibleRoles = @()
+                        RequiresCost  = ($TargetTier -eq 'T4')
+                        Exceptional   = $false
+                        Tier          = $TargetTier
+                    })
+                }
+                if ($entry.AlternativeModel) {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = [string]$entry.AlternativeModel
+                        LogicalId     = [string]$entry.AlternativeModel
+                        Provider      = Get-ModelProviderFromId $entry.AlternativeModel
+                        Enabled       = $true
+                        Priority      = 2
+                        EligibleRoles = @()
+                        RequiresCost  = $false
+                        Exceptional   = $false
+                        Tier          = $TargetTier
+                    })
+                }
+                if ($entry.ExceptionalModel) {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = [string]$entry.ExceptionalModel
+                        LogicalId     = [string]$entry.ExceptionalModel
+                        Provider      = Get-ModelProviderFromId $entry.ExceptionalModel
+                        Enabled       = $true
+                        Priority      = 2
+                        EligibleRoles = @()
+                        RequiresCost  = $true
+                        Exceptional   = $true
+                        Tier          = $TargetTier
+                    })
+                }
+            }
+        }
+
+        # Incorporacao de modelo customizado do catalogo do usuario se houver e nao estiver ignorando
+        if (-not $ignoreUser) {
+            $cat = if ($null -ne $ModelCatalog) { $ModelCatalog } else { Get-OrchestrationUserConfigCatalog }
+            if ($null -ne $cat -and $cat.ContainsKey($TargetTier) -and -not [string]::IsNullOrWhiteSpace($cat[$TargetTier].CatalogModel)) {
+                $userModel = [string]$cat[$TargetTier].CatalogModel
+                $exists = $cands | Where-Object { $_.ModelId -eq $userModel }
+                if (-not $exists) {
+                    $cands.Add([pscustomobject]@{
+                        ModelId       = $userModel
+                        LogicalId     = $userModel
+                        Provider      = (Get-ModelProviderFromId $userModel)
+                        Enabled       = $true
+                        Priority      = 50
+                        EligibleRoles = @()
+                        RequiresCost  = ($TargetTier -eq 'T4')
+                        Exceptional   = ($userModel -match 'astra')
+                        Tier          = $TargetTier
+                    })
+                }
+            }
+        }
+
+        return @($cands | Sort-Object Priority)
+    }
+
+    # Avaliacao de candidatos contra regras da politica efetiva
+    $EvaluateCandidate = {
+        param([pscustomobject]$CandObj)
+        $mId = $CandObj.ModelId
+        $tier = $CandObj.Tier
+
+        # 1. Se ja foi realmente tentado (em AttemptedModels ou FailedModel)
+        if ($reallyAttempted.Contains($mId)) {
+            & $RecordExclusion $mId $tier 'ALREADY_ATTEMPTED'
+            return $null
+        }
+
+        # 2. Se e o modelo original que falhou nesta rodada ou requisitado diretamente
+        if ($mId -eq $origModel -or ($reallyAttempted.Count -eq 0 -and $mId -eq $reqModel)) {
+            & $RecordExclusion $mId $tier 'CURRENT_REQUESTED_MODEL'
+            return $null
+        }
+
+        # 3. Se o modelo esta administrativamente desabilitado na politica
+        if (-not $CandObj.Enabled) {
+            & $RecordExclusion $mId $tier 'MODEL_DISABLED'
+            return $null
+        }
+
+        # 4. Se o provider esta administrativamente desabilitado na politica
+        if ($null -ne $policy -and $null -ne $policy.providers) {
+            $provProp = $policy.providers.PSObject.Properties[$CandObj.Provider]
+            if ($null -ne $provProp -and $null -ne $provProp.Value -and $provProp.Value.enabled -eq $false) {
+                & $RecordExclusion $mId $tier 'PROVIDER_DISABLED'
+                return $null
+            }
+        }
+
+        # 5. Se AllowedProviders foi informado e nao inclui o provider do candidato
+        if ($null -ne $AllowedProviders -and $AllowedProviders.Count -gt 0) {
+            if ($AllowedProviders -notcontains $CandObj.Provider) {
+                & $RecordExclusion $mId $tier 'PROVIDER_NOT_ALLOWED'
+                return $null
+            }
+        }
+
+        # 6. Admissibilidade por papel do agente (eligible_roles no modelo)
+        if ($CandObj.EligibleRoles.Count -gt 0 -and $CandObj.EligibleRoles -notcontains $cleanAgent) {
+            & $RecordExclusion $mId $tier 'AGENT_NOT_ELIGIBLE'
+            return $null
+        }
+
+        # 7. Admissibilidade por tier do agente ($admiss)
+        if ($null -ne $admiss) {
+            if ($admiss.ProhibitedTiers -contains $tier) {
+                & $RecordExclusion $mId $tier 'AGENT_NOT_ELIGIBLE'
+                return $null
+            }
+            if ($admiss.AdmissibleTiers.Count -gt 0 -and $admiss.AdmissibleTiers -notcontains $tier) {
+                & $RecordExclusion $mId $tier 'AGENT_NOT_ELIGIBLE'
+                return $null
+            }
+        }
+
+        # 8. Autorizacao de custo para T4
+        if ($tier -eq 'T4' -or $CandObj.RequiresCost) {
+            if (-not $costAuth) {
+                & $RecordExclusion $mId $tier 'UNAUTHORIZED_T4_COST'
+                return $null
+            }
+        }
+
+        # 9. Autorizacao excepcional para Astra
+        if ($CandObj.Exceptional -or $mId -match 'astra') {
+            if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ine 'true') {
+                & $RecordExclusion $mId $tier 'UNAUTHORIZED_ASTRA_EXCEPTIONAL'
+                return $null
+            }
+        }
+
+        return $CandObj
+    }
+
+    # Helper function to build success result
+    $BuildAuthorizedResult = {
+        param([string]$ChosenModel, [string]$TargetTier, [string]$ReasonMsg, [bool]$IsDown)
+        $chosenProv = Get-ModelProviderFromId $ChosenModel
+        $isCross = ($origProvider -ne $chosenProv -and $origProvider -ne 'unknown' -and $chosenProv -ne 'unknown')
+        return [pscustomobject]@{
+            Status                 = 'AUTHORIZED'
+            IsAuthorized           = $true
+            FallbackModel          = $ChosenModel
+            AuthorizedModel        = $ChosenModel
+            FallbackTier           = $TargetTier
+            OriginalModel          = $origModel
+            OriginalProvider       = $origProvider
+            FallbackProvider       = $chosenProv
+            IsCrossProvider        = $isCross
+            TriggerReason          = $TriggerReason
+            Reason                 = $ReasonMsg
+            AuthorizationSource    = 'ROUTER_POLICY'
+            ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
+            AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
+            IsDowngrade            = $IsDown
+            ReallyAttemptedModels  = @($reallyAttempted)
+            PreventivelyExcluded   = @($preventivelyExcluded)
+        }
+    }
+
+    # Politica de fallback por papel e regras de admissibilidade:
+    # 1. Reviewer / Security-Reviewer: Downgrade abaixo dos tiers admitidos e estritamente proibido!
     if ($cleanAgent -in @('reviewer', 'security-reviewer')) {
         $isDowngradeProhibited = $true
         if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -eq 'low') {
             $isDowngradeProhibited = $false
         }
 
-        # Check alternative candidates in same tier ($reqTier)
-        $candidates = @()
-        if ($tierCandidates.ContainsKey($reqTier)) {
-            $candidates = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -notin $AttemptedModels })
-        }
-
-        if ($candidates.Count -gt 0) {
-            $targetModel = $candidates[0]
-            return [pscustomobject]@{
-                Status                 = 'AUTHORIZED'
-                IsAuthorized           = $true
-                FallbackModel          = $targetModel
-                AuthorizedModel        = $targetModel
-                FallbackTier           = $reqTier
-                OriginalModel          = $origModel
-                TriggerReason          = $TriggerReason
-                Reason                 = "Router authorized same-tier fallback to '$targetModel' for agent '$cleanAgent'."
-                AuthorizationSource    = 'ROUTER_POLICY'
-                ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
-                AttemptsCount          = ($AttemptedModels.Count + 1)
-                IsDowngrade            = $false
+        # Tenta candidatos no mesmo tier ($reqTier)
+        $sameTierCands = & $GetDynamicCandidatesForTier $reqTier
+        $validSameTierCand = $null
+        foreach ($cand in $sameTierCands) {
+            $valid = & $EvaluateCandidate $cand
+            if ($null -ne $valid) {
+                $validSameTierCand = $valid.ModelId
+                break
             }
         }
 
-        # No same-tier alternative. If downgrade requested/attempted, reject fail-closed
+        if ($null -ne $validSameTierCand) {
+            return (& $BuildAuthorizedResult $validSameTierCand $reqTier "Router authorized same-tier fallback to '$validSameTierCand' for agent '$cleanAgent'." $false)
+        }
+
+        # Sem alternativa no mesmo tier. Reviewer pode escalar para T4 se autorizado por custo
+        if ($cleanAgent -eq 'reviewer' -and $reqTier -eq 'T3') {
+            $t4Cands = & $GetDynamicCandidatesForTier 'T4'
+            foreach ($cand in $t4Cands) {
+                $valid = & $EvaluateCandidate $cand
+                if ($null -ne $valid) {
+                    return (& $BuildAuthorizedResult $valid.ModelId 'T4' "Router authorized tier escalation to '$($valid.ModelId)' (T4) for agent '$cleanAgent'." $false)
+                }
+            }
+        }
+
+        # Se downgrade for proibido, registra preventivamente os modelos de tiers inferiores e rejeita fail-closed
         if ($isDowngradeProhibited) {
+            foreach ($lowerTier in @('T2', 'T1')) {
+                $lowerCands = & $GetDynamicCandidatesForTier $lowerTier
+                foreach ($lc in $lowerCands) {
+                    & $RecordExclusion $lc.ModelId $lowerTier 'DOWNGRADE_PROHIBITED'
+                }
+            }
             return [pscustomobject]@{
                 Status                 = 'REJECTED_DOWNGRADE_FORBIDDEN'
                 IsAuthorized           = $false
@@ -395,75 +819,50 @@ function Resolve-OrchestrationModelFallback {
                 AuthorizedModel        = $null
                 FallbackTier           = $null
                 OriginalModel          = $origModel
+                OriginalProvider       = $origProvider
+                FallbackProvider       = $null
+                IsCrossProvider        = $false
                 TriggerReason          = $TriggerReason
                 Reason                 = "Downgrade below tier $reqTier for agent '$cleanAgent' is prohibited by security policy."
                 AuthorizationSource    = 'ROUTER_POLICY'
                 ProviderCostAuthorized = $false
-                AttemptsCount          = ($AttemptedModels.Count + 1)
+                AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
                 IsDowngrade            = $true
+                ReallyAttemptedModels  = @($reallyAttempted)
+                PreventivelyExcluded   = @($preventivelyExcluded)
             }
         }
     }
 
-    # 2. General agent fallback: try same tier first
-    $sameTierCandidates = @()
-    if ($tierCandidates.ContainsKey($reqTier)) {
-        $sameTierCandidates = @($tierCandidates[$reqTier] | Where-Object { $_ -ne $origModel -and $_ -notin $AttemptedModels })
-    }
-
-    if ($sameTierCandidates.Count -gt 0) {
-        $chosen = $sameTierCandidates[0]
-        return [pscustomobject]@{
-            Status                 = 'AUTHORIZED'
-            IsAuthorized           = $true
-            FallbackModel          = $chosen
-            AuthorizedModel        = $chosen
-            FallbackTier           = $reqTier
-            OriginalModel          = $origModel
-            TriggerReason          = $TriggerReason
-            Reason                 = "Router authorized same-tier alternative '$chosen' for agent '$cleanAgent'."
-            AuthorizationSource    = 'ROUTER_POLICY'
-            ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
-            AttemptsCount          = ($AttemptedModels.Count + 1)
-            IsDowngrade            = $false
+    # 2. Agentes gerais: tenta candidatos no mesmo tier primeiro
+    $sameTierCands = & $GetDynamicCandidatesForTier $reqTier
+    foreach ($cand in $sameTierCands) {
+        $valid = & $EvaluateCandidate $cand
+        if ($null -ne $valid) {
+            return (& $BuildAuthorizedResult $valid.ModelId $reqTier "Router authorized same-tier alternative '$($valid.ModelId)' for agent '$cleanAgent'." $false)
         }
     }
 
-    # 3. If same tier is exhausted, check if agent allows upgrade (e.g. Coder T2 -> T3, if admitted and permitted)
+    # 3. Se o mesmo tier esta esgotado, verifica se o agente permite escalonamento de tier (upgrade)
     if ($null -ne $admiss) {
-        $allowed = @($admiss.AdmissibleTiers)
-        $nextTier = switch ($reqTier) {
-            'T1' { 'T2' }
-            'T2' { 'T3' }
-            'T3' { if ($ProviderCostAuthorized -or $RequestedSelection.ProviderCostAuthorized) { 'T4' } else { $null } }
-            default { $null }
+        $candidateUpgradeTiers = switch ($reqTier) {
+            'T1' { @('T2', 'T3', 'T4') }
+            'T2' { @('T3', 'T4') }
+            'T3' { @('T4') }
+            default { @() }
         }
-        if ($null -ne $nextTier -and $allowed -contains $nextTier -and $tierCandidates.ContainsKey($nextTier)) {
-            $upCandidates = @($tierCandidates[$nextTier] | Where-Object { $_ -notin $AttemptedModels })
-            if ($upCandidates.Count -gt 0) {
-                $chosenUp = $upCandidates[0]
-                $costAuth = ($nextTier -ne 'T4' -or $ProviderCostAuthorized -or $RequestedSelection.ProviderCostAuthorized)
-                if ($costAuth) {
-                    return [pscustomobject]@{
-                        Status                 = 'AUTHORIZED'
-                        IsAuthorized           = $true
-                        FallbackModel          = $chosenUp
-                        AuthorizedModel        = $chosenUp
-                        FallbackTier           = $nextTier
-                        OriginalModel          = $origModel
-                        TriggerReason          = $TriggerReason
-                        Reason                 = "Router authorized tier escalation to '$chosenUp' ($nextTier) for agent '$cleanAgent'."
-                        AuthorizationSource    = 'ROUTER_POLICY'
-                        ProviderCostAuthorized = $costAuth
-                        AttemptsCount          = ($AttemptedModels.Count + 1)
-                        IsDowngrade            = $false
-                    }
+        foreach ($nextTier in $candidateUpgradeTiers) {
+            $upCands = & $GetDynamicCandidatesForTier $nextTier
+            foreach ($candUp in $upCands) {
+                $validUp = & $EvaluateCandidate $candUp
+                if ($null -ne $validUp) {
+                    return (& $BuildAuthorizedResult $validUp.ModelId $nextTier "Router authorized tier escalation to '$($validUp.ModelId)' ($nextTier) for agent '$cleanAgent'." $false)
                 }
             }
         }
     }
 
-    # 4. If all options exhausted
+    # 4. Se todas as opcoes foram esgotadas
     return [pscustomobject]@{
         Status                 = 'EXHAUSTED_NO_ELIGIBLE_FALLBACK'
         IsAuthorized           = $false
@@ -471,12 +870,17 @@ function Resolve-OrchestrationModelFallback {
         AuthorizedModel        = $null
         FallbackTier           = $null
         OriginalModel          = $origModel
+        OriginalProvider       = $origProvider
+        FallbackProvider       = $null
+        IsCrossProvider        = $false
         TriggerReason          = $TriggerReason
         Reason                 = "All admissible and authorized fallback models for agent '$cleanAgent' have been exhausted."
         AuthorizationSource    = 'ROUTER_POLICY'
         ProviderCostAuthorized = $false
-        AttemptsCount          = ($AttemptedModels.Count + 1)
+        AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
         IsDowngrade            = $false
+        ReallyAttemptedModels  = @($reallyAttempted)
+        PreventivelyExcluded   = @($preventivelyExcluded)
     }
 }
 
@@ -491,7 +895,7 @@ function Test-ExecutedModelVerification {
             prior to execution is proven, admissible for the agent, and matches actual host model.
           - UNAUTHORIZED_MISMATCH: actual model differs without authorized fallback proof or violates admissibility.
           - PROOF_ABSENT: insufficient evidence or override unproven in current runtime.
-        Preserves backward compatibility with VerifiedMatch, ProofStatus, and RuntimeTierProven.
+        Audits cross-provider transitions and ensures T0 strictly forbids LLM execution.
     #>
     [CmdletBinding()]
     param(
@@ -511,34 +915,41 @@ function Test-ExecutedModelVerification {
     $reqTier = [string]$RequestedSelection.Tier
     $reqModel = [string]$RequestedSelection.CatalogModel
     $reqToken = [string]$RequestedSelection.ModelToken
+    $reqProvider = if ($RequestedSelection.Provider) { [string]$RequestedSelection.Provider } else { Get-ModelProviderFromId $reqModel }
 
     if (-not $NativeModelOverrideProven) {
         return [pscustomobject]@{
-            VerifiedMatch       = $false
-            ProofStatus         = 'PROOF_ABSENT'
-            MatchKind           = 'PROOF_ABSENT'
-            IsExactMatch        = $false
+            VerifiedMatch        = $false
+            ProofStatus          = 'PROOF_ABSENT'
+            MatchKind            = 'PROOF_ABSENT'
+            IsExactMatch         = $false
             IsAuthorizedFallback = $false
-            RuntimeTierProven   = $false
-            Reason              = 'Native dynamic model override unproven in current runtime. Falling back to host template configuration.'
-            RequestedTier       = $reqTier
-            EffectiveTier       = [string]$RequestedSelection.FallbackTier
-            EffectiveModelToken = [string]$RequestedSelection.FallbackToken
+            RuntimeTierProven    = $false
+            Reason               = 'Native dynamic model override unproven in current runtime. Falling back to host template configuration.'
+            RequestedTier        = $reqTier
+            EffectiveTier        = [string]$RequestedSelection.FallbackTier
+            EffectiveModelToken  = [string]$RequestedSelection.FallbackToken
+            RequestedProvider    = $reqProvider
+            EffectiveProvider    = 'unknown'
+            IsCrossProvider      = $false
         }
     }
 
     if ($null -eq $ExecutedModelEvent) {
         return [pscustomobject]@{
-            VerifiedMatch       = $false
-            ProofStatus         = 'PROOF_ABSENT'
-            MatchKind           = 'PROOF_ABSENT'
-            IsExactMatch        = $false
+            VerifiedMatch        = $false
+            ProofStatus          = 'PROOF_ABSENT'
+            MatchKind            = 'PROOF_ABSENT'
+            IsExactMatch         = $false
             IsAuthorizedFallback = $false
-            RuntimeTierProven   = $false
-            Reason              = 'No executed model event or telemetry provided for verification.'
-            RequestedTier       = $reqTier
-            EffectiveTier       = $null
-            EffectiveModelToken = $null
+            RuntimeTierProven    = $false
+            Reason               = 'No executed model event or telemetry provided for verification.'
+            RequestedTier        = $reqTier
+            EffectiveTier        = $null
+            EffectiveModelToken  = $null
+            RequestedProvider    = $reqProvider
+            EffectiveProvider    = 'unknown'
+            IsCrossProvider      = $false
         }
     }
 
@@ -549,47 +960,59 @@ function Test-ExecutedModelVerification {
 
     if ([string]::IsNullOrWhiteSpace($actModel)) {
         return [pscustomobject]@{
-            VerifiedMatch       = $false
-            ProofStatus         = 'PROOF_ABSENT'
-            MatchKind           = 'PROOF_ABSENT'
-            IsExactMatch        = $false
+            VerifiedMatch        = $false
+            ProofStatus          = 'PROOF_ABSENT'
+            MatchKind            = 'PROOF_ABSENT'
+            IsExactMatch         = $false
             IsAuthorizedFallback = $false
-            RuntimeTierProven   = $false
-            Reason              = 'Actual executed model identity is empty or unrecorded in event.'
-            RequestedTier       = $reqTier
-            EffectiveTier       = $null
-            EffectiveModelToken = $null
+            RuntimeTierProven    = $false
+            Reason               = 'Actual executed model identity is empty or unrecorded in event.'
+            RequestedTier        = $reqTier
+            EffectiveTier        = $null
+            EffectiveModelToken  = $null
+            RequestedProvider    = $reqProvider
+            EffectiveProvider    = 'unknown'
+            IsCrossProvider      = $false
         }
     }
+
+    $actProvider = Get-ModelProviderFromId $actModel
+    $isCrossProvider = ($reqProvider -ne $actProvider -and $reqProvider -ne 'unknown' -and $actProvider -ne 'unknown')
 
     # T0 check: Deterministic execution without LLM
     if ($reqTier -eq 'T0') {
         $isDeterministic = ($actModel -in @('none', 'none (deterministic)', 'NONE_DIRECT_VERIFIED') -or [string]::IsNullOrWhiteSpace($actModel))
         if (-not $isDeterministic) {
             return [pscustomobject]@{
-                VerifiedMatch       = $false
-                ProofStatus         = 'UNAUTHORIZED_MISMATCH'
-                MatchKind           = 'UNAUTHORIZED_MISMATCH'
-                IsExactMatch        = $false
+                VerifiedMatch        = $false
+                ProofStatus          = 'UNAUTHORIZED_MISMATCH'
+                MatchKind            = 'UNAUTHORIZED_MISMATCH'
+                IsExactMatch         = $false
                 IsAuthorizedFallback = $false
-                RuntimeTierProven   = $false
-                Reason              = "Tier T0 is strictly deterministic and does not permit LLM execution ('$actModel')."
-                RequestedTier       = 'T0'
-                EffectiveTier       = 'UNKNOWN'
-                EffectiveModelToken = $actModel
+                RuntimeTierProven    = $false
+                Reason               = "Tier T0 is strictly deterministic and does not permit LLM execution ('$actModel')."
+                RequestedTier        = 'T0'
+                EffectiveTier        = 'UNKNOWN'
+                EffectiveModelToken  = $actModel
+                RequestedProvider    = 'none'
+                EffectiveProvider    = $actProvider
+                IsCrossProvider      = $true
             }
         } else {
             return [pscustomobject]@{
-                VerifiedMatch       = $true
-                ProofStatus         = 'EXACT_MATCH'
-                MatchKind           = 'EXACT_MATCH'
-                IsExactMatch        = $true
+                VerifiedMatch        = $true
+                ProofStatus          = 'EXACT_MATCH'
+                MatchKind            = 'EXACT_MATCH'
+                IsExactMatch         = $true
                 IsAuthorizedFallback = $false
-                RuntimeTierProven   = $true
-                Reason              = 'Executed model matches requested deterministic T0.'
-                RequestedTier       = 'T0'
-                EffectiveTier       = 'T0'
-                EffectiveModelToken = $actModel
+                RuntimeTierProven    = $true
+                Reason               = 'Executed model matches requested deterministic T0.'
+                RequestedTier        = 'T0'
+                EffectiveTier        = 'T0'
+                EffectiveModelToken  = $actModel
+                RequestedProvider    = 'none'
+                EffectiveProvider    = 'none'
+                IsCrossProvider      = $false
             }
         }
     }
@@ -598,16 +1021,19 @@ function Test-ExecutedModelVerification {
     $isExact = ($actModel -eq $reqModel -or $actModel -eq $reqToken)
     if ($isExact) {
         return [pscustomobject]@{
-            VerifiedMatch       = $true
-            ProofStatus         = 'EXACT_MATCH'
-            MatchKind           = 'EXACT_MATCH'
-            IsExactMatch        = $true
+            VerifiedMatch        = $true
+            ProofStatus          = 'EXACT_MATCH'
+            MatchKind            = 'EXACT_MATCH'
+            IsExactMatch         = $true
             IsAuthorizedFallback = $false
-            RuntimeTierProven   = $true
-            Reason              = "Executed model '$actModel' exactly matches requested model '$reqModel'."
-            RequestedTier       = $reqTier
-            EffectiveTier       = $reqTier
-            EffectiveModelToken = $actModel
+            RuntimeTierProven    = $true
+            Reason               = "Executed model '$actModel' exactly matches requested model '$reqModel'."
+            RequestedTier        = $reqTier
+            EffectiveTier        = $reqTier
+            EffectiveModelToken  = $actModel
+            RequestedProvider    = $reqProvider
+            EffectiveProvider    = $actProvider
+            IsCrossProvider      = $false
         }
     }
 
@@ -655,55 +1081,49 @@ function Test-ExecutedModelVerification {
 
         if ($fbAuthorized -and $modelMatchesFallback -and $admissibilityOk) {
             return [pscustomobject]@{
-                VerifiedMatch       = $true
-                ProofStatus         = 'AUTHORIZED_FALLBACK'
-                MatchKind           = 'AUTHORIZED_FALLBACK'
-                IsExactMatch        = $false
+                VerifiedMatch        = $true
+                ProofStatus          = 'AUTHORIZED_FALLBACK'
+                MatchKind            = 'AUTHORIZED_FALLBACK'
+                IsExactMatch         = $false
                 IsAuthorizedFallback = $true
-                RuntimeTierProven   = $true
-                Reason              = "Executed model '$actModel' is an authorized fallback from '$reqModel' (Trigger: $($fb.TriggerReason))."
-                RequestedTier       = $reqTier
-                EffectiveTier       = $effTier
-                EffectiveModelToken = $actModel
-                FallbackDecision    = $fb
+                RuntimeTierProven    = $true
+                Reason               = "Executed model '$actModel' is an authorized fallback from '$reqModel' (Trigger: $($fb.TriggerReason))."
+                RequestedTier        = $reqTier
+                EffectiveTier        = $effTier
+                EffectiveModelToken  = $actModel
+                RequestedProvider    = $reqProvider
+                EffectiveProvider    = $actProvider
+                IsCrossProvider      = ($reqProvider -ne $actProvider)
+                FallbackDecision     = $fb
             }
         }
     }
 
     # If neither EXACT_MATCH nor AUTHORIZED_FALLBACK, it is UNAUTHORIZED_MISMATCH
     return [pscustomobject]@{
-        VerifiedMatch       = $false
-        ProofStatus         = 'UNAUTHORIZED_MISMATCH'
-        MatchKind           = 'UNAUTHORIZED_MISMATCH'
-        IsExactMatch        = $false
+        VerifiedMatch        = $false
+        ProofStatus          = 'UNAUTHORIZED_MISMATCH'
+        MatchKind            = 'UNAUTHORIZED_MISMATCH'
+        IsExactMatch         = $false
         IsAuthorizedFallback = $false
-        RuntimeTierProven   = $false
-        Reason              = "Executed model '$actModel' does not match requested model '$reqModel' and no authorized fallback was proven."
-        RequestedTier       = $reqTier
-        EffectiveTier       = 'UNKNOWN'
-        EffectiveModelToken = $actModel
+        RuntimeTierProven    = $false
+        Reason               = "Executed model '$actModel' does not match requested model '$reqModel' and no authorized fallback was proven."
+        RequestedTier        = $reqTier
+        EffectiveTier        = 'UNKNOWN'
+        EffectiveModelToken  = $actModel
+        RequestedProvider    = $reqProvider
+        EffectiveProvider    = $actProvider
+        IsCrossProvider      = $isCrossProvider
     }
 }
 
 function Resolve-OrchestrationModelSelection {
     <#
     .SYNOPSIS
-        Selects model tier and token for an agent based on task criteria and safety invariants.
-    .PARAMETER AgentName
-        Canonical agent role name (e.g. coder, reviewer, engineering-advisor).
-    .PARAMETER Risk
-        Task risk level: low, medium, high, critical. Default is medium.
-    .PARAMETER Complexity
-        Task complexity: trivial, simple, medium, complex. Default is medium.
-    .PARAMETER FailureCount
-        Number of previous failed attempts on this task. Default is 0.
-    .PARAMETER IsTrivialDirect
-        Whether the task is running via DIRECT_VERIFIED (Tier T0).
-    .PARAMETER NativeModelOverrideProven
-        Whether native OpenCode V2 supports model parameter in subagent tool calls.
-        Default is $false (fail-closed fallback to standard template token).
-    .PARAMETER ModelCatalog
-        Optional catalog mapping tier to model definitions.
+        Selects model tier, provider and model ID for an agent based on task criteria, policy and safety invariants.
+    .DESCRIPTION
+        Implements Dynamic Model Routing & Intelligent Advisory v1.1.
+        Preserves backward compatibility while providing full structured ModelSelectionDecision output.
     #>
     [CmdletBinding()]
     param(
@@ -734,20 +1154,53 @@ function Resolve-OrchestrationModelSelection {
         $ModelCatalog = $null,
 
         [Parameter(Mandatory = $false)]
-        [bool]$RequiresLlm = $false
+        [bool]$RequiresLlm = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$AllowedProviders = @(),
+
+        [Parameter(Mandatory = $false)]
+        [string]$TaskType = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$TaskId = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$GoalId = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = '',
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IgnoreUserConfig = $false
     )
 
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
+    $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
+    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.1.0' }
+
     if (-not $script:AgentModelAdmissibility.ContainsKey($cleanAgent)) {
         return [pscustomobject]@{
-            Status           = 'REJECTED'
-            Reason           = "Unknown or unregistered agent: '$cleanAgent'"
-            Agent            = $cleanAgent
-            Tier             = $null
-            ModelToken       = $null
-            FallbackTier     = 'T2'
-            FallbackToken    = 'MODEL_CHEAP'
-            IsCompliant      = $false
+            Status                    = 'REJECTED'
+            DecisionStatus            = 'NO_ELIGIBLE_MODEL'
+            Reason                    = "Unknown or unregistered agent: '$cleanAgent'"
+            selection_reason          = "Unknown or unregistered agent: '$cleanAgent'"
+            Agent                     = $cleanAgent
+            requested_role            = $cleanAgent
+            Tier                      = $null
+            selected_tier             = $null
+            ModelToken                = $null
+            selected_model_id         = $null
+            selected_provider         = 'none'
+            FallbackTier              = 'T2'
+            FallbackToken             = 'MODEL_CHEAP'
+            IsCompliant               = $false
+            Authorized                = $false
+            policy_version            = $polVer
+            policy_hash               = $polHash
+            fallback_candidates       = @()
+            runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
         }
     }
 
@@ -760,29 +1213,45 @@ function Resolve-OrchestrationModelSelection {
         return [pscustomobject]@{
             Status                    = 'SELECTED'
             Agent                     = $cleanAgent
+            requested_role            = $cleanAgent
             Tier                      = 'T0'
+            selected_tier             = 'T0'
             TierName                  = 'Deterministic'
             ModelToken                = 'NONE_DIRECT_VERIFIED'
             EffectiveModelToken       = 'NONE_DIRECT_VERIFIED'
             CatalogModel              = 'none (deterministic)'
+            selected_model_id         = 'none (deterministic)'
+            selected_provider         = 'none'
+            Provider                  = 'none'
             AuthorizedSelection       = $true
+            Authorized                = $true
             RuntimeTierProven         = $true
+            runtime_override_status   = 'PROVEN'
             ProofStatus               = 'PROVEN_DIRECT_VERIFIED'
             AdmissibleTiers           = @('T0')
             SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
+            selection_reason          = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
             EstimatedCostMultiplier   = 0.0
             FallbackTier              = 'T0'
             FallbackToken             = 'NONE_DIRECT_VERIFIED'
             NativeModelOverrideProven = $NativeModelOverrideProven
             IsCompliant               = $true
+            policy_version            = $polVer
+            policy_hash               = $polHash
+            fallback_candidates       = @()
         }
     }
 
-    # Dynamic tier selection logic
+    # Dynamic tier selection logic based on SPEC v1.1
     $selectedTier = $admissibility.DefaultTier
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
-    if ($cleanAgent -eq 'reviewer') {
+    # Planner 'build' is stable on T3 (Luna)
+    if ($cleanAgent -eq 'build') {
+        $selectedTier = 'T3'
+        $reason = "Planner build is stable on Capable tier T3 (Luna) during objective."
+    }
+    elseif ($cleanAgent -eq 'reviewer') {
         if ($Risk -in @('high', 'critical')) {
             if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
                 $selectedTier = 'T4'
@@ -864,7 +1333,6 @@ function Resolve-OrchestrationModelSelection {
 
     # Strict safety invariant check: ensure selected tier is admissible
     if ($admissibleTiers -notcontains $selectedTier -or $prohibitedTiers -contains $selectedTier) {
-        # Fallback to default tier
         $selectedTier = $admissibility.DefaultTier
         $reason = "Requested tier was prohibited. Fallen back to admissible default '$selectedTier'."
     }
@@ -882,15 +1350,53 @@ function Resolve-OrchestrationModelSelection {
     }
 
     # Catalog and authorization check: separate technical justification from explicit cost authorization
-    $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized
+    $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig
     if (-not $catalogRes.IsAuthorized) {
         $degradedTier = if ($selectedTier -eq 'T4') { 'T3' } else { $admissibility.DefaultTier }
         $reason = "Tier '$($catalogRes.Tier)' was unauthorized (cost/provider authorization absent). Degraded to '$degradedTier'."
         $selectedTier = $degradedTier
-        $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized
+        $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig
     }
 
-    # Resolve token name directly from resolved catalog entry (no reduction to cheap/strong pool)
+    # Check AllowedProviders constraint if provided
+    $selectedProv = Get-ModelProviderFromId $catalogRes.CatalogModel
+    if ($null -ne $AllowedProviders -and $AllowedProviders.Count -gt 0) {
+        if ($AllowedProviders -notcontains $selectedProv) {
+            # Try to find candidate in same tier with allowed provider
+            $foundAlt = $null
+            foreach ($cand in $catalogRes.FallbackCandidates) {
+                if ($AllowedProviders -contains (Get-ModelProviderFromId $cand)) {
+                    $foundAlt = $cand
+                    break
+                }
+            }
+            if ($null -ne $foundAlt) {
+                $catalogRes.CatalogModel = $foundAlt
+                $selectedProv = Get-ModelProviderFromId $foundAlt
+                $reason += " Fallback to allowed provider '$selectedProv' model '$foundAlt'."
+            } else {
+                return [pscustomobject]@{
+                    Status                    = 'PROVIDER_UNAVAILABLE'
+                    Agent                     = $cleanAgent
+                    requested_role            = $cleanAgent
+                    Tier                      = $selectedTier
+                    selected_tier             = $selectedTier
+                    Reason                    = "Selected provider '$selectedProv' is not in allowed_providers: ($($AllowedProviders -join ', '))"
+                    selection_reason          = "Selected provider '$selectedProv' is not in allowed_providers: ($($AllowedProviders -join ', '))"
+                    AuthorizedSelection       = $false
+                    Authorized                = $false
+                    IsCompliant               = $false
+                    policy_version            = $polVer
+                    policy_hash               = $polHash
+                    selected_provider         = $selectedProv
+                    selected_model_id         = $catalogRes.CatalogModel
+                    fallback_candidates       = $catalogRes.FallbackCandidates
+                    runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
+                }
+            }
+        }
+    }
+
     $modelToken = [string]$catalogRes.ModelToken
     $tierMeta = $script:ModelTiers[$selectedTier]
 
@@ -903,9 +1409,6 @@ function Resolve-OrchestrationModelSelection {
         default { 'MODEL_CHEAP' }
     }
 
-    # Handle native override proof
-    # If native subagent model override is NOT proven, we inform caller
-    # and provide conservative fallback token for standard template resolution
     $effectiveToken = if ($NativeModelOverrideProven) { $modelToken } else { $fallbackDefaultToken }
     $overrideNote = ''
     $proofStatus = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
@@ -918,28 +1421,41 @@ function Resolve-OrchestrationModelSelection {
     return [pscustomobject]@{
         Status                    = 'SELECTED'
         Agent                     = $cleanAgent
+        requested_role            = $cleanAgent
         Risk                      = $Risk
         Complexity                = $Complexity
         Tier                      = $selectedTier
+        selected_tier             = $selectedTier
         TierName                  = $tierMeta.Name
         ModelToken                = $modelToken
         EffectiveModelToken       = $effectiveToken
         CatalogModel              = $catalogRes.CatalogModel
+        selected_model_id         = $catalogRes.CatalogModel
+        selected_provider         = $selectedProv
+        Provider                  = $selectedProv
         AuthorizedSelection       = $catalogRes.IsAuthorized
+        Authorized                = $catalogRes.IsAuthorized
         ProviderCostAuthorized    = [bool]$catalogRes.ProviderCostAuthorized
         CostAuthorizationSource   = [string]$catalogRes.CostAuthorizationSource
+        authorization_source      = [string]$catalogRes.CostAuthorizationSource
         CostAuthorizationEvidence = [string]$catalogRes.CostAuthorizationEvidence
         CostBudget                = [string]$catalogRes.CostBudget
         RuntimeTierProven         = $runtimeTierProven
+        runtime_override_status   = $proofStatus
         ProofStatus               = $proofStatus
         AdmissibleTiers           = $admissibleTiers
         SelectionReason           = $reason
+        selection_reason          = $reason
         EstimatedCostMultiplier   = $tierMeta.RelativeCost
         FallbackTier              = $fallbackDefaultTier
         FallbackToken             = $fallbackDefaultToken
         NativeModelOverrideProven = $NativeModelOverrideProven
         OverrideNote              = $overrideNote
         IsCompliant               = $true
+        policy_version            = $polVer
+        policy_hash               = $polHash
+        fallback_candidates       = $catalogRes.FallbackCandidates
+        IgnoreUserConfig          = [bool]$IgnoreUserConfig
     }
 }
 

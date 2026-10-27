@@ -1,0 +1,99 @@
+﻿{
+  "info": {
+    "id": "ses_e854f20bfffeSk42kHTcpWr40U",
+    "projectID": "c0a24813568bcf09ed921d540d4ee1229ec0e888",
+    "model": {
+      "id": "beam-free",
+      "providerID": "opencode",
+      "variant": "default"
+    },
+    "cost": 0.0000921,
+    "tokens": {
+      "input": 42441,
+      "output": 25,
+      "reasoning": 303,
+      "cache": {
+        "read": 512,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1793059774363,
+      "updated": 1793059777489,
+      "idle": 1793059777493
+    },
+    "title": "Resposta PONG solicitada",
+    "location": {
+      "directory": "D:\\projetos\\opencode-orchestration"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_17ab0dfa9001ybIL88al2JP1H7",
+      "time": {
+        "created": 1793059774415
+      },
+      "text": "\"Responda apenas 'PONG'.\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_17ab0dfe2001JCTaSJUd0KL44J",
+      "time": {
+        "created": 1793059775452,
+        "streamed": 1793059777434,
+        "completed": 1793059777489
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "beam-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "The user is asking me to respond with just \"PONG\". This is a simple request. Let me check if there are any skills that apply here. The user said \"Responda apenas 'PONG'.\" which means \"Respond only 'PONG'.\" in Portuguese.\n\nThis is a trivial request - just respond with PONG. No skills needed for this. Let me just respond.",
+          "native": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1793059777047,
+            "completed": 1793059777430
+          }
+        },
+        {
+          "type": "text",
+          "text": "PONG"
+        }
+      ],
+      "snapshot": {
+        "start": "ee68e6704d7120e40f4e93ccc9bc629aa6b7590b",
+        "end": "ee68e6704d7120e40f4e93ccc9bc629aa6b7590b",
+        "files": []
+      },
+      "finish": "stop",
+      "rawFinish": "stop",
+      "cost": 0,
+      "tokens": {
+        "input": 41992,
+        "output": 10,
+        "reasoning": 82,
+        "cache": {
+          "read": 512,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_17ab0ebd5001d1xqtabPIzTiC5",
+      "time": {
+        "created": 1793059777493
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

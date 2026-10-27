@@ -1,0 +1,725 @@
+{
+  "schema_version": "model-routing-policy/v1",
+  "policy_version": "1.1.0",
+  "providers": {
+    "opencode": {
+      "name": "OpenCode Console",
+      "type": "console",
+      "enabled": true,
+      "description": "OpenCode Console free tier models"
+    },
+    "opencode-go": {
+      "name": "OpenCode Go",
+      "type": "go",
+      "enabled": true,
+      "description": "OpenCode Go contributor models"
+    },
+    "openai": {
+      "name": "OpenAI",
+      "type": "openai",
+      "enabled": true,
+      "description": "OpenAI reasoning and frontier models"
+    },
+    "jev": {
+      "name": "Jev / System One",
+      "type": "systemone",
+      "enabled": true,
+      "description": "System One structured advisory service"
+    }
+  },
+  "models": {
+    "beam": {
+      "id": "beam",
+      "provider": "opencode",
+      "model_id": "opencode/beam-free",
+      "enabled": true,
+      "tier_profiles": [
+        "T1"
+      ],
+      "eligible_roles": [
+        "explorer",
+        "docs-manager",
+        "researcher",
+        "tester"
+      ],
+      "capabilities": [
+        "exploration",
+        "file-locating",
+        "simple-classification",
+        "extraction",
+        "triage"
+      ],
+      "priority": 1,
+      "cost_profile": {
+        "pricing_type": "free",
+        "relative_cost": 0.01,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-26T00:00:00Z",
+      "fallback_candidates": [
+        "deepseek"
+      ]
+    },
+    "deepseek": {
+      "id": "deepseek",
+      "provider": "opencode",
+      "model_id": "opencode/deepseek-v4.1-flash-free",
+      "enabled": true,
+      "tier_profiles": [
+        "T2"
+      ],
+      "eligible_roles": [
+        "coder",
+        "researcher",
+        "tester",
+        "docs-manager",
+        "requirements-analyst",
+        "product-designer",
+        "explorer"
+      ],
+      "capabilities": [
+        "code-generation",
+        "test-generation",
+        "refactoring",
+        "technical-analysis",
+        "routine-implementation"
+      ],
+      "priority": 1,
+      "cost_profile": {
+        "pricing_type": "free",
+        "relative_cost": 0.1,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-26T00:00:00Z",
+      "fallback_candidates": [
+        "muse",
+        "luna"
+      ]
+    },
+    "muse": {
+      "id": "muse",
+      "provider": "opencode-go",
+      "model_id": "opencode-go/muse-spark-1.3-contributor",
+      "enabled": true,
+      "tier_profiles": [
+        "T2"
+      ],
+      "eligible_roles": [
+        "frontend-engineer",
+        "backend-engineer",
+        "database-engineer",
+        "ai-agent-engineer",
+        "automation-engineer",
+        "infra-engineer",
+        "coder",
+        "researcher",
+        "tester"
+      ],
+      "capabilities": [
+        "specialized-engineering",
+        "code-generation",
+        "automation",
+        "api-design"
+      ],
+      "priority": 2,
+      "cost_profile": {
+        "pricing_type": "plan_included",
+        "relative_cost": 0.1,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "contributor_license_terms": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-26T00:00:00Z",
+      "fallback_candidates": [
+        "deepseek",
+        "luna"
+      ]
+    },
+    "luna": {
+      "id": "luna",
+      "provider": "openai",
+      "model_id": "openai/gpt-6-luna",
+      "enabled": true,
+      "tier_profiles": [
+        "T3"
+      ],
+      "eligible_roles": [
+        "build",
+        "reviewer",
+        "debugger",
+        "architect",
+        "skeptic",
+        "engineering-advisor",
+        "coder",
+        "frontend-engineer",
+        "backend-engineer",
+        "database-engineer",
+        "ai-agent-engineer",
+        "automation-engineer",
+        "infra-engineer",
+        "requirements-analyst",
+        "product-designer",
+        "researcher"
+      ],
+      "capabilities": [
+        "strategic-planning",
+        "complex-reasoning",
+        "multi-file-refactoring",
+        "root-cause-debugging",
+        "technical-review",
+        "architecture-coordination"
+      ],
+      "priority": 1,
+      "cost_profile": {
+        "pricing_type": "usage_billed",
+        "relative_cost": 1.0,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 256000,
+        "max_output_tokens": 16384
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-26T00:00:00Z",
+      "fallback_candidates": [
+        "sol"
+      ]
+    },
+    "sol": {
+      "id": "sol",
+      "provider": "openai",
+      "model_id": "openai/gpt-6.1-sol",
+      "enabled": true,
+      "tier_profiles": [
+        "T4"
+      ],
+      "eligible_roles": [
+        "security-reviewer",
+        "architect",
+        "reviewer",
+        "debugger",
+        "skeptic",
+        "engineering-advisor"
+      ],
+      "capabilities": [
+        "critical-reasoning",
+        "security-audit",
+        "deadlock-resolution",
+        "distributed-consensus",
+        "formal-architecture"
+      ],
+      "priority": 1,
+      "cost_profile": {
+        "pricing_type": "usage_billed",
+        "relative_cost": 8.0,
+        "requires_authorization": true
+      },
+      "context_limits": {
+        "max_input_tokens": 256000,
+        "max_output_tokens": 32768
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-26T00:00:00Z",
+      "fallback_candidates": [
+        "astra"
+      ]
+    },
+    "astra": {
+      "id": "astra",
+      "provider": "openai",
+      "model_id": "openai/gpt-6-astra",
+      "enabled": true,
+      "tier_profiles": [
+        "T4"
+      ],
+      "eligible_roles": [
+        "security-reviewer",
+        "architect",
+        "engineering-advisor"
+      ],
+      "capabilities": [
+        "frontier-exceptional-reasoning",
+        "high-uncertainty-synthesis",
+        "critical-security-boundary"
+      ],
+      "priority": 2,
+      "cost_profile": {
+        "pricing_type": "usage_billed",
+        "relative_cost": 15.0,
+        "requires_authorization": true,
+        "exceptional_budget_required": true
+      },
+      "context_limits": {
+        "max_input_tokens": 512000,
+        "max_output_tokens": 65536
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-26T00:00:00Z",
+      "fallback_candidates": [
+        "sol"
+      ]
+    }
+  },
+  "tiers": {
+    "T0": {
+      "name": "Deterministic",
+      "model_id": null,
+      "primary": null,
+      "relative_cost": 0.0,
+      "description": "Deterministic AST, lint, tests, scripts without LLM"
+    },
+    "T1": {
+      "name": "UltraLight",
+      "primary": "beam",
+      "alternatives": [
+        "deepseek"
+      ],
+      "relative_cost": 0.01,
+      "description": "Free and ultra-lightweight exploration and triage"
+    },
+    "T2": {
+      "name": "Economical",
+      "primary": "deepseek",
+      "alternatives": [
+        "muse",
+        "luna"
+      ],
+      "fallback": "muse",
+      "relative_cost": 0.1,
+      "description": "Economical routine implementation and engineering"
+    },
+    "T3": {
+      "name": "Capable",
+      "primary": "luna",
+      "alternatives": [
+        "sol"
+      ],
+      "relative_cost": 1.0,
+      "description": "Advanced reasoning, strategic planning and architecture"
+    },
+    "T4": {
+      "name": "Frontier",
+      "primary": "sol",
+      "exceptional": "astra",
+      "alternatives": [
+        "astra"
+      ],
+      "relative_cost": 8.0,
+      "description": "Critical reasoning and frontier escalation"
+    }
+  },
+  "role_profiles": {
+    "build": {
+      "default_model": "luna",
+      "default_tier": "T3",
+      "escalation": "engineering-advisor",
+      "stable_objective": true,
+      "admissible_tiers": [
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T4"
+      ]
+    },
+    "explorer": {
+      "default_model": "beam",
+      "default_tier": "T1",
+      "alternatives": [
+        "deepseek"
+      ],
+      "admissible_tiers": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "prohibited_tiers": [
+        "T3",
+        "T4"
+      ]
+    },
+    "researcher": {
+      "default_model": "deepseek",
+      "default_tier": "T2",
+      "alternatives": [
+        "muse",
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T4"
+      ]
+    },
+    "coder": {
+      "default_model": "deepseek",
+      "default_tier": "T2",
+      "alternatives": [
+        "muse",
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T1",
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": []
+    },
+    "tester": {
+      "default_model": "deepseek",
+      "default_tier": "T2",
+      "deterministic_tier": "T0",
+      "alternatives": [
+        "muse"
+      ],
+      "admissible_tiers": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "prohibited_tiers": [
+        "T3",
+        "T4"
+      ]
+    },
+    "docs-manager": {
+      "default_model": "beam",
+      "default_tier": "T1",
+      "alternatives": [
+        "deepseek"
+      ],
+      "admissible_tiers": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "prohibited_tiers": [
+        "T3",
+        "T4"
+      ]
+    },
+    "frontend-engineer": {
+      "default_model": "muse",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T4"
+      ]
+    },
+    "backend-engineer": {
+      "default_model": "muse",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1"
+      ]
+    },
+    "database-engineer": {
+      "default_model": "muse",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1"
+      ]
+    },
+    "ai-agent-engineer": {
+      "default_model": "muse",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1",
+        "T4"
+      ]
+    },
+    "automation-engineer": {
+      "default_model": "muse",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "prohibited_tiers": [
+        "T3",
+        "T4"
+      ]
+    },
+    "infra-engineer": {
+      "default_model": "muse",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T0",
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T4"
+      ]
+    },
+    "reviewer": {
+      "default_model": "luna",
+      "default_tier": "T3",
+      "alternatives": [
+        "sol"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1"
+      ]
+    },
+    "debugger": {
+      "default_model": "luna",
+      "default_tier": "T3",
+      "alternatives": [
+        "sol"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1"
+      ]
+    },
+    "architect": {
+      "default_model": "luna",
+      "default_tier": "T3",
+      "alternatives": [
+        "sol",
+        "astra"
+      ],
+      "admissible_tiers": [
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1",
+        "T2"
+      ]
+    },
+    "security-reviewer": {
+      "default_model": "sol",
+      "default_tier": "T4",
+      "exceptional": "astra",
+      "alternatives": [
+        "astra"
+      ],
+      "admissible_tiers": [
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1",
+        "T2"
+      ]
+    },
+    "requirements-analyst": {
+      "default_model": "deepseek",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T4"
+      ]
+    },
+    "product-designer": {
+      "default_model": "deepseek",
+      "default_tier": "T2",
+      "alternatives": [
+        "luna"
+      ],
+      "admissible_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T4"
+      ]
+    },
+    "skeptic": {
+      "default_model": "luna",
+      "default_tier": "T3",
+      "alternatives": [
+        "sol"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1",
+        "T4"
+      ]
+    },
+    "engineering-advisor": {
+      "default_model": "luna",
+      "default_tier": "T3",
+      "advanced": "sol",
+      "exceptional": "astra",
+      "alternatives": [
+        "sol",
+        "astra"
+      ],
+      "admissible_tiers": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "prohibited_tiers": [
+        "T0",
+        "T1"
+      ]
+    }
+  },
+  "planner": {
+    "primary": "luna",
+    "model_id": "openai/gpt-6-luna",
+    "provider": "openai",
+    "stable_during_objective": true
+  },
+  "advisor": {
+    "default": "luna",
+    "advanced": "sol",
+    "exceptional": "astra",
+    "exceptional_conditions": [
+      "technical_justification",
+      "additional_capacity_needed",
+      "provider_available",
+      "budget_authorized",
+      "delimited_scope"
+    ]
+  },
+  "jev": {
+    "model": "jev-1.13-free",
+    "service": "OpenCode / System One",
+    "endpoint": "https://opencode.ai/inference/systemone/v1/systemone",
+    "mode": "advisory",
+    "transport": "System One",
+    "authority": "advisory-only"
+  },
+  "fallback_policy": {
+    "max_attempts": 3,
+    "prefer_same_tier": true,
+    "prevent_cycles": true,
+    "prohibited_downgrades": [
+      "reviewer",
+      "security-reviewer"
+    ],
+    "cross_provider_tracking": true,
+    "prohibitions": [
+      "fallback_loops",
+      "unknown_models",
+      "incompatible_downgrade",
+      "unauthorized_astra",
+      "silent_provider_switch",
+      "duplicate_execution_on_ambiguous",
+      "zero_cost_on_unknown"
+    ]
+  },
+  "cost_policy": {
+    "t4_requires_authorization": true,
+    "astra_requires_exceptional_authorization": true,
+    "unknown_cost_handling": "UNKNOWN"
+  },
+  "runtime_verification": {
+    "match_kinds": [
+      "EXACT_MATCH",
+      "AUTHORIZED_FALLBACK",
+      "UNAUTHORIZED_MISMATCH",
+      "PROOF_ABSENT"
+    ],
+    "require_exact_provider_match": true,
+    "fail_closed_on_unproven_override": true
+  }
+}

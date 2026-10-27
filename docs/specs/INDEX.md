@@ -4,10 +4,12 @@ Este índice mapeia todas as especificações e planos técnicos mantidos no rep
 
 ---
 
-## 1. Frente Ativa: Workflow Efficiency & Adaptive Model Routing (v0.2.0)
+## 1. Frente Ativa: Dynamic Model Routing & Intelligent Advisory (v1.1)
 
 | Documento | Status | Assunto |
 | :--- | :--- | :--- |
+| [DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md](DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md) | approved | SPEC — Dynamic Model Routing & Intelligent Advisory v1.1 |
+| [DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md](DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md) | ready | Plano de implementação Dynamic Model Routing v1.1 (Fases 0–8) |
 | [WORKFLOW-EFFICIENCY-v0.2.0-SPEC.md](WORKFLOW-EFFICIENCY-v0.2.0-SPEC.md) | active | SPEC v0.2.0 — Workflow Efficiency & Adaptive Model Routing |
 | [WORKFLOW-EFFICIENCY-v0.2.0-PLAN.md](WORKFLOW-EFFICIENCY-v0.2.0-PLAN.md) | active | Plano de implementação v0.2.0 (Advisor on-demand, Proportional Reuse, T0..T4) |
 | [MODEL-ROUTER-vNext-SPEC.md](MODEL-ROUTER-vNext-SPEC.md) | active | SPEC vNext do Model Router com tiers de capacidade e autorização financeira |
