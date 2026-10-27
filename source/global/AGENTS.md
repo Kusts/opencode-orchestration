@@ -198,6 +198,13 @@ implícito "Planner fez tudo sozinho sem decisão de orquestração".
   existe worker adequado. A prova é o `ExecutionShape` `SINGLE_WORKER` no DONE
   gate — tokens `DIRECT_*` legados (pré-v0.1.0) são rejeitados como
   `NON_COMPLIANT_DEPRECATED_DIRECT`.
+- `DIRECT_VERIFIED` é a rota trivial do adapter/runtime (OpenCode V2):
+  somente operações comprovadamente triviais, localizadas, reversíveis e de
+  baixo risco, com `ExecutionStrategy=DIRECT_VERIFIED` e passagem do gate
+  isTrivial (sem palavra sensível, sem decisão arquitetural, escopo
+  localizado). Sem esse gate, tarefa trivial segue `SINGLE_WORKER`. T0
+  permanece exclusivo de tarefas determinísticas sem LLM; `DIRECT_VERIFIED`
+  executado pelo Planner LLM não é T0.
 - Falha do Router/Registry (indisponível, stale, exceção, timeout, resposta
   malformada) resulta em `DETERMINISTIC ORCHESTRATION FALLBACK`, nunca em
   execução solitária do Planner.

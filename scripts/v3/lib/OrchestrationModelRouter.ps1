@@ -1232,7 +1232,10 @@ function Resolve-OrchestrationModelSelection {
     $admissibleTiers = @($admissibility.AdmissibleTiers)
     $prohibitedTiers = @($admissibility.ProhibitedTiers)
 
-    # DIRECT_VERIFIED bypass: execution without model / subagent
+    # DIRECT_VERIFIED bypass: direct execution by the Planner LLM (no subagent).
+    # This is NOT deterministic T0: the Planner LLM still consumes tokens, so it
+    # must not be accounted as zero-cost / no-provider. T0 stays exclusive to
+    # deterministic execution without any LLM.
     if ($IsTrivialDirect) {
         return [pscustomobject]@{
             Status                    = 'SELECTED'
@@ -1240,22 +1243,22 @@ function Resolve-OrchestrationModelSelection {
             requested_role            = $cleanAgent
             Tier                      = 'T0'
             selected_tier             = 'T0'
-            TierName                  = 'Deterministic'
+            TierName                  = 'DirectVerified'
             ModelToken                = 'NONE_DIRECT_VERIFIED'
             EffectiveModelToken       = 'NONE_DIRECT_VERIFIED'
-            CatalogModel              = 'none (deterministic)'
-            selected_model_id         = 'none (deterministic)'
-            selected_provider         = 'none'
-            Provider                  = 'none'
+            CatalogModel              = 'planner (inherited)'
+            selected_model_id         = 'planner (inherited)'
+            selected_provider         = 'planner'
+            Provider                  = 'planner'
             AuthorizedSelection       = $true
             Authorized                = $true
             RuntimeTierProven         = $true
             runtime_override_status   = 'PROVEN'
             ProofStatus               = 'PROVEN_DIRECT_VERIFIED'
             AdmissibleTiers           = @('T0')
-            SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
-            selection_reason          = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
-            EstimatedCostMultiplier   = 0.0
+            SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED on the Planner LLM (cost attributed to Planner, not zero).'
+            selection_reason          = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED on the Planner LLM (cost attributed to Planner, not zero).'
+            EstimatedCostMultiplier   = 1.0
             FallbackTier              = 'T0'
             FallbackToken             = 'NONE_DIRECT_VERIFIED'
             NativeModelOverrideProven = $NativeModelOverrideProven
