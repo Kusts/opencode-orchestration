@@ -1,7 +1,7 @@
 ---
 description: Fast read-only codebase explorer. Use PROACTIVELY before any non-trivial change to map entry points, symbols, contracts, dependencies and blast radius. Use para localizar implementacao, fluxos entre arquivos, ownership ou impacto.
 mode: subagent
-model: {{MODEL_CHEAP}}
+model: {{MODEL_FREE}}
 temperature: 0.2
 permission:
   edit: deny

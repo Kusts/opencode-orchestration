@@ -1,6 +1,6 @@
 {
   "schema_version": "model-routing-policy/v1",
-  "policy_version": "1.1.0",
+  "policy_version": "1.2.0",
   "providers": {
     "opencode": {
       "name": "OpenCode Console",
@@ -30,8 +30,8 @@
   "models": {
     "beam": {
       "id": "beam",
-      "provider": "opencode",
-      "model_id": "opencode/beam-free",
+      "provider": "opencode-go",
+      "model_id": "opencode-go/beam-free",
       "enabled": true,
       "tier_profiles": [
         "T1"
@@ -63,16 +63,17 @@
         "sensitive_data_allowed": true
       },
       "availability_status": "active",
-      "last_verified_at": "2026-10-26T00:00:00Z",
+      "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
-        "deepseek"
+        "muse",
+        "luna"
       ]
     },
     "deepseek": {
       "id": "deepseek",
       "provider": "opencode",
       "model_id": "opencode/deepseek-v4.1-flash-free",
-      "enabled": true,
+      "enabled": false,
       "tier_profiles": [
         "T2"
       ],
@@ -105,12 +106,9 @@
       "data_policy": {
         "sensitive_data_allowed": true
       },
-      "availability_status": "active",
-      "last_verified_at": "2026-10-26T00:00:00Z",
-      "fallback_candidates": [
-        "muse",
-        "luna"
-      ]
+      "availability_status": "disabled",
+      "last_verified_at": "2026-10-27T00:00:00Z",
+      "fallback_candidates": []
     },
     "muse": {
       "id": "muse",
@@ -152,9 +150,8 @@
         "contributor_license_terms": true
       },
       "availability_status": "active",
-      "last_verified_at": "2026-10-26T00:00:00Z",
+      "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
-        "deepseek",
         "luna"
       ]
     },
@@ -290,6 +287,54 @@
       "fallback_candidates": [
         "sol"
       ]
+    },
+    "terra": {
+      "id": "terra",
+      "provider": "openai",
+      "model_id": "openai/gpt-6.1-terra",
+      "enabled": true,
+      "tier_profiles": [
+        "T3"
+      ],
+      "eligible_roles": [
+        "frontend-engineer",
+        "product-designer",
+        "researcher",
+        "architect"
+      ],
+      "capabilities": [
+        "visual-reasoning",
+        "computer-use",
+        "interface-interpretation",
+        "image-analysis",
+        "document-analysis",
+        "technical-writing"
+      ],
+      "priority": 2,
+      "cost_profile": {
+        "pricing_type": "usage_billed",
+        "relative_cost": 2.0,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 256000,
+        "max_output_tokens": 16384
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true,
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-10-27T00:00:00Z",
+      "fallback_candidates": [
+        "luna"
+      ]
     }
   },
   "tiers": {
@@ -303,20 +348,17 @@
     "T1": {
       "name": "UltraLight",
       "primary": "beam",
-      "alternatives": [
-        "deepseek"
-      ],
+      "alternatives": [],
       "relative_cost": 0.01,
       "description": "Free and ultra-lightweight exploration and triage"
     },
     "T2": {
       "name": "Economical",
-      "primary": "deepseek",
+      "primary": "muse",
       "alternatives": [
-        "muse",
         "luna"
       ],
-      "fallback": "muse",
+      "fallback": "luna",
       "relative_cost": 0.1,
       "description": "Economical routine implementation and engineering"
     },
@@ -324,6 +366,7 @@
       "name": "Capable",
       "primary": "luna",
       "alternatives": [
+        "terra",
         "sol"
       ],
       "relative_cost": 1.0,
@@ -352,13 +395,14 @@
       ],
       "prohibited_tiers": [
         "T4"
-      ]
+      ],
+      "alternatives": []
     },
     "explorer": {
       "default_model": "beam",
       "default_tier": "T1",
       "alternatives": [
-        "deepseek"
+        "muse"
       ],
       "admissible_tiers": [
         "T0",
@@ -371,9 +415,10 @@
       ]
     },
     "researcher": {
-      "default_model": "deepseek",
+      "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
+        "terra",
         "muse",
         "luna"
       ],
@@ -387,7 +432,7 @@
       ]
     },
     "coder": {
-      "default_model": "deepseek",
+      "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -402,7 +447,7 @@
       "prohibited_tiers": []
     },
     "tester": {
-      "default_model": "deepseek",
+      "default_model": "muse",
       "default_tier": "T2",
       "deterministic_tier": "T0",
       "alternatives": [
@@ -422,7 +467,7 @@
       "default_model": "beam",
       "default_tier": "T1",
       "alternatives": [
-        "deepseek"
+        "muse"
       ],
       "admissible_tiers": [
         "T0",
@@ -438,6 +483,7 @@
       "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
+        "terra",
         "luna"
       ],
       "admissible_tiers": [
@@ -564,6 +610,7 @@
       "default_model": "luna",
       "default_tier": "T3",
       "alternatives": [
+        "terra",
         "sol",
         "astra"
       ],
@@ -595,7 +642,7 @@
       ]
     },
     "requirements-analyst": {
-      "default_model": "deepseek",
+      "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
         "luna"
@@ -611,9 +658,10 @@
       ]
     },
     "product-designer": {
-      "default_model": "deepseek",
+      "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
+        "terra",
         "luna"
       ],
       "admissible_tiers": [

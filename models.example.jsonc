@@ -3,8 +3,11 @@
   // Configuração de modelos alinhada aos padrões do Dynamic Model Routing v1.1.
   // Planner: agente primário "build" (Tier T3 - GPT-6 Luna).
   "planner": "openai/gpt-6-luna",
-  // Pool barato: explorer, researcher, coder, tester, engineers, planning advisors (Tier T2 - DeepSeek Flash Free).
-  "cheap": "opencode/deepseek-v4.1-flash-free",
+  // Pool barato: explorer, researcher, coder, tester, engineers, planning advisors (Tier T2 - Muse Spark 1.3 Contributor).
+  // Tier T1 (ultraleve) usa opencode-go/beam-free para explorer/docs-manager (ver model-routing-policy.json).
+  "cheap": "opencode-go/muse-spark-1.3-contributor",
+  // Pool ultra-leve (opcional): override local para agentes T1 (explorer, docs-manager). Ausente => default da politica canonica (opencode-go/beam-free).
+  "free": "opencode-go/beam-free",
   // Pool forte: reviewer, debugger, security-reviewer, architect (Tier T3 - GPT-6 Luna).
   "strong": "openai/gpt-6-luna",
   // Pool fronteira (opcional): raciocínio crítico sob autorização de custo (Tier T4 - GPT-6.1 Sol).

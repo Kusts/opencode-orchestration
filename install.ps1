@@ -344,10 +344,11 @@ function Remove-OrchestrationBlock([string[]]$Lines) {
   return ($kept -join "`n")
 }
 
-function Resolve-Tokens([string]$Text, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$HomeDir, [string]$RepoDir) {
+function Resolve-Tokens([string]$Text, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free, [string]$HomeDir, [string]$RepoDir) {
   $r = $Text.Replace('{{MODEL_PLANNER}}', $Planner)
   $r = $r.Replace('{{MODEL_CHEAP}}', $Cheap)
   $r = $r.Replace('{{MODEL_STRONG}}', $Strong)
+  $r = $r.Replace('{{MODEL_FREE}}', $Free)
   $homeSlash = $HomeDir -replace '\\', '/'
   $r = $r.Replace('{{HOME}}', $homeSlash)
   $r = $r.Replace('{{REPO_DIR}}', ($RepoDir -replace '\\', '/'))
@@ -696,7 +697,7 @@ function Merge-ManagedOpencodeConfigV2($Existing, $Desired, [switch]$SkipPermiss
 }
 
 # ---- 2.4 precheck -----------------------------------------------------------
-function Validate-Models([string]$ModelsPath) {
+function Validate-Models([string]$ModelsPath, [string]$Root = '') {
   $errs = @()
   if (-not (Test-Path -LiteralPath $ModelsPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('models.jsonc ausente: ' + $ModelsPath); Values = $null }
@@ -713,7 +714,32 @@ function Validate-Models([string]$ModelsPath) {
     }
   }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Values = $null } }
+  $defaultFree = 'opencode-go/beam-free'
+  if (-not [string]::IsNullOrWhiteSpace($Root)) {
+    $defaultFree = Get-DefaultFreeModel $Root
+  }
+  if (-not (Has-Member $parsed 'free') -or [string]::IsNullOrWhiteSpace([string]$parsed.free)) {
+    $parsed | Add-Member -NotePropertyName free -NotePropertyValue $defaultFree -Force
+  }
   return @{ Ok = $true; Errors = @(); Values = $parsed }
+}
+
+function Get-DefaultFreeModel([string]$Root) {
+  try {
+    $policyPath = Join-Path $Root 'source\registry\model-routing-policy.json'
+    if (Test-Path -LiteralPath $policyPath -PathType Leaf) {
+      $p = (Read-Utf8 $policyPath) | ConvertFrom-Json
+      $primaryId = [string]$p.tiers.T1.primary
+      if (-not [string]::IsNullOrWhiteSpace($primaryId)) {
+        $m = $p.models.$primaryId
+        if ($null -ne $m -and -not [string]::IsNullOrWhiteSpace([string]$m.model_id)) {
+          return [string]$m.model_id
+        }
+      }
+    }
+  }
+  catch { }
+  return 'opencode-go/beam-free'
 }
 
 function Get-RequiredTemplatesForRuntime([string]$RuntimeId) {
@@ -756,7 +782,7 @@ function Validate-AgentDefinitions([string]$Root) {
     }
     $m = [regex]::Match($raw, '(?s)^---\s*\r?\n(.*?)\r?\n---\s*')
     $fm = $m.Groups[1].Value
-    if ($fm -notmatch '(?m)^model:\s*\{\{MODEL_(PLANNER|CHEAP|STRONG)\}\}\s*$') {
+    if ($fm -notmatch '(?m)^model:\s*\{\{MODEL_(PLANNER|CHEAP|STRONG|FREE)\}\}\s*$') {
       $errs += ('agent sem model token valido: ' + $f.Name)
     }
   }
@@ -764,13 +790,13 @@ function Validate-AgentDefinitions([string]$Root) {
   return @{ Ok = $true; Errors = @() }
 }
 
-function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong) {
+function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/beam-free') {
   $errs = @()
   $tmplPath = Join-Path $Root 'templates\opencode.v1.json.tmpl'
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template ausente'); Desired = $null }
   }
-  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $env:USERPROFILE $Root
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free $env:USERPROFILE $Root
   try {
     $desired = $resolved | ConvertFrom-Json
   }
@@ -793,7 +819,7 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   return @{ Ok = $true; Errors = @(); Desired = $desired }
 }
 
-function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong) {
+function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/beam-free') {
   # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
   # experimental.subagent_depth), 21 blocos agents (build + title + 15
   # subagents explicitos + 4 planning), build sem model,
@@ -803,7 +829,7 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template V2 ausente'); Desired = $null }
   }
-  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $env:USERPROFILE $Root
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free $env:USERPROFILE $Root
   try {
     $desired = $resolved | ConvertFrom-Json
   }
@@ -1028,7 +1054,7 @@ $modelsPath = Join-Path $RepoRoot 'models.jsonc'
 
 $preErrors = New-Object System.Collections.ArrayList
 
-$modelsRes = Validate-Models $modelsPath
+$modelsRes = Validate-Models $modelsPath $RepoRoot
 if (-not $modelsRes.Ok) { foreach ($e in $modelsRes.Errors) { [void]$preErrors.Add($e) } }
 
 # ---- Phase 6 (V3.1): runtime resolution ANTES do precheck de templates -----
@@ -1259,11 +1285,11 @@ $tmplRes = @{ Ok = $false; Errors = @(); Desired = $null }
 $tmplResV2 = @{ Ok = $false; Errors = @(); Desired = $null }
 if ($modelsRes.Ok) {
   if ($preIsV2) {
-    $tmplResV2 = Validate-TemplateV2 $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong
+    $tmplResV2 = Validate-TemplateV2 $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong $modelsRes.Values.free
     if (-not $tmplResV2.Ok) { foreach ($e in $tmplResV2.Errors) { [void]$preErrors.Add($e) } }
   }
   else {
-    $tmplRes = Validate-Template $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong
+    $tmplRes = Validate-Template $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong $modelsRes.Values.free
     if (-not $tmplRes.Ok) { foreach ($e in $tmplRes.Errors) { [void]$preErrors.Add($e) } }
   }
 }
@@ -1296,6 +1322,7 @@ if ($preErrors.Count -gt 0) {
 $modelPlanner = $modelsRes.Values.planner
 $modelCheap = $modelsRes.Values.cheap
 $modelStrong = $modelsRes.Values.strong
+$modelFree = $modelsRes.Values.free
 
 # Runtime ja resolvido no precheck (V31-R3 F3); aqui so deriva o fluxo.
 $IsV2 = ([string]$runtimeDecision.RuntimeId -eq 'opencode-v2')
@@ -1384,7 +1411,7 @@ $globalBody = Read-Utf8 (Join-Path $RepoRoot 'source\global\AGENTS.md')
 $adapterRel = 'source\adapters\opencode.md'
 if ($IsV2) { $adapterRel = 'source\adapters\opencode-v2.md' }
 $adapterBody = Read-Utf8 (Join-Path $RepoRoot $adapterRel)
-$agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $TargetHome $RepoRoot
+$agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $modelFree $TargetHome $RepoRoot
 
 $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $header
 
@@ -1414,6 +1441,7 @@ if ($IsV2) {
     $fmText = $fmText.Replace('{{MODEL_PLANNER}}', $modelPlanner)
     $fmText = $fmText.Replace('{{MODEL_CHEAP}}', $modelCheap)
     $fmText = $fmText.Replace('{{MODEL_STRONG}}', $modelStrong)
+    $fmText = $fmText.Replace('{{MODEL_FREE}}', $modelFree)
     $fmText = $fmText.Replace('{{REPO_DIR}}', $repoEsc)
     $fmText = $fmText.Replace('{{HOME}}', ($TargetHome -replace '\\', '/'))
     $bodyV2 = [string]$parsedV2.Body
@@ -1431,6 +1459,7 @@ foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') 
   $raw = $raw.Replace('{{MODEL_PLANNER}}', $modelPlanner)
   $raw = $raw.Replace('{{MODEL_CHEAP}}', $modelCheap)
   $raw = $raw.Replace('{{MODEL_STRONG}}', $modelStrong)
+  $raw = $raw.Replace('{{MODEL_FREE}}', $modelFree)
   $raw = $raw.Replace('{{REPO_DIR}}', $repoEsc)
   $raw = $raw.Replace('{{HOME}}', ($TargetHome -replace '\\', '/'))
   $noNl = ($raw -replace "`r`n", "`n" -replace "`r", "`n")
@@ -2181,7 +2210,7 @@ try {
       adopted_paths = @($adoptedUnion)
       legacy_removed = @($legacyRemoved)
       config_snapshot = $snapshot
-      models = [ordered]@{ planner = $modelPlanner; cheap = $modelCheap; strong = $modelStrong }
+      models = [ordered]@{ planner = $modelPlanner; cheap = $modelCheap; strong = $modelStrong; free = $modelFree }
       plugin_dependency = $OpenCodePluginSpec
     }
     if ($PSCmdlet.ShouldProcess($manifestPath, 'Escrever manifest')) {

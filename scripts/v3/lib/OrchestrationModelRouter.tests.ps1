@@ -35,7 +35,7 @@ $selDirect = Resolve-OrchestrationModelSelection -AgentName 'coder' -IsTrivialDi
 Assert-Router ($selDirect.Status -eq 'SELECTED') "A.1: DIRECT_VERIFIED retorna status SELECTED"
 Assert-Router ($selDirect.Tier -eq 'T0') "A.1: DIRECT_VERIFIED retorna Tier T0"
 Assert-Router ($selDirect.ModelToken -eq 'NONE_DIRECT_VERIFIED') "A.1: DIRECT_VERIFIED nao usa token de modelo"
-Assert-Router ($selDirect.EstimatedCostMultiplier -eq 0.0) "A.1: DIRECT_VERIFIED tem custo zero"
+Assert-Router ($selDirect.EstimatedCostMultiplier -gt 0.0) "A.1: DIRECT_VERIFIED nao e custo zero (Planner LLM)"
 Assert-Router ($selDirect.IsCompliant -eq $true) "A.1: DIRECT_VERIFIED e compliant"
 
 # A.2 Agente desconhecido fail-closed
@@ -52,7 +52,7 @@ Assert-Router ($selPlanner.selected_provider -eq 'openai') "A.3: Planner 'build'
 # A.4 Reviewer: Admissibilidade, escalonamento e proibições
 $selRevLow = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true
 Assert-Router ($selRevLow.Tier -eq 'T2') "A.4: Reviewer low-risk/simple seleciona T2 economico"
-Assert-Router ($selRevLow.CatalogModel -eq 'opencode/deepseek-v4.1-flash-free') "A.4: Reviewer T2 canonico e DeepSeek"
+Assert-Router ($selRevLow.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.4: Reviewer T2 canonico e Muse Spark"
 Assert-Router ($selRevLow.ModelToken -eq 'MODEL_CHEAP') "A.4: Reviewer T2 usa MODEL_CHEAP"
 
 $selRevMed = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
@@ -88,7 +88,7 @@ Assert-Router ($selSecCritAuth.ModelToken -eq 'MODEL_FRONTIER') "A.5: Security-r
 # A.6 Coder: Escalonamento dinamico e custo
 $selCoderDef = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
 Assert-Router ($selCoderDef.Tier -eq 'T2') "A.6: Coder default seleciona T2"
-Assert-Router ($selCoderDef.CatalogModel -eq 'opencode/deepseek-v4.1-flash-free') "A.6: Coder default canonico e DeepSeek Flash Free"
+Assert-Router ($selCoderDef.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.6: Coder default canonico e Muse Spark"
 Assert-Router ($selCoderDef.ModelToken -eq 'MODEL_CHEAP') "A.6: Coder default usa MODEL_CHEAP"
 
 $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0 -IgnoreUserConfig $true
@@ -128,7 +128,7 @@ Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_FRONTIER') "A.7: Adviso
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex' -IgnoreUserConfig $true
 Assert-Router ($selExp.Tier -in @('T0', 'T1', 'T2')) "A.8: Explorer restrito a T0..T2"
 Assert-Router ($selExp.Tier -notin @('T3', 'T4')) "A.8: Explorer proibido em T3 e T4"
-Assert-Router ($selExp.CatalogModel -in @('opencode/beam-free', 'opencode/deepseek-v4.1-flash-free')) "A.8: Explorer canonico alocado em T1/T2"
+Assert-Router ($selExp.CatalogModel -in @('opencode-go/beam-free', 'opencode-go/muse-spark-1.3-contributor')) "A.8: Explorer canonico alocado em T1/T2"
 
 # A.9 Tester: T0 Deterministico vs T2 com LLM
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -IgnoreUserConfig $true
@@ -139,7 +139,7 @@ Assert-Router ($selTesterT0.EstimatedCostMultiplier -eq 0.0) "A.9: Tester T0 tem
 
 $selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-Router ($selTesterLlm.Tier -eq 'T2') "A.9: Tester com RequiresLlm seleciona tier autorizado T2"
-Assert-Router ($selTesterLlm.CatalogModel -eq 'opencode/deepseek-v4.1-flash-free') "A.9: Tester LLM canonico seleciona DeepSeek"
+Assert-Router ($selTesterLlm.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.9: Tester LLM canonico seleciona Muse Spark"
 Assert-Router ($selTesterLlm.ModelToken -eq 'MODEL_CHEAP') "A.9: Tester com LLM usa MODEL_CHEAP"
 Assert-Router ($selTesterLlm.ProviderCostAuthorized -eq $true) "A.9: Tester T2 e autorizado"
 
@@ -206,13 +206,13 @@ $museExcl = $fbAllowed.PreventivelyExcluded | Where-Object { $_.Model -eq 'openc
 Assert-Router ($null -ne $museExcl -and $museExcl.Reason -eq 'PROVIDER_NOT_ALLOWED') "A.11.5: Muse excluido preventivamente como PROVIDER_NOT_ALLOWED"
 
 # A.12 Verificacao Pos-Execucao (Contract Verification)
-$vExact = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode/deepseek-v4.1-flash-free' } -NativeModelOverrideProven $true
+$vExact = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor' } -NativeModelOverrideProven $true
 Assert-Router ($vExact.ProofStatus -eq 'EXACT_MATCH' -and $vExact.IsExactMatch -eq $true) "A.12: Execucao identica ao solicitado e EXACT_MATCH"
 
-$vFb = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor'; AuthorizedFallback = $fbCoderSameTier } -NativeModelOverrideProven $true
+$vFb = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna'; AuthorizedFallback = $fbCoderEscalateT3 } -NativeModelOverrideProven $true
 Assert-Router ($vFb.ProofStatus -eq 'AUTHORIZED_FALLBACK' -and $vFb.IsAuthorizedFallback -eq $true -and $vFb.IsExactMatch -eq $false) "A.12: Fallback autorizado e AUTHORIZED_FALLBACK (nao exact)"
 
-$vSameTierNoAuth = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor' } -NativeModelOverrideProven $true
+$vSameTierNoAuth = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna' } -NativeModelOverrideProven $true
 Assert-Router ($vSameTierNoAuth.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vSameTierNoAuth.VerifiedMatch -eq $false) "A.12: Substituicao no mesmo tier sem autorizacao e UNAUTHORIZED_MISMATCH"
 
 $vInadmiss = Test-ExecutedModelVerification -RequestedSelection $selRevHighCan -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor'; AuthorizedFallback = [pscustomobject]@{ IsAuthorized = $true; FallbackModel = 'opencode-go/muse-spark-1.3-contributor'; FallbackTier = 'T2' } } -NativeModelOverrideProven $true
@@ -250,7 +250,7 @@ $rawExample = Get-Content -LiteralPath $examplePath -Raw
 $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample
 Assert-Router ($parsedExample.planner -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default planner e gpt-6-luna"
-Assert-Router ($parsedExample.cheap -eq 'opencode/deepseek-v4.1-flash-free') "B.1: models.example.jsonc default cheap e deepseek-v4.1-flash-free"
+Assert-Router ($parsedExample.cheap -eq 'opencode-go/muse-spark-1.3-contributor') "B.1: models.example.jsonc default cheap e muse-spark-1.3-contributor"
 Assert-Router ($parsedExample.strong -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default strong e gpt-6-luna"
 Assert-Router ($parsedExample.frontier -eq 'openai/gpt-6.1-sol') "B.1: models.example.jsonc default frontier e gpt-6.1-sol"
 

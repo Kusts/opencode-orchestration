@@ -250,7 +250,7 @@ Comando de auditoria pós-execução para diagnóstico:
 ```powershell
 . scripts\v3\lib\OrchestrationModelRouter.ps1
 $sel = Resolve-OrchestrationModelSelection -AgentName 'coder'
-$telemetria = @{ Model = 'opencode/deepseek-v4.1-flash-free' }
+$telemetria = @{ Model = 'opencode-go/muse-spark-1.3-contributor' }
 Test-ExecutedModelVerification -RequestedSelection $sel -ExecutedModelEvent $telemetria -NativeModelOverrideProven $true
 ```
 
@@ -314,13 +314,13 @@ Toda seleção de modelo despachada gera um recibo com a seguinte estrutura:
   "stage": "model_routing",
   "agent": "coder",
   "tier": "T2",
-  "catalog_model": "opencode/deepseek-v4.1-flash-free",
+  "catalog_model": "opencode-go/muse-spark-1.3-contributor",
   "model_token": "MODEL_CHEAP",
   "provider_cost_authorized": false,
   "authorization_source": "STANDARD_CATALOG",
   "authorization_evidence": "catalog:default",
   "budget": "standard_tier_budget",
-  "policy_version": "1.1.0",
+  "policy_version": "1.2.0",
   "policy_hash": "245a58695bf714670f6c44782468c36a04db4b9e2b371e74de084b35f95d7e68",
   "timestamp": "2026-10-26T22:00:00.0000000Z"
 }

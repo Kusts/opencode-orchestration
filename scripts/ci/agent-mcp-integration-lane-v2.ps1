@@ -1087,7 +1087,7 @@ try {
     $tmplPath = Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl'
     if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) { Write-LaneSummaryAndExit 'failed' ('template ausente: ' + $tmplPath) 1 }
     $tmplRaw = [IO.File]::ReadAllText($tmplPath, [Text.Encoding]::UTF8)
-    $tmplRaw = $tmplRaw.Replace('{{MODEL_PLANNER}}', $CheapModel).Replace('{{MODEL_CHEAP}}', $CheapModel).Replace('{{MODEL_STRONG}}', $StrongModel)
+    $tmplRaw = $tmplRaw.Replace('{{MODEL_PLANNER}}', $CheapModel).Replace('{{MODEL_CHEAP}}', $CheapModel).Replace('{{MODEL_STRONG}}', $StrongModel).Replace('{{MODEL_FREE}}', $CheapModel)
     $tmplJson = $null
     try { $tmplJson = ConvertFrom-Json $tmplRaw } catch { Write-LaneSummaryAndExit 'failed' ('template apos substituicao nao parseia: ' + $_.Exception.Message) 1 }
     $agBuild = Get-JsonProp (Get-JsonProp $tmplJson 'agents' $null) 'build' $null

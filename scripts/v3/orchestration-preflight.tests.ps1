@@ -156,6 +156,11 @@ try {
     $rnt = Get-OrchestrationPreflight -Objective 'implement database migration' -TaskType 'implementation' -Domain 'database' -Risk 'high' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
     Assert-That ($rnt.orchestration_decision -cne 'DIRECT_VERIFIED') 'preflight DIRECT_VERIFIED rejects non-trivial task' 'expected non-direct'
 
+    # Regressao: micro edit em docs com palavra sensivel (delete) nao pode ser DIRECT_VERIFIED
+    # (bug: $blob undefined fazia sensitiveHit sempre false, permitindo bypass)
+    $rsens = Get-OrchestrationPreflight -Objective 'delete old note in guide' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
+    Assert-That ($rsens.orchestration_decision -cne 'DIRECT_VERIFIED') 'preflight DIRECT_VERIFIED rejects micro edit with sensitive keyword' 'expected non-direct'
+
     # 16) CLI: malformed health string fails closed to fallback
     $c3 = Invoke-PreflightCliRaw -Argv @('-Objective', 'implement bounded edit for retry queue', '-TaskType', 'implementation', '-Domain', 'backend', '-Risk', 'medium', '-ReadWrite', 'write', '-RouterHealthy', 'maybe')
     $o3 = Get-JsonTail -Text $c3.Text

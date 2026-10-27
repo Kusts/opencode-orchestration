@@ -145,9 +145,9 @@ $script:AgentModelAdmissibility = @{
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode/beam-free';                     Provider = 'opencode';    Authorized = $true }
-    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode/deepseek-v4.1-flash-free';      Provider = 'opencode';    Authorized = $true; AlternativeModel = 'opencode-go/muse-spark-1.3-contributor' }
-    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-luna';                      Provider = 'openai';      Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/beam-free';                  Provider = 'opencode-go'; Authorized = $true }
+    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'openai/gpt-6-luna' }
+    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-luna';                      Provider = 'openai';      Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
     'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol';                      Provider = 'openai';      Authorized = $false; ExceptionalModel = 'openai/gpt-6-astra' }
 }
 
@@ -211,7 +211,7 @@ function Get-OrchestrationModelRoutingPolicy {
         return [pscustomobject]@{
             Status        = 'POLICY_MISSING'
             PolicyHash    = ''
-            PolicyVersion = '1.1.0'
+            PolicyVersion = '1.2.0'
             Policy        = $null
         }
     }
@@ -229,7 +229,7 @@ function Get-OrchestrationModelRoutingPolicy {
             Status        = 'POLICY_LOADED'
             PolicyPath    = $resolvedPath
             PolicyHash    = $hashStr
-            PolicyVersion = if ($parsed.policy_version) { [string]$parsed.policy_version } else { '1.1.0' }
+            PolicyVersion = if ($parsed.policy_version) { [string]$parsed.policy_version } else { '1.2.0' }
             Policy        = $parsed
         }
 
@@ -271,24 +271,32 @@ function Get-OrchestrationUserConfigCatalog {
         [string]$PolicyPath = '',
 
         [Parameter(Mandatory = $false)]
-        [bool]$IgnoreUserConfig = $false
+        [bool]$IgnoreUserConfig = $false,
+
+        [Parameter(Mandatory = $false)]
+        [Alias('RequiresVisual', 'VisualTask', 'Visual', 'NeedsVisualAnalysis')]
+        [bool]$RequiresVisualAnalysis = $false,
+
+        [Parameter(Mandatory = $false)]
+        [Alias('Capability', 'Capabilities')]
+        [string]$RequiredCapability = ''
     )
 
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
 
-    $mBeam = if ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode/beam-free' }
-    $mDeepSeek = if ($null -ne $pol -and $pol.models.deepseek) { [string]$pol.models.deepseek.model_id } else { 'opencode/deepseek-v4.1-flash-free' }
+    $mBeam = if ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode-go/beam-free' }
     $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
+    $mTerra = if ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'openai/gpt-6.1-terra' }
     $mLuna = if ($null -ne $pol -and $pol.models.luna) { [string]$pol.models.luna.model_id } else { 'openai/gpt-6-luna' }
     $mSol = if ($null -ne $pol -and $pol.models.sol) { [string]$pol.models.sol.model_id } else { 'openai/gpt-6.1-sol' }
     $mAstra = if ($null -ne $pol -and $pol.models.astra) { [string]$pol.models.astra.model_id } else { 'openai/gpt-6-astra' }
 
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mBeam;                                   Provider = 'opencode';    Authorized = $true }
-        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mDeepSeek;                               Provider = 'opencode';    Authorized = $true; AlternativeModel = $mMuse }
-        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mLuna;                                   Provider = 'openai';      Authorized = $true }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mBeam;                                   Provider = (Get-ModelProviderFromId $mBeam); Authorized = $true }
+        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mMuse;                                   Provider = (Get-ModelProviderFromId $mMuse); Authorized = $true; AlternativeModel = $mLuna }
+        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mLuna;                                   Provider = 'openai';      Authorized = $true; AlternativeModel = $mTerra }
         'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mSol;                                    Provider = 'openai';      Authorized = $false; ExceptionalModel = $mAstra }
     }
 
@@ -388,7 +396,15 @@ function Resolve-CatalogModel {
         [string]$PolicyPath = '',
 
         [Parameter(Mandatory = $false)]
-        [bool]$IgnoreUserConfig = $false
+        [bool]$IgnoreUserConfig = $false,
+
+        [Parameter(Mandatory = $false)]
+        [Alias('RequiresVisual', 'VisualTask', 'Visual', 'NeedsVisualAnalysis')]
+        [bool]$RequiresVisualAnalysis = $false,
+
+        [Parameter(Mandatory = $false)]
+        [Alias('Capability', 'Capabilities')]
+        [string]$RequiredCapability = ''
     )
 
     $cat = if ($null -ne $Catalog) { $Catalog } else { Get-OrchestrationUserConfigCatalog -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig }
@@ -404,7 +420,7 @@ function Resolve-CatalogModel {
 
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
-    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.1.0' }
+    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.2.0' }
 
     # Strict separation of technical admissibility vs provider/cost authorization:
     # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
@@ -450,9 +466,9 @@ function Resolve-CatalogModel {
     }
 
     $candidates = switch ($Tier) {
-        'T1' { @('opencode/beam-free', 'opencode/deepseek-v4.1-flash-free') }
-        'T2' { @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') }
-        'T3' { @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') }
+        'T1' { @('opencode-go/beam-free') }
+        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') }
+        'T3' { @('openai/gpt-6-luna', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol') }
         'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra') }
         default { @('none (deterministic)') }
     }
@@ -1172,13 +1188,21 @@ function Resolve-OrchestrationModelSelection {
         [string]$PolicyPath = '',
 
         [Parameter(Mandatory = $false)]
-        [bool]$IgnoreUserConfig = $false
+        [bool]$IgnoreUserConfig = $false,
+
+        [Parameter(Mandatory = $false)]
+        [Alias('RequiresVisual', 'VisualTask', 'Visual', 'NeedsVisualAnalysis')]
+        [bool]$RequiresVisualAnalysis = $false,
+
+        [Parameter(Mandatory = $false)]
+        [Alias('Capability', 'Capabilities')]
+        [string]$RequiredCapability = ''
     )
 
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
-    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.1.0' }
+    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.2.0' }
 
     if (-not $script:AgentModelAdmissibility.ContainsKey($cleanAgent)) {
         return [pscustomobject]@{
@@ -1208,7 +1232,10 @@ function Resolve-OrchestrationModelSelection {
     $admissibleTiers = @($admissibility.AdmissibleTiers)
     $prohibitedTiers = @($admissibility.ProhibitedTiers)
 
-    # DIRECT_VERIFIED bypass: execution without model / subagent
+    # DIRECT_VERIFIED bypass: direct execution by the Planner LLM (no subagent).
+    # This is NOT deterministic T0: the Planner LLM still consumes tokens, so it
+    # must not be accounted as zero-cost / no-provider. T0 stays exclusive to
+    # deterministic execution without any LLM.
     if ($IsTrivialDirect) {
         return [pscustomobject]@{
             Status                    = 'SELECTED'
@@ -1216,22 +1243,22 @@ function Resolve-OrchestrationModelSelection {
             requested_role            = $cleanAgent
             Tier                      = 'T0'
             selected_tier             = 'T0'
-            TierName                  = 'Deterministic'
+            TierName                  = 'DirectVerified'
             ModelToken                = 'NONE_DIRECT_VERIFIED'
             EffectiveModelToken       = 'NONE_DIRECT_VERIFIED'
-            CatalogModel              = 'none (deterministic)'
-            selected_model_id         = 'none (deterministic)'
-            selected_provider         = 'none'
-            Provider                  = 'none'
+            CatalogModel              = 'planner (inherited)'
+            selected_model_id         = 'planner (inherited)'
+            selected_provider         = 'planner'
+            Provider                  = 'planner'
             AuthorizedSelection       = $true
             Authorized                = $true
             RuntimeTierProven         = $true
             runtime_override_status   = 'PROVEN'
             ProofStatus               = 'PROVEN_DIRECT_VERIFIED'
             AdmissibleTiers           = @('T0')
-            SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
-            selection_reason          = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED without model tokens.'
-            EstimatedCostMultiplier   = 0.0
+            SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED on the Planner LLM (cost attributed to Planner, not zero).'
+            selection_reason          = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED on the Planner LLM (cost attributed to Planner, not zero).'
+            EstimatedCostMultiplier   = 1.0
             FallbackTier              = 'T0'
             FallbackToken             = 'NONE_DIRECT_VERIFIED'
             NativeModelOverrideProven = $NativeModelOverrideProven
@@ -1349,6 +1376,20 @@ function Resolve-OrchestrationModelSelection {
         $reason = "Cost invariant enforced: coder prohibited from T4 without at least 2 demonstrated failures."
     }
 
+    # Visual capability upgrade: eligible agents may use T3 (Terra) for visual/document tasks
+    $visualRequested = $RequiresVisualAnalysis
+    if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($RequiredCapability)) {
+        if ($RequiredCapability -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
+    }
+    if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($TaskType)) {
+        if ($TaskType -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
+    }
+    $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
+    if ($visualRequested -and ($terraEligibleAgents -contains $cleanAgent) -and ($admissibleTiers -contains 'T3')) {
+        $selectedTier = 'T3'
+        $reason = "Capable tier T3 selected for visual/document capability (Terra)."
+    }
+
     # Catalog and authorization check: separate technical justification from explicit cost authorization
     $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig
     if (-not $catalogRes.IsAuthorized) {
@@ -1393,6 +1434,31 @@ function Resolve-OrchestrationModelSelection {
                     fallback_candidates       = $catalogRes.FallbackCandidates
                     runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
                 }
+            }
+        }
+    }
+
+    # Terra specialization: prefer GPT-6.1 Terra for eligible visual/document tasks when explicitly requested
+    $visualRequested = $RequiresVisualAnalysis
+    if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($RequiredCapability)) {
+        if ($RequiredCapability -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
+    }
+    if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($TaskType)) {
+        if ($TaskType -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
+    }
+    $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
+    if ($selectedTier -eq 'T3' -and $visualRequested) {
+        $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
+        if ($terraEligibleAgents -contains $cleanAgent) {
+            $polRes2 = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+            $terraEnabled = $true
+            if ($polRes2.Status -eq 'POLICY_LOADED' -and $null -ne $polRes2.Policy.models.terra) {
+                $terraEnabled = [bool]$polRes2.Policy.models.terra.enabled
+            }
+            if ($terraEnabled) {
+                $catalogRes.CatalogModel = 'openai/gpt-6.1-terra'
+                $selectedProv = 'openai'
+                $reason += " Terra selected for visual/document capability."
             }
         }
     }

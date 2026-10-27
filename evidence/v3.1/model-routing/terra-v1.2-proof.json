@@ -1,0 +1,26 @@
+{
+  "task": "model-routing-v1.2-terra",
+  "date": "2026-10-27",
+  "model": "openai/gpt-6.1-terra",
+  "provider": "openai",
+  "proof_status": "PARTIAL_PROOF",
+  "live_run": {
+    "command": "opencode run --model openai/gpt-6.1-terra --format json \"Responda apenas com a palavra TERRA_OK.\"",
+    "result": "TERRA_OK",
+    "session_id": "ses_e82499174ffepTcryPsQtrml0E",
+    "provider_verified_via": "explicit --model flag (openai/gpt-6.1-terra)"
+  },
+  "validated": [
+    "Policy registry entry (enabled, T3, usage_billed, visual capabilities)",
+    "Router catalog includes terra in T3 candidates",
+    "Router selection of terra for eligible visual tasks",
+    "Provider resolution via Get-ModelProviderFromId -> openai",
+    "Live run: model responds correctly (TERRA_OK)"
+  ],
+  "not_validated": [
+    "Session export identity verification (export subcommand unavailable in v2.2.0)",
+    "Visual task execution with image input",
+    "Tool use (Responses API) for frontend-engineer role"
+  ],
+  "conclusion": "Terra is operational via OpenCode; structural routing validated. Visual/tool-use validation remains PROOF_ABSENT."
+}
