@@ -80,7 +80,7 @@ catch { Report-Fail '1 refs install/uninstall existem' $_.Exception.Message }
 
 # ---- 2. tokens usados == conjunto conhecido ---------------------------------
 try {
-  $knownTokens = @('HOME', 'MODEL_CHEAP', 'MODEL_PLANNER', 'MODEL_STRONG', 'REPO_DIR')
+  $knownTokens = @('HOME', 'MODEL_CHEAP', 'MODEL_FREE', 'MODEL_PLANNER', 'MODEL_STRONG', 'REPO_DIR')
   $renderFiles = New-Object System.Collections.ArrayList
   [void]$renderFiles.Add((Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl'))
   [void]$renderFiles.Add((Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl'))
@@ -102,7 +102,7 @@ catch { Report-Fail '2 tokens conhecidos' $_.Exception.Message }
 # ---- 3. template V1 agents x source/agents .md + frontmatter --------------------
 try {
   $tmplRaw = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl')
-  $resolved = $tmplRaw.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $resolved = $tmplRaw.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free')
   $tmpl = $resolved | ConvertFrom-Json
   $blocks = @($tmpl.agent.PSObject.Properties.Name)
   $errs3 = New-Object System.Collections.ArrayList
@@ -128,7 +128,7 @@ try {
     $m = [regex]::Match($raw, '(?s)^---\s*\r?\n(.*?)\r?\n---\s*')
     $fm = ''
     if ($m.Success) { $fm = $m.Groups[1].Value }
-    $hasModel = ($fm -match '(?m)^model:\s*\{\{MODEL_(PLANNER|CHEAP|STRONG)\}\}\s*$')
+    $hasModel = ($fm -match '(?m)^model:\s*\{\{MODEL_(PLANNER|CHEAP|STRONG|FREE)\}\}\s*$')
     $hasMode = ($fm -match '(?m)^mode:\s*subagent\s*$')
     if ((-not $hasModel) -and (-not $hasMode)) {
       [void]$errs3.Add(('frontmatter sem model-token nem mode subagent: ' + $f.Name))
@@ -225,14 +225,14 @@ try {
   }
   $tmplTokens = Get-TokenNames $tmplRaw
   foreach ($t in $tmplTokens) {
-    if (@('MODEL_PLANNER', 'MODEL_CHEAP', 'MODEL_STRONG') -notcontains $t) {
+    if (@('MODEL_PLANNER', 'MODEL_CHEAP', 'MODEL_STRONG', 'MODEL_FREE') -notcontains $t) {
       [void]$errs7.Add(('template V1 com token nao-MODEL: ' + $t))
     }
   }
   $tmplRawV2t = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl')
   $tmplTokensV2 = Get-TokenNames $tmplRawV2t
   foreach ($t in $tmplTokensV2) {
-    if (@('MODEL_PLANNER', 'MODEL_CHEAP', 'MODEL_STRONG') -notcontains $t) {
+    if (@('MODEL_PLANNER', 'MODEL_CHEAP', 'MODEL_STRONG', 'MODEL_FREE') -notcontains $t) {
       [void]$errs7.Add(('template V2 com token nao-MODEL: ' + $t))
     }
   }
@@ -244,7 +244,7 @@ catch { Report-Fail '7 model pools' $_.Exception.Message }
 # ---- 8. workers V1: task deny no template E deny explicito no frontmatter -------
 try {
   $tRaw8 = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl')
-  $tRes8 = $tRaw8.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $tRes8 = $tRaw8.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free')
   $t8 = $tRes8 | ConvertFrom-Json
   $bad8 = New-Object System.Collections.ArrayList
   $checked8 = 0
@@ -359,7 +359,7 @@ catch { Report-Fail '10 docs criticos' $_.Exception.Message }
 # ---- 11. template V1 trimmed: sem autoupdate/skills/plugin; 17 agents --------
 try {
   $tRaw11 = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl')
-  $tRes11 = $tRaw11.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $tRes11 = $tRaw11.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free')
   $errs11 = New-Object System.Collections.ArrayList
   try { $t11 = $tRes11 | ConvertFrom-Json }
   catch { $t11 = $null; [void]$errs11.Add(('template nao parseia: ' + $_.Exception.Message)) }
@@ -381,7 +381,7 @@ catch { Report-Fail '11 template V1 trimmed (sem autoupdate/skills/plugin)' $_.E
 # ---- 12. template V2 shape nativo -------------------------------------------
 try {
   $v2Raw12 = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl')
-  $v2Res12 = $v2Raw12.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $v2Res12 = $v2Raw12.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free')
   $errs12 = New-Object System.Collections.ArrayList
   try { $v2 = $v2Res12 | ConvertFrom-Json }
   catch { $v2 = $null; [void]$errs12.Add(('V2 nao parseia: ' + $_.Exception.Message)) }
@@ -440,7 +440,7 @@ catch { Report-Fail '12 template V2 shape nativo' $_.Exception.Message }
 # ---- 13. template V2 ordem de seguranca (broad-first) -------------------------
 try {
   $v2Raw13 = Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl')
-  $v2Res13 = $v2Raw13.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $v2Res13 = $v2Raw13.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free')
   $v213 = $v2Res13 | ConvertFrom-Json
   $errs13 = New-Object System.Collections.ArrayList
   $perms13 = @($v213.agents.build.permissions)
@@ -463,8 +463,8 @@ catch { Report-Fail '13 template V2 ordem broad-first' $_.Exception.Message }
 
 # ---- 14. paridade semantica V2 <-> V1 ------------------------------------------
 try {
-  $v1Raw14 = (Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl')).Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
-  $v2Raw14 = (Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl')).Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $v1Raw14 = (Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl')).Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free').Replace('{{MODEL_FREE}}', 'x/free')
+  $v2Raw14 = (Read-Utf8 (Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl')).Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free').Replace('{{MODEL_FREE}}', 'x/free')
   $t114 = $v1Raw14 | ConvertFrom-Json
   $t214 = $v2Raw14 | ConvertFrom-Json
   $errs14 = New-Object System.Collections.ArrayList
@@ -479,6 +479,7 @@ try {
     if ([string]$t114.agent.$w.model -cne [string]$v2node.model) { [void]$errs14.Add(('model diverge em ' + $w + ': V1=' + [string]$t114.agent.$w.model + ' V2=' + [string]$v2node.model)) }
     $exp14 = 'x/cheap'
     if ($strong14 -contains $w) { $exp14 = 'x/strong' }
+    if ($w -in @('explorer', 'docs-manager')) { $exp14 = 'x/free' }
     if ([string]$v2node.model -cne $exp14) { [void]$errs14.Add(('V2 model inesperado em ' + $w + ': ' + [string]$v2node.model)) }
   }
   if ([string]$t114.default_agent -cne [string]$t214.default_agent) { [void]$errs14.Add('default_agent diverge') }

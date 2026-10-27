@@ -434,7 +434,7 @@ function New-TamperRoot([string]$Tag, [scriptblock]$Mutate) {
   $tr = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-tmpl-' + $Tag + '-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path (Join-Path $tr 'templates') -Force | Out-Null
   [void]$homes.Add($tr)
-  $tresolved = $tmplReal.Replace('{{MODEL_PLANNER}}', 'a/b').Replace('{{MODEL_CHEAP}}', 'c/d').Replace('{{MODEL_STRONG}}', 'e/f').Replace('{{HOME}}', 'C:/x').Replace('{{REPO_DIR}}', 'C:/y')
+  $tresolved = $tmplReal.Replace('{{MODEL_PLANNER}}', 'a/b').Replace('{{MODEL_CHEAP}}', 'c/d').Replace('{{MODEL_STRONG}}', 'e/f').Replace('{{MODEL_FREE}}', 'f/g').Replace('{{HOME}}', 'C:/x').Replace('{{REPO_DIR}}', 'C:/y')
   $tobj = $tresolved | ConvertFrom-Json
   & $Mutate $tobj | Out-Null
   [IO.File]::WriteAllText((Join-Path $tr 'templates\opencode.v2.json.tmpl'), ((($tobj | ConvertTo-Json -Depth 32).TrimEnd()) + "`n"), $utf8)

@@ -46,7 +46,7 @@ try {
 $tmpl = $null
 try {
   $raw = [IO.File]::ReadAllText($tmplPath, [Text.Encoding]::UTF8)
-  $resolved = $raw.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong')
+  $resolved = $raw.Replace('{{MODEL_PLANNER}}', 'x/planner').Replace('{{MODEL_CHEAP}}', 'x/cheap').Replace('{{MODEL_STRONG}}', 'x/strong').Replace('{{MODEL_FREE}}', 'x/free')
   $tmpl = $resolved | ConvertFrom-Json
   Assert ($null -ne $tmpl) 'template V2 parseia como JSON (tokens resolvidos)'
 } catch {

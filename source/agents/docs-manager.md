@@ -1,7 +1,7 @@
 ---
 description: Writes and updates project documentation only for explicitly requested docs targets. Use ONLY when a change altered API, contract, setup, documented architecture, operations or public behavior. Never for every change.
 mode: subagent
-model: {{MODEL_CHEAP}}
+model: {{MODEL_FREE}}
 hidden: true
 temperature: 0.3
 permission:
