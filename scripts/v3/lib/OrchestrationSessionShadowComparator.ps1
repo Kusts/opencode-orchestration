@@ -80,7 +80,7 @@ function Compare-SessionCatalogs {
         $report.status = 'query_error'
         $locals = @($LocalBindings)
         if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
-            $locals = @($locals | Where-Object { [string]$_.directory -eq $ProjectFilter -or [string]$_.project -eq $ProjectFilter })
+            $locals = @($locals | Where-Object { [string]$_.directory -eq $ProjectFilter })
         }
         $report.local_candidates = @($LocalBindings).Count
         $report.real_local_bindings = @($locals | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.session_id) }).Count
@@ -96,7 +96,7 @@ function Compare-SessionCatalogs {
     $locals = @($LocalBindings)
     if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
         $nativeSessions = @($nativeSessions | Where-Object { [string]$_.directory -eq $ProjectFilter })
-        $locals = @($locals | Where-Object { [string]$_.directory -eq $ProjectFilter -or [string]$_.project -eq $ProjectFilter })
+        $locals = @($locals | Where-Object { [string]$_.directory -eq $ProjectFilter })
     }
 
     $report.local_candidates = @($LocalBindings).Count
@@ -168,6 +168,7 @@ function Compare-SessionCatalogs {
             $mismatch = $false
             $reasons = @()
             if (-not $dirMatch) { $mismatch = $true; $reasons += 'directory' }
+            if ($projectComparable -and -not $projectMatch) { $mismatch = $true; $reasons += 'project' }
             $lt = ConvertTo-ShadowTimestampMs $lb.updated_at
             $nt = ConvertTo-ShadowTimestampMs $ns.updated
             if ($null -ne $lt -and $null -ne $nt) {
