@@ -46,10 +46,19 @@ function Compare-SessionCatalogs {
     }
 
     $nativeRaw = @()
+    $malformedNative = $false
     if ($NativeResult -is [pscustomobject] -and $NativeResult.PSObject.Properties['sessions']) {
         $nativeRaw = @($NativeResult.sessions)
     } elseif ($NativeResult -is [array]) {
         $nativeRaw = @($NativeResult)
+    } else {
+        $malformedNative = $true
+    }
+    if ($malformedNative) {
+        $report.not_comparable = @($LocalBindings).Count
+        $report.status = 'not_comparable'
+        $report.metrics.note = 'native result malformed'
+        return [pscustomobject]$report
     }
 
     # truncation based on raw count before filters
@@ -92,8 +101,12 @@ function Compare-SessionCatalogs {
     # duplicate id detection (case-sensitive ordinal)
     $nativeIds = @($nativeSessions | ForEach-Object { [string]$_.id })
     $localIds = @($realBindings | ForEach-Object { [string]$_.session_id })
-    $dupNative = ($nativeIds | Group-Object | Where-Object { $_.Count -gt 1 }).Count -gt 0
-    $dupLocal = ($localIds | Group-Object | Where-Object { $_.Count -gt 1 }).Count -gt 0
+    $nativeGroup = New-Object 'System.Collections.Generic.Dictionary[string,int]' ([System.StringComparer]::Ordinal)
+    foreach ($nid in $nativeIds) { if ($nativeGroup.ContainsKey($nid)) { $nativeGroup[$nid]++ } else { $nativeGroup[$nid] = 1 } }
+    $dupNative = ($nativeGroup.Values | Where-Object { $_ -gt 1 }).Count -gt 0
+    $localGroup = New-Object 'System.Collections.Generic.Dictionary[string,int]' ([System.StringComparer]::Ordinal)
+    foreach ($lid in $localIds) { if ($localGroup.ContainsKey($lid)) { $localGroup[$lid]++ } else { $localGroup[$lid] = 1 } }
+    $dupLocal = ($localGroup.Values | Where-Object { $_ -gt 1 }).Count -gt 0
     if ($dupNative -or $dupLocal) {
         $report.not_comparable = ($realBindings.Count + $nativeSessions.Count)
         $report.status = 'not_comparable'
@@ -107,7 +120,9 @@ function Compare-SessionCatalogs {
     $localMap = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::Ordinal)
     foreach ($lb in $realBindings) { $localMap[[string]$lb.session_id] = $lb }
 
-    $allIds = @($nativeIds + $localIds | Select-Object -Unique)
+    $allIdSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+    foreach ($aid in ($nativeIds + $localIds)) { [void]$allIdSet.Add($aid) }
+    $allIds = @($allIdSet)
 
     foreach ($id in $allIds) {
         $inNative = $nativeMap.ContainsKey($id)
