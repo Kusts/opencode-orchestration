@@ -16,7 +16,10 @@
 param(
   [string]$RepoRoot = '',
   [string]$CatalogPath = '',
-  [switch]$Json
+  [switch]$Json,
+  [string]$AgentsSkillsRoot = '',
+  [string]$OpencodeSkillsRoot = '',
+  [string]$ProjectSkillsRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,7 +41,14 @@ function Get-SkillDirs([string]$Root) {
     try { $present = (Test-Path -LiteralPath $skillFile -PathType Leaf) } catch { $present = $false }
     $hash = ''
     if ($present) {
-      try { $hash = ((Get-FileHash -LiteralPath $skillFile -Algorithm SHA256).Hash).ToLowerInvariant() } catch { $hash = '' }
+      try {
+        $stream = [IO.File]::OpenRead($skillFile)
+        try {
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try { $bytes = $sha.ComputeHash($stream) } finally { $sha.Dispose() }
+        } finally { $stream.Dispose() }
+        $hash = ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+      } catch { $hash = '' }
     }
     $out += [ordered]@{ id = $d.Name; present = [bool]$present; sha256 = $hash }
   }
@@ -65,6 +75,10 @@ if (($null -eq $cat) -or ($null -eq $cat.skills)) {
 $agentsRoot = Join-Path $HOME '.agents\skills'
 $opencodeRoot = Join-Path $HOME '.config\opencode\skills'
 $projectRoot = Join-Path $RepoRoot '.opencode\skills'
+# Explicit roots are test/diagnostic overrides; defaults remain unchanged.
+if (-not [string]::IsNullOrWhiteSpace($AgentsSkillsRoot)) { $agentsRoot = $AgentsSkillsRoot }
+if (-not [string]::IsNullOrWhiteSpace($OpencodeSkillsRoot)) { $opencodeRoot = $OpencodeSkillsRoot }
+if (-not [string]::IsNullOrWhiteSpace($ProjectSkillsRoot)) { $projectRoot = $ProjectSkillsRoot }
 $repoCoreRoot = Join-Path $RepoRoot 'skills-core'
 
 $agentsSkills = @(Get-SkillDirs $agentsRoot)

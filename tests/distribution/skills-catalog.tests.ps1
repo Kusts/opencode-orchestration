@@ -4,12 +4,18 @@
 .DESCRIPTION
     Valida source/registry/skills-catalog.json (ids unicos, classificacao e
     prioridade validas, source/version_policy presentes, CORE com agents e
-    status ACTIVE, shadow_table documentada) e, quando os roots de discovery
-    da maquina existem, a cobertura total (catalogo cobre 103 + 2) e o
-    veredito PASS de scripts/v3/skills-healthcheck.ps1 -Json.
+    status ACTIVE, shadow_table documentada) e o inventario versionado.
+    Roots da maquina sao diagnosticos observacionais: skills pessoais extras
+    nao quebram a distribuicao. O healthcheck continua bloqueando CORE invalida.
     Estilo das suites distribution: 'ok - ...' / 'NOT OK - ...', exit 0/1.
     Somente leitura; PS 5.1 compativel.
 #>
+[CmdletBinding()]
+param(
+  [string]$AgentsSkillsRoot = '',
+  [string]$OpencodeSkillsRoot = '',
+  [string]$ProjectSkillsRoot = ''
+)
 $ErrorActionPreference = 'Stop'
 $pass = 0
 $fail = 0
@@ -135,20 +141,25 @@ if ($null -ne $cat) {
     Assert ($invErrs.Count -eq 0) 'catalogo == inventario versionado (105 + 3, sem sobra/falta)' ($invErrs -join ' | ')
   }
 
-  # Cobertura total quando os roots da maquina existem (SKIP em CI/runner limpo).
+  # Roots discovery (defaults originais; overrides servem so a fixtures).
   $agentsRoot = Join-Path $HOME '.agents\skills'
   $opencodeRoot = Join-Path $HOME '.config\opencode\skills'
+  $projectRoot = Join-Path $RepoRoot '.opencode\skills'
+  if (-not [string]::IsNullOrWhiteSpace($AgentsSkillsRoot)) { $agentsRoot = $AgentsSkillsRoot }
+  if (-not [string]::IsNullOrWhiteSpace($OpencodeSkillsRoot)) { $opencodeRoot = $OpencodeSkillsRoot }
+  if (-not [string]::IsNullOrWhiteSpace($ProjectSkillsRoot)) { $projectRoot = $ProjectSkillsRoot }
   if ((Test-Path -LiteralPath $agentsRoot -PathType Container) -and (Test-Path -LiteralPath $opencodeRoot -PathType Container)) {
+    # Extras sao user-owned: reportar sem exigir igualdade com o snapshot do repo.
+    # Os invariantes CORE, shadow/hash e REMOVE_CANDIDATE pertencem ao healthcheck.
     $diskAgents = @(Get-ChildItem -LiteralPath $agentsRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-    $missing = @($diskAgents | Where-Object { $ids -notcontains $_ })
-    Assert ($missing.Count -eq 0) 'catalogo cobre 100% de ~/.agents/skills' ($missing -join ',')
     $diskOpOnly = @(Get-ChildItem -LiteralPath $opencodeRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Where-Object { $diskAgents -notcontains $_ })
-    $missingOp = @($diskOpOnly | Where-Object { $ids -notcontains $_ })
-    Assert ($missingOp.Count -eq 0) 'catalogo cobre skills so-opencode' ($missingOp -join ',')
-    Assert (($ids.Count -eq ($diskAgents.Count + $diskOpOnly.Count))) 'catalogo sem sobra (108 = 105 + 3)' ('catalogo=' + $ids.Count + ' disco=' + ($diskAgents.Count + $diskOpOnly.Count))
+    $unmanaged = @(@($diskAgents + $diskOpOnly) | Where-Object { $ids -notcontains $_ })
+    if ($unmanaged.Count -gt 0) {
+      Write-Host ('[INFO] skills user-owned fora do snapshot versionado (nao bloqueantes): ' + ($unmanaged -join ','))
+    }
 
     $hcJson = ''
-    try { $hcJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $hcPath -Json 2>&1 | Out-String } catch { $hcJson = '' }
+    try { $hcJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $hcPath -Json -AgentsSkillsRoot $agentsRoot -OpencodeSkillsRoot $opencodeRoot -ProjectSkillsRoot $projectRoot 2>&1 | Out-String } catch { $hcJson = '' }
     $env = $null
     try { $env = $hcJson | ConvertFrom-Json } catch { $env = $null }
     Assert ($null -ne $env) 'skills-healthcheck emite JSON parseavel'
