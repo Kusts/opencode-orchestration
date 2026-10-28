@@ -61,6 +61,30 @@ $native9 = [pscustomobject]@{ ok=$true; sessions=@([pscustomobject]@{ id='ses_9'
 $r9 = Compare-SessionCatalogs -LocalBindings $local9 -NativeResult $native9
 Assert-H ($r9.matches -eq 1) 'timestamp normalized' ("matches=$($r9.matches) mm=$($r9.field_mismatches)")
 
+# 10. Case-sensitive identity: ses_A vs ses_a are distinct
+$local10 = @([pscustomobject]@{ session_id='ses_A'; directory='D:\x'; project='p'; updated_at=1000 })
+$native10 = [pscustomobject]@{ ok=$true; sessions=@([pscustomobject]@{ id='ses_a'; directory='D:\x'; projectId='p'; updated=1000 }) }
+$r10 = Compare-SessionCatalogs -LocalBindings $local10 -NativeResult $native10
+Assert-H ($r10.native_only -eq 1 -and $r10.local_only -eq 1) 'case-sensitive ids' ("native_only=$($r10.native_only) local_only=$($r10.local_only)")
+
+# 11. NOT_COMPARABLE when missing directory
+$local11 = @([pscustomobject]@{ session_id='ses_11'; directory=''; project='p'; updated_at=1000 })
+$native11 = [pscustomobject]@{ ok=$true; sessions=@([pscustomobject]@{ id='ses_11'; directory='D:\x'; projectId='p'; updated=1000 }) }
+$r11 = Compare-SessionCatalogs -LocalBindings $local11 -NativeResult $native11
+Assert-H ($r11.not_comparable -ge 1) 'not comparable missing dir' ("nc=$($r11.not_comparable)")
+
+# 12. local_candidates vs real_local_bindings (synthetic id excluded)
+$local12 = @([pscustomobject]@{ session_id=''; directory='D:\x'; project='p'; updated_at=1000 }, [pscustomobject]@{ session_id='ses_12'; directory='D:\y'; project='p'; updated_at=2000 })
+$native12 = [pscustomobject]@{ ok=$true; sessions=@() }
+$r12 = Compare-SessionCatalogs -LocalBindings $local12 -NativeResult $native12
+Assert-H ($r12.local_candidates -eq 2 -and $r12.real_local_bindings -eq 1) 'candidates vs real bindings' ("cand=$($r12.local_candidates) real=$($r12.real_local_bindings)")
+
+# 13. QUERY_ERROR distinct (no LOCAL_ONLY)
+$local13 = @([pscustomobject]@{ session_id='ses_13'; directory='D:\z'; project='p'; updated_at=3000 })
+$native13 = [pscustomobject]@{ ok=$false; error='TIMEOUT'; sessions=@() }
+$r13 = Compare-SessionCatalogs -LocalBindings $local13 -NativeResult $native13
+Assert-H ($r13.query_error -eq $true -and $r13.local_only -eq 0) 'query error distinct' ("qe=$($r13.query_error) lo=$($r13.local_only)")
+
 Write-Host ("TOTAL={0} PASS={1} FAIL={2}" -f ($passed + $failed), $passed, $failed)
 if ($failed -gt 0) { exit 1 }
 exit 0

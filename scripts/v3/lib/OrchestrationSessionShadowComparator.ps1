@@ -1,9 +1,6 @@
 <#
 .SYNOPSIS
     Pure read-only comparator between native OpenCode V2 sessions and local catalog bindings.
-.DESCRIPTION
-    No state mutation. Classifies each session as MATCH, NATIVE_ONLY, LOCAL_ONLY,
-    FIELD_MISMATCH, NOT_COMPARABLE or QUERY_ERROR.
 #>
 [CmdletBinding()]
 param()
@@ -13,7 +10,6 @@ function ConvertTo-ShadowTimestampMs {
     if ($null -eq $Value) { return $null }
     if ($Value -is [long] -or $Value -is [int] -or $Value -is [System.Int64] -or $Value -is [System.Int32]) {
         $v = [long]$Value
-        # heuristic: seconds vs ms
         if ($v -lt 10000000000) { return ($v * 1000) }
         return $v
     }
@@ -35,8 +31,8 @@ function Compare-SessionCatalogs {
     )
     $report = [ordered]@{
         status = 'ok'
-        local_count = 0
-        native_count = 0
+        local_candidates = 0
+        real_local_bindings = 0
         comparable_ids = 0
         matches = 0
         field_mismatches = 0
@@ -49,7 +45,19 @@ function Compare-SessionCatalogs {
         metrics = [ordered]@{}
     }
 
-    # Handle query error
+    $nativeRaw = @()
+    if ($NativeResult -is [pscustomobject] -and $NativeResult.PSObject.Properties['sessions']) {
+        $nativeRaw = @($NativeResult.sessions)
+    } elseif ($NativeResult -is [array]) {
+        $nativeRaw = @($NativeResult)
+    }
+
+    # truncation based on raw count before filters
+    if ($NativeLimit -gt 0 -and $nativeRaw.Count -ge $NativeLimit) {
+        $report.truncated = $true
+    }
+
+    # QUERY_ERROR branch
     if ($NativeResult -is [pscustomobject] -and $NativeResult.PSObject.Properties['ok'] -and -not $NativeResult.ok) {
         $report.query_error = $true
         $report.status = 'query_error'
@@ -57,51 +65,47 @@ function Compare-SessionCatalogs {
         if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
             $locals = @($locals | Where-Object { [string]$_.project -eq $ProjectFilter })
         }
+        $report.local_candidates = @($LocalBindings).Count
+        $report.real_local_bindings = $locals.Count
         $report.local_count = $locals.Count
         foreach ($lb in $locals) {
-            $report.classifications += [pscustomobject]@{ id = [string]$lb.session_id; classification = 'LOCAL_ONLY'; reason = 'native query failed' }
-            $report.local_only++
+            $report.classifications += [pscustomobject]@{ id = [string]$lb.session_id; classification = 'QUERY_ERROR'; reason = 'native query failed' }
         }
         return [pscustomobject]$report
     }
 
-    $nativeSessions = @()
-    if ($NativeResult -is [pscustomobject] -and $NativeResult.PSObject.Properties['sessions']) {
-        $nativeSessions = @($NativeResult.sessions)
-    } elseif ($NativeResult -is [array]) {
-        $nativeSessions = @($NativeResult)
-    }
+    # Apply ProjectFilter
+    $nativeSessions = $nativeRaw
     $locals = @($LocalBindings)
-    # Apply ProjectFilter if provided
     if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
         $nativeSessions = @($nativeSessions | Where-Object { [string]$_.projectId -eq $ProjectFilter })
         $locals = @($locals | Where-Object { [string]$_.project -eq $ProjectFilter })
     }
 
+    $report.local_candidates = @($LocalBindings).Count
+    # real_local_bindings = those with non-empty session_id
+    $realBindings = @($locals | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.session_id) })
+    $report.real_local_bindings = $realBindings.Count
     $report.local_count = $locals.Count
     $report.native_count = $nativeSessions.Count
 
-    # truncation check
-    if ($NativeLimit -gt 0 -and $nativeSessions.Count -ge $NativeLimit) {
-        $report.truncated = $true
-    }
-
-    # duplicate id detection
+    # duplicate id detection (case-sensitive ordinal)
     $nativeIds = @($nativeSessions | ForEach-Object { [string]$_.id })
-    $localIds = @($locals | ForEach-Object { [string]$_.session_id })
+    $localIds = @($realBindings | ForEach-Object { [string]$_.session_id })
     $dupNative = ($nativeIds | Group-Object | Where-Object { $_.Count -gt 1 }).Count -gt 0
     $dupLocal = ($localIds | Group-Object | Where-Object { $_.Count -gt 1 }).Count -gt 0
     if ($dupNative -or $dupLocal) {
-        $report.not_comparable = ($locals.Count + $nativeSessions.Count)
+        $report.not_comparable = ($realBindings.Count + $nativeSessions.Count)
         $report.status = 'not_comparable'
         $report.metrics.note = 'duplicate id detected'
         return [pscustomobject]$report
     }
 
-    $nativeMap = @{}
+    # case-sensitive ordinal dictionary
+    $nativeMap = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::Ordinal)
     foreach ($ns in $nativeSessions) { $nativeMap[[string]$ns.id] = $ns }
-    $localMap = @{}
-    foreach ($lb in $locals) { $localMap[[string]$lb.session_id] = $lb }
+    $localMap = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::Ordinal)
+    foreach ($lb in $realBindings) { $localMap[[string]$lb.session_id] = $lb }
 
     $allIds = @($nativeIds + $localIds | Select-Object -Unique)
 
@@ -109,23 +113,24 @@ function Compare-SessionCatalogs {
         $inNative = $nativeMap.ContainsKey($id)
         $inLocal = $localMap.ContainsKey($id)
         if ($inNative -and $inLocal) {
-            $report.comparable_ids++
+            # NOT_COMPARABLE if missing required data
             $ns = $nativeMap[$id]
             $lb = $localMap[$id]
+            if ([string]::IsNullOrWhiteSpace([string]$id) -or [string]::IsNullOrWhiteSpace([string]$lb.directory) -or [string]::IsNullOrWhiteSpace([string]$ns.directory)) {
+                $report.not_comparable++
+                $report.classifications += [pscustomobject]@{ id = $id; classification = 'NOT_COMPARABLE'; reason = 'missing required data' }
+                continue
+            }
+            $report.comparable_ids++
             $mismatch = $false
             $reasons = @()
-            # directory/project comparison
-            if (-not [string]::IsNullOrWhiteSpace([string]$lb.directory) -and -not [string]::IsNullOrWhiteSpace([string]$ns.directory)) {
-                if ([string]$lb.directory -ne [string]$ns.directory) { $mismatch = $true; $reasons += 'directory' }
-            }
+            if ([string]$lb.directory -ne [string]$ns.directory) { $mismatch = $true; $reasons += 'directory' }
             if (-not [string]::IsNullOrWhiteSpace([string]$lb.project) -and -not [string]::IsNullOrWhiteSpace([string]$ns.projectId)) {
                 if ([string]$lb.project -ne [string]$ns.projectId) { $mismatch = $true; $reasons += 'project' }
             }
-            # timestamp normalization check
             $lt = ConvertTo-ShadowTimestampMs $lb.updated_at
             $nt = ConvertTo-ShadowTimestampMs $ns.updated
             if ($null -ne $lt -and $null -ne $nt) {
-                # allow 5s tolerance
                 if ([Math]::Abs($lt - $nt) -gt 5000) { $mismatch = $true; $reasons += 'timestamp' }
             }
             if ($mismatch) {
@@ -145,7 +150,6 @@ function Compare-SessionCatalogs {
     }
 
     if ($report.truncated) {
-        # downgrade local_only certainty: mark as potentially truncated
         foreach ($c in $report.classifications) {
             if ($c.classification -eq 'LOCAL_ONLY') {
                 $c | Add-Member -NotePropertyName note -NotePropertyValue 'native sample may be truncated' -Force
@@ -154,7 +158,8 @@ function Compare-SessionCatalogs {
     }
 
     $report.metrics = [ordered]@{
-        local_count = $report.local_count
+        local_candidates = $report.local_candidates
+        real_local_bindings = $report.real_local_bindings
         native_count = $report.native_count
         comparable_ids = $report.comparable_ids
         matches = $report.matches
