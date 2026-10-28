@@ -85,6 +85,20 @@ $native13 = [pscustomobject]@{ ok=$false; error='TIMEOUT'; sessions=@() }
 $r13 = Compare-SessionCatalogs -LocalBindings $local13 -NativeResult $native13
 Assert-H ($r13.query_error -eq $true -and $r13.local_only -eq 0) 'query error distinct' ("qe=$($r13.query_error) lo=$($r13.local_only)")
 
+# 14. Esquema de projeto incompativel (nome vs hash) -> project_schema_incompatible, sem FIELD_MISMATCH
+$local14 = @([pscustomobject]@{ session_id='ses_14'; directory='D:\x'; project='opencode-orchestration'; updated_at=1000 })
+$native14 = [pscustomobject]@{ ok=$true; sessions=@([pscustomobject]@{ id='ses_14'; directory='D:\x'; projectId='c0a24813568bcf09ed921d540d4ee1229ec0e888'; updated=1000 }) }
+$r14 = Compare-SessionCatalogs -LocalBindings $local14 -NativeResult $native14
+Assert-H ($r14.matches -eq 1 -and $r14.field_mismatches -eq 0) 'incompatible project schema no false mismatch' ("matches=$($r14.matches) mm=$($r14.field_mismatches)")
+$cls14 = $r14.classifications | Where-Object { $_.id -eq 'ses_14' }
+Assert-H ($cls14.project_note -eq 'project_schema_incompatible') 'project note incompatible' ("note=$($cls14.project_note)")
+
+# 15. Filtro por diretório
+$local15 = @([pscustomobject]@{ session_id='ses_15a'; directory='D:\a'; project='p'; updated_at=1000 }, [pscustomobject]@{ session_id='ses_15b'; directory='D:\b'; project='p'; updated_at=2000 })
+$native15 = [pscustomobject]@{ ok=$true; sessions=@([pscustomobject]@{ id='ses_15a'; directory='D:\a'; projectId='p'; updated=1000 }, [pscustomobject]@{ id='ses_15b'; directory='D:\b'; projectId='p'; updated=2000 }) }
+$r15 = Compare-SessionCatalogs -LocalBindings $local15 -NativeResult $native15 -ProjectFilter 'D:\a'
+Assert-H ($r15.native_count -eq 1 -and $r15.local_count -eq 1) 'directory filter' ("native=$($r15.native_count) local=$($r15.local_count)")
+
 Write-Host ("TOTAL={0} PASS={1} FAIL={2}" -f ($passed + $failed), $passed, $failed)
 if ($failed -gt 0) { exit 1 }
 exit 0
