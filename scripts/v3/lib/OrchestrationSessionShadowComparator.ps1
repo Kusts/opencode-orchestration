@@ -70,6 +70,11 @@ function Compare-SessionCatalogs {
         $nativeSessions = @($NativeResult)
     }
     $locals = @($LocalBindings)
+    # Apply ProjectFilter if provided
+    if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
+        $nativeSessions = @($nativeSessions | Where-Object { [string]$_.projectId -eq $ProjectFilter })
+        $locals = @($locals | Where-Object { [string]$_.project -eq $ProjectFilter })
+    }
 
     $report.local_count = $locals.Count
     $report.native_count = $nativeSessions.Count
