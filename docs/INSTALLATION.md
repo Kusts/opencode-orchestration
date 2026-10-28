@@ -20,7 +20,9 @@
   depois com `cd ~/.config/opencode; bun add @opencode/plugin@2.0.23`;
   legado V1: `@opencode-ai/plugin@1.18.34`).
 - Este repo clonado + `models.jsonc` criado (copiado de
-  `models.example.jsonc`, com `planner`/`cheap`/`strong` preenchidos).
+  `models.example.jsonc`, com `planner`/`cheap`/`strong` preenchidos;
+  `free` é opcional e resolvido pela política T1, e `frontier` é usado
+  separadamente pelo Model Router, sem concessão de autorização T4).
   Sem `models.jsonc` válido o instalador falha no precheck (exit 3) sem
   escrever nada. `models.jsonc` está no `.gitignore`.
 
@@ -49,7 +51,8 @@ Flags reais do `install.ps1`:
 ## O que cada fase faz
 
 1. **Precheck** — valida tudo antes de qualquer escrita: `models.jsonc`
-   (3 chaves), fontes obrigatórias (`source/global/AGENTS.md`,
+   (3 chaves obrigatórias: `planner`, `cheap`, `strong`; `free` opcional
+   recebe fallback T1 da política), fontes obrigatórias (`source/global/AGENTS.md`,
    `source/adapters/opencode.md`, `source/adapters/opencode-v2.md`,
    `scripts/runtime/lib/AgentTranslator.ps1`,
    `templates/opencode.v1.json.tmpl` + `templates/opencode.v2.json.tmpl`
@@ -84,7 +87,7 @@ runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 
 | Campo | Conteúdo |
 |---|---|
-| `package_version` | Versão do pacote (ex. `1.1.0`). |
+| `package_version` | Versão do pacote (atualmente `0.2.0`; verificar `VERSION`). |
 | `installed_at` | Timestamp ISO da instalação. |
 | `source_revision` | `git rev-parse --short HEAD` do repo (`unknown` fora de git). |
 | `target_home` | Perfil onde instalou. |
@@ -93,7 +96,7 @@ runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 | `managed_config_paths[]` | Caminhos gerenciados no config, no dialeto do runtime (V1: `$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*`; V2: `$schema`, `model`, `default_agent`, `experimental.subagent_depth`, `agents.*`). |
 | `adopted_paths[]` | Lista legada mantida por compatibilidade (hoje sempre vazia — nenhuma chave é mais adotada). |
 | `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
-| `models{}` | `planner`/`cheap`/`strong` usados. |
+| `models{}` | `planner`/`cheap`/`strong`/`free` resolvidos na instalação; `frontier` não integra o manifest do instalador. |
 | `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.34` no V1 legado; `@opencode/plugin@2.0.23` no V2). |
 
 ## Upgrade

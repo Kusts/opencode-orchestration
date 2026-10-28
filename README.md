@@ -40,7 +40,7 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 git clone <este-repo>
 cd opencode-orchestration
 copy models.example.jsonc models.jsonc
-# edite models.jsonc: planner, cheap, strong (ver "Configurar modelos")
+# planner, cheap e strong sao obrigatorios; free e frontier sao opcionais
 .\install.ps1 -Runtime V2 -WhatIf  # plano por recurso, nenhuma escrita
 .\install.ps1 -Runtime V2          # V2: instalações novas (Auto detecta a geração no PATH, p/ compatibilidade)
 .\install.ps1 -Runtime V1          # legado frozen (dialeto agent/permission/task) — só perfis existentes
@@ -85,17 +85,23 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
 
 ## Configurar modelos
 
-Três chaves em `models.jsonc` (copiado de `models.example.jsonc`):
+O exemplo `models.example.jsonc` possui **cinco chaves**, das quais três
+são obrigatórias no precheck do instalador (`install.ps1:Validate-Models`):
 
-| Chave | Uso |
-|---|---|
-| `planner` | Modelo default global (`model` no `opencode.json`); o agente `build` **herda o modelo da sessão** — `agent.build.model` é removido e nunca fixado. |
-| `cheap` | Pool barato: explorer, researcher, coder, tester, docs-manager, engineers, advisors de planning. |
-| `strong` | Pool forte: reviewer, debugger, security-reviewer, architect. |
+| Chave | Obrigatória | Uso |
+|---|---|---|
+| `planner` | Sim | Modelo default global (`model` no `opencode.json`); o agente `build` herda o modelo da sessão, sem modelo fixado. |
+| `cheap` | Sim | Pool barato de execução e engenharia. |
+| `strong` | Sim | Pool forte para revisão, arquitetura e diagnóstico. |
+| `free` | Não | Pool T1 de exploração; se ausente, usa o modelo T1 da política canônica (`source/registry/model-routing-policy.json`). |
+| `frontier` | Não | Override local do tier T4 no Model Router; **não** é token aplicado pelo instalador e não autoriza gasto T4. |
 
-Trocar modelos: edite `models.jsonc` e rode `.\install.ps1` de novo. Os
-tokens `{{MODEL_PLANNER}}`, `{{MODEL_CHEAP}}`, `{{MODEL_STRONG}}`
-(`+ {{HOME}}`, `{{REPO_DIR}}`) são resolvidos a cada instalação.
+Após editar `models.jsonc`, execute `.\install.ps1 -WhatIf` e,
+quando o preview for correto, reinstale. Os tokens
+`{{MODEL_PLANNER}}`, `{{MODEL_CHEAP}}`, `{{MODEL_STRONG}}` e
+`{{MODEL_FREE}}` (além de `{{HOME}}`, `{{REPO_DIR}}`) são resolvidos
+na instalação. A autorização efetiva de uso de T4 depende da política e
+dos gates financeiros do roteador, não de declarar `frontier` no arquivo.
 
 ## Validar
 

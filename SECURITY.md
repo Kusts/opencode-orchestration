@@ -4,13 +4,14 @@
 
 | Versão do pacote | Suportada |
 |---|---|
-| 1.0.x | ✅ Sim |
-| < 1.0 (pré-release, ex. `1.0.0-hardening`) | ❌ Não |
+| 0.2.0 | Sim — versão publicada e mantida atualmente |
+| Tags anteriores (`v0.1.x`, `v1.0` legado) | Histórico; sem certificação de novas capacidades |
 
-Nota sobre o runtime: este pacote suporta o **OpenCode V1.x** (validado
-com 1.18.34, pin em `source/registry/runtime-versions.json`) e, desde o programa V3.1, o **OpenCode V2** (`@opencode/cli`,
-validado com 2.0.23) com render/config/permissões nativos e plugin
-dual-runtime. O enforcement V2 usa as permissões nativas ordenadas
+Nota sobre o runtime: **OpenCode V1.x** (`1.18.34`) permanece
+**LEGACY_FROZEN** para perfis existentes; novas capacidades miram apenas o
+**OpenCode V2** (`@opencode/cli`, pin comprovado `2.0.23` em
+`source/registry/runtime-versions.json`). O pacote inclui render/config
+nativos por geração e plugin dual-runtime. O enforcement V2 usa as permissões nativas ordenadas
 (last-match-wins, broad-first); a camada `experimental.policies` (hard-deny)
 ainda não está ativada. V1 e V2 lado a lado só via perfis isolados
 (`-Runtime Both`) — nunca compartilhando o mesmo config nativo.
