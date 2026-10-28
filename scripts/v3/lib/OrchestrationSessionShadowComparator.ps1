@@ -53,8 +53,10 @@ function Compare-SessionCatalogs {
     if ($NativeResult -is [pscustomobject] -and $NativeResult.PSObject.Properties['ok'] -and -not $NativeResult.ok) {
         $report.query_error = $true
         $report.status = 'query_error'
-        # still count locals
         $locals = @($LocalBindings)
+        if (-not [string]::IsNullOrWhiteSpace($ProjectFilter)) {
+            $locals = @($locals | Where-Object { [string]$_.project -eq $ProjectFilter })
+        }
         $report.local_count = $locals.Count
         foreach ($lb in $locals) {
             $report.classifications += [pscustomobject]@{ id = [string]$lb.session_id; classification = 'LOCAL_ONLY'; reason = 'native query failed' }
