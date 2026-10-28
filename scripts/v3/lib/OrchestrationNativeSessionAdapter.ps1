@@ -113,8 +113,14 @@ function Get-NativeSessionList {
         $created = 0; $updated = 0
         try {
             if ($null -eq $s.created) { throw 'missing created' }
+            if (-not ($s.created -is [int] -or $s.created -is [long] -or $s.created -is [System.Int32] -or $s.created -is [System.Int64])) {
+                throw 'created must be integer'
+            }
             $created = [long]$s.created
             if ($null -eq $s.updated) { throw 'missing updated' }
+            if (-not ($s.updated -is [int] -or $s.updated -is [long] -or $s.updated -is [System.Int32] -or $s.updated -is [System.Int64])) {
+                throw 'updated must be integer'
+            }
             $updated = [long]$s.updated
         } catch {
             return [pscustomobject]@{ ok = $false; error = 'FIELD_ERROR'; detail = (Protect-Diag $_.Exception.Message); sessions = @() }
