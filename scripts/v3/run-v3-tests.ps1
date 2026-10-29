@@ -163,25 +163,19 @@ try {
       # Start-Process com redirecionamento nativo: evita o problema de handle
       # herdado do cmd.exe (o handle do arquivo de log nao era liberado quando
       # WaitForExit retornava, porque o powershell filho herdava o handle).
+      # cmd.exe com redirecionamento de stdin de NUL: garante que o stdin e
+      # completamente vazio (NUL = /dev/null no Windows). Redirecionamento de
+      # stdout/stderr para o arquivo de log via cmd.exe. O handle do arquivo
+      # pode ser herdado pelo powershell filho, mas o runner tenta ler com retry.
       $psi = New-Object System.Diagnostics.ProcessStartInfo
-      $psi.FileName = 'powershell.exe'
+      $psi.FileName = 'cmd.exe'
       # FIX CI ps7: filho 5.1 herdaria PSModulePath do host pwsh e perderia
       # autoload dos modulos padrao (Get-FileHash); fixa para os modulos do 5.1.
-      $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '"'
-      $psi.UseShellExecute = $false
-      $psi.RedirectStandardOutput = $true
-      $psi.RedirectStandardError = $true
-      $psi.RedirectStandardInput = $true
-      $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
-      $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
+      $psi.Arguments = '/c set "PSModulePath=%windir%\System32\WindowsPowerShell\v1.0\Modules" && powershell -NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '" > "' + $logFile + '" 2>&1 < NUL'
+      $psi.UseShellExecute = $true
+      $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
       $psi.WorkingDirectory = $v3
-      $psi.EnvironmentVariables['PSModulePath'] = 'C:\Windows\System32\WindowsPowerShell\v1.0\Modules'
       $p = [System.Diagnostics.Process]::Start($psi)
-      # Fechar stdin imediatamente para que o filho nao herde dados do runner.
-      try { $p.StandardInput.Close() } catch { }
-      # Drenar stdout/stderr para evitar deadlock (suite verbosa).
-      $stdoutTask = $p.StandardOutput.ReadToEndAsync()
-      $stderrTask = $p.StandardError.ReadToEndAsync()
       $finished = $p.WaitForExit($suiteTimeoutMs)
       if (-not $finished) {
         $timedOut = $true
@@ -191,22 +185,31 @@ try {
       else {
         $code = $p.ExitCode
       }
-      # Aguardar a conclusao da leitura assincrona.
-      try { $stdoutTask.Wait(5000) | Out-Null } catch { }
-      try { $stderrTask.Wait(5000) | Out-Null } catch { }
-      $stdout = ''
-      $stderr = ''
-      try { $stdout = $stdoutTask.Result } catch { $stdout = '' }
-      try { $stderr = $stderrTask.Result } catch { $stderr = '' }
-      $text = $stdout
-      if (-not [string]::IsNullOrWhiteSpace($stderr)) {
-        if (-not [string]::IsNullOrWhiteSpace($text)) { $text = $text + "`n" }
-        $text = $text + $stderr
-      }
-      # Persistir para debug/auditoria.
-      try { [IO.File]::WriteAllText($logFile, $text, [Text.Encoding]::UTF8) } catch { }
-      $logOk = $true
       try { $p.Close() } catch { }
+      $logOk = $false
+      # O cmd.exe/powershell filho pode ainda segurar o handle do arquivo de
+      # log quando WaitForExit retorna. Matar a arvore de processos e aguardar
+      # a liberacao do handle antes de ler.
+      try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { }
+      for ($r = 0; $r -lt 20 -and -not $logOk; $r++) {
+        try {
+          if (Test-Path -LiteralPath $logFile -PathType Leaf) {
+            $text = [IO.File]::ReadAllText($logFile, [Text.Encoding]::UTF8)
+            $logOk = $true
+          }
+          else {
+            Start-Sleep -Milliseconds 50
+          }
+        }
+        catch {
+          $logOk = $false
+          Start-Sleep -Milliseconds 100
+        }
+      }
+      if ((-not $timedOut) -and (-not $logOk)) {
+        $isInternal = $true
+        $text = 'RUNNER ERROR: log ilegivel/ausente para ' + $s.Name
+      }
       if ((-not $timedOut) -and (-not $logOk)) {
         $isInternal = $true
         $text = 'RUNNER ERROR: log ilegivel/ausente para ' + $s.Name
