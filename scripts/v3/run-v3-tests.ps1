@@ -177,6 +177,8 @@ try {
       $psi.WorkingDirectory = $v3
       $psi.EnvironmentVariables['PSModulePath'] = 'C:\Windows\System32\WindowsPowerShell\v1.0\Modules'
       $p = [System.Diagnostics.Process]::Start($psi)
+      # Fechar stdin imediatamente para que o filho nao herde dados do runner.
+      try { $p.StandardInput.Close() } catch { }
       # Drenar stdout/stderr para evitar deadlock (suite verbosa).
       $stdoutTask = $p.StandardOutput.ReadToEndAsync()
       $stderrTask = $p.StandardError.ReadToEndAsync()
