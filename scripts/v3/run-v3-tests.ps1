@@ -170,6 +170,9 @@ try {
       # Start-Process com redirecionamento nativo: evita o problema de handle
       # herdado do cmd.exe. Redireciona stdout/stderr para o arquivo de log
       # e stdin de um stream vazio (fechado) para evitar heranca de dados.
+      # Start-Process com redirecionamento nativo: evita o problema de handle
+      # herdado do cmd.exe. Redireciona stdout/stderr para o arquivo de log
+      # e stdin de um stream vazio (fechado) para evitar heranca de dados.
       $psi = New-Object System.Diagnostics.ProcessStartInfo
       $psi.FileName = 'powershell.exe'
       # FIX CI ps7: filho 5.1 herdaria PSModulePath do host pwsh e perderia
