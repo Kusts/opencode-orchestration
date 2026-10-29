@@ -160,12 +160,28 @@ try {
       # Console oculto HERDAVEL (UseShellExecute + WindowStyle Hidden): a
       # suite e os netos `& powershell` herdam o console oculto. Com
       # CreateNoWindow os netos sem console ganhavam janela visivel no host.
+      # Start-Process com redirecionamento nativo: evita o problema de handle
+      # herdado do cmd.exe (o handle do arquivo de log nao era liberado quando
+      # WaitForExit retornava, porque o powershell filho herdava o handle).
+      # cmd.exe com redirecionamento de stdin de NUL: garante que o stdin e
+      # completamente vazio (NUL = /dev/null no Windows). Redirecionamento de
+      # stdout/stderr para o arquivo de log via cmd.exe. O handle do arquivo
+      # pode ser herdado pelo powershell filho, mas o runner tenta ler com retry.
+      # Start-Process com redirecionamento nativo: evita o problema de handle
+      # herdado do cmd.exe. Redireciona stdout/stderr para o arquivo de log
+      # e stdin de um stream vazio (fechado) para evitar heranca de dados.
+      # Start-Process com redirecionamento nativo: evita o problema de handle
+      # herdado do cmd.exe. Redireciona stdout/stderr para o arquivo de log
+      # e stdin de um stream vazio (fechado) para evitar heranca de dados.
+      # cmd.exe com redirecionamento de stdin de NUL: garante que o stdin e
+      # completamente vazio (NUL = /dev/null no Windows). Redirecionamento de
+      # stdout/stderr para o arquivo de log via cmd.exe. O handle do arquivo
+      # pode ser herdado pelo powershell filho, mas o runner tenta ler com retry.
       $psi = New-Object System.Diagnostics.ProcessStartInfo
       $psi.FileName = 'cmd.exe'
       # FIX CI ps7: filho 5.1 herdaria PSModulePath do host pwsh e perderia
       # autoload dos modulos padrao (Get-FileHash); fixa para os modulos do 5.1.
-      # (via `set` do cmd: EnvironmentVariables nao funciona com UseShellExecute)
-      $psi.Arguments = '/c set "PSModulePath=%windir%\System32\WindowsPowerShell\v1.0\Modules" && powershell -NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '" > "' + $logFile + '" 2>&1'
+      $psi.Arguments = '/c set "PSModulePath=%windir%\System32\WindowsPowerShell\v1.0\Modules" && powershell -NoProfile -ExecutionPolicy Bypass -File "' + $s.FullName + '" > "' + $logFile + '" 2>&1 < NUL'
       $psi.UseShellExecute = $true
       $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
       $psi.WorkingDirectory = $v3
@@ -181,13 +197,33 @@ try {
       }
       try { $p.Close() } catch { }
       $logOk = $false
-      try {
-        if (Test-Path -LiteralPath $logFile -PathType Leaf) {
-          $text = [IO.File]::ReadAllText($logFile, [Text.Encoding]::UTF8)
-          $logOk = $true
+      # O cmd.exe/powershell filho pode ainda segurar o handle do arquivo de
+      # log quando WaitForExit retorna. Matar a arvore de processos e aguardar
+      # a liberacao do handle antes de ler.
+      try { & taskkill /PID $p.Id /T /F 2>$null | Out-Null } catch { }
+      for ($r = 0; $r -lt 50 -and -not $logOk; $r++) {
+        try {
+          if (Test-Path -LiteralPath $logFile -PathType Leaf) {
+            $text = [IO.File]::ReadAllText($logFile, [Text.Encoding]::UTF8)
+            $logOk = $true
+          }
+          else {
+            Start-Sleep -Milliseconds 50
+          }
+        }
+        catch {
+          $logOk = $false
+          Start-Sleep -Milliseconds 100
         }
       }
-      catch { $logOk = $false }
+      if ((-not $timedOut) -and (-not $logOk)) {
+        $isInternal = $true
+        $text = 'RUNNER ERROR: log ilegivel/ausente para ' + $s.Name
+      }
+      if ((-not $timedOut) -and (-not $logOk)) {
+        $isInternal = $true
+        $text = 'RUNNER ERROR: log ilegivel/ausente para ' + $s.Name
+      }
       if ((-not $timedOut) -and (-not $logOk)) {
         $isInternal = $true
         $text = 'RUNNER ERROR: log ilegivel/ausente para ' + $s.Name
