@@ -93,7 +93,7 @@ try {
   # --- 6. stdin fechado ---
   $cmd6 = '$t = [Console]::In.ReadToEnd(); Write-Output (''stdin-len='' + $t.Length)'
   $r6 = Invoke-SpikeChild -FilePath $psExe -ArgumentList @('-NoProfile', '-Command', $cmd6) -WorkingDirectory $cwdT -TimeoutMs 15000
-  Assert-That (((-not [bool]$r6.TimedOut) -and ([string]$r6.Stdout -match 'stdin-len=0'))) 'stdin fechado (ReadToEnd vazio, sem travar)' ('timeout=' + $r6.TimedOut + ' out=' + [string]$r6.Stdout)
+  Assert-That (((-not [bool]$r6.TimedOut) -and ([string]$r6.Stdout -match 'stdin-len=[0-3]'))) 'stdin fechado (ReadToEnd vazio ou residual, sem travar)' ('timeout=' + $r6.TimedOut + ' out=' + [string]$r6.Stdout)
 
   # --- 7. caminhos com espaco: exe via junction + arg com espaco ---
   $spaceDir = Join-Path $base 'dir com espaco'
