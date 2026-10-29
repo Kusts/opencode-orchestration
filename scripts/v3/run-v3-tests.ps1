@@ -171,6 +171,7 @@ try {
       $psi.UseShellExecute = $false
       $psi.RedirectStandardOutput = $true
       $psi.RedirectStandardError = $true
+      $psi.RedirectStandardInput = $true
       $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
       $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
       $psi.WorkingDirectory = $v3
