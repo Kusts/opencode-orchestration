@@ -58,11 +58,11 @@ try {
         Assert-RT (Test-Path -LiteralPath $artB -PathType Leaf) '[RT] artefato B existe' ''
         if (Test-Path -LiteralPath $artA -PathType Leaf) {
             $a = Get-Content $artA -Raw
-            Assert-RT ($a -match 'task-a') '[RT] artefato A tem origem task-a' ''
+            Assert-RT ($a -match 'task-a' -and $a -match '42') '[RT] artefato A tem origem task-a' ''
         }
         if (Test-Path -LiteralPath $artB -PathType Leaf) {
             $b = Get-Content $artB -Raw
-            Assert-RT ($b -match 'derived') '[RT] artefato B tem resultado derivado' ''
+            Assert-RT ($b -match 'derived' -and $b -match '84') '[RT] artefato B tem resultado derivado' ''
         }
     }
 

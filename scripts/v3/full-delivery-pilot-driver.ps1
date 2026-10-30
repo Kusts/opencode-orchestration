@@ -72,26 +72,32 @@ $executor = {
     }
     Log ('  SUBAGENT OUTPUT: ' + $textOutput)
 
-    # Verify artifact for task A
+    # Verify artifact for task A (content check, not just existence)
     if ($tid -ceq 'fd-task-a') {
         if (-not (Test-Path -LiteralPath $artifactPathL -PathType Leaf)) {
             throw 'artifact-a-not-created'
+        }
+        $contentA = [IO.File]::ReadAllText($artifactPathL, [Text.UTF8Encoding]::new($false))
+        if ($contentA -notmatch 'value' -or $contentA -notmatch '42' -or $contentA -notmatch 'task-a') {
+            throw 'artifact-a-invalid-content'
         }
     }
     if ($tid -ceq 'fd-task-b') {
         if (-not (Test-Path -LiteralPath $resultBPathL -PathType Leaf)) {
             throw 'result-b-not-created'
         }
+        $contentB = [IO.File]::ReadAllText($resultBPathL, [Text.UTF8Encoding]::new($false))
+        if ($contentB -notmatch 'derived' -or $contentB -notmatch '84') {
+            throw 'result-b-invalid-content'
+        }
+        # Verify B consumed A's artifact (content contains reference to A)
+        if ($contentB -notmatch 'task-a' -and $contentB -notmatch '42') {
+            throw 'result-b-did-not-consume-a'
+        }
     }
 
-    # Update goal progress (only after successful execution + verification)
-    $slot = Get-OrchestrationGoal -GoalId $goalId -StoreDir $advGoalDir
-    $gv = $slot.goal
-    $sat = [long]$gv['progress']['satisfied'] + 1
-    $ph2 = [long]$gv['plan_progress']['phase'] + 1
-    $upd = Update-OrchestrationGoal -GoalId $goalId -ExpectedRevision ([long]$gv['revision']) -Fields @{ progress = @{ satisfied = $sat; total = 2 }; plan_progress = @{ phase = $ph2; total_phases = 2; done_tasks = $ph2 } } -StoreDir $advGoalDir -OwnerId $owner -OwnershipGeneration $advGen
-    if (-not [bool]$upd.ok) { throw ('progress-update-failed: ' + [string]$upd.reason) }
-
+    # NOTE: progress is NOT updated here. The Executor returns the candidate result only.
+    # Progress advances only after canonical settlement + verification (see post-loop below).
     return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
 }.GetNewClosure()
 
@@ -118,6 +124,19 @@ $loop = Invoke-OrchestrationAutonomousObjective -GoalId $goalId -GoalStoreDir $g
 
 Log ('LOOP: outcome=' + [string]$loop.outcome + ' reason=' + [string]$loop.reason + ' steps=' + [string]$loop.steps_taken + ' dispatches=' + [string]$loop.dispatches)
 Log ('EXECUTOR CALLS: ' + [string]$state.calls)
+
+# Post-loop: progress advances ONLY after canonical settlement + verification (not in Executor)
+$loopDispatches = [int]$loop.dispatches
+for ($pi = 1; $pi -le $loopDispatches; $pi++) {
+    $liveG = & powershell -NoProfile -Command ". '$PSScriptRoot\lib\OrchestrationGoalKernel.ps1'; (Get-OrchestrationGoal -GoalId '$goalId' -StoreDir '$goalDir').goal | ConvertTo-Json -Depth 8 -Compress" 2>&1
+    $liveGoal = ($liveG | Select-Object -Last 1) | ConvertFrom-Json
+    $liveRev = [long]$liveGoal.revision
+    $satP = [long]$liveGoal.progress.satisfied + 1
+    $phP = [long]$liveGoal.plan_progress.phase + 1
+    $updP = Update-OrchestrationGoal -GoalId $goalId -ExpectedRevision $liveRev -Fields @{ progress = @{ satisfied = $satP; total = 2 }; plan_progress = @{ phase = $phP; total_phases = 2; done_tasks = $phP } } -StoreDir $goalDir -OwnerId $owner -OwnershipGeneration $gen
+    Log ('PROGRESS UPDATE step ' + $pi + ': ok=' + [bool]$updP.ok + ' reason=' + [string]$updP.reason)
+    if (-not [bool]$updP.ok) { throw ('progress-update-failed: ' + [string]$updP.reason) }
+}
 
 # Complete the goal if all criteria are satisfied (explicit CAS completion)
 $finalSlot = & powershell -NoProfile -Command ". '$PSScriptRoot\lib\OrchestrationGoalKernel.ps1'; (Get-OrchestrationGoal -GoalId '$goalId' -StoreDir '$goalDir').goal | ConvertTo-Json -Depth 8 -Compress" 2>&1

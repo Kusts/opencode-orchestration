@@ -107,10 +107,6 @@ try {
             param($intent)
             $state.calls++
             $tid = ([string]$intent.task_id)
-            $slot = Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $advGoalDir
-            $gv = $slot.goal
-            $sat = [long]$gv['progress']['satisfied'] + 1
-            $ph2 = [long]$gv['plan_progress']['phase'] + 1
             # Task A gera artefato real em disco (dependencia real)
             if ($tid -ceq 'fd-task-a') {
                 [IO.File]::WriteAllText($artifactPath, '{"value":42,"from":"task-a"}', [Text.UTF8Encoding]::new($false))
@@ -121,8 +117,8 @@ try {
                 Assert-FD ($consumed -match 'task-a') '[GREEN] Task B consome artefato real de Task A' ''
                 [IO.File]::WriteAllText((Join-Path $artifactDir 'output-b.json'), '{"derived":84,"source":' + $consumed + '}', [Text.UTF8Encoding]::new($false))
             }
-            $upd = Update-OrchestrationGoal -GoalId 'fd-goal-1' -ExpectedRevision ([long]$gv['revision']) -Fields @{ progress = @{ satisfied = $sat; total = 2 }; plan_progress = @{ phase = $ph2; total_phases = 2; done_tasks = $ph2 } } -StoreDir $advGoalDir -OwnerId 'planner-1' -OwnershipGeneration $advGen
-            Assert-FD ([bool]$upd.ok) ('[GREEN] progresso persistido (task ' + $tid + ')') ([string]$upd.reason)
+            # NOTE: progress is NOT updated here. The Executor returns the candidate result only.
+            # Progress advances only after canonical settlement + verification (see post-loop below).
             return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
         }.GetNewClosure()
 
@@ -141,6 +137,17 @@ try {
         $loop = Invoke-OrchestrationAutonomousObjective -GoalId 'fd-goal-1' -GoalStoreDir $goalDir -MaxSteps 4 -MaxDispatches 5 -CheckpointDir $ckptDir -Executor $executor -Authorization $authOk -DispatchSpec $specScript -EvidenceStoreDir $evDir -ReceiptDir $receiptDir -TasksDir $tasksDir -FlagsPath $flagsPath
         Assert-FD (([int]$loop.dispatches -eq 2)) '[GREEN] duas tasks executadas sem intervencao' ('dispatches=' + [string]$loop.dispatches)
         Assert-FD (([int]$state.calls -eq 2)) '[GREEN] executor (worker) chamado 2x' ('calls=' + [string]$state.calls)
+
+        # Post-loop: progress advances ONLY after canonical settlement (not in Executor)
+        $loopDispatches = [int]$loop.dispatches
+        for ($pi = 1; $pi -le $loopDispatches; $pi++) {
+            $liveG = (Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $goalDir).goal
+            $liveR = [long]$liveG['revision']
+            $satP = [long]$liveG['progress']['satisfied'] + 1
+            $phP = [long]$liveG['plan_progress']['phase'] + 1
+            $updP = Update-OrchestrationGoal -GoalId 'fd-goal-1' -ExpectedRevision $liveR -Fields @{ progress = @{ satisfied = $satP; total = 2 }; plan_progress = @{ phase = $phP; total_phases = 2; done_tasks = $phP } } -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen
+            Assert-FD ([bool]$updP.ok) ('[GREEN] progresso persistido apos settlement (step ' + $pi + ')') ([string]$updP.reason)
+        }
         $final = (Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $goalDir).goal
         Assert-FD (([long]$final['plan_progress']['phase'] -eq 2)) '[GREEN] plan avancou fase1->fase2' ('phase=' + [string]$final['plan_progress']['phase'])
         Assert-FD (([long]$final['progress']['satisfied'] -eq 2)) '[GREEN] progresso 2/2' ('sat=' + [string]$final['progress']['satisfied'])
