@@ -37,8 +37,8 @@ Abaixo mapeamos os 5 marcos do modelo em todo o pipeline da orquestração:
 
 1. **Tokens Legados (`MODEL_PLANNER`, `MODEL_CHEAP`, `MODEL_STRONG`, `MODEL_FRONTIER`):** Mantidos como pontes para templates e ferramentas existentes.
 2. **Separação de Providers (ADR-02):**
-   - `opencode`: Beam Free (`opencode/beam-free`), DeepSeek V4.1 Flash Free (`opencode/deepseek-v4.1-flash-free`).
-   - `opencode-go`: Muse Spark 1.3 Contributor (`opencode-go/muse-spark-1.3-contributor`).
+   - `opencode`: DeepSeek V4.1 Flash Free (`opencode/deepseek-v4.1-flash-free`).
+   - `opencode-go`: Iceman Contributor Free (`opencode-go/iceman-contributor-free`), Muse Spark 1.3 Contributor (`opencode-go/muse-spark-1.3-contributor`).
    - `openai`: GPT-6 Luna (`openai/gpt-6-luna`), GPT-6.1 Sol (`openai/gpt-6.1-sol`), GPT-6 Astra (`openai/gpt-6-astra`).
    - `jev`: Jev 1.13 Free (`jev-1.13-free`, System One).
 3. **Invariantes Invioláveis:**

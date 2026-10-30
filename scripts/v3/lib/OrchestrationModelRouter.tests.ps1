@@ -124,11 +124,11 @@ Assert-Router ($selAdvDeadlockAuth.Tier -eq 'T4') "A.7: Advisor em deadlock e cu
 Assert-Router ($selAdvDeadlockAuth.CatalogModel -eq 'openai/gpt-6.1-sol') "A.7: Advisor T4 canonico seleciona Sol"
 Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_FRONTIER') "A.7: Advisor T4 usa token distinto MODEL_FRONTIER"
 
-# A.8 Explorer e Docs Manager: T1 Beam Free
+# A.8 Explorer e Docs Manager: T1 Iceman Contributor Free
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex' -IgnoreUserConfig $true
 Assert-Router ($selExp.Tier -in @('T0', 'T1', 'T2')) "A.8: Explorer restrito a T0..T2"
 Assert-Router ($selExp.Tier -notin @('T3', 'T4')) "A.8: Explorer proibido em T3 e T4"
-Assert-Router ($selExp.CatalogModel -in @('opencode-go/beam-free', 'opencode-go/muse-spark-1.3-contributor')) "A.8: Explorer canonico alocado em T1/T2"
+Assert-Router ($selExp.CatalogModel -in @('opencode-go/iceman-contributor-free', 'opencode-go/muse-spark-1.3-contributor')) "A.8: Explorer canonico alocado em T1/T2"
 
 # A.9 Tester: T0 Deterministico vs T2 com LLM
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -IgnoreUserConfig $true

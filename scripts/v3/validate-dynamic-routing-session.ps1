@@ -155,14 +155,14 @@ if (Test-Path -LiteralPath $exportFullPath -PathType Leaf) {
     }
 
     # Validacao pos-execucao via Test-ExecutedModelVerification
-    $selBeam = [pscustomobject]@{
+    $selIceman = [pscustomobject]@{
         Status                 = 'SELECTED'
         Agent                  = 'build'
         Tier                   = 'T1'
-        CatalogModel           = 'opencode/beam-free'
+        CatalogModel           = 'opencode-go/iceman-contributor-free'
         Token                  = 'MODEL_FREE'
-        selected_provider      = 'opencode'
-        selected_model_id      = 'beam-free'
+        selected_provider      = 'opencode-go'
+        selected_model_id      = 'iceman-contributor-free'
         ProviderCostAuthorized = $false
         IsCompliant            = $true
     }
@@ -170,7 +170,7 @@ if (Test-Path -LiteralPath $exportFullPath -PathType Leaf) {
         Model    = "$effectiveProvider/$effectiveModelId"
         Provider = $effectiveProvider
     }
-    $vSession = Test-ExecutedModelVerification -RequestedSelection $selBeam -ExecutedModelEvent $evSession -NativeModelOverrideProven $true
+    $vSession = Test-ExecutedModelVerification -RequestedSelection $selIceman -ExecutedModelEvent $evSession -NativeModelOverrideProven $true
 
     $evidence.productive_session_proof = [ordered]@{
         proof_type               = "REAL_NATIVE_SESSION_EXPORT"
@@ -181,8 +181,8 @@ if (Test-Path -LiteralPath $exportFullPath -PathType Leaf) {
         session_id               = $sessionId
         timestamp                = "2026-10-27T00:10:45Z"
         runtime                  = "opencode-v2"
-        command_executed         = "opencode-v2 run --model opencode/beam-free --format json `"Responda apenas com a palavra PONG.`""
-        requested_model          = "opencode/beam-free"
+        command_executed         = "opencode-v2 run --model opencode-go/iceman-contributor-free --format json `"Responda apenas com a palavra PONG.`""
+        requested_model          = "opencode-go/iceman-contributor-free"
         requested_tier           = "T1"
         effective_model_id       = $effectiveModelId
         effective_provider       = $effectiveProvider
@@ -199,7 +199,7 @@ if (Test-Path -LiteralPath $exportFullPath -PathType Leaf) {
             is_exact_match    = ($vSession.ProofStatus -eq 'EXACT_MATCH')
             is_cross_provider = $vSession.IsCrossProvider
         }
-        audit_notes              = "Sessao produtiva nativa real verificada contra o arquivo de export real ($exportRelPath) e seu hash SHA256 ($exportHash), comprovando execucao efetiva de Beam Free no OpenCode V2 com resposta PONG e consumo de tokens registrado."
+        audit_notes              = "Sessao produtiva nativa real verificada contra o arquivo de export real ($exportRelPath) e seu hash SHA256 ($exportHash), comprovando execucao efetiva de modelo gratuito Tier T1 ($effectiveProvider/$effectiveModelId) no OpenCode V2 com resposta PONG e consumo de tokens registrado."
     }
     Write-Host "[PASS] Prova real de sessao produtiva verificada por export e hash: Session $sessionId (Hash: $($exportHash.Substring(0,16))..., Model: $effectiveProvider/$effectiveModelId, Proof: $($vSession.ProofStatus))" -ForegroundColor Green
 } else {
@@ -288,7 +288,7 @@ if ($hasJevCredentials) {
 # --------------------------------------------------------------------------
 # RESUMO E PERSISTENCIA
 # --------------------------------------------------------------------------
-$evidence.summary = "16 verificacoes de contrato aprovadas (16/16); 1 prova real curta de sessao produtiva comprovada no OpenCode V2 com Beam Free (ses_e854f20bfffeSk42kHTcpWr40U); chamada consultiva de Jev testada com registro explicito de PROOF_ABSENT devido a ausencia de JEV_API_KEY no ambiente host, confirmando a guarda normativa de autoridade."
+$evidence.summary = "16 verificacoes de contrato aprovadas (16/16); 1 prova real curta de sessao produtiva comprovada no OpenCode V2 com modelo gratuito Tier T1 (ses_e854f20bfffeSk42kHTcpWr40U); chamada consultiva de Jev testada com registro explicito de PROOF_ABSENT devido a ausencia de JEV_API_KEY no ambiente host, confirmando a guarda normativa de autoridade."
 
 $evidenceDir = Split-Path -Parent $EvidenceOut
 if (-not (Test-Path $evidenceDir)) { New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null }

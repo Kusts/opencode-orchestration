@@ -6,6 +6,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Full Delivery Etapas 3-5 — integração operacional (2026-10-30, SHA 146f149)**:
+  - Consumo integrado de impasse (Etapa 3), execução de modelo com recibo (Etapa 4) e retomada durável single-shot (Etapa 5); classificação `PRODUCTIVE_AUTONOMY_PARTIAL` preservada.
+  - CI final run 41095537651 (HEAD 146f149): 6/6 SUCCESS; suites IC 27/27, ME 32/32, DR 21/21; provas PROOF_ETAPA3=REAL, PROOF_ETAPA4=PROOF_ABSENT:no-model-field, PROOF_ETAPA5=REAL.
+  - Review interno CHANGES_REQUIRED (2 findings) corrigidos + re-review APPROVED; sem aprovação externa afirmada (`required_approving_review_count=0`); commit 6afce79 (Iceman) mantido sem reescrita de histórico.
+  - Veredito MERGE_AUTHORIZED (merge commit, sem deploy); PR #173.
+
+- **Troca do modelo gratuito T1: Beam Free -> Iceman Contributor Free (2026-10-30)**:
+  - Identificador canônico do Tier T1 passa a `opencode-go/iceman-contributor-free` (provider `opencode-go`), chave lógica `beam` renomeada para `iceman` em [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json) (versão `1.2.0` -> `1.3.0`); `tiers.T1.primary` e `default_model` de `explorer`/`docs-manager` atualizados.
+  - Defaults do Router (`scripts/v3/lib/OrchestrationModelRouter.ps1`), exemplo local (`models.example.jsonc`), SPEC/INVENTORY v1.1, validador (`scripts/v3/validate-dynamic-routing-session.ps1`) e teste `tests/v3/OrchestrationDynamicModelRoutingV11.tests.ps1` alinhados; Router mantém leitura legada da chave `beam` como compatibilidade transitória.
+  - Configuração local do projeto (`models.jsonc`) e configuração ativa OpenCode V2 atualizadas via `install.ps1`; valores ativos de `explorer` e `docs-manager` confirmados como o novo ID. `evidence/**` histórico preservado sem edição.
+
 - **Dynamic Model Routing & Intelligent Advisory v1.1 (2026-10-26)**:
   - **Especificação Canônica e Plano Completo:**
     - Documentação integral da especificação em [`docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md`](file:///docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md) e do plano executivo em [`docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md`](file:///docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md), com inventário de baseline em [`docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-INVENTORY.md`](file:///docs/specs/DYNAMIC-MODEL-ROUTING-v1.1-INVENTORY.md) e atualização do índice [`docs/specs/INDEX.md`](file:///docs/specs/INDEX.md).

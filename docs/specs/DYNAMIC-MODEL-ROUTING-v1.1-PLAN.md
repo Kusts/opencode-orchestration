@@ -73,11 +73,11 @@ Campos obrigatórios:
 ### 1.2 Configurar providers
 
 **OpenCode**
-- Beam Free.
 - DeepSeek V4.1 Flash Free.
 
 **OpenCode Go**
 - Muse Spark 1.3 Contributor.
+- Iceman Contributor Free.
 
 **OpenAI**
 - GPT-6 Luna.
@@ -94,7 +94,7 @@ Não registrar senhas, tokens ou chaves na configuração.
 ### 1.3 Mapear tiers
 
 - T0: deterministic.
-- T1: Beam.
+- T1: Iceman.
 - T2: DeepSeek, Muse.
 - T3: Luna.
 - T4: Sol, Astra excepcional.
@@ -111,7 +111,7 @@ Permitir alterar:
 
 ### Testes
 
-- Substituir Beam por outro modelo.
+- Substituir Iceman por outro modelo.
 - Trocar o provider de um modelo lógico.
 - Desabilitar um modelo.
 - Desabilitar um provider.
@@ -174,7 +174,7 @@ Testar:
 
 ### Testes obrigatórios
 
-- Beam T1.
+- Iceman T1.
 - DeepSeek T2.
 - Muse T2.
 - Luna T3.
@@ -356,7 +356,7 @@ Executar cenários curtos e representativos.
 
 | Cenário | Objetivo |
 |---|---|
-| 1 | Tarefa leve com Beam |
+| 1 | Tarefa leve com Iceman |
 | 2 | Codificação com DeepSeek |
 | 3 | Codificação com Muse |
 | 4 | Tarefa complexa com Luna |
