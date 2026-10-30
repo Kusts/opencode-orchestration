@@ -17,23 +17,16 @@
     OrchestrationExternalActionBoundary.ps1 (New-OcExternalIntent),
     AgentProfileBundleConsumer.ps1 (Test-ObjectiveBundlePin).
 
-    Policy-shape fallback (documented, fail-closed): the shared eligibility
-    and readiness functions require the full registry shape
-    (deletion_protected, terminal_states, non-empty security_reviewer_on).
-    A caller-supplied minimal policy that carries the canonical
-    required_checks but omits registry-only shape metadata would otherwise
-    be unevaluable (policy-invalid) even when every substantive gate is
-    satisfiable. When a shared function refuses SOLELY for policy shape
-    (reasons subset of {policy-invalid, policy-unavailable}) AND the policy
-    still declares schema_version 1, auto_merge.allowed true and a
-    resolvable required_checks set, this lib re-evaluates the SAME
-    substantive gates locally (required-check success binding with FIX2/FIX3
-    duplicate/inconclusive semantics, reviewer, conditional security,
-    unresolved P1, risk band; snapshot binding, head/commit match,
-    freshness, pr_state, mergeable, review_decision, checks evaluation)
-    using the shared reason vocabulary. No evaluated gate is relaxed;
-    anything else stays REMEDIATE/RECONCILE. With a canonical policy the
-    shared path governs and the mirror never runs.
+    Canonical policy only: delivery-policy.json shape governs eligibility
+    and readiness via the shared lib (OrchestrationDelivery.ps1). No mirror
+    evaluation exists here; policy-invalid stays REMEDIATE/RECONCILE.
+
+    Merge identity: pr_head_sha is the authorized HEAD (ExpectedHeadSha).
+    merge_commit_sha is the integration SHA created by the merge commit
+    (method 'merge' only; squash/rebase are POLICY_BLOCKED). Verification
+    consults the remote PR (merged=true, repo/pr match, valid
+    merge_commit_sha) without requiring equality with the original HEAD.
+    Both identifiers persist in the receipt.
 #>
 [CmdletBinding()]
 param()
@@ -219,235 +212,114 @@ function Set-MMStore {
     catch { }
 }
 
-function Test-MMShapeFallbackAllowed {
-    param($Policy, $Reasons)
+function Test-MMExactMergeScope {
+    param([string]$RepoCanon = '', $ScopeItems = @())
     try {
-        if ($null -eq $Reasons) { return $false }
-        $list = @($Reasons)
-        if (@($list).Count -eq 0) { return $false }
-        foreach ($x in @($list)) {
-            if (([string]$x -cne 'policy-invalid') -and ([string]$x -cne 'policy-unavailable')) { return $false }
+        $want = ('github:merge:' + $RepoCanon).ToLowerInvariant()
+        foreach ($s in @($ScopeItems)) {
+            if (($null -eq $s) -or (-not ($s -is [string]))) { continue }
+            $v = ([string]$s).Trim().ToLowerInvariant()
+            if ($v -ceq $want) { return $true }
         }
-        if ($null -eq $Policy) { return $false }
-        $sv = Get-MMValue $Policy 'schema_version' $null
-        if (-not ($sv -is [int] -or $sv -is [long] -or $sv -is [short] -or $sv -is [byte])) { return $false }
-        if ([long]$sv -ne 1) { return $false }
-        $auto = Get-MMValue $Policy 'auto_merge' $null
-        if ($null -eq $auto) { return $false }
-        $allowed = Get-MMValue $auto 'allowed' $null
-        if (($allowed -isnot [bool]) -or ($allowed -ne $true)) { return $false }
-        $req = $null
-        try { $req = Get-OrchestrationDeliveryRequiredChecks $Policy } catch { $req = $null }
-        if ($null -eq $req) { return $false }
-        return $true
+        return $false
     }
     catch { return $false }
 }
 
-function Test-MMMirrorEligibility {
-    param($RequiredChecks, $DerivedChecks, $ReviewerApproved, $SecurityRequired, $SecurityApproved, $UnresolvedP1, $Risk)
+function Test-MMAuthorityExpired {
+    param($Authority = $null, $NowUtc = $null)
     try {
-        $reasons = New-Object System.Collections.ArrayList
-        $reqKeys = @{}
-        $reqCanon = @{}
-        foreach ($rn in @($RequiredChecks)) {
-            $rns = [string]$rn
-            if ([string]::IsNullOrWhiteSpace($rns)) { continue }
-            $rk = $rns.ToLowerInvariant()
-            if (-not $reqKeys.ContainsKey($rk)) {
-                $reqKeys[$rk] = $true
-                $reqCanon[$rk] = $rns
-            }
-        }
-        $byName = @{}
-        $inconclusive = @{}
-        $dupKeys = @{}
-        $dupNames = New-Object System.Collections.ArrayList
-        foreach ($c in @($DerivedChecks)) {
-            $n = [string](Get-MMValue $c 'name' '')
-            if ([string]::IsNullOrWhiteSpace($n)) { continue }
-            $key = $n.ToLowerInvariant()
-            if (-not $reqKeys.ContainsKey($key)) { continue }
-            $canon = [string]$reqCanon[$key]
-            if ($byName.ContainsKey($key) -or $inconclusive.ContainsKey($key)) {
-                if (-not $dupKeys.ContainsKey($key)) {
-                    $dupKeys[$key] = $true
-                    [void]$dupNames.Add($canon)
+        if ($null -eq $Authority) { return $false }
+        $raw = $null
+        $hasExpiry = $false
+        try {
+            if ($Authority -is [System.Collections.IDictionary]) {
+                foreach ($k in @('expires_at', 'valid_until', 'expires', 'authority_expires_at')) {
+                    if ($Authority.Contains($k)) { $raw = $Authority[$k]; $hasExpiry = $true; break }
                 }
-                continue
             }
-            $con = Get-MMValue $c 'conclusion' $null
-            if ($con -is [string]) { $byName[$key] = [string]$con }
-            else { $inconclusive[$key] = $canon }
-        }
-        foreach ($d in @($dupNames)) { [void]$reasons.Add(('check-duplicate:' + [string]$d)) }
-        foreach ($name in @($RequiredChecks)) {
-            $rk = ([string]$name).ToLowerInvariant()
-            if ($dupKeys.ContainsKey($rk)) { continue }
-            if (-not $byName.ContainsKey($rk)) {
-                if ($inconclusive.ContainsKey($rk)) { [void]$reasons.Add(('check-inconclusive:' + [string]$reqCanon[$rk])) }
-                else { [void]$reasons.Add(('check-missing:' + [string]$name)) }
+            else {
+                foreach ($k in @('expires_at', 'valid_until', 'expires', 'authority_expires_at')) {
+                    $p = $Authority.PSObject.Properties[$k]
+                    if ($null -ne $p) { $raw = $p.Value; $hasExpiry = $true; break }
+                }
             }
-            elseif ([string]$byName[$rk] -cne 'success') { [void]$reasons.Add(('check-failed:' + [string]$name)) }
         }
-        if (-not [bool]$ReviewerApproved) { [void]$reasons.Add('reviewer-pending') }
-        if ([bool]$SecurityRequired -and (-not [bool]$SecurityApproved)) { [void]$reasons.Add('security-pending') }
-        if ([long]$UnresolvedP1 -ne 0) { [void]$reasons.Add('unresolved-p1') }
-        $riskNorm = ''
-        if ($Risk -is [string]) { $riskNorm = ([string]$Risk).Trim().ToLowerInvariant() }
-        if (($riskNorm -cne 'low') -and ($riskNorm -cne 'medium')) { [void]$reasons.Add('risk-too-high') }
-        return [string[]]$reasons.ToArray()
-    }
-    catch { return @('evaluation-failed') }
-}
-
-function Get-MMMirrorReadiness {
-    param($RepoCanon = '', [long]$PrNum = 0, $ExpCanon = '', $Snapshot = $null, $RequiredChecks = @(), $NowUtc = $null, [long]$MaxAge = 300)
-    try {
-        $obsOut = ''
-        $fail = {
-            param($rdy, $why)
-            return [pscustomobject]@{ ok = $false; readiness = $rdy; reasons = [string[]]@($why); observed_head_sha = $obsOut }
-        }
-        if ($null -eq $Snapshot) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
+        catch { return $false }
+        if (-not $hasExpiry) { return $false }
+        if ($null -eq $raw) { return $true }
+        if (($raw -is [bool]) -or ($raw -is [int]) -or ($raw -is [long])) { return $true }
+        if (-not ($raw -is [string] -or $raw -is [datetime])) { return $true }
+        if (($raw -is [string]) -and [string]::IsNullOrWhiteSpace([string]$raw)) { return $false }
+        $exp = Convert-MMToUtc -Value $raw
+        if ($null -eq $exp) { return $true }
         $now = Convert-MMToUtc -Value $NowUtc
         if ($null -eq $NowUtc) { $now = [datetime]::UtcNow }
-        if ($null -eq $now) { return (& $fail 'INCONCLUSIVE' @('invalid-now')) }
-        $snapRepoRaw = Get-MMValue $Snapshot 'repository' $null
-        if ((-not ($snapRepoRaw -is [string])) -or (-not (Test-MMRepo -Value ([string]$snapRepoRaw)))) {
-            return (& $fail 'INCONCLUSIVE' @('invalid-snapshot'))
+        if ($null -eq $now) { return $true }
+        return ($exp -le $now)
+    }
+    catch { return $true }
+}
+
+function Get-MMVerifiedMerge {
+    param($VerifyResult = $null, [string]$RepoCanon = '', [long]$PrNum = 0)
+    try {
+        if ($null -eq $VerifyResult) {
+            return [pscustomobject]@{ ok = $false; reasons = @('verify-unconfirmed'); merge_commit_sha = ''; merged = $false }
         }
-        if (([string]$snapRepoRaw).Trim().ToLowerInvariant() -cne $RepoCanon) {
-            return (& $fail 'INCONCLUSIVE' @('repository-mismatch'))
+        $m = Get-MMValue $VerifyResult 'merged' $null
+        if (($m -isnot [bool]) -or ($m -ne $true)) {
+            return [pscustomobject]@{ ok = $false; reasons = @('verify-unconfirmed'); merge_commit_sha = ''; merged = $false }
         }
-        $snapPr = Get-MMValue $Snapshot 'pr_number' $null
-        if ((-not (Test-MMStrictPositiveInt -Value $snapPr)) -or ([long]$snapPr -ne $PrNum)) {
-            return (& $fail 'INCONCLUSIVE' @('pr-number-mismatch'))
+        $sha = Get-MMValue $VerifyResult 'merge_commit_sha' $null
+        if ($null -eq $sha) { $sha = Get-MMValue $VerifyResult 'merge_sha' $null }
+        if ($null -eq $sha) { $sha = Get-MMValue $VerifyResult 'sha' $null }
+        if ($null -eq $sha) { $sha = Get-MMValue $VerifyResult 'commit_sha' $null }
+        if (-not (Test-MMSha40 -Value $sha)) {
+            return [pscustomobject]@{ ok = $false; reasons = @('verify-unconfirmed'); merge_commit_sha = ''; merged = $true }
         }
-        $snapHeadRaw = Get-MMValue $Snapshot 'head_sha' $null
-        if (-not (Test-MMSha40 -Value $snapHeadRaw)) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $snapHead = ([string]$snapHeadRaw).Trim().ToLowerInvariant()
-        $snapCommitRaw = Get-MMValue $Snapshot 'commit_sha' $null
-        if (-not (Test-MMSha40 -Value $snapCommitRaw)) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $snapCommit = ([string]$snapCommitRaw).Trim().ToLowerInvariant()
-        $obsOut = $snapHead
-        if ($snapHead -cne $ExpCanon) { return (& $fail 'STALE' @('head-mismatch')) }
-        if ($snapCommit -cne $ExpCanon) { return (& $fail 'STALE' @('commit-mismatch')) }
-        $obsRaw = Get-MMValue $Snapshot 'observed_at' $null
-        if (-not ($obsRaw -is [string]) -or [string]::IsNullOrWhiteSpace([string]$obsRaw)) {
-            return (& $fail 'INCONCLUSIVE' @('snapshot-time-invalid'))
-        }
-        $obs = Convert-MMToUtc -Value ([string]$obsRaw)
-        if ($null -eq $obs) { return (& $fail 'INCONCLUSIVE' @('snapshot-time-invalid')) }
-        if ($obs -gt $now) { return (& $fail 'STALE' @('snapshot-future')) }
-        try {
-            $age = ($now - $obs).TotalSeconds
-            if ($age -gt [double]$MaxAge) { return (& $fail 'STALE' @('snapshot-stale')) }
-        }
-        catch { return (& $fail 'INCONCLUSIVE' @('snapshot-time-invalid')) }
-        $prStateRaw = Get-MMValue $Snapshot 'pr_state' $null
-        if (-not ($prStateRaw -is [string])) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $prState = ([string]$prStateRaw).Trim().ToUpperInvariant()
-        if (($prState -cne 'OPEN') -and ($prState -cne 'CLOSED') -and ($prState -cne 'MERGED')) {
-            return (& $fail 'INCONCLUSIVE' @('invalid-snapshot'))
-        }
-        if (($prState -ceq 'CLOSED') -or ($prState -ceq 'MERGED')) {
-            return (& $fail 'TERMINAL' @('pr-terminal'))
-        }
-        $mergeRaw = Get-MMValue $Snapshot 'mergeable' $null
-        if (-not ($mergeRaw -is [string])) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $merge = ([string]$mergeRaw).Trim().ToUpperInvariant()
-        $repFail = New-Object System.Collections.ArrayList
-        $incFail = New-Object System.Collections.ArrayList
-        $pendChecks = New-Object System.Collections.ArrayList
-        $pendReview = New-Object System.Collections.ArrayList
-        if ($merge -ceq 'CONFLICTING') { [void]$repFail.Add('merge-conflicting') }
-        elseif ($merge -ceq 'UNKNOWN') { [void]$incFail.Add('mergeable-unknown') }
-        elseif (($merge -cne 'MERGEABLE')) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $revRaw = Get-MMValue $Snapshot 'review_decision' $null
-        if (-not ($revRaw -is [string])) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $rev = ([string]$revRaw).Trim().ToUpperInvariant()
-        if ($rev -ceq 'CHANGES_REQUESTED') { [void]$repFail.Add('changes-requested') }
-        elseif ($rev -ceq 'APPROVED') { }
-        elseif (($rev -ceq 'REVIEW_REQUIRED') -or ($rev -ceq 'UNKNOWN')) { [void]$pendReview.Add('review-required') }
-        else { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $ccRaw = Get-MMValue $Snapshot 'checks_complete' $null
-        if (-not ($ccRaw -is [bool])) { return (& $fail 'INCONCLUSIVE' @('invalid-snapshot')) }
-        $checksRaw = Get-MMValue $Snapshot 'checks' $null
-        if (($null -eq $checksRaw) -or (-not ($checksRaw -is [System.Collections.IList]))) {
-            return (& $fail 'INCONCLUSIVE' @('checks-invalid'))
-        }
-        $checkList = @($checksRaw)
-        if (@($checkList).Count -gt 100) { return (& $fail 'INCONCLUSIVE' @('checks-invalid')) }
-        $reqKeys = @{}
-        $reqCanon = @{}
-        foreach ($rn in @($RequiredChecks)) {
-            $rns = [string]$rn
-            $rk = $rns.ToLowerInvariant()
-            if (-not $reqKeys.ContainsKey($rk)) {
-                $reqKeys[$rk] = $true
-                $reqCanon[$rk] = $rns
+        $mergeSha = ([string]$sha).Trim().ToLowerInvariant()
+        $vr = Get-MMValue $VerifyResult 'repository' $null
+        if (($null -ne $vr) -and ($vr -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$vr))) {
+            if (([string]$vr).Trim().ToLowerInvariant() -cne $RepoCanon) {
+                return [pscustomobject]@{ ok = $false; reasons = @('verify-pr-mismatch'); merge_commit_sha = ''; merged = $true }
             }
         }
-        $seen = @{}
-        foreach ($c in @($checkList)) {
-            $nRaw = Get-MMValue $c 'name' $null
-            if ((-not ($nRaw -is [string])) -or [string]::IsNullOrWhiteSpace([string]$nRaw)) {
-                return (& $fail 'INCONCLUSIVE' @('checks-invalid'))
-            }
-            $key = ([string]$nRaw).Trim().ToLowerInvariant()
-            if (-not $reqKeys.ContainsKey($key)) { continue }
-            $canon = [string]$reqCanon[$key]
-            if ($seen.ContainsKey($key)) {
-                [void]$incFail.Add(('check-duplicate:' + $canon))
-                continue
-            }
-            $seen[$key] = $true
-            $chRaw = Get-MMValue $c 'head_sha' $null
-            if (-not (Test-MMSha40 -Value $chRaw)) {
-                [void]$incFail.Add(('check-inconclusive:' + $canon))
-                continue
-            }
-            if (([string]$chRaw).Trim().ToLowerInvariant() -cne $ExpCanon) {
-                [void]$incFail.Add(('check-sha-mismatch:' + $canon))
-                continue
-            }
-            $stRaw = Get-MMValue $c 'status' $null
-            if (-not ($stRaw -is [string])) { return (& $fail 'INCONCLUSIVE' @('checks-invalid')) }
-            $st = ([string]$stRaw).Trim().ToUpperInvariant()
-            if (($st -cne 'QUEUED') -and ($st -cne 'IN_PROGRESS') -and ($st -cne 'COMPLETED')) {
-                return (& $fail 'INCONCLUSIVE' @('checks-invalid'))
-            }
-            $con = Get-MMValue $c 'conclusion' $null
-            if ($st -cne 'COMPLETED') {
-                [void]$pendChecks.Add(('check-pending:' + $canon))
-                continue
-            }
-            if (($null -eq $con) -or (-not ($con -is [string]))) {
-                [void]$incFail.Add(('check-inconclusive:' + $canon))
-                continue
-            }
-            if ([string]$con -cne 'success') {
-                [void]$repFail.Add(('check-failed:' + $canon))
-                continue
+        $vp = Get-MMValue $VerifyResult 'pr_number' $null
+        if ($null -ne $vp) {
+            if ((-not (Test-MMStrictPositiveInt -Value $vp)) -or ([long]$vp -ne $PrNum)) {
+                return [pscustomobject]@{ ok = $false; reasons = @('verify-pr-mismatch'); merge_commit_sha = ''; merged = $true }
             }
         }
-        foreach ($name in @($RequiredChecks)) {
-            $rk = ([string]$name).Trim().ToLowerInvariant()
-            if (-not $seen.ContainsKey($rk)) {
-                [void]$pendChecks.Add(('check-missing:' + [string]$reqCanon[$rk]))
+        $mm = Get-MMValue $VerifyResult 'merge_method' $null
+        if ($null -eq $mm) { $mm = Get-MMValue $VerifyResult 'method' $null }
+        if (($null -ne $mm) -and ($mm -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$mm))) {
+            $mn = ([string]$mm).Trim().ToLowerInvariant()
+            if ($mn -cne 'merge') {
+                return [pscustomobject]@{ ok = $false; reasons = @('MERGE_METHOD_PROHIBITED'); merge_commit_sha = ''; merged = $true; prohibited = $true }
             }
         }
-        if (-not [bool]$ccRaw) { [void]$pendChecks.Add('checks-incomplete') }
-        if (@($incFail).Count -gt 0) { return (& $fail 'INCONCLUSIVE' ([string[]]@($incFail))) }
-        if (@($repFail).Count -gt 0) { return (& $fail 'REPAIR_REQUIRED' ([string[]]@($repFail))) }
-        if (@($pendChecks).Count -gt 0) { return (& $fail 'CHECKS_PENDING' ([string[]]@($pendChecks))) }
-        if (@($pendReview).Count -gt 0) { return (& $fail 'REVIEW_PENDING' ([string[]]@($pendReview))) }
-        return [pscustomobject]@{ ok = $true; readiness = 'READY_FOR_RESUME'; reasons = @(); observed_head_sha = $obsOut }
+        return [pscustomobject]@{ ok = $true; reasons = @(); merge_commit_sha = $mergeSha; merged = $true }
     }
     catch {
-        return [pscustomobject]@{ ok = $false; readiness = 'INCONCLUSIVE'; reasons = @('evaluation-failed'); observed_head_sha = '' }
+        return [pscustomobject]@{ ok = $false; reasons = @('verify-unconfirmed'); merge_commit_sha = ''; merged = $false }
     }
+}
+
+function New-MMConfirmedReceipt {
+    param([string]$RepoCanon = '', [long]$PrNum = 0, [string]$PrHeadSha = '', [string]$MergeCommitSha = '', [string]$PolicyDigest = '', [string]$Author = '', $ScopesArr = @(), $GrantsArr = @(), [string]$EnvName = '', [string]$GoalId = '', [string]$TaskId = '', [bool]$Reconciled = $false)
+    try {
+        $key = ('merge|' + $RepoCanon + '|' + [string]$PrNum + '|' + $PrHeadSha)
+        return [pscustomobject]@{
+            action = 'merge'; target = ($RepoCanon + '#' + [string]$PrNum); sha = $PrHeadSha
+            pr_head_sha = $PrHeadSha; merge_commit_sha = $MergeCommitSha; merge_method = 'merge'
+            idempotency_key = $key; enforcement = 'SOFT_ADVISORY'; outcome = 'CONFIRMED'
+            dry_run = $false; reconciled = [bool]$Reconciled; goal = [string]$GoalId; task = [string]$TaskId
+            repository = $RepoCanon; pr_number = $PrNum; policy_digest = [string]$PolicyDigest
+            author = [string]$Author; credential_scope = $ScopesArr; grants = $GrantsArr; environment = [string]$EnvName
+        }
+    }
+    catch { return $null }
 }
 
 function Invoke-OrchestrationMergeMediated {
@@ -475,11 +347,16 @@ function Invoke-OrchestrationMergeMediated {
         $ReceiptStore = $null,
         $GoalId = '',
         $TaskId = '',
+        [string]$MergeMethod = 'merge',
         [switch]$DryRun,
         $NowUtc = $null,
         $MaxAgeSeconds = 300
     )
     try {
+        $methodNorm = ([string]$MergeMethod).Trim().ToLowerInvariant()
+        if ($methodNorm -cne 'merge') {
+            return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons @('MERGE_METHOD_PROHIBITED'))
+        }
         if (-not (Test-MMRepo -Value $Repository)) {
             return (New-MMResult -Outcome 'RECONCILE' -Reasons @('invalid-repository'))
         }
@@ -511,8 +388,14 @@ function Invoke-OrchestrationMergeMediated {
         if ($prodAuth -ne $true) {
             return (New-MMResult -Outcome 'NEEDS_USER_AUTHORITY' -Reasons @('PRODUCTION_NOT_AUTHORIZED'))
         }
+        if (Test-MMAuthorityExpired -Authority $Authority -NowUtc $NowUtc) {
+            return (New-MMResult -Outcome 'NEEDS_USER_AUTHORITY' -Reasons @('AUTHORITY_EXPIRED'))
+        }
         $author = [string](Get-MMValue $Authority 'author' '')
         $envName = [string](Get-MMValue $Authority 'environment' '')
+        if ([string]::IsNullOrWhiteSpace($author)) {
+            return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons @('INTENT_CONTEXT_INVALID'))
+        }
         $grantsRaw = Get-MMValue $Authority 'grants' $null
         $grantsList = @()
         if ($null -ne $grantsRaw) {
@@ -561,12 +444,7 @@ function Invoke-OrchestrationMergeMediated {
             }
             [void]$scopesClean.Add(([string]$s).Trim())
         }
-        $scopeOk = $false
-        foreach ($s in @($scopesClean)) {
-            $low = ([string]$s).ToLowerInvariant()
-            if ($low.Contains('repo') -or $low.Contains('merge') -or $low.Contains('gh')) { $scopeOk = $true; break }
-        }
-        if (-not $scopeOk) {
+        if (-not (Test-MMExactMergeScope -RepoCanon $repoCanon -ScopeItems @($scopesClean.ToArray()))) {
             return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons @('CREDENTIAL_SCOPE_INSUFFICIENT'))
         }
         $scopesArr = [string[]]$scopesClean.ToArray()
@@ -620,17 +498,7 @@ function Invoke-OrchestrationMergeMediated {
             $eraw = Get-MMValue $elig 'reasons' $null
             $elist = @()
             if ($null -ne $eraw) { $elist = @($eraw) }
-            if ((Test-MMShapeFallbackAllowed -Policy $Policy -Reasons $elist)) {
-                $reqFb = $null
-                try { $reqFb = Get-OrchestrationDeliveryRequiredChecks $Policy } catch { $reqFb = $null }
-                $mirrorReasons = Test-MMMirrorEligibility -RequiredChecks $reqFb -DerivedChecks $derived -ReviewerApproved $ReviewerApproved -SecurityRequired $SecurityRequired -SecurityApproved $SecurityApproved -UnresolvedP1 $UnresolvedP1 -Risk $Risk
-                if (@($mirrorReasons).Count -gt 0) {
-                    return (New-MMResult -Outcome 'REMEDIATE' -Reasons $mirrorReasons)
-                }
-            }
-            else {
-                return (New-MMResult -Outcome 'REMEDIATE' -Reasons $elist)
-            }
+            return (New-MMResult -Outcome 'REMEDIATE' -Reasons $elist)
         }
 
         $rdy = $null
@@ -648,16 +516,6 @@ function Invoke-OrchestrationMergeMediated {
         $rdyRaw = Get-MMValue $rdy 'reasons' $null
         $rdyReasons = @()
         if ($null -ne $rdyRaw) { $rdyReasons = @($rdyRaw) }
-        if (($rdyVal -ceq 'INCONCLUSIVE') -and (Test-MMShapeFallbackAllowed -Policy $Policy -Reasons $rdyReasons)) {
-            $reqFb2 = $null
-            try { $reqFb2 = Get-OrchestrationDeliveryRequiredChecks $Policy } catch { $reqFb2 = $null }
-            $m = Get-MMMirrorReadiness -RepoCanon $repoCanon -PrNum $prNum -ExpCanon $expCanon -Snapshot $Snapshot -RequiredChecks $reqFb2 -NowUtc $NowUtc -MaxAge $maxAge
-            $rdyVal = ([string](Get-MMValue $m 'readiness' 'INCONCLUSIVE')).Trim().ToUpperInvariant()
-            $rdyOk = [bool](Get-MMValue $m 'ok' $false)
-            $mrRaw = Get-MMValue $m 'reasons' $null
-            $rdyReasons = @()
-            if ($null -ne $mrRaw) { $rdyReasons = @($mrRaw) }
-        }
         if (($rdyVal -ceq 'READY_FOR_RESUME') -and $rdyOk) { }
         elseif ($rdyVal -ceq 'CHECKS_PENDING') {
             return (New-MMResult -Outcome 'WAIT' -Reasons $rdyReasons)
@@ -676,24 +534,22 @@ function Invoke-OrchestrationMergeMediated {
             $vv = $null
             try { $vv = & $VerifyFn $repoCanon $prNum $expCanon }
             catch { return (New-MMResult -Outcome 'RECONCILE' -Reasons @('verify-exception')) }
-            $vm = Get-MMValue $vv 'merged' $null
-            $vs = [string](Get-MMValue $vv 'sha' '')
-            if ((($vm -is [bool]) -and ($vm -eq $true)) -and (Test-MMSha40 -Value $vs) -and (([string]$vs).Trim().ToLowerInvariant() -ceq $expCanon)) {
-                $goalId = [string]$GoalId
-                $taskId = [string]$TaskId
+            $ver = Get-MMVerifiedMerge -VerifyResult $vv -RepoCanon $repoCanon -PrNum $prNum
+            if ([bool](Get-MMValue $ver 'ok' $false)) {
+                $mergeSha = [string](Get-MMValue $ver 'merge_commit_sha' '')
+                $receipt = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $mergeSha -PolicyDigest (Get-MMPolicyDigest -Policy $Policy) -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId ([string]$GoalId) -TaskId ([string]$TaskId) -Reconciled $true
                 $recKey = ('merge|' + $repoCanon + '|' + [string]$prNum + '|' + $expCanon)
-                $receipt = [pscustomobject]@{
-                    action = 'merge'; target = ($repoCanon + '#' + [string]$prNum); sha = $expCanon
-                    idempotency_key = $recKey; enforcement = 'SOFT_ADVISORY'; outcome = 'CONFIRMED'
-                    dry_run = $false; reconciled = $true; goal = $goalId; task = $taskId
-                    repository = $repoCanon; pr_number = $prNum; policy_digest = (Get-MMPolicyDigest -Policy $Policy)
-                    author = $author; credential_scope = $scopesArr; grants = $grantsArr; environment = $envName
-                }
                 $res = New-MMResult -Outcome 'EXECUTED' -Reasons @('RECONCILED_REMOTE_MERGED') -Receipt $receipt
                 Set-MMStore -Store $ReceiptStore -Key $recKey -Result $res
                 return $res
             }
-            return (New-MMResult -Outcome 'RECONCILE' -Reasons (@('verify-unconfirmed') + @($rdyReasons)))
+            $verReasons = @()
+            $vrRaw = Get-MMValue $ver 'reasons' $null
+            if ($null -ne $vrRaw) { $verReasons = @($vrRaw) }
+            if ($verReasons -contains 'MERGE_METHOD_PROHIBITED') {
+                return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons $verReasons)
+            }
+            return (New-MMResult -Outcome 'RECONCILE' -Reasons ($verReasons + @($rdyReasons)))
         }
         else {
             return (New-MMResult -Outcome 'RECONCILE' -Reasons $rdyReasons)
@@ -762,7 +618,8 @@ function Invoke-OrchestrationMergeMediated {
             $dreceipt = [pscustomobject]@{
                 dry_run = $true; enforcement = 'SOFT_ADVISORY'; idempotency_key = $idemKey
                 goal = $goalStr; task = $taskStr; repository = $repoCanon; pr_number = $prNum
-                sha = $expCanon; policy_digest = $digest; author = $author; outcome = 'DRYRUN'
+                sha = $expCanon; pr_head_sha = $expCanon; merge_commit_sha = ''; merge_method = 'merge'
+                policy_digest = $digest; author = $author; outcome = 'DRYRUN'
             }
             $dres = New-MMResult -Outcome 'DRYRUN_OK' -Reasons @('DRYRUN_PERSISTED') -Receipt $dreceipt
             Set-MMStore -Store $ReceiptStore -Key $idemKey -Result $dres
@@ -785,6 +642,20 @@ function Invoke-OrchestrationMergeMediated {
             }
         }
         catch {
+            if ($null -ne $VerifyFn) {
+                try {
+                    $tev = & $VerifyFn $repoCanon $prNum $expCanon
+                    $tver = Get-MMVerifiedMerge -VerifyResult $tev -RepoCanon $repoCanon -PrNum $prNum
+                    if ([bool](Get-MMValue $tver 'ok' $false)) {
+                        $tmerge = [string](Get-MMValue $tver 'merge_commit_sha' '')
+                        $treceipt = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $tmerge -PolicyDigest $digest -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId $goalStr -TaskId $taskStr -Reconciled $true
+                        $tres = New-MMResult -Outcome 'EXECUTED' -Reasons @('RECONCILED_AFTER_TIMEOUT') -Receipt $treceipt
+                        Set-MMStore -Store $ReceiptStore -Key $idemKey -Result $tres
+                        return $tres
+                    }
+                }
+                catch { }
+            }
             return (New-MMResult -Outcome 'RECONCILE' -Reasons @('GATE_EXCEPTION'))
         }
         if ($null -eq $gateResult) {
@@ -802,23 +673,43 @@ function Invoke-OrchestrationMergeMediated {
             $ev = $null
             try { $ev = & $VerifyFn $repoCanon $prNum $expCanon }
             catch { return (New-MMResult -Outcome 'RECONCILE' -Reasons @('verify-exception')) }
-            $em = Get-MMValue $ev 'merged' $null
-            $es = [string](Get-MMValue $ev 'sha' '')
-            if ((($em -is [bool]) -and ($em -eq $true)) -and (Test-MMSha40 -Value $es) -and (([string]$es).Trim().ToLowerInvariant() -ceq $expCanon)) {
-                $creceipt = [pscustomobject]@{
-                    action = 'merge'; target = $target; sha = $expCanon
-                    idempotency_key = $idemKey; enforcement = 'SOFT_ADVISORY'; outcome = 'CONFIRMED'
-                    dry_run = $false; reconciled = $false; goal = $goalStr; task = $taskStr
-                    repository = $repoCanon; pr_number = $prNum; policy_digest = $digest
-                    author = $author; credential_scope = $scopesArr; grants = $grantsArr; environment = $envName
-                }
+            $ver2 = Get-MMVerifiedMerge -VerifyResult $ev -RepoCanon $repoCanon -PrNum $prNum
+            if ([bool](Get-MMValue $ver2 'ok' $false)) {
+                $mergeSha2 = [string](Get-MMValue $ver2 'merge_commit_sha' '')
+                $creceipt = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $mergeSha2 -PolicyDigest $digest -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId $goalStr -TaskId $taskStr -Reconciled $false
                 $cres = New-MMResult -Outcome 'EXECUTED' -Reasons (@($greasons) + @('VERIFY_CONFIRMED')) -Receipt $creceipt
                 Set-MMStore -Store $ReceiptStore -Key $idemKey -Result $cres
                 return $cres
             }
-            return (New-MMResult -Outcome 'RECONCILE' -Reasons (@('verify-unconfirmed') + @($greasons)))
+            $ver2Reasons = @()
+            $v2Raw = Get-MMValue $ver2 'reasons' $null
+            if ($null -ne $v2Raw) { $ver2Reasons = @($v2Raw) }
+            if ($ver2Reasons -contains 'MERGE_METHOD_PROHIBITED') {
+                return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons $ver2Reasons)
+            }
+            return (New-MMResult -Outcome 'RECONCILE' -Reasons ($ver2Reasons + @($greasons)))
         }
-        if ($gout -ceq 'RECONCILE') { return (New-MMResult -Outcome 'RECONCILE' -Reasons $greasons) }
+        if ($gout -ceq 'RECONCILE') {
+            $isTimeout = $false
+            foreach ($gr in @($greasons)) {
+                if (([string]$gr -ceq 'EXECUTOR_EXCEPTION') -or (([string]$gr).Contains('TIMEOUT'))) { $isTimeout = $true; break }
+            }
+            if ($isTimeout -and ($null -ne $VerifyFn)) {
+                try {
+                    $tev2 = & $VerifyFn $repoCanon $prNum $expCanon
+                    $tver2 = Get-MMVerifiedMerge -VerifyResult $tev2 -RepoCanon $repoCanon -PrNum $prNum
+                    if ([bool](Get-MMValue $tver2 'ok' $false)) {
+                        $tmerge2 = [string](Get-MMValue $tver2 'merge_commit_sha' '')
+                        $treceipt2 = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $tmerge2 -PolicyDigest $digest -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId $goalStr -TaskId $taskStr -Reconciled $true
+                        $tres2 = New-MMResult -Outcome 'EXECUTED' -Reasons @('RECONCILED_AFTER_TIMEOUT') -Receipt $treceipt2
+                        Set-MMStore -Store $ReceiptStore -Key $idemKey -Result $tres2
+                        return $tres2
+                    }
+                }
+                catch { }
+            }
+            return (New-MMResult -Outcome 'RECONCILE' -Reasons $greasons)
+        }
         if ($gout -ceq 'WAIT') { return (New-MMResult -Outcome 'WAIT' -Reasons $greasons) }
         if ($gout -ceq 'NEEDS_USER_AUTHORITY') { return (New-MMResult -Outcome 'NEEDS_USER_AUTHORITY' -Reasons $greasons) }
         if ($gout -ceq 'POLICY_BLOCKED') { return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons $greasons) }

@@ -29,3 +29,9 @@ Vinculado a `AUTONOMY-FULL-DELIVERY-ETAPA6-SPEC.md` + vNEXT §§3–12.
 - `runtime_grant_enforcement` OFF-HOLD → efeitos externos só via executor confiável + ambiente controlado; recibos `SOFT_ADVISORY`.
 - LLM nunca representa autorização/confirmação; `human_confirmed` bool + identidade + `Authority.authorized` bool são o mínimo, não string.
 - Preservar worktree sujo de outros workstreams; nada de `Meu TED`; nada de deploy produtivo.
+
+## Correcao final PR175 (2026-10-30, sem merge real, PR mantido aberto)
+- RED→GREEN por fatia: merge commit com SHAs distintos, `squash`/`rebase` bloqueados, merge remoto confirmado sem re-executar, timeout apos efeito => `EXECUTED` reconciliado; scopes leitura/outro-repo/generico e auth expirada bloqueados; grants drift real sem efeito; restart via arquivo + remoto sem re-executar.
+- Comandos desta rodada: foco `OrchestrationMergeMediated.tests.ps1` 20/20 (PS5.1+pwsh); regressoes `delivery-gate` 14/14, `interop-pipeline` 8/8, `OrchestrationDelivery` 112 asserts, `external-action-gate` 30/30, `external-action-boundary` 17/17, `test-package-consistency` 16/16, `git diff --check` limpo.
+- `Provision bun` do PR174 investigado separadamente como infra (`npm install -g bun` flaky), sem alterar fluxo geral do CI sem reproduzir causa.
+- Proximo: prova 6B com PR descartavel + autorizacao valida (6B pleno), depois 6C-6E.
