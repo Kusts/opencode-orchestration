@@ -40,7 +40,8 @@ try {
 
     Assert-RT ($outText -match 'FINAL STATE:\s*COMPLETED') '[RT] Goal chega a COMPLETED' ''
     Assert-RT ($outText -match 'PROGRESS:\s*2/2') '[RT] progresso 2/2' ''
-    Assert-RT ($outText -match 'EXECUTOR CALLS:\s*2') '[RT] duas tarefas executadas' ''
+    Assert-RT ($outText -match 'fd-task-a: DONE \(canonical\)') '[RT] Task A canonically DONE' ''
+    Assert-RT ($outText -match 'fd-task-b: DONE \(canonical\)') '[RT] Task B canonically DONE' ''
 
     # Extract work_root from log line
     $wrLine = ($out | Select-String 'PILOT LOG:') | Select-Object -First 1

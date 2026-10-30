@@ -258,9 +258,11 @@ Hipótese validada por reprodução (não mais mera suspeita):
   critério textual livre falha em `invalid-acceptance-criteria`/`invalid-taskid` — armadilha de integração
   documentada.
 - **Correção adicional (PR corretiva):** progresso removido do Executor. O Executor retorna apenas
-  `candidate_pass`. Progresso avança somente após settlement canônico + verificação de conteúdo do artefato.
-  Testes negativos (`OrchestrationFullDeliveryEtapa1Negative.tests.ps1`) comprovam que progresso NÃO avança
-  quando worker retorna erro ou arquivo não satisfaz critério.
+  `candidate_pass`. Cadeia canonica por Task: dispatch -> settlement canonico -> verificacao de conteudo ->
+  Set-OrchestrationTaskVerification (verified_pass) -> Set-OrchestrationTaskReview (approved) ->
+  Test-OrchestrationTaskCompletion (gate) -> Complete-OrchestrationTask (DONE) -> progresso por CAS.
+  Task A completa (DONE) ANTES de Task B iniciar. Testes negativos comprovam que progresso NAO avanca
+  quando worker retorna erro ou arquivo nao satisfaz criterio.
 
 ### 7.2 Etapa 1 — menor correção (GREEN) — reuso, sem nova máquina de estados
 
@@ -277,11 +279,13 @@ Hipótese validada por reprodução (não mais mera suspeita):
   - Task A: subagent executado via `opencode run` (~8s), criou `output-a.json` = `{"value":42,"from":"task-a"}`.
   - Task B: subagent executado via `opencode run` (~8s), consumiu `output-a.json`, criou `output-b.json` =
     `{"derived":84,"source":"{value:42,from:task-a}"}`.
-  - Progresso: 0/2 → 1/2 → 2/2; fase 0 → 1 → 2 (atualizado APOS settlement canonico, nao no Executor).
-  - Correcao (PR corretiva): progresso movido do Executor para pos-settlement. Executor retorna apenas
-    candidate_pass. Progresso avanca somente apos: execucao -> candidate validado -> settlement canonico ->
-    evidencia -> verificacao de conteudo do artefato -> Task legitimamente concluida. Testes negativos
-    comprovam que progresso NAO avanca quando worker retorna erro ou arquivo nao satisfaz criterio.
+  - Progresso: 0/2 → 1/2 → 2/2; fase 0 → 1 → 2 (atualizado APOS settlement canonico + verificacao + review + DONE, nao no Executor).
+  - Correcao (PR corretiva): progresso movido do Executor para cadeia canonica. Executor retorna apenas
+    candidate_pass. Cadeia por Task: dispatch → settlement canonico → verificacao de conteudo →
+    Set-OrchestrationTaskVerification (verified_pass) → Set-OrchestrationTaskReview (approved) →
+    Test-OrchestrationTaskCompletion (gate) → Complete-OrchestrationTask (DONE) → progresso por CAS.
+    Task A completa (DONE) ANTES de Task B iniciar. Testes negativos comprovam que progresso NAO avanca
+    quando worker retorna erro ou arquivo nao satisfaz criterio.
   - Goal finalizado via CAS: state = `COMPLETED`, progress = 2/2, phase = 2.
   - Nenhum comando humano entre as tarefas (log: `pilot-log.txt`).
   - Idempotência: receipts com idempotency key garantem que re-execução do mesmo dispatch não duplica efeito.
