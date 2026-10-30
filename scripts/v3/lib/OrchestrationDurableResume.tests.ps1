@@ -120,6 +120,45 @@ try {
     $r4 = Invoke-OrchestrationDurableResume -GoalId 'dr-goal-1' -GoalStoreDir $goalDir -CheckpointId $cid -CheckpointDir $ckptDir -Bindings $bindings -Observations $obsRunning -StaleAfterSeconds 300 -Wait $wait -Snapshot $snapGreen -Policy $policy -NowUtc $NOW -MandatoryTasks @('dr-task-a','dr-task-b') -TasksDir $tasksDir
     Assert-DR ((-not [bool]$r4.resumable) -or ([string]$r4.action -ceq 'blocked')) '[DR6] CAS stale bloqueia resume' ([string]$r4.reason)
 
+    # Novo checkpoint do estado vivo para DR8/DR9 (executor injetado)
+    $liveG2 = (Get-OrchestrationGoal -GoalId 'dr-goal-1' -StoreDir $goalDir).goal
+    $ckpt2 = New-OrchestrationGoalCheckpoint -GoalRecord $liveG2
+    $sv2 = Save-OrchestrationGoalCheckpoint -Checkpoint $ckpt2 -StoreDir $ckptDir
+    Assert-DR ([bool]$sv2.ok) '[DR8] re-checkpoint apos CAS' ([string]$sv2.reason)
+    $cid2 = [string]$sv2.checkpoint_id
+
+    # DR8: executor injetado chamado 1x para B, nunca para A
+    $script:drCalls = @()
+    $execOk = { param($TaskId) $script:drCalls += [string]$TaskId; return [pscustomobject]@{ ok = $true; reason = 'dispatched-test'; task_id = [string]$TaskId } }
+    $r8 = Invoke-OrchestrationDurableResume -GoalId 'dr-goal-1' -GoalStoreDir $goalDir -CheckpointId $cid2 -CheckpointDir $ckptDir -Bindings $bindings -Observations $obsRunning -StaleAfterSeconds 300 -Wait $wait -Snapshot $snapGreen -Policy $policy -NowUtc $NOW -MandatoryTasks @('dr-task-a','dr-task-b') -TasksDir $tasksDir -TaskExecutor $execOk
+    $r8dis = $null; try { $r8dis = $r8.dispatch } catch { $r8dis = $null }
+    $r8ok = (([string]$r8.action -ceq 'advance') -and ([string]$r8.next_task -ceq 'dr-task-b') -and ($null -ne $r8dis) -and ([string]$r8dis.task_id -ceq 'dr-task-b') -and ([bool]$r8dis.ok) -and (@($script:drCalls).Count -eq 1) -and ([string]$script:drCalls[0] -ceq 'dr-task-b'))
+    Assert-DR $r8ok '[DR8] executor chamado 1x para B, nunca A' ('calls=' + (@($script:drCalls) -join ','))
+    $aRevAfter8 = [long](Get-OrchestrationTask -TaskId 'dr-task-a' -TasksDir $tasksDir).revision
+    Assert-DR (([string](Get-OrchestrationTask -TaskId 'dr-task-a' -TasksDir $tasksDir).state -ceq 'DONE')) '[DR8] A nao reexecutada' ''
+
+    # DR9 negativo: executor falha => dispatch.ok=false mas action permanece advance, sem COMPLETE, sem duplicar A
+    $execFail = { param($TaskId) return [pscustomobject]@{ ok = $false; reason = 'simulated-failure'; task_id = [string]$TaskId } }
+    $aRevBefore9 = [long](Get-OrchestrationTask -TaskId 'dr-task-a' -TasksDir $tasksDir).revision
+    $r9 = Invoke-OrchestrationDurableResume -GoalId 'dr-goal-1' -GoalStoreDir $goalDir -CheckpointId $cid2 -CheckpointDir $ckptDir -Bindings $bindings -Observations $obsRunning -StaleAfterSeconds 300 -Wait $wait -Snapshot $snapGreen -Policy $policy -NowUtc $NOW -MandatoryTasks @('dr-task-a','dr-task-b') -TasksDir $tasksDir -TaskExecutor $execFail
+    $r9dis = $null; try { $r9dis = $r9.dispatch } catch { $r9dis = $null }
+    $aRevAfter9 = [long](Get-OrchestrationTask -TaskId 'dr-task-a' -TasksDir $tasksDir).revision
+    $r9ok = (([string]$r9.action -ceq 'advance') -and ([string]$r9.next_task -ceq 'dr-task-b') -and ($null -ne $r9dis) -and (-not [bool]$r9dis.ok) -and ($aRevAfter9 -eq $aRevBefore9) -and ([string](Get-OrchestrationGoal -GoalId 'dr-goal-1' -StoreDir $goalDir).goal['state'] -cne 'COMPLETED'))
+    Assert-DR $r9ok '[DR9] falha do executor nao completa nem duplica' ([string]$r9.reason)
+
+    # DR10: lista mandatoria vazia nunca completa, mesmo com progresso total
+    $curG10 = Get-OrchestrationGoal -GoalId 'dr-goal-1' -StoreDir $goalDir
+    $curRev10 = [long]$curG10.goal['revision']
+    $upd10 = Update-OrchestrationGoal -GoalId 'dr-goal-1' -ExpectedRevision $curRev10 -Fields @{ progress = @{ satisfied = 2; total = 2; updated_at = $NOW } } -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen1
+    Assert-DR ([bool]$upd10.ok) '[DR10] progresso total registrado' ([string]$upd10.reason)
+    $liveG10 = (Get-OrchestrationGoal -GoalId 'dr-goal-1' -StoreDir $goalDir).goal
+    $ckpt10 = New-OrchestrationGoalCheckpoint -GoalRecord $liveG10
+    $sv10 = Save-OrchestrationGoalCheckpoint -Checkpoint $ckpt10 -StoreDir $ckptDir
+    Assert-DR ([bool]$sv10.ok) '[DR10] checkpoint apos progresso total' ([string]$sv10.reason)
+    $cid10 = [string]$sv10.checkpoint_id
+    $r10 = Invoke-OrchestrationDurableResume -GoalId 'dr-goal-1' -GoalStoreDir $goalDir -CheckpointId $cid10 -CheckpointDir $ckptDir -Bindings $bindings -Observations $obsRunning -StaleAfterSeconds 300 -Wait $wait -Snapshot $snapGreen -Policy $policy -NowUtc $NOW -MandatoryTasks @() -TasksDir $tasksDir
+    Assert-DR (([string]$r10.action -ceq 'blocked') -and ([string]$r10.reason -ceq 'no-mandatory-tasks')) '[DR10] lista vazia nunca completa' ([string]$r10.reason)
+
     # 5. Goal so COMPLETED com criterios verificados (nunca por task done isolada)
     Assert-DR (([string](Get-OrchestrationTask -TaskId 'dr-task-a' -TasksDir $tasksDir).state -ceq 'DONE') -and ([string](Get-OrchestrationGoal -GoalId 'dr-goal-1' -StoreDir $goalDir).goal['state'] -cne 'COMPLETED')) '[DR7] task DONE nao completa goal' ''
 

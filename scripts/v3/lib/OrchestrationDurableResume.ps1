@@ -57,7 +57,9 @@ function Invoke-OrchestrationDurableResume {
         [string[]]$MandatoryTasks = @(),
         [string]$TasksDir = '',
         [string]$ReceiptDir = '',
-        [string]$RepoRoot = ''
+        [string]$RepoRoot = '',
+        [scriptblock]$TaskExecutor = $null,
+        [string]$EvidenceDir = ''
     )
     try {
         foreach ($lib in @('OrchestrationGoalCheckpoint.ps1','OrchestrationSessionReconciler.ps1','OrchestrationGitHubResume.ps1','OrchestrationGoalKernel.ps1','OrchestrationTaskKernel.ps1','OrchestrationNativeDispatch.ps1')) {
@@ -116,6 +118,29 @@ function Invoke-OrchestrationDurableResume {
             if ($st -cne 'DONE') { $next = ([string]$tid); break }
         }
         if ([string]::IsNullOrWhiteSpace($next)) {
+            # hardened: never complete without a mandatory task list
+            if (@($MandatoryTasks).Count -eq 0) {
+                return [pscustomobject]@{ ok = $true; reason = 'no-mandatory-tasks'; action = 'blocked'; decision = $dec; reconciliation = $rec; resumable = $true; next_task = ''; grants_authority = $false; done_approved = $false }
+            }
+            # defensive second live read: every mandatory task must still be DONE
+            $unverified = $true
+            try {
+                $unverified = $false
+                foreach ($vid in @($MandatoryTasks)) {
+                    $vt = $null
+                    try { $vt = Get-OrchestrationTask -TaskId ([string]$vid) -TasksDir $TasksDir -RepoRoot $RepoRoot } catch { $vt = $null }
+                    $vst = ''
+                    try {
+                        if ($null -ne $vt) {
+                            if ($vt -is [System.Collections.IDictionary]) { $vst = ([string]$vt['state']) } else { $vep = $vt.PSObject.Properties['state']; if ($null -ne $vep) { $vst = ([string]$vep.Value) } }
+                        }
+                    } catch { $vst = '' }
+                    if ($vst -cne 'DONE') { $unverified = $true; break }
+                }
+            } catch { $unverified = $true }
+            if ($unverified) {
+                return [pscustomobject]@{ ok = $true; reason = 'mandatory-unverified'; action = 'blocked'; decision = $dec; reconciliation = $rec; resumable = $true; next_task = ''; grants_authority = $false; done_approved = $false }
+            }
             # todas DONE: so COMPLETED com criterios verificados (leitura viva)
             $gs = $null
             try { $gs = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $gs = $null }
@@ -127,7 +152,47 @@ function Invoke-OrchestrationDurableResume {
             }
             return [pscustomobject]@{ ok = $true; reason = 'criteria-unverified'; action = 'blocked'; decision = $dec; reconciliation = $rec; resumable = $true; next_task = ''; grants_authority = $false; done_approved = $false }
         }
-        return [pscustomobject]@{ ok = $true; reason = 'resume-advance'; action = 'advance'; decision = $dec; reconciliation = $rec; resumable = $true; next_task = $next; grants_authority = $false; done_approved = $false; resume_authorized = $true }
+        # Caller contract: WITHOUT executor this returns advance + next_task and
+        # the operational caller MUST dispatch next_task itself and complete it
+        # via the canonical chain (transitions + worker_result + verification +
+        # review + completion). This function never executes a task inline and
+        # never COMPLETES a goal without verified criteria.
+        $dispatch = [pscustomobject]@{ task_id = $next; ok = $false; reason = 'no-executor-caller-dispatches' }
+        if ($null -ne $TaskExecutor) {
+            try {
+                $ex = & $TaskExecutor -TaskId $next
+                $exOk = $false
+                $exReason = 'executor-returned-false'
+                try {
+                    $tmpOk = Get-DRValue $ex 'ok' $null
+                    if ($tmpOk -is [bool]) { $exOk = [bool]$tmpOk }
+                    else {
+                        $tmpSt = [string](Get-DRValue $ex 'status' '')
+                        if ($tmpSt -ceq 'ok' -or $tmpSt -ceq 'dispatched' -or $tmpSt -ceq 'candidate_pass') { $exOk = $true }
+                        elseif ($null -ne $ex -and $tmpOk -ne $null) { $exOk = [bool]$tmpOk }
+                    }
+                } catch { $exOk = $false }
+                try {
+                    $tmpR = [string](Get-DRValue $ex 'reason' '')
+                    if (-not [string]::IsNullOrWhiteSpace($tmpR)) { $exReason = $tmpR }
+                    elseif ($exOk) { $exReason = 'executor-ok' }
+                } catch { }
+                $dispatch = [pscustomobject]@{ task_id = $next; ok = [bool]$exOk; reason = [string]$exReason }
+            } catch {
+                $msg = [string]$_.Exception.Message
+                if ([string]::IsNullOrWhiteSpace($msg)) { $msg = 'executor-threw' }
+                $dispatch = [pscustomobject]@{ task_id = $next; ok = $false; reason = ('executor-failed:' + $msg) }
+            }
+        }
+        try {
+            $edir = ([string]$EvidenceDir).Trim()
+            if ((-not [string]::IsNullOrWhiteSpace($edir)) -and (Test-Path -LiteralPath $edir -PathType Container)) {
+                $rec = [ordered]@{ ts = ([DateTime]::UtcNow.ToString('o')); goal = $gid; next_task = $next; action = 'advance'; dispatch_ok = [bool]$dispatch.ok }
+                $line = (ConvertTo-Json -InputObject $rec -Depth 4 -Compress)
+                [IO.File]::AppendAllText((Join-Path $edir 'durable-resume.jsonl'), ($line + [Environment]::NewLine), [Text.Encoding]::UTF8)
+            }
+        } catch { }
+        return [pscustomobject]@{ ok = $true; reason = 'resume-advance'; action = 'advance'; decision = $dec; reconciliation = $rec; resumable = $true; next_task = $next; dispatch = $dispatch; grants_authority = $false; done_approved = $false; resume_authorized = $true }
     } catch {
         return [pscustomobject]@{ ok = $false; reason = 'resume-internal-error'; action = 'blocked'; grants_authority = $false; done_approved = $false }
     }
