@@ -345,6 +345,14 @@ Hipótese validada por reprodução (não mais mera suspeita):
 
 **Proximo passo:** continuar implementacao funcional das Etapas 3-5 (impasses, model router aplicado, retomada apos CI/PR).
 
+### 7.4 Fechamento para merge (closure)
+
+- CI final: run 41095537651, HEAD 146f149, 6/6 SUCCESS (ps51, ps7, v2 lane, smoke opencode real, smoke v2 real, linux collector).
+- Review: internal reviewer CHANGES_REQUIRED (2 findings) corrigidos, re-review APPROVED; Codex bot sem sinal; deterministic fallback aplicado e registrado no PR (issuecomment-6530152055); GitHub required_approving_review_count=0, nenhuma aprovação externa afirmada.
+- Commit 6afce79 (Iceman, autoria do operador Kusts) mantido intencionalmente; sem reescrita de histórico.
+- Classificação PRODUCTIVE_AUTONOMY_PARTIAL preservada; limitações posteriores: integração nativa ao PlannerLoop, identidade observável do modelo, retomada com evento real de CI/PR.
+- Veredito MERGE_AUTHORIZED (merge commit, sem deploy). Provas: PROOF_ETAPA3=REAL, PROOF_ETAPA4=PROOF_ABSENT:no-model-field, PROOF_ETAPA5=REAL; suites IC 27/27, ME 32/32, DR 21/21.
+
 ## 8. Etapa 2 — Harmonização de políticas (verificada)
 
 **Escopo:** reconciliar `source/policies/AUTONOMY.md`, `source/registry/autonomy-policy.json`,
