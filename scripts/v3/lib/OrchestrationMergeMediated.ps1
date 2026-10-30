@@ -24,9 +24,11 @@
     Merge identity: pr_head_sha is the authorized HEAD (ExpectedHeadSha).
     merge_commit_sha is the integration SHA created by the merge commit
     (method 'merge' only; squash/rebase are POLICY_BLOCKED). Verification
-    consults the remote PR (merged=true, repo/pr match, valid
-    merge_commit_sha) without requiring equality with the original HEAD.
-    Both identifiers persist in the receipt.
+    consults the remote PR (merged=true, repo/pr match required, valid
+    merge_commit_sha distinct from the original HEAD) and requires method
+    proof via api signal or commit structure (2 parents + linkage to HEAD).
+    Both identifiers persist in the receipt. Expiration uses a trusted
+    clock (ClockFn when provided, else UtcNow), never the Planner $NowUtc.
 #>
 [CmdletBinding()]
 param()
@@ -261,8 +263,70 @@ function Test-MMAuthorityExpired {
     catch { return $true }
 }
 
+function Get-MMTrustedNow {
+    param($ClockFn = $null)
+    try {
+        if (($null -ne $ClockFn) -and ($ClockFn -is [scriptblock])) {
+            try {
+                $v = & $ClockFn
+                if (($v -is [System.Collections.IList]) -and ($v -isnot [string]) -and (@($v).Count -ge 1)) { $v = @($v)[0] }
+                $c = Convert-MMToUtc -Value $v
+                if ($null -ne $c) { return $c }
+            }
+            catch { }
+        }
+        return [datetime]::UtcNow
+    }
+    catch { return [datetime]::UtcNow }
+}
+
+function Test-MMCommitParentsProof {
+    param($VerifyResult = $null, [string]$ExpectedHeadSha = '')
+    try {
+        $parents = $null
+        $found = $false
+        foreach ($k in @('commit_parents', 'parents', 'merge_commit_parents')) {
+            $v = Get-MMValue $VerifyResult $k $null
+            if ($null -ne $v) { $parents = $v; $found = $true; break }
+        }
+        if (-not $found) { return $false }
+        if ($null -eq $parents) { return $false }
+        if ($parents -is [string]) { return $false }
+        if (-not ($parents -is [System.Collections.IList])) { return $false }
+        $arr = @($parents)
+        if ($arr.Count -ne 2) { return $false }
+        foreach ($p in $arr) {
+            if (-not (Test-MMSha40 -Value $p)) { return $false }
+        }
+        if (Test-MMSha40 -Value $ExpectedHeadSha) {
+            $exp = ([string]$ExpectedHeadSha).Trim().ToLowerInvariant()
+            $hit = $false
+            foreach ($p in $arr) {
+                if (([string]$p).Trim().ToLowerInvariant() -ceq $exp) { $hit = $true; break }
+            }
+            if (-not $hit) { return $false }
+        }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Get-MMApiMethodProof {
+    param($VerifyResult = $null)
+    try {
+        foreach ($k in @('api_method', 'api_merge_method', 'github_merge_method', 'verified_method', 'merged_via')) {
+            $v = Get-MMValue $VerifyResult $k $null
+            if (($null -ne $v) -and ($v -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$v))) {
+                return (([string]$v).Trim().ToLowerInvariant() -ceq 'merge')
+            }
+        }
+        return $false
+    }
+    catch { return $false }
+}
+
 function Get-MMVerifiedMerge {
-    param($VerifyResult = $null, [string]$RepoCanon = '', [long]$PrNum = 0)
+    param($VerifyResult = $null, [string]$RepoCanon = '', [long]$PrNum = 0, [string]$ExpectedHeadSha = '')
     try {
         if ($null -eq $VerifyResult) {
             return [pscustomobject]@{ ok = $false; reasons = @('verify-unconfirmed'); merge_commit_sha = ''; merged = $false }
@@ -280,24 +344,46 @@ function Get-MMVerifiedMerge {
         }
         $mergeSha = ([string]$sha).Trim().ToLowerInvariant()
         $vr = Get-MMValue $VerifyResult 'repository' $null
-        if (($null -ne $vr) -and ($vr -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$vr))) {
-            if (([string]$vr).Trim().ToLowerInvariant() -cne $RepoCanon) {
-                return [pscustomobject]@{ ok = $false; reasons = @('verify-pr-mismatch'); merge_commit_sha = ''; merged = $true }
+        if ($null -eq $vr) { $vr = Get-MMValue $VerifyResult 'repo' $null }
+        if ($null -eq $vr) { $vr = Get-MMValue $VerifyResult 'owner_repo' $null }
+        $vrOk = $false
+        try {
+            if (($null -ne $vr) -and ($vr -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$vr))) {
+                $vrT = ([string]$vr).Trim()
+                $rcT = ([string]$RepoCanon).Trim().ToLowerInvariant()
+                if ((Test-MMRepo -Value $vrT) -and ($vrT.ToLowerInvariant() -ceq $rcT)) { $vrOk = $true }
             }
+        }
+        catch { $vrOk = $false }
+        if (-not $vrOk) {
+            return [pscustomobject]@{ ok = $false; reasons = @('verify-pr-mismatch'); merge_commit_sha = ''; merged = $true }
         }
         $vp = Get-MMValue $VerifyResult 'pr_number' $null
-        if ($null -ne $vp) {
-            if ((-not (Test-MMStrictPositiveInt -Value $vp)) -or ([long]$vp -ne $PrNum)) {
-                return [pscustomobject]@{ ok = $false; reasons = @('verify-pr-mismatch'); merge_commit_sha = ''; merged = $true }
+        if ($null -eq $vp) { $vp = Get-MMValue $VerifyResult 'pr' $null }
+        if ($null -eq $vp) { $vp = Get-MMValue $VerifyResult 'number' $null }
+        if ($null -eq $vp) { $vp = Get-MMValue $VerifyResult 'pull_number' $null }
+        if (($null -eq $vp) -or (-not (Test-MMStrictPositiveInt -Value $vp)) -or ([long]$vp -ne $PrNum)) {
+            return [pscustomobject]@{ ok = $false; reasons = @('verify-pr-mismatch'); merge_commit_sha = ''; merged = $true }
+        }
+        if (Test-MMSha40 -Value $ExpectedHeadSha) {
+            $exp = ([string]$ExpectedHeadSha).Trim().ToLowerInvariant()
+            if ($mergeSha -ceq $exp) {
+                return [pscustomobject]@{ ok = $false; reasons = @('verify-sha-mismatch'); merge_commit_sha = ''; merged = $true }
             }
         }
-        $mm = Get-MMValue $VerifyResult 'merge_method' $null
-        if ($null -eq $mm) { $mm = Get-MMValue $VerifyResult 'method' $null }
-        if (($null -ne $mm) -and ($mm -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$mm))) {
-            $mn = ([string]$mm).Trim().ToLowerInvariant()
-            if ($mn -cne 'merge') {
+        # Any divergent or non-string method signal is prohibited (all method fields must be merge when present).
+        foreach ($mk in @('merge_method','method','api_method','api_merge_method','github_merge_method','verified_method','merged_via')) {
+            $mv = Get-MMValue $VerifyResult $mk $null
+            if ($null -eq $mv) { continue }
+            if (($mv -is [string]) -and [string]::IsNullOrWhiteSpace([string]$mv)) { continue }
+            if ((-not ($mv -is [string])) -or (([string]$mv).Trim().ToLowerInvariant() -cne 'merge')) {
                 return [pscustomobject]@{ ok = $false; reasons = @('MERGE_METHOD_PROHIBITED'); merge_commit_sha = ''; merged = $true; prohibited = $true }
             }
+        }
+        $hasParents = Test-MMCommitParentsProof -VerifyResult $VerifyResult -ExpectedHeadSha $ExpectedHeadSha
+        $hasApi = Get-MMApiMethodProof -VerifyResult $VerifyResult
+        if (-not ($hasParents -or $hasApi)) {
+            return [pscustomobject]@{ ok = $false; reasons = @('verify-method-unproven'); merge_commit_sha = ''; merged = $true }
         }
         return [pscustomobject]@{ ok = $true; reasons = @(); merge_commit_sha = $mergeSha; merged = $true }
     }
@@ -350,7 +436,8 @@ function Invoke-OrchestrationMergeMediated {
         [string]$MergeMethod = 'merge',
         [switch]$DryRun,
         $NowUtc = $null,
-        $MaxAgeSeconds = 300
+        $MaxAgeSeconds = 300,
+        [scriptblock]$ClockFn = $null
     )
     try {
         $methodNorm = ([string]$MergeMethod).Trim().ToLowerInvariant()
@@ -373,6 +460,7 @@ function Invoke-OrchestrationMergeMediated {
             return (New-MMResult -Outcome 'RECONCILE' -Reasons @('invalid-max-age'))
         }
         $maxAge = [long]$MaxAgeSeconds
+        $trustedNow = Get-MMTrustedNow -ClockFn $ClockFn
 
         $authRaw = Get-MMValue $Authority 'authorized' $null
         if ($authRaw -isnot [bool]) {
@@ -388,7 +476,7 @@ function Invoke-OrchestrationMergeMediated {
         if ($prodAuth -ne $true) {
             return (New-MMResult -Outcome 'NEEDS_USER_AUTHORITY' -Reasons @('PRODUCTION_NOT_AUTHORIZED'))
         }
-        if (Test-MMAuthorityExpired -Authority $Authority -NowUtc $NowUtc) {
+        if (Test-MMAuthorityExpired -Authority $Authority -NowUtc $trustedNow) {
             return (New-MMResult -Outcome 'NEEDS_USER_AUTHORITY' -Reasons @('AUTHORITY_EXPIRED'))
         }
         $author = [string](Get-MMValue $Authority 'author' '')
@@ -502,9 +590,11 @@ function Invoke-OrchestrationMergeMediated {
         }
 
         $rdy = $null
+        $readinessNow = $NowUtc
+        if ($null -ne $ClockFn) { $readinessNow = $trustedNow }
         try {
             if ($null -ne (Get-Command Get-OrchestrationGitHubReadiness -ErrorAction SilentlyContinue)) {
-                $rdy = Get-OrchestrationGitHubReadiness -Repository $repoCanon -PrNumber $prNum -ExpectedHeadSha $expCanon -Snapshot $Snapshot -Policy $Policy -NowUtc $NowUtc -MaxAgeSeconds $maxAge
+                $rdy = Get-OrchestrationGitHubReadiness -Repository $repoCanon -PrNumber $prNum -ExpectedHeadSha $expCanon -Snapshot $Snapshot -Policy $Policy -NowUtc $readinessNow -MaxAgeSeconds $maxAge
             }
         }
         catch { $rdy = $null }
@@ -534,7 +624,7 @@ function Invoke-OrchestrationMergeMediated {
             $vv = $null
             try { $vv = & $VerifyFn $repoCanon $prNum $expCanon }
             catch { return (New-MMResult -Outcome 'RECONCILE' -Reasons @('verify-exception')) }
-            $ver = Get-MMVerifiedMerge -VerifyResult $vv -RepoCanon $repoCanon -PrNum $prNum
+            $ver = Get-MMVerifiedMerge -VerifyResult $vv -RepoCanon $repoCanon -PrNum $prNum -ExpectedHeadSha $expCanon
             if ([bool](Get-MMValue $ver 'ok' $false)) {
                 $mergeSha = [string](Get-MMValue $ver 'merge_commit_sha' '')
                 $receipt = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $mergeSha -PolicyDigest (Get-MMPolicyDigest -Policy $Policy) -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId ([string]$GoalId) -TaskId ([string]$TaskId) -Reconciled $true
@@ -645,7 +735,7 @@ function Invoke-OrchestrationMergeMediated {
             if ($null -ne $VerifyFn) {
                 try {
                     $tev = & $VerifyFn $repoCanon $prNum $expCanon
-                    $tver = Get-MMVerifiedMerge -VerifyResult $tev -RepoCanon $repoCanon -PrNum $prNum
+                    $tver = Get-MMVerifiedMerge -VerifyResult $tev -RepoCanon $repoCanon -PrNum $prNum -ExpectedHeadSha $expCanon
                     if ([bool](Get-MMValue $tver 'ok' $false)) {
                         $tmerge = [string](Get-MMValue $tver 'merge_commit_sha' '')
                         $treceipt = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $tmerge -PolicyDigest $digest -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId $goalStr -TaskId $taskStr -Reconciled $true
@@ -673,7 +763,7 @@ function Invoke-OrchestrationMergeMediated {
             $ev = $null
             try { $ev = & $VerifyFn $repoCanon $prNum $expCanon }
             catch { return (New-MMResult -Outcome 'RECONCILE' -Reasons @('verify-exception')) }
-            $ver2 = Get-MMVerifiedMerge -VerifyResult $ev -RepoCanon $repoCanon -PrNum $prNum
+            $ver2 = Get-MMVerifiedMerge -VerifyResult $ev -RepoCanon $repoCanon -PrNum $prNum -ExpectedHeadSha $expCanon
             if ([bool](Get-MMValue $ver2 'ok' $false)) {
                 $mergeSha2 = [string](Get-MMValue $ver2 'merge_commit_sha' '')
                 $creceipt = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $mergeSha2 -PolicyDigest $digest -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId $goalStr -TaskId $taskStr -Reconciled $false
@@ -697,7 +787,7 @@ function Invoke-OrchestrationMergeMediated {
             if ($isTimeout -and ($null -ne $VerifyFn)) {
                 try {
                     $tev2 = & $VerifyFn $repoCanon $prNum $expCanon
-                    $tver2 = Get-MMVerifiedMerge -VerifyResult $tev2 -RepoCanon $repoCanon -PrNum $prNum
+                    $tver2 = Get-MMVerifiedMerge -VerifyResult $tev2 -RepoCanon $repoCanon -PrNum $prNum -ExpectedHeadSha $expCanon
                     if ([bool](Get-MMValue $tver2 'ok' $false)) {
                         $tmerge2 = [string](Get-MMValue $tver2 'merge_commit_sha' '')
                         $treceipt2 = New-MMConfirmedReceipt -RepoCanon $repoCanon -PrNum $prNum -PrHeadSha $expCanon -MergeCommitSha $tmerge2 -PolicyDigest $digest -Author $author -ScopesArr $scopesArr -GrantsArr $grantsArr -EnvName $envName -GoalId $goalStr -TaskId $taskStr -Reconciled $true
