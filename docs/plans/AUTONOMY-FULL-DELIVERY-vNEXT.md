@@ -236,7 +236,7 @@ e o issue triage matrix; não repete seus textos. Detalhes normativos vivem lá.
 ## 7. Status de execução
 
 - ETAPA 0 — **concluída** (este documento).
-- ETAPA 1 — **concluída** (RUNTIME_REAL_PASS comprovado 2026-10-30).
+- ETAPA 1 — **ETAPA_1_ACCEPTED** (gate final 2026-10-30, commit 7d0b96b).
 - ETAPA 2 — **concluída** (harmonização verificada 2026-10-30).
 - ETAPA 3 — **concluída** (sinal de impasse implementado 2026-10-30).
 - ETAPA 4 — **concluída** (roteamento adaptativo verificado 2026-10-30).
@@ -329,14 +329,21 @@ Hipótese validada por reprodução (não mais mera suspeita):
   pela invocacao do driver, nao por hook nativo do OpenCode, pois o host nao oferece auto-advance deterministico).
 - Idempotencia e persistencia real do Task/GoalKernel comprovadas.
 
+**Gate final (commit 7d0b96b, 2026-10-30) — ETAPA_1_ACCEPTED:**
+- Review independente: CHANGES_REQUIRED atendidos (3 findings corrigidos):
+  1. Harness GREEN reconcilia progresso por IDs mandatory em DONE (nao por dispatch count).
+  2. Artefatos exigem strict JSON; fallback permissivo removido (verificacao e review rejeitam nao-JSON).
+  3. Runtime test verifica exit code, ordem A.DONE antes de B, e falha se driver ausente na lane.
+- Suites: harness 25/25, negativos 16/16, impasse 15/15, model-router 13/13, runtime 10/10 (lane FULL_DELIVERY_RUNTIME=1), package consistency 16/16, diff limpo.
+- CI: lane deterministica (SKIP runtime sem provider); lane LLM explicita (FULL_DELIVERY_RUNTIME=1).
+- Sem merge/deploy nesta rodada (bloqueadores de integracao externa fora do escopo da Etapa 1).
+
 **Reviewer/security:** nao tocaram authority/grants/delivery/permissoes — review proporcional aplicado
-(consistencia de pacote 16/16 OK + diff check limpo + testes focados).
+(consistencia de pacote 16/16 OK + diff check limpo + testes focados + review independente).
 
-**CI:** `test-package-consistency.ps1` 16/16 OK; `git diff --check` limpo; testes focados PASS.
+**Integracao:** branch `feat/full-delivery-etapas-1-5`, PR #173.
 
-**Integracao:** branch/PR conforme politica do repositorio.
-
-**Proximo passo:** avancar autonomamente para a Etapa 2 (harmonizacao de politicas de autonomia e delivery).
+**Proximo passo:** continuar implementacao funcional das Etapas 3-5 (impasses, model router aplicado, retomada apos CI/PR).
 
 ## 8. Etapa 2 — Harmonização de políticas (verificada)
 
