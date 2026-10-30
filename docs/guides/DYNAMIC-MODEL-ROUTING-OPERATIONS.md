@@ -11,14 +11,14 @@
 
 O OpenCode Orchestration utiliza uma política de roteamento dinâmico e adaptativo para selecionar modelos com base em capacidade necessária, custo, risco, histórico de falhas e papel do agente.
 
-A autoridade canônica de configuração reside em [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json), versão `1.1.0`. Todas as decisões tomadas pelo Model Router vinculam o SHA-256 (`policy_hash`) desta política e geram recibos estruturados no Kernel.
+A autoridade canônica de configuração reside em [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json), versão `1.3.0`. Todas as decisões tomadas pelo Model Router vinculam o SHA-256 (`policy_hash`) desta política e geram recibos estruturados no Kernel.
 
 ### Princípios Operacionais Fundamentais
 
 1. **ADR-01 — Um único Model Router:** Toda seleção passa por [`scripts/v3/lib/OrchestrationModelRouter.ps1`](file:///scripts/v3/lib/OrchestrationModelRouter.ps1). Não crie seletores paralelos.
 2. **ADR-02 — Providers Independentes:**
-   - `opencode` (Console): Beam Free, DeepSeek V4.1 Flash Free.
-   - `opencode-go`: Muse Spark 1.3 Contributor.
+   - `opencode` (Console): DeepSeek V4.1 Flash Free.
+   - `opencode-go`: Muse Spark 1.3 Contributor, Iceman Contributor Free.
    - `openai`: GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra.
    - `jev`: Jev 1.13 Free (System One).
    - **Regra inviolável:** Modelos OpenAI (Luna, Sol, Astra) devem ser despachados estritamente pelo provider `openai`, nunca convertidos silenciosamente para `opencode` ou `opencode-go`.
@@ -107,7 +107,7 @@ As prioridades de seleção primária e secundária de cada tier são governadas
 "tiers": {
   "T1": {
     "name": "Gratuito e Ultraleve",
-    "primary": "beam",
+    "primary": "iceman",
     "fallback": null,
     "cost_ceiling_multiplier": 0.01
   },
@@ -282,12 +282,12 @@ Se uma alteração no catálogo causar falhas ou indisponibilidade inesperada:
 | Agente | Tier Padrão | Modelo Primário | Alternativa / Escalonamento | Provider |
 |---|---|---|---|---|
 | **Planner (`build`)** | T3 | GPT-6 Luna | Advisor sob demanda | `openai` |
-| **Explorer** | T1 | Beam Free | DeepSeek V4.1 Flash Free | `opencode` |
+| **Explorer** | T1 | Iceman Contributor Free | DeepSeek V4.1 Flash Free | `opencode-go` |
 | **Researcher** | T2 | DeepSeek V4.1 Flash Free | Muse Spark → GPT-6 Luna | `opencode` |
 | **Coder** | T2 | DeepSeek V4.1 Flash Free | Muse Spark → GPT-6 Luna | `opencode` |
 | **Tester (com LLM)** | T2 | DeepSeek V4.1 Flash Free | Muse Spark | `opencode` |
 | **Tester (T0 deterministic)** | T0 | *Nenhum (código/AST)* | Proibido LLM | `none` |
-| **Docs Manager** | T1 | Beam Free | DeepSeek V4.1 Flash Free | `opencode` |
+| **Docs Manager** | T1 | Iceman Contributor Free | DeepSeek V4.1 Flash Free | `opencode-go` |
 | **Frontend Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
 | **Backend Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
 | **Database Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
@@ -320,7 +320,7 @@ Toda seleção de modelo despachada gera um recibo com a seguinte estrutura:
   "authorization_source": "STANDARD_CATALOG",
   "authorization_evidence": "catalog:default",
   "budget": "standard_tier_budget",
-  "policy_version": "1.2.0",
+  "policy_version": "1.3.0",
   "policy_hash": "245a58695bf714670f6c44782468c36a04db4b9e2b371e74de084b35f95d7e68",
   "timestamp": "2026-10-26T22:00:00.0000000Z"
 }

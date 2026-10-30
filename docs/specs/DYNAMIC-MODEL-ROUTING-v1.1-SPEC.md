@@ -48,8 +48,8 @@ A configuração deverá reconhecer separadamente:
 
 | Provider | Modelos iniciais |
 |---|---|
-| OpenCode Console (`opencode`) | Beam Free, DeepSeek V4.1 Flash Free |
-| OpenCode Go (`opencode-go`) | Muse Spark 1.3 Contributor |
+| OpenCode Console (`opencode`) | DeepSeek V4.1 Flash Free |
+| OpenCode Go (`opencode-go`) | Muse Spark 1.3 Contributor, Iceman Contributor Free |
 | OpenAI (`openai`) | GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra |
 | Jev / System One | Jev 1.13 Free |
 
@@ -111,7 +111,7 @@ Esta SPEC trata exclusivamente de roteamento de modelos e integração consultiv
 
 | ID lógico | Modelo | Provider/model ID inicial | Tier |
 |---|---|---|---|
-| beam | Beam Free | `opencode-go/beam-free` | T1 |
+| iceman | Iceman Contributor Free | `opencode-go/iceman-contributor-free` | T1 |
 | deepseek | DeepSeek V4.1 Flash Free (desabilitado/legado) | `opencode/deepseek-v4.1-flash-free` | T2 (disabled) |
 | muse | Muse Spark 1.3 Contributor | `opencode-go/muse-spark-1.3-contributor` | T2 |
 | terra | GPT-6.1 Terra | `openai/gpt-6.1-terra` | T3 (especializado visual) |
@@ -172,7 +172,7 @@ O uso de T0 não significa autorização para dispensar um worker exigido pelo c
 
 ### T1 — Gratuito e ultraleve
 
-**Primário:** Beam Free (`opencode`).
+**Primário:** Iceman Contributor Free (`opencode-go`).
 
 Tarefas:
 - Exploração.
@@ -244,11 +244,11 @@ Uma autorização de T4 não autoriza automaticamente qualquer utilização do A
 | Agente | Padrão | Alternativa / escalonamento |
 |---|---|---|
 | Planner (`build`) | Luna | Advisor sob demanda |
-| Explorer | Beam | DeepSeek |
+| Explorer | Iceman | DeepSeek |
 | Researcher | DeepSeek | Muse → Luna |
 | Coder | DeepSeek | Muse → Luna |
 | Tester com LLM | DeepSeek | Muse |
-| Docs Manager | Beam | DeepSeek |
+| Docs Manager | Iceman | DeepSeek |
 | Frontend Engineer | Muse | Luna |
 | Backend Engineer | Muse | Luna |
 | Database Engineer | Muse | Luna |
@@ -308,7 +308,7 @@ Exemplo conceitual:
 
 **Models**
 
-- `beam`: provider `opencode`, model `beam-free`.
+- `iceman`: provider `opencode-go`, model `iceman-contributor-free`.
 - `deepseek`: provider `opencode`, model `deepseek-v4.1-flash-free`.
 - `muse`: provider `opencode-go`, model `muse-spark-1.3-contributor`.
 - `luna`: provider `openai`, model `gpt-6-luna`.
@@ -318,7 +318,7 @@ Exemplo conceitual:
 **Tiers**
 
 - `T0`: deterministic.
-- `T1`: primary `beam`.
+- `T1`: primary `iceman`.
 - `T2`: primary `deepseek`, fallback `muse`.
 - `T3`: primary `luna`.
 - `T4`: primary `sol`, exceptional `astra`.
@@ -354,7 +354,7 @@ Preferências globais não podem sobrescrever proibições de risco ou custo.
 
 Deve ser possível:
 
-- Trocar Beam por outro gratuito.
+- Trocar Iceman por outro gratuito.
 - Mudar DeepSeek para outro provider.
 - Substituir Muse por outro modelo econômico.
 - Alterar o modelo do Planner.
@@ -739,7 +739,7 @@ Não reinstalar MCPs ou substituir infraestrutura já funcional.
 - [ ] Catálogo configurável implantado.
 - [ ] OpenCode, OpenCode Go e OpenAI separados corretamente.
 - [ ] Luna, Sol e Astra usam provider `openai`.
-- [ ] Beam, DeepSeek e Muse usam os respectivos providers definidos.
+- [ ] Iceman, DeepSeek e Muse usam os respectivos providers definidos.
 - [ ] T0 não executa LLM.
 - [ ] Modelo pode ser substituído por configuração.
 - [ ] Provider pode ser substituído por configuração autorizada.

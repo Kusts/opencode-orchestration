@@ -145,7 +145,7 @@ $script:AgentModelAdmissibility = @{
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/beam-free';                  Provider = 'opencode-go'; Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/iceman-contributor-free';  Provider = 'opencode-go'; Authorized = $true }
     'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'openai/gpt-6-luna' }
     'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-luna';                      Provider = 'openai';      Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
     'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol';                      Provider = 'openai';      Authorized = $false; ExceptionalModel = 'openai/gpt-6-astra' }
@@ -211,7 +211,7 @@ function Get-OrchestrationModelRoutingPolicy {
         return [pscustomobject]@{
             Status        = 'POLICY_MISSING'
             PolicyHash    = ''
-            PolicyVersion = '1.2.0'
+            PolicyVersion = '1.3.0'
             Policy        = $null
         }
     }
@@ -229,7 +229,7 @@ function Get-OrchestrationModelRoutingPolicy {
             Status        = 'POLICY_LOADED'
             PolicyPath    = $resolvedPath
             PolicyHash    = $hashStr
-            PolicyVersion = if ($parsed.policy_version) { [string]$parsed.policy_version } else { '1.2.0' }
+            PolicyVersion = if ($parsed.policy_version) { [string]$parsed.policy_version } else { '1.3.0' }
             Policy        = $parsed
         }
 
@@ -285,7 +285,7 @@ function Get-OrchestrationUserConfigCatalog {
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
 
-    $mBeam = if ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode-go/beam-free' }
+    $mIceman = if ($null -ne $pol -and $pol.models.iceman) { [string]$pol.models.iceman.model_id } elseif ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode-go/iceman-contributor-free' }
     $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
     $mTerra = if ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'openai/gpt-6.1-terra' }
     $mLuna = if ($null -ne $pol -and $pol.models.luna) { [string]$pol.models.luna.model_id } else { 'openai/gpt-6-luna' }
@@ -294,7 +294,7 @@ function Get-OrchestrationUserConfigCatalog {
 
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mBeam;                                   Provider = (Get-ModelProviderFromId $mBeam); Authorized = $true }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true }
         'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mMuse;                                   Provider = (Get-ModelProviderFromId $mMuse); Authorized = $true; AlternativeModel = $mLuna }
         'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mLuna;                                   Provider = 'openai';      Authorized = $true; AlternativeModel = $mTerra }
         'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mSol;                                    Provider = 'openai';      Authorized = $false; ExceptionalModel = $mAstra }
@@ -420,7 +420,7 @@ function Resolve-CatalogModel {
 
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
-    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.2.0' }
+    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.3.0' }
 
     # Strict separation of technical admissibility vs provider/cost authorization:
     # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
@@ -466,7 +466,7 @@ function Resolve-CatalogModel {
     }
 
     $candidates = switch ($Tier) {
-        'T1' { @('opencode-go/beam-free') }
+        'T1' { @('opencode-go/iceman-contributor-free') }
         'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') }
         'T3' { @('openai/gpt-6-luna', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol') }
         'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra') }
@@ -1202,7 +1202,7 @@ function Resolve-OrchestrationModelSelection {
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
-    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.2.0' }
+    $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.3.0' }
 
     if (-not $script:AgentModelAdmissibility.ContainsKey($cleanAgent)) {
         return [pscustomobject]@{

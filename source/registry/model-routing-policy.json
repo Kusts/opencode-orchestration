@@ -1,6 +1,6 @@
 {
   "schema_version": "model-routing-policy/v1",
-  "policy_version": "1.2.0",
+  "policy_version": "1.3.0",
   "providers": {
     "opencode": {
       "name": "OpenCode Console",
@@ -28,10 +28,10 @@
     }
   },
   "models": {
-    "beam": {
-      "id": "beam",
+    "iceman": {
+      "id": "iceman",
       "provider": "opencode-go",
-      "model_id": "opencode-go/beam-free",
+      "model_id": "opencode-go/iceman-contributor-free",
       "enabled": true,
       "tier_profiles": [
         "T1"
@@ -347,7 +347,7 @@
     },
     "T1": {
       "name": "UltraLight",
-      "primary": "beam",
+      "primary": "iceman",
       "alternatives": [],
       "relative_cost": 0.01,
       "description": "Free and ultra-lightweight exploration and triage"
@@ -399,7 +399,7 @@
       "alternatives": []
     },
     "explorer": {
-      "default_model": "beam",
+      "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
         "muse"
@@ -464,7 +464,7 @@
       ]
     },
     "docs-manager": {
-      "default_model": "beam",
+      "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
         "muse"

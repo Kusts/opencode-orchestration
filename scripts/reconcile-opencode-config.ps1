@@ -43,7 +43,7 @@ function Get-ReconcileModels {
     $parsed = ($lines -join "`n") | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace($parsed.planner) -or [string]::IsNullOrWhiteSpace($parsed.cheap) -or [string]::IsNullOrWhiteSpace($parsed.strong)) { throw 'Arquivo de modelos precisa definir planner, cheap e strong.' }
     if ([string]::IsNullOrWhiteSpace($parsed.free)) {
-      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'opencode-go/beam-free' -Force
+      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'opencode-go/iceman-contributor-free' -Force
     }
     return $parsed
 }
@@ -55,12 +55,12 @@ function Resolve-ReconcileTokens {
         $r = $r.Replace('{{MODEL_PLANNER}}', $Models.planner)
         $r = $r.Replace('{{MODEL_CHEAP}}', $Models.cheap)
         $r = $r.Replace('{{MODEL_STRONG}}', $Models.strong)
-        $freeModel = 'opencode-go/beam-free'
+        $freeModel = 'opencode-go/iceman-contributor-free'
         if (-not [string]::IsNullOrWhiteSpace($Models.free)) { $freeModel = [string]$Models.free }
         $r = $r.Replace('{{MODEL_FREE}}', $freeModel)
     }
     else {
-        $r = $r.Replace('{{MODEL_FREE}}', 'opencode-go/beam-free')
+        $r = $r.Replace('{{MODEL_FREE}}', 'opencode-go/iceman-contributor-free')
     }
     $homeSlash = $HomeValue -replace '\\', '/'
     $r = $r.Replace('{{HOME}}', $homeSlash)
