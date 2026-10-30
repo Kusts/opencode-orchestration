@@ -38,7 +38,7 @@ $auth = @{ explicit_allow = $true; goal_id = $goalId; owner = [string]$ctx.owner
 $artifactPath = Join-Path $artifactDir 'output-a.json'
 $resultBPath = Join-Path $artifactDir 'output-b.json'
 
-$state = @{ calls = 0 }
+$state = @{ calls = 0; successes = 0 }
 $gen = [long]$ctx.generation
 $owner = [string]$ctx.owner
 $ph = Get-NativeDispatchHash32 'fd-pilot-prompt-material'
@@ -59,18 +59,62 @@ $executor = {
     if ($tid -ceq 'fd-task-a') {
         $prompt = "You are a coding agent. Create the file '$artifactPathL' with exact JSON content: {`"value`":42,`"from`":`"task-a`"}. Reply with ONLY this JSON: {`"status`":`"candidate_pass`",`"claimed_evidence`":[`"criterion:0`"]}"
     } else {
-        $prompt = "You are a coding agent. Read '$artifactPathL'. Create '$resultBPathL' with JSON: {`"derived`":84,`"source`":<contents of output-a.json>}. Reply with ONLY this JSON: {`"status`":`"candidate_pass`",`"claimed_evidence`":[`"criterion:0`"]}"
+        $prompt = "You are a coding agent. Read '$artifactPathL'. Create '$resultBPathL' with JSON: {`"derived`":84,`"source`":<contents of output-a.json>}. IMPORTANT: After creating the file, reply with ONLY this JSON and nothing else: {`"status`":`"candidate_pass`",`"claimed_evidence`":[`"criterion:0`"]}"
     }
 
     $raw = opencode run --format json $prompt 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw ('opencode-run-failed: exit=' + $exitCode)
+    }
     $textOutput = ''
+    $parsedEvents = 0
     foreach ($line in $raw) {
         try {
             $evt = $line | ConvertFrom-Json
+            $parsedEvents++
             if ($evt.type -eq 'text') { $textOutput += [string]$evt.part.text }
         } catch { }
     }
+    if ($parsedEvents -eq 0) {
+        throw 'opencode-output-unparseable'
+    }
     Log ('  SUBAGENT OUTPUT: ' + $textOutput)
+
+    # Parse the subagent's structured result (JSON or JS-object syntax)
+    $subStatus = ''
+    $subEvidence = @()
+    $parsed = $false
+    # Try strict JSON first
+    try {
+        $m = [regex]::Match($textOutput, '\{[^{}]*\}')
+        if ($m.Success) {
+            $subResult = $m.Value | ConvertFrom-Json
+            $subStatus = [string]$subResult.status
+            $subEvidence = @($subResult.claimed_evidence)
+            $parsed = $true
+        }
+    } catch { $parsed = $false }
+    # Fallback: parse JS-object syntax {key:value,...}
+    if (-not $parsed) {
+        $m2 = [regex]::Match($textOutput, 'status\s*[:=]\s*["'']?(\w+)["'']?')
+        if ($m2.Success) { $subStatus = $m2.Groups[1].Value; $parsed = $true }
+        $m3 = [regex]::Match($textOutput, 'claimed_evidence\s*[:=]\s*\[([^\]]*)\]')
+        if ($m3.Success) {
+            $evStr = $m3.Groups[1].Value
+            $subEvidence = @($evStr -split ',' | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        }
+    }
+    if (-not $parsed) {
+        throw 'subagent-result-not-parseable'
+    }
+    if ($subStatus -cne 'candidate_pass') {
+        throw ('subagent-status-invalid: ' + $subStatus)
+    }
+    if ($subEvidence.Count -lt 1) {
+        throw 'subagent-evidence-missing'
+    }
+    Log ('  SUBAGENT PARSED: status=' + $subStatus + ' evidence=' + ($subEvidence -join ','))
 
     # Verify artifact for task A (content check, not just existence)
     if ($tid -ceq 'fd-task-a') {
@@ -96,6 +140,7 @@ $executor = {
         }
     }
 
+    $state.successes++
     # NOTE: progress is NOT updated here. The Executor returns the candidate result only.
     # Progress advances only after canonical settlement + verification (see post-loop below).
     return @{ status = 'candidate_pass'; claimed_evidence = @('criterion:0') }
@@ -126,8 +171,10 @@ Log ('LOOP: outcome=' + [string]$loop.outcome + ' reason=' + [string]$loop.reaso
 Log ('EXECUTOR CALLS: ' + [string]$state.calls)
 
 # Post-loop: progress advances ONLY after canonical settlement + verification (not in Executor)
-$loopDispatches = [int]$loop.dispatches
-for ($pi = 1; $pi -le $loopDispatches; $pi++) {
+# Use successes (not dispatches) — dispatches counts attempted calls, not verified completions
+$successCount = [int]$state.successes
+Log ('SUCCESSFUL TASKS: ' + $successCount)
+for ($pi = 1; $pi -le $successCount; $pi++) {
     $liveG = & powershell -NoProfile -Command ". '$PSScriptRoot\lib\OrchestrationGoalKernel.ps1'; (Get-OrchestrationGoal -GoalId '$goalId' -StoreDir '$goalDir').goal | ConvertTo-Json -Depth 8 -Compress" 2>&1
     $liveGoal = ($liveG | Select-Object -Last 1) | ConvertFrom-Json
     $liveRev = [long]$liveGoal.revision
@@ -141,7 +188,8 @@ for ($pi = 1; $pi -le $loopDispatches; $pi++) {
 # Complete the goal if all criteria are satisfied (explicit CAS completion)
 $finalSlot = & powershell -NoProfile -Command ". '$PSScriptRoot\lib\OrchestrationGoalKernel.ps1'; (Get-OrchestrationGoal -GoalId '$goalId' -StoreDir '$goalDir').goal | ConvertTo-Json -Depth 8 -Compress" 2>&1
 $final = ($finalSlot | Select-Object -Last 1) | ConvertFrom-Json
-if ([long]$final.progress.satisfied -eq [long]$final.progress.total -and [long]$final.progress.total -gt 0) {
+# Only complete if all tasks were successfully settled+verified (successes == total)
+if ($successCount -ge 2 -and [long]$final.progress.satisfied -ge 1) {
     Log 'COMPLETING GOAL via CAS...'
     # Renew ownership (lease may have expired during the run)
     $renew = Renew-OrchestrationGoalOwnership -GoalId $goalId -OwnerId $owner -Generation $gen -StoreDir $goalDir -LeaseTtlMs 120000
