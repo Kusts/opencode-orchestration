@@ -20,6 +20,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1')
 . (Join-Path $PSScriptRoot 'OrchestrationGoalKernel.ps1')
 . (Join-Path $PSScriptRoot 'OrchestrationGoalCheckpoint.ps1')
 . (Join-Path $PSScriptRoot 'OrchestrationNativeDispatch.ps1')
@@ -138,16 +139,64 @@ try {
         Assert-FD (([int]$loop.dispatches -eq 2)) '[GREEN] duas tasks executadas sem intervencao' ('dispatches=' + [string]$loop.dispatches)
         Assert-FD (([int]$state.calls -eq 2)) '[GREEN] executor (worker) chamado 2x' ('calls=' + [string]$state.calls)
 
-        # Post-loop: progress advances ONLY after canonical settlement (not in Executor)
-        $loopDispatches = [int]$loop.dispatches
-        for ($pi = 1; $pi -le $loopDispatches; $pi++) {
-            $liveG = (Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $goalDir).goal
-            $liveR = [long]$liveG['revision']
-            $satP = [long]$liveG['progress']['satisfied'] + 1
-            $phP = [long]$liveG['plan_progress']['phase'] + 1
-            $updP = Update-OrchestrationGoal -GoalId 'fd-goal-1' -ExpectedRevision $liveR -Fields @{ progress = @{ satisfied = $satP; total = 2 }; plan_progress = @{ phase = $phP; total_phases = 2; done_tasks = $phP } } -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen
-            Assert-FD ([bool]$updP.ok) ('[GREEN] progresso persistido apos settlement (step ' + $pi + ')') ([string]$updP.reason)
+        # Post-loop: canonical completion per task, then progress reconciled from DONE states.
+        # Progress advances ONLY for tasks in DONE (verified_pass -> approved -> gate -> Complete).
+        function Complete-FDTask {
+            param([string]$Tid)
+            $t = Get-OrchestrationTask -TaskId $Tid -TasksDir $tasksDir
+            if ($null -eq $t -or $t.PSObject.Properties['error']) { throw ('task-not-found: ' + $Tid) }
+            $rev = [long]$t.revision
+            $st = [string]$t.state
+            if ($st -ceq 'DONE') { return $true }
+            if ($st -eq 'DISCOVERING') {
+                $tr = Invoke-OrchestrationTaskTransition -TaskId $Tid -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+                if (-not [bool]$tr.ok) { throw ('PLANNING failed: ' + [string]$tr.error) }
+                $rev = [long]$tr.revision; $st = 'PLANNING'
+            }
+            if ($st -eq 'PLANNING') {
+                $tr = Invoke-OrchestrationTaskTransition -TaskId $Tid -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+                if (-not [bool]$tr.ok) { throw ('IMPLEMENTING failed: ' + [string]$tr.error) }
+                $rev = [long]$tr.revision; $st = 'IMPLEMENTING'
+            }
+            if ($st -eq 'IMPLEMENTING') {
+                $tr = Invoke-OrchestrationTaskTransition -TaskId $Tid -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+                if (-not [bool]$tr.ok) { throw ('VALIDATING failed: ' + [string]$tr.error) }
+                $rev = [long]$tr.revision; $st = 'VALIDATING'
+            }
+            if ($st -eq 'VALIDATING') {
+                $tr = Invoke-OrchestrationTaskTransition -TaskId $Tid -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+                if (-not [bool]$tr.ok) { throw ('REVIEWING failed: ' + [string]$tr.error) }
+                $rev = [long]$tr.revision; $st = 'REVIEWING'
+            }
+            $verJson = '{"ok":true,"task_id":"fd","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}'
+            $vr = Set-OrchestrationTaskVerification -TaskId $Tid -VerifierEvidenceJson $verJson -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath
+            if (-not [bool]$vr.ok) { throw ('verification failed: ' + [string]$vr.error) }
+            $rev = [long]$vr.revision
+            $rw = Set-OrchestrationTaskReview -TaskId $Tid -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath
+            if (-not [bool]$rw.ok) { throw ('review failed: ' + [string]$rw.error) }
+            $rev = [long]$rw.revision
+            $gate = Test-OrchestrationTaskCompletion -TaskId $Tid -TasksDir $tasksDir -RepoRoot $tempRoot -OrchestrationCompliance 'COMPLIANT' -Actor 'planner' -ResidualRisks @('none') -AcceptEmptyResidualRisks
+            if (-not [bool]$gate.complete) { throw ('gate failed: ' + ($gate.reasons -join ',')) }
+            $dn = Complete-OrchestrationTask -TaskId $Tid -Actor 'planner' -ExpectedRevision $rev -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
+            if (-not [bool]$dn.ok) { throw ('DONE failed: ' + [string]$dn.error) }
+            return $true
         }
+        $null = Complete-FDTask -Tid 'fd-task-a'
+        Assert-FD (([string](Get-OrchestrationTask -TaskId 'fd-task-a' -TasksDir $tasksDir).state -ceq 'DONE')) '[GREEN] Task A DONE canonico' ''
+        $null = Complete-FDTask -Tid 'fd-task-b'
+        Assert-FD (([string](Get-OrchestrationTask -TaskId 'fd-task-b' -TasksDir $tasksDir).state -ceq 'DONE')) '[GREEN] Task B DONE canonico' ''
+        # Reconcile progress from distinct mandatory IDs in DONE
+        $doneIds = @()
+        foreach ($mid in @('fd-task-a','fd-task-b')) {
+            $mt = Get-OrchestrationTask -TaskId $mid -TasksDir $tasksDir
+            if (([string]$mt.state -ceq 'DONE')) { $doneIds += $mid }
+        }
+        Assert-FD ((@($doneIds).Count -eq 2)) '[GREEN] 2 mandatory em DONE' (($doneIds -join ','))
+        $liveG = (Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $goalDir).goal
+        $liveR = [long]$liveG['revision']
+        $cnt = [int]@($doneIds).Count
+        $updP = Update-OrchestrationGoal -GoalId 'fd-goal-1' -ExpectedRevision $liveR -Fields @{ progress = @{ satisfied = $cnt; total = 2 }; plan_progress = @{ phase = $cnt; total_phases = 2; done_tasks = $cnt } } -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen
+        Assert-FD ([bool]$updP.ok) '[GREEN] progresso reconciliado por DONE' ([string]$updP.reason)
         $final = (Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $goalDir).goal
         Assert-FD (([long]$final['plan_progress']['phase'] -eq 2)) '[GREEN] plan avancou fase1->fase2' ('phase=' + [string]$final['plan_progress']['phase'])
         Assert-FD (([long]$final['progress']['satisfied'] -eq 2)) '[GREEN] progresso 2/2' ('sat=' + [string]$final['progress']['satisfied'])

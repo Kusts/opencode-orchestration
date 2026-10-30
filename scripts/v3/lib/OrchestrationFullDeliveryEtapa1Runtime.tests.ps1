@@ -15,6 +15,17 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+# Lane separation: runtime LLM tests only run with FULL_DELIVERY_RUNTIME=1.
+# Regular CI (run-v3-tests.ps1) must not pay for LLM or fail without provider.
+# Absence of provider is NEVER reported as RUNTIME_REAL_PASS.
+if ([string]$env:FULL_DELIVERY_RUNTIME -cne '1') {
+    Write-Host '[SKIP] runtime LLM lane disabled (set FULL_DELIVERY_RUNTIME=1 to enable)'
+    Write-Host ''
+    Write-Host 'TEST RESULTS: 0 / 0 passed (1 skipped)'
+    Write-Host '[SUMMARY] pass 0 fail 0'
+    exit 0
+}
+
 $script:passed = 0
 $script:failed = 0
 
@@ -31,17 +42,23 @@ function Assert-RT {
 try {
     $driverPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'full-delivery-pilot-driver.ps1'
     if (-not (Test-Path -LiteralPath $driverPath -PathType Leaf)) {
-        Write-Host '[SKIP] driver not found'
-        exit 0
+        Write-Host '[FAIL] driver not found (lane enabled, must fail)'
+        exit 1
     }
     # Run the driver (normal path — no manual pilot)
     $out = & powershell -NoProfile -File $driverPath 2>&1
+    $driverExit = $LASTEXITCODE
     $outText = ($out | Out-String)
 
+    Assert-RT ($driverExit -eq 0) '[RT] driver exit code 0' ('exit=' + [string]$driverExit)
     Assert-RT ($outText -match 'FINAL STATE:\s*COMPLETED') '[RT] Goal chega a COMPLETED' ''
     Assert-RT ($outText -match 'PROGRESS:\s*2/2') '[RT] progresso 2/2' ''
     Assert-RT ($outText -match 'fd-task-a: DONE \(canonical\)') '[RT] Task A canonically DONE' ''
     Assert-RT ($outText -match 'fd-task-b: DONE \(canonical\)') '[RT] Task B canonically DONE' ''
+    # B must start only after A DONE (log order check)
+    $posA = $outText.IndexOf('fd-task-a: DONE')
+    $posB = $outText.IndexOf('=== TASK B ===')
+    Assert-RT (($posA -ge 0) -and ($posB -gt $posA)) '[RT] B iniciou apos A.DONE (ordem no log)' ''
 
     # Extract work_root from log line
     $wrLine = ($out | Select-String 'PILOT LOG:') | Select-Object -First 1
