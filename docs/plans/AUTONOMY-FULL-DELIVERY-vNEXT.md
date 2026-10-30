@@ -238,9 +238,9 @@ e o issue triage matrix; não repete seus textos. Detalhes normativos vivem lá.
 - ETAPA 0 — **concluída** (este documento).
 - ETAPA 1 — **ETAPA_1_ACCEPTED** (gate final 2026-10-30, commit 7d0b96b).
 - ETAPA 2 — **concluída** (harmonização verificada 2026-10-30).
-- ETAPA 3 — **concluída** (sinal de impasse implementado 2026-10-30).
-- ETAPA 4 — **concluída** (roteamento adaptativo verificado 2026-10-30).
-- ETAPA 5 — **verificada** (retomada durável: componentes existem e testados 2026-10-30).
+- ETAPA 3 — **ETAPA_3_INTEGRATED** (consumo integrado 2026-10-30, ver §9.1).
+- ETAPA 4 — **ETAPA_4_INTEGRATED** (execucao real 2026-10-30, ver §10.1).
+- ETAPA 5 — **ETAPA_5_INTEGRATED** (retomada integrada 2026-10-30, ver §11.1).
 
 ### 7.1 Etapa 1 — causa-raiz reproduzida (RED)
 
@@ -409,6 +409,24 @@ fatia. Os componentes Jev/Advisor/ModelRouter já existem e são testados.
 
 **Próximo passo:** avançar para a Etapa 4 (roteamento adaptativo comprovado de modelos).
 
+### 9.1 Etapa 3 — INTEGRADA (2026-10-30, branch feat/full-delivery-etapas-1-5)
+
+**Novo:** `scripts/v3/lib/OrchestrationImpasseConsumption.ps1` — consome `Test-IEImpasseSignal`
+sem nova maquina de estados. Uma invocacao = UMA intervencao (nunca fan-out):
+missing-context -> explorer/gather-context; technical-reproducible -> debugger/debug-reproduce;
+model-limitation -> jev/advisor (escalate se high/critical); legit-block -> wait-legit sem consultor.
+Dedup por (failure_kind+consultant) em History; orcamento MaxInterventions (default 3);
+consultores retornam evidencia/recomendacao, grants_authority=false sempre.
+
+**Prova:** `OrchestrationImpasseConsumption.tests.ps1` 14/14 PASS — falha induzida em fixture
+(stagnation 3, missing-context) => explorer acionado 1x, retorno incorporado, retry com dedup
+sem repetir consultor; tecnico=>debugger; model-high=>advisor; legit=>wait; budget esgotado=>blocked;
+sem impasse=>sem consultor.
+
+**Limites:** classificacao depende de FailureKind informado pelo caller; sem telemetria de
+progresso real o sinal nao dispara sozinho (integracao ao PlannerLoop via probe permanece
+advisory-only por design).
+
 ## 10. Etapa 4 — Roteamento adaptativo (verificado)
 
 **Escopo:** comprovar que o Model Router seleciona modelo admissível considerando papel, risco, complexidade,
@@ -436,6 +454,27 @@ selecionado ao `opencode run --model` é a próxima fatia.
 
 **Próximo passo:** avançar para a Etapa 5 (retomada durável após CI/PR).
 
+### 10.1 Etapa 4 — INTEGRADA (2026-10-30)
+
+**Novo:** `scripts/v3/lib/OrchestrationModelExecution.ps1` — `Invoke-OrchestrationModelExecution`
+resolve via Router, emite recibo (`Get-OrchestrationModelRouterReceipt`: agente, tarefa,
+solicitado/efetivo, tier, motivo, fallback), projeta `subagent_model_param` (interface
+oficialmente suportada pelo subagent OpenCode V2) e verifica via
+`Test-ExecutedModelVerification`. Barato por padrao; escala so com FailureCount>=2 + custo
+autorizado; falha de contexto (IsContextFailure) zera FailureCount (nunca confunde contexto
+com incapacidade); override de modelo desabilitado (ex. deepseek) recusado; sem prova de
+override nativo o efetivo e fallback conservador (PROOF_ABSENT, fail-closed). Nenhuma escrita
+em models.json / Agent Config.
+
+**Prova:** `OrchestrationModelExecution.tests.ps1` 10/10 PASS — simples=>T1/T2 + log efetivo;
+impasse justificado muda rota; nao-autorizado recusado/degradado; contexto nao escala;
+desabilitado recusado; sem prova=>PROOF_ABSENT; sem config concorrente.
+
+**Limites:** `NativeModelOverrideProven=false` no runtime atual (host usa modelo default);
+o parametro `model` e projetado e verificado, mas a execucao real via `opencode run --model`
+depende de provider/modelo provisionado. T4 exige OPENCODE_T4_AUTHORIZED; Astra exige
+OPENCODE_ASTRA_AUTHORIZED.
+
 ## 11. Etapa 5 — Retomada durável (verificada)
 
 **Escopo:** GoalCheckpoint + SessionReconciler retomam o Goal após CI/PR com estado persistido.
@@ -452,6 +491,31 @@ selecionado ao `opencode run --model` é a próxima fatia.
 são testados isoladamente. A integração end-to-end é a próxima fatia.
 
 **Próximo passo:** avançar para a Etapa 6 (merge e deploy em ambientes autorizados) ou Etapa 7 (certificação).
+
+### 11.1 Etapa 5 — INTEGRADA (2026-10-30)
+
+**Novo:** `scripts/v3/lib/OrchestrationDurableResume.ps1` — `Invoke-OrchestrationDurableResume`
+integra checkpoint + reconciliacao + CI/PR + kernels em single-shot (sem daemon):
+1. Load + Test-OrchestrationCheckpointResume (fail-closed, CAS stale detectado);
+2. Get-OrchestrationSessionReconciliation (bindings/observacoes declaradas);
+3. Test-OrchestrationGitHubResume (RESUME/READY/KEEP_WAITING/TERMINAL/DUPLICATE/OUT_OF_ORDER);
+4. proxima Task nao-DONE (nunca reexecuta DONE; recibo idempotente impede duplicar efeito);
+5. Goal so COMPLETED com criterios verificados.
+
+**Prova:** `OrchestrationDurableResume.tests.ps1` 14/14 PASS em fixture isolada —
+Goal inicia, Task A DONE canonico, checkpoint + wait CI/PR, "interrupcao" (nova leitura do
+estado persistido), reconciliacao: CI verde=>advance em B sem duplicar A; vermelho
+recuperavel=>TERMINAL diagnostic; atrasado=>KEEP_WAITING; CAS stale=>blocked; task DONE
+isolada nao completa goal.
+
+**Limites:** sessoes e snapshots sao declarados (caller-provided); V2 probing nativo segue
+HOLD; sem turno real de CI (gh) nesta rodada — decisao e single-shot sobre snapshot.
+
+**Classificacao de autonomia (evidencia real 2026-10-30):**
+`ETAPA_3_INTEGRATED` + `ETAPA_4_INTEGRATED` + `ETAPA_5_INTEGRATED`;
+Etapa 1 preservada (`ETAPA_1_ACCEPTED` / `RUNTIME_CLI_PILOT_PASS`, sem reabertura);
+`PRODUCTIVE_AUTONOMY_PARTIAL` mantida (driver mediado, sem hook nativo de auto-advance);
+Etapas 6-7 NAO marcadas (sem deploy/merge nesta rodada).
 
 **Regra de evidência:** toda claim de "autônoma" cita run no runtime V2 exato (versão + pin + comando). Harness
 sozinho nunca sustenta claim de autonomia produtiva.
