@@ -31,6 +31,44 @@
         -FlagsPath <flags.json> -AuthorizationAlive:$true `
         [-ExecutorPresent:$true] [-GraphQLSnapshotFile <raw-fixture>]
 
+    Usage (explicit dirs, resolver opt-in, no live booleans):
+      powershell -NoProfile -File github-wake.ps1 -WaitsDir <dir> `
+        -TasksDir <dir> -GoalStoreDir <dir> -CheckpointDir <dir> `
+        -FlagsPath <flags.json> -ResolveAuthorization `
+        -ResolveExecutor -ExecutorProofPath <proof.json> `
+        [-GraphQLSnapshotFile <raw-fixture>]
+
+    Liveness resolvers (opt-in, fail-closed, never persisted as authority):
+      -ResolveLease (-LeaseFromWait alias): derive LeaseAlive per wait
+        from lease_expires_utc/deadline_utc vs NowUtc. Lease/owner are
+        wait-document facts, evaluated per wait on every pass.
+      -ResolveOwner: derive OwnerAlive per wait from owner/lease_owner
+        shape (Test-GHRSOwner) plus match against the Kernel task
+        active_wait owner. Divergence => owner-mismatch, never RESUME.
+      -ResolveAuthorization: derive AuthorizationAlive without the live
+        -AuthorizationAlive switch. Requires a trusted identity source
+        (Test-OrchestrationActorIdentitySource) plus ONE live source:
+        (a) -AuthorizationProofPath JSON file carrying
+        {"authorization_alive":true} (optional actor_identity_source
+        must match), or (b) the live -FlagsPath with task_kernel
+        enabled. Absent/invalid proof or disabled kernel =>
+        authorization-revoked (fail-closed). Proof files are
+        operator-owned per-tick attestations, never stored in the
+        scheduler config as booleans.
+      -ResolveExecutor: derive ExecutorPresent without the live
+        -ExecutorPresent switch. Requires -ExecutorProofPath JSON
+        file carrying {"executor_present":true} (optional observed_at
+        must be within MaxAgeSeconds of NowUtc; observed_at more than
+        60s in the future is rejected as executor-proof-future to
+        tolerate only small clock skew). Absent/invalid/stale
+        proof => no-executor (READY, never RESUME). A running
+        scheduler alone is never treated as executor presence.
+        HOLD honesto: executor liveness has no Kernel-owned lease
+        contract; the proof file is a minimal explicit probe and its
+        freshness is the operator's responsibility.
+      Without any live switch, resolve switch, or proof path, the
+      pass stays TERMINAL authorization-revoked (fail-closed).
+
     Exit 0 = wake pass completed (per-item HOLD/KEEP_WAITING/TERMINAL are
     data, not failure). Exit 1 = transport/scan failure. Exit 2 = args.
     Stdout carries exactly one JSON envelope. Dot-source safe: without
@@ -52,6 +90,12 @@ param(
     [switch]$AuthorizationAlive,
     [switch]$ExecutorPresent,
     [switch]$CancelRequested,
+    [switch]$ResolveAuthorization,
+    [switch]$ResolveExecutor,
+    [switch]$ResolveOwner,
+    [Alias('LeaseFromWait')][switch]$ResolveLease,
+    [string]$AuthorizationProofPath = '',
+    [string]$ExecutorProofPath = '',
     $MaxApiAttempts = 3,
     $TimeoutMs = 10000,
     [string]$OutFile = ''
@@ -127,6 +171,8 @@ try {
     if (Test-Path -LiteralPath $GHW_DeliveryLib -PathType Leaf) { . $GHW_DeliveryLib }
     $GHW_CheckpointLib = Join-Path $GHW_LibDir 'lib\OrchestrationGoalCheckpoint.ps1'
     if (Test-Path -LiteralPath $GHW_CheckpointLib -PathType Leaf) { . $GHW_CheckpointLib }
+    $GHW_GoalLib = Join-Path $GHW_LibDir 'lib\OrchestrationGoalKernel.ps1'
+    if (Test-Path -LiteralPath $GHW_GoalLib -PathType Leaf) { . $GHW_GoalLib }
 }
 catch { }
 
@@ -373,6 +419,804 @@ function New-GHWakeItem {
     }
 }
 
+function Get-GHWakeIdempotencyKey {
+    param([string]$DedupKey = '', [string]$EventId = '')
+    try {
+        $d = ([string]$DedupKey).Trim()
+        $e = ([string]$EventId).Trim()
+        if ([string]::IsNullOrWhiteSpace($d) -or [string]::IsNullOrWhiteSpace($e)) { return '' }
+        $raw = ($d + ':' + $e)
+        $bytes = [Text.Encoding]::UTF8.GetBytes($raw)
+        $sha = $null
+        try { $sha = [System.Security.Cryptography.SHA256]::Create() } catch { return '' }
+        try {
+            $hash = $sha.ComputeHash($bytes)
+            $hex = ''
+            foreach ($b in $hash) { $hex += $b.ToString('x2') }
+            if ($hex.Length -lt 32) { return '' }
+            return ($hex.Substring(0, 32).ToLowerInvariant())
+        }
+        finally { try { $sha.Dispose() } catch { } }
+    }
+    catch { return '' }
+}
+
+function New-GHWakeNextAction {
+    param($Wait = $null, [string]$TaskId = '', [string]$CheckpointId = '', [string]$GoalId = '', [string]$EventId = '')
+    try {
+        $tid = ([string]$TaskId).Trim()
+        $cid = ([string]$CheckpointId).Trim()
+        $gid = ([string]$GoalId).Trim()
+        $evt = ([string]$EventId).Trim()
+        $ddk = ([string](Get-GHWValue $Wait 'dedup_key' '')).Trim()
+        $gen = [long]0
+        try { $gen = [long](Get-GHWValue $Wait 'generation' 0) } catch { $gen = 0 }
+        $lown = ([string](Get-GHWValue $Wait 'lease_owner' '')).Trim()
+        $lexp = ([string](Get-GHWValue $Wait 'lease_expires_utc' '')).Trim()
+        $idem = Get-GHWakeIdempotencyKey -DedupKey $ddk -EventId $evt
+        return [pscustomobject]@{
+            task_id = $tid; checkpoint_id = $cid
+            goal_id = $gid; wait_dedup_key = $ddk
+            generation = $gen; lease_owner = $lown; lease_expires_utc = $lexp
+            event_id = $evt; kernel_state = 'IMPLEMENTING'
+            idempotency_key = $idem
+            announce = ('next-action task=' + $tid + ' checkpoint=' + $cid)
+        }
+    }
+    catch { return $null }
+}
+
+function Test-GHWakeHandoffShape {
+    param($NextAction = $null)
+    try {
+        if ($null -eq $NextAction) { return @{ ok = $false; reason = 'no-next-action' } }
+        $tid = ([string](Get-GHWValue $NextAction 'task_id' '')).Trim()
+        $cid = ([string](Get-GHWValue $NextAction 'checkpoint_id' '')).Trim()
+        $gid = ([string](Get-GHWValue $NextAction 'goal_id' '')).Trim()
+        $ddk = ([string](Get-GHWValue $NextAction 'wait_dedup_key' '')).Trim()
+        $evt = ([string](Get-GHWValue $NextAction 'event_id' '')).Trim()
+        $kst = ([string](Get-GHWValue $NextAction 'kernel_state' '')).Trim().ToUpperInvariant()
+        $idem = ([string](Get-GHWValue $NextAction 'idempotency_key' '')).Trim().ToLowerInvariant()
+        $lown = ([string](Get-GHWValue $NextAction 'lease_owner' '')).Trim()
+        $lexp = ([string](Get-GHWValue $NextAction 'lease_expires_utc' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if ($cid -cnotmatch '^[a-f0-9]{16}$') { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if ([string]::IsNullOrWhiteSpace($gid)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if ([string]::IsNullOrWhiteSpace($ddk)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if (-not (Test-GHWEventId -Value $evt)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if ($kst -cne 'IMPLEMENTING') { return @{ ok = $false; reason = 'kernel-not-implementing' } }
+        if ($idem -cnotmatch '^[a-f0-9]{32}$') { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if ([string]::IsNullOrWhiteSpace($lown)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        if ($null -eq (Convert-GHWUtc -Value $lexp)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        $genRaw = Get-GHWValue $NextAction 'generation' $null
+        $genOk = $false
+        try {
+            if (($genRaw -is [int]) -or ($genRaw -is [long]) -or ($genRaw -is [short]) -or ($genRaw -is [byte])) {
+                if ([long]$genRaw -ge 0) { $genOk = $true }
+            }
+        }
+        catch { $genOk = $false }
+        if (-not $genOk) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        $exp = Get-GHWakeIdempotencyKey -DedupKey $ddk -EventId $evt
+        if ([string]::IsNullOrWhiteSpace($exp) -or ($idem -cne $exp)) { return @{ ok = $false; reason = 'idempotency-mismatch' } }
+        return @{ ok = $true; reason = '' }
+    }
+    catch { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+}
+
+function Find-GHWakeWaitByDedup {
+    param([string]$WaitsDir = '', [string]$DedupKey = '')
+    try {
+        $dir = ([string]$WaitsDir).Trim()
+        $ddk = ([string]$DedupKey).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir) -or [string]::IsNullOrWhiteSpace($ddk)) { return $null }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $null }
+        foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -Filter 'ghwait-*.json' -ErrorAction Stop)) {
+            if ([long]$f.Length -le 0 -or [long]$f.Length -gt 262144) { continue }
+            $doc = $null
+            try { $doc = ConvertFrom-Json ([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)) } catch { continue }
+            if ([string](Get-GHWValue $doc 'dedup_key' '') -ceq $ddk) { return $doc }
+        }
+        return $null
+    }
+    catch { return $null }
+}
+
+function Test-GHWakeHandoffBinding {
+    param($Wait = $null, [string]$TasksDir = '')
+    try {
+        if ($null -eq $Wait) { return @{ ok = $false; reason = 'wait-not-found' } }
+        $tid = ([string](Get-GHWValue $Wait 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid)) { return @{ ok = $false; reason = 'wait-not-found' } }
+        $task = $null
+        try { $task = Get-OrchestrationTask -TaskId $tid -TasksDir $TasksDir } catch { $task = $null }
+        $taskErr = ''
+        try {
+            if ($null -eq $task) { $taskErr = 'NOT_FOUND' }
+            elseif ($task -is [System.Collections.IDictionary]) {
+                if ($task.Contains('error')) { $taskErr = ([string]$task['error']) }
+            }
+            else {
+                $ep = $task.PSObject.Properties['error']
+                if ($null -ne $ep) { $taskErr = ([string]$ep.Value) }
+            }
+        }
+        catch { $taskErr = 'INTERNAL_ERROR' }
+        if (-not [string]::IsNullOrWhiteSpace($taskErr)) { return @{ ok = $false; reason = 'task-unreadable' } }
+        $state = ''
+        try { $state = ([string]$task['state']).Trim().ToUpperInvariant() } catch { $state = '' }
+        if ($state -cne 'IMPLEMENTING') { return @{ ok = $false; reason = 'kernel-not-implementing' } }
+        $bind = $null
+        try { $bind = Test-GRRWaitKernelBinding -Wait $Wait -TasksDir $TasksDir } catch { $bind = $null }
+        if (($null -ne $bind) -and [bool](Get-GHWValue $bind 'ok' $false)) { return @{ ok = $true; reason = ''; fingerprint = ([string](Get-GHWValue $bind 'fingerprint' '')) } }
+        $why = ''
+        try { $why = ([string](Get-GHWValue $bind 'reason' '')) } catch { $why = '' }
+        if ($why -cne 'kernel-not-blocked') { return @{ ok = $false; reason = 'binding-diverged' } }
+        $fpSlot = $null
+        try {
+            $wRepo = ([string](Get-GHWValue $Wait 'repository' '')).Trim().ToLowerInvariant()
+            $wPr = [long]0
+            try { $wPr = [long](Get-GHWValue $Wait 'pr_number' 0) } catch { $wPr = 0 }
+            $wSha = ([string](Get-GHWValue $Wait 'expected_head_sha' '')).Trim().ToLowerInvariant()
+            $wOwner = ([string](Get-GHWValue $Wait 'owner' '')).Trim()
+            $wDep = ('github-ci:v1:' + $wRepo + ':' + [string]$wPr + ':' + $wSha)
+            $fpSlot = Get-OrchestrationWaitFingerprint -Type 'external_dependency' -Owner $wOwner -Action 'revalidate-github-ci' -DependencyId $wDep
+        }
+        catch { $fpSlot = $null }
+        if (($null -eq $fpSlot) -or (-not [bool](Get-GHWValue $fpSlot 'ok' $false))) { return @{ ok = $false; reason = 'binding-diverged' } }
+        $expFp = ([string](Get-GHWValue $fpSlot 'fingerprint' ''))
+        if ([string]::IsNullOrWhiteSpace($expFp)) { return @{ ok = $false; reason = 'binding-diverged' } }
+        $wh = @()
+        try {
+            if ($task -is [System.Collections.IDictionary]) {
+                if ($task.Contains('wait_history') -and ($null -ne $task['wait_history'])) { $wh = @($task['wait_history']) }
+            }
+            else {
+                $hp = $task.PSObject.Properties['wait_history']
+                if (($null -ne $hp) -and ($null -ne $hp.Value)) { $wh = @($hp.Value) }
+            }
+        }
+        catch { $wh = @() }
+        if (@($wh).Count -eq 0) { return @{ ok = $false; reason = 'binding-diverged' } }
+        $last = @($wh)[@($wh).Count - 1]
+        $histFp = ''
+        try {
+            if (($null -ne $last) -and ($last -is [System.Collections.IDictionary]) -and $last.Contains('fingerprint')) { $histFp = ([string]$last['fingerprint']) }
+        }
+        catch { $histFp = '' }
+        if ([string]::IsNullOrWhiteSpace($histFp) -or ($histFp -cne $expFp)) { return @{ ok = $false; reason = 'binding-diverged' } }
+        return @{ ok = $true; reason = ''; fingerprint = $expFp }
+    }
+    catch { return @{ ok = $false; reason = 'binding-diverged' } }
+}
+
+function Test-GHWakeHandoffCheckpoint {
+    param([string]$CheckpointId = '', [string]$CheckpointDir = '', [string]$GoalStoreDir = '')
+    try {
+        $cid = ([string]$CheckpointId).Trim()
+        if ($cid -cnotmatch '^[a-f0-9]{16}$') { return @{ ok = $false; reason = 'checkpoint-missing' } }
+        $dir = ([string]$CheckpointDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            try { $dir = Get-OrchestrationGoalCheckpointStoreDir -StoreDir '' } catch { $dir = '' }
+        }
+        if ([string]::IsNullOrWhiteSpace($dir)) { return @{ ok = $false; reason = 'checkpoint-missing' } }
+        $load = $null
+        try { $load = Load-OrchestrationGoalCheckpoint -CheckpointId $cid -StoreDir $dir } catch { $load = $null }
+        if (($null -eq $load) -or (-not [bool](Get-GHWValue $load 'ok' $false))) { return @{ ok = $false; reason = 'checkpoint-missing' } }
+        $resume = $null
+        try { $resume = Test-OrchestrationCheckpointResume -Checkpoint (Get-GHWValue $load 'checkpoint' $null) -GoalStoreDir $GoalStoreDir } catch { $resume = $null }
+        if (($null -eq $resume) -or (-not [bool](Get-GHWValue $resume 'resumable' $false))) { return @{ ok = $false; reason = 'checkpoint-not-resumable' } }
+        return @{ ok = $true; reason = '' }
+    }
+    catch { return @{ ok = $false; reason = 'checkpoint-missing' } }
+}
+
+function Test-GHWakeHandoffTarget {
+    param($NextAction = $null, $Wait = $null)
+    try {
+        if (($null -eq $NextAction) -or ($null -eq $Wait)) { return @{ ok = $false; reason = 'wait-not-found' } }
+        $tidGot = ([string](Get-GHWValue $NextAction 'task_id' '')).Trim()
+        $tidExp = ([string](Get-GHWValue $Wait 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($tidExp) -or ($tidGot -cne $tidExp)) { return @{ ok = $false; reason = 'handoff-task-mismatch' } }
+        $gidGot = ([string](Get-GHWValue $NextAction 'goal_id' '')).Trim()
+        $gidExp = ([string](Get-GHWValue $Wait 'objective_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($gidExp) -or ($gidGot -cne $gidExp)) { return @{ ok = $false; reason = 'handoff-goal-mismatch' } }
+        return @{ ok = $true; reason = '' }
+    }
+    catch { return @{ ok = $false; reason = 'handoff-task-mismatch' } }
+}
+
+function New-GHWakeHandoffClaim {
+    param([string]$MarkerPath = '', [string]$TaskId = '', [string]$DedupKey = '', [string]$EventId = '', [string]$IdempotencyKey = '')
+    try {
+        $marker = ([string]$MarkerPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($marker)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = '' } }
+        $mdir = ''
+        try { $mdir = [IO.Path]::GetDirectoryName($marker) } catch { $mdir = '' }
+        if ((-not [string]::IsNullOrWhiteSpace($mdir)) -and (-not (Test-Path -LiteralPath $mdir -PathType Container))) {
+            try { [void][IO.Directory]::CreateDirectory($mdir) } catch { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+            if (-not (Test-Path -LiteralPath $mdir -PathType Container)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+        }
+        $payload = [ordered]@{ task_id = ([string]$TaskId); wait_dedup_key = ([string]$DedupKey); event_id = ([string]$EventId); idempotency_key = ([string]$IdempotencyKey); status = 'claimed' }
+        $json = ''
+        try { $json = (ConvertTo-Json -InputObject $payload -Depth 4 -Compress) } catch { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+        $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+        $fs = $null
+        try {
+            $fs = [IO.File]::Open($marker, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $fs.Write($bytes, 0, $bytes.Length)
+            $fs.Flush()
+        }
+        catch [IO.IOException] {
+            try { if ($null -ne $fs) { $fs.Dispose() } } catch { }
+            $markerExists = $false
+            try { $markerExists = (Test-Path -LiteralPath $marker -PathType Leaf) } catch { $markerExists = $false }
+            if (-not [bool]$markerExists) {
+                return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker }
+            }
+            $dupReason = 'duplicate-noop'
+            $dupValidated = $false
+            try {
+                if (Test-Path -LiteralPath $marker -PathType Leaf) {
+                    $mdoc = ConvertFrom-Json ([IO.File]::ReadAllText($marker, [Text.Encoding]::UTF8))
+                    $mtask = ([string](Get-GHWValue $mdoc 'task_id' '')).Trim()
+                    $mddk = ([string](Get-GHWValue $mdoc 'wait_dedup_key' '')).Trim()
+                    $mevt = ([string](Get-GHWValue $mdoc 'event_id' '')).Trim()
+                    $midem = ([string](Get-GHWValue $mdoc 'idempotency_key' '')).Trim().ToLowerInvariant()
+                    $mstat = ([string](Get-GHWValue $mdoc 'status' '')).Trim()
+                    $expEvt = ([string]$EventId).Trim()
+                    $expIdem = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+                    if (($mtask -cne ([string]$TaskId)) -or ($mddk -cne ([string]$DedupKey))) { return @{ ok = $false; duplicate = $false; reason = 'idempotency-collision'; path = $marker } }
+                    elseif ([string]::IsNullOrWhiteSpace($expEvt) -or (-not (Test-GHWEventId -Value $expEvt))) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+                    elseif ([string]::IsNullOrWhiteSpace($expIdem) -or ($expIdem -cnotmatch '^[a-f0-9]{32}$')) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+                    elseif ([string]::IsNullOrWhiteSpace($mevt) -or (-not (Test-GHWEventId -Value $mevt)) -or ($mevt -cne $expEvt)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+                    elseif ([string]::IsNullOrWhiteSpace($midem) -or ($midem -cnotmatch '^[a-f0-9]{32}$') -or ($midem -cne $expIdem)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+                    elseif (($mstat -cne 'claimed') -and ($mstat -cne 'dispatched')) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+                    $dupValidated = $true
+                }
+            }
+            catch { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
+            if (-not [bool]$dupValidated) {
+                return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker }
+            }
+            return @{ ok = $true; duplicate = $true; reason = $dupReason; path = $marker }
+        }
+        catch {
+            try { if ($null -ne $fs) { $fs.Dispose() } } catch { }
+            return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker }
+        }
+        try { if ($null -ne $fs) { $fs.Dispose() } } catch { }
+        return @{ ok = $true; duplicate = $false; reason = ''; path = $marker }
+    }
+    catch { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = ([string]$MarkerPath) } }
+}
+
+function Set-GHWakeHandoffDispatched {
+    param([string]$MarkerPath = '', [string]$TaskId = '', [string]$DedupKey = '', [string]$EventId = '', [string]$IdempotencyKey = '')
+    try {
+        $marker = ([string]$MarkerPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($marker)) { return @{ ok = $true; reason = '' } }
+        $payload = [ordered]@{ task_id = ([string]$TaskId); wait_dedup_key = ([string]$DedupKey); event_id = ([string]$EventId); idempotency_key = ([string]$IdempotencyKey); status = 'dispatched' }
+        [IO.File]::WriteAllText($marker, (ConvertTo-Json -InputObject $payload -Depth 4 -Compress), (New-Object Text.UTF8Encoding $false))
+        return @{ ok = $true; reason = '' }
+    }
+    catch { return @{ ok = $false; reason = 'handoff-persist-failed' } }
+}
+
+function Remove-GHWakeHandoffClaim {
+    param([string]$MarkerPath = '')
+    try {
+        $marker = ([string]$MarkerPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($marker)) { return }
+        if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { return }
+        $cur = ConvertFrom-Json ([IO.File]::ReadAllText($marker, [Text.Encoding]::UTF8))
+        if ([string](Get-GHWValue $cur 'status' '') -cne 'claimed') { return }
+        [void](Remove-Item -LiteralPath $marker -Force -ErrorAction Stop)
+    }
+    catch { }
+}
+
+function Invoke-GHWakeControllerHandoff {
+    # IMPLEMENTING alone is never execution: the Kernel BLOCKED->IMPLEMENTING
+    # transition only unblocks the task. executed=$true appears solely when a
+    # controller probe confirms a dispatch in this invocation; a bare
+    # IMPLEMENTING task with no handoff envelope yields no-next-action.
+    [CmdletBinding()]
+    param(
+        $NextAction = $null,
+        [string]$WaitsDir = '',
+        [string]$TasksDir = '',
+        [string]$GoalStoreDir = '',
+        [string]$CheckpointDir = '',
+        [string]$FlagsPath = '',
+        [string]$NowUtc = '',
+        [string]$HandoffStateDir = '',
+        $ObjectiveStepProbe = $null,
+        $NextMoveProbe = $null
+    )
+    $mkResult = {
+        param([bool]$Ok, [bool]$Dispatched, [string]$Decision, [string]$Reason, [string]$Controller, $EchoAction)
+        $tidOut = ''
+        $idemOut = ''
+        try { $tidOut = ([string](Get-GHWValue $EchoAction 'task_id' '')) } catch { $tidOut = '' }
+        try { $idemOut = ([string](Get-GHWValue $EchoAction 'idempotency_key' '')) } catch { $idemOut = '' }
+        return [pscustomobject]@{
+            ok = [bool]$Ok; dispatched = [bool]$Dispatched
+            decision = ([string]$Decision); reason = ([string]$Reason)
+            controller = ([string]$Controller)
+            task_id = $tidOut; idempotency_key = $idemOut
+            kernel_state = 'IMPLEMENTING'; executed = [bool]$Dispatched
+            grants_authority = $false; done_approved = $false; merge_authority = $false
+            next_action = $EchoAction
+        }
+    }
+    try {
+        $shape = Test-GHWakeHandoffShape -NextAction $NextAction
+        if (-not [bool]$shape.ok) {
+            $dec = 'not-dispatched'
+            return (& $mkResult -Ok $false -Dispatched $false -Decision $dec -Reason ([string]$shape.reason) -Controller 'none' -EchoAction $NextAction)
+        }
+        $ddk = ([string](Get-GHWValue $NextAction 'wait_dedup_key' '')).Trim()
+        $evt = ([string](Get-GHWValue $NextAction 'event_id' '')).Trim()
+        $idem = ([string](Get-GHWValue $NextAction 'idempotency_key' '')).Trim().ToLowerInvariant()
+        $waitDoc = Find-GHWakeWaitByDedup -WaitsDir $WaitsDir -DedupKey $ddk
+        if ($null -eq $waitDoc) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'wait-not-found' -Controller 'none' -EchoAction $NextAction)
+        }
+        $genExp = [long]0
+        try { $genExp = [long](Get-GHWValue $waitDoc 'generation' 0) } catch { $genExp = 0 }
+        $genGot = [long](Get-GHWValue $NextAction 'generation' -1)
+        if ($genGot -ne $genExp) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'generation-mismatch' -Controller 'none' -EchoAction $NextAction)
+        }
+        $lownExp = ([string](Get-GHWValue $waitDoc 'lease_owner' '')).Trim()
+        $lownGot = ([string](Get-GHWValue $NextAction 'lease_owner' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($lownExp) -or ($lownGot -cne $lownExp)) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'binding-diverged' -Controller 'none' -EchoAction $NextAction)
+        }
+        $bindRes = $null
+        try { $bindRes = Test-GHWakeHandoffTarget -NextAction $NextAction -Wait $waitDoc } catch { $bindRes = $null }
+        if (($null -eq $bindRes) -or (-not [bool](Get-GHWValue $bindRes 'ok' $false))) {
+            $br = 'handoff-task-mismatch'
+            try {
+                $r0 = ([string](Get-GHWValue $bindRes 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($r0)) { $br = $r0 }
+            }
+            catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $br -Controller 'none' -EchoAction $NextAction)
+        }
+        $bindRes = Test-GHWakeHandoffBinding -Wait $waitDoc -TasksDir $TasksDir
+        if (-not [bool]$bindRes.ok) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason ([string]$bindRes.reason) -Controller 'none' -EchoAction $NextAction)
+        }
+        $hsdEarly = ([string]$HandoffStateDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($hsdEarly)) { $hsdEarly = ([string]$CheckpointDir).Trim() }
+        if ([string]::IsNullOrWhiteSpace($hsdEarly)) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'handoff-persist-failed' -Controller 'none' -EchoAction $NextAction)
+        }
+        $cid = ([string](Get-GHWValue $NextAction 'checkpoint_id' '')).Trim()
+        $ckptRes = Test-GHWakeHandoffCheckpoint -CheckpointId $cid -CheckpointDir $CheckpointDir -GoalStoreDir $GoalStoreDir
+        if (-not [bool]$ckptRes.ok) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason ([string]$ckptRes.reason) -Controller 'none' -EchoAction $NextAction)
+        }
+        $nowObj = Convert-GHWUtc -Value $NowUtc
+        if ($null -eq $nowObj) { $nowObj = [datetime]::UtcNow }
+        $leaseRes = $null
+        try { $leaseRes = Resolve-GHWLeaseAlive -Wait $waitDoc -NowObj $nowObj } catch { $leaseRes = $null }
+        if (($null -eq $leaseRes) -or (-not [bool](Get-GHWValue $leaseRes 'alive' $false))) {
+            $lr = 'lease-expired'
+            try {
+                $r2 = ([string](Get-GHWValue $leaseRes 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($r2)) { $lr = $r2 }
+            }
+            catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $lr -Controller 'none' -EchoAction $NextAction)
+        }
+        $applied = @()
+        try {
+            $rawApplied = Get-GHWValue $waitDoc 'applied_events' $null
+            if ($null -ne $rawApplied) { $applied = @($rawApplied) }
+        }
+        catch { $applied = @() }
+        $seenInWait = $false
+        foreach ($seen in @($applied)) {
+            if ([string]$seen -ceq $evt) { $seenInWait = $true; break }
+        }
+        if ([bool]$seenInWait) {
+            $probeOnly = $false
+            try { if (($null -ne $ObjectiveStepProbe) -or ($null -ne $NextMoveProbe)) { $probeOnly = $true } } catch { $probeOnly = $false }
+            if (-not [bool]$probeOnly) {
+                return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'duplicate-noop' -Controller 'none' -EchoAction $NextAction)
+            }
+        }
+        $hsd = ([string]$HandoffStateDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($hsd)) { $hsd = ([string]$CheckpointDir).Trim() }
+        $marker = ''
+        if (-not [string]::IsNullOrWhiteSpace($hsd)) {
+            $marker = Join-Path $hsd ('ghw-handoff-' + $idem + '.json')
+        }
+        $tidClaim = ([string](Get-GHWValue $NextAction 'task_id' ''))
+        $claimOnce = {
+            $cc = $null
+            try { $cc = New-GHWakeHandoffClaim -MarkerPath $marker -TaskId $tidClaim -DedupKey $ddk -EventId $evt -IdempotencyKey $idem } catch { $cc = $null }
+            if (($null -eq $cc) -or (-not [bool](Get-GHWValue $cc 'ok' $false))) {
+                $failReason = 'handoff-persist-failed'
+                try {
+                    $ft = ([string](Get-GHWValue $cc 'reason' ''))
+                    if ($ft -ceq 'idempotency-collision') { $failReason = $ft }
+                }
+                catch { }
+                return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $failReason -Controller 'none' -EchoAction $NextAction)
+            }
+            if ([bool](Get-GHWValue $cc 'duplicate' $false)) {
+                $drr = 'duplicate-noop'
+                try {
+                    $t = ([string](Get-GHWValue $cc 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($t)) { $drr = $t }
+                }
+                catch { }
+                return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $drr -Controller 'none' -EchoAction $NextAction)
+            }
+            return $null
+        }
+        $ctrlName = 'none'
+        $ctrlOut = $null
+        if ($null -ne $ObjectiveStepProbe) {
+            $ctrlName = 'objective-step-probe'
+            $gate = (& $claimOnce)
+            if ($null -ne $gate) { return $gate }
+            try { $ctrlOut = & $ObjectiveStepProbe $NextAction } catch { $ctrlOut = $null }
+            if ($null -eq $ctrlOut) {
+                try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+                return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-failed' -Controller $ctrlName -EchoAction $NextAction)
+            }
+            $okProbe = $false
+            try { $okProbe = [bool](Get-GHWValue $ctrlOut 'dispatched' (Get-GHWValue $ctrlOut 'ok' $false)) } catch { $okProbe = $false }
+            if ([bool]$okProbe) {
+                if (-not [string]::IsNullOrWhiteSpace($marker)) {
+                    $fin = $null
+                    try { $fin = Set-GHWakeHandoffDispatched -MarkerPath $marker -TaskId ([string](Get-GHWValue $NextAction 'task_id' '')) -DedupKey $ddk -EventId $evt -IdempotencyKey $idem } catch { $fin = $null }
+                    if (($null -eq $fin) -or (-not [bool](Get-GHWValue $fin 'ok' $false))) {
+                        return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'handoff-persist-failed' -Controller $ctrlName -EchoAction $NextAction)
+                    }
+                }
+                return (& $mkResult -Ok $true -Dispatched $true -Decision 'dispatched' -Reason 'controller-dispatched' -Controller $ctrlName -EchoAction $NextAction)
+            }
+            $pr = 'controller-declined'
+            try {
+                $rr = ([string](Get-GHWValue $ctrlOut 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($rr)) { $pr = $rr }
+            }
+            catch { }
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pr -Controller $ctrlName -EchoAction $NextAction)
+        }
+        if ($null -ne $NextMoveProbe) {
+            $ctrlName = 'next-move-probe'
+            $gate2 = (& $claimOnce)
+            if ($null -ne $gate2) { return $gate2 }
+            try { $ctrlOut = & $NextMoveProbe $NextAction } catch { $ctrlOut = $null }
+            if ($null -eq $ctrlOut) {
+                try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+                return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-failed' -Controller $ctrlName -EchoAction $NextAction)
+            }
+            $okProbe2 = $false
+            try { $okProbe2 = [bool](Get-GHWValue $ctrlOut 'dispatched' (Get-GHWValue $ctrlOut 'ok' $false)) } catch { $okProbe2 = $false }
+            if ([bool]$okProbe2) {
+                if (-not [string]::IsNullOrWhiteSpace($marker)) {
+                    $fin2 = $null
+                    try { $fin2 = Set-GHWakeHandoffDispatched -MarkerPath $marker -TaskId ([string](Get-GHWValue $NextAction 'task_id' '')) -DedupKey $ddk -EventId $evt -IdempotencyKey $idem } catch { $fin2 = $null }
+                    if (($null -eq $fin2) -or (-not [bool](Get-GHWValue $fin2 'ok' $false))) {
+                        return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'handoff-persist-failed' -Controller $ctrlName -EchoAction $NextAction)
+                    }
+                }
+                return (& $mkResult -Ok $true -Dispatched $true -Decision 'dispatched' -Reason 'controller-dispatched' -Controller $ctrlName -EchoAction $NextAction)
+            }
+            $pr2 = 'controller-declined'
+            try {
+                $rr2 = ([string](Get-GHWValue $ctrlOut 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($rr2)) { $pr2 = $rr2 }
+            }
+            catch { }
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pr2 -Controller $ctrlName -EchoAction $NextAction)
+        }
+        $gid = ([string](Get-GHWValue $NextAction 'goal_id' '')).Trim()
+        $gCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
+        $nCmd = Get-Command Get-OrchestrationGoalNextMove -ErrorAction SilentlyContinue
+        if (($null -eq $gCmd) -or ($null -eq $nCmd)) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-unavailable' -Controller 'goal-next-move' -EchoAction $NextAction)
+        }
+        $gslot = $null
+        try { $gslot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $gslot = $null }
+        if (($null -eq $gslot) -or (-not [bool](Get-GHWValue $gslot 'ok' $false))) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'goal-unreadable' -Controller 'goal-next-move' -EchoAction $NextAction)
+        }
+        $mslot = $null
+        try { $mslot = Get-OrchestrationGoalNextMove -Goal (Get-GHWValue $gslot 'goal' $null) } catch { $mslot = $null }
+        if (($null -eq $mslot) -or (-not [bool](Get-GHWValue $mslot 'ok' $false))) {
+            $mr = 'next-move-failed'
+            try {
+                $r3 = ([string](Get-GHWValue $mslot 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($r3)) { $mr = $r3 }
+            }
+            catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $mr -Controller 'goal-next-move' -EchoAction $NextAction)
+        }
+        return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'awaits-planner-dispatch' -Controller 'goal-next-move' -EchoAction $NextAction)
+    }
+    catch {
+        try { return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'internal-error' -Controller 'none' -EchoAction $NextAction) } catch { return $null }
+    }
+}
+
+function Resolve-GHWLeaseAlive {
+    param($Wait = $null, $NowObj = $null)
+    try {
+        if ($null -eq $Wait) { return @{ alive = $false; reason = 'lease-expired' } }
+        $exp = Convert-GHWUtc -Value (Get-GHWValue $Wait 'lease_expires_utc' $null)
+        if ($null -eq $exp) { return @{ alive = $false; reason = 'lease-expired' } }
+        $now = $NowObj
+        if ($null -eq $now) { $now = [datetime]::UtcNow }
+        try { $now = ([datetime]$now).ToUniversalTime() } catch { $now = [datetime]::UtcNow }
+        if ($now -gt $exp) { return @{ alive = $false; reason = 'lease-expired' } }
+        $dl = Convert-GHWUtc -Value (Get-GHWValue $Wait 'deadline_utc' $null)
+        if (($null -ne $dl) -and ($now -gt $dl)) { return @{ alive = $false; reason = 'wait-expired' } }
+        return @{ alive = $true; reason = '' }
+    }
+    catch { return @{ alive = $false; reason = 'lease-expired' } }
+}
+
+function Test-GHWFallbackOwner {
+    param([string]$Value = '')
+    try {
+        $v = ([string]$Value).Trim()
+        if ([string]::IsNullOrWhiteSpace($v)) { return $false }
+        if ($v.Length -gt 128) { return $false }
+        return ($v -cmatch '^[A-Za-z0-9._:-]{1,128}$')
+    }
+    catch { return $false }
+}
+
+function Resolve-GHWOwnerAlive {
+    param($Wait = $null, [string]$TasksDir = '')
+    try {
+        if ($null -eq $Wait) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $own = ([string](Get-GHWValue $Wait 'owner' '')).Trim()
+        $lown = ([string](Get-GHWValue $Wait 'lease_owner' '')).Trim()
+        $okOwn = $false
+        $okLease = $false
+        try {
+            if ($null -ne (Get-Command Test-GHRSOwner -ErrorAction SilentlyContinue)) {
+                $okOwn = [bool](Test-GHRSOwner -Value $own)
+                $okLease = [bool](Test-GHRSOwner -Value $lown)
+            }
+            else {
+                $okOwn = [bool](Test-GHWFallbackOwner -Value $own)
+                $okLease = [bool](Test-GHWFallbackOwner -Value $lown)
+            }
+        }
+        catch { return @{ alive = $false; reason = 'owner-mismatch' } }
+        if ((-not [bool]$okOwn) -or (-not [bool]$okLease)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $td = ([string]$TasksDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($td)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $tid = ([string](Get-GHWValue $Wait 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $task = $null
+        try { $task = Get-OrchestrationTask -TaskId $tid -TasksDir $td } catch { $task = $null }
+        if ($null -eq $task) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        try {
+            if ($task -is [System.Collections.IDictionary]) {
+                if ($task.Contains('error')) { return @{ alive = $false; reason = 'owner-mismatch' } }
+            }
+            else {
+                $ep = $task.PSObject.Properties['error']
+                if ($null -ne $ep) { return @{ alive = $false; reason = 'owner-mismatch' } }
+            }
+        }
+        catch { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $aw = $null
+        try {
+            if ($task -is [System.Collections.IDictionary]) {
+                if ($task.Contains('active_wait')) { $aw = $task['active_wait'] }
+            }
+            else {
+                $ap = $task.PSObject.Properties['active_wait']
+                if ($null -ne $ap) { $aw = $ap.Value }
+            }
+        }
+        catch { $aw = $null }
+        $expOwn = $own
+        $expLease = $lown
+        try {
+            if ($null -ne (Get-Command Protect-TaskKernelText -ErrorAction SilentlyContinue)) {
+                $expOwn = [string](Protect-TaskKernelText -Text $own)
+                $expLease = [string](Protect-TaskKernelText -Text $lown)
+            }
+            else { return @{ alive = $false; reason = 'owner-mismatch' } }
+        }
+        catch { return @{ alive = $false; reason = 'owner-mismatch' } }
+        if (($null -ne $aw) -and ($aw -is [System.Collections.IDictionary])) {
+            $awOwner = ''
+            try {
+                if ($aw.Contains('owner')) { $awOwner = ([string]$aw['owner']) }
+            }
+            catch { return @{ alive = $false; reason = 'owner-mismatch' } }
+            if ([string]::IsNullOrWhiteSpace($awOwner)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+            if (($awOwner -cne $expOwn) -or ($awOwner -cne $expLease)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+            return @{ alive = $true; reason = '' }
+        }
+        # Post-unblock reconcile: the Kernel archives active_wait into
+        # wait_history on BLOCKED->IMPLEMENTING (active_wait becomes null).
+        # The wait file may still be unconfirmed; owner liveness then comes
+        # from the newest archived entry tied to THIS wait (fingerprint),
+        # never from shape alone.
+        $wh = @()
+        try {
+            if ($task -is [System.Collections.IDictionary]) {
+                if ($task.Contains('wait_history') -and ($null -ne $task['wait_history'])) { $wh = @($task['wait_history']) }
+            }
+            else {
+                $hp = $task.PSObject.Properties['wait_history']
+                if (($null -ne $hp) -and ($null -ne $hp.Value)) { $wh = @($hp.Value) }
+            }
+        }
+        catch { $wh = @() }
+        if (@($wh).Count -eq 0) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $last = @($wh)[@($wh).Count - 1]
+        if (($null -eq $last) -or (-not ($last -is [System.Collections.IDictionary]))) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $histOwner = ''
+        $histFp = ''
+        try {
+            if ($last.Contains('owner')) { $histOwner = ([string]$last['owner']) }
+            if ($last.Contains('fingerprint')) { $histFp = ([string]$last['fingerprint']) }
+        }
+        catch { return @{ alive = $false; reason = 'owner-mismatch' } }
+        if ([string]::IsNullOrWhiteSpace($histOwner) -or [string]::IsNullOrWhiteSpace($histFp)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        if (($histOwner -cne $expOwn) -or ($histOwner -cne $expLease)) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        $fpOk = $false
+        try {
+            if ($null -ne (Get-Command Get-OrchestrationWaitFingerprint -ErrorAction SilentlyContinue)) {
+                $wRepo = ([string](Get-GHWValue $Wait 'repository' '')).Trim().ToLowerInvariant()
+                $wPr = 0
+                try { $wPr = [long](Get-GHWValue $Wait 'pr_number' 0) } catch { $wPr = 0 }
+                $wSha = ([string](Get-GHWValue $Wait 'expected_head_sha' '')).Trim().ToLowerInvariant()
+                $wDep = ('github-ci:v1:' + $wRepo + ':' + [string]$wPr + ':' + $wSha)
+                $slot = Get-OrchestrationWaitFingerprint -Type 'external_dependency' -Owner $own -Action 'revalidate-github-ci' -DependencyId $wDep
+                if (($null -ne $slot) -and [bool](Get-GHWValue $slot 'ok' $false)) {
+                    $expFp = ([string](Get-GHWValue $slot 'fingerprint' ''))
+                    if ((-not [string]::IsNullOrWhiteSpace($expFp)) -and ($histFp -ceq $expFp)) { $fpOk = $true }
+                }
+            }
+        }
+        catch { $fpOk = $false }
+        if (-not [bool]$fpOk) { return @{ alive = $false; reason = 'owner-mismatch' } }
+        return @{ alive = $true; reason = '' }
+    }
+    catch { return @{ alive = $false; reason = 'owner-mismatch' } }
+}
+
+function Resolve-GHWAuthorizationAlive {
+    param([string]$ActorIdentitySource = '', [string]$FlagsPath = '', [string]$AuthorizationProofPath = '')
+    try {
+        $src = ([string]$ActorIdentitySource).Trim()
+        if ([string]::IsNullOrWhiteSpace($src)) { $src = 'explicit-cli' }
+        $trusted = $false
+        try { $trusted = [bool](Test-OrchestrationActorIdentitySource -Source $src) } catch { $trusted = $false }
+        if (-not [bool]$trusted) { return @{ alive = $false; reason = 'authorization-revoked' } }
+        $pp = ([string]$AuthorizationProofPath).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($pp)) {
+            try {
+                if (-not (Test-Path -LiteralPath $pp -PathType Leaf)) { return @{ alive = $false; reason = 'authorization-revoked' } }
+                $fi = Get-Item -LiteralPath $pp -Force
+                if ([long]$fi.Length -le 0 -or [long]$fi.Length -gt 262144) { return @{ alive = $false; reason = 'authorization-revoked' } }
+                $doc = ConvertFrom-Json ([IO.File]::ReadAllText($pp, [Text.Encoding]::UTF8))
+                if ($null -eq $doc) { return @{ alive = $false; reason = 'authorization-revoked' } }
+                $v = $null
+                $present = $false
+                if ($doc -is [System.Collections.IDictionary]) {
+                    if ($doc.Contains('authorization_alive')) { $v = $doc['authorization_alive']; $present = $true }
+                }
+                else {
+                    $p = $doc.PSObject.Properties['authorization_alive']
+                    if ($null -ne $p) { $v = $p.Value; $present = $true }
+                }
+                if ((-not [bool]$present) -or (-not ($v -is [bool])) -or (-not [bool]$v)) { return @{ alive = $false; reason = 'authorization-revoked' } }
+                $ps = $null
+                $psPresent = $false
+                try {
+                    if ($doc -is [System.Collections.IDictionary]) {
+                        if ($doc.Contains('actor_identity_source')) { $ps = $doc['actor_identity_source']; $psPresent = $true }
+                    }
+                    else {
+                        $q = $doc.PSObject.Properties['actor_identity_source']
+                        if ($null -ne $q) { $ps = $q.Value; $psPresent = $true }
+                    }
+                }
+                catch { $psPresent = $false }
+                if ([bool]$psPresent -and ($null -ne $ps) -and ($ps -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$ps))) {
+                    if ([string]$ps -cne $src) { return @{ alive = $false; reason = 'authorization-revoked' } }
+                    $pt = $false
+                    try { $pt = [bool](Test-OrchestrationActorIdentitySource -Source ([string]$ps)) } catch { $pt = $false }
+                    if (-not [bool]$pt) { return @{ alive = $false; reason = 'authorization-revoked' } }
+                }
+                return @{ alive = $true; reason = '' }
+            }
+            catch { return @{ alive = $false; reason = 'authorization-revoked' } }
+        }
+        $fp = ([string]$FlagsPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($fp)) { return @{ alive = $false; reason = 'authorization-revoked' } }
+        $flagsEnabled = $false
+        try {
+            if ($null -ne (Get-Command Get-TaskKernelFlagState -ErrorAction SilentlyContinue)) {
+                $st = Get-TaskKernelFlagState -FlagsPath $fp
+                try { $flagsEnabled = [bool](Get-GHWValue $st 'enabled' $false) } catch { $flagsEnabled = $false }
+            }
+            else {
+                $doc = Read-GHWJsonFile -Path $fp
+                if ($null -ne $doc) {
+                    $tk = Get-GHWValue $doc 'task_kernel' $null
+                    if ($null -ne $tk) { $flagsEnabled = [bool](Get-GHWValue $tk 'enabled' $false) }
+                }
+            }
+        }
+        catch { $flagsEnabled = $false }
+        if (-not [bool]$flagsEnabled) { return @{ alive = $false; reason = 'authorization-revoked' } }
+        return @{ alive = $true; reason = '' }
+    }
+    catch { return @{ alive = $false; reason = 'authorization-revoked' } }
+}
+
+function Resolve-GHWExecutorAlive {
+    param([string]$ExecutorProofPath = '', [string]$NowUtc = '', $MaxAgeSeconds = 300)
+    try {
+        $pp = ([string]$ExecutorProofPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($pp)) { return @{ alive = $false; reason = 'no-executor' } }
+        try {
+            if (-not (Test-Path -LiteralPath $pp -PathType Leaf)) { return @{ alive = $false; reason = 'no-executor' } }
+            $fi = Get-Item -LiteralPath $pp -Force
+            if ([long]$fi.Length -le 0 -or [long]$fi.Length -gt 262144) { return @{ alive = $false; reason = 'no-executor' } }
+            $doc = ConvertFrom-Json ([IO.File]::ReadAllText($pp, [Text.Encoding]::UTF8))
+            if ($null -eq $doc) { return @{ alive = $false; reason = 'no-executor' } }
+            $v = $null
+            $present = $false
+            if ($doc -is [System.Collections.IDictionary]) {
+                if ($doc.Contains('executor_present')) { $v = $doc['executor_present']; $present = $true }
+            }
+            else {
+                $p = $doc.PSObject.Properties['executor_present']
+                if ($null -ne $p) { $v = $p.Value; $present = $true }
+            }
+            if ((-not [bool]$present) -or (-not ($v -is [bool])) -or (-not [bool]$v)) { return @{ alive = $false; reason = 'no-executor' } }
+            $obsRaw = $null
+            $obsPresent = $false
+            try {
+                if ($doc -is [System.Collections.IDictionary]) {
+                    if ($doc.Contains('observed_at')) { $obsRaw = $doc['observed_at']; $obsPresent = $true }
+                }
+                else {
+                    $q = $doc.PSObject.Properties['observed_at']
+                    if ($null -ne $q) { $obsRaw = $q.Value; $obsPresent = $true }
+                }
+            }
+            catch { $obsPresent = $false }
+            if ([bool]$obsPresent -and ($null -ne $obsRaw)) {
+                $obs = Convert-GHWUtc -Value $obsRaw
+                $now = Convert-GHWUtc -Value ([string]$NowUtc)
+                if (($null -eq $obs) -or ($null -eq $now)) { return @{ alive = $false; reason = 'no-executor' } }
+                $cap = 300
+                try { if (($MaxAgeSeconds -is [int]) -or ($MaxAgeSeconds -is [long])) { $cap = [long]$MaxAgeSeconds } } catch { $cap = 300 }
+                if (($now - $obs).TotalSeconds -gt [double]$cap) { return @{ alive = $false; reason = 'no-executor' } }
+                $skew = 60
+                if (($obs - $now).TotalSeconds -gt [double]$skew) { return @{ alive = $false; reason = 'executor-proof-future' } }
+            }
+            return @{ alive = $true; reason = '' }
+        }
+        catch { return @{ alive = $false; reason = 'no-executor' } }
+    }
+    catch { return @{ alive = $false; reason = 'no-executor' } }
+}
+
 function Invoke-GitHubWake {
     [CmdletBinding()]
     param(
@@ -390,6 +1234,12 @@ function Invoke-GitHubWake {
         [bool]$AuthorizationAlive = $false,
         [bool]$ExecutorPresent = $false,
         [bool]$CancelRequested = $false,
+        [bool]$ResolveAuthorization = $false,
+        [bool]$ResolveExecutor = $false,
+        [bool]$ResolveOwner = $false,
+        [bool]$ResolveLease = $false,
+        [string]$AuthorizationProofPath = '',
+        [string]$ExecutorProofPath = '',
         [int]$MaxApiAttempts = 3,
         [int]$TimeoutMs = 10000
     )
@@ -419,6 +1269,22 @@ function Invoke-GitHubWake {
         $nowObj = Convert-GHWUtc -Value $NowUtc
         if ($null -eq $nowObj) { $nowObj = [datetime]::UtcNow }
         $nowStr = ([datetime]$nowObj).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $ghwResolvedAuth = [bool]$AuthorizationAlive
+        if ((-not $ghwResolvedAuth) -and [bool]$ResolveAuthorization) {
+            $ghwAuthRes = $null
+            try { $ghwAuthRes = Resolve-GHWAuthorizationAlive -ActorIdentitySource ([string]$ActorIdentitySource) -FlagsPath ([string]$FlagsPath) -AuthorizationProofPath ([string]$AuthorizationProofPath) } catch { $ghwAuthRes = $null }
+            $ghwAuthOk = $false
+            try { if (($null -ne $ghwAuthRes) -and [bool](Get-GHWValue $ghwAuthRes 'alive' $false)) { $ghwAuthOk = $true } } catch { $ghwAuthOk = $false }
+            $ghwResolvedAuth = [bool]$ghwAuthOk
+        }
+        $ghwResolvedExec = [bool]$ExecutorPresent
+        if ((-not $ghwResolvedExec) -and [bool]$ResolveExecutor) {
+            $ghwExecRes = $null
+            try { $ghwExecRes = Resolve-GHWExecutorAlive -ExecutorProofPath ([string]$ExecutorProofPath) -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds } catch { $ghwExecRes = $null }
+            $ghwExecOk = $false
+            try { if (($null -ne $ghwExecRes) -and [bool](Get-GHWValue $ghwExecRes 'alive' $false)) { $ghwExecOk = $true } } catch { $ghwExecOk = $false }
+            $ghwResolvedExec = [bool]$ghwExecOk
+        }
         $waits = @()
         try { $waits = @(Get-GHWValue $lw 'waits' @()) } catch { $waits = @() }
         foreach ($w in @($waits)) {
@@ -488,12 +1354,24 @@ function Invoke-GitHubWake {
                 foreach ($seen in @($applied)) {
                     if ([string]$seen -ceq $evt) { $already = $true; break }
                 }
+                $leaseAlive = $false
+                try {
+                    $ghwLeaseRes = Resolve-GHWLeaseAlive -Wait $w -NowObj $nowObj
+                    if (($null -ne $ghwLeaseRes) -and [bool](Get-GHWValue $ghwLeaseRes 'alive' $false)) { $leaseAlive = $true }
+                }
+                catch { $leaseAlive = $false }
+                $ownerAlive = $false
+                try {
+                    $ghwOwnerRes = Resolve-GHWOwnerAlive -Wait $w -TasksDir ([string]$TasksDir)
+                    if (($null -ne $ghwOwnerRes) -and [bool](Get-GHWValue $ghwOwnerRes 'alive' $false)) { $ownerAlive = $true }
+                }
+                catch { $ownerAlive = $false }
                 if ([bool]$already) {
                     $dec = $null
                     try {
                         $dec = Test-OrchestrationGitHubResume -Wait $w -Snapshot $null -Policy $Policy `
-                            -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $true `
-                            -OwnerAlive $true -AuthorizationAlive $true `
+                            -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $leaseAlive `
+                            -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                             -ExecutorPresent $false -CancelRequested $false `
                             -AlreadyApplied $true -EventDedupKey ''
                     }
@@ -535,12 +1413,7 @@ function Invoke-GitHubWake {
                                 $recResume = $null
                                 try { $recResume = Test-OrchestrationCheckpointResume -Checkpoint (Get-GHWValue $recLoad 'checkpoint' $null) -GoalStoreDir $GoalStoreDir } catch { $recResume = $null }
                                 if (($null -ne $recResume) -and [bool](Get-GHWValue $recResume 'resumable' $false)) {
-                                    $recLease = $true
-                                    try {
-                                        $recLeaseExp = Convert-GHWUtc -Value (Get-GHWValue $w 'lease_expires_utc' $null)
-                                        if (($null -ne $recLeaseExp) -and ($nowObj -gt $recLeaseExp)) { $recLease = $false }
-                                    }
-                                    catch { $recLease = $true }
+                                    $recLease = [bool]$leaseAlive
                                     $recRepo = ([string](Get-GHWValue $w 'repository' '')).Trim().ToLowerInvariant()
                                     $recPr = [long]0
                                     try { $recPr = [long](Get-GHWValue $w 'pr_number' 0) } catch { $recPr = 0 }
@@ -553,8 +1426,8 @@ function Invoke-GitHubWake {
                                         try {
                                             $recDec = Test-OrchestrationGitHubResume -Wait $w -Snapshot $recSnap -Policy $Policy `
                                                 -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $recLease `
-                                                -OwnerAlive $true -AuthorizationAlive ([bool]$AuthorizationAlive) `
-                                                -ExecutorPresent ([bool]$ExecutorPresent) -CancelRequested ([bool]$CancelRequested) `
+                                                -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
+                                                -ExecutorPresent $ghwResolvedExec -CancelRequested ([bool]$CancelRequested) `
                                                 -AlreadyApplied $false -EventDedupKey $ddk
                                         }
                                         catch { $recDec = $null }
@@ -588,12 +1461,7 @@ function Invoke-GitHubWake {
                                                 $rec['confirm_reason'] = 'duplicate-suppressed'
                                                 $rec['kernel'] = 'unblocked'
                                                 $rec['kernel_mutated'] = $true
-                                                $nextAction = [pscustomobject]@{
-                                                    task_id = $tid; checkpoint_id = $recCid
-                                                    goal_id = $recObj; wait_dedup_key = $ddk
-                                                    kernel_state = 'IMPLEMENTING'
-                                                    announce = ('next-action task=' + $tid + ' checkpoint=' + $recCid)
-                                                }
+                                                $nextAction = New-GHWakeNextAction -Wait $w -TaskId $tid -CheckpointId $recCid -GoalId $recObj -EventId $evt
                                                 [void]$items.Add([pscustomobject]$rec)
                                                 $recovered = $true
                                             }
@@ -697,12 +1565,9 @@ function Invoke-GitHubWake {
                         continue
                     }
                 }
-                $leaseAlive = $true
-                try {
-                    $leaseExp = Convert-GHWUtc -Value (Get-GHWValue $w 'lease_expires_utc' $null)
-                    if (($null -ne $leaseExp) -and ($nowObj -gt $leaseExp)) { $leaseAlive = $false }
-                }
-                catch { $leaseAlive = $true }
+                # $leaseAlive/$ownerAlive already resolved per wait above
+                # (Resolve-GHWLeaseAlive / Resolve-GHWOwnerAlive); no
+                # hardcoded true here.
                 $repo = ([string](Get-GHWValue $w 'repository' '')).Trim().ToLowerInvariant()
                 $prNum = [long]0
                 try { $prNum = [long](Get-GHWValue $w 'pr_number' 0) } catch { $prNum = 0 }
@@ -740,8 +1605,8 @@ function Invoke-GitHubWake {
                 try {
                     $dec = Test-OrchestrationGitHubResume -Wait $w -Snapshot $snap -Policy $Policy `
                         -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $leaseAlive `
-                        -OwnerAlive $true -AuthorizationAlive ([bool]$AuthorizationAlive) `
-                        -ExecutorPresent ([bool]$ExecutorPresent) -CancelRequested ([bool]$CancelRequested) `
+                        -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
+                        -ExecutorPresent $ghwResolvedExec -CancelRequested ([bool]$CancelRequested) `
                         -AlreadyApplied $false -EventDedupKey $ddk
                 }
                 catch { $dec = $null }
@@ -791,12 +1656,7 @@ function Invoke-GitHubWake {
                         $rec['kernel_mutated'] = $false
                         $rec['reason'] = 'reconciled-pending-confirm'
                         $rec['notify'] = ('RESUME ' + $tid + ' reason=reconciled-pending-confirm')
-                        $nextAction = [pscustomobject]@{
-                            task_id = $tid; checkpoint_id = $cid
-                            goal_id = $objectiveId; wait_dedup_key = $ddk
-                            kernel_state = 'IMPLEMENTING'
-                            announce = ('next-action task=' + $tid + ' checkpoint=' + $cid)
-                        }
+                        $nextAction = New-GHWakeNextAction -Wait $w -TaskId $tid -CheckpointId $cid -GoalId $objectiveId -EventId $evt
                         [void]$items.Add([pscustomobject]$rec)
                         continue
                     }
@@ -856,12 +1716,7 @@ function Invoke-GitHubWake {
                     $anyResume = $true
                     $rec['kernel'] = 'unblocked'
                     $rec['kernel_mutated'] = $true
-                    $nextAction = [pscustomobject]@{
-                        task_id = $tid; checkpoint_id = $cid
-                        goal_id = $objectiveId; wait_dedup_key = $ddk
-                        kernel_state = 'IMPLEMENTING'
-                        announce = ('next-action task=' + $tid + ' checkpoint=' + $cid)
-                    }
+                    $nextAction = New-GHWakeNextAction -Wait $w -TaskId $tid -CheckpointId $cid -GoalId $objectiveId -EventId $evt
                 }
             }
             catch {
@@ -929,6 +1784,12 @@ function New-GitHubWakeConfig {
         [bool]$AuthorizationAlive = $false,
         [bool]$ExecutorPresent = $false,
         [bool]$CancelRequested = $false,
+        [bool]$ResolveAuthorization = $false,
+        [bool]$ResolveExecutor = $false,
+        [bool]$ResolveOwner = $false,
+        [bool]$ResolveLease = $false,
+        [string]$AuthorizationProofPath = '',
+        [string]$ExecutorProofPath = '',
         $MaxApiAttempts = 3,
         $TimeoutMs = 10000,
         [string]$OutFile = ''
@@ -954,10 +1815,19 @@ function New-GitHubWakeConfig {
             authorization_alive = $false; executor_present = $false
             cancel_requested = $false; max_api_attempts = $maxApi
             timeout_ms = $toMs; out_file = ([string]$OutFile)
+            resolve_authorization = [bool]$ResolveAuthorization
+            resolve_executor = [bool]$ResolveExecutor
+            resolve_owner = [bool]$ResolveOwner
+            resolve_lease = [bool]$ResolveLease
+            authorization_proof_path = ([string]$AuthorizationProofPath)
+            executor_proof_path = ([string]$ExecutorProofPath)
         }
         # Fail-closed: per-run authorization flags are NEVER persisted as
         # authority. Even when callers pass true, the config stores false;
-        # live CLI switches must supply the current values each execution.
+        # live CLI switches (or opt-in resolvers with proof paths) must
+        # supply the current values each execution. resolve_* and
+        # *_proof_path entries are resolver opt-ins, not authority: they
+        # only allow the tick to consult live sources, never true by fiat.
         $json = ConvertTo-Json -InputObject $doc -Depth 4 -Compress
         $dir = [IO.Path]::GetDirectoryName($p)
         if (-not [string]::IsNullOrWhiteSpace($dir)) {
@@ -984,7 +1854,9 @@ function Get-GHWSchtasksXml {
     )
     try {
         $psExe = (Join-Path ([string]$env:windir) 'System32\WindowsPowerShell\v1.0\powershell.exe')
-        $start = ([datetime]::UtcNow.AddMinutes(2)).ToString('yyyy-MM-ddTHH:mm:ss')
+        # Scheduler parses StartBoundary as LOCAL time (no zone suffix): UtcNow
+        # on a UTC-3 host fired ~3h late in live proof (LIVE-6D-PROOF DEVIATION-2).
+        $start = ([datetime]::Now.AddMinutes(2)).ToString('yyyy-MM-ddTHH:mm:ss')
         $args = ('-NoProfile -ExecutionPolicy Bypass -File "' + ([string]$WakeScript) + '" -ConfigFile "' + ([string]$ConfigFile) + '"')
         $xml = ('<?xml version="1.0" encoding="UTF-16"?>' + "`r`n")
         $xml += ('<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' + "`r`n")
@@ -1014,7 +1886,6 @@ function Get-GHWSchtasksXml {
         $xml += ('    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' + "`r`n")
         $xml += ('    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' + "`r`n")
         $xml += ('    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' + "`r`n")
-        $xml += ('    <AllowStartIfOnBatteries>true</AllowStartIfOnBatteries>' + "`r`n")
         $xml += ('    <StartWhenAvailable>true</StartWhenAvailable>' + "`r`n")
         $xml += ('    <AllowStartOnDemand>true</AllowStartOnDemand>' + "`r`n")
         $xml += ('    <Enabled>true</Enabled>' + "`r`n")
@@ -1297,6 +2168,12 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         $effAuth = [bool]$AuthorizationAlive
         $effExec = [bool]$ExecutorPresent
         $effCancel = [bool]$CancelRequested
+        $effResolveAuth = [bool]$ResolveAuthorization
+        $effResolveExec = [bool]$ResolveExecutor
+        $effResolveOwner = [bool]$ResolveOwner
+        $effResolveLease = [bool]$ResolveLease
+        $effAuthProof = ([string]$AuthorizationProofPath).Trim()
+        $effExecProof = ([string]$ExecutorProofPath).Trim()
         $effMaxAge = $MaxAgeSeconds
         $effMaxApi = $MaxApiAttempts
         $effTimeout = $TimeoutMs
@@ -1318,10 +2195,43 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             if ([string]::IsNullOrWhiteSpace($effNow)) { $effNow = ([string](Get-GHWValue $cfgDoc 'now_utc' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effActor)) { $effActor = ([string](Get-GHWValue $cfgDoc 'actor_identity_source' 'explicit-cli')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effOut)) { $effOut = ([string](Get-GHWValue $cfgDoc 'out_file' '')).Trim() }
+            if ([string]::IsNullOrWhiteSpace($effAuthProof)) { $effAuthProof = ([string](Get-GHWValue $cfgDoc 'authorization_proof_path' '')).Trim() }
+            if ([string]::IsNullOrWhiteSpace($effExecProof)) { $effExecProof = ([string](Get-GHWValue $cfgDoc 'executor_proof_path' '')).Trim() }
+            if (-not $effResolveAuth) {
+                try {
+                    $ghwRv = Get-GHWValue $cfgDoc 'resolve_authorization' $false
+                    if (($ghwRv -is [bool]) -and [bool]$ghwRv) { $effResolveAuth = $true }
+                }
+                catch { $effResolveAuth = $false }
+            }
+            if (-not $effResolveExec) {
+                try {
+                    $ghwRv = Get-GHWValue $cfgDoc 'resolve_executor' $false
+                    if (($ghwRv -is [bool]) -and [bool]$ghwRv) { $effResolveExec = $true }
+                }
+                catch { $effResolveExec = $false }
+            }
+            if (-not $effResolveOwner) {
+                try {
+                    $ghwRv = Get-GHWValue $cfgDoc 'resolve_owner' $false
+                    if (($ghwRv -is [bool]) -and [bool]$ghwRv) { $effResolveOwner = $true }
+                }
+                catch { $effResolveOwner = $false }
+            }
+            if (-not $effResolveLease) {
+                try {
+                    $ghwRv = Get-GHWValue $cfgDoc 'resolve_lease' $false
+                    if (($ghwRv -is [bool]) -and [bool]$ghwRv) { $effResolveLease = $true }
+                }
+                catch { $effResolveLease = $false }
+            }
             # Fail-closed: per-run authorization flags come ONLY from live CLI
             # switches (defaults false). Config values are never promoted to
-            # true; a run without explicit -AuthorizationAlive ends in
-            # TERMINAL authorization-revoked, never RESUME.
+            # true; a run without explicit -AuthorizationAlive (and without
+            # opt-in -ResolveAuthorization plus a live proof source) ends in
+            # TERMINAL authorization-revoked, never RESUME. The config may
+            # only carry resolver opt-ins (resolve_* plus *_proof_path);
+            # resolve opt-ins consult live sources, they are not authority.
         }
         if ([string]::IsNullOrWhiteSpace($effWaitsDir) -or (-not (Test-Path -LiteralPath $effWaitsDir -PathType Container))) {
             Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-waits-dir')
@@ -1384,6 +2294,9 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
                 -Policy $polRes.policy -GraphQLSnapshotFile $effFixture -EventId $effEventId `
                 -MaxAgeSeconds $effMaxAge -NowUtc $effNow -ActorIdentitySource $effActor `
                 -AuthorizationAlive $effAuth -ExecutorPresent $effExec -CancelRequested $effCancel `
+                -ResolveAuthorization $effResolveAuth -ResolveExecutor $effResolveExec `
+                -ResolveOwner $effResolveOwner -ResolveLease $effResolveLease `
+                -AuthorizationProofPath $effAuthProof -ExecutorProofPath $effExecProof `
                 -MaxApiAttempts $effMaxApi -TimeoutMs $effTimeout
         }
         catch { $result = $null }

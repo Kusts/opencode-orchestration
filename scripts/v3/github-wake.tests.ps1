@@ -221,6 +221,20 @@ Assert-That ([bool](Get-GHWField $dry 'ok' $false)) 'scheduler dry-run ok'
 $dryXml = [string](Get-GHWField $dry 'xml' '')
 Assert-That (($dryXml -cmatch 'PT5M') -and ($dryXml -cmatch 'PT12H') -and ($dryXml -cmatch 'ExecutionTimeLimit') -and ($dryXml -cmatch 'DisallowStartIfOnBatteries') -and ($dryXml -cmatch 'StopIfGoingOnBatteries') -and ($dryXml -cmatch 'schtasks') -or ($dryXml -cmatch 'powershell')) 'scheduler xml carries bounded repetition + battery pins + action'
 Assert-That ($dryXml -cmatch 'false') 'scheduler xml disables battery blocks'
+Assert-That ($dryXml -cnotmatch '<AllowStartIfOnBatteries>') 'scheduler xml omits invalid AllowStartIfOnBatteries (schtasks schema rejects it: 29,7)'
+Assert-That (($dryXml -cmatch '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>') -and ($dryXml -cmatch '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>')) 'scheduler xml keeps valid battery pins disabled'
+$sbM = [regex]::Match($dryXml, '<StartBoundary>([^<]+)</StartBoundary>')
+Assert-That ($sbM.Success) 'scheduler xml carries StartBoundary'
+$sbText = $sbM.Groups[1].Value
+Assert-That (($sbText -cnotmatch 'Z$') -and ($sbText -cnotmatch '[+-]\d{2}:\d{2}$')) 'StartBoundary is local wall-clock (no zone suffix; Scheduler parses local time)'
+$sbParsed = [datetime]::MinValue
+Assert-That ([datetime]::TryParse($sbText, [ref]$sbParsed)) 'StartBoundary parseable as local datetime'
+$sbDeltaMin = ($sbParsed - [datetime]::Now).TotalMinutes
+Assert-That (($sbDeltaMin -ge 1) -and ($sbDeltaMin -le 5)) 'StartBoundary is now+2min (1-5min future window)'
+$sbXmlDoc = $null
+try { $sbXmlDoc = [xml]$dryXml } catch { $sbXmlDoc = $null }
+Assert-That ($null -ne $sbXmlDoc) 'scheduler dry-run xml parses via [xml]'
+Assert-That ([bool](Test-GHWScheduleOwner -ExistingXml $dryXml -WakeScript $script:cli -ConfigFile $script:cli)) 'scheduler dry-run xml still ownership-checked (owned Exec Command+Arguments)'
 $dryCmd = [string](Get-GHWField $dry 'command' '')
 Assert-That ($dryCmd -cmatch 'schtasks') 'scheduler dry-run shows schtasks command'
 $un = Unregister-GitHubWakeSchedule -TaskName 'ghw-wake-test' -DryRun
@@ -504,4 +518,270 @@ Assert-That ($null -ne (Get-Command Unregister-GitHubWakeSchedule -ErrorAction S
 $unSrc = [IO.File]::ReadAllText($script:cli, [Text.Encoding]::UTF8)
 Assert-That ($unSrc -cmatch 'confirmation-required') 'unregister fail-closed reason pinned'
 Assert-That ($unSrc -cmatch 'param\(\[string\]\$TaskName[^)]*\[switch\]\$Force') 'unregister requires explicit -Force for deletion'
+# --- resolver helpers (offline, fixtures only).
+function Write-GHWProof {
+    param([string]$Path = '', [string]$Json = '{}')
+    [IO.File]::WriteAllText($Path, $Json, (New-Object Text.UTF8Encoding $false))
+}
+function Get-GHWWaitFile {
+    param($Env)
+    $found = @(Get-ChildItem -LiteralPath $Env.waitsDir -File -Filter 'ghwait-*.json')
+    if (@($found).Count -eq 0) { throw 'wait-missing' }
+    return @($found)[0].FullName
+}
+function Set-GHWWaitField {
+    param($Env, [string]$Name = '', $Value = $null)
+    $wf = Get-GHWWaitFile -Env $Env
+    $doc = ConvertFrom-Json ([IO.File]::ReadAllText($wf, [Text.Encoding]::UTF8))
+    $doc | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+    [IO.File]::WriteAllText($wf, (ConvertTo-Json -InputObject $doc -Depth 20), (New-Object Text.UTF8Encoding $false))
+}
+function Invoke-GHWDirect {
+    param($Env, [string]$Fixture = '', [hashtable]$Extra = @{})
+    $base = @{
+        WaitsDir = $Env.waitsDir; TasksDir = $Env.tasksDir; GoalStoreDir = $Env.goalDir
+        CheckpointDir = $Env.ckptDir; FlagsPath = $Env.flagsPath; Policy = $script:policy
+        GraphQLSnapshotFile = $Fixture; MaxAgeSeconds = 300; NowUtc = $script:NOW
+        ActorIdentitySource = 'explicit-cli'; AuthorizationAlive = $false; ExecutorPresent = $false
+        CancelRequested = $false; MaxApiAttempts = 3; TimeoutMs = 10000
+    }
+    foreach ($k in @($Extra.Keys)) { $base[$k] = $Extra[$k] }
+    return (Invoke-GitHubWake @base)
+}
+Assert-That ($null -ne (Get-Command Resolve-GHWLeaseAlive -ErrorAction SilentlyContinue)) 'resolver Resolve-GHWLeaseAlive exposed'
+Assert-That ($null -ne (Get-Command Resolve-GHWOwnerAlive -ErrorAction SilentlyContinue)) 'resolver Resolve-GHWOwnerAlive exposed'
+Assert-That ($null -ne (Get-Command Resolve-GHWAuthorizationAlive -ErrorAction SilentlyContinue)) 'resolver Resolve-GHWAuthorizationAlive exposed'
+Assert-That ($null -ne (Get-Command Resolve-GHWExecutorAlive -ErrorAction SilentlyContinue)) 'resolver Resolve-GHWExecutorAlive exposed'
+# --- unit: lease resolver (wait-document facts only).
+$ghwNowObj = Convert-GHWUtc -Value $script:NOW
+$wOkDoc = @{ lease_expires_utc = $script:FUTURE; deadline_utc = $script:FUTURE }
+$rOkDoc = Resolve-GHWLeaseAlive -Wait $wOkDoc -NowObj $ghwNowObj
+Assert-That ([bool](Get-GHWField $rOkDoc 'alive' $false)) 'lease resolver: valid lease+deadline => alive'
+$wExpDoc = @{ lease_expires_utc = '2020-01-01T00:00:00Z'; deadline_utc = $script:FUTURE }
+$rExpDoc = Resolve-GHWLeaseAlive -Wait $wExpDoc -NowObj $ghwNowObj
+Assert-That ((-not [bool](Get-GHWField $rExpDoc 'alive' $true)) -and ([string](Get-GHWField $rExpDoc 'reason' '') -ceq 'lease-expired')) 'lease resolver: past lease => lease-expired'
+$wDlDoc = @{ lease_expires_utc = $script:FUTURE; deadline_utc = '2020-01-01T00:00:00Z' }
+$rDlDoc = Resolve-GHWLeaseAlive -Wait $wDlDoc -NowObj $ghwNowObj
+Assert-That ((-not [bool](Get-GHWField $rDlDoc 'alive' $true)) -and ([string](Get-GHWField $rDlDoc 'reason' '') -ceq 'wait-expired')) 'lease resolver: past deadline => wait-expired'
+# --- unit: authorization resolver (trusted source + live proof/flags).
+$ezu = New-GHWEnv -Tag 'rsun'
+$authProofOk = Join-Path $ezu.root 'auth.ok.json'
+Write-GHWProof -Path $authProofOk -Json '{"authorization_alive":true,"actor_identity_source":"explicit-cli"}'
+$raOk = Resolve-GHWAuthorizationAlive -ActorIdentitySource 'explicit-cli' -FlagsPath $ezu.flagsPath -AuthorizationProofPath $authProofOk
+Assert-That ([bool](Get-GHWField $raOk 'alive' $false)) 'auth resolver: matching proof file => alive'
+$authProofBad = Join-Path $ezu.root 'auth.bad.json'
+Write-GHWProof -Path $authProofBad -Json '{"authorization_alive":true,"actor_identity_source":"foreign-actor"}'
+$raBad = Resolve-GHWAuthorizationAlive -ActorIdentitySource 'explicit-cli' -FlagsPath $ezu.flagsPath -AuthorizationProofPath $authProofBad
+Assert-That ((-not [bool](Get-GHWField $raBad 'alive' $true)) -and ([string](Get-GHWField $raBad 'reason' '') -ceq 'authorization-revoked')) 'auth resolver: divergent proof identity => authorization-revoked'
+$raFlags = Resolve-GHWAuthorizationAlive -ActorIdentitySource 'explicit-cli' -FlagsPath $ezu.flagsPath -AuthorizationProofPath ''
+Assert-That ([bool](Get-GHWField $raFlags 'alive' $false)) 'auth resolver: enabled kernel flags => alive (no proof file)'
+[IO.File]::WriteAllText($ezu.flagsPath, '{"task_kernel":{"enabled":false,"shadow":false}}', (New-Object Text.UTF8Encoding $false))
+$raOff = Resolve-GHWAuthorizationAlive -ActorIdentitySource 'explicit-cli' -FlagsPath $ezu.flagsPath -AuthorizationProofPath ''
+Assert-That ((-not [bool](Get-GHWField $raOff 'alive' $true)) -and ([string](Get-GHWField $raOff 'reason' '') -ceq 'authorization-revoked')) 'auth resolver: disabled kernel flags => authorization-revoked'
+$raSrc = Resolve-GHWAuthorizationAlive -ActorIdentitySource 'untrusted-src' -FlagsPath $ezu.flagsPath -AuthorizationProofPath $authProofOk
+Assert-That (-not [bool](Get-GHWField $raSrc 'alive' $true)) 'auth resolver: untrusted identity source => not alive'
+# --- unit: executor resolver (explicit proof only, never scheduler-implied).
+$execProofOk = Join-Path $ezu.root 'exec.ok.json'
+Write-GHWProof -Path $execProofOk -Json '{"executor_present":true}'
+$reOk = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofOk -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That ([bool](Get-GHWField $reOk 'alive' $false)) 'executor resolver: fresh proof true => alive'
+$execProofStale = Join-Path $ezu.root 'exec.stale.json'
+Write-GHWProof -Path $execProofStale -Json '{"executor_present":true,"observed_at":"2020-01-01T00:00:00Z"}'
+$reStale = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofStale -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That ((-not [bool](Get-GHWField $reStale 'alive' $true)) -and ([string](Get-GHWField $reStale 'reason' '') -ceq 'no-executor')) 'executor resolver: stale proof => no-executor'
+$execProofFuture = Join-Path $ezu.root 'exec.future.json'
+Write-GHWProof -Path $execProofFuture -Json '{"executor_present":true,"observed_at":"2026-10-10T13:02:00Z"}'
+$reFuture = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofFuture -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That ((-not [bool](Get-GHWField $reFuture 'alive' $true)) -and ([string](Get-GHWField $reFuture 'reason' '') -ceq 'executor-proof-future')) 'executor resolver: future proof => executor-proof-future'
+$reAbsent = Resolve-GHWExecutorAlive -ExecutorProofPath '' -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That ((-not [bool](Get-GHWField $reAbsent 'alive' $true)) -and ([string](Get-GHWField $reAbsent 'reason' '') -ceq 'no-executor')) 'executor resolver: absent proof => no-executor (never scheduler-implied)'
+$execProofFalse = Join-Path $ezu.root 'exec.false.json'
+Write-GHWProof -Path $execProofFalse -Json '{"executor_present":false}'
+$reFalse = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofFalse -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That (-not [bool](Get-GHWField $reFalse 'alive' $true)) 'executor resolver: proof false => not alive'
+# --- e2e: RESUME via resolvers, no live booleans (flags + executor proof).
+$ez = New-GHWEnv -Tag 'rsolve'
+[void](New-GHWGoal -Env $ez -GoalId 'ghw-goal-1' -Tasks @('ghw-task-r'))
+Set-GHWBlocked -Env $ez -TaskId 'ghw-task-r' -Sha $script:SHA_A
+New-GHWWait -Env $ez -TaskId 'ghw-task-r' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $ez -GoalId 'ghw-goal-1')
+$fxz = Write-GHWFixture -Env $ez -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+$execProofZ = Join-Path $ez.root 'exec.proof.json'
+Write-GHWProof -Path $execProofZ -Json '{"executor_present":true}'
+$rz = Invoke-GHWChild -CliArgs @('-WaitsDir', $ez.waitsDir, '-TasksDir', $ez.tasksDir, '-GoalStoreDir', $ez.goalDir, '-CheckpointDir', $ez.ckptDir, '-FlagsPath', $ez.flagsPath, '-NowUtc', $script:NOW, '-GraphQLSnapshotFile', $fxz, '-ResolveAuthorization', '-ResolveExecutor', '-ExecutorProofPath', $execProofZ, '-ResolveOwner', '-LeaseFromWait')
+$itemsZ = @(Get-GHWField $rz.env 'items' @())
+Assert-That (([int]$rz.code -eq 0) -and ([string](Get-GHWField @($itemsZ)[0] 'decision' '') -ceq 'RESUME')) 'resolver opt-in => RESUME without live booleans'
+Assert-That ([string](Get-GHWField @($itemsZ)[0] 'kernel' '') -ceq 'unblocked') 'resolver RESUME => kernel unblocked'
+Assert-That ([bool](Get-GHWField $rz.env 'resume_authorized' $false)) 'resolver RESUME => envelope resume_authorized'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-r' -TasksDir $ez.tasksDir -RepoRoot $ez.root).state -ceq 'IMPLEMENTING') 'resolver RESUME => BLOCKED->IMPLEMENTING'
+# --- e2e: resolver auth fail-closed (disabled flags => authorization-revoked).
+$eaz = New-GHWEnv -Tag 'rsauth'
+[void](New-GHWGoal -Env $eaz -GoalId 'ghw-goal-1' -Tasks @('ghw-task-s'))
+Set-GHWBlocked -Env $eaz -TaskId 'ghw-task-s' -Sha $script:SHA_A
+New-GHWWait -Env $eaz -TaskId 'ghw-task-s' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $eaz -GoalId 'ghw-goal-1')
+$fxaz = Write-GHWFixture -Env $eaz -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+[IO.File]::WriteAllText($eaz.flagsPath, '{"task_kernel":{"enabled":false,"shadow":false}}', (New-Object Text.UTF8Encoding $false))
+$raz = Invoke-GHWChild -CliArgs @('-WaitsDir', $eaz.waitsDir, '-TasksDir', $eaz.tasksDir, '-GoalStoreDir', $eaz.goalDir, '-CheckpointDir', $eaz.ckptDir, '-FlagsPath', $eaz.flagsPath, '-NowUtc', $script:NOW, '-GraphQLSnapshotFile', $fxaz, '-ResolveAuthorization')
+$itemsAz = @(Get-GHWField $raz.env 'items' @())
+Assert-That (([string](Get-GHWField @($itemsAz)[0] 'decision' '') -ceq 'TERMINAL') -and ([string](Get-GHWField @($itemsAz)[0] 'reason' '') -ceq 'authorization-revoked')) 'resolver with disabled flags => TERMINAL authorization-revoked'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-s' -TasksDir $eaz.tasksDir -RepoRoot $eaz.root).state -ceq 'BLOCKED') 'authz-revoked via resolver => still BLOCKED'
+# --- e2e: partial resolvers (auth resolved, no executor proof => READY).
+$erd = New-GHWEnv -Tag 'rsready'
+[void](New-GHWGoal -Env $erd -GoalId 'ghw-goal-1' -Tasks @('ghw-task-t'))
+Set-GHWBlocked -Env $erd -TaskId 'ghw-task-t' -Sha $script:SHA_A
+New-GHWWait -Env $erd -TaskId 'ghw-task-t' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $erd -GoalId 'ghw-goal-1')
+$fxrd = Write-GHWFixture -Env $erd -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+$rrd = Invoke-GHWChild -CliArgs @('-WaitsDir', $erd.waitsDir, '-TasksDir', $erd.tasksDir, '-GoalStoreDir', $erd.goalDir, '-CheckpointDir', $erd.ckptDir, '-FlagsPath', $erd.flagsPath, '-NowUtc', $script:NOW, '-GraphQLSnapshotFile', $fxrd, '-ResolveAuthorization')
+$itemsRd = @(Get-GHWField $rrd.env 'items' @())
+Assert-That (([string](Get-GHWField @($itemsRd)[0] 'decision' '') -ceq 'READY') -and ([string](Get-GHWField @($itemsRd)[0] 'reason' '') -ceq 'ready-no-executor')) 'auth resolved without executor proof => READY ready-no-executor'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-t' -TasksDir $erd.tasksDir -RepoRoot $erd.root).state -ceq 'BLOCKED') 'READY via resolvers => still BLOCKED'
+# --- direct: lease-expired blocks RESUME.
+$elx = New-GHWEnv -Tag 'rslease'
+[void](New-GHWGoal -Env $elx -GoalId 'ghw-goal-1' -Tasks @('ghw-task-u'))
+Set-GHWBlocked -Env $elx -TaskId 'ghw-task-u' -Sha $script:SHA_A
+New-GHWWait -Env $elx -TaskId 'ghw-task-u' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $elx -GoalId 'ghw-goal-1')
+$fxlx = Write-GHWFixture -Env $elx -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+Set-GHWWaitField -Env $elx -Name 'lease_expires_utc' -Value '2020-01-01T00:00:00Z'
+$rlx = Invoke-GHWDirect -Env $elx -Fixture $fxlx -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $true }
+$itemsLx = @(Get-GHWField $rlx 'items' @())
+Assert-That (([string](Get-GHWField @($itemsLx)[0] 'decision' '') -ceq 'TERMINAL') -and ([string](Get-GHWField @($itemsLx)[0] 'reason' '') -ceq 'lease-expired')) 'past lease => TERMINAL lease-expired'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-u' -TasksDir $elx.tasksDir -RepoRoot $elx.root).state -ceq 'BLOCKED') 'lease-expired => still BLOCKED'
+# --- direct: owner-mismatch blocks RESUME (lease_owner diverged, binding intact).
+$eow = New-GHWEnv -Tag 'rsowner'
+[void](New-GHWGoal -Env $eow -GoalId 'ghw-goal-1' -Tasks @('ghw-task-v'))
+Set-GHWBlocked -Env $eow -TaskId 'ghw-task-v' -Sha $script:SHA_A
+New-GHWWait -Env $eow -TaskId 'ghw-task-v' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $eow -GoalId 'ghw-goal-1')
+$fxow = Write-GHWFixture -Env $eow -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+Set-GHWWaitField -Env $eow -Name 'lease_owner' -Value 'intruder-9'
+$row = Invoke-GHWDirect -Env $eow -Fixture $fxow -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $true }
+$itemsOw = @(Get-GHWField $row 'items' @())
+Assert-That (([string](Get-GHWField @($itemsOw)[0] 'decision' '') -ceq 'TERMINAL') -and ([string](Get-GHWField @($itemsOw)[0] 'reason' '') -ceq 'owner-mismatch')) 'diverged lease_owner => TERMINAL owner-mismatch'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-v' -TasksDir $eow.tasksDir -RepoRoot $eow.root).state -ceq 'BLOCKED') 'owner-mismatch => still BLOCKED'
+# --- direct: cancelled blocks RESUME.
+$ecx = New-GHWEnv -Tag 'rscancel'
+[void](New-GHWGoal -Env $ecx -GoalId 'ghw-goal-1' -Tasks @('ghw-task-w'))
+Set-GHWBlocked -Env $ecx -TaskId 'ghw-task-w' -Sha $script:SHA_A
+New-GHWWait -Env $ecx -TaskId 'ghw-task-w' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $ecx -GoalId 'ghw-goal-1')
+$fxcx = Write-GHWFixture -Env $ecx -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+$rcx = Invoke-GHWDirect -Env $ecx -Fixture $fxcx -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $true; CancelRequested = $true }
+$itemsCx = @(Get-GHWField $rcx 'items' @())
+Assert-That (([string](Get-GHWField @($itemsCx)[0] 'decision' '') -ceq 'TERMINAL') -and ([string](Get-GHWField @($itemsCx)[0] 'reason' '') -ceq 'cancelled')) 'cancel requested => TERMINAL cancelled'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-w' -TasksDir $ecx.tasksDir -RepoRoot $ecx.root).state -ceq 'BLOCKED') 'cancelled => still BLOCKED'
+# --- direct: wait-expired blocks RESUME.
+$ewe = New-GHWEnv -Tag 'rswait'
+[void](New-GHWGoal -Env $ewe -GoalId 'ghw-goal-1' -Tasks @('ghw-task-x'))
+Set-GHWBlocked -Env $ewe -TaskId 'ghw-task-x' -Sha $script:SHA_A
+New-GHWWait -Env $ewe -TaskId 'ghw-task-x' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $ewe -GoalId 'ghw-goal-1')
+$fxwe = Write-GHWFixture -Env $ewe -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+Set-GHWWaitField -Env $ewe -Name 'deadline_utc' -Value '2020-01-01T00:00:00Z'
+$rwe = Invoke-GHWDirect -Env $ewe -Fixture $fxwe -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $true }
+$itemsWe = @(Get-GHWField $rwe 'items' @())
+Assert-That (([string](Get-GHWField @($itemsWe)[0] 'decision' '') -ceq 'TERMINAL') -and ([string](Get-GHWField @($itemsWe)[0] 'reason' '') -ceq 'wait-expired')) 'past deadline => TERMINAL wait-expired'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-x' -TasksDir $ewe.tasksDir -RepoRoot $ewe.root).state -ceq 'BLOCKED') 'wait-expired => still BLOCKED'
+# --- direct: retry-budget-exhausted blocks RESUME on pending checks.
+$erb = New-GHWEnv -Tag 'rsbudget'
+[void](New-GHWGoal -Env $erb -GoalId 'ghw-goal-1' -Tasks @('ghw-task-y'))
+Set-GHWBlocked -Env $erb -TaskId 'ghw-task-y' -Sha $script:SHA_A
+New-GHWWait -Env $erb -TaskId 'ghw-task-y' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $erb -GoalId 'ghw-goal-1')
+$pendRb = New-GHWGreenNodes $script:SHA_A
+$pendRb[0] = New-GHWNode $script:reqChecks[0] 'IN_PROGRESS' $null $script:SHA_A
+$fxrb = Write-GHWFixture -Env $erb -Raw (New-GHWRaw -Nodes $pendRb -Head $script:SHA_A -Commit $script:SHA_A) -Name 'pending.graphql.json'
+Set-GHWWaitField -Env $erb -Name 'retry_used' -Value 5
+$rrb = Invoke-GHWDirect -Env $erb -Fixture $fxrb -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $true }
+$itemsRb = @(Get-GHWField $rrb 'items' @())
+Assert-That (([string](Get-GHWField @($itemsRb)[0] 'decision' '') -ceq 'TERMINAL') -and ([string](Get-GHWField @($itemsRb)[0] 'reason' '') -ceq 'retry-budget-exhausted')) 'exhausted retry budget on pending => TERMINAL retry-budget-exhausted'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-y' -TasksDir $erb.tasksDir -RepoRoot $erb.root).state -ceq 'BLOCKED') 'budget-exhausted => still BLOCKED'
+# --- direct: policy-diverged blocks RESUME (INVALID, never unblocks).
+$epd = New-GHWEnv -Tag 'rspolicy'
+[void](New-GHWGoal -Env $epd -GoalId 'ghw-goal-1' -Tasks @('ghw-task-z'))
+Set-GHWBlocked -Env $epd -TaskId 'ghw-task-z' -Sha $script:SHA_A
+New-GHWWait -Env $epd -TaskId 'ghw-task-z' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $epd -GoalId 'ghw-goal-1')
+$fxpd = Write-GHWFixture -Env $epd -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+$polDiv = ConvertFrom-Json (ConvertTo-Json $script:policy -Depth 20)
+$polDiv.required_checks = @(@($polDiv.required_checks) + 'extra-divergent-check')
+$rpd = Invoke-GHWDirect -Env $epd -Fixture $fxpd -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $true; Policy = $polDiv }
+$itemsPd = @(Get-GHWField $rpd 'items' @())
+Assert-That (([string](Get-GHWField @($itemsPd)[0] 'decision' '') -ceq 'INVALID') -and ([string](Get-GHWField @($itemsPd)[0] 'reason' '') -ceq 'policy-diverged')) 'divergent policy => INVALID policy-diverged'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-z' -TasksDir $epd.tasksDir -RepoRoot $epd.root).state -ceq 'BLOCKED') 'policy-diverged => still BLOCKED'
+Assert-That (-not [bool](Get-GHWField $rpd 'kernel_mutated' $true)) 'policy-diverged => kernel untouched'
+# --- config scheduled path with resolver opt-ins + proofs => RESUME.
+$ecfg = New-GHWEnv -Tag 'rscfg'
+[void](New-GHWGoal -Env $ecfg -GoalId 'ghw-goal-1' -Tasks @('ghw-task-q'))
+Set-GHWBlocked -Env $ecfg -TaskId 'ghw-task-q' -Sha $script:SHA_A
+New-GHWWait -Env $ecfg -TaskId 'ghw-task-q' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $ecfg -GoalId 'ghw-goal-1')
+$fxcfg = Write-GHWFixture -Env $ecfg -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+$execProofCfg = Join-Path $ecfg.root 'exec.proof.json'
+Write-GHWProof -Path $execProofCfg -Json '{"executor_present":true}'
+$cfgResPath = Join-Path $ecfg.root 'wake-resolve.json'
+$cfgRes = New-GitHubWakeConfig -Path $cfgResPath -WaitsDir $ecfg.waitsDir -TasksDir $ecfg.tasksDir -GoalStoreDir $ecfg.goalDir -CheckpointDir $ecfg.ckptDir -FlagsPath $ecfg.flagsPath -GraphQLSnapshotFile $fxcfg -ResolveAuthorization $true -ResolveExecutor $true -ExecutorProofPath $execProofCfg -AuthorizationAlive $true -ExecutorPresent $true
+Assert-That ([bool](Get-GHWField $cfgRes 'ok' $false)) 'resolver config: written'
+$cfgResDoc = $null
+try { $cfgResDoc = ConvertFrom-Json ([IO.File]::ReadAllText($cfgResPath, [Text.Encoding]::UTF8)) } catch { $cfgResDoc = $null }
+Assert-That (($null -ne $cfgResDoc) -and (-not [bool](Get-GHWField $cfgResDoc 'authorization_alive' $true)) -and (-not [bool](Get-GHWField $cfgResDoc 'executor_present' $true))) 'resolver config: still never persists authz/executor as true'
+Assert-That (([bool](Get-GHWField $cfgResDoc 'resolve_authorization' $false)) -and ([bool](Get-GHWField $cfgResDoc 'resolve_executor' $false)) -and ([string](Get-GHWField $cfgResDoc 'executor_proof_path' '') -ceq $execProofCfg)) 'resolver config: opt-ins and proof path persisted (not authority)'
+$rcfg = Invoke-GHWChild -CliArgs @('-ConfigFile', $cfgResPath, '-NowUtc', $script:NOW)
+$itemsCfg = @(Get-GHWField $rcfg.env 'items' @())
+Assert-That (([string](Get-GHWField @($itemsCfg)[0] 'decision' '') -ceq 'RESUME') -and ([string](Get-GHWField @($itemsCfg)[0] 'kernel' '') -ceq 'unblocked')) 'scheduled ConfigFile with resolver opt-ins => RESUME (no live switches)'
+Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-q' -TasksDir $ecfg.tasksDir -RepoRoot $ecfg.root).state -ceq 'IMPLEMENTING') 'scheduled resolver RESUME => BLOCKED->IMPLEMENTING'
+# --- objetivo 4 lacunas (a)(b)(c): recuperacao e limites, offline, sem schtasks real nem rede.
+# Ja cobertos, nao duplicados (referencia por linha existente deste arquivo):
+# (d) cancelamento => TERMINAL cancelled (linha 659); (e) duplicacao => DUPLICATE_NOOP
+# sem mutacao kernel (linhas 299-301); (f) SHA divergente => TERMINAL head-superseded
+# (linhas 323-324); (g) lease expirado => TERMINAL lease-expired (linha 636);
+# (h) falha da API => HOLD api-failure (linha 387). Handoff: duplicate-noop (linhas
+# 231-234), lease-expired (linhas 283-284) em github-wake-controller.tests.ps1.
+# (a) principal sem usuario interativo: XML fixa InteractiveToken/LeastPrivilege,
+# sem segredo S4S simulado. HOLD honesto: sem sessao interativa no host, o registro
+# real exige logon interativo; DryRun nunca alega prova viva.
+Assert-That ($dryXml -cmatch '<LogonType>InteractiveToken</LogonType>') 'sched principal: InteractiveToken pinned in XML'
+Assert-That ($dryXml -cmatch '<RunLevel>LeastPrivilege</RunLevel>') 'sched principal: LeastPrivilege pinned in XML'
+Assert-That ($dryXml -cnotmatch 'Password|S4U|ServiceAccount|<UserId>') 'sched principal: no S4S/service secret simulated'
+Assert-That (($dryXml -cmatch '<Principal id="Author">') -and ($dryXml -cmatch '<Actions Context="Author">')) 'sched principal: single Author principal bound to action context'
+$xmlForeignCmd = (([string]$xmlOwned).Replace('powershell.exe', 'cmd.exe'))
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlForeignCmd -WakeScript $script:cli -ConfigFile $script:cli)) 'sched principal: foreign Command refused by owner check (offline, sem schtasks)'
+# (b) duracao e renovacao: limites exatos no XML + renovacao idempotente sem duplicar.
+Assert-That ($dryXml -cmatch '<Interval>PT5M</Interval>') 'sched bounds: Interval 5min pinned'
+Assert-That ($dryXml -cmatch '<Duration>PT12H</Duration>') 'sched bounds: Duration 12h pinned'
+Assert-That ($dryXml -cmatch '<ExecutionTimeLimit>PT5M</ExecutionTimeLimit>') 'sched bounds: ExecutionTimeLimit 5min pinned'
+Assert-That ($dryXml -cmatch '<StopAtDurationEnd>true</StopAtDurationEnd>') 'sched bounds: StopAtDurationEnd pinned (no runaway)'
+Assert-That ($dryXml -cmatch '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>') 'sched bounds: IgnoreNew pinned (sem estados paralelos)'
+Assert-That ($cliText -cmatch 'replaced-owned') 'renewal path pinned: replaced-owned (re-registro idempotente)'
+Assert-That ($cliText -cmatch 'already-registered') 'renewal path pinned: already-registered (sem duplicar)'
+$dryRe = Register-GitHubWakeSchedule -TaskName 'ghw-wake-test' -WakeScript $script:cli -ConfigFile $script:cli -IntervalMinutes 5 -DurationHours 12 -ExecutionTimeLimitMinutes 5 -DryRun
+$dryReXml = [string](Get-GHWField $dryRe 'xml' '')
+Assert-That (([bool](Get-GHWField $dryRe 'ok' $false)) -and ($dryReXml -cmatch '<Interval>PT5M</Interval>') -and ($dryReXml -cmatch '<Duration>PT12H</Duration>') -and ($dryReXml -cmatch '<ExecutionTimeLimit>PT5M</ExecutionTimeLimit>')) 'renewal dry-run: re-registro gera os mesmos limites (idempotente; DryRun nao e prova viva)'
+# (c) falha do executor nunca vira TERMINAL indevido: stale/future/ausente/invalida => READY.
+$exf = New-GHWEnv -Tag 'exfail'
+[void](New-GHWGoal -Env $exf -GoalId 'ghw-goal-1' -Tasks @('ghw-task-xf'))
+Set-GHWBlocked -Env $exf -TaskId 'ghw-task-xf' -Sha $script:SHA_A
+New-GHWWait -Env $exf -TaskId 'ghw-task-xf' -Sha $script:SHA_A
+[void](New-GHWCkpt -Env $exf -GoalId 'ghw-goal-1')
+$fxex = Write-GHWFixture -Env $exf -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
+$revXfBefore = [long](Get-OrchestrationTask -TaskId 'ghw-task-xf' -TasksDir $exf.tasksDir -RepoRoot $exf.root).revision
+$proofXStale = Join-Path $exf.root 'exec.stale.json'
+Write-GHWProof -Path $proofXStale -Json '{"executor_present":true,"observed_at":"2020-01-01T00:00:00Z"}'
+$proofXFuture = Join-Path $exf.root 'exec.future.json'
+Write-GHWProof -Path $proofXFuture -Json '{"executor_present":true,"observed_at":"2026-10-10T13:02:00Z"}'
+$proofXBad = Join-Path $exf.root 'exec.bad.json'
+Write-GHWProof -Path $proofXBad -Json '{{not-json'
+foreach ($px in @($proofXStale, $proofXFuture, $proofXBad)) {
+    $rxf = Invoke-GHWDirect -Env $exf -Fixture $fxex -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $false; ResolveExecutor = $true; ExecutorProofPath = $px }
+    $itemsXf = @(Get-GHWField $rxf 'items' @())
+    Assert-That (([string](Get-GHWField @($itemsXf)[0] 'decision' '') -ceq 'READY') -and ([string](Get-GHWField @($itemsXf)[0] 'reason' '') -ceq 'ready-no-executor')) ('executor proof failure => READY ready-no-executor (never TERMINAL): ' + $px)
+    Assert-That ([string](Get-GHWField @($itemsXf)[0] 'decision' '') -cne 'TERMINAL') ('executor proof failure => never TERMINAL: ' + $px)
+    Assert-That (-not [bool](Get-GHWField $rxf 'resume_authorized' $true)) ('executor proof failure => resume_authorized false: ' + $px)
+}
+$rxf0 = Invoke-GHWDirect -Env $exf -Fixture $fxex -Extra @{ AuthorizationAlive = $true; ExecutorPresent = $false; ResolveExecutor = $true }
+$itemsXf0 = @(Get-GHWField $rxf0 'items' @())
+Assert-That (([string](Get-GHWField @($itemsXf0)[0] 'decision' '') -ceq 'READY') -and ([string](Get-GHWField @($itemsXf0)[0] 'decision' '') -cne 'TERMINAL')) 'executor proof absent with ResolveExecutor => READY (never TERMINAL, never RESUME)'
+Assert-That (([string](Get-OrchestrationTask -TaskId 'ghw-task-xf' -TasksDir $exf.tasksDir -RepoRoot $exf.root).state -ceq 'BLOCKED') -and ([long](Get-OrchestrationTask -TaskId 'ghw-task-xf' -TasksDir $exf.tasksDir -RepoRoot $exf.root).revision -eq $revXfBefore)) 'executor failures => still BLOCKED, revision untouched'
 Write-Output ('github-wake tests PASS: ' + [string]$script:passed)
