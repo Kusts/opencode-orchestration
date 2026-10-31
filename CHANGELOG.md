@@ -6,6 +6,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Full Delivery Etapa 6D — GH-WAKE real (2026-10-31, branch `feat/full-delivery-etapa-6d`)**:
+  - `scripts/v3/github-wake.ps1` (novo): wake agendado single-shot no Windows via schtasks.exe (XML explícito, repetição limitada, sem daemon/loop/segundo Planner); reusa transporte `github-await` e readiness/dedup canônicos; valida SHA/generation/lease/budget/autorização; Confirm CAS antes do unblock Kernel BLOCKED→IMPLEMENTING; recuperação `reconciled-pending-unblock`; CI vermelho diagnostica sem unblock; CI verde só anuncia próxima ação autorizada (nunca merge/deploy/DONE).
+  - Prova `scripts/v3/full-delivery-etapa6d-proof.ps1`: `PROOF_ETAPA6D=REAL` com 2 processos reais (P1 encerra, wake retoma sem intervenção), fixtures pelo normalizer real + probe live `gh api` viewer-ok, DONE nunca reexecutada; suite `scripts/v3/github-wake.tests.ps1` 149/149 (PS 5.1), SPEC em `docs/specs/ETAPA-6D-GH-WAKE-SPEC.md`. Review independente APPROVED (residuais fechados: liveness pós-Confirm, auth fail-closed, owner-check exato, Unregister com -Force).
+  - Classificação `PRODUCTIVE_AUTONOMY_PARTIAL` preservada (jornada completa 6E pendente); sem deploy.
+
 - **Full Delivery Etapa 6 — merge mediado + prova 6B real (2026-10-31, PR #175)**:
   - `OrchestrationMergeMediated` 45/45 (PS5.1+pwsh), consistência 16/16; micro-fixes de closure (scope lower-case canônico T28, ids do recibo sem segredos T29) + wiring observe+dry-run; contrato de wiring confiável no SPEC.
   - CI pré-closure run 41138488143 tentativa 2 (HEAD 5a41671): 6/6 SUCCESS. Review independente da sessão: tester PASS, reviewer APPROVED (R3), security APPROVED (R3, com residual registrado); sem aprovação externa afirmada (`required_approving_review_count=0`).
