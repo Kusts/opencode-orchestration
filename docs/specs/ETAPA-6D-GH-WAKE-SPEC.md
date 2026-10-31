@@ -43,32 +43,79 @@ no daemon, no second Planner/Kernel/watchdog, no LLM in the loop.
 
 The wake tick only unblocks (BLOCKED->IMPLEMENTING) and announces. The
 hand to the real controller is a separate single-shot step that never
-reimplements dispatch:
+reimplements dispatch and never synthesizes execution:
 
 - Extended next_action (announce preserved for existing consumers):
   task_id, checkpoint_id, goal_id, wait_dedup_key, generation,
   lease_owner, lease_expires_utc, event_id, kernel_state=IMPLEMENTING,
   idempotency_key (first 32 hex chars of SHA256 over
   "wait_dedup_key:event_id"), announce ("next-action task=<id>
-  checkpoint=<id>").
-- `Invoke-GHWakeControllerHandoff` (defined in github-wake.ps1): validates
-  shape + idempotency binding, finds the wait by dedup_key, checks the
-  Kernel binding/fingerprint (post-unblock: task IMPLEMENTING plus
-  wait_history fingerprint match), the checkpoint resumable gate, and the
-  live lease; then consults the existing controller contract only
-  (AutonomousLoop objective step via injected probe, or the read-only
-  GoalKernel next-move). Returns dispatched/not-dispatched with a typed
-  reason. Never merges, pushes, deploys, completes tasks, issues grants,
-  or reads secrets.
-- Driver `github-wake-controller.ps1`: single-shot (no loop/sleep/daemon),
-  fail-closed (missing checkpoint/binding/lease => HOLD, no spawn),
-  idempotent (same event_id => DUPLICATE_NOOP, no replay, task never
-  auto-completed). There is no native V2 API for resuming a closed
-  session from PS: without an Executor the honest outcome is
-  not-dispatched awaits-planner-dispatch — the Planner executes the
-  dispatch via subagent. IMPLEMENTING alone is never execution:
-  executed=$true appears only when a controller probe confirms a
-  dispatch in that invocation.
+  checkpoint=<id>"). The same idempotency_key gates the whole handoff:
+  claim-once marker (`ghw-handoff-<key>.json`), NativeDispatch Intent,
+  and receipt (Prepare/Claim/Settle).
+- Intent (productive, no worker effect): `New-GHWakeDispatchIntent`
+  wraps the supported `New-OrchestrationNativeDispatchIntent`
+  constructor with `ExternalIdempotent=true` and the claim-once marker
+  path as `ExternalIdempotencyProof`; a divergent Intent for the same
+  key is a collision, never a merge. Built from the LIVE task/goal
+  (revision, base_revision, read/write scopes, acceptance_criteria,
+  owner+generation); unreadable task/goal, missing scopes/criteria, or
+  unknown ownership refuses fail-closed (`dispatch-*-unreadable`,
+  `dispatch-no-scopes`, `dispatch-no-criteria`,
+  `dispatch-ownership-unknown`, `dispatch-intent-invalid`).
+- Prepare (pending receipt, zero worker effect):
+  `Invoke-OrchestrationNativeDispatchPrepare` persists the Intent via
+  the supported Prepare path under the deterministic pre-effect
+  session token `ghw-handoff-<key>` (Prepare and Claim bind this exact
+  token; the REAL worker session only appears at Settle time as
+  `ChildSessionId`). Result view carries admitted/reused, phase
+  (`prepared`), reference, fingerprints, session_id, task_id, agent
+  (documented default `coder`: the goal next-move carries no agent
+  field). Any refusal is fail-closed (`prepare-refused:<reason>`) with
+  the marker claim released for a later tick — no probe runs without
+  a prepared receipt.
+- Claim (exactly-once gate): `New-GHWakeHandoffClaim` with
+  `FileShare.None` (CreateNew) plus revalidation under the collision
+  path (`duplicate-noop` on same task/ddk/event/key/goal,
+  `idempotency-collision` on divergence). Duplicates never replay and
+  the task is never auto-completed.
+- Probes (read-only controller consult): `Invoke-GHWakeControllerHandoff`
+  validates shape + idempotency binding, finds the wait by dedup_key,
+  checks generation/lease-owner, the Kernel binding/fingerprint
+  (post-unblock: task IMPLEMENTING plus wait_history fingerprint
+  match), the checkpoint resumable gate, and the live lease; then
+  consults the existing controller contract only (AutonomousLoop
+  objective step via injected probe, the read-only GoalKernel
+  next-move, or the plain `intent-ready` path). A POSITIVE probe is a
+  `controller-responded` signal, never execution: the marker stays
+  `claimed`, `dispatched=false`, `executed=false`. A prepared receipt
+  without settle params is `intent-ready`
+  (`prepared-awaits-planner-dispatch`). Never merges, pushes, deploys,
+  completes tasks, issues grants, or reads secrets.
+- Settlement (the ONLY path to dispatched=true):
+  `Set-GHWakeDispatchSettlement` validates the marker (claimed, same
+  idempotency key) plus the NativeDispatch receipt for the same key,
+  then runs the supported Claim (handoff session token) + Settle
+  (Planner-attested child session + candidate result) chain. Only a
+  settled receipt flips the marker to `dispatched` with the REAL
+  session id (`session_id == settle_child_session_id == sid`);
+  `ok/dispatched/duplicate/executed` mirror the settlement outcome and
+  all authority pins stay false (no grants, no DONE, no merge).
+  Without a real session id — or on any refusal
+  (`settle-not-claimed`, `settle-not-prepared`,
+  `settle-session-invalid/mismatch`, `settle-identity-diverged`,
+  `settle-claim-refused`, `settle-refused`) — nothing is marked
+  dispatched (fail-closed). IMPLEMENTING alone is never execution.
+- Planner execution (no external resume API): there is NO native V2
+  API for resuming a closed session from PS, and this driver never
+  claims one. Retomada = Intent + Planner em sessao ativa: the Planner
+  executes the dispatch via subagent, then completes the loop by
+  re-invoking the single-shot driver with `-SettleSessionId <child-id>`
+  (plus `-SettleResultOk`/`-SettleResultSummary`). The driver also
+  settles the duplicate-noop replay path (claimed marker + pending
+  receipt still settleable). Driver `github-wake-controller.ps1`:
+  single-shot (no loop/sleep/daemon/spawn), fail-closed (missing
+  checkpoint/binding/lease => HOLD, no spawn).
 - Suite: scripts/v3/github-wake-controller.tests.ps1 (offline).
 
 ## Scheduler
@@ -107,6 +154,21 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
 - Proof: scripts/v3/full-delivery-etapa6d-proof.ps1 (two real processes,
   normalizer-real fixtures, live transport probe, no fabricated live PR).
   Suite: scripts/v3/github-wake.tests.ps1 (offline, PS 5.1 + pwsh).
+
+## Gates (policy, sem excecao docs-only)
+
+- `READY_FOR_RESUME` (observacao) exige review humana legitima
+  nao-self pela policy: o external-action gate recusa self-review
+  (`SELF_REVIEW => POLICY_BLOCKED`, case-insensitive); sem approval
+  de terceiro a readiness fica em `REVIEW_PENDING` (observado no tick
+  vivo do PR 181) e nenhum RESUME/unblock/handoff avanca. Nao ha
+  excecao docs-only: documentacao nao substitui approval.
+- `ETAPA_6D_READY` segue BLOQUEADO ate a mesma jornada completar
+  `GH_WAKE_SCHEDULED` + `RESUMED` (RESUME live + unblock Kernel
+  BLOCKED->IMPLEMENTING no tick agendado) + `DISPATCHED`
+  (settlement com session id real via Planner) — os tres na mesma
+  jornada, com prova viva. SCHEDULED isolado (tick KEEP_WAITING)
+  nao libera READY.
 
 ## Prova viva (live tick honesto, REVIEW_PENDING, sem cadeia completa)
 

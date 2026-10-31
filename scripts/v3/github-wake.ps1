@@ -173,6 +173,16 @@ try {
     if (Test-Path -LiteralPath $GHW_CheckpointLib -PathType Leaf) { . $GHW_CheckpointLib }
     $GHW_GoalLib = Join-Path $GHW_LibDir 'lib\OrchestrationGoalKernel.ps1'
     if (Test-Path -LiteralPath $GHW_GoalLib -PathType Leaf) { . $GHW_GoalLib }
+    # Productive dispatch mechanism (Prepare/Claim/Settle). Loaded ONCE
+    # here at script scope so the definitions persist for every
+    # dot-source consumer (wake CLI, controller driver, tests). A lazy
+    # dot-source inside a function would land in that function's local
+    # scope and vanish on return. Load failure stays fail-closed: the
+    # Import probe below refuses the productive phase when the Intent
+    # constructor is unavailable. Top-level safe: the lib carries only
+    # an empty param() plus function definitions.
+    $GHW_DispatchLib = Join-Path $GHW_LibDir 'lib\OrchestrationNativeDispatch.ps1'
+    if (Test-Path -LiteralPath $GHW_DispatchLib -PathType Leaf) { . $GHW_DispatchLib }
 }
 catch { }
 
@@ -626,8 +636,642 @@ function Test-GHWakeHandoffTarget {
     catch { return @{ ok = $false; reason = 'handoff-task-mismatch' } }
 }
 
+function Get-GHWakeDispatchPromptHash {
+    # Deterministic SHA256-32 (hex) over goal+task+checkpoint+dedup.
+    # Never carries prompt text or secrets, only the 32-hex digest.
+    param([string]$GoalId = '', [string]$TaskId = '', [string]$CheckpointId = '', [string]$DedupKey = '')
+    try {
+        $g = ([string]$GoalId).Trim()
+        $t = ([string]$TaskId).Trim()
+        $c = ([string]$CheckpointId).Trim()
+        $d = ([string]$DedupKey).Trim()
+        if ([string]::IsNullOrWhiteSpace($g) -or [string]::IsNullOrWhiteSpace($t) -or [string]::IsNullOrWhiteSpace($c) -or [string]::IsNullOrWhiteSpace($d)) { return '' }
+        $raw = ('ghw-dispatch-v1|' + $g + '|' + $t + '|' + $c + '|' + $d)
+        $bytes = [Text.Encoding]::UTF8.GetBytes($raw)
+        $sha = $null
+        try { $sha = [System.Security.Cryptography.SHA256]::Create() } catch { return '' }
+        try {
+            $h = $sha.ComputeHash($bytes)
+            $hex = ''
+            foreach ($b in $h) { $hex += $b.ToString('x2') }
+            if ($hex.Length -lt 32) { return '' }
+            return ($hex.Substring(0, 32).ToLowerInvariant())
+        }
+        finally { try { $sha.Dispose() } catch { } }
+    }
+    catch { return '' }
+}
+
+function Get-GHWakeHandoffSessionToken {
+    # Deterministic pre-effect session token for ONE handoff (from the
+    # claim-once idempotency key). Prepare and Claim both bind this exact
+    # token, so retries stay consistent; the REAL worker session only
+    # appears at Settle time as ChildSessionId (Planner-attested).
+    param([string]$IdempotencyKey = '')
+    try {
+        $k = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+        if ($k -cnotmatch '^[a-f0-9]{32}$') { return '' }
+        return ('ghw-handoff-' + $k)
+    }
+    catch { return '' }
+}
+
+function Get-GHWakeHandoffMessageId {
+    param([string]$IdempotencyKey = '')
+    try {
+        $k = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+        if ($k -cnotmatch '^[a-f0-9]{32}$') { return '' }
+        return ('ghwmsg-' + $k)
+    }
+    catch { return '' }
+}
+
+function Get-GHWakeHandoffCallId {
+    param([string]$IdempotencyKey = '')
+    try {
+        $k = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
+        if ($k -cnotmatch '^[a-f0-9]{32}$') { return '' }
+        return ('ghwcall-' + $k)
+    }
+    catch { return '' }
+}
+
+function Import-GHWakeDispatchLib {
+    # Probe-only, fail-closed. The productive dispatch library is loaded
+    # ONCE at the top level of this file (script scope, definitions
+    # persist). A lazy dot-source HERE would land in this function's
+    # local scope and vanish on return, silently disabling every
+    # Intent/Prepare/Claim/Settle call. Never load here; only probe.
+    # Never throws.
+    try {
+        $cmd = Get-Command New-OrchestrationNativeDispatchIntent -ErrorAction SilentlyContinue
+        return ($null -ne $cmd)
+    }
+    catch { return $false }
+}
+
+function New-GHWakeDispatchIntent {
+    # Thin fail-closed wrapper over the supported Intent constructor.
+    # ExternalIdempotent is always $true with the claim-once marker path
+    # as ExternalIdempotencyProof: the handoff documents the single
+    # idempotent reservation (same key) whose replay the receipt machine
+    # governs; a divergente Intent for the same key stays a collision.
+    param(
+        [string]$TaskId = '',
+        [long]$TaskExpectedRevision = 0,
+        [string]$Agent = 'coder',
+        [string]$PromptHash = '',
+        [string[]]$Scope = @(),
+        [string[]]$AcceptanceCriteria = @(),
+        [string]$IdempotencyKey = '',
+        [string]$Owner = '',
+        [long]$OwnershipGeneration = 0,
+        [string]$BaseRevision = '',
+        [string]$ExternalIdempotencyProof = ''
+    )
+    try {
+        if (-not (Import-GHWakeDispatchLib)) {
+            return @{ ok = $false; reason = 'dispatch-lib-unavailable'; intent = $null }
+        }
+        $slot = $null
+        try {
+            $slot = New-OrchestrationNativeDispatchIntent -TaskId ([string]$TaskId) `
+                -TaskExpectedRevision ([long]$TaskExpectedRevision) -Agent ([string]$Agent) `
+                -PromptHash ([string]$PromptHash) -Scope @($Scope) `
+                -AcceptanceCriteria @($AcceptanceCriteria) -IdempotencyKey ([string]$IdempotencyKey) `
+                -Owner ([string]$Owner) -OwnershipGeneration ([long]$OwnershipGeneration) `
+                -BaseRevision ([string]$BaseRevision) -ExternalIdempotent $true `
+                -ExternalIdempotencyProof ([string]$ExternalIdempotencyProof)
+        }
+        catch { $slot = $null }
+        if (($null -eq $slot) -or (-not [bool](Get-GHWValue $slot 'ok' $false))) {
+            $why = 'invalid-intent'
+            try {
+                $r = ([string](Get-GHWValue $slot 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($r)) { $why = $r }
+            }
+            catch { }
+            return @{ ok = $false; reason = $why; intent = $null }
+        }
+        return @{ ok = $true; reason = ''; intent = (Get-GHWValue $slot 'intent' $null) }
+    }
+    catch { return @{ ok = $false; reason = 'invalid-intent'; intent = $null } }
+}
+
+function Read-GHWakeMarkerDoc {
+    param([string]$MarkerPath = '')
+    try {
+        $m = ([string]$MarkerPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($m)) { return $null }
+        if (-not (Test-Path -LiteralPath $m -PathType Leaf)) { return $null }
+        return (ConvertFrom-Json ([IO.File]::ReadAllText($m, [Text.Encoding]::UTF8)))
+    }
+    catch { return $null }
+}
+
+function Set-GHWakeDispatchSettlement {
+    # Completes the productive loop for ONE claimed handoff. Validates the
+    # wake marker (claimed, same idempotency key) plus the NativeDispatch
+    # receipt for the same key, then runs the supported Claim (handoff
+    # session token) + Settle (Planner-attested child session + candidate
+    # result) chain. Only a settled receipt flips the marker to
+    # 'dispatched' with the real session id. Without a real session id,
+    # or on any refusal, nothing is marked dispatched (fail-closed).
+    # Single-shot: no loop, no sleep, no spawn, no merge/deploy/DONE.
+    [CmdletBinding()]
+    param(
+        [string]$MarkerPath = '',
+        [string]$SessionId = '',
+        $ResultOk = $null,
+        [string]$ResultSummary = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$GoalStoreDir = '',
+        [string]$TasksDir = '',
+        [string]$EvidenceStoreDir = '',
+        [string]$FlagsPath = '',
+        [string]$ExpectedGoalId = '',
+        [string]$ExpectedTaskId = ''
+    )
+    $mkSettle = {
+        param([bool]$Ok, [bool]$Dispatched, [string]$Reason, [bool]$Settled, [bool]$Duplicate)
+        return [pscustomobject][ordered]@{
+            ok = [bool]$Ok; dispatched = [bool]$Dispatched
+            reason = ([string]$Reason); settled = [bool]$Settled
+            duplicate = [bool]$Duplicate; executed = [bool]$Dispatched
+            marker_path = ([string]$MarkerPath)
+            grants_authority = $false; done_approved = $false; merge_authority = $false
+        }
+    }
+    try {
+        $m = ([string]$MarkerPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($m)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-marker-invalid' -Settled $false -Duplicate $false)
+        }
+        $sid = ([string]$SessionId).Trim()
+        if ($sid -cnotmatch '^[A-Za-z0-9._:-]{1,128}$') {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-session-invalid' -Settled $false -Duplicate $false)
+        }
+        if (($null -eq $ResultOk) -or (-not ($ResultOk -is [bool]))) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-result-invalid' -Settled $false -Duplicate $false)
+        }
+        $doc = Read-GHWakeMarkerDoc -MarkerPath $m
+        if ($null -eq $doc) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-marker-unreadable' -Settled $false -Duplicate $false)
+        }
+        $mStat = ([string](Get-GHWValue $doc 'status' '')).Trim()
+        $mIdem = ([string](Get-GHWValue $doc 'idempotency_key' '')).Trim().ToLowerInvariant()
+        $mTask = ([string](Get-GHWValue $doc 'task_id' '')).Trim()
+        $mGoal = ([string](Get-GHWValue $doc 'goal_id' '')).Trim()
+        $mDdk = ([string](Get-GHWValue $doc 'wait_dedup_key' '')).Trim()
+        $mEvt = ([string](Get-GHWValue $doc 'event_id' '')).Trim()
+        $base = ''
+        try { $base = [IO.Path]::GetFileNameWithoutExtension($m) } catch { $base = '' }
+        $fileIdem = ''
+        try {
+            if ($base -cmatch '^ghw-handoff-([a-f0-9]{32})$') { $fileIdem = $Matches[1].ToLowerInvariant() }
+        }
+        catch { $fileIdem = '' }
+        if ([string]::IsNullOrWhiteSpace($mIdem) -or ($mIdem -cnotmatch '^[a-f0-9]{32}$')) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-marker-invalid' -Settled $false -Duplicate $false)
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($fileIdem)) -and ($fileIdem -cne $mIdem)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-marker-invalid' -Settled $false -Duplicate $false)
+        }
+        if ($mStat -ceq 'dispatched') {
+            $dupSess = ([string](Get-GHWValue $doc 'session_id' '')).Trim()
+            # Fail-closed duplicate: a dispatched marker alone never proves
+            # dispatch. The settled receipt for the same key must agree:
+            # receipt phase settled AND settle_child_session_id == sid ==
+            # marker session_id. Absent/unreadable receipt or any
+            # divergence refuses without dispatched=true.
+            $dupGoal = $mGoal
+            if ([string]::IsNullOrWhiteSpace($dupGoal)) { $dupGoal = ([string]$ExpectedGoalId).Trim() }
+            if ([string]::IsNullOrWhiteSpace($dupGoal)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-goal-unknown' -Settled $true -Duplicate $false)
+            }
+            $dupExpTask = ([string]$ExpectedTaskId).Trim()
+            if ((-not [string]::IsNullOrWhiteSpace($dupExpTask)) -and ($mTask -cne $dupExpTask)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-task-mismatch' -Settled $true -Duplicate $false)
+            }
+            $dupExpGoal = ([string]$ExpectedGoalId).Trim()
+            if ((-not [string]::IsNullOrWhiteSpace($mGoal)) -and (-not [string]::IsNullOrWhiteSpace($dupExpGoal)) -and ($mGoal -cne $dupExpGoal)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            if ([string]::IsNullOrWhiteSpace($mDdk) -or [string]::IsNullOrWhiteSpace($mEvt)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            # MEDIUM-6D-DISP-F8: bind marker ddk/evt exactly to the settled
+            # receipt key. The receipt persists no wait_dedup_key/event_id
+            # fields (NativeDispatch schema), and this signature carries no
+            # WaitsDir/NextAction, so the authoritative anchor available here
+            # is the claim-once idempotency key itself (file name + receipt
+            # lookup key). idempotency_key is DEFINED as sha256(ddk:evt)[0:32]
+            # (Get-GHWakeIdempotencyKey), so recompute and compare exactly:
+            # any divergent ddk or evt breaks the binding and refuses
+            # fail-closed without dispatched=true. Full NextAction-vs-wait-doc
+            # exactness (generation/lease_owner/task/goal) is enforced upstream
+            # in Invoke-GHWakeControllerHandoff before claim.
+            $dupExpIdem = Get-GHWakeIdempotencyKey -DedupKey $mDdk -EventId $mEvt
+            if ([string]::IsNullOrWhiteSpace($dupExpIdem) -or ($dupExpIdem -cne $mIdem)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            if (-not (Test-GHWEventId -Value $mEvt)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            if (-not (Import-GHWakeDispatchLib)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $true -Duplicate $false)
+            }
+            $dupNeed = @('Get-OrchestrationDispatchReceiptDir', 'Resolve-NDGoalReceiptDir', 'Read-NDReceipt')
+            foreach ($dnc in @($dupNeed)) {
+                try {
+                    if ($null -eq (Get-Command $dnc -ErrorAction SilentlyContinue)) {
+                        return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $true -Duplicate $false)
+                    }
+                }
+                catch {
+                    return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $true -Duplicate $false)
+                }
+            }
+            $dupRoot = ''
+            try { $dupRoot = Get-OrchestrationDispatchReceiptDir -ReceiptDir ([string]$ReceiptDir).Trim() -RepoRoot ([string]$RepoRoot).Trim() } catch { $dupRoot = '' }
+            if ([string]::IsNullOrWhiteSpace($dupRoot)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $true -Duplicate $false)
+            }
+            $dupState = $null
+            try { $dupState = Resolve-NDGoalReceiptDir -RootDir $dupRoot -GoalId $dupGoal } catch { $dupState = $null }
+            $dupDir = ''
+            try { $dupDir = ([string](Get-GHWValue $dupState 'dir' '')) } catch { $dupDir = '' }
+            if ([string]::IsNullOrWhiteSpace($dupDir)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $true -Duplicate $false)
+            }
+            $dupIdent = ''
+            try { $dupIdent = ([string](Get-GHWValue $dupState 'created_utc' '')) } catch { $dupIdent = '' }
+            $dupRead = $null
+            try { $dupRead = Read-NDReceipt -Dir $dupDir -Key $mIdem -Expected $dupIdent -AllowHandoffPhases } catch { $dupRead = $null }
+            if (($null -eq $dupRead) -or (-not [bool](Get-GHWValue $dupRead 'ok' $false))) {
+                $dupRw = 'settle-not-prepared'
+                try {
+                    $dupRr = ([string](Get-GHWValue $dupRead 'reason' ''))
+                    if ($dupRr -ceq 'receipt-absent') { $dupRw = 'settle-not-prepared' }
+                    elseif (-not [string]::IsNullOrWhiteSpace($dupRr)) { $dupRw = $dupRr }
+                }
+                catch { }
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason $dupRw -Settled $true -Duplicate $false)
+            }
+            $dupReceipt = Get-GHWValue $dupRead 'receipt' $null
+            if ($null -eq $dupReceipt) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-prepared' -Settled $true -Duplicate $false)
+            }
+            $dupTask = ([string](Get-GHWValue $dupReceipt 'task_id' '')).Trim()
+            if ([string]::IsNullOrWhiteSpace($dupTask) -or ($dupTask -cne $mTask)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-task-mismatch' -Settled $true -Duplicate $false)
+            }
+            # Sweep F8: the settled receipt is conferring on goal too
+            # (namespace-bound at read, but compare exactly like task_id;
+            # divergence is identity, not a task mismatch).
+            $dupRecGoal = ([string](Get-GHWValue $dupReceipt 'goal_id' '')).Trim()
+            if ([string]::IsNullOrWhiteSpace($dupRecGoal) -or ($dupRecGoal -cne $dupGoal)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            $dupPhase = ([string](Get-GHWValue $dupReceipt 'phase' '')).Trim().ToLowerInvariant()
+            if ($dupPhase -cne 'settled') {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-prepared' -Settled $true -Duplicate $false)
+            }
+            $dupChild = ''
+            try { $dupChild = ([string](Get-GHWValue $dupReceipt 'settle_child_session_id' '')).Trim() } catch { $dupChild = '' }
+            if ([string]::IsNullOrWhiteSpace($dupChild) -or ($dupChild -cne $sid) -or ($dupChild -cne $dupSess) -or ($dupSess -cne $sid)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-session-mismatch' -Settled $true -Duplicate $false)
+            }
+            return (& $mkSettle -Ok $true -Dispatched $true -Reason 'settle-duplicate' -Settled $true -Duplicate $true)
+        }
+        if ($mStat -cne 'claimed') {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-claimed' -Settled $false -Duplicate $false)
+        }
+        $expTask = ([string]$ExpectedTaskId).Trim()
+        if ((-not [string]::IsNullOrWhiteSpace($expTask)) -and ($mTask -cne $expTask)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-task-mismatch' -Settled $false -Duplicate $false)
+        }
+        $goalId = $mGoal
+        if ([string]::IsNullOrWhiteSpace($goalId)) { $goalId = ([string]$ExpectedGoalId).Trim() }
+        if ([string]::IsNullOrWhiteSpace($goalId)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-goal-unknown' -Settled $false -Duplicate $false)
+        }
+        if (-not (Import-GHWakeDispatchLib)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $false -Duplicate $false)
+        }
+        $needCmds = @('Invoke-OrchestrationNativeDispatchClaim', 'Invoke-OrchestrationNativeDispatchSettle', 'Get-OrchestrationDispatchReceiptDir', 'Resolve-NDGoalReceiptDir', 'Read-NDReceipt')
+        foreach ($nc in @($needCmds)) {
+            try {
+                if ($null -eq (Get-Command $nc -ErrorAction SilentlyContinue)) {
+                    return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $false -Duplicate $false)
+                }
+            }
+            catch {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $false -Duplicate $false)
+            }
+        }
+        $root = ''
+        try { $root = Get-OrchestrationDispatchReceiptDir -ReceiptDir ([string]$ReceiptDir).Trim() -RepoRoot ([string]$RepoRoot).Trim() } catch { $root = '' }
+        if ([string]::IsNullOrWhiteSpace($root)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $false -Duplicate $false)
+        }
+        $rState = $null
+        try { $rState = Resolve-NDGoalReceiptDir -RootDir $root -GoalId $goalId } catch { $rState = $null }
+        $rDir = ''
+        try { $rDir = ([string](Get-GHWValue $rState 'dir' '')) } catch { $rDir = '' }
+        if ([string]::IsNullOrWhiteSpace($rDir)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $false -Duplicate $false)
+        }
+        $rIdent = ''
+        try { $rIdent = ([string](Get-GHWValue $rState 'created_utc' '')) } catch { $rIdent = '' }
+        $read = $null
+        try { $read = Read-NDReceipt -Dir $rDir -Key $mIdem -Expected $rIdent -AllowHandoffPhases } catch { $read = $null }
+        if (($null -eq $read) -or (-not [bool](Get-GHWValue $read 'ok' $false))) {
+            $rw = 'settle-not-prepared'
+            try {
+                $rr = ([string](Get-GHWValue $read 'reason' ''))
+                if ($rr -ceq 'receipt-absent') { $rw = 'settle-not-prepared' }
+                elseif (-not [string]::IsNullOrWhiteSpace($rr)) { $rw = $rr }
+            }
+            catch { }
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason $rw -Settled $false -Duplicate $false)
+        }
+        $receipt = Get-GHWValue $read 'receipt' $null
+        if ($null -eq $receipt) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-prepared' -Settled $false -Duplicate $false)
+        }
+        # F9 upfront gate (MEDIUM-6D-DISP-F8): marker ddk/evt binding plus
+        # receipt goal exactness, checked AFTER receipt resolution and
+        # BEFORE any mutation (Claim, Settle, marker write). Covers the
+        # claimed path, the settled-recovery marker flip below and every
+        # later re-read by construction: no dispatched=true return below
+        # this point is reachable without passing here. Reasons reuse the
+        # existing settled vocabulary (settle-identity-diverged).
+        if ([string]::IsNullOrWhiteSpace($mDdk) -or [string]::IsNullOrWhiteSpace($mEvt)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $false -Duplicate $false)
+        }
+        if (-not (Test-GHWEventId -Value $mEvt)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $false -Duplicate $false)
+        }
+        $gateExpIdem = Get-GHWakeIdempotencyKey -DedupKey $mDdk -EventId $mEvt
+        if ([string]::IsNullOrWhiteSpace($gateExpIdem) -or ($gateExpIdem -cne $mIdem)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $false -Duplicate $false)
+        }
+        $rGoal = ([string](Get-GHWValue $receipt 'goal_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($rGoal) -or ($rGoal -cne $goalId)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $false -Duplicate $false)
+        }
+        $rPhase = ([string](Get-GHWValue $receipt 'phase' '')).Trim().ToLowerInvariant()
+        $rTask = ([string](Get-GHWValue $receipt 'task_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($rTask) -or ($rTask -cne $mTask)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-task-mismatch' -Settled $false -Duplicate $false)
+        }
+        $pfp = ([string](Get-GHWValue $receipt 'prepared_fingerprint' '')).Trim().ToLowerInvariant()
+        $ref = ([string](Get-GHWValue $receipt 'reference' '')).Trim()
+        $agent = ([string](Get-GHWValue $receipt 'agent' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($pfp) -or ($pfp -cnotmatch '^[a-f0-9]{32}$')) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-prepared' -Settled $false -Duplicate $false)
+        }
+        if ([string]::IsNullOrWhiteSpace($agent)) { $agent = 'coder' }
+        $criteria = @()
+        try {
+            $rcRaw = Get-GHWValue $receipt 'acceptance_criteria' $null
+            if ($null -ne $rcRaw) { $criteria = @($rcRaw) }
+        }
+        catch { $criteria = @() }
+        $criteria = @($criteria | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -cmatch '^criterion:[0-9]+$' })
+        if (@($criteria).Count -lt 1) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-result-invalid' -Settled $false -Duplicate $false)
+        }
+        $liveOwner = ''
+        $liveGen = [long]0
+        try {
+            $gslot = Get-OrchestrationGoal -GoalId $goalId -StoreDir ([string]$GoalStoreDir).Trim()
+            $grec = Get-GHWValue $gslot 'goal' $null
+            $own = Get-GHWValue $grec 'ownership' $null
+            $liveOwner = ([string](Get-GHWValue $own 'owner_id' '')).Trim()
+            $liveGen = [long](Get-GHWValue $own 'generation' 0)
+        }
+        catch { $liveOwner = ''; $liveGen = 0 }
+        if ([string]::IsNullOrWhiteSpace($liveOwner) -or ($liveGen -lt 1)) {
+            try {
+                $lo = ([string](Get-GHWValue $receipt 'owner' '')).Trim()
+                $lg = [long](Get-GHWValue $receipt 'ownership_generation' 0)
+                if ((-not [string]::IsNullOrWhiteSpace($lo)) -and ($lg -ge 1)) { $liveOwner = $lo; $liveGen = $lg }
+            }
+            catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($liveOwner) -or ($liveGen -lt 1)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-ownership-unknown' -Settled $false -Duplicate $false)
+        }
+        $auth = [pscustomobject][ordered]@{
+            goal_id = $goalId; owner = $liveOwner; generation = $liveGen
+            explicit_allow = $true; source = 'gh-wake-handoff'
+        }
+        $tok = Get-GHWakeHandoffSessionToken -IdempotencyKey $mIdem
+        $msg = Get-GHWakeHandoffMessageId -IdempotencyKey $mIdem
+        $call = Get-GHWakeHandoffCallId -IdempotencyKey $mIdem
+        if ([string]::IsNullOrWhiteSpace($tok) -or [string]::IsNullOrWhiteSpace($msg) -or [string]::IsNullOrWhiteSpace($call)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-unavailable' -Settled $false -Duplicate $false)
+        }
+        $gDir = ([string]$GoalStoreDir).Trim()
+        $tDir = ([string]$TasksDir).Trim()
+        $fPath = ([string]$FlagsPath).Trim()
+        $evDir = ([string]$EvidenceStoreDir).Trim()
+        if ($rPhase -ceq 'settled') {
+            # Receipt already settled (earlier attempt settled before the
+            # marker flip): complete the marker now, no second effect.
+            $finDoc = Read-GHWakeMarkerDoc -MarkerPath $m
+            $finStat = ''
+            try { $finStat = ([string](Get-GHWValue $finDoc 'status' '')).Trim() } catch { $finStat = '' }
+            if ($finStat -cne 'claimed') {
+                if ($finStat -ceq 'dispatched') {
+                    $finIdemX = ''
+                    try { $finIdemX = ([string](Get-GHWValue $finDoc 'idempotency_key' '')).Trim().ToLowerInvariant() } catch { $finIdemX = '' }
+                    $finTaskX = ''
+                    try { $finTaskX = ([string](Get-GHWValue $finDoc 'task_id' '')).Trim() } catch { $finTaskX = '' }
+                    $finGoalX = ''
+                    try { $finGoalX = ([string](Get-GHWValue $finDoc 'goal_id' '')).Trim() } catch { $finGoalX = '' }
+                    $finDdkX = ''
+                    try { $finDdkX = ([string](Get-GHWValue $finDoc 'wait_dedup_key' '')).Trim() } catch { $finDdkX = '' }
+                    $finEvtX = ''
+                    try { $finEvtX = ([string](Get-GHWValue $finDoc 'event_id' '')).Trim() } catch { $finEvtX = '' }
+                    $finIdentOkX = (($finIdemX -ceq $mIdem) -and ($finTaskX -ceq $mTask) -and ($finGoalX -ceq $goalId) -and ($finDdkX -ceq $mDdk) -and ($finEvtX -ceq $mEvt))
+                    if (-not [bool]$finIdentOkX) {
+                        return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+                    }
+                    $finSess = ''
+                    try { $finSess = ([string](Get-GHWValue $finDoc 'session_id' '')).Trim() } catch { $finSess = '' }
+                    $finChild = ''
+                    try { $finChild = ([string](Get-GHWValue $receipt 'settle_child_session_id' '')).Trim() } catch { $finChild = '' }
+                    if ([string]::IsNullOrWhiteSpace($finChild) -or ($finChild -cne $sid) -or ($finChild -cne $finSess) -or ($finSess -cne $sid)) {
+                        return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-session-mismatch' -Settled $true -Duplicate $false)
+                    }
+                    return (& $mkSettle -Ok $true -Dispatched $true -Reason 'settle-duplicate' -Settled $true -Duplicate $true)
+                }
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-claimed' -Settled $true -Duplicate $false)
+            }
+            $finIdem = ''
+            try { $finIdem = ([string](Get-GHWValue $finDoc 'idempotency_key' '')).Trim().ToLowerInvariant() } catch { $finIdem = '' }
+            $finTask = ''
+            try { $finTask = ([string](Get-GHWValue $finDoc 'task_id' '')).Trim() } catch { $finTask = '' }
+            $finGoal = ''
+            try { $finGoal = ([string](Get-GHWValue $finDoc 'goal_id' '')).Trim() } catch { $finGoal = '' }
+            $finDdk = ''
+            try { $finDdk = ([string](Get-GHWValue $finDoc 'wait_dedup_key' '')).Trim() } catch { $finDdk = '' }
+            $finEvt = ''
+            try { $finEvt = ([string](Get-GHWValue $finDoc 'event_id' '')).Trim() } catch { $finEvt = '' }
+            $finIdentOk = (($finIdem -ceq $mIdem) -and ($finTask -ceq $mTask) -and ($finGoal -ceq $goalId) -and ($finDdk -ceq $mDdk) -and ($finEvt -ceq $mEvt))
+            if (-not [bool]$finIdentOk) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            $rChild = ''
+            try { $rChild = ([string](Get-GHWValue $receipt 'settle_child_session_id' '')).Trim() } catch { $rChild = '' }
+            if ($rChild -cne $sid) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-session-mismatch' -Settled $true -Duplicate $false)
+            }
+            $wStatus = 'candidate_pass'
+            if (-not [bool]$ResultOk) { $wStatus = 'failed' }
+            $payload = [ordered]@{
+                task_id = $mTask; wait_dedup_key = ([string](Get-GHWValue $doc 'wait_dedup_key' ''))
+                event_id = ([string](Get-GHWValue $doc 'event_id' '')); idempotency_key = $mIdem
+                goal_id = $goalId; status = 'dispatched'; session_id = $rChild
+                result_status = $wStatus; result_summary = ([string]$ResultSummary).Trim()
+                settled_at = ([DateTime]::UtcNow.ToString('o'))
+            }
+            try {
+                [IO.File]::WriteAllText($m, (ConvertTo-Json -InputObject $payload -Depth 4 -Compress), (New-Object Text.UTF8Encoding $false))
+            }
+            catch {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-marker-failed' -Settled $true -Duplicate $false)
+            }
+            return (& $mkSettle -Ok $true -Dispatched $true -Reason 'settle-duplicate' -Settled $true -Duplicate $true)
+        }
+        if ($rPhase -cne 'prepared') {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-prepared' -Settled $false -Duplicate $false)
+        }
+        $claim = $null
+        try {
+            $claim = Invoke-OrchestrationNativeDispatchClaim -IdempotencyKey $mIdem -Authorization $auth `
+                -SessionId $tok -MessageId $msg -CallId $call -CallerAgent 'planner' -TargetAgent $agent `
+                -PreparedFingerprint $pfp -ReceiptDir ([string]$ReceiptDir).Trim() -RepoRoot ([string]$RepoRoot).Trim() `
+                -GoalStoreDir $gDir -TasksDir $tDir -FlagsPath $fPath
+        }
+        catch { $claim = $null }
+        $claimOk = (($null -ne $claim) -and [bool](Get-GHWValue $claim 'ok' $false) -and [bool](Get-GHWValue $claim 'claimed' $false))
+        if (-not [bool]$claimOk) {
+            $cw = 'settle-claim-refused'
+            try {
+                $cr = ([string](Get-GHWValue $claim 'reason' ''))
+                if ($cr -ceq 'claim-already-consumed') { $cw = 'claim-already-consumed' }
+                elseif (-not [string]::IsNullOrWhiteSpace($cr)) { $cw = $cr }
+            }
+            catch { }
+            if ($cw -cne 'claim-already-consumed') {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason $cw -Settled $false -Duplicate $false)
+            }
+        }
+        $wStatus = 'candidate_pass'
+        if (-not [bool]$ResultOk) { $wStatus = 'failed' }
+        $result = [pscustomobject][ordered]@{ status = $wStatus; claimed_evidence = [string[]]@($criteria) }
+        $settle = $null
+        try {
+            $settle = Invoke-OrchestrationNativeDispatchSettle -IdempotencyKey $mIdem -Authorization $auth `
+                -ChildSessionId $sid -SessionId $tok -MessageId $msg -CallId $call -CallerAgent 'planner' -TargetAgent $agent `
+                -PreparedFingerprint $pfp -Reference $ref -TaskId $rTask -Result $result `
+                -ReceiptDir ([string]$ReceiptDir).Trim() -RepoRoot ([string]$RepoRoot).Trim() `
+                -GoalStoreDir $gDir -EvidenceStoreDir $evDir -TasksDir $tDir -FlagsPath $fPath
+        }
+        catch { $settle = $null }
+        $settleOk = (($null -ne $settle) -and [bool](Get-GHWValue $settle 'ok' $false) -and [bool](Get-GHWValue $settle 'settled' $false))
+        $settleDup = (($null -ne $settle) -and [bool](Get-GHWValue $settle 'duplicate' $false))
+        if ((-not [bool]$settleOk) -and (-not [bool]$settleDup)) {
+            $sw = 'settle-refused'
+            try {
+                $sr = ([string](Get-GHWValue $settle 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($sr)) { $sw = $sr }
+            }
+            catch { }
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason $sw -Settled $false -Duplicate $false)
+        }
+        $cur = Read-GHWakeMarkerDoc -MarkerPath $m
+        $curStat = ''
+        try { $curStat = ([string](Get-GHWValue $cur 'status' '')).Trim() } catch { $curStat = '' }
+        if ($curStat -ceq 'dispatched') {
+            $curIdemX = ''
+            try { $curIdemX = ([string](Get-GHWValue $cur 'idempotency_key' '')).Trim().ToLowerInvariant() } catch { $curIdemX = '' }
+            $curTaskX = ''
+            try { $curTaskX = ([string](Get-GHWValue $cur 'task_id' '')).Trim() } catch { $curTaskX = '' }
+            $curGoalX = ''
+            try { $curGoalX = ([string](Get-GHWValue $cur 'goal_id' '')).Trim() } catch { $curGoalX = '' }
+            $curDdkX = ''
+            try { $curDdkX = ([string](Get-GHWValue $cur 'wait_dedup_key' '')).Trim() } catch { $curDdkX = '' }
+            $curEvtX = ''
+            try { $curEvtX = ([string](Get-GHWValue $cur 'event_id' '')).Trim() } catch { $curEvtX = '' }
+            $curIdentOkX = (($curIdemX -ceq $mIdem) -and ($curTaskX -ceq $mTask) -and ($curGoalX -ceq $goalId) -and ($curDdkX -ceq $mDdk) -and ($curEvtX -ceq $mEvt))
+            if (-not [bool]$curIdentOkX) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+            }
+            $curSess = ''
+            try { $curSess = ([string](Get-GHWValue $cur 'session_id' '')).Trim() } catch { $curSess = '' }
+            $curChild = ''
+            try { $curChild = ([string](Get-GHWValue $settle 'child_session_id' '')).Trim() } catch { $curChild = '' }
+            if ([string]::IsNullOrWhiteSpace($curChild) -or ($curChild -cne $sid) -or ($curChild -cne $curSess) -or ($curSess -cne $sid)) {
+                return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-session-mismatch' -Settled $true -Duplicate $false)
+            }
+            return (& $mkSettle -Ok $true -Dispatched $true -Reason 'settle-duplicate' -Settled $true -Duplicate $true)
+        }
+        if ($curStat -cne 'claimed') {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-not-claimed' -Settled $true -Duplicate $false)
+        }
+        $curIdem = ''
+        try { $curIdem = ([string](Get-GHWValue $cur 'idempotency_key' '')).Trim().ToLowerInvariant() } catch { $curIdem = '' }
+        $curTask = ''
+        try { $curTask = ([string](Get-GHWValue $cur 'task_id' '')).Trim() } catch { $curTask = '' }
+        $curGoal = ''
+        try { $curGoal = ([string](Get-GHWValue $cur 'goal_id' '')).Trim() } catch { $curGoal = '' }
+        $curDdk = ''
+        try { $curDdk = ([string](Get-GHWValue $cur 'wait_dedup_key' '')).Trim() } catch { $curDdk = '' }
+        $curEvt = ''
+        try { $curEvt = ([string](Get-GHWValue $cur 'event_id' '')).Trim() } catch { $curEvt = '' }
+        $curIdentOk = (($curIdem -ceq $mIdem) -and ($curTask -ceq $mTask) -and ($curGoal -ceq $goalId) -and ($curDdk -ceq $mDdk) -and ($curEvt -ceq $mEvt))
+        if (-not [bool]$curIdentOk) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-identity-diverged' -Settled $true -Duplicate $false)
+        }
+        $sChild = ''
+        try { $sChild = ([string](Get-GHWValue $settle 'child_session_id' '')).Trim() } catch { $sChild = '' }
+        if ([string]::IsNullOrWhiteSpace($sChild) -or ($sChild -cne $sid)) {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-session-mismatch' -Settled $true -Duplicate $false)
+        }
+        $effSess = $sChild
+        $payload = [ordered]@{
+            task_id = $mTask; wait_dedup_key = ([string](Get-GHWValue $doc 'wait_dedup_key' ''))
+            event_id = ([string](Get-GHWValue $doc 'event_id' '')); idempotency_key = $mIdem
+            goal_id = $goalId; status = 'dispatched'; session_id = $effSess
+            result_status = $wStatus; result_summary = ([string]$ResultSummary).Trim()
+            settled_at = ([DateTime]::UtcNow.ToString('o'))
+        }
+        try {
+            [IO.File]::WriteAllText($m, (ConvertTo-Json -InputObject $payload -Depth 4 -Compress), (New-Object Text.UTF8Encoding $false))
+        }
+        catch {
+            return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-marker-failed' -Settled $true -Duplicate $false)
+        }
+        $dupOut = $false
+        try { $dupOut = [bool]$settleDup } catch { $dupOut = $false }
+        if ([bool]$claimOk -and (-not $dupOut)) {
+            return (& $mkSettle -Ok $true -Dispatched $true -Reason 'planner-settled' -Settled $true -Duplicate $false)
+        }
+        return (& $mkSettle -Ok $true -Dispatched $true -Reason 'settle-duplicate' -Settled $true -Duplicate $true)
+    }
+    catch {
+        try { return (& $mkSettle -Ok $false -Dispatched $false -Reason 'internal-error' -Settled $false -Duplicate $false) } catch { return $null }
+    }
+}
+
 function New-GHWakeHandoffClaim {
-    param([string]$MarkerPath = '', [string]$TaskId = '', [string]$DedupKey = '', [string]$EventId = '', [string]$IdempotencyKey = '')
+    param([string]$MarkerPath = '', [string]$TaskId = '', [string]$DedupKey = '', [string]$EventId = '', [string]$IdempotencyKey = '', [string]$GoalId = '')
     try {
         $marker = ([string]$MarkerPath).Trim()
         if ([string]::IsNullOrWhiteSpace($marker)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = '' } }
@@ -637,7 +1281,7 @@ function New-GHWakeHandoffClaim {
             try { [void][IO.Directory]::CreateDirectory($mdir) } catch { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
             if (-not (Test-Path -LiteralPath $mdir -PathType Container)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
         }
-        $payload = [ordered]@{ task_id = ([string]$TaskId); wait_dedup_key = ([string]$DedupKey); event_id = ([string]$EventId); idempotency_key = ([string]$IdempotencyKey); status = 'claimed' }
+        $payload = [ordered]@{ task_id = ([string]$TaskId); wait_dedup_key = ([string]$DedupKey); event_id = ([string]$EventId); idempotency_key = ([string]$IdempotencyKey); goal_id = ([string]$GoalId); status = 'claimed' }
         $json = ''
         try { $json = (ConvertTo-Json -InputObject $payload -Depth 4 -Compress) } catch { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
         $bytes = [Text.Encoding]::UTF8.GetBytes($json)
@@ -664,9 +1308,12 @@ function New-GHWakeHandoffClaim {
                     $mevt = ([string](Get-GHWValue $mdoc 'event_id' '')).Trim()
                     $midem = ([string](Get-GHWValue $mdoc 'idempotency_key' '')).Trim().ToLowerInvariant()
                     $mstat = ([string](Get-GHWValue $mdoc 'status' '')).Trim()
+                    $mgoal = ([string](Get-GHWValue $mdoc 'goal_id' '')).Trim()
+                    $expGoal = ([string]$GoalId).Trim()
                     $expEvt = ([string]$EventId).Trim()
                     $expIdem = ([string]$IdempotencyKey).Trim().ToLowerInvariant()
                     if (($mtask -cne ([string]$TaskId)) -or ($mddk -cne ([string]$DedupKey))) { return @{ ok = $false; duplicate = $false; reason = 'idempotency-collision'; path = $marker } }
+                    elseif ((-not [string]::IsNullOrWhiteSpace($mgoal)) -and (-not [string]::IsNullOrWhiteSpace($expGoal)) -and ($mgoal -cne $expGoal)) { return @{ ok = $false; duplicate = $false; reason = 'idempotency-collision'; path = $marker } }
                     elseif ([string]::IsNullOrWhiteSpace($expEvt) -or (-not (Test-GHWEventId -Value $expEvt))) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
                     elseif ([string]::IsNullOrWhiteSpace($expIdem) -or ($expIdem -cnotmatch '^[a-f0-9]{32}$')) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
                     elseif ([string]::IsNullOrWhiteSpace($mevt) -or (-not (Test-GHWEventId -Value $mevt)) -or ($mevt -cne $expEvt)) { return @{ ok = $false; duplicate = $false; reason = 'handoff-persist-failed'; path = $marker } }
@@ -718,9 +1365,12 @@ function Remove-GHWakeHandoffClaim {
 
 function Invoke-GHWakeControllerHandoff {
     # IMPLEMENTING alone is never execution: the Kernel BLOCKED->IMPLEMENTING
-    # transition only unblocks the task. executed=$true appears solely when a
-    # controller probe confirms a dispatch in this invocation; a bare
-    # IMPLEMENTING task with no handoff envelope yields no-next-action.
+    # transition only unblocks the task. executed=$true appears solely when
+    # Set-GHWakeDispatchSettlement completes the productive Claim + Settle
+    # chain with a Planner-attested session id; a bare IMPLEMENTING task
+    # with no handoff envelope yields no-next-action, and a positive
+    # controller probe is only a 'controller-responded' signal (marker stays
+    # 'claimed', dispatched stays false) until the Planner settles it.
     [CmdletBinding()]
     param(
         $NextAction = $null,
@@ -731,11 +1381,14 @@ function Invoke-GHWakeControllerHandoff {
         [string]$FlagsPath = '',
         [string]$NowUtc = '',
         [string]$HandoffStateDir = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$EvidenceStoreDir = '',
         $ObjectiveStepProbe = $null,
         $NextMoveProbe = $null
     )
     $mkResult = {
-        param([bool]$Ok, [bool]$Dispatched, [string]$Decision, [string]$Reason, [string]$Controller, $EchoAction)
+        param([bool]$Ok, [bool]$Dispatched, [string]$Decision, [string]$Reason, [string]$Controller, $EchoAction, [string]$MarkerPath = '', $DispatchIntent = $null, $Prepare = $null)
         $tidOut = ''
         $idemOut = ''
         try { $tidOut = ([string](Get-GHWValue $EchoAction 'task_id' '')) } catch { $tidOut = '' }
@@ -747,6 +1400,8 @@ function Invoke-GHWakeControllerHandoff {
             task_id = $tidOut; idempotency_key = $idemOut
             kernel_state = 'IMPLEMENTING'; executed = [bool]$Dispatched
             grants_authority = $false; done_approved = $false; merge_authority = $false
+            marker_path = ([string]$MarkerPath)
+            dispatch_intent = $DispatchIntent; prepare = $Prepare
             next_action = $EchoAction
         }
     }
@@ -812,23 +1467,15 @@ function Invoke-GHWakeControllerHandoff {
             catch { }
             return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $lr -Controller 'none' -EchoAction $NextAction)
         }
-        $applied = @()
-        try {
-            $rawApplied = Get-GHWValue $waitDoc 'applied_events' $null
-            if ($null -ne $rawApplied) { $applied = @($rawApplied) }
-        }
-        catch { $applied = @() }
-        $seenInWait = $false
-        foreach ($seen in @($applied)) {
-            if ([string]$seen -ceq $evt) { $seenInWait = $true; break }
-        }
-        if ([bool]$seenInWait) {
-            $probeOnly = $false
-            try { if (($null -ne $ObjectiveStepProbe) -or ($null -ne $NextMoveProbe)) { $probeOnly = $true } } catch { $probeOnly = $false }
-            if (-not [bool]$probeOnly) {
-                return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'duplicate-noop' -Controller 'none' -EchoAction $NextAction)
-            }
-        }
+        # applied_events is the WAIT-level dedup (prevents re-RESUME of the
+        # same event across wake ticks) and is recorded by the wake itself
+        # on RESUME, so it is ALWAYS seen by the time this handoff runs.
+        # It must not gate the handoff: the claim-once marker below is the
+        # exactly-once gate (claimed/dispatched marker => duplicate-noop;
+        # released-on-failure marker => fresh claim with idempotent
+        # prepare-reuse). Gating here would make intent-ready unreachable
+        # on the normal wake->handoff flow, or would force every probe
+        # call into a replay refusal.
         $hsd = ([string]$HandoffStateDir).Trim()
         if ([string]::IsNullOrWhiteSpace($hsd)) { $hsd = ([string]$CheckpointDir).Trim() }
         $marker = ''
@@ -836,9 +1483,10 @@ function Invoke-GHWakeControllerHandoff {
             $marker = Join-Path $hsd ('ghw-handoff-' + $idem + '.json')
         }
         $tidClaim = ([string](Get-GHWValue $NextAction 'task_id' ''))
+        $gidClaim = ([string](Get-GHWValue $NextAction 'goal_id' '')).Trim()
         $claimOnce = {
             $cc = $null
-            try { $cc = New-GHWakeHandoffClaim -MarkerPath $marker -TaskId $tidClaim -DedupKey $ddk -EventId $evt -IdempotencyKey $idem } catch { $cc = $null }
+            try { $cc = New-GHWakeHandoffClaim -MarkerPath $marker -TaskId $tidClaim -DedupKey $ddk -EventId $evt -IdempotencyKey $idem -GoalId $gidClaim } catch { $cc = $null }
             if (($null -eq $cc) -or (-not [bool](Get-GHWValue $cc 'ok' $false))) {
                 $failReason = 'handoff-persist-failed'
                 try {
@@ -859,28 +1507,157 @@ function Invoke-GHWakeControllerHandoff {
             }
             return $null
         }
+        $preGate = (& $claimOnce)
+        if ($null -ne $preGate) { return $preGate }
+        # Productive phase: build the supported DispatchIntent from the
+        # LIVE task/goal and persist it via Prepare (pending receipt, zero
+        # worker effect). Any refusal is fail-closed here: not-dispatched,
+        # no probe, marker claim released for a later tick.
+        $doPrepare = {
+            $liveTaskRec = $null
+            try { $liveTaskRec = Get-OrchestrationTask -TaskId $tidClaim -TasksDir $TasksDir } catch { $liveTaskRec = $null }
+            $tErr = ''
+            try {
+                if ($null -eq $liveTaskRec) { $tErr = 'task-unreadable' }
+                elseif ($liveTaskRec -is [System.Collections.IDictionary]) {
+                    if ($liveTaskRec.Contains('error')) { $tErr = ([string]$liveTaskRec['error']) }
+                }
+                else {
+                    $ep = $liveTaskRec.PSObject.Properties['error']
+                    if ($null -ne $ep) { $tErr = ([string]$ep.Value) }
+                }
+            }
+            catch { $tErr = 'task-unreadable' }
+            if (-not [string]::IsNullOrWhiteSpace($tErr)) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-task-unreadable' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            $tRev = [long]0
+            $tBase = ''
+            $tScopes = @()
+            $tCriteria = @()
+            try { $tRev = [long](Get-GHWValue $liveTaskRec 'revision' 0) } catch { $tRev = 0 }
+            try { $tBase = ([string](Get-GHWValue $liveTaskRec 'base_revision' '')).Trim() } catch { $tBase = '' }
+            try {
+                $rsRaw = Get-GHWValue $liveTaskRec 'read_scopes' $null
+                if ($null -ne $rsRaw) { $tScopes += @($rsRaw) }
+                $wsRaw = Get-GHWValue $liveTaskRec 'write_scopes' $null
+                if ($null -ne $wsRaw) { $tScopes += @($wsRaw) }
+            }
+            catch { $tScopes = @() }
+            $tScopes = @($tScopes | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            try {
+                $acRaw = Get-GHWValue $liveTaskRec 'acceptance_criteria' $null
+                if ($null -ne $acRaw) { $tCriteria = @($acRaw) }
+            }
+            catch { $tCriteria = @() }
+            $tCriteria = @($tCriteria | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -cmatch '^criterion:[0-9]+$' })
+            if (($tRev -lt 1) -or [string]::IsNullOrWhiteSpace($tBase)) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-task-unreadable' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            if (@($tScopes).Count -lt 1) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-no-scopes' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            if (@($tCriteria).Count -lt 1) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-no-criteria' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            $liveGoalRec = $null
+            try {
+                $gs = Get-OrchestrationGoal -GoalId $gidClaim -StoreDir $GoalStoreDir
+                if (($null -ne $gs) -and [bool](Get-GHWValue $gs 'ok' $false)) { $liveGoalRec = Get-GHWValue $gs 'goal' $null }
+            }
+            catch { $liveGoalRec = $null }
+            if ($null -eq $liveGoalRec) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-goal-unreadable' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            $ownGen = [long]0
+            try { $ownGen = [long](Get-GHWValue (Get-GHWValue $liveGoalRec 'ownership' $null) 'generation' 0) } catch { $ownGen = 0 }
+            if ($ownGen -lt 1) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-ownership-unknown' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            # Agent default: the goal next-move carries no agent field, so
+            # the productive default is the documented 'coder' owner.
+            $promptHash = Get-GHWakeDispatchPromptHash -GoalId $gidClaim -TaskId $tidClaim -CheckpointId $cid -DedupKey $ddk
+            $prepSession = Get-GHWakeHandoffSessionToken -IdempotencyKey $idem
+            if ([string]::IsNullOrWhiteSpace($promptHash) -or [string]::IsNullOrWhiteSpace($prepSession)) {
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'dispatch-intent-invalid' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            $intentSlot = New-GHWakeDispatchIntent -TaskId $tidClaim -TaskExpectedRevision $tRev `
+                -Agent 'coder' -PromptHash $promptHash -Scope @($tScopes) -AcceptanceCriteria @($tCriteria) `
+                -IdempotencyKey $idem -Owner $lownExp -OwnershipGeneration $ownGen `
+                -BaseRevision $tBase -ExternalIdempotencyProof $marker
+            if (-not [bool](Get-GHWValue $intentSlot 'ok' $false)) {
+                $iw = 'dispatch-intent-invalid'
+                try {
+                    $ir = ([string](Get-GHWValue $intentSlot 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($ir)) { $iw = ('dispatch-intent-invalid:' + $ir) }
+                }
+                catch { }
+                return @{ ok = $false; intent = $null; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $iw -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker) }
+            }
+            $builtIntent = Get-GHWValue $intentSlot 'intent' $null
+            $auth = [pscustomobject][ordered]@{
+                goal_id = $gidClaim; owner = $lownExp; generation = $ownGen
+                explicit_allow = $true; source = 'gh-wake-handoff'
+            }
+            $prep = $null
+            try {
+                $prep = Invoke-OrchestrationNativeDispatchPrepare -Intent $builtIntent -Authorization $auth `
+                    -SessionId $prepSession -ReceiptDir ([string]$ReceiptDir).Trim() -RepoRoot ([string]$RepoRoot).Trim() `
+                    -GoalStoreDir $GoalStoreDir -TasksDir $TasksDir -FlagsPath $FlagsPath
+            }
+            catch { $prep = $null }
+            if (($null -eq $prep) -or (-not [bool](Get-GHWValue $prep 'ok' $false))) {
+                $pw = 'prepare-refused'
+                try {
+                    $prr = ([string](Get-GHWValue $prep 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($prr)) { $pw = ('prepare-refused:' + $prr) }
+                }
+                catch { }
+                return @{ ok = $false; intent = $builtIntent; view = $null; result = (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pw -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $builtIntent) }
+            }
+            $view = [pscustomobject][ordered]@{
+                admitted = [bool](Get-GHWValue $prep 'admitted' $false)
+                reused = [bool](Get-GHWValue $prep 'reused' $false)
+                phase = ([string](Get-GHWValue $prep 'phase' ''))
+                reference = ([string](Get-GHWValue $prep 'reference' ''))
+                intent_fingerprint = ([string](Get-GHWValue $prep 'intent_fingerprint' ''))
+                prepared_fingerprint = ([string](Get-GHWValue $prep 'prepared_fingerprint' ''))
+                session_id = ([string](Get-GHWValue $prep 'session_id' ''))
+                task_id = ([string](Get-GHWValue $prep 'task_id' ''))
+                agent = ([string](Get-GHWValue $prep 'agent' ''))
+            }
+            return @{ ok = $true; intent = $builtIntent; view = $view; result = $null }
+        }
         $ctrlName = 'none'
         $ctrlOut = $null
         if ($null -ne $ObjectiveStepProbe) {
             $ctrlName = 'objective-step-probe'
-            $gate = (& $claimOnce)
-            if ($null -ne $gate) { return $gate }
+            $prStep = (& $doPrepare)
+            if (-not [bool](Get-GHWValue $prStep 'ok' $false)) {
+                try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+                return (Get-GHWValue $prStep 'result' $null)
+            }
+            $prepIntent = Get-GHWValue $prStep 'intent' $null
+            $prepView = Get-GHWValue $prStep 'view' $null
             try { $ctrlOut = & $ObjectiveStepProbe $NextAction } catch { $ctrlOut = $null }
             if ($null -eq $ctrlOut) {
                 try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
-                return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-failed' -Controller $ctrlName -EchoAction $NextAction)
+                return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-failed' -Controller $ctrlName -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
             }
             $okProbe = $false
             try { $okProbe = [bool](Get-GHWValue $ctrlOut 'dispatched' (Get-GHWValue $ctrlOut 'ok' $false)) } catch { $okProbe = $false }
             if ([bool]$okProbe) {
-                if (-not [string]::IsNullOrWhiteSpace($marker)) {
-                    $fin = $null
-                    try { $fin = Set-GHWakeHandoffDispatched -MarkerPath $marker -TaskId ([string](Get-GHWValue $NextAction 'task_id' '')) -DedupKey $ddk -EventId $evt -IdempotencyKey $idem } catch { $fin = $null }
-                    if (($null -eq $fin) -or (-not [bool](Get-GHWValue $fin 'ok' $false))) {
-                        return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'handoff-persist-failed' -Controller $ctrlName -EchoAction $NextAction)
-                    }
+                # A positive probe is a controller RESPONSE, never an
+                # execution proof: the marker stays 'claimed' and only the
+                # Planner, after a real subagent run, completes the loop
+                # via Set-GHWakeDispatchSettlement (Claim + Settle).
+                $probeReason = 'controller-responded'
+                try {
+                    $prx = ([string](Get-GHWValue $ctrlOut 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($prx)) { $probeReason = $prx }
                 }
-                return (& $mkResult -Ok $true -Dispatched $true -Decision 'dispatched' -Reason 'controller-dispatched' -Controller $ctrlName -EchoAction $NextAction)
+                catch { }
+                return (& $mkResult -Ok $true -Dispatched $false -Decision 'controller-responded' -Reason $probeReason -Controller $ctrlName -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
             }
             $pr = 'controller-declined'
             try {
@@ -889,28 +1666,32 @@ function Invoke-GHWakeControllerHandoff {
             }
             catch { }
             try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
-            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pr -Controller $ctrlName -EchoAction $NextAction)
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pr -Controller $ctrlName -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
         }
         if ($null -ne $NextMoveProbe) {
             $ctrlName = 'next-move-probe'
-            $gate2 = (& $claimOnce)
-            if ($null -ne $gate2) { return $gate2 }
+            $prMove = (& $doPrepare)
+            if (-not [bool](Get-GHWValue $prMove 'ok' $false)) {
+                try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+                return (Get-GHWValue $prMove 'result' $null)
+            }
+            $prepIntent = Get-GHWValue $prMove 'intent' $null
+            $prepView = Get-GHWValue $prMove 'view' $null
             try { $ctrlOut = & $NextMoveProbe $NextAction } catch { $ctrlOut = $null }
             if ($null -eq $ctrlOut) {
                 try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
-                return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-failed' -Controller $ctrlName -EchoAction $NextAction)
+                return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-failed' -Controller $ctrlName -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
             }
             $okProbe2 = $false
             try { $okProbe2 = [bool](Get-GHWValue $ctrlOut 'dispatched' (Get-GHWValue $ctrlOut 'ok' $false)) } catch { $okProbe2 = $false }
             if ([bool]$okProbe2) {
-                if (-not [string]::IsNullOrWhiteSpace($marker)) {
-                    $fin2 = $null
-                    try { $fin2 = Set-GHWakeHandoffDispatched -MarkerPath $marker -TaskId ([string](Get-GHWValue $NextAction 'task_id' '')) -DedupKey $ddk -EventId $evt -IdempotencyKey $idem } catch { $fin2 = $null }
-                    if (($null -eq $fin2) -or (-not [bool](Get-GHWValue $fin2 'ok' $false))) {
-                        return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'handoff-persist-failed' -Controller $ctrlName -EchoAction $NextAction)
-                    }
+                $probeReason2 = 'controller-responded'
+                try {
+                    $prx2 = ([string](Get-GHWValue $ctrlOut 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($prx2)) { $probeReason2 = $prx2 }
                 }
-                return (& $mkResult -Ok $true -Dispatched $true -Decision 'dispatched' -Reason 'controller-dispatched' -Controller $ctrlName -EchoAction $NextAction)
+                catch { }
+                return (& $mkResult -Ok $true -Dispatched $false -Decision 'controller-responded' -Reason $probeReason2 -Controller $ctrlName -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
             }
             $pr2 = 'controller-declined'
             try {
@@ -919,18 +1700,20 @@ function Invoke-GHWakeControllerHandoff {
             }
             catch { }
             try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
-            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pr2 -Controller $ctrlName -EchoAction $NextAction)
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $pr2 -Controller $ctrlName -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
         }
-        $gid = ([string](Get-GHWValue $NextAction 'goal_id' '')).Trim()
+        $gid = $gidClaim
         $gCmd = Get-Command Get-OrchestrationGoal -ErrorAction SilentlyContinue
         $nCmd = Get-Command Get-OrchestrationGoalNextMove -ErrorAction SilentlyContinue
         if (($null -eq $gCmd) -or ($null -eq $nCmd)) {
-            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-unavailable' -Controller 'goal-next-move' -EchoAction $NextAction)
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'controller-unavailable' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker)
         }
         $gslot = $null
         try { $gslot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $gslot = $null }
         if (($null -eq $gslot) -or (-not [bool](Get-GHWValue $gslot 'ok' $false))) {
-            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'goal-unreadable' -Controller 'goal-next-move' -EchoAction $NextAction)
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'goal-unreadable' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker)
         }
         $mslot = $null
         try { $mslot = Get-OrchestrationGoalNextMove -Goal (Get-GHWValue $gslot 'goal' $null) } catch { $mslot = $null }
@@ -941,9 +1724,23 @@ function Invoke-GHWakeControllerHandoff {
                 if (-not [string]::IsNullOrWhiteSpace($r3)) { $mr = $r3 }
             }
             catch { }
-            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $mr -Controller 'goal-next-move' -EchoAction $NextAction)
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason $mr -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker)
         }
-        return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'awaits-planner-dispatch' -Controller 'goal-next-move' -EchoAction $NextAction)
+        $moveName = ''
+        try { $moveName = (([string](Get-GHWValue (Get-GHWValue $mslot 'next_move' $null) 'move' '')).Trim().ToUpperInvariant()) } catch { $moveName = '' }
+        if (($moveName -cne 'CONTINUE') -and ($moveName -cne 'RETRY')) {
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'move-needs-no-dispatch' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker)
+        }
+        $prPlain = (& $doPrepare)
+        if (-not [bool](Get-GHWValue $prPlain 'ok' $false)) {
+            try { Remove-GHWakeHandoffClaim -MarkerPath $marker } catch { }
+            return (Get-GHWValue $prPlain 'result' $null)
+        }
+        $prepIntent = Get-GHWValue $prPlain 'intent' $null
+        $prepView = Get-GHWValue $prPlain 'view' $null
+        return (& $mkResult -Ok $true -Dispatched $false -Decision 'intent-ready' -Reason 'prepared-awaits-planner-dispatch' -Controller 'goal-next-move' -EchoAction $NextAction -MarkerPath $marker -DispatchIntent $prepIntent -Prepare $prepView)
     }
     catch {
         try { return (& $mkResult -Ok $false -Dispatched $false -Decision 'not-dispatched' -Reason 'internal-error' -Controller 'none' -EchoAction $NextAction) } catch { return $null }
@@ -1200,16 +1997,17 @@ function Resolve-GHWExecutorAlive {
                 }
             }
             catch { $obsPresent = $false }
-            if ([bool]$obsPresent -and ($null -ne $obsRaw)) {
-                $obs = Convert-GHWUtc -Value $obsRaw
-                $now = Convert-GHWUtc -Value ([string]$NowUtc)
-                if (($null -eq $obs) -or ($null -eq $now)) { return @{ alive = $false; reason = 'no-executor' } }
-                $cap = 300
-                try { if (($MaxAgeSeconds -is [int]) -or ($MaxAgeSeconds -is [long])) { $cap = [long]$MaxAgeSeconds } } catch { $cap = 300 }
-                if (($now - $obs).TotalSeconds -gt [double]$cap) { return @{ alive = $false; reason = 'no-executor' } }
-                $skew = 60
-                if (($obs - $now).TotalSeconds -gt [double]$skew) { return @{ alive = $false; reason = 'executor-proof-future' } }
-            }
+            if (-not [bool]$obsPresent) { return @{ alive = $false; reason = 'no-executor' } }
+            if ($null -eq $obsRaw) { return @{ alive = $false; reason = 'no-executor' } }
+            if (($obsRaw -is [string]) -and [string]::IsNullOrWhiteSpace([string]$obsRaw)) { return @{ alive = $false; reason = 'no-executor' } }
+            $obs = Convert-GHWUtc -Value $obsRaw
+            $now = Convert-GHWUtc -Value ([string]$NowUtc)
+            if (($null -eq $obs) -or ($null -eq $now)) { return @{ alive = $false; reason = 'no-executor' } }
+            $cap = 300
+            try { if (($MaxAgeSeconds -is [int]) -or ($MaxAgeSeconds -is [long])) { $cap = [long]$MaxAgeSeconds } } catch { $cap = 300 }
+            if (($now - $obs).TotalSeconds -gt [double]$cap) { return @{ alive = $false; reason = 'no-executor' } }
+            $skew = 60
+            if (($obs - $now).TotalSeconds -gt [double]$skew) { return @{ alive = $false; reason = 'executor-proof-future' } }
             return @{ alive = $true; reason = '' }
         }
         catch { return @{ alive = $false; reason = 'no-executor' } }

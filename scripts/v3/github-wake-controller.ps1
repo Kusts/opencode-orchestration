@@ -10,19 +10,26 @@
         github-wake.ps1, dot-sourced here; never reimplemented here);
       - controller read path: Get-OrchestrationGoalNextMove
         (GoalKernel + ObjectiveController, read-only);
-      - full step path: Invoke-OrchestrationObjectiveStep
-        (OrchestrationAutonomousLoop) only when the caller supplies an
-        explicit Executor scriptblock is NOT supported by this driver:
-        PS cannot spawn a native worker outside the Planner LLM
-        (subagent/task). Without an Executor the honest outcome is
-        not-dispatched awaits-planner-dispatch: the Planner executes the
-        dispatch via subagent. This driver never synthesizes a dispatch.
+      - settlement (Planner-attested only): Set-GHWakeDispatchSettlement
+        (Claim + Settle of the prepared receipt with the REAL child
+        session id). PS cannot spawn a native worker outside the
+        Planner LLM (subagent/task). Without an Executor the honest
+        outcome is intent-ready awaits-planner-dispatch: the Planner
+        executes the dispatch via subagent, then completes the loop by
+        re-invoking this driver with -SettleSessionId (plus
+        -SettleResultOk/-SettleResultSummary). This driver never
+        synthesizes a dispatch and never treats a probe-positive as
+        execution.
 
     IMPLEMENTING alone is never execution: the Kernel transition
     BLOCKED->IMPLEMENTING only unblocks the task; executed=$true appears
-    solely when a controller probe confirms a dispatch in this
-    invocation. A bare IMPLEMENTING task with no handoff envelope yields
-    no-next-action (not-dispatched).
+    solely when Set-GHWakeDispatchSettlement completes the productive
+    Claim + Settle chain with a Planner-attested session id. A bare
+    IMPLEMENTING task with no handoff envelope yields no-next-action,
+    a positive controller probe is only a controller-responded signal
+    (marker stays claimed, dispatched stays false), and a prepared
+    receipt without settle params is only intent-ready
+    (awaits-planner-dispatch) until the Planner settles it.
 
     Authority: never merges, pushes, deploys, completes tasks, issues
     grants, or reads tokens. No daemon, no watcher, no loop, no sleep,
@@ -40,6 +47,13 @@
         -NextActionJson '<json>' -WaitsDir <dir> -TasksDir <dir> `
         -GoalStoreDir <dir> -CheckpointDir <dir>
 
+    Usage (Planner settle after a real subagent run):
+      powershell -NoProfile -File github-wake-controller.ps1 `
+        -NextActionFile <next-action.json> -WaitsDir <dir> -TasksDir <dir> `
+        -GoalStoreDir <dir> -CheckpointDir <dir> -FlagsPath <flags> `
+        -SettleSessionId <child-session-id> -SettleResultOk $true `
+        -SettleResultSummary '<short summary>'
+
     Exit 0 = handoff evaluated (dispatched or HOLD are data, not
     failure). Exit 1 = handoff could not be evaluated. Exit 2 = args.
     Stdout carries exactly one JSON envelope. Dot-source safe: without
@@ -55,8 +69,14 @@ param(
     [string]$GoalStoreDir = '',
     [string]$CheckpointDir = '',
     [string]$HandoffStateDir = '',
+    [string]$ReceiptDir = '',
+    [string]$RepoRoot = '',
+    [string]$EvidenceStoreDir = '',
     [string]$FlagsPath = '',
     [string]$NowUtc = '',
+    [string]$SettleSessionId = '',
+    $SettleResultOk = $null,
+    [string]$SettleResultSummary = '',
     [string]$OutFile = ''
 )
 
@@ -72,8 +92,14 @@ $GHWC_SavedTasksDir = $TasksDir
 $GHWC_SavedGoalStoreDir = $GoalStoreDir
 $GHWC_SavedCheckpointDir = $CheckpointDir
 $GHWC_SavedHandoffStateDir = $HandoffStateDir
+$GHWC_SavedReceiptDir = $ReceiptDir
+$GHWC_SavedRepoRoot = $RepoRoot
+$GHWC_SavedEvidenceStoreDir = $EvidenceStoreDir
 $GHWC_SavedFlagsPath = $FlagsPath
 $GHWC_SavedNowUtc = $NowUtc
+$GHWC_SavedSettleSessionId = $SettleSessionId
+$GHWC_SavedSettleResultOk = $SettleResultOk
+$GHWC_SavedSettleResultSummary = $SettleResultSummary
 $GHWC_SavedOutFile = $OutFile
 . (Join-Path $PSScriptRoot 'github-wake.ps1')
 $WakeEnvelopeFile = $GHWC_SavedWakeEnvelopeFile
@@ -84,10 +110,16 @@ $TasksDir = $GHWC_SavedTasksDir
 $GoalStoreDir = $GHWC_SavedGoalStoreDir
 $CheckpointDir = $GHWC_SavedCheckpointDir
 $HandoffStateDir = $GHWC_SavedHandoffStateDir
+$ReceiptDir = $GHWC_SavedReceiptDir
+$RepoRoot = $GHWC_SavedRepoRoot
+$EvidenceStoreDir = $GHWC_SavedEvidenceStoreDir
 $FlagsPath = $GHWC_SavedFlagsPath
 $NowUtc = $GHWC_SavedNowUtc
+$SettleSessionId = $GHWC_SavedSettleSessionId
+$SettleResultOk = $GHWC_SavedSettleResultOk
+$SettleResultSummary = $GHWC_SavedSettleResultSummary
 $OutFile = $GHWC_SavedOutFile
-Remove-Variable -Name GHWC_SavedWakeEnvelopeFile, GHWC_SavedNextActionFile, GHWC_SavedNextActionJson, GHWC_SavedWaitsDir, GHWC_SavedTasksDir, GHWC_SavedGoalStoreDir, GHWC_SavedCheckpointDir, GHWC_SavedHandoffStateDir, GHWC_SavedFlagsPath, GHWC_SavedNowUtc, GHWC_SavedOutFile -ErrorAction SilentlyContinue
+Remove-Variable -Name GHWC_SavedWakeEnvelopeFile, GHWC_SavedNextActionFile, GHWC_SavedNextActionJson, GHWC_SavedWaitsDir, GHWC_SavedTasksDir, GHWC_SavedGoalStoreDir, GHWC_SavedCheckpointDir, GHWC_SavedHandoffStateDir, GHWC_SavedReceiptDir, GHWC_SavedRepoRoot, GHWC_SavedEvidenceStoreDir, GHWC_SavedFlagsPath, GHWC_SavedNowUtc, GHWC_SavedSettleSessionId, GHWC_SavedSettleResultOk, GHWC_SavedSettleResultSummary, GHWC_SavedOutFile -ErrorAction SilentlyContinue
 
 function Get-GHWCValue {
     param($Object, [string]$Name, $Default = $null)
@@ -125,8 +157,14 @@ function Invoke-GitHubWakeController {
         [string]$GoalStoreDir = '',
         [string]$CheckpointDir = '',
         [string]$HandoffStateDir = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$EvidenceStoreDir = '',
         [string]$FlagsPath = '',
-        [string]$NowUtc = ''
+        [string]$NowUtc = '',
+        [string]$SettleSessionId = '',
+        $SettleResultOk = $null,
+        [string]$SettleResultSummary = ''
     )
     try {
         $hsd = ([string]$HandoffStateDir).Trim()
@@ -134,7 +172,114 @@ function Invoke-GitHubWakeController {
         $res = Invoke-GHWakeControllerHandoff -NextAction $NextAction `
             -WaitsDir $WaitsDir -TasksDir $TasksDir -GoalStoreDir $GoalStoreDir `
             -CheckpointDir $CheckpointDir -FlagsPath $FlagsPath -NowUtc $NowUtc `
-            -HandoffStateDir $hsd
+            -HandoffStateDir $hsd -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot `
+            -EvidenceStoreDir $EvidenceStoreDir
+        if ($null -eq $res) {
+            return [pscustomobject]@{
+                ok = $false; harness = 'github-wake-controller-v1'; verdict = 'CONTROLLER_FAIL'
+                dispatched = $false; decision = 'not-dispatched'; reason = 'internal-error'
+                controller = 'none'; task_id = ''; idempotency_key = ''
+                kernel_state = 'UNKNOWN'; executed = $false
+                grants_authority = $false; done_approved = $false; merge_authority = $false
+                next_action = $NextAction
+            }
+        }
+        $settleSid = ([string]$SettleSessionId).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($settleSid)) {
+            $dec0 = ([string](Get-GHWCValue $res 'decision' '')).Trim()
+            $rsn0 = ([string](Get-GHWCValue $res 'reason' '')).Trim()
+            $mk0 = ([string](Get-GHWCValue $res 'marker_path' '')).Trim()
+            $dupNoop = (($dec0 -ceq 'duplicate-noop') -or (($dec0 -ceq 'not-dispatched') -and ($rsn0 -ceq 'duplicate-noop')))
+            if ([string]::IsNullOrWhiteSpace($mk0) -and $dupNoop) {
+                # Replay of an already-claimed handoff: the fresh claim
+                # refused as duplicate before prepare, but the claimed
+                # marker + pending receipt are still settleable by the
+                # Planner. Derive the deterministic marker path; absence
+                # or mismatch stays fail-closed inside the settlement.
+                $idem0 = ([string](Get-GHWCValue $res 'idempotency_key' '')).Trim().ToLowerInvariant()
+                if ([string]::IsNullOrWhiteSpace($idem0)) {
+                    try { $idem0 = ([string](Get-GHWCValue $NextAction 'idempotency_key' '')).Trim().ToLowerInvariant() } catch { $idem0 = '' }
+                }
+                if ($idem0 -cmatch '^[a-f0-9]{32}$') {
+                    $cand0 = Join-Path $hsd ('ghw-handoff-' + $idem0 + '.json')
+                    try {
+                        if (Test-Path -LiteralPath $cand0 -PathType Leaf) { $mk0 = $cand0 }
+                    }
+                    catch { }
+                }
+            }
+            if ((($dec0 -ceq 'intent-ready') -or ($dec0 -ceq 'controller-responded') -or $dupNoop) -and (-not [string]::IsNullOrWhiteSpace($mk0))) {
+                $settleOk = $null
+                if ($SettleResultOk -is [bool]) { $settleOk = [bool]$SettleResultOk }
+                elseif (($SettleResultOk -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$SettleResultOk))) {
+                    $st = ([string]$SettleResultOk).Trim().ToLowerInvariant()
+                    if (($st -ceq 'true') -or ($st -ceq '$true') -or ($st -ceq '1')) { $settleOk = $true }
+                    elseif (($st -ceq 'false') -or ($st -ceq '$false') -or ($st -ceq '0')) { $settleOk = $false }
+                }
+                if ($null -eq $settleOk) {
+                    return [pscustomobject]@{
+                        ok = $false; harness = 'github-wake-controller-v1'; verdict = 'CONTROLLER_FAIL'
+                        dispatched = $false; decision = 'not-dispatched'; reason = 'settle-result-invalid'
+                        controller = ([string](Get-GHWCValue $res 'controller' 'none'))
+                        task_id = ([string](Get-GHWCValue $res 'task_id' ''))
+                        idempotency_key = ([string](Get-GHWCValue $res 'idempotency_key' ''))
+                        kernel_state = ([string](Get-GHWValue $NextAction 'kernel_state' 'UNKNOWN')); executed = $false
+                        grants_authority = $false; done_approved = $false; merge_authority = $false
+                        marker_path = $mk0
+                        next_action = $NextAction
+                    }
+                }
+                $expGoal = ([string](Get-GHWCValue $NextAction 'goal_id' '')).Trim()
+                $expTask = ([string](Get-GHWCValue $NextAction 'task_id' '')).Trim()
+                $stOut = $null
+                try {
+                    $stOut = Set-GHWakeDispatchSettlement -MarkerPath $mk0 -SessionId $settleSid `
+                        -ResultOk ([bool]$settleOk) -ResultSummary ([string]$SettleResultSummary).Trim() `
+                        -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -GoalStoreDir $GoalStoreDir `
+                        -TasksDir $TasksDir -EvidenceStoreDir $EvidenceStoreDir -FlagsPath $FlagsPath `
+                        -ExpectedGoalId $expGoal -ExpectedTaskId $expTask
+                }
+                catch { $stOut = $null }
+                if ($null -eq $stOut) {
+                    return [pscustomobject]@{
+                        ok = $false; harness = 'github-wake-controller-v1'; verdict = 'CONTROLLER_FAIL'
+                        dispatched = $false; decision = 'not-dispatched'; reason = 'internal-error'
+                        controller = ([string](Get-GHWCValue $res 'controller' 'none'))
+                        task_id = ([string](Get-GHWCValue $res 'task_id' ''))
+                        idempotency_key = ([string](Get-GHWCValue $res 'idempotency_key' ''))
+                        kernel_state = ([string](Get-GHWValue $NextAction 'kernel_state' 'UNKNOWN')); executed = $false
+                        grants_authority = $false; done_approved = $false; merge_authority = $false
+                        marker_path = $mk0
+                        next_action = $NextAction
+                    }
+                }
+                $stOk = $false
+                try { $stOk = [bool](Get-GHWCValue $stOut 'ok' $false) } catch { $stOk = $false }
+                $stDsp = $false
+                try { $stDsp = [bool](Get-GHWCValue $stOut 'dispatched' $false) } catch { $stDsp = $false }
+                $stReason = 'settle-refused'
+                try {
+                    $sr = ([string](Get-GHWCValue $stOut 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($sr)) { $stReason = $sr }
+                }
+                catch { }
+                return [pscustomobject]@{
+                    ok = [bool]$stOk; harness = 'github-wake-controller-v1'
+                    verdict = $(if ($stOk) { 'CONTROLLER_PASS' } else { 'CONTROLLER_FAIL' })
+                    dispatched = [bool]$stDsp
+                    decision = $(if ($stDsp) { 'dispatched' } else { 'not-dispatched' })
+                    reason = $stReason
+                    controller = ([string](Get-GHWCValue $res 'controller' 'none'))
+                    task_id = ([string](Get-GHWCValue $res 'task_id' ''))
+                    idempotency_key = ([string](Get-GHWCValue $res 'idempotency_key' ''))
+                    kernel_state = ([string](Get-GHWValue $NextAction 'kernel_state' 'UNKNOWN'))
+                    executed = [bool]$stDsp
+                    grants_authority = $false; done_approved = $false; merge_authority = $false
+                    marker_path = $mk0
+                    next_action = $NextAction
+                }
+            }
+        }
         if ($null -eq $res) {
             return [pscustomobject]@{
                 ok = $false; harness = 'github-wake-controller-v1'; verdict = 'CONTROLLER_FAIL'
@@ -161,6 +306,7 @@ function Invoke-GitHubWakeController {
             kernel_state = ([string](Get-GHWValue $NextAction 'kernel_state' 'UNKNOWN'))
             executed = [bool]$dsp
             grants_authority = $false; done_approved = $false; merge_authority = $false
+            marker_path = ([string](Get-GHWCValue $res 'marker_path' ''))
             next_action = $NextAction
         }
     }
@@ -234,8 +380,11 @@ if ((-not [string]::IsNullOrWhiteSpace($WakeEnvelopeFile)) -or (-not [string]::I
         $result = Invoke-GitHubWakeController -NextAction $effAction `
             -WaitsDir ([string]$WaitsDir).Trim() -TasksDir ([string]$TasksDir).Trim() `
             -GoalStoreDir ([string]$GoalStoreDir).Trim() -CheckpointDir ([string]$CheckpointDir).Trim() `
-            -HandoffStateDir ([string]$HandoffStateDir).Trim() -FlagsPath ([string]$FlagsPath).Trim() `
-            -NowUtc ([string]$NowUtc).Trim()
+            -HandoffStateDir ([string]$HandoffStateDir).Trim() -ReceiptDir ([string]$ReceiptDir).Trim() `
+            -RepoRoot ([string]$RepoRoot).Trim() -EvidenceStoreDir ([string]$EvidenceStoreDir).Trim() `
+            -FlagsPath ([string]$FlagsPath).Trim() `
+            -NowUtc ([string]$NowUtc).Trim() -SettleSessionId ([string]$SettleSessionId).Trim() `
+            -SettleResultOk $SettleResultOk -SettleResultSummary ([string]$SettleResultSummary).Trim()
         if ($null -eq $result) {
             Write-GHWCEnvelope (New-GHWCErrorEnvelope -Reason 'internal-error')
             exit 1

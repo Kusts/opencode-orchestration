@@ -582,9 +582,9 @@ $raSrc = Resolve-GHWAuthorizationAlive -ActorIdentitySource 'untrusted-src' -Fla
 Assert-That (-not [bool](Get-GHWField $raSrc 'alive' $true)) 'auth resolver: untrusted identity source => not alive'
 # --- unit: executor resolver (explicit proof only, never scheduler-implied).
 $execProofOk = Join-Path $ezu.root 'exec.ok.json'
-Write-GHWProof -Path $execProofOk -Json '{"executor_present":true}'
+Write-GHWProof -Path $execProofOk -Json ('{"executor_present":true,"observed_at":"' + $script:NOW + '"}')
 $reOk = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofOk -NowUtc $script:NOW -MaxAgeSeconds 300
-Assert-That ([bool](Get-GHWField $reOk 'alive' $false)) 'executor resolver: fresh proof true => alive'
+Assert-That (([bool](Get-GHWField $reOk 'alive' $false)) -and ([string](Get-GHWField $reOk 'reason' 'X') -ceq '')) 'executor resolver: fresh proof true+observed_at NOW => alive'
 $execProofStale = Join-Path $ezu.root 'exec.stale.json'
 Write-GHWProof -Path $execProofStale -Json '{"executor_present":true,"observed_at":"2020-01-01T00:00:00Z"}'
 $reStale = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofStale -NowUtc $script:NOW -MaxAgeSeconds 300
@@ -599,6 +599,14 @@ $execProofFalse = Join-Path $ezu.root 'exec.false.json'
 Write-GHWProof -Path $execProofFalse -Json '{"executor_present":false}'
 $reFalse = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofFalse -NowUtc $script:NOW -MaxAgeSeconds 300
 Assert-That (-not [bool](Get-GHWField $reFalse 'alive' $true)) 'executor resolver: proof false => not alive'
+$execProofNoObs = Join-Path $ezu.root 'exec.noobs.json'
+Write-GHWProof -Path $execProofNoObs -Json '{"executor_present":true}'
+$reNoObs = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofNoObs -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That ((-not [bool](Get-GHWField $reNoObs 'alive' $true)) -and ([string](Get-GHWField $reNoObs 'reason' '') -ceq 'no-executor')) 'executor resolver: present true without observed_at => no-executor'
+$execProofBadDate = Join-Path $ezu.root 'exec.baddate.json'
+Write-GHWProof -Path $execProofBadDate -Json '{"executor_present":true,"observed_at":"not-a-date"}'
+$reBadDate = Resolve-GHWExecutorAlive -ExecutorProofPath $execProofBadDate -NowUtc $script:NOW -MaxAgeSeconds 300
+Assert-That ((-not [bool](Get-GHWField $reBadDate 'alive' $true)) -and ([string](Get-GHWField $reBadDate 'reason' '') -ceq 'no-executor')) 'executor resolver: invalid observed_at => no-executor'
 # --- e2e: RESUME via resolvers, no live booleans (flags + executor proof).
 $ez = New-GHWEnv -Tag 'rsolve'
 [void](New-GHWGoal -Env $ez -GoalId 'ghw-goal-1' -Tasks @('ghw-task-r'))
@@ -607,7 +615,7 @@ New-GHWWait -Env $ez -TaskId 'ghw-task-r' -Sha $script:SHA_A
 [void](New-GHWCkpt -Env $ez -GoalId 'ghw-goal-1')
 $fxz = Write-GHWFixture -Env $ez -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
 $execProofZ = Join-Path $ez.root 'exec.proof.json'
-Write-GHWProof -Path $execProofZ -Json '{"executor_present":true}'
+Write-GHWProof -Path $execProofZ -Json ('{"executor_present":true,"observed_at":"' + $script:NOW + '"}')
 $rz = Invoke-GHWChild -CliArgs @('-WaitsDir', $ez.waitsDir, '-TasksDir', $ez.tasksDir, '-GoalStoreDir', $ez.goalDir, '-CheckpointDir', $ez.ckptDir, '-FlagsPath', $ez.flagsPath, '-NowUtc', $script:NOW, '-GraphQLSnapshotFile', $fxz, '-ResolveAuthorization', '-ResolveExecutor', '-ExecutorProofPath', $execProofZ, '-ResolveOwner', '-LeaseFromWait')
 $itemsZ = @(Get-GHWField $rz.env 'items' @())
 Assert-That (([int]$rz.code -eq 0) -and ([string](Get-GHWField @($itemsZ)[0] 'decision' '') -ceq 'RESUME')) 'resolver opt-in => RESUME without live booleans'
@@ -720,7 +728,7 @@ New-GHWWait -Env $ecfg -TaskId 'ghw-task-q' -Sha $script:SHA_A
 [void](New-GHWCkpt -Env $ecfg -GoalId 'ghw-goal-1')
 $fxcfg = Write-GHWFixture -Env $ecfg -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
 $execProofCfg = Join-Path $ecfg.root 'exec.proof.json'
-Write-GHWProof -Path $execProofCfg -Json '{"executor_present":true}'
+Write-GHWProof -Path $execProofCfg -Json ('{"executor_present":true,"observed_at":"' + $script:NOW + '"}')
 $cfgResPath = Join-Path $ecfg.root 'wake-resolve.json'
 $cfgRes = New-GitHubWakeConfig -Path $cfgResPath -WaitsDir $ecfg.waitsDir -TasksDir $ecfg.tasksDir -GoalStoreDir $ecfg.goalDir -CheckpointDir $ecfg.ckptDir -FlagsPath $ecfg.flagsPath -GraphQLSnapshotFile $fxcfg -ResolveAuthorization $true -ResolveExecutor $true -ExecutorProofPath $execProofCfg -AuthorizationAlive $true -ExecutorPresent $true
 Assert-That ([bool](Get-GHWField $cfgRes 'ok' $false)) 'resolver config: written'

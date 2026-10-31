@@ -1,8 +1,36 @@
-# ETAPA-6D prova viva — resumo honesto (2026-10-31)
+# ETAPA-6D prova viva — resumo honesto (2026-10-31, rodada controller produtivo)
 
 Resultado: tick real disparou via schtasks.exe, mas SEM RESUME.
-Readiness live = REVIEW_PENDING (PR 181 sem approval). Nenhuma cadeia
-completa alegada. ETAPA_6D_READY segue BLOQUEADO ate approval + re-execucao.
+Readiness live = REVIEW_PENDING (PR 181 sem approval). SCHEDULED provado
+no tick anterior; RESUMED/DISPATCHED pendentes de approval + CI do novo
+SHA. Nenhuma cadeia completa alegada. ETAPA_6D_READY segue BLOQUEADO
+ate approval + re-execucao com GH_WAKE_SCHEDULED+RESUMED+DISPATCHED na
+mesma jornada.
+
+## Lacunas corrigidas nesta rodada (docs + produto ja diffado, sem READY)
+
+- (A) Executor `observed_at` obrigatorio: `executor_present:true` sem
+  `observed_at` valido/fresco (dentro de MaxAgeSeconds, sem futuro
+  além de 60s) => `no-executor`, nunca RESUME. Scheduler sozinho
+  nunca conta como executor.
+- (B) Settlement session-bound: `Set-GHWakeDispatchSettlement`
+  (Claim session token + Settle com session id real do Planner);
+  sem session id real nunca `dispatched`/`executed=true`.
+  Probe-positivo => `controller-responded` (não execução);
+  `intent-ready` => `prepared-awaits-planner-dispatch`.
+  Sem API de resume externa: retomada = intent + Planner em sessao
+  ativa via `-SettleSessionId` no driver single-shot.
+- Suites atuais: wake 226, controller 253, resume 107,
+  reconcile 116, package 16/16.
+
+## Gates pendentes
+
+- Approval humano legitimo nao-self no PR 181
+  (`SELF_REVIEW => POLICY_BLOCKED`; sem excecao docs-only).
+- CI verde no novo SHA + re-execucao do tick agendado observando
+  RESUME live (unblock Kernel BLOCKED->IMPLEMENTING).
+- Planner executa via subagent e settle com session id real
+  (DISPATCHED). Só então ETAPA_6D_READY sai de BLOQUEADO.
 
 ## IDs correlacionados
 
@@ -52,4 +80,4 @@ completa alegada. ETAPA_6D_READY segue BLOQUEADO ate approval + re-execucao.
 ## O que NAO e alegado
 
 - Sem RESUME fabricado, sem unblock, sem handoff, sem DONE, sem merge.
-- ETAPA_6D_READY bloqueado: falta approval no PR 181 + re-execucao com RESUME live.
+- ETAPA_6D_READY bloqueado: falta approval no PR 181 + re-execucao com RESUME live + settlement DISPATCHED (GH_WAKE_SCHEDULED+RESUMED+DISPATCHED na mesma jornada). Sem READY alegado.
