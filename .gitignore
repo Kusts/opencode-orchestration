@@ -7,6 +7,8 @@ evidence/*
 !evidence/v3/
 evidence/v3/*
 !evidence/v3/etapa6d-live/
+!evidence/v3/etapa6d-resume/
+evidence/v3/etapa6d-resume/*.jsonl
 !evidence/capabilities-phase-2b/
 !evidence/capabilities-phase-2c/
 !evidence/capabilities-phase-2d/

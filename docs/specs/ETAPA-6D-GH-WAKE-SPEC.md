@@ -169,6 +169,21 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   (settlement com session id real via Planner) — os tres na mesma
   jornada, com prova viva. SCHEDULED isolado (tick KEEP_WAITING)
   nao libera READY.
+- `NATIVE_RESUME_AVAILABLE` (prova Offline, sem Live, sem jornada
+  GitHub): provado quando o adaptador `Invoke-OrchestrationNativeResume`
+  (P1) passa a prova harness Offline `full-delivery-etapa6d-resume-proof.ps1`
+  (projeto descartavel, 2 fases, `proceed` + `already-done`, JSONL gitignored,
+  README versionado) 2x exit 0. Nao alega execucao viva, worker real,
+  approval ou jornada GitHub.
+- `NATIVE_RESUME_INTEGRATED` segue PENDENTE: exige Live com worker real
+  (`-Mode Live`, `opencode run --session` real) + settlement session-bound
+  (Claim session token + Settle com session id real). Comando documentado
+  na prova, nao executado (consome quota do operador). Sem Live, sem
+  INTEGRATED — e mesmo com INTEGRATED, `ETAPA_6D_READY` continua BLOQUEADO
+  ate a jornada GitHub real (approval nao-self + CI verde +
+  SCHEDULED+RESUMED+DISPATCHED na mesma jornada).
+- Sem excecao docs-only, sem self-review (`SELF_REVIEW => POLICY_BLOCKED`),
+  sem merge/deploy/piloto nesta SPEC.
 
 ## Prova viva (live tick honesto, REVIEW_PENDING, sem cadeia completa)
 
@@ -207,3 +222,46 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
 - (d)-(h) ja cobertos, nao duplicados: cancelled, DUPLICATE_NOOP sem
   mutacao, head-superseded, lease-expired, api-failure (ver assert labels
   em github-wake.tests.ps1 e github-wake-controller.tests.ps1).
+
+## Retomada nativa (P0/P1/P2/P3) — adapter Offline, sem resume de sessao fechada
+
+Nao existe API V2 de resume de sessao fechada via PS; retomada = Intent +
+Planner em sessao ativa. Este bloco documenta o adaptador nativo
+(`scripts/v3/lib/OrchestrationNativeResume.ps1`) e sua prova harness
+(`scripts/v3/full-delivery-etapa6d-resume-proof.ps1`), sem alegar READY,
+sem Live executado, sem tocar PR/CI/scheduler.
+
+- (a) P0 contrato autenticado (`Get-NativeSessionIdentity`): SessionId no
+  formato `^ses_` (sem `--continue`, sem criacao implicita — `run --session`
+  no 2.2.5 cria se inexistente, por isso o pre-check list pre/post e
+  obrigatorio); `directory` canonico Windows; `projectId` confrontado;
+  fencing por `Generation`/`LeaseOwner` via `Authorization`
+  (`explicit_allow=true` + campos correspondentes; caminho legacy so com
+  ambos vazios + Auth null); checkpoint (`Load` + plano resumivel) e gates
+  de task (BLOCKED/IMPLEMENTING; DONE => `already-done`, nunca reexecuta).
+  Falha de pre-check nunca invoca o run.
+- (b) P1 adaptador (`Invoke-OrchestrationNativeResume`): no maximo 1 run
+  (`opencode run --session <id> --format json --dir <canon> <prompt>`),
+  prompt Kernel-only com charset fail-closed (`invalid-prompt`, sem run);
+  sem `cmd.exe` no run (prompt e texto livre e nao cruza shell: shim
+  `.cmd/.bat` trocado por irmao `.ps1` via host powershell, ou falha
+  fechada `LAUNCH_ERROR`); evidencia nativa minima JSON com `role` +
+  `sessionId`; nunca `dispatched`/`executed` aqui (settlement e do caller
+  via Claim+Settle); `timeout-unknown`/`resume-unproven`/`identity-diverged`
+  => RECONCILE, sem resend cego.
+- (c) P2 matriz 10 casos (reasons estaveis, fail-closed): `session-id-invalid`,
+  `invalid-idempotency-key`, `invalid-prompt`, `session-not-found`,
+  `project-mismatch`, `directory-mismatch`, `authorization-denied`,
+  `checkpoint-not-found`, `resume-not-resumable`, `kernel-not-ready`
+  (todos blocked, run nunca invocado) + `already-done` (DONE, sem
+  reexecutar) + `session-not-found-post` / `timeout-unknown` /
+  `resume-unproven` / `identity-diverged` (reconcile).
+- (d) P3 prova Offline (harness, projeto descartavel, 2 fases): Fase A
+  constroi goal+task A ate DONE + task B BLOCKED com wait/checkpoint/marker
+  em diretorios Temp; Fase B rele do disco, confirma A DONE sem reexecutar,
+  `proceed` com RunExecutor MOCK (1 run), settlement Kernel, segunda
+  invocacao com mesma idempotency key => `already-done` (`runs_count` 1->1).
+  JSONL gitignored (`resume-proof.jsonl`), README versionado em
+  `evidence/v3/etapa6d-resume/README.md`. Claim Offline: apenas
+  `NATIVE_RESUME_AVAILABLE`. Live (`-Mode Live`, run real, timeout 60s, sem
+  `--continue`/`--fork`) documentado e NAO executado.

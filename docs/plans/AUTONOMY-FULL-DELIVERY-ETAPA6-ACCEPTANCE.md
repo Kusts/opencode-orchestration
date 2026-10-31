@@ -84,3 +84,25 @@ Data: 2026-10-30 · Branch: `feat/full-delivery-etapa-6` · Base: `origin/master
 - Cadeia de autoridade (toda registrada em audit): merge real autorizado + review humano in-session de ambos os SHAs + semântica `author='planner'` confirmada. Self-approval via gh impossível (`Can not approve your own pull request`); nenhum review-gh afirmado. Desvio Honesto: `ReviewerApproved=$true` espelha decisão humana in-session (canal `reviewer-human`), não objeto gh.
 - Negativos vivos (executor 0): N1 `NEEDS_USER_AUTHORITY`; N2a/N2b `RECONCILE/head-mismatch` (SHAs antigos); `SELF_REVIEW` disparado corretamente ao tentar `author=reviewer=Kusts` (invariante O3.3/O3.4 observado em prova real, zero efeitos); `mergeable=UNKNOWN` transitório → abort fail-closed + retry com poll.
 - Efeito remoto confirmado: PR #1 `EXECUTED VERIFY_CONFIRMED`, merge commit `75e8ee3`, parents `[3abf79e, 43e708f]` (2, um==head), método merge; PR #2 (timeout simulado: merge via gh + throw) `EXECUTED RECONCILED_AFTER_TIMEOUT`, `reconciled=true`, merge commit `27890eec`, parents `[75e8ee3, 5d52e4a]`; replays `IDEMPOTENT_REPLAY` (1 execução por PR); reconciliação em processo novo (store vazio, sem Executor) `EXECUTED RECONCILED_REMOTE_MERGED` em ambos; recibos `SOFT_ADVISORY` só com ids (`policy_digest cc3554b7…`). Estado remoto final: ambos `MERGED`, zero pendências. Arquivos de autoridade apagados (`Test-Path=False`); recibos em TEMP como evidência.
+
+## 6D. Retomada nativa — marcos separados (sem READY, sem Live executado)
+
+- Estados: `NATIVE_RESUME_AVAILABLE` = provado Offline (adapter + prova harness 2x exit 0); `NATIVE_RESUME_INTEGRATED` = PENDENTE de Live com worker real + settlement session-bound (comando documentado, não executado); `ETAPA_6D_READY` = BLOQUEADO até jornada GitHub real (approval não-self + CI verde + SCHEDULED+RESUMED+DISPATCHED na mesma jornada). Sem exceção docs-only, sem self-review, sem merge/deploy/piloto.
+- Suítes (todas verdes na entrega, PS 5.1+pwsh):
+
+| Suíte | Asserts |
+|---|---|
+| `github-wake` | 226 |
+| `github-wake-controller` | 253 |
+| `OrchestrationDurableResume` (resume) | 107 |
+| `github-resume-reconcile` | 116 |
+| `OrchestrationNativeSessionBinding` (binding) | 35 |
+| `full-delivery-etapa6d-resume-proof` (prova Offline) | 49 |
+| `OrchestrationNativeResumeP2` (matriz P2) | 62 |
+| `OrchestrationNativeSessionAdapter` (adapter) | 13 |
+| `test-package-consistency` | 16/16 |
+
+- Revisões (conforme registrado na sessão de entrega; sem shell nesta task para revalidar, declarado honestamente): reviewer `CHANGES_REQUIRED` → micro-fixes → re-revisão técnica confirmada sem regressão, `APPROVED` formal pendente por sandbox sem shell; security: residual LOW fechado com redação (sem segredos em recibos/provas). Nenhum `APPROVED` simulado, nenhum objeto GitHub afirmado.
+- Prova Offline: OK 2x+ (`proceed` + `already-done`, `runs_count` 1→1, JSONL gitignored, README versionado em `evidence/v3/etapa6d-resume/README.md`).
+- Live (`-Mode Live`, run real com worker): PENDENTE de operador com quota/modelo — não executado, nada alegado.
+- `ETAPA_6D_READY`: BLOQUEADO (ver SPEC § Gates + prova viva KEEP_WAITING/REVIEW_PENDING).
