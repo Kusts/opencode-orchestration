@@ -359,6 +359,21 @@ if ($implOk) {
   $store27 = @{}
   $r27 = Invoke-OrchestrationMergeMediated -Repository $repoGood -PrNumber 99 -ExpectedHeadSha $shaGood -Snapshot (New-Snap $shaGood 'MERGED' 'APPROVED' 'success') -Policy (New-Policy) -Authority (New-AuthGood) -Risk 'low' -ReviewerApproved $true -SecurityRequired $false -SecurityApproved $false -UnresolvedP1 0 -ReviewerIdentity 'bob' -HumanConfirmed $false -EvidenceChannel 'provider-api' -PersistFn $persistOk -Executor $exec27 -VerifyFn $verifyNonStr27 -ReceiptStore $store27 -GoalId 'G1' -TaskId 'T1' -MergeMethod 'merge'
   Assert-M (($r27.outcome -ceq 'POLICY_BLOCKED') -and (($r27.reasons -join ',') -match 'MERGE_METHOD_PROHIBITED') -and ($execN27.n -eq 0)) 'T27 invoke TERMINAL metodo int bloqueia sem executar' (($r27 | ConvertTo-Json -Depth 4 -Compress))
+
+  # T28. scope caixa alta fora do canonico lower-case => POLICY_BLOCKED CREDENTIAL_SCOPE_INSUFFICIENT
+  $store28 = @{}
+  $execN28 = @{ n = 0 }
+  $exec28 = { param($i,$e) $execN28.n++; return @{ status = 'PASS' } }.GetNewClosure()
+  $upperScope = New-AuthGood; $upperScope.credential_scope = @('GITHUB:MERGE:KUSTS/OPENCODE-ORCHESTRATION')
+  $r28 = Invoke-OrchestrationMergeMediated -Repository $repoGood -PrNumber 99 -ExpectedHeadSha $shaGood -Snapshot (New-Snap $shaGood 'OPEN' 'APPROVED' 'success') -Policy (New-Policy) -Authority $upperScope -Risk 'low' -ReviewerApproved $true -SecurityRequired $false -SecurityApproved $false -UnresolvedP1 0 -ReviewerIdentity 'bob' -HumanConfirmed $false -EvidenceChannel 'provider-api' -PersistFn $persistOk -Executor $exec28 -VerifyFn $verifyOpen -ReceiptStore $store28 -GoalId 'G1' -TaskId 'T1' -MergeMethod 'merge' -DryRun
+  Assert-M (($r28.outcome -ceq 'POLICY_BLOCKED') -and (($r28.reasons -join ',') -match 'CREDENTIAL_SCOPE_INSUFFICIENT') -and ($execN28.n -eq 0)) 'T28 scope caixa alta bloqueia' (($r28 | ConvertTo-Json -Depth 4 -Compress))
+
+  # T29. GoalId com assinatura de segredo => POLICY_BLOCKED INTENT_CONTEXT_INVALID
+  $store29 = @{}
+  $execN29 = @{ n = 0 }
+  $exec29 = { param($i,$e) $execN29.n++; return @{ status = 'PASS' } }.GetNewClosure()
+  $r29 = Invoke-OrchestrationMergeMediated -Repository $repoGood -PrNumber 99 -ExpectedHeadSha $shaGood -Snapshot (New-Snap $shaGood 'OPEN' 'APPROVED' 'success') -Policy (New-Policy) -Authority (New-AuthGood) -Risk 'low' -ReviewerApproved $true -SecurityRequired $false -SecurityApproved $false -UnresolvedP1 0 -ReviewerIdentity 'bob' -HumanConfirmed $false -EvidenceChannel 'provider-api' -PersistFn $persistOk -Executor $exec29 -VerifyFn $verifyOpen -ReceiptStore $store29 -GoalId 'G1-ghp_fakesecretvalue' -TaskId 'T1' -MergeMethod 'merge' -DryRun
+  Assert-M (($r29.outcome -ceq 'POLICY_BLOCKED') -and (($r29.reasons -join ',') -match 'INTENT_CONTEXT_INVALID') -and ($execN29.n -eq 0)) 'T29 goalid com segredo bloqueia' (($r29 | ConvertTo-Json -Depth 4 -Compress))
 }
 
 Write-Host ("TOTAL={0} PASS={1} FAIL={2}" -f $total, $passed, ($total - $passed))

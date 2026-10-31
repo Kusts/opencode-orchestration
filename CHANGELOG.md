@@ -6,6 +6,12 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Full Delivery Etapa 6 — merge mediado + prova 6B real (2026-10-31, PR #175)**:
+  - `OrchestrationMergeMediated` 45/45 (PS5.1+pwsh), consistência 16/16; micro-fixes de closure (scope lower-case canônico T28, ids do recibo sem segredos T29) + wiring observe+dry-run; contrato de wiring confiável no SPEC.
+  - CI pré-closure run 41138488143 tentativa 2 (HEAD 5a41671): 6/6 SUCCESS. Review independente da sessão: tester PASS, reviewer APPROVED (R3), security APPROVED (R3, com residual registrado); sem aprovação externa afirmada (`required_approving_review_count=0`).
+  - `6B_DRYRUN_READY` comprovado para o PR #175 (sem merge real neste repo); `ETAPA_6B_READY` entregue via prova viva em alvo descartável autorizado (merges #1 limpo + #2 timeout-reconciliado, idempotência, reconciliação cross-processo, negativos vivos incl. `SELF_REVIEW`).
+  - Veredito MERGE_AUTHORIZED (merge commit, sem deploy); PR #175.
+
 - **Full Delivery Etapas 3-5 — integração operacional (2026-10-30, SHA 146f149)**:
   - Consumo integrado de impasse (Etapa 3), execução de modelo com recibo (Etapa 4) e retomada durável single-shot (Etapa 5); classificação `PRODUCTIVE_AUTONOMY_PARTIAL` preservada.
   - CI final run 41095537651 (HEAD 146f149): 6/6 SUCCESS; suites IC 27/27, ME 32/32, DR 21/21; provas PROOF_ETAPA3=REAL, PROOF_ETAPA4=PROOF_ABSENT:no-model-field, PROOF_ETAPA5=REAL.

@@ -220,7 +220,7 @@ function Test-MMExactMergeScope {
         $want = ('github:merge:' + $RepoCanon).ToLowerInvariant()
         foreach ($s in @($ScopeItems)) {
             if (($null -eq $s) -or (-not ($s -is [string]))) { continue }
-            $v = ([string]$s).Trim().ToLowerInvariant()
+            $v = ([string]$s).Trim()
             if ($v -ceq $want) { return $true }
         }
         return $false
@@ -511,6 +511,12 @@ function Invoke-OrchestrationMergeMediated {
         }
         if (-not (Test-MMSecretFree -Value $author)) {
             return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons @('CREDENTIAL_SCOPE_SECRET'))
+        }
+        foreach ($idVal in @($GoalId, $TaskId)) {
+            if (($null -eq $idVal) -or (($idVal -is [string]) -and [string]::IsNullOrWhiteSpace([string]$idVal))) { continue }
+            if (-not (Test-MMSecretFree -Value $idVal)) {
+                return (New-MMResult -Outcome 'POLICY_BLOCKED' -Reasons @('INTENT_CONTEXT_INVALID'))
+            }
         }
         $scopesRaw = Get-MMValue $Authority 'credential_scope' $null
         if ($null -eq $scopesRaw) {
