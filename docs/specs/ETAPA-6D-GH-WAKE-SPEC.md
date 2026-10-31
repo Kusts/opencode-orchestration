@@ -241,12 +241,14 @@ sem Live executado, sem tocar PR/CI/scheduler.
   de task (BLOCKED/IMPLEMENTING; DONE => `already-done`, nunca reexecuta).
   Falha de pre-check nunca invoca o run.
 - (b) P1 adaptador (`Invoke-OrchestrationNativeResume`): no maximo 1 run
-  (`opencode run --session <id> --format json --dir <canon> <prompt>`),
+  (`opencode run --session <id> --format json <prompt>` com o working
+  directory do filho em <canon>; run nao tem --dir na v2.2.5),
   prompt Kernel-only com charset fail-closed (`invalid-prompt`, sem run);
   sem `cmd.exe` no run (prompt e texto livre e nao cruza shell: shim
   `.cmd/.bat` trocado por irmao `.ps1` via host powershell, ou falha
   fechada `LAUNCH_ERROR`); evidencia nativa minima JSON com `role` +
-  `sessionId`; nunca `dispatched`/`executed` aqui (settlement e do caller
+  `sessionId` (doc unico ou stream JSONL do `run --format json`: basta
+  uma linha valida com o ponteiro; texto puro nunca e prova); nunca `dispatched`/`executed` aqui (settlement e do caller
   via Claim+Settle); `timeout-unknown`/`resume-unproven`/`identity-diverged`
   => RECONCILE, sem resend cego.
 - (c) P2 matriz 10 casos (reasons estaveis, fail-closed): `session-id-invalid`,

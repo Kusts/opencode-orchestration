@@ -104,5 +104,5 @@ Data: 2026-10-30 · Branch: `feat/full-delivery-etapa-6` · Base: `origin/master
 
 - Revisões (conforme registrado na sessão de entrega; sem shell nesta task para revalidar, declarado honestamente): reviewer `CHANGES_REQUIRED` → micro-fixes → re-revisão técnica confirmada sem regressão, `APPROVED` formal pendente por sandbox sem shell; security: residual LOW fechado com redação (sem segredos em recibos/provas). Nenhum `APPROVED` simulado, nenhum objeto GitHub afirmado.
 - Prova Offline: OK 2x+ (`proceed` + `already-done`, `runs_count` 1→1, JSONL gitignored, README versionado em `evidence/v3/etapa6d-resume/README.md`).
-- Live (`-Mode Live`, run real com worker): PENDENTE de operador com quota/modelo — não executado, nada alegado.
+- Live (`-Mode Live`, run real com worker): EXECUTADO 2026-10-31 com opt-in (sessão descartável em projeto Temp, `proceed` + settlement + `already-done`, `runs_count` 1→1, claim `INTEGRATED`); 1º attempt RED (`--dir` inexistente na v2.2.5) corrigido RED→GREEN (workdir do filho + irmão `.ps1` + evidência JSONL; suíte 49→53).
 - `ETAPA_6D_READY`: BLOQUEADO (ver SPEC § Gates + prova viva KEEP_WAITING/REVIEW_PENDING).

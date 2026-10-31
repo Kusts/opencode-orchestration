@@ -50,7 +50,8 @@ powershell -NoProfile -File scripts/v3/full-delivery-etapa6d-resume-proof.ps1 -M
 ```
 
 - Live usa run REAL `opencode run --model <OPENCODE_RESUME_MODEL>
-  --session <id> --format json --dir <dir> <prompt>` (default do env:
+  --session <id> --format json <prompt>` com o working directory do
+  filho em <dir> (default do env:
   `opencode-go/muse-spark-1.3-contributor`), timeout 60000 ms, sem
   `--continue`/`--fork`. Se modelo/credencial ausente ou timeout, registra
   `resume-unproven`/`timeout-unknown` honesto, exit 2, sem alegar nada.

@@ -26,7 +26,8 @@
     all pre-checks pass. Pre-check failure NEVER invokes the run.
 
     The resume command NEVER uses --continue or --fork. Only
-    `opencode run --session <id> --format json --dir <canon> <prompt>`.
+    `opencode run --session <id> --format json <prompt>` with the child
+    working directory set to <canon> (run has no --dir flag in v2.2.5).
 
     STABLE REASON CODES (fail-closed):
       session-id-invalid      SessionId empty, without ses_ prefix, or
@@ -211,10 +212,12 @@ function Test-NativeResumeEvidence {
     .SYNOPSIS
         Pure stdout/stderr evidence check. No IO. Never throws.
     .DESCRIPTION
-        Minimal documented rule: stdout must be non-empty, must parse as
-        JSON (array or object), must carry a native execution pointer
+        Minimal documented rule: stdout must be non-empty JSON evidence
+        carrying a native execution pointer
         ('"role"' or '"sessionId"' or 'session_id'), and must not carry a
-        session-missing marker. Plain textual output is NEVER proof.
+        session-missing marker. Accepts a single JSON doc or a JSONL
+        event stream (one object per line, as `opencode run --format
+        json` emits). Plain textual output is NEVER proof.
     #>
     [CmdletBinding()]
     param([string]$Stdout = '', [string]$Stderr = '')
@@ -222,12 +225,22 @@ function Test-NativeResumeEvidence {
         $o = ([string]$Stdout)
         if ([string]::IsNullOrWhiteSpace($o)) { return $false }
         $t = $o.Trim()
-        if (-not ($t.StartsWith('[') -or $t.StartsWith('{'))) { return $false }
         if ($o -match 'Session not found|NotFoundError') { return $false }
-        $parsed = $null
-        try { $parsed = ($o | ConvertFrom-Json) }
-        catch { return $false }
-        if ($null -eq $parsed) { return $false }
+        $lines = @($o -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($lines.Count -eq 0) { return $false }
+        if ($lines.Count -eq 1) {
+            $one = ([string]$lines[0]).Trim()
+            if (-not ($one.StartsWith('[') -or $one.StartsWith('{'))) { return $false }
+        }
+        $found = $false
+        foreach ($ln in $lines) {
+            $p = $null
+            try { $p = ([string]$ln | ConvertFrom-Json) } catch { continue }
+            if ($null -eq $p) { continue }
+            $found = $true
+            break
+        }
+        if (-not $found) { return $false }
         if (($o -match '"role"') -or ($o -match '"sessionId"') -or ($o -match 'session_id')) { return $true }
         return $false
     }
@@ -284,8 +297,9 @@ function Invoke-NRRealResumeRun {
     .SYNOPSIS
         Production runner: ONE `opencode run --session` call. No --continue.
     .DESCRIPTION
-        Builds `opencode run --session <id> --format json --dir <canon>
-        <prompt>` via ProcessStartInfo with timeout, NUL stdin, and
+        Builds `opencode run --session <id> --format json <prompt>`
+        with the child working directory set to <canon> (run has no
+        --dir flag), via ProcessStartInfo with timeout, NUL stdin, and
         captured stdout/stderr/exit. Never throws: timeout and launch
         failures are data. NEVER uses cmd.exe: a resolved .cmd/.bat shim
         is replaced by a same-basename .ps1 sibling run under a
@@ -347,9 +361,10 @@ function Invoke-NRRealResumeRun {
         [void]$argList.Add('run')
         [void]$argList.Add('--session'); [void]$argList.Add(([string]$SessionId))
         [void]$argList.Add('--format'); [void]$argList.Add('json')
-        if (-not [string]::IsNullOrWhiteSpace($CanonDir)) {
-            [void]$argList.Add('--dir'); [void]$argList.Add(([string]$CanonDir))
-        }
+        # NOTE: `opencode run` (v2.2.5) has no --dir flag (unrecognized-flag
+        # error). The session project is resolved from the child working
+        # directory instead (set on ProcessStartInfo below). Never re-add
+        # --dir here: see B20 regression test.
         [void]$argList.Add(([string]$PromptText))
         $quoted = New-Object System.Collections.ArrayList
         foreach ($a in $argList) {
@@ -377,6 +392,17 @@ function Invoke-NRRealResumeRun {
         $psi.RedirectStandardInput = $true
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
+        $cd = (([string]$CanonDir)).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($cd)) {
+            $cdOk = $false
+            try { $cdOk = (Test-Path -LiteralPath $cd -PathType Container) } catch { $cdOk = $false }
+            if (-not $cdOk) {
+                return [pscustomobject]@{ ok = $true; timedOut = $false; exit = -1; stdout = ''; stderr = 'LAUNCH_ERROR:working-directory-missing' }
+            }
+            try { $psi.WorkingDirectory = $cd } catch {
+                return [pscustomobject]@{ ok = $true; timedOut = $false; exit = -1; stdout = ''; stderr = ('LAUNCH_ERROR:' + (Protect-NRDiag $_.Exception.Message)) }
+            }
+        }
         $proc = $null
         try { $proc = [System.Diagnostics.Process]::Start($psi) }
         catch {
@@ -639,7 +665,7 @@ function Invoke-OrchestrationNativeResume {
             prompt = $prompt
             binary_command = $bin
             timeout_ms = $to
-            args = @('run', '--session', $sid, '--format', 'json', '--dir', $canonDir)
+            args = @('run', '--session', $sid, '--format', 'json')
         }
         $runOut = $null
         if ($null -ne $RunExecutor) {

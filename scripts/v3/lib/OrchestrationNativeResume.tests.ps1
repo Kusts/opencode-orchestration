@@ -252,6 +252,23 @@ try {
     $r = Invoke-Resume $a $mk
     $diag19 = ([string]$r.run.stderr_diag)
     Assert-S ((($diag19 -match '\[redacted\]') -and ($diag19 -notmatch 'sk-fake123')) -and ($diag19.Length -le 200)) 'B19-sk-redacted' $diag19
+
+    # --- B20 run carries no --dir flag (v2.2.5 unrecognized-flag RED) ---
+    $cap = @{ spec = $null }
+    $mk = { param($s) $cap.spec = $s; return [pscustomobject]@{ exit = 0; stdout = '{"sessionId":"ses_abc123","role":"assistant"}'; stderr = ''; timedOut = $false } }
+    $a = New-BaseArgs $goodCmd
+    $r = Invoke-Resume $a $mk
+    $noDir = $false
+    try { $noDir = (-not ((@($cap.spec.args)) -contains '--dir')) } catch { $noDir = $false }
+    Assert-S (($r.action -ceq 'proceed') -and $noDir) 'B20-no-dir-flag' ('args=' + ((@($cap.spec.args)) -join ','))
+    Assert-S (([string]$cap.spec.directory) -ceq ([string](Resolve-NativeResumeDirectory -Path $workDir))) 'B20-workdir-contract' ([string]$cap.spec.directory)
+
+    # --- B21 JSONL event stream (real `run --format json` shape) is evidence ---
+    $stream = ('{"type":"step_start","sessionID":"ses_abc123"}' + "`r`n" + '{"type":"text","sessionID":"ses_abc123","text":"hi"}')
+    Assert-S ((Test-NativeResumeEvidence -Stdout $stream -Stderr '') -eq $true) 'B21-jsonl-stream' 'expected true'
+
+    # --- B22 multi-line plain text is NEVER evidence ---
+    Assert-S ((Test-NativeResumeEvidence -Stdout ("line one`r`nline two") -Stderr '') -eq $false) 'B22-multiline-text' 'expected false'
 }
 finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

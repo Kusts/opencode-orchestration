@@ -18,8 +18,9 @@
     to prove already-done.
 
     Live (opt-in, -Mode Live): same flow but the run is REAL
-    (`opencode run --session <id> --format json --dir <dir> <prompt>`,
-    plus --model from OPENCODE_RESUME_MODEL). Never uses --continue/--fork.
+    (`opencode run --session <id> --format json <prompt>` with the child
+    working directory set to <dir>, plus --model from
+    OPENCODE_RESUME_MODEL). Never uses --continue/--fork.
     Consumes quota and requires an operator. Missing model/credential or a
     timeout records resume-unproven/timeout-unknown honestly with exit 2
     and NEVER claims INTEGRATED.
@@ -370,9 +371,9 @@ try {
                 [void]$argList.Add('--model'); [void]$argList.Add($liveModel)
                 [void]$argList.Add('--session'); [void]$argList.Add($sid)
                 [void]$argList.Add('--format'); [void]$argList.Add('json')
-                if (-not [string]::IsNullOrWhiteSpace($dir)) {
-                    [void]$argList.Add('--dir'); [void]$argList.Add($dir)
-                }
+                # NOTE: `opencode run` (v2.2.5) has no --dir flag; the
+                # session project resolves from the child working
+                # directory (set below). Never re-add --dir here.
                 [void]$argList.Add($pr)
                 $quoted = New-Object System.Collections.ArrayList
                 foreach ($a in $argList) {
@@ -381,8 +382,39 @@ try {
                     else { [void]$quoted.Add($s) }
                 }
                 $psi = New-Object System.Diagnostics.ProcessStartInfo
-                $psi.FileName = 'opencode'
-                $psi.Arguments = ([string[]]$quoted.ToArray() -join ' ')
+                # Resolve without a shell: bare 'opencode' does not spawn
+                # via Process.Start (.cmd shim). Prefer a .ps1 sibling
+                # under a PowerShell host; anything else fails closed.
+                $binFile = 'opencode'
+                try {
+                    $rc = Get-Command opencode.ps1 -ErrorAction SilentlyContinue
+                    if ($rc) { $binFile = ([string]$rc.Source) }
+                } catch { }
+                if ($binFile -like '*.ps1') {
+                    $ph = Get-Command powershell.exe -ErrorAction SilentlyContinue
+                    if (-not $ph) { $ph = Get-Command pwsh.exe -ErrorAction SilentlyContinue }
+                    if ($ph) {
+                        $psi.FileName = ([string]$ph.Source)
+                        $escBin = ($binFile -replace '"', '""')
+                        $psi.Arguments = ('-NoProfile -ExecutionPolicy Bypass -File "' + $escBin + '" ' + ([string[]]$quoted.ToArray() -join ' '))
+                    } else {
+                        $psi.FileName = $binFile
+                        $psi.Arguments = ([string[]]$quoted.ToArray() -join ' ')
+                    }
+                } else {
+                    $psi.FileName = $binFile
+                    $psi.Arguments = ([string[]]$quoted.ToArray() -join ' ')
+                }
+                if (-not [string]::IsNullOrWhiteSpace($dir)) {
+                    $dirOk = $false
+                    try { $dirOk = (Test-Path -LiteralPath $dir -PathType Container) } catch { $dirOk = $false }
+                    if (-not $dirOk) {
+                        return [pscustomobject]@{ ok = $true; timedOut = $false; exit = -1; stdout = ''; stderr = 'LAUNCH_ERROR:working-directory-missing' }
+                    }
+                    try { $psi.WorkingDirectory = $dir } catch {
+                        return [pscustomobject]@{ ok = $true; timedOut = $false; exit = -1; stdout = ''; stderr = ('LAUNCH_ERROR:' + $_.Exception.Message) }
+                    }
+                }
                 $psi.RedirectStandardOutput = $true
                 $psi.RedirectStandardError = $true
                 $psi.RedirectStandardInput = $true
