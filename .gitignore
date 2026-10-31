@@ -4,6 +4,9 @@ evidence/*
 !evidence/distribution-hardening/
 !evidence/release-readiness/
 !evidence/v3.1/
+!evidence/v3/
+evidence/v3/*
+!evidence/v3/etapa6d-live/
 !evidence/capabilities-phase-2b/
 !evidence/capabilities-phase-2c/
 !evidence/capabilities-phase-2d/
