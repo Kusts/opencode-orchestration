@@ -111,8 +111,9 @@ try {
     Assert-S ((Test-NativeResumeSessionId -SessionId '--continue') -eq $false) 'sid-bare-continue' 'expected false'
     Assert-S ((Resolve-NativeResumeDirectory -Path '') -eq '') 'dir-empty' 'expected empty'
     Assert-S (-not [string]::IsNullOrWhiteSpace((Resolve-NativeResumeDirectory -Path $workDir))) 'dir-work' 'expected canon'
-    Assert-S ((Test-NativeResumeEvidence -Stdout '{"sessionId":"ses_1","role":"assistant"}' -Stderr '') -eq $true) 'ev-role' 'expected true'
-    Assert-S ((Test-NativeResumeEvidence -Stdout '[{"sessionId":"ses_1"}]' -Stderr '') -eq $true) 'ev-sessid' 'expected true'
+    Assert-S ((Test-NativeResumeEvidence -Stdout '{"sessionId":"ses_1","role":"assistant"}' -Stderr '' -SessionId 'ses_1') -eq $true) 'ev-role' 'expected true'
+    Assert-S ((Test-NativeResumeEvidence -Stdout '{"sessionId":"ses_1","role":"assistant"}' -Stderr '' -SessionId 'ses_other999') -eq $false) 'ev-role-wrong-session' 'expected false'
+    Assert-S ((Test-NativeResumeEvidence -Stdout '[{"sessionId":"ses_1"}]' -Stderr '' -SessionId 'ses_1') -eq $false) 'ev-sessid-no-pointer' 'identity without role/type is not proof'
     Assert-S ((Test-NativeResumeEvidence -Stdout 'all done, plain text' -Stderr '') -eq $false) 'ev-plaintext' 'expected false'
     Assert-S ((Test-NativeResumeEvidence -Stdout '' -Stderr '') -eq $false) 'ev-empty' 'expected false'
 
@@ -265,10 +266,45 @@ try {
 
     # --- B21 JSONL event stream (real `run --format json` shape) is evidence ---
     $stream = ('{"type":"step_start","sessionID":"ses_abc123"}' + "`r`n" + '{"type":"text","sessionID":"ses_abc123","text":"hi"}')
-    Assert-S ((Test-NativeResumeEvidence -Stdout $stream -Stderr '') -eq $true) 'B21-jsonl-stream' 'expected true'
+    Assert-S ((Test-NativeResumeEvidence -Stdout $stream -Stderr '' -SessionId $sid) -eq $true) 'B21-jsonl-stream' 'expected true'
 
     # --- B22 multi-line plain text is NEVER evidence ---
     Assert-S ((Test-NativeResumeEvidence -Stdout ("line one`r`nline two") -Stderr '') -eq $false) 'B22-multiline-text' 'expected false'
+
+    # --- B23 field-name decoy: names as text values, no bound event ---
+    $decoy = '{"note":"sessionId ses_abc123 role","text":"plain mention"}'
+    Assert-S ((Test-NativeResumeEvidence -Stdout $decoy -Stderr '' -SessionId $sid) -eq $false) 'B23-decoy' 'expected false'
+
+    # --- B24 event bound to another session is NEVER evidence ---
+    $wrong = '{"sessionId":"ses_other999","role":"assistant"}'
+    Assert-S ((Test-NativeResumeEvidence -Stdout $wrong -Stderr '' -SessionId $sid) -eq $false) 'B24-wrong-session' 'expected false'
+
+    # --- B25 JSONL with noise plus one bound event is evidence ---
+    $mixed = ('not json at all' + "`r`n" + '{"sessionId":"ses_abc123","role":"assistant"}')
+    Assert-S ((Test-NativeResumeEvidence -Stdout $mixed -Stderr '' -SessionId $sid) -eq $true) 'B25-mixed-jsonl' 'expected true'
+
+    # --- B26 JSONL with only other-session events is NEVER evidence ---
+    $otherStream = ('{"type":"text","sessionID":"ses_other999","text":"hi"}' + "`r`n" + '{"sessionID":"ses_other999","role":"assistant"}')
+    Assert-S ((Test-NativeResumeEvidence -Stdout $otherStream -Stderr '' -SessionId $sid) -eq $false) 'B26-other-stream' 'expected false'
+
+    # --- B27 array doc carrying a bound event is evidence ---
+    $arr = ('[{"type":"text","sessionID":"ses_other999"},{"sessionId":"ses_abc123","role":"assistant"}]')
+    Assert-S ((Test-NativeResumeEvidence -Stdout $arr -Stderr '' -SessionId $sid) -eq $true) 'B27-array' 'expected true'
+
+    # --- B28 bound session without role/type pointer is NEVER evidence ---
+    $bare = '{"sessionId":"ses_abc123"}'
+    Assert-S ((Test-NativeResumeEvidence -Stdout $bare -Stderr '' -SessionId $sid) -eq $false) 'B28-no-pointer' 'expected false'
+
+    # --- B29 session-missing stderr fails closed even with good stdout ---
+    $good = '{"sessionId":"ses_abc123","role":"assistant"}'
+    Assert-S ((Test-NativeResumeEvidence -Stdout $good -Stderr 'Session not found: ses_abc123') -eq $false) 'B29-stderr-marker' 'expected false'
+
+    # --- B30 exit 0 with other-session stdout is resume-unproven, never proceed ---
+    $st = @{ n = 0 }; $mk = { param($s) $st.n++; return [pscustomobject]@{ exit = 0; stdout = '{"sessionId":"ses_other999","role":"assistant"}'; stderr = ''; timedOut = $false } }
+    $a = New-BaseArgs $goodCmd
+    $r = Invoke-Resume $a $mk
+    Assert-S (($r.ok -eq $false) -and ($r.reason -ceq 'resume-unproven') -and ($r.action -ceq 'reconcile')) 'B30-unproven' ($r.reason + '/' + $r.action)
+    Assert-S (($r.dispatched -eq $false) -and ($r.executed -eq $false) -and ($st.n -eq 1)) 'B30-noexec' 'exit 0 alone never proves dispatch'
 }
 finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

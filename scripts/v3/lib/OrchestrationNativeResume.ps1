@@ -212,36 +212,77 @@ function Test-NativeResumeEvidence {
     .SYNOPSIS
         Pure stdout/stderr evidence check. No IO. Never throws.
     .DESCRIPTION
-        Minimal documented rule: stdout must be non-empty JSON evidence
-        carrying a native execution pointer
-        ('"role"' or '"sessionId"' or 'session_id'), and must not carry a
-        session-missing marker. Accepts a single JSON doc or a JSONL
-        event stream (one object per line, as `opencode run --format
-        json` emits). Plain textual output is NEVER proof.
+        Hardened rule (P1): stdout must carry at least one NATIVE event
+        object parsed from JSON (single doc or JSONL event stream, one
+        object per line, as `opencode run --format json` emits) that binds
+        to the expected session AND carries a native execution pointer.
+
+        Binding: the event object must expose one of the session keys
+        (sessionId | sessionID | session_id | id) whose value -ceq the
+        expected SessionId. When SessionId is empty (legacy callers), the
+        value must match ^ses_[A-Za-z0-9]+$ instead. An event bound to a
+        different session never counts, even when the expected id appears
+        elsewhere as plain text.
+
+        Pointer: the same event object must expose a non-empty role or
+        type key. Mere field-name text (JSON or not) without such a bound
+        event object is NEVER proof. Plain textual output is NEVER proof.
+
+        Stderr (or stdout) carrying a session-missing marker fails closed.
+        Compatible with real OpenCode v2.2.5 JSONL (type + sessionID) and
+        with the offline mock shape (role + sessionId).
     #>
     [CmdletBinding()]
-    param([string]$Stdout = '', [string]$Stderr = '')
+    param([string]$Stdout = '', [string]$Stderr = '', [string]$SessionId = '')
     try {
         $o = ([string]$Stdout)
         if ([string]::IsNullOrWhiteSpace($o)) { return $false }
-        $t = $o.Trim()
+        if (([string]$Stderr) -match 'Session not found|NotFoundError') { return $false }
         if ($o -match 'Session not found|NotFoundError') { return $false }
+        $exp = (([string]$SessionId).Trim())
         $lines = @($o -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         if ($lines.Count -eq 0) { return $false }
         if ($lines.Count -eq 1) {
             $one = ([string]$lines[0]).Trim()
             if (-not ($one.StartsWith('[') -or $one.StartsWith('{'))) { return $false }
         }
-        $found = $false
         foreach ($ln in $lines) {
             $p = $null
             try { $p = ([string]$ln | ConvertFrom-Json) } catch { continue }
             if ($null -eq $p) { continue }
-            $found = $true
-            break
+            if ($p -is [System.Array]) { $cands = @($p) }
+            else { $cands = @($p) }
+            foreach ($ev in $cands) {
+                if ($null -eq $ev) { continue }
+                $bound = ''
+                foreach ($k in @('sessionId', 'sessionID', 'session_id', 'id')) {
+                    try {
+                        $v = $null
+                        if ($ev -is [System.Collections.IDictionary]) { $v = $ev[$k] }
+                        else { $v = $ev.$k }
+                        if (($null -ne $v) -and (-not [string]::IsNullOrWhiteSpace(([string]$v)))) { $bound = ([string]$v); break }
+                    }
+                    catch { }
+                }
+                if ([string]::IsNullOrWhiteSpace($bound)) { continue }
+                if (-not [string]::IsNullOrWhiteSpace($exp)) {
+                    if ($bound -cne $exp) { continue }
+                }
+                elseif ($bound -cnotmatch '^ses_[A-Za-z0-9]+$') { continue }
+                $ptr = ''
+                foreach ($k in @('role', 'type')) {
+                    try {
+                        $v = $null
+                        if ($ev -is [System.Collections.IDictionary]) { $v = $ev[$k] }
+                        else { $v = $ev.$k }
+                        if (($null -ne $v) -and (-not [string]::IsNullOrWhiteSpace(([string]$v)))) { $ptr = ([string]$v); break }
+                    }
+                    catch { }
+                }
+                if ([string]::IsNullOrWhiteSpace($ptr)) { continue }
+                return $true
+            }
         }
-        if (-not $found) { return $false }
-        if (($o -match '"role"') -or ($o -match '"sessionId"') -or ($o -match 'session_id')) { return $true }
         return $false
     }
     catch { return $false }
@@ -738,7 +779,7 @@ function Invoke-OrchestrationNativeResume {
         }
 
         # (g) native execution evidence is required.
-        if (-not (Test-NativeResumeEvidence -Stdout $stdout -Stderr $stderr)) {
+        if (-not (Test-NativeResumeEvidence -Stdout $stdout -Stderr $stderr -SessionId $sid)) {
             return (New-NRResumeEnvelope -Ok $false -Action 'reconcile' -Reason 'resume-unproven' -Session $sess -IdempotencyKey $key -Generation ([string]$Generation) -LeaseOwner ([string]$LeaseOwner) -EvidenceSummary $ev -Run $rk)
         }
 

@@ -10,12 +10,25 @@
     `session list` used ONLY to discover a binding (never creates a
     session). The session identity pre-check is stubbed to the discovered
     (or synthetic fallback) binding and the run is a MOCK RunExecutor that
-    returns minimal native JSON and counts invocations. Two logical phases
+    returns minimal native JSON and counts invocations. Settlement below
+    is KERNEL-ONLY (Task B BLOCKED -> IMPLEMENTING -> DONE via the
+    task kernel): NOT a NativeDispatch settlement, never dispatched.
+    WORKER_DISPATCH_SETTLED (real subagent identified, execution
+    evidence, settled NativeDispatch receipt via
+    Set-GHWakeDispatchSettlement) is proven mechanically by
+    scripts/v3/github-wake-controller.tests.ps1 with an attested child
+    session id, never by this harness. Two logical phases
     run sequentially in this process: Phase A builds goal + task A DONE +
     task B BLOCKED + checkpoint + marker, then clears its variables to
     simulate termination; Phase B re-reads everything from disk, never
     re-executes A, resumes B, settles B via the task kernel, and re-invokes
-    to prove already-done.
+    to prove already-done. Claim taxonomy (never conflated):
+    NATIVE_SESSION_RESUMED = existing session resumed by a new process
+    with a bound native response observed (Live only);
+    WORKER_DISPATCH_SETTLED = real subagent identified, execution
+    evidence plus a settled NativeDispatch receipt (controller suite,
+    not this harness). INTEGRATED (both in the same live jornada) is
+    NOT claimed here.
 
     Live (opt-in, -Mode Live): same flow but the run is REAL
     (`opencode run --session <id> --format json <prompt>` with the child
@@ -23,7 +36,8 @@
     OPENCODE_RESUME_MODEL). Never uses --continue/--fork.
     Consumes quota and requires an operator. Missing model/credential or a
     timeout records resume-unproven/timeout-unknown honestly with exit 2
-    and NEVER claims INTEGRATED.
+    and NEVER claims NATIVE_SESSION_RESUMED (Offline proves only
+    NATIVE_RESUME_AVAILABLE).
 
     Never touches GitHub, PRs, CI, scheduler, merge, or deploy. Never
     declares ETAPA_6D_READY. PS 5.1, ASCII-only.
@@ -479,7 +493,10 @@ try {
     }
     if (-not $proceedOk) { Fail-RP ('resume-not-proceed:' + [string]$resume1.reason) $evidenceDir $runId 1 }
 
-    # ---- settlement via the task kernel (B BLOCKED -> IMPLEMENTING -> DONE) ----
+    # ---- kernel-only settlement (B BLOCKED -> IMPLEMENTING -> DONE).
+    # This is the task kernel chain, NOT a NativeDispatch settlement:
+    # no worker dispatch, no Set-GHWakeDispatchSettlement, nothing is
+    # ever marked dispatched/executed here. ----
     $bLive = Get-OrchestrationTask -TaskId $taskB -TasksDir $tasksDir -RepoRoot $shared
     $fp = ''
     try { $fp = ([string]$bLive.active_wait.fingerprint) } catch { $fp = '' }
@@ -514,7 +531,8 @@ try {
     if (-not [bool]$dn.ok) { Fail-RP ('settle-done:' + [string]$dn.error) $evidenceDir $runId 1 }
     Write-RPJsonl -Dir $evidenceDir -Record ([ordered]@{
         timestamp = ([DateTime]::UtcNow.ToString('o')); run_id = $runId; mode = $Mode
-        status = 'SETTLED'; binding_source = $bindingSource; session_id = $bindId
+        status = 'KERNEL_SETTLED'; settle_scope = 'kernel-only'
+        binding_source = $bindingSource; session_id = $bindId
         task_a_state = 'DONE'; task_b_state = 'DONE'; runs_count = [int]$callCount.n
     })
 
@@ -535,7 +553,7 @@ try {
     }
 
     $claim = 'NATIVE_RESUME_AVAILABLE'
-    if ($isLive) { $claim = 'INTEGRATED' }
+    if ($isLive) { $claim = 'NATIVE_SESSION_RESUMED' }
     Write-RPJsonl -Dir $evidenceDir -Record ([ordered]@{
         timestamp = ([DateTime]::UtcNow.ToString('o')); run_id = $runId; mode = $Mode
         status = 'PROOF_OK'; binding_source = $bindingSource; session_id = $bindId

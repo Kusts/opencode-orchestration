@@ -175,11 +175,19 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   (projeto descartavel, 2 fases, `proceed` + `already-done`, JSONL gitignored,
   README versionado) 2x exit 0. Nao alega execucao viva, worker real,
   approval ou jornada GitHub.
-- `NATIVE_RESUME_INTEGRATED` segue PENDENTE: exige Live com worker real
-  (`-Mode Live`, `opencode run --session` real) + settlement session-bound
-  (Claim session token + Settle com session id real). Comando documentado
-  na prova, nao executado (consome quota do operador). Sem Live, sem
-  INTEGRATED — e mesmo com INTEGRATED, `ETAPA_6D_READY` continua BLOQUEADO
+- `NATIVE_RESUME_INTEGRATED` segue PENDENTE como jornada unica: exige
+  Live com worker real (`-Mode Live`, `opencode run --session` real) +
+  settlement session-bound (Claim session token + Settle com session id
+  real) NA MESMA jornada. Separacao honesta ja provada: (i)
+  `NATIVE_SESSION_RESUMED` provado no Live de 2026-10-31 (sessao
+  descartavel `ses_e6c043e07ffeJAQa740XQ5x8IZ`, `proceed` +
+  `already-done`, settlement KERNEL-ONLY, claim `NATIVE_SESSION_RESUMED`);
+  (ii) mecanica `WORKER_DISPATCH_SETTLED` provada em
+  `scripts/v3/github-wake-controller.tests.ps1` (marker claimed ->
+  dispatched com session id atestada, refusos
+  settle-session-invalid/mismatch, replay settle-duplicate), sem worker
+  vivo na mesma jornada. INTEGRATED so sai de PENDENTE com ambos na
+  mesma jornada viva — e mesmo com INTEGRATED, `ETAPA_6D_READY` continua BLOQUEADO
   ate a jornada GitHub real (approval nao-self + CI verde +
   SCHEDULED+RESUMED+DISPATCHED na mesma jornada).
 - Sem excecao docs-only, sem self-review (`SELF_REVIEW => POLICY_BLOCKED`),
@@ -246,10 +254,15 @@ sem Live executado, sem tocar PR/CI/scheduler.
   prompt Kernel-only com charset fail-closed (`invalid-prompt`, sem run);
   sem `cmd.exe` no run (prompt e texto livre e nao cruza shell: shim
   `.cmd/.bat` trocado por irmao `.ps1` via host powershell, ou falha
-  fechada `LAUNCH_ERROR`); evidencia nativa minima JSON com `role` +
-  `sessionId` (doc unico ou stream JSONL do `run --format json`: basta
-  uma linha valida com o ponteiro; texto puro nunca e prova); nunca `dispatched`/`executed` aqui (settlement e do caller
-  via Claim+Settle); `timeout-unknown`/`resume-unproven`/`identity-diverged`
+  fechada `LAUNCH_ERROR`); evidencia nativa endurecida
+  (`Test-NativeResumeEvidence -SessionId <id>`: cada linha JSONL/doc e
+  parseada de verdade; exige um objeto-evento com chave de sessao
+  sessionId|sessionID|session_id|id -ceq a sessao esperada E ponteiro
+  role|type nao-vazio no MESMO objeto; decoy so-com-nomes, evento de
+  outra sessao, sessao sem pointer e texto puro nunca sao prova; stderr
+  com session-missing falha fechado); nunca `dispatched`/`executed` aqui
+  (settlement e do caller via Claim+Settle); exit 0 sozinho nunca prova
+  dispatch; `timeout-unknown`/`resume-unproven`/`identity-diverged`
   => RECONCILE, sem resend cego.
 - (c) P2 matriz 10 casos (reasons estaveis, fail-closed): `session-id-invalid`,
   `invalid-idempotency-key`, `invalid-prompt`, `session-not-found`,

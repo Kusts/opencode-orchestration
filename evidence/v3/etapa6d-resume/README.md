@@ -11,10 +11,13 @@ Evidencia runtime (gitignored): `evidence/v3/etapa6d-resume/resume-proof.jsonl`
   canal entre fases e o marker em disco (documentado como A-logico/B).
 - Fase B rele do disco, confirma A DONE sem reexecutar, chama
   `Invoke-OrchestrationNativeResume` com RunExecutor MOCK (JSON nativo
-  minimo com `role`+`sessionId`, contador de invocacoes): `proceed`.
-- Settlement pelo kernel (B BLOCKED -> IMPLEMENTING -> DONE); a segunda
-  invocacao com a mesma idempotency key cai em `already-done` sem novo run
-  (`runs_count` inalterado: 1 -> 1).
+  minimo com `role`+`sessionId` vinculado a sessao esperada, contador de
+  invocacoes): `proceed`.
+- Settlement KERNEL-ONLY (B BLOCKED -> IMPLEMENTING -> DONE pelo kernel;
+  status JSONL `KERNEL_SETTLED` com `settle_scope=kernel-only`): NAO e
+  settlement NativeDispatch, nunca marca `dispatched`/`executed`. A
+  segunda invocacao com a mesma idempotency key cai em `already-done`
+  sem novo run (`runs_count` inalterado: 1 -> 1).
 - Binding: primeira sessao de `session list` local, read-only; nenhuma
   sessao nova e criada em Offline. Fallback sintetico so se a lista
   falhar (registrado em `binding_source`); Live exige sessao listada.
@@ -39,7 +42,27 @@ Evidencia runtime (gitignored): `evidence/v3/etapa6d-resume/resume-proof.jsonl`
   vazios + Auth null) continua permitido.
 
 Claim Offline: apenas `NATIVE_RESUME_AVAILABLE` (o que o adapter ja
-declara). NUNCA `ETAPA_6D_READY`, nunca `INTEGRATED` em Offline.
+declara). NUNCA `ETAPA_6D_READY`, nunca `NATIVE_SESSION_RESUMED`,
+nunca `WORKER_DISPATCH_SETTLED` em Offline.
+
+Taxonomia (nunca confundir):
+
+- `NATIVE_SESSION_RESUMED`: sessao existente retomada por processo novo
+  com resposta nativa vinculada observada. Provado no Live de
+  2026-10-31 (sessao descartavel `ses_e6c043e07ffeJAQa740XQ5x8IZ`,
+  `proceed` + `already-done`, `runs_count` 1->1, claim
+  `NATIVE_SESSION_RESUMED`). O settlement desse Live foi KERNEL-ONLY
+  (task kernel), nao NativeDispatch.
+- `WORKER_DISPATCH_SETTLED`: subagente real identificado, com evidencia
+  de execucao e recibo NativeDispatch liquidado via
+  `Set-GHWakeDispatchSettlement`. Mecanica provada em
+  `scripts/v3/github-wake-controller.tests.ps1` (marker `claimed` ->
+  `dispatched` com session id real atestada, refusos
+  `settle-session-invalid`/`settle-session-mismatch`, replay
+  `settle-duplicate`); nenhum worker vivo foi despachado e liquidado na
+  mesma jornada do Live.
+- `INTEGRATED` (ambos na mesma jornada viva): NAO alegado. `ETAPA_6D_READY`
+  segue BLOQUEADO.
 
 ## O que falta para Live (operador, opt-in)
 
@@ -56,12 +79,22 @@ powershell -NoProfile -File scripts/v3/full-delivery-etapa6d-resume-proof.ps1 -M
   `--continue`/`--fork`. Se modelo/credencial ausente ou timeout, registra
   `resume-unproven`/`timeout-unknown` honesto, exit 2, sem alegar nada.
 - So apos Live com `proceed` + settlement + `already-done` o claim pode
-  ser `INTEGRATED` (nativo). Mesmo assim, a jornada GitHub (approval)
-  continua BLOQUEADA sem excecao: este harness nao toca PR/CI/scheduler,
+  ser `NATIVE_SESSION_RESUMED` (sessao retomada por processo novo com
+  resposta nativa vinculada). O settlement desse harness continua
+  KERNEL-ONLY e nunca conta como `WORKER_DISPATCH_SETTLED`. Mesmo com
+  `NATIVE_SESSION_RESUMED`, a jornada GitHub (approval) continua
+  BLOQUEADA sem excecao: este harness nao toca PR/CI/scheduler,
   nao simula approval, nao faz merge/deploy.
 
 ## Status
 
-- Offline: PROVADO (2x exit 0, runs 1->1, already-done na repeticao).
-- Live: PENDENTE de operador com quota/modelo.
+- Offline: PROVADO (2x+ exit 0, runs 1->1, already-done na repeticao,
+  claim `NATIVE_RESUME_AVAILABLE`).
+- Live: `NATIVE_SESSION_RESUMED` PROVADO em 2026-10-31 com opt-in
+  (sessao descartavel em projeto Temp, `proceed` + settlement
+  KERNEL-ONLY + `already-done`, `runs_count` 1->1). Limites: o run real
+  prova a retomada da sessao, nao um dispatch de worker; o settlement
+  foi pelo task kernel, nao via `Set-GHWakeDispatchSettlement`, e por
+  isso nao conta como `WORKER_DISPATCH_SETTLED`. `INTEGRATED` (ambos na
+  mesma jornada viva) segue NAO alegado.
 - Jornada GitHub com approval: BLOQUEADA (fora deste escopo).
