@@ -64,9 +64,9 @@ Taxonomia (nunca confundir):
 - `INTEGRATED` (ambos na mesma jornada viva): NAO alegado. `ETAPA_6D_READY`
   segue BLOQUEADO.
 
-## O que falta para Live (operador, opt-in)
+## Live (registro historico — executado em 2026-10-31, nao pendente)
 
-Comando (NAO executado nesta entrega; consome quota):
+Comando usado (opt-in do operador; consome quota):
 
 ```powershell
 powershell -NoProfile -File scripts/v3/full-delivery-etapa6d-resume-proof.ps1 -Mode Live
@@ -78,8 +78,8 @@ powershell -NoProfile -File scripts/v3/full-delivery-etapa6d-resume-proof.ps1 -M
   `opencode-go/muse-spark-1.3-contributor`), timeout 60000 ms, sem
   `--continue`/`--fork`. Se modelo/credencial ausente ou timeout, registra
   `resume-unproven`/`timeout-unknown` honesto, exit 2, sem alegar nada.
-- So apos Live com `proceed` + settlement + `already-done` o claim pode
-  ser `NATIVE_SESSION_RESUMED` (sessao retomada por processo novo com
+- Com `proceed` + settlement + `already-done` o claim e
+  `NATIVE_SESSION_RESUMED` (sessao retomada por processo novo com
   resposta nativa vinculada). O settlement desse harness continua
   KERNEL-ONLY e nunca conta como `WORKER_DISPATCH_SETTLED`. Mesmo com
   `NATIVE_SESSION_RESUMED`, a jornada GitHub (approval) continua

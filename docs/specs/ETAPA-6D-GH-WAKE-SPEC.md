@@ -231,13 +231,15 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   mutacao, head-superseded, lease-expired, api-failure (ver assert labels
   em github-wake.tests.ps1 e github-wake-controller.tests.ps1).
 
-## Retomada nativa (P0/P1/P2/P3) — adapter Offline, sem resume de sessao fechada
+## Retomada nativa (P0/P1/P2/P3) — adapter + harness, sem resume de sessao fechada
 
 Nao existe API V2 de resume de sessao fechada via PS; retomada = Intent +
 Planner em sessao ativa. Este bloco documenta o adaptador nativo
 (`scripts/v3/lib/OrchestrationNativeResume.ps1`) e sua prova harness
 (`scripts/v3/full-delivery-etapa6d-resume-proof.ps1`), sem alegar READY,
-sem Live executado, sem tocar PR/CI/scheduler.
+sem tocar PR/CI/scheduler. Live executado em 2026-10-31 (prova
+`NATIVE_SESSION_RESUMED`, settlement KERNEL-ONLY); `WORKER_DISPATCH_SETTLED`
+e `INTEGRATED` seguem fora deste bloco (ver Gates).
 
 - (a) P0 contrato autenticado (`Get-NativeSessionIdentity`): SessionId no
   formato `^ses_` (sem `--continue`, sem criacao implicita — `run --session`
@@ -279,4 +281,6 @@ sem Live executado, sem tocar PR/CI/scheduler.
   JSONL gitignored (`resume-proof.jsonl`), README versionado em
   `evidence/v3/etapa6d-resume/README.md`. Claim Offline: apenas
   `NATIVE_RESUME_AVAILABLE`. Live (`-Mode Live`, run real, timeout 60s, sem
-  `--continue`/`--fork`) documentado e NAO executado.
+  `--continue`/`--fork`) executado em 2026-10-31 (prova
+  `NATIVE_SESSION_RESUMED`, settlement KERNEL-ONLY — ver Gates e README
+  do harness para limites).
