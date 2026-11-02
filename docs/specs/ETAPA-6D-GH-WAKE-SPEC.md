@@ -96,26 +96,143 @@ reimplements dispatch and never synthesizes execution:
   `Set-GHWakeDispatchSettlement` validates the marker (claimed, same
   idempotency key) plus the NativeDispatch receipt for the same key,
   then runs the supported Claim (handoff session token) + Settle
-  (Planner-attested child session + candidate result) chain. Only a
-  settled receipt flips the marker to `dispatched` with the REAL
-  session id (`session_id == settle_child_session_id == sid`);
-  `ok/dispatched/duplicate/executed` mirror the settlement outcome and
+  (native API-proven NATIVE WORKER child session + structured result)
+  chain. Only a settled receipt flips the marker to `dispatched` with
+  the REAL NATIVE WORKER session id
+  (`session_id == settle_child_session_id == worker_session_id`,
+  distinct from `resume_session_id`); `ok/dispatched/duplicate/executed` mirror the settlement outcome and
   all authority pins stay false (no grants, no DONE, no merge).
-  Without a real session id — or on any refusal
+  Without a native-proven worker id — or on any refusal
   (`settle-not-claimed`, `settle-not-prepared`,
   `settle-session-invalid/mismatch`, `settle-identity-diverged`,
   `settle-claim-refused`, `settle-refused`) — nothing is marked
   dispatched (fail-closed). IMPLEMENTING alone is never execution.
-- Planner execution (no external resume API): there is NO native V2
-  API for resuming a closed session from PS, and this driver never
-  claims one. Retomada = Intent + Planner em sessao ativa: the Planner
-  executes the dispatch via subagent, then completes the loop by
-  re-invoking the single-shot driver with `-SettleSessionId <child-id>`
-  (plus `-SettleResultOk`/`-SettleResultSummary`). The driver also
-  settles the duplicate-noop replay path (claimed marker + pending
-  receipt still settleable). Driver `github-wake-controller.ps1`:
-  single-shot (no loop/sleep/daemon/spawn), fail-closed (missing
-  checkpoint/binding/lease => HOLD, no spawn).
+  NATIVE_SESSION_RESUMED alone is never execution either.
+- Worker proof (P0 native gate, auto-dispatcher only):
+  `Find-GHWADNativeWorkerProof` (pure validator, no IO) binds ONE new
+  child session to ONE new completed subagent tool invocation and to
+  the CURRENT operation, over native-shaped evidence only. No
+  caller-supplied worker fields exist anywhere: there are no
+  worker-identity CLI inputs, and the RunExecutor mock cannot generate
+  proof or a worker id. Stable reasons: `auto-worker-unproven` (no new
+  child, no new completed subagent part, or pre/post snapshot empty),
+  `auto-worker-parent-mismatch` (child parentID != resume),
+  `auto-worker-operation-mismatch` (project divergence, stale child
+  created before the run, tool prompt lacking the EXACT operation
+  marker, or child without operation binding),
+  `auto-worker-result-unproven` (no parseable STRUCTURED result
+  object, non-worker status, refs missing/invalid, missing/
+  interrupted outcome, or outcome/status disagreement),
+  `auto-worker-api-unavailable` (native transport failure pre/post run
+  or on message read), `auto-worker-non-native` (an injected,
+  non-native transport or a mocked resume never settles productive
+  state, even when the payload fully validates; a mocked resume without
+  injected API is gated before any query with zero executor effect),
+  `auto-prompt-unfittable` (operation marker or final prompt cannot
+  travel the NativeResume prompt gate: refused before any run),
+  `auto-replay-unproven` (a stored dispatched marker without CURRENT
+  native proof never replays: no Settle call, marker untouched).
+  All refuse as reconcile (claim kept for operator reconciliation,
+  never dispatched). Only `succeeded` + `candidate_pass` settles ok
+  (ResultOk true) and `failed` + `failed` settles failed (ResultOk
+  false, `blocked` collapses to the legacy failed receipt while the
+  native child outcome keeps the precise verdict); both require a fully
+  validated native proof over the REAL transport.
+- Operation marker and structured result (no substring matching): the
+  driver embeds an EXACT textual marker (`New-GHWADOperationMarker`:
+  `ghw-op goal=<gid> task=<tid> gen=<gen> key=<key>`, strict charsets)
+  in the resume prompt, FOLLOWED BY a short delegation directive
+  (`Get-GHWADWorkerDirective`: delegate via the native subagent tool,
+  forward the marker exactly, require the worker JSON result object
+  with the accepted fields/status/criterion refs, never substitute
+  your own result), and refuses before any run when the marker, the
+  directive, or the final prompt cannot fit the NativeResume prompt
+  gate (`Test-GHWADPromptFits`: <=2000 chars, no shell metacharacters).
+  Without this instruction the positive gate would be unreachable by
+  construction (no implicit premise: the Planner is told what to
+  forward and what to require). The worker's structured result is a
+  JSON object parsed from native tool content
+  (`Find-GHWADWorkerResultObject`: full-text, ```json fences, then
+  brace-balanced spans): task_id/goal_id/generation/idempotency_key
+  compared EXACTLY (never via substring), status in
+  candidate_pass/failed/blocked, claimed_evidence refs
+  `criterion:<idx>`; verified_pass/done/approved or any adulterated
+  field never validates. The prompt side requires the EXACT marker
+  token; the result side requires EXACT identity equality plus native
+  outcome/status agreement.
+- Native 2.2.5 proof surface (probed 2026-11-02, read-only, no model
+  quota spent): `opencode --version` = v2.2.5; `opencode api get
+  /api/info` confirms the version; `opencode api get /openapi.json`
+  (authenticated by the CLI) documents the session operations used.
+  PROVEN live shapes —
+  `opencode api session.list --param parentID=<ses> --param limit=N`
+  returns `{data:[Session.Info...]}` with children carrying id,
+  parentID, agent, projectID, outcome (succeeded/failed/interrupted),
+  time.created/updated; `opencode api session.get --param
+  sessionID=<ses>` returns `{data: Session.Info}` with parentID,
+  agent, projectID, outcome, time.created; `opencode api
+  session.message.list --param sessionID=<ses> --param limit=N --param
+  order=desc` returns assistant messages whose tool parts carry
+  `{type:tool, name:subagent, id:call_..., state:{status,
+  input:{agent,description,prompt,sessionID},
+  metadata:{sessionID,status,completed}, content:[...]},
+  time:{created,ran,completed}}`. Transport notes: the operation-ID
+  form (`opencode api session.list ...`) filters server-side; the
+  `api get <path>` form IGNORES query params and must not be used;
+  `&` never appears in arguments (params travel as `--param k=v`
+  pairs with a strict `[A-Za-z0-9_.-]` charset, so the cmd shim is
+  safe). NOT native evidence: `opencode session list` (top-level
+  only, no parentID) and `opencode run --format json` stdout (binds
+  only the resumed session, never a child). The v2.0.23 hook probe
+  (`evidence/v3.1/runtime-reliability/native-handoff-hook-probe-2026-10-09-positive.jsonl`)
+  is historical context only, not 2.2.5 proof.
+  No live worker run was spent for this P0: the productive
+  `WORKER_DISPATCH_SETTLED` claim still requires a live run with a
+  real worker in the same journey.
+- Planner execution (proven native resume interface): the proven
+  interface is `opencode run --session <id> --format json <prompt>`
+  via `Invoke-OrchestrationNativeResume` (P1), with pre-checks
+  (ses_ format, list pre/post, canonical directory, projectId,
+  fencing Generation/LeaseOwner via Authorization, resumable
+  checkpoint, task BLOCKED/IMPLEMENTING; DONE => already-done),
+  exactly ONE run without --continue/--fork, no cmd.exe, hardened
+  native evidence (`Test-NativeResumeEvidence`), reconcile without
+  blind resend. `proceed` is never dispatch by itself: only a NATIVE
+  worker proof settles via `Set-GHWakeDispatchSettlement` with the
+  NATIVE child id (P0 gate `Find-GHWADNativeWorkerProof` over
+  read-only `opencode api` evidence: new child with parentID == resume,
+  new completed subagent tool invocation in the same session, EXACT
+  operation marker in the prompt, STRUCTURED worker result object with
+  EXACT identities + criterion refs, child outcome in agreement).
+  `NATIVE_SESSION_RESUMED` alone reconciles as `auto-worker-unproven`
+  (claim kept, never dispatched). An injected (non-native) transport or
+  a mocked resume never settles productive state even when the payload
+  fully validates (`auto-worker-non-native`, gated before any query
+  when no API transport is injected); the RunExecutor mock cannot
+  generate proof or a worker id. Single vigente flow (no parallel
+  drivers, no second Planner/Kernel): the scheduled tick only produces
+  next_action; the single-shot wiring `Invoke-GHWakeAutoDispatch`
+  (scripts/v3/github-wake-auto-dispatch.ps1) consumes the
+  envelope/next_action, runs handoff prepare/claim/probe, snapshots the
+  native children (pre, BEFORE any run — a pre failure reconciles with
+  zero executor effect), builds the resume prompt with the EXACT
+  operation marker plus the delegation directive (fail-closed when it
+  cannot fit), invokes the resume via `opencode run --session`,
+  re-reads children + messages (post), checks the P0 native proof,
+  and settles with the NATIVE child id. There are no
+  caller-supplied worker identity inputs; a dispatched marker replays
+  ONLY after CURRENT native revalidation (stored session + parent +
+  completed tool + exact operation binding + structured result via the
+  live API; old markers without current proof reconcile as
+  `auto-replay-unproven` with zero Settle calls and the marker
+  untouched; injected transports never replay). The wiring also settles
+  the duplicate-noop replay path (claimed marker + pending receipt
+  still settleable). Single-shot (no loop/sleep/daemon/spawn, no
+  autonomous supervisor), fail-closed (missing checkpoint/binding/lease
+  => HOLD, no spawn). The manual `-SettleSessionId` re-invoke on
+  `github-wake-controller.ps1` is not a parallel flow: the vigente
+  production path is the AutoDispatch wiring above. `ETAPA_6D_READY`
+  stays BLOCKED (see Gates).
 - Suite: scripts/v3/github-wake-controller.tests.ps1 (offline).
 
 ## Scheduler
@@ -163,12 +280,22 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   de terceiro a readiness fica em `REVIEW_PENDING` (observado no tick
   vivo do PR 181) e nenhum RESUME/unblock/handoff avanca. Nao ha
   excecao docs-only: documentacao nao substitui approval.
-- `ETAPA_6D_READY` segue BLOQUEADO ate a mesma jornada completar
+- `AUTO_DISPATCH_OFFLINE_PASS` prova somente o controlador offline e seus
+  refusos; nao prova execucao de worker.
+- `WORKER_DISPATCH_SETTLED` exige, na mesma operacao, um worker nativo
+  distinto da sessao retomada, `parentID` nativo correspondente, chamada
+  subagent concluida, marcador exato de task/goal/generation/key e resultado
+  estruturado do worker, tudo corroborado pela API local do OpenCode. Mocks
+  nao satisfazem este gate.
+- `AUTO_DISPATCH_SCHEDULED` exige que o caminho agendado invoque efetivamente
+  o auto-dispatcher; registro ou `DRY_RUN` isolado nao basta. A ativacao do
+  Task Scheduler permanece desabilitada ate o teste controlado.
+- `ETAPA_6D_READY` segue BLOQUEADO ate a mesma jornada viva completar
   `GH_WAKE_SCHEDULED` + `RESUMED` (RESUME live + unblock Kernel
-  BLOCKED->IMPLEMENTING no tick agendado) + `DISPATCHED`
-  (settlement com session id real via Planner) — os tres na mesma
-  jornada, com prova viva. SCHEDULED isolado (tick KEEP_WAITING)
-  nao libera READY.
+  BLOCKED->IMPLEMENTING no tick agendado) + `WORKER_DISPATCH_SETTLED` e
+  `AUTO_DISPATCH_SCHEDULED`, com approval nao-self e CI verde. Os gates
+  precisam pertencer a mesma jornada; `AUTO_DISPATCH_OFFLINE_PASS` ou
+  `SCHEDULED` isolado (tick KEEP_WAITING) nao libera READY.
 - `NATIVE_RESUME_AVAILABLE` (prova Offline, sem Live, sem jornada
   GitHub): provado quando o adaptador `Invoke-OrchestrationNativeResume`
   (P1) passa a prova harness Offline `full-delivery-etapa6d-resume-proof.ps1`
@@ -182,11 +309,24 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   `NATIVE_SESSION_RESUMED` provado no Live de 2026-10-31 (sessao
   descartavel `ses_e6c043e07ffeJAQa740XQ5x8IZ`, `proceed` +
   `already-done`, settlement KERNEL-ONLY, claim `NATIVE_SESSION_RESUMED`);
-  (ii) mecanica `WORKER_DISPATCH_SETTLED` provada em
+  (ii) mecanica `WORKER_DISPATCH_SETTLED` do controller em
   `scripts/v3/github-wake-controller.tests.ps1` (marker claimed ->
-  dispatched com session id atestada, refusos
-  settle-session-invalid/mismatch, replay settle-duplicate), sem worker
-  vivo na mesma jornada. INTEGRATED so sai de PENDENTE com ambos na
+  dispatched, refusos settle-session-invalid/mismatch, replay
+  settle-duplicate) — mecanica de recibos do controller, SEM worker
+  vivo na mesma jornada e SEM valor de prova para o auto-dispatcher:
+  no auto-dispatcher (`github-wake-auto-dispatch*.tests.ps1`) NENHUM
+  caso offline liquida (todos `dispatched=false`; payload injetado
+  valido reconcilia como `auto-worker-non-native`; marker antigo sem
+  prova atual reconcilia como `auto-replay-unproven` sem Settle), e
+  somente evidencia nativa `opencode api` (filho novo + tool subagent
+  completed + marcador exato + resultado JSON estruturado com
+  identidades exatas + outcome/status em acordo) alimenta settlement.
+  O N5 estrutural offline e parser puro sobre fixture sintetica
+  (valida worker/resume distintos, parent, resultado da operacao e
+  status) e nao liquida nada; a presenca do marcador + diretiva no
+  prompt efetivo e conferida via spec capturada do RunExecutor
+  injetado (T12, sem live); nao existe N5 de settlement produtivo
+  sem live API + worker vivo. INTEGRATED so sai de PENDENTE com ambos na
   mesma jornada viva — e mesmo com INTEGRATED, `ETAPA_6D_READY` continua BLOQUEADO
   ate a jornada GitHub real (approval nao-self + CI verde +
   SCHEDULED+RESUMED+DISPATCHED na mesma jornada).
@@ -231,10 +371,11 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   mutacao, head-superseded, lease-expired, api-failure (ver assert labels
   em github-wake.tests.ps1 e github-wake-controller.tests.ps1).
 
-## Retomada nativa (P0/P1/P2/P3) — adapter + harness, sem resume de sessao fechada
+## Retomada nativa (P0/P1/P2/P3) — adapter + harness, resume via run --session
 
-Nao existe API V2 de resume de sessao fechada via PS; retomada = Intent +
-Planner em sessao ativa. Este bloco documenta o adaptador nativo
+Interface comprovada: `opencode run --session <id> --format json
+<prompt>` via `Invoke-OrchestrationNativeResume` (P1), never
+--continue/--fork. Este bloco documenta o adaptador nativo
 (`scripts/v3/lib/OrchestrationNativeResume.ps1`) e sua prova harness
 (`scripts/v3/full-delivery-etapa6d-resume-proof.ps1`), sem alegar READY,
 sem tocar PR/CI/scheduler. Live executado em 2026-10-31 (prova
@@ -284,3 +425,25 @@ e `INTEGRATED` seguem fora deste bloco (ver Gates).
   `--continue`/`--fork`) executado em 2026-10-31 (prova
   `NATIVE_SESSION_RESUMED`, settlement KERNEL-ONLY — ver Gates e README
   do harness para limites).
+- (e) Limites (sem alegar alem do provado): `run` na v2.2.5 nao tem
+  --dir — o working directory do filho e fixado no processo filho
+  (<canon>); prompt e Kernel-only com charset fail-closed
+  (`invalid-prompt`, sem run); `proceed` != `dispatched` (dispatched so
+  via settlement com NATIVE child id comprovado e distinto do resume);
+  prova Offline declara apenas refusos (fail-closed, dispatched=false em
+  todos os casos de driver: `auto-worker-unproven`,
+  `auto-worker-operation-/parent-/result-*`,
+  `auto-worker-api-unavailable`, `auto-worker-non-native` mesmo com
+  payload injetado valido, `auto-prompt-unfittable`,
+  `auto-replay-unproven`) mais a logica do validador/parser puros —
+  incluindo o N5 estrutural (shape completo com marcador exato +
+  resultado JSON exato, worker/resume distintos, parent e status),
+  que testa SOMENTE o parser sobre fixture sintetica e nunca liquida;
+  nenhum N5 de settlement produtivo existe sem live API + worker vivo.
+  Live declara `NATIVE_SESSION_RESUMED` (settlement KERNEL-ONLY),
+  `NATIVE_RESUME_INTEGRATED` segue PENDENTE (exige Live + settlement
+  session-bound com worker distinto NA MESMA jornada), e
+  `WORKER_DISPATCH_SETTLED` produtivo segue nao alegado (exige worker
+  nativo vivo + settlement com worker id na mesma jornada). Se a
+  jornada de replay/resultado nao tiver shape nativo verificavel sem
+  modelo, o gate fica BLOCKED com fail-closed em vez de inferir.
