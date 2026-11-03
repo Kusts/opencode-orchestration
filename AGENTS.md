@@ -43,9 +43,13 @@ correta; sem commit/install/escrita global salvo pedido explícito.
 ## Orquestração (neste repo): direta no trivial elegível, delegação com benefício
 
 Trabalho local, reversível e de baixo risco segue direto, sem despachar worker;
-delegação (`SINGLE_WORKER` explícito, `MULTI_WORKER`, `PERSISTENT_GOAL`) só com
-benefício concreto (independência, especialização, paralelismo real, revisão
-independente). O preflight é capacidade condicional, chamada **antes** da
+trabalho substantivo prefere delegação quando houver qualquer vantagem concreta:
+modelo econômico, preservação do contexto principal, isolamento de grande
+volume, especialização técnica, análise/revisão independente, menor retrabalho,
+paralelismo útil, qualidade e custo total até o DONE verificado. Delegação
+(`SINGLE_WORKER` explícito, `MULTI_WORKER`, `PERSISTENT_GOAL`) ocorre nesses
+casos; checagens seguem proporcionais à política existente (sem tornar
+Tester/Reviewer obrigatórios em toda mudança). O preflight é capacidade condicional, chamada **antes** da
 primeira ação quando houver dúvida sobre a rota:
 
 ```powershell
@@ -74,8 +78,9 @@ Delegação com contrato limitado: `TASK_ID`, `OBJECTIVE`, `READ_SCOPE`,
 `PROHIBITED_OPERATIONS`, `RETURN_FORMAT`, `ESCALATION_CONDITIONS` (+
 `ALLOWED_ENVIRONMENT`, `PRODUCTION_AUTHORIZED` — ausência = `false`,
 `CREDENTIAL_SCOPE` só com identificadores quando houver escrita/shell
-sensível). Ciclo padrão `coder → tester → reviewer` (+ `security-reviewer`
-quando a policy disparar). 2ª falha ⇒ `debugger` com evidência nova;
+sensível). Checagens (`tester`/`reviewer`, + `security-reviewer` quando a policy
+disparar) conforme política de verificação e risco; sem ciclo padrão obrigatório
+em toda mudança. 2ª falha ⇒ `debugger` com evidência nova;
 incerteza estrutural ⇒ `architect`; 3ª tentativa só com hipótese nova.
 
 Evidence Contract: worker retorna só `candidate_pass` | `failed` | `blocked`

@@ -1232,40 +1232,42 @@ function Resolve-OrchestrationModelSelection {
     $admissibleTiers = @($admissibility.AdmissibleTiers)
     $prohibitedTiers = @($admissibility.ProhibitedTiers)
 
-    # DIRECT_VERIFIED bypass: direct execution by the Planner LLM (no subagent).
-    # This is NOT deterministic T0: the Planner LLM still consumes tokens, so it
-    # must not be accounted as zero-cost / no-provider. T0 stays exclusive to
-    # deterministic execution without any LLM.
+    # IsTrivialDirect is NOT a worker model selection (fail-closed).
+    # DIRECT_VERIFIED executes inline on the Planner LLM via the separate
+    # preflight path and stays unchanged there. T0 remains strictly
+    # deterministic (no LLM). This input has no productive callers and must
+    # not be represented as an accepted T0 selection with an inherited
+    # Planner model and cost multiplier (that shape contradicts
+    # Test-ExecutedModelVerification, which rejects any LLM event under T0).
     if ($IsTrivialDirect) {
         return [pscustomobject]@{
-            Status                    = 'SELECTED'
+            Status                    = 'REJECTED'
+            DecisionStatus            = 'NO_ELIGIBLE_MODEL'
+            Reason                    = 'IsTrivialDirect is not a worker model selection. DIRECT_VERIFIED executes inline on the Planner LLM via the preflight path and must not be represented as an accepted T0/deterministic selection.'
+            selection_reason          = 'IsTrivialDirect is not a worker model selection. DIRECT_VERIFIED executes inline on the Planner LLM via the preflight path and must not be represented as an accepted T0/deterministic selection.'
             Agent                     = $cleanAgent
             requested_role            = $cleanAgent
-            Tier                      = 'T0'
-            selected_tier             = 'T0'
-            TierName                  = 'DirectVerified'
-            ModelToken                = 'NONE_DIRECT_VERIFIED'
-            EffectiveModelToken       = 'NONE_DIRECT_VERIFIED'
-            CatalogModel              = 'planner (inherited)'
-            selected_model_id         = 'planner (inherited)'
-            selected_provider         = 'planner'
-            Provider                  = 'planner'
-            AuthorizedSelection       = $true
-            Authorized                = $true
-            RuntimeTierProven         = $true
-            runtime_override_status   = 'PROVEN'
-            ProofStatus               = 'PROVEN_DIRECT_VERIFIED'
-            AdmissibleTiers           = @('T0')
-            SelectionReason           = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED on the Planner LLM (cost attributed to Planner, not zero).'
-            selection_reason          = 'Task is trivial, local and low-risk. Running via DIRECT_VERIFIED on the Planner LLM (cost attributed to Planner, not zero).'
-            EstimatedCostMultiplier   = 1.0
-            FallbackTier              = 'T0'
-            FallbackToken             = 'NONE_DIRECT_VERIFIED'
+            Tier                      = $null
+            selected_tier             = $null
+            TierName                  = $null
+            ModelToken                = $null
+            EffectiveModelToken       = $null
+            CatalogModel              = $null
+            selected_model_id         = $null
+            selected_provider         = 'none'
+            Provider                  = 'none'
+            AuthorizedSelection       = $false
+            Authorized                = $false
+            AdmissibleTiers           = @()
+            EstimatedCostMultiplier   = 0.0
+            FallbackTier              = 'T2'
+            FallbackToken             = 'MODEL_CHEAP'
             NativeModelOverrideProven = $NativeModelOverrideProven
-            IsCompliant               = $true
+            IsCompliant               = $false
             policy_version            = $polVer
             policy_hash               = $polHash
             fallback_candidates       = @()
+            runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
         }
     }
 

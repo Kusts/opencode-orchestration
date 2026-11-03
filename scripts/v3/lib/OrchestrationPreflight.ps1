@@ -442,9 +442,27 @@ function Get-OrchestrationPreflight {
             $archHit = Test-OrchestrationArchitectureDecision -Objective $obj -TaskType $tt -Domain $dom
             $blob = Convert-OrchestrationNormalizedText -Text (([string]$obj) + ' ' + ([string]$tt) + ' ' + ([string]$dom))
             $sensitiveHit = Test-OrchestrationKeyword -Blob $blob -Words @('permission', 'permissions', 'permissao', 'permissoes', 'security', 'auth', 'secret', 'credential', 'token', 'opencode.json', 'kernel', 'protect-master', 'delete', 'drop', 'database', 'migration')
+            # #201-correcao: intento substantivo no Objective rejeita a rota direta,
+            # mesmo com metadados triviais (usa o predicado existente, sem classificador novo).
+            $objSubstantiveBlob = Convert-OrchestrationNormalizedText -Text ([string]$obj)
+            $substantiveHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('implement', 'build', 'creat', 'develop', 'design', 'refactor', 'rewrit', 'rework', 'extend', 'integrat', 'migrat', 'overhaul', 'analy', 'analis', 'audit', 'investig', 'research', 'pesquis', 'review', 'revis', 'compar', 'evaluat', 'avali', 'optimiz', 'otimiz', 'diagnos', 'bottleneck', 'performance bottleneck', 'new workflow', 'new feature', 'new module', 'new endpoint', 'new service', 'new pipeline', 'new system', 'add new', 'add feature', 'add module', 'add endpoint', 'add service', 'add workflow')
+            # #201-segunda-revisao: direta exige evidencia objetiva de leitura
+            # pontual/microedicao no Objective e rejeita escopo amplo mesmo com
+            # verbo de consulta presente (mesmo predicado existente, sem funcao nova).
+            # #201-terceira-revisao: direta exige evidencia objetiva de point
+            # lookup limitado OU microedicao especifica no Objective (predicado
+            # existente, sem funcao nova). Verbo generico fix/correct sozinho
+            # e substantivos como system/error/workflow nao estabelecem
+            # trivialidade; typo preserva microedicao existente.
+            $pointLookupHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('where', 'defined', 'defin', 'lookup', 'inspect', 'inspec', 'locate', 'localiz', 'point lookup', 'specific symbol', 'onde', 'qual')
+            $microEditHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('typo', 'spelling', 'grammar', 'punctuation', 'comma', 'period', 'whitespace', 'spacing', 'heading', 'label text', 'one-word', 'one word', 'single-line', 'single line', 'comment', 'virgula', 'pontuac', 'ortograf', 'gramat')
+            # Quantificadores por casamento exato: o modo -Words usa starts-with
+            # e 'all' casa 'allow'/'allocate'. Frases de escopo amplo seguem por
+            # substring/prefixo (fail-closed para delegacao).
+            $broadScopeHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('across', 'throughout', 'entire', 'whole', 'codebase', 'repository', 'repositorio', 'modules', 'modulos', 'usages', 'usage', 'inteir', 'varios', 'varias', 'repo-wide', 'repo wide', 'throughout the repository', 'throughout the codebase', 'throughout the repo') -Exact @('all', 'every', 'multiple', 'several', 'various', 'todos', 'todas', 'everywhere', 'globally', 'globalmente')
 
-            $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit))
-            $isMicroEditWrite = ($lenOk -and $riskOk -and ($rw -ceq 'write') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $sensitiveHit) -and ($dom -in @('docs', 'documentation', 'comments', 'formatting', 'metadata', 'chore')))
+            $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $substantiveHit) -and ($pointLookupHit -or $microEditHit) -and (-not $broadScopeHit))
+            $isMicroEditWrite = ($lenOk -and $riskOk -and ($rw -ceq 'write') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $sensitiveHit) -and (-not $substantiveHit) -and $microEditHit -and (-not $broadScopeHit) -and ($dom -in @('docs', 'documentation', 'comments', 'formatting', 'metadata', 'chore')))
 
             if ($isReadTrivial) {
                 $isTrivial = $true

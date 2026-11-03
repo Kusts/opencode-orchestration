@@ -141,48 +141,11 @@ uma skill; respeite o pedido atual e as restrições do runtime.
 - Hooks de integrações opcionais (como ai-memory), plugins e integrações externas podem executar em paralelo;
   não os remova nem altere por inferência de ausência no catálogo.
 
-## AUTONOMOUS DELEGATION AUTHORIZATION
+## Autorização de delegação (apontador; política canônica em Agent Config #21)
 
-Esta política global constitui autorização explícita e persistente do usuário
-para que o Planner use proativamente os subagentes configurados quando isso
-melhorar qualidade, independência, paralelismo, economia de contexto ou custo.
-O usuário fornece principalmente objetivos; o Planner é o dispatcher e não
-precisa aguardar pedidos como “use subagents”, “chame Explorer”, “mande para
-review”, “plugins e integrações externas” ou “delegue”.
-
-Uma regra de não delegar sem pedido explícito não impede a delegação quando esta
-política estiver ativa: este `AGENTS.md` é o pedido explícito persistente. Para
-tarefa não trivial, antes de trabalhar sozinho, avalie se há partes
-independentes, perspectiva adicional útil, volume de código ou documentação que
-mereça contexto separado, investigação paralela, trabalho mecânico delegável a
-um worker barato (cheap worker) ou benefício de revisão independente. Se uma resposta for claramente
-positiva, delegar é o padrão; se não delegar, a justificativa deve ser concreta
-(tarefa pequena, contexto conhecido, nada separável ou custo maior que ganho),
-nunca a ausência de pedido do usuário.
-
-Delegação é aplicável a descoberta, análise, auditoria, planejamento, SPEC,
-SPEC→plan, arquitetura, implementação, testes, debugging e review. A ausência
-de código para escrever não é justificativa para centralizar uma tarefa
-complexa. Rastreabilidade vem de escopo delimitado, outputs estruturados,
-evidências e síntese do Planner, não de ele executar tudo sozinho.
-
-Para uma SPEC relevante que será transformada em plano, avalie explicitamente:
-`explorer` para confrontar pressupostos com a codebase e mapear impactos;
-`researcher` quando depender de informação externa; `architect` para decisões
-estruturais ou trade-offs difíceis de reverter; e `reviewer` para revisão
-independente de plano relevante ou de alto impacto. Não acione todos por rito:
-uma SPEC pequena pode ser planejada diretamente, mas uma SPEC extensa confrontada
-com a codebase normalmente deve usar Explorer e, quando houver independência,
-paralelismo de leitura ou pesquisa.
-
-Continue usando o menor conjunto de agentes suficiente. Mudanças triviais,
-como typo ou leitura de função pequena, permanecem diretas. Preserve hierarquia
-rasa: especialistas não criam subagentes; o Planner integra e decide. Quando
-um finding for válido, corrija e revalide autonomamente; após duas tentativas
-razoáveis sobre o mesmo problema, use evidência nova via Debugger e, se houver
-incerteza arquitetural, Architect. Peça intervenção humana somente nos limites
-de risco, irreversibilidade, credenciais, custo externo ou ambiguidade de
-negócio já definidos nesta política.
+Autorização e dimensões de benefício da delegação: Agent Config #21 (dono
+canônico; nada aqui redefine). O Planner coordena; delegação só com benefício
+concreto; trivial elegível segue direto sem worker.
 
 ## Orquestração (apontador; política canônica em Agent Config #21)
 

@@ -64,10 +64,12 @@ function Get-GWAllChecksOk {
     }
     return $out
 }
-# --- GW-01: cosmetic typo => SINGLE_WORKER with coder.
+# --- GW-01: cosmetic typo => DIRECT_VERIFIED with zero workers (default).
 $gw01 = Get-OrchestrationPreflight -Objective 'Fix typo in readme footer' -TaskType 'cosmetic' -Domain '' -Risk 'low' -ReadWrite 'read'
-Assert-GWThat (([string]$gw01.orchestration_decision -ceq 'SINGLE_WORKER') -and ([string]$gw01.task_class -ceq 'trivial')) 'GW-01 cosmetic typo is single-worker trivial'
-Assert-GWThat ((@($gw01.selected_agents) -contains 'coder')) 'GW-01 single worker is coder'
+Assert-GWThat (([string]$gw01.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$gw01.task_class -ceq 'trivial')) 'GW-01 cosmetic typo is direct-verified trivial'
+Assert-GWThat ((@($gw01.selected_agents).Count -eq 0)) 'GW-01 direct path selects zero workers'
+$gw01comp = Test-OrchestrationDoneCompliance -TaskClass ([string]$gw01.task_class) -Decision ([string]$gw01.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$gw01.direct_reason) -ActualWorkerParticipation 0
+Assert-GWThat (([string]$gw01comp -ceq 'COMPLIANT')) 'GW-01 direct-verified trivial is compliant with zero workers'
 # --- GW-02: bug fix (medium/write) => MULTI_WORKER.
 $gw02 = Get-OrchestrationPreflight -Objective 'Fix cart total calculation bug in checkout rendering flow with rounding edge cases covered by unit tests and review' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write'
 Assert-GWThat (([string]$gw02.orchestration_decision -ceq 'MULTI_WORKER') -and ([string]$gw02.task_class -ceq 'non_trivial')) 'GW-02 bug fix is multi-worker non-trivial'

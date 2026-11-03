@@ -80,7 +80,7 @@ A imposição de subagents para qualquer alteração é substituída pelo workfl
    - A rota direta continua sujeita à autorização, limites de escrita e validação focada. A conformidade de conclusão é garantida no Task Kernel via `Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED`.
    - É terminantemente proibido utilizar `DIRECT_VERIFIED` para tarefas não triviais, introdução de novas funcionalidades, refatorações amplas ou alterações de segurança (`ORCHESTRATION_POLICY_BYPASS`).
 2. **SINGLE_WORKER / MULTI_WORKER (Tarefas Não Triviais):**
-   - Tarefas com impacto funcional, implementação ou testes comportamentais continuam exigindo delegação a workers subordinados especializados com contratos delimitados.
+   - Roteamento com workers permanece disponível via runtime existente; delegação quando trouxer benefício concreto (dimensões da política compartilhada em Agent Config #21), com contratos delimitados. Sem exigência incondicional por impacto funcional.
 
 ### Adaptive Parallelism Governor
 
@@ -119,8 +119,9 @@ direto, sem `DONE` sem participação onde worker é exigido.
 Evidência: `evidence/v3/orchestration/preflight-decisions.jsonl` (+ telemetria
 `cache/v3/telemetry/`).
 
-### Planner Runtime Wiring (delegação nativa)
+### Planner Runtime Wiring (delegação nativa — caminho delegado)
 
+Caminho delegado, somente quando a rota existente seleciona delegação.
 Fluxo verificado no runtime V2: preflight (`orchestration-preflight.ps1`)
 → seleção do worker pela policy → chamada da tool nativa `subagent` pelo
 Planner LLM → child session do worker → consumo do resultado pelo Planner
@@ -133,6 +134,10 @@ Planner LLM → child session do worker → consumo do resultado pelo Planner
   worker executa.
 - Para cognição (ler/mapear código), prefira as tools nativas read/grep/
   glob em vez de `shell cat/ls`: menos custo e sem efeitos colaterais.
+- Elegível `DIRECT_VERIFIED` não percorre estes estágios de workers; mantém
+  validação focada e conformidade direta existentes
+  (`Test-OrchestrationDoneCompliance -TaskClass trivial -Decision
+  DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED`).
 
 ### Controle do Planner e roteamento de especialistas de domínio
 
@@ -140,8 +145,11 @@ O Planner `build` é o único control plane: decide arquitetura, decompõe,
 seleciona o menor grupo útil, define ownership, integra evidências e encerra
 o trabalho. Workers não coordenam nem subdelegam. Para engenharia substantiva,
 a delegação é condicional: o Planner avalia e usa o menor conjunto de workers
-quando trouxer benefício concreto de independência, qualidade, contexto ou
-paralelismo; alteração trivial e claramente localizada pode permanecer direta.
+quando trouxer benefício concreto (dimensões da política compartilhada em Agent
+Config #21: modelo econômico, preservação do contexto principal, isolamento de
+grande volume, especialização técnica, análise/revisão independente, menor
+retrabalho, paralelismo útil, qualidade e custo total até o DONE verificado);
+alteração trivial e claramente localizada pode permanecer direta.
 
 `coder` continua o implementador padrão. Não roteie para um especialista só
 porque uma tecnologia foi mencionada. Use `frontend-engineer`,
@@ -406,9 +414,9 @@ verificação determinística, nunca prova.
 
 ### Ciclo, tentativas e DONE
 
-Estágios lógicos `coder → tester → reviewer` (quantos workers cada estágio
-precisar, conforme os limites acima; com superfície sensível, Reviewer +
-Security Reviewer como análises independentes). Finding válido → Planner
+Estágios possíveis `coder`, `tester`, `reviewer` conforme política de verificação
+e risco da tarefa, sem ciclo padrão obrigatório em toda mudança (com superfície
+sensível, Reviewer + Security Reviewer como análises independentes). Finding válido → Planner
 delimita → Coder corrige → repete só validações e review afetados. 1ª
 tentativa falhou → reavaliar evidência. 2ª falhou → parar e acionar
 Debugger com evidência nova; se incerteza estrutural, Architect. 3ª
@@ -417,24 +425,30 @@ tentativa só com hipótese, informação ou estratégia nova.
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 `PLANNING`, `IMPLEMENTING`, `VALIDATING`, `REVIEWING`, `FIXING`, `BLOCKED`,
 `DONE`. `DONE` exige: requisitos atendidos, critérios verificados,
-comportamento validado, checks executados, integração verificada, findings
-resolvidos ou conscientemente aceitos, review encerrado, riscos residuais
+comportamento validado, checks exigidos executados, integração verificada, findings
+aplicáveis resolvidos ou conscientemente aceitos, reviews exigidos conforme
+política de verificação e risco encerrados, riscos residuais
 conhecidos, nenhuma unidade essencial esquecida.
 
 Fluxo canônico do Task Kernel (`scripts/v3/task-kernel.ps1`; detalhes em
-`scripts/v3/lib/OrchestrationTaskKernel.ps1`): preflight → criar task →
+`scripts/v3/lib/OrchestrationTaskKernel.ps1`) — caminho delegado, somente
+quando a rota existente seleciona delegação e as flags relevantes estão
+ativas: preflight → criar task →
 planejar scopes/grants (interseção: baseline do papel ∩ grants da task ∩
 capacidade do runtime ∩ ambiente; nunca união) → adquirir lease (+ worktree
 quando paralelo/alto risco) → dispatch → resultado candidato →
-verificação determinística allowlisted → tester → reviewer (+ security
-quando disparado) → gate de conclusão (`Test-OrchestrationTaskCompletion`)
+verificação determinística allowlisted → checagens (`tester`/`reviewer`
+conforme política de verificação e risco; + security quando disparado) → gate
+de conclusão (`Test-OrchestrationTaskCompletion`)
 → cleanup (release do lease, remoção do worktree owned) → DONE
 (`Complete-OrchestrationTask`, kernel-authorized). Orçamento de retry: 2ª
 falha exige Debugger; 3ª tentativa exige evidência, hipótese ou estratégia
 nova, senão EXHAUSTED (kernel-enforced). Flags `task_kernel`,
 `worktree_isolation` e `runtime_grant_enforcement` iniciam OFF (shadow
 rollout, Phase 19): o fluxo torna-se obrigatório somente após ativação
-com evidência.
+com evidência. Elegível `DIRECT_VERIFIED` contorna os estágios de workers
+e mantém a conformidade direta existente, sem worker exigido no trivial
+direto.
 
 ### Papéis: invariantes (dialeto V2)
 

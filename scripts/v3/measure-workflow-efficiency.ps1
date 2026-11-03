@@ -31,11 +31,11 @@ $results = [ordered]@{
     baseline_audit_commit  = "edbbb44477edb6a7bc4721a7305126c52d8f672b"
     classification         = "CONTROLLED_EMPIRICAL_MEASUREMENT"
     measurement_method     = "In-process Stopwatch [Diagnostics.Stopwatch] + Controlled Component Execution + Disk File Integrity Verification"
-    notes                  = "Preserva as projecoes analiticas anteriores como estimativas e registra aqui medicoes cronometradas de ponta a ponta com custos e tokens por tier de modelo."
+    notes                  = "Preserva as projecoes analiticas anteriores como estimativas e registra aqui cronometragem de componentes controlados; WL-01 mede apenas preflight+gate (custo ate DONE UNKNOWN); custos/tokens por tier de modelo somente onde ha execucao com prova."
     workloads              = @()
 }
 
-# 1. Medicao DIRECT_VERIFIED (Microedicao com escrita legitima em documentacao)
+# 1. Componente DIRECT_VERIFIED: elegibilidade de preflight + forma do gate de DONE (SEM execucao de tarefa pelo Planner LLM; Planner LLM NOT_INVOKED)
 $swDirect = [System.Diagnostics.Stopwatch]::StartNew()
 $pfDirect = Get-OrchestrationPreflight -Objective 'atualizar notas de versao e typos no README' `
     -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
@@ -45,21 +45,24 @@ $swDirect.Stop()
 
 $results.workloads += [ordered]@{
     workload_id            = "WL-01-DIRECT-VERIFIED-MICRO-EDIT"
-    description            = "Microedicao simples e reversivel com escrita em documentacao (sem worker subordinado)"
+    description            = "Componente deterministico apenas: elegibilidade de preflight + forma do gate de DONE para microedicao em documentacao (Planner LLM NOT_INVOKED; nenhuma tarefa executada)"
     execution_strategy     = "DIRECT_VERIFIED"
     wall_clock_ms          = [Math]::Round($swDirect.Elapsed.TotalMilliseconds, 2)
     subagents_spawned      = 0
-    model_requested        = "T0 (Deterministic)"
-    model_effective        = "none (deterministic)"
-    model_tier             = "T0"
-    tokens_input           = 0
-    tokens_output          = 0
-    estimated_cost_usd     = 0.0
+    model_requested        = "NOT_APPLICABLE (preflight+gate deterministicos; Planner LLM NOT_INVOKED)"
+    model_effective        = "NOT_APPLICABLE (nenhuma tarefa executada)"
+    model_tier             = "NOT_APPLICABLE"
+    tokens_input           = $null
+    tokens_output          = $null
+    estimated_cost_usd     = "UNKNOWN"
+    cost_status            = "UNKNOWN_UNEXECUTED"
     retries                = 0
     cache_hit              = $false
     compliance_verdict     = $compDirect
-    verified_result        = "COMPLIANT_DONE_WITHOUT_SUBAGENT"
-    proof_type             = "CONTROLLED_RUNTIME_MEASURED"
+    verified_result        = "PREFLIGHT_ELIGIBILITY_PLUS_GATE_SHAPE_ONLY"
+    proof_type             = "CONTROLLED_COMPONENT_TIMING_ONLY"
+    note                   = "Cronometra apenas preflight deterministico + gate de DONE; custo total ate DONE (tokens/contexto do Planner LLM) NAO medido."
+    cost_to_done_claimed   = $false
 }
 
 # 2. Medicao REUSO T0 CANONICO (Validacao fisica no disco com SHA256)
