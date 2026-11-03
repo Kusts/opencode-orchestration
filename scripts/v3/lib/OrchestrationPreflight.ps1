@@ -454,7 +454,7 @@ function Get-OrchestrationPreflight {
             # existente, sem funcao nova). Verbo generico fix/correct sozinho
             # e substantivos como system/error/workflow nao estabelecem
             # trivialidade; typo preserva microedicao existente.
-            $pointLookupHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('where', 'defined', 'defin', 'lookup', 'inspect', 'inspec', 'locate', 'localiz', 'point lookup', 'specific symbol', 'onde', 'qual')
+            $pointLookupHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('where', 'defined', 'defin', 'lookup', 'inspect', 'inspec', 'locate', 'localiz', 'point lookup', 'specific symbol', 'onde', 'qual arquivo', 'qual campo', 'qual simbolo')
             $microEditHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('typo', 'spelling', 'grammar', 'punctuation', 'comma', 'period', 'whitespace', 'spacing', 'heading', 'label text', 'one-word', 'one word', 'single-line', 'single line', 'comment', 'virgula', 'pontuac', 'ortograf', 'gramat')
             # Quantificadores por casamento exato: o modo -Words usa starts-with
             # e 'all' casa 'allow'/'allocate'. Frases de escopo amplo seguem por

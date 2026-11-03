@@ -418,21 +418,32 @@ function Read-RouterRegistry {
     $reasons = New-Object System.Collections.Generic.List[string]
     $maxAge = $MaxAgeSeconds
     if ($maxAge -lt 0) { $maxAge = Get-RouterStaleMaxAge -Policy $Policy }
-    $computedAt = ''
+    $computedAtRaw = $null
     $fp = ''
     $freshRt = ''
     $regRt = ''
-    try { if ($null -ne $doc.registry -and $null -ne $doc.registry.freshness -and $null -ne $doc.registry.freshness.computed_at) { $computedAt = [string]$doc.registry.freshness.computed_at } } catch { }
+    try { if ($null -ne $doc.registry -and $null -ne $doc.registry.freshness -and $null -ne $doc.registry.freshness.computed_at) { $computedAtRaw = $doc.registry.freshness.computed_at } } catch { }
     try { if ($null -ne $doc.registry -and $null -ne $doc.registry.freshness -and $null -ne $doc.registry.freshness.source_fingerprint) { $fp = [string]$doc.registry.freshness.source_fingerprint } } catch { }
     try { if ($null -ne $doc.registry -and $null -ne $doc.registry.freshness -and $null -ne $doc.registry.freshness.runtime_version) { $freshRt = [string]$doc.registry.freshness.runtime_version } } catch { }
     try { if ($null -ne $doc.registry -and $null -ne $doc.registry.runtime -and $null -ne $doc.registry.runtime.version) { $regRt = [string]$doc.registry.runtime.version } } catch { }
     if ([string]::IsNullOrWhiteSpace($fp)) { $reasons.Add('stale: missing source_fingerprint') }
-    if ([string]::IsNullOrWhiteSpace($computedAt)) {
+    if (($null -eq $computedAtRaw) -or (($computedAtRaw -is [string]) -and [string]::IsNullOrWhiteSpace($computedAtRaw))) {
         $reasons.Add('stale: missing computed_at')
     }
     else {
         $parsed = [DateTimeOffset]::MinValue
-        $ok = [DateTimeOffset]::TryParse($computedAt, [ref]$parsed)
+        $ok = $false
+        if ($computedAtRaw -is [DateTimeOffset]) {
+            $parsed = $computedAtRaw
+            $ok = $true
+        }
+        elseif ($computedAtRaw -is [datetime]) {
+            try { $parsed = [DateTimeOffset]$computedAtRaw; $ok = $true } catch { $ok = $false }
+        }
+        else {
+            $computedAtStr = [string]$computedAtRaw
+            $ok = [DateTimeOffset]::TryParse($computedAtStr, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)
+        }
         if (-not $ok) {
             $reasons.Add('stale: computed_at unparseable')
         }

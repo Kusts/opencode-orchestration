@@ -295,6 +295,22 @@ try {
     $rj6 = Get-OrchestrationPreflight -Objective 'where is this flag defined throughout the repository?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
     Assert-That ([string]$rj6.orchestration_decision -cne 'DIRECT_VERIFIED') '15j where-defined throughout repository => not DIRECT_VERIFIED' ($rj6 | ConvertTo-Json -Compress)
 
+    # 15k) fourth review: generic PT 'qual' prefix must not authorize direct;
+    # 'Qualidade...' is a qualitative assessment, not a bounded point lookup.
+    # Narrow PT lookup phrases ('qual arquivo/campo/simbolo') stay explicit.
+    $rk1 = Get-OrchestrationPreflight -Objective 'Qualidade do sistema e dos fluxos' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rk1.orchestration_decision -cne 'DIRECT_VERIFIED') '15k qualitative Qualidade assessment => not DIRECT_VERIFIED' ($rk1 | ConvertTo-Json -Compress)
+    Assert-That (([string]$rk1.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$rk1.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$rk1.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15k Qualidade assessment => worker route or fallback' ($rk1 | ConvertTo-Json -Compress)
+    # controls: bounded narrow PT lookups stay direct (explicit phrase evidence)
+    $ck1 = Get-OrchestrationPreflight -Objective 'qual arquivo contem retry flag?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ck1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ck1.selected_agents).Count -eq 0)) '15k qual arquivo lookup still DIRECT_VERIFIED' ($ck1 | ConvertTo-Json -Compress)
+    $ck2 = Get-OrchestrationPreflight -Objective 'qual campo define retry limit?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ck2.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ck2.selected_agents).Count -eq 0)) '15k qual campo lookup still DIRECT_VERIFIED' ($ck2 | ConvertTo-Json -Compress)
+    # 'qual simbolo implementa retry?' carries substantive verb 'implementa' so it
+    # stays delegated (fail-closed); it is not a bounded direct control.
+    $ck3 = Get-OrchestrationPreflight -Objective 'qual simbolo implementa retry?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$ck3.orchestration_decision -cne 'DIRECT_VERIFIED') '15k qual simbolo + implementa verb => not DIRECT_VERIFIED' ($ck3 | ConvertTo-Json -Compress)
+
     # 16) CLI: malformed health string fails closed to fallback
     $c3 = Invoke-PreflightCliRaw -Argv @('-Objective', 'implement bounded edit for retry queue', '-TaskType', 'implementation', '-Domain', 'backend', '-Risk', 'medium', '-ReadWrite', 'write', '-RouterHealthy', 'maybe')
     $o3 = Get-JsonTail -Text $c3.Text

@@ -164,10 +164,15 @@ delegado; singular pontual (`Find retry flag in billing module`) segue direto
 `Find ... in auth module` cai no `DETERMINISTIC_FALLBACK` preexistente de
 hard-exclusion (`auth`), não nesta mudança.
 
-Limites heurísticos restantes: casamento por prefixo (`all` casa
-`allocate|allow`, `qual` casa `qualquer|qualidade`) pode super- ou
-sub-rejeitar; a direção é fail-closed para delegação (nunca bypass), e a
-precisão continua dependendo do chamador em `Risk`/`TaskType`/`Objective`.
+Limites heuristicos restantes: casamento por prefixo em radicais
+alfanumericos (p.ex. `defin`, `inspec`, `localiz`) pode super- ou
+sub-rejeitar; a direcao e fail-closed para delegacao (nunca bypass), e a
+precisao continua dependendo do chamador em `Risk`/`TaskType`/`Objective`.
+Caso `qual` generico -> `qualidade` bloqueado na quarta revisao: o prefixo
+`qual` foi removido de `$pointLookupHit` e restam apenas as frases
+estreitas `qual arquivo|campo|simbolo` (casamento por substring via
+`Contains`); `Qualidade do sistema e dos fluxos` com metadados triviais
+agora delega em vez de seguir `DIRECT_VERIFIED`.
 
 Validação: novos casos 15h falharam antes (6 falhas, 94/100) e passam depois;
 `scripts/v3/orchestration-preflight.tests.ps1`: 100/100.
