@@ -1340,13 +1340,15 @@ function Resolve-OrchestrationModelSelection {
     }
 
     elseif ($cleanAgent -eq 'tester') {
-        if ($RequiresLlm -or $Complexity -in @('simple', 'medium', 'complex')) {
+        if ($RequiresLlm -and $Complexity -eq 'trivial' -and $Risk -eq 'low') {
+            $selectedTier = 'T1'
+            $reason = 'Tester uses ultralight T1 for trivial LLM-assisted checks.'
+        } elseif ($RequiresLlm -or $Complexity -in @('simple', 'medium', 'complex')) {
             $selectedTier = 'T2'
-            $reason = "Authorized LLM tier T2 selected for tester subagent execution."
+            $reason = 'Tester uses T2 for test authoring and nontrivial checks.'
         } else {
-            # T0: verificacao deterministica sem LLM (exit codes, scripts, AST)
             $selectedTier = 'T0'
-            $reason = "Deterministic verification tier T0 (no LLM) for tester."
+            $reason = 'Tester uses deterministic T0 with no LLM.'
         }
     }
 
