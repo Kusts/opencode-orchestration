@@ -41,6 +41,8 @@ $sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -T
 Assert-V14 ($sT4.Tier -eq 'T4' -and $sT4.CatalogModel -eq 'openai/gpt-6.1-sol') 'T3-verified-failure-auto-escalates-T4'
 Assert-V14 ($sT4.Authorized -eq $true) 'T4-authorized-by-policy'
 
+$sTesterT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'opencode-go/iceman-contributor-free') 'tester-trivial-LLM-uses-T1'
 $sT1 = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $fT1 = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'opencode-go/iceman-contributor-free' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT1.Status -eq 'AUTHORIZED' -and $fT1.FallbackModel -eq 'opencode/mimo-v2.6-flash-free') 'T1-on-failure-mimo'
