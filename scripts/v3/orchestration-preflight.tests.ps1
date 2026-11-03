@@ -34,19 +34,19 @@ try {
     Assert-That (Test-Path -LiteralPath $cli -PathType Leaf) 'cli file exists' "Missing $cli"
     . $lib
 
-    # 1) trivial typo => SINGLE_WORKER with one cheap worker (full orchestration)
-    $r1 = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 1) trivial typo with explicit delegation => SINGLE_WORKER with one cheap worker
+    $r1 = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That (([string]$r1.orchestration_decision -ceq 'SINGLE_WORKER') -and ([string]$r1.task_class -ceq 'trivial')) '1 trivial typo => SINGLE_WORKER' ($r1 | ConvertTo-Json -Compress)
     Assert-That ((@($r1.selected_agents).Count -eq 1) -and (@($r1.selected_agents) -contains 'coder')) '1 SINGLE_WORKER returns 1 worker (coder)' ((@($r1.selected_agents)) -join ',')
     Assert-That ([string]$r1.bypass_verdict -ceq 'OK') '1 SINGLE_WORKER bypass_verdict OK' ([string]$r1.bypass_verdict)
 
-    # 2) point lookup => SINGLE_WORKER with explorer
-    $r2 = Get-OrchestrationPreflight -Objective 'point lookup: where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 2) point lookup with explicit delegation => SINGLE_WORKER with explorer
+    $r2 = Get-OrchestrationPreflight -Objective 'point lookup: where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That (([string]$r2.orchestration_decision -ceq 'SINGLE_WORKER') -and ([string]$r2.task_class -ceq 'trivial')) '2 point lookup => SINGLE_WORKER' ($r2 | ConvertTo-Json -Compress)
     Assert-That (@($r2.selected_agents) -contains 'explorer') '2 lookup selects explorer' ((@($r2.selected_agents)) -join ',')
 
-    # 2b) cosmetic CLI case from acceptance: typo fix => SINGLE_WORKER non-empty agents
-    $r2b = Get-OrchestrationPreflight -Objective 'corrigir typo no README' -TaskType 'cosmetic' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 2b) cosmetic CLI case with explicit delegation => SINGLE_WORKER non-empty agents
+    $r2b = Get-OrchestrationPreflight -Objective 'corrigir typo no README' -TaskType 'cosmetic' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That (([string]$r2b.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($r2b.selected_agents).Count -ge 1)) '2b cosmetic typo => SINGLE_WORKER with worker' ($r2b | ConvertTo-Json -Compress)
 
     # 3) non-trivial implementation => MULTI_WORKER with coder
@@ -72,10 +72,10 @@ try {
     $r5c = Get-OrchestrationPreflight -Objective 'implementar SPEC e PLAN em 3 fases' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write'
     Assert-That (([string]$r5c.orchestration_decision -ceq 'PERSISTENT_GOAL') -and ([string]$r5c.fallback_reason -ceq 'goal_promotion_spec_plan')) '5c spec+plan phases => PERSISTENT_GOAL' ($r5c | ConvertTo-Json -Compress)
 
-    # 5d) word-boundary: 'planilha'/'plant' nao promovem a goal (TDR-F1-12)
-    $r5d = Get-OrchestrationPreflight -Objective 'inspecionar planilha de custos' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 5d) word-boundary: 'planilha'/'plant' nao promovem a goal (explicit delegation kept)
+    $r5d = Get-OrchestrationPreflight -Objective 'inspecionar planilha de custos' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That ([string]$r5d.orchestration_decision -ceq 'SINGLE_WORKER') '5d planilha lookup => SINGLE_WORKER' ($r5d | ConvertTo-Json -Compress)
-    $r5e = Get-OrchestrationPreflight -Objective 'inspect plant labels' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    $r5e = Get-OrchestrationPreflight -Objective 'inspect plant labels' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That ([string]$r5e.orchestration_decision -ceq 'SINGLE_WORKER') '5e plant labels lookup => SINGLE_WORKER' ($r5e | ConvertTo-Json -Compress)
 
     # 5f) SINGLE_WORKER carrega post_execution_check trivial com participacao (FIX-03)
@@ -161,6 +161,47 @@ try {
     $rsens = Get-OrchestrationPreflight -Objective 'delete old note in guide' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
     Assert-That ($rsens.orchestration_decision -cne 'DIRECT_VERIFIED') 'preflight DIRECT_VERIFIED rejects micro edit with sensitive keyword' 'expected non-direct'
 
+    # 15c) #201: eligible safe trivial defaults to DIRECT_VERIFIED (no explicit strategy)
+    $rdef = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$rdef.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$rdef.task_class -ceq 'trivial')) '15c default eligible trivial => DIRECT_VERIFIED' ($rdef | ConvertTo-Json -Compress)
+    Assert-That ((@($rdef.selected_agents).Count -eq 0) -and ([string]$rdef.bypass_verdict -ceq 'OK')) '15c default direct spawns zero workers' ((@($rdef.selected_agents)) -join ',')
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision ([string]$rdef.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$rdef.direct_reason) -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15c default direct passes existing DONE gate with zero workers' ([string]$rdef.direct_reason)
+    # explicit SINGLE_WORKER remains available for useful delegation
+    $rsw = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
+    Assert-That (([string]$rsw.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($rsw.selected_agents).Count -eq 1)) '15c explicit SINGLE_WORKER still delegates' ($rsw | ConvertTo-Json -Compress)
+    # nearby negative: default strategy must not route unsafe write direct
+    $rneg = Get-OrchestrationPreflight -Objective 'delete old note in guide' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That ([string]$rneg.orchestration_decision -cne 'DIRECT_VERIFIED') '15c default rejects sensitive micro-edit (delete)' ($rneg | ConvertTo-Json -Compress)
+
+    # 15d) #201-fatia2: rota direta elegivel independe do router (classificador local)
+    $rdu = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rdu.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$rdu.task_class -ceq 'trivial')) '15d direct elegivel + router unhealthy => DIRECT_VERIFIED' ($rdu | ConvertTo-Json -Compress)
+    Assert-That ((@($rdu.selected_agents).Count -eq 0) -and ([string]$rdu.bypass_verdict -ceq 'OK')) '15d direct router-independent gera zero workers' ((@($rdu.selected_agents)) -join ',')
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision ([string]$rdu.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$rdu.direct_reason) -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15d direct router-independent passa no DONE gate' ([string]$rdu.direct_reason)
+    $rdst = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RegistryFresh $false
+    Assert-That ([string]$rdst.orchestration_decision -ceq 'DIRECT_VERIFIED') '15d direct elegivel + registry stale => DIRECT_VERIFIED' ($rdst | ConvertTo-Json -Compress)
+    $rdok = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RegistryOk $false
+    Assert-That ([string]$rdok.orchestration_decision -ceq 'DIRECT_VERIFIED') '15d direct elegivel + registry unhealthy => DIRECT_VERIFIED' ($rdok | ConvertTo-Json -Compress)
+    # controle: SINGLE_WORKER explicito com router unhealthy cai em fallback
+    $rsu = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RouterHealthy $false -ExecutionStrategy 'SINGLE_WORKER'
+    Assert-That (([string]$rsu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rsu.fallback_reason -ceq 'router_unavailable')) '15d SINGLE explicito + router unhealthy => fallback' ($rsu | ConvertTo-Json -Compress)
+    $rivi = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RouterHealthy $false -ExecutionStrategy 'BOGUS_STRATEGY'
+    Assert-That (([string]$rivi.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rivi.fallback_reason -ceq 'router_unavailable')) '15d invalid strategy + router unhealthy => fallback, never direct' ($rivi | ConvertTo-Json -Compress)
+    # compat: estrategia nao reconhecida e nao vazia jamais vira direta (fallback delegado seguro)
+    $rinv = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'BOGUS_STRATEGY'
+    Assert-That (([string]$rinv.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($rinv.selected_agents).Count -ge 1)) '15d invalid strategy stays delegated (non-direct)' ($rinv | ConvertTo-Json -Compress)
+    # controle: nontrivial + router unhealthy inalterado
+    $rnu = Get-OrchestrationPreflight -Objective 'implement bounded edit for retry queue' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rnu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rnu.fallback_reason -ceq 'router_unavailable')) '15d nontrivial + router unhealthy => fallback inalterado' ($rnu | ConvertTo-Json -Compress)
+
+    # 15e) #201-fatia3: goal (explicito e spec+plan) com router unhealthy preserva fallback
+    $rgu = Get-OrchestrationPreflight -Objective 'alcancar o goal de cobertura de testes do modulo de cobranca' -TaskType 'goal' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rgu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rgu.fallback_reason -ceq 'router_unavailable')) '15e explicit goal + router unhealthy => fallback' ($rgu | ConvertTo-Json -Compress)
+    $rspu = Get-OrchestrationPreflight -Objective 'implementar SPEC e PLAN em 3 fases' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rspu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rspu.fallback_reason -ceq 'router_unavailable')) '15e spec+plan + router unhealthy => fallback' ($rspu | ConvertTo-Json -Compress)
+    $rgs = Get-OrchestrationPreflight -Objective 'alcancar o goal de cobertura de testes do modulo de cobranca' -TaskType 'goal' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RegistryFresh $false
+    Assert-That (([string]$rgs.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rgs.fallback_reason -ceq 'registry_stale')) '15e explicit goal + registry stale => fallback' ($rgs | ConvertTo-Json -Compress)
+
     # 16) CLI: malformed health string fails closed to fallback
     $c3 = Invoke-PreflightCliRaw -Argv @('-Objective', 'implement bounded edit for retry queue', '-TaskType', 'implementation', '-Domain', 'backend', '-Risk', 'medium', '-ReadWrite', 'write', '-RouterHealthy', 'maybe')
     $o3 = Get-JsonTail -Text $c3.Text
@@ -170,11 +211,21 @@ try {
     $rv = Get-OrchestrationPreflight -Objective '' -TaskType '' -Domain '' -Risk 'unknown' -ReadWrite ''
     Assert-That (([string]$rv.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rv.fallback_reason -ceq 'vague_task_underspecified')) 'vague => DETERMINISTIC_FALLBACK vague_task_underspecified' ($rv | ConvertTo-Json -Compress)
 
-    # CLI: valid inline prints JSON with required keys, exit 0
+    # CLI: valid inline prints JSON with required keys, exit 0 (default eligible trivial => DIRECT_VERIFIED, zero workers)
     $c1 = Invoke-PreflightCliRaw -Argv @('-Objective', 'fix typo in label', '-TaskType', 'trivial', '-Domain', 'code', '-Risk', 'low', '-ReadWrite', 'read')
     $o1 = Get-JsonTail -Text $c1.Text
     Assert-That ($c1.Code -eq 0) 'cli trivial: exit 0' ("Exit $($c1.Code)")
-    Assert-That (($null -ne $o1) -and ([string]$o1.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($o1.selected_agents).Count -ge 1) -and ($null -ne $o1.evidence_hint)) 'cli trivial: JSON SINGLE_WORKER with worker + evidence_hint' $c1.Text
+    Assert-That (($null -ne $o1) -and ([string]$o1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($o1.selected_agents).Count -eq 0) -and ($null -ne $o1.evidence_hint)) 'cli trivial: JSON DIRECT_VERIFIED zero workers + evidence_hint' $c1.Text
+
+    # CLI: explicit SINGLE_WORKER keeps the delegation path
+    $c1b = Invoke-PreflightCliRaw -Argv @('-Objective', 'fix typo in label', '-TaskType', 'trivial', '-Domain', 'code', '-Risk', 'low', '-ReadWrite', 'read', '-ExecutionStrategy', 'SINGLE_WORKER')
+    $o1b = Get-JsonTail -Text $c1b.Text
+    Assert-That (($c1b.Code -eq 0) -and ($null -ne $o1b) -and ([string]$o1b.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($o1b.selected_agents).Count -ge 1)) 'cli trivial explicit SINGLE_WORKER: JSON SINGLE_WORKER with worker' $c1b.Text
+
+    # CLI: rota direta elegivel independe do router (bloqueador observado #201-fatia2)
+    $cdu = Invoke-PreflightCliRaw -Argv @('-Objective', 'fix typo in README', '-TaskType', 'cosmetic', '-Domain', 'docs', '-Risk', 'low', '-ReadWrite', 'write', '-RouterHealthy', 'false')
+    $odu = Get-JsonTail -Text $cdu.Text
+    Assert-That (($cdu.Code -eq 0) -and ($null -ne $odu) -and ([string]$odu.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($odu.selected_agents).Count -eq 0)) 'cli direct + RouterHealthy false => DIRECT_VERIFIED zero workers' $cdu.Text
 
     # CLI: invalid use => exit 2, never MCP
     $c2 = Invoke-PreflightCliRaw -Argv @()

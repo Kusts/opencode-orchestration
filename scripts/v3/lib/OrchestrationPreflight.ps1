@@ -396,21 +396,11 @@ function Get-OrchestrationPreflight {
             return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() $reason 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
         }
 
-        if (-not (Test-OrchestrationRouterHealth -Healthy $RouterHealthy -RegistryFresh $RegistryFresh -RegistryOk $RegistryOk)) {
-            if (-not $RouterHealthy) {
-                return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'router_unavailable' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
-            }
-            if (-not $RegistryFresh) {
-                return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'registry_stale' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
-            }
-            return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'router_unhealthy' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
-        }
-
         if (Test-OrchestrationVague -Objective $obj -TaskType $tt -Domain $dom -Risk $rk -ReadWrite $rw) {
             return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'vague_task_underspecified' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
         }
 
-        # v0.1.0: goal promotion AFTER hard exclusions/router/vague and
+        # v0.1.0: goal promotion AFTER hard exclusions/vague and
         # BEFORE the trivial gate (a goal outranks trivial). Explicit
         # goal task-types promote directly; a spec+plan objective promotes
         # via keyword, in the same keyword style as this file.
@@ -427,6 +417,14 @@ function Get-OrchestrationPreflight {
         catch { $goalSpecPlan = $false }
 
         if ($goalExplicit -or $goalSpecPlan) {
+            # #201-fatia3: goal tambem despacha workers, entao honra a saude do
+            # router/registry como o gate abaixo (reason local, mesmo mapeamento).
+            if (-not (Test-OrchestrationRouterHealth -Healthy $RouterHealthy -RegistryFresh $RegistryFresh -RegistryOk $RegistryOk)) {
+                $gr = 'router_unhealthy'
+                if (-not $RouterHealthy) { $gr = 'router_unavailable' }
+                elseif (-not $RegistryFresh) { $gr = 'registry_stale' }
+                return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() $gr 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
+            }
             $goalAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
             if (@($goalAgents).Count -eq 0) { $goalAgents = @('coder') }
             $goalReason = 'goal_promotion_spec_plan'
@@ -458,11 +456,32 @@ function Get-OrchestrationPreflight {
         }
         catch { $isTrivial = $false }
 
-        if ($isTrivial) {
-            if ($ExecutionStrategy -ieq 'DIRECT_VERIFIED') {
-                $checkDirect = "Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason $directReason"
-                return (& $mkResult 'DIRECT_VERIFIED' 'trivial' $directReason @() '' 'OK' $checkDirect)
+        # #201/#201-fatia2: eligible safe trivial with omitted or DIRECT_VERIFIED
+        # strategy takes the existing DIRECT_VERIFIED route (zero workers). The
+        # classifier above (low risk, localized, known task type, no architecture
+        # decision, read or docs-only micro-edit without sensitive keywords) is
+        # pure-local and needs no router/registry, so it returns before the
+        # health check below.
+        if ($isTrivial -and ([string]::IsNullOrWhiteSpace($ExecutionStrategy) -or ($ExecutionStrategy -ieq 'DIRECT_VERIFIED'))) {
+            $checkDirect = "Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason $directReason"
+            return (& $mkResult 'DIRECT_VERIFIED' 'trivial' $directReason @() '' 'OK' $checkDirect)
+        }
+
+        # #201-fatia2: router/registry health gates explicit SINGLE_WORKER
+        # delegation and all non-trivial worker routing below, never the direct
+        # route above. A non-empty strategy other than DIRECT_VERIFIED (including
+        # explicit SINGLE_WORKER) stays delegated and is gated here too.
+        if (-not (Test-OrchestrationRouterHealth -Healthy $RouterHealthy -RegistryFresh $RegistryFresh -RegistryOk $RegistryOk)) {
+            if (-not $RouterHealthy) {
+                return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'router_unavailable' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
             }
+            if (-not $RegistryFresh) {
+                return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'registry_stale' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
+            }
+            return (& $mkResult 'DETERMINISTIC_FALLBACK' 'non_trivial' '' @() 'router_unhealthy' 'PENDING_DETERMINISTIC_OWNER' $checkFallback)
+        }
+
+        if ($isTrivial) {
             $swAgents = @(Get-OrchestrationSelectedAgents -TaskType $tt -Domain $dom -Objective $obj -SecondaryDomains $sec)
             if (@($swAgents).Count -eq 0) { $swAgents = @('coder') }
             return (& $mkResult 'SINGLE_WORKER' 'trivial' '' @($swAgents) '' 'OK' $checkSingle)

@@ -40,9 +40,13 @@ correta; sem commit/install/escrita global salvo pedido explícito.
   install/reconcile. `models.jsonc` é local e ignorado pelo git — nunca
   commitar. `cache/` e telemetria são estado local, não autoridade.
 
-## Orquestração obrigatória (neste repo)
+## Orquestração (neste repo): direta no trivial elegível, delegação com benefício
 
-Toda tarefa não trivial passa por preflight **antes** da primeira ação:
+Trabalho local, reversível e de baixo risco segue direto, sem despachar worker;
+delegação (`SINGLE_WORKER` explícito, `MULTI_WORKER`, `PERSISTENT_GOAL`) só com
+benefício concreto (independência, especialização, paralelismo real, revisão
+independente). O preflight é capacidade condicional, chamada **antes** da
+primeira ação quando houver dúvida sobre a rota:
 
 ```powershell
 powershell -NoProfile -File scripts\v3\orchestration-preflight.ps1 -Objective "..." -TaskType <tipo> -Domain <dominio> -Risk <risco> -ReadWrite <read|write>
@@ -53,14 +57,17 @@ Preencha cada placeholder com o valor real da tarefa (nao copie literalmente); `
 Chamada sem parametros falha com exit 2 (uso impresso em stderr);
 alternativa: `-TaskFile <json>` com os mesmos campos.
 
-Estados: `SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
+Estados: `DIRECT_VERIFIED` (trivial elegível, zero workers, sem exigir
+router/registry saudável), `SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
 `DETERMINISTIC_FALLBACK`, `BLOCKED` (v0.1.0: `TRIVIAL_DIRECT`/`DELEGATED`
-migrados — `SINGLE_WORKER` e orquestracao completa via 1 cheap worker;
-compliance de trivial exige `ExecutionShape=SINGLE_WORKER`, tokens
-`DIRECT_*` legados sao rejeitados fail-closed).
-Sem worker útil em tarefa não trivial ⇒ `ORCHESTRATION_POLICY_BYPASS`, sem
-`DONE` compliant. Router/registry unhealthy ⇒ fallback determinístico, nunca
-execução solitária.
+migrados; compliance de trivial exige `ExecutionShape=DIRECT_VERIFIED` com
+`direct_reason=DIRECT_VERIFIED_*`, ou `ExecutionShape=SINGLE_WORKER` com
+participação observada; tokens `DIRECT_*` legados sao rejeitados fail-closed).
+Sem worker onde worker é exigido (não trivial delegado) ⇒
+`ORCHESTRATION_POLICY_BYPASS`, sem `DONE` compliant. Router/registry unhealthy
+⇒ fallback determinístico para delegação e roteamento não trivial, nunca
+execução solitária onde worker é exigido; a rota direta elegível não depende
+do router.
 
 Delegação com contrato limitado: `TASK_ID`, `OBJECTIVE`, `READ_SCOPE`,
 `WRITE_SCOPE` (vazio p/ read-only), `ACCEPTANCE_CRITERIA`, `VALIDATION`,

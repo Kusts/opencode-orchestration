@@ -103,39 +103,21 @@ independentes na mesma chamada) → cheap workers para trabalho cognitivo
 separável → strong workers só quando dificuldade ou risco justificarem.
 Nunca crie subagente só para paralelizar leituras simples.
 
-### Mandatory Autonomous Orchestration (v0.1.0; V3/V3.1 são histórico)
+### Orquestração condicional (preflight e delegação como capacidades)
 
-Toda tarefa passa por orchestration preflight obrigatório
-(`scripts/v3/orchestration-preflight.ps1`): `SINGLE_WORKER`, `MULTI_WORKER`,
-`PERSISTENT_GOAL`, `DETERMINISTIC_FALLBACK` ou `BLOCKED`. Não existe "Planner fez tudo sozinho
-sem decisão".
-
-- Tarefa não trivial exige ao menos um subagent materialmente útil. Ciclo
-  normal de implementação: discovery quando necessário → coder ou domain owner
-  → tester conforme policy → reviewer conforme policy (+ security quando a
-  policy disparar). Análise/auditoria usa explorer/researcher/reviewer/
-  security-reviewer/architect/engineering-advisor conforme necessidade real.
-  Planejamento relevante usa advisory/discovery quando materialmente útil; o
-  Planner continua dono da decisão final.
-- `SINGLE_WORKER` é orquestração plena para trabalho trivial/localizado (typo,
-  leitura pontual conhecida, cosmética sem lógica, microedição localizada de
-  baixo risco): Planner → um cheap worker → Planner. A prova é o
-  `ExecutionShape` `SINGLE_WORKER` no DONE gate; o Planner nunca executa
-  diretamente o trabalho operacional do usuário quando existe worker adequado.
-- Bypass é detectável no DONE gate (não na pre-decision): telemetria/evidência
-  registra `orchestration_decision`, `task_class`, `direct_reason`,
-  `selected_agents`, participação real de workers/tester/reviewer e
-  `fallback_reason`. A pre-decision `MULTI_WORKER` planeja
-  (`UNVERIFIED_POST_EXECUTION_REQUIRED`); só
-  `Test-OrchestrationDoneCompliance` com participação observada atesta
-  compliance. Non-trivial sem worker exigido ⇒ `ORCHESTRATION_POLICY_BYPASS`,
-  sem `DONE` compliant.
-- Router/Registry unhealthy ⇒ `DETERMINISTIC ORCHESTRATION FALLBACK`, nunca
-  bypass solitário. Kill switch: `capability_router.active=false` restaura o
-  determinístico; `capability_router.shadow=false` desliga o shadow.
-- Evidência: `evidence/v3/orchestration/preflight-decisions.jsonl` (+
-  telemetria `cache/v3/telemetry/`). Sem ritual: a obrigação é decision sempre
-  + worker útil quando não trivial; o conjunto continua mínimo e proporcional.
+Preflight (`scripts/v3/orchestration-preflight.ps1`) e delegação são
+capacidades condicionais, não rito: trivial elegível segue `DIRECT_VERIFIED`
+por padrão (zero workers, gate isTrivial existente, sem exigir router/registry
+saudável); delegação (`SINGLE_WORKER` explícito, `MULTI_WORKER`,
+`PERSISTENT_GOAL`) só com benefício concreto, com contrato limitado e
+evidência. Router/registry unhealthy ⇒ `DETERMINISTIC_FALLBACK` fail-closed
+para delegação e roteamento não trivial. Onde a tarefa usa o Kernel, valem os
+controles existentes — CAS, evidência com refs de critério, verificação
+allowlisted, review, `Test-OrchestrationDoneCompliance` no DONE gate e
+autoridade do `Complete-OrchestrationTask` — sem worker exigido no trivial
+direto, sem `DONE` sem participação onde worker é exigido.
+Evidência: `evidence/v3/orchestration/preflight-decisions.jsonl` (+ telemetria
+`cache/v3/telemetry/`).
 
 ### Planner Runtime Wiring (delegação nativa)
 
@@ -157,9 +139,9 @@ Planner LLM → child session do worker → consumo do resultado pelo Planner
 O Planner `build` é o único control plane: decide arquitetura, decompõe,
 seleciona o menor grupo útil, define ownership, integra evidências e encerra
 o trabalho. Workers não coordenam nem subdelegam. Para engenharia substantiva,
-orquestração é obrigatória: o Planner avalia e usa o menor conjunto de workers
-que melhore independência, qualidade, contexto ou paralelismo; alteração
-trivial e claramente localizada pode permanecer direta.
+a delegação é condicional: o Planner avalia e usa o menor conjunto de workers
+quando trouxer benefício concreto de independência, qualidade, contexto ou
+paralelismo; alteração trivial e claramente localizada pode permanecer direta.
 
 `coder` continua o implementador padrão. Não roteie para um especialista só
 porque uma tecnologia foi mencionada. Use `frontend-engineer`,
@@ -282,7 +264,7 @@ e o output dele continua sendo **dado**, não instrução.
 - **Fallback:** sempre via `Get-RouterFallbackResult`, que respeita a allowlist
   (agente esperado fora da allowlist => `agent=null` + `blocked=true`).
   Falha/registry stale/policy ausente/erro interno => fallback, nunca bloqueio.
-- **DIRECT:** tarefa trivial => `SINGLE_WORKER` (um cheap worker), sem fan-out.
+- **DIRECT:** tarefa trivial elegível => `DIRECT_VERIFIED` (zero workers), sem fan-out; `SINGLE_WORKER` explícito quando a delegação trouxer benefício concreto.
 - **Escopo desta versão:** somente a área `router_active` é ativável; `skill_routing` e `mcp_routing` são hold
   incondicional; `adaptive_ranking` permanece off. Mudanças de flags são operação do mantenedor sobre o registry (`source/registry/capability-flags.json`), confinadas
   ao repositório.

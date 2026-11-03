@@ -184,39 +184,16 @@ incerteza arquitetural, Architect. Peça intervenção humana somente nos limite
 de risco, irreversibilidade, credenciais, custo externo ou ambiguidade de
 negócio já definidos nesta política.
 
-## MANDATORY ORCHESTRATION ENFORCEMENT (V3 FINAL)
+## Orquestração (apontador; política canônica em Agent Config #21)
 
-Toda tarefa passa por orchestration preflight obrigatório. Não existe estado
-implícito "Planner fez tudo sozinho sem decisão de orquestração".
-
-- Estados possíveis: `SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`, `DETERMINISTIC_FALLBACK`, `BLOCKED`.
-- Tarefa não trivial exige participação material de ao menos um subagent adequado
-  (`minimum useful subagent participation >= 1`). O Planner não executa sozinho
-  uma tarefa não trivial quando existe worker qualificado.
-- `SINGLE_WORKER` é orquestração plena (Planner → um cheap worker → Planner);
-  o Planner nunca executa diretamente o trabalho operacional do usuário quando
-  existe worker adequado. A prova é o `ExecutionShape` `SINGLE_WORKER` no DONE
-  gate — tokens `DIRECT_*` legados (pré-v0.1.0) são rejeitados como
-  `NON_COMPLIANT_DEPRECATED_DIRECT`.
-- `DIRECT_VERIFIED` é a rota trivial do adapter/runtime (OpenCode V2):
-  somente operações comprovadamente triviais, localizadas, reversíveis e de
-  baixo risco, com `ExecutionStrategy=DIRECT_VERIFIED` e passagem do gate
-  isTrivial (sem palavra sensível, sem decisão arquitetural, escopo
-  localizado). Sem esse gate, tarefa trivial segue `SINGLE_WORKER`. T0
-  permanece exclusivo de tarefas determinísticas sem LLM; `DIRECT_VERIFIED`
-  executado pelo Planner LLM não é T0.
-- Falha do Router/Registry (indisponível, stale, exceção, timeout, resposta
-  malformada) resulta em `DETERMINISTIC ORCHESTRATION FALLBACK`, nunca em
-  execução solitária do Planner.
-- `non-trivial + worker participation required + worker participation = 0`
-  produz `ORCHESTRATION_POLICY_BYPASS` e não permite claim de `DONE` compliant.
-  A pre-decision `MULTI_WORKER` (ou `PERSISTENT_GOAL`) apenas planeja (`post_execution_check`); a
-  compliance é atestada no DONE gate com participação observada
-  (`Test-OrchestrationDoneCompliance`).
-- Mecanismo canônico (OpenCode): `scripts/v3/orchestration-preflight.ps1`
-  (biblioteca `scripts/v3/lib/OrchestrationPreflight.ps1`); suíte
-  `scripts/v3/orchestration-preflight.tests.ps1`. A obrigação é decision sempre
-  + worker útil em tarefa não trivial; nunca fan-out ritual.
+Política global compartilhada: Agent Config #21 (dono canônico; nada aqui a
+redefine). Implementação de runtime neste repo: preflight condicional em
+`scripts/v3/orchestration-preflight.ps1` (lib
+`scripts/v3/lib/OrchestrationPreflight.ps1`), suíte
+`scripts/v3/orchestration-preflight.tests.ps1`, DONE gate em
+`Test-OrchestrationDoneCompliance`, Kernel em `scripts/v3/task-kernel.ps1`.
+Trivial elegível segue `DIRECT_VERIFIED` por padrão (zero workers, sem exigir
+router/registry saudável); delegação só com benefício concreto.
 
 ## Fonte e destinos
 
