@@ -1186,6 +1186,9 @@ function Resolve-OrchestrationModelSelection {
         [bool]$ProviderCostAuthorized = $false,
 
         [Parameter(Mandatory = $false)]
+        [bool]$T3FailureVerified = $false,
+
+        [Parameter(Mandatory = $false)]
         $ModelCatalog = $null,
 
         [Parameter(Mandatory = $false)]
@@ -1292,80 +1295,47 @@ function Resolve-OrchestrationModelSelection {
     $selectedTier = $admissibility.DefaultTier
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
-    # Planner 'build' is stable on T3 (Luna)
+    # Planner is pinned to Luna, classified T2 regardless of general T2 Muse pool.
     if ($cleanAgent -eq 'build') {
-        $selectedTier = 'T3'
-        $reason = "Planner build is stable on Capable tier T3 (Luna) during objective."
+        $selectedTier = 'T2'
+        $reason = 'Planner build is stable on GPT-6 Luna under operational tier T2.'
     }
     elseif ($cleanAgent -eq 'reviewer') {
-        if ($Risk -in @('high', 'critical')) {
-            if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
-                $selectedTier = 'T4'
-                $reason = "Elevated to T4 due to $Risk risk on reviewer role with explicit cost authorization."
-            } else {
-                $selectedTier = 'T3'
-                $reason = "Tier 'T4' was unauthorized (provider_cost_authorized=false) for reviewer under $Risk risk. Degraded to 'T3'."
-            }
-        } elseif ($Risk -eq 'low' -and $Complexity -in @('trivial', 'simple')) {
+        if ($Risk -eq 'low' -and $Complexity -in @('trivial','simple')) {
             $selectedTier = 'T2'
-            $reason = "Economical tier T2 admitted for low-risk, simple review."
+            $reason = 'Economical T2 for simple low-risk review.'
         } else {
             $selectedTier = 'T3'
-            $reason = "Standard capable tier T3 for review."
+            $reason = 'Capable T3 Terra for review.'
         }
     }
     elseif ($cleanAgent -eq 'security-reviewer') {
-        if ($Risk -in @('high', 'critical')) {
-            if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
-                $selectedTier = 'T4'
-                $reason = "Frontier tier T4 selected for high/critical security review with explicit cost authorization."
-            } else {
-                $selectedTier = 'T3'
-                $reason = "Tier 'T4' was unauthorized (provider_cost_authorized=false) for security review under $Risk risk. Degraded to 'T3'."
-            }
-        } else {
-            $selectedTier = 'T3'
-            $reason = "Capable tier T3 selected for standard security review."
-        }
+        $selectedTier = 'T3'
+        $reason = 'Security-reviewer starts at T3 Terra; no T2 downgrade.'
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
-        if ($FailureCount -ge 2) {
-            if ($ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')) {
-                $selectedTier = 'T4'
-                $reason = "Frontier tier T4 selected for deadlock consult after $FailureCount prior failures with explicit cost authorization."
-            } else {
-                $selectedTier = 'T3'
-                $reason = "Tier 'T4' was unauthorized (provider_cost_authorized=false) for engineering-advisor with $FailureCount failures. Degraded to 'T3'."
-            }
-        } elseif ($Complexity -in @('trivial', 'simple') -and $Risk -eq 'low') {
+        if ($Complexity -in @('trivial','simple') -and $Risk -eq 'low' -and $FailureCount -eq 0) {
             $selectedTier = 'T2'
-            $reason = "Economical tier T2 selected for simple technical clarity check."
+            $reason = 'Economical T2 for a simple advisor consultation.'
         } else {
             $selectedTier = 'T3'
-            $reason = "Capable tier T3 selected for standard engineering feasibility consultation."
+            $reason = 'Engineering-advisor uses T3 Terra.'
         }
     }
     elseif ($cleanAgent -eq 'coder') {
-        if ($FailureCount -ge 2) {
-            $selectedTier = 'T4'
-            $reason = "Frontier tier T4 escalated after $FailureCount prior failures."
-        } elseif ($FailureCount -eq 1 -or $Complexity -eq 'complex') {
+        if ($FailureCount -ge 1 -or $Complexity -eq 'complex') {
             $selectedTier = 'T3'
-            $reason = "Capable tier T3 selected for complex coding or retry."
+            $reason = 'Coder escalates to T3 Terra for complex work or prior verified failure.'
         } else {
             $selectedTier = 'T2'
-            $reason = "Economical tier T2 default for routine coder."
+            $reason = 'Coder defaults to economical T2 Muse.'
         }
     }
     elseif ($cleanAgent -eq 'debugger') {
-        if ($FailureCount -ge 2 -or $Risk -in @('high', 'critical')) {
-            $selectedTier = 'T4'
-            $reason = "Frontier tier T4 escalated for persistent bug after $FailureCount failures."
-        } else {
-            $selectedTier = 'T3'
-            $reason = "Capable tier T3 for root-cause debugging."
-        }
+        $selectedTier = 'T3'
+        $reason = 'Debugger uses T3 Terra for root-cause analysis.'
     }
+
     elseif ($cleanAgent -eq 'tester') {
         if ($RequiresLlm -or $Complexity -in @('simple', 'medium', 'complex')) {
             $selectedTier = 'T2'
@@ -1375,6 +1345,15 @@ function Resolve-OrchestrationModelSelection {
             $selectedTier = 'T0'
             $reason = "Deterministic verification tier T0 (no LLM) for tester."
         }
+    }
+
+    # Automatic frontier escalation is allowed only after the caller has verified
+    # that T3 failed to resolve the task; failure count or risk alone is insufficient.
+    # Callers must derive T3FailureVerified from recorded task/model evidence.
+    if ($T3FailureVerified -and $cleanAgent -ne 'build' -and
+        $admissibleTiers -contains 'T4' -and $prohibitedTiers -notcontains 'T4') {
+        $selectedTier = 'T4'
+        $reason = 'Verified T3 task non-resolution; policy escalates automatically to T4 Sol.'
     }
 
     # Strict safety invariant check: ensure selected tier is admissible
@@ -1411,6 +1390,13 @@ function Resolve-OrchestrationModelSelection {
 
     # Catalog and authorization check: separate technical justification from explicit cost authorization
     $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig
+    if ($cleanAgent -eq 'build') {
+        # Planner is not the general T2 pool. Keep Luna and its dedicated token.
+        $catalogRes.CatalogModel = 'openai/gpt-6-luna'
+        $catalogRes.ModelToken = 'MODEL_PLANNER'
+        $catalogRes.Provider = 'openai'
+        $catalogRes.FallbackCandidates = @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')
+    }
     if (-not $catalogRes.IsAuthorized) {
         $degradedTier = if ($selectedTier -eq 'T4') { 'T3' } else { $admissibility.DefaultTier }
         $reason = "Tier '$($catalogRes.Tier)' was unauthorized (cost/provider authorization absent). Degraded to '$degradedTier'."
@@ -1494,6 +1480,7 @@ function Resolve-OrchestrationModelSelection {
         default { 'MODEL_CHEAP' }
     }
 
+    if ($cleanAgent -eq 'build') { $fallbackDefaultToken = 'MODEL_PLANNER' }
     $effectiveToken = if ($NativeModelOverrideProven) { $modelToken } else { $fallbackDefaultToken }
     $overrideNote = ''
     $proofStatus = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
