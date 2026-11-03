@@ -1189,6 +1189,9 @@ function Resolve-OrchestrationModelSelection {
         [bool]$T3FailureVerified = $false,
 
         [Parameter(Mandatory = $false)]
+        [string]$T3FailureReceipt = '',
+
+        [Parameter(Mandatory = $false)]
         $ModelCatalog = $null,
 
         [Parameter(Mandatory = $false)]
@@ -1350,7 +1353,8 @@ function Resolve-OrchestrationModelSelection {
     # Automatic frontier escalation is allowed only after the caller has verified
     # that T3 failed to resolve the task; failure count or risk alone is insufficient.
     # Callers must derive T3FailureVerified from recorded task/model evidence.
-    if ($T3FailureVerified -and $cleanAgent -ne 'build' -and
+    if ($T3FailureVerified -and -not [string]::IsNullOrWhiteSpace($T3FailureReceipt) -and
+        $cleanAgent -ne 'build' -and
         $admissibleTiers -contains 'T4' -and $prohibitedTiers -notcontains 'T4') {
         $selectedTier = 'T4'
         $reason = 'Verified T3 task non-resolution; policy escalates automatically to T4 Sol.'
