@@ -8,7 +8,7 @@
 // telemetria hooks-unavailable, com "event.subscribe unavailable") e as
 // representacoes de system do F5 (parts[], string[], vazio, misto).
 // Rode com: bun run tests/distribution/plugin-harness/v2-mock.ts
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -398,6 +398,549 @@ ok(
   resC.done === false && !!resC.value,
   "10c-controle iterador hostil entrega valor apos abort (sem guard indexaria)",
 );
+
+// PW-V2 planner-wait tool (PR181 Fatia A, opt-in, off by default).
+// The tool lives on the EXISTING orchestration-enforcement V2 setup path
+// (plugins/orchestration-enforcement/v2.ts); there is no separate plugin.
+// These tests use stubbed spawn/sessionGet (never a real bridge) and run
+// with the same `bun run` gate as the rest of this mock.
+function makePwToolSurface() {
+  const added: Array<any> = [];
+  const handlers = new Map<string, Array<Cb>>();
+  return {
+    added,
+    hook: async (name: string, cb: Cb) => {
+      const arr = handlers.get(name) ?? [];
+      arr.push(cb);
+      handlers.set(name, arr);
+      return { dispose: () => {} };
+    },
+    transform: async (cb: (editor: any) => void) => {
+      const editor = {
+        list: () => [],
+        get: () => undefined,
+        namespace: () => {},
+        add: (t: any) => {
+          added.push(t);
+        },
+        update: () => {},
+        remove: () => {},
+      };
+      await cb(editor);
+      return { dispose: async () => {} };
+    },
+  };
+}
+function makePwSessionSurface(info: any) {
+  return {
+    hook: async (_name: string, _cb: Cb) => ({ dispose: () => {} }),
+    get: async (_id: string) => info,
+  };
+}
+const PW_ENV_KEYS = [
+  "OPENCODE_PLANNER_WAIT_ENABLED",
+  "OPENCODE_PLANNER_WAIT_BRIDGE",
+  "OPENCODE_PLANNER_WAIT_SHELL",
+  "OPENCODE_PLANNER_WAIT_TIMEOUT_MS",
+];
+function savePwEnv(): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const k of PW_ENV_KEYS) out[k] = process.env[k];
+  return out;
+}
+function restorePwEnv(saved: Record<string, string | undefined>): void {
+  for (const k of PW_ENV_KEYS) {
+    if (saved[k] === undefined) delete process.env[k];
+    else process.env[k] = saved[k] as string;
+  }
+}
+function clearPwEnv(): void {
+  for (const k of PW_ENV_KEYS) delete process.env[k];
+}
+function makePwBridgeFixture(): { dir: string; bridge: string } {
+  const dir = mkdtempSync(join(tmpdir(), "pw-v2mock-"));
+  const bridge = join(dir, "planner-wait-bridge.ps1");
+  writeFileSync(bridge, "# fixture bridge\n", "utf8");
+  return { dir, bridge };
+}
+function pwValidArgs(): any {
+  return {
+    task_id: "pw-task-1",
+    goal_id: "pw-goal-1",
+    run_id: "run-1",
+    repository: "acme/widgets",
+    pr_number: 42,
+    branch: "fix/pw",
+    expected_head_sha: "a".repeat(40),
+    required_checks: ["ci"],
+    review_expectation: "APPROVED",
+    cursor: "",
+    deadline_utc: "2026-10-11T00:00:00Z",
+    retry_budget_max: 5,
+  };
+}
+const PW_SAFE_KEYS = [
+  "task_id",
+  "goal_id",
+  "run_id",
+  "repository",
+  "pr_number",
+  "branch",
+  "expected_head_sha",
+  "required_checks",
+  "review_expectation",
+  "cursor",
+  "deadline_utc",
+  "retry_budget_max",
+];
+const PW_REMOVED_KEYS = [
+  "owner",
+  "ownership_generation",
+  "lease_owner",
+  "lease_expires_utc",
+  "goal_store_dir",
+  "tasks_dir",
+  "waits_dir",
+  "flags_path",
+  "repo_root",
+];
+function pwPlannerContext(sessionID: string): any {
+  return { sessionID, agent: "build", messageID: "msg-01", id: "call-01" };
+}
+function pwStubSpawn(
+  calls: Array<any>,
+  script: (args: { child: any; stdout: any; payload: string; exe: string; argv: Array<string>; opts: any }) => void,
+): (exe: string, argv: Array<string>, opts: any) => any {
+  const { EventEmitter } = require("node:events");
+  return (exe: string, argv: Array<string>, opts: any) => {
+    const child = new EventEmitter();
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    const stdin = new EventEmitter();
+    let payload = "";
+    (stdin as any).write = (chunk: any) => {
+      payload += String(chunk);
+      return true;
+    };
+    (stdin as any).end = () => {
+      try {
+        script({ child, stdout, payload, exe, argv, opts });
+      } catch (err) {
+        child.emit("error", err);
+      }
+    };
+    (child as any).stdin = stdin;
+    (child as any).stdout = stdout;
+    (child as any).stderr = stderr;
+    (child as any).kill = () => {
+      try {
+        child.emit("close", null);
+      } catch {
+        // Fail-open no mock.
+      }
+      return true;
+    };
+    calls.push({ exe, argv, opts, getPayload: () => payload });
+    return child;
+  };
+}
+
+const pwMod: any = (await import("../../../plugins/orchestration-enforcement/v2.ts")) as any;
+const pwT: any = pwMod.__plannerWaitV2Test;
+ok(!!pwT && typeof pwT.makeExecute === "function", "PW-T hook de teste exportado pelo adapter V2");
+if (!pwT || typeof pwT.makeExecute !== "function") {
+  for (const name of ["PW-T4", "PW-T5", "PW-T6", "PW-T7"]) ok(false, name, "hook ausente");
+} else {
+
+// PW-T1: opt-in desligado por padrao => setup nao registra ferramenta.
+{
+  const saved = savePwEnv();
+  try {
+    clearPwEnv();
+    const tool = makePwToolSurface();
+    let threw = false;
+    try {
+      await V2Plugin.setup({ event: makeEventStream(), session: makeSurface(), tool });
+    } catch {
+      threw = true;
+    }
+    ok(!threw, "PW-T1 setup sem env nao lanca");
+    ok(tool.added.length === 0, "PW-T1 opt-in desligado: nenhuma tool registrada", `added=${tool.added.length}`);
+  } finally {
+    restorePwEnv(saved);
+  }
+}
+
+// PW-T2: habilitado com fixture => exatamente uma tool, shape exato 2.0.23,
+// input sem campo de sessao.
+{
+  const saved = savePwEnv();
+  const fx = makePwBridgeFixture();
+  try {
+    clearPwEnv();
+    process.env.OPENCODE_PLANNER_WAIT_ENABLED = "1";
+    process.env.OPENCODE_PLANNER_WAIT_BRIDGE = fx.bridge;
+    process.env.OPENCODE_PLANNER_WAIT_SHELL = process.execPath;
+    const tool = makePwToolSurface();
+    let threw = false;
+    try {
+      await V2Plugin.setup({ event: makeEventStream(), session: makePwSessionSurface({ info: { id: "ses-root-1" } }), tool });
+    } catch {
+      threw = true;
+    }
+    ok(!threw, "PW-T2 setup habilitado nao lanca");
+    ok(tool.added.length === 1, "PW-T2 exatamente uma tool registrada", `added=${tool.added.length}`);
+    if (tool.added.length === 1) {
+      const t = tool.added[0];
+      ok(t.name === "orchestration_planner_wait", "PW-T2 nome da tool", String(t.name));
+      const props = (t.input && t.input.properties) || {};
+      ok(!Object.keys(props).some((k: string) => /session/i.test(k)), "PW-T2 input sem campo de sessao");
+      ok(typeof t.execute === "function", "PW-T2 execute e funcao");
+      ok(t.execute.length === 2, "PW-T2 execute recebe (args, context)");
+      ok(typeof t.description === "string" && t.description.length > 0, "PW-T2 description presente");
+    }
+  } finally {
+    restorePwEnv(saved);
+    try {
+      const { rmSync } = await import("node:fs");
+      rmSync(fx.dir, { recursive: true, force: true });
+    } catch {
+      // Fail-open no mock.
+    }
+  }
+}
+
+// PW-T3: habilitado com fixture invalida => fail-open (sem throw, sem tool).
+{
+  const saved = savePwEnv();
+  try {
+    clearPwEnv();
+    process.env.OPENCODE_PLANNER_WAIT_ENABLED = "1";
+    process.env.OPENCODE_PLANNER_WAIT_SHELL = process.execPath;
+    const tool = makePwToolSurface();
+    let threw = false;
+    try {
+      await V2Plugin.setup({ event: makeEventStream(), session: makePwSessionSurface({ info: { id: "s" } }), tool });
+    } catch {
+      threw = true;
+    }
+    ok(!threw, "PW-T3 fixture invalida nao lanca (fail-open)");
+    ok(tool.added.length === 0, "PW-T3 fixture invalida: nenhuma tool registrada");
+  } finally {
+    restorePwEnv(saved);
+  }
+}
+
+// PW-T4: execute nega worker sem spawn.
+{
+  const calls: Array<any> = [];
+  const handler = pwT.makeExecute(
+    { bridge: "b", shell: "s", timeoutMs: 1000 },
+    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => ({ info: { id: "ses-w-1" } }) },
+  );
+  let reason = "";
+  try {
+    await handler(pwValidArgs(), { sessionID: "ses-w-1", agent: "coder", messageID: "m", id: "c" });
+  } catch (e) {
+    reason = String((e as Error)?.message ?? e);
+  }
+  ok(/planner-wait-worker-denied/.test(reason), "PW-T4 worker negado", reason);
+  ok(calls.length === 0, "PW-T4 worker negado antes do spawn");
+}
+
+// PW-T5: execute nega identidade de sessao vinda do modelo.
+{
+  const calls: Array<any> = [];
+  const handler = pwT.makeExecute(
+    { bridge: "b", shell: "s", timeoutMs: 1000 },
+    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => ({ info: { id: "ses-root-1" } }) },
+  );
+  const args = pwValidArgs();
+  args.session_id = "ses-forged";
+  let reason = "";
+  try {
+    await handler(args, pwPlannerContext("ses-root-1"));
+  } catch (e) {
+    reason = String((e as Error)?.message ?? e);
+  }
+  ok(/planner-wait-session-forbidden/.test(reason), "PW-T5 sessao do modelo recusada", reason);
+  ok(calls.length === 0, "PW-T5 sessao forjada recusada antes do spawn");
+}
+
+// PW-T6: execute nega sessao nao-root via proveniencia do host.
+{
+  const calls: Array<any> = [];
+  const handler = pwT.makeExecute(
+    { bridge: "b", shell: "s", timeoutMs: 1000 },
+    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => ({ info: { id: "ses-child-9", parentID: "ses-root-1" } }) },
+  );
+  let reason = "";
+  try {
+    await handler(pwValidArgs(), { sessionID: "ses-child-9", agent: "build", messageID: "m", id: "c" });
+  } catch (e) {
+    reason = String((e as Error)?.message ?? e);
+  }
+  ok(/planner-wait-not-root/.test(reason), "PW-T6 nao-root negado", reason);
+  ok(calls.length === 0, "PW-T6 nao-root negado antes do spawn");
+}
+
+// PW-T7: planner root ok com bridge stubada; sessao do HOST vai no stdin,
+// pins de autoridade falsos, argv literal com shell:false.
+{
+  const calls: Array<any> = [];
+  const doc = {
+    schema_version: 1, operation: "bind-wait", ok: true, reason: "registered",
+    run_id: "run-1", revision: 3, binding: "bound", wait_reused: false,
+    wait_file: "w", dedup_key: "d", task_mutated: true,
+    grants_authority: false, done_approved: false,
+  };
+  const handler = pwT.makeExecute(
+    { bridge: "B", shell: "S", timeoutMs: 1000 },
+    {
+      spawnFn: pwStubSpawn(calls, ({ child, stdout }) => {
+        stdout.emit("data", JSON.stringify(doc));
+        child.emit("close", 0);
+      }),
+      sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+    },
+  );
+  let out: any = null;
+  let reason = "";
+  try {
+    out = await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+  } catch (e) {
+    reason = String((e as Error)?.message ?? e);
+  }
+  ok(out !== null && reason === "", "PW-T7 planner root executa", reason);
+  ok(calls.length === 1, "PW-T7 exatamente uma chamada ao bridge");
+  if (calls.length === 1) {
+    const argv = calls[0].argv as Array<string>;
+    ok(
+      argv.length === 4 && argv[0] === "-NoProfile" && argv[1] === "-NonInteractive" && argv[2] === "-File" && argv[3] === "B",
+      "PW-T7 argv literal",
+      argv.join(" "),
+    );
+    ok(calls[0].opts && calls[0].opts.shell === false, "PW-T7 shell:false");
+    const sent = JSON.parse(calls[0].getPayload());
+    ok(sent.schema_version === 1, "PW-T7 envelope versao 1");
+    ok(sent.request.session_id === "ses-root-1", "PW-T7 sessao do HOST no stdin");
+    ok(
+      !Object.keys(sent.request).some((k: string) => k !== "session_id" && /session/i.test(k)),
+      "PW-T7 sem eco de sessao do modelo",
+    );
+    const sentKeys = Object.keys(sent.request).filter((k: string) => k !== "session_id").sort();
+    const wantKeys = ["branch", "cursor", "deadline_utc", "expected_head_sha", "goal_id", "pr_number", "repository", "required_checks", "review_expectation", "retry_budget_max", "run_id", "task_id"].sort();
+    ok(
+      sentKeys.length === wantKeys.length && wantKeys.every((k) => sentKeys.indexOf(k) !== -1),
+      "PW-T7 payload tem exatamente os campos seguros",
+      sentKeys.join(","),
+    );
+    for (const k of ["owner", "ownership_generation", "lease_owner", "lease_expires_utc", "goal_store_dir", "tasks_dir", "waits_dir", "flags_path", "repo_root"]) {
+      ok(!Object.prototype.hasOwnProperty.call(sent.request, k), "PW-T7 sem campo proibido no stdin: " + k, k);
+    }
+  }
+  if (out !== null) {
+    const text = out?.content?.[0]?.text ?? "";
+    const back = JSON.parse(text);
+    ok(back.ok === true && back.run_id === "run-1", "PW-T7 resultado do bridge superficiado");
+    ok(back.grants_authority === false && back.done_approved === false, "PW-T7 pins de autoridade falsos");
+  } else {
+    ok(false, "PW-T7 resultado do bridge superficiado", "sem output");
+  }
+}
+
+// PW-T8: schema exacto — so campos seguros; sem paths de storage, sem
+// owner/generation/lease_owner/lease_expires; required exacto; additionalProperties false.
+{
+  const t = pwT.inputSchema;
+  ok(!!t && t.type === "object", "PW-T8 inputSchema e object");
+  if (!!t) {
+    const props = Object.keys(t.properties || {});
+    ok(
+      props.length === PW_SAFE_KEYS.length && PW_SAFE_KEYS.every((k) => props.indexOf(k) !== -1),
+      "PW-T8 properties sao exatamente os campos seguros",
+      props.join(","),
+    );
+    for (const k of PW_REMOVED_KEYS) {
+      ok(props.indexOf(k) === -1, "PW-T8 schema sem campo proibido: " + k, k);
+    }
+    const req = (t.required || []) as Array<string>;
+    const wantReq = [
+      "task_id", "goal_id", "repository", "pr_number", "branch",
+      "expected_head_sha", "deadline_utc", "retry_budget_max",
+    ];
+    ok(
+      req.length === wantReq.length && wantReq.every((k) => req.indexOf(k) !== -1),
+      "PW-T8 required exacto (sem auth/paths)",
+      req.join(","),
+    );
+    ok(t.additionalProperties === false, "PW-T8 additionalProperties false");
+  }
+}
+
+// PW-T9: chaves de storage/autoridade e chaves desconhecidas sao recusadas
+// antes de qualquer spawn (allowlist explicita em runtime).
+{
+  const badList: Array<{ label: string; args: any; reason: RegExp }> = [];
+  for (const k of PW_REMOVED_KEYS) {
+    const a = pwValidArgs();
+    (a as any)[k] = "x";
+    badList.push({ label: k, args: a, reason: /planner-wait-args-unknown-field/ });
+  }
+  const unknownArgs = pwValidArgs() as any;
+  unknownArgs["foo"] = 1;
+  badList.push({ label: "foo", args: unknownArgs, reason: /planner-wait-args-unknown-field/ });
+  // Lease-expiry model-supplied (later/earlier) nunca atravessa: rejeitado
+  // como unknown-field, sem spawn, mesmo com ISO valido.
+  for (const probe of ["2099-01-01T00:00:00Z", "2000-01-01T00:00:00Z"]) {
+    const a = pwValidArgs();
+    (a as any)["lease_expires_utc"] = probe;
+    badList.push({ label: "lease_expires_utc:" + probe, args: a, reason: /planner-wait-args-unknown-field/ });
+  }
+  for (const b of badList) {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(b.args, pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(b.reason.test(reason), "PW-T9 chave proibida recusada: " + b.label, reason);
+    ok(calls.length === 0, "PW-T9 sem spawn para chave proibida: " + b.label);
+  }
+}
+
+// PW-T10: sem session.get do host => proveniencia indisponivel, sem spawn.
+{
+  const calls: Array<any> = [];
+  const handler = pwT.makeExecute(
+    { bridge: "B", shell: "S", timeoutMs: 1000 },
+    { spawnFn: pwStubSpawn(calls, () => {}) },
+  );
+  let reason = "";
+  try {
+    await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+  } catch (e) {
+    reason = String((e as Error)?.message ?? e);
+  }
+  ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T10 sem session.get nega", reason);
+  ok(calls.length === 0, "PW-T10 sem session.get: sem spawn");
+}
+
+// PW-T11: validador de fixture via seam (lstatSync real no adapter):
+// symlink em bridge ou shell nega; ausente/nao-arquivo/oversized nega.
+{
+  ok(typeof pwT.checkFixture === "function", "PW-T11 seam checkFixture exportado");
+  if (typeof pwT.checkFixture === "function") {
+    const goodStat = () => ({ isSymbolicLink: () => false, isFile: () => true, size: 100 });
+    const symStat = () => ({ isSymbolicLink: () => true, isFile: () => true, size: 100 });
+    const dirStat = () => ({ isSymbolicLink: () => false, isFile: () => false, size: 100 });
+    const bigStat = () => ({ isSymbolicLink: () => false, isFile: () => true, size: 70000 });
+    const throwing = () => { throw new Error("ENOENT"); };
+    const rOk = pwT.checkFixture(goodStat, "/abs/bridge.ps1", "/abs/pwsh");
+    ok(!!rOk && (rOk as any).ok === true, "PW-T11 fixture valida passa");
+    const rSymBridge = pwT.checkFixture(symStat, "/abs/bridge.ps1", "/abs/pwsh");
+    ok(!(rSymBridge as any).ok, "PW-T11 symlink no bridge nega");
+    const rSymShell = pwT.checkFixture(goodStat, "/abs/bridge.ps1", "/abs/pwsh", symStat);
+    ok(!(rSymShell as any).ok, "PW-T11 symlink no shell nega");
+    const rMissing = pwT.checkFixture(throwing, "/abs/bridge.ps1", "/abs/pwsh");
+    ok(!(rMissing as any).ok, "PW-T11 ausente nega");
+    const rDir = pwT.checkFixture(dirStat, "/abs/bridge.ps1", "/abs/pwsh");
+    ok(!(rDir as any).ok, "PW-T11 diretorio nega");
+    const rBig = pwT.checkFixture(bigStat, "/abs/bridge.ps1", "/abs/pwsh");
+    ok(!(rBig as any).ok, "PW-T11 oversized nega");
+  }
+}
+
+// PW-T12 (PR181-A-TOOLCONTEXT-STRICT): ToolContext estrito — SOMENTE os
+// campos canonicos pinados @opencode/plugin 2.0.23 (sessionID/agent, ao
+// lado de messageID/id; execute(input, context) fornecido pelo host,
+// separado dos args do modelo). Alias (sessionId/session_id/agentName/
+// agent_name) NAO sao lidos.
+{
+  // T12a: canonico planner funciona.
+  const calls: Array<any> = [];
+  const doc = {
+    schema_version: 1, operation: "bind-wait", ok: true, reason: "registered",
+    run_id: "run-1", revision: 3, binding: "bound", wait_reused: false,
+    wait_file: "w", dedup_key: "d", task_mutated: true,
+    grants_authority: false, done_approved: false,
+  };
+  const handler = pwT.makeExecute(
+    { bridge: "B", shell: "S", timeoutMs: 1000 },
+    {
+      spawnFn: pwStubSpawn(calls, ({ child, stdout }) => {
+        stdout.emit("data", JSON.stringify(doc));
+        child.emit("close", 0);
+      }),
+      sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+    },
+  );
+  let out: any = null;
+  let reason = "";
+  try {
+    out = await handler(pwValidArgs(), { sessionID: "ses-root-1", agent: "build", messageID: "m", id: "c" });
+  } catch (e) {
+    reason = String((e as Error)?.message ?? e);
+  }
+  ok(out !== null && reason === "", "PW-T12a canonico sessionID/agent executa", reason);
+  ok(calls.length === 1, "PW-T12a canonico chega ao spawn");
+  // T12b: somente-alias nega sem spawn.
+  for (const aliasCtx of [
+    { sessionId: "ses-root-1", agent: "build", messageID: "m", id: "c" },
+    { session_id: "ses-root-1", agent_name: "build", messageID: "m", id: "c" },
+    { sessionId: "ses-root-1", agentName: "build", messageID: "m", id: "c" },
+  ]) {
+    const c2: Array<any> = [];
+    const h2 = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(c2, ({ child, stdout }: any) => {
+          stdout.emit("data", JSON.stringify(doc));
+          child.emit("close", 0);
+        }),
+        sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+      },
+    );
+    let r2 = "";
+    try {
+      await h2(pwValidArgs(), aliasCtx);
+    } catch (e) {
+      r2 = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-context-unknown/.test(r2), "PW-T12b somente-alias nega", r2 + " :: " + JSON.stringify(Object.keys(aliasCtx)));
+    ok(c2.length === 0, "PW-T12b somente-alias sem spawn");
+  }
+  // T12c: worker canonico + alias forjado de planner continua negado
+  // como worker (alias ignorado, sem escalacao).
+  {
+    const c3: Array<any> = [];
+    const h3 = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(c3, () => {}),
+        sessionGet: async () => ({ info: { id: "ses-w-1" } }),
+      },
+    );
+    let r3 = "";
+    try {
+      await h3(pwValidArgs(), { sessionID: "ses-w-1", agent: "coder", agentName: "build", messageID: "m", id: "c" });
+    } catch (e) {
+      r3 = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-worker-denied/.test(r3), "PW-T12c worker canonico + alias forjado ainda nega", r3);
+    ok(c3.length === 0, "PW-T12c worker forjado sem spawn");
+  }
+}
+
+console.log(`SUMMARY pass=${pass} fail=${fail}`);}
 
 console.log(`SUMMARY pass=${pass} fail=${fail}`);
 process.exit(fail > 0 ? 1 : 0);

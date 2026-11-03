@@ -30,7 +30,18 @@ import {
   recordSessionEvent,
   resolveRole,
 } from "./shared/identity";
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
+import { spawn as spawnBridgeProcess } from "node:child_process";
+import type { Info as ToolInfo, ToolContext, ToolDomain } from "@opencode/plugin/promise/tool";
+import {
+  PLANNER_WAIT_INPUT_SCHEMA,
+  PLANNER_WAIT_TOOL_NAME,
+  checkPlannerWaitFixtureFiles,
+  isPlannerWaitEnabled,
+  makePlannerWaitExecute,
+  readPlannerWaitBridgeConfig,
+  readPlannerWaitEnv,
+} from "./shared/planner-wait";
 import { appendTextPart, hasMarker, mandateFor } from "./shared/mandate";
 import {
   observeMcpBeforeExecute,
@@ -96,6 +107,99 @@ async function subscribe(
     if (reg && typeof reg.dispose === "function") registrations.push(reg);
   } catch {
     // Fail-open: a missing/renamed hook never breaks setup.
+  }
+}
+
+// PR181 Fatia A: single native tool `orchestration_planner_wait` on the
+// EXISTING V2 setup path. Opt-in, disabled by default: without
+// OPENCODE_PLANNER_WAIT_ENABLED=1 nothing is registered (zero behavior
+// change). When enabled, the tool validates Planner-root authorization
+// (host ToolContext sessionID/agent only; model-supplied session keys
+// refused) and spawns the fixture-owned PowerShell bridge, which performs
+// the Phase 32 root-session CAS bind plus the GitHub wait registration.
+// Fail-open throughout: any doubt skips registration (with a
+// hooks-unavailable telemetry row) and setup never throws.
+async function setupPlannerWaitTool(
+  tool: unknown,
+  session: unknown,
+  env: Record<string, string | undefined>,
+  registrations: Array<{ dispose: () => unknown }>,
+): Promise<void> {
+  try {
+    if (!isPlannerWaitEnabled(env)) return;
+    const cfg = readPlannerWaitBridgeConfig(env);
+    const t = tool as ToolDomain | null | undefined;
+    if (!cfg.ok || !t || typeof (t as unknown as Record<string, unknown>).transform !== "function") {
+      try {
+        writeUnavailable("v2", "planner-wait unavailable");
+      } catch {
+        // Fail-open.
+      }
+      return;
+    }
+    let fixtureOk = false;
+    try {
+      // lstat (never stat) on BOTH bridge and shell: a symlink at either
+      // path denies even when it resolves to a regular file. Residual: this
+      // check is not atomic with the later spawn (TOCTOU); the bridge
+      // response stays strictly parsed and authority pins stay false.
+      const checked = checkPlannerWaitFixtureFiles(lstatSync, cfg.bridge, cfg.shell);
+      fixtureOk = !!checked && checked.ok === true;
+    } catch {
+      fixtureOk = false;
+    }
+    if (!fixtureOk) {
+      try {
+        writeUnavailable("v2", "planner-wait unavailable");
+      } catch {
+        // Fail-open.
+      }
+      return;
+    }
+    let sessionGet: ((id: string) => Promise<unknown>) | undefined;
+    try {
+      const get = (session as unknown as Record<string, unknown>)?.get;
+      if (typeof get === "function") {
+        const bound = (get as (...a: Array<any>) => Promise<unknown>).bind(session);
+        sessionGet = (id: string) => bound(id);
+      }
+    } catch {
+      sessionGet = undefined;
+    }
+    const fullCfg = { bridge: cfg.bridge, shell: cfg.shell, timeoutMs: cfg.timeoutMs };
+    const handler = makePlannerWaitExecute(fullCfg, {
+      spawnFn: (exe, argv, opts) => spawnBridgeProcess(exe, argv, opts),
+      sessionGet,
+    });
+    // Pinned-API proof (2.0.23): this literal is checked by tsc against
+    // `Info` from @opencode/plugin/promise/tool — {name, input,
+    // description, execute}. A wrong key (id/parameters/args) or a wrong
+    // input/execute shape fails the V2 typecheck track.
+    const toolDef: ToolInfo = {
+      name: PLANNER_WAIT_TOOL_NAME,
+      description:
+        "Registers the Planner root-session binding (Phase 32 CAS) and a GitHub CI/PR wait. Planner root sessions only.",
+      input: PLANNER_WAIT_INPUT_SCHEMA,
+      execute: async (args: unknown, context: ToolContext) => handler(args, context),
+    };
+    try {
+      const reg = await t.transform((editor) => {
+        editor.add(toolDef);
+      });
+      if (reg && typeof reg.dispose === "function") registrations.push(reg);
+    } catch {
+      try {
+        writeUnavailable("v2", "planner-wait unavailable");
+      } catch {
+        // Fail-open.
+      }
+    }
+  } catch {
+    try {
+      writeUnavailable("v2", "planner-wait unavailable");
+    } catch {
+      // Fail-open.
+    }
   }
 }
 
@@ -268,6 +372,22 @@ async function setupV2(ctx: any): Promise<(() => void) | void> {
     } catch {
       // Fail-open: envelope works on embedded defaults regardless.
     }
+    // PR181 Fatia A (opt-in, off by default): Planner root-session
+    // binding + GitHub wait tool on the existing setup path. No env =>
+    // no registration. Never throws.
+    try {
+      const cAny = c as any;
+      let env: Record<string, string | undefined> = {};
+      try {
+        const pe = (typeof process !== "undefined" ? (process as any).env : undefined) as unknown;
+        env = readPlannerWaitEnv(pe);
+      } catch {
+        env = {};
+      }
+      await setupPlannerWaitTool(cAny.tool, cAny.session, env, registrations);
+    } catch {
+      // Fail-open: planner-wait never breaks setup.
+    }
   } catch {
     // Fail-open: setup never throws to the runtime.
     return undefined;
@@ -341,4 +461,17 @@ export const __orchestrationEnforcementV2Test = {
       return null;
     }
   },
+};
+
+// PR181 Fatia A test hook: exposes the planner-wait wiring for the
+// distribution mock (tests/distribution/plugin-harness/v2-mock.ts).
+// Runtime shape is identical to the separate-slice hook it replaces.
+export const __plannerWaitV2Test = {
+  toolName: PLANNER_WAIT_TOOL_NAME,
+  inputSchema: PLANNER_WAIT_INPUT_SCHEMA,
+  isEnabled: isPlannerWaitEnabled,
+  readEnv: readPlannerWaitEnv,
+  readBridgeConfig: readPlannerWaitBridgeConfig,
+  makeExecute: makePlannerWaitExecute,
+  checkFixture: checkPlannerWaitFixtureFiles,
 };
