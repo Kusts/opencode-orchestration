@@ -18,6 +18,27 @@ $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V14 ($p.Status -eq 'POLICY_LOADED') 'policy-loads'
 Assert-V14 ($p.PolicyVersion -eq '1.4.0') 'policy-v1.4'
 $pol = $p.Policy
+$expectedProviders = @{
+    'iceman' = @{ Provider='opencode-go'; Model='opencode-go/iceman-contributor-free' }
+    'mimo' = @{ Provider='opencode'; Model='opencode/mimo-v2.6-flash-free' }
+    'muse' = @{ Provider='opencode-go'; Model='opencode-go/muse-spark-1.3-contributor' }
+    'deepseek_go' = @{ Provider='opencode-go'; Model='opencode-go/deepseek-v4.1-flash' }
+    'luna' = @{ Provider='openai'; Model='openai/gpt-6-luna' }
+    'terra' = @{ Provider='openai'; Model='openai/gpt-6.1-terra' }
+    'sol' = @{ Provider='openai'; Model='openai/gpt-6.1-sol' }
+    'astra' = @{ Provider='openai'; Model='openai/gpt-6-astra' }
+}
+foreach ($modelName in $expectedProviders.Keys) {
+    $actual = $pol.models.PSObject.Properties[$modelName].Value
+    $expected = $expectedProviders[$modelName]
+    Assert-V14 ($null -ne $actual -and
+        [string]$actual.provider -eq [string]$expected.Provider -and
+        [string]$actual.model_id -eq [string]$expected.Model -and
+        [string](Get-ModelProviderFromId $actual.model_id) -eq [string]$expected.Provider) "provider-and-model-id:$modelName"
+}
+# Disabled legacy Console DeepSeek must not be selected instead of Go DeepSeek.
+Assert-V14 ($pol.models.deepseek.enabled -eq $false -and
+    $pol.models.deepseek.model_id -eq 'opencode/deepseek-v4.1-flash-free') 'legacy-console-deepseek-disabled'
 Assert-V14 ($pol.tiers.T1.primary -eq 'iceman') 'T1-iceman'
 Assert-V14 ($pol.tiers.T1.alternatives -contains 'mimo') 'T1-mimo-fallback'
 Assert-V14 ($pol.models.mimo.model_id -eq 'opencode/mimo-v2.6-flash-free') 'mimo-openCode-console-id'
