@@ -87,7 +87,7 @@ $script:AgentModelAdmissibility = @{
         ProhibitionNotes = 'System architecture and boundary definition requires capable reasoning; T0/T1/T2 prohibited.'
     }
     'docs-manager' = @{
-        DefaultTier      = 'T2'
+        DefaultTier      = 'T1'
         AdmissibleTiers  = @('T0', 'T1', 'T2')
         ProhibitedTiers  = @('T3', 'T4')
         ProhibitionNotes = 'Documentation updates do not justify T3/T4.'
@@ -145,10 +145,10 @@ $script:AgentModelAdmissibility = @{
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/iceman-contributor-free';  Provider = 'opencode-go'; Authorized = $true }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/iceman-contributor-free';  Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
     'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'openai/gpt-6-luna' }
-    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6-luna';                      Provider = 'openai';      Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
-    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol';                      Provider = 'openai';      Authorized = $false; ExceptionalModel = 'openai/gpt-6-astra' }
+    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-terra';                   Provider = 'openai';      Authorized = $true; AlternativeModel = 'opencode-go/muse-spark-1.3-contributor' }
+    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol';                      Provider = 'openai';      Authorized = $true; ExceptionalModel = 'openai/gpt-6-astra' }
 }
 
 $script:CachedRoutingPolicy = $null
@@ -294,10 +294,10 @@ function Get-OrchestrationUserConfigCatalog {
 
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
         'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mMuse;                                   Provider = (Get-ModelProviderFromId $mMuse); Authorized = $true; AlternativeModel = $mLuna }
-        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mLuna;                                   Provider = 'openai';      Authorized = $true; AlternativeModel = $mTerra }
-        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mSol;                                    Provider = 'openai';      Authorized = $false; ExceptionalModel = $mAstra }
+        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mTerra;                                  Provider = 'openai';      Authorized = $true; AlternativeModel = $mMuse }
+        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mSol;                                    Provider = 'openai';      Authorized = $true; ExceptionalModel = $mAstra }
     }
 
     if (-not $IgnoreUserConfig) {
@@ -422,54 +422,24 @@ function Resolve-CatalogModel {
     $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
     $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.3.0' }
 
-    # Strict separation of technical admissibility vs provider/cost authorization:
-    # High risk or repeated failures justify T4 technically, but cost authorization MUST be explicit.
-    # Exceptional Astra check: Astra strictly requires OPENCODE_ASTRA_AUTHORIZED='true',
-    # and general T4 cost authorization alone does NOT authorize Astra.
+    # T4 is a policy-authorized tier; the caller must prove T3 non-resolution before selection.
+    # Astra cannot be selected directly: it is only a fallback after a verified Sol failure.
     if ($Tier -eq 'T4') {
+        $authorized = $true
+        $authSource = 'AUTO_ROUTER_POLICY_V14'
+        $authEvidence = 'policy:t3-verified-failure-gate'
         if ($catModel -match 'astra') {
-            $astraAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
-            if ($astraAuth) {
-                $authorized = $true
-                $authSource = 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED'
-                $authEvidence = 'env:OPENCODE_ASTRA_AUTHORIZED=true'
-            } else {
-                $authorized = $false
-                $authSource = 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED'
-                $authEvidence = 'none'
-            }
-        } elseif ($ProviderCostAuthorized) {
-            $authorized = $true
-            $authSource = 'EXPLICIT_PARAMETER'
-            $authEvidence = 'parameter:ProviderCostAuthorized=true'
-        } elseif ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true') {
-            $authorized = $true
-            $authSource = 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED'
-            $authEvidence = 'env:OPENCODE_T4_AUTHORIZED=true'
-        } else {
-            # Never authorize T4 solely by risk or failure count
             $authorized = $false
-            $authSource = 'NONE_UNAUTHORIZED'
-            $authEvidence = 'none'
-        }
-    } elseif ($catModel -match 'astra') {
-        $astraAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
-        if ($astraAuth) {
-            $authorized = $true
-            $authSource = 'GLOBAL_ENV_OPENCODE_ASTRA_AUTHORIZED'
-            $authEvidence = 'env:OPENCODE_ASTRA_AUTHORIZED=true'
-        } else {
-            $authorized = $false
-            $authSource = 'ASTRA_EXCEPTIONAL_BUDGET_REQUIRED'
+            $authSource = 'ASTRA_REQUIRES_VERIFIED_SOL_FAILURE'
             $authEvidence = 'none'
         }
     }
 
     $candidates = switch ($Tier) {
-        'T1' { @('opencode-go/iceman-contributor-free') }
-        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna') }
-        'T3' { @('openai/gpt-6-luna', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol') }
-        'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra') }
+        'T1' { @('opencode-go/iceman-contributor-free', 'opencode/mimo-v2.6-flash-free') }
+        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash') }
+        'T3' { @('openai/gpt-6.1-terra', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
+        'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
         default { @('none (deterministic)') }
     }
 
