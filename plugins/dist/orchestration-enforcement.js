@@ -614,7 +614,605 @@ var __orchestrationEnforcementTest = {
 };
 
 // plugins/orchestration-enforcement/v2.ts
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
+import { spawn as spawnBridgeProcess } from "node:child_process";
+
+// plugins/orchestration-enforcement/shared/planner-wait.ts
+var PLANNER_WAIT_TOOL_NAME = "orchestration_planner_wait";
+var PLANNER_WAIT_OPERATION = "bind-wait";
+var PLANNER_WAIT_SCHEMA_VERSION = 1;
+var PLANNER_WAIT_BRIDGE_MAX_BYTES = 65536;
+var PLANNER_WAIT_DEFAULT_TIMEOUT_MS = 30000;
+function asString(value) {
+  try {
+    if (typeof value !== "string")
+      return "";
+    return value.trim();
+  } catch {
+    return "";
+  }
+}
+function isPlainObject(value) {
+  try {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  } catch {
+    return false;
+  }
+}
+function sanitizePlannerWaitCode(value) {
+  try {
+    const t = asString(value).toLowerCase();
+    let out = "";
+    for (let i = 0;i < t.length && out.length < 64; i++) {
+      const c = t.charAt(i);
+      if (c >= "a" && c <= "z" || c >= "0" && c <= "9" || c === "-" || c === "_")
+        out += c;
+      else
+        out += "-";
+    }
+    if (out === "")
+      return "unknown";
+    return out;
+  } catch {
+    return "unknown";
+  }
+}
+function denyPlannerWait(reason) {
+  const err = new Error("orchestration_planner_wait denied: " + sanitizePlannerWaitCode(reason));
+  try {
+    err.code = "PLANNER_WAIT_DENY";
+  } catch {}
+  return err;
+}
+function plannerWaitRoleOf(agent) {
+  try {
+    const n = normalizeAgentName(agent);
+    if (n === "")
+      return "unknown";
+    if (PLANNER_AGENTS.has(n))
+      return "planner";
+    if (WORKER_AGENTS.has(n))
+      return "worker";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+var PLANNER_WAIT_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    task_id: { type: "string" },
+    goal_id: { type: "string" },
+    run_id: { type: "string" },
+    repository: { type: "string" },
+    pr_number: { type: "integer", minimum: 1 },
+    branch: { type: "string" },
+    expected_head_sha: { type: "string" },
+    required_checks: { type: "array", items: { type: "string" }, maxItems: 32 },
+    review_expectation: { type: "string", enum: ["APPROVED", "ANY"] },
+    cursor: { type: "string" },
+    deadline_utc: { type: "string" },
+    retry_budget_max: { type: "integer", minimum: 0, maximum: 100 }
+  },
+  required: [
+    "task_id",
+    "goal_id",
+    "repository",
+    "pr_number",
+    "branch",
+    "expected_head_sha",
+    "deadline_utc",
+    "retry_budget_max"
+  ],
+  additionalProperties: false
+};
+var PLANNER_WAIT_ARG_ALLOWLIST = [
+  "task_id",
+  "goal_id",
+  "run_id",
+  "repository",
+  "pr_number",
+  "branch",
+  "expected_head_sha",
+  "required_checks",
+  "review_expectation",
+  "cursor",
+  "deadline_utc",
+  "retry_budget_max"
+];
+var PLANNER_WAIT_ENV_KEYS = [
+  "OPENCODE_PLANNER_WAIT_ENABLED",
+  "OPENCODE_PLANNER_WAIT_BRIDGE",
+  "OPENCODE_PLANNER_WAIT_SHELL",
+  "OPENCODE_PLANNER_WAIT_TIMEOUT_MS"
+];
+function readPlannerWaitEnv(source) {
+  const out = {};
+  try {
+    const e = source;
+    if (!e || typeof e !== "object")
+      return out;
+    for (const k of PLANNER_WAIT_ENV_KEYS) {
+      const v = e[k];
+      out[k] = typeof v === "string" ? v : undefined;
+    }
+  } catch {}
+  return out;
+}
+function isPlannerWaitEnabled(env) {
+  try {
+    return asString(env["OPENCODE_PLANNER_WAIT_ENABLED"]) === "1";
+  } catch {
+    return false;
+  }
+}
+function readPlannerWaitBridgeConfig(env) {
+  const fail = (reason) => ({ ok: false, reason, bridge: "", shell: "", timeoutMs: 0 });
+  try {
+    const bridge = asString(env["OPENCODE_PLANNER_WAIT_BRIDGE"]);
+    const shell = asString(env["OPENCODE_PLANNER_WAIT_SHELL"]);
+    if (bridge === "" || shell === "")
+      return fail("planner-wait-config-incomplete");
+    const absRe = /^(?:\/|[A-Za-z]:[\\/])/;
+    if (!absRe.test(bridge) || !absRe.test(shell))
+      return fail("planner-wait-config-not-absolute");
+    let timeoutMs = PLANNER_WAIT_DEFAULT_TIMEOUT_MS;
+    const raw = asString(env["OPENCODE_PLANNER_WAIT_TIMEOUT_MS"]);
+    if (raw !== "") {
+      if (!/^[0-9]{1,6}$/.test(raw))
+        return fail("planner-wait-timeout-invalid");
+      timeoutMs = Number(raw);
+      if (!(timeoutMs >= 1000 && timeoutMs <= 120000))
+        return fail("planner-wait-timeout-invalid");
+    }
+    return { ok: true, reason: "", bridge, shell, timeoutMs };
+  } catch {
+    return fail("planner-wait-config-invalid");
+  }
+}
+function readPlannerWaitHostContext(context) {
+  const fail = { ok: false, reason: "planner-wait-context-unknown", sessionId: "", agent: "" };
+  try {
+    if (!isPlainObject(context))
+      return fail;
+    const c = context;
+    const sessionId = asString(c["sessionID"]);
+    const agent = asString(c["agent"]);
+    if (sessionId === "" || agent === "")
+      return fail;
+    if (sessionId.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(sessionId))
+      return fail;
+    return { ok: true, reason: "", sessionId, agent };
+  } catch {
+    return fail;
+  }
+}
+function validatePlannerWaitArgs(args) {
+  const fail = (reason) => ({
+    ok: false,
+    reason,
+    request: {}
+  });
+  try {
+    if (!isPlainObject(args))
+      return fail("planner-wait-args-invalid");
+    const a = args;
+    for (const k of Object.keys(a)) {
+      if (/session/i.test(k))
+        return fail("planner-wait-session-forbidden");
+    }
+    for (const k of Object.keys(a)) {
+      if (PLANNER_WAIT_ARG_ALLOWLIST.indexOf(k) === -1) {
+        return fail("planner-wait-args-unknown-field");
+      }
+    }
+    const req = {};
+    const needStr = (name, max) => {
+      const v = a[name];
+      if (typeof v !== "string" || asString(v) === "" || asString(v).length > max)
+        return null;
+      return asString(v);
+    };
+    const optStr = (name, max) => {
+      if (a[name] === undefined)
+        return "";
+      const v = a[name];
+      if (typeof v !== "string" || asString(v).length > max)
+        return null;
+      return asString(v);
+    };
+    for (const name of [
+      "task_id",
+      "goal_id",
+      "repository",
+      "branch",
+      "expected_head_sha",
+      "deadline_utc"
+    ]) {
+      const v = needStr(name, 512);
+      if (v === null)
+        return fail("planner-wait-args-invalid");
+      req[name] = v;
+    }
+    const pr = a["pr_number"];
+    if (typeof pr !== "number" || !Number.isInteger(pr) || pr < 1)
+      return fail("planner-wait-args-invalid");
+    req["pr_number"] = pr;
+    const rb = a["retry_budget_max"];
+    if (typeof rb !== "number" || !Number.isInteger(rb) || rb < 0 || rb > 100)
+      return fail("planner-wait-args-invalid");
+    req["retry_budget_max"] = rb;
+    const rev = a["review_expectation"] === undefined ? "APPROVED" : a["review_expectation"];
+    if (rev !== "APPROVED" && rev !== "ANY")
+      return fail("planner-wait-args-invalid");
+    req["review_expectation"] = rev;
+    const checks = [];
+    if (a["required_checks"] !== undefined) {
+      const rc = a["required_checks"];
+      if (!Array.isArray(rc) || rc.length > 32)
+        return fail("planner-wait-args-invalid");
+      for (const c of rc) {
+        if (typeof c !== "string" || asString(c) === "" || asString(c).length > 128) {
+          return fail("planner-wait-args-invalid");
+        }
+        checks.push(asString(c));
+      }
+    }
+    req["required_checks"] = checks;
+    for (const name of ["run_id", "cursor"]) {
+      const v = optStr(name, 1024);
+      if (v === null)
+        return fail("planner-wait-args-invalid");
+      req[name] = v;
+    }
+    if (!/^[0-9a-fA-F]{40}$/.test(String(req["expected_head_sha"])))
+      return fail("planner-wait-args-invalid");
+    for (const name of ["deadline_utc"]) {
+      const v = String(req[name]);
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(v)) {
+        return fail("planner-wait-args-invalid");
+      }
+      if (Number.isNaN(Date.parse(v)))
+        return fail("planner-wait-args-invalid");
+    }
+    return { ok: true, reason: "", request: req };
+  } catch {
+    return fail("planner-wait-args-invalid");
+  }
+}
+async function checkPlannerWaitRootProvenance(sessionGet, sessionID) {
+  try {
+    if (typeof sessionGet !== "function")
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    const doc = await sessionGet(sessionID);
+    if (!isPlainObject(doc))
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    const d = doc;
+    const rawInfo = d["info"];
+    const rawSession = d["session"];
+    const info = isPlainObject(rawInfo) ? rawInfo : isPlainObject(rawSession) ? rawSession : null;
+    if (info === null)
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    const id = asString(info["id"] ?? info["sessionID"] ?? info["sessionId"] ?? info["session_id"]);
+    if (id === "")
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    if (id !== sessionID)
+      return { ok: false, reason: "planner-wait-provenance-mismatch" };
+    const parent = asString(info["parentID"] ?? info["parentId"] ?? info["parent_id"] ?? info["parent"]);
+    if (parent !== "")
+      return { ok: false, reason: "planner-wait-not-root" };
+    return { ok: true, reason: "" };
+  } catch {
+    return { ok: false, reason: "planner-wait-provenance-unavailable" };
+  }
+}
+function checkPlannerWaitFixtureFiles(lstat, bridge, shell, shellLstat) {
+  const fail = (reason) => ({ ok: false, reason });
+  try {
+    if (typeof lstat !== "function")
+      return fail("planner-wait-fixture-unavailable");
+    const lstatShell = typeof shellLstat === "function" ? shellLstat : lstat;
+    if (typeof bridge !== "string" || bridge === "" || typeof shell !== "string" || shell === "") {
+      return fail("planner-wait-fixture-invalid");
+    }
+    let b;
+    try {
+      b = lstat(bridge);
+    } catch {
+      return fail("planner-wait-fixture-unreadable");
+    }
+    if (!b || b.isSymbolicLink())
+      return fail("planner-wait-fixture-symlink");
+    if (!b.isFile() || b.size <= 0 || b.size > PLANNER_WAIT_BRIDGE_MAX_BYTES) {
+      return fail("planner-wait-fixture-invalid");
+    }
+    let s;
+    try {
+      s = lstatShell(shell);
+    } catch {
+      return fail("planner-wait-fixture-unreadable");
+    }
+    if (!s || s.isSymbolicLink())
+      return fail("planner-wait-fixture-symlink");
+    if (!s.isFile())
+      return fail("planner-wait-fixture-invalid");
+    return { ok: true, reason: "" };
+  } catch {
+    return fail("planner-wait-fixture-invalid");
+  }
+}
+function runPlannerWaitBridge(cfg, payload, deps) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled)
+        return;
+      settled = true;
+      resolve(result);
+    };
+    const bad = (reason) => finish({ ok: false, reason, stdout: "" });
+    let spawnFn = null;
+    try {
+      if (deps && typeof deps.spawnFn === "function")
+        spawnFn = deps.spawnFn;
+    } catch {
+      spawnFn = null;
+    }
+    if (typeof spawnFn !== "function") {
+      bad("planner-wait-bridge-spawn-unavailable");
+      return;
+    }
+    let child = null;
+    try {
+      child = spawnFn(cfg.shell, ["-NoProfile", "-NonInteractive", "-File", cfg.bridge], {
+        shell: false,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+    } catch {
+      child = null;
+    }
+    if (!child || !child.stdin || !child.stdout || !child.stderr) {
+      bad("planner-wait-bridge-spawn-failed");
+      return;
+    }
+    const outChunks = [];
+    let outBytes = 0;
+    let done = false;
+    let timer = null;
+    try {
+      timer = setTimeout(() => {
+        done = true;
+        try {
+          child?.kill();
+        } catch {}
+        bad("planner-wait-bridge-timeout");
+      }, cfg.timeoutMs);
+    } catch {
+      timer = null;
+    }
+    const clearTimer = () => {
+      try {
+        if (timer !== null)
+          clearTimeout(timer);
+      } catch {}
+      timer = null;
+    };
+    try {
+      child.stderr.on("data", () => {
+        return;
+      });
+    } catch {}
+    try {
+      child.stdout.on("data", (chunk) => {
+        if (done)
+          return;
+        try {
+          let buf;
+          if (chunk instanceof Uint8Array)
+            buf = chunk;
+          else
+            buf = new TextEncoder().encode(String(chunk));
+          outBytes += buf.length;
+          if (outBytes > PLANNER_WAIT_BRIDGE_MAX_BYTES) {
+            done = true;
+            try {
+              child?.kill();
+            } catch {}
+            clearTimer();
+            bad("planner-wait-bridge-output-unbounded");
+            return;
+          }
+          outChunks.push(buf);
+        } catch {}
+      });
+    } catch {}
+    try {
+      child.on("error", () => {
+        if (done)
+          return;
+        done = true;
+        clearTimer();
+        bad("planner-wait-bridge-spawn-failed");
+      });
+    } catch {}
+    try {
+      child.on("close", (code) => {
+        if (done)
+          return;
+        done = true;
+        clearTimer();
+        if (code !== 0) {
+          bad("planner-wait-bridge-refused");
+          return;
+        }
+        let stdout = "";
+        try {
+          let total = 0;
+          for (const b of outChunks)
+            total += b.length;
+          const flat = new Uint8Array(total);
+          let off = 0;
+          for (const b of outChunks) {
+            flat.set(b, off);
+            off += b.length;
+          }
+          stdout = new TextDecoder("utf-8", { fatal: true }).decode(flat);
+        } catch {
+          bad("planner-wait-bridge-output-invalid");
+          return;
+        }
+        finish({ ok: true, reason: "", stdout });
+      });
+    } catch {}
+    try {
+      child.stdin.on("error", () => {
+        if (done)
+          return;
+        done = true;
+        clearTimer();
+        try {
+          child?.kill();
+        } catch {}
+        bad("planner-wait-bridge-stdin-failed");
+      });
+    } catch {}
+    try {
+      child.stdin.write(payload);
+      child.stdin.end();
+    } catch {
+      if (done)
+        return;
+      done = true;
+      clearTimer();
+      bad("planner-wait-bridge-stdin-failed");
+    }
+  });
+}
+var PLANNER_WAIT_BRIDGE_WANT = [
+  "schema_version",
+  "operation",
+  "ok",
+  "reason",
+  "run_id",
+  "revision",
+  "binding",
+  "wait_reused",
+  "wait_file",
+  "dedup_key",
+  "task_mutated",
+  "grants_authority",
+  "done_approved"
+];
+function parsePlannerWaitBridgeResponse(stdout) {
+  const fail = (reason) => ({
+    ok: false,
+    reason,
+    doc: null
+  });
+  try {
+    if (typeof stdout !== "string" || stdout.length === 0 || stdout.length > PLANNER_WAIT_BRIDGE_MAX_BYTES) {
+      return fail("planner-wait-bridge-output-unbounded");
+    }
+    let doc = null;
+    try {
+      doc = JSON.parse(stdout);
+    } catch {
+      return fail("planner-wait-bridge-output-invalid");
+    }
+    if (!isPlainObject(doc))
+      return fail("planner-wait-bridge-output-invalid");
+    const d = doc;
+    const keys = Object.keys(d);
+    if (keys.length !== PLANNER_WAIT_BRIDGE_WANT.length)
+      return fail("planner-wait-bridge-output-shape");
+    for (const k of PLANNER_WAIT_BRIDGE_WANT) {
+      if (!Object.prototype.hasOwnProperty.call(d, k))
+        return fail("planner-wait-bridge-output-shape");
+    }
+    if (d["schema_version"] !== PLANNER_WAIT_SCHEMA_VERSION)
+      return fail("planner-wait-bridge-output-shape");
+    if (d["operation"] !== PLANNER_WAIT_OPERATION)
+      return fail("planner-wait-bridge-output-shape");
+    if (typeof d["ok"] !== "boolean")
+      return fail("planner-wait-bridge-output-shape");
+    if (typeof d["reason"] !== "string" || d["reason"].length === 0 || d["reason"].length > 128) {
+      return fail("planner-wait-bridge-output-shape");
+    }
+    if (!/^[a-z0-9-]+$/.test(d["reason"]))
+      return fail("planner-wait-bridge-output-shape");
+    if (typeof d["run_id"] !== "string")
+      return fail("planner-wait-bridge-output-shape");
+    if (typeof d["revision"] !== "number" || !Number.isInteger(d["revision"])) {
+      return fail("planner-wait-bridge-output-shape");
+    }
+    if (typeof d["binding"] !== "string")
+      return fail("planner-wait-bridge-output-shape");
+    if (typeof d["wait_reused"] !== "boolean")
+      return fail("planner-wait-bridge-output-shape");
+    if (typeof d["wait_file"] !== "string" || typeof d["dedup_key"] !== "string") {
+      return fail("planner-wait-bridge-output-shape");
+    }
+    if (typeof d["task_mutated"] !== "boolean")
+      return fail("planner-wait-bridge-output-shape");
+    if (d["grants_authority"] !== false || d["done_approved"] !== false) {
+      return fail("planner-wait-authority-pin-violated");
+    }
+    return { ok: true, reason: "", doc: d };
+  } catch {
+    return fail("planner-wait-bridge-output-invalid");
+  }
+}
+function makePlannerWaitExecute(cfg, deps) {
+  const spawnFn = deps && typeof deps.spawnFn === "function" ? deps.spawnFn : null;
+  const sessionGet = deps && typeof deps.sessionGet === "function" ? deps.sessionGet : null;
+  return async function plannerWaitExecute(args, context) {
+    const host = readPlannerWaitHostContext(context);
+    if (!host.ok)
+      throw denyPlannerWait(host.reason);
+    const role = plannerWaitRoleOf(host.agent);
+    if (role === "worker")
+      throw denyPlannerWait("planner-wait-worker-denied");
+    if (role !== "planner")
+      throw denyPlannerWait("planner-wait-agent-unknown");
+    const checked = validatePlannerWaitArgs(args);
+    if (!checked.ok) {
+      if (/^planner-wait-[a-z-]+$/.test(checked.reason))
+        throw denyPlannerWait(checked.reason);
+      throw denyPlannerWait("planner-wait-args-invalid");
+    }
+    const prov = await checkPlannerWaitRootProvenance(sessionGet, host.sessionId);
+    if (!prov.ok)
+      throw denyPlannerWait(prov.reason);
+    let payload = "";
+    try {
+      payload = JSON.stringify({
+        schema_version: PLANNER_WAIT_SCHEMA_VERSION,
+        request: { ...checked.request, session_id: host.sessionId }
+      });
+    } catch {
+      throw denyPlannerWait("planner-wait-args-invalid");
+    }
+    let payloadBytes = 0;
+    try {
+      payloadBytes = new TextEncoder().encode(payload).length;
+    } catch {
+      payloadBytes = 0;
+    }
+    if (payloadBytes === 0 || payloadBytes > PLANNER_WAIT_BRIDGE_MAX_BYTES) {
+      throw denyPlannerWait("planner-wait-request-unbounded");
+    }
+    const res = await runPlannerWaitBridge(cfg, payload, { spawnFn });
+    if (!res.ok)
+      throw denyPlannerWait(res.reason);
+    const parsed = parsePlannerWaitBridgeResponse(res.stdout);
+    if (!parsed.ok)
+      throw denyPlannerWait(parsed.reason);
+    const doc = parsed.doc;
+    if (doc["ok"] !== true)
+      throw denyPlannerWait("planner-wait-bridge-refused-" + sanitizePlannerWaitCode(doc["reason"]));
+    return { content: [{ type: "text", text: JSON.stringify(doc) }] };
+  };
+}
 
 // plugins/orchestration-enforcement/shared/mcp-transport.ts
 var MCP_EMBEDDED_BUDGET_S = {
@@ -1792,6 +2390,69 @@ async function subscribe(registrations, owner, name, callback) {
       registrations.push(reg);
   } catch {}
 }
+async function setupPlannerWaitTool(tool, session, env, registrations) {
+  try {
+    if (!isPlannerWaitEnabled(env))
+      return;
+    const cfg = readPlannerWaitBridgeConfig(env);
+    const t = tool;
+    if (!cfg.ok || !t || typeof t.transform !== "function") {
+      try {
+        writeUnavailable("v2", "planner-wait unavailable");
+      } catch {}
+      return;
+    }
+    let fixtureOk = false;
+    try {
+      const checked = checkPlannerWaitFixtureFiles(lstatSync, cfg.bridge, cfg.shell);
+      fixtureOk = !!checked && checked.ok === true;
+    } catch {
+      fixtureOk = false;
+    }
+    if (!fixtureOk) {
+      try {
+        writeUnavailable("v2", "planner-wait unavailable");
+      } catch {}
+      return;
+    }
+    let sessionGet;
+    try {
+      const get = session?.get;
+      if (typeof get === "function") {
+        const bound = get.bind(session);
+        sessionGet = (id) => bound(id);
+      }
+    } catch {
+      sessionGet = undefined;
+    }
+    const fullCfg = { bridge: cfg.bridge, shell: cfg.shell, timeoutMs: cfg.timeoutMs };
+    const handler = makePlannerWaitExecute(fullCfg, {
+      spawnFn: (exe, argv, opts) => spawnBridgeProcess(exe, argv, opts),
+      sessionGet
+    });
+    const toolDef = {
+      name: PLANNER_WAIT_TOOL_NAME,
+      description: "Registers the Planner root-session binding (Phase 32 CAS) and a GitHub CI/PR wait. Planner root sessions only.",
+      input: PLANNER_WAIT_INPUT_SCHEMA,
+      execute: async (args, context) => handler(args, context)
+    };
+    try {
+      const reg = await t.transform((editor) => {
+        editor.add(toolDef);
+      });
+      if (reg && typeof reg.dispose === "function")
+        registrations.push(reg);
+    } catch {
+      try {
+        writeUnavailable("v2", "planner-wait unavailable");
+      } catch {}
+    }
+  } catch {
+    try {
+      writeUnavailable("v2", "planner-wait unavailable");
+    } catch {}
+  }
+}
 async function setupV2(ctx) {
   const registrations = [];
   let eventController = null;
@@ -1900,6 +2561,17 @@ async function setupV2(ctx) {
     });
     try {
       setMcpPolicyFileReader(readMcpPolicyFileBounded);
+    } catch {}
+    try {
+      const cAny = c;
+      let env = {};
+      try {
+        const pe = typeof process !== "undefined" ? process.env : undefined;
+        env = readPlannerWaitEnv(pe);
+      } catch {
+        env = {};
+      }
+      await setupPlannerWaitTool(cAny.tool, cAny.session, env, registrations);
     } catch {}
   } catch {
     return;

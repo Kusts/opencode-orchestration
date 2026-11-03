@@ -93,6 +93,13 @@
         -ResumeSessionId <ses_id> -ExpectedDirectory <dir> `
         -ExpectedProjectId <proj> -PromptText '<kernel-built prompt>'
 
+    Usage (CLI, scheduler mode: resolver derives the root session, no
+    caller session id accepted):
+      powershell -NoProfile -File github-wake-auto-dispatch.ps1 -SchedulerMode `
+        -AutoDispatchEnabled $true -WakeEnvelopeFile <wake.json> -WaitsDir <dir> `
+        -TasksDir <dir> -GoalStoreDir <dir> -CheckpointDir <dir> -FlagsPath <flags> `
+        -ExpectedDirectory <dir> -ExpectedProjectId <proj> -PromptText '<text>'
+
     Exit 0 = pass evaluated (dispatched/already-done/not-dispatched data).
     Exit 1 = reconcile or refusal needing the operator. Exit 2 = args.
     Stdout carries exactly one JSON envelope. Dot-source safe: without
@@ -119,6 +126,8 @@ param(
     [string]$PromptText = '',
     [string]$SettleResultSummary = 'gh-wake auto dispatch via native resume',
     [int]$ResumeTimeoutMs = 30000,
+    [switch]$SchedulerMode,
+    [bool]$AutoDispatchEnabled = $false,
     [string]$OutFile = ''
 )
 
@@ -143,6 +152,8 @@ $GHWAD_SavedExpectedProjectId = $ExpectedProjectId
 $GHWAD_SavedPromptText = $PromptText
 $GHWAD_SavedSettleResultSummary = $SettleResultSummary
 $GHWAD_SavedResumeTimeoutMs = $ResumeTimeoutMs
+$GHWAD_SavedSchedulerMode = $SchedulerMode
+$GHWAD_SavedAutoDispatchEnabled = $AutoDispatchEnabled
 $GHWAD_SavedOutFile = $OutFile
 . (Join-Path $PSScriptRoot 'github-wake.ps1')
 $WakeEnvelopeFile = $GHWAD_SavedWakeEnvelopeFile
@@ -164,10 +175,12 @@ $ExpectedProjectId = $GHWAD_SavedExpectedProjectId
 $PromptText = $GHWAD_SavedPromptText
 $SettleResultSummary = $GHWAD_SavedSettleResultSummary
 $ResumeTimeoutMs = $GHWAD_SavedResumeTimeoutMs
+$SchedulerMode = $GHWAD_SavedSchedulerMode
+$AutoDispatchEnabled = $GHWAD_SavedAutoDispatchEnabled
 $OutFile = $GHWAD_SavedOutFile
 $GHWAD_ResumeLib = Join-Path $PSScriptRoot 'lib\OrchestrationNativeResume.ps1'
 if (Test-Path -LiteralPath $GHWAD_ResumeLib -PathType Leaf) { . $GHWAD_ResumeLib }
-Remove-Variable -Name GHWAD_SavedWakeEnvelopeFile, GHWAD_SavedNextActionFile, GHWAD_SavedNextActionJson, GHWAD_SavedWaitsDir, GHWAD_SavedTasksDir, GHWAD_SavedGoalStoreDir, GHWAD_SavedCheckpointDir, GHWAD_SavedHandoffStateDir, GHWAD_SavedReceiptDir, GHWAD_SavedRepoRoot, GHWAD_SavedEvidenceStoreDir, GHWAD_SavedFlagsPath, GHWAD_SavedNowUtc, GHWAD_SavedResumeSessionId, GHWAD_SavedExpectedDirectory, GHWAD_SavedExpectedProjectId, GHWAD_SavedPromptText, GHWAD_SavedSettleResultSummary, GHWAD_SavedResumeTimeoutMs, GHWAD_SavedOutFile, GHWAD_ResumeLib -ErrorAction SilentlyContinue
+Remove-Variable -Name GHWAD_SavedWakeEnvelopeFile, GHWAD_SavedNextActionFile, GHWAD_SavedNextActionJson, GHWAD_SavedWaitsDir, GHWAD_SavedTasksDir, GHWAD_SavedGoalStoreDir, GHWAD_SavedCheckpointDir, GHWAD_SavedHandoffStateDir, GHWAD_SavedReceiptDir, GHWAD_SavedRepoRoot, GHWAD_SavedEvidenceStoreDir, GHWAD_SavedFlagsPath, GHWAD_SavedNowUtc, GHWAD_SavedResumeSessionId, GHWAD_SavedExpectedDirectory, GHWAD_SavedExpectedProjectId, GHWAD_SavedPromptText, GHWAD_SavedSettleResultSummary, GHWAD_SavedResumeTimeoutMs, GHWAD_SavedSchedulerMode, GHWAD_SavedAutoDispatchEnabled, GHWAD_SavedOutFile, GHWAD_ResumeLib -ErrorAction SilentlyContinue
 
 function Get-GHWADValue {
     param($Object, [string]$Name, $Default = $null)
@@ -789,6 +802,324 @@ function Find-GHWADNativeWorkerProof {
     }
 }
 
+function Test-GHWADIsTargetPath {
+    # Ordinal target-path exclusion after GetFullPath (case-sensitive).
+    # A path differing only by case is NOT the target, so its
+    # filename/task_id mismatch is still checked by the caller.
+    # Pure string comparison, never throws.
+    [CmdletBinding()]
+    param([string]$CandidateFull = '', [string]$TargetFull = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace($CandidateFull) -or [string]::IsNullOrWhiteSpace($TargetFull)) { return $false }
+        return (([string]$CandidateFull) -ceq ([string]$TargetFull))
+    }
+    catch { return $false }
+}
+
+function Resolve-GHWakeBoundRootSession {
+    # Canonical GH-WAKE bound-root-session resolver (Fatia B). Reloads the
+    # canonical Wait by its persisted identity (wait_dedup_key) and maps
+    # ONLY wait.task_id + wait.run_id to exactly one
+    # task.bindings.runs[].root_session. Requires the binding entry status
+    # attached, a nonempty root_session, and
+    # bindings.active_execution_owner equal to that root session. Rejects
+    # absent, duplicate/ambiguous, detached, missing/legacy root, revoked or
+    # mismatched owner/generation, Wait/Task/Goal divergence, inactive Goal
+    # membership, expired lease, missing checkpoint and
+    # missing/mismatched native session. Read-only: no writes, no claim,
+    # no run, no fallback to any caller-supplied session id. Never throws.
+    [CmdletBinding()]
+    param(
+        $NextAction = $null,
+        [string]$WaitsDir = '',
+        [string]$TasksDir = '',
+        [string]$GoalStoreDir = '',
+        [string]$CheckpointDir = '',
+        [string]$RepoRoot = '',
+        [string]$ExpectedDirectory = '',
+        [string]$ExpectedProjectId = '',
+        [string]$NowUtc = '',
+        $NativeSessionsResult = $null
+    )
+    $mkRes = {
+        param([bool]$Ok, [string]$Reason, [string]$Root)
+        return [pscustomobject]@{ ok = [bool]$Ok; reason = ([string]$Reason); root_session = ([string]$Root) }
+    }
+    try {
+        $expDir = ([string]$ExpectedDirectory).Trim()
+        $expProj = ([string]$ExpectedProjectId).Trim()
+        if ([string]::IsNullOrWhiteSpace($expDir) -or [string]::IsNullOrWhiteSpace($expProj)) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-identity-missing' -Root '')
+        }
+        $shape = $null
+        try { $shape = Test-GHWakeHandoffShape -NextAction $NextAction } catch { $shape = $null }
+        if (($null -eq $shape) -or (-not [bool](Get-GHWADValue $shape 'ok' $false))) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-next-action-invalid' -Root '')
+        }
+        $tid = ([string](Get-GHWADValue $NextAction 'task_id' '')).Trim()
+        $run = ([string](Get-GHWADValue $NextAction 'run_id' '')).Trim()
+        $ddk = ([string](Get-GHWADValue $NextAction 'wait_dedup_key' '')).Trim()
+        $gid = ([string](Get-GHWADValue $NextAction 'goal_id' '')).Trim()
+        $wdir = ([string]$WaitsDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($wdir) -or (-not (Test-Path -LiteralPath $wdir -PathType Container))) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-wait-not-found' -Root '')
+        }
+        $found = @()
+        try {
+            foreach ($f in @(Get-ChildItem -LiteralPath $wdir -File -Filter 'ghwait-*.json' -ErrorAction Stop)) {
+                if ([long]$f.Length -le 0 -or [long]$f.Length -gt 262144) { continue }
+                $doc = $null
+                try { $doc = ConvertFrom-Json ([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)) } catch { continue }
+                if ($null -eq $doc) { continue }
+                if ([string](Get-GHWADValue $doc 'dedup_key' '') -ceq $ddk) { $found += @($doc) }
+            }
+        }
+        catch { return (& $mkRes -Ok $false -Reason 'scheduler-wait-not-found' -Root '') }
+        if (@($found).Count -lt 1) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-wait-not-found' -Root '')
+        }
+        if (@($found).Count -gt 1) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-wait-ambiguous' -Root '')
+        }
+        $wait = @($found)[0]
+        $wTid = ([string](Get-GHWADValue $wait 'task_id' '')).Trim()
+        $wRun = ([string](Get-GHWADValue $wait 'run_id' '')).Trim()
+        if (($wTid -cne $tid) -or [string]::IsNullOrWhiteSpace($wRun) -or ($wRun -cne $run)) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-run-mismatch' -Root '')
+        }
+        $wGen = [long]0
+        try { $wGen = [long](Get-GHWADValue $wait 'generation' 0) } catch { $wGen = 0 }
+        $nGen = [long]-1
+        try { $nGen = [long](Get-GHWADValue $NextAction 'generation' -1) } catch { $nGen = -1 }
+        if ($nGen -ne $wGen) {
+            return (& $mkRes -Ok $false -Reason 'generation-mismatch' -Root '')
+        }
+        $wLown = ([string](Get-GHWADValue $wait 'lease_owner' '')).Trim()
+        $nLown = ([string](Get-GHWADValue $NextAction 'lease_owner' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($wLown) -or ($nLown -cne $wLown)) {
+            return (& $mkRes -Ok $false -Reason 'binding-diverged' -Root '')
+        }
+        $tgt = $null
+        try { $tgt = Test-GHWakeHandoffTarget -NextAction $NextAction -Wait $wait } catch { $tgt = $null }
+        if (($null -eq $tgt) -or (-not [bool](Get-GHWADValue $tgt 'ok' $false))) {
+            $tr = 'handoff-task-mismatch'
+            try {
+                $rr = ([string](Get-GHWADValue $tgt 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($rr)) { $tr = $rr }
+            }
+            catch { }
+            return (& $mkRes -Ok $false -Reason $tr -Root '')
+        }
+        $slot = $null
+        try { $slot = Get-OrchestrationTaskBindings -TaskId $tid -TasksDir $TasksDir -RepoRoot ([string]$RepoRoot).Trim() } catch { $slot = $null }
+        $slotErr = ''
+        try { $slotErr = ([string](Get-GHWADValue $slot 'error' '')) } catch { $slotErr = 'internal-error' }
+        if (-not [string]::IsNullOrWhiteSpace($slotErr)) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-task-unreadable' -Root '')
+        }
+        $bindings = Get-GHWADValue $slot 'bindings' $null
+        if ($null -eq $bindings) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-task-unreadable' -Root '')
+        }
+        $runs = @()
+        try { $runs = @(Get-GHWADValue $bindings 'runs' @()) } catch { $runs = @() }
+        $hits = @()
+        foreach ($e in @($runs)) {
+            if ([string](Get-GHWADValue $e 'run_id' '') -ceq $wRun) { $hits += @($e) }
+        }
+        if (@($hits).Count -lt 1) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-absent' -Root '')
+        }
+        if (@($hits).Count -gt 1) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-ambiguous' -Root '')
+        }
+        $entry = @($hits)[0]
+        $st = ([string](Get-GHWADValue $entry 'status' '')).Trim().ToLowerInvariant()
+        if ($st -cne 'attached') {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-detached' -Root '')
+        }
+        $root = ([string](Get-GHWADValue $entry 'root_session' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($root) -or ($root.Length -gt 128) -or ($root -cnotmatch '^[A-Za-z0-9._-]+$')) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-no-root' -Root '')
+        }
+        $owner = ([string](Get-GHWADValue $bindings 'active_execution_owner' '')).Trim()
+        if ($owner -cne $root) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-owner-mismatch' -Root '')
+        }
+        $tdir = ([string]$TasksDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($tdir) -or (-not (Test-Path -LiteralPath $tdir -PathType Container))) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+        }
+        $targetFull = ''
+        try {
+            if ($null -ne (Get-Command Get-TaskKernelFilePath -ErrorAction SilentlyContinue)) {
+                $targetFull = (([string](Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot ([string]$RepoRoot).Trim())).Trim())
+            }
+        }
+        catch { $targetFull = '' }
+        if ([string]::IsNullOrWhiteSpace($targetFull)) {
+            try {
+                $tdirFull = [IO.Path]::GetFullPath($tdir)
+                $targetFull = [IO.Path]::GetFullPath((Join-Path $tdirFull ($tid + '.json')))
+            }
+            catch { $targetFull = '' }
+        }
+        if ([string]::IsNullOrWhiteSpace($targetFull)) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+        }
+        try { $targetFull = [IO.Path]::GetFullPath($targetFull) } catch { }
+        try {
+            foreach ($f in @(Get-ChildItem -LiteralPath $tdir -File -Filter '*.json' -ErrorAction Stop)) {
+                $curFull = ''
+                try { $curFull = [IO.Path]::GetFullPath($f.FullName) } catch { $curFull = ([string]$f.FullName) }
+                if (Test-GHWADIsTargetPath -CandidateFull $curFull -TargetFull $targetFull) { continue }
+                if ([long]$f.Length -le 0 -or [long]$f.Length -gt 1048576) {
+                    return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+                }
+                $tdoc = $null
+                try { $tdoc = ConvertFrom-Json ([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)) } catch { $tdoc = $null }
+                if ($null -eq $tdoc) {
+                    return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+                }
+                $otid = ([string](Get-GHWADValue $tdoc 'task_id' '')).Trim()
+                $otidValid = $false
+                try {
+                    if ($null -ne (Get-Command Test-TaskKernelId -ErrorAction SilentlyContinue)) {
+                        $otidValid = [bool](Test-TaskKernelId -TaskId $otid)
+                    }
+                    else {
+                        $otidValid = ((-not [string]::IsNullOrWhiteSpace($otid)) -and ($otid -cmatch '^[a-z0-9][a-z0-9._-]{2,63}$'))
+                    }
+                }
+                catch { $otidValid = $false }
+                if (-not [bool]$otidValid) {
+                    return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+                }
+                try {
+                    if (([string]$f.BaseName) -cne $otid) {
+                        return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+                    }
+                }
+                catch { return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '') }
+                if ($otid -ceq $tid) {
+                    return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '')
+                }
+                $ob = Get-GHWADValue $tdoc 'bindings' $null
+                if ($null -eq $ob) { continue }
+                if ([string](Get-GHWADValue $ob 'active_execution_owner' '') -ceq $root) {
+                    return (& $mkRes -Ok $false -Reason 'scheduler-binding-cross-task' -Root '')
+                }
+                foreach ($oe in @(Get-GHWADValue $ob 'runs' @())) {
+                    if ([string](Get-GHWADValue $oe 'root_session' '') -ceq $root) {
+                        return (& $mkRes -Ok $false -Reason 'scheduler-binding-cross-task' -Root '')
+                    }
+                    foreach ($ws in @(Get-GHWADValue $oe 'worker_sessions' @())) {
+                        if ([string]$ws -ceq $root) {
+                            return (& $mkRes -Ok $false -Reason 'scheduler-binding-cross-task' -Root '')
+                        }
+                    }
+                }
+            }
+        }
+        catch { return (& $mkRes -Ok $false -Reason 'scheduler-binding-scan-unavailable' -Root '') }
+        $hbind = $null
+        try { $hbind = Test-GHWakeHandoffBinding -Wait $wait -TasksDir $TasksDir } catch { $hbind = $null }
+        if (($null -eq $hbind) -or (-not [bool](Get-GHWADValue $hbind 'ok' $false))) {
+            $hr = 'binding-diverged'
+            try {
+                $hrr = ([string](Get-GHWADValue $hbind 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($hrr)) { $hr = $hrr }
+            }
+            catch { }
+            return (& $mkRes -Ok $false -Reason $hr -Root '')
+        }
+        $gslot = $null
+        try { $gslot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir } catch { $gslot = $null }
+        if (($null -eq $gslot) -or (-not [bool](Get-GHWADValue $gslot 'ok' $false))) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-goal-unreadable' -Root '')
+        }
+        $goal = Get-GHWADValue $gslot 'goal' $null
+        if ($null -eq $goal) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-goal-unreadable' -Root '')
+        }
+        if (([string](Get-GHWADValue $goal 'state' '')).Trim().ToUpperInvariant() -cne 'ACTIVE') {
+            return (& $mkRes -Ok $false -Reason 'scheduler-goal-not-active' -Root '')
+        }
+        $member = $false
+        foreach ($at in @(Get-GHWADValue $goal 'active_tasks' @())) {
+            if ([string]$at -ceq $tid) { $member = $true; break }
+        }
+        if (-not [bool]$member) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-goal-task-mismatch' -Root '')
+        }
+        $ownNode = Get-GHWADValue $goal 'ownership' $null
+        $gOwner = ([string](Get-GHWADValue $ownNode 'owner_id' '')).Trim()
+        $gGen = [long]-1
+        try { $gGen = [long](Get-GHWADValue $ownNode 'generation' -1) } catch { $gGen = -1 }
+        if ([string]::IsNullOrWhiteSpace($gOwner) -or ($gOwner -cne $wLown) -or ($gGen -ne $wGen)) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-goal-ownership-mismatch' -Root '')
+        }
+        $nowObj = Convert-GHWUtc -Value $NowUtc
+        if ($null -eq $nowObj) { $nowObj = [datetime]::UtcNow }
+        $lease = $null
+        try { $lease = Resolve-GHWLeaseAlive -Wait $wait -NowObj $nowObj } catch { $lease = $null }
+        if (($null -eq $lease) -or (-not [bool](Get-GHWADValue $lease 'alive' $false))) {
+            $lr = 'lease-expired'
+            try {
+                $lrr = ([string](Get-GHWADValue $lease 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($lrr)) { $lr = $lrr }
+            }
+            catch { }
+            return (& $mkRes -Ok $false -Reason $lr -Root '')
+        }
+        $cid = ([string](Get-GHWADValue $NextAction 'checkpoint_id' '')).Trim()
+        $ck = $null
+        try { $ck = Test-GHWakeHandoffCheckpoint -CheckpointId $cid -CheckpointDir $CheckpointDir -GoalStoreDir $GoalStoreDir } catch { $ck = $null }
+        if (($null -eq $ck) -or (-not [bool](Get-GHWADValue $ck 'ok' $false))) {
+            $cr = 'checkpoint-missing'
+            try {
+                $crr = ([string](Get-GHWADValue $ck 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($crr)) { $cr = $crr }
+            }
+            catch { }
+            return (& $mkRes -Ok $false -Reason $cr -Root '')
+        }
+        $hasCheck = $false
+        try { $hasCheck = ($null -ne (Get-Command Test-NativeSessionBinding -ErrorAction SilentlyContinue)) } catch { $hasCheck = $false }
+        if (-not [bool]$hasCheck) {
+            return (& $mkRes -Ok $false -Reason 'scheduler-session-check-unavailable' -Root '')
+        }
+        $sessRes = $NativeSessionsResult
+        if ($null -eq $sessRes) {
+            $liveList = $null
+            try {
+                if ($null -eq (Get-Command Get-NativeSessionList -ErrorAction SilentlyContinue)) {
+                    return (& $mkRes -Ok $false -Reason 'scheduler-session-check-unavailable' -Root '')
+                }
+                $liveList = Get-NativeSessionList -MaxCount 100 -BinaryCommand 'opencode' -TimeoutMs 30000
+            }
+            catch { $liveList = $null }
+            if (($null -eq $liveList) -or (-not [bool](Get-GHWADValue $liveList 'ok' $false))) {
+                return (& $mkRes -Ok $false -Reason 'session-not-found' -Root '')
+            }
+            $sessRes = $liveList
+        }
+        $nb = $null
+        try { $nb = Test-NativeSessionBinding -SessionId $root -ExpectedDirectory $expDir -ExpectedProjectId $expProj -SessionsResult $sessRes } catch { $nb = $null }
+        if (($null -eq $nb) -or (-not [bool](Get-GHWADValue $nb 'ok' $false))) {
+            $nr = 'session-not-found'
+            try {
+                $nrr = ([string](Get-GHWADValue $nb 'reason' ''))
+                if (-not [string]::IsNullOrWhiteSpace($nrr)) { $nr = $nrr }
+            }
+            catch { }
+            return (& $mkRes -Ok $false -Reason $nr -Root '')
+        }
+        return (& $mkRes -Ok $true -Reason 'bound-root-session' -Root $root)
+    }
+    catch { return (& $mkRes -Ok $false -Reason 'scheduler-internal-error' -Root '') }
+}
+
 function Invoke-GHWakeAutoDispatch {
     [CmdletBinding()]
     param(
@@ -810,6 +1141,8 @@ function Invoke-GHWakeAutoDispatch {
         $ControllerProbe = $null,
         $RunExecutor = $null,
         $SessionApiInvoker = $null,
+        [switch]$UseBoundRootSession,
+        $NativeSessionsResult = $null,
         [string]$SettleResultSummary = 'gh-wake auto dispatch via native resume',
         [int]$ResumeTimeoutMs = 30000,
         [int]$SessionApiTimeoutMs = 30000
@@ -837,6 +1170,35 @@ function Invoke-GHWakeAutoDispatch {
     try {
         if ($null -eq $NextAction) {
             return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'not-dispatched' -Reason 'auto-invalid-next-action' -Controller 'none' -SessionId '' -MarkerPath '' -ResumeAction '' -Duplicate $false)
+        }
+        if ([bool]$UseBoundRootSession) {
+            # Resolver mode (scheduler path): caller-supplied session ids
+            # are forbidden; the resume session is derived ONLY from the
+            # canonical bound-root-session resolver. Any refusal happens
+            # BEFORE the controller handoff, so no claim marker exists to
+            # release and no resume run can occur.
+            if (-not [string]::IsNullOrWhiteSpace(([string]$ResumeSessionId))) {
+                return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'not-dispatched' -Reason 'auto-resume-id-forbidden' -Controller 'none' -SessionId '' -MarkerPath '' -ResumeAction '' -Duplicate $false)
+            }
+            $bound = $null
+            try {
+                $bound = Resolve-GHWakeBoundRootSession -NextAction $NextAction `
+                    -WaitsDir $WaitsDir -TasksDir $TasksDir -GoalStoreDir $GoalStoreDir `
+                    -CheckpointDir $CheckpointDir -RepoRoot $RepoRoot `
+                    -ExpectedDirectory $ExpectedDirectory -ExpectedProjectId $ExpectedProjectId `
+                    -NowUtc $NowUtc -NativeSessionsResult $NativeSessionsResult
+            }
+            catch { $bound = $null }
+            if (($null -eq $bound) -or (-not [bool](Get-GHWADValue $bound 'ok' $false))) {
+                $bw = 'scheduler-internal-error'
+                try {
+                    $br = ([string](Get-GHWADValue $bound 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($br)) { $bw = $br }
+                }
+                catch { }
+                return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'not-dispatched' -Reason ('auto-' + $bw) -Controller 'none' -SessionId '' -MarkerPath '' -ResumeAction '' -Duplicate $false)
+            }
+            $ResumeSessionId = ([string](Get-GHWADValue $bound 'root_session' ''))
         }
         $hsd = ([string]$HandoffStateDir).Trim()
         if ([string]::IsNullOrWhiteSpace($hsd)) { $hsd = ([string]$CheckpointDir).Trim() }
@@ -1208,7 +1570,86 @@ function Invoke-GHWakeAutoDispatch {
     }
 }
 
-if ((-not [string]::IsNullOrWhiteSpace($WakeEnvelopeFile)) -or (-not [string]::IsNullOrWhiteSpace($NextActionFile)) -or (-not [string]::IsNullOrWhiteSpace($NextActionJson))) {
+function Invoke-GHWakeSchedulerDispatch {
+    # Opt-in scheduler path (Fatia B, disabled by default). Resolves the
+    # resume session ONLY through Resolve-GHWakeBoundRootSession and then
+    # invokes the existing auto-dispatch in resolver mode, which forbids
+    # any caller/config ResumeSessionId. Missing opt-in or missing
+    # expected directory/project identity fails closed with a structured
+    # blocked result and zero executor effect. Never throws.
+    [CmdletBinding()]
+    param(
+        $NextAction = $null,
+        [string]$WaitsDir = '',
+        [string]$TasksDir = '',
+        [string]$GoalStoreDir = '',
+        [string]$CheckpointDir = '',
+        [string]$HandoffStateDir = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$EvidenceStoreDir = '',
+        [string]$FlagsPath = '',
+        [string]$NowUtc = '',
+        [string]$ExpectedDirectory = '',
+        [string]$ExpectedProjectId = '',
+        [string]$PromptText = '',
+        [bool]$AutoDispatchEnabled = $false,
+        $ControllerProbe = $null,
+        $RunExecutor = $null,
+        $SessionApiInvoker = $null,
+        $NativeSessionsResult = $null,
+        [string]$SettleResultSummary = 'gh-wake scheduler dispatch via bound root session',
+        [int]$ResumeTimeoutMs = 30000,
+        [int]$SessionApiTimeoutMs = 30000
+    )
+    $mkSched = {
+        param([bool]$Ok, [string]$Decision, [string]$Reason)
+        $tidOut = ''
+        $idemOut = ''
+        try { $tidOut = ([string](Get-GHWADValue $NextAction 'task_id' '')) } catch { $tidOut = '' }
+        try { $idemOut = ([string](Get-GHWADValue $NextAction 'idempotency_key' '')) } catch { $idemOut = '' }
+        return [pscustomobject]@{
+            ok = [bool]$Ok; harness = 'github-wake-auto-dispatch-v2'; verdict = $(if ([bool]$Ok) { 'AUTO_PASS' } else { 'AUTO_FAIL' })
+            dispatched = $false; decision = ([string]$Decision); reason = ([string]$Reason)
+            controller = 'none'; task_id = $tidOut; idempotency_key = $idemOut
+            session_id = ''; marker_path = ''
+            resume_session_id = ''; worker_session_id = ''
+            resume_action = ''; duplicate = $false
+            executed = $false
+            grants_authority = $false; done_approved = $false; merge_authority = $false
+            next_action = $NextAction
+        }
+    }
+    try {
+        if (-not [bool]$AutoDispatchEnabled) {
+            return (& $mkSched -Ok $false -Decision 'blocked' -Reason 'auto-dispatch-disabled')
+        }
+        $out = $null
+        try {
+            $out = Invoke-GHWakeAutoDispatch -NextAction $NextAction `
+                -WaitsDir $WaitsDir -TasksDir $TasksDir -GoalStoreDir $GoalStoreDir `
+                -CheckpointDir $CheckpointDir -HandoffStateDir $HandoffStateDir `
+                -ReceiptDir $ReceiptDir -RepoRoot $RepoRoot -EvidenceStoreDir $EvidenceStoreDir `
+                -FlagsPath $FlagsPath -NowUtc $NowUtc -ExpectedDirectory $ExpectedDirectory `
+                -ExpectedProjectId $ExpectedProjectId -PromptText $PromptText `
+                -ControllerProbe $ControllerProbe -RunExecutor $RunExecutor `
+                -SessionApiInvoker $SessionApiInvoker -UseBoundRootSession `
+                -NativeSessionsResult $NativeSessionsResult `
+                -SettleResultSummary $SettleResultSummary -ResumeTimeoutMs $ResumeTimeoutMs `
+                -SessionApiTimeoutMs $SessionApiTimeoutMs
+        }
+        catch { $out = $null }
+        if ($null -eq $out) {
+            return (& $mkSched -Ok $false -Decision 'not-dispatched' -Reason 'auto-scheduler-internal-error')
+        }
+        return $out
+    }
+    catch {
+        try { return (& $mkSched -Ok $false -Decision 'not-dispatched' -Reason 'auto-scheduler-internal-error') } catch { return $null }
+    }
+}
+
+if ($SchedulerMode -or (-not [string]::IsNullOrWhiteSpace($WakeEnvelopeFile)) -or (-not [string]::IsNullOrWhiteSpace($NextActionFile)) -or (-not [string]::IsNullOrWhiteSpace($NextActionJson))) {
     function Write-GHWADEnvelope {
         param($Envelope)
         try {
@@ -1262,6 +1703,38 @@ if ((-not [string]::IsNullOrWhiteSpace($WakeEnvelopeFile)) -or (-not [string]::I
         if ([string]::IsNullOrWhiteSpace($TasksDir) -or (-not (Test-Path -LiteralPath ([string]$TasksDir).Trim() -PathType Container))) {
             Write-GHWADEnvelope (New-GHWADErrorEnvelope -Reason 'auto-invalid-tasks-dir')
             exit 2
+        }
+        if ([bool]$SchedulerMode) {
+            # Scheduler path: resolver mode derives the session, so any
+            # caller-supplied session id is a fail-closed args refusal.
+            if (-not [string]::IsNullOrWhiteSpace($ResumeSessionId)) {
+                Write-GHWADEnvelope (New-GHWADErrorEnvelope -Reason 'auto-resume-id-forbidden')
+                exit 2
+            }
+            $sched = Invoke-GHWakeSchedulerDispatch -NextAction $effAction `
+                -WaitsDir ([string]$WaitsDir).Trim() -TasksDir ([string]$TasksDir).Trim() `
+                -GoalStoreDir ([string]$GoalStoreDir).Trim() -CheckpointDir ([string]$CheckpointDir).Trim() `
+                -HandoffStateDir ([string]$HandoffStateDir).Trim() -ReceiptDir ([string]$ReceiptDir).Trim() `
+                -RepoRoot ([string]$RepoRoot).Trim() -EvidenceStoreDir ([string]$EvidenceStoreDir).Trim() `
+                -FlagsPath ([string]$FlagsPath).Trim() -NowUtc ([string]$NowUtc).Trim() `
+                -ExpectedDirectory ([string]$ExpectedDirectory).Trim() `
+                -ExpectedProjectId ([string]$ExpectedProjectId).Trim() -PromptText ([string]$PromptText).Trim() `
+                -AutoDispatchEnabled ([bool]$AutoDispatchEnabled) `
+                -SettleResultSummary ([string]$SettleResultSummary).Trim() -ResumeTimeoutMs ([int]$ResumeTimeoutMs)
+            if ($null -eq $sched) {
+                Write-GHWADEnvelope (New-GHWADErrorEnvelope -Reason 'auto-internal-error')
+                exit 1
+            }
+            $schedOut = ([string]$OutFile).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($schedOut)) {
+                try {
+                    $schedJson = ConvertTo-Json -InputObject $sched -Depth 10 -Compress
+                    [IO.File]::WriteAllText($schedOut, $schedJson, (New-Object Text.UTF8Encoding $false))
+                }
+                catch { }
+            }
+            Write-GHWADEnvelope -Envelope $sched
+            if ([bool]$sched.ok) { exit 0 } else { exit 1 }
         }
         if ([string]::IsNullOrWhiteSpace($ResumeSessionId)) {
             Write-GHWADEnvelope (New-GHWADErrorEnvelope -Reason 'auto-session-invalid')

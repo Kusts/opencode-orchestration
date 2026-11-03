@@ -55,6 +55,10 @@
         authorization-revoked (fail-closed). Proof files are
         operator-owned per-tick attestations, never stored in the
         scheduler config as booleans.
+      Opt-in in-tick handoff: with auto_dispatch_enabled plus expected
+      directory/project in config, a produced next_action is handed to
+      the existing auto-dispatch scheduler path in the same tick and
+      reported under auto_dispatch. Default off (result untouched).
       -ResolveExecutor: derive ExecutorPresent without the live
         -ExecutorPresent switch. Requires -ExecutorProofPath JSON
         file carrying {"executor_present":true} (optional observed_at
@@ -96,6 +100,9 @@ param(
     [Alias('LeaseFromWait')][switch]$ResolveLease,
     [string]$AuthorizationProofPath = '',
     [string]$ExecutorProofPath = '',
+    [bool]$AutoDispatchEnabled = $false,
+    [string]$AutoDispatchExpectedDirectory = '',
+    [string]$AutoDispatchExpectedProjectId = '',
     $MaxApiAttempts = 3,
     $TimeoutMs = 10000,
     [string]$OutFile = ''
@@ -122,6 +129,9 @@ $GHW_SavedActorIdentitySource = $ActorIdentitySource
 $GHW_SavedAuthorizationAlive = $AuthorizationAlive
 $GHW_SavedExecutorPresent = $ExecutorPresent
 $GHW_SavedCancelRequested = $CancelRequested
+$GHW_SavedAutoDispatchEnabled = $AutoDispatchEnabled
+$GHW_SavedAutoDispatchExpectedDirectory = $AutoDispatchExpectedDirectory
+$GHW_SavedAutoDispatchExpectedProjectId = $AutoDispatchExpectedProjectId
 $GHW_SavedMaxApiAttempts = $MaxApiAttempts
 $GHW_SavedTimeoutMs = $TimeoutMs
 $GHW_SavedOutFile = $OutFile
@@ -141,6 +151,9 @@ $ActorIdentitySource = $GHW_SavedActorIdentitySource
 $AuthorizationAlive = $GHW_SavedAuthorizationAlive
 $ExecutorPresent = $GHW_SavedExecutorPresent
 $CancelRequested = $GHW_SavedCancelRequested
+$AutoDispatchEnabled = $GHW_SavedAutoDispatchEnabled
+$AutoDispatchExpectedDirectory = $GHW_SavedAutoDispatchExpectedDirectory
+$AutoDispatchExpectedProjectId = $GHW_SavedAutoDispatchExpectedProjectId
 $MaxApiAttempts = $GHW_SavedMaxApiAttempts
 $TimeoutMs = $GHW_SavedTimeoutMs
 $OutFile = $GHW_SavedOutFile
@@ -161,10 +174,13 @@ $ActorIdentitySource = $GHW_SavedActorIdentitySource
 $AuthorizationAlive = $GHW_SavedAuthorizationAlive
 $ExecutorPresent = $GHW_SavedExecutorPresent
 $CancelRequested = $GHW_SavedCancelRequested
+$AutoDispatchEnabled = $GHW_SavedAutoDispatchEnabled
+$AutoDispatchExpectedDirectory = $GHW_SavedAutoDispatchExpectedDirectory
+$AutoDispatchExpectedProjectId = $GHW_SavedAutoDispatchExpectedProjectId
 $MaxApiAttempts = $GHW_SavedMaxApiAttempts
 $TimeoutMs = $GHW_SavedTimeoutMs
 $OutFile = $GHW_SavedOutFile
-Remove-Variable -Name GHW_SavedWaitsDir, GHW_SavedTasksDir, GHW_SavedGoalStoreDir, GHW_SavedCheckpointDir, GHW_SavedConfigFile, GHW_SavedFlagsPath, GHW_SavedPolicyPath, GHW_SavedGraphQLSnapshotFile, GHW_SavedEventId, GHW_SavedMaxAgeSeconds, GHW_SavedNowUtc, GHW_SavedActorIdentitySource, GHW_SavedAuthorizationAlive, GHW_SavedExecutorPresent, GHW_SavedCancelRequested, GHW_SavedMaxApiAttempts, GHW_SavedTimeoutMs, GHW_SavedOutFile, GHW_SavedSnapshotsDir -ErrorAction SilentlyContinue
+Remove-Variable -Name GHW_SavedWaitsDir, GHW_SavedTasksDir, GHW_SavedGoalStoreDir, GHW_SavedCheckpointDir, GHW_SavedConfigFile, GHW_SavedFlagsPath, GHW_SavedPolicyPath, GHW_SavedGraphQLSnapshotFile, GHW_SavedEventId, GHW_SavedMaxAgeSeconds, GHW_SavedNowUtc, GHW_SavedActorIdentitySource, GHW_SavedAuthorizationAlive, GHW_SavedExecutorPresent, GHW_SavedCancelRequested, GHW_SavedAutoDispatchEnabled, GHW_SavedAutoDispatchExpectedDirectory, GHW_SavedAutoDispatchExpectedProjectId, GHW_SavedMaxApiAttempts, GHW_SavedTimeoutMs, GHW_SavedOutFile, GHW_SavedSnapshotsDir -ErrorAction SilentlyContinue
 try {
     $GHW_LibDir = $PSScriptRoot
     $GHW_DeliveryLib = Join-Path $GHW_LibDir 'lib\OrchestrationDelivery.ps1'
@@ -463,10 +479,11 @@ function New-GHWakeNextAction {
         try { $gen = [long](Get-GHWValue $Wait 'generation' 0) } catch { $gen = 0 }
         $lown = ([string](Get-GHWValue $Wait 'lease_owner' '')).Trim()
         $lexp = ([string](Get-GHWValue $Wait 'lease_expires_utc' '')).Trim()
+        $rid = ([string](Get-GHWValue $Wait 'run_id' '')).Trim()
         $idem = Get-GHWakeIdempotencyKey -DedupKey $ddk -EventId $evt
         return [pscustomobject]@{
             task_id = $tid; checkpoint_id = $cid
-            goal_id = $gid; wait_dedup_key = $ddk
+            goal_id = $gid; wait_dedup_key = $ddk; run_id = $rid
             generation = $gen; lease_owner = $lown; lease_expires_utc = $lexp
             event_id = $evt; kernel_state = 'IMPLEMENTING'
             idempotency_key = $idem
@@ -498,6 +515,8 @@ function Test-GHWakeHandoffShape {
         if ($idem -cnotmatch '^[a-f0-9]{32}$') { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
         if ([string]::IsNullOrWhiteSpace($lown)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
         if ($null -eq (Convert-GHWUtc -Value $lexp)) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
+        $runGot = ([string](Get-GHWValue $NextAction 'run_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($runGot) -or ($runGot.Length -gt 128) -or ($runGot -cnotmatch '^[A-Za-z0-9._-]+$')) { return @{ ok = $false; reason = 'invalid-next-action-shape' } }
         $genRaw = Get-GHWValue $NextAction 'generation' $null
         $genOk = $false
         try {
@@ -1423,6 +1442,11 @@ function Invoke-GHWakeControllerHandoff {
         $genGot = [long](Get-GHWValue $NextAction 'generation' -1)
         if ($genGot -ne $genExp) {
             return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'generation-mismatch' -Controller 'none' -EchoAction $NextAction)
+        }
+        $runExp = ([string](Get-GHWValue $waitDoc 'run_id' '')).Trim()
+        $runGot = ([string](Get-GHWValue $NextAction 'run_id' '')).Trim()
+        if ([string]::IsNullOrWhiteSpace($runExp) -or ($runGot -cne $runExp)) {
+            return (& $mkResult -Ok $true -Dispatched $false -Decision 'not-dispatched' -Reason 'run-mismatch' -Controller 'none' -EchoAction $NextAction)
         }
         $lownExp = ([string](Get-GHWValue $waitDoc 'lease_owner' '')).Trim()
         $lownGot = ([string](Get-GHWValue $NextAction 'lease_owner' '')).Trim()
@@ -2588,6 +2612,9 @@ function New-GitHubWakeConfig {
         [bool]$ResolveLease = $false,
         [string]$AuthorizationProofPath = '',
         [string]$ExecutorProofPath = '',
+        [bool]$AutoDispatchEnabled = $false,
+        [string]$AutoDispatchExpectedDirectory = '',
+        [string]$AutoDispatchExpectedProjectId = '',
         $MaxApiAttempts = 3,
         $TimeoutMs = 10000,
         [string]$OutFile = ''
@@ -2619,6 +2646,9 @@ function New-GitHubWakeConfig {
             resolve_lease = [bool]$ResolveLease
             authorization_proof_path = ([string]$AuthorizationProofPath)
             executor_proof_path = ([string]$ExecutorProofPath)
+            auto_dispatch_enabled = [bool]$AutoDispatchEnabled
+            auto_dispatch_expected_directory = ([string]$AutoDispatchExpectedDirectory)
+            auto_dispatch_expected_project_id = ([string]$AutoDispatchExpectedProjectId)
         }
         # Fail-closed: per-run authorization flags are NEVER persisted as
         # authority. Even when callers pass true, the config stores false;
@@ -2639,6 +2669,86 @@ function New-GitHubWakeConfig {
         return [pscustomobject]@{ ok = $true; reason = ''; path = $p }
     }
     catch { return [pscustomobject]@{ ok = $false; reason = 'internal-error'; path = '' } }
+}
+
+function Invoke-GHWakeSchedulerTick {
+    # Opt-in single-tick handoff from wake to auto-dispatch (Fatia B).
+    # Hands the EXACT wake result's next_action to the existing scheduler
+    # dispatch path, which re-derives the resume session from the canonical
+    # binding (never from caller input). Returns invoked=false with zero
+    # effect unless explicitly enabled AND a next_action exists AND the
+    # scheduler dispatch function is loaded. Never throws. When the
+    # scheduler dispatch function is unavailable (pure wake library
+    # without the auto-dispatch file loaded), fails closed with
+    # invoked=false instead of running anything.
+    [CmdletBinding()]
+    param(
+        $WakeResult = $null,
+        [bool]$AutoDispatchEnabled = $false,
+        [string]$WaitsDir = '',
+        [string]$TasksDir = '',
+        [string]$GoalStoreDir = '',
+        [string]$CheckpointDir = '',
+        [string]$HandoffStateDir = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$EvidenceStoreDir = '',
+        [string]$FlagsPath = '',
+        [string]$NowUtc = '',
+        [string]$ExpectedDirectory = '',
+        [string]$ExpectedProjectId = '',
+        [string]$PromptText = '',
+        $ControllerProbe = $null,
+        $RunExecutor = $null,
+        $SessionApiInvoker = $null,
+        $NativeSessionsResult = $null,
+        [string]$SettleResultSummary = 'gh-wake scheduled tick via bound root session',
+        [int]$ResumeTimeoutMs = 30000,
+        [int]$SessionApiTimeoutMs = 30000
+    )
+    $mkTick = {
+        param([bool]$Invoked, $Dispatch)
+        return [pscustomobject]@{ invoked = [bool]$Invoked; auto_dispatch = $Dispatch }
+    }
+    try {
+        if (-not [bool]$AutoDispatchEnabled) { return (& $mkTick -Invoked $false -Dispatch $null) }
+        $na = $null
+        try {
+            if ($null -ne $WakeResult) {
+                if ($WakeResult -is [System.Collections.IDictionary]) {
+                    if ($WakeResult.Contains('next_action')) { $na = $WakeResult['next_action'] }
+                }
+                else {
+                    $np = $WakeResult.PSObject.Properties['next_action']
+                    if ($null -ne $np) { $na = $np.Value }
+                }
+            }
+        }
+        catch { $na = $null }
+        if ($null -eq $na) { return (& $mkTick -Invoked $false -Dispatch $null) }
+        $schedCmd = $null
+        try { $schedCmd = Get-Command Invoke-GHWakeSchedulerDispatch -ErrorAction SilentlyContinue } catch { $schedCmd = $null }
+        if ($null -eq $schedCmd) { return (& $mkTick -Invoked $false -Dispatch $null) }
+        $out = $null
+        try {
+            $out = Invoke-GHWakeSchedulerDispatch -NextAction $na `
+                -WaitsDir ([string]$WaitsDir).Trim() -TasksDir ([string]$TasksDir).Trim() `
+                -GoalStoreDir ([string]$GoalStoreDir).Trim() -CheckpointDir ([string]$CheckpointDir).Trim() `
+                -HandoffStateDir ([string]$HandoffStateDir).Trim() -ReceiptDir ([string]$ReceiptDir).Trim() `
+                -RepoRoot ([string]$RepoRoot).Trim() -EvidenceStoreDir ([string]$EvidenceStoreDir).Trim() `
+                -FlagsPath ([string]$FlagsPath).Trim() -NowUtc ([string]$NowUtc).Trim() `
+                -ExpectedDirectory ([string]$ExpectedDirectory).Trim() `
+                -ExpectedProjectId ([string]$ExpectedProjectId).Trim() -PromptText ([string]$PromptText).Trim() `
+                -AutoDispatchEnabled $true -ControllerProbe $ControllerProbe -RunExecutor $RunExecutor `
+                -SessionApiInvoker $SessionApiInvoker -NativeSessionsResult $NativeSessionsResult `
+                -SettleResultSummary ([string]$SettleResultSummary).Trim() -ResumeTimeoutMs ([int]$ResumeTimeoutMs) `
+                -SessionApiTimeoutMs ([int]$SessionApiTimeoutMs)
+        }
+        catch { $out = $null }
+        if ($null -eq $out) { return (& $mkTick -Invoked $true -Dispatch $null) }
+        return (& $mkTick -Invoked $true -Dispatch $out)
+    }
+    catch { try { return (& $mkTick -Invoked $false -Dispatch $null) } catch { return $null } }
 }
 
 function Get-GHWSchtasksXml {
@@ -2966,6 +3076,9 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         $effAuth = [bool]$AuthorizationAlive
         $effExec = [bool]$ExecutorPresent
         $effCancel = [bool]$CancelRequested
+        $effAutoDispatch = [bool]$AutoDispatchEnabled
+        $effAutoDispatchDir = ([string]$AutoDispatchExpectedDirectory).Trim()
+        $effAutoDispatchProj = ([string]$AutoDispatchExpectedProjectId).Trim()
         $effResolveAuth = [bool]$ResolveAuthorization
         $effResolveExec = [bool]$ResolveExecutor
         $effResolveOwner = [bool]$ResolveOwner
@@ -3030,6 +3143,32 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             # TERMINAL authorization-revoked, never RESUME. The config may
             # only carry resolver opt-ins (resolve_* plus *_proof_path);
             # resolve opt-ins consult live sources, they are not authority.
+            # Scheduler opt-in (auto_dispatch_*) lives in config: a scheduler
+            # tick consumes the wake envelope through the auto-dispatch
+            # scheduler path, which re-derives the root session from the
+            # canonical binding. The scheduler config MUST NOT carry a
+            # resume session id: resolver mode forbids caller-supplied
+            # session ids, so any resume_session_id key is fail-closed.
+            $rsvCheck = Get-GHWValue $cfgDoc 'resume_session_id' $null
+            if ($null -ne $rsvCheck) {
+                Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-config-file')
+                exit 2
+            }
+            if (-not $effAutoDispatch) {
+                try {
+                    $ghwAd = Get-GHWValue $cfgDoc 'auto_dispatch_enabled' $false
+                    if (($ghwAd -is [bool]) -and [bool]$ghwAd) { $effAutoDispatch = $true }
+                }
+                catch { $effAutoDispatch = $false }
+            }
+            if ([string]::IsNullOrWhiteSpace($effAutoDispatchDir)) { $effAutoDispatchDir = ([string](Get-GHWValue $cfgDoc 'auto_dispatch_expected_directory' '')).Trim() }
+            if ([string]::IsNullOrWhiteSpace($effAutoDispatchProj)) { $effAutoDispatchProj = ([string](Get-GHWValue $cfgDoc 'auto_dispatch_expected_project_id' '')).Trim() }
+            if ([bool]$effAutoDispatch) {
+                if ([string]::IsNullOrWhiteSpace($effAutoDispatchDir) -or [string]::IsNullOrWhiteSpace($effAutoDispatchProj)) {
+                    Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-config-file')
+                    exit 2
+                }
+            }
         }
         if ([string]::IsNullOrWhiteSpace($effWaitsDir) -or (-not (Test-Path -LiteralPath $effWaitsDir -PathType Container))) {
             Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-waits-dir')
@@ -3101,6 +3240,54 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         if ($null -eq $result) {
             Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'internal-error')
             exit 1
+        }
+        # Opt-in scheduled-tick handoff (Fatia B, disabled by default).
+        # Only when explicitly enabled AND the pass produced a next_action,
+        # the exact action is handed to the existing scheduler dispatch
+        # path in this same tick; the structured dispatch result rides in
+        # the wake envelope under auto_dispatch. Disabled (or no action)
+        # preserves current behavior: $result is untouched.
+        if ([bool]$effAutoDispatch) {
+            $tickAction = $null
+            try { $tickAction = Get-GHWValue $result 'next_action' $null } catch { $tickAction = $null }
+            if ($null -ne $tickAction) {
+                # Load the scheduler dispatch path once, at script scope.
+                # The auto-dispatch file is dot-source safe and its CLI
+                # entrypoint guard stays silent with default values, so no
+                # recursive pass runs. Its param block overwrites
+                # same-named script params, all already consumed into
+                # $eff* locals: save/restore the overlap defensively.
+                $GHW_SavedTickWaitsDir = $WaitsDir
+                $GHW_SavedTickTasksDir = $TasksDir
+                $GHW_SavedTickGoalStoreDir = $GoalStoreDir
+                $GHW_SavedTickCheckpointDir = $CheckpointDir
+                $GHW_SavedTickFlagsPath = $FlagsPath
+                $GHW_SavedTickNowUtc = $NowUtc
+                $GHW_SavedTickOutFile = $OutFile
+                $GHW_SavedTickAutoDispatch = $AutoDispatchEnabled
+                . (Join-Path $PSScriptRoot 'github-wake-auto-dispatch.ps1')
+                $WaitsDir = $GHW_SavedTickWaitsDir
+                $TasksDir = $GHW_SavedTickTasksDir
+                $GoalStoreDir = $GHW_SavedTickGoalStoreDir
+                $CheckpointDir = $GHW_SavedTickCheckpointDir
+                $FlagsPath = $GHW_SavedTickFlagsPath
+                $NowUtc = $GHW_SavedTickNowUtc
+                $OutFile = $GHW_SavedTickOutFile
+                $AutoDispatchEnabled = $GHW_SavedTickAutoDispatch
+                Remove-Variable -Name GHW_SavedTickWaitsDir, GHW_SavedTickTasksDir, GHW_SavedTickGoalStoreDir, GHW_SavedTickCheckpointDir, GHW_SavedTickFlagsPath, GHW_SavedTickNowUtc, GHW_SavedTickOutFile, GHW_SavedTickAutoDispatch -ErrorAction SilentlyContinue
+                $tick = $null
+                try {
+                    $tick = Invoke-GHWakeSchedulerTick -WakeResult $result -AutoDispatchEnabled $true `
+                        -WaitsDir $effWaitsDir -TasksDir $effTasksDir -GoalStoreDir $effGoalStoreDir `
+                        -CheckpointDir $effCheckpointDir -FlagsPath $effFlagsPath -NowUtc $effNow `
+                        -ExpectedDirectory $effAutoDispatchDir -ExpectedProjectId $effAutoDispatchProj `
+                        -PromptText ''
+                }
+                catch { $tick = $null }
+                if (($null -ne $tick) -and [bool](Get-GHWValue $tick 'invoked' $false)) {
+                    $result | Add-Member -NotePropertyName 'auto_dispatch' -NotePropertyValue (Get-GHWValue $tick 'auto_dispatch' $null) -Force
+                }
+            }
         }
         if (-not [string]::IsNullOrWhiteSpace($effOut)) {
             try {
