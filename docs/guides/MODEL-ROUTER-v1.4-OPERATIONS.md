@@ -12,6 +12,16 @@
 
 The OpenCode Console free DeepSeek is a separate endpoint (`opencode/deepseek-v4.1-flash-free`). The requested v1.4 fallback uses the **Go** endpoint and is not a free-model claim. Muse Contributor and Iceman Contributor may submit request content for training under their service terms. Honor the effective model data policy and workspace privacy restrictions.
 
+## Provider namespace: do not infer it from price
+
+The routing policy binds **four OpenAI models** directly to the `openai/` provider: Luna (`openai/gpt-6-luna`), Terra (`openai/gpt-6.1-terra`), Sol (`openai/gpt-6.1-sol`) and Astra (`openai/gpt-6-astra`). Do not silently substitute an OpenCode-hosted copy of these models.
+
+The free MiMo fallback belongs to the **OpenCode Console free** provider (`opencode/mimo-v2.6-flash-free`). Despite its *Free* pricing label, Iceman Contributor Free is listed by OpenCode under **OpenCode Go** (`opencode-go/iceman-contributor-free`), not `opencode/`. Muse Spark 1.3 Contributor (`opencode-go/muse-spark-1.3-contributor`) and DeepSeek V4.1 Flash (`opencode-go/deepseek-v4.1-flash`) also use **OpenCode Go**. The disabled legacy `opencode/deepseek-v4.1-flash-free` must not become an implicit fallback.
+
+Provider verification: compare `provider`, `model_id`, and actual executed provider in post-execution evidence. A shared model name never authorizes switching API/account/provider. Keep model access and regional/privacy restrictions enforced by the actual provider.
+
+Official catalogs: https://opencode.ai/v2/docs/console/models/ and https://opencode.ai/v2/docs/console/go/.
+
 ## Planner / Tester / Jev
 
 - Planner `build` is stable on `openai/gpt-6-luna` at *operational* T2 using the dedicated `MODEL_PLANNER` token. Do not silently remap Planner to general T2 Muse.
