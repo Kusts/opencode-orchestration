@@ -60,6 +60,8 @@ function Invoke-OrchestrationModelExecution {
         [string]$Risk = 'low',
         [string]$Complexity = 'simple',
         [int]$FailureCount = 0,
+        [bool]$T3FailureVerified = $false,
+        [string]$T3FailureReceipt = '',
         [bool]$ProviderCostAuthorized = $false,
         [bool]$IsContextFailure = $false,
         [string]$RequestedModelOverride = '',
@@ -95,7 +97,7 @@ function Invoke-OrchestrationModelExecution {
         }
         $sel = $null
         try {
-            $sel = Resolve-OrchestrationModelSelection -AgentName $agent -Risk $Risk -Complexity $Complexity -FailureCount $fc -ProviderCostAuthorized $ProviderCostAuthorized -IgnoreUserConfig $true -NativeModelOverrideProven $NativeModelOverrideProven
+            $sel = Resolve-OrchestrationModelSelection -AgentName $agent -Risk $Risk -Complexity $Complexity -FailureCount $fc -T3FailureVerified $T3FailureVerified -T3FailureReceipt $T3FailureReceipt -ProviderCostAuthorized $ProviderCostAuthorized -IgnoreUserConfig $true -NativeModelOverrideProven $NativeModelOverrideProven
         } catch { $sel = $null }
         if ($null -eq $sel) {
             return [pscustomobject]@{ ok = $false; reason = 'selection-failed'; status = 'PROOF_ABSENT'; grants_authority = $false }
@@ -117,11 +119,38 @@ function Invoke-OrchestrationModelExecution {
         if ($null -ne $DispatchExecutor) {
             $dispatchEvent = $null
             $dispatchErr = ''
-            try {
-                $dispatchEvent = & $DispatchExecutor -Model $effective -Agent $agent -TaskId $taskTrim
-            } catch {
-                $dispatchErr = $_.Exception.Message
-                $dispatchEvent = $null
+            $routeFallback = $AuthorizedFallback
+            $attemptedModels = @()
+            # Bounded retry only for explicit pre-execution failures. Never repeat a
+            # potentially executed, side-effecting task after timeout/ambiguous error.
+            for ($tryIndex = 0; $tryIndex -lt 4; $tryIndex++) {
+                try {
+                    $dispatchEvent = & $DispatchExecutor -Model $effective -Agent $agent -TaskId $taskTrim
+                } catch {
+                    $dispatchErr = $_.Exception.Message
+                    $dispatchEvent = $null
+                    break
+                }
+                $failureClass = [string](Get-MEValue $dispatchEvent 'FailureClass' '')
+                $preExecutionConfirmed = [bool](Get-MEValue $dispatchEvent 'NoExecutionStarted' $false)
+                if (-not $NativeModelOverrideProven -or -not $preExecutionConfirmed -or
+                    $failureClass -notin @('RATE_LIMIT','PROVIDER_ERROR','MODEL_UNAVAILABLE','MODEL_ERROR','SERVICE_UNAVAILABLE')) {
+                    break
+                }
+                $attemptedModels += $effective
+                if ($tryIndex -ge 3) {
+                    $dispatchErr = 'bounded-fallback-attempts-exhausted'
+                    $dispatchEvent = $null
+                    break
+                }
+                $fbDecision = Resolve-OrchestrationModelFallback -RequestedSelection $sel -FailedModel $effective -AttemptedModels $attemptedModels -TriggerReason $failureClass -IgnoreUserConfig $true
+                if ($null -eq $fbDecision -or [string]$fbDecision.Status -ne 'AUTHORIZED') {
+                    $dispatchErr = 'no-authorized-fallback:' + [string]$failureClass
+                    $dispatchEvent = $null
+                    break
+                }
+                $routeFallback = $fbDecision
+                $effective = [string]$fbDecision.FallbackModel
             }
             if ($null -eq $dispatchEvent) {
                 $logF = [ordered]@{
@@ -159,7 +188,7 @@ function Invoke-OrchestrationModelExecution {
                 }
             }
             $ver = $null
-            try { $ver = Test-ExecutedModelVerification -RequestedSelection $sel -ExecutedModelEvent $dispatchEvent -NativeModelOverrideProven $true -AuthorizedFallback $AuthorizedFallback } catch { $ver = $null }
+            try { $ver = Test-ExecutedModelVerification -RequestedSelection $sel -ExecutedModelEvent $dispatchEvent -NativeModelOverrideProven $true -AuthorizedFallback $routeFallback } catch { $ver = $null }
             $proof = if ($null -ne $ver) { [string]$ver.ProofStatus } else { 'PROOF_ABSENT' }
             $logV = [ordered]@{
                 agent = $agent; task_id = $taskTrim
