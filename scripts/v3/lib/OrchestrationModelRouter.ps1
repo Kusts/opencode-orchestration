@@ -500,7 +500,10 @@ function Resolve-OrchestrationModelFallback {
         [bool]$IgnoreUserConfig = $false,
 
         [Parameter(Mandatory = $false)]
-        [string]$PolicyPath = ''
+        [string]$PolicyPath = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$VerifiedFailureReceipt = ''
     )
 
     $ignoreUser = $IgnoreUserConfig
@@ -549,7 +552,7 @@ function Resolve-OrchestrationModelFallback {
     }
 
     # Determina autorizacao de custo para T4
-    $costAuth = ($ProviderCostAuthorized -or ($reqTier -eq 'T4' -and [bool]$RequestedSelection.ProviderCostAuthorized) -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true')
+    $costAuth = $true # T4 uses verified-failure policy gates rather than per-call cost approval
 
     # Admissibilidade estrita por papel do agente
     $admiss = if ($script:AgentModelAdmissibility.ContainsKey($cleanAgent)) { $script:AgentModelAdmissibility[$cleanAgent] } else { $null }
@@ -711,18 +714,20 @@ function Resolve-OrchestrationModelFallback {
             }
         }
 
-        # 8. Autorizacao de custo para T4
-        if ($tier -eq 'T4' -or $CandObj.RequiresCost) {
-            if (-not $costAuth) {
-                & $RecordExclusion $mId $tier 'UNAUTHORIZED_T4_COST'
+        # T4 is a capability escalation, never a reaction to a transient provider outage.
+        if ($tier -eq 'T4' -and $reqTier -ne 'T4') {
+            if ($TriggerReason -ne 'VERIFIED_TASK_FAILURE' -or [string]::IsNullOrWhiteSpace($VerifiedFailureReceipt)) {
+                & $RecordExclusion $mId $tier 'T3_FAILURE_PROOF_REQUIRED'
                 return $null
             }
         }
 
-        # 9. Autorizacao excepcional para Astra
+        # Astra is not a generic outage fallback. It requires a verifiable, prior Sol failure.
         if ($CandObj.Exceptional -or $mId -match 'astra') {
-            if ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ine 'true') {
-                & $RecordExclusion $mId $tier 'UNAUTHORIZED_ASTRA_EXCEPTIONAL'
+            if ($reqTier -ne 'T4' -or $TriggerReason -ne 'VERIFIED_TASK_FAILURE' -or
+                [string]::IsNullOrWhiteSpace($VerifiedFailureReceipt) -or
+                (-not $reallyAttempted.Contains('openai/gpt-6.1-sol'))) {
+                & $RecordExclusion $mId $tier 'SOL_VERIFIED_FAILURE_REQUIRED'
                 return $null
             }
         }
@@ -748,11 +753,55 @@ function Resolve-OrchestrationModelFallback {
             TriggerReason          = $TriggerReason
             Reason                 = $ReasonMsg
             AuthorizationSource    = 'ROUTER_POLICY'
-            ProviderCostAuthorized = [bool]$RequestedSelection.ProviderCostAuthorized
+            ProviderCostAuthorized = $true
             AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
             IsDowngrade            = $IsDown
             ReallyAttemptedModels  = @($reallyAttempted)
             PreventivelyExcluded   = @($preventivelyExcluded)
+        }
+    }
+
+    # On transient model/provider failures, T3/T4 can try explicitly admitted T2
+    # fallback models, never treating a downgrade as equal capability. Security
+    # and high-risk review retain their no-downgrade invariant.
+    $transientReasons = @('RATE_LIMIT', 'PROVIDER_ERROR', 'MODEL_UNAVAILABLE', 'MODEL_ERROR', 'SERVICE_UNAVAILABLE')
+    if ($reqTier -in @('T3','T4') -and $transientReasons -contains $TriggerReason) {
+        $downAllowed = $null -ne $admiss -and $admiss.AdmissibleTiers -contains 'T2' -and $admiss.ProhibitedTiers -notcontains 'T2'
+        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -ne 'low') { $downAllowed = $false }
+        if ($cleanAgent -eq 'security-reviewer') { $downAllowed = $false }
+        if (-not $downAllowed) {
+            foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
+                & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
+            }
+            return [pscustomobject]@{
+                Status='REJECTED_DOWNGRADE_FORBIDDEN'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason="Tier $reqTier transport fallback to T2 prohibited for agent '$cleanAgent'."
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$true
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$true
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $downCandidates = & $GetDynamicCandidatesForTier 'T2'
+        foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
+            foreach ($dc in $downCandidates) {
+                if ($dc.ModelId -ne $mc) { continue }
+                $validDown = & $EvaluateCandidate $dc
+                if ($null -ne $validDown) {
+                    return (& $BuildAuthorizedResult $validDown.ModelId 'T2' "Fallback from $reqTier after $TriggerReason (degraded capability)." $true)
+                }
+            }
+        }
+        # Do not escalate to Sol/Astra for transport failures or silently retry the same model.
+        return [pscustomobject]@{
+            Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+            AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+            OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+            TriggerReason=$TriggerReason; Reason='No eligible T2 transport fallback remains.'
+            AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$true
+            AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$true
+            ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
         }
     }
 
@@ -1054,9 +1103,9 @@ function Test-ExecutedModelVerification {
             }
         }
 
-        # T4 cost authorization check
+        # T4 uses policy-approved escalation. A fallback decision is still mandatory.
         if ($effTier -eq 'T4') {
-            $t4CostAuth = ([bool]$fb.ProviderCostAuthorized -and ([string]$fb.AuthorizationSource -in @('EXPLICIT_PARAMETER', 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED', 'ROUTER_POLICY') -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))
+            $t4CostAuth = ([bool]$fb.ProviderCostAuthorized -and ([string]$fb.AuthorizationSource -in @('EXPLICIT_PARAMETER', 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED', 'ROUTER_POLICY', 'AUTO_ROUTER_POLICY_V14') -or [string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))
             if (-not $t4CostAuth -and [string]$RequestedSelection.CostAuthorizationSource -in @('EXPLICIT_PARAMETER', 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED')) {
                 $t4CostAuth = $true
             }
