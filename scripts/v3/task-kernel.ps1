@@ -3,19 +3,24 @@
     Task Kernel CLI: thin wrapper over lib/OrchestrationTaskKernel.ps1.
 .DESCRIPTION
     Actions:
-      create        - New-OrchestrationTask (needs -TaskId -Objective; optional -Project for active-work dedupe: same objective+scope+DoD+project on an ACTIVE task returns DUPLICATE_ACTIVE_WORK, never merges; optional -RequireTypedWaits switch for a sticky per-task typed-wait requirement)
+      create        - New-OrchestrationTask (needs -TaskId -Objective; optional -Project for active-work dedupe: same objective+scope+DoD+project on an ACTIVE task returns DUPLICATE_ACTIVE_WORK, never merges; optional -RequireTypedWaits switch for a sticky per-task typed-wait requirement; optional -VerificationProfiles commits the immutable verification plan before model dispatch)
       check-duplicate - Get-OrchestrationDuplicateWork query (needs -Objective; optional scopes/criteria/project; read-only, no creation)
       get           - Get-OrchestrationTask (needs -TaskId)
       status        - Get-OrchestrationTaskStatus (needs -TaskId)
       transition    - Invoke-OrchestrationTaskTransition (needs -TaskId -ToState -Actor -ExpectedRevision; optional typed wait for -ToState BLOCKED; unblock from BLOCKED needs -WaitFingerprint or -UnblockAction when a typed wait is active)
       record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision; optional strategy/recovery fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -FailureClass -FailureDetail -RecoverySource -NewEvidenceRefs)
-      verify        - Set-OrchestrationTaskVerification (needs -TaskId -VerifierResultFile|-VerifierResultJson -ExpectedRevision; never -Passed)
+      verify        - Set-OrchestrationTaskVerification (UNTRUSTED caller JSON/file; persists verification_source=caller-supplied, never proof-capable)
+      verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
       watchdog-interrupt - Set-OrchestrationTaskWatchdogInterrupt (needs -TaskId -Actor -ExpectedRevision -WatchdogAttemptN -WatchdogClass; optional -WatchdogTelemetryFile)
       watchdog-settle    - Confirm-OrchestrationTaskWatchdogSettlement (needs -TaskId -Actor -ExpectedRevision; idempotent; optional -WatchdogDisposition RETRY|CLOSE, default RETRY)
+      model-attempt - Set-OrchestrationTaskModelAttempt (needs -TaskId -SessionId <child> -ExpectedRevision; records only independently-observed session evidence, no dispatch)
+      model-proof   - Get-OrchestrationTaskModelFailureProof (needs -TaskId -RequiredTier T3|T4; read-only recomputation, no proof params)
+      model-select  - Planner read-only selection (needs -TaskId -AttemptRole <role>; optional -Risk -ModelComplexity -TaskType -RequiresLlm; returns tier + providerID/modelID + policy_hash + proof refs; no dispatch, no session spawn; load failure => MODEL_ROUTER_LOAD_FAILED, selection failure => MODEL_SELECTION_FAILED)
+      path-overrides - -TasksDir -FlagsPath -CliRepoRoot -PolicyPath are compat-only: omit them to use the canonical paths derived from the script; any divergent value returns TRUSTED_PATH_MISMATCH before IO; never point them at another store/policy
       get-budget    - Get-OrchestrationTaskBudget (needs -TaskId; old records derive defaults read-only)
       start-attempt - Start-OrchestrationTaskAttempt (needs -TaskId -AttemptRole -SessionId -Actor -ExpectedRevision; optional -DebuggerEvidenceRefs/-NewEvidenceRefs string arrays for retry-gated starts; optional strategy fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -AttemptHypothesis for stall gates)
       set-budget    - Set-OrchestrationTaskBudget planner/kernel only (needs -TaskId -Actor -ExpectedRevision)
@@ -120,7 +125,10 @@ param(
     [string]$WaitFingerprint = '',
     [string]$UnblockAction = ''
     ,[string]$RunId = '', [string]$SeatId = '', [string]$BindingRuntime = '', [string]$BindingVersion = '',
-    [string]$ParentSessionId = '', [string]$RootSessionId = '', [switch]$WorkerSession
+    [string]$ParentSessionId = '', [string]$RootSessionId = '', [switch]$WorkerSession,
+    [string]$RequiredTier = '', [string]$ChildSessionId = '', [string]$PolicyPath = '',
+    [string]$CliRepoRoot = '', [string[]]$VerifierProfiles = @(),
+    [string]$ModelComplexity = '', [switch]$RequiresLlm
 )
 
 $ErrorActionPreference = 'Stop'
@@ -178,7 +186,7 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
 if ($validActions -cnotcontains $action) {
     Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
     exit 2
@@ -189,6 +197,24 @@ function Assert-TaskKernelRevision {
         Write-TaskKernelCliError 'Esta acao exige -ExpectedRevision >= 0 (CAS).'
         exit 2
     }
+}
+
+function Test-TaskKernelCliTrustedPath {
+    param([string]$Provided, [string]$Canonical)
+    if ([string]::IsNullOrWhiteSpace($Provided)) { return $true }
+    if ([string]::IsNullOrWhiteSpace($Canonical)) { return $false }
+    try {
+        $a = [IO.Path]::GetFullPath((([string]$Provided).Trim())).TrimEnd('\', '/')
+        $b = [IO.Path]::GetFullPath((([string]$Canonical).Trim())).TrimEnd('\', '/')
+        if ([string]::IsNullOrWhiteSpace($a) -or [string]::IsNullOrWhiteSpace($b)) { return $false }
+        return ([string]$a).Equals([string]$b, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    catch { return $false }
+}
+
+function Get-TaskKernelCliCanonicalRoot {
+    try { return (Get-TaskKernelRepoRoot -RepoRoot '') }
+    catch { return '' }
 }
 
 function Convert-TaskKernelPassed {
@@ -262,6 +288,7 @@ switch ($action) {
             -WriteScopes (Split-TaskKernelCliList -Value $WriteScopes) -Grants (Split-TaskKernelCliList -Value $Grants) `
             -AcceptanceCriteria (Split-TaskKernelCliList -Value $AcceptanceCriteria) `
             -ExpectedArtifacts (Split-TaskKernelCliList -Value $ExpectedArtifacts) `
+            -VerificationProfiles (Split-TaskKernelCliList -Value $VerifierProfiles) `
             -EnvironmentAllowed (Split-TaskKernelCliList -Value $EnvironmentAllowed) `
             -ProductionAuthorized ([bool]$ProductionAuthorized) -AttemptBudget ([int]$abConv.value) `
             -BudgetProfile $BudgetProfile -BudgetPolicyPath $BudgetPolicyPath `
@@ -382,6 +409,22 @@ switch ($action) {
         }
         $result = Set-OrchestrationTaskVerification -TaskId $TaskId -VerifierEvidenceJson $vtext `
             -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'verify-run' {
+        $canonRootVr = Get-TaskKernelCliCanonicalRoot
+        $canonTasksVr = ''; $canonFlagsVr = ''
+        try { $canonTasksVr = Get-TaskKernelDefaultTasksDir -RepoRoot '' } catch { $canonTasksVr = '' }
+        try { $canonFlagsVr = Get-TaskKernelDefaultFlagsPath -RepoRoot '' } catch { $canonFlagsVr = '' }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $CliRepoRoot -Canonical $canonRootVr)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'repo_root'; action = 'verify-run' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksVr)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'tasks_dir'; action = 'verify-run' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsVr)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'flags_path'; action = 'verify-run' }; break }
+        if ([string]::IsNullOrWhiteSpace($TaskId)) {
+            Write-TaskKernelCliError 'verify-run exige -TaskId -ExpectedRevision (usa o plano verification_profiles do task + repo/policy do -CliRepoRoot).'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $result = Invoke-TaskKernelVerifyRun -TaskId $TaskId -ExpectedRevision ([int]$ExpectedRevision) `
+            -TasksDir $canonTasksVr -FlagsPath $canonFlagsVr -RepoRoot $canonRootVr
     }
     'review' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($ReviewKind) -or [string]::IsNullOrWhiteSpace($ReviewStatus) -or [string]::IsNullOrWhiteSpace($ReviewBy)) {
@@ -565,6 +608,128 @@ switch ($action) {
         $result = Confirm-OrchestrationTaskWatchdogSettlement -TaskId $TaskId `
             -Actor $Actor -ExpectedRevision ([int]$ExpectedRevision) -ActorIdentitySource $ids `
             -TasksDir $TasksDir -FlagsPath $FlagsPath @dispArgs
+    }
+    'model-attempt' {
+        $canonRootMa = Get-TaskKernelCliCanonicalRoot
+        $canonTasksMa = ''; $canonFlagsMa = ''; $canonPolMa = ''
+        try { $canonTasksMa = Get-TaskKernelDefaultTasksDir -RepoRoot '' } catch { $canonTasksMa = '' }
+        try { $canonFlagsMa = Get-TaskKernelDefaultFlagsPath -RepoRoot '' } catch { $canonFlagsMa = '' }
+        try { $canonPolMa = Get-TaskKernelModelPolicyDefaultPath -RepoRoot '' } catch { $canonPolMa = '' }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $CliRepoRoot -Canonical $canonRootMa)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'repo_root'; action = 'model-attempt' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksMa)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'tasks_dir'; action = 'model-attempt' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsMa)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'flags_path'; action = 'model-attempt' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $PolicyPath -Canonical $canonPolMa)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'model_policy'; action = 'model-attempt' }; break }
+        $child = $ChildSessionId
+        if ([string]::IsNullOrWhiteSpace($child)) { $child = $SessionId }
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($child)) {
+            Write-TaskKernelCliError 'model-attempt exige -TaskId -SessionId <child> (ou -ChildSessionId) -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $result = Set-OrchestrationTaskModelAttempt -TaskId $TaskId -ChildSessionId $child `
+            -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $canonTasksMa -FlagsPath $canonFlagsMa `
+            -RepoRoot $canonRootMa -PolicyPath $canonPolMa
+    }
+    'model-proof' {
+        $canonRootMp = Get-TaskKernelCliCanonicalRoot
+        $canonTasksMp = ''; $canonFlagsMp = ''; $canonPolMp = ''
+        try { $canonTasksMp = Get-TaskKernelDefaultTasksDir -RepoRoot '' } catch { $canonTasksMp = '' }
+        try { $canonFlagsMp = Get-TaskKernelDefaultFlagsPath -RepoRoot '' } catch { $canonFlagsMp = '' }
+        try { $canonPolMp = Get-TaskKernelModelPolicyDefaultPath -RepoRoot '' } catch { $canonPolMp = '' }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $CliRepoRoot -Canonical $canonRootMp)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'repo_root'; action = 'model-proof' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksMp)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'tasks_dir'; action = 'model-proof' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsMp)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'flags_path'; action = 'model-proof' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $PolicyPath -Canonical $canonPolMp)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'model_policy'; action = 'model-proof' }; break }
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($RequiredTier)) {
+            Write-TaskKernelCliError 'model-proof exige -TaskId -RequiredTier T3|T4.'
+            exit 2
+        }
+        $rt = ([string]$RequiredTier).Trim().ToUpperInvariant()
+        if (($rt -cne 'T3') -and ($rt -cne 'T4')) {
+            Write-TaskKernelCliError 'model-proof: -RequiredTier exige T3|T4.'
+            exit 2
+        }
+        $result = Get-OrchestrationTaskModelFailureProof -TaskId $TaskId -RequiredTier $rt `
+            -TasksDir $canonTasksMp -RepoRoot $canonRootMp -PolicyPath $canonPolMp
+    }
+    'model-select' {
+        $canonRootMs = Get-TaskKernelCliCanonicalRoot
+        $canonTasksMs = ''; $canonFlagsMs = ''; $canonPolMs = ''
+        try { $canonTasksMs = Get-TaskKernelDefaultTasksDir -RepoRoot '' } catch { $canonTasksMs = '' }
+        try { $canonFlagsMs = Get-TaskKernelDefaultFlagsPath -RepoRoot '' } catch { $canonFlagsMs = '' }
+        try { $canonPolMs = Get-TaskKernelModelPolicyDefaultPath -RepoRoot '' } catch { $canonPolMs = '' }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $CliRepoRoot -Canonical $canonRootMs)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'repo_root'; action = 'model-select' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksMs)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'tasks_dir'; action = 'model-select' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsMs)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'flags_path'; action = 'model-select' }; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $PolicyPath -Canonical $canonPolMs)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'model_policy'; action = 'model-select' }; break }
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($AttemptRole)) {
+            Write-TaskKernelCliError 'model-select exige -TaskId -AttemptRole <role> (somente leitura, sem dispatch).'
+            exit 2
+        }
+        $roleSel = ([string]$AttemptRole).Trim().ToLowerInvariant()
+        $riskSel = ([string]$Risk).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($riskSel)) { $riskSel = 'medium' }
+        $complexSel = ([string]$ModelComplexity).Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($complexSel)) { $complexSel = 'medium' }
+        $reqLlmSel = [bool]$RequiresLlm
+        $typeSel = ([string]$TaskType).Trim()
+        $taskRec = Get-OrchestrationTask -TaskId $TaskId -TasksDir $canonTasksMs -RepoRoot $canonRootMs
+        if ($null -ne $taskRec -and ($taskRec -is [System.Collections.IDictionary] -or $null -ne $taskRec.PSObject)) {
+            $errProbe = ''
+            try {
+                if ($taskRec -is [System.Collections.IDictionary]) { if ($taskRec.Contains('error')) { $errProbe = [string]$taskRec['error'] } }
+                else { $pp = $taskRec.PSObject.Properties['error']; if ($null -ne $pp) { $errProbe = [string]$pp.Value } }
+            } catch { $errProbe = '' }
+            if (-not [string]::IsNullOrWhiteSpace($errProbe)) { $result = $taskRec; break }
+        }
+        $routerLibMs = (Join-Path $v3root 'lib\OrchestrationModelRouter.ps1')
+        if (-not (Test-Path -LiteralPath $routerLibMs -PathType Leaf)) { $result = New-TaskKernelError -Code 'MODEL_ROUTER_LOAD_FAILED'; break }
+        try { . $routerLibMs } catch { $result = New-TaskKernelError -Code 'MODEL_ROUTER_LOAD_FAILED'; break }
+        # Live-server-only capability: task runtime profile/version is caller
+        # metadata persisted for observability and NEVER authorizes the
+        # subagent.model override. Proven only when the CURRENT live local
+        # OpenCode server version (bounded /api/info read) is exactly in the
+        # canonical supported allowlist. Same-server assumption documented in
+        # the helper and operations guide.
+        $nativeProof = @{ ok = $false; reason = 'INFO_UNAVAILABLE'; live_version = '' }
+        try { $nativeProof = Test-OrchestrationNativeModelOverrideProof } catch { $nativeProof = @{ ok = $false; reason = 'INFO_UNAVAILABLE'; live_version = '' } }
+        $nativeProven = [bool]$nativeProof.ok
+        $nativeReason = [string]$nativeProof.reason
+        $sel = $null
+        try {
+            $sel = Resolve-OrchestrationModelSelection -AgentName $roleSel -TaskId $TaskId -TasksDir $canonTasksMs -RepoRoot $canonRootMs -PolicyPath $canonPolMs -Risk $riskSel -Complexity $complexSel -TaskType $typeSel -RequiresLlm:$reqLlmSel -IgnoreUserConfig $true -NativeModelOverrideProven $nativeProven
+        } catch { $result = New-TaskKernelError -Code 'MODEL_SELECTION_FAILED'; break }
+        if ($null -eq $sel) { $result = New-TaskKernelError -Code 'MODEL_SELECTION_FAILED'; break }
+        $refOut = ''; $dgOut = ''
+        try { if ($null -ne $sel.PSObject.Properties['KernelProofReference']) { $refOut = [string]$sel.KernelProofReference } } catch { }
+        try { if ($null -ne $sel.PSObject.Properties['KernelProofDigest']) { $dgOut = [string]$sel.KernelProofDigest } } catch { }
+        $modelOut = ''
+        $subModelOut = ''
+        if ($nativeProven) { $modelOut = [string]$sel.CatalogModel; $subModelOut = [string]$sel.CatalogModel }
+        $fbTokOut = ''; $fbTierOut = ''
+        try { $fbTokOut = [string]$sel.FallbackToken } catch { }
+        try { $fbTierOut = [string]$sel.FallbackTier } catch { }
+        $result = [PSCustomObject]@{
+            ok = ([string]$sel.Status -ceq 'SELECTED')
+            task_id = ([string]$TaskId).Trim()
+            role = $roleSel
+            tier = [string]$sel.Tier
+            model = $modelOut
+            subagent_model = $subModelOut
+            subagent_model_usage = 'OMIT subagent.model unless model_override_proven=true; use host template when false'
+            provider = [string]$sel.selected_provider
+            policy_hash = [string]$sel.policy_hash
+            policy_version = [string]$sel.policy_version
+            native_model_override_proven = $nativeProven
+            model_override_proven = $nativeProven
+            native_proof_reason = $nativeReason
+            fallback_token = $fbTokOut
+            fallback_tier = $fbTierOut
+            kernel_proof_reference = $refOut
+            kernel_proof_digest = $dgOut
+            selection_reason = [string]$sel.SelectionReason
+            no_dispatch = $true
+        }
     }
 }
 

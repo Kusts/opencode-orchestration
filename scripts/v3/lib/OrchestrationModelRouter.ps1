@@ -460,6 +460,65 @@ function Resolve-CatalogModel {
     }
 }
 
+function Test-OrchestrationModelKernelFailureProof {
+    <#
+    .SYNOPSIS
+        Kernel-owned failure-proof gate for T3->Sol (T4) and Sol->Astra escalation.
+    .DESCRIPTION
+        Read-only. Calls Get-OrchestrationTaskModelFailureProof for TaskId +
+        RequiredTier and requires: proof ok, policy_hash equals current routing
+        policy hash, and proof model/provider equal the canonical required
+        model/provider for that tier. Arbitrary bool/string receipts
+        (T3FailureVerified, T3FailureReceipt, VerifiedFailureReceipt) are
+        DEPRECATED_UNTRUSTED and never authorize escalation.
+        Never throws; returns @{ ok, proof, error }.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$TaskId = '',
+        [string]$RequiredTier = 'T3',
+        [string]$TasksDir = '',
+        [string]$RepoRoot = '',
+        [string]$PolicyPath = ''
+    )
+    try {
+        $tid = ([string]$TaskId).Trim()
+        if ([string]::IsNullOrWhiteSpace($tid)) { return @{ ok = $false; proof = $null; error = 'NO_TASK_ID' } }
+        $tier = ([string]$RequiredTier).Trim()
+        if (($tier -cne 'T3') -and ($tier -cne 'T4')) { return @{ ok = $false; proof = $null; error = 'INVALID_TIER' } }
+        $polRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+        if ($polRes.Status -ne 'POLICY_LOADED') { return @{ ok = $false; proof = $null; error = 'POLICY_UNKNOWN' } }
+        $polHash = [string]$polRes.PolicyHash
+        $pol = $polRes.Policy
+        $canonModel = ''
+        $canonProvider = ''
+        try {
+            if ($tier -ceq 'T3' -and $null -ne $pol.models.terra) { $canonModel = [string]$pol.models.terra.model_id; $canonProvider = [string]$pol.models.terra.provider }
+            elseif ($tier -ceq 'T4' -and $null -ne $pol.models.sol) { $canonModel = [string]$pol.models.sol.model_id; $canonProvider = [string]$pol.models.sol.provider }
+        } catch { $canonModel = ''; $canonProvider = '' }
+        if ([string]::IsNullOrWhiteSpace($canonModel)) { return @{ ok = $false; proof = $null; error = 'CANON_UNKNOWN' } }
+        $hasFn = (Get-Command Get-OrchestrationTaskModelFailureProof -ErrorAction SilentlyContinue)
+        if ($null -eq $hasFn) {
+            try {
+                $kernelLib = Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1'
+                if (Test-Path -LiteralPath $kernelLib -PathType Leaf) { . $kernelLib }
+            } catch { }
+        }
+        $hasFn2 = (Get-Command Get-OrchestrationTaskModelFailureProof -ErrorAction SilentlyContinue)
+        if ($null -eq $hasFn2) { return @{ ok = $false; proof = $null; error = 'KERNEL_PROOF_UNAVAILABLE' } }
+        $proof = $null
+        try { $proof = Get-OrchestrationTaskModelFailureProof -TaskId $tid -RequiredTier $tier -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath } catch { $proof = $null }
+        if ($null -eq $proof) { return @{ ok = $false; proof = $null; error = 'PROOF_ABSENT' } }
+        $pok = $false
+        try { $pok = [bool]$proof.ok } catch { $pok = $false }
+        if (-not $pok) { return @{ ok = $false; proof = $proof; error = 'PROOF_NOT_OK' } }
+        if ([string]$proof.policy_hash -cne $polHash) { return @{ ok = $false; proof = $proof; error = 'POLICY_HASH_MISMATCH' } }
+        if ([string]$proof.model -cne $canonModel) { return @{ ok = $false; proof = $proof; error = 'MODEL_MISMATCH' } }
+        if ([string]$proof.provider -cne $canonProvider) { return @{ ok = $false; proof = $proof; error = 'PROVIDER_MISMATCH' } }
+        return @{ ok = $true; proof = $proof; error = '' }
+    } catch { return @{ ok = $false; proof = $null; error = 'INTERNAL_ERROR' } }
+}
+
 function Resolve-OrchestrationModelFallback {
     <#
     .SYNOPSIS
@@ -503,8 +562,21 @@ function Resolve-OrchestrationModelFallback {
         [string]$PolicyPath = '',
 
         [Parameter(Mandatory = $false)]
-        [string]$VerifiedFailureReceipt = ''
+        [string]$VerifiedFailureReceipt = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$TaskId = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$TasksDir = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$RepoRoot = ''
     )
+
+    # DEPRECATED_UNTRUSTED: VerifiedFailureReceipt is never trusted. Astra/Sol
+    # escalation requires kernel-owned Get-OrchestrationTaskModelFailureProof
+    # for TaskId + RequiredTier with matching policy_hash/model/provider.
 
     $ignoreUser = $IgnoreUserConfig
     if ($RequestedSelection -and $RequestedSelection.PSObject.Properties['IgnoreUserConfig'] -and $RequestedSelection.IgnoreUserConfig) {
@@ -715,17 +787,25 @@ function Resolve-OrchestrationModelFallback {
         }
 
         # T4 is a capability escalation, never a reaction to a transient provider outage.
+        # Kernel-owned gate: requires T3 failure proof for the exact task.
         if ($tier -eq 'T4' -and $reqTier -ne 'T4') {
-            if ($TriggerReason -ne 'VERIFIED_TASK_FAILURE' -or [string]::IsNullOrWhiteSpace($VerifiedFailureReceipt)) {
+            if ($TriggerReason -ne 'VERIFIED_TASK_FAILURE') {
+                & $RecordExclusion $mId $tier 'T3_FAILURE_PROOF_REQUIRED'
+                return $null
+            }
+            $kpT3 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+            if (-not [bool]$kpT3.ok) {
                 & $RecordExclusion $mId $tier 'T3_FAILURE_PROOF_REQUIRED'
                 return $null
             }
         }
 
-        # Astra is not a generic outage fallback. It requires a verifiable, prior Sol failure.
+        # Astra is not a generic outage fallback. It requires kernel-owned T4
+        # (Sol) failure proof for the exact task plus attempted Sol.
         if ($CandObj.Exceptional -or $mId -match 'astra') {
+            $kpT4 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T4' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
             if ($reqTier -ne 'T4' -or $TriggerReason -ne 'VERIFIED_TASK_FAILURE' -or
-                [string]::IsNullOrWhiteSpace($VerifiedFailureReceipt) -or
+                (-not [bool]$kpT4.ok) -or
                 (-not $reallyAttempted.Contains('openai/gpt-6.1-sol'))) {
                 & $RecordExclusion $mId $tier 'SOL_VERIFIED_FAILURE_REQUIRED'
                 return $null
@@ -1221,8 +1301,17 @@ function Resolve-OrchestrationModelSelection {
 
         [Parameter(Mandatory = $false)]
         [Alias('Capability', 'Capabilities')]
-        [string]$RequiredCapability = ''
+        [string]$RequiredCapability = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$TasksDir = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$RepoRoot = ''
     )
+
+    # DEPRECATED_UNTRUSTED (backward-compat only): T3FailureVerified,
+    # T3FailureReceipt, FailureCount are IGNORED for escalation. T4 needs kernel proof.
 
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
@@ -1352,14 +1441,55 @@ function Resolve-OrchestrationModelSelection {
         }
     }
 
-    # Automatic frontier escalation is allowed only after the caller has verified
-    # that T3 failed to resolve the task; failure count or risk alone is insufficient.
-    # Callers must derive T3FailureVerified from recorded task/model evidence.
-    if ($T3FailureVerified -and -not [string]::IsNullOrWhiteSpace($T3FailureReceipt) -and
-        $cleanAgent -ne 'build' -and
+    # Automatic frontier escalation requires kernel-owned failure proof for
+    # the exact task (policy_hash + canonical model/provider match).
+    # DEPRECATED_UNTRUSTED T3FailureVerified/T3FailureReceipt/FailureCount are
+    # ignored. model-select is the Planner entry point for T3->Sol and,
+    # after a persisted failed Sol attempt, Sol->Astra. The T4 check runs
+    # FIRST: after Sol fails, the head attempt is Sol (T4) while the valid
+    # T3 proof lives in verification_history, so a head T3 check alone
+    # would hide the Astra escalation.
+    $selUsesAstra = $false
+    $selT4Proof = $null
+    $selT3Proof = $null
+    if ($cleanAgent -ne 'build' -and
         $admissibleTiers -contains 'T4' -and $prohibitedTiers -notcontains 'T4') {
-        $selectedTier = 'T4'
-        $reason = 'Verified T3 task non-resolution; policy escalates automatically to T4 Sol.'
+        $kpT4Sel = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T4' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+        if ([bool]$kpT4Sel.ok) {
+            $astraOk = $false
+            try {
+                $polA = $policyRes.Policy
+                $aEntry = $null
+                if ($null -ne $polA -and $null -ne $polA.models -and $null -ne $polA.models.astra) { $aEntry = $polA.models.astra }
+                if ($null -ne $aEntry -and [bool]$aEntry.enabled) {
+                    $elig = @($aEntry.eligible_roles)
+                    $roleOk = ($elig.Count -eq 0) -or ($elig -contains $cleanAgent)
+                    $provOk = $true
+                    if ($null -ne $polA.providers) {
+                        $ppA = $polA.providers.PSObject.Properties[[string]$aEntry.provider]
+                        if ($null -ne $ppA -and $null -ne $ppA.Value -and $ppA.Value.enabled -eq $false) { $provOk = $false }
+                    }
+                    if ($roleOk -and $provOk) { $astraOk = $true }
+                }
+            } catch { $astraOk = $false }
+            if ($astraOk) {
+                $selectedTier = 'T4'
+                $reason = 'Kernel-owned T4 (Sol) failure proof; policy escalates to T4 Astra.'
+                $selUsesAstra = $true
+                $selT4Proof = $kpT4Sel.proof
+            } else {
+                $selectedTier = 'T4'
+                $reason = 'Kernel-owned T4 (Sol) failure proof; Astra unavailable, fail closed to T4 Sol.'
+                $selT4Proof = $kpT4Sel.proof
+            }
+        } else {
+            $kpT3Sel = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+            if ([bool]$kpT3Sel.ok) {
+                $selectedTier = 'T4'
+                $reason = 'Kernel-owned T3 failure proof; policy escalates to T4 Sol.'
+                $selT3Proof = $kpT3Sel.proof
+            }
+        }
     }
 
     # Strict safety invariant check: ensure selected tier is admissible
@@ -1374,10 +1504,34 @@ function Resolve-OrchestrationModelSelection {
         $reason = "Security invariant enforced: security-reviewer forced to T3 minimum."
     }
 
-    # Coder T4 check: coder NEVER T4 without prior failure
-    if ($cleanAgent -eq 'coder' -and $selectedTier -eq 'T4' -and $FailureCount -lt 2) {
-        $selectedTier = 'T3'
-        $reason = "Cost invariant enforced: coder prohibited from T4 without at least 2 demonstrated failures."
+    # Coder T4 check: coder NEVER T4 without kernel-owned proof (T3 for Sol,
+    # T4 for Astra). FailureCount alone never authorizes; proof implies
+    # persisted failures. T4 is checked first so the Astra path survives its
+    # own head (Sol) while the T3 proof lives in history.
+    if ($cleanAgent -eq 'coder' -and $selectedTier -eq 'T4') {
+        $coderKeep = $false
+        if ($selUsesAstra -or ($null -ne $selT4Proof) -or ($null -ne $selT3Proof)) {
+            $coderKeep = $true
+        } else {
+            $kpCT4 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T4' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+            if ([bool]$kpCT4.ok) {
+                $coderKeep = $true
+                $selT4Proof = $kpCT4.proof
+            } else {
+                $kpCoder = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+                if ([bool]$kpCoder.ok) {
+                    $coderKeep = $true
+                    $selT3Proof = $kpCoder.proof
+                }
+            }
+        }
+        if (-not $coderKeep) {
+            $selectedTier = 'T3'
+            $reason = "Cost invariant enforced: coder prohibited from T4 without kernel-owned T3 failure proof."
+            $selUsesAstra = $false
+            $selT4Proof = $null
+            $selT3Proof = $null
+        }
     }
 
     # Visual capability upgrade: eligible agents may use T3 (Terra) for visual/document tasks
@@ -1389,13 +1543,34 @@ function Resolve-OrchestrationModelSelection {
         if ($TaskType -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
     }
     $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
-    if ($visualRequested -and ($terraEligibleAgents -contains $cleanAgent) -and ($admissibleTiers -contains 'T3')) {
+    if (-not $selUsesAstra -and $visualRequested -and ($terraEligibleAgents -contains $cleanAgent) -and ($admissibleTiers -contains 'T3')) {
         $selectedTier = 'T3'
         $reason = "Capable tier T3 selected for visual/document capability (Terra)."
     }
 
     # Catalog and authorization check: separate technical justification from explicit cost authorization
     $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig
+    if ($selUsesAstra -and $selectedTier -eq 'T4') {
+        $astraId = ''
+        $astraProv = ''
+        try {
+            if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.models -and $null -ne $policyRes.Policy.models.astra) {
+                $astraId = [string]$policyRes.Policy.models.astra.model_id
+                $astraProv = [string]$policyRes.Policy.models.astra.provider
+            }
+        } catch { $astraId = ''; $astraProv = '' }
+        if (-not [string]::IsNullOrWhiteSpace($astraId)) {
+            $catalogRes.CatalogModel = $astraId
+            $catalogRes.Provider = if (-not [string]::IsNullOrWhiteSpace($astraProv)) { $astraProv } else { Get-ModelProviderFromId $astraId }
+            $catalogRes.CostAuthorizationSource = 'AUTO_ROUTER_POLICY_V14'
+            $catalogRes.CostAuthorizationEvidence = 'policy:t4-verified-failure-gate'
+            $catalogRes.IsAuthorized = $true
+            $catalogRes.ProviderCostAuthorized = $true
+        } else {
+            $selUsesAstra = $false
+            $reason = 'Kernel-owned T4 (Sol) failure proof; Astra unavailable, fail closed to T4 Sol.'
+        }
+    }
     if ($cleanAgent -eq 'build') {
         # Planner is not the general T2 pool. Keep Luna and its dedicated token.
         $catalogRes.CatalogModel = 'openai/gpt-6-luna'
@@ -1496,6 +1671,31 @@ function Resolve-OrchestrationModelSelection {
         $overrideNote = 'Native subagent model parameter unproven in OpenCode V2. Using conservative template token fallback.'
     }
 
+    $kernelProofRef = ''
+    $kernelProofDigest = ''
+    if ($selectedTier -eq 'T4') {
+        $refProof = $null
+        if ($null -ne $selT4Proof) {
+            $refProof = $selT4Proof
+        } elseif ($null -ne $selT3Proof) {
+            $refProof = $selT3Proof
+        } else {
+            $kpRT4 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T4' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+            if ([bool]$kpRT4.ok -and $null -ne $kpRT4.proof) {
+                $refProof = $kpRT4.proof
+            } else {
+                $kpRT3 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+                if ([bool]$kpRT3.ok -and $null -ne $kpRT3.proof) {
+                    $refProof = $kpRT3.proof
+                }
+            }
+        }
+        if ($null -ne $refProof) {
+            $kernelProofRef = [string]$refProof.reference
+            $kernelProofDigest = [string]$refProof.digest
+        }
+    }
+
     return [pscustomobject]@{
         Status                    = 'SELECTED'
         Agent                     = $cleanAgent
@@ -1534,6 +1734,8 @@ function Resolve-OrchestrationModelSelection {
         policy_hash               = $polHash
         fallback_candidates       = $catalogRes.FallbackCandidates
         IgnoreUserConfig          = [bool]$IgnoreUserConfig
+        KernelProofReference      = $kernelProofRef
+        KernelProofDigest         = $kernelProofDigest
     }
 }
 
@@ -1585,4 +1787,128 @@ function Get-OrchestrationModelRouterReceipt {
         budget                   = if (-not [string]::IsNullOrWhiteSpace($budget)) { $budget } else { 'standard_tier_budget' }
         timestamp                = [DateTime]::UtcNow.ToString('o')
     }
+}
+
+function Test-OrchestrationNativeModelOverrideProof {
+    <#
+    .SYNOPSIS
+        Narrow native subagent.model override proof (fail-closed, live-server only).
+    .DESCRIPTION
+        Returns @{ ok, reason, live_version }.
+        ok is true ONLY when the CURRENT live local OpenCode server version,
+        retrieved read-only via `opencode api get /api/info`, is exactly in
+        the canonical supported allowlist (2.2.5, 2.0.23; both official raw
+        tags contain SubagentTool.Input.model with override ?? agent.model ??
+        parent.model). TaskKernel runtime profile/version metadata is caller
+        supplied at create time and NEVER authorizes this capability; this
+        helper accepts no task profile/version parameters.
+        Unknown versions and unavailable live API fail closed. Never infers
+        proof from a caller boolean, profile, or task record. Never throws.
+        Bounded reason codes only, no payloads. Test seam: -InfoReader
+        scriptblock returning a version string or an object with a version
+        field. The seam is an in-process function parameter for direct unit
+        tests only; the task-kernel CLI never exposes it. No
+        environment-variable override exists: a caller cannot supply proof
+        via the process environment, and any
+        ORCHESTRATION_TEST_NATIVE_INFO_VERSION value is ignored and
+        never sources live_version.
+        Residual assumption: local `opencode api get /api/info` reaches the
+        same local OpenCode server that receives the Planner's subsequent
+        native `subagent` call. No session/dispatch-endpoint binding is proven.
+    #>
+    [CmdletBinding()]
+    param(
+        $InfoReader = $null
+    )
+    try {
+        $live = ''
+        $usedReader = $false
+        try {
+            if ($null -ne $InfoReader -and ($InfoReader -is [scriptblock])) {
+                $usedReader = $true
+                $raw = & $InfoReader
+                if ($null -ne $raw) {
+                    if ($raw -is [string]) { $live = ([string]$raw).Trim() }
+                    elseif ($raw -is [System.Collections.IDictionary]) {
+                        foreach ($k in @('version', 'Version', 'server_version', 'opencode_version')) {
+                            if ($raw.Contains($k) -and (-not [string]::IsNullOrWhiteSpace([string]$raw[$k]))) { $live = ([string]$raw[$k]).Trim(); break }
+                        }
+                        if ([string]::IsNullOrWhiteSpace($live) -and $raw.Contains('data')) {
+                            $d = $raw['data']
+                            if ($d -is [System.Collections.IDictionary]) {
+                                foreach ($k in @('version', 'Version')) {
+                                    if ($d.Contains($k) -and (-not [string]::IsNullOrWhiteSpace([string]$d[$k]))) { $live = ([string]$d[$k]).Trim(); break }
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        $p = $null
+                        try { $p = $raw.PSObject.Properties['version'] } catch { $p = $null }
+                        if ($null -ne $p -and (-not [string]::IsNullOrWhiteSpace([string]$p.Value))) { $live = ([string]$p.Value).Trim() }
+                        else {
+                            try { $p = $raw.PSObject.Properties['Version'] } catch { $p = $null }
+                            if ($null -ne $p -and (-not [string]::IsNullOrWhiteSpace([string]$p.Value))) { $live = ([string]$p.Value).Trim() }
+                        }
+                    }
+                }
+            }
+        } catch { $live = '' }
+        if ([string]::IsNullOrWhiteSpace($live) -and (-not $usedReader)) {
+            try {
+                $cmd = Get-Command opencode.cmd -ErrorAction SilentlyContinue
+                if ($null -eq $cmd) { $cmd = Get-Command opencode -ErrorAction SilentlyContinue }
+                $resolved = ''
+                if (($null -ne $cmd) -and (-not [string]::IsNullOrWhiteSpace([string]$cmd.Source))) { $resolved = ([string]$cmd.Source) }
+                if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+                    $psi = New-Object System.Diagnostics.ProcessStartInfo
+                    $psi.FileName = 'cmd.exe'
+                    $psi.Arguments = '/s /c ""' + $resolved + '" api get /api/info"'
+                    $psi.RedirectStandardOutput = $true
+                    $psi.RedirectStandardError = $true
+                    $psi.UseShellExecute = $false
+                    $psi.CreateNoWindow = $true
+                    $proc = [System.Diagnostics.Process]::Start($psi)
+                    if ($null -ne $proc) {
+                        $outTask = $proc.StandardOutput.ReadToEndAsync()
+                        $null = $proc.StandardError.ReadToEndAsync()
+                        if ($proc.WaitForExit(15000)) {
+                            $stdout = ''
+                            try { $stdout = ([string]$outTask.Result) } catch { $stdout = '' }
+                            if (-not [string]::IsNullOrWhiteSpace($stdout) -and $stdout.Length -lt 65536) {
+                                try {
+                                    $doc = ($stdout | ConvertFrom-Json -ErrorAction Stop)
+                                    $cand = @()
+                                    try { $cand += [string]$doc.version } catch { }
+                                    try { $cand += [string]$doc.Version } catch { }
+                                    try { if ($null -ne $doc.data) { $cand += [string]$doc.data.version } catch { } } catch { }
+                                    foreach ($c in $cand) {
+                                        if (-not [string]::IsNullOrWhiteSpace($c)) { $live = ([string]$c).Trim(); break }
+                                    }
+                                } catch { $live = '' }
+                                if ([string]::IsNullOrWhiteSpace($live)) {
+                                    $m = [regex]::Match($stdout, '\d+\.\d+\.\d+')
+                                    if ($m.Success) { $live = $m.Value.Trim() }
+                                }
+                            }
+                        }
+                        try { if (-not $proc.HasExited) { $proc.Kill() } } catch { }
+                    }
+                }
+            } catch { $live = '' }
+        }
+        if ([string]::IsNullOrWhiteSpace($live)) {
+            return @{ ok = $false; reason = 'INFO_UNAVAILABLE'; live_version = '' }
+        }
+        if ($live.Length -gt 64) { $live = $live.Substring(0, 64) }
+        $live = $live.Trim()
+        if ($live -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$') {
+            return @{ ok = $false; reason = 'INFO_UNAVAILABLE'; live_version = '' }
+        }
+        $supported = @('2.2.5', '2.0.23')
+        if ($supported -cnotcontains $live) {
+            return @{ ok = $false; reason = 'UNSUPPORTED_RUNTIME'; live_version = $live }
+        }
+        return @{ ok = $true; reason = ''; live_version = $live }
+    } catch { return @{ ok = $false; reason = 'INTERNAL_ERROR'; live_version = '' } }
 }

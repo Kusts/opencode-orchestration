@@ -94,6 +94,19 @@ try {
     $selOnly = Invoke-OrchestrationModelExecution -AgentName 'coder' -TaskId 't-sel' -Risk 'low' -Complexity 'simple' -NativeModelOverrideProven $true
     Assert-ME (([string]$selOnly.status -ceq 'SELECTED')) '[ME12] provado sem dispatch => SELECTED' ([string]$selOnly.status)
     Assert-ME (([string]$selOnly.reason -ceq 'selected')) '[ME12] reason selected' ([string]$selOnly.reason)
+    # 13. Issue #208: a unica chamada ao seam registra o modelo efetivo exato
+    # em attempted_models (falha de transporte e snapshot observado). Sem
+    # executor invocado => lista vazia (ME1/ME6/ME8 ja cobrem o status).
+    $execNoStart = { param($Model,$Agent,$TaskId) return @{ FailureClass = 'RATE_LIMIT'; NoExecutionStarted = $true } }
+    $t = Invoke-OrchestrationModelExecution -AgentName 'coder' -TaskId 't-att-nostart' -Risk 'low' -Complexity 'simple' -NativeModelOverrideProven $true -DispatchExecutor $execNoStart
+    $tAtt = @($t.execution_log.attempted_models)
+    Assert-ME (([string]$t.status -ceq 'PROOF_ABSENT')) '[ME13] no-start => PROOF_ABSENT' ([string]$t.status)
+    Assert-ME ((($tAtt.Count -eq 1) -and ([string]$tAtt[0] -ceq [string]$t.subagent_model_param))) '[ME13] no-start registra modelo efetivo exato' (($tAtt -join ',') + ' vs ' + [string]$t.subagent_model_param)
+    $execEcho = { param($Model,$Agent,$TaskId) return @{ Model = $Model } }
+    $o = Invoke-OrchestrationModelExecution -AgentName 'coder' -TaskId 't-att-echo' -Risk 'low' -Complexity 'simple' -NativeModelOverrideProven $true -DispatchExecutor $execEcho
+    $oAtt = @($o.execution_log.attempted_models)
+    Assert-ME (([string]$o.status -ceq 'EXECUTED_VERIFIED')) '[ME13] snapshot => EXECUTED_VERIFIED' ([string]$o.status)
+    Assert-ME ((($oAtt.Count -eq 1) -and ([string]$oAtt[0] -ceq [string]$o.subagent_model_param))) '[ME13] snapshot registra modelo efetivo exato uma vez' (($oAtt -join ',') + ' vs ' + [string]$o.subagent_model_param)
     Write-Host ''
     Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (0 skipped)')
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)

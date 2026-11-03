@@ -1048,6 +1048,7 @@ function New-OrchestrationTask {
         [string[]]$Grants = @(),
         [string[]]$AcceptanceCriteria = @(),
         [string[]]$ExpectedArtifacts = @(),
+        [string[]]$VerificationProfiles = @(),
         [string[]]$EnvironmentAllowed = @(),
         [bool]$ProductionAuthorized = $false,
         $AttemptBudget = 3,
@@ -1120,6 +1121,23 @@ function New-OrchestrationTask {
         }
         $criteria = Get-TaskKernelCleanList -Value $AcceptanceCriteria
         if (-not [bool]$criteria.valid) { return (New-TaskKernelError -Code 'INVALID_CRITERIA') }
+        $verProfiles = @()
+        try {
+            foreach ($vp in @($VerificationProfiles)) {
+                if ($null -eq $vp) { return (New-TaskKernelError -Code 'INVALID_VERIFICATION_PROFILES') }
+                if (($vp -is [System.Collections.IEnumerable]) -and -not ($vp -is [string])) {
+                    return (New-TaskKernelError -Code 'INVALID_VERIFICATION_PROFILES')
+                }
+                $vt = ([string]$vp).Trim()
+                if ([string]::IsNullOrWhiteSpace($vt) -or ($vt.Length -gt 128) -or ($vt -cnotmatch '^[A-Za-z0-9._-]+$')) {
+                    return (New-TaskKernelError -Code 'INVALID_VERIFICATION_PROFILES')
+                }
+                if (@($verProfiles) -inotcontains $vt) { $verProfiles += $vt }
+                else { return (New-TaskKernelError -Code 'INVALID_VERIFICATION_PROFILES') }
+            }
+            if ((@($verProfiles)).Count -gt 16) { return (New-TaskKernelError -Code 'INVALID_VERIFICATION_PROFILES') }
+        }
+        catch { return (New-TaskKernelError -Code 'INVALID_VERIFICATION_PROFILES') }
         $artifacts = Get-TaskKernelCleanList -Value $ExpectedArtifacts
         if (-not [bool]$artifacts.valid) { return (New-TaskKernelError -Code 'INVALID_ARTIFACTS') }
         $envAllowed = Get-TaskKernelCleanList -Value $EnvironmentAllowed
@@ -1171,6 +1189,7 @@ function New-OrchestrationTask {
             $objective = Protect-TaskKernelText -Text $objective
             $criteriaItems = Protect-TaskKernelStringList -Items ([string[]]$criteria.items)
             $artifactItems = Protect-TaskKernelStringList -Items ([string[]]$artifacts.items)
+            $verProfileItems = Protect-TaskKernelStringList -Items ([string[]]$verProfiles)
             $taskTypeSafe = Protect-TaskKernelText -Text $taskType
             $parentSafe = Protect-TaskKernelText -Text (([string]$ParentTaskId).Trim())
             $traceSafe = Protect-TaskKernelText -Text (([string]$TraceId).Trim())
@@ -1215,6 +1234,7 @@ function New-OrchestrationTask {
             }
             acceptance_criteria       = ([string[]]$criteriaItems)
             expected_artifacts        = ([string[]]$artifactItems)
+            verification_profiles     = ([string[]]$verProfileItems)
             attempt_budget            = [int]$AttemptBudget
             execution_budget          = [ordered]@{
                 profile                    = ([string]$budgetRecord['profile'])
@@ -1246,8 +1266,10 @@ function New-OrchestrationTask {
             planner_turn_history      = @()
             planner_turn_seq          = 0
             attempts                  = @()
+            model_attempts            = @()
             worker_result             = $null
             verification              = $null
+            verification_history      = @()
             review                    = $null
             security_review           = $null
             blockers                  = @()
@@ -2129,15 +2151,108 @@ function Set-OrchestrationTaskWorkerResult {
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 
+function Get-TaskKernelSanitizedVerifierProfiles {
+    <#
+    .SYNOPSIS
+        Sanitizes verifier profile results for persistence: keeps only
+        profile/status/exit_code per entry (drops commands, outputs and
+        any other free text), caps 32 entries. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Profiles = @())
+    $profClean = @()
+    try {
+        foreach ($pr in @($Profiles)) {
+            if (@($profClean).Count -ge 32) { break }
+            if ($null -eq $pr) { continue }
+            $pn = ''
+            $pst = ''
+            $pec = 0
+            try {
+                if ($pr -is [System.Collections.IDictionary]) {
+                    if ($null -ne $pr['profile']) { $pn = ([string]$pr['profile']).Trim() }
+                    if ($null -ne $pr['status']) { $pst = ([string]$pr['status']).Trim() }
+                    if ($null -ne $pr['exit_code']) { $pec = [int]$pr['exit_code'] }
+                }
+                else {
+                    $qpn = $pr.PSObject.Properties | Where-Object { $_.Name -ceq 'profile' } | Select-Object -First 1
+                    if ($null -ne $qpn) { $pn = ([string]$qpn.Value).Trim() }
+                    $qps = $pr.PSObject.Properties | Where-Object { $_.Name -ceq 'status' } | Select-Object -First 1
+                    if ($null -ne $qps) { $pst = ([string]$qps.Value).Trim() }
+                    $qpe = $pr.PSObject.Properties | Where-Object { $_.Name -ceq 'exit_code' } | Select-Object -First 1
+                    if ($null -ne $qpe) { $pec = [int]$qpe.Value }
+                }
+            }
+            catch { continue }
+            if ([string]::IsNullOrWhiteSpace($pn) -or ([string]$pn).Length -gt 128) { continue }
+            if ([string]::IsNullOrWhiteSpace($pst) -or ([string]$pst).Length -gt 64) { continue }
+            $profClean += [ordered]@{ profile = $pn; status = $pst; exit_code = $pec }
+        }
+    }
+    catch { $profClean = @() }
+    return $profClean
+}
+
+function Get-TaskKernelSanitizedCriterionMap {
+    <#
+    .SYNOPSIS
+        Sanitizes a verifier criterion map for persistence: keeps only
+        numeric-index keys with word statuses, caps 64 entries.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param($MapRaw = $null)
+    $mapClean = [ordered]@{}
+    try {
+        $mapPairs = @()
+        if ($null -ne $MapRaw) {
+            if ($MapRaw -is [System.Collections.IDictionary]) {
+                foreach ($k in @($MapRaw.Keys)) { $mapPairs += ,@([string]$k, $MapRaw[$k]) }
+            }
+            else {
+                foreach ($pp2 in @($MapRaw.PSObject.Properties)) { $mapPairs += ,@([string]$pp2.Name, $pp2.Value) }
+            }
+        }
+        foreach ($pair in $mapPairs) {
+            if (@($mapClean.Keys).Count -ge 64) { break }
+            try {
+                $mk = ([string]$pair[0]).Trim()
+                if ($mk -cnotmatch '^[0-9]+$') { continue }
+                $mv = $pair[1]
+                $ms = ''
+                if ($mv -is [System.Collections.IDictionary]) {
+                    if ($null -ne $mv['status']) { $ms = ([string]$mv['status']).Trim() }
+                }
+                elseif ($mv -is [string]) { $ms = ([string]$mv).Trim() }
+                else {
+                    $qms = $mv.PSObject.Properties | Where-Object { $_.Name -ceq 'status' } | Select-Object -First 1
+                    if ($null -ne $qms) { $ms = ([string]$qms.Value).Trim() }
+                }
+                if ([string]::IsNullOrWhiteSpace($ms) -or ($ms.Length -gt 64)) { continue }
+                if (-not $mapClean.Contains($mk)) { $mapClean[$mk] = $ms }
+            }
+            catch { }
+        }
+    }
+    catch { $mapClean = [ordered]@{} }
+    return $mapClean
+}
+
 function Set-OrchestrationTaskVerification {
     <#
     .SYNOPSIS
-        Records verifier output. NEVER self-attested: -VerifierEvidenceJson
-        (parsed Invoke-OrchestrationVerifier result or its JSON string) is
-        REQUIRED; Passed derives from its status field and only
-        'verified_pass' counts as passed. A legacy -Passed value that
-        disagrees with the derived value fails closed
-        (VERIFIER_RESULT_MISMATCH).
+        Records caller-supplied verifier output (UNTRUSTED).
+        -VerifierEvidenceJson (a claimed Invoke-OrchestrationVerifier
+        result or its JSON string) is REQUIRED; Passed derives from its
+        status field and only 'verified_pass' counts as passed. A legacy
+        -Passed value that disagrees with the derived value fails closed
+        (VERIFIER_RESULT_MISMATCH). The exact normalized verifier status
+        string is persisted alongside passed/evidence/digest (missing on
+        legacy records means unknown). Caller input is NEVER trusted for
+        escalation: this path always persists
+        verification_source='caller-supplied' and verifier_executed=false
+        (plus source='caller-supplied'); only the kernel-executed
+        verify-run path may persist kernel-executed marks.
     #>
     [CmdletBinding()]
     param(
@@ -2174,11 +2289,17 @@ function Set-OrchestrationTaskVerification {
         $vstatus = ''
         $vidence = @()
         $vclasses = @()
+        $vok = $false
+        $vprofiles = @()
+        $vmapRaw = $null
         try {
             if ($vnode -is [System.Collections.IDictionary]) {
                 if ($null -ne $vnode['status']) { $vstatus = ([string]$vnode['status']).Trim() }
                 if ($null -ne $vnode['evidence']) { $vidence = @($vnode['evidence']) }
                 if ($null -ne $vnode['command_classes']) { $vclasses = @($vnode['command_classes']) }
+                if ($null -ne $vnode['ok']) { $vok = [bool]$vnode['ok'] }
+                if ($null -ne $vnode['profiles']) { $vprofiles = @($vnode['profiles']) }
+                if ($vnode.Contains('criterion_map')) { $vmapRaw = $vnode['criterion_map'] }
             }
             else {
                 $ps = $vnode.PSObject.Properties | Where-Object { $_.Name -ceq 'status' } | Select-Object -First 1
@@ -2187,6 +2308,12 @@ function Set-OrchestrationTaskVerification {
                 if ($null -ne $pe) { $vidence = @($pe.Value) }
                 $pc = $vnode.PSObject.Properties | Where-Object { $_.Name -ceq 'command_classes' } | Select-Object -First 1
                 if ($null -ne $pc) { $vclasses = @($pc.Value) }
+                $po = $vnode.PSObject.Properties | Where-Object { $_.Name -ceq 'ok' } | Select-Object -First 1
+                if ($null -ne $po) { $vok = [bool]$po.Value }
+                $pp = $vnode.PSObject.Properties | Where-Object { $_.Name -ceq 'profiles' } | Select-Object -First 1
+                if ($null -ne $pp) { $vprofiles = @($pp.Value) }
+                $pm = $vnode.PSObject.Properties | Where-Object { $_.Name -ceq 'criterion_map' } | Select-Object -First 1
+                if ($null -ne $pm) { $vmapRaw = $pm.Value }
             }
         }
         catch { return (New-TaskKernelError -Code 'INVALID_VERIFIER_RESULT') }
@@ -2240,24 +2367,325 @@ function Set-OrchestrationTaskVerification {
         }
         catch { }
         $evClean = Protect-TaskKernelStringList -Items ([string[]]$ev.items)
+        $profClean = @(Get-TaskKernelSanitizedVerifierProfiles -Profiles @($vprofiles))
+        $mapClean = Get-TaskKernelSanitizedCriterionMap -MapRaw $vmapRaw
         $newRev = ([int]$rec['revision'] + 1)
         $rec['verification'] = [ordered]@{
-            passed             = $derived
-            evidence           = ([string[]]$evClean)
-            command_classes    = ([string[]]$cmd.items)
-            source             = 'orchestration-verifier'
-            result_digest      = $digest
-            candidate_revision = $candRev
-            at                 = (Get-TaskKernelTimestamp)
-            revision           = $newRev
+            passed              = $derived
+            status              = $vstatus
+            verifier_ok         = $false
+            verification_source = 'caller-supplied'
+            verifier_executed   = $false
+            evidence            = ([string[]]$evClean)
+            command_classes     = ([string[]]$cmd.items)
+            profiles            = $profClean
+            criterion_map       = $mapClean
+            source              = 'caller-supplied'
+            result_digest       = $digest
+            candidate_revision  = $candRev
+            at                  = (Get-TaskKernelTimestamp)
+            revision            = $newRev
         }
+        $vhist = @()
+        try { if ($null -ne $rec['verification_history']) { $vhist = @($rec['verification_history']) } } catch { $vhist = @() }
+        $vhist += [ordered]@{
+            status              = $vstatus
+            passed              = $derived
+            verification_source = 'caller-supplied'
+            verifier_executed   = $false
+            candidate_revision  = $candRev
+            revision            = $newRev
+            result_digest       = $digest
+            at                  = (Get-TaskKernelTimestamp)
+        }
+        while (@($vhist).Count -gt 64) { $vhist = @($vhist | Select-Object -Skip 1) }
+        $rec['verification_history'] = $vhist
         $rec['revision'] = $newRev
         $rec['updated_at'] = (Get-TaskKernelTimestamp)
         $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
         if (-not [bool]$wr.ok) {
             return (New-TaskKernelError -Code ([string]$wr.error))
         }
-        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; passed = $derived }
+        return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; passed = $derived; status = $vstatus }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Invoke-TaskKernelVerifyRun {
+    <#
+    .SYNOPSIS
+        Kernel-executed verification (TRUSTED path for escalation).
+    .DESCRIPTION
+        Reads task_id/base_revision/write_scopes/acceptance_criteria and
+        the immutable verification_profiles plan committed at task
+        creation from the canonical task record (read snapshot), validates
+        every planned profile against the canonical verification-policy
+        allowlist, executes Invoke-OrchestrationVerifier in-process with
+        the task's real scopes/base/criteria IN THE TASK'S OWN REPO ROOT
+        (effective RepoRoot; no task lock is held while external verifier
+        profiles run), then stores the produced result under lock+CAS with
+        verification_source='kernel-executed' and verifier_executed=true
+        -- and ONLY when the run actually executed (ok plus
+        verified_pass/verification_failed plus full criterion mapping).
+        Tasks without a committed plan fail closed
+        (VERIFIER_PLAN_MISSING); unknown profiles, policies outside the
+        task root, manual/error/timeout outcomes, invalid repo/policy,
+        missing criterion mapping and CAS drift fail closed with NO write.
+        There is no flag or parameter that selects profiles, repo or
+        source: plan and root are task-bound. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$VerificationPolicyPath = '',
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $effRoot = ''
+        $effRootSlot = Resolve-TaskKernelExplicitRepoRoot -RepoRoot $RepoRoot
+        if (-not [bool]$effRootSlot.ok) {
+            return (New-TaskKernelError -Code ([string]$effRootSlot.error))
+        }
+        $effRoot = ([string]$effRootSlot.root)
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $effRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $tid = ([string]$TaskId).Trim()
+        if (-not (Test-TaskKernelId -TaskId $tid)) {
+            return (New-TaskKernelError -Code 'INVALID_TASK_ID')
+        }
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $effRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $snap = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$snap.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$snap.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $snapRec = $snap.record
+        $rev0 = [int]$snapRec['revision']
+        if ([int]$ExpectedRevision -ne $rev0) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        if (Test-TaskKernelTerminalState -State ([string]$snapRec['state'])) {
+            return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+        }
+        $names = @()
+        try {
+            if (($snapRec -is [System.Collections.IDictionary]) -and ($null -ne $snapRec['verification_profiles'])) {
+                foreach ($pp3 in @($snapRec['verification_profiles'])) {
+                    if ($null -eq $pp3) { continue }
+                    if (($pp3 -is [System.Collections.IEnumerable]) -and -not ($pp3 -is [string])) { continue }
+                    $t3 = ([string]$pp3).Trim()
+                    if ([string]::IsNullOrWhiteSpace($t3)) { continue }
+                    if ($names -cnotcontains $t3) { $names += $t3 }
+                }
+            }
+        }
+        catch { $names = @() }
+        if ((@($names)).Count -eq 0) {
+            return (New-TaskKernelError -Code 'VERIFIER_PLAN_MISSING')
+        }
+        $vrepo = $effRoot
+        $baseRev = ''
+        try { if ($null -ne $snapRec['base_revision']) { $baseRev = ([string]$snapRec['base_revision']).Trim() } } catch { $baseRev = '' }
+        if ([string]::IsNullOrWhiteSpace($baseRev)) {
+            return (New-TaskKernelError -Code 'INVALID_BASE_REVISION')
+        }
+        $scopes = @()
+        try { if ($null -ne $snapRec['write_scopes']) { $scopes = @($snapRec['write_scopes']) } } catch { $scopes = @() }
+        $criteria = @()
+        try { if ($null -ne $snapRec['acceptance_criteria']) { $criteria = @($snapRec['acceptance_criteria']) } } catch { $criteria = @() }
+        if ((@($criteria)).Count -eq 0) {
+            return (New-TaskKernelError -Code 'INVALID_CRITERIA')
+        }
+        $polPath = ([string]$VerificationPolicyPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($polPath)) {
+            $polPath = (Join-Path $effRoot 'source\registry\verification-policy.json')
+        }
+        $polFull = ''
+        try { $polFull = [IO.Path]::GetFullPath($polPath) } catch { $polFull = '' }
+        if ([string]::IsNullOrWhiteSpace($polFull) -or (-not (Test-Path -LiteralPath $polFull -PathType Leaf))) {
+            return (New-TaskKernelError -Code 'VERIFICATION_POLICY_NOT_FOUND')
+        }
+        $rootSep = ([string]$effRoot).TrimEnd('\', '/')
+        if (($polFull -cne $effRoot) -and (-not $polFull.StartsWith(($rootSep + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase))) {
+            return (New-TaskKernelError -Code 'VERIFICATION_POLICY_OUT_OF_ROOT')
+        }
+        $polPath = $polFull
+        $verLib = Join-Path $PSScriptRoot 'OrchestrationVerifier.ps1'
+        if (-not (Test-Path -LiteralPath $verLib -PathType Leaf)) {
+            return (New-TaskKernelError -Code 'VERIFIER_UNAVAILABLE')
+        }
+        try { . $verLib } catch { return (New-TaskKernelError -Code 'VERIFIER_UNAVAILABLE') }
+        if (((Get-Command Get-OrchestrationVerificationPolicy -ErrorAction SilentlyContinue) -eq $null) -or ((Get-Command Invoke-OrchestrationVerifier -ErrorAction SilentlyContinue) -eq $null)) {
+            return (New-TaskKernelError -Code 'VERIFIER_UNAVAILABLE')
+        }
+        $polSlot = $null
+        try { $polSlot = Get-OrchestrationVerificationPolicy -PolicyPath $polPath -RepoRoot $vrepo }
+        catch { $polSlot = $null }
+        $polOk = $false
+        $allowKeys = @()
+        try {
+            if ($null -ne $polSlot) {
+                if ($polSlot -is [System.Collections.IDictionary]) {
+                    if ($null -ne $polSlot['ok']) { $polOk = [bool]$polSlot['ok'] }
+                }
+                else {
+                    $pok = $polSlot.PSObject.Properties | Where-Object { $_.Name -ceq 'ok' } | Select-Object -First 1
+                    if ($null -ne $pok) { $polOk = [bool]$pok.Value }
+                }
+            }
+            if ([bool]$polOk) {
+                $pnode = Get-TaskKernelNodeField -Object (Get-TaskKernelNodeField -Object $polSlot -Name 'policy') -Name 'profiles'
+                if (($null -ne $pnode) -and ($pnode -is [System.Collections.IDictionary])) { $allowKeys = @($pnode.Keys) }
+                elseif ($null -ne $pnode) {
+                    foreach ($qp4 in @($pnode.PSObject.Properties)) { $allowKeys += ([string]$qp4.Name) }
+                }
+            }
+        }
+        catch { $polOk = $false; $allowKeys = @() }
+        if (-not [bool]$polOk) {
+            return (New-TaskKernelError -Code 'VERIFICATION_POLICY_INVALID')
+        }
+        foreach ($n in $names) {
+            if (@($allowKeys) -inotcontains $n) {
+                return (New-TaskKernelError -Code 'UNKNOWN_VERIFIER_PROFILE' -Extra @{ profile = ([string]$n) })
+            }
+        }
+        $vr = $null
+        try {
+            $vr = Invoke-OrchestrationVerifier -TaskId $tid -RepoRoot $vrepo -BaseRevision $baseRev -WriteScopes ([string[]]$scopes) -ProfileNames ([string[]]$names) -PolicyPath $polPath -AcceptanceCriteria ([string[]]$criteria)
+        }
+        catch { return (New-TaskKernelError -Code 'VERIFIER_INTERNAL') }
+        if ($null -eq $vr) { return (New-TaskKernelError -Code 'VERIFIER_INTERNAL') }
+        $vrOk = $false
+        $vrStatus = ''
+        try {
+            $vrOk = [bool](Get-TaskKernelNodeField -Object $vr -Name 'ok')
+            $vrStatus = ([string](Get-TaskKernelNodeField -Object $vr -Name 'status')).Trim()
+        }
+        catch { return (New-TaskKernelError -Code 'VERIFIER_INTERNAL') }
+        if ((-not [bool]$vrOk) -or (($vrStatus -cne 'verified_pass') -and ($vrStatus -cne 'verification_failed'))) {
+            return (New-TaskKernelError -Code 'VERIFY_RUN_NOT_EXECUTED' -Extra @{ status = $vrStatus })
+        }
+        $vrEvidence = @()
+        try {
+            $veRaw = Get-TaskKernelNodeField -Object $vr -Name 'evidence'
+            if ($null -ne $veRaw) { $vrEvidence = @($veRaw) }
+        }
+        catch { $vrEvidence = @() }
+        $covSlot = Test-TaskKernelCriterionCoverage -Evidence $vrEvidence -CriterionCount (@($criteria).Count)
+        if (-not [bool]$covSlot.ok) {
+            return (New-TaskKernelError -Code 'VERIFY_RUN_CRITERION_UNMAPPED' -Extra @{ detail = ([string]$covSlot.error) })
+        }
+        $fresh = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$fresh.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$fresh.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        if ([int]$fresh.record['revision'] -ne $rev0) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+            $slot2 = Read-TaskKernelRecord -TaskFile $taskFile
+            if (-not [bool]$slot2.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ([bool]$slot2.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec = $slot2.record
+            if ([int]$rec['revision'] -ne $rev0) {
+                return (New-TaskKernelError -Code 'CAS_CONFLICT')
+            }
+            if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+                return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+            }
+            if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+                return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+            }
+            $candRev = [int]$rec['revision']
+            try {
+                $wrk = $rec['worker_result']
+                if (($null -ne $wrk) -and ($wrk -is [System.Collections.IDictionary]) -and ($null -ne $wrk['revision'])) {
+                    $candRev = [int]$wrk['revision']
+                }
+            }
+            catch { }
+            $vrProfiles = @()
+            try {
+                $vpRaw = Get-TaskKernelNodeField -Object $vr -Name 'profiles'
+                if ($null -ne $vpRaw) { $vrProfiles = @($vpRaw) }
+            }
+            catch { $vrProfiles = @() }
+            $profClean = @(Get-TaskKernelSanitizedVerifierProfiles -Profiles $vrProfiles)
+            $vrMapRaw = Get-TaskKernelNodeField -Object $vr -Name 'criterion_map'
+            $mapClean = Get-TaskKernelSanitizedCriterionMap -MapRaw $vrMapRaw
+            $evList = Get-TaskKernelEvidenceList -Value $vrEvidence
+            if (-not [bool]$evList.valid) {
+                return (New-TaskKernelError -Code 'VERIFY_RUN_CRITERION_UNMAPPED')
+            }
+            $evClean = Protect-TaskKernelStringList -Items ([string[]]$evList.items)
+            $cmdRaw = Get-TaskKernelNodeField -Object $vr -Name 'command_classes'
+            $cmdList = @()
+            if ($null -ne $cmdRaw) { $cmdList = @($cmdRaw) }
+            $cmd = Get-TaskKernelCleanList -Value $cmdList
+            if (-not [bool]$cmd.valid) {
+                return (New-TaskKernelError -Code 'VERIFY_RUN_CRITERION_UNMAPPED')
+            }
+            $vdigest = ''
+            try {
+                if ((Get-Command Get-LogicalHash -ErrorAction SilentlyContinue) -ne $null) {
+                    $vdigest = Get-LogicalHash -InputObject $vr
+                }
+            }
+            catch { $vdigest = '' }
+            $derived = ($vrStatus -ceq 'verified_pass')
+            $newRev = ([int]$rec['revision'] + 1)
+            $rec['verification'] = [ordered]@{
+                passed              = $derived
+                status              = $vrStatus
+                verifier_ok         = $true
+                verification_source = 'kernel-executed'
+                verifier_executed   = $true
+                evidence            = ([string[]]$evClean)
+                command_classes     = ([string[]]$cmd.items)
+                profiles            = $profClean
+                criterion_map       = $mapClean
+                source              = 'kernel-executed'
+                result_digest       = $vdigest
+                candidate_revision  = $candRev
+                at                  = (Get-TaskKernelTimestamp)
+                revision            = $newRev
+            }
+            $vhist = @()
+            try { if ($null -ne $rec['verification_history']) { $vhist = @($rec['verification_history']) } } catch { $vhist = @() }
+            $vhist += [ordered]@{
+                status              = $vrStatus
+                passed              = $derived
+                verification_source = 'kernel-executed'
+                verifier_executed   = $true
+                candidate_revision  = $candRev
+                revision            = $newRev
+                result_digest       = $vdigest
+                at                  = (Get-TaskKernelTimestamp)
+            }
+            while (@($vhist).Count -gt 64) { $vhist = @($vhist | Select-Object -Skip 1) }
+            $rec['verification_history'] = $vhist
+            $rec['revision'] = $newRev
+            $rec['updated_at'] = (Get-TaskKernelTimestamp)
+            $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+            if (-not [bool]$wr.ok) {
+                return (New-TaskKernelError -Code ([string]$wr.error))
+            }
+            return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = $newRev; passed = $derived; status = $vrStatus; verification_source = 'kernel-executed' }
         }
         finally {
             Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
@@ -4791,6 +5219,1488 @@ function Start-OrchestrationPlannerTurn {
         }
         finally {
             Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+# ---------- model attempt observation + failure proof (Router v1.4 slice) ----------
+#
+# Kernel-owned durable evidence that a worker model call really executed.
+# A model attempt is recorded ONLY after the kernel independently observes
+# the native OpenCode child session (production: read-only local
+# `opencode api get` session-info + assistant-message reads, byte-capped,
+# identity/usage only) through a narrow injectable READ-ONLY
+# session-reader seam (tests simulate the exact host response shapes;
+# production default is the actual CLI). No agent-supplied bool, receipt,
+# or string is ever accepted as proof: every persisted ref (session,
+# parent, message, model, usage) comes from the observed host response,
+# and the candidate must name the exact child/message via
+# session:/message: refs. No model dispatch or retry happens here.
+#
+# Lock discipline: snapshot task/revision/bindings under a plain read,
+# query the runtime OUTSIDE any lock, then reacquire the lock and
+# CAS-revalidate the same binding/revision before writing. No extra
+# sidecar store: model_attempts live in the task record, bounded per
+# worker candidate by the task execution budget (provider_retry_limit)
+# and in total by attempt_budget x provider_retry_limit (duplicates and
+# overflow are rejected, never silently dropped).
+#
+# Get-OrchestrationTaskModelFailureProof recomputes from the persisted
+# record only (read-only, no dispatch, no bool/string proof params) and
+# returns a persisted reference/digest only when every check holds.
+# Verifier origin is established by executed-shape (verifier_ok, executed
+# profiles with a non-verified status, exact per-criterion verified/
+# unverified words covering all acceptance criteria and agreeing with the
+# persisted criterion map) -- not by cryptographic attestation; the
+# trust boundary is the CAS-guarded kernel mutation, same as worker
+# results and reviews. Secrets, prompts, message text and error payloads
+# are never echoed.
+
+function Get-TaskKernelModelPolicyDefaultPath {
+    [CmdletBinding()]
+    param([string]$RepoRoot)
+    $root = Get-TaskKernelRepoRoot -RepoRoot $RepoRoot
+    return (Join-Path $root 'source\registry\model-routing-policy.json')
+}
+
+function Read-TaskKernelModelPolicy {
+    <#
+    .SYNOPSIS
+        Loads the canonical model routing policy (raw bytes hashed).
+        Returns @{ok, policy, policy_hash, policy_version}. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$PolicyPath = '', [string]$RepoRoot = '')
+    try {
+        $p = ([string]$PolicyPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($p)) { $p = Get-TaskKernelModelPolicyDefaultPath -RepoRoot $RepoRoot }
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; policy = $null; policy_hash = ''; policy_version = '' }
+        }
+        $raw = [IO.File]::ReadAllBytes($p)
+        if (($null -eq $raw) -or ($raw.Length -eq 0)) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; policy = $null; policy_hash = ''; policy_version = '' }
+        }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $digest = $sha.ComputeHash($raw) }
+        finally { $sha.Dispose() }
+        $hash = ((($digest | ForEach-Object { $_.ToString('x2') }) -join '').ToLowerInvariant())
+        $text = [Text.Encoding]::UTF8.GetString($raw)
+        $doc = ($text | ConvertFrom-Json)
+        if ($null -eq $doc) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; policy = $null; policy_hash = ''; policy_version = '' }
+        }
+        $pol = ConvertTo-TaskKernelOrdered -Node $doc
+        $ver = ''
+        try {
+            if (($null -ne $pol) -and ($pol -is [System.Collections.IDictionary]) -and ($null -ne $pol['policy_version'])) {
+                $ver = ([string]$pol['policy_version']).Trim()
+            }
+        }
+        catch { $ver = '' }
+        return @{ ok = $true; error = ''; policy = $pol; policy_hash = $hash; policy_version = $ver }
+    }
+    catch { return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; policy = $null; policy_hash = ''; policy_version = '' } }
+}
+
+function Get-TaskKernelPolicyNode {
+    [CmdletBinding()]
+    param($Policy, [string]$Name)
+    try {
+        if ($null -eq $Policy) { return $null }
+        if ($Policy -is [System.Collections.IDictionary]) {
+            if ($Policy.Contains($Name)) { return $Policy[$Name] }
+            return $null
+        }
+        $p = $Policy.PSObject.Properties | Where-Object { $_.Name -ceq $Name } | Select-Object -First 1
+        if ($null -ne $p) { return $p.Value }
+    }
+    catch { }
+    return $null
+}
+
+function Get-TaskKernelCanonicalModelForTier {
+    <#
+    .SYNOPSIS
+        Canonical required model/provider for a tier (tier primary catalog
+        entry). Returns @{ok, model_id, provider}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Policy, [string]$Tier)
+    try {
+        $t = ([string]$Tier).Trim()
+        if (($t -cne 'T3') -and ($t -cne 'T4')) { return @{ ok = $false; error = 'INVALID_TIER'; model_id = ''; provider = '' } }
+        $tiers = Get-TaskKernelPolicyNode -Policy $Policy -Name 'tiers'
+        $models = Get-TaskKernelPolicyNode -Policy $Policy -Name 'models'
+        if (($null -eq $tiers) -or ($null -eq $models)) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; model_id = ''; provider = '' }
+        }
+        $tierNode = Get-TaskKernelPolicyNode -Policy $tiers -Name $t
+        if ($null -eq $tierNode) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; model_id = ''; provider = '' }
+        }
+        $primaryKey = ([string](Get-TaskKernelPolicyNode -Policy $tierNode -Name 'primary')).Trim()
+        if ([string]::IsNullOrWhiteSpace($primaryKey)) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; model_id = ''; provider = '' }
+        }
+        $modelNode = Get-TaskKernelPolicyNode -Policy $models -Name $primaryKey
+        if ($null -eq $modelNode) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; model_id = ''; provider = '' }
+        }
+        $mid = ([string](Get-TaskKernelPolicyNode -Policy $modelNode -Name 'model_id')).Trim()
+        $prov = ([string](Get-TaskKernelPolicyNode -Policy $modelNode -Name 'provider')).Trim()
+        if ([string]::IsNullOrWhiteSpace($mid) -or [string]::IsNullOrWhiteSpace($prov)) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; model_id = ''; provider = '' }
+        }
+        return @{ ok = $true; error = ''; model_id = $mid; provider = $prov }
+    }
+    catch { return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; model_id = ''; provider = '' } }
+}
+
+function Get-TaskKernelTierForModelId {
+    <#
+    .SYNOPSIS
+        Infers the selected tier for an exact model ID from the canonical
+        policy (exact case-sensitive match, first tier_profiles entry).
+        Returns @{ok, tier, provider}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Policy, [string]$ModelId)
+    try {
+        $mid = ([string]$ModelId).Trim()
+        if ([string]::IsNullOrWhiteSpace($mid)) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; tier = ''; provider = '' }
+        }
+        $models = Get-TaskKernelPolicyNode -Policy $Policy -Name 'models'
+        if ($null -eq $models) {
+            return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; tier = ''; provider = '' }
+        }
+        $keys = @()
+        try {
+            if ($models -is [System.Collections.IDictionary]) { $keys = @($models.Keys) }
+            else { $keys = @($models.PSObject.Properties | ForEach-Object { $_.Name }) }
+        }
+        catch { return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; tier = ''; provider = '' } }
+        foreach ($k in $keys) {
+            $node = Get-TaskKernelPolicyNode -Policy $models -Name ([string]$k)
+            if ($null -eq $node) { continue }
+            $nodeId = ([string](Get-TaskKernelPolicyNode -Policy $node -Name 'model_id')).Trim()
+            if ($nodeId -cne $mid) { continue }
+            $prov = ([string](Get-TaskKernelPolicyNode -Policy $node -Name 'provider')).Trim()
+            $profiles = @(Get-TaskKernelPolicyNode -Policy $node -Name 'tier_profiles')
+            $tier = ''
+            foreach ($tp in $profiles) {
+                if (($null -ne $tp) -and ($tp -is [System.Collections.IEnumerable]) -and -not ($tp -is [string])) {
+                    foreach ($sub in $tp) {
+                        $t = ([string]$sub).Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($t)) { $tier = $t; break }
+                    }
+                }
+                else {
+                    $t = ([string]$tp).Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($t)) { $tier = $t; break }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($tier)) { break }
+            }
+            if ([string]::IsNullOrWhiteSpace($tier)) {
+                return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; tier = ''; provider = '' }
+            }
+            return @{ ok = $true; error = ''; tier = $tier; provider = $prov }
+        }
+        return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; tier = ''; provider = '' }
+    }
+    catch { return @{ ok = $false; error = 'MODEL_POLICY_UNKNOWN'; tier = ''; provider = '' } }
+}
+
+function Set-TaskKernelSessionReader {
+    <#
+    .SYNOPSIS
+        Installs the narrow READ-ONLY session-reader seam (tests only).
+        Production default (cleared seam) is the actual local OpenCode CLI.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][scriptblock]$Reader)
+    $script:TaskKernelSessionReader = $Reader
+}
+
+function Clear-TaskKernelSessionReader {
+    [CmdletBinding()]
+    param()
+    $script:TaskKernelSessionReader = $null
+}
+
+function Test-TaskKernelModelRef {
+    [CmdletBinding()]
+    param([string]$Value)
+    try {
+        $s = ([string]$Value).Trim()
+        if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+        if ($s.Length -gt 256) { return $false }
+        return ($s -cmatch '^[A-Za-z0-9._/:-]+$')
+    }
+    catch { return $false }
+}
+
+function Get-TaskKernelNodeField {
+    <#
+    .SYNOPSIS
+        Tolerant single-field read (IDictionary or PSObject). Never throws.
+    #>
+    [CmdletBinding()]
+    param($Object, [string]$Name)
+    try {
+        if ($null -eq $Object) { return $null }
+        if ($Object -is [System.Collections.IDictionary]) {
+            if ($Object.Contains($Name)) { return $Object[$Name] }
+            return $null
+        }
+        $p = $Object.PSObject.Properties | Where-Object { $_.Name -ceq $Name } | Select-Object -First 1
+        if ($null -ne $p) { return $p.Value }
+    }
+    catch { }
+    return $null
+}
+
+function Get-TaskKernelReaderErrorCode {
+    <#
+    .SYNOPSIS
+        Extracts a bounded seam error code, '' when not an error envelope.
+        Never throws; never echoes payloads.
+    #>
+    [CmdletBinding()]
+    param($Raw)
+    try {
+        if ($null -eq $Raw) { return 'SESSION_READER_FAILED' }
+        if ($Raw -is [System.Collections.IDictionary]) {
+            if ($Raw.Contains('ok') -and (-not [bool]$Raw['ok'])) {
+                $code = 'SESSION_READER_FAILED'
+                if (($Raw.Contains('error')) -and ($null -ne $Raw['error'])) {
+                    $c = ([string]$Raw['error']).Trim()
+                    if ($c -cmatch '^[A-Z][A-Z0-9_]{1,63}$') { $code = $c }
+                }
+                return $code
+            }
+            return ''
+        }
+        $okProp = $Raw.PSObject.Properties | Where-Object { $_.Name -ceq 'ok' } | Select-Object -First 1
+        if (($null -ne $okProp) -and (-not [bool]$okProp.Value)) {
+            $code = 'SESSION_READER_FAILED'
+            $ep = $Raw.PSObject.Properties | Where-Object { $_.Name -ceq 'error' } | Select-Object -First 1
+            if ($null -ne $ep) {
+                $c = ([string]$ep.Value).Trim()
+                if ($c -cmatch '^[A-Z][A-Z0-9_]{1,63}$') { $code = $c }
+            }
+            return $code
+        }
+        return ''
+    }
+    catch { return 'SESSION_READER_FAILED' }
+}
+
+function ConvertTo-TaskKernelSessionObservation {
+    <#
+    .SYNOPSIS
+        Normalizes raw native session docs to the bounded observation
+        (ids/model/usage only; message text, prompts and error payloads
+        are never carried). The seam and the production api-get reader
+        supply the SAME shapes: $SessionNode is the session-info `data`
+        object (/api/session/<id>), $MessageNodes is the assistant
+        message `data` array (/api/session/<id>/message --param
+        type=assistant). Latest completed assistant message wins (ties
+        resolve to the last entry); distinct executed models fail closed
+        as ambiguous. Returns @{ok, observation/error}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($SessionNode = $null, $MessageNodes = @())
+    try {
+        if ($null -eq $SessionNode) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $sid = ([string](Get-TaskKernelNodeField -Object $SessionNode -Name 'id')).Trim()
+        if ([string]::IsNullOrWhiteSpace($sid)) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $parentId = ''
+        foreach ($pk in @('parentID', 'parent_id', 'parent_session_id')) {
+            try {
+                $pv = ([string](Get-TaskKernelNodeField -Object $SessionNode -Name $pk)).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($pv)) { $parentId = $pv; break }
+            }
+            catch { }
+        }
+        $agent = ([string](Get-TaskKernelNodeField -Object $SessionNode -Name 'agent')).Trim()
+        $outcome = ([string](Get-TaskKernelNodeField -Object $SessionNode -Name 'outcome')).Trim()
+        $sessCostRaw = Get-TaskKernelNodeField -Object $SessionNode -Name 'cost'
+        $list = @($MessageNodes)
+        if (@($list).Count -gt 1024) { return @{ ok = $false; error = 'SESSION_EVIDENCE_TOO_LARGE' } }
+        $assistants = @()
+        foreach ($m in $list) {
+            try {
+                if ($null -eq $m) { continue }
+                if ([string]::IsNullOrWhiteSpace([string](Get-TaskKernelNodeField -Object $m -Name 'id'))) { continue }
+                $mtype = ([string](Get-TaskKernelNodeField -Object $m -Name 'type')).Trim()
+                if ($mtype -cne 'assistant') { continue }
+                $assistants += $m
+            }
+            catch { }
+        }
+        if (@($assistants).Count -eq 0) { return @{ ok = $false; error = 'SESSION_MESSAGE_MISSING' } }
+        $completed = @()
+        $completedWhen = @()
+        foreach ($m in $assistants) {
+            try {
+                $mmodel = Get-TaskKernelNodeField -Object $m -Name 'model'
+                $mprov = ''
+                $mmid = ''
+                if ($null -ne $mmodel) {
+                    $mprov = ([string](Get-TaskKernelNodeField -Object $mmodel -Name 'providerID')).Trim()
+                    $mmid = ([string](Get-TaskKernelNodeField -Object $mmodel -Name 'id')).Trim()
+                }
+                if ([string]::IsNullOrWhiteSpace($mprov) -or [string]::IsNullOrWhiteSpace($mmid)) { continue }
+                $mtime = Get-TaskKernelNodeField -Object $m -Name 'time'
+                $mdone = ''
+                if ($null -ne $mtime) { $mdone = ([string](Get-TaskKernelNodeField -Object $mtime -Name 'completed')).Trim() }
+                if ([string]::IsNullOrWhiteSpace($mdone)) { continue }
+                $when = [long]0
+                try { [long]::TryParse($mdone, [ref]$when) | Out-Null } catch { $when = [long]0 }
+                $completed += $m
+                $completedWhen += [long]$when
+            }
+            catch { }
+        }
+        if (@($completed).Count -eq 0) { return @{ ok = $false; error = 'SESSION_MESSAGE_NOT_COMPLETED' } }
+        $distinct = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        foreach ($m in $completed) {
+            try {
+                $mmodel = Get-TaskKernelNodeField -Object $m -Name 'model'
+                $mprov = ([string](Get-TaskKernelNodeField -Object $mmodel -Name 'providerID')).Trim()
+                $mmid = ([string](Get-TaskKernelNodeField -Object $mmodel -Name 'id')).Trim()
+                $distinct.Add(($mprov + '/' + $mmid)) | Out-Null
+            }
+            catch { }
+        }
+        if (@($distinct).Count -gt 1) { return @{ ok = $false; error = 'SESSION_MESSAGE_AMBIGUOUS' } }
+        $best = 0
+        for ($i = 1; $i -lt @($completed).Count; $i++) {
+            if ([long]$completedWhen[$i] -ge [long]$completedWhen[$best]) { $best = $i }
+        }
+        $sel = (@($completed))[$best]
+        $smodel = Get-TaskKernelNodeField -Object $sel -Name 'model'
+        $sprov = ([string](Get-TaskKernelNodeField -Object $smodel -Name 'providerID')).Trim()
+        $smid = ([string](Get-TaskKernelNodeField -Object $smodel -Name 'id')).Trim()
+        $smsgId = ([string](Get-TaskKernelNodeField -Object $sel -Name 'id')).Trim()
+        $sagent = ([string](Get-TaskKernelNodeField -Object $sel -Name 'agent')).Trim()
+        if ([string]::IsNullOrWhiteSpace($smsgId)) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        if ([string]::IsNullOrWhiteSpace($sagent)) { return @{ ok = $false; error = 'SESSION_AGENT_MISSING' } }
+        $ui = 0
+        $uo = 0
+        $ur = 0
+        $costRaw = $null
+        try {
+            $stok = Get-TaskKernelNodeField -Object $sel -Name 'tokens'
+            if ($null -ne $stok) {
+                $n = 0
+                $ti = Get-TaskKernelNodeField -Object $stok -Name 'input'
+                if (($null -ne $ti) -and ([int]::TryParse(([string]$ti).Trim(), [ref]$n)) -and ($n -ge 0)) { $ui = $n }
+                $n = 0
+                $to = Get-TaskKernelNodeField -Object $stok -Name 'output'
+                if (($null -ne $to) -and ([int]::TryParse(([string]$to).Trim(), [ref]$n)) -and ($n -ge 0)) { $uo = $n }
+                $n = 0
+                $tr = Get-TaskKernelNodeField -Object $stok -Name 'reasoning'
+                if (($null -ne $tr) -and ([int]::TryParse(([string]$tr).Trim(), [ref]$n)) -and ($n -ge 0)) { $ur = $n }
+            }
+            $sc = Get-TaskKernelNodeField -Object $sel -Name 'cost'
+            if ($null -ne $sc) { $costRaw = $sc }
+            if ($null -eq $costRaw) { $costRaw = $sessCostRaw }
+        }
+        catch { }
+        $obs = [ordered]@{}
+        $obs['session_id'] = $sid
+        $obs['parent_session_id'] = $parentId
+        $obs['agent'] = $agent
+        $obs['message_agent'] = $sagent
+        $obs['message_id'] = $smsgId
+        $obs['model_provider'] = $sprov
+        $obs['model_id'] = ($sprov + '/' + $smid)
+        $obs['message_completed'] = $true
+        $obs['session_completed'] = (-not [string]::IsNullOrWhiteSpace($outcome))
+        $obs['session_outcome'] = $outcome
+        $obs['usage_input'] = $ui
+        $obs['usage_output'] = $uo
+        $obs['usage_reasoning'] = $ur
+        $obs['cost'] = 'UNKNOWN'
+        try {
+            if ($null -ne $costRaw) {
+                $cs = ([string]$costRaw).Trim()
+                if ((-not [string]::IsNullOrWhiteSpace($cs)) -and ($cs -cne 'UNKNOWN')) {
+                    $dd = 0.0
+                    if ([double]::TryParse($cs, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$dd) -and ($dd -ge 0.0)) {
+                        $obs['cost'] = $dd
+                    }
+                }
+            }
+        }
+        catch { $obs['cost'] = 'UNKNOWN' }
+        return @{ ok = $true; error = ''; observation = $obs }
+    }
+    catch { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+}
+
+function Invoke-TaskKernelNativeApi {
+    <#
+    .SYNOPSIS
+        Runs one read-only local `opencode api get ...` call with a
+        bounded timeout. Returns @{ok, code, stdout, error}. Never throws.
+        Never echoes CLI payloads: errors are codes only, stdout is
+        returned to the caller for capped parsing and never logged.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$CliArgs, [int]$TimeoutMs = 15000)
+    try {
+        $resolved = ''
+        try {
+            $cmd = Get-Command opencode.cmd -ErrorAction SilentlyContinue
+            if ($null -eq $cmd) { $cmd = Get-Command opencode -ErrorAction SilentlyContinue }
+            if (($null -ne $cmd) -and (-not [string]::IsNullOrWhiteSpace([string]$cmd.Source))) {
+                $resolved = ([string]$cmd.Source)
+            }
+        }
+        catch { $resolved = '' }
+        if ([string]::IsNullOrWhiteSpace($resolved)) {
+            return @{ ok = $false; code = -1; stdout = ''; error = 'LAUNCH' }
+        }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'cmd.exe'
+        $psi.Arguments = '/s /c ""' + $resolved + '" ' + $CliArgs + '"'
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $proc = $null
+        try { $proc = [System.Diagnostics.Process]::Start($psi) }
+        catch { return @{ ok = $false; code = -1; stdout = ''; error = 'LAUNCH' } }
+        if ($null -eq $proc) { return @{ ok = $false; code = -1; stdout = ''; error = 'LAUNCH' } }
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($TimeoutMs)) {
+            try { $proc.Kill() } catch { }
+            return @{ ok = $false; code = -1; stdout = ''; error = 'TIMEOUT' }
+        }
+        $stdout = ''
+        try { $stdout = ([string]$outTask.Result) } catch { $stdout = '' }
+        try { $null = $errTask.Result } catch { }
+        return @{ ok = $true; code = [int]$proc.ExitCode; stdout = $stdout; error = '' }
+    }
+    catch { return @{ ok = $false; code = -1; stdout = ''; error = 'LAUNCH' } }
+}
+
+function Read-TaskKernelNativeSession {
+    <#
+    .SYNOPSIS
+        Production session reader: two read-only local
+        `opencode api get` calls (session info + latest assistant
+        messages). Strict raw byte caps fail closed BEFORE parsing;
+        only Session.Info plus the exact/latest completed assistant
+        message identity/usage are extracted -- message text is never
+        retained, stored or echoed. Never throws.
+        Verified against OpenCode v2.2.5: /api/session/<id> returns the
+        info envelope (id, parentID, model, outcome, ...);
+        /api/session/<id>/message --param type=assistant returns the
+        assistant message list (id, agent, model, finish, cost, tokens).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ChildSessionId, [int]$TimeoutMs = 15000)
+    try {
+        $sid = ([string]$ChildSessionId).Trim()
+        if (-not (Test-TaskKernelBindingId -Value $sid)) {
+            return @{ ok = $false; error = 'MODEL_ATTEMPT_INVALID_SESSION' }
+        }
+        $info = Invoke-TaskKernelNativeApi -CliArgs ('api get /api/session/' + $sid) -TimeoutMs $TimeoutMs
+        if ((-not [bool]$info.ok) -and ([string]$info.error -ceq 'TIMEOUT')) {
+            return @{ ok = $false; error = 'SESSION_READER_TIMEOUT' }
+        }
+        if (-not [bool]$info.ok) {
+            return @{ ok = $false; error = 'SESSION_READER_UNAVAILABLE' }
+        }
+        if ([int]$info.code -ne 0) { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+        $infoText = ([string]$info.stdout).Trim()
+        if ([string]::IsNullOrWhiteSpace($infoText)) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        if ($infoText.Length -gt 16384) { return @{ ok = $false; error = 'SESSION_EVIDENCE_TOO_LARGE' } }
+        if (-not $infoText.StartsWith('{')) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $infoDoc = $null
+        try { $infoDoc = ($infoText | ConvertFrom-Json) }
+        catch { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $sdata = Get-TaskKernelNodeField -Object $infoDoc -Name 'data'
+        if ($null -eq $sdata) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $msg = Invoke-TaskKernelNativeApi -CliArgs ('api get /api/session/' + $sid + '/message --param type=assistant') -TimeoutMs $TimeoutMs
+        if ((-not [bool]$msg.ok) -and ([string]$msg.error -ceq 'TIMEOUT')) {
+            return @{ ok = $false; error = 'SESSION_READER_TIMEOUT' }
+        }
+        if (-not [bool]$msg.ok) {
+            return @{ ok = $false; error = 'SESSION_READER_UNAVAILABLE' }
+        }
+        if ([int]$msg.code -ne 0) { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+        $msgText = ([string]$msg.stdout).Trim()
+        if ([string]::IsNullOrWhiteSpace($msgText)) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        if ($msgText.Length -gt 65536) { return @{ ok = $false; error = 'SESSION_EVIDENCE_TOO_LARGE' } }
+        if (-not $msgText.StartsWith('{')) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $msgDoc = $null
+        try { $msgDoc = ($msgText | ConvertFrom-Json) }
+        catch { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        $mdata = Get-TaskKernelNodeField -Object $msgDoc -Name 'data'
+        if ($null -eq $mdata) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
+        return (ConvertTo-TaskKernelSessionObservation -SessionNode $sdata -MessageNodes @($mdata))
+    }
+    catch { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+}
+
+function Invoke-TaskKernelSessionObservation {
+    <#
+    .SYNOPSIS
+        Reads one child session through the seam (tests) or the actual
+        local OpenCode CLI (production). The seam supplies the SAME raw
+        shapes as production: @{session=<info data>; messages=<message
+        data array>} or @{ok=$false; error=<CODE>}. Read-only.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ChildSessionId)
+    try {
+        $seam = $null
+        try { $seam = $script:TaskKernelSessionReader } catch { $seam = $null }
+        if ($null -ne $seam) {
+            $raw = $null
+            try { $raw = (& $seam ([string]$ChildSessionId)) }
+            catch { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+            $ecode = Get-TaskKernelReaderErrorCode -Raw $raw
+            if (-not [string]::IsNullOrWhiteSpace($ecode)) { return @{ ok = $false; error = $ecode } }
+            if ($null -eq $raw) { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+            $snode = Get-TaskKernelNodeField -Object $raw -Name 'session'
+            $mnode = Get-TaskKernelNodeField -Object $raw -Name 'messages'
+            $mlist = @()
+            if ($null -ne $mnode) { $mlist = @($mnode) }
+            return (ConvertTo-TaskKernelSessionObservation -SessionNode $snode -MessageNodes $mlist)
+        }
+        return (Read-TaskKernelNativeSession -ChildSessionId ([string]$ChildSessionId))
+    }
+    catch { return @{ ok = $false; error = 'SESSION_READER_FAILED' } }
+}
+
+function Get-TaskKernelBoundRunForSession {
+    <#
+    .SYNOPSIS
+        Finds attached runs binding a child session. Returns @{count,
+        run_id, root_session}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record, [string]$ChildSessionId)
+    $out = @{ count = 0; run_id = ''; root_session = '' }
+    try {
+        $sid = ([string]$ChildSessionId).Trim()
+        $b = $null
+        if ($Record -is [System.Collections.IDictionary]) {
+            if ($Record.Contains('bindings')) { $b = $Record['bindings'] }
+        }
+        if ($null -eq $b) { return $out }
+        $runs = @()
+        try {
+            if ($b -is [System.Collections.IDictionary]) {
+                if ($null -ne $b['runs']) { $runs = @($b['runs']) }
+            }
+        }
+        catch { return $out }
+        $hits = @()
+        foreach ($r in $runs) {
+            try {
+                if ($null -eq $r) { continue }
+                $status = ''
+                $rid = ''
+                $root = ''
+                $ws = @()
+                if ($r -is [System.Collections.IDictionary]) {
+                    if ($null -ne $r['status']) { $status = ([string]$r['status']).Trim() }
+                    if ($null -ne $r['run_id']) { $rid = ([string]$r['run_id']).Trim() }
+                    if ($null -ne $r['root_session']) { $root = ([string]$r['root_session']).Trim() }
+                    if ($null -ne $r['worker_sessions']) { $ws = @($r['worker_sessions']) }
+                }
+                else { continue }
+                if ($status -cne 'attached') { continue }
+                $found = $false
+                foreach ($w in $ws) {
+                    if ([string]$w -ceq $sid) { $found = $true; break }
+                }
+                if (-not $found) { continue }
+                $hits += [ordered]@{ run_id = $rid; root_session = $root }
+            }
+            catch { }
+        }
+        $out.count = (@($hits).Count)
+        if (@($hits).Count -eq 1) {
+            $out.run_id = ([string]$hits[0]['run_id'])
+            $out.root_session = ([string]$hits[0]['root_session'])
+        }
+        return $out
+    }
+    catch { return $out }
+}
+
+function Resolve-TaskKernelExplicitRepoRoot {
+    <#
+    .SYNOPSIS
+        Resolves the repo root for kernel file/policy lookups. An
+        explicit -RepoRoot must exist (fail closed); empty resolves to
+        the library-root canonical path (never the process CWD).
+        Returns @{ok, root, error}. Never throws.
+    #>
+    [CmdletBinding()]
+    param([string]$RepoRoot = '')
+    try {
+        $r = ([string]$RepoRoot).Trim()
+        if ([string]::IsNullOrWhiteSpace($r)) {
+            return @{ ok = $true; error = ''; root = (Get-TaskKernelRepoRoot -RepoRoot '') }
+        }
+        $full = ''
+        try { $full = [IO.Path]::GetFullPath($r) } catch { $full = '' }
+        if ([string]::IsNullOrWhiteSpace($full)) {
+            return @{ ok = $false; error = 'INVALID_REPO_ROOT'; root = '' }
+        }
+        if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+            return @{ ok = $false; error = 'INVALID_REPO_ROOT'; root = '' }
+        }
+        return @{ ok = $true; error = ''; root = $full }
+    }
+    catch { return @{ ok = $false; error = 'INVALID_REPO_ROOT'; root = '' } }
+}
+
+function Get-TaskKernelClaimedRefs {
+    <#
+    .SYNOPSIS
+        Extracts exact kernel-correlation refs from worker claimed
+        evidence (entries exactly `session:<id>` / `message:<id>`,
+        binding-id charset, deduplicated). Returns string[]. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Claimed = @(), [string]$Prefix = '')
+    $out = @()
+    try {
+        $pfx = ([string]$Prefix).Trim()
+        if ([string]::IsNullOrWhiteSpace($pfx)) { return @() }
+        foreach ($e in @($Claimed)) {
+            try {
+                $s = ([string]$e)
+                if ([string]::IsNullOrWhiteSpace($s)) { continue }
+                if (-not $s.StartsWith($pfx, [System.StringComparison]::Ordinal)) { continue }
+                $v = $s.Substring($pfx.Length)
+                if (-not (Test-TaskKernelBindingId -Value $v)) { continue }
+                if ($out -cnotcontains $v) { $out += $v }
+            }
+            catch { }
+        }
+    }
+    catch { }
+    return $out
+}
+
+function Test-TaskKernelCriterionCoverage {
+    <#
+    .SYNOPSIS
+        Maps strict `criterion:<idx>:<verified|unverified>` evidence
+        entries against the task acceptance-criteria count. The index set
+        must equal exactly {0..count-1} (no missing, no out-of-range, no
+        malformed criterion:-prefixed entry; duplicates must agree).
+        Returns @{ok, error, statuses}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Evidence = @(), [int]$CriterionCount = 0)
+    try {
+        if ([int]$CriterionCount -lt 1) {
+            return @{ ok = $false; error = 'PROOF_NO_ACCEPTANCE_CRITERIA'; statuses = $null }
+        }
+        $map = [ordered]@{}
+        foreach ($e in @($Evidence)) {
+            try {
+                $s = ([string]$e)
+                if ([string]::IsNullOrWhiteSpace($s)) { continue }
+                if (-not ($s -cmatch '^criterion:')) { continue }
+                if (-not ($s -cmatch '^criterion:([0-9]+):(verified|unverified)$')) {
+                    return @{ ok = $false; error = 'PROOF_CRITERION_MALFORMED'; statuses = $null }
+                }
+                $idx = [int]$Matches[1]
+                $word = ([string]$Matches[2]).Trim().ToLowerInvariant()
+                if (($idx -lt 0) -or ($idx -ge [int]$CriterionCount)) {
+                    return @{ ok = $false; error = 'PROOF_CRITERION_COVERAGE_MISMATCH'; statuses = $null }
+                }
+                $k = [string]$idx
+                if ($map.Contains($k)) {
+                    if ([string]$map[$k] -cne $word) {
+                        return @{ ok = $false; error = 'PROOF_CRITERION_MALFORMED'; statuses = $null }
+                    }
+                    continue
+                }
+                $map[$k] = $word
+            }
+            catch { return @{ ok = $false; error = 'PROOF_CRITERION_MALFORMED'; statuses = $null } }
+        }
+        for ($i = 0; $i -lt [int]$CriterionCount; $i++) {
+            if (-not $map.Contains([string]$i)) {
+                return @{ ok = $false; error = 'PROOF_CRITERION_COVERAGE_MISMATCH'; statuses = $null }
+            }
+        }
+        return @{ ok = $true; error = ''; statuses = $map }
+    }
+    catch { return @{ ok = $false; error = 'PROOF_CRITERION_MALFORMED'; statuses = $null } }
+}
+
+function Set-OrchestrationTaskModelAttempt {
+    <#
+    .SYNOPSIS
+        Records one independently-observed worker model call.
+    .DESCRIPTION
+        Contract (fail-closed, never throws):
+        - Requires TaskId + child SessionId; the parent/run/session binding
+          must already exist in the task record (child in an attached run's
+          worker_sessions with a non-empty root_session). The CURRENT
+          worker result must be a final candidate (failed/candidate_pass)
+          that names this exact child/message via kernel-correlation refs
+          (`session:<child>` exactly once plus >=1 `message:<id>` entry in
+          claimed_evidence); an observed session the candidate does not
+          name is refused. Callers must record the attempt AFTER the
+          worker result it observes: the current worker_result.revision is
+          pinned into the node and the proof requires it to still be
+          current.
+        - The session is read OUTSIDE any lock through
+          Invoke-TaskKernelSessionObservation (seam for tests, actual
+          local `opencode api get` reads in production: session info +
+          assistant message list, byte-capped, identity/usage only).
+          Agent-supplied bools/receipts are not parameters and are never
+          consulted.
+        - Validates SessionInfo.id, parentID (must equal the bound root),
+          agent consistency, the latest completed assistant message
+          model.providerID/id, message + session completion, and infers
+          the tier from the canonical policy by exact model ID (unknown
+          model fails closed).
+        - Persists under the existing task lock+CAS (revalidates revision,
+          the same binding and the named refs before writing). Bounded
+          per worker candidate by the task execution budget
+          (provider_retry_limit) and in total by
+          attempt_budget x provider_retry_limit; duplicates and overflow
+          are rejected, never silently dropped. No dispatch, no retry,
+          no message text, no secrets.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string]$ChildSessionId,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = '',
+        [string]$PolicyPath = '',
+        [string]$TelemetryRoot = ''
+    )
+    try {
+        $effRoot = ''
+        $effRootSlot = Resolve-TaskKernelExplicitRepoRoot -RepoRoot $RepoRoot
+        if (-not [bool]$effRootSlot.ok) {
+            return (New-TaskKernelError -Code ([string]$effRootSlot.error))
+        }
+        $effRoot = ([string]$effRootSlot.root)
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $effRoot
+        if (-not [bool]$flags.enabled) {
+            return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{ shadow = [bool]$flags.shadow })
+        }
+        $tid = ([string]$TaskId).Trim()
+        if (-not (Test-TaskKernelId -TaskId $tid)) {
+            return (New-TaskKernelError -Code 'INVALID_TASK_ID')
+        }
+        $child = ([string]$ChildSessionId).Trim()
+        if (-not (Test-TaskKernelBindingId -Value $child)) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_INVALID_SESSION')
+        }
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $effRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $snap = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$snap.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$snap.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $snapRec = $snap.record
+        $rev0 = [int]$snapRec['revision']
+        if ([int]$ExpectedRevision -ne $rev0) {
+            return (New-TaskKernelError -Code 'CAS_CONFLICT')
+        }
+        $bound = Get-TaskKernelBoundRunForSession -Record $snapRec -ChildSessionId $child
+        if ([int]$bound.count -eq 0) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_SESSION_NOT_BOUND')
+        }
+        if ([int]$bound.count -gt 1) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_SESSION_AMBIGUOUS')
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$bound.root_session)) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_PARENT_UNBOUND')
+        }
+        $wrkSnap = $null
+        try {
+            if (($snapRec -is [System.Collections.IDictionary]) -and $snapRec.Contains('worker_result')) { $wrkSnap = $snapRec['worker_result'] }
+        }
+        catch { $wrkSnap = $null }
+        if (($null -eq $wrkSnap) -or -not ($wrkSnap -is [System.Collections.IDictionary])) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_CANDIDATE_MISSING')
+        }
+        $wrkStatus = ''
+        $wrkRevSnap = 0
+        $wrkClaimed = @()
+        try {
+            if ($null -ne $wrkSnap['status']) { $wrkStatus = ([string]$wrkSnap['status']).Trim().ToLowerInvariant() }
+            if ($null -ne $wrkSnap['revision']) { $wrkRevSnap = [int]$wrkSnap['revision'] }
+            if ($null -ne $wrkSnap['claimed_evidence']) { $wrkClaimed = @($wrkSnap['claimed_evidence']) }
+        }
+        catch { }
+        if ((($wrkStatus -cne 'failed') -and ($wrkStatus -cne 'candidate_pass')) -or ($wrkRevSnap -le 0)) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_CANDIDATE_NOT_FINAL')
+        }
+        $namedSessions = @(Get-TaskKernelClaimedRefs -Claimed $wrkClaimed -Prefix 'session:')
+        if (@($namedSessions).Count -eq 0) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_SESSION_UNCORRELATED')
+        }
+        if (@($namedSessions).Count -gt 1) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_SESSION_AMBIGUOUS')
+        }
+        if ([string]$namedSessions[0] -cne $child) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_SESSION_UNCORRELATED')
+        }
+        $namedMessages = @(Get-TaskKernelClaimedRefs -Claimed $wrkClaimed -Prefix 'message:')
+        if (@($namedMessages).Count -eq 0) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_MESSAGE_UNCORRELATED')
+        }
+        $retryCap = 2
+        try {
+            $ebSnap = $null
+            if (($snapRec -is [System.Collections.IDictionary]) -and ($null -ne $snapRec['execution_budget'])) { $ebSnap = $snapRec['execution_budget'] }
+            if (($null -ne $ebSnap) -and ($ebSnap -is [System.Collections.IDictionary]) -and ($null -ne $ebSnap['provider_retry_limit'])) {
+                $rcSnap = [int]$ebSnap['provider_retry_limit']
+                if ($rcSnap -ge 1) { $retryCap = $rcSnap }
+            }
+        }
+        catch { $retryCap = 2 }
+        $taskBudget = 3
+        try { $taskBudget = [int]$snapRec['attempt_budget'] } catch { $taskBudget = 3 }
+        if ($taskBudget -lt 1) { $taskBudget = 3 }
+        $totalCap = ([int]$taskBudget * [int]$retryCap)
+        $modelList0 = @()
+        try { if ($null -ne $snapRec['model_attempts']) { $modelList0 = @($snapRec['model_attempts']) } } catch { $modelList0 = @() }
+        $perCount0 = 0
+        foreach ($pa in $modelList0) {
+            try {
+                if (($null -ne $pa) -and ($pa -is [System.Collections.IDictionary]) -and ($null -ne $pa['worker_revision']) -and ([int]$pa['worker_revision'] -eq [int]$wrkRevSnap)) { $perCount0++ }
+            }
+            catch { }
+        }
+        if ($perCount0 -ge $retryCap) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_BUDGET_EXHAUSTED' -Extra @{ scope = 'per-candidate' })
+        }
+        if ((@($modelList0).Count) -ge $totalCap) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_BUDGET_EXHAUSTED' -Extra @{ scope = 'task-total' })
+        }
+        $pol = Read-TaskKernelModelPolicy -PolicyPath $PolicyPath -RepoRoot $effRoot
+        if (-not [bool]$pol.ok) {
+            return (New-TaskKernelError -Code ([string]$pol.error))
+        }
+        $slot = Invoke-TaskKernelSessionObservation -ChildSessionId $child
+        if (-not [bool]$slot.ok) {
+            return (New-TaskKernelError -Code ([string]$slot.error))
+        }
+        $obs = $slot.observation
+        if ([string]$obs['session_id'] -cne $child) {
+            return (New-TaskKernelError -Code 'SESSION_ID_MISMATCH')
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$obs['parent_session_id'])) {
+            return (New-TaskKernelError -Code 'SESSION_PARENT_UNVERIFIED')
+        }
+        if ([string]$obs['parent_session_id'] -cne ([string]$bound.root_session)) {
+            return (New-TaskKernelError -Code 'SESSION_PARENT_MISMATCH')
+        }
+        $agent = ([string]$obs['agent']).Trim()
+        $msgAgent = ([string]$obs['message_agent']).Trim()
+        if ([string]::IsNullOrWhiteSpace($msgAgent)) {
+            return (New-TaskKernelError -Code 'SESSION_AGENT_MISSING')
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($agent)) -and ($agent -cne $msgAgent)) {
+            return (New-TaskKernelError -Code 'SESSION_AGENT_MISMATCH')
+        }
+        $prov = ([string]$obs['model_provider']).Trim()
+        $mid = ([string]$obs['model_id']).Trim()
+        if (([string]::IsNullOrWhiteSpace($prov)) -or (-not (Test-TaskKernelModelRef -Value $mid))) {
+            return (New-TaskKernelError -Code 'MODEL_IDENTITY_MISSING')
+        }
+        $fullId = $mid
+        if ($mid -notmatch '/') { $fullId = ($prov + '/' + $mid) }
+        $tierSlot = Get-TaskKernelTierForModelId -Policy $pol.policy -ModelId $fullId
+        if (-not [bool]$tierSlot.ok) {
+            return (New-TaskKernelError -Code ([string]$tierSlot.error))
+        }
+        if ([string]$obs['message_id'] -ceq '') {
+            return (New-TaskKernelError -Code 'SESSION_MESSAGE_MISSING')
+        }
+        if (-not [bool]$obs['message_completed']) {
+            return (New-TaskKernelError -Code 'SESSION_MESSAGE_NOT_COMPLETED')
+        }
+        if ((-not [bool]$obs['session_completed']) -and ([string]::IsNullOrWhiteSpace([string]$obs['session_outcome']))) {
+            return (New-TaskKernelError -Code 'SESSION_NOT_COMPLETED')
+        }
+        $obsMsgId = ([string]$obs['message_id']).Trim()
+        if (@($namedMessages) -cnotcontains $obsMsgId) {
+            return (New-TaskKernelError -Code 'MODEL_ATTEMPT_MESSAGE_MISMATCH')
+        }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) {
+            return (New-TaskKernelError -Code 'LOCK_TIMEOUT')
+        }
+        try {
+            $slot2 = Read-TaskKernelRecord -TaskFile $taskFile
+            if (-not [bool]$slot2.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ([bool]$slot2.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec = $slot2.record
+            if ([int]$rec['revision'] -ne $rev0) {
+                return (New-TaskKernelError -Code 'CAS_CONFLICT')
+            }
+            if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+                return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+            }
+            if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) {
+                return (New-TaskKernelError -Code 'PATH_NOT_CONFINED')
+            }
+            $bound2 = Get-TaskKernelBoundRunForSession -Record $rec -ChildSessionId $child
+            if (([int]$bound2.count -ne 1) -or ([string]$bound2.run_id -cne ([string]$bound.run_id)) -or ([string]$bound2.root_session -cne ([string]$bound.root_session))) {
+                return (New-TaskKernelError -Code 'MODEL_ATTEMPT_BINDING_CHANGED')
+            }
+            $modelList = @()
+            try { if ($null -ne $rec['model_attempts']) { $modelList = @($rec['model_attempts']) } } catch { $modelList = @() }
+            $perCount = 0
+            $isDuplicate = $false
+            foreach ($pa in $modelList) {
+                try {
+                    if (($null -eq $pa) -or -not ($pa -is [System.Collections.IDictionary])) { continue }
+                    if (($null -ne $pa['worker_revision']) -and ([int]$pa['worker_revision'] -eq [int]$wrkRevSnap)) {
+                        $perCount++
+                        $ps = ''
+                        $pm = ''
+                        if ($null -ne $pa['session_id']) { $ps = ([string]$pa['session_id']).Trim() }
+                        if ($null -ne $pa['message_id']) { $pm = ([string]$pa['message_id']).Trim() }
+                        if (($ps -ceq $child) -and ($pm -ceq $obsMsgId)) { $isDuplicate = $true }
+                    }
+                }
+                catch { }
+            }
+            if ((@($modelList).Count -ne @($modelList0).Count) -or ($perCount -ne $perCount0)) {
+                return (New-TaskKernelError -Code 'CAS_CONFLICT')
+            }
+            if ([bool]$isDuplicate) {
+                return (New-TaskKernelError -Code 'MODEL_ATTEMPT_DUPLICATE')
+            }
+            $retryCap2 = 2
+            try {
+                $eb2 = $null
+                if (($rec -is [System.Collections.IDictionary]) -and ($null -ne $rec['execution_budget'])) { $eb2 = $rec['execution_budget'] }
+                if (($null -ne $eb2) -and ($eb2 -is [System.Collections.IDictionary]) -and ($null -ne $eb2['provider_retry_limit'])) {
+                    $rc2 = [int]$eb2['provider_retry_limit']
+                    if ($rc2 -ge 1) { $retryCap2 = $rc2 }
+                }
+            }
+            catch { $retryCap2 = 2 }
+            $taskBudget2 = 3
+            try { $taskBudget2 = [int]$rec['attempt_budget'] } catch { $taskBudget2 = 3 }
+            if ($taskBudget2 -lt 1) { $taskBudget2 = 3 }
+            if ($perCount -ge $retryCap2) {
+                return (New-TaskKernelError -Code 'MODEL_ATTEMPT_BUDGET_EXHAUSTED' -Extra @{ scope = 'per-candidate' })
+            }
+            if ((@($modelList).Count) -ge ([int]$taskBudget2 * [int]$retryCap2)) {
+                return (New-TaskKernelError -Code 'MODEL_ATTEMPT_BUDGET_EXHAUSTED' -Extra @{ scope = 'task-total' })
+            }
+            $failedCount = 0
+            $stratFp = ''
+            $workerRev = 0
+            try {
+                if ($null -ne $rec['attempts']) { $failedCount = (@($rec['attempts'])).Count }
+                if ($failedCount -gt 0) {
+                    $last = (@($rec['attempts']))[$failedCount - 1]
+                    $stratFp = ConvertTo-TaskKernelFingerprint -Value ([string](Get-TaskKernelAttemptField -Attempt $last -Name 'strategy_fingerprint'))
+                }
+            }
+            catch { }
+            try {
+                $wrk = $rec['worker_result']
+                if (($null -ne $wrk) -and ($wrk -is [System.Collections.IDictionary]) -and ($null -ne $wrk['revision'])) {
+                    $workerRev = [int]$wrk['revision']
+                }
+            }
+            catch { $workerRev = 0 }
+            $newRev = ([int]$rec['revision'] + 1)
+            $node = [ordered]@{
+                n                  = ((@($modelList).Count) + 1)
+                attempt_n          = $failedCount
+                worker_revision    = $workerRev
+                session_id         = $child
+                run_id             = ([string]$bound.run_id)
+                parent_session_id  = ([string]$bound.root_session)
+                message_id         = ([string]$obs['message_id']).Trim()
+                model              = $fullId
+                provider           = $prov
+                tier               = ([string]$tierSlot.tier)
+                strategy_fingerprint = $stratFp
+                usage_input        = [int]$obs['usage_input']
+                usage_output       = [int]$obs['usage_output']
+                usage_reasoning    = [int]$obs['usage_reasoning']
+                cost               = $obs['cost']
+                session_outcome    = ([string]$obs['session_outcome']).Trim()
+                observed_at        = (Get-TaskKernelTimestamp)
+                recorded_at        = (Get-TaskKernelTimestamp)
+                policy_hash        = ([string]$pol.policy_hash)
+                policy_version     = ([string]$pol.policy_version)
+                task_revision      = $newRev
+            }
+            $modelList += $node
+            $rec['model_attempts'] = $modelList
+            $rec['revision'] = $newRev
+            $rec['updated_at'] = (Get-TaskKernelTimestamp)
+            $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+            if (-not [bool]$wr.ok) {
+                return (New-TaskKernelError -Code ([string]$wr.error))
+            }
+            return [PSCustomObject]@{
+                ok                = $true
+                task_id           = $tid
+                revision          = $newRev
+                attempt_n         = ((@($modelList).Count))
+                worker_revision   = $wrkRevSnap
+                model             = $fullId
+                provider          = $prov
+                tier              = ([string]$tierSlot.tier)
+                session_id        = $child
+                run_id            = ([string]$bound.run_id)
+                parent_session_id = ([string]$bound.root_session)
+                message_id        = ([string]$obs['message_id']).Trim()
+                policy_hash       = ([string]$pol.policy_hash)
+            }
+        }
+        finally {
+            Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile
+        }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Test-TaskKernelModelFailureProofCore {
+    <#
+    .SYNOPSIS
+        Recomputes one model-failure proof from the persisted record.
+        Read-only. Returns @{ok, proof/error}. Never throws.
+    #>
+    [CmdletBinding()]
+    param($Record, [string]$RequiredTier, $Policy, [string]$PolicyHash, [string]$RequiredModel, [string]$RequiredProvider, [bool]$Head = $true, [int]$MaxAttemptIndex = 2147483647, [int]$HeadWorkerRevision = 0)
+    $refuse = {
+        param([string]$Why)
+        return @{ ok = $false; error = $Why }
+    }
+    try {
+        $tid = ''
+        try { $tid = ([string]$Record['task_id']).Trim() } catch { $tid = '' }
+        $criteria = @()
+        try { if ($null -ne $Record['acceptance_criteria']) { $criteria = @($Record['acceptance_criteria']) } } catch { $criteria = @() }
+        $ver = $null
+        try {
+            if (($Record -is [System.Collections.IDictionary]) -and $Record.Contains('verification')) { $ver = $Record['verification'] }
+        }
+        catch { $ver = $null }
+        if (($null -eq $ver) -or -not ($ver -is [System.Collections.IDictionary])) {
+            return (& $refuse 'PROOF_VERIFICATION_MISSING')
+        }
+        if (-not $ver.Contains('status')) {
+            return (& $refuse 'LEGACY_VERIFICATION_UNKNOWN')
+        }
+        $vstatus = ([string]$ver['status']).Trim()
+        if ([string]::IsNullOrWhiteSpace($vstatus)) {
+            return (& $refuse 'LEGACY_VERIFICATION_UNKNOWN')
+        }
+        if ($vstatus -cne 'verification_failed') {
+            return (& $refuse 'PROOF_STATUS_NOT_FAILED')
+        }
+        $vpassed = $true
+        try { if ($null -ne $ver['passed']) { $vpassed = [bool]$ver['passed'] } } catch { $vpassed = $true }
+        if ([bool]$vpassed) {
+            return (& $refuse 'PROOF_PASSED_NOT_FAILED')
+        }
+        $vsrc = ''
+        try { if ($null -ne $ver['verification_source']) { $vsrc = ([string]$ver['verification_source']).Trim() } } catch { $vsrc = '' }
+        if ($vsrc -cne 'kernel-executed') {
+            return (& $refuse 'PROOF_VERIFIER_UNTRUSTED')
+        }
+        $vexReal = $false
+        try { if ($null -ne $ver['verifier_executed']) { $vexReal = [bool]$ver['verifier_executed'] } } catch { $vexReal = $false }
+        if (-not [bool]$vexReal) {
+            return (& $refuse 'PROOF_VERIFIER_UNTRUSTED')
+        }
+        $vdigest = ''
+        try { if ($null -ne $ver['result_digest']) { $vdigest = ([string]$ver['result_digest']).Trim() } } catch { $vdigest = '' }
+        if ([string]::IsNullOrWhiteSpace($vdigest)) {
+            return (& $refuse 'PROOF_VERIFIER_PROVENANCE_MISSING')
+        }
+        $vprofiles = @()
+        try { if ($null -ne $ver['profiles']) { $vprofiles = @($ver['profiles']) } } catch { $vprofiles = @() }
+        if (@($vprofiles).Count -eq 0) {
+            return (& $refuse 'PROOF_VERIFIER_NO_PROFILES')
+        }
+        $profFailed = $false
+        foreach ($vp2 in $vprofiles) {
+            try {
+                if ($null -eq $vp2) { return (& $refuse 'PROOF_VERIFIER_PROFILES_MALFORMED') }
+                $vpn2 = ''
+                $vps2 = ''
+                if ($vp2 -is [System.Collections.IDictionary]) {
+                    if ($null -ne $vp2['profile']) { $vpn2 = ([string]$vp2['profile']).Trim() }
+                    if ($null -ne $vp2['status']) { $vps2 = ([string]$vp2['status']).Trim() }
+                }
+                else {
+                    $qp1 = $vp2.PSObject.Properties | Where-Object { $_.Name -ceq 'profile' } | Select-Object -First 1
+                    if ($null -ne $qp1) { $vpn2 = ([string]$qp1.Value).Trim() }
+                    $qp2 = $vp2.PSObject.Properties | Where-Object { $_.Name -ceq 'status' } | Select-Object -First 1
+                    if ($null -ne $qp2) { $vps2 = ([string]$qp2.Value).Trim() }
+                }
+                if ([string]::IsNullOrWhiteSpace($vpn2) -or [string]::IsNullOrWhiteSpace($vps2)) {
+                    return (& $refuse 'PROOF_VERIFIER_PROFILES_MALFORMED')
+                }
+                if ($vps2 -cne 'verified') { $profFailed = $true }
+            }
+            catch { return (& $refuse 'PROOF_VERIFIER_PROFILES_MALFORMED') }
+        }
+        if (-not [bool]$profFailed) {
+            return (& $refuse 'PROOF_VERIFIER_NO_FAILED_PROFILE')
+        }
+        $wrk = $null
+        try {
+            if (($Record -is [System.Collections.IDictionary]) -and $Record.Contains('worker_result')) { $wrk = $Record['worker_result'] }
+        }
+        catch { $wrk = $null }
+        if (($null -eq $wrk) -or -not ($wrk -is [System.Collections.IDictionary])) {
+            return (& $refuse 'PROOF_CANDIDATE_NOT_FAILED')
+        }
+        $wstatus = ''
+        $wrev = 0
+        try {
+            if ($null -ne $wrk['status']) { $wstatus = ([string]$wrk['status']).Trim().ToLowerInvariant() }
+            if ($null -ne $wrk['revision']) { $wrev = [int]$wrk['revision'] }
+        }
+        catch { }
+        if ((($wstatus -cne 'failed') -and ($wstatus -cne 'candidate_pass')) -or ($wrev -le 0)) {
+            return (& $refuse 'PROOF_CANDIDATE_NOT_FAILED')
+        }
+        $candRev = 0
+        try { if ($null -ne $ver['candidate_revision']) { $candRev = [int]$ver['candidate_revision'] } } catch { $candRev = 0 }
+        if ([bool]$Head -and ($candRev -ne $wrev)) {
+            return (& $refuse 'PROOF_CANDIDATE_STALE')
+        }
+        $verRev = 0
+        try { if ($null -ne $ver['revision']) { $verRev = [int]$ver['revision'] } } catch { $verRev = 0 }
+        $verEvidence = @()
+        try { if ($null -ne $ver['evidence']) { $verEvidence = @($ver['evidence']) } } catch { $verEvidence = @() }
+        $critSlot = Test-TaskKernelCriterionCoverage -Evidence $verEvidence -CriterionCount (@($criteria).Count)
+        if (-not [bool]$critSlot.ok) {
+            return (& $refuse ([string]$critSlot.error))
+        }
+        $unverifiedCount = 0
+        foreach ($ck in @($critSlot.statuses.Keys)) {
+            if ([string]$critSlot.statuses[$ck] -cne 'verified') { $unverifiedCount++ }
+        }
+        if ($unverifiedCount -eq 0) {
+            return (& $refuse 'PROOF_CRITERION_ALL_VERIFIED')
+        }
+        $vmapCheck = $null
+        try { if ($ver.Contains('criterion_map')) { $vmapCheck = $ver['criterion_map'] } } catch { $vmapCheck = $null }
+        if (($null -eq $vmapCheck) -or -not ($vmapCheck -is [System.Collections.IDictionary])) {
+            return (& $refuse 'PROOF_CRITERION_MAP_MISSING')
+        }
+        $mapKeys = @($vmapCheck.Keys)
+        if ((@($mapKeys).Count) -ne (@($critSlot.statuses.Keys).Count)) {
+            return (& $refuse 'PROOF_CRITERION_MAP_MISMATCH')
+        }
+        foreach ($ck in @($critSlot.statuses.Keys)) {
+            $foundMap = $false
+            $mapWord = ''
+            foreach ($mk in $mapKeys) {
+                if ([string]$mk -ceq [string]$ck) {
+                    $foundMap = $true
+                    try { $mapWord = ([string]$vmapCheck[$mk]).Trim().ToLowerInvariant() } catch { $mapWord = '' }
+                    break
+                }
+            }
+            if ((-not [bool]$foundMap) -or ($mapWord -cne [string]$critSlot.statuses[$ck])) {
+                return (& $refuse 'PROOF_CRITERION_MAP_MISMATCH')
+            }
+        }
+        $attempts = @()
+        try { if ($null -ne $Record['attempts']) { $attempts = @($Record['attempts']) } } catch { $attempts = @() }
+        $failedCount = (@($attempts).Count)
+        $modelAttempts = @()
+        try { if ($null -ne $Record['model_attempts']) { $modelAttempts = @($Record['model_attempts']) } } catch { $modelAttempts = @() }
+        $pool = @()
+        $poolIdx = @()
+        for ($i = 0; $i -lt @($modelAttempts).Count; $i++) {
+            if ($i -ge [int]$MaxAttemptIndex) { break }
+            try {
+                $a = (@($modelAttempts))[$i]
+                if ($null -eq $a) { continue }
+                $am = ''
+                $ap = ''
+                $at = ''
+                if ($a -is [System.Collections.IDictionary]) {
+                    if ($null -ne $a['model']) { $am = ([string]$a['model']).Trim() }
+                    if ($null -ne $a['provider']) { $ap = ([string]$a['provider']).Trim() }
+                    if ($null -ne $a['tier']) { $at = ([string]$a['tier']).Trim() }
+                }
+                else { continue }
+                if (($am -cne $RequiredModel) -or ($ap -cne $RequiredProvider) -or ($at -cne $RequiredTier)) { continue }
+                $pool += $a
+                $poolIdx += $i
+            }
+            catch { }
+        }
+        if (@($pool).Count -eq 0) {
+            return (& $refuse 'PROOF_NO_MODEL_ATTEMPT')
+        }
+        $cand = $pool[(@($pool).Count - 1)]
+        $candPos = [int]$poolIdx[(@($poolIdx).Count - 1)]
+        $candN = 0
+        $candW = 0
+        $candFp = ''
+        $candSess = ''
+        $candRun = ''
+        $candMsg = ''
+        $candPol = ''
+        try {
+            if ($cand -is [System.Collections.IDictionary]) {
+                if ($null -ne $cand['attempt_n']) { $candN = [int]$cand['attempt_n'] }
+                if ($null -ne $cand['worker_revision']) { $candW = [int]$cand['worker_revision'] }
+                if ($null -ne $cand['strategy_fingerprint']) { $candFp = ConvertTo-TaskKernelFingerprint -Value ([string]$cand['strategy_fingerprint']) }
+                if ($null -ne $cand['session_id']) { $candSess = ([string]$cand['session_id']).Trim() }
+                if ($null -ne $cand['run_id']) { $candRun = ([string]$cand['run_id']).Trim() }
+                if ($null -ne $cand['message_id']) { $candMsg = ([string]$cand['message_id']).Trim() }
+                if ($null -ne $cand['policy_hash']) { $candPol = ([string]$cand['policy_hash']).Trim().ToLowerInvariant() }
+            }
+        }
+        catch { return (& $refuse 'PROOF_MALFORMED_ATTEMPT') }
+        if ([bool]$Head) {
+            if (($candW -le 0) -or ($candW -ne $wrev)) {
+                return (& $refuse 'PROOF_ATTEMPT_STALE')
+            }
+        }
+        else {
+            if (($candW -le 0) -or ($candW -ge [int]$HeadWorkerRevision)) {
+                return (& $refuse 'PROOF_ATTEMPT_STALE')
+            }
+        }
+        if ($wstatus -ceq 'failed') {
+            if ($failedCount -eq 0) {
+                return (& $refuse 'PROOF_NO_FAILED_ATTEMPT')
+            }
+            $target = $null
+            foreach ($a in $attempts) {
+                try {
+                    $an = [int](Get-TaskKernelAttemptField -Attempt $a -Name 'n')
+                    if ($an -eq $candN) { $target = $a; break }
+                }
+                catch { }
+            }
+            if (($null -eq $target) -or ($candN -le 0)) {
+                return (& $refuse 'PROOF_ATTEMPT_MISMATCH')
+            }
+            $targetFp = ConvertTo-TaskKernelFingerprint -Value ([string](Get-TaskKernelAttemptField -Attempt $target -Name 'strategy_fingerprint'))
+            if ($candFp -cne $targetFp) {
+                return (& $refuse 'PROOF_STRATEGY_MISMATCH')
+            }
+        }
+        else {
+            if ($candN -ne $failedCount) {
+                return (& $refuse 'PROOF_ATTEMPT_MISMATCH')
+            }
+        }
+        if (-not [bool]$Head) {
+            $vhistCheck = @()
+            try { if ($null -ne $Record['verification_history']) { $vhistCheck = @($Record['verification_history']) } } catch { $vhistCheck = @() }
+            $priorFailedHit = $false
+            foreach ($vh in $vhistCheck) {
+                try {
+                    if ($null -eq $vh) { continue }
+                    $vhs = ''
+                    $vhp = $true
+                    $vhc = 0
+                    $vhSrc = ''
+                    $vhEx = $false
+                    if ($vh -is [System.Collections.IDictionary]) {
+                        if ($null -ne $vh['status']) { $vhs = ([string]$vh['status']).Trim() }
+                        if ($null -ne $vh['passed']) { $vhp = [bool]$vh['passed'] }
+                        if ($null -ne $vh['candidate_revision']) { $vhc = [int]$vh['candidate_revision'] }
+                        if ($null -ne $vh['verification_source']) { $vhSrc = ([string]$vh['verification_source']).Trim() }
+                        if ($null -ne $vh['verifier_executed']) { $vhEx = [bool]$vh['verifier_executed'] }
+                    }
+                    else { continue }
+                    if (($vhs -ceq 'verification_failed') -and (-not [bool]$vhp) -and ($vhc -eq $candW) -and ($candW -gt 0) -and ($vhSrc -ceq 'kernel-executed') -and ([bool]$vhEx)) {
+                        $priorFailedHit = $true
+                        break
+                    }
+                }
+                catch { }
+            }
+            if (-not [bool]$priorFailedHit) {
+                return (& $refuse 'PROOF_PRIOR_VERIFICATION_NOT_FOUND')
+            }
+        }
+        $runHit = $false
+        try {
+            $b = $null
+            if (($Record -is [System.Collections.IDictionary]) -and $Record.Contains('bindings')) { $b = $Record['bindings'] }
+            if (($null -ne $b) -and ($b -is [System.Collections.IDictionary]) -and ($null -ne $b['runs'])) {
+                foreach ($r in @($b['runs'])) {
+                    if ($null -eq $r) { continue }
+                    if ($r -is [System.Collections.IDictionary]) {
+                        $rid = ''
+                        if ($null -ne $r['run_id']) { $rid = ([string]$r['run_id']).Trim() }
+                        if ($rid -cne $candRun) { continue }
+                        foreach ($w in @($r['worker_sessions'])) {
+                            if ([string]$w -ceq $candSess) { $runHit = $true; break }
+                        }
+                    }
+                    if ([bool]$runHit) { break }
+                }
+            }
+        }
+        catch { $runHit = $false }
+        if (-not [bool]$runHit) {
+            return (& $refuse 'PROOF_SESSION_UNBOUND')
+        }
+        if ([string]::IsNullOrWhiteSpace($candPol) -or ($candPol -cne ([string]$PolicyHash).Trim().ToLowerInvariant())) {
+            return (& $refuse 'PROOF_POLICY_CHANGED')
+        }
+        if ([bool]$Head) {
+            $wClaimedHead = @()
+            try { if ($null -ne $wrk['claimed_evidence']) { $wClaimedHead = @($wrk['claimed_evidence']) } } catch { $wClaimedHead = @() }
+            $wsRefsHead = @(Get-TaskKernelClaimedRefs -Claimed $wClaimedHead -Prefix 'session:')
+            $wmRefsHead = @(Get-TaskKernelClaimedRefs -Claimed $wClaimedHead -Prefix 'message:')
+            if ((@($wsRefsHead).Count -ne 1) -or ([string]$wsRefsHead[0] -cne $candSess) -or (@($wmRefsHead) -cnotcontains $candMsg)) {
+                return (& $refuse 'PROOF_CANDIDATE_UNCORRELATED')
+            }
+        }
+        $anchorRev = $wrev
+        if (-not [bool]$Head) { $anchorRev = $candW }
+        $reference = ('modelproof:' + $tid + ':' + $RequiredTier + ':' + ([string]$candN) + ':' + ([string]$anchorRev))
+        $canon = ('v1|task=' + (Get-TaskKernelFrame -Text $tid) + '|tier=' + (Get-TaskKernelFrame -Text $RequiredTier) + '|model=' + (Get-TaskKernelFrame -Text $RequiredModel) + '|provider=' + (Get-TaskKernelFrame -Text $RequiredProvider) + '|session=' + (Get-TaskKernelFrame -Text $candSess) + '|message=' + (Get-TaskKernelFrame -Text $candMsg) + '|attempt_n=' + (Get-TaskKernelFrame -Text ([string]$candN)) + '|worker_rev=' + (Get-TaskKernelFrame -Text ([string]$anchorRev)) + '|verification_rev=' + (Get-TaskKernelFrame -Text ([string]$verRev)) + '|policy_hash=' + (Get-TaskKernelFrame -Text ([string]$PolicyHash).Trim().ToLowerInvariant()))
+        $digest = ('sha256:' + (Get-TaskKernelStringHash -Text $canon))
+        return @{
+            ok                   = $true
+            error                = ''
+            task_id              = $tid
+            tier                 = $RequiredTier
+            model                = $RequiredModel
+            provider             = $RequiredProvider
+            attempt_n            = $candN
+            attempt_index        = $candPos
+            session_id           = $candSess
+            run_id               = $candRun
+            message_id           = $candMsg
+            worker_revision      = $anchorRev
+            candidate_revision   = $candRev
+            verification_revision = $verRev
+            reference            = $reference
+            digest               = $digest
+            policy_hash          = ([string]$PolicyHash).Trim().ToLowerInvariant()
+        }
+    }
+    catch { return @{ ok = $false; error = 'INTERNAL_ERROR' } }
+}
+
+function Get-OrchestrationTaskModelFailureProof {
+    <#
+    .SYNOPSIS
+        Kernel-owned model-failure proof (read-only).
+    .DESCRIPTION
+        Recomputes from the persisted task record + recorded model_attempts:
+        requires verification.status='verification_failed' with
+        passed=false, a fresh worker-result candidate revision, the same
+        failed attempt/strategy, the actual executed model/provider equal
+        to the canonical required T3 Terra (or T4 Sol), nonempty criterion
+        evidence with at least one unverified criterion, and the bound
+        session still present in the recorded run. For T4 Sol, a prior
+        valid T3 failure proof on the same task (earlier attempt) is
+        required before Astra may be permitted. No dispatch, no
+        bool/string proof parameters: only TaskId + RequiredTier. Returns
+        the persisted reference/digest, or fail-closed otherwise. Never
+        throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string]$RequiredTier,
+        [string]$TasksDir = '',
+        [string]$RepoRoot = '',
+        [string]$PolicyPath = ''
+    )
+    try {
+        $effRoot = ''
+        $effRootSlot = Resolve-TaskKernelExplicitRepoRoot -RepoRoot $RepoRoot
+        if (-not [bool]$effRootSlot.ok) {
+            return (New-TaskKernelError -Code ([string]$effRootSlot.error))
+        }
+        $effRoot = ([string]$effRootSlot.root)
+        $tier = ([string]$RequiredTier).Trim()
+        if (($tier -cne 'T3') -and ($tier -cne 'T4')) {
+            return (New-TaskKernelError -Code 'INVALID_TIER')
+        }
+        $tid = ([string]$TaskId).Trim()
+        if (-not (Test-TaskKernelId -TaskId $tid)) {
+            return (New-TaskKernelError -Code 'INVALID_TASK_ID')
+        }
+        $pol = Read-TaskKernelModelPolicy -PolicyPath $PolicyPath -RepoRoot $effRoot
+        if (-not [bool]$pol.ok) {
+            return (New-TaskKernelError -Code ([string]$pol.error))
+        }
+        $canon = Get-TaskKernelCanonicalModelForTier -Policy $pol.policy -Tier $tier
+        if (-not [bool]$canon.ok) {
+            return (New-TaskKernelError -Code ([string]$canon.error))
+        }
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $effRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) {
+            return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $slot = Read-TaskKernelRecord -TaskFile $taskFile
+        if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $rec = $slot.record
+        $head = Test-TaskKernelModelFailureProofCore -Record $rec -RequiredTier $tier -Policy $pol.policy -PolicyHash ([string]$pol.policy_hash) -RequiredModel ([string]$canon.model_id) -RequiredProvider ([string]$canon.provider) -Head $true
+        if (-not [bool]$head.ok) {
+            return (New-TaskKernelError -Code ([string]$head.error))
+        }
+        if ($tier -ceq 'T4') {
+            $canonT3 = Get-TaskKernelCanonicalModelForTier -Policy $pol.policy -Tier 'T3'
+            if (-not [bool]$canonT3.ok) {
+                return (New-TaskKernelError -Code 'T3_PROOF_REQUIRED' -Extra @{ detail = ([string]$canonT3.error) })
+            }
+            $prior = Test-TaskKernelModelFailureProofCore -Record $rec -RequiredTier 'T3' -Policy $pol.policy -PolicyHash ([string]$pol.policy_hash) -RequiredModel ([string]$canonT3.model_id) -RequiredProvider ([string]$canonT3.provider) -Head $false -MaxAttemptIndex ([int]$head.attempt_index) -HeadWorkerRevision ([int]$head.worker_revision)
+            if (-not [bool]$prior.ok) {
+                return (New-TaskKernelError -Code 'T3_PROOF_REQUIRED' -Extra @{ detail = ([string]$prior.error) })
+            }
+        }
+        return [PSCustomObject]@{
+            ok                    = $true
+            task_id               = ([string]$head.task_id)
+            tier                  = ([string]$head.tier)
+            model                 = ([string]$head.model)
+            provider              = ([string]$head.provider)
+            attempt_n             = ([int]$head.attempt_n)
+            session_id            = ([string]$head.session_id)
+            run_id                = ([string]$head.run_id)
+            message_id            = ([string]$head.message_id)
+            worker_revision       = ([int]$head.worker_revision)
+            candidate_revision    = ([int]$head.candidate_revision)
+            verification_revision = ([int]$head.verification_revision)
+            reference             = ([string]$head.reference)
+            digest                = ([string]$head.digest)
+            policy_hash           = ([string]$head.policy_hash)
         }
     }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }

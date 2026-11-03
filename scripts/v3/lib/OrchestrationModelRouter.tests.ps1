@@ -65,11 +65,11 @@ $selRevHighUnauth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -R
 Assert-Router ($selRevHighUnauth.Tier -eq 'T3') "A.4: Reviewer high-risk sem autorizacao de custo faz fallback seguro para T3"
 Assert-Router ($selRevHighUnauth.ModelToken -eq 'MODEL_STRONG') "A.4: Reviewer degradado para T3 usa MODEL_STRONG"
 
-# Com autorizacao explicita de custo, reviewer high-risk recebe T4 Sol
+# Recibo arbitrario sem TaskId/prova kernel-owned nao autoriza T4 (fail-closed em T3).
 $selRevHighAuth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -Complexity 'complex' -T3FailureVerified $true -T3FailureReceipt 'verified:review' -IgnoreUserConfig $true
-Assert-Router ($selRevHighAuth.Tier -eq 'T4') "A.4: Reviewer high-risk com autorizacao de custo seleciona T4"
-Assert-Router ($selRevHighAuth.CatalogModel -eq 'openai/gpt-6.1-sol') "A.4: Reviewer T4 canonico seleciona GPT-6.1 Sol"
-Assert-Router ($selRevHighAuth.ModelToken -eq 'MODEL_FRONTIER') "A.4: Reviewer T4 usa token distinto MODEL_FRONTIER"
+Assert-Router ($selRevHighAuth.Tier -eq 'T3') "A.4: Reviewer high-risk com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
+Assert-Router ($selRevHighAuth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.4: Reviewer T3 canonico e GPT-6.1 Terra"
+Assert-Router ($selRevHighAuth.ModelToken -eq 'MODEL_STRONG') "A.4: Reviewer T3 usa token distinto MODEL_STRONG"
 
 # A.5 Security-Reviewer: Invariantes estritas de seguranca (proibido T0/T1/T2)
 $selSecLow = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial' -IgnoreUserConfig $true
@@ -81,9 +81,9 @@ $selSecCritUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-rev
 Assert-Router ($selSecCritUnauth.Tier -eq 'T3') "A.5: Security-reviewer critical sem custo autorizado faz fallback seguro para T3"
 
 $selSecCritAuth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex' -T3FailureVerified $true -T3FailureReceipt 'verified:security' -IgnoreUserConfig $true
-Assert-Router ($selSecCritAuth.Tier -eq 'T4') "A.5: Security-reviewer critical autorizado seleciona T4 Sol"
-Assert-Router ($selSecCritAuth.CatalogModel -eq 'openai/gpt-6.1-sol') "A.5: Security-reviewer T4 canonico seleciona Sol"
-Assert-Router ($selSecCritAuth.ModelToken -eq 'MODEL_FRONTIER') "A.5: Security-reviewer T4 usa token distinto MODEL_FRONTIER"
+Assert-Router ($selSecCritAuth.Tier -eq 'T3') "A.5: Security-reviewer critical com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
+Assert-Router ($selSecCritAuth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.5: Security-reviewer T3 canonico e Terra"
+Assert-Router ($selSecCritAuth.ModelToken -eq 'MODEL_STRONG') "A.5: Security-reviewer T3 usa token distinto MODEL_STRONG"
 
 # A.6 Coder: Escalonamento dinamico e custo
 $selCoderDef = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
@@ -102,9 +102,9 @@ $selCoderT4Unauth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Comp
 Assert-Router ($selCoderT4Unauth.Tier -eq 'T3') "A.6: Coder com 2 falhas sem autorizacao de custo faz fallback para T3"
 
 $selCoderT4Auth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:coder' -IgnoreUserConfig $true
-Assert-Router ($selCoderT4Auth.Tier -eq 'T4') "A.6: Coder com 2 falhas e autorizacao de custo escala para T4 Sol"
-Assert-Router ($selCoderT4Auth.CatalogModel -eq 'openai/gpt-6.1-sol') "A.6: Coder T4 canonico seleciona Sol"
-Assert-Router ($selCoderT4Auth.ModelToken -eq 'MODEL_FRONTIER') "A.6: Coder T4 usa token distinto MODEL_FRONTIER"
+Assert-Router ($selCoderT4Auth.Tier -eq 'T3') "A.6: Coder com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
+Assert-Router ($selCoderT4Auth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.6: Coder T3 canonico e Terra"
+Assert-Router ($selCoderT4Auth.ModelToken -eq 'MODEL_STRONG') "A.6: Coder T3 usa token distinto MODEL_STRONG"
 
 # A.7 Engineering Advisor: Escalonamento e autorizacao
 $selAdvLow = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true
@@ -120,9 +120,9 @@ $selAdvDeadlockUnauth = Resolve-OrchestrationModelSelection -AgentName 'engineer
 Assert-Router ($selAdvDeadlockUnauth.Tier -eq 'T3') "A.7: Advisor em deadlock sem custo faz fallback seguro para T3"
 
 $selAdvDeadlockAuth = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:advisor' -IgnoreUserConfig $true
-Assert-Router ($selAdvDeadlockAuth.Tier -eq 'T4') "A.7: Advisor em deadlock e custo autorizado escala para T4 Sol"
-Assert-Router ($selAdvDeadlockAuth.CatalogModel -eq 'openai/gpt-6.1-sol') "A.7: Advisor T4 canonico seleciona Sol"
-Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_FRONTIER') "A.7: Advisor T4 usa token distinto MODEL_FRONTIER"
+Assert-Router ($selAdvDeadlockAuth.Tier -eq 'T3') "A.7: Advisor com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
+Assert-Router ($selAdvDeadlockAuth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.7: Advisor T3 canonico e Terra"
+Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_STRONG') "A.7: Advisor T3 usa token distinto MODEL_STRONG"
 
 # A.8 Explorer e Docs Manager: T1 Iceman Contributor Free
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex' -IgnoreUserConfig $true
@@ -164,21 +164,21 @@ Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue
 
 # A.11 Fallback Canonico e Rastreamento de Tentativas (Sem candidatos ficticios)
 $selCoderCan = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-# 11.1 Fallback no mesmo tier T2: DeepSeek -> Muse Spark
-$fbCoderSameTier = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode/deepseek-v4.1-flash-free' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+# 11.1 Fallback no mesmo tier T2: Muse (solicitado) falha -> Luna (alternativa canonica)
+$fbCoderSameTier = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbCoderSameTier.Status -eq 'AUTHORIZED') "A.11.1: Fallback autorizado para Coder sob rate limit"
-Assert-Router ($fbCoderSameTier.FallbackModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.11.1: Fallback seleciona Muse Spark (sem candidato ficticio)"
+Assert-Router ($fbCoderSameTier.FallbackModel -eq 'openai/gpt-6-luna') "A.11.1: Fallback seleciona Luna (sem candidato ficticio)"
 Assert-Router ($fbCoderSameTier.FallbackTier -eq 'T2') "A.11.1: Fallback ocorre dentro do Tier T2"
-Assert-Router ($fbCoderSameTier.IsCrossProvider -eq $true) "A.11.1: Transicao cross-provider opencode -> opencode-go rastreada"
+Assert-Router ($fbCoderSameTier.IsCrossProvider -eq $true) "A.11.1: Transicao cross-provider opencode-go -> openai rastreada"
 Assert-Router ($fbCoderSameTier.AttemptsCount -eq 1) "A.11.1: AttemptsCount reflete apenas modelos realmente tentados (1)"
-Assert-Router ($fbCoderSameTier.ReallyAttemptedModels.Count -eq 1 -and $fbCoderSameTier.ReallyAttemptedModels -contains 'opencode/deepseek-v4.1-flash-free') "A.11.1: ReallyAttemptedModels rastreia modelo que falhou"
+Assert-Router ($fbCoderSameTier.ReallyAttemptedModels.Count -eq 1 -and $fbCoderSameTier.ReallyAttemptedModels -contains 'opencode-go/muse-spark-1.3-contributor') "A.11.1: ReallyAttemptedModels rastreia modelo que falhou"
 Assert-Router ($fbCoderSameTier.PreventivelyExcluded.Count -ge 1) "A.11.1: PreventivelyExcluded registra candidatos descartados preventivamente"
 
 # 11.2 Esgotamento do Tier T2 -> Escalonamento para T3 Luna
 $fbCoderEscalateT3 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbCoderEscalateT3.Status -eq 'AUTHORIZED') "A.11.2: Quando T2 se esgota, Coder escala para T3"
 Assert-Router ($fbCoderEscalateT3.FallbackModel -eq 'openai/gpt-6-luna') "A.11.2: Escala para GPT-6 Luna canonico"
-Assert-Router ($fbCoderEscalateT3.FallbackTier -eq 'T2') "A.11.2: FallbackTier rastreado como T3"
+Assert-Router ($fbCoderEscalateT3.FallbackTier -eq 'T2') "A.11.2: FallbackTier rastreado como T2"
 Assert-Router ($fbCoderEscalateT3.AttemptsCount -eq 2) "A.11.2: AttemptsCount reflete exatamente as 2 tentativas reais anteriores"
 Assert-Router ($fbCoderEscalateT3.ReallyAttemptedModels.Count -eq 2) "A.11.2: ReallyAttemptedModels contem exatamente as 2 tentativas reais"
 
@@ -251,7 +251,7 @@ $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample
 Assert-Router ($parsedExample.planner -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default planner e gpt-6-luna"
 Assert-Router ($parsedExample.cheap -eq 'opencode-go/muse-spark-1.3-contributor') "B.1: models.example.jsonc default cheap e muse-spark-1.3-contributor"
-Assert-Router ($parsedExample.strong -eq 'openai/gpt-6.1-terra') "B.1: models.example.jsonc default strong e gpt-6-luna"
+Assert-Router ($parsedExample.strong -eq 'openai/gpt-6.1-terra') "B.1: models.example.jsonc default strong e gpt-6.1-terra"
 Assert-Router ($parsedExample.frontier -eq 'openai/gpt-6.1-sol') "B.1: models.example.jsonc default frontier e gpt-6.1-sol"
 
 # B.2 Suporte a overrides de usuario via catalogo customizado simulado
