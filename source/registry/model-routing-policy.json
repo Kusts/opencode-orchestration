@@ -126,7 +126,8 @@
         "infra-engineer",
         "coder",
         "researcher",
-        "tester"
+        "tester",
+        "build"
       ],
       "capabilities": [
         "specialized-engineering",
@@ -221,7 +222,10 @@
         "reviewer",
         "debugger",
         "skeptic",
-        "engineering-advisor"
+        "engineering-advisor",
+        "coder",
+        "backend-engineer",
+        "database-engineer"
       ],
       "capabilities": [
         "critical-reasoning",
@@ -262,7 +266,12 @@
       "eligible_roles": [
         "security-reviewer",
         "architect",
-        "engineering-advisor"
+        "engineering-advisor",
+        "coder",
+        "reviewer",
+        "debugger",
+        "backend-engineer",
+        "database-engineer"
       ],
       "capabilities": [
         "frontier-exceptional-reasoning",
@@ -507,7 +516,10 @@
       "prohibited_tiers": [
         "T4"
       ],
-      "alternatives": []
+      "alternatives": [
+        "muse",
+        "deepseek_go"
+      ]
     },
     "explorer": {
       "default_model": "iceman",
