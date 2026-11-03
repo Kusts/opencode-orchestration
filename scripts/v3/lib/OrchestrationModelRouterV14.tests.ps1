@@ -37,7 +37,7 @@ $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'compl
 Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'openai/gpt-6.1-terra') 'T3-runtime-terra'
 $sT4Hold = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4Hold.Tier -ne 'T4') 'no-unproven-T3-failure-escalation'
-$sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -T3FailureVerified $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -T3FailureVerified $true -T3FailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4.Tier -eq 'T4' -and $sT4.CatalogModel -eq 'openai/gpt-6.1-sol') 'T3-verified-failure-auto-escalates-T4'
 Assert-V14 ($sT4.Authorized -eq $true) 'T4-authorized-by-policy'
 
@@ -57,9 +57,31 @@ $fSolQuality = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -Fail
 Assert-V14 ($fSolQuality.Status -eq 'AUTHORIZED' -and $fSolQuality.FallbackModel -eq 'openai/gpt-6-astra') 'T4-proven-sol-failure-to-astra'
 $fSolUnproven = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'VERIFIED_TASK_FAILURE' -IgnoreUserConfig $true
 Assert-V14 ($fSolUnproven.FallbackModel -ne 'openai/gpt-6-astra') 'unproven-quality-failure-does-not-use-astra'
-$sSec = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -T3FailureVerified $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$sSec = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -T3FailureVerified $true -T3FailureReceipt 'verified:security-task-1' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $fSec = Resolve-OrchestrationModelFallback -RequestedSelection $sSec -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fSec.FallbackModel -notin @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) 'security-critical-no-T2-downgrade'
+# Real dispatch path: fallback only after typed proof that no execution started.
+. (Join-Path $PSScriptRoot 'OrchestrationModelExecution.ps1')
+$script:attemptedDispatch = @()
+$dispatchWithSafeFailure = {
+    param([string]$Model,[string]$Agent,[string]$TaskId)
+    $script:attemptedDispatch += $Model
+    if ($Model -eq 'opencode-go/muse-spark-1.3-contributor') {
+        return [pscustomobject]@{ FailureClass='RATE_LIMIT'; NoExecutionStarted=$true }
+    }
+    return [pscustomobject]@{ Model=$Model }
+}
+$executedFallback = Invoke-OrchestrationModelExecution -AgentName 'coder' -NativeModelOverrideProven $true -DispatchExecutor $dispatchWithSafeFailure -TaskId 'v14-safe'
+Assert-V14 ($executedFallback.status -eq 'EXECUTED_VERIFIED' -and $executedFallback.verification.ProofStatus -eq 'AUTHORIZED_FALLBACK') 'real-dispatch-verified-fallback'
+Assert-V14 ($script:attemptedDispatch.Count -eq 2 -and $script:attemptedDispatch[1] -eq 'openai/gpt-6-luna') 'dispatch-uses-Luna-as-fallback'
+$script:attemptedDispatch = @()
+$dispatchAmbiguous = {
+    param([string]$Model,[string]$Agent,[string]$TaskId)
+    $script:attemptedDispatch += $Model
+    return [pscustomobject]@{ FailureClass='RATE_LIMIT'; NoExecutionStarted=$false }
+}
+$ambiguous = Invoke-OrchestrationModelExecution -AgentName 'coder' -NativeModelOverrideProven $true -DispatchExecutor $dispatchAmbiguous -TaskId 'v14-ambiguous'
+Assert-V14 ($script:attemptedDispatch.Count -eq 1 -and $ambiguous.status -ne 'EXECUTED_VERIFIED') 'ambiguous-failure-no-retry'
 Write-Host "RESULTS $script:pass PASS, $script:fail FAIL"
 if ($script:fail -gt 0) { exit 1 }
 exit 0
