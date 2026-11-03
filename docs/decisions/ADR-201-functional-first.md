@@ -168,11 +168,6 @@ Limites heuristicos restantes: casamento por prefixo em radicais
 alfanumericos (p.ex. `defin`, `inspec`, `localiz`) pode super- ou
 sub-rejeitar; a direcao e fail-closed para delegacao (nunca bypass), e a
 precisao continua dependendo do chamador em `Risk`/`TaskType`/`Objective`.
-Caso `qual` generico -> `qualidade` bloqueado na quarta revisao: o prefixo
-`qual` foi removido de `$pointLookupHit` e restam apenas as frases
-estreitas `qual arquivo|campo|simbolo` (casamento por substring via
-`Contains`); `Qualidade do sistema e dos fluxos` com metadados triviais
-agora delega em vez de seguir `DIRECT_VERIFIED`.
 
 Validação: novos casos 15h falharam antes (6 falhas, 94/100) e passam depois;
 `scripts/v3/orchestration-preflight.tests.ps1`: 100/100.
@@ -266,6 +261,19 @@ depois; `scripts/v3/orchestration-preflight.tests.ps1`: 123/123;
 `inspect`/`planilha`, `SINGLE_WORKER` explicito, direta elegivel
 independente do router, rejeitos de analise/investigacao/multi-file e de
 `fix` generico, contratos de risco/seguranca/DONE.
+
+## Quinta revisao — `qualidade` nao e consulta pontual (2026-11-03)
+
+Contraexemplo confirmado via CLI: `Qualidade do sistema e dos fluxos`
+(`trivial`/`docs`/`low`/`read`) seguia `DIRECT_VERIFIED` porque o cue `qual`
+casava por prefixo com `qualidade`. Correcao minima com o mesmo predicado:
+remover `qual` generico e permitir somente frases pontuais `qual arquivo`,
+`qual campo` e `qual simbolo`; verbo substantivo como `implementa` continua
+negando a direta.
+
+Validação: RED em 126/128 (2 asserts do caso qualitativo falharam); GREEN em
+128/128. `qual arquivo/campo` pontual, typo EN/PT e os controles anteriores
+permanecem diretos; o caso qualitativo delega.
 
 ## Riscos
 
