@@ -143,3 +143,183 @@ function Get-NativeSessionList {
     }
     return [pscustomobject]@{ ok = $true; error = $null; sessions = $sessions; count = $sessions.Count }
 }
+
+function Test-NativeSessionIdFormat {
+    [CmdletBinding()]
+    param([string]$SessionId = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace($SessionId)) { return $false }
+        return (([string]$SessionId) -cmatch '^ses_[A-Za-z0-9]+$')
+    } catch { return $false }
+}
+
+function Resolve-NativeSessionDirectory {
+    [CmdletBinding()]
+    param([string]$Path = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+        $t = ([string]$Path).Trim()
+        $t = $t.TrimEnd('\', '/')
+        if ([string]::IsNullOrWhiteSpace($t)) { return '' }
+        if ($t -match '^[A-Za-z]:$') { $t = $t + '\' }
+        $full = $t
+        try { $full = [IO.Path]::GetFullPath($t) } catch { $full = $t }
+        $full = ([string]$full).TrimEnd('\', '/')
+        if ($full -match '^[A-Za-z]:$') { $full = $full + '\' }
+        if ([string]::IsNullOrWhiteSpace($full)) { return '' }
+        try {
+            if (Test-Path -LiteralPath $full) {
+                $it = Get-Item -LiteralPath $full -ErrorAction Stop
+                if ($null -ne $it -and -not [string]::IsNullOrWhiteSpace([string]$it.FullName)) {
+                    $full = ([string]$it.FullName).TrimEnd('\', '/')
+                    if ($full -match '^[A-Za-z]:$') { $full = $full + '\' }
+                }
+            }
+        } catch { }
+        return [string]$full
+    } catch { return '' }
+}
+
+function Find-NativeSessionById {
+    [CmdletBinding()]
+    param(
+        [string]$SessionId = '',
+        $SessionsResult = $null,
+        [int]$MaxCount = 100,
+        [string]$BinaryCommand = 'opencode',
+        [int]$TimeoutMs = 30000
+    )
+    try {
+        if ([string]::IsNullOrWhiteSpace($SessionId)) { return $null }
+        $list = $SessionsResult
+        $hasSessions = $false
+        try {
+            if ($null -ne $list) {
+                $p = $list.PSObject.Properties['sessions']
+                if ($null -ne $p) { $hasSessions = $true }
+            }
+        } catch { $hasSessions = $false }
+        if (-not $hasSessions) {
+            $list = Get-NativeSessionList -MaxCount $MaxCount -BinaryCommand $BinaryCommand -TimeoutMs $TimeoutMs
+        }
+        if ($null -eq $list) { return $null }
+        $listOk = $false
+        try { $listOk = [bool]$list.ok } catch { $listOk = $false }
+        if (-not $listOk) { return $null }
+        $arr = @()
+        try { $arr = @($list.sessions) } catch { return $null }
+        foreach ($s in $arr) {
+            try {
+                if ($null -ne $s -and ([string]$s.id) -ceq $SessionId) { return $s }
+            } catch { }
+        }
+        return $null
+    } catch { return $null }
+}
+
+function Test-NativeSessionBinding {
+    [CmdletBinding()]
+    param(
+        [string]$SessionId = '',
+        [string]$ExpectedDirectory = '',
+        [string]$ExpectedProjectId = '',
+        $SessionsResult = $null
+    )
+    try {
+        if (-not (Test-NativeSessionIdFormat -SessionId $SessionId)) {
+            return [pscustomobject]@{ ok = $false; reason = 'session-id-invalid'; session = $null }
+        }
+        if ($null -eq $SessionsResult) {
+            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; session = $null }
+        }
+        $okFlag = $false
+        try { $okFlag = [bool]$SessionsResult.ok } catch { $okFlag = $false }
+        if (-not $okFlag) {
+            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; session = $null }
+        }
+        $found = $null
+        try {
+            $arr = @($SessionsResult.sessions)
+            foreach ($s in $arr) {
+                try {
+                    if ($null -ne $s -and ([string]$s.id) -ceq $SessionId) { $found = $s; break }
+                } catch { }
+            }
+        } catch { $found = $null }
+        if ($null -eq $found) {
+            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; session = $null }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedProjectId)) {
+            $actualPid = ''
+            try { $actualPid = [string]$found.projectId } catch { $actualPid = '' }
+            if ($actualPid -cne [string]$ExpectedProjectId) {
+                return [pscustomobject]@{ ok = $false; reason = 'project-mismatch'; session = $null }
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedDirectory)) {
+            $actualDir = ''
+            try { $actualDir = [string]$found.directory } catch { $actualDir = '' }
+            $canonExp = Resolve-NativeSessionDirectory -Path $ExpectedDirectory
+            $canonAct = Resolve-NativeSessionDirectory -Path $actualDir
+            if ([string]::IsNullOrWhiteSpace($canonExp) -or [string]::IsNullOrWhiteSpace($canonAct)) {
+                if ($actualDir -ine [string]$ExpectedDirectory) {
+                    return [pscustomobject]@{ ok = $false; reason = 'directory-mismatch'; session = $null }
+                }
+            } elseif ($canonExp -ine $canonAct) {
+                return [pscustomobject]@{ ok = $false; reason = 'directory-mismatch'; session = $null }
+            }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; session = $found }
+    } catch {
+        return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; session = $null }
+    }
+}
+
+function Get-NativeSessionIdentity {
+    [CmdletBinding()]
+    param(
+        [string]$SessionId = '',
+        [string]$ExpectedDirectory = '',
+        [string]$ExpectedProjectId = '',
+        [int]$MaxCount = 100,
+        [string]$BinaryCommand = 'opencode',
+        [int]$TimeoutMs = 30000
+    )
+    try {
+        if (-not (Test-NativeSessionIdFormat -SessionId $SessionId)) {
+            return [pscustomobject]@{ ok = $false; reason = 'session-id-invalid'; detail = (Protect-Diag ([string]$SessionId)); session = $null }
+        }
+        $list = $null
+        try {
+            $list = Get-NativeSessionList -MaxCount $MaxCount -BinaryCommand $BinaryCommand -TimeoutMs $TimeoutMs
+        } catch {
+            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = (Protect-Diag $_.Exception.Message); session = $null }
+        }
+        if ($null -eq $list) {
+            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = 'empty list result'; session = $null }
+        }
+        $listOk = $false
+        try { $listOk = [bool]$list.ok } catch { $listOk = $false }
+        if (-not $listOk) {
+            $d = ''
+            try {
+                $e = [string]$list.error
+                $det = ''
+                try { $det = [string]$list.detail } catch { $det = '' }
+                if ([string]::IsNullOrWhiteSpace($det)) { $d = $e } else { $d = ($e + ':' + $det) }
+            } catch { $d = 'list failed' }
+            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = (Protect-Diag $d); session = $null }
+        }
+        $b = Test-NativeSessionBinding -SessionId $SessionId -ExpectedDirectory $ExpectedDirectory -ExpectedProjectId $ExpectedProjectId -SessionsResult $list
+        if ($null -eq $b -or -not [bool]$b.ok) {
+            $reason = 'session-not-found'
+            try {
+                if (-not [string]::IsNullOrWhiteSpace([string]$b.reason)) { $reason = [string]$b.reason }
+            } catch { }
+            return [pscustomobject]@{ ok = $false; reason = $reason; detail = (Protect-Diag ($reason + ':' + [string]$SessionId)); session = $null }
+        }
+        return [pscustomobject]@{ ok = $true; reason = ''; detail = ''; session = $b.session }
+    } catch {
+        return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = (Protect-Diag $_.Exception.Message); session = $null }
+    }
+}

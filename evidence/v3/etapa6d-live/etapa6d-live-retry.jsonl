@@ -1,0 +1,5 @@
+﻿{"branch":"feat/full-delivery-etapa-6d","timestamp":"2026-10-31T17:38:37.7557077Z","sha":"1867311aba540f4956f452774388acf2db9ab8c0","pr":181,"run_id":41224613565,"status":"RETRY_SETUP","task":"LIVE-6D-RETRY"}
+{"detail":"GraphQL: Review Can not approve your own pull request (addPullRequestReview)","status":"APPROVE_ATTEMPT","timestamp":"2026-10-31T17:38:37.7557077Z","result":"failed","reason":"self-approval-blocked"}
+{"head_match":true,"run_url":"https://github.com/Kusts/opencode-orchestration/actions/runs/41224613565","timestamp":"2026-10-31T17:38:37.7557077Z","final_conclusion":"","polls":5,"status":"CI_POLLS","total_wait_min":"~10","final_status":"in_progress"}
+{"reviewDecision":"","status":"REVIEW_STATE","timestamp":"2026-10-31T17:38:37.7557077Z","pr_state":"OPEN","head":"1867311aba540f4956f452774388acf2db9ab8c0"}
+{"sched_task_leftover":"none","status":"BLOCKED","timestamp":"2026-10-31T17:38:37.7557077Z","reason":"approval-missing+ci-pending","note":"no-RESUME:no-unblock:no-handoff:no-schtasks-created:nothing-to-remove"}
