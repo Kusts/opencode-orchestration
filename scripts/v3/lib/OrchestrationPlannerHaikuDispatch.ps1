@@ -231,7 +231,18 @@ function Invoke-PlannerHaikuDispatch {
 
     # Claim the run BEFORE any session exists (exactly-once).
     $claim = [ordered]@{ run_id = $runId; task_id = $tid; status = 'claimed'; claimed_at = ([DateTime]::UtcNow).ToString('o'); policy_hash = $polHash; policy_version = $polVer; task_revision = $rev }
-    try { [System.IO.File]::WriteAllText($ledgerFile, (($claim | ConvertTo-Json -Depth 6 -Compress)), [System.Text.Encoding]::UTF8) } catch {
+    # Atomic exclusive claim: FileMode.CreateNew fails if another caller won the
+    # race between the existence check above and this write (exactly-once).
+    $claimBytes = [System.Text.Encoding]::UTF8.GetBytes(($claim | ConvertTo-Json -Depth 6 -Compress))
+    try {
+        $claimStream = New-Object System.IO.FileStream($ledgerFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try { $claimStream.Write($claimBytes, 0, $claimBytes.Length) } finally { $claimStream.Dispose() }
+    } catch [System.IO.IOException] {
+        if (Test-Path -LiteralPath $ledgerFile -PathType Leaf) {
+            return [pscustomobject]@{ ok = $false; status = 'DUPLICATE_RUN_REFUSED'; reason = 'RunId claimed by a concurrent caller: exactly-once, no second dispatch'; run_id = $runId }
+        }
+        return [pscustomobject]@{ ok = $false; status = 'LEDGER_UNAVAILABLE'; reason = 'run claim could not be persisted' }
+    } catch {
         return [pscustomobject]@{ ok = $false; status = 'LEDGER_UNAVAILABLE'; reason = 'run claim could not be persisted' }
     }
 
