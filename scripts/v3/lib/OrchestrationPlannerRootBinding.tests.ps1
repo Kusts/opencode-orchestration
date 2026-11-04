@@ -107,6 +107,11 @@ try {
     Assert-PRB ((-not [bool]$x2.ok) -and ([string]$x2.error -ceq 'BIND_CONFLICT')) 'prb-cross-run-root-as-worker-refused'
     $runsAfter = @((Get-OrchestrationTask -TaskId $tid -TasksDir $tasks)['bindings']['runs'])
     Assert-PRB ($runsAfter.Count -eq 1) 'prb-cross-run-no-new-run-written'
+    # The refused claims must leave run 1 untouched: same root, same single worker,
+    # still attached, and no extra entry in its worker list.
+    $run1After = @($runsAfter)[0]
+    $w1After = @(@($run1After['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) })
+    Assert-PRB (([string]$run1After['root_session'] -ceq $rootSid) -and ($w1After.Count -eq 1) -and ($w1After[0] -ceq $childSid) -and ([string]$run1After['status'] -ceq 'attached')) 'prb-cross-run-run1-unchanged'
     Assert-PRB ([string]$run2['root_session'] -ceq $rootSid) 'prb-root-session-unchanged'
 }
 finally {

@@ -59,6 +59,7 @@ histórica, sem efeito).
   para Luna e manual na configuracao. Sem prova segura de que a execucao nao comecou,
   nao ha replay automatico apos timeout ambiguo. Nunca a cadeia generica Muse/DeepSeek,
   nunca Sonnet, nunca T3/T4.
+- Nenhuma cadeia de elegibilidade abaixo e executada pelo runtime nesta versao: sao regras estaticas da politica canonica, sem retry, fallback ou override automatico.
 - Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier —
   **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo):
   em falha de disponibilidade/erro do modelo default, a política admite:
