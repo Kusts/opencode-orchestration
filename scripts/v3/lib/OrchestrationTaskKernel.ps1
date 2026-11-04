@@ -1269,6 +1269,7 @@ function New-OrchestrationTask {
             acceptance_criteria       = ([string[]]$criteriaItems)
             expected_artifacts        = ([string[]]$artifactItems)
             verification_profiles     = ([string[]]$verProfileItems)
+            completion_verification_contract = $(if (@($verProfileItems).Count -gt 0) { 'router-v1.4-kernel' } else { '' })
             attempt_budget            = [int]$AttemptBudget
             execution_budget          = [ordered]@{
                 profile                    = ([string]$budgetRecord['profile'])
@@ -3747,7 +3748,19 @@ function Test-OrchestrationTaskCompletion {
         Test-OrchestrationDoneCompliance verdict). Criterion satisfaction
         counts ONLY verification.evidence (worker claimed_evidence is
         provenance only). Verification and review records must not be stale
-        relative to the current worker_result revision. Never throws.
+        relative to the current worker_result revision. ROUTER-V14 SCOPED
+        CONTRACT: kernel-executed proof (status verified_pass with
+        verification_source kernel-executed and verifier_executed true) is
+        required ONLY when the task carries a committed non-empty
+        verification_profiles plan, any persisted model_attempts, or the
+        sticky completion_verification_contract marker
+        (Router v1.4 proof-capable tasks). Plan-less tasks with no
+        model_attempts and no marker preserve the pre-v1.4 completion contract for
+        backward compatibility (caller Set result may remain sufficient);
+        they cannot create T3/T4 proof because
+        Get-OrchestrationTaskModelFailureProof still requires a committed
+        plan plus kernel-executed marks. Caller-supplied JSON never creates
+        model proof. Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -3860,12 +3873,18 @@ function Test-OrchestrationTaskCompletion {
         $verPassed = $false
         $verEvidence = @()
         $verCandRev = -1
+        $verStatus = ''
+        $verSource = ''
+        $verExecuted = $false
         try {
             $ver = $rec['verification']
             if (($null -ne $ver) -and ($ver -is [System.Collections.IDictionary])) {
                 if ($null -ne $ver['passed']) { $verPassed = [bool]$ver['passed'] }
                 if ($null -ne $ver['evidence']) { $verEvidence = @($ver['evidence']) }
                 if ($null -ne $ver['candidate_revision']) { $verCandRev = [int]$ver['candidate_revision'] }
+                if ($null -ne $ver['status']) { $verStatus = ([string]$ver['status']).Trim() }
+                if ($null -ne $ver['verification_source']) { $verSource = ([string]$ver['verification_source']).Trim() }
+                if ($null -ne $ver['verifier_executed']) { $verExecuted = [bool]$ver['verifier_executed'] }
             }
         }
         catch { }
@@ -3874,6 +3893,32 @@ function Test-OrchestrationTaskCompletion {
         }
         elseif (($workerStatus -ceq 'candidate_pass') -and ([int]$verCandRev -ne [int]$workerRev)) {
             $reasons.Add('verification_stale') | Out-Null
+        }
+        $planCountScoped = 0
+        try {
+            if ($null -ne $rec['verification_profiles']) {
+                foreach ($ppScoped in @($rec['verification_profiles'])) {
+                    if (-not [string]::IsNullOrWhiteSpace([string]$ppScoped)) { $planCountScoped++ }
+                }
+            }
+        }
+        catch { $planCountScoped = 0 }
+        $modelAttemptCountScoped = 0
+        try {
+            if ($null -ne $rec['model_attempts']) { $modelAttemptCountScoped = (@($rec['model_attempts'])).Count }
+        }
+        catch { $modelAttemptCountScoped = 0 }
+        $verificationContractScoped = ''
+        try { if ($null -ne $rec['completion_verification_contract']) { $verificationContractScoped = ([string]$rec['completion_verification_contract']).Trim() } } catch { $verificationContractScoped = '' }
+        # Creation-time contract remains sticky if the current plan/attempt
+        # arrays are accidentally removed or malformed. Any non-empty marker
+        # is proof-required (unknown versions fail closed); record files
+        # remain within the trusted local Kernel-store boundary.
+        $requiresKernelProofScoped = (($planCountScoped -gt 0) -or ($modelAttemptCountScoped -gt 0) -or (-not [string]::IsNullOrWhiteSpace($verificationContractScoped)))
+        if ([bool]$requiresKernelProofScoped) {
+            if (-not (($verStatus -ceq 'verified_pass') -and ($verSource -ceq 'kernel-executed') -and ([bool]$verExecuted))) {
+                $reasons.Add('verification-not-kernel-executed') | Out-Null
+            }
         }
         $criteria = @()
         if ($null -ne $rec['acceptance_criteria']) { $criteria = @($rec['acceptance_criteria']) }
@@ -3953,7 +3998,11 @@ function Test-OrchestrationTaskCompletion {
                 }
             }
         }
-        if (-not $verTrusted) {
+        # Scoped contract only: plan-less legacy tasks keep the pre-v1.4
+        # caller-supplied completion path (remote regression 16c). Every
+        # scoped task (plan, model attempt or sticky contract marker) must be
+        # kernel-executed, enforced by verification-not-kernel-executed above.
+        if ((-not $verTrusted) -and [bool]$requiresKernelProofScoped) {
             $reasons.Add('verification-untrusted') | Out-Null
         }
         $revStatus = ''
@@ -6455,6 +6504,9 @@ function Set-OrchestrationTaskModelAttempt {
             }
             $modelList += $node
             $rec['model_attempts'] = $modelList
+            # Model-routing tasks become proof-scoped on the first persisted
+            # observation even when they were created without a verifier plan.
+            $rec['completion_verification_contract'] = 'router-v1.4-kernel'
             $rec['revision'] = $newRev
             $rec['updated_at'] = (Get-TaskKernelTimestamp)
             $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile

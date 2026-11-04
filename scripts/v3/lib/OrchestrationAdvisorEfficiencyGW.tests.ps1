@@ -722,7 +722,7 @@ if (Test-Path -LiteralPath $jevLib) {
     try {
         [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', $null)
         $selNoCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
-        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "T4 sem autorizacao de custo degrada com seguranca para T3"
+        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "Sem prova Kernel permanece em T3 (fail-closed)"
         Assert-GW ($selNoCost.ModelToken -eq 'MODEL_STRONG') 'INT-07-ROUTER' "Degradacao utiliza MODEL_STRONG"
         Assert-GW ($selNoCost.SelectionReason -match 'T3') 'INT-07-ROUTER' "Razao explicita de permanencia em T3 sem prova T3 do TaskKernel"
 
@@ -794,6 +794,7 @@ if (Test-Path -LiteralPath $jevLib) {
                 -Risk 'medium' `
                 -AcceptanceCriteria @('criterion:0:mutex_concurrency_verified', 'criterion:1:mutex_timeout_verified', 'criterion:2:mutex_abandon_recovery_verified') `
                 -ExpectedArtifacts @('code/LockResource.ps1') `
+                -VerificationProfiles @('passes') `
                 -TasksDir $tmpTaskDir
 
             Assert-GW ($taskInit.ok -and $taskInit.state -eq 'DISCOVERING') 'INT-08-CONCURRENCY-COMPONENT' "Task de componente inicializada no Kernel em DISCOVERING"

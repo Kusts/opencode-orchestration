@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Regression contract for model router policy v1.4 (deterministic, no provider calls).
 .DESCRIPTION
@@ -59,9 +59,40 @@ Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'openai/gpt-6.1-terra'
 $sT4Hold = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4Hold.Tier -ne 'T4') 'no-unproven-T3-failure-escalation'
 # DEPRECATED_UNTRUSTED: arbitrary bool/string never authorizes T4 without kernel-owned proof.
-$sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -T3FailureVerified $true -T3FailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+# Complexity=complex keeps T3 via role policy (not via FailureCount/receipt).
+$sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 3 -T3FailureVerified $true -T3FailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4.Tier -ne 'T4') 'arbitrary-T3-receipt-does-not-escalate-T4'
 Assert-V14 ($sT4.Tier -eq 'T3') 'arbitrary-T3-receipt-fail-closed-T3'
+# v1.4 matrix: FailureCount never promotes Coder/Advisor; T2 exhaustion never upgrades to T3.
+$sCoderLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') 'failurecount-never-promotes-coder'
+$sAdvLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'openai/gpt-6.1-terra') 'failurecount-never-promotes-advisor'
+# ROUTER-V14-ADVISOR-T3-ONLY (explicit user decision, TDD RED): advisor always
+# starts at T3 Terra; T2 Muse violates muse.eligible_roles and diverges from
+# role_profiles default_model=terra/default_tier=T3. T4 only via kernel proof.
+# Canonical registry contract (catches drift): role profile must pin
+# default_model=terra/default_tier=T3 with admissible exactly T3/T4 (no T2).
+$advProfile = $pol.role_profiles.PSObject.Properties['engineering-advisor'].Value
+$advAdmissible = @($advProfile.admissible_tiers)
+$advProhibited = @($advProfile.prohibited_tiers)
+Assert-V14 ([string]$advProfile.default_model -eq 'terra' -and [string]$advProfile.default_tier -eq 'T3' -and ($advAdmissible -contains 'T3') -and ($advAdmissible -contains 'T4') -and -not ($advAdmissible -contains 'T2') -and $advAdmissible.Count -eq 2 -and ($advProhibited -contains 'T2')) 'advisor-registry-T3-only-no-T2'
+$sAdvSimpleFc0 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 0 -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sAdvSimpleFc0.Tier -eq 'T3' -and $sAdvSimpleFc0.CatalogModel -eq 'openai/gpt-6.1-terra') 'advisor-simple-low-always-T3-terra'
+$sT2Base = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Base -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+Assert-V14 ($fT2Exhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT2Exhausted.FallbackModel -eq $null) 't2-exhausted-never-upgrades-to-terra'
+
+# ROUTER-V14-FALLBACK-POLICY-METADATA (reviewer MEDIUM): canonical registry must
+# explicitly record no T1/T2 upward transport rule and T3/T4 eligible-role-only T2 downgrade.
+$fbProhibitionsV14 = @($pol.fallback_policy.prohibitions)
+$fbProhibitedDownV14 = @($pol.fallback_policy.prohibited_downgrades)
+Assert-V14 (($fbProhibitionsV14 -contains 't1_transport_escalation_prohibited') -and ($fbProhibitionsV14 -contains 't2_transport_escalation_prohibited')) 'fallback-prohibitions-t1-t2-no-upward-escalation'
+Assert-V14 (($fbProhibitedDownV14 -contains 'reviewer') -and ($fbProhibitedDownV14 -contains 'security-reviewer') -and ($fbProhibitedDownV14 -contains 'engineering-advisor')) 'fallback-prohibited-downgrades-advisor-reviewer-security'
+Assert-V14 (([string]$pol.tiers.T1.description -match 'never') -and ([string]$pol.tiers.T1.description -match 'upgrade') -and ([string]$pol.tiers.T1.description -match 'same-tier')) 'T1-description-no-upward-transport'
+Assert-V14 (([string]$pol.tiers.T2.description -match 'never') -and ([string]$pol.tiers.T2.description -match 'upgrade') -and ([string]$pol.tiers.T2.description -match 'same-tier')) 'T2-description-no-upward-transport'
+Assert-V14 (([string]$pol.tiers.T3.description -match 'only') -and ([string]$pol.tiers.T3.description -match 'admissible') -and ([string]$pol.tiers.T3.description -match 'T2')) 'T3-description-eligible-role-only-T2'
+Assert-V14 (([string]$pol.tiers.T4.description -match 'only') -and ([string]$pol.tiers.T4.description -match 'admissible') -and ([string]$pol.tiers.T4.description -match 'T2')) 'T4-description-eligible-role-only-T2'
 
 $sTesterT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'opencode-go/iceman-contributor-free') 'tester-trivial-LLM-uses-T1'
@@ -96,7 +127,7 @@ Assert-V14 ([string]$pol.models.claude_haiku.resolution_status -eq 'runtime-unve
 $sT2Chain = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $fT2NoEsc = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Chain -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT2NoEsc.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT2NoEsc.FallbackModel -eq $null -and $fT2NoEsc.FallbackTier -ne 'T3') 'availability-never-escalates-to-T3'
-$t3Blocked = @($fT2NoEsc.PreventivelyExcluded | Where-Object { $_.Reason -eq 'T3_ESCALATION_REQUIRES_INCAPACITY_PROOF' })
+$t3Blocked = @($fT2NoEsc.PreventivelyExcluded | Where-Object { $_.Reason -in @('T3_ESCALATION_REQUIRES_INCAPACITY_PROOF','TIER_ESCALATION_PROHIBITED') })
 Assert-V14 ($t3Blocked.Count -ge 1) 'T3-escalation-blocked-on-availability'
 # T4-shaped request: kernel-owned selection is the only way to ENTER T4 (covered
 # by KernelProof/ModelProof suites); this shapes the request to exercise the T4
@@ -167,6 +198,49 @@ try {
     Assert-V14 ((([string]$routerFailureDocV14.error -ceq 'MODEL_ROUTER_LOAD_FAILED') -and ([int]$routerFailureExitV14 -ne 0) -and ($routerFailureOutV14 -notmatch [regex]::Escape($routerFailureRootV14)))) 'model-select-router-import-failure-structured-and-sanitized'
 } finally {
     try { if (Test-Path -LiteralPath $routerFailureRootV14) { Remove-Item -LiteralPath $routerFailureRootV14 -Recurse -Force -ErrorAction SilentlyContinue } } catch { }
+}
+# PR207-COST-POLICY-FALLBACK-GATE: cost_profile fail-closed (no provider calls).
+# Temp policy copy flips luna.requires_authorization and deepseek_go.exceptional flag;
+# committed registry stays all-false. Both gates must exclude without AUTHORIZED.
+$costGatePolPath = Join-Path ([IO.Path]::GetTempPath()) ('v14-cost-gate-' + [guid]::NewGuid().ToString('N') + '.json')
+try {
+    # Resolve from the script location, not the cwd: CI invokes this suite from other directories.
+    $costBasePolPathV14 = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\source\registry\model-routing-policy.json'))
+    $costBaseRaw = [IO.File]::ReadAllText($costBasePolPathV14, [Text.UTF8Encoding]::UTF8)
+    $costBasePol = ($costBaseRaw | ConvertFrom-Json -ErrorAction Stop)
+    $costBasePol.models.luna.cost_profile.requires_authorization = $true
+    $costBasePol.models.deepseek_go.cost_profile.requires_authorization = $false
+    $costBasePol.models.deepseek_go.cost_profile | Add-Member -NotePropertyName 'exceptional_budget_required' -NotePropertyValue $true -Force
+    # Fixture only: the committed registry keeps DeepSeek Go disabled (ZDR not
+    # confirmed). Enable it in this temp copy so the exceptional-budget gate,
+    # not the admin-disable gate, is what excludes it.
+    $costBasePol.models.deepseek_go | Add-Member -NotePropertyName 'enabled' -NotePropertyValue $true -Force
+    [IO.File]::WriteAllText($costGatePolPath, ($costBasePol | ConvertTo-Json -Depth 16 -Compress), [Text.UTF8Encoding]::new($false))
+    $sCostGate = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+    $prevT4Auth = [string]$env:OPENCODE_T4_AUTHORIZED
+    $prevAstraAuth = [string]$env:OPENCODE_ASTRA_AUTHORIZED
+    try {
+        Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue
+        Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue
+        $fCostReq = Resolve-OrchestrationModelFallback -RequestedSelection $sCostGate -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT' -ProviderCostAuthorized $false -IgnoreUserConfig $true -PolicyPath $costGatePolPath
+        $costExcl = @($fCostReq.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'openai/gpt-6-luna' -and [string]$_.Reason -ceq 'COST_AUTHORIZATION_REQUIRED' })
+        Assert-V14 (($fCostReq.FallbackModel -ne 'openai/gpt-6-luna' -and $costExcl.Count -ge 1) -and -not ($fCostReq.Status -eq 'AUTHORIZED' -and [bool]$fCostReq.ProviderCostAuthorized -and [string]$fCostReq.FallbackModel -eq 'openai/gpt-6-luna')) 'cost-profile-requires-authorization-excluded-fail-closed'
+        $fExcReq = Resolve-OrchestrationModelFallback -RequestedSelection $sCostGate -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -ProviderCostAuthorized $false -IgnoreUserConfig $true -PolicyPath $costGatePolPath
+        $excExcl = @($fExcReq.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$_.Reason -ceq 'EXCEPTIONAL_BUDGET_AUTHORIZATION_REQUIRED' })
+        Assert-V14 (($fExcReq.FallbackModel -ne 'opencode-go/deepseek-v4.1-flash' -and $excExcl.Count -ge 1) -and -not ($fExcReq.Status -eq 'AUTHORIZED' -and [bool]$fExcReq.ProviderCostAuthorized -and [string]$fExcReq.FallbackModel -eq 'opencode-go/deepseek-v4.1-flash')) 'exceptional-budget-required-excluded-fail-closed'
+        # PR207-EXCEPTIONAL-COST-AUTH-REGRESSION: ProviderCostAuthorized must not
+        # bypass the exceptional budget gate. Astra env stays unset here; only
+        # the general cost flag is true, and deepseek_go requires_authorization
+        # is false so the RequiresCost gate cannot explain the exclusion.
+        $fExcCostOnly = Resolve-OrchestrationModelFallback -RequestedSelection $sCostGate -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -ProviderCostAuthorized $true -IgnoreUserConfig $true -PolicyPath $costGatePolPath
+        $excCostOnlyExcl = @($fExcCostOnly.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$_.Reason -ceq 'EXCEPTIONAL_BUDGET_AUTHORIZATION_REQUIRED' })
+        Assert-V14 (($fExcCostOnly.FallbackModel -ne 'opencode-go/deepseek-v4.1-flash' -and $excCostOnlyExcl.Count -ge 1) -and -not ($fExcCostOnly.Status -eq 'AUTHORIZED' -and [string]$fExcCostOnly.FallbackModel -eq 'opencode-go/deepseek-v4.1-flash')) 'exceptional-budget-provider-cost-does-not-authorize'
+    } finally {
+        if (-not [string]::IsNullOrEmpty($prevT4Auth)) { $env:OPENCODE_T4_AUTHORIZED = $prevT4Auth } else { Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue }
+        if (-not [string]::IsNullOrEmpty($prevAstraAuth)) { $env:OPENCODE_ASTRA_AUTHORIZED = $prevAstraAuth } else { Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue }
+    }
+} finally {
+    try { if (Test-Path -LiteralPath $costGatePolPath) { Remove-Item -LiteralPath $costGatePolPath -Force -ErrorAction SilentlyContinue } } catch { }
 }
 Write-Host "RESULTS $script:pass PASS, $script:fail FAIL"
 if ($script:fail -gt 0) { exit 1 }

@@ -1,4 +1,4 @@
-<#!
+﻿<#!
 .SYNOPSIS
     Deterministic contract for the claude-agent provider (policy v1.4, no provider calls).
 .DESCRIPTION
@@ -118,7 +118,7 @@ Assert-CA ($fNoProof.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fNoProof.
 Assert-CA ($fNoProof.FallbackModel -ne 'openai/gpt-6.1-terra' -and $fNoProof.FallbackTier -ne 'T3') 'availability-never-escalates-to-terra-T3'
 $haikuUnproven = @($fNoProof.PreventivelyExcluded | Where-Object { $_.Model -eq 'claude-agent/haiku' -and $_.Reason -eq 'CLAUDE_CAPABILITY_UNPROVEN' })
 Assert-CA ($haikuUnproven.Count -ge 1) 'claude-provider-unavailable-without-proof'
-$t3BlockedCa = @($fNoProof.PreventivelyExcluded | Where-Object { $_.Reason -eq 'T3_ESCALATION_REQUIRES_INCAPACITY_PROOF' })
+$t3BlockedCa = @($fNoProof.PreventivelyExcluded | Where-Object { $_.Reason -in @('T3_ESCALATION_REQUIRES_INCAPACITY_PROOF','TIER_ESCALATION_PROHIBITED') })
 Assert-CA ($t3BlockedCa.Count -ge 1) 'T3-escalation-blocked-on-availability-recorded'
 
 # 7. Planner records capability + effective model: Luna primary, Haiku only fallback (T2-only).
