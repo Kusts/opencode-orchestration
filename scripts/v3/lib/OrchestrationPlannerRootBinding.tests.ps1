@@ -93,6 +93,20 @@ try {
     $run3 = @((Get-OrchestrationTask -TaskId $tid -TasksDir $tasks)['bindings']['runs'])[0]
     $wsAfter = @(@($run3['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) })
     Assert-PRB (([bool]$wAgain.ok) -and ($wsAfter.Count -eq 1)) 'prb-worker-rebind-no-duplicate-entry'
+
+    # Cross-run uniqueness: a second run of the same task cannot claim a session
+    # that run 1 already owns (worker or root), even after run 1 was detached.
+    $revNow = [int](Get-OrchestrationTask -TaskId $tid -TasksDir $tasks)['revision']
+    $x1 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId 'run-prb-002' -SessionId $childSid -ParentId $rootSid -RootId $rootSid `
+        -WorkerSession -ExpectedRevision $revNow -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+    Assert-PRB ((-not [bool]$x1.ok) -and ([string]$x1.error -ceq 'BIND_CONFLICT')) 'prb-cross-run-worker-refused'
+    # A root of another run must not become a worker here (root continuity as a
+    # root is allowed and is exercised by the model-proof escalation chain).
+    $x2 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId 'run-prb-002' -SessionId $rootSid -ParentId $rootSid -RootId $rootSid `
+        -WorkerSession -ExpectedRevision $revNow -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+    Assert-PRB ((-not [bool]$x2.ok) -and ([string]$x2.error -ceq 'BIND_CONFLICT')) 'prb-cross-run-root-as-worker-refused'
+    $runsAfter = @((Get-OrchestrationTask -TaskId $tid -TasksDir $tasks)['bindings']['runs'])
+    Assert-PRB ($runsAfter.Count -eq 1) 'prb-cross-run-no-new-run-written'
     Assert-PRB ([string]$run2['root_session'] -ceq $rootSid) 'prb-root-session-unchanged'
 }
 finally {

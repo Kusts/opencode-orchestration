@@ -1380,6 +1380,24 @@ function Invoke-OrchestrationTaskSessionBinding {
             $b=$rec['bindings']; if ($null -eq $b) { $b=[ordered]@{runs=@();active_execution_owner=''} }
             $runs=@($b['runs']); $idx=-1
             for($i=0;$i -lt $runs.Count;$i++){if([string]$runs[$i]['run_id'] -ceq $run){$idx=$i;break}}
+            # Cross-run uniqueness. A worker session belongs to one run of this task:
+            # no other run may claim it, and no other run's root may become a worker.
+            # A root may continue into a later run of the same task (the Planner is
+            # one session across escalation attempts), but no other run's worker may
+            # become a root. Detached runs keep their sessions, hence this check.
+            if ($Operation -ne 'detach') {
+                foreach ($otherRun in $runs) {
+                    if ([string]$otherRun['run_id'] -ceq $run) { continue }
+                    $otherRoot = [string]$otherRun['root_session']
+                    $otherWorkers = @(@($otherRun['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) })
+                    $claimConflict = $false
+                    if ($WorkerSession) { $claimConflict = (($otherRoot -ceq $sid) -or ($otherWorkers -ccontains $sid)) }
+                    else { $claimConflict = ($otherWorkers -ccontains $sid) }
+                    if ($claimConflict) {
+                        return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{ existing_owner_id = [string]$otherRun['run_id']; scope = 'cross-run' })
+                    }
+                }
+            }
             if ($Operation -eq 'rebind' -and $idx -lt 0) { return (New-TaskKernelError -Code 'REBIND_RUN_MISMATCH') }
             if ($Operation -eq 'detach') {
                 if($idx -lt 0){return (New-TaskKernelError -Code 'NOT_FOUND')}

@@ -254,7 +254,7 @@ Assert-Router ($null -ne $examplePath -and (Test-Path -LiteralPath $examplePath 
 $rawExample = Get-Content -LiteralPath $examplePath -Raw
 $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample
-Assert-Router ($parsedExample.planner -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default planner e gpt-6-luna"
+Assert-Router ($parsedExample.planner -eq 'claude-agent/haiku') "B.1: models.example.jsonc default planner e claude-agent/haiku (Planner build = Haiku; global stays Luna in the template)"
 Assert-Router ($parsedExample.cheap -eq 'opencode-go/muse-spark-1.3-contributor') "B.1: models.example.jsonc default cheap e muse-spark-1.3-contributor"
 Assert-Router ($parsedExample.strong -eq 'openai/gpt-6.1-terra') "B.1: models.example.jsonc default strong e gpt-6.1-terra"
 Assert-Router ($parsedExample.frontier -eq 'openai/gpt-6.1-sol') "B.1: models.example.jsonc default frontier e gpt-6.1-sol"
