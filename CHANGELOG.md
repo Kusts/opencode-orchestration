@@ -6,6 +6,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Etapa 6D — proveniência V2 e Scheduler one-shot (2026-11-03, follow-up sem Live/ativação/merge)**:
+  - `ctx.session.get` usa o input pinado `{sessionID}` e a proveniência valida o `SessionInfo` direto de `@opencode/plugin@2.0.23`; sonda isolada sem modelo distingue raiz/filha e recusa evidência incompleta/ambígua.
+  - `Register-GitHubWakeSchedule -OneShot` omite `<Repetition>`; reuso exige exatamente um `TimeTrigger` sem repetição. Ownership exige caminho do PowerShell e argv exatos, sem flags extras/reordenadas. Conflito de nome não-owned falha fechado mesmo com `-Force`; Force substitui somente tarefa owned.
+  - Validação local inclui sonda V2, plugin harness/typecheck e suites GH-WAKE. O Scheduler e a jornada Live continuam inativos; esta entrada não atribui status de CI ao follow-up.
+
 - **Full Delivery Etapa 6D — correções finais de evidência P1/P2/P3 (2026-11-01, branch `feat/full-delivery-etapa-6d`, sem READY)**:
   - P1: `Test-NativeResumeEvidence` endurecido com vínculo de sessão (`-SessionId`): parse efetivo de cada linha JSONL/doc (objeto ou array), exige evento com chave sessionId|sessionID|session_id|id `-ceq` a sessão esperada E ponteiro role|type não-vazio no mesmo objeto; rejeita decoy só-com-nomes, evento de outra sessão, sessão sem pointer, texto puro e stderr com session-missing; exit 0 sozinho nunca prova dispatch (B30: stdout de outra sessão com exit 0 => `resume-unproven`). Chamada em `Invoke-OrchestrationNativeResume` agora passa `-SessionId $sid`. Suíte NativeResume 53→63 (B23–B30 + vínculo ev-role/ev-sessid), PS5.1+pwsh verdes; P2 62 intacta.
   - P2: provas separadas sem conflação — harness de resume declara `NATIVE_SESSION_RESUMED` no Live e `NATIVE_RESUME_AVAILABLE` no Offline, com settlement `KERNEL_SETTLED` (`settle_scope=kernel-only`); conclusão sintética da Task B pelo kernel nunca conta como settlement NativeDispatch. `WORKER_DISPATCH_SETTLED` referenciado onde é provado mecanicamente (`github-wake-controller.tests.ps1`: claimed→dispatched com session id atestada, refusos, replay). `INTEGRATED` (ambos na mesma jornada viva) não alegado; nenhum Live repetido para inflar contagem.
