@@ -175,7 +175,9 @@ try {
 # committed registry stays all-false. Both gates must exclude without AUTHORIZED.
 $costGatePolPath = Join-Path ([IO.Path]::GetTempPath()) ('v14-cost-gate-' + [guid]::NewGuid().ToString('N') + '.json')
 try {
-    $costBaseRaw = [IO.File]::ReadAllText((Join-Path (Get-Location) 'source\registry\model-routing-policy.json'), [Text.UTF8Encoding]::UTF8)
+    # Resolve from the script location, not the cwd: CI invokes this suite from other directories.
+    $costBasePolPathV14 = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\source\registry\model-routing-policy.json'))
+    $costBaseRaw = [IO.File]::ReadAllText($costBasePolPathV14, [Text.UTF8Encoding]::UTF8)
     $costBasePol = ($costBaseRaw | ConvertFrom-Json -ErrorAction Stop)
     $costBasePol.models.luna.cost_profile.requires_authorization = $true
     $costBasePol.models.deepseek_go.cost_profile.requires_authorization = $false
