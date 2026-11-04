@@ -72,6 +72,30 @@ try {
     }
     foreach ($d in @($env.goals, $env.ckpts, $env.recs, $env.evs, $env.tasks, $env.tele)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     [IO.File]::WriteAllText($env.flags, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.Encoding]::UTF8)
+    # Pinned verification repo: the committed policy IS the task's plan and
+    # the 's3-base' branch makes base_revision resolvable -- pre-condition of
+    # Invoke-TaskKernelVerifyRun (the only route to trusted marks).
+    $vrepo = Join-Path $tempRoot 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $vrepo 'source\registry') -Force | Out-Null
+    & git -C $vrepo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $vrepo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $vrepo config user.email 's3-fixture@example.com' *>$null
+    & git -C $vrepo config user.name 'S3 Fixture' *>$null
+    & git -C $vrepo config core.autocrlf false *>$null
+    & git -C $vrepo config core.safecrlf false *>$null
+    [IO.File]::WriteAllText((Join-Path $vrepo 'base.txt'), "base`n", [Text.UTF8Encoding]::new($false))
+    $scPol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 's3-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $vrepo 'source\registry\verification-policy.json'), (($scPol | ConvertTo-Json -Depth 6 -Compress)), [Text.UTF8Encoding]::new($false))
+    & git -C $vrepo add -A *>$null
+    & git -C $vrepo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $vrepo branch 's3-base' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+    $env.repo = $vrepo
     $script:scEnv = $env
     $script:scSeq = 0
 
@@ -117,6 +141,7 @@ try {
             -Risk $Risk -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
             -RuntimeVersion '2.0.18' -BaseRevision 's3-base' -ReadScopes @('s3/a.txt') -WriteScopes @('s3/a.txt') `
             -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 `
+            -VerificationProfiles @('s3-kernel-check') -RepoRoot $script:scEnv.repo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
             -TasksDir $script:scEnv.tasks -FlagsPath $script:scEnv.flags -TelemetryRoot $script:scEnv.tele
         Assert-SC ([bool]$c.ok) ('[F] kernel task created ' + $TaskId) ([string]$c.error)
         $t1 = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'PLANNING' -Actor 'planner-1' -ExpectedRevision 1 `
@@ -191,6 +216,16 @@ try {
 
     function Set-SCVerification { param([string]$TaskId, [string]$Status = 'verified_pass')
         $rev = Get-SCTaskRev -TaskId $TaskId
+        if ($Status -ceq 'verified_pass') {
+            # Positive proof: ONLY the kernel-executed verify-run against the
+            # committed plan can mark verification trusted.
+            $s = Invoke-TaskKernelVerifyRun -TaskId $TaskId -ExpectedRevision ([int]$rev) `
+                -TasksDir $script:scEnv.tasks -FlagsPath $script:scEnv.flags -RepoRoot $script:scEnv.repo
+            Assert-SC ((([bool]$s.ok) -and ([string]$s.status -ceq 'verified_pass')) -and ([string]$s.verification_source -ceq 'kernel-executed')) ('[F] verify-run ' + $TaskId) ([string]$s.error)
+            return
+        }
+        # Non-passing / manual status stays caller-supplied UNTRUSTED input;
+        # it is recorded only so the downstream refusal is exercised.
         $s = Set-OrchestrationTaskVerification -TaskId $TaskId -VerifierEvidenceJson (New-SCVerifierJson -Status $Status) `
             -ExpectedRevision ([int]$rev) -TasksDir $script:scEnv.tasks -FlagsPath $script:scEnv.flags
         Assert-SC ([bool]$s.ok) ('[F] verification ' + $TaskId + ' ' + $Status) ([string]$s.error)

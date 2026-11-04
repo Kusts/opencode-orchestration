@@ -75,6 +75,30 @@ try {
     }
     foreach ($d in @($env.goals, $env.ckpts, $env.recs, $env.evs, $env.tasks, $env.tele)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     [IO.File]::WriteAllText($env.flags, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.Encoding]::UTF8)
+    # Pinned verification repo: the committed policy IS the task's plan and
+    # the 's4-base' branch makes base_revision resolvable -- pre-condition of
+    # Invoke-TaskKernelVerifyRun (the only route to trusted marks).
+    $vrepo = Join-Path $tempRoot 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $vrepo 'source\registry') -Force | Out-Null
+    & git -C $vrepo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $vrepo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $vrepo config user.email 's4-fixture@example.com' *>$null
+    & git -C $vrepo config user.name 'S4 Fixture' *>$null
+    & git -C $vrepo config core.autocrlf false *>$null
+    & git -C $vrepo config core.safecrlf false *>$null
+    [IO.File]::WriteAllText((Join-Path $vrepo 'base.txt'), "base`n", [Text.UTF8Encoding]::new($false))
+    $srPol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 's4-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $vrepo 'source\registry\verification-policy.json'), (($srPol | ConvertTo-Json -Depth 6 -Compress)), [Text.UTF8Encoding]::new($false))
+    & git -C $vrepo add -A *>$null
+    & git -C $vrepo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $vrepo branch 's4-base' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+    $env.repo = $vrepo
     $script:srEnv = $env
     $script:srSeq = 0
 
@@ -118,6 +142,7 @@ try {
             -Risk $Risk -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
             -RuntimeVersion '2.0.18' -BaseRevision 's4-base' -ReadScopes @('s4/a.txt') -WriteScopes @('s4/a.txt') `
             -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 `
+            -VerificationProfiles @('s4-kernel-check') -RepoRoot $script:srEnv.repo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
             -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -TelemetryRoot $script:srEnv.tele
         Assert-SR ([bool]$c.ok) ('[F] kernel task created ' + $TaskId) ([string]$c.error)
         $t1 = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'PLANNING' -Actor 'planner-1' -ExpectedRevision 1 `
@@ -192,6 +217,16 @@ try {
 
     function Set-SRVerification { param([string]$TaskId, [string]$Status = 'verified_pass')
         $rev = Get-SRTaskRev -TaskId $TaskId
+        if ($Status -ceq 'verified_pass') {
+            # Positive proof: ONLY the kernel-executed verify-run against the
+            # committed plan can mark verification trusted.
+            $s = Invoke-TaskKernelVerifyRun -TaskId $TaskId -ExpectedRevision ([int]$rev) `
+                -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags -RepoRoot $script:srEnv.repo
+            Assert-SR ((([bool]$s.ok) -and ([string]$s.status -ceq 'verified_pass')) -and ([string]$s.verification_source -ceq 'kernel-executed')) ('[F] verify-run ' + $TaskId) ([string]$s.error)
+            return
+        }
+        # Non-passing status stays caller-supplied UNTRUSTED input, recorded
+        # only so the downstream refusal is exercised.
         $s = Set-OrchestrationTaskVerification -TaskId $TaskId -VerifierEvidenceJson (New-SRVerifierJson -Status $Status) `
             -ExpectedRevision ([int]$rev) -TasksDir $script:srEnv.tasks -FlagsPath $script:srEnv.flags
         Assert-SR ([bool]$s.ok) ('[F] verification ' + $TaskId + ' ' + $Status) ([string]$s.error)
@@ -1907,7 +1942,7 @@ catch {
             Assert-SR ($bad -eq 0) ('[ASCII] ' + [IO.Path]::GetFileName($p)) ([string]$bad)
         }
         $roots = @(Get-ChildItem -LiteralPath $script:srEnv.root -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object)
-        $knownRoots = @('checkpoints', 'evidence', 'fakerepo', 'goals', 'receipts', 'recs-f2b', 'recs-f2c', 'recs-f2g', 'recs-swap', 'tasks', 'telemetry')
+        $knownRoots = @('checkpoints', 'evidence', 'fakerepo', 'goals', 'receipts', 'recs-f2b', 'recs-f2c', 'recs-f2g', 'recs-swap', 'tasks', 'telemetry', 'verify-repo')
         $extraRoots = @(Compare-Object -ReferenceObject $knownRoots -DifferenceObject @($roots) | Where-Object { $_.SideIndicator -ceq '=>' } | ForEach-Object { $_.InputObject })
         Assert-SR (@($extraRoots).Count -eq 0) '[HYG] no parallel store was created' (@($extraRoots) -join ',')
     }

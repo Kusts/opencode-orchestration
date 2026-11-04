@@ -58,6 +58,32 @@ try {
     foreach ($d in @($goalDir,$ckptDir,$receiptDir,$evDir,$tasksDir,$artifactDir)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     [IO.File]::WriteAllText($flagsPath, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.UTF8Encoding]::new($false))
 
+    # Repo de verificacao fixo: policy commitado = plano do task; branch
+    # 'rev-neg' = base_revision resolvivel (pre-condicao do verify-run).
+    # Apenas o caminho POSITIVO (NEG7) usa verify-run; os guards negativos
+    # seguem chamando Set-OrchestrationTaskVerification e esperam recusa.
+    $verifyRepo = Join-Path $tempRoot 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $verifyRepo 'source\registry') -Force | Out-Null
+    & git -C $verifyRepo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $verifyRepo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $verifyRepo config user.email 'neg-fixture@example.com' *>$null
+    & git -C $verifyRepo config user.name 'Neg Fixture' *>$null
+    & git -C $verifyRepo config core.autocrlf false *>$null
+    & git -C $verifyRepo config core.safecrlf false *>$null
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'base.txt'), "base`n", [Text.UTF8Encoding]::new($false))
+    $negPol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 'neg-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'source\registry\verification-policy.json'), (($negPol | ConvertTo-Json -Depth 6 -Compress)), [Text.UTF8Encoding]::new($false))
+    & git -C $verifyRepo add -A *>$null
+    & git -C $verifyRepo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $verifyRepo branch 'rev-neg' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+    $script:verifyRepoText = $verifyRepo
+
     try {
         # Shared goal for progress tests
         $g = New-OrchestrationGoal -GoalId 'neg-goal' -Objective 'neg test' -Criteria @('c1','c2') -TotalPhases 2 -StoreDir $goalDir
@@ -73,12 +99,24 @@ try {
         $script:flagsPathText = $flagsPath
 
         function New-NegGateTask {
-            param([string]$Id)
-            $c = New-OrchestrationTask -TaskId $Id -Objective ('obj ' + $Id) -TaskType 'implementation' `
-                -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
-                -RuntimeVersion '2.2.3' -ReadScopes @('src/n.ps1') -WriteScopes @('src/n.ps1') -Grants @('fs.read','fs.write') `
-                -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -TasksDir $script:tasksDirText -FlagsPath $script:flagsPathText -TelemetryRoot $tempRoot
-            if (-not [bool]$c.ok) { throw ('task-create-failed: ' + $Id) }
+            param([string]$Id, [switch]$WithVerifyPlan)
+            $cArgs = @{
+                TaskId = $Id; Objective = ('obj ' + $Id); TaskType = 'implementation'
+                Risk = 'low'; Actor = 'planner'; RuntimeId = 'opencode-v2'; RuntimeGeneration = 2; RuntimeProfile = 'v2'
+                RuntimeVersion = '2.2.3'; ReadScopes = @('src/n.ps1'); WriteScopes = @('src/n.ps1'); Grants = @('fs.read','fs.write')
+                AcceptanceCriteria = @('criterion:0'); AttemptBudget = 3
+                TasksDir = $script:tasksDirText; FlagsPath = $script:flagsPathText; TelemetryRoot = $tempRoot
+            }
+            if ($WithVerifyPlan) {
+                # Positive fixture only: committed plan + resolvable base ref,
+                # so the kernel can execute verify-run (NEG7).
+                $cArgs['BaseRevision'] = 'rev-neg'
+                $cArgs['VerificationProfiles'] = @('neg-kernel-check')
+                $cArgs['RepoRoot'] = $script:verifyRepoText
+                $cArgs['BudgetPolicyPath'] = (Get-ExecutionBudgetDefaultPolicyPath)
+            }
+            $c = New-OrchestrationTask @cArgs
+            if (-not [bool]$c.ok) { throw ('task-create-failed: ' + $Id + ' ' + [string]$c.error) }
             $t0 = Get-OrchestrationTask -TaskId $Id -TasksDir $script:tasksDirText
             $rev = [long]$t0.revision
             $r1 = Invoke-OrchestrationTaskTransition -TaskId $Id -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision $rev -TasksDir $script:tasksDirText -FlagsPath $script:flagsPathText -TelemetryRoot $tempRoot
@@ -138,8 +176,10 @@ try {
         Assert-NEG ($gateBlocked) '[NEG6] B bloqueado enquanto A nao DONE' ''
 
         # NEG7: retomada apos A.DONE sem nova execucao (idempotente)
-        $rev7 = New-NegGateTask -Id 'neg-resume-a'
-        $v7 = Set-OrchestrationTaskVerification -TaskId 'neg-resume-a' -VerifierEvidenceJson (New-NegVerifierJson) -ExpectedRevision $rev7 -TasksDir $tasksDir -FlagsPath $flagsPath
+        # Caminho POSITIVE: prova vem SO do verify-run kernel-executed.
+        $rev7 = New-NegGateTask -Id 'neg-resume-a' -WithVerifyPlan
+        $v7 = Invoke-TaskKernelVerifyRun -TaskId 'neg-resume-a' -ExpectedRevision $rev7 -TasksDir $tasksDir -FlagsPath $flagsPath -RepoRoot $script:verifyRepoText
+        Assert-NEG ((([bool]$v7.ok) -and ([string]$v7.status -ceq 'verified_pass')) -and ([string]$v7.verification_source -ceq 'kernel-executed')) '[NEG7] verify-run kernel-executed verified_pass' ([string]$v7.error)
         $r7 = Set-OrchestrationTaskReview -TaskId 'neg-resume-a' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision ([long]$v7.revision) -TasksDir $tasksDir -FlagsPath $flagsPath
         $c7 = Complete-OrchestrationTask -TaskId 'neg-resume-a' -Actor 'planner' -ExpectedRevision ([long]$r7.revision) -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
         Assert-NEG ([bool]$c7.ok) '[NEG7] A completa DONE' ([string]$c7.error)

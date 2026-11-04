@@ -491,12 +491,12 @@ try {
     & git -C $gitRepo config user.email 'gw@test.local'
     & git -C $gitRepo config core.autocrlf false
     Set-Content -Path (Join-Path $gitRepo 'sample.txt') -Value "Hello World" -Encoding UTF8
-    & git -C $gitRepo add -A
-    & git -C $gitRepo commit -m "init" -q
-    $baseRev = (& git -C $gitRepo rev-parse HEAD).Trim()
 
-    # Verification policy
-    $policyPath = Join-Path $tempRoot 'verification-policy.json'
+    # Verification policy: written INSIDE the repo (canonical path the
+    # kernel verify-run resolves) and committed with the base file, so the
+    # tree is clean at verify time and no out-of-scope write appears.
+    $policyPath = Join-Path $gitRepo 'source\registry\verification-policy.json'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $policyPath) -Force | Out-Null
     $profObj = New-Object PSCustomObject
     $profObj | Add-Member -NotePropertyName 'pos-prof' -NotePropertyValue ([PSCustomObject]@{
         class = 'test'
@@ -510,6 +510,9 @@ try {
     })
     $polDoc = [ordered]@{ version = 1; default_timeout_seconds = 60; max_output_chars = 4000; profiles = $profObj }
     (New-Object PSCustomObject -Property $polDoc | ConvertTo-Json -Depth 6 -Compress) | Set-Content -Path $policyPath -Encoding UTF8
+    & git -C $gitRepo add -A
+    & git -C $gitRepo commit -m "init" -q
+    $baseRev = (& git -C $gitRepo rev-parse HEAD).Trim()
 
     # --- CAMINHO NEGATIVO: Fatia incompleta / evidencia invalida / conclusao recusada / estado preservado ---
     $cNeg = New-OrchestrationAcceptanceCriterion `
@@ -628,6 +631,10 @@ try {
         -Risk 'low' `
         -Actor 'planner' `
         -AcceptanceCriteria @('crit-pos-001') `
+        -BaseRevision $baseRev `
+        -VerificationProfiles @('pos-prof') `
+        -RepoRoot $gitRepo `
+        -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
         -TasksDir $tasksDir `
         -FlagsPath $flagsPath `
         -TelemetryRoot $tempRoot
@@ -649,7 +656,6 @@ try {
 
     $vPos = Invoke-OrchestrationVerifier -TaskId 'task-pos-001' -RepoRoot $gitRepo -BaseRevision $baseRev -WriteScopes @() -ProfileNames @('pos-prof') -PolicyPath $policyPath -AcceptanceCriteria @('crit-pos-001')
     Assert-Check ($vPos.status -eq 'verified_pass') "AC-16 [Positive]: Real verifier returns verified_pass"
-
     $evInput = @{
         task_id = 'task-pos-001'
         run_id = 'run-pos-001'
@@ -668,8 +674,7 @@ try {
     Assert-Check ($evRec.created -and -not [string]::IsNullOrWhiteSpace($evRec.record.evidence_id)) "AC-16 [Positive]: Evidence record persisted in isolated EvidenceStore"
     $evidenceId = $evRec.record.evidence_id
 
-    $vPosJson = ($vPos | ConvertTo-Json -Depth 6 -Compress)
-    $null = Set-OrchestrationTaskVerification -TaskId 'task-pos-001' -VerifierEvidenceJson $vPosJson -Passed $true -Evidence @(@($vPos.evidence) + $evidenceId) -ExpectedRevision 5 -TasksDir $tasksDir -FlagsPath $flagsPath
+    $null = Invoke-TaskKernelVerifyRun -TaskId 'task-pos-001' -ExpectedRevision 5 -TasksDir $tasksDir -FlagsPath $flagsPath -RepoRoot $gitRepo
     $null = Invoke-OrchestrationTaskTransition -TaskId 'task-pos-001' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 6 -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tempRoot
     $null = Set-OrchestrationTaskReview -TaskId 'task-pos-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $tasksDir -FlagsPath $flagsPath
 
