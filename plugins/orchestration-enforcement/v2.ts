@@ -161,7 +161,10 @@ async function setupPlannerWaitTool(
       const get = (session as unknown as Record<string, unknown>)?.get;
       if (typeof get === "function") {
         const bound = (get as (...a: Array<any>) => Promise<unknown>).bind(session);
-        sessionGet = (id: string) => bound(id);
+        // Exact pin @opencode/plugin 2.0.23 (Promise layer): get({sessionID})
+        // => Promise<SessionInfo> (direct; the Promise adapter already
+        // unwraps the {data} transport envelope). Never a bare string arg.
+        sessionGet = (id: string) => bound({ sessionID: id });
       }
     } catch {
       sessionGet = undefined;

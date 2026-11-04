@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-03",
+  "probe": "etapa6d-opencode-v2-session-provenance",
+  "runtime": "opencode v2.0.23",
+  "packages": {
+    "cli": "@opencode/cli@2.0.23",
+    "plugin": "@opencode/plugin@2.0.23"
+  },
+  "isolation": {
+    "temporary_home_and_xdg_paths": true,
+    "temporary_project_directory": true,
+    "paths_verified_under_probe_root": true,
+    "model_calls": 0,
+    "scheduler_started": false,
+    "global_configuration_changed": false
+  },
+  "operations": [
+    "session.create root without parentID",
+    "session.create child with explicit parentID",
+    "session.get for root and child",
+    "session.list filtered by parentID",
+    "session.message.list for both sessions"
+  ],
+  "root": {
+    "id": "ses_e5c76db6affeFATjig74xkuY5I",
+    "parentID_present": false,
+    "session_info_keys": [
+      "cost",
+      "id",
+      "location",
+      "projectID",
+      "time",
+      "title",
+      "tokens"
+    ]
+  },
+  "child": {
+    "id": "ses_e5c76d89dffeZkTyUyTxEGiGex",
+    "parentID_present": true,
+    "parentID": "ses_e5c76db6affeFATjig74xkuY5I",
+    "parentID_matches_root": true,
+    "session_info_keys": [
+      "cost",
+      "id",
+      "location",
+      "parentID",
+      "projectID",
+      "time",
+      "title",
+      "tokens"
+    ]
+  },
+  "api_checks": {
+    "session_list_found_child_under_root": true,
+    "root_message_list_count": 0,
+    "child_message_list_count": 0
+  },
+  "checkPlannerWaitRootProvenance": {
+    "authentic_root": {
+      "ok": true,
+      "reason": ""
+    },
+    "authentic_child": {
+      "ok": false,
+      "reason": "planner-wait-not-root"
+    },
+    "incomplete_provenance": {
+      "ok": false,
+      "reason": "planner-wait-provenance-unavailable"
+    },
+    "ambiguous_parent_type": {
+      "ok": false,
+      "reason": "planner-wait-provenance-unavailable"
+    }
+  },
+  "api_contract": {
+    "plugin_method": "ctx.session.get({sessionID}) -> SessionInfo (direct)",
+    "adapter_argument": "{ sessionID: id }",
+    "root_semantics": "parentID omitted",
+    "child_semantics": "parentID is the parent session id"
+  }
+}

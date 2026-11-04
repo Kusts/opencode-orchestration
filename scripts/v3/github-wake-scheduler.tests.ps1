@@ -442,4 +442,51 @@ Assert-That (Test-GHWADIsTargetPath -CandidateFull $script:exactProbe -TargetFul
 $script:aliasProbe = ([string]$script:targetProbe).Replace('sched-task-s6l', 'SCHED-TASK-S6L')
 Assert-That (([string]$script:aliasProbe) -cne ([string]$script:targetProbe)) 'S6m alias differs by case only'
 Assert-That (-not (Test-GHWADIsTargetPath -CandidateFull $script:aliasProbe -TargetFull $script:targetProbe)) 'S6m case-only alias is not target'
+# --- S7: one-shot mode (opt-in -OneShot, DryRun only, no schtasks mutation) ---
+. (Join-Path $PSScriptRoot 'github-wake.ps1')
+$script:wakeCliPath = Join-Path $PSScriptRoot 'github-wake.ps1'
+Assert-That ($null -ne (Get-Command Get-GHWSchtasksXml -ErrorAction SilentlyContinue)) 'S7 scheduler xml helper exposed'
+Assert-That ($null -ne (Get-Command Register-GitHubWakeSchedule -ErrorAction SilentlyContinue)) 'S7 scheduler register exposed'
+$dryDef7 = Register-GitHubWakeSchedule -TaskName 'ghw-oneshot-def' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -DryRun
+Assert-That ([bool](Get-SCField $dryDef7 'ok' $false)) 'S7 default dry-run ok'
+$dryDefXml7 = [string](Get-SCField $dryDef7 'xml' '')
+Assert-That ($dryDefXml7 -cmatch '<Repetition>') 'S7 default xml retains Repetition'
+$dryOne7 = Register-GitHubWakeSchedule -TaskName 'ghw-oneshot-one' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -OneShot -DryRun
+Assert-That ([bool](Get-SCField $dryOne7 'ok' $false)) 'S7 one-shot dry-run ok'
+$oneXml7 = [string](Get-SCField $dryOne7 'xml' '')
+Assert-That ($oneXml7 -cnotmatch 'Repetition') 'S7 one-shot xml omits Repetition element'
+Assert-That (($oneXml7 -cmatch '<StartBoundary>') -and ($oneXml7 -cmatch '<ExecutionTimeLimit>') -and ($oneXml7 -cmatch '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>') -and ($oneXml7 -cmatch '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>') -and ($oneXml7 -cmatch 'InteractiveToken') -and ($oneXml7 -cmatch 'LeastPrivilege')) 'S7 one-shot xml retains start boundary, time limit, battery and privilege pins'
+$cfInt7 = Register-GitHubWakeSchedule -TaskName 'ghw-oneshot-cf' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -OneShot -IntervalMinutes 5 -DryRun
+Assert-That ((-not [bool](Get-SCField $cfInt7 'ok' $true)) -and (([string](Get-SCField $cfInt7 'reason' '')) -ceq 'oneshot-schedule-conflict')) 'S7 one-shot explicit interval rejected'
+$cfDur7 = Register-GitHubWakeSchedule -TaskName 'ghw-oneshot-cf' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -OneShot -DurationHours 12 -DryRun
+Assert-That ((-not [bool](Get-SCField $cfDur7 'ok' $true)) -and (([string](Get-SCField $cfDur7 'reason' '')) -ceq 'oneshot-schedule-conflict')) 'S7 one-shot explicit duration rejected'
+$rawDef7 = Get-GHWSchtasksXml -TaskName 'ghw-oneshot-raw' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -IntervalMinutes 5 -DurationHours 12 -ExecutionTimeLimitMinutes 5
+Assert-That ($rawDef7 -cmatch '<Repetition>') 'S7 raw default xml retains Repetition'
+$rawOne7 = Get-GHWSchtasksXml -TaskName 'ghw-oneshot-raw' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -ExecutionTimeLimitMinutes 5 -OneShot
+Assert-That (([string]$rawOne7 -cnotmatch 'Repetition') -and (-not [string]::IsNullOrWhiteSpace([string]$rawOne7))) 'S7 raw one-shot xml omits Repetition'
+# --- S8: one-shot compatibility + owned decision (pure only, no schtasks mutation) ---
+Assert-That ($null -ne (Get-Command Test-GHWScheduleOneShotCompatible -ErrorAction SilentlyContinue)) 'S8 compatibility helper exposed'
+Assert-That ($null -ne (Get-Command Get-GHWScheduleOwnedDecision -ErrorAction SilentlyContinue)) 'S8 owned decision helper exposed'
+$repXml8 = Get-GHWSchtasksXml -TaskName 'ghw-mode-rep' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -IntervalMinutes 5 -DurationHours 12 -ExecutionTimeLimitMinutes 5
+$oneXml8 = Get-GHWSchtasksXml -TaskName 'ghw-mode-one' -WakeScript $script:wakeCliPath -ConfigFile $script:wakeCliPath -ExecutionTimeLimitMinutes 5 -OneShot
+Assert-That ([bool](Test-GHWScheduleOneShotCompatible -Xml $oneXml8)) 'S8 generated one-shot xml compatible'
+Assert-That (-not [bool](Test-GHWScheduleOneShotCompatible -Xml $repXml8)) 'S8 repeating xml incompatible'
+Assert-That (-not [bool](Test-GHWScheduleOneShotCompatible -Xml '')) 'S8 empty xml incompatible'
+Assert-That (-not [bool](Test-GHWScheduleOneShotCompatible -Xml 'not xml at all <>>>')) 'S8 garbage xml incompatible'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $true -Owned $true -ExistingXml $repXml8)) -ceq 'oneshot-mode-conflict') 'S8 oneshot vs repeating owned conflicts'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $true -Owned $true -ExistingXml $oneXml8)) -ceq 'already-registered') 'S8 oneshot vs compatible owned reuses'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $true -Force $true -Owned $true -ExistingXml $repXml8)) -ceq 'replace-owned') 'S8 oneshot force regenerates owned'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $false -Owned $true -ExistingXml $repXml8)) -ceq 'already-registered') 'S8 default vs repeating owned unchanged'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $false -Owned $true -ExistingXml $oneXml8)) -ceq 'already-registered') 'S8 default vs one-shot owned unchanged'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $false -Force $true -Owned $true -ExistingXml $repXml8)) -ceq 'replace-owned') 'S8 default force regenerates owned'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $true -Owned $true -ExistingXml '')) -ceq 'oneshot-mode-conflict') 'S8 oneshot vs unreadable owned conflicts'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $false -Owned $false -ExistingXml $repXml8)) -ceq 'task-name-conflict') 'S8 unowned without force conflicts'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $false -Force $true -Owned $false -ExistingXml $repXml8)) -ceq 'task-name-conflict') 'S8 unowned with force still conflicts'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $true -Force $true -Owned $false -ExistingXml $oneXml8)) -ceq 'task-name-conflict') 'S8 oneshot unowned with force still conflicts'
+# --- S9: trigger-count shape (pure only, no schtasks mutation) ---
+$noTrigXml9 = (([string]$oneXml8) -replace '(?s)<TimeTrigger>.*?</TimeTrigger>', '')
+Assert-That (-not [bool](Test-GHWScheduleOneShotCompatible -Xml $noTrigXml9)) 'S9 missing TimeTrigger incompatible'
+$multiXml9 = (([string]$oneXml8).Replace('</TimeTrigger>', '</TimeTrigger><TimeTrigger><StartBoundary>2030-01-01T00:00:00</StartBoundary><Enabled>true</Enabled></TimeTrigger>'))
+Assert-That (-not [bool](Test-GHWScheduleOneShotCompatible -Xml $multiXml9)) 'S9 multiple TimeTriggers incompatible'
+Assert-That (([string](Get-GHWScheduleOwnedDecision -OneShot $true -Owned $true -ExistingXml $multiXml9)) -ceq 'oneshot-mode-conflict') 'S9 oneshot vs multi-trigger owned conflicts'
 Write-Output ('SCHEDULER_PASS passed=' + [string]$script:passed)

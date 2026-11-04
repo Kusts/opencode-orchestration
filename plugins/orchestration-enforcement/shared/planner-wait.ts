@@ -340,25 +340,190 @@ export function validatePlannerWaitArgs(args: unknown): {
   }
 }
 
+// Pinned Session.Info complete-shape gate (exact pin 2.0.23): required keys
+// `id`, `projectID`, `cost`, `tokens`, `time`, `location` must EACH be an
+// OWN property (inherited values do NOT count) with pinned types —
+// canonical non-empty `id` matching `^ses`, non-empty `projectID`, number
+// `cost`, `tokens` (TokenUsage.Info) with own numeric `input`/`output`/
+// `reasoning` plus own `cache` object with own numeric `read`/`write`,
+// `time` with own numeric `created`/`updated`, and `location` with own
+// non-empty `directory`. Used for BOTH the direct candidate and the
+// `{data}` inner candidate.
+function isCompletePinnedSessionInfo(candidate: Record<string, unknown>): boolean {
+  try {
+    if (!Object.prototype.hasOwnProperty.call(candidate, "id")) return false;
+    const id = candidate["id"];
+    if (typeof id !== "string" || asString(id) === "") return false;
+    if (!/^ses/.test(asString(id))) return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "projectID")) return false;
+    const projectID = candidate["projectID"];
+    if (typeof projectID !== "string" || asString(projectID) === "") return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "cost")) return false;
+    const cost = candidate["cost"];
+    if (typeof cost !== "number" || !Number.isFinite(cost as number)) return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "tokens")) return false;
+    const tokens = candidate["tokens"];
+    if (!isPlainObject(tokens)) return false;
+    const tk = tokens as Record<string, unknown>;
+    for (const f of ["input", "output", "reasoning"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(tk, f)) return false;
+      if (typeof tk[f] !== "number" || !Number.isFinite(tk[f] as number)) return false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(tk, "cache")) return false;
+    const cache = tk["cache"];
+    if (!isPlainObject(cache)) return false;
+    const cc = cache as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(cc, "read")) return false;
+    if (!Object.prototype.hasOwnProperty.call(cc, "write")) return false;
+    if (typeof cc["read"] !== "number" || !Number.isFinite(cc["read"] as number)) return false;
+    if (typeof cc["write"] !== "number" || !Number.isFinite(cc["write"] as number)) return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "time")) return false;
+    const time = candidate["time"];
+    if (!isPlainObject(time)) return false;
+    const t = time as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(t, "created")) return false;
+    if (!Object.prototype.hasOwnProperty.call(t, "updated")) return false;
+    if (typeof t["created"] !== "number" || !Number.isFinite(t["created"] as number)) return false;
+    if (typeof t["updated"] !== "number" || !Number.isFinite(t["updated"] as number)) return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "location")) return false;
+    const location = candidate["location"];
+    if (!isPlainObject(location)) return false;
+    const l = location as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(l, "directory")) return false;
+    if (typeof l["directory"] !== "string" || asString(l["directory"]) === "") return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function checkPlannerWaitRootProvenance(
   sessionGet: PlannerWaitSessionGet | null | undefined,
   sessionID: string,
 ): Promise<{ ok: boolean; reason: string }> {
   try {
     if (typeof sessionGet !== "function") return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    if (typeof sessionID !== "string" || sessionID === "") {
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    }
     const doc = await sessionGet(sessionID);
     if (!isPlainObject(doc)) return { ok: false, reason: "planner-wait-provenance-unavailable" };
     const d = doc as Record<string, unknown>;
-    const rawInfo = d["info"];
-    const rawSession = d["session"];
-    const info =
-      isPlainObject(rawInfo) ? (rawInfo as Record<string, unknown>) : isPlainObject(rawSession) ? (rawSession as Record<string, unknown>) : null;
-    if (info === null) return { ok: false, reason: "planner-wait-provenance-unavailable" };
-    const id = asString(info["id"] ?? info["sessionID"] ?? info["sessionId"] ?? info["session_id"]);
-    if (id === "") return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    // Exact-pin 2.0.23 shape: session.get resolves to a DIRECT SessionInfo
+    // ({id, projectID, time, ...}; root has no parentID, child has
+    // parentID === root id). The Promise adapter unwraps the transport
+    // `{data: SessionInfo}` envelope, but a raw envelope may still surface;
+    // unwrap exactly one `{data}` level. `{info}`/`{session}` wrappers are
+    // lifecycle-event shapes, NOT session.get evidence: no fallback reads
+    // them (a truncated {info:{id}} is incomplete => unavailable).
+    let candidate: Record<string, unknown> | null = null;
+    const rawData = d["data"];
+    const idKeys = ["id", "sessionID", "sessionId", "session_id"];
+    const parentKeys = ["parentID", "parentId", "parent_id", "parent"];
+    // Fail-closed envelope rule (reviewer MEDIUM): when `data` is present it
+    // is authoritative transport evidence. The inner object MUST carry the
+    // canonical valid SessionInfo id — never fall back to the outer object.
+    // Every present identity value across outer + inner (all aliases) must
+    // be a non-empty string, unique, and equal to the host sessionID;
+    // malformed/empty/ambiguous/conflicting ids => unavailable. Parents are
+    // inspected across BOTH scopes: malformed => unavailable, any non-empty
+    // => not-root. Own `data` presence (even null/undefined/scalar/array)
+    // is an envelope claim: only a plain object with canonical id passes.
+    const hasDataKey = Object.prototype.hasOwnProperty.call(d, "data");
+    if (hasDataKey) {
+      if (!isPlainObject(rawData)) {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      const rd = rawData as Record<string, unknown>;
+      // Inner MUST carry the canonical SessionInfo id; never fall back to
+      // the outer envelope object (an id-less nested child must not inherit
+      // a complete outer root identity).
+      const innerCanonicalId = rd["id"];
+      if (typeof innerCanonicalId !== "string" || asString(innerCanonicalId) === "") {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      const seen: Array<string> = [];
+      const scopes: Array<Record<string, unknown>> = [d, rd];
+      for (const scope of scopes) {
+        for (const k of idKeys) {
+          if (!Object.prototype.hasOwnProperty.call(scope, k)) continue;
+          const v = scope[k];
+          // Fail-closed: any OWN alias key — including null/undefined —
+          // must be a non-empty string; skipped values would hide
+          // ambiguous/conflicting identity evidence.
+          if (typeof v !== "string" || asString(v) === "") {
+            return { ok: false, reason: "planner-wait-provenance-unavailable" };
+          }
+          const t = asString(v);
+          if (seen.indexOf(t) === -1) seen.push(t);
+        }
+      }
+      if (seen.length !== 1) return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      if ((seen[0] as string) !== sessionID) return { ok: false, reason: "planner-wait-provenance-mismatch" };
+      // Optional parents across BOTH scopes: the actual root OMITS every
+      // parent key. Any OWN parent key — null/undefined/empty/malformed —
+      // refuses unavailable; only a non-empty valid string parent continues
+      // as not-root.
+      let hasParent = false;
+      for (const scope of scopes) {
+        for (const k of parentKeys) {
+          if (!Object.prototype.hasOwnProperty.call(scope, k)) continue;
+          const v = scope[k];
+          if (typeof v !== "string" || asString(v) === "") {
+            return { ok: false, reason: "planner-wait-provenance-unavailable" };
+          }
+          hasParent = true;
+        }
+      }
+      if (hasParent) return { ok: false, reason: "planner-wait-not-root" };
+      // Same complete-shape gate as the direct candidate (pinned required
+      // keys with own-property checks), applied to the authoritative inner.
+      if (!isCompletePinnedSessionInfo(rd)) {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      return { ok: true, reason: "" };
+    } else {
+      candidate = d;
+    }
+    // Identity (direct SessionInfo): any OWN alias key — including
+    // null/undefined — must be a non-empty string; multiple distinct values
+    // => ambiguous => unavailable. Skipped null/undefined would hide
+    // ambiguous identity evidence.
+    const seen: Array<string> = [];
+    for (const k of idKeys) {
+      if (!Object.prototype.hasOwnProperty.call(candidate as Record<string, unknown>, k)) continue;
+      const v = (candidate as Record<string, unknown>)[k];
+      if (typeof v !== "string" || asString(v) === "") {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      const t = asString(v);
+      if (seen.indexOf(t) === -1) seen.push(t);
+    }
+    if (seen.length === 0) return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    if (seen.length > 1) return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    const id = seen[0] as string;
     if (id !== sessionID) return { ok: false, reason: "planner-wait-provenance-mismatch" };
-    const parent = asString(info["parentID"] ?? info["parentId"] ?? info["parent_id"] ?? info["parent"]);
-    if (parent !== "") return { ok: false, reason: "planner-wait-not-root" };
+    // Optional parent: the actual root OMITS every parent key. Any OWN
+    // parent key — null/undefined/empty/malformed — refuses unavailable;
+    // only a non-empty valid string parent continues as not-root. Checked
+    // before completeness: a parent pin alone proves non-root even on a
+    // truncated doc.
+    let hasParent = false;
+    for (const k of parentKeys) {
+      if (!Object.prototype.hasOwnProperty.call(candidate, k)) continue;
+      const v = (candidate as Record<string, unknown>)[k];
+      if (typeof v !== "string" || asString(v as string) === "") {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      hasParent = true;
+    }
+    if (hasParent) return { ok: false, reason: "planner-wait-not-root" };
+    // Completeness: same pinned gate as the `{data}` inner candidate — each
+    // required SessionInfo key as an OWN property with pinned types. A bare
+    // {id} (or inherited projectID/time) is NOT a SessionInfo.
+    if (!isCompletePinnedSessionInfo(candidate as Record<string, unknown>)) {
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    }
     return { ok: true, reason: "" };
   } catch {
     return { ok: false, reason: "planner-wait-provenance-unavailable" };
