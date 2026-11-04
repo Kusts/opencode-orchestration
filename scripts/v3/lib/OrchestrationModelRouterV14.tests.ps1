@@ -42,8 +42,11 @@ Assert-V14 ($pol.models.deepseek.enabled -eq $false -and
 Assert-V14 ($pol.tiers.T1.primary -eq 'iceman') 'T1-iceman'
 Assert-V14 ($pol.tiers.T1.alternatives -contains 'mimo') 'T1-mimo-fallback'
 Assert-V14 ($pol.models.mimo.model_id -eq 'opencode/mimo-v2.6-flash-free') 'mimo-openCode-console-id'
-Assert-V14 ($pol.tiers.T2.primary -eq 'muse') 'T2-muse'
-Assert-V14 (([string]$pol.tiers.T2.alternatives[0] -ceq 'claude_haiku') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'luna')) 'T2-haiku-then-luna-fallback-order'
+Assert-V14 ($pol.tiers.T2.primary -eq 'deepseek_go') 'T2-deepseek_go-primary'
+Assert-V14 ($pol.tiers.T2.fallback -eq 'muse') 'T2-muse-fallback'
+Assert-V14 (([string]$pol.tiers.T2.alternatives[0] -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'claude_haiku') -and ([string]$pol.tiers.T2.alternatives[2] -ceq 'luna')) 'T2-deepseek-muse-haiku-luna-order'
+Assert-V14 (([string]$pol.models.deepseek_go.fallback_candidates[0] -ceq 'muse') -and ([string]$pol.models.deepseek_go.fallback_candidates[1] -ceq 'claude_haiku') -and ([string]$pol.models.deepseek_go.fallback_candidates[2] -ceq 'luna')) 'T2-deepseek-model-fallback-order'
+Assert-V14 (([string]$pol.models.muse.fallback_candidates[0] -ceq 'claude_haiku') -and ([string]$pol.models.muse.fallback_candidates[1] -ceq 'luna')) 'T2-muse-model-fallback-order'
 Assert-V14 ($pol.tiers.T3.primary -eq 'claude_sonnet' -and $pol.tiers.T3.fallback -eq 'terra') 'T3-sonnet-terra-fallback'
 Assert-V14 ($pol.tiers.T4.primary -eq 'claude_opus' -and $pol.tiers.T4.fallback -eq 'sol') 'T4-opus-sol-fallback'
 Assert-V14 ($pol.tiers.T4.exceptional -eq 'astra') 'T4-astra'
@@ -55,9 +58,23 @@ Assert-V14 (@($pol.advisor.exceptional_conditions) -contains 'budget_authorized'
 Assert-V14 ($pol.planner.primary -eq 'luna' -and $pol.planner.model_id -eq 'openai/gpt-6-luna' -and $pol.planner.provider -eq 'openai' -and $pol.planner.tier -eq 'T2' -and $null -eq $pol.planner.fallback_model_id) 'planner-luna-T2-no-auto-fallback'
 Assert-V14 ($pol.role_profiles.tester.admissible_tiers -contains 'T1') 'tester-T1-allowed'
 Assert-V14 ($pol.models.deepseek_go.model_id -eq 'opencode-go/deepseek-v4.1-flash') 'deepseek-Go-not-Console'
+Assert-V14 ([bool]$pol.models.deepseek_go.enabled -eq $true -and [string]$pol.models.deepseek_go.availability_status -eq 'active') 'deepseek-go-operator-enabled-active'
+Assert-V14 ([string]$pol.models.deepseek_go.data_policy.zdr_status -eq 'expired-unconfirmed' -and ([string]$pol.models.deepseek_go.data_policy.zdr_note -match '2026-11-04') -and ([string]$pol.models.deepseek_go.data_policy.zdr_note -match 'renewal')) 'deepseek-go-zdr-note-operator-selected-no-renewal-claim'
+Assert-V14 ([string]$pol.models.claude_haiku.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_sonnet.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_opus.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_fable.resolution_status -eq 'runtime-unverified') 'alias-resolution-runtime-unverified'
 
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'openai/gpt-6-luna' -and $sPlanner.selected_provider -eq 'openai') 'planner-runtime-luna-T2'
+# T2 principal DeepSeek Go: catalog default, provider namespace, role defaults, no loops.
+$catT2 = Resolve-CatalogModel -Tier 'T2' -IgnoreUserConfig $true
+Assert-V14 ($catT2.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $catT2.Provider -eq 'opencode-go') 'T2-catalog-default-deepseek-go-provider'
+$fcT2 = @($catT2.FallbackCandidates)
+Assert-V14 (($fcT2 -contains 'opencode-go/deepseek-v4.1-flash') -and ($fcT2 -contains 'opencode-go/muse-spark-1.3-contributor') -and ([Array]::IndexOf($fcT2,'opencode-go/deepseek-v4.1-flash') -lt [Array]::IndexOf($fcT2,'opencode-go/muse-spark-1.3-contributor'))) 'T2-candidates-deepseek-before-muse'
+Assert-V14 ([string]$pol.role_profiles.coder.default_model -eq 'deepseek_go' -and [string]$pol.role_profiles.'frontend-engineer'.default_model -eq 'deepseek_go') 'T2-roles-default-deepseek_go'
+Assert-V14 ([string]$pol.models.deepseek_go.provider -eq 'opencode-go' -and $pol.models.deepseek.enabled -eq $false) 'legacy-console-free-disabled-go-enabled'
+$loopModels = @('deepseek_go','muse','claude_haiku','luna')
+$loopOk = $true
+foreach ($lm in $loopModels) { $fb = @($pol.models.$lm.fallback_candidates); if ($fb -contains $lm) { $loopOk = $false } }
+Assert-V14 ($loopOk -and (@($pol.models.luna.fallback_candidates).Count -eq 0)) 'T2-fallback-no-self-loop-luna-terminal'
 $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'claude-agent/sonnet') 'T3-runtime-sonnet'
 $sT4Hold = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -IgnoreUserConfig $true -NativeModelOverrideProven $true
@@ -69,13 +86,13 @@ Assert-V14 ($sT4.Tier -ne 'T4') 'arbitrary-T3-receipt-does-not-escalate-T4'
 Assert-V14 ($sT4.Tier -eq 'T3') 'arbitrary-T3-receipt-fail-closed-T3'
 # v1.4 matrix: FailureCount never promotes Coder/Advisor; T2 exhaustion never upgrades to T3.
 $sCoderLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') 'failurecount-never-promotes-coder'
+Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') 'failurecount-never-promotes-coder'
 $sAdvLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'claude-agent/sonnet') 'failurecount-never-promotes-advisor'
 # ROUTER-V14-ADVISOR-T3-ONLY: advisor remains T3-minimum; new matrix starts at
 # Sonnet and keeps Terra as fallback. T2 remains prohibited; T4 proof-gated.
 # Canonical registry contract (catches drift): role profile must pin
-# default_model=terra/default_tier=T3 with admissible exactly T3/T4 (no T2).
+# default_model=claude_sonnet/default_tier=T3 with admissible exactly T3/T4 (no T2).
 $advProfile = $pol.role_profiles.PSObject.Properties['engineering-advisor'].Value
 $advAdmissible = @($advProfile.admissible_tiers)
 $advProhibited = @($advProfile.prohibited_tiers)
@@ -83,7 +100,7 @@ Assert-V14 ([string]$advProfile.default_model -eq 'claude_sonnet' -and [string]$
 $sAdvSimpleFc0 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 0 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sAdvSimpleFc0.Tier -eq 'T3' -and $sAdvSimpleFc0.CatalogModel -eq 'claude-agent/sonnet') 'advisor-simple-low-always-T3-sonnet'
 $sT2Base = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Base -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','claude-agent/haiku','openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Base -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','claude-agent/haiku','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT2Exhausted.Status -in @('FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF','EXHAUSTED_NO_ELIGIBLE_FALLBACK') -and $fT2Exhausted.FallbackModel -eq $null -and -not [bool]$fT2Exhausted.IsAuthorized) 't2-exhausted-no-replay-without-no-start-proof'
 
 # ROUTER-V14-FALLBACK-POLICY-METADATA (reviewer MEDIUM): canonical registry must
@@ -91,11 +108,12 @@ Assert-V14 ($fT2Exhausted.Status -in @('FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PR
 $fbProhibitionsV14 = @($pol.fallback_policy.prohibitions)
 $fbProhibitedDownV14 = @($pol.fallback_policy.prohibited_downgrades)
 Assert-V14 (($fbProhibitionsV14 -contains 't1_transport_escalation_prohibited') -and ($fbProhibitionsV14 -contains 't2_transport_escalation_prohibited')) 'fallback-prohibitions-t1-t2-no-upward-escalation'
-Assert-V14 (($fbProhibitedDownV14 -contains 'reviewer') -and ($fbProhibitedDownV14 -contains 'security-reviewer') -and ($fbProhibitedDownV14 -contains 'engineering-advisor')) 'fallback-prohibited-downgrades-advisor-reviewer-security'
+Assert-V14 (($fbProhibitedDownV14 -contains 'reviewer_high_critical') -and ($fbProhibitedDownV14 -notcontains 'reviewer') -and ($fbProhibitedDownV14 -contains 'security-reviewer') -and ($fbProhibitedDownV14 -contains 'engineering-advisor') -and ($fbProhibitedDownV14 -contains 'architect')) 'fallback-prohibited-downgrades-risk-qualified-reviewer-plus-architect'
+Assert-V14 ([double]$pol.tiers.T2.relative_cost -eq 0.15 -and [double]$pol.models.deepseek_go.cost_profile.relative_cost -eq 0.15) 'T2-relative-cost-matches-deepseek-primary'
 Assert-V14 (([string]$pol.tiers.T1.description -match 'never') -and ([string]$pol.tiers.T1.description -match 'upgrade') -and ([string]$pol.tiers.T1.description -match 'same-tier')) 'T1-description-no-upward-transport'
 Assert-V14 (([string]$pol.tiers.T2.description -match 'never') -and ([string]$pol.tiers.T2.description -match 'upgrade') -and ([string]$pol.tiers.T2.description -match 'same-tier')) 'T2-description-no-upward-transport'
 Assert-V14 (([string]$pol.tiers.T3.description -match 'only') -and ([string]$pol.tiers.T3.description -match 'admissible') -and ([string]$pol.tiers.T3.description -match 'T2')) 'T3-description-eligible-role-only-T2'
-Assert-V14 (([string]$pol.tiers.T4.description -match 'Opus') -and ([string]$pol.tiers.T4.description -match 'Sol') -and ([string]$pol.tiers.T4.description -notmatch 'degrade to T2')) 'T4-description-Opus-Sol-no-T2-transport'
+Assert-V14 (([string]$pol.tiers.T4.description -match 'Opus') -and ([string]$pol.tiers.T4.description -match 'Sol') -and ([string]$pol.tiers.T4.description -match 'DeepSeek') -and ([string]$pol.tiers.T4.description -match 'Muse') -and ([string]$pol.tiers.T4.description -match 'audit-only')) 'T4-description-Opus-Sol-plus-audit-only-T2-candidates'
 
 $sTesterT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'opencode-go/iceman-contributor-free') 'tester-trivial-LLM-uses-T1'
@@ -103,14 +121,29 @@ $sT1 = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConf
 $fT1 = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'opencode-go/iceman-contributor-free' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT1.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT1.FallbackModel -eq $null -and $fT1.CandidateModel -eq 'opencode/mimo-v2.6-flash-free') 'T1-mimo-order-audit-only-hold'
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$fT2 = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true
-Assert-V14 ($fT2.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT2.FallbackModel -eq $null -and $fT2.CandidateModel -eq 'claude-agent/haiku') 'T2-haiku-order-audit-only-hold'
+$fT2 = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true
+Assert-V14 ($fT2.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT2.FallbackModel -eq $null -and $fT2.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') 'T2-muse-order-audit-only-hold'
 $fT3 = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true
 Assert-V14 ($fT3.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT3.FallbackModel -eq $null -and $fT3.CandidateModel -eq 'openai/gpt-6.1-terra') 'T3-terra-order-audit-only-hold'
-$fT3Go = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Assert-V14 ($fT3Go.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT3Go.FallbackModel -eq $null) 'T3-deepseek-go-blocked-no-capability'
-$fT3GoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-V14 ($fT3GoCap.FallbackModel -eq $null -and @($fT3GoCap.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$_.Reason -eq 'MODEL_DISABLED' }).Count -ge 1) 'T3-deepseek-zdr-blocked-after-muse'
+$fT3Go = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT3Go.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT3Go.FallbackModel -eq $null -and $fT3Go.CandidateModel -eq 'opencode-go/deepseek-v4.1-flash') 'T3-deepseek-first-before-muse'
+$fT3GoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT3GoCap.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT3GoCap.FallbackModel -eq $null -and $fT3GoCap.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') 'T3-muse-second-after-deepseek'
+# Debugger is T2-admissible: T3 Sonnet/Terra exhaustion yields DeepSeek Go T2 HOLD.
+$sT3Dbg = Resolve-OrchestrationModelSelection -AgentName 'debugger' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$fT3Dbg = Resolve-OrchestrationModelFallback -RequestedSelection $sT3Dbg -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT3Dbg.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT3Dbg.FallbackModel -eq $null -and -not [bool]$fT3Dbg.IsAuthorized -and $fT3Dbg.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and $fT3Dbg.FallbackTier -ceq 'T2') 'T3-debugger-deepseek-audit-only'
+# Debugger T4 Opus/Sol exhaustion likewise yields DeepSeek Go T2 HOLD.
+$sT4DbgShape = $sT3Dbg | Select-Object *
+$sT4DbgShape.Tier = 'T4'; $sT4DbgShape.CatalogModel = 'claude-agent/opus'
+$fT4Dbg = Resolve-OrchestrationModelFallback -RequestedSelection $sT4DbgShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4Dbg.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT4Dbg.FallbackModel -eq $null -and -not [bool]$fT4Dbg.IsAuthorized -and $fT4Dbg.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and $fT4Dbg.FallbackTier -ceq 'T2') 'T4-debugger-deepseek-audit-only'
+Assert-V14 ((@($pol.role_profiles.debugger.admissible_tiers) -contains 'T2') -and (@($pol.role_profiles.debugger.prohibited_tiers) -notcontains 'T2')) 'debugger-profile-contains-T2'
+$sT3MedRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk medium -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$fT3MedRev = Resolve-OrchestrationModelFallback -RequestedSelection $sT3MedRev -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT3MedRev.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT3MedRev.FallbackModel -eq $null -and -not [bool]$fT3MedRev.IsAuthorized -and $fT3MedRev.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and $fT3MedRev.FallbackTier -ceq 'T2') 'T3-medium-reviewer-deepseek-audit-only'
+$vT3MedRevHold = Test-ExecutedModelVerification -RequestedSelection $sT3MedRev -ExecutedModelEvent @{ Model = $fT3MedRev.CandidateModel; AuthorizedFallback = $fT3MedRev } -NativeModelOverrideProven $true
+Assert-V14 ($vT3MedRevHold.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and -not [bool]$vT3MedRevHold.VerifiedMatch) 'reviewer-medium-hold-candidate-never-verifies-authorized-fallback'
 $sT4shape = $sT3 | Select-Object *
 $sT4shape.Tier = 'T4'
 $sT4shape.CatalogModel = 'claude-agent/opus'
@@ -118,6 +151,59 @@ $fSolTransport = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shap
 Assert-V14 ($fSolTransport.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fSolTransport.FallbackModel -eq $null -and $fSolTransport.CandidateModel -eq 'openai/gpt-6.1-sol') 'T4-sol-order-audit-only-hold'
 $fSolOpus = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'claude-agent/opus' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-V14 ($fSolOpus.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fSolOpus.FallbackModel -eq $null) 'T4-caller-no-start-boolean-not-proof'
+# 2026-11-04 addendum: T4 transport may enumerate policy-level T2 candidates
+# (DeepSeek Go then Muse) strictly audit/HOLD for T2-admissible roles; never
+# executes/replays; critical reviewer and T2-prohibited roles still fail closed.
+$sT4CoderShape = $sT3 | Select-Object *
+$sT4CoderShape.Tier = 'T4'; $sT4CoderShape.CatalogModel = 'claude-agent/opus'
+$fT4Deep = Resolve-OrchestrationModelFallback -RequestedSelection $sT4CoderShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4Deep.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT4Deep.FallbackModel -eq $null -and -not [bool]$fT4Deep.IsAuthorized -and $fT4Deep.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and $fT4Deep.FallbackTier -ceq 'T2') 'T4-deepseek-first-audit-only-for-admissible-coder'
+$fT4Muse = Resolve-OrchestrationModelFallback -RequestedSelection $sT4CoderShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4Muse.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT4Muse.FallbackModel -eq $null -and -not [bool]$fT4Muse.IsAuthorized -and $fT4Muse.CandidateModel -ceq 'opencode-go/muse-spark-1.3-contributor' -and $fT4Muse.FallbackTier -ceq 'T2') 'T4-muse-second-audit-only-for-admissible-coder'
+$sT4CritRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk high -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$sT4CritRevShape = $sT4CritRev | Select-Object *
+$sT4CritRevShape.Tier = 'T4'; $sT4CritRevShape.CatalogModel = 'claude-agent/opus'
+$fT4CritRev = Resolve-OrchestrationModelFallback -RequestedSelection $sT4CritRevShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4CritRev.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fT4CritRev.FallbackModel) 'T4-critical-reviewer-never-produces-T2-candidate'
+$sT4AdvShape = $sT4CoderShape | Select-Object *
+$sT4AdvShape.Agent = 'engineering-advisor'
+$fT4Adv = Resolve-OrchestrationModelFallback -RequestedSelection $sT4AdvShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4Adv.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fT4Adv.FallbackModel) 'T4-advisor-never-produces-T2-candidate'
+$sT4SecShape = $sT4CoderShape | Select-Object *
+$sT4SecShape.Agent = 'security-reviewer'
+$fT4Sec = Resolve-OrchestrationModelFallback -RequestedSelection $sT4SecShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4Sec.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fT4Sec.FallbackModel) 'T4-security-never-produces-T2-candidate'
+$sT4LowRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk low -Complexity simple -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$sT4LowRevShape = $sT4LowRev | Select-Object *
+$sT4LowRevShape.Tier = 'T4'; $sT4LowRevShape.CatalogModel = 'claude-agent/opus'
+$fT4LowRev = Resolve-OrchestrationModelFallback -RequestedSelection $sT4LowRevShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4LowRev.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT4LowRev.FallbackModel -eq $null -and -not [bool]$fT4LowRev.IsAuthorized -and $fT4LowRev.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and $fT4LowRev.FallbackTier -ceq 'T2') 'T4-low-reviewer-deepseek-audit-only'
+$sT4MedRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk medium -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$sT4MedRevShape = $sT4MedRev | Select-Object *
+$sT4MedRevShape.Tier = 'T4'; $sT4MedRevShape.CatalogModel = 'claude-agent/opus'
+$fT4MedRev = Resolve-OrchestrationModelFallback -RequestedSelection $sT4MedRevShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT4MedRev.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT4MedRev.FallbackModel -eq $null -and -not [bool]$fT4MedRev.IsAuthorized -and $fT4MedRev.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and $fT4MedRev.FallbackTier -ceq 'T2') 'T4-medium-reviewer-deepseek-audit-only'
+# Forged-input guard: synthetic contradictory reviewer T2 selection (canonical
+# selection is T3 for high/critical) must reject before same-tier enumeration.
+$selForgedT2High = [pscustomobject]@{ Agent='reviewer'; Tier='T2'; CatalogModel='opencode-go/deepseek-v4.1-flash'; Risk='high'; Provider='opencode-go'; RequestedModel='opencode-go/deepseek-v4.1-flash' }
+$fForgedT2High = Resolve-OrchestrationModelFallback -RequestedSelection $selForgedT2High -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fForgedT2High.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fForgedT2High.FallbackModel -and $null -eq $fForgedT2High.CandidateModel -and -not [bool]$fForgedT2High.IsAuthorized) 'forged-reviewer-T2-high-rejected-no-candidate'
+$selForgedT2Crit = [pscustomobject]@{ Agent='reviewer'; Tier='T2'; CatalogModel='opencode-go/deepseek-v4.1-flash'; Risk='critical'; Provider='opencode-go'; RequestedModel='opencode-go/deepseek-v4.1-flash' }
+$fForgedT2Crit = Resolve-OrchestrationModelFallback -RequestedSelection $selForgedT2Crit -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fForgedT2Crit.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fForgedT2Crit.FallbackModel -and $null -eq $fForgedT2Crit.CandidateModel -and -not [bool]$fForgedT2Crit.IsAuthorized) 'forged-reviewer-T2-critical-rejected-no-candidate'
+Assert-V14 (([bool]$pol.models.deepseek_go.data_policy.sensitive_data_allowed -eq $false) -and ([string]$pol.models.deepseek_go.data_policy.zdr_note -match 'non-sensitive') -and ([string]$pol.models.deepseek_go.data_policy.zdr_note -match 'requires ZDR')) 'deepseek-go-sensitive-data-not-allowed-zdr-unconfirmed'
+# Defensive catalog (missing/invalid policy) still audits the ordered T2
+# candidates without enabling dispatch: DeepSeek, Muse, Haiku, Luna.
+$badPolPathV14 = Join-Path ([IO.Path]::GetTempPath()) ('v14-missing-policy-' + [guid]::NewGuid().ToString('N') + '.json')
+$selT2BadPol = [pscustomobject]@{ Agent='coder'; Tier='T2'; CatalogModel='opencode-go/deepseek-v4.1-flash'; Risk='medium'; Provider='opencode-go'; RequestedModel='opencode-go/deepseek-v4.1-flash' }
+$fBadPol = Resolve-OrchestrationModelFallback -RequestedSelection $selT2BadPol -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -PolicyPath $badPolPathV14
+Assert-V14 ($fBadPol.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fBadPol.FallbackModel -eq $null -and -not [bool]$fBadPol.IsAuthorized -and $fBadPol.CandidateModel -ceq 'opencode-go/muse-spark-1.3-contributor') 'defensive-catalog-T2-muse-second-audit-only'
+$catBadPol = Resolve-CatalogModel -Tier 'T2' -PolicyPath $badPolPathV14 -IgnoreUserConfig $true
+Assert-V14 ((@($catBadPol.FallbackCandidates)[0] -ceq 'opencode-go/deepseek-v4.1-flash') -and (@($catBadPol.FallbackCandidates)[1] -ceq 'opencode-go/muse-spark-1.3-contributor') -and (@($catBadPol.FallbackCandidates)[2] -ceq 'claude-agent/haiku') -and (@($catBadPol.FallbackCandidates)[3] -ceq 'openai/gpt-6-luna')) 'defensive-catalog-T2-order-deepseek-muse-haiku-luna'
+Assert-V14 ((@($pol.models.deepseek_go.eligible_roles) -notcontains 'build') -and (@($pol.models.deepseek_go.eligible_roles) -notcontains 'engineering-advisor')) 'deepseek-not-eligible-build-advisor'
+Assert-V14 ((@($pol.models.muse.eligible_roles) -notcontains 'build') -and (@($pol.models.muse.eligible_roles) -notcontains 'engineering-advisor')) 'muse-not-eligible-build-advisor'
+Assert-V14 ((@($pol.models.deepseek_go.eligible_roles) -contains 'coder') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'reviewer') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'debugger') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'skeptic')) 'deepseek-eligible-coder-reviewer-debugger-skeptic'
+Assert-V14 ((@($pol.models.muse.eligible_roles) -contains 'coder') -and (@($pol.models.muse.eligible_roles) -contains 'reviewer') -and (@($pol.models.muse.eligible_roles) -contains 'debugger') -and (@($pol.models.muse.eligible_roles) -contains 'skeptic')) 'muse-eligible-coder-reviewer-debugger-skeptic'
 # Astra technical fallback stays audit HOLD whether or not the dedicated
 # exceptional budget authorization is present: no caller boolean is proof
 # and setting the authorization never yields an executable fallback.
@@ -204,9 +290,8 @@ try {
     $costBaseRaw = [IO.File]::ReadAllText($costBasePolPathV14, [Text.UTF8Encoding]::UTF8)
     $costBasePol = ($costBaseRaw | ConvertFrom-Json -ErrorAction Stop)
     $costBasePol.models.luna.cost_profile.requires_authorization = $true
-    # DeepSeek Go is production-disabled while ZDR renewal is unconfirmed.
-    # Enable only the isolated test copy so these assertions exercise the
-    # exceptional-budget gate rather than short-circuiting at MODEL_DISABLED.
+    # Operator-selected DeepSeek Go primary: enable only the isolated test copy
+    # for the exceptional-budget gate exercise.
     $costBasePol.models.deepseek_go.enabled = $true
     $costBasePol.models.deepseek_go.availability_status = 'active'
     if ($null -ne $costBasePol.models.deepseek_go.PSObject.Properties['availability_reason']) { $costBasePol.models.deepseek_go.PSObject.Properties.Remove('availability_reason') }

@@ -116,7 +116,9 @@ try {
     & git -C $repoDir commit -m policy -q *>$null
     $modelPolPath = Get-TaskKernelModelPolicyDefaultPath
     $tid = 'np-int-001'
-    $cr = New-OrchestrationTask -TaskId $tid -Objective 'Fix the widget renderer' -TaskType 'implementation' -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.5' -BaseRevision 'HEAD' -ReadScopes @('src/widget') -WriteScopes @() -Grants @('fs.read') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') -VerificationProfiles @('failer') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $tmpRoot
+    $npBudgetPol = ''
+    try { $npBudgetPol = Get-ExecutionBudgetDefaultPolicyPath } catch { $npBudgetPol = '' }
+    $cr = New-OrchestrationTask -TaskId $tid -Objective 'Fix the widget renderer' -TaskType 'implementation' -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.5' -BaseRevision 'HEAD' -ReadScopes @('src/widget') -WriteScopes @() -Grants @('fs.read') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') -VerificationProfiles @('failer') -AttemptBudget 3 -BudgetPolicyPath $npBudgetPol -TasksDir $tasksDir -FlagsPath $flagsPath -RepoRoot $repoDir -TelemetryRoot $tmpRoot
     Assert-NP ([bool]$cr.ok) 'NP11-fixture-task-created-v2' ([string]$cr.error)
     $rev1 = [int](Get-OrchestrationTask -TaskId $tid -TasksDir $tasksDir)['revision']
     $b1 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId 'run-np1' -SessionId 'ses_root_np1' -ExpectedRevision $rev1 -TasksDir $tasksDir -FlagsPath $flagsPath

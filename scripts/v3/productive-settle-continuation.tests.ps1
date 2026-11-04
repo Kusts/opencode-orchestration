@@ -2,10 +2,18 @@
 .SYNOPSIS
     Tests for S6 Etapa C productive settle-and-continue wiring (harness).
 .DESCRIPTION
-    Hermetic: temp dirs, cleanup at the end; repo tree never written
-    (the real validation-policy.json is only READ). Throw on first FAIL,
-    print PASS count on success. Exit 0 all pass, 1 any fail. PS 5.1
-    compatible. ASCII-only. No network, no spawn, no Executor.
+    Hermetic: temp dirs, cleanup at the end; the real repo tree is never
+    written. Throw on first FAIL, print PASS count on success. Exit 0 all
+    pass, 1 any fail. PS 5.1 compatible. ASCII-only. No network, no model
+    calls, no Executor (each fixture verification profile runs one local
+    allowlisted command).
+    Trust boundary: positive DONE paths mark verification ONLY through
+    Invoke-TaskKernelVerifyRun. Task creation pins RepoRoot,
+    base_revision (a real branch of the fixture git repo) and the
+    verification_profiles plan committed with it, so the kernel executes
+    the plan and persists kernel-executed marks. Caller-supplied
+    Set-OrchestrationTaskVerification stays untrusted evidence and is
+    asserted to never satisfy the DONE gate.
     Covers: strict gate without provenance => HOLD/manual (RED: absent
     proof never auto-advances); provenance transport to the canonical
     ND-Settle owner (strict ok); settlement result kept separate from
@@ -51,7 +59,13 @@ function Write-S6File {
     $lf = ($lf -replace "`r", "`n")
     [IO.File]::WriteAllText($Path, $lf, [Text.UTF8Encoding]::new($false))
 }
+function Invoke-S6Git {
+    param([string]$Dir, [string[]]$GitArgs)
+    & git -C $Dir @GitArgs *> $null
+    if ($LASTEXITCODE -ne 0) { throw ('FAIL: git ' + ($GitArgs -join ' ') + ' exited ' + [string]$LASTEXITCODE) }
+}
 function New-S6Root {
+    param([Parameter(Mandatory = $true)][string]$TaskId)
     $root = Join-Path ([IO.Path]::GetTempPath()) ('pa-s6-' + [guid]::NewGuid().ToString('N'))
     $goal = Join-Path $root 'goals'
     $dispatch = Join-Path $root 'dispatch'
@@ -65,7 +79,44 @@ function New-S6Root {
         New-Item -ItemType Directory -Path $d -Force | Out-Null
     }
     Write-S6File -Path $flags -Text '{"task_kernel":{"enabled":true,"shadow":false}}'
-    return @{ root = $root; goal = $goal; dispatch = $dispatch; ckpt = $ckpt; tasks = $tasks; tele = $tele; flags = $flags; receipt = $receipt; evidence = $evidence }
+    # Pinned verification repo: the committed policy IS the task's
+    # verification plan (no run-time profile/root selection) and the
+    # 's6-base' branch makes base_revision a resolvable ref, which is
+    # what Invoke-TaskKernelVerifyRun requires to execute the plan.
+    $repo = Join-Path $root 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $repo 'source\registry') -Force | Out-Null
+    Invoke-S6Git -Dir $repo -GitArgs @('init', '-q')
+    Invoke-S6Git -Dir $repo -GitArgs @('config', 'user.email', 's6-fixture@example.com')
+    Invoke-S6Git -Dir $repo -GitArgs @('config', 'user.name', 'S6 Fixture')
+    Invoke-S6Git -Dir $repo -GitArgs @('config', 'core.autocrlf', 'false')
+    Invoke-S6Git -Dir $repo -GitArgs @('config', 'core.safecrlf', 'false')
+    $checkText = @'
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+$p = Join-Path $root ('tasks\' + '__TASK_ID__' + '.json')
+if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }
+try { $j = [IO.File]::ReadAllText($p, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json } catch { exit 1 }
+if ($null -eq $j) { exit 1 }
+if ([string]$j.task_id -ine '__TASK_ID__') { exit 1 }
+$wr = $null
+try { $wr = $j.worker_result } catch { $wr = $null }
+if ($null -eq $wr) { exit 1 }
+if ([string]$wr.status -ine 'candidate_pass') { exit 1 }
+exit 0
+'@
+    $checkPath = Join-Path $repo 'check-task.ps1'
+    Write-S6File -Path $checkPath -Text ($checkText.Replace('__TASK_ID__', $TaskId))
+    $pol = [ordered]@{
+        version                = 1
+        default_timeout_seconds = 60
+        max_output_chars       = 4000
+        profiles               = @{ 's6-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -File check-task.ps1'; timeout_seconds = 30 } }
+    }
+    Write-S6File -Path (Join-Path $repo 'source\registry\verification-policy.json') -Text (($pol | ConvertTo-Json -Depth 6 -Compress))
+    Invoke-S6Git -Dir $repo -GitArgs @('add', '-A')
+    Invoke-S6Git -Dir $repo -GitArgs @('commit', '-q', '-m', 'fixture verification plan')
+    Invoke-S6Git -Dir $repo -GitArgs @('branch', 's6-base')
+    return @{ root = $root; goal = $goal; dispatch = $dispatch; ckpt = $ckpt; tasks = $tasks; tele = $tele; flags = $flags; receipt = $receipt; evidence = $evidence; repo = $repo }
 }
 $script:S6Full = 'ops allow:dispatch allow:settlement allow:checkpoint allow:advance allow:terminalize allow:reconcile'
 function New-S6Goal {
@@ -81,7 +132,7 @@ function New-S6Goal {
 }
 function New-S6Task {
     param([string]$Id, [string]$GoalId, [long]$Gen, $F)
-    $t = New-OrchestrationTask -TaskId $Id -Objective ('s6 fixture work ' + $Id) -Actor 'owner-s6' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -TaskType 'implementation' -Risk 'low' -BaseRevision 's6-base' -ReadScopes @('s6/a.txt') -WriteScopes @('s6/a.txt') -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -SettlementPolicy 'canonical-native-settle' -AttemptBudget 3 -TasksDir $F.tasks -FlagsPath $F.flags -TelemetryRoot $F.tele
+    $t = New-OrchestrationTask -TaskId $Id -Objective ('s6 fixture work ' + $Id) -Actor 'owner-s6' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -TaskType 'implementation' -Risk 'low' -BaseRevision 's6-base' -ReadScopes @('s6/a.txt') -WriteScopes @('s6/a.txt') -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -SettlementPolicy 'canonical-native-settle' -AttemptBudget 3 -VerificationProfiles @('s6-kernel-check') -RepoRoot $F.repo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) -TasksDir $F.tasks -FlagsPath $F.flags -TelemetryRoot $F.tele
     if (-not [bool]$t.ok) { throw ("FAIL: setup task " + $Id + " " + [string]$t.error) }
     $r1 = Invoke-OrchestrationTaskTransition -TaskId $Id -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision ([int]$t.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $F.tasks -FlagsPath $F.flags -TelemetryRoot $F.tele
     if (-not [bool]$r1.ok) { throw ("FAIL: setup planning " + $Id) }
@@ -100,11 +151,11 @@ function Get-S6TaskRev {
 }
 function New-S6NativeFixture {
     param([string]$Tag, [long]$Rev = 1)
-    $f = New-S6Root
     $gid = ('PA-S6-' + $Tag)
     $tid = ('pa-task-s6-' + $Tag).ToLowerInvariant()
     $wid = ('w-s6-' + $Tag)
     $sess = ('pa-session-s6-' + $Tag)
+    $f = New-S6Root -TaskId $tid
     $own = New-S6Goal $gid $f.goal
     $gen = [long]$own.ownership['generation']
     New-S6Task $tid $gid $gen $f
@@ -218,9 +269,10 @@ $vt = Invoke-OrchestrationTaskTransition -TaskId $fx2.tid -ToState 'VALIDATING' 
 Assert-S6That ([bool]$vt.ok) 'S6-4 task validating'
 $rt = Invoke-OrchestrationTaskTransition -TaskId $fx2.tid -ToState 'REVIEWING' -Actor 'planner' -ExpectedRevision ([int]$vt.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $fx2.f.tasks -FlagsPath $fx2.f.flags -TelemetryRoot $fx2.f.tele
 Assert-S6That ([bool]$rt.ok) 'S6-4 task reviewing'
-$verJson = (@{ ok = $true; task_id = 's6-verifier'; status = 'verified_pass'; reason = 's6 verifier read-back'; scope = $null; profiles = @(); evidence = @('criterion:0:artifact-bytes=12;expected-match=True', 'criterion:0:file=s6-a.txt'); command_classes = @('test') } | ConvertTo-Json -Depth 8 -Compress)
-$sv2 = Set-OrchestrationTaskVerification -TaskId $fx2.tid -VerifierEvidenceJson $verJson -ExpectedRevision ([int]$rt.revision) -TasksDir $fx2.f.tasks -FlagsPath $fx2.f.flags
-Assert-S6That ([bool]$sv2.ok) 'S6-4 fresh verification recorded'
+$sv2 = Invoke-TaskKernelVerifyRun -TaskId $fx2.tid -ExpectedRevision ([int]$rt.revision) -TasksDir $fx2.f.tasks -FlagsPath $fx2.f.flags -RepoRoot $fx2.f.repo
+Assert-S6That ((([bool]$sv2.ok) -and ([bool]$sv2.passed)) -and (([string]$sv2.status -ceq 'verified_pass') -and ([string]$sv2.verification_source -ceq 'kernel-executed'))) 'S6-4 kernel verification executed from the committed plan'
+$sv2Rec = (Get-OrchestrationTask -TaskId $fx2.tid -TasksDir $fx2.f.tasks)['verification']
+Assert-S6That ((([string]$sv2Rec['verification_source'] -ceq 'kernel-executed') -and ([string]$sv2Rec['source'] -ceq 'kernel-executed')) -and ([bool]$sv2Rec['verifier_executed'])) 'S6-4 persisted marks are kernel-executed (caller route unused)'
 $sr2 = Set-OrchestrationTaskReview -TaskId $fx2.tid -Kind 'reviewer' -Status 'approved' -By 'reviewer-1' -ExpectedRevision ([int]$sv2.revision) -TasksDir $fx2.f.tasks -FlagsPath $fx2.f.flags
 Assert-S6That ([bool]$sr2.ok) 'S6-4 fresh review recorded'
 $dn2 = Complete-OrchestrationTask -TaskId $fx2.tid -Actor 'planner' -ExpectedRevision ([int]$sr2.revision) -ResidualRisks @('s6-fixture-residual') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $fx2.f.tasks -FlagsPath $fx2.f.flags -TelemetryRoot $fx2.f.tele
@@ -310,9 +362,8 @@ $vt9 = Invoke-OrchestrationTaskTransition -TaskId $fx9.tid -ToState 'VALIDATING'
 Assert-S6That ([bool]$vt9.ok) 'S6-9 task validating'
 $rt9 = Invoke-OrchestrationTaskTransition -TaskId $fx9.tid -ToState 'REVIEWING' -Actor 'planner' -ExpectedRevision ([int]$vt9.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $fx9.f.tasks -FlagsPath $fx9.f.flags -TelemetryRoot $fx9.f.tele
 Assert-S6That ([bool]$rt9.ok) 'S6-9 task reviewing'
-$verJson9 = (@{ ok = $true; task_id = 's6-verifier'; status = 'verified_pass'; reason = 's6 verifier read-back'; scope = $null; profiles = @(); evidence = @('criterion:0:artifact-bytes=12;expected-match=True', 'criterion:0:file=s6-a.txt'); command_classes = @('test') } | ConvertTo-Json -Depth 8 -Compress)
-$sv9 = Set-OrchestrationTaskVerification -TaskId $fx9.tid -VerifierEvidenceJson $verJson9 -ExpectedRevision ([int]$rt9.revision) -TasksDir $fx9.f.tasks -FlagsPath $fx9.f.flags
-Assert-S6That ([bool]$sv9.ok) 'S6-9 fresh verification recorded'
+$sv9 = Invoke-TaskKernelVerifyRun -TaskId $fx9.tid -ExpectedRevision ([int]$rt9.revision) -TasksDir $fx9.f.tasks -FlagsPath $fx9.f.flags -RepoRoot $fx9.f.repo
+Assert-S6That ((([bool]$sv9.ok) -and ([bool]$sv9.passed)) -and (([string]$sv9.status -ceq 'verified_pass') -and ([string]$sv9.verification_source -ceq 'kernel-executed'))) 'S6-9 kernel verification executed from the committed plan'
 $sr9 = Set-OrchestrationTaskReview -TaskId $fx9.tid -Kind 'reviewer' -Status 'approved' -By 'reviewer-1' -ExpectedRevision ([int]$sv9.revision) -TasksDir $fx9.f.tasks -FlagsPath $fx9.f.flags
 Assert-S6That ([bool]$sr9.ok) 'S6-9 fresh review recorded'
 $dn9 = Complete-OrchestrationTask -TaskId $fx9.tid -Actor 'planner' -ExpectedRevision ([int]$sr9.revision) -ResidualRisks @('s6-fixture-residual') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $fx9.f.tasks -FlagsPath $fx9.f.flags -TelemetryRoot $fx9.f.tele
@@ -341,9 +392,8 @@ $vtX = Invoke-OrchestrationTaskTransition -TaskId $fxX.tid -ToState 'VALIDATING'
 Assert-S6That ([bool]$vtX.ok) 'S6-10 task A validating'
 $rtX = Invoke-OrchestrationTaskTransition -TaskId $fxX.tid -ToState 'REVIEWING' -Actor 'planner' -ExpectedRevision ([int]$vtX.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $fxX.f.tasks -FlagsPath $fxX.f.flags -TelemetryRoot $fxX.f.tele
 Assert-S6That ([bool]$rtX.ok) 'S6-10 task A reviewing'
-$verJsonX = (@{ ok = $true; task_id = 's6-verifier'; status = 'verified_pass'; reason = 's6 verifier read-back'; scope = $null; profiles = @(); evidence = @('criterion:0:artifact-bytes=12;expected-match=True', 'criterion:0:file=s6-a.txt'); command_classes = @('test') } | ConvertTo-Json -Depth 8 -Compress)
-$svX = Set-OrchestrationTaskVerification -TaskId $fxX.tid -VerifierEvidenceJson $verJsonX -ExpectedRevision ([int]$rtX.revision) -TasksDir $fxX.f.tasks -FlagsPath $fxX.f.flags
-Assert-S6That ([bool]$svX.ok) 'S6-10 fresh verification recorded for A'
+$svX = Invoke-TaskKernelVerifyRun -TaskId $fxX.tid -ExpectedRevision ([int]$rtX.revision) -TasksDir $fxX.f.tasks -FlagsPath $fxX.f.flags -RepoRoot $fxX.f.repo
+Assert-S6That ((([bool]$svX.ok) -and ([bool]$svX.passed)) -and (([string]$svX.status -ceq 'verified_pass') -and ([string]$svX.verification_source -ceq 'kernel-executed'))) 'S6-10 kernel verification executed for A'
 $srX = Set-OrchestrationTaskReview -TaskId $fxX.tid -Kind 'reviewer' -Status 'approved' -By 'reviewer-1' -ExpectedRevision ([int]$svX.revision) -TasksDir $fxX.f.tasks -FlagsPath $fxX.f.flags
 Assert-S6That ([bool]$srX.ok) 'S6-10 fresh review recorded for A'
 $dnX = Complete-OrchestrationTask -TaskId $fxX.tid -Actor 'planner' -ExpectedRevision ([int]$srX.revision) -ResidualRisks @('s6-fixture-residual') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $fxX.f.tasks -FlagsPath $fxX.f.flags -TelemetryRoot $fxX.f.tele
@@ -387,6 +437,27 @@ $wXx = Invoke-ProductiveSettleAndContinue -GoalId $fxX.gid -GoalStoreDir $fxX.f.
 Assert-S6That ((($null -ne $wXx) -and (-not [bool]$wXx.ok)) -and (-not [bool]$wXx.continuation_attempted)) 'S6-10 cross-settlement replay HOLDS, never continues B'
 Assert-S6That (([string]$wXx.reason -like '*correlation*') -and ($null -eq $wXx.continuation)) 'S6-10 HOLD names correlation and prepares nothing'
 Assert-S6That (((Get-S6TaskRev $fxX.tid $fxX.f.tasks) -eq $revXBefore) -and ((Get-S6TaskRev $tidB $fxX.f.tasks) -eq $revBBefore)) 'S6-10 cross replay writes nothing new'
+# --- S6-11: caller-supplied verification stays UNTRUSTED evidence.
+# Same positive chain, but the mark comes from Set-OrchestrationTaskVerification
+# (caller JSON): the DONE gate must still refuse it. Proves the caller route
+# was kept as evidence only and never promoted to proof.
+$fxU = New-S6NativeFixture -Tag 'untrusted'
+$liveRevU = [long](Get-OrchestrationGoal -GoalId $fxU.gid -StoreDir $fxU.f.goal).goal['revision']
+$wU = Invoke-ProductiveSettleAndContinue -GoalId $fxU.gid -GoalStoreDir $fxU.f.goal -DispatchStoreDir $fxU.f.dispatch -TasksDir $fxU.f.tasks -FlagsPath $fxU.f.flags -TelemetryRoot $fxU.f.tele -ReceiptDir $fxU.f.receipt -EvidenceStoreDir $fxU.f.evidence -CheckpointDir $fxU.f.ckpt -TaskId $fxU.tid -AttemptRole 'coder' -SessionId $fxU.sess -OwnerId 'owner-s6' -Generation $fxU.gen -ExpectedRevision $liveRevU -User 'u' -Project 'p' -Runtime 'V1' -Grants $script:S6Full -WorkerStatus 'candidate_pass' -WorkerProducedBy 'coder' -WorkerEvidence @('criterion:0') -WorkItemId $fxU.wid -NativeSettlementContext $fxU.ctx -ContinuationAuthorization $fxU.authND -Productive
+Assert-S6That ((($null -ne $wU) -and [bool]$wU.ok) -and [bool]$wU.settled) 'S6-11 fixture settles before the untrusted-mark attempt'
+$vRevU = Get-S6TaskRev $fxU.tid $fxU.f.tasks
+$vtU = Invoke-OrchestrationTaskTransition -TaskId $fxU.tid -ToState 'VALIDATING' -Actor 'planner' -ExpectedRevision $vRevU -ActorIdentitySource 'explicit-cli' -TasksDir $fxU.f.tasks -FlagsPath $fxU.f.flags -TelemetryRoot $fxU.f.tele
+Assert-S6That ([bool]$vtU.ok) 'S6-11 task validating'
+$rtU = Invoke-OrchestrationTaskTransition -TaskId $fxU.tid -ToState 'REVIEWING' -Actor 'planner' -ExpectedRevision ([int]$vtU.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $fxU.f.tasks -FlagsPath $fxU.f.flags -TelemetryRoot $fxU.f.tele
+Assert-S6That ([bool]$rtU.ok) 'S6-11 task reviewing'
+$callerJsonU = (@{ ok = $true; task_id = 's6-caller'; status = 'verified_pass'; evidence = @('criterion:0:verified'); command_classes = @('test') } | ConvertTo-Json -Depth 6 -Compress)
+$svU = Set-OrchestrationTaskVerification -TaskId $fxU.tid -VerifierEvidenceJson $callerJsonU -ExpectedRevision ([int]$rtU.revision) -TasksDir $fxU.f.tasks -FlagsPath $fxU.f.flags
+$svURec = (Get-OrchestrationTask -TaskId $fxU.tid -TasksDir $fxU.f.tasks)['verification']
+Assert-S6That (([bool]$svU.ok) -and (([string]$svURec['verification_source'] -ceq 'caller-supplied') -and (-not [bool]$svURec['verifier_executed']))) 'S6-11 caller route persists untrusted marks only'
+$srU = Set-OrchestrationTaskReview -TaskId $fxU.tid -Kind 'reviewer' -Status 'approved' -By 'reviewer-1' -ExpectedRevision ([int]$svU.revision) -TasksDir $fxU.f.tasks -FlagsPath $fxU.f.flags
+Assert-S6That ([bool]$srU.ok) 'S6-11 review recorded'
+$dnU = Complete-OrchestrationTask -TaskId $fxU.tid -Actor 'planner' -ExpectedRevision ([int]$srU.revision) -ResidualRisks @('s6-fixture-residual') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $fxU.f.tasks -FlagsPath $fxU.f.flags -TelemetryRoot $fxU.f.tele
+Assert-S6That (((-not [bool]$dnU.ok) -and (([string]$dnU.error) -ceq 'COMPLETION_GATE_FAILED')) -and (@($dnU.reasons) -contains 'verification-untrusted')) 'S6-11 caller-supplied verification never satisfies the DONE gate'
 try { Remove-Item -LiteralPath $fx0.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $fx1.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $fxL.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
@@ -397,4 +468,5 @@ try { Remove-Item -LiteralPath $fx7.f.root -Recurse -Force -ErrorAction Silently
 try { Remove-Item -LiteralPath $fx8.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $fx9.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -LiteralPath $fxX.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+try { Remove-Item -LiteralPath $fxU.f.root -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 'PASS: {0}' -f $passed

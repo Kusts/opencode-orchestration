@@ -270,12 +270,12 @@ function Get-TaskBytesHash {
 }
 
 function New-DemoTask {
-    param([string]$TasksDir, [string]$FlagsPath, [string]$Root, [string]$Id = 'demo-task-001', [string]$Risk = 'low')
+    param([string]$TasksDir, [string]$FlagsPath, [string]$Root, [string]$Id = 'demo-task-001', [string]$Risk = 'low', [string[]]$Profiles = @())
     return (New-OrchestrationTask -TaskId $Id -Objective 'Fix the widget renderer' -TaskType 'implementation' `
         -Risk $Risk -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
         -RuntimeVersion '1.18.32' -ReadScopes @('src/widget') -WriteScopes @('src/widget') `
         -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') `
-        -AttemptBudget 3 -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $Root)
+        -AttemptBudget 3 -VerificationProfiles @($Profiles) -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $Root)
 }
 
 $roots = New-Object System.Collections.ArrayList
@@ -418,8 +418,8 @@ try {
 
     # helper: drive a task to REVIEWING with candidate result
     function Invoke-GateFixture {
-        param([string]$Id, [string]$Risk = 'low', [string]$Evidence = 'criterion:0:widget renders')
-        $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $Id -Risk $Risk
+        param([string]$Id, [string]$Risk = 'low', [string]$Evidence = 'criterion:0:widget renders', [string[]]$Profiles = @())
+        $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $Id -Risk $Risk -Profiles $Profiles
         $null = Invoke-OrchestrationTaskTransition -TaskId $Id -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
         $null = Invoke-OrchestrationTaskTransition -TaskId $Id -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
         $null = Set-OrchestrationTaskWorkerResult -TaskId $Id -Status 'candidate_pass' -ClaimedEvidence @($Evidence) -ProducedBy 'coder' -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
@@ -470,11 +470,11 @@ try {
     $c5 = Complete-OrchestrationTask -TaskId 'gate-nosec-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     Assert-TaskKernel ((-not [bool]$c5.ok) -and (@($c5.reasons) -contains 'security-review-not-approved')) 'gate blocks high-risk DONE without security approval'
 
-    # 16b. REGRESSION (ROUTER-V14-SCOPED-DONE): a plan-bearing task
+    # 16b. REGRESSION (UNIVERSAL DONE, P0-207): a plan-bearing task
     # (committed non-empty verification_profiles) with candidate_pass +
     # caller-supplied verified_pass + approved review cannot complete DONE.
-    # Only kernel-executed verification is proof-capable for scoped tasks.
-    # Plan-less tasks with no model_attempts stay legacy-compatible (16c).
+    # Only kernel-executed verification is proof-capable, for every task:
+    # there is no legacy caller-supplied completion path anymore (16c).
     $null = New-OrchestrationTask -TaskId 'gate-callerverify-001' -Objective 'Fix the widget renderer' -TaskType 'implementation' `
         -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
         -RuntimeVersion '1.18.32' -ReadScopes @('src/widget') -WriteScopes @('src/widget') `
@@ -494,10 +494,11 @@ try {
     $gCaller = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
     Assert-TaskKernel ((-not [bool]$cCaller.ok) -and ([string]$cCaller.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cCaller.reasons) -contains 'verification-not-kernel-executed') -and ($beforeCaller -ceq $afterCaller) -and ([string]$gCaller['state'] -ceq 'REVIEWING') -and ([int]$gCaller['revision'] -eq 8)) 'scoped plan-bearing task: caller-supplied verified_pass never completes DONE (verification-not-kernel-executed, state/revision unchanged)'
 
-    # A plan-bearing task remains scoped if its current plan/attempt arrays are
-    # accidentally or manually cleared after creation. The creation-time
-    # verification contract marker must keep the DONE gate from reclassifying
-    # it as legacy-compatible.
+    # A plan-bearing task remains proof-required even if its current
+    # plan/attempt arrays are accidentally or manually cleared after
+    # creation. The creation-time verification contract marker keeps the
+    # DONE gate from ever treating it as completable via caller-supplied
+    # input (universal rule: no task DONEs on caller-supplied marks).
     $downgradeRec = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
     $downgradeRec['verification_profiles'] = @()
     $downgradeRec['model_attempts'] = @()
@@ -509,15 +510,37 @@ try {
     $gDowngrade = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
     Assert-TaskKernel ((-not [bool]$cDowngrade.ok) -and ([string]$cDowngrade.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cDowngrade.reasons) -contains 'verification-not-kernel-executed') -and ($beforeDowngradeComplete -ceq $afterDowngradeComplete) -and ([string]$gDowngrade['state'] -ceq 'REVIEWING')) 'scoped plan-bearing task cannot be downgraded by clearing current plan/attempt arrays'
 
-    # 16c. LEGACY COMPAT: plan-less task with no model_attempts preserves
-    # the pre-v1.4 completion contract (caller Set result may remain
-    # sufficient). Scoped gate must not emit verification-not-kernel-executed.
+    # 16c. LEGACY WITHOUT PLAN CANNOT DONE (P0-207): a plan-less legacy
+    # task with no model_attempts attempts completion with a plausible
+    # caller-supplied verified_pass plus approved review. The universal gate
+    # refuses with the existing reasons, writes nothing (no DONE, no
+    # state/revision/bytes change), and preserves readable verification,
+    # history and caller evidence without creating a plan, a marker, or
+    # synthetic proof. Legacy records stay preserved for reading/history.
+    # This fixture has no existing trusted proof and caller input cannot
+    # create one; fresh verify-run requires a precommitted plan, so this
+    # fixture remains blocked (a valid pre-existing trusted proof would be
+    # handled by the ordinary gate).
     Invoke-GateFixture -Id 'gate-legacy-001'
     $null = Invoke-VerifyFixture -Id 'gate-legacy-001' -Rev 6
     $null = Set-OrchestrationTaskReview -TaskId 'gate-legacy-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
+    $legacyFile = Join-Path $t.tasks 'gate-legacy-001.json'
+    $legacyBytesBefore = Get-TaskBytesHash -Path $legacyFile
+    $legacyRecBefore = Get-OrchestrationTask -TaskId 'gate-legacy-001' -TasksDir $t.tasks
+    $legacyRevBefore = [int]$legacyRecBefore['revision']
     $cLegacy = Complete-OrchestrationTask -TaskId 'gate-legacy-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $legacyBytesAfter = Get-TaskBytesHash -Path $legacyFile
     $gLegacy = Get-OrchestrationTask -TaskId 'gate-legacy-001' -TasksDir $t.tasks
-    Assert-TaskKernel (([bool]$cLegacy.ok) -and ([string]$gLegacy['state'] -ceq 'DONE') -and (@($cLegacy.reasons) -notcontains 'verification-not-kernel-executed')) 'legacy plan-less task without model attempts still completes DONE via caller-supplied verification (scoped gate only)'
+    Assert-TaskKernel ((-not [bool]$cLegacy.ok) -and ([string]$cLegacy.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cLegacy.reasons) -contains 'verification-not-kernel-executed') -and (@($cLegacy.reasons) -contains 'verification-untrusted') -and ($legacyBytesBefore -ceq $legacyBytesAfter) -and ([int]$gLegacy['revision'] -eq $legacyRevBefore) -and ([string]$gLegacy['state'] -ceq 'REVIEWING')) 'plan-less legacy task without plan cannot DONE via caller-supplied verification (universal gate, state/revision/bytes unchanged)'
+    $legacyPlans = @($gLegacy['verification_profiles'] | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    $legacyAttempts = @($gLegacy['model_attempts'] | Where-Object { $null -ne $_ })
+    $legacyMarker = ''
+    try { if ($null -ne $gLegacy['completion_verification_contract']) { $legacyMarker = ([string]$gLegacy['completion_verification_contract']).Trim() } } catch { $legacyMarker = '' }
+    $legacyHist = @($gLegacy['history'] | Where-Object { $null -ne $_ })
+    $legacyVHist = @($gLegacy['verification_history'] | Where-Object { $null -ne $_ })
+    Assert-TaskKernel (([bool]$gLegacy['verification']['passed']) -and ([string]$gLegacy['verification']['status'] -ceq 'verified_pass') -and ([string]$gLegacy['verification']['verification_source'] -ceq 'caller-supplied') -and ($legacyPlans.Count -eq 0) -and ($legacyAttempts.Count -eq 0) -and ([string]::IsNullOrWhiteSpace($legacyMarker)) -and ($legacyHist.Count -gt 0) -and ($legacyVHist.Count -gt 0)) 'refused legacy DONE preserves readable caller evidence and history with no plan, attempts, marker or synthetic proof'
+    $gateLegacy = Test-OrchestrationTaskCompletion -TaskId 'gate-legacy-001' -TasksDir $t.tasks -OrchestrationCompliance 'COMPLIANT' -ResidualRisks @('none')
+    Assert-TaskKernel ((-not [bool]$gateLegacy.complete) -and (@($gateLegacy.reasons) -contains 'verification-not-kernel-executed') -and (@($gateLegacy.reasons) -contains 'verification-untrusted')) 'DONE gate reports universal refusal reasons for plan-less legacy task'
 
     # 17. happy path e2e writes DONE only when the full gate passes (TRUSTED
     # kernel-executed verify-run against the committed plan + isolated repo).
@@ -539,13 +562,19 @@ try {
     Write-TaskKernelFixture -Path $hPol -Text $hJson
     & git -C $hRepo add -A *>$null
     & git -C $hRepo commit -m init -q *>$null
+    $hNorm = ''
+    try { $hNorm = [IO.Path]::GetFullPath($hRepo) } catch { $hNorm = $hRepo }
+    $hBudgetPol = ''
+    try { $hBudgetPol = Get-ExecutionBudgetDefaultPolicyPath } catch { $hBudgetPol = '' }
     $h = New-OrchestrationTask -TaskId 'happy-001' -Objective 'Fix the widget renderer' -TaskType 'implementation' `
         -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
         -RuntimeVersion '1.18.32' -BaseRevision 'HEAD' -ReadScopes @('src/widget') -WriteScopes @('src/widget') `
         -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') `
         -VerificationProfiles @('passes') `
-        -AttemptBudget 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+        -AttemptBudget 3 -BudgetPolicyPath $hBudgetPol -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $hRepo -TelemetryRoot $t.root
     Assert-TaskKernel ([bool]$h.ok) 'happy path create ok (committed verification plan + base revision)'
+    $hRec0 = Get-OrchestrationTask -TaskId 'happy-001' -TasksDir $t.tasks
+    Assert-TaskKernel ([string]$hRec0['verification_repo_root'] -ceq $hNorm) 'creation persists normalized verification_repo_root'
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 3 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
@@ -558,7 +587,25 @@ try {
     $null = Set-OrchestrationTaskReview -TaskId 'happy-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
     $done = Complete-OrchestrationTask -TaskId 'happy-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none outstanding') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $gd = Get-OrchestrationTask -TaskId 'happy-001' -TasksDir $t.tasks
-    Assert-TaskKernel (([bool]$done.ok) -and ([string]$gd['state'] -ceq 'DONE') -and ([int]$gd['revision'] -eq 9) -and ((@($gd['residual_risks']) -join ',') -ceq 'none outstanding')) 'happy path writes DONE with residual risks and bumped revision'
+    Assert-TaskKernel (([bool]$done.ok) -and ([string]$gd['state'] -ceq 'DONE') -and ([int]$gd['revision'] -eq 9) -and ((@($gd['residual_risks']) -join ',') -ceq 'none outstanding')) 'kernel-executed happy path writes DONE with residual risks and bumped revision' ([string]$done.error)
+
+    # 17b. forged caller verified_pass + approved review + COMPLIANT never yields DONE
+    # Plan-bearing task: the scoped DONE gate must refuse caller JSON (16b covers the same contract).
+    Invoke-GateFixture -Id 'forged-001' -Profiles @('passes')
+    $fv = Set-OrchestrationTaskVerification -TaskId 'forged-001' -VerifierEvidenceJson (New-VerifierResultJson -Evidence @('criterion:0:verified by test run')) -ExpectedRevision 6 -TasksDir $t.tasks -FlagsPath $t.flags
+    $fvRec = Get-OrchestrationTask -TaskId 'forged-001' -TasksDir $t.tasks
+    Assert-TaskKernel (([bool]$fv.ok) -and ([bool]$fvRec['verification']['passed']) -and ([string]$fvRec['verification']['verification_source'] -ceq 'caller-supplied') -and (-not [bool]$fvRec['verification']['verifier_executed'])) 'forged caller JSON stays readable but untrusted'
+    $null = Set-OrchestrationTaskReview -TaskId 'forged-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
+    $forgedFile = Join-Path $t.tasks 'forged-001.json'
+    $forgedBytesBefore = Get-TaskBytesHash -Path $forgedFile
+    $forgedRevBefore = [int](Get-OrchestrationTask -TaskId 'forged-001' -TasksDir $t.tasks)['revision']
+    $forgedDone = Complete-OrchestrationTask -TaskId 'forged-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none outstanding') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $forgedAfterRec = Get-OrchestrationTask -TaskId 'forged-001' -TasksDir $t.tasks
+    $forgedBytesAfter = Get-TaskBytesHash -Path $forgedFile
+    Assert-TaskKernel ((-not [bool]$forgedDone.ok) -and ([string]$forgedDone.error -ceq 'COMPLETION_GATE_FAILED') -and (@($forgedDone.reasons) -contains 'verification-untrusted')) 'caller-supplied verified_pass cannot satisfy DONE (verification-untrusted)' (@($forgedDone.reasons) -join ',')
+    Assert-TaskKernel (($forgedBytesBefore -ceq $forgedBytesAfter) -and ([int]$forgedAfterRec['revision'] -eq $forgedRevBefore) -and ([string]$forgedAfterRec['state'] -cne 'DONE')) 'refused forged DONE leaves task bytes/revision unchanged'
+    $gateForged = Test-OrchestrationTaskCompletion -TaskId 'forged-001' -TasksDir $t.tasks -OrchestrationCompliance 'COMPLIANT' -ResidualRisks @('none outstanding')
+    Assert-TaskKernel ((-not [bool]$gateForged.complete) -and (@($gateForged.reasons) -contains 'verification-untrusted')) 'DONE gate reports verification-untrusted for forged caller verification'
 
     # 18. DONE is terminal
     $fileDone = Join-Path $t.tasks 'happy-001.json'
@@ -697,6 +744,75 @@ try {
     $null = Set-OrchestrationTaskWorkerResult -TaskId 'secret-001' -Status 'blocked' -ClaimedEvidence @(('criterion:0:saw ' + $canary)) -ProducedBy 'coder' -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $secText2 = [IO.File]::ReadAllText($secFile, [Text.UTF8Encoding]::new($false))
     Assert-TaskKernel (($secText2 -notmatch 'sk-SYNTHETICSECRET')) 'claimed evidence canary persisted redacted'
+
+    # 30b. verification/model root binding: stored root required, caller root is assertion only
+    $rootA = Join-Path $t.root 'bind-a'
+    $rootB = Join-Path $t.root 'bind-b'
+    New-Item -ItemType Directory -Path $rootA -Force | Out-Null
+    New-Item -ItemType Directory -Path $rootB -Force | Out-Null
+    & git -C $rootA init -b master *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $rootA init *>$null }
+    & git -C $rootA config user.email 'bind@example.com' *>$null
+    & git -C $rootA config user.name 'Bind Test' *>$null
+    & git -C $rootA config core.autocrlf false *>$null
+    & git -C $rootA config core.safecrlf false *>$null
+    Write-TaskKernelFixture -Path (Join-Path $rootA 'base.txt') -Text "base`n"
+    $rbPolDir = Join-Path $rootA 'source\registry'
+    New-Item -ItemType Directory -Path $rbPolDir -Force | Out-Null
+    $rbProfObj = New-Object PSCustomObject
+    $rbProfObj | Add-Member -NotePropertyName 'passes' -NotePropertyValue ([PSCustomObject]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 60 })
+    $rbDoc = [ordered]@{ version = 1; default_timeout_seconds = 120; max_output_chars = 4000; profiles = $rbProfObj }
+    Write-TaskKernelFixture -Path (Join-Path $rbPolDir 'verification-policy.json') -Text (New-Object PSCustomObject -Property $rbDoc | ConvertTo-Json -Depth 6 -Compress)
+    & git -C $rootA add -A *>$null
+    & git -C $rootA commit -m init -q *>$null
+    $rootANorm = ''
+    try { $rootANorm = [IO.Path]::GetFullPath($rootA) } catch { $rootANorm = $rootA }
+    $rbBudgetPol = ''
+    try { $rbBudgetPol = Get-ExecutionBudgetDefaultPolicyPath } catch { $rbBudgetPol = '' }
+    $rb = New-OrchestrationTask -TaskId 'rootbind-001' -Objective 'Fix the widget renderer' -Actor 'planner' `
+        -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -BaseRevision 'HEAD' `
+        -ReadScopes @() -WriteScopes @() -Grants @('fs.read', 'fs.write') `
+        -AcceptanceCriteria @('widget renders') -VerificationProfiles @('passes') `
+        -AttemptBudget 3 -BudgetPolicyPath $rbBudgetPol -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootA -TelemetryRoot $t.root
+    Assert-TaskKernel ([bool]$rb.ok) 'root-bound task create ok' ([string]$rb.error)
+    $rbRec = Get-OrchestrationTask -TaskId 'rootbind-001' -TasksDir $t.tasks
+    Assert-TaskKernel ([string]$rbRec['verification_repo_root'] -ceq $rootANorm) 'creation stores normalized verification_repo_root' ([string]$rbRec['verification_repo_root'])
+    $rbRev = [int]$rbRec['revision']
+    $rbFile = Join-Path $t.tasks 'rootbind-001.json'
+    $rbBytesBefore = Get-TaskBytesHash -Path $rbFile
+    $rbMismatch = Invoke-TaskKernelVerifyRun -TaskId 'rootbind-001' -ExpectedRevision $rbRev -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootB
+    $rbBytesAfter = Get-TaskBytesHash -Path $rbFile
+    Assert-TaskKernel ((-not [bool]$rbMismatch.ok) -and ([string]$rbMismatch.error -ceq 'VERIFY_RUN_ROOT_MISMATCH') -and ($rbBytesBefore -ceq $rbBytesAfter)) 'verify-run with repo B refuses without mutation' ([string]$rbMismatch.error)
+    $rbProofMismatch = Get-OrchestrationTaskModelFailureProof -TaskId 'rootbind-001' -RequiredTier 'T3' -TasksDir $t.tasks -RepoRoot $rootB
+    $rbBytesAfter2 = Get-TaskBytesHash -Path $rbFile
+    Assert-TaskKernel ((-not [bool]$rbProofMismatch.ok) -and ([string]$rbProofMismatch.error -ceq 'MODEL_PROOF_ROOT_MISMATCH') -and ($rbBytesAfter -ceq $rbBytesAfter2)) 'model-proof with repo B refuses without proof' ([string]$rbProofMismatch.error)
+    $rbAttemptMismatch = Set-OrchestrationTaskModelAttempt -TaskId 'rootbind-001' -ChildSessionId 'ses_child_rb' -ExpectedRevision $rbRev -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootB
+    $rbBytesAfter3 = Get-TaskBytesHash -Path $rbFile
+    Assert-TaskKernel ((-not [bool]$rbAttemptMismatch.ok) -and ([string]$rbAttemptMismatch.error -ceq 'MODEL_ATTEMPT_ROOT_MISMATCH') -and ($rbBytesAfter2 -ceq $rbBytesAfter3)) 'model-attempt with repo B refuses without write' ([string]$rbAttemptMismatch.error)
+    $rbLegacy = New-OrchestrationTask -TaskId 'rootbind-legacy-001' -Objective 'Fix the widget renderer' -Actor 'planner' `
+        -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -BaseRevision 'HEAD' `
+        -ReadScopes @() -WriteScopes @() -Grants @('fs.read', 'fs.write') `
+        -AcceptanceCriteria @('widget renders') -VerificationProfiles @('passes') `
+        -AttemptBudget 3 -BudgetPolicyPath $rbBudgetPol -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootA -TelemetryRoot $t.root
+    Assert-TaskKernel ([bool]$rbLegacy.ok) 'legacy fixture create ok' ([string]$rbLegacy.error)
+    $rbLegacyFile = Join-Path $t.tasks 'rootbind-legacy-001.json'
+    $legacyText = [IO.File]::ReadAllText($rbLegacyFile, [Text.UTF8Encoding]::new($false))
+    $legacyDoc = ($legacyText | ConvertFrom-Json)
+    $legacyProps = @($legacyDoc.PSObject.Properties | Where-Object { $_.Name -cne 'verification_repo_root' })
+    $legacyOrdered = [ordered]@{}
+    foreach ($lp in $legacyProps) { $legacyOrdered[$lp.Name] = $lp.Value }
+    $legacyJson = ConvertTo-DeterministicJson -InputObject $legacyOrdered
+    [IO.File]::WriteAllText($rbLegacyFile, ($legacyJson + "`n"), [Text.UTF8Encoding]::new($false))
+    $legacyRec = Get-OrchestrationTask -TaskId 'rootbind-legacy-001' -TasksDir $t.tasks
+    $legacyRev = [int]$legacyRec['revision']
+    $legacyBytesBefore = Get-TaskBytesHash -Path $rbLegacyFile
+    $legacyVerify = Invoke-TaskKernelVerifyRun -TaskId 'rootbind-legacy-001' -ExpectedRevision $legacyRev -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootA
+    $legacyBytesAfter = Get-TaskBytesHash -Path $rbLegacyFile
+    Assert-TaskKernel ((-not [bool]$legacyVerify.ok) -and ([string]$legacyVerify.error -ceq 'VERIFY_RUN_ROOT_UNBOUND') -and ($legacyBytesBefore -ceq $legacyBytesAfter)) 'legacy task without stored root refuses verify-run without write (no migration)' ([string]$legacyVerify.error)
+    $legacyProof = Get-OrchestrationTaskModelFailureProof -TaskId 'rootbind-legacy-001' -RequiredTier 'T3' -TasksDir $t.tasks -RepoRoot $rootA
+    Assert-TaskKernel ((-not [bool]$legacyProof.ok) -and ([string]$legacyProof.error -ceq 'MODEL_PROOF_ROOT_UNBOUND')) 'legacy task without stored root refuses model-proof' ([string]$legacyProof.error)
+    $legacyAttempt = Set-OrchestrationTaskModelAttempt -TaskId 'rootbind-legacy-001' -ChildSessionId 'ses_child_rb' -ExpectedRevision $legacyRev -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootA
+    Assert-TaskKernel ((-not [bool]$legacyAttempt.ok) -and ([string]$legacyAttempt.error -ceq 'MODEL_ATTEMPT_ROOT_UNBOUND')) 'legacy task without stored root refuses model-attempt' ([string]$legacyAttempt.error)
 
     # 31. concurrency: two child processes racing one CAS revision => exactly one wins
     $cc = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id 'race-001'

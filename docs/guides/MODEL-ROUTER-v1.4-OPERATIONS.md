@@ -6,17 +6,17 @@
 |---|---|---|---|
 | T0 | No LLM | — | Scripts, AST and deterministic checks only |
 | T1 | `opencode-go/iceman-contributor-free` | `opencode/mimo-v2.6-flash-free` | OpenCode Console free offers may expire; same-tier only, never upgrades to higher tier |
-| T2 | `opencode-go/muse-spark-1.3-contributor` | `claude-agent/haiku` (capability + proved no-start required), then `openai/gpt-6-luna` | Static candidate order only: Muse -> Haiku -> Luna; productive fallback is HOLD. Transport exhaustion never upgrades to higher tier. Planner `build` is Luna T2 fixed (no automatic build fallback configured). |
-| T3 | `claude-agent/sonnet` | Candidate order: `openai/gpt-6.1-terra`, then Muse/DeepSeek only for roles admissible to T2 | Sonnet/Terra are static candidates, not executable availability fallbacks; productive transport routing is HOLD. A verified functional failure of executed Sonnet may authorize T4 Opus via the Task Kernel. Engineering-advisor remains T3-only (no T2). DeepSeek Go remains BLOCKED (`ZDR_EXPIRED_UNCONFIRMED`). |
-| T4 | `claude-agent/opus` | Candidate order: `openai/gpt-6.1-sol`; Astra exceptional after kernel-owned Opus failure proof; Fable remains HOLD pending model-specific proof | Opus/Sol are static candidates, not executable transport fallback. T4 selection follows verified T3 proof without manual per-call approval. Astra/Fable retain exceptional proof gates. Availability never escalates tier. |
+| T2 | `opencode-go/deepseek-v4.1-flash` | `opencode-go/muse-spark-1.3-contributor`, then `claude-agent/haiku` (capability + proved no-start required), then `openai/gpt-6-luna` | Static candidate order only: DeepSeek Go -> Muse -> Haiku -> Luna; productive fallback is HOLD. Transport exhaustion never upgrades to higher tier. Planner `build` is Luna T2 fixed (no automatic build fallback configured). |
+| T3 | `claude-agent/sonnet` | Candidate order: `openai/gpt-6.1-terra`, then DeepSeek Go/Muse only for roles admissible to T2 (DeepSeek first, then Muse) | Sonnet/Terra are static candidates, not executable availability fallbacks; productive transport routing is HOLD. A verified functional failure of executed Sonnet may authorize T4 Opus via the Task Kernel. Engineering-advisor remains T3-only (no T2). Legacy Console `opencode/deepseek-v4.1-flash-free` stays disabled/excluded. |
+| T4 | `claude-agent/opus` | Candidate order: `openai/gpt-6.1-sol` (same-tier); downgraded audit-only DeepSeek Go→Muse T2 candidates only for T2-admissible roles (policy-level, no runtime retry); Astra exceptional after kernel-owned Opus failure proof; Fable remains HOLD pending model-specific proof | Opus/Sol are same-tier static candidates, not executable transport fallback; T2 downgrade candidates are audit-only HOLD for T2-admissible roles (critical reviewer/security/advisor/architect and non-T2 roles stay REJECTED_DOWNGRADE_FORBIDDEN). T4 selection follows verified T3 proof without manual per-call approval. Astra/Fable retain exceptional proof gates. Availability never escalates tier. |
 
-DeepSeek V4.1 Flash via OpenCode Go (`opencode-go/deepseek-v4.1-flash`) is BLOCKED as of 2026-11-04: public Go docs show a ZDR agreement valid only through 2026-10-31 and renewal is unconfirmed; the router excludes it (`MODEL_DISABLED`, `ZDR_EXPIRED_UNCONFIRMED`) while other admissible routes remain operational. The entry is kept for provenance. Honor the effective model data policy and workspace privacy restrictions.
+DeepSeek V4.1 Flash via OpenCode Go (`opencode-go/deepseek-v4.1-flash`) is the operator-selected T2 primary per 2026-11-04 addendum (DeepSeek Go -> Muse -> Haiku -> Luna). Public Go docs show a ZDR agreement valid only through 2026-10-31 and renewal remains unconfirmed as of 2026-11-04; ZDR status stays `expired-unconfirmed` with no renewal/compliance claimed. Enabled by explicit operator authorization. Do not send sensitive data whose protection requires ZDR; use only for non-sensitive data and workspaces permitting this provider until ZDR status is verified (`sensitive_data_allowed=false`). Honor the effective model data policy and workspace privacy restrictions.
 
 ## Provider namespace: do not infer it from price
 
 The routing policy binds **four OpenAI models** directly to the `openai/` provider: Luna (`openai/gpt-6-luna`), Terra (`openai/gpt-6.1-terra`), Sol (`openai/gpt-6.1-sol`) and Astra (`openai/gpt-6-astra`). Do not silently substitute an OpenCode-hosted copy of these models.
 
-The free MiMo fallback belongs to the **OpenCode Console free** provider (`opencode/mimo-v2.6-flash-free`). Despite its *Free* pricing label, Iceman Contributor Free is listed by OpenCode under **OpenCode Go** (`opencode-go/iceman-contributor-free`), not `opencode/`. Muse Spark 1.3 Contributor (`opencode-go/muse-spark-1.3-contributor`) also uses **OpenCode Go**. The disabled legacy `opencode/deepseek-v4.1-flash-free` must not become an implicit fallback. The blocked `opencode-go/deepseek-v4.1-flash` must not become an implicit fallback either.
+The free MiMo fallback belongs to the **OpenCode Console free** provider (`opencode/mimo-v2.6-flash-free`). Despite its *Free* pricing label, Iceman Contributor Free is listed by OpenCode under **OpenCode Go** (`opencode-go/iceman-contributor-free`), not `opencode/`. Muse Spark 1.3 Contributor (`opencode-go/muse-spark-1.3-contributor`) also uses **OpenCode Go**. The disabled legacy `opencode/deepseek-v4.1-flash-free` must not become an implicit fallback.
 
 ## Claude Agent provider (`claude-agent`, subscription)
 
@@ -49,9 +49,9 @@ Official catalogs: https://opencode.ai/v2/docs/console/models/ and https://openc
 
 1. Provider/model transport faults (`RATE_LIMIT`, `PROVIDER_ERROR`, `MODEL_UNAVAILABLE`, `MODEL_ERROR`, `SERVICE_UNAVAILABLE`, plus the availability classes `QUOTA_EXCEEDED` and `OFFLINE`) reported by the test-only `DispatchExecutor` seam NEVER authorize retry or fallback. `NoExecutionStarted` received from that seam is an untrusted caller-supplied boolean, NOT proof that no execution started, and a caller-supplied boolean can never prove a negative. The execution wrapper makes exactly ONE dispatch call: a transport-failure signal without an independently observed `Model` yields `PROOF_ABSENT` (`transport-failure-no-proof`, fail-closed hold), never a second call and never `EXECUTED_VERIFIED`. OpenCode 2.2.5 exposes no automatic primary-model fallback that this package relies on. A Luna Planner is a manual configuration change, never a runtime retry. Do not retry unknown failures, missing dispatch telemetry or timeouts of ambiguous outcome.
    - **Fallback resolver (audit/HOLD):** `Resolve-OrchestrationModelFallback` only enumerates candidate order for audit and returns HOLD with `CandidateModel` non-authorizing, `FallbackModel = null`, `IsAuthorized = false`. No-start booleans and errors/timeouts are untrusted; without independent proof there is no replay. `Invoke-OrchestrationModelExecution` follows single-call only. Productive fallback capacity remains HOLD until reliable proof of no-start exists. A deterministic matrix test may report candidate order but performs no dispatch.
-2. T1 Iceman -> MiMo; T2 Muse -> Haiku -> Luna are ordered policy candidates. Technical fallback resolver is audit/HOLD only and does not replay. T1/T2 transport exhaustion never upgrades to a higher tier. DeepSeek Go remains BLOCKED (`ZDR_EXPIRED_UNCONFIRMED`).
-2b. `FailureCount` never promotes Coder or engineering-advisor. Coder low/simple stays T2 and complex work selects T3 by role policy. Engineering-advisor is T3 Sonnet primary with Terra candidate, T2 prohibited. The fallback resolver never executes or retries; a functional escalation requires Task Kernel proof.
-3. T3 Sonnet -> Terra and T4 Opus -> Sol are static candidate orders/HOLD for transport; neither transport class proves incapacity or authorizes a substitute. T3 capability failure proof is bound to the executed Sonnet primary. T2 downgrade candidates (Muse/DeepSeek) are audit-only and restricted to T2-admissible roles; DeepSeek remains blocked. Reviewers/security fail closed below their minimums; engineering-advisor never uses T2.
+2. T1 Iceman -> MiMo; T2 DeepSeek Go -> Muse -> Haiku -> Luna are ordered policy candidates. Technical fallback resolver is audit/HOLD only and does not replay. T1/T2 transport exhaustion never upgrades to a higher tier. DeepSeek Go is the operator-authorized T2 primary (ZDR expired-unconfirmed, no renewal claimed; do not send sensitive data whose protection requires ZDR).
+2b. `FailureCount` never promotes Coder or engineering-advisor. Coder low/simple stays T2 and complex work selects T3 by role policy. Engineering-advisor is T3 Sonnet primary with Terra candidate, T2 prohibited. Architect/security-reviewer likewise never use T2. The fallback resolver never executes or retries; a functional escalation requires Task Kernel proof.
+3. T3 Sonnet -> Terra and T4 Opus -> Sol are same-tier static candidate orders/HOLD for transport; neither transport class proves incapacity or authorizes a substitute. T3 capability failure proof is bound to the executed Sonnet primary. T2 downgrade candidates (DeepSeek Go first, then Muse) are audit-only HOLD for T3/T4 transport and restricted to T2-admissible roles (policy-level candidates only, no runtime retry); DeepSeek Go is operator-authorized T2 primary with ZDR expired-unconfirmed and no renewal claimed (do not send sensitive data whose protection requires ZDR). Medium/low reviewers admit T2; high/critical reviewers and security fail closed below their minimums; engineering-advisor/architect never use T2.
 4. T3 primary Sonnet -> T4 primary Opus is allowed ONLY via kernel-owned proof: `Get-OrchestrationTaskModelFailureProof -TaskId <id> -RequiredTier T3` must return `ok=true` with matching `policy_hash` and canonical primary Sonnet model/provider. The proof is for the executed tier primary, not a transport candidate. Arbitrary `-T3FailureVerified`, receipts, `FailureCount` or caller text are `DEPRECATED_UNTRUSTED`. The Planner entry point is read-only `task-kernel model-select`.
 5. A kernel-owned T4 proof for the executed Opus primary, plus prior T3 proof, allows `task-kernel model-select` to choose Astra when policy/role allow; no per-call manual approval is required. Astra/Fable retain their exceptional gates. Fable remains HOLD because current proof binds to the tier primary and no model-specific failed Astra attempt is available. The Kernel checks T4 proof before prior T3 history so the sticky chain is preserved. Astra remains non-default and actual spend must be recorded.
 6. `EXACT_MATCH` / `AUTHORIZED_FALLBACK` proof is required for verified model identity. `PROOF_ABSENT` is not execution proof and must never mark Task Kernel DONE. Maintain provider identity, attempted model set, policy hash and effective tier in trace.
@@ -64,38 +64,47 @@ Exact native model arg syntax is `providerID/modelID` (for example `openai/gpt-6
 
 1. Commit the task verification profile plan BEFORE any model execution: `task-kernel -Action create -TaskId <id> -Objective <text> ... -VerifierProfiles failer [...]` (plan is immutable; `verify-run` executes exactly the committed plan).
 2. Planner reads the selection (no dispatch): `task-kernel -Action model-select -TaskId <id> -AttemptRole coder -Risk medium -ModelComplexity complex [-TaskType implementation] [-RequiresLlm]`. Path flags (`-TasksDir`, `-CliRepoRoot`, `-PolicyPath`, `-FlagsPath`) are compat-only: omit them to use the canonical paths derived from the script; any divergent value returns `TRUSTED_PATH_MISMATCH` before IO, never another store/policy. Returns `tier`, `model` (`providerID/modelID`: T4 Opus on a valid T3 primary-failure proof, Astra on a later valid T4 Opus-failure proof), `provider`, `policy_hash`, `policy_version`, `native_model_override_proven` (true only when the CURRENT live local OpenCode server version from bounded read-only `opencode api get /api/info` is exactly in the supported allowlist `2.2.5`/`2.0.23`; TaskKernel `runtime.profile`/`runtime.version` are caller-supplied observability metadata and never authorize the override; unknown/missing live API fails closed with blank `model`/`subagent_model`), and for T4 the kernel `kernel_proof_reference`/`kernel_proof_digest` (T4 ref/digest on the Astra path, never the older T3 ref). Residual assumption: local `/api/info` reaches the same local OpenCode server that receives the Planner's subsequent native `subagent` call; no session/dispatch-endpoint binding is proven.
-3. Planner dispatches ONE native subagent with the returned `model` value verbatim in the native `subagent` tool `model` property. Record required evidence refs `session:<child>` + `message:<assistant>` from the observed host session/message.
+3. INTENDED ONLY (unproven, unenforced): dispatch ONE native subagent with the returned `model` value verbatim in the native `subagent` tool `model` property. The refs a future binding would need to correlate are `session:<child>` + `message:<assistant>` from the observed host session/message; today they do not prove which model executed. Manual E2E note: the real Luna -> Haiku child run was manually requested by the operator then bound/recorded after observation (`model-attempt` + `verify-run`); it proves actual child/model attribution and the Kernel record for that run, not automatic productive routing — automatic selection/fallback remains unproven.
 4. Record the observation without dispatch: `task-kernel -Action model-attempt -TaskId <id> -SessionId <child> -ExpectedRevision <rev>` (persists exact refs + policy hash; no proof params; path flags compat-only as above).
 5. Execute the committed plan against the task repo: `task-kernel -Action verify-run -TaskId <id> -ExpectedRevision <rev>` (trusted kernel-executed marks; caller JSON can never yield proof; path flags compat-only as above).
 6. Recompute the gate read-only: `task-kernel -Action model-proof -TaskId <id> -RequiredTier T3|T4` (path flags compat-only as above). T3 proof is bound to the executed Sonnet primary and gates `model-select` T4 (Opus); a later valid T4 proof is bound to the executed Opus primary and may select Astra with priority over the head T3 proof. This proves primary incapability only; it does not prove a fallback model failed. `FailureCount`, risk, and receipt text never gate.
 7. Test-only `DispatchExecutor` in `Invoke-OrchestrationModelExecution` makes exactly ONE call with no retry and no automatic fallback resolution. A `NoExecutionStarted`/`FailureClass` envelope without an independently observed `Model` is a transport-failure hold (`PROOF_ABSENT` / `transport-failure-no-proof`), never verified execution. Pre-dispatch native fallback is HOLD (unimplemented): keep any native no-child transport failure blocked with no retry. Do not claim T1/T2 fallback E2E from simulations; native real tests are T0-T2 only and do NOT cover fallback (existing real T1/T2 evidence; never rerun paid T3/Sol/Astra).
 
+## Native dispatch binding: NOT_PROVEN (`model-select` / G1)
+
+No G1 binding of the canonical `model-select` output to the native `subagent` tool call exists yet, and no trustworthy actual-model event is correlated to TaskId + child session + attempt + policy hash + receipt — productive execution and the actually executed model stay NOT_PROVEN. Do not simulate the binding with test seams, synthetic receipts, or caller booleans. Escalations T3 Sonnet -> T4 Opus and Opus -> Astra stay gated exclusively by kernel-owned proof (`model-proof` T3/T4, policy above), and ambiguous timeout/failure never authorizes retry or replay. The manually requested Luna -> Haiku child E2E (bound/recorded after observation) demonstrates attribution for that run only; it does not establish a productive binding.
+
 Role/privacy/cost notes: Planner `build` stays on Luna (T2) with `MODEL_PLANNER`; engineering-advisor is T3 Sonnet primary, Terra candidate, T2 prohibited. Reviewer high/critical and Security Reviewer cannot downgrade to T2. Researcher/Explorer/Docs Manager start T1; Tester preserves T0 and uses T1/T2 as needed, with no automatic T3/T4 route. T4/Opus follows verified T3 primary failure without per-call approval; Astra is exceptional and its actual spend must be recorded. `DIRECT_VERIFIED` is classifier-approved only (preflight trivial + low-risk + `DIRECT_VERIFIED_*` reason) and is Planner LLM cost, not zero-cost T0. Unknown failures, missing dispatch telemetry and ambiguous timeouts never authorize retry or escalation; fail closed. The candidate matrix is static policy, not executable availability fallback.
 
-## DONE gate scope (ROUTER-V14-SCOPED-DONE-VERIFICATION)
+## DONE gate scope (UNIVERSAL-DONE-VERIFICATION, P0-207)
 
 `Test-OrchestrationTaskCompletion` / `Complete-OrchestrationTask` enforce
-`verification-not-kernel-executed` ONLY for scoped tasks: the task carries a
-committed non-empty `verification_profiles` plan OR any persisted
-`model_attempts` (Router v1.4 proof-capable path). Creation stores a sticky
-`completion_verification_contract='router-v1.4-kernel'` marker for a planned
-task; the first Kernel-recorded model attempt sets the same marker. Clearing
-the current plan/attempt arrays through an out-of-band edit therefore does
-not reclassify a marked task as legacy. For those tasks DONE
-requires `verification.status='verified_pass'` plus
-`verification_source='kernel-executed'` and `verifier_executed=true`
-(written only by `Invoke-TaskKernelVerifyRun`); caller-supplied JSON
-(`Set-OrchestrationTaskVerification`, `verification_source='caller-supplied'`)
-never completes DONE and `Complete` returns `COMPLETION_GATE_FAILED` with no
-state/revision mutation. Plan-less tasks with no `model_attempts` keep the
-pre-v1.4 completion contract for backward compatibility (caller `Set` result
-may remain sufficient for DONE). Both paths still require the remaining gate
-(candidate_pass, criterion evidence, review, risk/security, blockers,
-budgets, watchdog settlement). No caller-supplied marks ever create T3/T4
-proof: `Get-OrchestrationTaskModelFailureProof` still requires a committed
-plan plus kernel-executed marks. The marker is Kernel-store provenance, not a
-cryptographic integrity seal: direct edits to trusted local task files remain
-outside the caller/API threat boundary, as with other persisted Kernel fields.
+`verification-not-kernel-executed` (plus `verification-untrusted`) for EVERY
+Kernel-managed task. DONE requires `verification.status='verified_pass'`
+plus `verification_source='kernel-executed'` AND `source='kernel-executed'`
+with `verifier_executed=true`, `passed=true` and full criterion coverage
+(written only by `Invoke-TaskKernelVerifyRun` against the committed plan);
+caller-supplied JSON (`Set-OrchestrationTaskVerification`,
+`verification_source='caller-supplied'`) stays readable as UNTRUSTED input
+but never completes DONE, and `Complete` returns `COMPLETION_GATE_FAILED`
+with no state/revision mutation. The pre-v1.4 caller-supplied completion
+contract for plan-less legacy tasks is REMOVED: there is no legacy
+exception. A plan-less legacy task lacking an existing valid kernel-executed
+proof remains blocked with the concrete existing reasons
+(`verification-not-kernel-executed` plus `verification-untrusted`):
+caller-supplied input cannot create new trusted proof, and no fresh
+`Invoke-TaskKernelVerifyRun` is possible without the committed plan (no
+migration or rebind). Such records stay preserved for reading and history
+(verification, caller evidence and history remain queryable); the API never
+fabricates a plan, a marker, or synthetic proof for them, and ambiguous
+timeouts never replay into completion. If an already trustworthy
+kernel-executed proof exists on the record, the existing universal gate may
+accept it. The remaining gate preconditions are unchanged (candidate_pass,
+criterion evidence, review, risk/security, blockers, budgets, watchdog
+settlement). No caller-supplied marks ever create T3/T4 proof:
+`Get-OrchestrationTaskModelFailureProof` still requires a committed plan
+plus kernel-executed marks. The `completion_verification_contract` marker,
+when present on older records, is inert provenance, not a gate input.
 
 ## Deterministic tests (no inference)
 
@@ -103,6 +112,9 @@ outside the caller/API threat boundary, as with other persisted Kernel fields.
 powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterKernelProof.tests.ps1
 powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterV14.tests.ps1
 powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterHaikuPlanner.tests.ps1
+powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterClaudeAgent.tests.ps1
+powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterFableGate.tests.ps1
+powershell -NoProfile -File scripts/v3/lib/OrchestrationNativePilotHardening.tests.ps1
 powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouter.tests.ps1
 powershell -NoProfile -File tests/v3/OrchestrationDynamicModelRoutingV11.tests.ps1
 powershell -NoProfile -File scripts/v3/lib/OrchestrationModelExecution.tests.ps1
@@ -113,4 +125,4 @@ powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRoutingEtapa4.tests
 
 ## Integration caution
 
-There is NO typed safe pre-execution fallback in `Invoke-OrchestrationModelExecution` (HOLD, unimplemented): no native retry occurs and no caller-supplied `NoExecutionStarted` envelope authorizes one. The v1.4 native fallback requirement stays blocked until a runtime/Kernel-produced no-start receipt can be independently verified and correlated to the request. A caught exception, caller boolean, or unverified typed envelope never authorizes retry. The Task Kernel / full-delivery caller must supply proven T3 and Sol non-resolution receipts for capability escalations. Do not claim end-to-end availability until a real OpenCode V2 dispatch, post-execution model identity and durable task settlement have been demonstrated.
+There is NO typed safe pre-execution fallback in `Invoke-OrchestrationModelExecution` (HOLD, unimplemented): no native retry occurs and no caller-supplied `NoExecutionStarted` envelope authorizes one. The v1.4 native fallback requirement stays blocked until a runtime/Kernel-produced no-start receipt can be independently verified and correlated to the request. A caught exception, caller boolean, or unverified typed envelope never authorizes retry. The Task Kernel / full-delivery caller must supply proven Sonnet (T3) and Opus (T4) non-resolution receipts for capability escalations. Do not claim end-to-end availability until a real OpenCode V2 dispatch, post-execution model identity and durable task settlement have been demonstrated.

@@ -124,18 +124,22 @@
         "T2"
       ],
       "eligible_roles": [
+        "coder",
+        "researcher",
+        "tester",
+        "docs-manager",
+        "requirements-analyst",
+        "product-designer",
+        "explorer",
         "frontend-engineer",
         "backend-engineer",
         "database-engineer",
         "ai-agent-engineer",
         "automation-engineer",
         "infra-engineer",
-        "coder",
-        "explorer",
-        "docs-manager",
-        "researcher",
-        "tester",
-        "build"
+        "reviewer",
+        "debugger",
+        "skeptic"
       ],
       "capabilities": [
         "specialized-engineering",
@@ -143,7 +147,7 @@
         "automation",
         "api-design"
       ],
-      "priority": 1,
+      "priority": 2,
       "cost_profile": {
         "pricing_type": "plan_included",
         "relative_cost": 0.1,
@@ -201,7 +205,7 @@
         "technical-review",
         "architecture-coordination"
       ],
-      "priority": 3,
+      "priority": 4,
       "cost_profile": {
         "pricing_type": "usage_billed",
         "relative_cost": 1,
@@ -365,8 +369,8 @@
       "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
         "claude_sonnet",
-        "muse",
-        "deepseek_go"
+        "deepseek_go",
+        "muse"
       ]
     },
     "mimo": {
@@ -412,7 +416,7 @@
       "id": "deepseek_go",
       "provider": "opencode-go",
       "model_id": "opencode-go/deepseek-v4.1-flash",
-      "enabled": false,
+      "enabled": true,
       "tier_profiles": [
         "T2"
       ],
@@ -430,8 +434,9 @@
         "ai-agent-engineer",
         "automation-engineer",
         "infra-engineer",
-        "engineering-advisor",
-        "build"
+        "reviewer",
+        "debugger",
+        "skeptic"
       ],
       "capabilities": [
         "code-generation",
@@ -440,7 +445,7 @@
         "technical-analysis",
         "routine-implementation"
       ],
-      "priority": 4,
+      "priority": 1,
       "cost_profile": {
         "pricing_type": "plan_included",
         "relative_cost": 0.15,
@@ -451,15 +456,18 @@
         "max_output_tokens": 8192
       },
       "data_policy": {
-        "sensitive_data_allowed": true,
+        "sensitive_data_allowed": false,
         "zdr_status": "expired-unconfirmed",
-        "zdr_note": "Public Go docs show a ZDR agreement valid only through 2026-10-31; renewal unconfirmed as of 2026-11-04. Router excludes this entry (MODEL_DISABLED) while other admissible routes remain operational. Kept for provenance."
+        "zdr_note": "Operator-selected T2 primary per 2026-11-04 addendum (DeepSeek Go -> Muse -> Haiku -> Luna). Public Go docs show a ZDR agreement valid only through 2026-10-31; renewal remains unconfirmed as of 2026-11-04. Do not send sensitive data whose protection requires ZDR; use only for non-sensitive data and workspaces permitting this provider until ZDR status is verified; no ZDR renewal/compliance claimed. Honor workspace privacy restrictions."
       },
-      "availability_status": "blocked",
-      "availability_reason": "ZDR_EXPIRED_UNCONFIRMED",
-      "availability_note": "Blocked pending DeepSeek ZDR renewal confirmation (agreement lapsed 2026-10-31 per public Go docs).",
+      "availability_status": "active",
+      "availability_note": "Operator-authorized T2 primary per 2026-11-04 addendum despite ZDR renewal remaining unconfirmed; ZDR status stays expired-unconfirmed.",
       "last_verified_at": "2026-11-04T00:00:00Z",
-      "fallback_candidates": []
+      "fallback_candidates": [
+        "muse",
+        "claude_haiku",
+        "luna"
+      ]
     },
     "claude_haiku": {
       "id": "claude_haiku",
@@ -469,6 +477,8 @@
       "resolution_status": "runtime-unverified",
       "alias": "haiku",
       "resolution_note": "Dispatch identity is model_id=claude-agent/haiku plus alias=haiku (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
         "T2"
@@ -495,7 +505,7 @@
         "technical-analysis",
         "routine-implementation"
       ],
-      "priority": 2,
+      "priority": 3,
       "capability_proof": {
         "required": true,
         "kind": "local-executable-authenticated",
@@ -531,6 +541,8 @@
       "resolution_status": "runtime-unverified",
       "alias": "sonnet",
       "resolution_note": "Dispatch identity is model_id=claude-agent/sonnet plus alias=sonnet (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
         "T3"
@@ -588,8 +600,8 @@
       "last_verified_at": "2026-11-04T00:00:00Z",
       "fallback_candidates": [
         "terra",
-        "muse",
-        "deepseek_go"
+        "deepseek_go",
+        "muse"
       ]
     },
     "claude_opus": {
@@ -600,6 +612,8 @@
       "resolution_status": "runtime-unverified",
       "alias": "opus",
       "resolution_note": "Dispatch identity is model_id=claude-agent/opus plus alias=opus (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
         "T4"
@@ -658,6 +672,8 @@
       "resolution_status": "runtime-unverified",
       "alias": "fable",
       "resolution_note": "Dispatch identity is model_id=claude-agent/fable plus alias=fable (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
         "T4"
@@ -727,25 +743,26 @@
     },
     "T2": {
       "name": "Economical",
-      "primary": "muse",
+      "primary": "deepseek_go",
       "alternatives": [
+        "muse",
         "claude_haiku",
         "luna"
       ],
-      "fallback": "claude_haiku",
-      "relative_cost": 0.1,
-      "description": "Economical routine implementation and engineering; same-tier fallback only (muse/haiku/luna), transport exhaustion never upgrades to a higher tier"
+      "fallback": "muse",
+      "relative_cost": 0.15,
+      "description": "Economical routine implementation and engineering; same-tier fallback only (deepseek_go/muse/haiku/luna), transport exhaustion never upgrades to a higher tier"
     },
     "T3": {
       "name": "Capable",
       "primary": "claude_sonnet",
       "alternatives": [
         "terra",
-        "muse",
-        "deepseek_go"
+        "deepseek_go",
+        "muse"
       ],
       "relative_cost": 1,
-      "description": "Capable reasoning (Sonnet); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go), never as equal capability",
+      "description": "Capable reasoning (Sonnet); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: deepseek_go/muse), never as equal capability",
       "fallback": "terra"
     },
     "T4": {
@@ -756,7 +773,7 @@
         "sol"
       ],
       "relative_cost": 8,
-      "description": "Critical reasoning after proven T3 failure; Opus->Sol technical transport only; Astra/Fable exceptional and proof-gated, never automatic",
+      "description": "Critical reasoning after proven T3 failure; Opus->Sol same-tier technical candidates only; downgraded audit-only DeepSeek Go->Muse T2 candidates only for roles admissible to T2 (policy-level candidates, no runtime retry); Astra/Fable exceptional and proof-gated, never automatic",
       "fallback": "sol"
     }
   },
@@ -779,6 +796,7 @@
       "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
+        "deepseek_go",
         "muse",
         "claude_haiku",
         "luna"
@@ -797,6 +815,7 @@
       "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
+        "deepseek_go",
         "muse",
         "claude_haiku",
         "luna"
@@ -811,10 +830,11 @@
       ]
     },
     "coder": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
         "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -832,6 +852,7 @@
       "alternatives": [
         "iceman",
         "mimo",
+        "deepseek_go",
         "muse",
         "claude_haiku",
         "luna"
@@ -850,6 +871,7 @@
       "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
+        "deepseek_go",
         "muse",
         "claude_haiku",
         "luna"
@@ -865,10 +887,11 @@
       ]
     },
     "frontend-engineer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
-        "claude_sonnet",
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -881,9 +904,11 @@
       ]
     },
     "backend-engineer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -897,9 +922,11 @@
       ]
     },
     "database-engineer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -913,9 +940,11 @@
       ]
     },
     "ai-agent-engineer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -929,9 +958,11 @@
       ]
     },
     "automation-engineer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -945,9 +976,11 @@
       ]
     },
     "infra-engineer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -1030,9 +1063,11 @@
       ]
     },
     "requirements-analyst": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -1046,10 +1081,11 @@
       ]
     },
     "product-designer": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
-        "claude_sonnet",
+        "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
@@ -1063,10 +1099,12 @@
       ]
     },
     "skeptic": {
-      "default_model": "muse",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "alternatives": [
-        "claude_sonnet"
+        "muse",
+        "claude_haiku",
+        "luna"
       ],
       "admissible_tiers": [
         "T2",
@@ -1111,7 +1149,7 @@
     "fallback_provider": null,
     "fallback_requires_capability_proof": false,
     "fallback_capability": null,
-    "fallback_resolution_note": "Planner is Luna-only (T2). No automatic fallback for Planner is implemented or authorized by this matrix; the generic T2 chain Muse->Haiku->Luna applies to non-build roles only; build has no silent Muse/Haiku fallback."
+    "fallback_resolution_note": "Planner is Luna-only (T2). No automatic fallback for Planner is implemented or authorized by this matrix; the generic T2 chain DeepSeek->Muse->Haiku->Luna applies to non-build roles only; build has no silent DeepSeek/Muse/Haiku fallback."
   },
   "advisor": {
     "default": "claude_sonnet",
@@ -1138,9 +1176,10 @@
     "prefer_same_tier": true,
     "prevent_cycles": true,
     "prohibited_downgrades": [
-      "reviewer",
+      "reviewer_high_critical",
       "security-reviewer",
-      "engineering-advisor"
+      "engineering-advisor",
+      "architect"
     ],
     "cross_provider_tracking": true,
     "prohibitions": [

@@ -55,10 +55,10 @@ histórica, sem efeito).
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
 - Planner `build` (primario `openai/gpt-6-luna`, T2): sem fallback automático configurado.
-  O modelo global e `agents.build.model` permanecem Luna; outros agentes não herdam Haiku.
+  O modelo global e `agents.build.model` permanecem Luna; outros agentes não herdam DeepSeek.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
   necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
-  apos timeout ambiguo. Nunca a cadeia generica Muse/DeepSeek, nunca Sonnet, nunca T3/T4
+  apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
   por fallback automático.
 - Nenhuma cadeia de elegibilidade abaixo e executada pelo runtime nesta versao: sao regras estaticas da politica canonica, sem retry, fallback ou override automatico.
 - Researcher/Explorer/Docs Manager: T1 inicial, T2 sob escalonamento quando requerido. Tester: T0 determinístico, T1 trivial/simples, T2 não-trivial. Nenhum dos quatro usa T3/T4 automaticamente. Engineering-advisor: mínimo T3 (Sonnet primário/Terra fallback), T2 proibido.
@@ -66,11 +66,10 @@ histórica, sem efeito).
   **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo):
   em falha de disponibilidade/erro do modelo default, a ordem candidata é estática (apenas para auditoria), **implementação em HOLD**:
   - **T1:** `opencode-go/iceman-contributor-free` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
-  - **T2 geral:** candidatos em ordem `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`; isto é apenas ordem estática de auditoria, a rota produtiva fica em HOLD. Capacidade Claude local e prova de no-start são condições de elegibilidade, não autorização de despacho; caller `NoExecutionStarted=true` não é prova.
-    `opencode-go/deepseek-v4.1-flash` está bloqueado (`ZDR_EXPIRED_UNCONFIRMED`)
-    e fora de qualquer cadeia.
-  - **T3:** candidatos em ordem `claude-agent/sonnet` (primário) → `openai/gpt-6.1-terra`; recuperação T2 só como candidata degradada para papéis admissíveis a T2. Despacho técnico permanece HOLD sem prova independente de no-start. Engineering-advisor é T3-only.
-  - **T4:** candidatos em ordem `claude-agent/opus` (primário) → `openai/gpt-6.1-sol`; transporte permanece HOLD. `openai/gpt-6-astra` somente com prova kernel-owned de falha funcional do Opus, mesma tarefa e papel admissível; `claude-agent/fable` permanece HOLD porque a prova atual é primária e não comprova falha específica do Astra. T4 não exige aprovação manual por chamada (decisão do usuário); gates de prova, capability e papel continuam.
+  - **T2 geral:** candidatos em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`; isto é apenas ordem estática de auditoria, a rota produtiva fica em HOLD. Capacidade Claude local e prova de no-start são condições de elegibilidade, não autorização de despacho; caller `NoExecutionStarted=true` não é prova.
+    `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. `opencode-go/deepseek-v4.1-flash` é o primário T2 por seleção explícita do operador (adendo 2026-11-04); ZDR segue `expired-unconfirmed` sem alegação de renovação/conformidade (não envie dados sensíveis cuja proteção exija ZDR; somente dados não-sensíveis até ZDR verificado).
+  - **T3:** candidatos em ordem `claude-agent/sonnet` (primário) → `openai/gpt-6.1-terra`; recuperação T2 só como candidata degradada para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Despacho técnico permanece HOLD sem prova independente de no-start. Engineering-advisor é T3-only.
+  - **T4:** candidatos em ordem `claude-agent/opus` (primário) → `openai/gpt-6.1-sol` (mesmo tier); recuperação T2 só como candidata degradada audit-only para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` (policy-level, sem retry em runtime; reviewer high/critical, security, advisor, architect e papéis não-T2 seguem `REJECTED_DOWNGRADE_FORBIDDEN`). `openai/gpt-6-astra` somente com prova kernel-owned de falha funcional do Opus, mesma tarefa e papel admissível; `claude-agent/fable` permanece HOLD porque a prova atual é primária e não comprova falha específica do Astra. T4 não exige aprovação manual por chamada (decisão do usuário); gates de prova, capability e papel continuam.
   - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`;
     `catalog_inventory_id` é proveniência do inventário, nunca mapeamento.
     IDs `claude-agent/sonnet|opus|haiku|fable` exibem nomes Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 no catálogo local, todos `released=0`, `cost=[]`; outros IDs versionados não provam mapeamento dos aliases curtos. Sem prova independente, não afirmar pin/versão executada; resposta Haiku não prova passagem para Sonnet/Opus.
@@ -114,7 +113,7 @@ histórica, sem efeito).
   da prova) → Planner informa `model` verbatim na propriedade `model` da
   ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
   → `task-kernel verify-run` → `model-attempt` → `model-proof`. A CLI nunca
-  cria sessões. Prova do override `subagent.model` é só do servidor OpenCode
+  cria sessões. Binding produtivo NOT_PROVEN (G1): não existe binding provado da saída `model-select` para a chamada nativa `subagent`, nem evento confiável de modelo executado correlacionado a TaskId + sessão filha + attempt + policy hash + recibo — nada neste documento implica que o Planner consuma a seleção automaticamente. O E2E real Luna→Haiku foi solicitado manualmente e vinculado/registrado após observação; prova atribuição e registro Kernel daquela execução, não roteamento produtivo automático. Prova do override `subagent.model` é só do servidor OpenCode
   local vivo: `native_model_override_proven=true` somente quando a versão
   viva de `opencode api get /api/info` está exatamente na allowlist
   `2.2.5`/`2.0.23`; `runtime.profile`/`runtime.version` da task são

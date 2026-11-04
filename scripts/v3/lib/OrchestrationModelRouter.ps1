@@ -36,7 +36,7 @@ $script:AgentModelAdmissibility = @{
         DefaultTier      = 'T3'
         AdmissibleTiers  = @('T3', 'T4')
         ProhibitedTiers  = @('T0', 'T1', 'T2')
-        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Sonnet (Terra fallback); T2 prohibited (Muse ineligible per muse.eligible_roles; diverges from role_profiles default_model=claude_sonnet/default_tier=T3). T4 only via kernel-owned T3 proof.'
+        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Sonnet (Terra fallback); T2 prohibited (DeepSeek Go and Muse both absent from engineering-advisor eligible_roles; profile prohibits T2 via role_profiles default_model=claude_sonnet/default_tier=T3). T4 only via kernel-owned T3 proof.'
     }
     'coder' = @{
         DefaultTier      = 'T2'
@@ -146,7 +146,7 @@ $script:AgentModelAdmissibility = @{
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
     'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/iceman-contributor-free';  Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
-    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'claude-agent/haiku' }
+    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/deepseek-v4.1-flash'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode-go/muse-spark-1.3-contributor'; AdditionalCandidates = @('claude-agent/haiku', 'openai/gpt-6-luna') }
     'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'claude-agent/sonnet';                  Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
     'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'claude-agent/opus';                    Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-sol'; ExceptionalModel = 'openai/gpt-6-astra' }
 }
@@ -344,7 +344,9 @@ function New-ClaudeAgentProviderSwitchHandoff {
         task_id           = ([string]$TaskId).Trim()
         objective         = ([string]$Objective).Trim()
         from_model        = ([string]$FromModel).Trim()
+        from_provider     = (Get-ModelProviderFromId ([string]$FromModel).Trim())
         to_model          = ([string]$ToModel).Trim()
+        to_provider       = (Get-ModelProviderFromId ([string]$ToModel).Trim())
         failure_class     = ([string]$FailureClass).Trim()
         attempted_models  = @($AttemptedModels)
         attempt_count     = @($AttemptedModels).Count
@@ -495,6 +497,7 @@ function Get-OrchestrationUserConfigCatalog {
     $mIceman = if ($null -ne $pol -and $pol.models.iceman) { [string]$pol.models.iceman.model_id } elseif ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode-go/iceman-contributor-free' }
     $mMimo = if ($null -ne $pol -and $pol.models.mimo) { [string]$pol.models.mimo.model_id } else { 'opencode/mimo-v2.6-flash-free' }
     $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
+    $mDeepSeekGo = if ($null -ne $pol -and $pol.models.deepseek_go) { [string]$pol.models.deepseek_go.model_id } else { 'opencode-go/deepseek-v4.1-flash' }
     $mHaiku = if ($null -ne $pol -and $pol.models.claude_haiku) { [string]$pol.models.claude_haiku.model_id } else { 'claude-agent/haiku' }
     $mLuna = if ($null -ne $pol -and $pol.models.luna) { [string]$pol.models.luna.model_id } else { 'openai/gpt-6-luna' }
     $mSonnet = if ($null -ne $pol -and $pol.models.claude_sonnet) { [string]$pol.models.claude_sonnet.model_id } elseif ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'claude-agent/sonnet' }
@@ -506,7 +509,7 @@ function Get-OrchestrationUserConfigCatalog {
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
         'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true; AlternativeModel = $mMimo }
-        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mMuse;                                   Provider = (Get-ModelProviderFromId $mMuse); Authorized = $true; AlternativeModel = $mHaiku }
+        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mDeepSeekGo;                               Provider = (Get-ModelProviderFromId $mDeepSeekGo); Authorized = $true; AlternativeModel = $mMuse; AdditionalCandidates = @($mHaiku, $mLuna) }
         'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mSonnet;                                 Provider = (Get-ModelProviderFromId $mSonnet); Authorized = $true; AlternativeModel = $mTerra }
         'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mOpus;                                   Provider = (Get-ModelProviderFromId $mOpus); Authorized = $true; AlternativeModel = $mSol; ExceptionalModel = $mAstra }
     }
@@ -648,8 +651,8 @@ function Resolve-CatalogModel {
 
     $candidates = switch ($Tier) {
         'T1' { @('opencode-go/iceman-contributor-free', 'opencode/mimo-v2.6-flash-free') }
-        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna') }
-        'T3' { @('claude-agent/sonnet', 'openai/gpt-6.1-terra', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
+        'T2' { @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna') }
+        'T3' { @('claude-agent/sonnet', 'openai/gpt-6.1-terra', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') }
         'T4' { @('claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/fable') }
         default { @('none (deterministic)') }
     }
@@ -984,6 +987,24 @@ function Resolve-OrchestrationModelFallback {
                     })
                     $seq++
                 }
+                if ($null -ne $entry.AdditionalCandidates) {
+                    foreach ($addModel in @($entry.AdditionalCandidates)) {
+                        if ([string]::IsNullOrWhiteSpace([string]$addModel)) { continue }
+                        $cands.Add([pscustomobject]@{
+                            ModelId       = [string]$addModel
+                            LogicalId     = [string]$addModel
+                            Provider      = Get-ModelProviderFromId ([string]$addModel)
+                            Enabled       = $true
+                            Priority      = 3
+                            EligibleRoles = @()
+                            RequiresCost  = $false
+                            Exceptional   = $false
+                            Tier          = $TargetTier
+                            Seq           = $seq
+                        })
+                        $seq++
+                    }
+                }
                 if ($entry.ExceptionalModel) {
                     $cands.Add([pscustomobject]@{
                         ModelId       = [string]$entry.ExceptionalModel
@@ -1272,7 +1293,7 @@ function Resolve-OrchestrationModelFallback {
         if ($null -ne $policy -and $null -ne $policy.models -and $null -ne $policy.models.astra -and $null -ne $policy.models.astra.fallback_candidates) {
             $astraOrder = @($policy.models.astra.fallback_candidates)
         }
-        if ($astraOrder.Count -eq 0) { $astraOrder = @('claude_fable', 'muse', 'deepseek_go') }
+        if ($astraOrder.Count -eq 0) { $astraOrder = @('claude_fable', 'deepseek_go', 'muse') }
         foreach ($logical in $astraOrder) {
             $lid = [string]$logical
             $entry = $null
@@ -1328,7 +1349,7 @@ function Resolve-OrchestrationModelFallback {
     # implemented or authorized: caller booleans (HaikuPreRunUnavailable,
     # NoExecutionStarted) are untrusted signals, not independent proof.
     # Never send build through generic T2/T3 candidate enumeration; never
-    # silently choose Muse/Haiku/DeepSeek; never Sonnet; build is prohibited
+    # silently choose DeepSeek/Muse/Haiku; never Sonnet; build is prohibited
     # from T4.
     if ($cleanAgent -eq 'build') {
         & $RecordExclusion 'openai/gpt-6-luna' 'T2' 'PLANNER_NO_AUTOMATIC_FALLBACK'
@@ -1343,12 +1364,36 @@ function Resolve-OrchestrationModelFallback {
         }
     }
 
+    # Forged-input guard: a caller-provided reviewer T2 selection with high,
+    # critical, or unknown/invalid risk contradicts the canonical selection
+    # (high/critical reviewer is T3; T2 admits only low/medium). Reject
+    # fail-closed before any same-tier candidate enumeration.
+    if ($cleanAgent -eq 'reviewer' -and $reqTier -ceq 'T2') {
+        $revRisk = if ($null -ne $RequestedSelection.Risk) { [string]$RequestedSelection.Risk } else { '' }
+        if ($revRisk -in @('high','critical') -or $revRisk -notin @('low','medium')) {
+            foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
+                & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
+            }
+            return [pscustomobject]@{
+                Status='REJECTED_DOWNGRADE_FORBIDDEN'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; CandidateModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason="Reviewer T2 fallback prohibited for risk '$revRisk' (high/critical/unknown never downgrades to T2; contradictory input rejected fail-closed)."
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$true
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+    }
+
     # On allowlisted technical faults, T3/T4 enumerate the explicitly admitted
-    # SAME-TIER order (Sonnet for T3; Opus->Sol order for T4 retained as
-    # declarative candidates only) for exclusions/audit. Nothing here
-    # authorizes: the HOLD helper returns CandidateModel as non-authorizing
-    # audit only (no independent no-start proof in this resolver). T4 never
-    # downgrades to T2. Availability never escalates tier: reaching T3/T4
+    # SAME-TIER order first (Sonnet for T3; Opus->Sol order for T4 retained as
+    # declarative candidates only) for exclusions/audit, then policy-level T2
+    # downgrade candidates (DeepSeek Go then Muse) strictly for roles whose
+    # AgentModelAdmissibility admits T2. Nothing here authorizes: the HOLD
+    # helper returns CandidateModel as non-authorizing audit only (no
+    # independent no-start proof in this resolver; policy-level candidates only
+    # and no runtime retry). Availability never escalates tier: reaching T3/T4
     # from below requires the canonical model-select path with kernel-owned
     # proof, never a transport/availability reason.
     $transientReasons = $script:AvailabilityTriggerReasons
@@ -1360,26 +1405,13 @@ function Resolve-OrchestrationModelFallback {
                 return (& $BuildAuthorizedResult $validSame.ModelId $reqTier "Same-tier ordered candidate within $reqTier after $TriggerReason (audit only)." $false)
             }
         }
-        if ($reqTier -ceq 'T4') {
-            foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
-                & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
-            }
-            return [pscustomobject]@{
-                Status='REJECTED_DOWNGRADE_FORBIDDEN'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason="Tier T4 transport fallback to T2 prohibited; only Opus->Sol same-tier order is declared (HOLD absent independent no-start proof)."
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$true
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$true
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
         $downAllowed = $null -ne $admiss -and $admiss.AdmissibleTiers -contains 'T2' -and $admiss.ProhibitedTiers -notcontains 'T2'
-        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -ne 'low') { $downAllowed = $false }
+        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -in @('high','critical')) { $downAllowed = $false }
         if ($cleanAgent -eq 'security-reviewer') { $downAllowed = $false }
         if ($cleanAgent -eq 'engineering-advisor') { $downAllowed = $false }
+        if ($cleanAgent -eq 'architect') { $downAllowed = $false }
         if (-not $downAllowed) {
-            foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
+            foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
                 & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
             }
             return [pscustomobject]@{
@@ -1393,7 +1425,7 @@ function Resolve-OrchestrationModelFallback {
             }
         }
         $downCandidates = & $GetDynamicCandidatesForTier 'T2'
-        foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
+        foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
             foreach ($dc in $downCandidates) {
                 if ($dc.ModelId -ne $mc) { continue }
                 $validDown = & $EvaluateCandidate $dc
@@ -1415,10 +1447,11 @@ function Resolve-OrchestrationModelFallback {
     }
 
     # Politica de fallback por papel e regras de admissibilidade:
-    # 1. Reviewer / Security-Reviewer: Downgrade abaixo dos tiers admitidos e estritamente proibido!
+    # 1. Reviewer / Security-Reviewer: Downgrade abaixo dos tiers admitidos e
+    # proibido para high/critical (reviewer low/medium admite T2); Security segue proibido.
     if ($cleanAgent -in @('reviewer', 'security-reviewer')) {
         $isDowngradeProhibited = $true
-        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -eq 'low') {
+        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -in @('low','medium')) {
             $isDowngradeProhibited = $false
         }
 
@@ -1947,7 +1980,7 @@ function Resolve-OrchestrationModelSelection {
     $selectedTier = $admissibility.DefaultTier
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
-    # Planner is pinned to Luna, classified T2 regardless of general T2 Muse pool.
+    # Planner is pinned to Luna, classified T2 regardless of DeepSeek Go T2 pool.
     if ($cleanAgent -eq 'build') {
         $selectedTier = 'T2'
         $reason = 'Planner build is stable on GPT-6 Luna under operational tier T2.'
@@ -1955,7 +1988,7 @@ function Resolve-OrchestrationModelSelection {
     elseif ($cleanAgent -eq 'reviewer') {
         if ($Risk -eq 'low' -and $Complexity -in @('trivial','simple')) {
             $selectedTier = 'T2'
-            $reason = 'Economical T2 for simple low-risk review.'
+            $reason = 'Economical T2 DeepSeek Go for simple low-risk review.'
         } else {
             $selectedTier = 'T3'
             $reason = 'Capable T3 Sonnet for review (Terra fallback).'
@@ -1980,22 +2013,23 @@ function Resolve-OrchestrationModelSelection {
     elseif ($cleanAgent -eq 'engineering-advisor') {
         # ROUTER-V14-ADVISOR-T3-ONLY (explicit user decision): advisor always
         # starts at T3 Sonnet (Terra fallback) regardless of
-        # risk/complexity/FailureCount. T2 Muse violates muse.eligible_roles
-        # and diverges from role_profiles
-        # default_model=claude_sonnet/default_tier=T3. T4 only via
+        # risk/complexity/FailureCount. T2 DeepSeek Go/Muse both absent from
+        # engineering-advisor eligibility and profile prohibits T2 via
+        # role_profiles default_model=claude_sonnet/default_tier=T3. T4 only via
         # kernel-owned proof.
         $selectedTier = 'T3'
         $reason = 'Engineering-advisor always uses T3 Sonnet (Terra fallback); T4 only via kernel-owned T3 proof.'
     }
     elseif ($cleanAgent -eq 'coder') {
         # v1.4 matrix: FailureCount never promotes Coder. Complexity=complex
-        # selects T3 (role policy); everything else stays T2.
+        # selects T3 (role policy); everything else stays routine T2 on
+        # DeepSeek Go (T2 DeepSeek Go/Muse recovery order for transport, audit-only).
         if ($Complexity -eq 'complex') {
             $selectedTier = 'T3'
             $reason = 'Coder uses T3 Sonnet (Terra fallback) for complex work.'
         } else {
             $selectedTier = 'T2'
-            $reason = 'Coder defaults to economical T2 Muse.'
+            $reason = 'Coder defaults to economical T2 DeepSeek Go.'
         }
     }
     elseif ($cleanAgent -eq 'debugger') {
@@ -2240,7 +2274,7 @@ function Resolve-OrchestrationModelSelection {
     }
     if ($cleanAgent -eq 'build') {
         # Planner is Luna-only (T2, MODEL_PLANNER, no automatic fallback).
-        # Never silently remap Planner to Muse/Haiku/DeepSeek; never Sonnet;
+        # Never silently remap Planner to DeepSeek/Muse/Haiku; never Sonnet;
         # build never routes to T4.
         $plannerPrimaryId = 'openai/gpt-6-luna'
         $plannerPrimaryProv = 'openai'

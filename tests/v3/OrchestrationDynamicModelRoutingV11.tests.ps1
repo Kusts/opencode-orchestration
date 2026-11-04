@@ -69,7 +69,7 @@ foreach ($mId in @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6-astr
 # 1.4 Resolucao de catalogo dinamicamente atualizavel
 $cat = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $true
 Assert-V11 ($cat['T1'].CatalogModel -eq 'opencode-go/iceman-contributor-free') "T1 primario do catalogo e Iceman Contributor Free"
-Assert-V11 ($cat['T2'].CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "T2 primario do catalogo e Muse"
+Assert-V11 ($cat['T2'].CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "T2 primario do catalogo e DeepSeek Go"
 Assert-V11 ($cat['T3'].CatalogModel -eq 'claude-agent/sonnet') "T3 primario do catalogo e Sonnet"
 Assert-V11 ($cat['T3'].AlternativeModel -eq 'openai/gpt-6.1-terra') "T3 fallback do catalogo e Terra"
 Assert-V11 ($cat['T4'].CatalogModel -eq 'claude-agent/opus') "T4 primario do catalogo e Opus"
@@ -90,10 +90,10 @@ Assert-V11 ($selExp.Tier -eq 'T1') "Explorer seleciona Tier T1"
 Assert-V11 ($selExp.selected_model_id -eq 'opencode-go/iceman-contributor-free') "Explorer seleciona Iceman Contributor Free"
 Assert-V11 ($selExp.selected_provider -eq 'opencode-go') "Explorer usa provider 'opencode-go'"
 
-# 2.3 Coder: T2 Muse por padrao, T3 Terra para complex
+# 2.3 Coder: T2 DeepSeek Go por padrao, T3 Sonnet para complex
 $selCoder = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selCoder.Tier -eq 'T2') "Coder medium seleciona Tier T2"
-Assert-V11 ($selCoder.selected_model_id -eq 'opencode-go/muse-spark-1.3-contributor') "Coder default seleciona Muse"
+Assert-V11 ($selCoder.selected_model_id -eq 'opencode-go/deepseek-v4.1-flash') "Coder default seleciona DeepSeek Go"
 
 $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 1 -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selCoderRetry.Tier -eq 'T3') "Coder complex apos 1 falha escala para T3"
@@ -107,7 +107,7 @@ Assert-V11 ($selTesterT0.selected_provider -eq 'none') "Tester T0 tem selected_p
 
 $selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selTesterLlm.Tier -eq 'T2') "Tester com RequiresLlm seleciona T2"
-Assert-V11 ($selTesterLlm.selected_model_id -eq 'opencode-go/muse-spark-1.3-contributor') "Tester com LLM seleciona Muse"
+Assert-V11 ($selTesterLlm.selected_model_id -eq 'opencode-go/deepseek-v4.1-flash') "Tester com LLM seleciona DeepSeek Go"
 
 # 2.5 Security-Reviewer: Sol T4 (somente com prova kernel-owned) ou Terra T3; proibido T0/T1/T2
 $selSecUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -130,20 +130,20 @@ Assert-V11 ($selOpencodeOnlyDenied.Authorized -eq $false) "Status nao autorizado
 
 Write-Host "=== FASE 3: FALLBACK CROSS-PROVIDER E RASTREABILIDADE ==="
 
-# 3.1 T2 candidate order Muse -> Haiku -> Luna is audit-only HOLD without independent no-start proof.
+# 3.1 T2 candidate order DeepSeek Go -> Muse -> Haiku -> Luna is audit-only HOLD without independent no-start proof.
 $selCoderBase = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-$fbCoderCross = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT'
+$fbCoderCross = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT'
 Assert-V11 ($fbCoderCross.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and -not [bool]$fbCoderCross.IsAuthorized) "Rate-limit fallback permanece HOLD"
-Assert-V11 ($null -eq $fbCoderCross.FallbackModel -and $fbCoderCross.CandidateModel -eq 'openai/gpt-6-luna') "Candidato Luna e auditavel, nao executavel"
+Assert-V11 ($null -eq $fbCoderCross.FallbackModel -and $fbCoderCross.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') "Candidato Muse e auditavel, nao executavel"
 Assert-V11 ($fbCoderCross.OriginalProvider -eq 'opencode-go') "OriginalProvider rastreado como 'opencode-go'"
 Assert-V11 ($null -eq $fbCoderCross.FallbackProvider) "FallbackProvider nao marca modelo nao executado"
-Assert-V11 ($fbCoderCross.IsCrossProvider -eq $true) "IsCrossProvider e true na transicao opencode-go -> openai"
+Assert-V11 ($fbCoderCross.IsCrossProvider -eq $false) "IsCrossProvider e false na transicao opencode-go -> opencode-go"
 Assert-V11 ($fbCoderCross.AttemptsCount -eq 1) "AttemptsCount rastreia 1 tentativa real"
-Assert-V11 ($fbCoderCross.ReallyAttemptedModels -contains 'opencode-go/muse-spark-1.3-contributor') "ReallyAttemptedModels isola modelo que falhou"
+Assert-V11 ($fbCoderCross.ReallyAttemptedModels -contains 'opencode-go/deepseek-v4.1-flash') "ReallyAttemptedModels isola modelo que falhou"
 Assert-V11 ($fbCoderCross.PreventivelyExcluded.Count -ge 1) "PreventivelyExcluded registra candidatos descartados preventivamente"
 
 # 3.2 Proibicao de loops e HOLD em timeout/ambiguidade.
-$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'claude-agent/sonnet', 'openai/gpt-6.1-terra', 'claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra') -TriggerReason 'TIMEOUT'
+$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna', 'claude-agent/sonnet', 'openai/gpt-6.1-terra', 'claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra') -TriggerReason 'TIMEOUT'
 Assert-V11 ($fbCoderExhausted.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF') "Timeout/ambiguidade retorna HOLD sem replay"
 Assert-V11 ($fbCoderExhausted.IsAuthorized -eq $false) "Esgotamento nao e autorizado"
 Assert-V11 ($fbCoderExhausted.AttemptsCount -eq 9) "AttemptsCount rastreia 9 tentativas reais"
@@ -161,7 +161,7 @@ Assert-V11 ($downExcl.Count -ge 1) "PreventivelyExcluded classifica modelos infe
 Write-Host "=== FASE 4: VERIFICACAO POS-EXECUCAO E AUDITORIA ==="
 
 # 4.1 EXACT_MATCH
-$verifExact = Test-ExecutedModelVerification -RequestedSelection $selCoderBase -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor' } -NativeModelOverrideProven $true
+$verifExact = Test-ExecutedModelVerification -RequestedSelection $selCoderBase -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash' } -NativeModelOverrideProven $true
 Assert-V11 ($verifExact.ProofStatus -eq 'EXACT_MATCH') "Execucao com modelo e provider identicos retorna EXACT_MATCH"
 Assert-V11 ($verifExact.IsExactMatch -eq $true) "IsExactMatch e true"
 Assert-V11 ($verifExact.IsCrossProvider -eq $false) "Sem troca cross-provider"

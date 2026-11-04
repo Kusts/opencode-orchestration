@@ -52,6 +52,29 @@ try {
     foreach ($d in @($goalDir, $ckptDir, $receiptDir, $evDir, $tasksDir, $artifactDir)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     [IO.File]::WriteAllText($flagsPath, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.UTF8Encoding]::new($false))
 
+    # Repo de verificacao fixo: policy commitado = plano do task; branch
+    # 'rev-fd' = base_revision resolvivel (pre-condicao do verify-run).
+    $verifyRepo = Join-Path $tempRoot 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $verifyRepo 'source\registry') -Force | Out-Null
+    & git -C $verifyRepo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $verifyRepo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $verifyRepo config user.email 'fd-fixture@example.com' *>$null
+    & git -C $verifyRepo config user.name 'FD Fixture' *>$null
+    & git -C $verifyRepo config core.autocrlf false *>$null
+    & git -C $verifyRepo config core.safecrlf false *>$null
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'base.txt'), "base`n", [Text.UTF8Encoding]::new($false))
+    $fdPol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 'fd-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'source\registry\verification-policy.json'), (($fdPol | ConvertTo-Json -Depth 6 -Compress)), [Text.UTF8Encoding]::new($false))
+    & git -C $verifyRepo add -A *>$null
+    & git -C $verifyRepo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $verifyRepo branch 'rev-fd' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+
     try {
         $g = New-OrchestrationGoal -GoalId 'fd-goal-1' -Objective 'gerar e consumir artefato' -Criteria @('artefato-gerado', 'artefato-consumido') -TotalPhases 2 -StoreDir $goalDir
         Assert-FD ([bool]$g.ok) '[F] goal created' ([string]$g.reason)
@@ -69,7 +92,9 @@ try {
             $c = New-OrchestrationTask -TaskId $Id -Objective ('obj ' + $Id) -TaskType 'implementation' `
                 -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
                 -RuntimeVersion '2.2.3' -BaseRevision 'rev-fd' -ReadScopes @('src/fd.ps1') -Grants @('fs.read') `
-                -AcceptanceCriteria @('crit-fd') -AttemptBudget 3 -TasksDir $script:tasksDirText -FlagsPath $script:flagsPathText -TelemetryRoot $script:tempRootText
+                -AcceptanceCriteria @('crit-fd') -AttemptBudget 3 `
+                -VerificationProfiles @('fd-kernel-check') -RepoRoot $script:verifyRepoText -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
+                -TasksDir $script:tasksDirText -FlagsPath $script:flagsPathText -TelemetryRoot $script:tempRootText
             Assert-FD ([bool]$c.ok) ('[F] kernel task created ' + $Id) ([string]$c.error)
             $slot = Get-OrchestrationGoal -GoalId 'fd-goal-1' -StoreDir $script:goalDirText
             $add = Add-OrchestrationGoalTaskPersisted -GoalId 'fd-goal-1' -TaskId $Id -ExpectedRevision ([long]$slot.goal['revision']) -StoreDir $script:goalDirText -OwnerId 'planner-1' -OwnershipGeneration $gen
@@ -79,6 +104,7 @@ try {
         $script:flagsPathText = $flagsPath
         $script:tempRootText = $tempRoot
         $script:goalDirText = $goalDir
+        $script:verifyRepoText = $verifyRepo
 
         New-FDTask -Id 'fd-task-a'
         New-FDTask -Id 'fd-task-b'
@@ -168,9 +194,11 @@ try {
                 if (-not [bool]$tr.ok) { throw ('REVIEWING failed: ' + [string]$tr.error) }
                 $rev = [long]$tr.revision; $st = 'REVIEWING'
             }
-            $verJson = '{"ok":true,"task_id":"fd","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}'
-            $vr = Set-OrchestrationTaskVerification -TaskId $Tid -VerifierEvidenceJson $verJson -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath
+            $vr = Invoke-TaskKernelVerifyRun -TaskId $Tid -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath -RepoRoot $script:verifyRepoText
             if (-not [bool]$vr.ok) { throw ('verification failed: ' + [string]$vr.error) }
+            if (([string]$vr.status -cne 'verified_pass') -or ([string]$vr.verification_source -cne 'kernel-executed')) {
+                throw ('verification not kernel-executed: ' + [string]$vr.status + '/' + [string]$vr.verification_source)
+            }
             $rev = [long]$vr.revision
             $rw = Set-OrchestrationTaskReview -TaskId $Tid -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath
             if (-not [bool]$rw.ok) { throw ('review failed: ' + [string]$rw.error) }
