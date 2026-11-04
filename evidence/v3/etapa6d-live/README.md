@@ -81,3 +81,28 @@ mesma jornada.
 
 - Sem RESUME fabricado, sem unblock, sem handoff, sem DONE, sem merge.
 - ETAPA_6D_READY bloqueado: falta approval no PR 181 + re-execucao com RESUME live + settlement DISPATCHED (GH_WAKE_SCHEDULED+RESUMED+DISPATCHED na mesma jornada). Sem READY alegado.
+
+## Adendo 2026-11-04 — caminho opt-in `solo-maintainer` (prontidao tecnica, sem autorizacao operacional)
+
+> Este adendo NAO altera a prova historica de 2026-10-31 acima: ela permanece
+> como evidencia do perfil default (approval GitHub exigido, `REVIEW_PENDING`
+> sem approval). O que segue documenta apenas o caminho tecnico opt-in
+> `solo-maintainer`, fechado em docs/policy sem Live/Scheduler.
+
+- O perfil `solo-maintainer` e opt-in explicito e nomeado
+  (`source/registry/delivery-policy.json`); wake/scheduler de producao NAO
+  o selecionam implicitamente — sem passagem explicita do perfil, producao
+  permanece no default (`github_approval=required`).
+- O review interno de agente e apenas evidencia de qualidade: NAO e
+  identidade autenticada, aprovacao humana ou aprovacao GitHub.
+- `READY_FOR_RESUME` sob o perfil solo e prontidao TECNICA snapshot-only
+  (`snapshot_only`, zero flags de autoridade) e nunca autoriza acao
+  operacional; a autorizacao OPERACIONAL do maintainer segue `BLOCKED`.
+- Branch protection e checks requeridos inalterados por este perfil.
+- O verificador offline de contrato (RSA-PSS, experimental) permanece
+  desconectado do caminho de readiness e `BLOCKED`, sem chaves/certs/emissao/wiring;
+  nao e pre-requisito de prontidao.
+- Nota limitada de suite (2026-11-04): uma falha transiente isolada de
+  NativeDispatch foi reportada nesta rodada. Causa raiz e detalhes de
+  resultado NAO registrados (nao inferidos aqui). Nenhuma suite/script de
+  NativeDispatch foi alterada com base neste evento isolado.

@@ -332,4 +332,76 @@ $r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -Exp
 Assert-That (((-not [bool]$r.ok) -and (@($r.reasons) -contains 'checks-invalid'))) 'F3 dictionary checks => INCONCLUSIVE checks-invalid'
 $r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot @()) -Policy $policy -NowUtc $GH_NOW
 Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'CHECKS_PENDING') -and (@($r.reasons) -contains 'check-missing:CI (ps51)'))) 'F3 empty checks list means missing pending, not malformed'
+# --- SOLO-MAINTAINER PROFILE: explicit named profile, no inference.
+# No attestation required: a valid internal-agent review record on the
+# expected head satisfies TECHNICAL readiness (review_basis internal-agent,
+# quality-control only). Reasons stay empty on READY so the resume gate
+# contract is unchanged; origin/limits live in review_basis/review_detail.
+$effDefault = Get-OrchestrationDeliveryEffectiveReview -Policy $policy -DeliveryProfile ''
+Assert-That (([bool]$effDefault.ok) -and ([string]$effDefault.profile -ceq 'default') -and ([string]$effDefault.internal_reviewer -ceq 'required') -and ([string]$effDefault.github_approval -ceq 'required')) 'solo: default effective review is required/required'
+$effSolo = Get-OrchestrationDeliveryEffectiveReview -Policy $policy -DeliveryProfile 'solo-maintainer'
+Assert-That (([bool]$effSolo.ok) -and ([string]$effSolo.profile -ceq 'solo-maintainer') -and ([string]$effSolo.internal_reviewer -ceq 'required') -and ([string]$effSolo.github_approval -ceq 'not_required')) 'solo: solo-maintainer effective review is required/not_required'
+Assert-That (([string]$policy.profile -ceq 'default') -and ([string]$policy.review.github_approval -ceq 'required')) 'solo: file declares default profile with explicit required github approval'
+Assert-That (([string]$policy.profiles.'solo-maintainer'.review.internal_reviewer -ceq 'required') -and ([string]$policy.profiles.'solo-maintainer'.review.github_approval -ceq 'not_required')) 'solo: file declares solo-maintainer with independent fields'
+$strictPol = ConvertFrom-Json (ConvertTo-Json $policy -Depth 10 -Compress)
+$strictPol.profiles | Add-Member -NotePropertyName 'strict' -NotePropertyValue ([pscustomobject]@{ review = [pscustomobject]@{ internal_reviewer = 'required'; github_approval = 'required' } }) -Force
+$effStrict = Get-OrchestrationDeliveryEffectiveReview -Policy $strictPol -DeliveryProfile 'strict'
+Assert-That (([bool]$effStrict.ok) -and ([string]$effStrict.github_approval -ceq 'required')) 'solo: internal required never implies github waived'
+$effUnknown = Get-OrchestrationDeliveryEffectiveReview -Policy $policy -DeliveryProfile 'no-such-profile'
+Assert-That (-not [bool]$effUnknown.ok) 'solo: unknown profile fails closed'
+$effNonString = Get-OrchestrationDeliveryEffectiveReview -Policy $policy -DeliveryProfile 42
+Assert-That (-not [bool]$effNonString.ok) 'solo: non-string profile fails closed'
+function New-GHSoloInternal {
+    param([bool]$Approved = $true, [string]$Sha = $GH_SHA_A, [string]$Reviewer = 'reviewer-1', [string]$Author = 'author-1')
+    return [pscustomobject]@{ approved = $Approved; head_sha = $Sha; reviewer_identity = $Reviewer; author_identity = $Author }
+}
+# --- SOLO case 2 (no attestation): a valid internal-agent record on the
+# expected head satisfies TECHNICAL readiness. Origin/limits are recorded
+# in the evidence; nothing claims authenticated identity, an independent
+# signature, human approval, or GitHub approval.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal) -NowUtc $GH_NOW -MaxAgeSeconds 300
+Assert-That (([bool]$r.ok) -and ([string]$r.readiness -ceq 'READY_FOR_RESUME') -and (@($r.reasons).Count -eq 0)) 'solo: valid agent record + green CI => READY without attestation'
+Assert-That (([string]$r.review_basis -ceq 'internal-agent') -and ([string]$r.review_detail -cmatch 'reviewer-1') -and ([string]$r.review_detail -cmatch 'qc-only') -and ([string]$r.review_detail -cnotmatch 'authenticated')) 'solo: READY evidence records agent origin and qc-only limits'
+Assert-That ((([string]$r.review_detail -cnotmatch 'human approval') -and ([string]$r.review_detail -cnotmatch 'GitHub approval;')) -or ([string]$r.review_detail -cmatch 'no auth-identity')) 'solo: READY evidence disclaims human/GitHub approval'
+Assert-That (((-not [bool]$r.resume_authorized) -and (-not [bool]$r.grants_authority) -and (-not [bool]$r.done_approved) -and (-not [bool]$r.merge_authority) -and (-not [bool]$r.kernel_mutated)) -and [bool]$r.snapshot_only) 'solo: technical READY claims no authority and mutates nothing'
+Assert-That ([string]$r.review_basis -cne 'github-approval') 'solo: agent basis stays distinguishable from GitHub approval'
+# --- SOLO case 3a: CI pending waits.
+$pendSolo = New-GHChecksAllGreen $GH_SHA_A
+$pendSolo[0] = [pscustomobject]@{ name = ([string]$policy.required_checks[0]); head_sha = $GH_SHA_A; status = 'IN_PROGRESS'; conclusion = $null }
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $pendSolo) -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal) -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'CHECKS_PENDING') -and (@($r.reasons) -contains ('check-pending:' + [string]$policy.required_checks[0])))) 'solo: pending check => CHECKS_PENDING waits'
+# --- SOLO case 3b: CI failure blocks.
+$failSolo = New-GHChecksAllGreen $GH_SHA_A
+$failSolo[1] = New-GHCheck ([string]$policy.required_checks[1]) $GH_SHA_A 'COMPLETED' 'failure'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot $failSolo) -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal) -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REPAIR_REQUIRED') -and (@($r.reasons) -contains ('check-failed:' + [string]$policy.required_checks[1])))) 'solo: failed check => REPAIR_REQUIRED blocks'
+# --- SOLO case 3c: divergent SHA blocks.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Head $GH_SHA_B) -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal) -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'STALE') -and (@($r.reasons) -contains 'head-mismatch'))) 'solo: divergent head => STALE blocks'
+# --- SOLO case 3d: explicit CHANGES_REQUESTED always blocks, even with github_approval=not_required.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'CHANGES_REQUESTED') -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal) -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REPAIR_REQUIRED') -and (@($r.reasons) -contains 'changes-requested'))) 'solo: changes-requested => REPAIR_REQUIRED even when github approval waived'
+# --- SOLO case 4: missing required internal review never authorizes.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'APPROVED') -Policy $policy -DeliveryProfile 'solo-maintainer' -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REVIEW_PENDING') -and (@($r.reasons) -contains 'internal-review-pending'))) 'solo: missing internal review => REVIEW_PENDING, never eligible'
+# --- SOLO case 5: a profile with github_approval=required blocks until GitHub APPROVED.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $strictPol -DeliveryProfile 'strict' -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REVIEW_PENDING') -and (@($r.reasons) -contains 'review-required'))) 'solo: required-approval profile blocks until APPROVED'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'APPROVED') -Policy $strictPol -DeliveryProfile 'strict' -NowUtc $GH_NOW
+Assert-That (([bool]$r.ok) -and ([string]$r.readiness -ceq 'READY_FOR_RESUME')) 'solo: required-approval profile with APPROVED => READY (default behavior preserved)'
+# --- SOLO self-review and binding: never accepted as independent proof.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal -Reviewer 'author-1' -Author 'author-1') -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REVIEW_PENDING') -and (@($r.reasons) -contains 'internal-self-review'))) 'solo: self-review evidence refused'
+$missingAuthor = [pscustomobject]@{ approved = $true; head_sha = $GH_SHA_A; reviewer_identity = 'reviewer-1' }
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview $missingAuthor -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'internal-review-invalid'))) 'solo: missing author cannot establish reviewer is distinct'
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-GHSoloInternal -Sha $GH_SHA_B) -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'REVIEW_PENDING') -and (@($r.reasons) -contains 'internal-review-sha-mismatch'))) 'solo: internal evidence on other SHA does not satisfy'
+$badInternal = [pscustomobject]@{ approved = 'yes'; head_sha = $GH_SHA_A; reviewer_identity = 'reviewer-1'; author_identity = 'author-1' }
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A) -Rev 'REVIEW_REQUIRED') -Policy $policy -DeliveryProfile 'solo-maintainer' -InternalReview $badInternal -NowUtc $GH_NOW
+Assert-That (((-not [bool]$r.ok) -and ([string]$r.readiness -ceq 'INCONCLUSIVE') -and (@($r.reasons) -contains 'internal-review-invalid'))) 'solo: non-bool approved is malformed, never proof'
+# --- SOLO default regime untouched: no InternalReview supplied, GitHub APPROVED still READY.
+$r = Get-OrchestrationGitHubReadiness -Repository $GH_REPO -PrNumber $GH_PR -ExpectedHeadSha $GH_SHA_A -Snapshot (New-GHSnapshot (New-GHChecksAllGreen $GH_SHA_A)) -Policy $policy -NowUtc $GH_NOW
+Assert-That (([bool]$r.ok) -and ([string]$r.readiness -ceq 'READY_FOR_RESUME')) 'solo: default regime without internal evidence unchanged'
+Assert-That (([string]$r.review_basis -ceq 'github-approval') -and ([string]$r.review_basis -cne 'internal-agent')) 'solo: default READY basis stays github-approval, never agent'
 Write-Output "PASS: $passed assertions"

@@ -100,6 +100,114 @@ evidência observável classifica-se `REVIEW_FALLBACK` (procedimento aplicado e
 registrado, autoridade limitada), nunca `REVIEW_APPROVED`. Mensagem de
 sucesso de worker nunca é prova.
 
+### 5.1. Perfil `solo-maintainer` (declarado em `delivery-policy.json`)
+
+O perfil `solo-maintainer` existe como configuração explícita e nomeada,
+com campos independentes — `internal_reviewer: required` e
+`github_approval: not_required`. A aprovação GitHub **nunca é inferida** do
+campo de reviewer: a expectativa efetiva deriva somente de
+`github_approval` (`required` → espera `APPROVED`; `not_required` →
+espera `ANY`). O perfil default do arquivo segue com
+`github_approval: required` explícito (comportamento anterior preservado);
+a ativação do solo é sempre explícita por chamada (`-DeliveryProfile
+'solo-maintainer`), nunca silenciosa — o wake agendado não a passa hoje,
+portanto o comportamento de produção não muda sozinho.
+
+Sob o perfil solo:
+
+- **Sem pré-requisito de approval GitHub não-self nem de atestação
+  assinada**: `REVIEW_REQUIRED` ou `UNKNOWN` no snapshot não bloqueiam
+  por si sós, e nenhuma atestação criptográfica é exigida. Um registro
+  de review de agente interno válido (`approved: true`, `head_sha`
+  igual ao SHA esperado, `reviewer_identity` e `author_identity`
+  presentes e distintos)
+  satisfaz a prontidão TÉCNICA sob o perfil solo — desde que todos os
+  checks requeridos estejam verdes no SHA esperado e `head_sha` /
+  `commit_sha` do snapshot coincidam com ele. O registro é evidência de
+  controle de qualidade apenas: sua origem e seus limites são gravados
+  na evidência de readiness (`review_basis: internal-agent`,
+  `review_detail` com o revisor e o aviso explícito de que não há
+  identidade autenticada, assinatura independente, aprovação humana ou
+  aprovação GitHub). Registro ausente, inválido, com SHA divergente ou
+  self-review nunca gera `READY_FOR_RESUME` (`REVIEW_PENDING` ou
+  `INCONCLUSIVE` fail-closed, como antes).
+- **`CHANGES_REQUESTED` explícito sempre bloqueia** (`REPAIR_REQUIRED`),
+  mesmo com `github_approval=not_required`.
+- **Waits existentes não migram sozinhas**: wait persistida com
+  `review_expectation` divergente da expectativa efetiva retorna
+  `INVALID` (`policy-diverged`) fail-closed; re-registro com `ANY` é
+  explícito. CI/SHA pendente espera, CI falho bloqueia, SHA divergente
+  bloqueia — inalterados.
+- Branch protection, rulesets, checks requeridos e
+  `required_approving_review_count` **não mudam** por este perfil.
+
+### 5.2. Atestação solo — contrato experimental offline, sem pré-requisito
+
+Nenhuma atestação assinada é pré-requisito de prontidão técnica sob o
+perfil solo (ver §5.1). O contrato fechado da atestação, descrito por
+`scripts/v3/lib/OrchestrationSoloAttestation.ps1`, permanece como
+experimento offline documentado, desconectado do caminho de readiness e
+com operação bloqueada. O envelope canônico é um
+objeto JSON com somente `payload` e `signature_base64`; a assinatura detached
+usa RSA-PSS-SHA256 sobre UTF-8 canônico. O payload, em ordem fixa, contém:
+`schema_version`, `policy_id`, `policy_digest`, `delivery_profile`,
+`repository`, `pr_number`, `head_sha`, `task_id`, `run_id`, `operation_id`,
+`issuer_id`, `issued_at`, `expires_at`, `jti` e `reviews`. `reviews` exige
+exatamente `reviewer` e `security-reviewer`, ambos `approved`, com `session_id`
+nativo declarado, `candidate_sha`, 1–32 hashes SHA-256 de evidência e o hash do
+registro do Task Kernel. O verificador confere a chave pública do emissor
+allowlisted (expoente RSA exatamente 65537, módulo efetivo >= 2048 bits),
+assinatura, vínculo de operação/contexto/política, validade
+máxima de 15 minutos, expiração, revogação estrita (`revoked_jtis` malformada
+invalida a política em vez de ser ignorada) e formato dos hashes. Campos
+desconhecidos, duplicados ou fora da serialização canônica são recusados;
+ chaves duplicadas na política do verificador falham fechado como
+ `policy-invalid` antes do parse (raiz `status`/`trusted_issuers` ou emissor
+ `issuer_id`/`revoked`).
+
+Esse módulo valida somente o contrato criptográfico: recebe contexto esperado e
+política explicitamente fornecidos pelo chamador, retorna `{ok, reason}` e não
+concede autoridade. Não há função de emissão nem API para assinar JSON
+arbitrário; também não está ligado a `READY_FOR_RESUME`. A política
+versionada `source/registry/solo-attestation-policy.json` permanece
+`BLOCKED`, com `trusted_issuers: []` e sem material de chave. Os testes
+criptográficos usam apenas uma chave RSA sintética em memória e descartada ao
+fim do teste; não provam identidade real, proveniência de review nem custódia
+da chave. Revalidar a mesma atestação para a mesma operação permanece
+idempotente; usá-la em outra operação é recusado pelo vínculo de `operation_id`.
+
+**Sem vínculo operacional:**
+
+- O verificador não participa do caminho de `READY_FOR_RESUME`: a
+  prontidão solo deriva exclusivamente de CI verde no SHA esperado +
+  registro de agente interno válido (§5.1). Nenhuma chave, certificado,
+  emissão ou wiring de atestação ocorreu; `solo-attestation-policy.json`
+  segue `BLOCKED` sem emissores e sem material de chave.
+
+- O registro atual do Task Kernel guarda `status`, `by`,
+  `candidate_revision`, `at` e `revision` para review; `by` é texto, não prova
+  identidade/sessão nativa. O registro de verificação contém evidências e
+  `result_digest`, mas não vincula criptograficamente o conteúdo do review à
+  execução nativa de `reviewer`/`security-reviewer`. Portanto um emissor ainda
+  não consegue reconsultar e provar essas fontes antes de assinar; os campos
+  `ses_*` e hashes do envelope são declarações, não prova de origem.
+- O agente e o shell local executam sob o mesmo principal Windows nesta
+  instalação. Uma chave `CurrentUser` protegida por ACL desse mesmo principal
+  não separaria o agente do operador; não há identidade emissora separada nem
+  broker de emissão configurado ou provado. Não foi criado certificado/chave
+  nem alterada permissão.
+
+Para uma futura atestação operacional (não pré-requisito), seria necessária
+evidência nativa e reconsultável do Task Kernel/runtime vinculando reviewer,
+sessão, veredito e conteúdo ao SHA exato, além de uma identidade de operador
+separada. Somente após nova autorização do operador poderá ser provisionada
+uma chave não exportável no Windows Certificate Store, com ACL restrita a
+essa identidade e sem acesso/API de assinatura para agentes. Nenhum desses
+passos de provisão, integração ou ativação ocorreu. Prontidão TÉCNICA solo
+pode ser `READY_FOR_RESUME` (§5.1); autorização OPERACIONAL do maintainer
+(merge, scheduler, Live) permanece pendente de decisão independente e
+`ETAPA_6D_READY` operacional segue `BLOCKED`.
+
 ## 6. Método de merge padrão: merge commit
 
 Padrão = **merge commit**, sem squash e sem reescrita de histórico. Prática
