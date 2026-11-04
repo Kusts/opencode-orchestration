@@ -32,6 +32,69 @@ $artifactDir = Join-Path $WorkRoot 'artifacts'
 foreach ($d in @($goalDir,$ckptDir,$receiptDir,$evDir,$tasksDir,$artifactDir)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 [IO.File]::WriteAllText($flagsPath, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.UTF8Encoding]::new($false))
 
+# Repo de verificacao fixado do piloto: o policy commitado e o plano de
+# verificacao de cada task (profiles checam o artefato real) e a branch
+# 'rev-pilot' torna base_revision um ref resolvivel para o kernel.
+$verifyRepo = Join-Path $WorkRoot 'verify-repo'
+New-Item -ItemType Directory -Path (Join-Path $verifyRepo 'source\registry') -Force | Out-Null
+function Invoke-PilotGit {
+    param([string]$Dir, [string[]]$GitArgs)
+    & git -C $Dir @GitArgs *> $null
+    if ($LASTEXITCODE -ne 0) { throw ('pilot-git-failed: ' + ($GitArgs -join ' ') + ' exit=' + [string]$LASTEXITCODE) }
+}
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('init', '-q')
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('config', 'user.email', 'pilot-fixture@example.com')
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('config', 'user.name', 'Pilot Fixture')
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('config', 'core.autocrlf', 'false')
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('config', 'core.safecrlf', 'false')
+$checkArt = @'
+$ErrorActionPreference = 'Stop'
+$kind = ''
+if ($args.Count -ge 1) { $kind = [string]$args[0] }
+$root = Split-Path -Parent $PSScriptRoot
+$pa = Join-Path $root 'artifacts\output-a.json'
+$pb = Join-Path $root 'artifacts\output-b.json'
+if ($kind -ceq 'A') {
+    if (-not (Test-Path -LiteralPath $pa -PathType Leaf)) { exit 1 }
+    try { $o = [IO.File]::ReadAllText($pa, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json } catch { exit 1 }
+    if ($null -eq $o) { exit 1 }
+    if ([int]$o.value -ne 42) { exit 1 }
+    if ([string]$o.from -cne 'task-a') { exit 1 }
+    exit 0
+}
+if ($kind -ceq 'B') {
+    if (-not (Test-Path -LiteralPath $pb -PathType Leaf)) { exit 1 }
+    try { $o = [IO.File]::ReadAllText($pb, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json } catch { exit 1 }
+    if ($null -eq $o) { exit 1 }
+    if ([int]$o.derived -ne 84) { exit 1 }
+    $src = $o.source
+    $ok = $false
+    if ($src -is [string]) {
+        try { $s2 = $src | ConvertFrom-Json; if (($null -ne $s2) -and ([int]$s2.value -eq 42) -and ([string]$s2.from -ceq 'task-a')) { $ok = $true } } catch { $ok = $false }
+    } elseif ($null -ne $src) {
+        try { if (([int]$src.value -eq 42) -and ([string]$src.from -ceq 'task-a')) { $ok = $true } } catch { $ok = $false }
+    }
+    if (-not $ok) { exit 1 }
+    exit 0
+}
+exit 1
+'@
+$lfArt = ($checkArt -replace "`r`n", "`n") -replace "`r", "`n"
+[IO.File]::WriteAllText((Join-Path $verifyRepo 'check-artifact.ps1'), $lfArt, [Text.UTF8Encoding]::new($false))
+$pilotPol = [ordered]@{
+    version                 = 1
+    default_timeout_seconds = 60
+    max_output_chars        = 4000
+    profiles                = @{
+        'fd-artifact-a' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -File check-artifact.ps1 A'; timeout_seconds = 30 }
+        'fd-artifact-b' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -File check-artifact.ps1 B'; timeout_seconds = 30 }
+    }
+}
+[IO.File]::WriteAllText((Join-Path $verifyRepo 'source\registry\verification-policy.json'), (($pilotPol | ConvertTo-Json -Depth 6 -Compress) -replace "`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('add', '-A')
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('commit', '-q', '-m', 'pilot verification plan')
+Invoke-PilotGit -Dir $verifyRepo -GitArgs @('branch', 'rev-pilot')
+
 $goalId = 'fd-pilot-goal'
 $owner = 'planner-1'
 $ph = Get-NativeDispatchHash32 'fd-pilot-prompt-material'
@@ -49,10 +112,13 @@ $gen = [long]$own.ownership['generation']
 
 function New-PilotTask {
     param([string]$Id)
+    $prof = if ($Id -ceq 'fd-task-a') { 'fd-artifact-a' } else { 'fd-artifact-b' }
     $c = New-OrchestrationTask -TaskId $Id -Objective ('obj ' + $Id) -TaskType 'implementation' `
         -Risk 'low' -Actor $owner -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' `
         -RuntimeVersion '2.2.3' -BaseRevision $baseRev -ReadScopes @('src/pilot.ps1') -Grants @('fs.read') `
-        -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $WorkRoot
+        -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 `
+        -VerificationProfiles @($prof) -RepoRoot $verifyRepo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
+        -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $WorkRoot
     if (-not [bool]$c.ok) { throw ('task-create-failed ' + $Id + ': ' + [string]$c.error) }
     $slot = Get-OrchestrationGoal -GoalId $goalId -StoreDir $goalDir
     $add = Add-OrchestrationGoalTaskPersisted -GoalId $goalId -TaskId $Id -ExpectedRevision ([long]$slot.goal['revision']) -StoreDir $goalDir -OwnerId $owner -OwnershipGeneration $gen
@@ -93,6 +159,7 @@ $result = [ordered]@{
     evidence_dir = $evDir
     tasks_dir = $tasksDir
     flags_path = $flagsPath
+    verify_repo = $verifyRepo
     artifact_dir = $artifactDir
     authorization_file = $authPath
     intent_a_file = $intentA

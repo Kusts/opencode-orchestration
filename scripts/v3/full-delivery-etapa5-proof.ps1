@@ -4,7 +4,9 @@
 .DESCRIPTION
     Processo 1 (script filho via powershell -File): cria Goal+Tasks A/B em
     dirs temp compartilhados, completa Task A via cadeia canonica
-    (transitions + worker_result + verification + review + completion),
+    (transitions + worker_result + verificacao KERNEL-EXECUTED via
+    Invoke-TaskKernelVerifyRun com plano commitado no repo de verificacao
+    fixado + review + completion),
     persiste checkpoint + wait simulando CI verde, ESCREVE marcador e ENCERRA.
     Processo 2 (este processo, apos detectar marcador): nova leitura do MESMO
     Goal do disco, chama Invoke-OrchestrationDurableResume SEM executor (le
@@ -64,6 +66,46 @@ try {
     $markerPath = Join-Path $shared 'process1-done.json'
     $childPath = Join-Path $shared 'child-e5.ps1'
 
+    # Repo de verificacao fixado do proof: o policy commitado e o plano das
+    # tasks e a branch 'rev-e5' torna base_revision um ref resolvivel. O
+    # profile faz o read-back dos task records persistidos.
+    $verifyRepo = Join-Path $shared 'verify-repo'
+    [void][System.IO.Directory]::CreateDirectory((Join-Path $verifyRepo 'source\registry'))
+    function Invoke-E5Git {
+        param([string]$Dir, [string[]]$GitArgs)
+        & git -C $Dir @GitArgs *> $null
+        if ($LASTEXITCODE -ne 0) { Fail-E5 ('git-' + ($GitArgs -join '-') + '-exit-' + [string]$LASTEXITCODE) $EvidenceDir }
+    }
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('init', '-q')
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('config', 'user.email', 'e5-fixture@example.com')
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('config', 'user.name', 'E5 Fixture')
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('config', 'core.autocrlf', 'false')
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('config', 'core.safecrlf', 'false')
+    $e5Check = @'
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+foreach ($tid in @('e5-task-a','e5-task-b')) {
+    $p = Join-Path $root ('tasks\' + $tid + '.json')
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }
+    try { $j = [IO.File]::ReadAllText($p, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json } catch { exit 1 }
+    if ($null -eq $j) { exit 1 }
+    if ([string]$j.task_id -ine $tid) { exit 1 }
+}
+exit 0
+'@
+    $e5Lf = ($e5Check -replace "`r`n", "`n") -replace "`r", "`n"
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'check-store.ps1'), $e5Lf, [Text.UTF8Encoding]::new($false))
+    $e5Pol = [ordered]@{
+        version                 = 1
+        default_timeout_seconds = 60
+        max_output_chars        = 4000
+        profiles                = @{ 'e5-store-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -File check-store.ps1'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'source\registry\verification-policy.json'), (($e5Pol | ConvertTo-Json -Depth 6 -Compress) -replace "`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('add', '-A')
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('commit', '-q', '-m', 'e5 verification plan')
+    Invoke-E5Git -Dir $verifyRepo -GitArgs @('branch', 'rev-e5')
+
     $childCode = @'
 [CmdletBinding()]
 param(
@@ -75,7 +117,8 @@ param(
     [string]$TelemetryRoot = '',
     [string]$MarkerPath = '',
     [string]$LibDir = '',
-    [string]$PolicyPath = ''
+    [string]$PolicyPath = '',
+    [string]$VerifyRepo = ''
 )
 $ErrorActionPreference = 'Stop'
 try {
@@ -94,8 +137,9 @@ try {
     $own0 = Acquire-OrchestrationGoalOwnership -GoalId 'e5-goal-1' -OwnerId 'planner-1' -ExpectedRevision ([long]$slot0.goal['revision']) -StoreDir $GoalDir
     if (-not [bool]$own0.ok) { throw ('ownership:' + [string]$own0.reason) }
     $gen0 = [long]$own0.ownership['generation']
+    if ([string]::IsNullOrWhiteSpace($VerifyRepo) -or (-not (Test-Path -LiteralPath $VerifyRepo -PathType Container))) { throw ('verify-repo:' + [string]$VerifyRepo) }
     foreach ($tid in @('e5-task-a','e5-task-b')) {
-        $c = New-OrchestrationTask -TaskId $tid -Objective ('obj ' + $tid) -TaskType 'implementation' -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.3' -BaseRevision 'rev-e5' -ReadScopes @('src/e5.ps1') -Grants @('fs.read') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot
+        $c = New-OrchestrationTask -TaskId $tid -Objective ('obj ' + $tid) -TaskType 'implementation' -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.3' -BaseRevision 'rev-e5' -ReadScopes @('src/e5.ps1') -Grants @('fs.read') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -VerificationProfiles @('e5-store-check') -RepoRoot $VerifyRepo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot
         if (-not [bool]$c.ok) { throw ('task-create:' + $tid + ':' + [string]$c.error) }
         $curRev = [long](Get-OrchestrationGoal -GoalId 'e5-goal-1' -StoreDir $GoalDir).goal['revision']
         $add = Add-OrchestrationGoalTaskPersisted -GoalId 'e5-goal-1' -TaskId $tid -ExpectedRevision $curRev -StoreDir $GoalDir -OwnerId 'planner-1' -OwnershipGeneration $gen0
@@ -114,8 +158,9 @@ try {
     $rev = [long]$tr.revision
     $tr = Invoke-OrchestrationTaskTransition -TaskId 'e5-task-a' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $TasksDir -FlagsPath $FlagsPath -TelemetryRoot $TelemetryRoot
     $rev = [long]$tr.revision
-    $vr = Set-OrchestrationTaskVerification -TaskId 'e5-task-a' -VerifierEvidenceJson '{"ok":true,"task_id":"e5","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}' -ExpectedRevision $rev -TasksDir $TasksDir -FlagsPath $FlagsPath
-    if (-not [bool]$vr.ok) { throw 'verification' }
+    $vr = Invoke-TaskKernelVerifyRun -TaskId 'e5-task-a' -ExpectedRevision $rev -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $VerifyRepo
+    if (-not [bool]$vr.ok) { throw ('verification:' + [string]$vr.error) }
+    if ((-not [bool]$vr.passed) -or ([string]$vr.status -cne 'verified_pass')) { throw ('verification-not-passed:' + [string]$vr.status) }
     $rev = [long]$vr.revision
     $rw = Set-OrchestrationTaskReview -TaskId 'e5-task-a' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $rev -TasksDir $TasksDir -FlagsPath $FlagsPath
     if (-not [bool]$rw.ok) { throw 'review' }
@@ -141,7 +186,7 @@ try {
     [IO.File]::WriteAllText($childPath, $childCode, [Text.UTF8Encoding]::new($false))
 
     # Processo 1: filho real em processo separado
-    $cargs = @('-NoProfile','-File',$childPath,'-GoalDir',$goalDir,'-CkptDir',$ckptDir,'-TasksDir',$tasksDir,'-WaitsDir',$waitsDir,'-FlagsPath',$flagsPath,'-TelemetryRoot',$shared,'-MarkerPath',$markerPath,'-LibDir',$libDir,'-PolicyPath',$policyPath)
+    $cargs = @('-NoProfile','-File',$childPath,'-GoalDir',$goalDir,'-CkptDir',$ckptDir,'-TasksDir',$tasksDir,'-WaitsDir',$waitsDir,'-FlagsPath',$flagsPath,'-TelemetryRoot',$shared,'-MarkerPath',$markerPath,'-LibDir',$libDir,'-PolicyPath',$policyPath,'-VerifyRepo',$verifyRepo)
     $proc = Start-Process -FilePath 'powershell' -ArgumentList $cargs -Wait -PassThru -NoNewWindow
     if ([int]$proc.ExitCode -ne 0) { Fail-E5 ('child-exit=' + [string]$proc.ExitCode) $EvidenceDir }
     if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) { Fail-E5 'marker-missing' $EvidenceDir }
@@ -182,7 +227,7 @@ try {
     if ($nextTask -cne 'e5-task-b') { Fail-E5 ('wrong-next-task:' + $nextTask) $EvidenceDir }
 
     # TaskExecutor real: completa B canonicamente relendo tudo do disco
-    $tasksDirL = $tasksDir; $flagsPathL = $flagsPath; $sharedL = $shared
+    $tasksDirL = $tasksDir; $flagsPathL = $flagsPath; $sharedL = $shared; $verifyRepoL = $verifyRepo
     $realExec = {
         param($TaskId)
         try {
@@ -203,8 +248,9 @@ try {
             $rv = [long]$tr.revision
             $tr = Invoke-OrchestrationTaskTransition -TaskId ([string]$TaskId) -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision $rv -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDirL -FlagsPath $flagsPathL -TelemetryRoot $sharedL
             $rv = [long]$tr.revision
-            $vr = Set-OrchestrationTaskVerification -TaskId ([string]$TaskId) -VerifierEvidenceJson '{"ok":true,"task_id":"e5","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}' -ExpectedRevision $rv -TasksDir $tasksDirL -FlagsPath $flagsPathL
-            if (-not [bool]$vr.ok) { return [pscustomobject]@{ ok = $false; reason = 'verification'; task_id = [string]$TaskId } }
+            $vr = Invoke-TaskKernelVerifyRun -TaskId ([string]$TaskId) -ExpectedRevision $rv -TasksDir $tasksDirL -FlagsPath $flagsPathL -RepoRoot $verifyRepoL
+            if (-not [bool]$vr.ok) { return [pscustomobject]@{ ok = $false; reason = ('verification:' + [string]$vr.error); task_id = [string]$TaskId } }
+            if ((-not [bool]$vr.passed) -or ([string]$vr.status -cne 'verified_pass')) { return [pscustomobject]@{ ok = $false; reason = ('verification-not-passed:' + [string]$vr.status); task_id = [string]$TaskId } }
             $rv = [long]$vr.revision
             $rw = Set-OrchestrationTaskReview -TaskId ([string]$TaskId) -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $rv -TasksDir $tasksDirL -FlagsPath $flagsPathL
             if (-not [bool]$rw.ok) { return [pscustomobject]@{ ok = $false; reason = 'review'; task_id = [string]$TaskId } }

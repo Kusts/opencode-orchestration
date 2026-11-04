@@ -51,10 +51,11 @@
       04 Worker normal completion: task real do kernel (CLI), tentativa real,
           worker real com termino normal (exit 0), candidate_pass gravado e
           tentativa de terminal real via Complete-OrchestrationTask. O
-          verified_pass do gate de DONE so vem de verifier allowlisted real
-          (Invoke-OrchestrationVerifier + profile canonico); se o escopo ou o
-          profile nao cobrir, o cenario fica partial com a razao REAL, nunca
-          verde forjado.
+          verified_pass do gate de DONE so vem de verify-run executado pelo
+          kernel (Invoke-TaskKernelVerifyRun + plano package-consistency
+          comprometido no create); JSON caller-supplied nunca e prova.
+          Se o escopo ou o profile nao cobrir, o cenario fica partial com a
+          razao REAL, nunca verde forjado.
       05 Worker hard hang: worker real ultrapassa HARD_TIMEOUT real =>
           interrupt real => PID morto (fato observado).
       06 No-progress stall: worker vivo sem progresso ate NO_PROGRESS real.
@@ -287,6 +288,18 @@ function Get-LaneSafeText([string]$Text, [int]$MaxChars = 600) {
   catch { }
   if ($s.Length -gt [int]$MaxChars) { $s = $s.Substring(0, [int]$MaxChars) + '...' }
   return $s
+}
+
+function Get-LaneSafeDomainError([string]$Code) {
+  # Allowlist estrita de codigo de erro de dominio: somente token enumerado
+  # (ex.: COMPLETION_GATE_FAILED). Qualquer outro texto (mensagem livre,
+  # segredo, path) vira o fixo DOMAIN_ERROR_UNCLASSIFIED, sem persistir nem
+  # imprimir o valor bruto.
+  $c = ''
+  try { $c = ([string]$Code).Trim() } catch { $c = '' }
+  if ([string]::IsNullOrWhiteSpace($c)) { return '' }
+  if ($c -cmatch '^[A-Z][A-Z0-9_]{1,63}$') { return $c }
+  return 'DOMAIN_ERROR_UNCLASSIFIED'
 }
 
 function Wait-PrivateListenerState([int]$Port, [int]$DeadlineSeconds, [ValidateSet('presence', 'absence')][string]$Mode) {
@@ -630,9 +643,8 @@ function Invoke-KernelCli {
   if (-not [string]::IsNullOrWhiteSpace($raw)) {
     try { $json = ($raw | ConvertFrom-Json) } catch { $json = $null; $parseErr = (Get-LaneSafeError $_ -MaxChars 160) }
   }
-  $err = ''
-  try { $err = ([string]$r.Stderr).Trim() } catch { $err = '' }
-  if ($err.Length -gt 400) { $err = $err.Substring(0, 400) }
+  # Nao captura nem persiste stderr/stdout brutos (risco de segredo): apenas
+  # comprimento do stdout e codigo de erro de dominio allowlisted.
   # M-1/F1: json_parsed (a saida foi entendida) e ok (a OPERACAO DE DOMINIO
   # teve sucesso) sao coisas distintas. Exit code != 0, timeout OU presenca de
   # error de dominio no resultado = falha, mesmo com JSON perfeito e exit 0.
@@ -644,12 +656,13 @@ function Invoke-KernelCli {
   if ($jsonParsed) {
     try { $domainError = ([string]$json.error).Trim() } catch { $domainError = '' }
   }
+  $domainError = (Get-LaneSafeDomainError -Code $domainError)
   $outcome = Get-LaneKernelOutcome -ExitCode ([int]$r.ExitCode) -TimedOut ([bool]$r.TimedOut) -JsonParsed $jsonParsed -DomainError $domainError
   $res = [ordered]@{
     args = ([string[]]$LaneArgs); exit_code = ([int]$r.ExitCode); timed_out = [bool]$r.TimedOut
     stdout_len = $raw.Length; parse_error = $parseErr
     json_parsed = [bool]$outcome.json_parsed; domain_ok = [bool]$outcome.domain_ok; domain_error = $domainError
-    ok = [bool]$outcome.ok; json = $json; stderr_tail = $err
+    ok = [bool]$outcome.ok; json = $json
   }
   [void]$script:KernelCalls.Add([ordered]@{
     action = [string]$LaneArgs[0]; exit_code = ([int]$r.ExitCode); timed_out = [bool]$r.TimedOut
@@ -833,6 +846,45 @@ function Get-LaneSafeStateProjection {
   return $out
 }
 
+function Get-LaneFailedAssertionNames {
+  # Diagnostico limitado: devolve SOMENTE os nomes das assertions com
+  # passed=$false (sem detalhe livre, sem stdout, sem segredo). Usado para
+  # compor o Cause impresso no log e persistido no lane-summary.
+  param($Assertions)
+  $failed = New-Object System.Collections.ArrayList
+  foreach ($a in @($Assertions)) {
+    $nm = ''
+    $ps = $false
+    try { $nm = [string]$a['name'] } catch { $nm = '' }
+    try { $ps = [bool]$a['passed'] } catch { $ps = $false }
+    if (-not [bool]$ps -and -not [string]::IsNullOrWhiteSpace($nm)) { [void]$failed.Add($nm) }
+  }
+  return @($failed.ToArray())
+}
+
+function Get-LaneKernelDiag {
+  # Projcao SANEADA e LIMITADA de um resultado de Invoke-KernelCli para a
+  # evidencia do cenario: apenas exit_code/timed_out/json_parsed/stdout_len e
+  # o codigo de erro de dominio allowlisted. NUNCA inclui stdout/stderr bruto,
+  # prompt, objetivo ou segredo (o args fica fora por desenho).
+  param($Call)
+  $de = ''
+  try { $de = ([string]$Call.domain_error) } catch { $de = '' }
+  $ec = -1
+  try { $ec = ([int]$Call.exit_code) } catch { $ec = -1 }
+  $to = $false
+  try { $to = ([bool]$Call.timed_out) } catch { $to = $false }
+  $jp = $false
+  try { $jp = ([bool]$Call.json_parsed) } catch { $jp = $false }
+  $sl = -1
+  try { $sl = ([int]$Call.stdout_len) } catch { $sl = -1 }
+  return [ordered]@{
+    exit_code = $ec; ok = [bool]$Call.ok; timed_out = $to; json_parsed = $jp
+    domain_error = (Get-LaneSafeDomainError -Code $de)
+    stdout_len = $sl
+  }
+}
+
 function New-ScenarioResult {
   param([string]$ScenarioId, [int]$Ordinal, [string]$Title, [string]$Status, $Observed, $Assertions, [string[]]$Notes = @(), [string]$Cause = '')
   # S-1: os detalhes das assertions sao TEXTO LIVRE (job_note, motivo de gate,
@@ -892,14 +944,16 @@ function Invoke-Scenario04 {
     '-Action', 'create', '-TaskId', $tid, '-Objective', 'prove a real worker attempt completes normally under a real kernel task',
     '-Actor', 'planner', '-ActorIdentitySource', 'explicit-cli',
     '-RuntimeId', 'opencode-v2', '-RuntimeGeneration', '2', '-RuntimeProfile', 'v2', '-RuntimeVersion', $PinnedVersion,
+    '-BaseRevision', 'HEAD', '-VerifierProfiles', 'package-consistency',
     '-TasksDir', $tasksDir, '-AcceptanceCriteria', $criterion,
     '-WriteScopes', 'scripts/ci/watchdog-real-lane-v2.ps1'
   )
-  $observed['create'] = [ordered]@{ exit_code = [int]$create.exit_code; ok = [bool]$create.ok }
-  [void]$as.Add([ordered]@{ name = 'kernel_task_created'; passed = [bool]$create.ok; detail = ('task-kernel.ps1 -Action create (tasks dir TEMP); rc=' + [int]$create.exit_code) })
+  $observed['create'] = (Get-LaneKernelDiag -Call $create)
+  [void]$as.Add([ordered]@{ name = 'kernel_task_created'; passed = [bool]$create.ok; detail = ('task-kernel.ps1 -Action create (tasks dir TEMP); rc=' + [int]$create.exit_code + ' timed_out=' + [string]$create.timed_out + ' json_parsed=' + [string]$create.json_parsed + ' domain_error=' + (Get-LaneSafeDomainError -Code ([string]$create.domain_error))) })
   if (-not [bool]$create.ok) {
+    $createFailed = @(Get-LaneFailedAssertionNames -Assertions $as)
     return (New-ScenarioResult -ScenarioId 'RR-E2E-04' -Ordinal 4 -Title 'Worker normal completion' -Status 'failed' `
-        -Observed $observed -Assertions $as -Notes $notes -Cause 'kernel create recusou a task real da lane')
+        -Observed $observed -Assertions $as -Notes $notes -Cause ('kernel create recusou a task real da lane: rc=' + [string]$create.exit_code + ' timed_out=' + [string]$create.timed_out + ' json_parsed=' + [string]$create.json_parsed + ' domain_error=' + (Get-LaneSafeDomainError -Code ([string]$create.domain_error)) + ' failed=' + ($createFailed -join ',')))
   }
 
   $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
@@ -913,8 +967,8 @@ function Invoke-Scenario04 {
   $att = Invoke-KernelCli -LaneArgs @('-Action', 'start-attempt', '-TaskId', $tid, '-AttemptRole', 'coder',
     '-SessionId', 'ses-rr-e2e-04-worker', '-Actor', 'planner', '-ActorIdentitySource', 'explicit-cli',
     '-ExpectedRevision', [string]$rev, '-TasksDir', $tasksDir)
-  $observed['start_attempt'] = [ordered]@{ exit_code = [int]$att.exit_code; ok = [bool]$att.ok; error = [string]$att.json.error }
-  [void]$as.Add([ordered]@{ name = 'kernel_attempt_started'; passed = [bool]$att.ok; detail = ('start-attempt real; rc=' + [int]$att.exit_code + ' error=' + [string]$att.json.error) })
+  $observed['start_attempt'] = [ordered]@{ exit_code = [int]$att.exit_code; ok = [bool]$att.ok; error = (Get-LaneSafeDomainError -Code ([string]$att.json.error)) }
+  [void]$as.Add([ordered]@{ name = 'kernel_attempt_started'; passed = [bool]$att.ok; detail = ('start-attempt real; rc=' + [int]$att.exit_code + ' error=' + (Get-LaneSafeDomainError -Code ([string]$att.json.error))) })
   $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
 
   $worker = Start-LaneWorker -Mode 'complete' -Seconds 60 -Tag 's04'
@@ -953,26 +1007,38 @@ function Invoke-Scenario04 {
   $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
   [void]$as.Add([ordered]@{ name = 'kernel_reaching_state_reviewing'; passed = ([bool]$t1.ok -and [bool]$t2.ok); detail = ('transicoes reais VALIDATING/REVIEWING; rc=' + [int]$t1.exit_code + '/' + [int]$t2.exit_code) })
 
-  # verified_pass do gate de DONE: SOMENTE verifier allowlisted real.
+  # verified_pass do gate de DONE: SOMENTE verify-run executado pelo kernel
+  # (Invoke-TaskKernelVerifyRun em-processo contra o plano
+  # verification_profiles comprometido no create + repo canonico). JSON
+  # caller-supplied nunca e prova: a CLI `-Action verify` persiste
+  # verification_source=caller-supplied e o gate recusa DONE com
+  # verification-not-kernel-executed. Chamada de biblioteca do harness para
+  # o task store TEMPORARIO (a CLI verify-run e canonical-path-bound e
+  # recusaria o TasksDir temporario); a CLI continua pinada para create,
+  # transition, record-result, review e complete. Evidencia do verify-run
+  # fica sob TargetHome (work), nunca no checkout.
   $verifierStatus = 'not-run'
-  $verifierFile = ''
   $verifierDetail = ''
+  $verifySource = ''
   $scopeOut = @()
   try {
     if ($null -eq (Get-Command -Name 'Test-OrchestrationWriteScope' -ErrorAction SilentlyContinue)) {
       . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationVerifier.ps1')
     }
+    if ($null -eq (Get-Command -Name 'Invoke-TaskKernelVerifyRun' -ErrorAction SilentlyContinue)) {
+      . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationTaskKernel.ps1')
+    }
     $scope = Test-OrchestrationWriteScope -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes
     $scopeOut = @($scope.out_of_scope)
     if (@($scope.out_of_scope).Count -eq 0) {
-      $vr = Invoke-OrchestrationVerifier -TaskId $tid -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes `
-        -ProfileNames @('package-consistency') -AcceptanceCriteria @($criterion)
+      $vr = Invoke-TaskKernelVerifyRun -TaskId $tid -ExpectedRevision ([int]$rev) `
+        -TasksDir $tasksDir -FlagsPath $script:repoFlags -RepoRoot $RepoRoot
       $verifierStatus = [string]$vr.status
-      $verifierDetail = ([string]$vr.reason)
-      if ([string]$vr.status -ceq 'verified_pass') {
-        $verifierFile = Join-Path $script:workRoot 'verifier-result.json'
-        [IO.File]::WriteAllText($verifierFile, (($vr | ConvertTo-Json -Depth 12) + "`n"), (New-Object Text.UTF8Encoding $false))
-      }
+      if ([string]::IsNullOrWhiteSpace($verifierStatus)) { $verifierStatus = [string]$vr.error }
+      try { $verifySource = [string]$vr.verification_source } catch { $verifySource = '' }
+      $verifierDetail = ([string]$vr.error)
+      $runFile = Join-Path $script:workRoot 'verify-run-result.json'
+      [IO.File]::WriteAllText($runFile, ((($vr | ConvertTo-Json -Depth 12) + "`n") -replace "`r`n", "`n" -replace "`r", "`n"), (New-Object Text.UTF8Encoding $false))
     }
     else {
       $verifierStatus = 'skipped-out-of-scope'
@@ -984,21 +1050,16 @@ function Invoke-Scenario04 {
     $verifierDetail = (Get-LaneSafeError $_)
   }
   $observed['verifier'] = [ordered]@{
-    status = $verifierStatus; reason = $verifierDetail; out_of_scope = @($scopeOut)
-    allowlisted_profile = 'package-consistency'
+    status = $verifierStatus; reason = $verifierDetail; verification_source = $verifySource; out_of_scope = @($scopeOut)
+    allowlisted_profile = 'package-consistency'; kernel_executed = ($verifySource -ceq 'kernel-executed')
   }
-  $verifyOk = $false
-  if (-not [string]::IsNullOrWhiteSpace($verifierFile)) {
-    $vf = Invoke-KernelCli -LaneArgs @('-Action', 'verify', '-TaskId', $tid, '-VerifierResultFile', $verifierFile,
-      '-ActorIdentitySource', 'explicit-cli', '-ExpectedRevision', [string]$rev, '-TasksDir', $tasksDir)
-    $verifyOk = [bool]$vf.ok
-    $observed['verify'] = [ordered]@{ exit_code = [int]$vf.exit_code; ok = [bool]$vf.ok; domain_error = [string]$vf.domain_error }
-    $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
-  }
+  $verifyOk = (($verifierStatus -ceq 'verified_pass') -and ($verifySource -ceq 'kernel-executed'))
+  $observed['verify'] = [ordered]@{ ok = [bool]$verifyOk; status = $verifierStatus; verification_source = $verifySource; reason = $verifierDetail }
+  $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
   [void]$as.Add([ordered]@{
     name = 'verified_pass_from_allowlisted_verifier'
     passed = $verifyOk
-    detail = ('verifier allowlisted real (profile package-consistency) => status=' + $verifierStatus + ' ' + $verifierDetail)
+    detail = ('verify-run do kernel (profile package-consistency) => status=' + $verifierStatus + ' source=' + $verifySource + ' ' + $verifierDetail)
   })
 
   $review = Invoke-KernelCli -LaneArgs @('-Action', 'review', '-TaskId', $tid, '-ReviewKind', 'reviewer',
@@ -1017,7 +1078,7 @@ function Invoke-Scenario04 {
   $isDone = ([string]$final.state -ceq 'DONE')
   [void]$as.Add([ordered]@{ name = 'kernel_terminal_done_via_complete'; passed = $isDone; detail = ('Complete-OrchestrationTask real; rc=' + [int]$done.exit_code + '; domain_error=' + [string]$done.domain_error + '; estado final=' + [string]$final.state + '; reasons=' + (@($done.json.reasons) -join ';')) })
   [void]$observed['kernel_calls']
-  [void]$notes.Add('verified_pass do gate de DONE veio de verifier allowlisted real; nenhum status foi forjado pelo harness.')
+  [void]$notes.Add('verified_pass do gate de DONE veio de verify-run executado pelo kernel (plano package-consistency); nenhum status foi forjado pelo harness. Evidencia do verify-run fica sob TargetHome/work.')
   [void]$notes.Add('budgets do kernel intactos (record-only): o harness nunca chamou set-budget.')
   [void]$notes.Add('a task real do kernel carrega UM write scope representativo da lane: o roteamento acotado via cmd.exe recusa o separador | e o binder do PowerShell recusa o parametro repetido, entao o array completo nao atravessa a CLI. O escopo que decide o verified_pass (gate do verifier) e conferido in-process com a lista COMPLETA dos paths da lane.')
   # M-1 (b)(c): pass-real SO com TODA assertion obrigatoria verde, worker exit 0
@@ -1095,8 +1156,10 @@ function Invoke-Scenario05 {
   [void]$as.Add([ordered]@{ name = 'hanging_pid_dead'; passed = [bool]$gone; detail = ('PID ' + [int]$worker.pid + ' observado morto apos o interrupt (resolucao fresca por PID)') })
   [void]$notes.Add('afirma apenas OUTCOMES (classificacao, interrupted, settlement, PID morto); o caminho interno do enforcement nao e inspecionado (pertence a outro worker).')
   $pass = (@($as | Where-Object { -not [bool]$_.passed }).Count -eq 0)
+  $failCause05 = ''
+  if (-not $pass) { $failCause05 = ('assertions falhas: ' + ((Get-LaneFailedAssertionNames -Assertions $as) -join ', ')) }
   return (New-ScenarioResult -ScenarioId 'RR-E2E-05' -Ordinal 5 -Title 'Worker hard hang' `
-      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes)
+      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes -Cause $failCause05)
 }
 
 # ---------------------------------------------------------------------------
@@ -1146,8 +1209,10 @@ function Invoke-Scenario06 {
   [void]$as.Add([ordered]@{ name = 'interrupt_engaged'; passed = [bool]$eval.interrupted; detail = ('interrupted=' + [string]$eval.interrupted) })
   [void]$as.Add([ordered]@{ name = 'stalled_pid_dead'; passed = [bool]$gone; detail = ('PID ' + [int]$worker.pid + ' observado morto apos o interrupt') })
   $pass = (@($as | Where-Object { -not [bool]$_.passed }).Count -eq 0)
+  $failCause06 = ''
+  if (-not $pass) { $failCause06 = ('assertions falhas: ' + ((Get-LaneFailedAssertionNames -Assertions $as) -join ', ')) }
   return (New-ScenarioResult -ScenarioId 'RR-E2E-06' -Ordinal 6 -Title 'No-progress stall' `
-      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes)
+      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes -Cause $failCause06)
 }
 
 # ---------------------------------------------------------------------------
@@ -1207,8 +1272,10 @@ function Invoke-ScenarioActionLoop {
   [void]$as.Add([ordered]@{ name = 'interrupt_engaged'; passed = [bool]$interrupted; detail = ('interrupted=' + [string]$interrupted) })
   [void]$as.Add([ordered]@{ name = 'worker_pid_dead'; passed = [bool]$gone; detail = ('PID ' + [int]$worker.pid + ' observado morto apos o interrupt') })
   $pass = (@($as | Where-Object { -not [bool]$_.passed }).Count -eq 0)
+  $failCauseLoop = ''
+  if (-not $pass) { $failCauseLoop = ('assertions falhas: ' + ((Get-LaneFailedAssertionNames -Assertions $as) -join ', ')) }
   return (New-ScenarioResult -ScenarioId $ScenarioId -Ordinal $Ordinal -Title $Title `
-      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes)
+      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes -Cause $failCauseLoop)
 }
 
 # ---------------------------------------------------------------------------
@@ -1275,7 +1342,7 @@ function Invoke-Scenario09 {
   $tele = Copy-LaneTelemetry -Tag '09'
   $observed['pre_eval'] = [ordered]@{ classification = 'HARD_TIMEOUT (deadline real do registro, sem avaliador ENFORCE)'; elapsed_s = [int]$elapsedReal }
   $observed['interrupt_result'] = [ordered]@{
-    ok = [bool]$inter.ok; error = $err; detail = [string]$inter.detail
+    ok = [bool]$inter.ok; error = (Get-LaneSafeText -Text $err -MaxChars 160); detail = (Get-LaneSafeText -Text ([string]$inter.detail) -MaxChars 400)
     classification = [string]$inter.classification; elapsed_s = [int]$inter.elapsed_s
     real_deadline_wait_ms = [long]$sw.ElapsedMilliseconds
   }
@@ -1289,8 +1356,10 @@ function Invoke-Scenario09 {
   [void]$notes.Add('nao-settlement injetado (seam de teste); interrupt e deadline reais: o token stop_failure pertence ao conjunto fechado de FaultInject da propria lib do watchdog e simula a recusa do SO no stop; o harness nao forjou relogio nem resultado.')
   [void]$notes.Add('o worker que sobreviveu e reapeado pelo backstop do Job Object da lane (spawn proprio), registrado como cleanup do harness, nunca como interrupt do watchdog.')
   $pass = (@($as | Where-Object { -not [bool]$_.passed }).Count -eq 0)
+  $failCause09 = ''
+  if (-not $pass) { $failCause09 = ('interrupt err=' + (Get-LaneSafeText -Text $err -MaxChars 160) + '; assertions falhas: ' + ((Get-LaneFailedAssertionNames -Assertions $as) -join ', ')) }
   return (New-ScenarioResult -ScenarioId 'RR-E2E-09' -Ordinal 9 -Title 'Interrupt failure' `
-      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes)
+      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes -Cause $failCause09)
 }
 
 # ---------------------------------------------------------------------------
@@ -1361,8 +1430,10 @@ function Invoke-Scenario10 {
   [void]$as.Add([ordered]@{ name = 'sibling_never_killed_by_watchdog'; passed = ([bool]$siblingGoneBeforeInterrupt -and [int]$sib.exit_code -eq 0); detail = ('sibling saiu por conta propria (exit 0) ANTES do interrupt e nunca foi morto pelo watchdog') })
   [void]$notes.Add('o watchdog foi registrado apenas no child em hang; o sibling saiu por conta propria e sua saida normal (exit 0) e anterior ao interrupt.')
   $pass = (@($as | Where-Object { -not [bool]$_.passed }).Count -eq 0)
+  $failCause10 = ''
+  if (-not $pass) { $failCause10 = ('assertions falhas: ' + ((Get-LaneFailedAssertionNames -Assertions $as) -join ', ')) }
   return (New-ScenarioResult -ScenarioId 'RR-E2E-10' -Ordinal 10 -Title 'Sibling completes while one child hangs' `
-      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes)
+      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes -Cause $failCause10)
 }
 
 # ---------------------------------------------------------------------------

@@ -38,6 +38,156 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'OrchestrationF3ThreePhaseFixture.ps1')
 
+# Test-only kernel-verification migration (F3-VERIFY-RUN): the DONE gate now
+# requires kernel-executed verification, so every positive fixture task is
+# created with a committed verification plan and settled through
+# Invoke-TaskKernelVerifyRun. These overrides live in the tests file only;
+# the fixture driver is untouched.
+$script:F3VerifyRepo = ''
+$script:F3BudgetPolicyPath = ''
+
+function New-F3PhaseTask {
+    [CmdletBinding()]
+    param(
+        $Environment = $null,
+        [string]$GoalId = '',
+        [int]$PhaseIndex = 1,
+        [int]$TotalPhases = 3,
+        [string]$OwnerId = 'planner-1',
+        [string]$Actor = 'planner-1',
+        [int]$AttemptBudget = 3,
+        [switch]$SkipToImplementing
+    )
+    try {
+        $taskId = ('f3-p' + [string]$PhaseIndex)
+        $artifactRel = ('artifacts/phase' + [string]$PhaseIndex + '.txt')
+        $c = New-OrchestrationTask -TaskId $taskId -Objective ('phase ' + [string]$PhaseIndex + ' of ' + [string]$TotalPhases) `
+            -TaskType 'implementation' -Risk 'low' -Actor $Actor `
+            -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.0.18' `
+            -BaseRevision 'f3-base-rev' -ReadScopes @($artifactRel) -WriteScopes @($artifactRel) `
+            -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('artifact:' + $artifactRel + ':deterministic-content') `
+            -ExpectedArtifacts @($artifactRel) -AttemptBudget $AttemptBudget `
+            -VerificationProfiles @('f3-kernel-check') -RepoRoot ([string]$script:F3VerifyRepo) -BudgetPolicyPath ([string]$script:F3BudgetPolicyPath) `
+            -TasksDir ([string](Get-F3Value $Environment 'tasks_dir' '')) `
+            -FlagsPath ([string](Get-F3Value $Environment 'flags' '')) `
+            -TelemetryRoot ([string](Get-F3Value $Environment 'telemetry' ''))
+        if (-not [bool]$c.ok) { return (New-F3Envelope -Ok $false -Reason ('task-create:' + [string]$c.error)) }
+        if (-not $SkipToImplementing) {
+            $t1 = Invoke-OrchestrationTaskTransition -TaskId $taskId -ToState 'PLANNING' -Actor $Actor -ExpectedRevision 1 `
+                -ActorIdentitySource 'explicit-cli' -TasksDir ([string](Get-F3Value $Environment 'tasks_dir' '')) `
+                -FlagsPath ([string](Get-F3Value $Environment 'flags' '')) -TelemetryRoot ([string](Get-F3Value $Environment 'telemetry' ''))
+            if (-not [bool]$t1.ok) { return (New-F3Envelope -Ok $false -Reason ('task-planning:' + [string]$t1.error)) }
+            $t2 = Invoke-OrchestrationTaskTransition -TaskId $taskId -ToState 'IMPLEMENTING' -Actor $Actor -ExpectedRevision 2 `
+                -ActorIdentitySource 'explicit-cli' -TasksDir ([string](Get-F3Value $Environment 'tasks_dir' '')) `
+                -FlagsPath ([string](Get-F3Value $Environment 'flags' '')) -TelemetryRoot ([string](Get-F3Value $Environment 'telemetry' ''))
+            if (-not [bool]$t2.ok) { return (New-F3Envelope -Ok $false -Reason ('task-implementing:' + [string]$t2.error)) }
+        }
+        $live = Get-OrchestrationTask -TaskId $taskId -TasksDir ([string](Get-F3Value $Environment 'tasks_dir' ''))
+        if ($null -ne $live) {
+            $err = [string](Get-F3Value $live 'error' '')
+            if (-not [string]::IsNullOrWhiteSpace($err)) { return (New-F3Envelope -Ok $false -Reason ('task-read:' + $err)) }
+        }
+        return (New-F3Envelope -Ok $true -Data ([pscustomobject][ordered]@{
+                task_id      = $taskId
+                phase        = $PhaseIndex
+                revision     = [long](Get-F3Value $live 'revision' 0)
+                state        = [string](Get-F3Value $live 'state' '')
+                scope        = $artifactRel
+                artifact     = (Join-Path ([string](Get-F3Value $Environment 'artifacts' '')) ('phase' + [string]$PhaseIndex + '.txt'))
+                goal_id      = $GoalId
+                owner_id     = $OwnerId
+                attempt_budget = $AttemptBudget
+            }))
+    }
+    catch { return (New-F3Envelope -Ok $false -Reason 'task-fixture-exception') }
+}
+
+function Invoke-F3TaskSettlement {
+    [CmdletBinding()]
+    param(
+        $Environment = $null,
+        [string]$TaskId = '',
+        [string]$ArtifactPath = '',
+        [int]$PhaseIndex = 1,
+        [int]$CriterionIndex = 0,
+        [string]$Actor = 'planner-1',
+        [string]$Reviewer = 'reviewer',
+        [string]$Verifier = 'tester',
+        [string]$ResidualRisk = 'fixture-harness-residual',
+        [string]$ExpectedContent = ''
+    )
+    try {
+        $tasksDir = [string](Get-F3Value $Environment 'tasks_dir' '')
+        $flags = [string](Get-F3Value $Environment 'flags' '')
+        $tel = [string](Get-F3Value $Environment 'telemetry' '')
+        $out = [ordered]@{}
+        $live = Get-OrchestrationTask -TaskId $TaskId -TasksDir $tasksDir
+        $rev = [long](Get-F3Value $live 'revision' 0)
+
+        $v = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'VALIDATING' -Actor $Verifier -ExpectedRevision $rev `
+            -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flags -TelemetryRoot $tel
+        $out['validating'] = $v
+        if (-not [bool]$v.ok) { return (New-F3Envelope -Ok $false -Reason ('validating:' + [string]$v.error) -Data ([pscustomobject]$out)) }
+        $rev = $rev + 1
+
+        $r = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'REVIEWING' -Actor $Verifier -ExpectedRevision $rev `
+            -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flags -TelemetryRoot $tel
+        $out['reviewing'] = $r
+        if (-not [bool]$r.ok) { return (New-F3Envelope -Ok $false -Reason ('reviewing:' + [string]$r.error) -Data ([pscustomobject]$out)) }
+        $rev = $rev + 1
+
+        # The verifier reads the artifact back and compares it against the
+        # deterministic content the phase contract requires. A tampered
+        # artifact fails here before any kernel execution is attempted.
+        $found = $false
+        if ((-not [string]::IsNullOrWhiteSpace($ArtifactPath)) -and (Test-Path -LiteralPath $ArtifactPath -PathType Leaf)) {
+            try {
+                $actual = [IO.File]::ReadAllText($ArtifactPath, [Text.Encoding]::UTF8)
+                $found = ($actual -ceq $ExpectedContent)
+            }
+            catch { $found = $false }
+        }
+        if (-not $found) {
+            $out['verification'] = [pscustomobject]@{ ok = $false; error = 'artifact-mismatch' }
+            return (New-F3Envelope -Ok $false -Reason 'verification:artifact-mismatch' -Data ([pscustomobject]$out))
+        }
+        $ver = Invoke-TaskKernelVerifyRun -TaskId $TaskId -ExpectedRevision ([int]$rev) `
+            -TasksDir $tasksDir -FlagsPath $flags -RepoRoot ([string]$script:F3VerifyRepo)
+        $out['verification'] = $ver
+        $verOk = $false
+        $verStatus = ''
+        $verSrc = ''
+        try {
+            $verOk = [bool](Get-F3Value $ver 'ok' $false)
+            $verStatus = ([string](Get-F3Value $ver 'status' '')).Trim()
+            $verSrc = ([string](Get-F3Value $ver 'verification_source' '')).Trim()
+        }
+        catch { }
+        if ((-not $verOk) -or ($verStatus -cne 'verified_pass') -or ($verSrc -cne 'kernel-executed')) {
+            return (New-F3Envelope -Ok $false -Reason ('verification:' + [string](Get-F3Value $ver 'error' 'refused')) -Data ([pscustomobject]$out))
+        }
+        $rev = $rev + 1
+
+        $revw = Set-OrchestrationTaskReview -TaskId $TaskId -Kind 'reviewer' -Status 'approved' -By $Reviewer `
+            -ExpectedRevision ([int]$rev) -TasksDir $tasksDir -FlagsPath $flags
+        $out['review'] = $revw
+        if (-not [bool](Get-F3Value $revw 'ok' $false)) {
+            return (New-F3Envelope -Ok $false -Reason ('review:' + [string](Get-F3Value $revw 'error' 'refused')) -Data ([pscustomobject]$out))
+        }
+        $rev = $rev + 1
+
+        $done = Complete-OrchestrationTask -TaskId $TaskId -Actor $Actor -ExpectedRevision ([int]$rev) `
+            -ResidualRisks @($ResidualRisk) -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' `
+            -TasksDir $tasksDir -FlagsPath $flags -TelemetryRoot $tel
+        $out['complete'] = $done
+        if (-not [bool](Get-F3Value $done 'ok' $false)) {
+            return (New-F3Envelope -Ok $false -Reason ('complete:' + [string](Get-F3Value $done 'error' 'refused')) -Data ([pscustomobject]$out))
+        }
+        return (New-F3Envelope -Ok $true -Data ([pscustomobject]@{ steps = ([pscustomobject]$out); final_revision = $rev + 1 }))
+    }
+    catch { return (New-F3Envelope -Ok $false -Reason 'task-settlement-exception') }
+}
+
 $script:passed = 0
 $script:failed = 0
 
@@ -147,6 +297,31 @@ try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     $repoProbe = Join-Path $tempRoot 'repo-probe'
     New-Item -ItemType Directory -Path $repoProbe -Force | Out-Null
+
+    # Pinned verification repo: the committed policy IS each task's
+    # verification plan and the 'f3-base-rev' branch makes base_revision
+    # resolvable, which is what Invoke-TaskKernelVerifyRun requires.
+    $script:F3VerifyRepo = Join-Path $tempRoot 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $script:F3VerifyRepo 'source\registry') -Force | Out-Null
+    & git -C $script:F3VerifyRepo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $script:F3VerifyRepo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $script:F3VerifyRepo config user.email 'f3-fixture@example.com' *>$null
+    & git -C $script:F3VerifyRepo config user.name 'F3 Fixture' *>$null
+    & git -C $script:F3VerifyRepo config core.autocrlf false *>$null
+    & git -C $script:F3VerifyRepo config core.safecrlf false *>$null
+    [IO.File]::WriteAllText((Join-Path $script:F3VerifyRepo 'base.txt'), "base`n", [Text.UTF8Encoding]::new($false))
+    $f3Pol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 'f3-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $script:F3VerifyRepo 'source\registry\verification-policy.json'), (($f3Pol | ConvertTo-Json -Depth 6 -Compress)), [Text.UTF8Encoding]::new($false))
+    & git -C $script:F3VerifyRepo add -A *>$null
+    & git -C $script:F3VerifyRepo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $script:F3VerifyRepo branch 'f3-base-rev' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+    try { $script:F3BudgetPolicyPath = Get-ExecutionBudgetDefaultPolicyPath } catch { $script:F3BudgetPolicyPath = '' }
 
     # ================= [FIX] bootstrap =================
     $s = New-F3Subject -Label 'main' -GoalId 'f3-goal-main'

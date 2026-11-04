@@ -67,7 +67,19 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `engineering-advisor`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Fallback do cheap pool — em indisponibilidade/erro do modelo default, escalar em ordem: 1º `opencode-go/muse-spark-1.3-contributor`, 2º `openai/gpt-6-luna`; override temporário no spawn com reset ao baseline, sujeito às cotas de escalonamento já definidas.
+- Fallback do cheap pool — HOLD no V1: a matriz rota/modelo canônica é a
+  referência de nível de política `source/registry/model-routing-policy.json`
+  (detalhes em `docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md`). O OpenCode V1
+  está congelado: retries automáticos, trocas de provider e aliases
+  `claude-agent` (provider nativo, exige V2) NÃO estão implementados nem
+  provados para V1 — não sobrescreva o modelo de um worker V1 com base em
+  erro ou recibo não confiável. A seleção de política read-only com prova do
+  kernel (`task-kernel model-select`) é descrita no adapter V2
+  (`source/adapters/opencode-v2.md`); o dispatch de produção V2 permanece em
+  HOLD até que a prova de no-start (recibo do runtime/Kernel) seja acoplada,
+  verificada de forma independente e correlacionada à requisição. Qualquer
+  escalonamento manual segue override temporário no spawn com reset ao
+  baseline, sujeito às cotas de escalonamento já definidas.
 - Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala

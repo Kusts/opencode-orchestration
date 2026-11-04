@@ -72,12 +72,22 @@ $selSecRev = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' 
 $fbSecDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selSecRev -FailedModel $selSecRev.CatalogModel -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol') -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbSecDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "P0-02.2: Downgrade de Security-Reviewer e estritamente proibido mesmo sob risco low"
 
-# 2.3 Escalada para T3 quando tier T2 se esgota
-$fbEscalate = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT'
-Assert-Hardening ($fbEscalate.Status -eq 'AUTHORIZED' -and $fbEscalate.FallbackTier -eq 'T3') "P0-02.3: Quando T2 se esgota, Coder escala para T3 autorizado"
+# 2.3 Transporte T2 (matriz explicita do usuario: Muse -> Luna -> Haiku).
+# Disponibilidade permanece no MESMO tier: com capability + no-start provados o
+# fallback e Haiku T2; sem prova alguma a cadeia esgota e NUNCA escolhe Terra/T3
+# (escalada de capacidade exige prova de incapacidade vinculada, kernel-owned).
+$t2TransportAttempted = @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna')
+$fbHaiku = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels $t2TransportAttempted -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true
+Assert-Hardening ($fbHaiku.Status -eq 'AUTHORIZED' -and $fbHaiku.FallbackModel -eq 'claude-agent/haiku' -and $fbHaiku.FallbackTier -eq 'T2') "P0-02.3: T2 disponibilidade cai para Haiku no mesmo tier (capability + no-start provados)"
+$fbNoClaude = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels $t2TransportAttempted -TriggerReason 'RATE_LIMIT'
+Assert-Hardening ($fbNoClaude.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbNoClaude.FallbackModel -eq $null) "P0-02.3: sem capability/no-start Claude a cadeia T2 esgota fail-closed"
+Assert-Hardening ($fbNoClaude.FallbackModel -ne 'openai/gpt-6.1-terra' -and $fbNoClaude.FallbackTier -ne 'T3') "P0-02.3: indisponibilidade nunca seleciona Terra/T3 sem prova de incapacidade"
+# 2.3 T2 esgotado nao escala para T3: todos os T2 elegiveis tentados => EXHAUSTED honesto
+$fbExhaustT2 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT'
+Assert-Hardening ($fbExhaustT2.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbExhaustT2.IsAuthorized -eq $false) "P0-02.3: T2 esgotado (todos os T2 elegiveis tentados) nao escala para T3; retorna EXHAUSTED_NO_ELIGIBLE_FALLBACK"
 
-# 2.4 Exaustao completa sem autorizacao de custo para T4
-$allTiersExhausted = @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol')
+# 2.4 Exaustao completa: todos os T2 elegiveis tentados => EXHAUSTED sem loop (sem custo T4)
+$allTiersExhausted = @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol')
 $fbExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'openai/gpt-6.1-sol' -AttemptedModels $allTiersExhausted -ProviderCostAuthorized $false -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbExhausted.IsAuthorized -eq $false) "P0-02.4: Tentativas esgotadas retornam EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 

@@ -40,6 +40,30 @@ try {
     foreach ($d in @($goalDir,$ckptDir,$tasksDir,$waitsDir)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
     [IO.File]::WriteAllText($flagsPath, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.UTF8Encoding]::new($false))
 
+    # Repo de verificacao fixo: o policy commitado EH o plano do task e o
+    # branch 'rev-dr' torna base_revision um ref resolvivel -- pre-condicao
+    # de Invoke-TaskKernelVerifyRun (unica rota de marks kernel-executed).
+    $verifyRepo = Join-Path $root 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $verifyRepo 'source\registry') -Force | Out-Null
+    & git -C $verifyRepo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $verifyRepo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $verifyRepo config user.email 'dr-fixture@example.com' *>$null
+    & git -C $verifyRepo config user.name 'DR Fixture' *>$null
+    & git -C $verifyRepo config core.autocrlf false *>$null
+    & git -C $verifyRepo config core.safecrlf false *>$null
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'base.txt'), "base`n", [Text.UTF8Encoding]::new($false))
+    $drPol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 'dr-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    [IO.File]::WriteAllText((Join-Path $verifyRepo 'source\registry\verification-policy.json'), (($drPol | ConvertTo-Json -Depth 6 -Compress)), [Text.UTF8Encoding]::new($false))
+    & git -C $verifyRepo add -A *>$null
+    & git -C $verifyRepo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $verifyRepo branch 'rev-dr' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+
     # Goal inicia e conclui Task A (DONE canonico simplificado via transicoes)
     $g = New-OrchestrationGoal -GoalId 'dr-goal-1' -Objective 'retomar apos CI' -Criteria @('a','b') -TotalPhases 2 -StoreDir $goalDir
     Assert-DR ([bool]$g.ok) '[DR0] goal criado' ([string]$g.reason)
@@ -51,7 +75,7 @@ try {
     $own0 = Acquire-OrchestrationGoalOwnership -GoalId 'dr-goal-1' -OwnerId 'planner-1' -ExpectedRevision ([long]$slot0.goal['revision']) -StoreDir $goalDir
     $gen0 = [long]$own0.ownership['generation']
     foreach ($tid in @('dr-task-a','dr-task-b')) {
-        $c = New-OrchestrationTask -TaskId $tid -Objective ('obj '+$tid) -TaskType 'implementation' -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.3' -BaseRevision 'rev-dr' -ReadScopes @('src/dr.ps1') -Grants @('fs.read') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $root
+        $c = New-OrchestrationTask -TaskId $tid -Objective ('obj '+$tid) -TaskType 'implementation' -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.3' -BaseRevision 'rev-dr' -ReadScopes @('src/dr.ps1') -Grants @('fs.read') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -VerificationProfiles @('dr-kernel-check') -RepoRoot $verifyRepo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $root
         Assert-DR ([bool]$c.ok) ('[DR0] task '+$tid) ([string]$c.error)
         $curRev = [long](Get-OrchestrationGoal -GoalId 'dr-goal-1' -StoreDir $goalDir).goal['revision']
         $add = Add-OrchestrationGoalTaskPersisted -GoalId 'dr-goal-1' -TaskId $tid -ExpectedRevision $curRev -StoreDir $goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen0
@@ -70,7 +94,8 @@ try {
         $tr = Invoke-OrchestrationTaskTransition -TaskId 'dr-task-a' -ToState $st -Actor $actor -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $tasksDir -FlagsPath $flagsPath -TelemetryRoot $root
         $rev = [long]$tr.revision
     }
-    $vr = Set-OrchestrationTaskVerification -TaskId 'dr-task-a' -VerifierEvidenceJson '{"ok":true,"task_id":"dr","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}' -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath
+    $vr = Invoke-TaskKernelVerifyRun -TaskId 'dr-task-a' -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath -RepoRoot $verifyRepo
+    Assert-DR (([bool]$vr.ok) -and ([string]$vr.status -ceq 'verified_pass') -and ([string]$vr.verification_source -ceq 'kernel-executed')) '[DR1] verify-run kernel-executed verified_pass' ([string]$vr.error)
     $rev = [long]$vr.revision
     $rw = Set-OrchestrationTaskReview -TaskId 'dr-task-a' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $rev -TasksDir $tasksDir -FlagsPath $flagsPath
     $rev = [long]$rw.revision
