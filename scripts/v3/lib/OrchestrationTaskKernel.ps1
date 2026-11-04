@@ -2756,6 +2756,21 @@ function Set-OrchestrationTaskReview {
         }
         catch { }
         $byClean = Protect-TaskKernelText -Text $by
+        # Review independence: the reviewer identity must differ from the
+        # recorded worker-result producer. Self-approval is rejected
+        # fail-closed (SELF_REVIEW_FORBIDDEN) so an E2E caller can never
+        # fabricate independence by recording its own approval. When no worker
+        # result exists yet there is no producer to conflict with.
+        try {
+            $wrkNode = $rec['worker_result']
+            if (($null -ne $wrkNode) -and ($wrkNode -is [System.Collections.IDictionary]) -and ($null -ne $wrkNode['produced_by'])) {
+                $producerName = ([string]$wrkNode['produced_by']).Trim()
+                if ((-not [string]::IsNullOrWhiteSpace($producerName)) -and ($by -ieq $producerName)) {
+                    return (New-TaskKernelError -Code 'SELF_REVIEW_FORBIDDEN' -Extra @{ detail = 'reviewer identity equals worker-result producer' })
+                }
+            }
+        }
+        catch { }
         $newRev = ([int]$rec['revision'] + 1)
         $entry = [ordered]@{
             status             = $status

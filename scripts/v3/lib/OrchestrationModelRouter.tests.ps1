@@ -43,11 +43,11 @@ $selUnknown = Resolve-OrchestrationModelSelection -AgentName 'unknown-intruder' 
 Assert-Router ($selUnknown.Status -eq 'REJECTED') "A.2: Agente desconhecido e rejeitado"
 Assert-Router ($selUnknown.IsCompliant -eq $false) "A.2: Agente desconhecido nao e compliant"
 
-# A.3 Planner (build): Fixado estritamente em GPT-6 Luna (T3 / openai)
+# A.3 Planner (build): primario estrito claude-agent/haiku (T2 / claude-agent), fallback Luna
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-Router ($selPlanner.Tier -eq 'T2') "A.3: Planner 'build' alocado em Tier T3"
-Assert-Router ($selPlanner.CatalogModel -eq 'openai/gpt-6-luna') "A.3: Planner 'build' seleciona GPT-6 Luna canonico"
-Assert-Router ($selPlanner.selected_provider -eq 'openai') "A.3: Planner 'build' isolado no provider 'openai'"
+Assert-Router ($selPlanner.Tier -eq 'T2') "A.3: Planner 'build' alocado em Tier T2"
+Assert-Router ($selPlanner.CatalogModel -eq 'claude-agent/haiku') "A.3: Planner 'build' seleciona Haiku canonico"
+Assert-Router ($selPlanner.selected_provider -eq 'claude-agent') "A.3: Planner 'build' isolado no provider 'claude-agent'"
 
 # A.4 Reviewer: Admissibilidade, escalonamento e proibições
 $selRevLow = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true
