@@ -470,11 +470,11 @@ try {
     $c5 = Complete-OrchestrationTask -TaskId 'gate-nosec-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     Assert-TaskKernel ((-not [bool]$c5.ok) -and (@($c5.reasons) -contains 'security-review-not-approved')) 'gate blocks high-risk DONE without security approval'
 
-    # 16b. REGRESSION (ROUTER-V14-SCOPED-DONE): a plan-bearing task
+    # 16b. REGRESSION (UNIVERSAL DONE, P0-207): a plan-bearing task
     # (committed non-empty verification_profiles) with candidate_pass +
     # caller-supplied verified_pass + approved review cannot complete DONE.
-    # Only kernel-executed verification is proof-capable for scoped tasks.
-    # Plan-less tasks with no model_attempts stay legacy-compatible (16c).
+    # Only kernel-executed verification is proof-capable, for every task:
+    # there is no legacy caller-supplied completion path anymore (16c).
     $null = New-OrchestrationTask -TaskId 'gate-callerverify-001' -Objective 'Fix the widget renderer' -TaskType 'implementation' `
         -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
         -RuntimeVersion '1.18.32' -ReadScopes @('src/widget') -WriteScopes @('src/widget') `
@@ -494,10 +494,11 @@ try {
     $gCaller = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
     Assert-TaskKernel ((-not [bool]$cCaller.ok) -and ([string]$cCaller.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cCaller.reasons) -contains 'verification-not-kernel-executed') -and ($beforeCaller -ceq $afterCaller) -and ([string]$gCaller['state'] -ceq 'REVIEWING') -and ([int]$gCaller['revision'] -eq 8)) 'scoped plan-bearing task: caller-supplied verified_pass never completes DONE (verification-not-kernel-executed, state/revision unchanged)'
 
-    # A plan-bearing task remains scoped if its current plan/attempt arrays are
-    # accidentally or manually cleared after creation. The creation-time
-    # verification contract marker must keep the DONE gate from reclassifying
-    # it as legacy-compatible.
+    # A plan-bearing task remains proof-required even if its current
+    # plan/attempt arrays are accidentally or manually cleared after
+    # creation. The creation-time verification contract marker keeps the
+    # DONE gate from ever treating it as completable via caller-supplied
+    # input (universal rule: no task DONEs on caller-supplied marks).
     $downgradeRec = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
     $downgradeRec['verification_profiles'] = @()
     $downgradeRec['model_attempts'] = @()
@@ -509,15 +510,37 @@ try {
     $gDowngrade = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
     Assert-TaskKernel ((-not [bool]$cDowngrade.ok) -and ([string]$cDowngrade.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cDowngrade.reasons) -contains 'verification-not-kernel-executed') -and ($beforeDowngradeComplete -ceq $afterDowngradeComplete) -and ([string]$gDowngrade['state'] -ceq 'REVIEWING')) 'scoped plan-bearing task cannot be downgraded by clearing current plan/attempt arrays'
 
-    # 16c. LEGACY COMPAT: plan-less task with no model_attempts preserves
-    # the pre-v1.4 completion contract (caller Set result may remain
-    # sufficient). Scoped gate must not emit verification-not-kernel-executed.
+    # 16c. LEGACY WITHOUT PLAN CANNOT DONE (P0-207): a plan-less legacy
+    # task with no model_attempts attempts completion with a plausible
+    # caller-supplied verified_pass plus approved review. The universal gate
+    # refuses with the existing reasons, writes nothing (no DONE, no
+    # state/revision/bytes change), and preserves readable verification,
+    # history and caller evidence without creating a plan, a marker, or
+    # synthetic proof. Legacy records stay preserved for reading/history.
+    # This fixture has no existing trusted proof and caller input cannot
+    # create one; fresh verify-run requires a precommitted plan, so this
+    # fixture remains blocked (a valid pre-existing trusted proof would be
+    # handled by the ordinary gate).
     Invoke-GateFixture -Id 'gate-legacy-001'
     $null = Invoke-VerifyFixture -Id 'gate-legacy-001' -Rev 6
     $null = Set-OrchestrationTaskReview -TaskId 'gate-legacy-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
+    $legacyFile = Join-Path $t.tasks 'gate-legacy-001.json'
+    $legacyBytesBefore = Get-TaskBytesHash -Path $legacyFile
+    $legacyRecBefore = Get-OrchestrationTask -TaskId 'gate-legacy-001' -TasksDir $t.tasks
+    $legacyRevBefore = [int]$legacyRecBefore['revision']
     $cLegacy = Complete-OrchestrationTask -TaskId 'gate-legacy-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $legacyBytesAfter = Get-TaskBytesHash -Path $legacyFile
     $gLegacy = Get-OrchestrationTask -TaskId 'gate-legacy-001' -TasksDir $t.tasks
-    Assert-TaskKernel (([bool]$cLegacy.ok) -and ([string]$gLegacy['state'] -ceq 'DONE') -and (@($cLegacy.reasons) -notcontains 'verification-not-kernel-executed')) 'legacy plan-less task without model attempts still completes DONE via caller-supplied verification (scoped gate only)'
+    Assert-TaskKernel ((-not [bool]$cLegacy.ok) -and ([string]$cLegacy.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cLegacy.reasons) -contains 'verification-not-kernel-executed') -and (@($cLegacy.reasons) -contains 'verification-untrusted') -and ($legacyBytesBefore -ceq $legacyBytesAfter) -and ([int]$gLegacy['revision'] -eq $legacyRevBefore) -and ([string]$gLegacy['state'] -ceq 'REVIEWING')) 'plan-less legacy task without plan cannot DONE via caller-supplied verification (universal gate, state/revision/bytes unchanged)'
+    $legacyPlans = @($gLegacy['verification_profiles'] | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    $legacyAttempts = @($gLegacy['model_attempts'] | Where-Object { $null -ne $_ })
+    $legacyMarker = ''
+    try { if ($null -ne $gLegacy['completion_verification_contract']) { $legacyMarker = ([string]$gLegacy['completion_verification_contract']).Trim() } } catch { $legacyMarker = '' }
+    $legacyHist = @($gLegacy['history'] | Where-Object { $null -ne $_ })
+    $legacyVHist = @($gLegacy['verification_history'] | Where-Object { $null -ne $_ })
+    Assert-TaskKernel (([bool]$gLegacy['verification']['passed']) -and ([string]$gLegacy['verification']['status'] -ceq 'verified_pass') -and ([string]$gLegacy['verification']['verification_source'] -ceq 'caller-supplied') -and ($legacyPlans.Count -eq 0) -and ($legacyAttempts.Count -eq 0) -and ([string]::IsNullOrWhiteSpace($legacyMarker)) -and ($legacyHist.Count -gt 0) -and ($legacyVHist.Count -gt 0)) 'refused legacy DONE preserves readable caller evidence and history with no plan, attempts, marker or synthetic proof'
+    $gateLegacy = Test-OrchestrationTaskCompletion -TaskId 'gate-legacy-001' -TasksDir $t.tasks -OrchestrationCompliance 'COMPLIANT' -ResidualRisks @('none')
+    Assert-TaskKernel ((-not [bool]$gateLegacy.complete) -and (@($gateLegacy.reasons) -contains 'verification-not-kernel-executed') -and (@($gateLegacy.reasons) -contains 'verification-untrusted')) 'DONE gate reports universal refusal reasons for plan-less legacy task'
 
     # 17. happy path e2e writes DONE only when the full gate passes (TRUSTED
     # kernel-executed verify-run against the committed plan + isolated repo).

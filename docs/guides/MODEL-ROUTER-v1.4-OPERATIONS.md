@@ -53,13 +53,30 @@ Official catalogs: https://opencode.ai/v2/docs/console/models/ and https://openc
 5. Sol -> Astra is **not** the transport fallback and is **not** Planner-approved per call. After a persisted failed Sol attempt, the next read-only `task-kernel model-select` (same `TaskId`) returns Astra (`tier` T4, `model` `openai/gpt-6-astra`) automatically when the kernel-owned T4 (Sol) proof for the exact task is valid (`RequiredTier T4`, which itself requires a prior persisted failed T3 proof plus a failed Sol verifier). The T4 proof check runs BEFORE the head T3 proof (the T3 proof lives in `verification_history` once Sol is the head; a current Sol verification never overwrites/erases it). If the T4 proof is absent/invalid, selection is Sol only when the T3 proof is valid, and never T4 when the T3 proof is absent. If Astra is disabled or the role is not in `eligible_roles`, there is no Astra: fail closed to Sol (when a T3/T4 proof warrants T4) or the previous allowed tier, without bypass. Tier/auth stay explicit (`tier` T4, `authorization_source` `AUTO_ROUTER_POLICY_V14`, evidence `policy:t4-verified-failure-gate`), and the receipt exposes the T4 proof `reference`/`digest` (never the older T3 ref as the current Sol failure). Only a kernel-owned T4 proof **plus** `openai/gpt-6.1-sol` in the attempted-model set authorizes Astra via `Resolve-OrchestrationModelFallback`. Arbitrary receipt text never authorizes Astra. `claude-agent/fable` is NOT part of this kernel path: it is the ordered Astra *availability* fallback and needs its own proved pre-execution evidence (canonical Astra `FailedModel` + allowlisted availability reason + `NoExecutionStarted=true` + Astra attempted + Claude capability/alias/role), so a generic kernel receipt never unlocks Fable. Astra remains non-default and its actual spend must be recorded.
 6. `EXACT_MATCH` / `AUTHORIZED_FALLBACK` proof is required for verified model identity. `PROOF_ABSENT` is not execution proof and must never mark Task Kernel DONE. Maintain provider identity, attempted model set, policy hash and effective tier in trace. An incapacity claim without kernel-owned proof authorizes no capability escalation, and never unlocks an availability substitute (`T3_ESCALATION_REQUIRES_INCAPACITY_PROOF`, `CLAUDE_AVAILABILITY_REQUIRED`, `FABLE_REQUIRES_ASTRA_FAILURE`).
 
-## Kernel-owned flow (Planner-mediated, no parallel executor/plugin/API)
+## Intended target sequence (NOT a productive flow — binding NOT_PROVEN)
 
-Exact native model arg syntax is `providerID/modelID` (for example `openai/gpt-6.1-sol`), passed as the native `subagent` tool `model` property by the Planner. The CLI and libraries never spawn sessions and never POST to a runtime API.
+The steps below describe the INTENDED target sequence, not the current
+productive flow, and prove nothing by themselves. Nothing here is enforced by
+the Kernel or by any runtime mechanism: prompt text alone never binds a
+selection to a dispatch. The proven API facts in this sequence are that
+`task-kernel model-select` is read-only (no dispatch, no session spawn) and
+that `task-kernel model-proof` gates T3->Sol / Sol->Astra. Everything between
+selection and an executed-model receipt is unproven.
+
+Missing capability (blocks productive use): there is NO G1 binding of the
+canonical `model-select` output to the native `subagent` tool call, and NO
+trustworthy actual-model event correlated to TaskId + child session + attempt
++ policy hash + receipt. Until that binding and that event exist, productive
+execution and the actually executed model stay NOT_PROVEN.
+
+Exact native model arg syntax is `providerID/modelID` (for example
+`openai/gpt-6.1-sol`), intended as the native `subagent` tool `model`
+property. The CLI and libraries never spawn sessions and never POST to a
+runtime API.
 
 1. Commit the task verification profile plan BEFORE any model execution: `task-kernel -Action create -TaskId <id> -Objective <text> ... -VerifierProfiles failer [...]` (plan is immutable; `verify-run` executes exactly the committed plan).
-2. Planner reads the selection (no dispatch): `task-kernel -Action model-select -TaskId <id> -AttemptRole coder -Risk medium -ModelComplexity complex [-TaskType implementation] [-RequiresLlm]`. Path flags (`-TasksDir`, `-CliRepoRoot`, `-PolicyPath`, `-FlagsPath`) are compat-only: omit them to use the canonical paths derived from the script; any divergent value returns `TRUSTED_PATH_MISMATCH` before IO, never another store/policy. Returns `tier`, `model` (`providerID/modelID`: Sol `openai/gpt-6.1-sol` on a valid T3 proof, Astra `openai/gpt-6-astra` on a later valid T4 proof), `provider`, `policy_hash`, `policy_version`, `native_model_override_proven` (true only when the CURRENT live local OpenCode server version from bounded read-only `opencode api get /api/info` is exactly in the supported allowlist `2.2.5`/`2.0.23`; TaskKernel `runtime.profile`/`runtime.version` are caller-supplied observability metadata and never authorize the override; unknown/missing live API fails closed with blank `model`/`subagent_model`), and for T4 the kernel `kernel_proof_reference`/`kernel_proof_digest` (T4 ref/digest on the Astra path, never the older T3 ref). Residual assumption: local `/api/info` reaches the same local OpenCode server that receives the Planner's subsequent native `subagent` call; no session/dispatch-endpoint binding is proven.
-3. Planner dispatches ONE native subagent with the returned `model` value verbatim in the native `subagent` tool `model` property. Record required evidence refs `session:<child>` + `message:<assistant>` from the observed host session/message.
+2. Read the selection (no dispatch): `task-kernel -Action model-select -TaskId <id> -AttemptRole coder -Risk medium -ModelComplexity complex [-TaskType implementation] [-RequiresLlm]`. Path flags (`-TasksDir`, `-CliRepoRoot`, `-PolicyPath`, `-FlagsPath`) are compat-only: omit them to use the canonical paths derived from the script; any divergent value returns `TRUSTED_PATH_MISMATCH` before IO, never another store/policy. Returns `tier`, `model` (`providerID/modelID`: Sol `openai/gpt-6.1-sol` on a valid T3 proof, Astra `openai/gpt-6-astra` on a later valid T4 proof), `provider`, `policy_hash`, `policy_version`, `native_model_override_proven` (true only when the CURRENT live local OpenCode server version from bounded read-only `opencode api get /api/info` is exactly in the supported allowlist `2.2.5`/`2.0.23`; TaskKernel `runtime.profile`/`runtime.version` are caller-supplied observability metadata and never authorize the override; unknown/missing live API fails closed with blank `model`/`subagent_model`), and for T4 the kernel `kernel_proof_reference`/`kernel_proof_digest` (T4 ref/digest on the Astra path, never the older T3 ref). Unproven assumption (not a fact): local `/api/info` is assumed to reach the same local OpenCode server that would receive a subsequent native `subagent` call; no session/dispatch-endpoint binding is proven.
+3. INTENDED ONLY (unproven, unenforced): dispatch ONE native subagent with the returned `model` value verbatim in the native `subagent` tool `model` property. The refs a future binding would need to correlate are `session:<child>` + `message:<assistant>` from the observed host session/message; today they do not prove which model executed.
 4. Record the observation without dispatch: `task-kernel -Action model-attempt -TaskId <id> -SessionId <child> -ExpectedRevision <rev>` (persists exact refs + policy hash; no proof params; path flags compat-only as above).
 5. Execute the committed plan against the task repo: `task-kernel -Action verify-run -TaskId <id> -ExpectedRevision <rev>` (trusted kernel-executed marks; caller JSON can never yield proof; path flags compat-only as above).
 6. Recompute the gate read-only: `task-kernel -Action model-proof -TaskId <id> -RequiredTier T3|T4` (path flags compat-only as above). T3 proof gates `model-select` T4 (Sol); a later valid T4 proof gates `model-select` T4 (Astra) with priority over the head T3 proof. T4 proof plus attempted Sol gates Astra fallback. `FailureCount`, risk, and receipt text never gate.
@@ -67,30 +84,46 @@ Exact native model arg syntax is `providerID/modelID` (for example `openai/gpt-6
 
 Role/privacy/cost notes: Planner `build` stays on Luna (T2) with `MODEL_PLANNER`; engineering-advisor always starts at T3 Terra (no T2; Sol/Astra only via existing kernel-owned proof); role minimums (security-reviewer T3+, reviewer high/critical no T2 downgrade, coder/advisor T4 only via kernel proof) and provider namespaces (section above) are unchanged. T4/Astra spend is exceptional and must be recorded. `DIRECT_VERIFIED` is classifier-approved only (preflight trivial + low-risk + `DIRECT_VERIFIED_*` reason) and is Planner LLM cost, not zero-cost T0. Explicit timeout/failure hold: unknown failures, missing dispatch telemetry, and ambiguous timeouts never authorize retry or escalation; fail closed to `PROOF_ABSENT` / `EXHAUSTED_NO_ELIGIBLE_FALLBACK` / `REJECTED_DOWNGRADE_FORBIDDEN`.
 
-## DONE gate scope (ROUTER-V14-SCOPED-DONE-VERIFICATION)
+## Native dispatch binding: NOT_PROVEN (`model-select` / G1)
+
+Limitation stated once in `Intended target sequence` above: no G1 binding of
+the canonical `model-select` output to the native `subagent` call, and no
+trustworthy actual-model event correlated to TaskId + session + attempt +
+policy hash + receipt — productive execution and the executed model stay
+NOT_PROVEN. Do not simulate the binding with test seams, synthetic receipts,
+or caller booleans. Escalations T3->Sol and Sol->Astra stay gated exclusively by
+kernel-owned proof (`model-proof` T3/T4, policy above), and ambiguous
+timeout/failure never authorizes retry or replay.
+
+## DONE gate scope (UNIVERSAL-DONE-VERIFICATION, P0-207)
 
 `Test-OrchestrationTaskCompletion` / `Complete-OrchestrationTask` enforce
-`verification-not-kernel-executed` ONLY for scoped tasks: the task carries a
-committed non-empty `verification_profiles` plan OR any persisted
-`model_attempts` (Router v1.4 proof-capable path). Creation stores a sticky
-`completion_verification_contract='router-v1.4-kernel'` marker for a planned
-task; the first Kernel-recorded model attempt sets the same marker. Clearing
-the current plan/attempt arrays through an out-of-band edit therefore does
-not reclassify a marked task as legacy. For those tasks DONE
-requires `verification.status='verified_pass'` plus
-`verification_source='kernel-executed'` and `verifier_executed=true`
-(written only by `Invoke-TaskKernelVerifyRun`); caller-supplied JSON
-(`Set-OrchestrationTaskVerification`, `verification_source='caller-supplied'`)
-never completes DONE and `Complete` returns `COMPLETION_GATE_FAILED` with no
-state/revision mutation. Plan-less tasks with no `model_attempts` keep the
-pre-v1.4 completion contract for backward compatibility (caller `Set` result
-may remain sufficient for DONE). Both paths still require the remaining gate
-(candidate_pass, criterion evidence, review, risk/security, blockers,
-budgets, watchdog settlement). No caller-supplied marks ever create T3/T4
-proof: `Get-OrchestrationTaskModelFailureProof` still requires a committed
-plan plus kernel-executed marks. The marker is Kernel-store provenance, not a
-cryptographic integrity seal: direct edits to trusted local task files remain
-outside the caller/API threat boundary, as with other persisted Kernel fields.
+`verification-not-kernel-executed` (plus `verification-untrusted`) for EVERY
+Kernel-managed task. DONE requires `verification.status='verified_pass'`
+plus `verification_source='kernel-executed'` AND `source='kernel-executed'`
+with `verifier_executed=true`, `passed=true` and full criterion coverage
+(written only by `Invoke-TaskKernelVerifyRun` against the committed plan);
+caller-supplied JSON (`Set-OrchestrationTaskVerification`,
+`verification_source='caller-supplied'`) stays readable as UNTRUSTED input
+but never completes DONE, and `Complete` returns `COMPLETION_GATE_FAILED`
+with no state/revision mutation. The pre-v1.4 caller-supplied completion
+contract for plan-less legacy tasks is REMOVED: there is no legacy
+exception. A plan-less legacy task lacking an existing valid kernel-executed
+proof remains blocked with the concrete existing reasons
+(`verification-not-kernel-executed` plus `verification-untrusted`):
+caller-supplied input cannot create new trusted proof, and no fresh
+`Invoke-TaskKernelVerifyRun` is possible without the committed plan (no
+migration or rebind). Such records stay preserved for reading and history
+(verification, caller evidence and history remain queryable); the API never
+fabricates a plan, a marker, or synthetic proof for them, and ambiguous
+timeouts never replay into completion. If an already trustworthy
+kernel-executed proof exists on the record, the existing universal gate may
+accept it. The remaining gate preconditions are unchanged (candidate_pass, criterion
+evidence, review, risk/security, blockers, budgets, watchdog settlement).
+No caller-supplied marks ever create T3/T4 proof:
+`Get-OrchestrationTaskModelFailureProof` still requires a committed plan
+plus kernel-executed marks. The `completion_verification_contract` marker,
+when present on older records, is inert provenance, not a gate input.
 
 ## Deterministic tests (no inference)
 

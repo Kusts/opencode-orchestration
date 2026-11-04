@@ -3748,19 +3748,23 @@ function Test-OrchestrationTaskCompletion {
         Test-OrchestrationDoneCompliance verdict). Criterion satisfaction
         counts ONLY verification.evidence (worker claimed_evidence is
         provenance only). Verification and review records must not be stale
-        relative to the current worker_result revision. ROUTER-V14 SCOPED
-        CONTRACT: kernel-executed proof (status verified_pass with
-        verification_source kernel-executed and verifier_executed true) is
-        required ONLY when the task carries a committed non-empty
-        verification_profiles plan, any persisted model_attempts, or the
-        sticky completion_verification_contract marker
-        (Router v1.4 proof-capable tasks). Plan-less tasks with no
-        model_attempts and no marker preserve the pre-v1.4 completion contract for
-        backward compatibility (caller Set result may remain sufficient);
-        they cannot create T3/T4 proof because
-        Get-OrchestrationTaskModelFailureProof still requires a committed
-        plan plus kernel-executed marks. Caller-supplied JSON never creates
-        model proof. Never throws.
+        relative to the current worker_result revision. UNIVERSAL DONE
+        CONTRACT (P0-207): every Kernel-managed task concludes DONE only on
+        trusted kernel-executed proof (status verified_pass with
+        verification_source AND source exactly 'kernel-executed',
+        verifier_executed true, passed true, and full criterion coverage via
+        Invoke-TaskKernelVerifyRun). Caller-supplied verification
+        (Set-OrchestrationTaskVerification) stays readable as UNTRUSTED
+        input but never satisfies the gate, regardless of
+        verification_profiles, model_attempts, or the legacy
+        completion_verification_contract marker. Caller-supplied input
+        alone cannot satisfy the gate. For a plan-less legacy record with
+        no existing valid kernel-executed proof, fresh verify-run fails
+        VERIFIER_PLAN_MISSING and no migration or rebind is performed, so
+        it remains blocked but readable and history-preserved; if a
+        coherent trusted kernel proof already exists, the universal gate
+        may accept it. Caller-supplied JSON never creates model proof.
+        Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -3894,31 +3898,16 @@ function Test-OrchestrationTaskCompletion {
         elseif (($workerStatus -ceq 'candidate_pass') -and ([int]$verCandRev -ne [int]$workerRev)) {
             $reasons.Add('verification_stale') | Out-Null
         }
-        $planCountScoped = 0
-        try {
-            if ($null -ne $rec['verification_profiles']) {
-                foreach ($ppScoped in @($rec['verification_profiles'])) {
-                    if (-not [string]::IsNullOrWhiteSpace([string]$ppScoped)) { $planCountScoped++ }
-                }
-            }
-        }
-        catch { $planCountScoped = 0 }
-        $modelAttemptCountScoped = 0
-        try {
-            if ($null -ne $rec['model_attempts']) { $modelAttemptCountScoped = (@($rec['model_attempts'])).Count }
-        }
-        catch { $modelAttemptCountScoped = 0 }
-        $verificationContractScoped = ''
-        try { if ($null -ne $rec['completion_verification_contract']) { $verificationContractScoped = ([string]$rec['completion_verification_contract']).Trim() } } catch { $verificationContractScoped = '' }
-        # Creation-time contract remains sticky if the current plan/attempt
-        # arrays are accidentally removed or malformed. Any non-empty marker
-        # is proof-required (unknown versions fail closed); record files
-        # remain within the trusted local Kernel-store boundary.
-        $requiresKernelProofScoped = (($planCountScoped -gt 0) -or ($modelAttemptCountScoped -gt 0) -or (-not [string]::IsNullOrWhiteSpace($verificationContractScoped)))
-        if ([bool]$requiresKernelProofScoped) {
-            if (-not (($verStatus -ceq 'verified_pass') -and ($verSource -ceq 'kernel-executed') -and ([bool]$verExecuted))) {
-                $reasons.Add('verification-not-kernel-executed') | Out-Null
-            }
+        # Universal DONE contract (P0-207): kernel-executed proof is required
+        # for EVERY task. No plan/attempt/marker scoping remains: a plan-less
+        # legacy task lacking existing valid trusted proof remains blocked
+        # (fresh verify-run requires the committed plan, no migration), but
+        # an already-existing coherent kernel-executed proof ($verTrusted)
+        # still satisfies the universal gate independent of plan. The legacy
+        # completion_verification_contract marker, when present, is inert
+        # provenance only, never a gate input.
+        if (-not (($verStatus -ceq 'verified_pass') -and ($verSource -ceq 'kernel-executed') -and ([bool]$verExecuted))) {
+            $reasons.Add('verification-not-kernel-executed') | Out-Null
         }
         $criteria = @()
         if ($null -ne $rec['acceptance_criteria']) { $criteria = @($rec['acceptance_criteria']) }
@@ -3998,11 +3987,15 @@ function Test-OrchestrationTaskCompletion {
                 }
             }
         }
-        # Scoped contract only: plan-less legacy tasks keep the pre-v1.4
-        # caller-supplied completion path (remote regression 16c). Every
-        # scoped task (plan, model attempt or sticky contract marker) must be
-        # kernel-executed, enforced by verification-not-kernel-executed above.
-        if ((-not $verTrusted) -and [bool]$requiresKernelProofScoped) {
+        # Universal contract: caller-supplied verification is UNTRUSTED for
+        # every task and cannot create trusted proof. Only coherent
+        # kernel-executed proof (status AND both sources AND executed flag
+        # AND full criterion coverage, enforced by
+        # verification-not-kernel-executed above) is DONE-capable. Legacy
+        # plan-less records stay readable; without existing valid trusted
+        # proof they cannot DONE, but valid pre-existing kernel proof may
+        # still be accepted.
+        if (-not $verTrusted) {
             $reasons.Add('verification-untrusted') | Out-Null
         }
         $revStatus = ''
