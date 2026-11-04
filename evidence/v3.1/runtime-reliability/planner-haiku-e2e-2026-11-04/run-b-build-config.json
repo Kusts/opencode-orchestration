@@ -1,0 +1,35 @@
+{
+  "evidence_id": "planner-haiku-e2e-2026-11-04-run-b-build-config",
+  "kind": "planner-root-session-via-config",
+  "date_utc": "2026-11-04",
+  "change": "opencode.json top-level model openai/gpt-6-luna -> claude-agent/haiku (backup + rollback manifest in ~/.config/opencode/reconciliation-backups/)",
+  "invocation": "opencode run --agent build --format json <ASCII read-only prompt>, no --model flag",
+  "session_id": "ses_e5a5bf491ffe6Scbj4P5Xx8deL",
+  "observation": {
+    "agent": "build",
+    "message_agent": "build",
+    "message_id": "msg_1a5a40baa0013jANOfOjhF2WJi",
+    "model_provider": "claude-agent",
+    "model_id": "claude-agent/haiku",
+    "parent_session_id": "",
+    "message_completed": true,
+    "session_completed": true,
+    "session_outcome": "succeeded",
+    "usage_input": 2,
+    "usage_output": 4,
+    "usage_reasoning": 0,
+    "reported_cost": 0.0,
+    "recorded_cost": "UNKNOWN"
+  },
+  "interpretation": [
+    "The build primary session resolves to claude-agent/haiku from the configuration alone.",
+    "The session is a root session (parent empty): the Planner is the run root, as designed.",
+    "reported_cost 0.0 is a subscription report; recorded as UNKNOWN, never zero."
+  ],
+  "not_proven": [
+    "Automatic Luna fallback: OpenCode 2.2.5 exposes no primary-model fallback; Luna remains a manual configuration switch.",
+    "Concrete model behind claude-agent/haiku (the session reports the catalog id only).",
+    "Kernel binding of this root session and any worker model-attempt (not run in this step).",
+    "Independent review and DONE (none claimed)."
+  ]
+}

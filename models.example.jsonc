@@ -1,7 +1,9 @@
 {
-  // Model Router v1.4: Planner e fixo em Luna (tier operacional T2).
+  // Model Router v1.4: Planner (agente build, sessao raiz) usa Haiku (tier operacional T2).
+  // Luna e o fallback canonico da politica, nao fallback automatico do OpenCode.
+  // O modelo global (topo do opencode.json) e Luna literal no template, nao este campo.
   // Copie como models.jsonc (arquivo local ignorado pelo Git).
-  "planner": "openai/gpt-6-luna",
+  "planner": "claude-agent/haiku",
   // T2: pool economico Muse; fallback Luna em falha real.
   "cheap": "opencode-go/muse-spark-1.3-contributor",
   // T1: Iceman; fallback opencode/mimo-v2.6-flash-free.

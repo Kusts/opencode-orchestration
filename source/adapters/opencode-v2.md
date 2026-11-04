@@ -54,13 +54,44 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Fallback do cheap pool — em indisponibilidade/erro do modelo default, escalar em ordem: 1º `opencode-go/muse-spark-1.3-contributor`, 2º `openai/gpt-6-luna`; override temporário no spawn com reset ao baseline, sujeito às cotas de escalonamento já definidas.
+- Planner `build` (primario `claude-agent/haiku`, T2): fallback Haiku -> `openai/gpt-6-luna`
+  em HOLD. O OpenCode 2.2.5 nao oferece fallback nativo de modelo primario; a troca
+  para Luna e manual na configuracao. Sem prova segura de que a execucao nao comecou,
+  nao ha replay automatico apos timeout ambiguo. Nunca a cadeia generica Muse/DeepSeek,
+  nunca Sonnet, nunca T3/T4.
+- Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier —
+  **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo):
+  em falha de disponibilidade/erro do modelo default, a política admite:
+  - **T2 geral:** `opencode-go/muse-spark-1.3-contributor` → `openai/gpt-6-luna`
+    → `claude-agent/haiku`; qualquer passo para `claude-agent/*` exige razão de
+    disponibilidade em allowlist + `NoExecutionStarted=true` provado +
+    capacidade Claude local comprovada (executável `claude` autenticado).
+    `opencode-go/deepseek-v4.1-flash` está bloqueado (`ZDR_EXPIRED_UNCONFIRMED`)
+    e fora de qualquer cadeia.
+  - **T3:** `openai/gpt-6.1-terra` → `claude-agent/sonnet` (mesmo tier primeiro;
+    downgrade T2 degradado só para papéis admissíveis a T2, nunca para
+    engineering-advisor/reviewer high-critical/security).
+  - **T4:** `openai/gpt-6.1-sol` → `claude-agent/opus` (disponibilidade);
+    `openai/gpt-6-astra` somente com prova kernel-owned de falha de capacidade
+    da mesma tarefa; `claude-agent/fable` somente como fallback excepcional de
+    Astra com disponibilidade + no-start provados.
+  - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`;
+    `catalog_inventory_id` é proveniência do inventário, nunca mapeamento.
+- Implementacao nativa atual: o Planner e a propria sessao `build` (raiz do run), com
+  modelo primario `claude-agent/haiku` definido por `build.model` no `opencode.json`
+  (template: `{{MODEL_PLANNER}}`); o modelo global permanece Luna. Workers sao subagents
+  filhos da sessao raiz. O Kernel liga a raiz (`bind-session`), a solta (`detach-session`)
+  antes de ligar cada worker e registra model-attempt somente para filhos observados com
+  `parent_session_id` igual a raiz. O dispatch externo por `opencode run` foi removido:
+  a rota e recusada como ROUTE_BLOCKED_ROOT_SESSION, porque a sessao raiz nao e atribuivel.
+  Escalonamentos deliberados seguem as cotas e o reset ao baseline do item
+  "Escalonamentos para Astra" abaixo.
 - Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
 - Advisor Especializado Sob Demanda (`engineering-advisor`, Issue #60):
-  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Terra (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY: sem T2; T2 Muse é inelegível e diverge do default da política); Sol (T4) e Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
+  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Terra (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY: sem T2; T2 Muse e Haiku são inelegíveis e divergem do default da política); Sol (T4) e Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
 - Escalonamentos para Astra são temporários, por subtarefa, via override
   no spawn — nunca editando este arquivo nem os prompts dos agentes — e
   sempre com reset ao baseline. Antes de escalar, pergunte: falta

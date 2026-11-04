@@ -1,11 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "{{MODEL_PLANNER}}",
+  "model": "openai/gpt-6-luna",
   "default_agent": "build",
   "subagent_depth": 1,
   "agent": {
     "build": {
       "mode": "primary",
+      "model": "{{MODEL_PLANNER}}",
       "permission": {
         "task": {
           "*": "deny",
@@ -32,7 +33,7 @@
       }
     },
     "title": {
-      "model": "{{MODEL_PLANNER}}"
+      "model": "openai/gpt-6-luna"
     },
     "explorer": {
       "mode": "subagent",

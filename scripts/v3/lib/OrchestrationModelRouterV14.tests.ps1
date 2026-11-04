@@ -48,12 +48,12 @@ Assert-V14 ($pol.tiers.T3.primary -eq 'terra') 'T3-terra'
 Assert-V14 ($pol.tiers.T4.primary -eq 'sol') 'T4-sol'
 Assert-V14 ($pol.tiers.T4.exceptional -eq 'astra') 'T4-astra'
 Assert-V14 ($pol.cost_policy.t4_requires_authorization -eq $false) 'T4-auto-no-manual-cost-authorization'
-Assert-V14 ($pol.planner.model_id -eq 'openai/gpt-6-luna' -and $pol.planner.tier -eq 'T2') 'planner-luna-T2'
+Assert-V14 ($pol.planner.primary -eq 'claude_haiku' -and $pol.planner.model_id -eq 'claude-agent/haiku' -and $pol.planner.provider -eq 'claude-agent' -and $pol.planner.tier -eq 'T2' -and $pol.planner.fallback -eq 'luna' -and $pol.planner.fallback_model_id -eq 'openai/gpt-6-luna') 'planner-haiku-T2-luna-fallback'
 Assert-V14 ($pol.role_profiles.tester.admissible_tiers -contains 'T1') 'tester-T1-allowed'
 Assert-V14 ($pol.models.deepseek_go.model_id -eq 'opencode-go/deepseek-v4.1-flash') 'deepseek-Go-not-Console'
 
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'openai/gpt-6-luna') 'planner-runtime-luna-T2'
+Assert-V14 ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'claude-agent/haiku' -and $sPlanner.selected_provider -eq 'claude-agent') 'planner-runtime-haiku-T2'
 $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'openai/gpt-6.1-terra') 'T3-runtime-terra'
 $sT4Hold = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -IgnoreUserConfig $true -NativeModelOverrideProven $true
@@ -105,9 +105,16 @@ Assert-V14 ($fT2.Status -eq 'AUTHORIZED' -and $fT2.FallbackModel -eq 'openai/gpt
 $fT3 = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT3.Status -eq 'AUTHORIZED' -and $fT3.FallbackModel -eq 'opencode-go/muse-spark-1.3-contributor' -and $fT3.FallbackTier -eq 'T2') 'T3-transport-failure-to-muse'
 $fT3Go = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -AttemptedModels @('openai/gpt-6.1-terra','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Assert-V14 ($fT3Go.Status -eq 'AUTHORIZED' -and $fT3Go.FallbackModel -eq 'opencode-go/deepseek-v4.1-flash') 'T3-transport-failure-to-deepseek-go'
-$fSolTransport = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+Assert-V14 ($fT3Go.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT3Go.FallbackModel -eq $null) 'T3-deepseek-go-blocked-no-capability'
+$fT3GoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -AttemptedModels @('openai/gpt-6.1-terra','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fT3GoCap.Status -eq 'AUTHORIZED' -and $fT3GoCap.FallbackModel -eq 'claude-agent/sonnet') 'T3-transport-failure-to-sonnet-with-capability'
+$sT4shape = $sT3 | Select-Object *
+$sT4shape.Tier = 'T4'
+$sT4shape.CatalogModel = 'openai/gpt-6.1-sol'
+$fSolTransport = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fSolTransport.Status -eq 'AUTHORIZED' -and $fSolTransport.FallbackModel -eq 'opencode-go/muse-spark-1.3-contributor') 'T4-transport-failure-to-muse-not-astra'
+$fSolOpus = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-V14 ($fSolOpus.Status -eq 'AUTHORIZED' -and $fSolOpus.FallbackModel -eq 'claude-agent/opus') 'T4-transport-failure-to-opus-with-capability'
 $fSolQuality = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6.1-sol' -AttemptedModels @('openai/gpt-6.1-sol') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true
 Assert-V14 ($fSolQuality.FallbackModel -ne 'openai/gpt-6-astra') 'arbitrary-quality-receipt-does-not-use-astra'
 $fSolUnproven = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'VERIFIED_TASK_FAILURE' -IgnoreUserConfig $true

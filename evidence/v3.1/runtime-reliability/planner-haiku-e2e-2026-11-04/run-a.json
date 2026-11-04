@@ -1,0 +1,57 @@
+{
+  "evidence_id": "planner-haiku-e2e-2026-11-04-run-a",
+  "kind": "real-dispatch-observation",
+  "date_utc": "2026-11-04",
+  "task_id": "e2e-haiku-auto-20261104-a",
+  "run_id": "e2e-haiku-auto-20261104-a",
+  "objective_class": "read-only trivial probe (ASCII, no tools requested)",
+  "pre_run": {
+    "router_selection": "claude-agent/haiku",
+    "tier": "T2",
+    "fallback_used": false,
+    "probe_reason": "HAIKU_CAPABILITY_PROVEN",
+    "native_override_live_version": "2.2.5",
+    "native_override_ok": true,
+    "policy_hash": "af9d2bcefc2ac984bbb27c8ccaddf91a32e2410d69a7a314f51ca1d47975e219"
+  },
+  "dispatch": {
+    "calls": 1,
+    "session_id": "ses_e5a7288d4ffeUXwt7FKAunyG3o",
+    "session_title": "planner-haiku:e2e-haiku-auto-20261104-a"
+  },
+  "observation": {
+    "message_id": "msg_1a58d7775001UhafS8hswP2po5",
+    "agent": "build",
+    "model_provider": "claude-agent",
+    "model_id": "claude-agent/haiku",
+    "message_completed": true,
+    "session_completed": true,
+    "session_outcome": "succeeded",
+    "parent_session_id": "",
+    "usage_input": 2,
+    "usage_output": 4,
+    "usage_reasoning": 0,
+    "reported_cost": 0.0,
+    "recorded_cost": "UNKNOWN"
+  },
+  "wrapper_outcome": {
+    "status": "PROOF_ABSENT",
+    "reason": "SESSION_CORRELATION_INCOMPLETE",
+    "kernel_model_attempt_recorded": false,
+    "worker_result_recorded": false,
+    "verify_run_executed": false
+  },
+  "interpretation": [
+    "Automatic selection resolved to claude-agent/haiku (T2, no fallback) and exactly one session was dispatched.",
+    "The observed model_id is the catalog form claude-agent/haiku; the underlying concrete model is not observed and is not inferred.",
+    "The session is a ROOT session (parent_session_id empty). The kernel model-attempt contract requires a worker session whose parentID equals the bound run root, so the opencode-run route cannot be attributed by the kernel.",
+    "Fail-closed as designed: no retry, no fallback after dispatch, no kernel attempt recorded.",
+    "Subsequent default-route calls are now refused before any state write or dispatch (ROUTE_BLOCKED_ROOT_SESSION)."
+  ],
+  "not_proven": [
+    "Kernel attribution of the Haiku session (requires parented native subagent dispatch).",
+    "Luna fallback in production (covered only by hermetic seam tests).",
+    "Independent review of this task (none performed; DONE not claimed).",
+    "Concrete model behind claude-agent/haiku."
+  ]
+}
