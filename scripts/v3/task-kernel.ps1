@@ -709,6 +709,16 @@ switch ($action) {
         $fbTokOut = ''; $fbTierOut = ''
         try { $fbTokOut = [string]$sel.FallbackToken } catch { }
         try { $fbTierOut = [string]$sel.FallbackTier } catch { }
+        $plFallbackModel = ''; $plFallbackProvider = ''
+        if ($roleSel -ceq 'build') {
+            try {
+                $polFb = Get-OrchestrationModelRoutingPolicy -PolicyPath $canonPolMs
+                if ($polFb.Status -eq 'POLICY_LOADED' -and $null -ne $polFb.Policy.planner) {
+                    if ($null -ne $polFb.Policy.planner.fallback_model_id) { $plFallbackModel = [string]$polFb.Policy.planner.fallback_model_id }
+                    if ($null -ne $polFb.Policy.planner.fallback_provider) { $plFallbackProvider = [string]$polFb.Policy.planner.fallback_provider }
+                }
+            } catch { $plFallbackModel = ''; $plFallbackProvider = '' }
+        }
         $result = [PSCustomObject]@{
             ok = ([string]$sel.Status -ceq 'SELECTED')
             task_id = ([string]$TaskId).Trim()
@@ -725,6 +735,8 @@ switch ($action) {
             native_proof_reason = $nativeReason
             fallback_token = $fbTokOut
             fallback_tier = $fbTierOut
+            planner_fallback_model = $plFallbackModel
+            planner_fallback_provider = $plFallbackProvider
             kernel_proof_reference = $refOut
             kernel_proof_digest = $dgOut
             selection_reason = [string]$sel.SelectionReason
