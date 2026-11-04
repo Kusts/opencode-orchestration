@@ -60,7 +60,8 @@ function Invoke-KernelCliJson {
 function ConvertTo-CliArgList {
     param([string[]]$Profiles, [string[]]$Criteria)
     $args = @()
-    foreach ($s in @($Profiles)) { $args += @('-VerificationProfiles', ('"' + ([string]$s).Replace('"', '\"') + '"')) }
+    # task-kernel.ps1 exposes the verification plan as -VerifierProfiles (maps to VerificationProfiles).
+    foreach ($s in @($Profiles)) { $args += @('-VerifierProfiles', ('"' + ([string]$s).Replace('"', '\"') + '"')) }
     foreach ($s in @($Criteria)) { $args += @('-AcceptanceCriteria', ('"' + ([string]$s).Replace('"', '\"') + '"')) }
     return $args
 }
