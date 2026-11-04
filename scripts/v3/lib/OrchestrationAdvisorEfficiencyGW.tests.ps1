@@ -70,15 +70,17 @@ $sel04CritUnauth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Ri
 Assert-GW ($sel04CritUnauth.Tier -eq 'T3') 'GW-ADVISOR-04' "Reviewer critico sem autorizacao de custo faz fallback seguro para T3"
 
 $sel04CritAuth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'critical' -Complexity 'complex' -ProviderCostAuthorized $true
-Assert-GW ($sel04CritAuth.Tier -eq 'T4') 'GW-ADVISOR-04' "Reviewer critico autorizado para custo escala para T4 (frontier)"
-Assert-GW ($sel04CritAuth.ModelToken -eq 'MODEL_FRONTIER') 'GW-ADVISOR-04' "Reviewer T4 usa token distinto MODEL_FRONTIER"
+Assert-GW ($sel04CritAuth.Tier -eq 'T3') 'GW-ADVISOR-04' "Reviewer critico com custo autorizado permanece em T3 sem prova Kernel (T4 exige kernel-owned proof)"
+Assert-GW ($sel04CritAuth.ModelToken -eq 'MODEL_STRONG') 'GW-ADVISOR-04' "Reviewer fail-closed usa MODEL_STRONG sem prova Kernel"
 
 # GW-ADVISOR-05: Verificacao de seguranca impoe T3 minimo e bloqueia T1/T2
 $sel05 = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial'
 Assert-GW ($sel05.Tier -eq 'T3') 'GW-ADVISOR-05' "Security-reviewer nunca opera abaixo de T3"
 Assert-GW ($sel05.AdmissibleTiers -notcontains 'T1' -and $sel05.AdmissibleTiers -notcontains 'T2') 'GW-ADVISOR-05' "T1 e T2 estritamente proibidos para seguranca"
 
-# GW-ADVISOR-06: Impasse comprovado (verified_deadlock) com 2 falhas escala para engineering-advisor em T4
+# GW-ADVISOR-06: Impasse comprovado (verified_deadlock) com 2 falhas NAO escala
+# para T4 sem prova Kernel (ROUTER-V14 scoped: FailureCount/custo sozinhos
+# nunca autorizam T4; T4 exige Get-OrchestrationTaskModelFailureProof ok).
 $req06 = @{
     task_id        = 'GW-06-DEADLOCK'
     trigger_signal = 'verified_deadlock'
@@ -91,7 +93,7 @@ $sel06NoFail = Resolve-OrchestrationModelSelection -AgentName 'engineering-advis
 Assert-GW ($sel06NoFail.Tier -eq 'T3') 'GW-ADVISOR-06' "Advisor apenas com complexidade seleciona T3 (sem escalonamento T4 sem falha)"
 
 $sel06 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
-Assert-GW ($sel06.Tier -eq 'T4') 'GW-ADVISOR-06' "Advisor escalado para Tier T4 sob deadlock comprovado com 2 falhas e autorizacao de custo"
+Assert-GW ($sel06.Tier -eq 'T3') 'GW-ADVISOR-06' "Advisor com 2 falhas e custo autorizado permanece em T3 sem prova Kernel (fail-closed)"
 
 # Execucao sem probe e com native desativado: registra PROOF_ABSENT sem recomendacao fabricada
 $resp06Unprobed = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -DisableNativeExecutor
@@ -118,7 +120,7 @@ $probe06Harness = {
 $resp06 = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -AdvisorProbe $probe06Harness
 Assert-GW ($resp06.Status -eq 'COMPLETED') 'HARNESS_PROBED-06' "Consulta em harness executada via seam de teste"
 Assert-GW ($resp06.RecommendedOption -eq 'Adotar Exponential Backoff') 'HARNESS_PROBED-06' "Recomendacao do seam de teste registrada"
-Assert-GW ($resp06.ModelTierUsed -eq 'T4') 'HARNESS_PROBED-06' "Advisor executado em Tier T4 no harness"
+Assert-GW ($resp06.ModelTierUsed -eq 'T3') 'HARNESS_PROBED-06' "Advisor executado em Tier T3 no harness (fail-closed sem prova Kernel)"
 Assert-GW ($resp06.IsAdvisory -eq $true -and $resp06.Authoritative -eq $false) 'HARNESS_PROBED-06' "Advisor atua com limites estritamente consultivos"
 
 # GW-ADVISOR-07: [HARNESS_PROBED] Consulta repetida com mesmo contexto recupera do cache SHA256
@@ -378,11 +380,11 @@ try {
     Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-03-ROUTER' "Coder com 2 falhas sem autorizacao de custo faz fallback seguro para T3"
 
     $selCostAuth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -ModelCatalog $customCat -ProviderCostAuthorized $true
-    Assert-GW ($selCostAuth.Tier -eq 'T4') 'INT-03-ROUTER' "Coder com 2 falhas e autorizacao de custo recebe T4"
-    Assert-GW ($selCostAuth.CatalogModel -eq 'opencode-custom/frontier-model') 'INT-03-ROUTER' "Modelo de catalogo mapeado para frontier"
+    Assert-GW ($selCostAuth.Tier -eq 'T3') 'INT-03-ROUTER' "Coder com 2 falhas e custo autorizado permanece em T3 sem prova Kernel (fail-closed)"
+    Assert-GW ($selCostAuth.CatalogModel -eq 'opencode-custom/strong-model') 'INT-03-ROUTER' "Modelo de catalogo permanece em strong sem prova Kernel"
 
-    # Verificacao de modelo executado
-    $verMatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'opencode-custom/frontier-model' } -NativeModelOverrideProven $true
+    # Verificacao de modelo executado (selecao fail-closed T3/strong sem prova Kernel)
+    $verMatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'opencode-custom/strong-model' } -NativeModelOverrideProven $true
     Assert-GW ($verMatch.VerifiedMatch -eq $true -and $verMatch.ProofStatus -in @('EXACT_MATCH', 'VERIFIED_MATCH')) 'INT-03-ROUTER' "Match de modelo executado comprovado"
 
     $verMismatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'unauthorized-model' } -NativeModelOverrideProven $true
@@ -716,31 +718,29 @@ if (Test-Path -LiteralPath $jevLib) {
     try {
         [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', $null)
         $selNoCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
-        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "T4 sem autorizacao de custo degrada com seguranca para T3"
+        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "Sem prova Kernel permanece em T3 (fail-closed)"
         Assert-GW ($selNoCost.ModelToken -eq 'MODEL_STRONG') 'INT-07-ROUTER' "Degradacao utiliza MODEL_STRONG"
-        Assert-GW ($selNoCost.SelectionReason -match 'unauthorized') 'INT-07-ROUTER' "Razao explicita de degradacao por autorizacao ausente"
+        Assert-GW ($selNoCost.Tier -ne 'T4') 'INT-07-ROUTER' "Sem prova Kernel nunca seleciona T4"
 
-        # 7b. T4 com autorizacao explicita via parametro
+        # 7b. Custo autorizado via parametro NAO autoriza T4 sem prova Kernel
         $selParamCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
-        Assert-GW ($selParamCost.Tier -eq 'T4') 'INT-07-ROUTER' "T4 autorizado explicitamente seleciona tier T4"
+        Assert-GW ($selParamCost.Tier -eq 'T3') 'INT-07-ROUTER' "Custo autorizado sem prova Kernel permanece em T3 (fail-closed)"
         Assert-GW ($selParamCost.ProviderCostAuthorized -eq $true) 'INT-07-ROUTER' "ProviderCostAuthorized marcado como true"
-        Assert-GW ($selParamCost.CostAuthorizationSource -eq 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Fonte de autorizacao EXPLICIT_PARAMETER registrada"
+        Assert-GW ($selParamCost.Tier -ne 'T4') 'INT-07-ROUTER' "Custo sozinho nunca autoriza T4 sem kernel-owned proof"
 
         $receiptParam = Get-OrchestrationModelRouterReceipt -Selection $selParamCost
-        Assert-GW ($receiptParam.tier -eq 'T4') 'INT-07-ROUTER' "Recibo confirma tier T4"
+        Assert-GW ($receiptParam.tier -eq 'T3') 'INT-07-ROUTER' "Recibo confirma tier T3 fail-closed"
         Assert-GW ($receiptParam.provider_cost_authorized -eq $true) 'INT-07-ROUTER' "Recibo confirma provider_cost_authorized=true"
-        Assert-GW ($receiptParam.authorization_source -eq 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Recibo rastreia fonte EXPLICIT_PARAMETER"
         Assert-GW (-not [string]::IsNullOrWhiteSpace($receiptParam.budget)) 'INT-07-ROUTER' "Recibo registra orcamento de tier"
 
-        # 7c. T4 com autorizacao global via variavel de ambiente
+        # 7c. Autorizacao global via env NAO autoriza T4 sem prova Kernel
         [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', 'true')
         $selEnvCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
-        Assert-GW ($selEnvCost.Tier -eq 'T4') 'INT-07-ROUTER' "T4 autorizado globalmente via env seleciona T4"
-        Assert-GW ($selEnvCost.CostAuthorizationSource -eq 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Fonte GLOBAL_ENV_OPENCODE_T4_AUTHORIZED comprovada"
+        Assert-GW ($selEnvCost.Tier -eq 'T3') 'INT-07-ROUTER' "Env global sem prova Kernel permanece em T3 (fail-closed)"
+        Assert-GW ($selEnvCost.Tier -ne 'T4') 'INT-07-ROUTER' "Env global sozinho nunca autoriza T4"
 
         $receiptEnv = Get-OrchestrationModelRouterReceipt -Selection $selEnvCost
-        Assert-GW ($receiptEnv.authorization_source -eq 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Recibo registra fonte de autorizacao global"
-        Assert-GW ($receiptEnv.authorization_evidence -match 'OPENCODE_T4_AUTHORIZED=true') 'INT-07-ROUTER' "Recibo exige evidencia de autorizacao global"
+        Assert-GW ($receiptEnv.tier -eq 'T3') 'INT-07-ROUTER' "Recibo fail-closed confirma tier T3"
 
         # 7d. Invariante fail-closed: Recibo com T4 e provider_cost_authorized=false e estritamente proibido
         $fakeT4Unauthorized = [pscustomobject]@{

@@ -465,7 +465,7 @@
         "mimo"
       ],
       "relative_cost": 0.01,
-      "description": "Free and ultra-lightweight exploration and triage",
+      "description": "Free and ultra-lightweight exploration and triage; same-tier fallback only (iceman<->mimo), transport exhaustion never upgrades to a higher tier",
       "fallback": "mimo"
     },
     "T2": {
@@ -476,7 +476,7 @@
       ],
       "fallback": "luna",
       "relative_cost": 0.1,
-      "description": "Economical routine implementation and engineering"
+      "description": "Economical routine implementation and engineering; same-tier fallback only (muse/luna/deepseek_go), transport exhaustion never upgrades to a higher tier"
     },
     "T3": {
       "name": "Capable",
@@ -486,7 +486,7 @@
         "deepseek_go"
       ],
       "relative_cost": 1,
-      "description": "Capable reasoning (Terra); model/provider failure may degrade to authorized T2 candidates",
+      "description": "Capable reasoning (Terra); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go), never as equal capability",
       "fallback": "muse"
     },
     "T4": {
@@ -499,7 +499,7 @@
         "deepseek_go"
       ],
       "relative_cost": 8,
-      "description": "Critical reasoning after proven T3 failure; Astra after proven Sol capability failure; T2 on transport outage where role permits",
+      "description": "Critical reasoning after proven T3 failure; Astra after proven Sol capability failure; transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go)",
       "fallback": "muse"
     }
   },
@@ -824,13 +824,13 @@
         "astra"
       ],
       "admissible_tiers": [
-        "T2",
         "T3",
         "T4"
       ],
       "prohibited_tiers": [
         "T0",
-        "T1"
+        "T1",
+        "T2"
       ]
     }
   },
@@ -867,7 +867,8 @@
     "prevent_cycles": true,
     "prohibited_downgrades": [
       "reviewer",
-      "security-reviewer"
+      "security-reviewer",
+      "engineering-advisor"
     ],
     "cross_provider_tracking": true,
     "prohibitions": [
@@ -879,7 +880,9 @@
       "zero_cost_on_unknown",
       "unverified_t3_escalation",
       "unverified_astra_escalation",
-      "fallback_on_unverified_error"
+      "fallback_on_unverified_error",
+      "t1_transport_escalation_prohibited",
+      "t2_transport_escalation_prohibited"
     ]
   },
   "cost_policy": {

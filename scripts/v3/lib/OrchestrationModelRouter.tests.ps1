@@ -98,17 +98,22 @@ Assert-Router ($selCoderRetry.CatalogModel -eq 'openai/gpt-6.1-terra') "A.6: Cod
 $selCoderNoT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0 -IgnoreUserConfig $true
 Assert-Router ($selCoderNoT4.Tier -ne 'T4') "A.6: Coder sem falha anterior nao pode receber T4"
 
-$selCoderT4Unauth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -IgnoreUserConfig $true
-Assert-Router ($selCoderT4Unauth.Tier -eq 'T3') "A.6: Coder com 2 falhas sem autorizacao de custo faz fallback para T3"
+$selCoderT4Unauth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -FailureCount 2 -IgnoreUserConfig $true
+Assert-Router ($selCoderT4Unauth.Tier -eq 'T2' -and $selCoderT4Unauth.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.6: FailureCount nao promove Coder de T2 para T3"
 
 $selCoderT4Auth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:coder' -IgnoreUserConfig $true
-Assert-Router ($selCoderT4Auth.Tier -eq 'T3') "A.6: Coder com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
+Assert-Router ($selCoderT4Auth.Tier -eq 'T3') "A.6: Complexity complex seleciona T3; recibo arbitrario nao e requisito nem autoridade"
 Assert-Router ($selCoderT4Auth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.6: Coder T3 canonico e Terra"
 Assert-Router ($selCoderT4Auth.ModelToken -eq 'MODEL_STRONG') "A.6: Coder T3 usa token distinto MODEL_STRONG"
 
-# A.7 Engineering Advisor: Escalonamento e autorizacao
+# A.7 Engineering Advisor: sempre T3 Terra (ROUTER-V14-ADVISOR-T3-ONLY)
 $selAdvLow = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true
-Assert-Router ($selAdvLow.Tier -eq 'T2') "A.7: Advisor simples seleciona T2 economico"
+Assert-Router ($selAdvLow.Tier -eq 'T3') "A.7: Advisor simples/low sempre seleciona T3 (decisao explicita, sem T2)"
+Assert-Router ($selAdvLow.CatalogModel -eq 'openai/gpt-6.1-terra') "A.7: Advisor simples/low canonico e Terra"
+Assert-Router ($selAdvLow.ModelToken -eq 'MODEL_STRONG') "A.7: Advisor simples/low usa token distinto MODEL_STRONG"
+
+$selAdvLowFc = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true
+Assert-Router ($selAdvLowFc.Tier -eq 'T3') "A.7: FailureCount nunca rebaixa Advisor simples/low para T2"
 
 $selAdvMed = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
 Assert-Router ($selAdvMed.Tier -eq 'T3') "A.7: Advisor standard seleciona T3 Luna"
@@ -176,9 +181,9 @@ Assert-Router ($fbCoderSameTier.PreventivelyExcluded.Count -ge 1) "A.11.1: Preve
 
 # 11.2 Esgotamento do Tier T2 -> Escalonamento para T3 Luna
 $fbCoderEscalateT3 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode/deepseek-v4.1-flash-free', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Assert-Router ($fbCoderEscalateT3.Status -eq 'AUTHORIZED') "A.11.2: Quando T2 se esgota, Coder escala para T3"
-Assert-Router ($fbCoderEscalateT3.FallbackModel -eq 'openai/gpt-6-luna') "A.11.2: Escala para GPT-6 Luna canonico"
-Assert-Router ($fbCoderEscalateT3.FallbackTier -eq 'T2') "A.11.2: FallbackTier rastreado como T2"
+Assert-Router ($fbCoderEscalateT3.Status -eq 'AUTHORIZED') "A.11.2: Fallback de transporte permanece dentro do T2"
+Assert-Router ($fbCoderEscalateT3.FallbackModel -eq 'openai/gpt-6-luna') "A.11.2: T2 Muse usa Luna como alternativa canonica T2"
+Assert-Router ($fbCoderEscalateT3.FallbackTier -eq 'T2') "A.11.2: Alternativa de Luna preserva o tier T2"
 Assert-Router ($fbCoderEscalateT3.AttemptsCount -eq 2) "A.11.2: AttemptsCount reflete exatamente as 2 tentativas reais anteriores"
 Assert-Router ($fbCoderEscalateT3.ReallyAttemptedModels.Count -eq 2) "A.11.2: ReallyAttemptedModels contem exatamente as 2 tentativas reais"
 

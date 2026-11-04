@@ -470,7 +470,57 @@ try {
     $c5 = Complete-OrchestrationTask -TaskId 'gate-nosec-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     Assert-TaskKernel ((-not [bool]$c5.ok) -and (@($c5.reasons) -contains 'security-review-not-approved')) 'gate blocks high-risk DONE without security approval'
 
-    # 17. happy path e2e writes DONE only when the full gate passes (REAL verifier output)
+    # 16b. REGRESSION (ROUTER-V14-SCOPED-DONE): a plan-bearing task
+    # (committed non-empty verification_profiles) with candidate_pass +
+    # caller-supplied verified_pass + approved review cannot complete DONE.
+    # Only kernel-executed verification is proof-capable for scoped tasks.
+    # Plan-less tasks with no model_attempts stay legacy-compatible (16c).
+    $null = New-OrchestrationTask -TaskId 'gate-callerverify-001' -Objective 'Fix the widget renderer' -TaskType 'implementation' `
+        -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
+        -RuntimeVersion '1.18.32' -ReadScopes @('src/widget') -WriteScopes @('src/widget') `
+        -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') `
+        -VerificationProfiles @('passes') -AttemptBudget 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'gate-callerverify-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'gate-callerverify-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $null = Set-OrchestrationTaskWorkerResult -TaskId 'gate-callerverify-001' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0:widget renders') -ProducedBy 'coder' -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'gate-callerverify-001' -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 4 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'gate-callerverify-001' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 5 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $null = Invoke-VerifyFixture -Id 'gate-callerverify-001' -Rev 6
+    $null = Set-OrchestrationTaskReview -TaskId 'gate-callerverify-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
+    $fileCaller = Join-Path $t.tasks 'gate-callerverify-001.json'
+    $beforeCaller = Get-TaskBytesHash -Path $fileCaller
+    $cCaller = Complete-OrchestrationTask -TaskId 'gate-callerverify-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $afterCaller = Get-TaskBytesHash -Path $fileCaller
+    $gCaller = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
+    Assert-TaskKernel ((-not [bool]$cCaller.ok) -and ([string]$cCaller.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cCaller.reasons) -contains 'verification-not-kernel-executed') -and ($beforeCaller -ceq $afterCaller) -and ([string]$gCaller['state'] -ceq 'REVIEWING') -and ([int]$gCaller['revision'] -eq 8)) 'scoped plan-bearing task: caller-supplied verified_pass never completes DONE (verification-not-kernel-executed, state/revision unchanged)'
+
+    # A plan-bearing task remains scoped if its current plan/attempt arrays are
+    # accidentally or manually cleared after creation. The creation-time
+    # verification contract marker must keep the DONE gate from reclassifying
+    # it as legacy-compatible.
+    $downgradeRec = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
+    $downgradeRec['verification_profiles'] = @()
+    $downgradeRec['model_attempts'] = @()
+    $downgradeFile = Join-Path $t.tasks 'gate-callerverify-001.json'
+    Write-TaskKernelFixture -Path $downgradeFile -Text ($downgradeRec | ConvertTo-Json -Depth 24 -Compress)
+    $beforeDowngradeComplete = Get-TaskBytesHash -Path $downgradeFile
+    $cDowngrade = Complete-OrchestrationTask -TaskId 'gate-callerverify-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $afterDowngradeComplete = Get-TaskBytesHash -Path $downgradeFile
+    $gDowngrade = Get-OrchestrationTask -TaskId 'gate-callerverify-001' -TasksDir $t.tasks
+    Assert-TaskKernel ((-not [bool]$cDowngrade.ok) -and ([string]$cDowngrade.error -ceq 'COMPLETION_GATE_FAILED') -and (@($cDowngrade.reasons) -contains 'verification-not-kernel-executed') -and ($beforeDowngradeComplete -ceq $afterDowngradeComplete) -and ([string]$gDowngrade['state'] -ceq 'REVIEWING')) 'scoped plan-bearing task cannot be downgraded by clearing current plan/attempt arrays'
+
+    # 16c. LEGACY COMPAT: plan-less task with no model_attempts preserves
+    # the pre-v1.4 completion contract (caller Set result may remain
+    # sufficient). Scoped gate must not emit verification-not-kernel-executed.
+    Invoke-GateFixture -Id 'gate-legacy-001'
+    $null = Invoke-VerifyFixture -Id 'gate-legacy-001' -Rev 6
+    $null = Set-OrchestrationTaskReview -TaskId 'gate-legacy-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
+    $cLegacy = Complete-OrchestrationTask -TaskId 'gate-legacy-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    $gLegacy = Get-OrchestrationTask -TaskId 'gate-legacy-001' -TasksDir $t.tasks
+    Assert-TaskKernel (([bool]$cLegacy.ok) -and ([string]$gLegacy['state'] -ceq 'DONE') -and (@($cLegacy.reasons) -notcontains 'verification-not-kernel-executed')) 'legacy plan-less task without model attempts still completes DONE via caller-supplied verification (scoped gate only)'
+
+    # 17. happy path e2e writes DONE only when the full gate passes (TRUSTED
+    # kernel-executed verify-run against the committed plan + isolated repo).
     . (Join-Path $PSScriptRoot 'OrchestrationVerifier.ps1')
     $hRepo = Join-Path $t.root 'happy-repo'
     New-Item -ItemType Directory -Path $hRepo -Force | Out-Null
@@ -481,24 +531,29 @@ try {
     & git -C $hRepo config core.autocrlf false *>$null
     & git -C $hRepo config core.safecrlf false *>$null
     Write-TaskKernelFixture -Path (Join-Path $hRepo 'base.txt') -Text "base`n"
-    & git -C $hRepo add -A *>$null
-    & git -C $hRepo commit -m init -q *>$null
-    $hPol = Join-Path $t.root 'happy-policy.json'
+    $hPol = Join-Path $hRepo 'happy-policy.json'
     $hProfObj = New-Object PSCustomObject
     $hProfObj | Add-Member -NotePropertyName 'passes' -NotePropertyValue ([PSCustomObject]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 60 })
     $hDoc = [ordered]@{ version = 1; default_timeout_seconds = 120; max_output_chars = 4000; profiles = $hProfObj }
     $hJson = (New-Object PSCustomObject -Property $hDoc | ConvertTo-Json -Depth 6 -Compress)
     Write-TaskKernelFixture -Path $hPol -Text $hJson
-    $h = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id 'happy-001'
-    Assert-TaskKernel ([bool]$h.ok) 'happy path create ok'
+    & git -C $hRepo add -A *>$null
+    & git -C $hRepo commit -m init -q *>$null
+    $h = New-OrchestrationTask -TaskId 'happy-001' -Objective 'Fix the widget renderer' -TaskType 'implementation' `
+        -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
+        -RuntimeVersion '1.18.32' -BaseRevision 'HEAD' -ReadScopes @('src/widget') -WriteScopes @('src/widget') `
+        -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') `
+        -VerificationProfiles @('passes') `
+        -AttemptBudget 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
+    Assert-TaskKernel ([bool]$h.ok) 'happy path create ok (committed verification plan + base revision)'
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 3 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Set-OrchestrationTaskWorkerResult -TaskId 'happy-001' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0:widget renders') -ProducedBy 'coder' -ExpectedRevision 4 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
-    $hv = Invoke-OrchestrationVerifier -TaskId 'happy-001' -RepoRoot $hRepo -BaseRevision 'HEAD' -WriteScopes @() -ProfileNames @('passes') -PolicyPath $hPol -AcceptanceCriteria @('widget renders')
-    Assert-TaskKernel (([string]$hv.status -ceq 'verified_pass') -and ((@($hv.evidence) -join '|') -match 'criterion:0:verified')) 'real verifier emits criterion:0:verified for happy path'
-    $hvJson = ($hv | ConvertTo-Json -Depth 16 -Compress)
-    $null = Set-OrchestrationTaskVerification -TaskId 'happy-001' -VerifierEvidenceJson $hvJson -ExpectedRevision 5 -TasksDir $t.tasks -FlagsPath $t.flags
+    $hv = Invoke-TaskKernelVerifyRun -TaskId 'happy-001' -ExpectedRevision 5 -VerificationPolicyPath $hPol -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $hRepo
+    Assert-TaskKernel (([bool]$hv.ok) -and ([string]$hv.status -ceq 'verified_pass') -and ([string]$hv.verification_source -ceq 'kernel-executed')) 'kernel verify-run executes the committed plan (real verifier, kernel-executed marks)'
+    $gpHappy = Get-OrchestrationTask -TaskId 'happy-001' -TasksDir $t.tasks
+    Assert-TaskKernel ((([string]$gpHappy['verification']['verification_source'] -ceq 'kernel-executed') -and ([bool]$gpHappy['verification']['verifier_executed']))) 'happy path persists kernel-executed verification marks'
     $null = Invoke-OrchestrationTaskTransition -TaskId 'happy-001' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 6 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Set-OrchestrationTaskReview -TaskId 'happy-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
     $done = Complete-OrchestrationTask -TaskId 'happy-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none outstanding') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root

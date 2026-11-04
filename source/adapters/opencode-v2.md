@@ -45,14 +45,14 @@ histórica, sem efeito).
 - Roteamento adaptativo por Tiers (Model Router vNext, T0..T4):
   - **T0 (Determinístico / Reuso):** Comandos determinísticos, validação de AST, reuso exato de evidências (zero tokens).
   - **T1 (Gratuito / Ultraleve):** Triagem rápida, extração de texto, busca semântica leve.
-  - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco, Advisor técnico simples.
+  - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco.
   - **T3 (Intermediário / Capaz):** Refatorações multi-arquivo, debugging de média complexidade, revisões de arquitetura.
   - **T4 (Frontier / Raciocínio Profundo — `{{MODEL_STRONG}}`):** Impasses técnicos comprovados, decisões críticas de segurança, bugs persistentes pós-falha.
 - Cheap worker pool — `{{MODEL_CHEAP}}`: `explorer`,
   `researcher`, `coder`, `tester`, `docs-manager`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
-  `requirements-analyst`, `engineering-advisor`, `product-designer` e `skeptic`.
+  `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
 - Fallback do cheap pool — em indisponibilidade/erro do modelo default, escalar em ordem: 1º `opencode-go/muse-spark-1.3-contributor`, 2º `openai/gpt-6-luna`; override temporário no spawn com reset ao baseline, sujeito às cotas de escalonamento já definidas.
 - Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
@@ -60,7 +60,7 @@ histórica, sem efeito).
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
 - Advisor Especializado Sob Demanda (`engineering-advisor`, Issue #60):
-  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor pode ser instanciado em T2, T3 ou T4 pelo Model Router com base na severidade da dúvida. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
+  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Terra (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY: sem T2; T2 Muse é inelegível e diverge do default da política); Sol (T4) e Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
 - Escalonamentos para Astra são temporários, por subtarefa, via override
   no spawn — nunca editando este arquivo nem os prompts dos agentes — e
   sempre com reset ao baseline. Antes de escalar, pergunte: falta
@@ -248,7 +248,7 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
 `requirements-analyst` baseline cheap → Sol para requisitos estruturalmente complexos;
-`engineering-advisor` baseline cheap → Sol → Sol/high quando necessário;
+`engineering-advisor` baseline T3 Terra → Sol → Sol/high quando necessário;
 `product-designer` baseline cheap → Sol excepcionalmente; `skeptic` baseline cheap →
 Sol para plano/arquitetura high-risk. Nunca reutilize um
 worker escalonado após a subtarefa.

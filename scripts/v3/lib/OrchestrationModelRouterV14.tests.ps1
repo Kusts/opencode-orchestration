@@ -59,9 +59,40 @@ Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'openai/gpt-6.1-terra'
 $sT4Hold = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4Hold.Tier -ne 'T4') 'no-unproven-T3-failure-escalation'
 # DEPRECATED_UNTRUSTED: arbitrary bool/string never authorizes T4 without kernel-owned proof.
-$sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -T3FailureVerified $true -T3FailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+# Complexity=complex keeps T3 via role policy (not via FailureCount/receipt).
+$sT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 3 -T3FailureVerified $true -T3FailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4.Tier -ne 'T4') 'arbitrary-T3-receipt-does-not-escalate-T4'
 Assert-V14 ($sT4.Tier -eq 'T3') 'arbitrary-T3-receipt-fail-closed-T3'
+# v1.4 matrix: FailureCount never promotes Coder/Advisor; T2 exhaustion never upgrades to T3.
+$sCoderLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') 'failurecount-never-promotes-coder'
+$sAdvLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'openai/gpt-6.1-terra') 'failurecount-never-promotes-advisor'
+# ROUTER-V14-ADVISOR-T3-ONLY (explicit user decision, TDD RED): advisor always
+# starts at T3 Terra; T2 Muse violates muse.eligible_roles and diverges from
+# role_profiles default_model=terra/default_tier=T3. T4 only via kernel proof.
+# Canonical registry contract (catches drift): role profile must pin
+# default_model=terra/default_tier=T3 with admissible exactly T3/T4 (no T2).
+$advProfile = $pol.role_profiles.PSObject.Properties['engineering-advisor'].Value
+$advAdmissible = @($advProfile.admissible_tiers)
+$advProhibited = @($advProfile.prohibited_tiers)
+Assert-V14 ([string]$advProfile.default_model -eq 'terra' -and [string]$advProfile.default_tier -eq 'T3' -and ($advAdmissible -contains 'T3') -and ($advAdmissible -contains 'T4') -and -not ($advAdmissible -contains 'T2') -and $advAdmissible.Count -eq 2 -and ($advProhibited -contains 'T2')) 'advisor-registry-T3-only-no-T2'
+$sAdvSimpleFc0 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 0 -IgnoreUserConfig $true -NativeModelOverrideProven $true
+Assert-V14 ($sAdvSimpleFc0.Tier -eq 'T3' -and $sAdvSimpleFc0.CatalogModel -eq 'openai/gpt-6.1-terra') 'advisor-simple-low-always-T3-terra'
+$sT2Base = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Base -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+Assert-V14 ($fT2Exhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT2Exhausted.FallbackModel -eq $null) 't2-exhausted-never-upgrades-to-terra'
+
+# ROUTER-V14-FALLBACK-POLICY-METADATA (reviewer MEDIUM): canonical registry must
+# explicitly record no T1/T2 upward transport rule and T3/T4 eligible-role-only T2 downgrade.
+$fbProhibitionsV14 = @($pol.fallback_policy.prohibitions)
+$fbProhibitedDownV14 = @($pol.fallback_policy.prohibited_downgrades)
+Assert-V14 (($fbProhibitionsV14 -contains 't1_transport_escalation_prohibited') -and ($fbProhibitionsV14 -contains 't2_transport_escalation_prohibited')) 'fallback-prohibitions-t1-t2-no-upward-escalation'
+Assert-V14 (($fbProhibitedDownV14 -contains 'reviewer') -and ($fbProhibitedDownV14 -contains 'security-reviewer') -and ($fbProhibitedDownV14 -contains 'engineering-advisor')) 'fallback-prohibited-downgrades-advisor-reviewer-security'
+Assert-V14 (([string]$pol.tiers.T1.description -match 'never') -and ([string]$pol.tiers.T1.description -match 'upgrade') -and ([string]$pol.tiers.T1.description -match 'same-tier')) 'T1-description-no-upward-transport'
+Assert-V14 (([string]$pol.tiers.T2.description -match 'never') -and ([string]$pol.tiers.T2.description -match 'upgrade') -and ([string]$pol.tiers.T2.description -match 'same-tier')) 'T2-description-no-upward-transport'
+Assert-V14 (([string]$pol.tiers.T3.description -match 'only') -and ([string]$pol.tiers.T3.description -match 'admissible') -and ([string]$pol.tiers.T3.description -match 'T2')) 'T3-description-eligible-role-only-T2'
+Assert-V14 (([string]$pol.tiers.T4.description -match 'only') -and ([string]$pol.tiers.T4.description -match 'admissible') -and ([string]$pol.tiers.T4.description -match 'T2')) 'T4-description-eligible-role-only-T2'
 
 $sTesterT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'opencode-go/iceman-contributor-free') 'tester-trivial-LLM-uses-T1'

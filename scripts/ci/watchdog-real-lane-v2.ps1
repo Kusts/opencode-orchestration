@@ -51,10 +51,11 @@
       04 Worker normal completion: task real do kernel (CLI), tentativa real,
           worker real com termino normal (exit 0), candidate_pass gravado e
           tentativa de terminal real via Complete-OrchestrationTask. O
-          verified_pass do gate de DONE so vem de verifier allowlisted real
-          (Invoke-OrchestrationVerifier + profile canonico); se o escopo ou o
-          profile nao cobrir, o cenario fica partial com a razao REAL, nunca
-          verde forjado.
+          verified_pass do gate de DONE so vem de verify-run executado pelo
+          kernel (Invoke-TaskKernelVerifyRun + plano package-consistency
+          comprometido no create); JSON caller-supplied nunca e prova.
+          Se o escopo ou o profile nao cobrir, o cenario fica partial com a
+          razao REAL, nunca verde forjado.
       05 Worker hard hang: worker real ultrapassa HARD_TIMEOUT real =>
           interrupt real => PID morto (fato observado).
       06 No-progress stall: worker vivo sem progresso ate NO_PROGRESS real.
@@ -892,14 +893,16 @@ function Invoke-Scenario04 {
     '-Action', 'create', '-TaskId', $tid, '-Objective', 'prove a real worker attempt completes normally under a real kernel task',
     '-Actor', 'planner', '-ActorIdentitySource', 'explicit-cli',
     '-RuntimeId', 'opencode-v2', '-RuntimeGeneration', '2', '-RuntimeProfile', 'v2', '-RuntimeVersion', $PinnedVersion,
+    '-BaseRevision', 'HEAD', '-VerifierProfiles', 'package-consistency',
     '-TasksDir', $tasksDir, '-AcceptanceCriteria', $criterion,
     '-WriteScopes', 'scripts/ci/watchdog-real-lane-v2.ps1'
   )
-  $observed['create'] = [ordered]@{ exit_code = [int]$create.exit_code; ok = [bool]$create.ok }
-  [void]$as.Add([ordered]@{ name = 'kernel_task_created'; passed = [bool]$create.ok; detail = ('task-kernel.ps1 -Action create (tasks dir TEMP); rc=' + [int]$create.exit_code) })
+  $createDomain = (Get-LaneSafeText -Text ([string]$create.domain_error) -MaxChars 120)
+  $observed['create'] = [ordered]@{ exit_code = [int]$create.exit_code; ok = [bool]$create.ok; domain_error = $createDomain }
+  [void]$as.Add([ordered]@{ name = 'kernel_task_created'; passed = [bool]$create.ok; detail = ('task-kernel.ps1 -Action create (tasks dir TEMP); rc=' + [int]$create.exit_code + ' domain_error=' + $createDomain) })
   if (-not [bool]$create.ok) {
     return (New-ScenarioResult -ScenarioId 'RR-E2E-04' -Ordinal 4 -Title 'Worker normal completion' -Status 'failed' `
-        -Observed $observed -Assertions $as -Notes $notes -Cause 'kernel create recusou a task real da lane')
+        -Observed $observed -Assertions $as -Notes $notes -Cause ('kernel create recusou a task real da lane; rc=' + [int]$create.exit_code + ' domain_error=' + $createDomain))
   }
 
   $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
@@ -953,26 +956,38 @@ function Invoke-Scenario04 {
   $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
   [void]$as.Add([ordered]@{ name = 'kernel_reaching_state_reviewing'; passed = ([bool]$t1.ok -and [bool]$t2.ok); detail = ('transicoes reais VALIDATING/REVIEWING; rc=' + [int]$t1.exit_code + '/' + [int]$t2.exit_code) })
 
-  # verified_pass do gate de DONE: SOMENTE verifier allowlisted real.
+  # verified_pass do gate de DONE: SOMENTE verify-run executado pelo kernel
+  # (Invoke-TaskKernelVerifyRun em-processo contra o plano
+  # verification_profiles comprometido no create + repo canonico). JSON
+  # caller-supplied nunca e prova: a CLI `-Action verify` persiste
+  # verification_source=caller-supplied e o gate recusa DONE com
+  # verification-not-kernel-executed. Chamada de biblioteca do harness para
+  # o task store TEMPORARIO (a CLI verify-run e canonical-path-bound e
+  # recusaria o TasksDir temporario); a CLI continua pinada para create,
+  # transition, record-result, review e complete. Evidencia do verify-run
+  # fica sob TargetHome (work), nunca no checkout.
   $verifierStatus = 'not-run'
-  $verifierFile = ''
   $verifierDetail = ''
+  $verifySource = ''
   $scopeOut = @()
   try {
     if ($null -eq (Get-Command -Name 'Test-OrchestrationWriteScope' -ErrorAction SilentlyContinue)) {
       . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationVerifier.ps1')
     }
+    if ($null -eq (Get-Command -Name 'Invoke-TaskKernelVerifyRun' -ErrorAction SilentlyContinue)) {
+      . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationTaskKernel.ps1')
+    }
     $scope = Test-OrchestrationWriteScope -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes
     $scopeOut = @($scope.out_of_scope)
     if (@($scope.out_of_scope).Count -eq 0) {
-      $vr = Invoke-OrchestrationVerifier -TaskId $tid -RepoRoot $RepoRoot -BaseRevision 'HEAD' -WriteScopes $script:laneWriteScopes `
-        -ProfileNames @('package-consistency') -AcceptanceCriteria @($criterion)
+      $vr = Invoke-TaskKernelVerifyRun -TaskId $tid -ExpectedRevision ([int]$rev) `
+        -TasksDir $tasksDir -FlagsPath $script:repoFlags -RepoRoot $RepoRoot
       $verifierStatus = [string]$vr.status
-      $verifierDetail = ([string]$vr.reason)
-      if ([string]$vr.status -ceq 'verified_pass') {
-        $verifierFile = Join-Path $script:workRoot 'verifier-result.json'
-        [IO.File]::WriteAllText($verifierFile, (($vr | ConvertTo-Json -Depth 12) + "`n"), (New-Object Text.UTF8Encoding $false))
-      }
+      if ([string]::IsNullOrWhiteSpace($verifierStatus)) { $verifierStatus = [string]$vr.error }
+      try { $verifySource = [string]$vr.verification_source } catch { $verifySource = '' }
+      $verifierDetail = ([string]$vr.error)
+      $runFile = Join-Path $script:workRoot 'verify-run-result.json'
+      [IO.File]::WriteAllText($runFile, ((($vr | ConvertTo-Json -Depth 12) + "`n") -replace "`r`n", "`n" -replace "`r", "`n"), (New-Object Text.UTF8Encoding $false))
     }
     else {
       $verifierStatus = 'skipped-out-of-scope'
@@ -984,21 +999,16 @@ function Invoke-Scenario04 {
     $verifierDetail = (Get-LaneSafeError $_)
   }
   $observed['verifier'] = [ordered]@{
-    status = $verifierStatus; reason = $verifierDetail; out_of_scope = @($scopeOut)
-    allowlisted_profile = 'package-consistency'
+    status = $verifierStatus; reason = $verifierDetail; verification_source = $verifySource; out_of_scope = @($scopeOut)
+    allowlisted_profile = 'package-consistency'; kernel_executed = ($verifySource -ceq 'kernel-executed')
   }
-  $verifyOk = $false
-  if (-not [string]::IsNullOrWhiteSpace($verifierFile)) {
-    $vf = Invoke-KernelCli -LaneArgs @('-Action', 'verify', '-TaskId', $tid, '-VerifierResultFile', $verifierFile,
-      '-ActorIdentitySource', 'explicit-cli', '-ExpectedRevision', [string]$rev, '-TasksDir', $tasksDir)
-    $verifyOk = [bool]$vf.ok
-    $observed['verify'] = [ordered]@{ exit_code = [int]$vf.exit_code; ok = [bool]$vf.ok; domain_error = [string]$vf.domain_error }
-    $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
-  }
+  $verifyOk = (($verifierStatus -ceq 'verified_pass') -and ($verifySource -ceq 'kernel-executed'))
+  $observed['verify'] = [ordered]@{ ok = [bool]$verifyOk; status = $verifierStatus; verification_source = $verifySource; reason = $verifierDetail }
+  $rev = (Get-KernelRevision -TaskId $tid -TasksDir $tasksDir).revision
   [void]$as.Add([ordered]@{
     name = 'verified_pass_from_allowlisted_verifier'
     passed = $verifyOk
-    detail = ('verifier allowlisted real (profile package-consistency) => status=' + $verifierStatus + ' ' + $verifierDetail)
+    detail = ('verify-run do kernel (profile package-consistency) => status=' + $verifierStatus + ' source=' + $verifySource + ' ' + $verifierDetail)
   })
 
   $review = Invoke-KernelCli -LaneArgs @('-Action', 'review', '-TaskId', $tid, '-ReviewKind', 'reviewer',
@@ -1017,7 +1027,7 @@ function Invoke-Scenario04 {
   $isDone = ([string]$final.state -ceq 'DONE')
   [void]$as.Add([ordered]@{ name = 'kernel_terminal_done_via_complete'; passed = $isDone; detail = ('Complete-OrchestrationTask real; rc=' + [int]$done.exit_code + '; domain_error=' + [string]$done.domain_error + '; estado final=' + [string]$final.state + '; reasons=' + (@($done.json.reasons) -join ';')) })
   [void]$observed['kernel_calls']
-  [void]$notes.Add('verified_pass do gate de DONE veio de verifier allowlisted real; nenhum status foi forjado pelo harness.')
+  [void]$notes.Add('verified_pass do gate de DONE veio de verify-run executado pelo kernel (plano package-consistency); nenhum status foi forjado pelo harness. Evidencia do verify-run fica sob TargetHome/work.')
   [void]$notes.Add('budgets do kernel intactos (record-only): o harness nunca chamou set-budget.')
   [void]$notes.Add('a task real do kernel carrega UM write scope representativo da lane: o roteamento acotado via cmd.exe recusa o separador | e o binder do PowerShell recusa o parametro repetido, entao o array completo nao atravessa a CLI. O escopo que decide o verified_pass (gate do verifier) e conferido in-process com a lista COMPLETA dos paths da lane.')
   # M-1 (b)(c): pass-real SO com TODA assertion obrigatoria verde, worker exit 0
@@ -1289,8 +1299,15 @@ function Invoke-Scenario09 {
   [void]$notes.Add('nao-settlement injetado (seam de teste); interrupt e deadline reais: o token stop_failure pertence ao conjunto fechado de FaultInject da propria lib do watchdog e simula a recusa do SO no stop; o harness nao forjou relogio nem resultado.')
   [void]$notes.Add('o worker que sobreviveu e reapeado pelo backstop do Job Object da lane (spawn proprio), registrado como cleanup do harness, nunca como interrupt do watchdog.')
   $pass = (@($as | Where-Object { -not [bool]$_.passed }).Count -eq 0)
+  $failed09 = @($as | Where-Object { -not [bool]$_.passed } | ForEach-Object { [string]$_.name })
+  $cause09 = ''
+  if (-not $pass) {
+    $safeErr09 = (Get-LaneSafeText -Text ([string]$err) -MaxChars 120)
+    $safeSettle09 = (Get-LaneSafeText -Text ([string]$settle.settlement) -MaxChars 120)
+    $cause09 = ('assertions falhas: ' + ($failed09 -join ', ') + ' (interrupt_error=' + $safeErr09 + ' settlement=' + $safeSettle09 + ')')
+  }
   return (New-ScenarioResult -ScenarioId 'RR-E2E-09' -Ordinal 9 -Title 'Interrupt failure' `
-      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes)
+      -Status $(if ($pass) { 'pass-real' } else { 'failed' }) -Observed $observed -Assertions $as -Notes $notes -Cause $cause09)
 }
 
 # ---------------------------------------------------------------------------

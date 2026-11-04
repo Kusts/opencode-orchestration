@@ -34,9 +34,9 @@ $script:AgentModelAdmissibility = @{
     }
     'engineering-advisor' = @{
         DefaultTier      = 'T3'
-        AdmissibleTiers  = @('T2', 'T3', 'T4')
-        ProhibitedTiers  = @('T0', 'T1')
-        ProhibitionNotes = 'Advisor requires at least T2 for technical clarity; T0/T1 lacks reasoning capability.'
+        AdmissibleTiers  = @('T3', 'T4')
+        ProhibitedTiers  = @('T0', 'T1', 'T2')
+        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Terra; T2 prohibited (Muse ineligible per muse.eligible_roles; diverges from role_profiles default_model=terra/default_tier=T3). T4 only via kernel-owned T3 proof.'
     }
     'coder' = @{
         DefaultTier      = 'T2'
@@ -849,6 +849,7 @@ function Resolve-OrchestrationModelFallback {
         $downAllowed = $null -ne $admiss -and $admiss.AdmissibleTiers -contains 'T2' -and $admiss.ProhibitedTiers -notcontains 'T2'
         if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -ne 'low') { $downAllowed = $false }
         if ($cleanAgent -eq 'security-reviewer') { $downAllowed = $false }
+        if ($cleanAgent -eq 'engineering-advisor') { $downAllowed = $false }
         if (-not $downAllowed) {
             foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
                 & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
@@ -958,20 +959,39 @@ function Resolve-OrchestrationModelFallback {
         }
     }
 
-    # 3. Se o mesmo tier esta esgotado, verifica se o agente permite escalonamento de tier (upgrade)
-    if ($null -ne $admiss) {
-        $candidateUpgradeTiers = switch ($reqTier) {
-            'T1' { @('T2', 'T3', 'T4') }
-            'T2' { @('T3', 'T4') }
-            'T3' { @('T4') }
-            default { @() }
+    # 3. Tier exhaustion policy (v1.4 matrix): T1/T2 transport exhaustion never
+    # escalates to a higher tier; same-tier alternatives are the only T1/T2
+    # fallback. T3 may try T4, but EvaluateCandidate still requires current
+    # VERIFIED_TASK_FAILURE plus kernel-owned T3 proof (Astra additionally
+    # needs T4 proof plus attempted Sol). FailureCount, NoExecutionStarted,
+    # VerifiedFailureReceipt and caller text never authorize escalation.
+    # The resolver only chooses a model; it never executes or retries.
+    if ($reqTier -ceq 'T3' -and $null -ne $admiss) {
+        $upCands = & $GetDynamicCandidatesForTier 'T4'
+        foreach ($candUp in $upCands) {
+            $validUp = & $EvaluateCandidate $candUp
+            if ($null -ne $validUp) {
+                return (& $BuildAuthorizedResult $validUp.ModelId 'T4' "Router authorized tier escalation to '$($validUp.ModelId)' (T4) for agent '$cleanAgent'." $false)
+            }
         }
-        foreach ($nextTier in $candidateUpgradeTiers) {
-            $upCands = & $GetDynamicCandidatesForTier $nextTier
-            foreach ($candUp in $upCands) {
-                $validUp = & $EvaluateCandidate $candUp
-                if ($null -ne $validUp) {
-                    return (& $BuildAuthorizedResult $validUp.ModelId $nextTier "Router authorized tier escalation to '$($validUp.ModelId)' ($nextTier) for agent '$cleanAgent'." $false)
+    }
+
+    # 3b. Telemetry-only bookkeeping for prohibited T1/T2 upgrades: record why
+    # higher-tier candidates are ineligible without ever authorizing them, so
+    # PreventivelyExcluded stays honest (e.g. ALREADY_ATTEMPTED) while the
+    # result remains EXHAUSTED_NO_ELIGIBLE_FALLBACK.
+    if ($reqTier -in @('T1','T2')) {
+        $prohibitedUpgradeTiers = if ($reqTier -ceq 'T1') { @('T2','T3','T4') } else { @('T3','T4') }
+        foreach ($put in $prohibitedUpgradeTiers) {
+            $pucs = & $GetDynamicCandidatesForTier $put
+            foreach ($pcu in $pucs) {
+                if ($reallyAttempted.Contains([string]$pcu.ModelId)) {
+                    & $RecordExclusion ([string]$pcu.ModelId) $put 'ALREADY_ATTEMPTED'
+                    continue
+                }
+                $pev = & $EvaluateCandidate $pcu
+                if ($null -ne $pev) {
+                    & $RecordExclusion ([string]$pcu.ModelId) $put 'TIER_ESCALATION_PROHIBITED'
                 }
             }
         }
@@ -1406,18 +1426,19 @@ function Resolve-OrchestrationModelSelection {
         $reason = 'Security-reviewer starts at T3 Terra; no T2 downgrade.'
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
-        if ($Complexity -in @('trivial','simple') -and $Risk -eq 'low' -and $FailureCount -eq 0) {
-            $selectedTier = 'T2'
-            $reason = 'Economical T2 for a simple advisor consultation.'
-        } else {
-            $selectedTier = 'T3'
-            $reason = 'Engineering-advisor uses T3 Terra.'
-        }
+        # ROUTER-V14-ADVISOR-T3-ONLY (explicit user decision): advisor always
+        # starts at T3 Terra regardless of risk/complexity/FailureCount. T2
+        # Muse violates muse.eligible_roles and diverges from role_profiles
+        # default_model=terra/default_tier=T3. T4 only via kernel-owned proof.
+        $selectedTier = 'T3'
+        $reason = 'Engineering-advisor always uses T3 Terra; T4 only via kernel-owned T3 proof.'
     }
     elseif ($cleanAgent -eq 'coder') {
-        if ($FailureCount -ge 1 -or $Complexity -eq 'complex') {
+        # v1.4 matrix: FailureCount never promotes Coder. Complexity=complex
+        # selects T3 (role policy); everything else stays T2.
+        if ($Complexity -eq 'complex') {
             $selectedTier = 'T3'
-            $reason = 'Coder escalates to T3 Terra for complex work or prior verified failure.'
+            $reason = 'Coder uses T3 Terra for complex work.'
         } else {
             $selectedTier = 'T2'
             $reason = 'Coder defaults to economical T2 Muse.'
@@ -1502,6 +1523,13 @@ function Resolve-OrchestrationModelSelection {
     if ($cleanAgent -eq 'security-reviewer' -and $selectedTier -in @('T0', 'T1', 'T2')) {
         $selectedTier = 'T3'
         $reason = "Security invariant enforced: security-reviewer forced to T3 minimum."
+    }
+
+    # Advisor check (ROUTER-V14-ADVISOR-T3-ONLY): engineering-advisor NEVER
+    # T0/T1/T2; explicit user decision forces T3 Terra minimum.
+    if ($cleanAgent -eq 'engineering-advisor' -and $selectedTier -in @('T0', 'T1', 'T2')) {
+        $selectedTier = 'T3'
+        $reason = "Advisor invariant enforced: engineering-advisor forced to T3 minimum (always Terra; T4 only via kernel-owned proof)."
     }
 
     # Coder T4 check: coder NEVER T4 without kernel-owned proof (T3 for Sol,

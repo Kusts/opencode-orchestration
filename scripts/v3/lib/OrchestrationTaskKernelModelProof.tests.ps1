@@ -312,6 +312,8 @@ try {
     Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_fr' -Parent 'ses_root_fr' -Message 'msg_fr_1')
     $rfr = Set-OrchestrationTaskModelAttempt -TaskId 'proof-forged-001' -ChildSessionId 'ses_child_fr' -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-forged-001') -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rfr.ok) 'forged fixture attempt recorded'
+    $gfrAttempt = Get-OrchestrationTask -TaskId 'proof-forged-001' -TasksDir $t.tasks
+    Assert-ModelProof ([string]$gfrAttempt['completion_verification_contract'] -ceq 'router-v1.4-kernel') 'first model attempt makes scoped completion contract sticky'
     $vfr = Set-OrchestrationTaskVerification -TaskId 'proof-forged-001' -VerifierEvidenceJson (New-ProofVerifierJson -Status 'verification_failed') -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-forged-001') -TasksDir $t.tasks -FlagsPath $t.flags
     Assert-ModelProof ([bool]$vfr.ok) 'forged caller JSON stored (readable, untrusted)'
     $gfr = Get-OrchestrationTask -TaskId 'proof-forged-001' -TasksDir $t.tasks
@@ -326,6 +328,7 @@ try {
     $pt = New-ModelProofTask -T $rt -PolPath $polPath -Id 'proof-plan-001' -BaseRevision 'HEAD' -WriteScopes @() -VerProfiles @('failer')
     $gpt = Get-OrchestrationTask -TaskId 'proof-plan-001' -TasksDir $rt.tasks
     Assert-ModelProof (((@($gpt['verification_profiles'])).Count -eq 1) -and ([string](@($gpt['verification_profiles'])[0]) -ceq 'failer')) 'creation commits the verification plan'
+    Assert-ModelProof ([string]$gpt['completion_verification_contract'] -ceq 'router-v1.4-kernel') 'creation-time verification contract marker is persisted for plan-bearing task'
     $bpt = Invoke-ProofBindFlow -T $rt -Id 'proof-plan-001' -Run 'run-pt' -Root 'ses_root_pt' -Child 'ses_child_pt' -Rev 1
     $null = Invoke-ProofFailResult -T $rt -Id 'proof-plan-001' -Rev ([int]$bpt.revision) -SessionRef 'ses_child_pt' -MessageRefs @('msg_pt_1')
     $vpt = Invoke-ProofVerifyRun -T $rt -Id 'proof-plan-001' -Rev (Get-TaskRevNow -T $rt -Id 'proof-plan-001')
