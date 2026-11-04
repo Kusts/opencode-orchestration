@@ -153,6 +153,211 @@ $script:DefaultModelCatalog = @{
 
 $script:CachedRoutingPolicy = $null
 
+# Closed claude-agent DISPATCH-ALIAS map (alias model_id -> dispatch alias
+# token). Dispatch identity IS the alias itself: claude-agent/haiku -> haiku,
+# claude-agent/sonnet -> sonnet, claude-agent/opus -> opus,
+# claude-agent/fable -> fable. The OpenCode catalog never publishes an
+# alias->concrete mapping, successful session events expose only the alias, and
+# the concrete IDs merely LISTED in this account's local `opencode models` CLI
+# inventory are recorded in the policy as catalog_inventory_id (listing /
+# provenance ONLY, never read by this router). Alias-to-concrete runtime
+# resolution stays runtime-unverified until a successful session event proves
+# it: never store a concrete model ID here and never treat one as a mapping
+# (no invented 5.5/5.1 IDs; no resolved_model field anywhere).
+$script:ClaudeAgentDispatchAliasMap = @{
+    'claude-agent/haiku'  = 'haiku'
+    'claude-agent/sonnet' = 'sonnet'
+    'claude-agent/opus'   = 'opus'
+    'claude-agent/fable'  = 'fable'
+}
+
+# Effort variants listed per alias in the current OpenCode model catalog
+# (tools.opencode.models metadata: low/medium/high/xhigh/max).
+# Recorded as catalog metadata only; smoke did not use a variant.
+$script:ClaudeAgentEffortVariants = @('low', 'medium', 'high', 'xhigh', 'max')
+
+# Availability/transport fault classes. A claude-agent substitute (Haiku/Sonnet/
+# Opus) and every tier escalation are policy-level availability routes only for
+# these reasons; capability/incapacity claims (VERIFIED_TASK_FAILURE) and
+# ambiguous outcomes (TIMEOUT) are NOT availability and never unlock them.
+$script:AvailabilityTriggerReasons = @('RATE_LIMIT', 'PROVIDER_ERROR', 'MODEL_UNAVAILABLE', 'MODEL_ERROR', 'SERVICE_UNAVAILABLE', 'QUOTA_EXCEEDED', 'OFFLINE')
+
+function Test-ClaudeAgentProviderAdmissible {
+    <#
+    .SYNOPSIS
+        Admissibility gate for the claude-agent provider (no second catalog, no new state machine).
+    .DESCRIPTION
+        The claude-agent provider is allowed only with explicit capability proof: the dispatcher
+        must have verified a local authenticated 'claude' executable on the worker machine and
+        assert it via -ClaudeAgentProven or -WorkerCapabilities ('claude-agent' /
+        'claude-executable-authenticated'). Remote workers without the explicit
+        'claude-agent-remote' capability are rejected even when local proof exists.
+        Default (no proof) is reject-closed, which keeps all legacy suites deterministic.
+        Availability and no-start are checked separately by the caller (this helper
+        only answers "is the Claude capability proven for this worker?").
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$WorkerHost = 'local',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$WorkerCapabilities = @(),
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ClaudeAgentProven = $false
+    )
+
+    $caps = @($WorkerCapabilities | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() })
+    $proven = $ClaudeAgentProven -or ($caps -contains 'claude-agent') -or ($caps -contains 'claude-executable-authenticated')
+    if (-not $proven) {
+        return [pscustomobject]@{ Admissible = $false; Reason = 'CLAUDE_CAPABILITY_UNPROVEN' }
+    }
+
+    $hostNorm = ([string]$WorkerHost).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($hostNorm)) { $hostNorm = 'local' }
+    if ($hostNorm -ne 'local' -and -not ($caps -contains 'claude-agent-remote')) {
+        return [pscustomobject]@{ Admissible = $false; Reason = 'CLAUDE_REMOTE_UNPROVEN' }
+    }
+
+    return [pscustomobject]@{ Admissible = $true; Reason = 'CLAUDE_CAPABILITY_PROVEN' }
+}
+
+function Resolve-ClaudeAgentAlias {
+    <#
+    .SYNOPSIS
+        Validates the identity of a claude-agent dispatch alias against the policy.
+    .DESCRIPTION
+        Closed-map identity check ONLY: the requested alias model_id must be a
+        known dispatch alias, and the policy's recorded model_id + alias pair
+        must match it exactly (case-sensitive). A policy tamper (alias, model_id
+        or the entry linkage changed) is rejected by the caller fail-closed with
+        CLAUDE_UNKNOWN_ALIAS / CLAUDE_ALIAS_MISSING / CLAUDE_MODEL_ID_MISSING /
+        CLAUDE_ALIAS_MISMATCH. This helper never reads catalog_inventory_id or
+        any other concrete ID and never claims runtime alias->concrete
+        resolution (runtime-unverified until a successful session event proves
+        it): an event reporting an unverified concrete ID stays
+        PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AliasModelId,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyAlias = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyModelId = ''
+    )
+
+    $key = ([string]$AliasModelId).Trim()
+    $expected = if ($script:ClaudeAgentDispatchAliasMap.ContainsKey($key)) { [string]$script:ClaudeAgentDispatchAliasMap[$key] } else { '' }
+    if ([string]::IsNullOrWhiteSpace($expected)) {
+        return [pscustomobject]@{ Known = $false; Expected = ''; Matches = $false; Reason = 'CLAUDE_UNKNOWN_ALIAS' }
+    }
+    $polAlias = ([string]$PolicyAlias).Trim()
+    if ([string]::IsNullOrWhiteSpace($polAlias)) {
+        return [pscustomobject]@{ Known = $true; Expected = $expected; Matches = $false; Reason = 'CLAUDE_ALIAS_MISSING' }
+    }
+    if ($polAlias -cne $expected) {
+        return [pscustomobject]@{ Known = $true; Expected = $expected; Matches = $false; Reason = 'CLAUDE_ALIAS_MISMATCH' }
+    }
+    $polModel = ([string]$PolicyModelId).Trim()
+    if ([string]::IsNullOrWhiteSpace($polModel)) {
+        return [pscustomobject]@{ Known = $true; Expected = $expected; Matches = $false; Reason = 'CLAUDE_MODEL_ID_MISSING' }
+    }
+    if ($polModel -cne $key) {
+        return [pscustomobject]@{ Known = $true; Expected = $expected; Matches = $false; Reason = 'CLAUDE_ALIAS_MISMATCH' }
+    }
+    return [pscustomobject]@{ Known = $true; Expected = $expected; Matches = $true; Reason = '' }
+}
+
+function Resolve-ClaudeAgentUsageCost {
+    <#
+    .SYNOPSIS
+        Maps a reported claude-agent cost to a recorded usage cost.
+    .DESCRIPTION
+        Subscription metering may report 0; a zero/empty/unparseable report must be recorded
+        as UNKNOWN cost, never as 0 (enforces the zero_cost_on_unknown prohibition).
+    #>
+    [CmdletBinding()]
+    param($ReportedCost = $null)
+
+    $s = if ($null -eq $ReportedCost) { '' } else { ([string]$ReportedCost).Trim() }
+    if ([string]::IsNullOrWhiteSpace($s)) { return 'UNKNOWN' }
+    if ($s -ieq 'unknown') { return 'UNKNOWN' }
+    $n = 0.0
+    if ([double]::TryParse($s, [ref]$n)) {
+        if ($n -eq 0) { return 'UNKNOWN' }
+        return $s
+    }
+    return 'UNKNOWN'
+}
+
+function New-ClaudeAgentProviderSwitchHandoff {
+    <#
+    .SYNOPSIS
+        Builds a context-preserving provider-switch handoff payload.
+    .DESCRIPTION
+        Carries objective, task id and attempt history across a provider switch so the
+        receiving worker resumes with full context. Payload only; emits no dispatch.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$TaskId = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$Objective = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$FromModel = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$ToModel = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$FailureClass = '',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$AttemptedModels = @(),
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyHash = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyVersion = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace(([string]$TaskId).Trim())) {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-task-id'; handoff = $null }
+    }
+    if ([string]::IsNullOrWhiteSpace(([string]$Objective).Trim())) {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-objective'; handoff = $null }
+    }
+    if ([string]::IsNullOrWhiteSpace(([string]$ToModel).Trim())) {
+        return [pscustomobject]@{ ok = $false; reason = 'invalid-to-model'; handoff = $null }
+    }
+    $handoff = [ordered]@{
+        schema_version    = 1
+        kind              = 'provider-switch'
+        task_id           = ([string]$TaskId).Trim()
+        objective         = ([string]$Objective).Trim()
+        from_model        = ([string]$FromModel).Trim()
+        from_provider     = (Get-ModelProviderFromId ([string]$FromModel).Trim())
+        to_model          = ([string]$ToModel).Trim()
+        to_provider       = (Get-ModelProviderFromId ([string]$ToModel).Trim())
+        failure_class     = ([string]$FailureClass).Trim()
+        attempted_models  = @($AttemptedModels)
+        attempt_count     = @($AttemptedModels).Count
+        policy_hash       = ([string]$PolicyHash).Trim()
+        policy_version    = ([string]$PolicyVersion).Trim()
+        created_at        = ([DateTime]::UtcNow).ToString('o')
+    }
+    return [pscustomobject]@{ ok = $true; reason = ''; handoff = $handoff }
+}
+
 function Get-ModelProviderFromId {
     <#
     .SYNOPSIS
@@ -164,6 +369,8 @@ function Get-ModelProviderFromId {
     if ($m.StartsWith('opencode-go/')) { return 'opencode-go' }
     if ($m.StartsWith('opencode/')) { return 'opencode' }
     if ($m.StartsWith('openai/')) { return 'openai' }
+    if ($m.StartsWith('claude-agent/')) { return 'claude-agent' }
+    if ($m -match '^claude-(haiku|sonnet|opus|fable)') { return 'claude-agent' }
     if ($m.StartsWith('jev-') -or $m.Contains('systemone')) { return 'opencode' }
     if ($m -in @('none', 'none (deterministic)', 'none_direct_verified')) { return 'none' }
     return 'unknown'
@@ -223,6 +430,9 @@ function Get-OrchestrationModelRoutingPolicy {
         $hashStr = -join ($hashBytes | ForEach-Object { $_.ToString('x2') })
 
         $rawText = [System.Text.Encoding]::UTF8.GetString($rawBytes)
+        # Strip a leading UTF-8 BOM so Windows PowerShell 5.1 (which otherwise
+        # rejects the document) parses exactly like PowerShell 7.
+        $rawText = $rawText.TrimStart([char]0xFEFF)
         $parsed = ConvertFrom-Json -InputObject $rawText -ErrorAction Stop
 
         $res = [pscustomobject]@{
@@ -437,9 +647,9 @@ function Resolve-CatalogModel {
 
     $candidates = switch ($Tier) {
         'T1' { @('opencode-go/iceman-contributor-free', 'opencode/mimo-v2.6-flash-free') }
-        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash') }
-        'T3' { @('openai/gpt-6.1-terra', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
-        'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
+        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'claude-agent/haiku', 'opencode-go/deepseek-v4.1-flash') }
+        'T3' { @('openai/gpt-6.1-terra', 'claude-agent/sonnet', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
+        'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/opus', 'claude-agent/fable', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
         default { @('none (deterministic)') }
     }
 
@@ -565,6 +775,18 @@ function Resolve-OrchestrationModelFallback {
         [string]$VerifiedFailureReceipt = '',
 
         [Parameter(Mandatory = $false)]
+        [bool]$NoExecutionStarted = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string]$WorkerHost = 'local',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$WorkerCapabilities = @(),
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ClaudeAgentProven = $false,
+
+        [Parameter(Mandatory = $false)]
         [string]$TaskId = '',
 
         [Parameter(Mandatory = $false)]
@@ -633,6 +855,10 @@ function Resolve-OrchestrationModelFallback {
     $GetDynamicCandidatesForTier = {
         param([string]$TargetTier)
         $cands = [System.Collections.Generic.List[PSCustomObject]]::new()
+        # Insertion sequence: Windows PowerShell 5.1 Sort-Object is not stable
+        # for equal Priority keys, so Seq (policy-file order) breaks ties
+        # deterministically and identically on PS 5.1 and PS 7.
+        $seq = 0
 
         if ($null -ne $policy -and $null -ne $policy.models) {
             foreach ($prop in $policy.models.PSObject.Properties) {
@@ -654,7 +880,9 @@ function Resolve-OrchestrationModelFallback {
                     RequiresCost  = [bool]($m.cost_profile.requires_authorization)
                     Exceptional   = [bool]($m.cost_profile.exceptional_budget_required)
                     Tier          = $TargetTier
+                    Seq           = $seq
                 })
+                $seq++
             }
         } else {
             # Fallback defensivo a partir do script:DefaultModelCatalog se a politica JSON nao puder ser lida
@@ -671,7 +899,9 @@ function Resolve-OrchestrationModelFallback {
                         RequiresCost  = ($TargetTier -eq 'T4')
                         Exceptional   = $false
                         Tier          = $TargetTier
+                        Seq           = $seq
                     })
+                    $seq++
                 }
                 if ($entry.AlternativeModel) {
                     $cands.Add([pscustomobject]@{
@@ -684,7 +914,9 @@ function Resolve-OrchestrationModelFallback {
                         RequiresCost  = $false
                         Exceptional   = $false
                         Tier          = $TargetTier
+                        Seq           = $seq
                     })
+                    $seq++
                 }
                 if ($entry.ExceptionalModel) {
                     $cands.Add([pscustomobject]@{
@@ -697,7 +929,9 @@ function Resolve-OrchestrationModelFallback {
                         RequiresCost  = $true
                         Exceptional   = $true
                         Tier          = $TargetTier
+                        Seq           = $seq
                     })
+                    $seq++
                 }
             }
         }
@@ -719,12 +953,14 @@ function Resolve-OrchestrationModelFallback {
                         RequiresCost  = ($TargetTier -eq 'T4')
                         Exceptional   = ($userModel -match 'astra')
                         Tier          = $TargetTier
+                        Seq           = $seq
                     })
+                    $seq++
                 }
             }
         }
 
-        return @($cands | Sort-Object Priority)
+        return @($cands | Sort-Object Priority, Seq)
     }
 
     # Avaliacao de candidatos contra regras da politica efetiva
@@ -756,6 +992,66 @@ function Resolve-OrchestrationModelFallback {
             $provProp = $policy.providers.PSObject.Properties[$CandObj.Provider]
             if ($null -ne $provProp -and $null -ne $provProp.Value -and $provProp.Value.enabled -eq $false) {
                 & $RecordExclusion $mId $tier 'PROVIDER_DISABLED'
+                return $null
+            }
+        }
+
+        # 4b. claude-agent provider gate (policy-level route; productive native
+        # dispatch stays HOLD). Every condition is NECESSARY and none alone
+        # authorizes a substitute: capability proof (local authenticated 'claude'),
+        # remote capability for remote workers, an allowlisted availability reason,
+        # proved pre-execution no-start, and exact dispatch-alias identity
+        # (model_id + alias; no concrete/inventory ID is ever compared).
+        if ($CandObj.Provider -eq 'claude-agent') {
+            $capCheck = Test-ClaudeAgentProviderAdmissible -WorkerHost $WorkerHost -WorkerCapabilities $WorkerCapabilities -ClaudeAgentProven $ClaudeAgentProven
+            if (-not $capCheck.Admissible) {
+                & $RecordExclusion $mId $tier $capCheck.Reason
+                return $null
+            }
+            if ($script:AvailabilityTriggerReasons -notcontains $TriggerReason) {
+                & $RecordExclusion $mId $tier 'CLAUDE_AVAILABILITY_REQUIRED'
+                return $null
+            }
+            if (-not [bool]$NoExecutionStarted) {
+                & $RecordExclusion $mId $tier 'CLAUDE_NO_START_PROOF_REQUIRED'
+                return $null
+            }
+            # Exact dispatch-alias identity (closed map): the policy entry linked
+            # by LogicalId must keep the exact model_id + alias pair. The
+            # catalog_inventory_id (local CLI listing) is provenance only and is
+            # never read here: no alias->concrete mapping is claimed while
+            # resolution stays runtime-unverified.
+            $polAlias = ''
+            $polModelId = ''
+            $logicalId = ([string]$CandObj.LogicalId).Trim()
+            if ($null -ne $policy -and $null -ne $policy.models -and -not [string]::IsNullOrWhiteSpace($logicalId)) {
+                $lp = $policy.models.PSObject.Properties[$logicalId]
+                if ($null -ne $lp -and $null -ne $lp.Value) {
+                    if ($null -ne $lp.Value.alias) { $polAlias = [string]$lp.Value.alias }
+                    if ($null -ne $lp.Value.model_id) { $polModelId = [string]$lp.Value.model_id }
+                }
+            }
+            $aliasCheck = Resolve-ClaudeAgentAlias -AliasModelId $mId -PolicyAlias $polAlias -PolicyModelId $polModelId
+            if (-not $aliasCheck.Matches) {
+                & $RecordExclusion $mId $tier $aliasCheck.Reason
+                return $null
+            }
+        }
+
+        # 4c. Fable gate: only as an Astra availability fallback with proved
+        # pre-execution evidence (canonical Astra FailedModel + allowlisted
+        # availability reason + NoExecutionStarted + Astra attempted + Claude
+        # capability/alias proof). A generic Task Kernel receipt
+        # (VERIFIED_TASK_FAILURE) NEVER authorizes Fable: the kernel proves
+        # T3/T4 Sol, never Astra.
+        if ($CandObj.LogicalId -eq 'claude_fable' -or $mId -eq 'claude-agent/fable') {
+            $fableAstraCanonical = 'openai/gpt-6-astra'
+            $fableAvailOk = (($FailedModel -ceq $fableAstraCanonical) -and
+                ($script:AvailabilityTriggerReasons -contains $TriggerReason) -and
+                [bool]$NoExecutionStarted -and
+                $reallyAttempted.Contains($fableAstraCanonical))
+            if (-not $fableAvailOk) {
+                & $RecordExclusion $mId $tier 'FABLE_REQUIRES_ASTRA_FAILURE'
                 return $null
             }
         }
@@ -841,11 +1137,280 @@ function Resolve-OrchestrationModelFallback {
         }
     }
 
-    # On transient model/provider failures, T3/T4 can try explicitly admitted T2
-    # fallback models, never treating a downgrade as equal capability. Security
-    # and high-risk review retain their no-downgrade invariant.
-    $transientReasons = @('RATE_LIMIT', 'PROVIDER_ERROR', 'MODEL_UNAVAILABLE', 'MODEL_ERROR', 'SERVICE_UNAVAILABLE')
+    # Fable e o unico fallback de Astra: honra astra.fallback_candidates ou fail-closed.
+    # Quando FailedModel e o Astra canonico, nenhum T4 generico (ex. Opus) pode
+    # passar na frente. Somente indisponibilidade provada pre-execucao autoriza
+    # Fable; qualquer outro caso fail-closed sem fallback generico. A kernel-owned
+    # incapacity path (T3->Sol, Sol->Astra) permanece separada e nao e substituida
+    # por este caminho de disponibilidade.
+    $astraCanonicalId = 'openai/gpt-6-astra'
+    $astraAvailReasons = $script:AvailabilityTriggerReasons
+    $isAstraFailed = ($FailedModel -ceq $astraCanonicalId)
+    if ($isAstraFailed) {
+        $astraProofOk = (($astraAvailReasons -contains $TriggerReason) -and [bool]$NoExecutionStarted -and $reallyAttempted.Contains($astraCanonicalId))
+        if (-not $astraProofOk) {
+            & $RecordExclusion 'claude-agent/fable' 'T4' 'FABLE_REQUIRES_ASTRA_FAILURE'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Astra failure without proved pre-execution availability proof authorizes no fallback (FABLE_REQUIRES_ASTRA_FAILURE).'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $astraOrder = @()
+        if ($null -ne $policy -and $null -ne $policy.models -and $null -ne $policy.models.astra -and $null -ne $policy.models.astra.fallback_candidates) {
+            $astraOrder = @($policy.models.astra.fallback_candidates)
+        }
+        if ($astraOrder.Count -eq 0) { $astraOrder = @('claude_fable', 'muse', 'deepseek_go') }
+        foreach ($logical in $astraOrder) {
+            $lid = [string]$logical
+            $entry = $null
+            $entryTier = ''
+            if ($null -ne $policy -and $null -ne $policy.models) {
+                $prop = $policy.models.PSObject.Properties[$lid]
+                if ($null -ne $prop -and $null -ne $prop.Value) {
+                    $entry = $prop.Value
+                    $tp = @($entry.tier_profiles)
+                    if ($tp.Count -gt 0) { $entryTier = [string]$tp[0] }
+                }
+            }
+            if ($null -eq $entry) { continue }
+            $candModelId = [string]$entry.model_id
+            if ([string]::IsNullOrWhiteSpace($candModelId)) { continue }
+            $candTier = $entryTier
+            if ([string]::IsNullOrWhiteSpace($candTier)) {
+                if ($candModelId -ceq 'claude-agent/fable') { $candTier = 'T4' } else { $candTier = 'T2' }
+            }
+            $candPrio = 99
+            try { if ($null -ne $entry.priority) { $candPrio = [int]$entry.priority } } catch { $candPrio = 99 }
+            $candRoles = @()
+            try { $candRoles = @($entry.eligible_roles) } catch { $candRoles = @() }
+            $candReq = $false
+            $candExc = $false
+            try { $candReq = [bool]($entry.cost_profile.requires_authorization) } catch { $candReq = $false }
+            try { $candExc = [bool]($entry.cost_profile.exceptional_budget_required) } catch { $candExc = $false }
+            $candEnabled = $true
+            try { $candEnabled = [bool]$entry.enabled } catch { $candEnabled = $true }
+            $candObj = [pscustomobject]@{
+                ModelId = $candModelId; LogicalId = [string]$entry.id; Provider = [string]$entry.provider
+                Enabled = $candEnabled; Priority = $candPrio; EligibleRoles = $candRoles
+                RequiresCost = $candReq; Exceptional = $candExc; Tier = $candTier; Seq = 0
+            }
+            $valid = & $EvaluateCandidate $candObj
+            if ($null -ne $valid) {
+                $isDown = ($candTier -ne $reqTier)
+                return (& $BuildAuthorizedResult $valid.ModelId $candTier "Astra availability fallback to '$($valid.ModelId)' per astra.fallback_candidates order after $TriggerReason (pre-execution proved)." $isDown)
+            }
+        }
+        return [pscustomobject]@{
+            Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+            AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+            OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+            TriggerReason=$TriggerReason; Reason='Astra fallback order exhausted; no generic T4 fallback permitted (FABLE_REQUIRES_ASTRA_FAILURE).'
+            AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+            AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+            ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+        }
+    }
+
+    # Planner (build) dedicated fail-closed path: Luna primary, Haiku specialized
+    # fallback (T2-only, build-eligible). Policy-level only until the productive
+    # native dispatcher calls it (native pre-dispatch fallback stays HOLD).
+    # Never send build through generic T2/T3 candidate enumeration; never silently
+    # choose Muse/DeepSeek; build is prohibited from T4.
+    if ($cleanAgent -eq 'build') {
+        $plannerLunaCanonical = 'openai/gpt-6-luna'
+        $plannerAvailReasons = $script:AvailabilityTriggerReasons
+        $plannerHaikuAlias = 'claude-agent/haiku'
+        if ($FailedModel -cne $plannerLunaCanonical) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_REQUIRES_LUNA_FAILURE'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner fallback requires exact canonical Luna failure (PLANNER_REQUIRES_LUNA_FAILURE); no generic Muse/DeepSeek fallback.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        if ($plannerAvailReasons -notcontains $TriggerReason) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_AVAILABILITY_REQUIRED'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner fallback requires an allowlisted availability reason (PLANNER_AVAILABILITY_REQUIRED); ambiguous or capability-failure claims without a model/task-bound T2 kernel proof authorize nothing.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        if (-not [bool]$NoExecutionStarted) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_NO_START_PROOF_REQUIRED'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner fallback requires proved pre-execution failure (NoExecutionStarted=true); no replay on ambiguous outcome (PLANNER_NO_START_PROOF_REQUIRED).'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $plannerNode = $null
+        if ($null -ne $policy -and $null -ne $policy.planner) { $plannerNode = $policy.planner }
+        $cfgAlias = ''
+        $cfgAliasToken = ''
+        if ($null -ne $plannerNode) {
+            if ($null -ne $plannerNode.fallback_model_id) { $cfgAlias = [string]$plannerNode.fallback_model_id }
+            if ($null -ne $plannerNode.fallback_alias) { $cfgAliasToken = [string]$plannerNode.fallback_alias }
+        }
+        if ([string]::IsNullOrWhiteSpace($cfgAlias) -or ($cfgAlias -cne $plannerHaikuAlias)) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_FALLBACK_NOT_HAIKU'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner policy fallback is not the configured Haiku alias (PLANNER_FALLBACK_NOT_HAIKU); no generic Muse/DeepSeek substitution.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $haikuEntry = $null
+        if ($null -ne $policy -and $null -ne $policy.models) {
+            $lp = $policy.models.PSObject.Properties['claude_haiku']
+            if ($null -ne $lp -and $null -ne $lp.Value) { $haikuEntry = $lp.Value }
+        }
+        if ($null -eq $haikuEntry) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_HAIKU_UNAVAILABLE'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner Haiku entry unavailable in policy (PLANNER_HAIKU_UNAVAILABLE); no generic Muse/DeepSeek fallback.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        # Exact build-fallback dispatch-alias identity, fail-closed:
+        #   planner.fallback_model_id == 'claude-agent/haiku' (checked above),
+        #   planner.fallback_alias == 'haiku',
+        #   linked claude_haiku entry model_id + alias matching the closed map,
+        #   and claude_haiku.resolution_status still 'runtime-unverified'.
+        # planner.fallback_catalog_inventory_id (local CLI listing) is provenance
+        # only and is NEVER compared: alias->concrete stays runtime-unverified and
+        # no concrete/inventory ID is ever treated as a mapping.
+        $entryAlias = ''
+        $entryModelId = ''
+        $entryResolutionStatus = ''
+        if ($null -ne $haikuEntry) {
+            if ($null -ne $haikuEntry.alias) { $entryAlias = [string]$haikuEntry.alias }
+            if ($null -ne $haikuEntry.model_id) { $entryModelId = [string]$haikuEntry.model_id }
+            if ($null -ne $haikuEntry.resolution_status) { $entryResolutionStatus = [string]$haikuEntry.resolution_status }
+        }
+        $plannerAliasReason = ''
+        if ([string]::IsNullOrWhiteSpace($cfgAliasToken) -or ($cfgAliasToken -cne 'haiku')) {
+            $plannerAliasReason = 'CLAUDE_ALIAS_MISMATCH'
+        } else {
+            $plannerAliasCheck = Resolve-ClaudeAgentAlias -AliasModelId $cfgAlias -PolicyAlias $entryAlias -PolicyModelId $entryModelId
+            if (-not $plannerAliasCheck.Matches) { $plannerAliasReason = [string]$plannerAliasCheck.Reason }
+            elseif ($entryResolutionStatus -cne 'runtime-unverified') { $plannerAliasReason = 'CLAUDE_RESOLUTION_STATUS_INVALID' }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($plannerAliasReason)) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' $plannerAliasReason
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason="Planner Haiku dispatch-alias identity check failed ($plannerAliasReason); no alias->concrete mapping is claimed (runtime-unverified) and no generic fallback."
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $plannerCap = Test-ClaudeAgentProviderAdmissible -WorkerHost $WorkerHost -WorkerCapabilities $WorkerCapabilities -ClaudeAgentProven $ClaudeAgentProven
+        if (-not $plannerCap.Admissible) {
+            & $RecordExclusion $plannerHaikuAlias 'T2' $plannerCap.Reason
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason="Planner Haiku requires local Claude capability proof ($($plannerCap.Reason)); no generic Muse/DeepSeek fallback."
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $haikuTier = 'T2'
+        try {
+            $tp = @($haikuEntry.tier_profiles)
+            if ($tp.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$tp[0])) { $haikuTier = [string]$tp[0] }
+        } catch { $haikuTier = 'T2' }
+        if ($haikuTier -cne 'T2') {
+            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_HAIKU_NOT_T2'
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner Haiku fallback must stay T2 (PLANNER_HAIKU_NOT_T2); build never routes to T3/T4.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        $haikuRoles = @()
+        try { $haikuRoles = @($haikuEntry.eligible_roles) } catch { $haikuRoles = @() }
+        $haikuPrio = 3
+        try { if ($null -ne $haikuEntry.priority) { $haikuPrio = [int]$haikuEntry.priority } } catch { $haikuPrio = 3 }
+        $haikuEnabled = $true
+        try { $haikuEnabled = [bool]$haikuEntry.enabled } catch { $haikuEnabled = $true }
+        $haikuReq = $false
+        $haikuExc = $false
+        try { $haikuReq = [bool]($haikuEntry.cost_profile.requires_authorization) } catch { $haikuReq = $false }
+        try { $haikuExc = [bool]($haikuEntry.cost_profile.exceptional_budget_required) } catch { $haikuExc = $false }
+        $haikuCand = [pscustomobject]@{
+            ModelId = [string]$haikuEntry.model_id; LogicalId = [string]$haikuEntry.id; Provider = [string]$haikuEntry.provider
+            Enabled = $haikuEnabled; Priority = $haikuPrio; EligibleRoles = $haikuRoles
+            RequiresCost = $haikuReq; Exceptional = $haikuExc; Tier = $haikuTier; Seq = 0
+        }
+        $validPlanner = & $EvaluateCandidate $haikuCand
+        if ($null -eq $validPlanner) {
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner Haiku unavailable (already attempted, disabled, ineligible, capability/no-start unproven or provider not allowed); no generic Muse/DeepSeek fallback and never T4.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+        return (& $BuildAuthorizedResult $validPlanner.ModelId $haikuTier "Planner Luna availability fallback to '$($validPlanner.ModelId)' per planner policy after $TriggerReason (pre-execution proved)." $false)
+    }
+
+    # On availability/transport faults, T3/T4 first try an explicitly admitted
+    # SAME-TIER availability substitute (Sonnet for T3, Opus for T4; claude-agent
+    # capability + proved no-start required), never treating a downgrade as equal
+    # capability. Only when no same-tier candidate remains may T2 be used as
+    # degraded transport recovery. Security and high-risk review retain their
+    # no-downgrade invariant. Availability never escalates tier: reaching T3/T4
+    # from below requires an explicit, bound incapacity proof (kernel-owned),
+    # never a transport/availability reason.
+    $transientReasons = $script:AvailabilityTriggerReasons
     if ($reqTier -in @('T3','T4') -and $transientReasons -contains $TriggerReason) {
+        $sameTierAvail = & $GetDynamicCandidatesForTier $reqTier
+        foreach ($sc in $sameTierAvail) {
+            $validSame = & $EvaluateCandidate $sc
+            if ($null -ne $validSame) {
+                return (& $BuildAuthorizedResult $validSame.ModelId $reqTier "Availability fallback within $reqTier after $TriggerReason (same tier, degraded capability)." $false)
+            }
+        }
         $downAllowed = $null -ne $admiss -and $admiss.AdmissibleTiers -contains 'T2' -and $admiss.ProhibitedTiers -notcontains 'T2'
         if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -ne 'low') { $downAllowed = $false }
         if ($cleanAgent -eq 'security-reviewer') { $downAllowed = $false }
@@ -968,6 +1533,20 @@ function Resolve-OrchestrationModelFallback {
         }
         foreach ($nextTier in $candidateUpgradeTiers) {
             $upCands = & $GetDynamicCandidatesForTier $nextTier
+            # T3 is a CAPABILITY escalation, never a fallback reaction. It requires
+            # an explicit, BOUND incapacity proof (kernel-owned: TaskId + policy
+            # hash + canonical model/provider), so a transport/availability reason
+            # or a caller-supplied string can never open it. T4/Astra keep their
+            # own kernel-owned proof gates below.
+            if ($nextTier -ceq 'T3') {
+                $kpT3Esc = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+                if (-not [bool]$kpT3Esc.ok) {
+                    foreach ($candBlocked in $upCands) {
+                        & $RecordExclusion $candBlocked.ModelId 'T3' 'T3_ESCALATION_REQUIRES_INCAPACITY_PROOF'
+                    }
+                    continue
+                }
+            }
             foreach ($candUp in $upCands) {
                 $validUp = & $EvaluateCandidate $candUp
                 if ($null -ne $validUp) {
@@ -1573,10 +2152,14 @@ function Resolve-OrchestrationModelSelection {
     }
     if ($cleanAgent -eq 'build') {
         # Planner is not the general T2 pool. Keep Luna and its dedicated token.
+        # Recorded fallback: Luna -> Haiku only (claude-agent, T2-only, build
+        # eligible, capability + proved no-start required). Never silently remap
+        # Planner to Muse or DeepSeek Go; DeepSeek Go is additionally blocked
+        # (ZDR_EXPIRED_UNCONFIRMED). Build never routes to T4.
         $catalogRes.CatalogModel = 'openai/gpt-6-luna'
         $catalogRes.ModelToken = 'MODEL_PLANNER'
         $catalogRes.Provider = 'openai'
-        $catalogRes.FallbackCandidates = @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')
+        $catalogRes.FallbackCandidates = @('claude-agent/haiku')
     }
     if (-not $catalogRes.IsAuthorized) {
         $degradedTier = if ($selectedTier -eq 'T4') { 'T3' } else { $admissibility.DefaultTier }

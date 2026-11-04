@@ -216,12 +216,24 @@ function Get-TaskRevNow {
 
 function New-ModelProofTask {
     param($T, $PolPath, [string]$Id, [int]$Budget = 3, [string]$BaseRevision = '', [string[]]$WriteScopes = @('src/widget'), [string[]]$VerProfiles = @())
-    return (New-OrchestrationTask -TaskId $Id -Objective 'Fix the widget renderer' -TaskType 'implementation' `
-        -Risk 'low' -Actor 'planner' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' `
-        -RuntimeVersion '1.18.32' -BaseRevision $BaseRevision -ReadScopes @('src/widget') -WriteScopes $WriteScopes `
-        -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('widget renders') -ExpectedArtifacts @('src/widget/render.js') `
-        -VerificationProfiles $VerProfiles `
-        -AttemptBudget $Budget -TasksDir $T.tasks -FlagsPath $T.flags -TelemetryRoot $T.root)
+    $rr = ''
+    try { if ($null -ne $T.repo) { $rr = ([string]$T.repo).Trim() } } catch { $rr = '' }
+    $bp = ''
+    try { $bp = (Get-ExecutionBudgetDefaultPolicyPath) } catch { $bp = '' }
+    $cArgs = @{
+        TaskId = $Id; Objective = 'Fix the widget renderer'; TaskType = 'implementation'
+        Risk = 'low'; Actor = 'planner'; RuntimeId = 'opencode-v1'; RuntimeGeneration = 1; RuntimeProfile = 'v1'
+        RuntimeVersion = '1.18.32'; BaseRevision = $BaseRevision; ReadScopes = @('src/widget'); WriteScopes = $WriteScopes
+        Grants = @('fs.read', 'fs.write'); AcceptanceCriteria = @('widget renders'); ExpectedArtifacts = @('src/widget/render.js')
+        VerificationProfiles = $VerProfiles
+        AttemptBudget = $Budget; TasksDir = $T.tasks; FlagsPath = $T.flags; TelemetryRoot = $T.root
+    }
+    # Bind the task to its verifier repo root (root binding contract); the
+    # budget policy stays the canonical one because the temp repo carries no
+    # execution-budget-policy.json.
+    if (-not [string]::IsNullOrWhiteSpace($rr)) { $cArgs['RepoRoot'] = $rr }
+    if (-not [string]::IsNullOrWhiteSpace($bp)) { $cArgs['BudgetPolicyPath'] = $bp }
+    return (New-OrchestrationTask @cArgs)
 }
 
 function Invoke-ProofBindFlow {
@@ -322,6 +334,9 @@ try {
 
     # 2. committed plan is immutable: verify-run executes exactly the plan
     $rt = New-RepoTaskRoot -Name 'plan'
+    # Stable handle: $rt is reused (shadowed) later in this file, so the
+    # plan fixture's dirs are captured here for the trailing assertions.
+    $rtPlan = $rt
     [void]$roots.Add($rt.root)
     $pt = New-ModelProofTask -T $rt -PolPath $polPath -Id 'proof-plan-001' -BaseRevision 'HEAD' -WriteScopes @() -VerProfiles @('failer')
     $gpt = Get-OrchestrationTask -TaskId 'proof-plan-001' -TasksDir $rt.tasks
@@ -400,7 +415,7 @@ try {
     [void]$roots.Add($ng)
     Write-ModelProofFixture -Path (Join-Path $ng 'flags.json') -Text '{"task_kernel":{"enabled":true,"shadow":false}}'
     New-Item -ItemType Directory -Path (Join-Path $ng 'tasks') -Force | Out-Null
-    $ngt = @{ root = $ng; tasks = (Join-Path $ng 'tasks'); flags = (Join-Path $ng 'flags.json') }
+    $ngt = @{ root = $ng; repo = $ng; tasks = (Join-Path $ng 'tasks'); flags = (Join-Path $ng 'flags.json') }
     $ngp = Join-Path $ng 'source\registry\verification-policy.json'
     New-Item -ItemType Directory -Path (Split-Path -Parent $ngp) -Force | Out-Null
     Write-ModelProofFixture -Path $ngp -Text (Get-Content -LiteralPath (Join-Path $rt.repo 'source\registry\verification-policy.json') -Raw -Encoding UTF8)
@@ -843,6 +858,148 @@ try {
     Assert-ModelProof (((-not [bool]$er2.ok) -and ([string]$er2.error -ceq 'INVALID_REPO_ROOT'))) 'model-proof with missing explicit RepoRoot fails closed'
     $er3 = Invoke-TaskKernelVerifyRun -TaskId 'proof-t3-001' -ExpectedRevision (Get-TaskRevNow -T $s3 -Id 'proof-t3-001') -TasksDir $s3.tasks -FlagsPath $s3.flags -RepoRoot 'Z:\no-such-dir-xyz-001'
     Assert-ModelProof (((-not [bool]$er3.ok) -and ([string]$er3.error -ceq 'INVALID_REPO_ROOT'))) 'verify-run with missing explicit RepoRoot fails closed'
+
+    # 30b. creation binds the record to the normalized verification root
+    $rtNorm = ''
+    try { $rtNorm = [IO.Path]::GetFullPath($rtPlan.repo) } catch { $rtNorm = $rtPlan.repo }
+    $rtRecNow = Get-OrchestrationTask -TaskId 'proof-plan-001' -TasksDir $rtPlan.tasks
+    Assert-ModelProof ([string]$rtRecNow['verification_repo_root'] -ceq $rtNorm) 'repo task persists normalized verification_repo_root' ([string]$rtRecNow['verification_repo_root'])
+    $rtProofBadRoot = Join-Path ([IO.Path]::GetTempPath()) ('vr-root-mismatch-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $rtProofBadRoot -Force | Out-Null
+    [void]$roots.Add($rtProofBadRoot)
+    $rtProofBad = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-plan-001' -RequiredTier 'T3' -TasksDir $rtPlan.tasks -RepoRoot $rtProofBadRoot -PolicyPath $polPath
+    Assert-ModelProof (((-not [bool]$rtProofBad.ok) -and ([string]$rtProofBad.error -ceq 'MODEL_PROOF_ROOT_MISMATCH'))) 'model-proof caller root mismatch fails closed' ([string]$rtProofBad.error)
+
+    # 31. singleton collections survive ConvertTo-TaskKernelOrdered + record round-trip (no scalar unwrap)
+    $colSingle = ConvertTo-TaskKernelOrdered -Node @('failer')
+    Assert-ModelProof ((($colSingle -is [array]) -and (@($colSingle).Count -eq 1) -and ([string]$colSingle[0] -ceq 'failer'))) 'singleton array preserved as array (no enumeration)'
+    $colEmpty = ConvertTo-TaskKernelOrdered -Node @()
+    Assert-ModelProof (((@($colEmpty).Count -eq 0))) 'empty array preserved'
+    $colMulti = ConvertTo-TaskKernelOrdered -Node @('passes', 'failer')
+    Assert-ModelProof (((@($colMulti).Count -eq 2) -and ([string]$colMulti[0] -ceq 'passes') -and ([string]$colMulti[1] -ceq 'failer'))) 'multi-element array preserved'
+    $colNested = ConvertTo-TaskKernelOrdered -Node ([ordered]@{ a = @('only'); b = @(); c = @('x', 'y') })
+    Assert-ModelProof ((($colNested['a'] -is [array]) -and (@($colNested['a']).Count -eq 1) -and ([string]$colNested['a'][0] -ceq 'only') -and (@($colNested['b']).Count -eq 0) -and (@($colNested['c']).Count -eq 2))) 'nested zero/single/multiple arrays preserved through the ordered walk'
+    $colJson = (ConvertTo-Json -InputObject $colNested -Compress -Depth 6)
+    Assert-ModelProof (([string]$colJson -cmatch '"a":\s*\[\s*"only"\s*\]') -and ([string]$colJson -cmatch '"b":\s*\[\s*\]') -and ([string]$colJson -cmatch '"c":\s*\[\s*"x"\s*,\s*"y"\s*\]')) 'arrays serialize as JSON arrays (no {value,Count} wrapper)' ([string]$colJson)
+    $null = New-ModelProofTask -T $rtPlan -PolPath $polPath -Id 'proof-coll-001' -BaseRevision 'HEAD' -WriteScopes @() -VerProfiles @('failer')
+    $gcol = Get-OrchestrationTask -TaskId 'proof-coll-001' -TasksDir $rtPlan.tasks
+    Assert-ModelProof ((($gcol['verification_profiles'] -is [array]) -and ((@($gcol['verification_profiles'])).Count -eq 1) -and ([string]$gcol['verification_profiles'][0] -ceq 'failer'))) 'persisted singleton verification_profiles round-trips as array'
+    $gcolRec = Read-TaskKernelRecord -TaskFile (Join-Path $rtPlan.tasks 'proof-coll-001.json')
+    Assert-ModelProof ((([bool]$gcolRec.found) -and (-not [bool]$gcolRec.malformed) -and ((@($gcolRec.record['verification_profiles'])).Count -eq 1) -and ([string](@($gcolRec.record['verification_profiles'])[0]) -ceq 'failer'))) 'single-element plan re-reads from disk as a one-element array'
+
+    # 32. claude-agent subscription zero cost persists UNKNOWN (usage retained)
+    $cz = New-ModelProofTestRoot
+    [void]$roots.Add($cz.root)
+    $null = New-ModelProofTask -T $cz -PolPath $polPath -Id 'proof-claudecost-001'
+    $bcz = Invoke-ProofBindFlow -T $cz -Id 'proof-claudecost-001' -Run 'run-cz' -Root 'ses_root_cz' -Child 'ses_child_cz' -Rev 1
+    $null = Invoke-ProofFailResult -T $cz -Id 'proof-claudecost-001' -Rev ([int]$bcz.revision) -SessionRef 'ses_child_cz' -MessageRefs @('msg_cz_1')
+    $czSeam = ({
+        param([string]$ChildSid)
+        $sn = [ordered]@{
+            id = 'ses_child_cz'; parentID = 'ses_root_cz'; agent = 'coder'
+            model = [ordered]@{ providerID = 'claude-agent'; id = 'haiku' }
+            outcome = 'succeeded'; cost = 0
+            tokens = [ordered]@{ input = 1200; output = 300; reasoning = 40; cache = [ordered]@{ read = 5000; write = 45000 } }
+        }
+        $mm = [ordered]@{
+            id = 'msg_cz_1'; type = 'assistant'; agent = 'coder'
+            model = [ordered]@{ providerID = 'claude-agent'; id = 'haiku' }
+            time = [ordered]@{ created = '1000'; completed = '2000' }
+            finish = 'stop'; cost = 0
+            tokens = [ordered]@{ input = 1200; output = 300; reasoning = 40; cache = [ordered]@{ read = 5000; write = 45000 } }
+        }
+        return @{ session = $sn; messages = @($mm) }
+    }).GetNewClosure()
+    Set-TaskKernelSessionReader -Reader $czSeam
+    $rcz = Set-OrchestrationTaskModelAttempt -TaskId 'proof-claudecost-001' -ChildSessionId 'ses_child_cz' -ExpectedRevision (Get-TaskRevNow -T $cz -Id 'proof-claudecost-001') -TasksDir $cz.tasks -FlagsPath $cz.flags -PolicyPath $polPath
+    Assert-ModelProof ([bool]$rcz.ok) 'claude-agent zero-cost attempt recorded' ([string]$rcz.error)
+    $gcz = Get-OrchestrationTask -TaskId 'proof-claudecost-001' -TasksDir $cz.tasks
+    $czn = @($gcz['model_attempts'])[0]
+    Assert-ModelProof ((([string]$czn['provider'] -ceq 'claude-agent') -and ([string]$czn['model'] -ceq 'claude-agent/haiku'))) 'claude-agent provider/model retained' (([string]$czn['provider']) + '|' + ([string]$czn['model']))
+    Assert-ModelProof ((([int]$czn['usage_input'] -eq 1200) -and ([int]$czn['usage_output'] -eq 300) -and ([int]$czn['usage_reasoning'] -eq 40))) 'claude-agent usage tokens retained'
+    Assert-ModelProof ((([int]$czn['usage_cache_read'] -eq 5000) -and ([int]$czn['usage_cache_write'] -eq 45000))) 'claude-agent cache counters retained' (([string]$czn['usage_cache_read']) + '|' + ([string]$czn['usage_cache_write']))
+    Assert-ModelProof (([string]$czn['cost'] -ceq 'UNKNOWN')) 'claude-agent zero cost persists UNKNOWN, not zero' ([string]$czn['cost'])
+    Clear-TaskKernelSessionReader
+
+    # 33. non-Claude positive cost stays numeric
+    $cp = New-ModelProofTestRoot
+    [void]$roots.Add($cp.root)
+    $null = New-ModelProofTask -T $cp -PolPath $polPath -Id 'proof-opencost-001'
+    $bcp = Invoke-ProofBindFlow -T $cp -Id 'proof-opencost-001' -Run 'run-cp' -Root 'ses_root_cp' -Child 'ses_child_cp' -Rev 1
+    $null = Invoke-ProofFailResult -T $cp -Id 'proof-opencost-001' -Rev ([int]$bcp.revision) -SessionRef 'ses_child_cp' -MessageRefs @('msg_cp_1')
+    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_cp' -Parent 'ses_root_cp' -Message 'msg_cp_1')
+    $rcp2 = Set-OrchestrationTaskModelAttempt -TaskId 'proof-opencost-001' -ChildSessionId 'ses_child_cp' -ExpectedRevision (Get-TaskRevNow -T $cp -Id 'proof-opencost-001') -TasksDir $cp.tasks -FlagsPath $cp.flags -PolicyPath $polPath
+    Assert-ModelProof ([bool]$rcp2.ok) 'non-Claude positive-cost attempt recorded' ([string]$rcp2.error)
+    $gcp2 = Get-OrchestrationTask -TaskId 'proof-opencost-001' -TasksDir $cp.tasks
+    $cpn = @($gcp2['model_attempts'])[0]
+    $cpNum = 0.0
+    try { $cpNum = [double]([string]$cpn['cost']) } catch { $cpNum = 0.0 }
+    Assert-ModelProof ((([string]$cpn['cost'] -cne 'UNKNOWN') -and ($cpNum -gt 0.0))) 'non-Claude positive cost stays numeric' ([string]$cpn['cost'])
+    Assert-ModelProof ((([string]$cpn['usage_cache_read'] -ceq 'UNKNOWN') -and ([string]$cpn['usage_cache_write'] -ceq 'UNKNOWN'))) 'absent cache counters stay UNKNOWN, not zero' (([string]$cpn['usage_cache_read']) + '|' + ([string]$cpn['usage_cache_write']))
+    Clear-TaskKernelSessionReader
+
+    # 34. absent/malformed token counts persist UNKNOWN; explicit zero stays 0
+    $ua = New-ModelProofTestRoot
+    [void]$roots.Add($ua.root)
+    $null = New-ModelProofTask -T $ua -PolPath $polPath -Id 'proof-unknownuse-001'
+    $bua = Invoke-ProofBindFlow -T $ua -Id 'proof-unknownuse-001' -Run 'run-ua' -Root 'ses_root_ua' -Child 'ses_child_ua' -Rev 1
+    $null = Invoke-ProofFailResult -T $ua -Id 'proof-unknownuse-001' -Rev ([int]$bua.revision) -SessionRef 'ses_child_ua' -MessageRefs @('msg_ua_1')
+    $uaSeam = ({
+        param([string]$ChildSid)
+        $sn = [ordered]@{
+            id = 'ses_child_ua'; parentID = 'ses_root_ua'; agent = 'coder'
+            model = [ordered]@{ providerID = 'openai'; id = 'gpt-6.1-terra' }
+            outcome = 'succeeded'
+        }
+        $mm = [ordered]@{
+            id = 'msg_ua_1'; type = 'assistant'; agent = 'coder'
+            model = [ordered]@{ providerID = 'openai'; id = 'gpt-6.1-terra' }
+            time = [ordered]@{ created = '1000'; completed = '2000' }
+            finish = 'stop'
+            tokens = [ordered]@{ input = 'abc'; output = ''; reasoning = 'NaN' }
+        }
+        return @{ session = $sn; messages = @($mm) }
+    }).GetNewClosure()
+    Set-TaskKernelSessionReader -Reader $uaSeam
+    $rua = Set-OrchestrationTaskModelAttempt -TaskId 'proof-unknownuse-001' -ChildSessionId 'ses_child_ua' -ExpectedRevision (Get-TaskRevNow -T $ua -Id 'proof-unknownuse-001') -TasksDir $ua.tasks -FlagsPath $ua.flags -PolicyPath $polPath
+    Assert-ModelProof ([bool]$rua.ok) 'absent/malformed usage attempt recorded' ([string]$rua.error)
+    $gua = Get-OrchestrationTask -TaskId 'proof-unknownuse-001' -TasksDir $ua.tasks
+    $uan = @($gua['model_attempts'])[0]
+    Assert-ModelProof ((([string]$uan['usage_input'] -ceq 'UNKNOWN') -and ([string]$uan['usage_output'] -ceq 'UNKNOWN') -and ([string]$uan['usage_reasoning'] -ceq 'UNKNOWN'))) 'absent/malformed token counts stay UNKNOWN, not zero' (([string]$uan['usage_input']) + '|' + ([string]$uan['usage_output']) + '|' + ([string]$uan['usage_reasoning']))
+    Assert-ModelProof ((([string]$uan['usage_cache_read'] -ceq 'UNKNOWN') -and ([string]$uan['usage_cache_write'] -ceq 'UNKNOWN'))) 'absent cache counters stay UNKNOWN, not zero (malformed tokens)' (([string]$uan['usage_cache_read']) + '|' + ([string]$uan['usage_cache_write']))
+    Clear-TaskKernelSessionReader
+
+    # 34b. explicit zero token counts persist numeric 0
+    $uz = New-ModelProofTestRoot
+    [void]$roots.Add($uz.root)
+    $null = New-ModelProofTask -T $uz -PolPath $polPath -Id 'proof-zerouse-001'
+    $buz = Invoke-ProofBindFlow -T $uz -Id 'proof-zerouse-001' -Run 'run-uz' -Root 'ses_root_uz' -Child 'ses_child_uz' -Rev 1
+    $null = Invoke-ProofFailResult -T $uz -Id 'proof-zerouse-001' -Rev ([int]$buz.revision) -SessionRef 'ses_child_uz' -MessageRefs @('msg_uz_1')
+    $uzSeam = ({
+        param([string]$ChildSid)
+        $sn = [ordered]@{
+            id = 'ses_child_uz'; parentID = 'ses_root_uz'; agent = 'coder'
+            model = [ordered]@{ providerID = 'openai'; id = 'gpt-6.1-terra' }
+            outcome = 'succeeded'; cost = 0.001
+            tokens = [ordered]@{ input = 0; output = 0; reasoning = 0 }
+        }
+        $mm = [ordered]@{
+            id = 'msg_uz_1'; type = 'assistant'; agent = 'coder'
+            model = [ordered]@{ providerID = 'openai'; id = 'gpt-6.1-terra' }
+            time = [ordered]@{ created = '1000'; completed = '2000' }
+            finish = 'stop'; cost = 0.001
+            tokens = [ordered]@{ input = 0; output = 0; reasoning = 0 }
+        }
+        return @{ session = $sn; messages = @($mm) }
+    }).GetNewClosure()
+    Set-TaskKernelSessionReader -Reader $uzSeam
+    $ruz = Set-OrchestrationTaskModelAttempt -TaskId 'proof-zerouse-001' -ChildSessionId 'ses_child_uz' -ExpectedRevision (Get-TaskRevNow -T $uz -Id 'proof-zerouse-001') -TasksDir $uz.tasks -FlagsPath $uz.flags -PolicyPath $polPath
+    Assert-ModelProof ([bool]$ruz.ok) 'explicit-zero usage attempt recorded' ([string]$ruz.error)
+    $guz = Get-OrchestrationTask -TaskId 'proof-zerouse-001' -TasksDir $uz.tasks
+    $uzn = @($guz['model_attempts'])[0]
+    Assert-ModelProof ((([string]$uzn['usage_input'] -ceq '0') -and ([string]$uzn['usage_output'] -ceq '0') -and ([string]$uzn['usage_reasoning'] -ceq '0'))) 'explicit zero token counts stay numeric 0' (([string]$uzn['usage_input']) + '|' + ([string]$uzn['usage_output']) + '|' + ([string]$uzn['usage_reasoning']))
+    Assert-ModelProof ((([string]$uzn['usage_cache_read'] -ceq 'UNKNOWN') -and ([string]$uzn['usage_cache_write'] -ceq 'UNKNOWN'))) 'absent cache counters stay UNKNOWN, not zero (explicit zero tokens)' (([string]$uzn['usage_cache_read']) + '|' + ([string]$uzn['usage_cache_write']))
+    Clear-TaskKernelSessionReader
 }
 catch {
     Write-Host ("[FAIL] unexpected error: {0}" -f $_)

@@ -54,7 +54,13 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `engineering-advisor`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Fallback do cheap pool — em indisponibilidade/erro do modelo default, escalar em ordem: 1º `opencode-go/muse-spark-1.3-contributor`, 2º `openai/gpt-6-luna`; override temporário no spawn com reset ao baseline, sujeito às cotas de escalonamento já definidas.
+- Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier — **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo): em falha de disponibilidade/erro do modelo default, a política admite:
+  - **T2 geral:** `opencode-go/muse-spark-1.3-contributor` → `openai/gpt-6-luna` → `claude-agent/haiku`; qualquer salto para `claude-agent/*` exige razão de disponibilidade em allowlist + `NoExecutionStarted=true` provado + capacidade Claude local comprovada (executável `claude` autenticado).
+  - **Planner `build` (pinado em `openai/gpt-6-luna`, T2):** somente `openai/gpt-6-luna` → `claude-agent/haiku`, e somente com falha canônica exata de Luna + razão de disponibilidade em allowlist + `NoExecutionStarted=true` provado + capacidade Claude local; **nunca** a cadeia genérica Muse/DeepSeek, nunca Sonnet, nunca T3/T4.
+  - **T3:** `openai/gpt-6.1-terra` → `claude-agent/sonnet`. **T4:** `openai/gpt-6.1-sol` → `claude-agent/opus`.
+  - **Astra:** somente com prova kernel-owned da mesma tarefa de incapacidade T3/Sol (bloco "Prova kernel-owned" abaixo). **Fable:** somente após disponibilidade canônica de Astra em allowlist + `NoExecutionStarted=true` explicitamente provado + capacidade/alias/papel Claude provados; recibo genérico nunca libera Fable.
+  - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`; `opencode-go/deepseek-v4.1-flash` está bloqueado (`ZDR_EXPIRED_UNCONFIRMED`) e fora de qualquer cadeia.
+- Implementação nativa atual (HOLD): as condições acima são de elegibilidade da política, não um mecanismo em execução. `ModelExecution` documenta o fallback nativo pré-dispatch como HOLD — sem proveniência confiável de no-start (`NoExecutionStarted` do seam `DispatchExecutor` é booleano fornecido pelo caller e nunca prova que nada começou; o seam é test-only e faz exatamente uma chamada, sem retry) e `task-kernel model-select` é CLI somente-leitura sem caller de produção identificado. Hoje não há retry, fallback ou override automático no caminho da ferramenta `subagent` do Planner; escaladas deliberadas seguem as cotas e o reset ao baseline do item "Escalonamentos para Astra" abaixo.
 - Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala

@@ -49,7 +49,20 @@
         requires the parsed Invoke-OrchestrationVerifier result
         (-VerifierEvidenceJson); Passed derives from its status field and
         only 'verified_pass' counts as passed. Mismatch with a caller
-        -Passed value fails closed (VERIFIER_RESULT_MISMATCH).
+        -Passed value fails closed (VERIFIER_RESULT_MISMATCH). Caller input
+        is NEVER trusted for escalation: that path always persists
+        verification_source='caller-supplied' and verifier_executed=false
+        (plus source='caller-supplied'); only the kernel-executed
+        verify-run path may persist kernel-executed marks.
+        Test-OrchestrationTaskCompletion (and therefore
+        Complete-OrchestrationTask) additionally requires coherent
+        kernel-executed verification: verification_source AND source are
+        exactly 'kernel-executed', verifier_executed is true, status is
+        exactly 'verified_pass' with passed true, and the persisted
+        criterion evidence maps every acceptance criterion with status
+        'verified' agreeing with the persisted criterion_map. Anything
+        else fails closed with 'verification-untrusted' (caller-supplied
+        verified_pass included: readable data, never DONE-capable).
       - Test-OrchestrationTaskCompletion keeps the -OrchestrationCompliance
         param (preflight runs in-process upstream and cannot be re-run by
         the kernel without its inputs); a provided verdict must equal
@@ -71,6 +84,19 @@
         is task-scoped (stricter than work-unit scope) because P27 dedupe and
         idempotency are task-scoped; multiple work units per task are future
         work. Cross-process binding coordination remains HOLD.
+      - Verification/model root binding: New-OrchestrationTask persists a
+        normalized verification_repo_root (GetFullPath of the canonical
+        RepoRoot/default at creation). Invoke-TaskKernelVerifyRun,
+        Set-OrchestrationTaskModelAttempt and
+        Get-OrchestrationTaskModelFailureProof require that stored root;
+        a record without it (every task created before this field) fails
+        closed with *_ROOT_UNBOUND and no mutation. A nonempty caller
+        -RepoRoot is only an assertion: it must resolve to the stored root
+        or the call fails closed with *_ROOT_MISMATCH and no mutation; an
+        omitted/empty -RepoRoot uses the stored root for verification
+        policy/profile/model policy execution. TasksDir/FlagsPath stay
+        independent (explicit TasksDir still locates the file; flags still
+        resolve from the caller). No implicit migration or rebind.
 
     PowerShell 5.1 compatible. ASCII-only. Expected domain errors are
     returned as result objects ({ok:$false, error:'CODE'}), never thrown.
@@ -300,7 +326,12 @@ function ConvertTo-TaskKernelOrdered {
     if ($Node -is [System.Collections.IEnumerable]) {
         $a = @()
         foreach ($e in $Node) { $a += (ConvertTo-TaskKernelOrdered -Node $e) }
-        return $a
+        # Comma wrap: a zero/single/multiple element array must reach the
+        # caller as an ARRAY (a plain `return $a` unwraps singletons to a
+        # scalar and empties to $null through the pipeline). `Write-Output
+        # -NoEnumerate` is NOT used here: in PS 5.1 the value it returns is
+        # serialized by ConvertTo-Json as {"value":[...],"Count":n}.
+        return ,$a
     }
     $o = [ordered]@{}
     foreach ($p in @($Node.PSObject.Properties)) {
@@ -1205,9 +1236,12 @@ function New-OrchestrationTask {
             $grantItemsSafe = Protect-TaskKernelStringList -Items ([string[]]$grantList.items)
             $envItemsSafe = Protect-TaskKernelStringList -Items ([string[]]$envAllowed.items)
             $stamp = Get-TaskKernelTimestamp
+            $verifyRepoRoot = ''
+            try { $verifyRepoRoot = Get-TaskKernelFullPath -Path (Get-TaskKernelRepoRoot -RepoRoot $RepoRoot) } catch { $verifyRepoRoot = '' }
         $record = [ordered]@{
             schema_version            = 1
             task_id                   = $tid
+            verification_repo_root    = $verifyRepoRoot
             parent_task_id            = $parentSafe
             trace_id                  = $traceSafe
             objective                 = $objective
@@ -2425,18 +2459,24 @@ function Invoke-TaskKernelVerifyRun {
         creation from the canonical task record (read snapshot), validates
         every planned profile against the canonical verification-policy
         allowlist, executes Invoke-OrchestrationVerifier in-process with
-        the task's real scopes/base/criteria IN THE TASK'S OWN REPO ROOT
-        (effective RepoRoot; no task lock is held while external verifier
-        profiles run), then stores the produced result under lock+CAS with
-        verification_source='kernel-executed' and verifier_executed=true
-        -- and ONLY when the run actually executed (ok plus
-        verified_pass/verification_failed plus full criterion mapping).
-        Tasks without a committed plan fail closed
+        the task's real scopes/base/criteria IN THE TASK'S OWN BOUND ROOT
+        (verification_repo_root persisted at creation; a nonempty caller
+        -RepoRoot is only an assertion that must match it, an empty one
+        uses the stored root; no migration or rebind for legacy tasks
+        missing the field, which fail closed with
+        VERIFY_RUN_ROOT_UNBOUND), no task lock is held while external
+        verifier profiles run, then stores the produced result under
+        lock+CAS with verification_source='kernel-executed' and
+        verifier_executed=true -- and ONLY when the run actually executed
+        (ok plus verified_pass/verification_failed plus full criterion
+        mapping). Tasks without a committed plan fail closed
         (VERIFIER_PLAN_MISSING); unknown profiles, policies outside the
         task root, manual/error/timeout outcomes, invalid repo/policy,
         missing criterion mapping and CAS drift fail closed with NO write.
         There is no flag or parameter that selects profiles, repo or
-        source: plan and root are task-bound. Never throws.
+        source: plan and root are task-bound. TasksDir/FlagsPath stay
+        independent (explicit TasksDir still locates the file; flags
+        resolve from the caller). Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -2471,6 +2511,11 @@ function Invoke-TaskKernelVerifyRun {
         if (-not [bool]$snap.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
         if ([bool]$snap.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
         $snapRec = $snap.record
+        $boundVerify = Get-TaskKernelBoundVerificationRoot -Record $snapRec -CallerRepoRoot $RepoRoot -UnboundCode 'VERIFY_RUN_ROOT_UNBOUND' -MismatchCode 'VERIFY_RUN_ROOT_MISMATCH'
+        if (-not [bool]$boundVerify.ok) {
+            return (New-TaskKernelError -Code ([string]$boundVerify.error))
+        }
+        $vrepo = ([string]$boundVerify.root)
         $rev0 = [int]$snapRec['revision']
         if ([int]$ExpectedRevision -ne $rev0) {
             return (New-TaskKernelError -Code 'CAS_CONFLICT')
@@ -2494,7 +2539,6 @@ function Invoke-TaskKernelVerifyRun {
         if ((@($names)).Count -eq 0) {
             return (New-TaskKernelError -Code 'VERIFIER_PLAN_MISSING')
         }
-        $vrepo = $effRoot
         $baseRev = ''
         try { if ($null -ne $snapRec['base_revision']) { $baseRev = ([string]$snapRec['base_revision']).Trim() } } catch { $baseRev = '' }
         if ([string]::IsNullOrWhiteSpace($baseRev)) {
@@ -2509,15 +2553,15 @@ function Invoke-TaskKernelVerifyRun {
         }
         $polPath = ([string]$VerificationPolicyPath).Trim()
         if ([string]::IsNullOrWhiteSpace($polPath)) {
-            $polPath = (Join-Path $effRoot 'source\registry\verification-policy.json')
+            $polPath = (Join-Path $vrepo 'source\registry\verification-policy.json')
         }
         $polFull = ''
         try { $polFull = [IO.Path]::GetFullPath($polPath) } catch { $polFull = '' }
         if ([string]::IsNullOrWhiteSpace($polFull) -or (-not (Test-Path -LiteralPath $polFull -PathType Leaf))) {
             return (New-TaskKernelError -Code 'VERIFICATION_POLICY_NOT_FOUND')
         }
-        $rootSep = ([string]$effRoot).TrimEnd('\', '/')
-        if (($polFull -cne $effRoot) -and (-not $polFull.StartsWith(($rootSep + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase))) {
+        $rootSep = ([string]$vrepo).TrimEnd('\', '/')
+        if (($polFull -cne $vrepo) -and (-not $polFull.StartsWith(($rootSep + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase))) {
             return (New-TaskKernelError -Code 'VERIFICATION_POLICY_OUT_OF_ROOT')
         }
         $polPath = $polFull
@@ -3847,6 +3891,70 @@ function Test-OrchestrationTaskCompletion {
                 }
                 if (-not $hit) { $reasons.Add(('criterion-evidence-missing:' + [string]$i)) | Out-Null }
             }
+        }
+        $verTrustStatus = ''
+        $verTrustSource = ''
+        $verTrustSource2 = ''
+        $verTrustExecuted = $false
+        try {
+            $verTrustNode = $rec['verification']
+            if (($null -ne $verTrustNode) -and ($verTrustNode -is [System.Collections.IDictionary])) {
+                if ($null -ne $verTrustNode['status']) { $verTrustStatus = ([string]$verTrustNode['status']).Trim() }
+                if ($null -ne $verTrustNode['verification_source']) { $verTrustSource = ([string]$verTrustNode['verification_source']).Trim() }
+                if ($null -ne $verTrustNode['source']) { $verTrustSource2 = ([string]$verTrustNode['source']).Trim() }
+                if ($null -ne $verTrustNode['verifier_executed']) { $verTrustExecuted = [bool]$verTrustNode['verifier_executed'] }
+            }
+        }
+        catch { }
+        $verTrusted = $false
+        if ($verPassed -and ($verTrustStatus -ceq 'verified_pass') -and ([bool]$verTrustExecuted) -and ($verTrustSource -ceq 'kernel-executed') -and ($verTrustSource2 -ceq 'kernel-executed')) {
+            $covTrust = Test-TaskKernelCriterionCoverage -Evidence $verEvidence -CriterionCount (@($criteria).Count)
+            if ([bool]$covTrust.ok) {
+                $allTrustVerified = $true
+                foreach ($ckTrust in @($covTrust.statuses.Keys)) {
+                    if ([string]$covTrust.statuses[$ckTrust] -cne 'verified') { $allTrustVerified = $false; break }
+                }
+                if ([bool]$allTrustVerified) {
+                    $mapTrustNode = $null
+                    try {
+                        $verTrustRaw = $rec['verification']
+                        if (($null -ne $verTrustRaw) -and ($verTrustRaw -is [System.Collections.IDictionary]) -and $verTrustRaw.Contains('criterion_map')) {
+                            $mapTrustNode = $verTrustRaw['criterion_map']
+                        }
+                    }
+                    catch { $mapTrustNode = $null }
+                    if (($null -ne $mapTrustNode) -and ($mapTrustNode -is [System.Collections.IDictionary])) {
+                        $mapTrustKeys = @($mapTrustNode.Keys)
+                        $covTrustKeys = @($covTrust.statuses.Keys)
+                        if ((@($mapTrustKeys).Count -eq @($covTrustKeys).Count) -and (@($mapTrustKeys).Count -gt 0)) {
+                            $mapTrustOk = $true
+                            foreach ($ckTrust2 in @($covTrustKeys)) {
+                                $foundTrust = $false
+                                $wordTrust = ''
+                                foreach ($mkTrust in $mapTrustKeys) {
+                                    if ([string]$mkTrust -ceq [string]$ckTrust2) {
+                                        $foundTrust = $true
+                                        try {
+                                            $mvTrust = $mapTrustNode[$mkTrust]
+                                            if ($mvTrust -is [System.Collections.IDictionary]) {
+                                                if ($null -ne $mvTrust['status']) { $wordTrust = ([string]$mvTrust['status']).Trim().ToLowerInvariant() }
+                                            }
+                                            else { $wordTrust = ([string]$mvTrust).Trim().ToLowerInvariant() }
+                                        }
+                                        catch { $wordTrust = '' }
+                                        break
+                                    }
+                                }
+                                if ((-not $foundTrust) -or ($wordTrust -cne 'verified')) { $mapTrustOk = $false; break }
+                            }
+                            if ([bool]$mapTrustOk) { $verTrusted = $true }
+                        }
+                    }
+                }
+            }
+        }
+        if (-not $verTrusted) {
+            $reasons.Add('verification-untrusted') | Out-Null
         }
         $revStatus = ''
         $revCandRev = -1
@@ -5589,9 +5697,11 @@ function ConvertTo-TaskKernelSessionObservation {
         $sagent = ([string](Get-TaskKernelNodeField -Object $sel -Name 'agent')).Trim()
         if ([string]::IsNullOrWhiteSpace($smsgId)) { return @{ ok = $false; error = 'SESSION_EVIDENCE_MALFORMED' } }
         if ([string]::IsNullOrWhiteSpace($sagent)) { return @{ ok = $false; error = 'SESSION_AGENT_MISSING' } }
-        $ui = 0
-        $uo = 0
-        $ur = 0
+        $ui = 'UNKNOWN'
+        $uo = 'UNKNOWN'
+        $ur = 'UNKNOWN'
+        $ucr = 'UNKNOWN'
+        $ucw = 'UNKNOWN'
         $costRaw = $null
         try {
             $stok = Get-TaskKernelNodeField -Object $sel -Name 'tokens'
@@ -5605,6 +5715,21 @@ function ConvertTo-TaskKernelSessionObservation {
                 $n = 0
                 $tr = Get-TaskKernelNodeField -Object $stok -Name 'reasoning'
                 if (($null -ne $tr) -and ([int]::TryParse(([string]$tr).Trim(), [ref]$n)) -and ($n -ge 0)) { $ur = $n }
+                # Cache counters live under tokens.cache (read/write); absent
+                # stays UNKNOWN, never zero-filled. No message text stored.
+                $tcr = $null
+                $tcw = $null
+                $tc = Get-TaskKernelNodeField -Object $stok -Name 'cache'
+                if ($null -ne $tc) {
+                    $tcr = Get-TaskKernelNodeField -Object $tc -Name 'read'
+                    $tcw = Get-TaskKernelNodeField -Object $tc -Name 'write'
+                }
+                if ($null -eq $tcr) { $tcr = Get-TaskKernelNodeField -Object $stok -Name 'cache.read' }
+                if ($null -eq $tcw) { $tcw = Get-TaskKernelNodeField -Object $stok -Name 'cache.write' }
+                $n = 0
+                if (($null -ne $tcr) -and ([int]::TryParse(([string]$tcr).Trim(), [ref]$n)) -and ($n -ge 0)) { $ucr = $n }
+                $n = 0
+                if (($null -ne $tcw) -and ([int]::TryParse(([string]$tcw).Trim(), [ref]$n)) -and ($n -ge 0)) { $ucw = $n }
             }
             $sc = Get-TaskKernelNodeField -Object $sel -Name 'cost'
             if ($null -ne $sc) { $costRaw = $sc }
@@ -5625,6 +5750,8 @@ function ConvertTo-TaskKernelSessionObservation {
         $obs['usage_input'] = $ui
         $obs['usage_output'] = $uo
         $obs['usage_reasoning'] = $ur
+        $obs['usage_cache_read'] = $ucr
+        $obs['usage_cache_write'] = $ucw
         $obs['cost'] = 'UNKNOWN'
         try {
             if ($null -ne $costRaw) {
@@ -5632,7 +5759,16 @@ function ConvertTo-TaskKernelSessionObservation {
                 if ((-not [string]::IsNullOrWhiteSpace($cs)) -and ($cs -cne 'UNKNOWN')) {
                     $dd = 0.0
                     if ([double]::TryParse($cs, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$dd) -and ($dd -ge 0.0)) {
-                        $obs['cost'] = $dd
+                        # Subscription host (claude-agent) reports zero cost for
+                        # billed-through-subscription calls; a displayed zero
+                        # is not unlimited, so keep UNKNOWN. Other providers
+                        # keep their observed zero.
+                        if (($sprov -ceq 'claude-agent') -and ($dd -eq 0.0)) {
+                            $obs['cost'] = 'UNKNOWN'
+                        }
+                        else {
+                            $obs['cost'] = $dd
+                        }
                     }
                 }
             }
@@ -5869,6 +6005,53 @@ function Resolve-TaskKernelExplicitRepoRoot {
     catch { return @{ ok = $false; error = 'INVALID_REPO_ROOT'; root = '' } }
 }
 
+function Get-TaskKernelBoundVerificationRoot {
+    <#
+    .SYNOPSIS
+        Resolves the task-bound verification/model root. Reads the
+        persisted verification_repo_root; a missing/blank stored root
+        (every task created before the field existed) fails closed with
+        -UnboundCode. A nonempty caller -RepoRoot is only an assertion:
+        it must normalize to the stored root or the call fails closed
+        with -MismatchCode. An omitted/empty caller root uses the stored
+        root. No migration, no rebind. Returns @{ok, root, error}. Never
+        throws. Comparison is ordinal-ignore-case on full paths with
+        trailing separators trimmed.
+    #>
+    [CmdletBinding()]
+    param($Record, [string]$CallerRepoRoot = '', [string]$UnboundCode = 'VERIFY_RUN_ROOT_UNBOUND', [string]$MismatchCode = 'VERIFY_RUN_ROOT_MISMATCH')
+    try {
+        $stored = ''
+        try {
+            if (($null -ne $Record) -and ($Record -is [System.Collections.IDictionary]) -and ($null -ne $Record['verification_repo_root'])) {
+                $stored = ([string]$Record['verification_repo_root']).Trim()
+            }
+        }
+        catch { $stored = '' }
+        if ([string]::IsNullOrWhiteSpace($stored)) {
+            return @{ ok = $false; error = ([string]$UnboundCode); root = '' }
+        }
+        $storedFull = ''
+        try { $storedFull = [IO.Path]::GetFullPath($stored) } catch { $storedFull = $stored }
+        $caller = ([string]$CallerRepoRoot).Trim()
+        if ([string]::IsNullOrWhiteSpace($caller)) {
+            return @{ ok = $true; error = ''; root = $storedFull }
+        }
+        $callerFull = ''
+        try { $callerFull = [IO.Path]::GetFullPath($caller) } catch { $callerFull = '' }
+        if ([string]::IsNullOrWhiteSpace($callerFull)) {
+            return @{ ok = $false; error = ([string]$MismatchCode); root = '' }
+        }
+        $normStored = ([string]$storedFull).TrimEnd('\', '/')
+        $normCaller = ([string]$callerFull).TrimEnd('\', '/')
+        if ($normCaller -cne $normStored -and ([string]::Compare($normCaller, $normStored, $true) -ne 0)) {
+            return @{ ok = $false; error = ([string]$MismatchCode); root = '' }
+        }
+        return @{ ok = $true; error = ''; root = $storedFull }
+    }
+    catch { return @{ ok = $false; error = ([string]$UnboundCode); root = '' } }
+}
+
 function Get-TaskKernelClaimedRefs {
     <#
     .SYNOPSIS
@@ -5983,6 +6166,13 @@ function Set-OrchestrationTaskModelAttempt {
           attempt_budget x provider_retry_limit; duplicates and overflow
           are rejected, never silently dropped. No dispatch, no retry,
           no message text, no secrets.
+        - Root binding: the persisted verification_repo_root is required;
+          a missing stored root fails closed with
+          MODEL_ATTEMPT_ROOT_UNBOUND. A nonempty caller -RepoRoot is only
+          an assertion and must match the stored root
+          (MODEL_ATTEMPT_ROOT_MISMATCH); an omitted/empty caller root
+          uses the stored root for model-policy resolution. No migration
+          or rebind for legacy tasks.
     #>
     [CmdletBinding()]
     param(
@@ -6022,6 +6212,11 @@ function Set-OrchestrationTaskModelAttempt {
         if (-not [bool]$snap.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
         if ([bool]$snap.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
         $snapRec = $snap.record
+        $boundRootAttempt = Get-TaskKernelBoundVerificationRoot -Record $snapRec -CallerRepoRoot $RepoRoot -UnboundCode 'MODEL_ATTEMPT_ROOT_UNBOUND' -MismatchCode 'MODEL_ATTEMPT_ROOT_MISMATCH'
+        if (-not [bool]$boundRootAttempt.ok) {
+            return (New-TaskKernelError -Code ([string]$boundRootAttempt.error))
+        }
+        $modelRoot = ([string]$boundRootAttempt.root)
         $rev0 = [int]$snapRec['revision']
         if ([int]$ExpectedRevision -ne $rev0) {
             return (New-TaskKernelError -Code 'CAS_CONFLICT')
@@ -6099,7 +6294,7 @@ function Set-OrchestrationTaskModelAttempt {
         if ((@($modelList0).Count) -ge $totalCap) {
             return (New-TaskKernelError -Code 'MODEL_ATTEMPT_BUDGET_EXHAUSTED' -Extra @{ scope = 'task-total' })
         }
-        $pol = Read-TaskKernelModelPolicy -PolicyPath $PolicyPath -RepoRoot $effRoot
+        $pol = Read-TaskKernelModelPolicy -PolicyPath $PolicyPath -RepoRoot $modelRoot
         if (-not [bool]$pol.ok) {
             return (New-TaskKernelError -Code ([string]$pol.error))
         }
@@ -6245,9 +6440,11 @@ function Set-OrchestrationTaskModelAttempt {
                 provider           = $prov
                 tier               = ([string]$tierSlot.tier)
                 strategy_fingerprint = $stratFp
-                usage_input        = [int]$obs['usage_input']
-                usage_output       = [int]$obs['usage_output']
-                usage_reasoning    = [int]$obs['usage_reasoning']
+                usage_input        = $obs['usage_input']
+                usage_output       = $obs['usage_output']
+                usage_reasoning    = $obs['usage_reasoning']
+                usage_cache_read   = $obs['usage_cache_read']
+                usage_cache_write  = $obs['usage_cache_write']
                 cost               = $obs['cost']
                 session_outcome    = ([string]$obs['session_outcome']).Trim()
                 observed_at        = (Get-TaskKernelTimestamp)
@@ -6628,7 +6825,13 @@ function Get-OrchestrationTaskModelFailureProof {
         session still present in the recorded run. For T4 Sol, a prior
         valid T3 failure proof on the same task (earlier attempt) is
         required before Astra may be permitted. No dispatch, no
-        bool/string proof parameters: only TaskId + RequiredTier. Returns
+        bool/string proof parameters: only TaskId + RequiredTier. Root
+        binding: the persisted verification_repo_root is required; a
+        missing stored root fails closed with MODEL_PROOF_ROOT_UNBOUND.
+        A nonempty caller -RepoRoot is only an assertion and must match
+        the stored root (MODEL_PROOF_ROOT_MISMATCH); an omitted/empty
+        caller root uses the stored root for model-policy resolution. No
+        migration or rebind for legacy tasks. Returns
         the persisted reference/digest, or fail-closed otherwise. Never
         throws.
     #>
@@ -6655,14 +6858,6 @@ function Get-OrchestrationTaskModelFailureProof {
         if (-not (Test-TaskKernelId -TaskId $tid)) {
             return (New-TaskKernelError -Code 'INVALID_TASK_ID')
         }
-        $pol = Read-TaskKernelModelPolicy -PolicyPath $PolicyPath -RepoRoot $effRoot
-        if (-not [bool]$pol.ok) {
-            return (New-TaskKernelError -Code ([string]$pol.error))
-        }
-        $canon = Get-TaskKernelCanonicalModelForTier -Policy $pol.policy -Tier $tier
-        if (-not [bool]$canon.ok) {
-            return (New-TaskKernelError -Code ([string]$canon.error))
-        }
         $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $effRoot
         if ([string]::IsNullOrWhiteSpace($taskFile)) {
             return (New-TaskKernelError -Code 'NOT_FOUND')
@@ -6671,6 +6866,19 @@ function Get-OrchestrationTaskModelFailureProof {
         if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
         if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
         $rec = $slot.record
+        $boundRootProof = Get-TaskKernelBoundVerificationRoot -Record $rec -CallerRepoRoot $RepoRoot -UnboundCode 'MODEL_PROOF_ROOT_UNBOUND' -MismatchCode 'MODEL_PROOF_ROOT_MISMATCH'
+        if (-not [bool]$boundRootProof.ok) {
+            return (New-TaskKernelError -Code ([string]$boundRootProof.error))
+        }
+        $proofRoot = ([string]$boundRootProof.root)
+        $pol = Read-TaskKernelModelPolicy -PolicyPath $PolicyPath -RepoRoot $proofRoot
+        if (-not [bool]$pol.ok) {
+            return (New-TaskKernelError -Code ([string]$pol.error))
+        }
+        $canon = Get-TaskKernelCanonicalModelForTier -Policy $pol.policy -Tier $tier
+        if (-not [bool]$canon.ok) {
+            return (New-TaskKernelError -Code ([string]$canon.error))
+        }
         $head = Test-TaskKernelModelFailureProofCore -Record $rec -RequiredTier $tier -Policy $pol.policy -PolicyHash ([string]$pol.policy_hash) -RequiredModel ([string]$canon.model_id) -RequiredProvider ([string]$canon.provider) -Head $true
         if (-not [bool]$head.ok) {
             return (New-TaskKernelError -Code ([string]$head.error))

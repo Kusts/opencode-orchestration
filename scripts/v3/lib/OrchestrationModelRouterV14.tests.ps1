@@ -74,8 +74,37 @@ Assert-V14 ($fT2.Status -eq 'AUTHORIZED' -and $fT2.FallbackModel -eq 'openai/gpt
 $fT3 = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT3.Status -eq 'AUTHORIZED' -and $fT3.FallbackModel -eq 'opencode-go/muse-spark-1.3-contributor' -and $fT3.FallbackTier -eq 'T2') 'T3-transport-failure-to-muse'
 $fT3Go = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -AttemptedModels @('openai/gpt-6.1-terra','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Assert-V14 ($fT3Go.Status -eq 'AUTHORIZED' -and $fT3Go.FallbackModel -eq 'opencode-go/deepseek-v4.1-flash') 'T3-transport-failure-to-deepseek-go'
-$fSolTransport = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+# DeepSeek Go is BLOCKED (ZDR_EXPIRED_UNCONFIRMED): the chain exhausts instead of
+# silently substituting it, while other admissible routes stay operational.
+Assert-V14 ($fT3Go.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT3Go.FallbackModel -eq $null) 'T3-transport-exhausts-deepseek-blocked'
+$dsGoExcl = @($fT3Go.PreventivelyExcluded | Where-Object { $_.Model -eq 'opencode-go/deepseek-v4.1-flash' -and $_.Reason -eq 'MODEL_DISABLED' })
+Assert-V14 ($dsGoExcl.Count -ge 1) 'deepseek-go-model-disabled'
+Assert-V14 ($pol.models.deepseek_go.enabled -eq $false -and [string]$pol.models.deepseek_go.availability_reason -eq 'ZDR_EXPIRED_UNCONFIRMED') 'deepseek-go-blocked-ZDR-unconfirmed'
+# Planner policy: Luna primary, Haiku the only recorded fallback (T2, build eligible).
+Assert-V14 ([string]$pol.planner.fallback -eq 'claude_haiku' -and [string]$pol.planner.fallback_model_id -eq 'claude-agent/haiku') 'planner-fallback-haiku-policy'
+Assert-V14 ((@($pol.role_profiles.build.alternatives).Count -eq 1) -and (@($pol.role_profiles.build.alternatives)[0] -eq 'claude_haiku')) 'build-alternatives-haiku-only'
+# Privacy: training consent recorded per project (2026-11-03); Muse workspace
+# requirement is required but UNVERIFIED (never claim it is enabled).
+Assert-V14 ([string]$pol.models.muse.data_policy.user_consent -eq 'accepted-training-2026-11-03' -and [string]$pol.models.iceman.data_policy.user_consent -eq 'accepted-training-2026-11-03') 'training-consent-recorded-project'
+Assert-V14 ([string]$pol.models.muse.data_policy.workspace_requirement_status -eq 'unverified-required') 'muse-workspace-setting-unverified'
+# Alias->concrete runtime resolution stays unresolved; only the recorded
+# inventory expectation is asserted (never actual version resolution).
+Assert-V14 ([string]$pol.models.claude_haiku.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_sonnet.resolution_status -eq 'runtime-unverified') 'alias-resolution-runtime-unverified'
+# Availability never escalates tier: a T2 availability chain that is fully
+# attempted (and has no Claude capability/no-start proof) exhausts and never
+# picks Terra/T3. T3/T4 entry still requires the kernel-owned incapacity proof.
+$sT2Chain = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+$fT2NoEsc = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Chain -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+Assert-V14 ($fT2NoEsc.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fT2NoEsc.FallbackModel -eq $null -and $fT2NoEsc.FallbackTier -ne 'T3') 'availability-never-escalates-to-T3'
+$t3Blocked = @($fT2NoEsc.PreventivelyExcluded | Where-Object { $_.Reason -eq 'T3_ESCALATION_REQUIRES_INCAPACITY_PROOF' })
+Assert-V14 ($t3Blocked.Count -ge 1) 'T3-escalation-blocked-on-availability'
+# T4-shaped request: kernel-owned selection is the only way to ENTER T4 (covered
+# by KernelProof/ModelProof suites); this shapes the request to exercise the T4
+# transport route without trusting any caller receipt.
+$sT4Shape = $sT4 | Select-Object *
+$sT4Shape.Tier = 'T4'
+$sT4Shape.CatalogModel = 'openai/gpt-6.1-sol'
+$fSolTransport = Resolve-OrchestrationModelFallback -RequestedSelection $sT4Shape -FailedModel 'openai/gpt-6.1-sol' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fSolTransport.Status -eq 'AUTHORIZED' -and $fSolTransport.FallbackModel -eq 'opencode-go/muse-spark-1.3-contributor') 'T4-transport-failure-to-muse-not-astra'
 $fSolQuality = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6.1-sol' -AttemptedModels @('openai/gpt-6.1-sol') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:task-id-1' -IgnoreUserConfig $true
 Assert-V14 ($fSolQuality.FallbackModel -ne 'openai/gpt-6-astra') 'arbitrary-quality-receipt-does-not-use-astra'
