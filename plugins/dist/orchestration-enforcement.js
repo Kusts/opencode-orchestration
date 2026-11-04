@@ -880,27 +880,179 @@ function validatePlannerWaitArgs(args) {
     return fail("planner-wait-args-invalid");
   }
 }
+function isCompletePinnedSessionInfo(candidate) {
+  try {
+    if (!Object.prototype.hasOwnProperty.call(candidate, "id"))
+      return false;
+    const id = candidate["id"];
+    if (typeof id !== "string" || asString(id) === "")
+      return false;
+    if (!/^ses/.test(asString(id)))
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "projectID"))
+      return false;
+    const projectID = candidate["projectID"];
+    if (typeof projectID !== "string" || asString(projectID) === "")
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "cost"))
+      return false;
+    const cost = candidate["cost"];
+    if (typeof cost !== "number" || !Number.isFinite(cost))
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "tokens"))
+      return false;
+    const tokens = candidate["tokens"];
+    if (!isPlainObject(tokens))
+      return false;
+    const tk = tokens;
+    for (const f of ["input", "output", "reasoning"]) {
+      if (!Object.prototype.hasOwnProperty.call(tk, f))
+        return false;
+      if (typeof tk[f] !== "number" || !Number.isFinite(tk[f]))
+        return false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(tk, "cache"))
+      return false;
+    const cache = tk["cache"];
+    if (!isPlainObject(cache))
+      return false;
+    const cc = cache;
+    if (!Object.prototype.hasOwnProperty.call(cc, "read"))
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(cc, "write"))
+      return false;
+    if (typeof cc["read"] !== "number" || !Number.isFinite(cc["read"]))
+      return false;
+    if (typeof cc["write"] !== "number" || !Number.isFinite(cc["write"]))
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "time"))
+      return false;
+    const time = candidate["time"];
+    if (!isPlainObject(time))
+      return false;
+    const t = time;
+    if (!Object.prototype.hasOwnProperty.call(t, "created"))
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(t, "updated"))
+      return false;
+    if (typeof t["created"] !== "number" || !Number.isFinite(t["created"]))
+      return false;
+    if (typeof t["updated"] !== "number" || !Number.isFinite(t["updated"]))
+      return false;
+    if (!Object.prototype.hasOwnProperty.call(candidate, "location"))
+      return false;
+    const location = candidate["location"];
+    if (!isPlainObject(location))
+      return false;
+    const l = location;
+    if (!Object.prototype.hasOwnProperty.call(l, "directory"))
+      return false;
+    if (typeof l["directory"] !== "string" || asString(l["directory"]) === "")
+      return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 async function checkPlannerWaitRootProvenance(sessionGet, sessionID) {
   try {
     if (typeof sessionGet !== "function")
       return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    if (typeof sessionID !== "string" || sessionID === "") {
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    }
     const doc = await sessionGet(sessionID);
     if (!isPlainObject(doc))
       return { ok: false, reason: "planner-wait-provenance-unavailable" };
     const d = doc;
-    const rawInfo = d["info"];
-    const rawSession = d["session"];
-    const info = isPlainObject(rawInfo) ? rawInfo : isPlainObject(rawSession) ? rawSession : null;
-    if (info === null)
+    let candidate = null;
+    const rawData = d["data"];
+    const idKeys = ["id", "sessionID", "sessionId", "session_id"];
+    const parentKeys = ["parentID", "parentId", "parent_id", "parent"];
+    const hasDataKey = Object.prototype.hasOwnProperty.call(d, "data");
+    if (hasDataKey) {
+      if (!isPlainObject(rawData)) {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      const rd = rawData;
+      const innerCanonicalId = rd["id"];
+      if (typeof innerCanonicalId !== "string" || asString(innerCanonicalId) === "") {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      const seen2 = [];
+      const scopes = [d, rd];
+      for (const scope of scopes) {
+        for (const k of idKeys) {
+          if (!Object.prototype.hasOwnProperty.call(scope, k))
+            continue;
+          const v = scope[k];
+          if (typeof v !== "string" || asString(v) === "") {
+            return { ok: false, reason: "planner-wait-provenance-unavailable" };
+          }
+          const t = asString(v);
+          if (seen2.indexOf(t) === -1)
+            seen2.push(t);
+        }
+      }
+      if (seen2.length !== 1)
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      if (seen2[0] !== sessionID)
+        return { ok: false, reason: "planner-wait-provenance-mismatch" };
+      let hasParent2 = false;
+      for (const scope of scopes) {
+        for (const k of parentKeys) {
+          if (!Object.prototype.hasOwnProperty.call(scope, k))
+            continue;
+          const v = scope[k];
+          if (typeof v !== "string" || asString(v) === "") {
+            return { ok: false, reason: "planner-wait-provenance-unavailable" };
+          }
+          hasParent2 = true;
+        }
+      }
+      if (hasParent2)
+        return { ok: false, reason: "planner-wait-not-root" };
+      if (!isCompletePinnedSessionInfo(rd)) {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      return { ok: true, reason: "" };
+    } else {
+      candidate = d;
+    }
+    const seen = [];
+    for (const k of idKeys) {
+      if (!Object.prototype.hasOwnProperty.call(candidate, k))
+        continue;
+      const v = candidate[k];
+      if (typeof v !== "string" || asString(v) === "") {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      const t = asString(v);
+      if (seen.indexOf(t) === -1)
+        seen.push(t);
+    }
+    if (seen.length === 0)
       return { ok: false, reason: "planner-wait-provenance-unavailable" };
-    const id = asString(info["id"] ?? info["sessionID"] ?? info["sessionId"] ?? info["session_id"]);
-    if (id === "")
+    if (seen.length > 1)
       return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    const id = seen[0];
     if (id !== sessionID)
       return { ok: false, reason: "planner-wait-provenance-mismatch" };
-    const parent = asString(info["parentID"] ?? info["parentId"] ?? info["parent_id"] ?? info["parent"]);
-    if (parent !== "")
+    let hasParent = false;
+    for (const k of parentKeys) {
+      if (!Object.prototype.hasOwnProperty.call(candidate, k))
+        continue;
+      const v = candidate[k];
+      if (typeof v !== "string" || asString(v) === "") {
+        return { ok: false, reason: "planner-wait-provenance-unavailable" };
+      }
+      hasParent = true;
+    }
+    if (hasParent)
       return { ok: false, reason: "planner-wait-not-root" };
+    if (!isCompletePinnedSessionInfo(candidate)) {
+      return { ok: false, reason: "planner-wait-provenance-unavailable" };
+    }
     return { ok: true, reason: "" };
   } catch {
     return { ok: false, reason: "planner-wait-provenance-unavailable" };
@@ -2420,7 +2572,7 @@ async function setupPlannerWaitTool(tool, session, env, registrations) {
       const get = session?.get;
       if (typeof get === "function") {
         const bound = get.bind(session);
-        sessionGet = (id) => bound(id);
+        sessionGet = (id) => bound({ sessionID: id });
       }
     } catch {
       sessionGet = undefined;

@@ -2758,9 +2758,13 @@ function Get-GHWSchtasksXml {
         [string]$ConfigFile = '',
         [int]$IntervalMinutes = 5,
         [int]$DurationHours = 12,
-        [int]$ExecutionTimeLimitMinutes = 5
+        [int]$ExecutionTimeLimitMinutes = 5,
+        [switch]$OneShot
     )
     try {
+        if ([bool]$OneShot -and ($PSBoundParameters.ContainsKey('IntervalMinutes') -or $PSBoundParameters.ContainsKey('DurationHours'))) {
+            return ''
+        }
         $psExe = (Join-Path ([string]$env:windir) 'System32\WindowsPowerShell\v1.0\powershell.exe')
         # Scheduler parses StartBoundary as LOCAL time (no zone suffix): UtcNow
         # on a UTC-3 host fired ~3h late in live proof (LIVE-6D-PROOF DEVIATION-2).
@@ -2777,11 +2781,13 @@ function Get-GHWSchtasksXml {
         $xml += ('    <TimeTrigger>' + "`r`n")
         $xml += ('      <StartBoundary>' + $start + '</StartBoundary>' + "`r`n")
         $xml += ('      <Enabled>true</Enabled>' + "`r`n")
-        $xml += ('      <Repetition>' + "`r`n")
-        $xml += ('        <Interval>PT' + [string]$IntervalMinutes + 'M</Interval>' + "`r`n")
-        $xml += ('        <Duration>PT' + [string]$DurationHours + 'H</Duration>' + "`r`n")
-        $xml += ('        <StopAtDurationEnd>true</StopAtDurationEnd>' + "`r`n")
-        $xml += ('      </Repetition>' + "`r`n")
+        if (-not [bool]$OneShot) {
+            $xml += ('      <Repetition>' + "`r`n")
+            $xml += ('        <Interval>PT' + [string]$IntervalMinutes + 'M</Interval>' + "`r`n")
+            $xml += ('        <Duration>PT' + [string]$DurationHours + 'H</Duration>' + "`r`n")
+            $xml += ('        <StopAtDurationEnd>true</StopAtDurationEnd>' + "`r`n")
+            $xml += ('      </Repetition>' + "`r`n")
+        }
         $xml += ('    </TimeTrigger>' + "`r`n")
         $xml += ('  </Triggers>' + "`r`n")
         $xml += ('  <Principals>' + "`r`n")
@@ -2842,16 +2848,14 @@ function Test-GHWScheduleOwner {
             if (($cmdNorm.Length -ge 2) -and ((($cmdNorm.StartsWith('"')) -and ($cmdNorm.EndsWith('"'))) -or (($cmdNorm.StartsWith("'") -and ($cmdNorm.EndsWith("'")))))) { $cmdNorm = ($cmdNorm.Substring(1, $cmdNorm.Length - 2)).Trim() } else { break }
         }
         if ([string]::IsNullOrWhiteSpace($cmdNorm)) { return $false }
-        $leaf = ''
-        try { $leaf = [string][IO.Path]::GetFileName($cmdNorm) } catch { $leaf = '' }
-        if (-not ([string]$leaf -ieq 'powershell.exe')) { return $false }
         $expected = ''
         try { $expected = (Join-Path ([string]$env:windir) 'System32\WindowsPowerShell\v1.0\powershell.exe') } catch { $expected = '' }
+        if ([string]::IsNullOrWhiteSpace($expected)) { return $false }
         $cmdOk = $false
         try {
-            if ($cmdNorm -ieq 'powershell.exe') { $cmdOk = $true }
-            elseif ((-not [string]::IsNullOrWhiteSpace($expected)) -and ($cmdNorm -ieq $expected)) { $cmdOk = $true }
-            elseif (($cmdNorm -ilike '*\powershell.exe') -or ($cmdNorm -ilike '*/powershell.exe')) { $cmdOk = $true }
+            $cmdKey = ([string]$cmdNorm).ToLowerInvariant().Replace('/', '\')
+            $expKey = ([string]$expected).ToLowerInvariant().Replace('/', '\')
+            if ($cmdKey -ceq $expKey) { $cmdOk = $true }
         }
         catch { $cmdOk = $false }
         if (-not [bool]$cmdOk) { return $false }
@@ -2881,40 +2885,87 @@ function Test-GHWScheduleOwner {
         }
         if ($cur.Length -gt 0) { $tokens += $cur }
         $toks = @($tokens)
-        $fileCount = 0
-        $fileVal = ''
-        $cfgCount = 0
-        $cfgVal = ''
-        for ($ti = 0; $ti -lt @($toks).Count; $ti++) {
-            $tn = [string]@($toks)[$ti]
-            if ($tn -ieq '-File') {
-                $fileCount += 1
-                if (($fileCount -eq 1) -and (($ti + 1) -lt @($toks).Count)) {
-                    $v = ([string]@($toks)[$ti + 1]).Trim()
-                    for ($qi = 0; $qi -lt 4; $qi++) {
-                        if (($v.Length -ge 2) -and ((($v.StartsWith('"')) -and ($v.EndsWith('"'))) -or (($v.StartsWith("'") -and ($v.EndsWith("'")))))) { $v = ($v.Substring(1, $v.Length - 2)).Trim() } else { break }
-                    }
-                    $fileVal = $v.ToLowerInvariant().Replace('/', '\')
-                }
-            }
-            elseif (($tn -ieq '-ConfigFile') -or ($tn -ieq '-Config')) {
-                $cfgCount += 1
-                if (($cfgCount -eq 1) -and (($ti + 1) -lt @($toks).Count)) {
-                    $v = ([string]@($toks)[$ti + 1]).Trim()
-                    for ($qi = 0; $qi -lt 4; $qi++) {
-                        if (($v.Length -ge 2) -and ((($v.StartsWith('"')) -and ($v.EndsWith('"'))) -or (($v.StartsWith("'") -and ($v.EndsWith("'")))))) { $v = ($v.Substring(1, $v.Length - 2)).Trim() } else { break }
-                    }
-                    $cfgVal = $v.ToLowerInvariant().Replace('/', '\')
-                }
-            }
+        if (@($toks).Count -ne 7) { return $false }
+        $flagOk = $true
+        try {
+            if ([string]@($toks)[0] -cne '-NoProfile') { $flagOk = $false }
+            elseif ([string]@($toks)[1] -cne '-ExecutionPolicy') { $flagOk = $false }
+            elseif ([string]@($toks)[2] -cne 'Bypass') { $flagOk = $false }
+            elseif ([string]@($toks)[3] -cne '-File') { $flagOk = $false }
+            elseif ([string]@($toks)[5] -cne '-ConfigFile') { $flagOk = $false }
         }
-        if ($fileCount -ne 1) { return $false }
-        if ($cfgCount -ne 1) { return $false }
-        if ($fileVal -cne $wNorm) { return $false }
-        if ($cfgVal -cne $cNorm) { return $false }
+        catch { $flagOk = $false }
+        if (-not [bool]$flagOk) { return $false }
+        $fileGot = ([string]@($toks)[4]).Trim()
+        for ($qi = 0; $qi -lt 4; $qi++) {
+            if (($fileGot.Length -ge 2) -and ((($fileGot.StartsWith('"')) -and ($fileGot.EndsWith('"'))) -or (($fileGot.StartsWith("'") -and ($fileGot.EndsWith("'")))))) { $fileGot = ($fileGot.Substring(1, $fileGot.Length - 2)).Trim() } else { break }
+        }
+        $fileGot = $fileGot.ToLowerInvariant().Replace('/', '\')
+        if ($fileGot -cne $wNorm) { return $false }
+        $cfgGot = ([string]@($toks)[6]).Trim()
+        for ($qi = 0; $qi -lt 4; $qi++) {
+            if (($cfgGot.Length -ge 2) -and ((($cfgGot.StartsWith('"')) -and ($cfgGot.EndsWith('"'))) -or (($cfgGot.StartsWith("'") -and ($cfgGot.EndsWith("'")))))) { $cfgGot = ($cfgGot.Substring(1, $cfgGot.Length - 2)).Trim() } else { break }
+        }
+        $cfgGot = $cfgGot.ToLowerInvariant().Replace('/', '\')
+        if ($cfgGot -cne $cNorm) { return $false }
         return $true
     }
     catch { return $false }
+}
+
+function Test-GHWScheduleOneShotCompatible {
+    # Pure helper: true ONLY when task XML carries exactly ONE
+    # <TimeTrigger> with ZERO <Repetition> inside it (single-firing
+    # shape). Fail-closed: empty/unparseable XML, zero or multiple
+    # TimeTriggers, or any Repetition => false (incompatible), so a
+    # OneShot request against such XML conflicts instead of reusing it.
+    # Never throws, never touches schtasks.exe. ASCII only.
+    param([string]$Xml = '')
+    try {
+        $x = [string]$Xml
+        if ([string]::IsNullOrWhiteSpace($x)) { return $false }
+        $doc = $null
+        try { $doc = [xml]$x } catch { return $false }
+        if ($null -eq $doc) { return $false }
+        $triggers = @()
+        try { $triggers = @($doc.GetElementsByTagName('TimeTrigger')) } catch { return $false }
+        if (@($triggers).Count -ne 1) { return $false }
+        $reps = @()
+        try { $reps = @((@($triggers)[0]).GetElementsByTagName('Repetition')) } catch { return $false }
+        if (@($reps).Count -ne 0) { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Get-GHWScheduleOwnedDecision {
+    # Pure decision for the existing-task branch of
+    # Register-GitHubWakeSchedule. Returns exactly one of
+    # 'task-name-conflict', 'oneshot-mode-conflict',
+    # 'already-registered', 'replace-owned'. An unowned task-name
+    # conflict always refuses, even with -Force: Force replaces only
+    # the exact owned task. OneShot against incompatible existing XML
+    # (not exactly one Repetition-free TimeTrigger) without -Force
+    # conflicts fail-closed, never already-registered, so recurrence
+    # (or an unexpected trigger shape) is never silently kept. Default
+    # repeating requests are unchanged for owned tasks: owned without
+    # -Force stays already-registered, owned with -Force regenerates.
+    # Never throws, never touches schtasks.exe.
+    param([bool]$OneShot = $false, [bool]$Force = $false, [bool]$Owned = $false, [string]$ExistingXml = '')
+    try {
+        if (-not [bool]$Owned) { return 'task-name-conflict' }
+        if ([bool]$Force) { return 'replace-owned' }
+        if ([bool]$OneShot -and (-not (Test-GHWScheduleOneShotCompatible -Xml ([string]$ExistingXml)))) {
+            return 'oneshot-mode-conflict'
+        }
+        return 'already-registered'
+    }
+    catch {
+        if (-not [bool]$Owned) { return 'task-name-conflict' }
+        if ([bool]$Force) { return 'replace-owned' }
+        if ([bool]$OneShot) { return 'oneshot-mode-conflict' }
+        return 'already-registered'
+    }
 }
 
 function Register-GitHubWakeSchedule {
@@ -2926,6 +2977,7 @@ function Register-GitHubWakeSchedule {
         [int]$IntervalMinutes = 5,
         [int]$DurationHours = 12,
         [int]$ExecutionTimeLimitMinutes = 5,
+        [switch]$OneShot,
         [switch]$Force,
         [switch]$DryRun
     )
@@ -2933,6 +2985,9 @@ function Register-GitHubWakeSchedule {
         $name = ([string]$TaskName).Trim()
         if (-not (Test-GHWTaskName -Value $name)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-task-name'; reused = $false; task_name = ''; xml_path = ''; command = '' }
+        }
+        if ([bool]$OneShot -and ($PSBoundParameters.ContainsKey('IntervalMinutes') -or $PSBoundParameters.ContainsKey('DurationHours'))) {
+            return [pscustomobject]@{ ok = $false; reason = 'oneshot-schedule-conflict'; reused = $false; task_name = $name; xml_path = ''; command = '' }
         }
         if (($IntervalMinutes -lt 1) -or ($IntervalMinutes -gt 1440)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-interval'; reused = $false; task_name = $name; xml_path = ''; command = '' }
@@ -2951,8 +3006,16 @@ function Register-GitHubWakeSchedule {
         if ([string]::IsNullOrWhiteSpace($cfg) -or (-not (Test-Path -LiteralPath $cfg -PathType Leaf))) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-config-file'; reused = $false; task_name = $name; xml_path = ''; command = '' }
         }
-        $xml = Get-GHWSchtasksXml -TaskName $name -WakeScript $wake -ConfigFile $cfg -IntervalMinutes $IntervalMinutes -DurationHours $DurationHours -ExecutionTimeLimitMinutes $ExecutionTimeLimitMinutes
+        if ([bool]$OneShot) {
+            $xml = Get-GHWSchtasksXml -TaskName $name -WakeScript $wake -ConfigFile $cfg -ExecutionTimeLimitMinutes $ExecutionTimeLimitMinutes -OneShot
+        }
+        else {
+            $xml = Get-GHWSchtasksXml -TaskName $name -WakeScript $wake -ConfigFile $cfg -IntervalMinutes $IntervalMinutes -DurationHours $DurationHours -ExecutionTimeLimitMinutes $ExecutionTimeLimitMinutes
+        }
         if ([string]::IsNullOrWhiteSpace($xml)) {
+            if ([bool]$OneShot) {
+                return [pscustomobject]@{ ok = $false; reason = 'oneshot-schedule-conflict'; reused = $false; task_name = $name; xml_path = ''; command = '' }
+            }
             return [pscustomobject]@{ ok = $false; reason = 'xml-failed'; reused = $false; task_name = $name; xml_path = ''; command = '' }
         }
         $xmlPath = Join-Path ([IO.Path]::GetTempPath()) ($name + '.wake-schtasks.xml')
@@ -2971,19 +3034,14 @@ function Register-GitHubWakeSchedule {
             $existingXml = ''
             try { $existingXml = (& schtasks.exe /Query /TN $name /XML 2>&1 | Out-String) } catch { $existingXml = '' }
             $owned = Test-GHWScheduleOwner -ExistingXml ([string]$existingXml) -WakeScript $wake -ConfigFile $cfg
-            if (-not [bool]$owned) {
-                if (-not [bool]$Force) {
-                    return [pscustomobject]@{ ok = $false; reason = 'task-name-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
-                }
-                try { & schtasks.exe /Delete /TN $name /F 2>&1 | Out-Null } catch { }
-                $createOut = ''
-                try { $createOut = (& schtasks.exe /Create /TN $name /XML $xmlPath 2>&1 | Out-String) } catch { $createOut = '' }
-                if ($LASTEXITCODE -ne 0) {
-                    return [pscustomobject]@{ ok = $false; reason = 'schtasks-create-failed'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd }
-                }
-                return [pscustomobject]@{ ok = $true; reason = 'replaced-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd }
+            $reuse = Get-GHWScheduleOwnedDecision -OneShot ([bool]$OneShot) -Force ([bool]$Force) -Owned ([bool]$owned) -ExistingXml ([string]$existingXml)
+            if ($reuse -ceq 'task-name-conflict') {
+                return [pscustomobject]@{ ok = $false; reason = 'task-name-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
             }
-            if (-not [bool]$Force) {
+            if ($reuse -ceq 'oneshot-mode-conflict') {
+                return [pscustomobject]@{ ok = $false; reason = 'oneshot-mode-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
+            }
+            if ($reuse -ceq 'already-registered') {
                 return [pscustomobject]@{ ok = $true; reason = 'already-registered'; reused = $true; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
             }
             try { & schtasks.exe /Delete /TN $name /F 2>&1 | Out-Null } catch { }
