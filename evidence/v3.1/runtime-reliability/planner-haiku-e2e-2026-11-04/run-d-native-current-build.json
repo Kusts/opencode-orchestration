@@ -1,0 +1,47 @@
+{
+  "evidence_id": "planner-haiku-e2e-2026-11-04-run-d-native-current-build",
+  "date_utc": "2026-11-04",
+  "kind": "native-planner-child-session-kernel-binding",
+  "parent": {
+    "session_id": "ses_e5baba950ffeoL5cKTqSjeakVr",
+    "agent": "build",
+    "model_provider": "openai",
+    "model_id": "openai/gpt-6-luna",
+    "variant": "xhigh",
+    "observation_source": "OpenCode session export info + current debug-config; long-running parent usage is not attributed to this short child probe"
+  },
+  "child": {
+    "session_id": "ses_e592cc72dffeec6bfwp2PptAeJ",
+    "parent_session_id": "ses_e5baba950ffeoL5cKTqSjeakVr",
+    "agent": "researcher",
+    "model_provider": "claude-agent",
+    "model_id": "claude-agent/haiku",
+    "message_id": "msg_1a6d3391b001Z89iawor9c8gvW",
+    "message_completed": true,
+    "session_completed": true,
+    "session_outcome": "succeeded",
+    "usage_input": 2,
+    "usage_output": 20,
+    "reported_cost": 0,
+    "recorded_subscription_cost": "UNKNOWN"
+  },
+  "active_config": {
+    "global_model": "openai/gpt-6-luna",
+    "agents_build_model": "openai/gpt-6-luna",
+    "agents_researcher_model": "opencode-go/iceman-contributor-free",
+    "sha256": "F8B9DDCCD9885FC46ABCF6B8919F85E3ED4E763FC7992A8C79B1B2D39922451E"
+  },
+  "policy_hash": "bd73c15e6514f56a9fff9cfd5904980304b2b1c897b42aaad463e75847bb59a5",
+  "kernel_task_id": "planner-luna-haiku-kernel-e2e-final-20261104",
+  "interpretation": [
+    "OpenCode V2 per-agent config and a real child session show the Planner/build executes as Luna while the researcher child executes as Claude Agent Haiku; the child does not inherit Luna.",
+    "The Kernel will persist the root binding, child binding, and independently observed model/provider attempt under the canonical task before verify-run and independent review.",
+    "The OpenCode catalog displays Haiku 5.5, but released=0 and no wire modelID mapping are exposed; no concrete Claude version is inferred.",
+    "Reported subscription cost 0 is stored as UNKNOWN, never as zero spend."
+  ],
+  "not_proven": [
+    "Concrete wire modelID/version behind claude-agent/haiku (runtime-unverified alias).",
+    "Sonnet/Opus/Fable executions and alias-to-version mapping (no inference performed).",
+    "Automatic technical fallback: remains HOLD without independent no-start proof."
+  ]
+}

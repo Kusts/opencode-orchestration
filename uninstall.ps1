@@ -361,6 +361,15 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
     }
   }
   if ((Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents 'build')) {
+    if (Has-Member $existingJson.agents.build 'model') {
+      $snap = Get-SnapshotValue $manifest 'agents.build.model'
+      $cur = Convert-Canonical $existingJson.agents.build.model
+      if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+        Add-Plan 'REMOVE' 'agents.build.model (intacto; restore absent or previous snapshot)'
+        [void]$configOps.Add(@{ Op = 'del-v2-leaf'; Agent = 'build'; Leaf = 'model' })
+      }
+      else { Add-Plan 'KEEP' 'agents.build.model (alterado ou manifest ausente, mantido)' }
+    }
     if (Has-Member $existingJson.agents.build 'mode') {
       $snap = Get-SnapshotValue $manifest 'agents.build.mode'
       $cur = Convert-Canonical $existingJson.agents.build.mode
@@ -426,9 +435,6 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
       }
     }
   }
-  if ((Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents 'build') -and (Has-Member $existingJson.agents.build 'model')) {
-    Add-Plan 'KEEP' 'agents.build.model (nao gerenciado; heranca de sessao, mantido)'
-  }
   if ($configOps.Count -gt 0) {
     [void]$actions.Add(@{ Kind = 'config'; Dst = $jsonPath; Label = $configFileName })
   }
@@ -487,7 +493,7 @@ elseif (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE')) {
     }
   }
   if ((Has-Member $existingJson 'agent') -and (Has-Member $existingJson.agent 'build')) {
-    foreach ($leaf in @('mode', 'permission')) {
+    foreach ($leaf in @('mode', 'model', 'permission')) {
       if ($leaf -eq 'permission') {
         $mp = 'agent.build.permission.task'
         $hasTask = (Has-Member $existingJson.agent.build 'permission') -and ($null -ne $existingJson.agent.build.permission) -and (Has-Member $existingJson.agent.build.permission 'task')

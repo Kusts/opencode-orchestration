@@ -1,15 +1,14 @@
 <#
 .SYNOPSIS
-    Haiku-planner routing contract (policy v1.4, deterministic, no provider calls).
+    Claude alias/model-tier routing contract (policy v1.4; deterministic, no provider calls).
 .DESCRIPTION
-    Planner/build primary is claude-agent/haiku (T2) with explicit Luna fallback.
-    Covers: provider registration, closed dispatch-alias identity (no
-    resolved_model, runtime-unverified, inventory as provenance only), T2 chain
-    Muse->Luna->Haiku, planner Haiku-failure->Luna (capability pre-run or
-    availability+no-start), T3 Terra->Sonnet, T4 Sol->Opus, Astra kernel-proof
-    only, Fable Astra-availability only, DeepSeek Go blocked, advisor T3-only
-    (Haiku inadmissible), no-start/ambiguous zero retry, exactly-once seam,
-    UNKNOWN cost on subscription zero, self-review refusal.
+    Planner/build primary is openai/gpt-6-luna (T2, Luna-only). Covers provider
+    registration, closed Claude dispatch-alias identity (no resolved_model,
+    runtime-unverified, catalog inventory provenance only), T2 Muse->Haiku->Luna,
+    T3 Sonnet->Terra, T4 Opus->Sol, technical fallbacks held absent independent
+    no-start proof, functional escalation through the Task Kernel only, Astra/Fable
+    exceptional gates, DeepSeek Go ZDR hold, advisor T3 minimum, exactly-once
+    execution seam, UNKNOWN subscription cost, and capability rejection.
     No inference is performed here. Productive dispatch is Planner-owned.
     Run: powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterHaikuPlanner.tests.ps1
     PowerShell 5.1 compatible. ASCII-only.
@@ -67,65 +66,58 @@ Assert-HP ((-not [bool]$aliasTamper.Matches) -and ([string]$aliasTamper.Reason -
 $aliasUnknown = Resolve-ClaudeAgentAlias -AliasModelId 'claude-agent/unknown' -PolicyAlias 'unknown' -PolicyModelId 'claude-agent/unknown'
 Assert-HP ((-not [bool]$aliasUnknown.Matches) -and ([string]$aliasUnknown.Reason -ceq 'CLAUDE_UNKNOWN_ALIAS')) 'hp-alias-unknown-fail-closed'
 
-# 3. Planner/build primary is Haiku T2; explicit Luna fallback; never generic chain.
-Assert-HP ([string]$pol.planner.primary -eq 'claude_haiku' -and [string]$pol.planner.model_id -eq 'claude-agent/haiku' -and `
-    [string]$pol.planner.provider -eq 'claude-agent' -and [string]$pol.planner.tier -eq 'T2') 'hp-planner-primary-haiku-T2'
-Assert-HP ([string]$pol.planner.fallback -eq 'luna' -and [string]$pol.planner.fallback_model_id -eq 'openai/gpt-6-luna') 'hp-planner-fallback-luna'
-Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'claude_haiku') 'hp-build-profile-haiku'
+# 3. Planner/build is Luna T2 and has no automatic model fallback.
+Assert-HP ([string]$pol.planner.primary -eq 'luna' -and [string]$pol.planner.model_id -eq 'openai/gpt-6-luna' -and `
+    [string]$pol.planner.provider -eq 'openai' -and [string]$pol.planner.tier -eq 'T2') 'hp-planner-primary-luna-T2'
+Assert-HP (($null -eq $pol.planner.fallback_model_id) -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-no-automatic-fallback'
+Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'luna') 'hp-build-profile-luna'
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'claude-agent/haiku' -and $sPlanner.selected_provider -eq 'claude-agent') 'hp-planner-selection-haiku-T2'
+Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'openai/gpt-6-luna' -and $sPlanner.selected_provider -eq 'openai') 'hp-planner-selection-luna-T2'
 
-# 4. Planner fallback: Haiku failure + availability + no-start + capability => Luna.
-$fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'claude-agent/haiku' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlanner.Status -eq 'AUTHORIZED' -and $fbPlanner.FallbackModel -eq 'openai/gpt-6-luna' -and $fbPlanner.FallbackTier -eq 'T2') 'hp-planner-haiku-fail-to-luna'
-Assert-HP ($fbPlanner.FallbackModel -ne 'opencode-go/muse-spark-1.3-contributor') 'hp-planner-never-generic-muse'
-$fbPlannerWrong = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'openai/gpt-6-luna' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlannerWrong.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') 'hp-planner-requires-haiku-failure'
-$fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'claude-agent/haiku' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlannerTimeout.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') 'hp-planner-timeout-no-retry'
-$fbPlannerNoProof = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'claude-agent/haiku' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlannerNoProof.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') 'hp-planner-missing-no-start-no-retry'
-$fbPlannerNoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'claude-agent/haiku' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true
-Assert-HP ($fbPlannerNoCap.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') 'hp-planner-capability-required'
-$fbPlannerPreRun = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'claude-agent/haiku' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true -HaikuPreRunUnavailable $true
-Assert-HP ($fbPlannerPreRun.Status -eq 'AUTHORIZED' -and $fbPlannerPreRun.FallbackModel -eq 'openai/gpt-6-luna' -and $fbPlannerPreRun.FallbackTier -eq 'T2') 'hp-planner-prerun-unavailable-to-luna'
+# 4. Planner failure has no fallback ladder; caller booleans do not authorize replay.
+$fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'openai/gpt-6-luna' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fbPlanner.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbPlanner.FallbackModel -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-luna-failure-no-replay'
+$fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'openai/gpt-6-luna' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
+Assert-HP ($fbPlannerTimeout.FallbackModel -eq $null -and -not [bool]$fbPlannerTimeout.IsAuthorized) 'hp-planner-timeout-no-replay'
 
-# 5. T2 generic chain Muse->Luna->Haiku (capability-gated Haiku leg).
+# 5. T2 generic chain Muse->Haiku->Luna; ordered candidates remain audit-only HOLD.
 Assert-HP ($pol.tiers.T2.primary -eq 'muse') 'hp-T2-primary-muse'
-Assert-HP (($pol.tiers.T2.alternatives -contains 'luna') -and ($pol.tiers.T2.alternatives -contains 'claude_haiku')) 'hp-T2-alternatives-luna-haiku'
+Assert-HP (([string]$pol.tiers.T2.alternatives[0] -ceq 'claude_haiku') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'luna')) 'hp-T2-alternatives-haiku-luna-order'
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$fT2Luna = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Assert-HP ($fT2Luna.Status -eq 'AUTHORIZED' -and $fT2Luna.FallbackModel -eq 'openai/gpt-6-luna') 'hp-T2-muse-fail-to-luna'
-$fT2Haiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fT2Haiku.Status -eq 'AUTHORIZED' -and $fT2Haiku.FallbackModel -eq 'claude-agent/haiku') 'hp-T2-luna-fail-to-haiku'
-$fT2HaikuNoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true
-Assert-HP ($fT2HaikuNoCap.FallbackModel -ne 'claude-agent/haiku') 'hp-T2-haiku-requires-capability'
+$fT2Haiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT2Haiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Haiku.FallbackModel -and $fT2Haiku.CandidateModel -eq 'claude-agent/haiku') 'hp-T2-haiku-candidate-held'
+$fT2Luna = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'claude-agent/haiku' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','claude-agent/haiku') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT2Luna.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Luna.FallbackModel -and $fT2Luna.CandidateModel -eq 'openai/gpt-6-luna') 'hp-T2-luna-terminal-candidate-held'
+$fT2Timeout = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($null -eq $fT2Timeout.FallbackModel -and -not [bool]$fT2Timeout.IsAuthorized) 'hp-T2-timeout-never-replays'
 
 # 6. DeepSeek Go blocked (ZDR unconfirmed): excluded everywhere.
 Assert-HP ([bool]$pol.models.deepseek_go.enabled -eq $false) 'hp-deepseek-go-disabled'
 Assert-HP ([string]$pol.models.deepseek_go.availability_status -eq 'blocked') 'hp-deepseek-go-blocked'
 
-# 7. Advisor T3-only: Haiku inadmissible, never selected, never fallback.
+# 7. Advisor T3 minimum, Sonnet primary / Terra fallback; T2 remains inadmissible.
 $advRoles = @($pol.models.claude_haiku.eligible_roles)
 Assert-HP ($advRoles -notcontains 'engineering-advisor') 'hp-haiku-advisor-ineligible'
 $sAdv = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-HP ($sAdv.Tier -eq 'T3' -and $sAdv.CatalogModel -eq 'openai/gpt-6.1-terra') 'hp-advisor-stays-T3-terra'
+Assert-HP ($sAdv.Tier -eq 'T3' -and $sAdv.CatalogModel -eq 'claude-agent/sonnet') 'hp-advisor-starts-sonnet-T3'
 
-# 8. T3 Terra->Sonnet (capability + no-start); T4 Sol->Opus; Astra kernel-proof only.
+# 8. T3 Sonnet->Terra candidate; T4 Opus->Sol candidate; both HOLD absent safe no-start.
 $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$fT3Sonnet = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fT3Sonnet.Status -eq 'AUTHORIZED' -and $fT3Sonnet.FallbackModel -eq 'claude-agent/sonnet' -and $fT3Sonnet.FallbackTier -eq 'T3') 'hp-T3-terra-to-sonnet'
-$fT3NoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'openai/gpt-6.1-terra' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true
-Assert-HP ($fT3NoCap.FallbackModel -ne 'claude-agent/sonnet') 'hp-T3-sonnet-requires-capability'
+$fT3Terra = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT3Terra.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT3Terra.FallbackModel -and $fT3Terra.CandidateModel -eq 'openai/gpt-6.1-terra') 'hp-T3-terra-candidate-held'
+$fT3Timeout = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
+Assert-HP ($null -eq $fT3Timeout.FallbackModel -and -not [bool]$fT3Timeout.IsAuthorized) 'hp-T3-timeout-never-replays'
 
 # 9. Fable: Astra-availability only; generic receipts never authorize.
 $sT4shape = $sT3 | Select-Object *
 $sT4shape.Tier = 'T4'
-$sT4shape.CatalogModel = 'openai/gpt-6.1-sol'
-$fFable = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fFable.Status -eq 'AUTHORIZED' -and $fFable.FallbackModel -eq 'claude-agent/fable' -and $fFable.FallbackTier -eq 'T4') 'hp-fable-astra-availability'
-$fFableVer = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:x' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fFableVer.FallbackModel -ne 'claude-agent/fable') 'hp-fable-generic-receipt-blocked'
+$sT4shape.CatalogModel = 'claude-agent/opus'
+$fSol = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'claude-agent/opus' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fSol.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fSol.FallbackModel -and $fSol.CandidateModel -eq 'openai/gpt-6.1-sol') 'hp-T4-sol-candidate-held'
+$fFable = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fFable.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fFable.FallbackModel -and $fFable.CandidateModel -eq 'claude-agent/fable') 'hp-fable-candidate-held-until-independent-no-start-proof'
+$fFableVer = Resolve-OrchestrationModelFallback -RequestedSelection $sT4shape -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:x' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($null -eq $fFableVer.FallbackModel -and -not [bool]$fFableVer.IsAuthorized) 'hp-fable-functional-failure-requires-kernel-model-select'
 
 # 10. Exactly-once seam: one call, transport failure => PROOF_ABSENT, no retry.
 $script:hpAttempted = @()

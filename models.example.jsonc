@@ -1,15 +1,15 @@
 {
-  // Model Router v1.4: Planner (agente build, sessao raiz) usa Haiku (tier operacional T2).
-  // Luna e o fallback canonico da politica, nao fallback automatico do OpenCode.
+  // Model Router v1.4: Planner (agente build, sessao raiz) usa Luna (tier operacional T2).
+  // Planner e Luna-only: nenhum fallback automatico implementado/autorizado por esta matriz; sem fallback silencioso para Muse/Haiku.
   // O modelo global (topo do opencode.json) e Luna literal no template, nao este campo.
   // Copie como models.jsonc (arquivo local ignorado pelo Git).
-  "planner": "claude-agent/haiku",
-  // T2: pool economico Muse; fallback Luna em falha real.
+  "planner": "openai/gpt-6-luna",
+  // T2: pool economico Muse->Haiku->Luna (mesmo tier; exaustao de transporte nunca sobe de tier).
   "cheap": "opencode-go/muse-spark-1.3-contributor",
   // T1: Iceman; fallback opencode/mimo-v2.6-flash-free.
   "free": "opencode-go/iceman-contributor-free",
-  // T3: Terra; fallback de transporte para Muse ou DeepSeek OpenCode Go.
-  "strong": "openai/gpt-6.1-terra",
-  // T4: Sol automatico apos falha comprovada do T3; Astra apos falha comprovada do Sol.
-  "frontier": "openai/gpt-6.1-sol"
+  // T3: alias Sonnet (claude-agent/sonnet; nome de catalogo Sonnet 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Fallback tecnico Terra.
+  "strong": "claude-agent/sonnet",
+  // T4: alias Opus (claude-agent/opus; nome de catalogo Opus 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Transporte Opus->Sol; Astra/Fable excepcionais e proof-gated, nunca automaticos.
+  "frontier": "claude-agent/opus"
 }

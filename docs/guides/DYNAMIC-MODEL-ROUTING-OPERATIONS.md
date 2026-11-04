@@ -11,7 +11,10 @@
 
 O OpenCode Orchestration utiliza uma política de roteamento dinâmico e adaptativo para selecionar modelos com base em capacidade necessária, custo, risco, histórico de falhas e papel do agente.
 
-A autoridade canônica de configuração reside em [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json), versão `1.3.0`. Todas as decisões tomadas pelo Model Router vinculam o SHA-256 (`policy_hash`) desta política e geram recibos estruturados no Kernel.
+A autoridade canônica de configuração reside em [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json), versão `1.4.0`. Todas as decisões tomadas pelo Model Router vinculam o SHA-256 (`policy_hash`) desta política e geram recibos estruturados no Kernel.
+
+> [!NOTE]
+> Este guia nasceu no desenho v1.1 (título e especificação acima preservados como artefato histórico). A matriz canônica vigente é a v1.4: para o mapeamento detalhado por tier/papel/fallback, consulte [`docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md`](file:///docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md). A Seção 3 abaixo resume a matriz v1.4 e prevalece sobre qualquer valor legado citado em procedimentos antigos deste arquivo.
 
 ### Princípios Operacionais Fundamentais
 
@@ -182,28 +185,12 @@ O Advisor presta consultoria técnica sob demanda em impasses ou revisões de ar
 
 O modelo GPT-6 Astra (`openai/gpt-6-astra`) é classificado como **T4 Excepcional** e possui custo de 40x. Ele é bloqueado por padrão (*fail-closed*).
 
-Para autorizar uma consulta com Astra:
-
-#### Opção A: Autorização por Variável de Ambiente (sessão pontual)
-Defina a variável no ambiente PowerShell antes de iniciar a sessão ou o script de orquestração:
+Para autorizar uma consulta com Astra, defina a variável de ambiente dedicada do operador antes de iniciar a sessão ou o script de orquestração (autorização por sessão pontual):
 ```powershell
 $env:OPENCODE_ASTRA_AUTHORIZED = "true"
 ```
 
-#### Opção B: Autorização Explícita na Chamada do Router
-Passe o parâmetro `-ProviderCostAuthorized $true` ao invocar a seleção ou dispatch:
-```powershell
-$decision = Resolve-OrchestrationModelSelection -AgentName 'architect' -Complexity 'high' -Risk 'critical' -FailureCount 2 -ProviderCostAuthorized $true
-```
-
-#### Opção C: Inclusão na Política Local (`models.jsonc`)
-No arquivo local de operador (`models.jsonc`), configure:
-```jsonc
-{
-  "frontier": "openai/gpt-6-astra",
-  "provider_cost_authorized": true
-}
-```
+A seleção funcional de Astra no caminho canônico `task-kernel model-select` exige, além da prova T4 Opus válida do Kernel, exatamente essa variável de ambiente. A autorização genérica de custo T4 por chamada (`-ProviderCostAuthorized $true`), a variável genérica `OPENCODE_T4_AUTHORIZED` e o catálogo local de modelos (`models.jsonc` / `models.example.jsonc`, campo `frontier`) não autorizam Astra.
 
 > [!WARNING]
 > Nunca comite `models.jsonc` no repositório. O arquivo está adicionado ao `.gitignore` e pertence exclusivamente ao operador local.
@@ -277,31 +264,30 @@ Se uma alteração no catálogo causar falhas ou indisponibilidade inesperada:
 
 ---
 
-## 3. Matriz de Agentes e Modelos Canônicos
+## 3. Matriz de Agentes e Modelos Canônicos (v1.4 — resumo; canônico detalhado em `MODEL-ROUTER-v1.4-OPERATIONS.md`)
 
-| Agente | Tier Padrão | Modelo Primário | Alternativa / Escalonamento | Provider |
+| Agente | Tier padrão | Modelo primário | Escalonamento / notas | Provider |
 |---|---|---|---|---|
-| **Planner (`build`)** | T3 | GPT-6 Luna | Advisor sob demanda | `openai` |
-| **Explorer** | T1 | Iceman Contributor Free | DeepSeek V4.1 Flash Free | `opencode-go` |
-| **Researcher** | T2 | DeepSeek V4.1 Flash Free | Muse Spark → GPT-6 Luna | `opencode` |
-| **Coder** | T2 | DeepSeek V4.1 Flash Free | Muse Spark → GPT-6 Luna | `opencode` |
-| **Tester (com LLM)** | T2 | DeepSeek V4.1 Flash Free | Muse Spark | `opencode` |
-| **Tester (T0 deterministic)** | T0 | *Nenhum (código/AST)* | Proibido LLM | `none` |
-| **Docs Manager** | T1 | Iceman Contributor Free | DeepSeek V4.1 Flash Free | `opencode-go` |
-| **Frontend Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
-| **Backend Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
-| **Database Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
-| **AI Agent Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
-| **Automation Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
-| **Infra Engineer** | T2 | Muse Spark 1.3 Contributor | GPT-6 Luna | `opencode-go` |
-| **Reviewer** | T3 | GPT-6 Luna | GPT-6.1 Sol *(downgrade T2 proibido)* | `openai` |
-| **Debugger** | T3 | GPT-6 Luna | GPT-6.1 Sol | `openai` |
-| **Architect** | T3 | GPT-6 Luna | GPT-6.1 Sol → Astra excepcional | `openai` |
-| **Security Reviewer** | T3 | GPT-6 Luna / Sol | Astra excepcional *(downgrade T1/T2 proibido)* | `openai` |
-| **Requirements Analyst** | T2 | DeepSeek V4.1 Flash Free | GPT-6 Luna | `opencode` |
-| **Product Designer** | T2 | DeepSeek V4.1 Flash Free | GPT-6 Luna | `opencode` |
-| **Skeptic** | T3 | GPT-6 Luna | GPT-6.1 Sol | `openai` |
-| **Engineering Advisor** | T3 | GPT-6 Luna | GPT-6.1 Sol → Astra excepcional | `openai` |
+| **Planner (`build`)** | T2 | `openai/gpt-6-luna` | Fixo; sem fallback automático | `openai` |
+| **Explorer** | T1 | `opencode-go/iceman-contributor-free` | T2 (`muse`) só sob tarefa `complex` ou risco alto/crítico explícito; nunca T3/T4 | `opencode-go` |
+| **Researcher** | T1 | `opencode-go/iceman-contributor-free` | T2 (`muse`) só sob tarefa `complex` ou risco alto/crítico explícito; nunca T3/T4 | `opencode-go` |
+| **Docs Manager** | T1 | `opencode-go/iceman-contributor-free` | T2 só sob critério explícito; nunca T3/T4 | `opencode-go` |
+| **Tester (T0 determinístico)** | T0 | *Nenhum (código/AST)* | Proibido LLM | `none` |
+| **Tester (com LLM)** | T1 | `opencode-go/iceman-contributor-free` | Tarefa trivial/simples de baixo risco; T2 (`muse`) para autoria de testes e verificações não triviais; nunca T3/T4 | `opencode-go` |
+| **Coder** | T2 | `opencode-go/muse-spark-1.3-contributor` | Trabalho `complex` → T3 (`claude-agent/sonnet`); T4 funcional somente com prova Kernel (T3→Opus, Opus→Astra) | `opencode-go` / `claude-agent` |
+| **Frontend / Backend / Database / AI Agent / Automation / Infra Engineer** | T2 | `opencode-go/muse-spark-1.3-contributor` | Rotina em T2; sem T4 automático (admissibilidade por papel) | `opencode-go` |
+| **Engineering Advisor** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Sempre T3 mínimo; T2 proibido; T4 somente com prova Kernel | `claude-agent` |
+| **Reviewer** | T3 | `claude-agent/sonnet` | Risco baixo + tarefa simples → T2 (`muse`); demais casos T3; risco alto/crítico sem downgrade para T2 | `claude-agent` |
+| **Security Reviewer** | T3 | `claude-agent/sonnet` | Mínimo T3; T0/T1/T2 proibidos | `claude-agent` |
+| **Debugger** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Análise de causa raiz em T3 | `claude-agent` |
+| **Architect** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Definição de fronteiras em T3 | `claude-agent` |
+| **Requirements Analyst / Product Designer / Skeptic** | T2 | `opencode-go/muse-spark-1.3-contributor` | Sem T4 automático | `opencode-go` |
+
+Notas normativas (v1.4):
+- Candidatos técnicos ordenados por tier (T1 Iceman→MiMo; T2 Muse→Haiku→Luna; T3 Sonnet→Terra; T4 Opus→Sol) são apenas auditoria (`CandidateModel` não autorizante): o fallback produtivo permanece HOLD (`FallbackModel=null`, `IsAuthorized=false`) e não implica retries.
+- T4 Opus após prova T3 válida do Kernel não exige aprovação manual por chamada (`cost_policy.t4_requires_authorization=false`).
+- Astra exige prova T4 Opus válida do Kernel **e** `OPENCODE_ASTRA_AUTHORIZED=true` (`cost_policy.astra_requires_exceptional_authorization=true`); sem a variável, a seleção é `REJECTED` sem resquício executável e sem retentar Opus. Fable permanece HOLD.
+- Aliases `claude-agent/*` (haiku/sonnet/opus/fable) permanecem `runtime-unverified`: identidade de despacho é o próprio alias; nenhum ID concreto é afirmado sem prova de sessão.
 
 ---
 
@@ -320,7 +306,7 @@ Toda seleção de modelo despachada gera um recibo com a seguinte estrutura:
   "authorization_source": "STANDARD_CATALOG",
   "authorization_evidence": "catalog:default",
   "budget": "standard_tier_budget",
-  "policy_version": "1.3.0",
+  "policy_version": "1.4.0",
   "policy_hash": "245a58695bf714670f6c44782468c36a04db4b9e2b371e74de084b35f95d7e68",
   "timestamp": "2026-10-26T22:00:00.0000000Z"
 }

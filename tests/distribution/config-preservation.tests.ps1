@@ -38,8 +38,9 @@ try {
   Assert ($j.agent.coder.temperature -eq 0.9) 'propriedade desconhecida em agente conhecido preservada'
   $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
   Assert ($j.agent.coder.model -eq $models.cheap) 'coder.model atualizado para cheap'
-  $hasBM = ($null -ne ($j.agent.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue))
-  Assert (-not $hasBM) 'build.model legado removido'
+  Assert ($j.model -eq 'openai/gpt-6-luna') 'modelo global Luna preservado, sem Planner token'
+  Assert ([string]$j.agent.build.model -eq $models.planner) 'build.model usa MODEL_PLANNER per-agent'
+  Assert ([string]$j.agent.title.model -eq 'openai/gpt-6-luna') 'title.model permanece Luna, nao herda Planner token'
   $t = [IO.File]::ReadAllText((Join-Path $ocDir 'AGENTS.md'), [Text.Encoding]::UTF8)
   Assert ($t.Contains('Conteudo fora dos markers')) 'AGENTS.md conteudo externo preservado'
   Assert (([regex]::Matches($t, '<!-- opencode-orchestration:start -->')).Count -eq 1) 'AGENTS.md 1 par de markers'

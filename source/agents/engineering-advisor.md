@@ -1,7 +1,7 @@
 ---
 description: Advisor de viabilidade de engenharia. Use quando a viabilidade for incerta, houver migração relevante, impacto material de manutenção/testabilidade/observabilidade, ou quando uma arquitetura conceitual precisar ser confrontada com a implementação real. Avalia praticidade, incrementalidade, rollback e custo operacional; não implementa.
 mode: subagent
-model: {{MODEL_CHEAP}}
+model: {{MODEL_STRONG}}
 temperature: 0.2
 permission:
   edit: deny

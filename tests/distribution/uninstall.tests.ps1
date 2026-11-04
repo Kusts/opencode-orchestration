@@ -29,6 +29,9 @@ try {
   $jsonPath = Join-Path $ocDir 'opencode.json'
   $j = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
   $j.agent | Add-Member -NotePropertyName 'meu-custom' -NotePropertyValue (([ordered]@{ model = 'foo/bar' } | ConvertTo-Json -Depth 8) | ConvertFrom-Json) -Force
+  # Build.model is package-managed in this template but a later user change
+  # must be preserved by uninstall's snapshot/CAS ownership check.
+  $j.agent.build.model = 'user/build-override'
   $j | Add-Member -NotePropertyName 'mcp' -NotePropertyValue (([ordered]@{ 'my-server' = [ordered]@{ type = 'local'; command = @('node', 'srv.js') } } | ConvertTo-Json -Depth 8) | ConvertFrom-Json) -Force
   $j | Add-Member -NotePropertyName 'meu_topo_custom' -NotePropertyValue 'keep-me' -Force
   # Worker managed com permissao extra do usuario (task intacto = "deny") ------
@@ -79,6 +82,7 @@ try {
   Assert (Test-Path -LiteralPath $extraSkill -PathType Leaf) 'arquivo extra na skill preservado'
   Assert ($j2.mcp.'my-server'.command[1] -eq 'srv.js') 'mcp.* preservado'
   Assert ($j2.agent.'meu-custom'.model -eq 'foo/bar') 'custom agent no json preservado'
+  Assert ($j2.agent.build.model -eq 'user/build-override') 'build.model alterado pelo usuario preservado pelo uninstall'
   Assert ($j2.meu_topo_custom -eq 'keep-me') 'chave de topo custom preservada'
   Assert ($t.Contains('Conteudo fora dos markers')) 'AGENTS.md conteudo do usuario preservado'
 }

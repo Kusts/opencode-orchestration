@@ -131,6 +131,8 @@
         "automation-engineer",
         "infra-engineer",
         "coder",
+        "explorer",
+        "docs-manager",
         "researcher",
         "tester",
         "build"
@@ -158,8 +160,8 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
-        "luna",
-        "claude_haiku"
+        "claude_haiku",
+        "luna"
       ]
     },
     "luna": {
@@ -178,6 +180,9 @@
         "skeptic",
         "engineering-advisor",
         "coder",
+        "explorer",
+        "docs-manager",
+        "tester",
         "frontend-engineer",
         "backend-engineer",
         "database-engineer",
@@ -196,7 +201,7 @@
         "technical-review",
         "architecture-coordination"
       ],
-      "priority": 2,
+      "priority": 3,
       "cost_profile": {
         "pricing_type": "usage_billed",
         "relative_cost": 1,
@@ -211,10 +216,7 @@
       },
       "availability_status": "active",
       "last_verified_at": "2026-10-26T00:00:00Z",
-      "fallback_candidates": [
-        "claude_haiku",
-        "deepseek_go"
-      ]
+      "fallback_candidates": []
     },
     "sol": {
       "id": "sol",
@@ -242,7 +244,7 @@
         "distributed-consensus",
         "formal-architecture"
       ],
-      "priority": 1,
+      "priority": 2,
       "cost_profile": {
         "pricing_type": "usage_billed",
         "relative_cost": 8,
@@ -258,10 +260,7 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-26T00:00:00Z",
       "fallback_candidates": [
-        "claude_opus",
-        "astra",
-        "muse",
-        "deepseek_go"
+        "astra"
       ]
     },
     "astra": {
@@ -292,7 +291,7 @@
         "pricing_type": "usage_billed",
         "relative_cost": 15,
         "requires_authorization": false,
-        "exceptional_budget_required": false
+        "exceptional_budget_required": true
       },
       "context_limits": {
         "max_input_tokens": 512000,
@@ -304,9 +303,7 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-26T00:00:00Z",
       "fallback_candidates": [
-        "claude_fable",
-        "muse",
-        "deepseek_go"
+        "claude_fable"
       ]
     },
     "terra": {
@@ -344,7 +341,7 @@
         "document-analysis",
         "technical-writing"
       ],
-      "priority": 1,
+      "priority": 2,
       "cost_profile": {
         "pricing_type": "usage_billed",
         "relative_cost": 2,
@@ -489,8 +486,7 @@
         "database-engineer",
         "ai-agent-engineer",
         "automation-engineer",
-        "infra-engineer",
-        "build"
+        "infra-engineer"
       ],
       "capabilities": [
         "code-generation",
@@ -499,7 +495,7 @@
         "technical-analysis",
         "routine-implementation"
       ],
-      "priority": 3,
+      "priority": 2,
       "capability_proof": {
         "required": true,
         "kind": "local-executable-authenticated",
@@ -523,7 +519,9 @@
       },
       "availability_status": "active",
       "last_verified_at": "2026-11-04T00:00:00Z",
-      "fallback_candidates": []
+      "fallback_candidates": [
+        "luna"
+      ]
     },
     "claude_sonnet": {
       "id": "claude_sonnet",
@@ -564,7 +562,7 @@
         "document-analysis",
         "technical-writing"
       ],
-      "priority": 2,
+      "priority": 1,
       "capability_proof": {
         "required": true,
         "kind": "local-executable-authenticated",
@@ -589,6 +587,7 @@
       "availability_status": "active",
       "last_verified_at": "2026-11-04T00:00:00Z",
       "fallback_candidates": [
+        "terra",
         "muse",
         "deepseek_go"
       ]
@@ -623,7 +622,7 @@
         "distributed-consensus",
         "formal-architecture"
       ],
-      "priority": 3,
+      "priority": 1,
       "capability_proof": {
         "required": true,
         "kind": "local-executable-authenticated",
@@ -648,8 +647,7 @@
       "availability_status": "active",
       "last_verified_at": "2026-11-04T00:00:00Z",
       "fallback_candidates": [
-        "muse",
-        "deepseek_go"
+        "sol"
       ]
     },
     "claude_fable": {
@@ -731,43 +729,40 @@
       "name": "Economical",
       "primary": "muse",
       "alternatives": [
-        "luna",
-        "claude_haiku"
+        "claude_haiku",
+        "luna"
       ],
-      "fallback": "luna",
+      "fallback": "claude_haiku",
       "relative_cost": 0.1,
-      "description": "Economical routine implementation and engineering; same-tier fallback only (muse/luna/haiku), transport exhaustion never upgrades to a higher tier"
+      "description": "Economical routine implementation and engineering; same-tier fallback only (muse/haiku/luna), transport exhaustion never upgrades to a higher tier"
     },
     "T3": {
       "name": "Capable",
-      "primary": "terra",
+      "primary": "claude_sonnet",
       "alternatives": [
-        "claude_sonnet",
+        "terra",
         "muse",
         "deepseek_go"
       ],
       "relative_cost": 1,
-      "description": "Capable reasoning (Terra); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go), never as equal capability",
-      "fallback": "muse"
+      "description": "Capable reasoning (Sonnet); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go), never as equal capability",
+      "fallback": "terra"
     },
     "T4": {
       "name": "Frontier",
-      "primary": "sol",
+      "primary": "claude_opus",
       "exceptional": "astra",
       "alternatives": [
-        "claude_opus",
-        "astra",
-        "muse",
-        "deepseek_go"
+        "sol"
       ],
       "relative_cost": 8,
-      "description": "Critical reasoning after proven T3 failure; Astra after proven Sol capability failure; transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go)",
-      "fallback": "muse"
+      "description": "Critical reasoning after proven T3 failure; Opus->Sol technical transport only; Astra/Fable exceptional and proof-gated, never automatic",
+      "fallback": "sol"
     }
   },
   "role_profiles": {
     "build": {
-      "default_model": "claude_haiku",
+      "default_model": "luna",
       "default_tier": "T2",
       "escalation": "engineering-advisor",
       "stable_objective": true,
@@ -778,15 +773,15 @@
       "prohibited_tiers": [
         "T4"
       ],
-      "alternatives": [
-        "luna"
-      ]
+      "alternatives": []
     },
     "explorer": {
       "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
-        "muse"
+        "muse",
+        "claude_haiku",
+        "luna"
       ],
       "admissible_tiers": [
         "T0",
@@ -799,19 +794,19 @@
       ]
     },
     "researcher": {
-      "default_model": "muse",
-      "default_tier": "T2",
+      "default_model": "iceman",
+      "default_tier": "T1",
       "alternatives": [
-        "terra",
         "muse",
+        "claude_haiku",
         "luna"
       ],
       "admissible_tiers": [
         "T1",
-        "T2",
-        "T3"
+        "T2"
       ],
       "prohibited_tiers": [
+        "T3",
         "T4"
       ]
     },
@@ -831,11 +826,15 @@
       "prohibited_tiers": []
     },
     "tester": {
-      "default_model": "muse",
-      "default_tier": "T2",
+      "default_model": "iceman",
+      "default_tier": "T1",
       "deterministic_tier": "T0",
       "alternatives": [
-        "muse"
+        "iceman",
+        "mimo",
+        "muse",
+        "claude_haiku",
+        "luna"
       ],
       "admissible_tiers": [
         "T0",
@@ -851,7 +850,9 @@
       "default_model": "iceman",
       "default_tier": "T1",
       "alternatives": [
-        "muse"
+        "muse",
+        "claude_haiku",
+        "luna"
       ],
       "admissible_tiers": [
         "T0",
@@ -867,7 +868,7 @@
       "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
-        "terra",
+        "claude_sonnet",
         "luna"
       ],
       "admissible_tiers": [
@@ -959,10 +960,10 @@
       ]
     },
     "reviewer": {
-      "default_model": "terra",
+      "default_model": "claude_sonnet",
       "default_tier": "T3",
       "alternatives": [
-        "sol"
+        "claude_opus"
       ],
       "admissible_tiers": [
         "T2",
@@ -975,10 +976,10 @@
       ]
     },
     "debugger": {
-      "default_model": "terra",
+      "default_model": "claude_sonnet",
       "default_tier": "T3",
       "alternatives": [
-        "sol"
+        "claude_opus"
       ],
       "admissible_tiers": [
         "T2",
@@ -991,10 +992,11 @@
       ]
     },
     "architect": {
-      "default_model": "terra",
+      "default_model": "claude_sonnet",
       "default_tier": "T3",
       "alternatives": [
         "terra",
+        "claude_opus",
         "sol",
         "astra"
       ],
@@ -1009,10 +1011,11 @@
       ]
     },
     "security-reviewer": {
-      "default_model": "terra",
+      "default_model": "claude_sonnet",
       "default_tier": "T3",
       "exceptional": "astra",
       "alternatives": [
+        "claude_opus",
         "sol",
         "astra"
       ],
@@ -1046,7 +1049,7 @@
       "default_model": "muse",
       "default_tier": "T2",
       "alternatives": [
-        "terra",
+        "claude_sonnet",
         "luna"
       ],
       "admissible_tiers": [
@@ -1060,10 +1063,10 @@
       ]
     },
     "skeptic": {
-      "default_model": "terra",
-      "default_tier": "T3",
+      "default_model": "muse",
+      "default_tier": "T2",
       "alternatives": [
-        "sol"
+        "claude_sonnet"
       ],
       "admissible_tiers": [
         "T2",
@@ -1076,11 +1079,13 @@
       ]
     },
     "engineering-advisor": {
-      "default_model": "terra",
+      "default_model": "claude_sonnet",
       "default_tier": "T3",
-      "advanced": "sol",
+      "advanced": "claude_opus",
       "exceptional": "astra",
       "alternatives": [
+        "terra",
+        "claude_opus",
         "sol",
         "astra"
       ],
@@ -1096,21 +1101,21 @@
     }
   },
   "planner": {
-    "primary": "claude_haiku",
-    "model_id": "claude-agent/haiku",
-    "provider": "claude-agent",
+    "primary": "luna",
+    "model_id": "openai/gpt-6-luna",
+    "provider": "openai",
     "stable_during_objective": true,
     "tier": "T2",
-    "fallback": "luna",
-    "fallback_model_id": "openai/gpt-6-luna",
-    "fallback_provider": "openai",
-    "fallback_requires_capability_proof": true,
-    "fallback_capability": "claude-agent-local-authenticated",
-    "fallback_resolution_note": "Dispatch identity of the build primary is model_id=claude-agent/haiku plus alias=haiku, checked fail-closed against the closed dispatch-alias map together with the linked claude_haiku entry (model_id + alias) and its resolution_status=runtime-unverified. fallback_catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never compared and never an alias->concrete mapping. Alias-to-concrete resolution is UNRESOLVED until a successful session event proves it; never claim the alias resolves to this ID at runtime."
+    "fallback": null,
+    "fallback_model_id": null,
+    "fallback_provider": null,
+    "fallback_requires_capability_proof": false,
+    "fallback_capability": null,
+    "fallback_resolution_note": "Planner is Luna-only (T2). No automatic fallback for Planner is implemented or authorized by this matrix; the generic T2 chain Muse->Haiku->Luna applies to non-build roles only; build has no silent Muse/Haiku fallback."
   },
   "advisor": {
-    "default": "terra",
-    "advanced": "sol",
+    "default": "claude_sonnet",
+    "advanced": "claude_opus",
     "exceptional": "astra",
     "exceptional_conditions": [
       "technical_justification",
@@ -1156,7 +1161,7 @@
   },
   "cost_policy": {
     "t4_requires_authorization": false,
-    "astra_requires_exceptional_authorization": false,
+    "astra_requires_exceptional_authorization": true,
     "unknown_cost_handling": "UNKNOWN"
   },
   "runtime_verification": {

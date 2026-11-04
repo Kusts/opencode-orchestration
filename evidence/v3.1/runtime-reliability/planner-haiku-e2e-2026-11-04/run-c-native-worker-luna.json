@@ -1,0 +1,49 @@
+{
+  "evidence_id": "planner-haiku-e2e-2026-11-04-run-c-native-worker-luna",
+  "date_utc": "2026-11-04",
+  "kind": "native-planner-child-session-model-observation",
+  "invocation": {
+    "tool": "OpenCode native subagent child session",
+    "parent_agent": "build",
+    "parent_session_id": "ses_e5baba950ffeoL5cKTqSjeakVr",
+    "parent_model": "openai/gpt-6-luna",
+    "parent_variant": "xhigh",
+    "child_agent": "researcher",
+    "child_session_id": "ses_e5944f20cffekjjKP5aLH3HR1h",
+    "child_model_requested": "claude-agent/haiku",
+    "prompt_class": "one-line response; no tools, reads, or writes"
+  },
+  "observed_child": {
+    "parent_session_id": "ses_e5baba950ffeoL5cKTqSjeakVr",
+    "agent": "researcher",
+    "message_agent": "researcher",
+    "model_provider": "claude-agent",
+    "model_id": "claude-agent/haiku",
+    "message_id": "msg_1a6bb0e2e001U8rTPFMNT1RzcH",
+    "message_completed": true,
+    "session_completed": true,
+    "session_outcome": "succeeded",
+    "usage_input": 2,
+    "usage_output": 25,
+    "reported_cost": 0,
+    "recorded_subscription_cost": "UNKNOWN"
+  },
+  "active_config": {
+    "root_model": "openai/gpt-6-luna",
+    "build_model": "openai/gpt-6-luna",
+    "global_model_changed": false,
+    "sha256": "F8B9DDCCD9885FC46ABCF6B8919F85E3ED4E763FC7992A8C79B1B2D39922451E"
+  },
+  "policy_hash": "bd73c15e6514f56a9fff9cfd5904980304b2b1c897b42aaad463e75847bb59a5",
+  "interpretation": [
+    "The Planner/build parent session is observed as OpenAI GPT-6 Luna; the actual child session is observed as Claude Agent Haiku and is parented to that Luna session.",
+    "The child did not inherit the Planner model: provider and alias differ and are independently observed from the completed child session/message.",
+    "The Claude catalog alias is observed (`claude-agent/haiku`); the concrete underlying wire modelID/version is not exposed and is not inferred.",
+    "Reported subscription cost 0 is recorded as UNKNOWN, never treated as zero spend."
+  ],
+  "not_proven": [
+    "Concrete wire model ID/version behind the short Claude alias.",
+    "Sonnet/Opus execution or fallback (not invoked; aliases remain runtime-unverified).",
+    "Technical availability fallback; productive fallback remains HOLD without independent no-start proof."
+  ]
+}

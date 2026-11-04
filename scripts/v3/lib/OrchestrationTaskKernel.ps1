@@ -6704,9 +6704,10 @@ function Get-OrchestrationTaskModelFailureProof {
         requires verification.status='verification_failed' with
         passed=false, a fresh worker-result candidate revision, the same
         failed attempt/strategy, the actual executed model/provider equal
-        to the canonical required T3 Terra (or T4 Sol), nonempty criterion
+        to the canonical required T3/T4 primary model from the current policy,
+        nonempty criterion
         evidence with at least one unverified criterion, and the bound
-        session still present in the recorded run. For T4 Sol, a prior
+        session still present in the recorded run. For T4 Opus, a prior
         valid T3 failure proof on the same task (earlier attempt) is
         required before Astra may be permitted. No dispatch, no
         bool/string proof parameters: only TaskId + RequiredTier. Returns

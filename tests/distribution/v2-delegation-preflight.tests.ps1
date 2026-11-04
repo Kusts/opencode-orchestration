@@ -66,8 +66,9 @@ if ($null -ne $tmpl) {
   foreach ($p in @('requirements-analyst', 'engineering-advisor', 'product-designer', 'skeptic')) {
     $node = $null
     try { $node = $tmpl.agents.$p } catch { $node = $null }
-    $okNode = ($null -ne $node) -and ([string]$node.mode -ceq 'subagent') -and ([string]$node.model -ceq 'x/cheap')
-    Assert $okNode ('planning com bloco cheap: ' + $p)
+    $expectedModel = if ($p -ceq 'engineering-advisor') { 'x/strong' } else { 'x/cheap' }
+    $okNode = ($null -ne $node) -and ([string]$node.mode -ceq 'subagent') -and ([string]$node.model -ceq $expectedModel)
+    Assert $okNode ('planning com bloco tier correto (' + $expectedModel + '): ' + $p)
   }
 }
 

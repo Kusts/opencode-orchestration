@@ -6,6 +6,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Model Routing v1.4 — estado operacional atualizado (2026-11-04)**:
+  - **Policy/tiers:** T1 `iceman`→`mimo`; T2 `muse`→`haiku`→`luna` (ordem candidata estática apenas; fallback produtivo em HOLD); T3 `sonnet` primário→`terra`→`muse` (somente papéis T2-admissíveis); T4 `opus` primário→`sol` (candidato declarado em HOLD sem prova independente)→`astra` (kernel-proof/HOLD)→`fable` (HOLD, não alcançável). `opencode-go/deepseek-v4.1-flash` bloqueado (`ZDR_EXPIRED_UNCONFIRMED`), `opencode/deepseek-v4.1-flash-free` desabilitado.
+  - **Planner/build:** Planner Luna T2 fixo, sem fallback automático configurado; `agents.build.model` Luna, root Luna inalterado. Researcher/Explorer/Docs Manager iniciam T1 (T2 sob escalonamento), Tester T0/T1/T2 sem T3/T4 automático, Engineering-advisor mínimo T3 (T2 proibido).
+  - **Claude Agent aliases:** `claude-agent/{haiku,sonnet,opus,fable}` com `resolution_status: runtime-unverified`, `catalog_inventory_id` apenas proveniência (não mapeamento). Catálogo local mostra Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 com `released=0`, `cost=[]`; sem prova de versão executada; resposta Haiku não prova passagem para Sonnet/Opus. Nenhum E2E com Sonnet/Opus executado.
+  - **Fallback/HOLD:** Fallback candidato apenas (ordem estática da política) em HOLD. `Resolve-OrchestrationModelFallback` apenas auditoria/HOLD (`CandidateModel` não-autorizador, `FallbackModel=null`, `IsAuthorized=false`); `Invoke-OrchestrationModelExecution` single-call; capacidade produtiva HOLD até prova confiável de no-start. Matrizes determinísticas podem reportar ordem candidata sem dispatch — não há fallback funcional operacional.
+  - **Kernel-proof:** somente `task-kernel model-select` com prova sticky autoriza escalonamento; cadeia funcional T3→T4: Sonnet→Opus→Astra. Seleção após prova T4 Opus pode selecionar Astra sob política/papel; sem aprovação manual por chamada; Astra/Fable com gates excepcionais e Fable HOLD/não alcançável. Candidatos técnicos permanecem HOLD. Prova via `kernel-executed` com hashes/model/provider/session/message/run/policy.
+  - **Docs:** Atualizados `docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md` e `source/adapters/opencode-v2.md`. Evidência de testes observada registrada (revalidação final pendente); `AGENTS.md` não reconciliado por conflito de proveniência (ajustes direcionados, sem restauração whole-file).
+
 - **Full Delivery Etapa 6 — merge mediado + prova 6B real (2026-10-31, PR #175)**:
   - `OrchestrationMergeMediated` 45/45 (PS5.1+pwsh), consistência 16/16; micro-fixes de closure (scope lower-case canônico T28, ids do recibo sem segredos T29) + wiring observe+dry-run; contrato de wiring confiável no SPEC.
   - CI pré-closure run 41138488143 tentativa 2 (HEAD 5a41671): 6/6 SUCCESS. Review independente da sessão: tester PASS, reviewer APPROVED (R3), security APPROVED (R3, com residual registrado); sem aprovação externa afirmada (`required_approving_review_count=0`).
@@ -35,7 +43,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
     - Suporte a filtros de admissibilidade por agente, complexidade e risco, com travas *fail-closed* contra downgrade de Reviewer e Security-Reviewer.
     - Tratamento estrito do Tier T0: determinístico por design (código local, AST, lint, testes locais) com proibição terminante de invocação de LLMs.
     - Fallback cross-provider ordenado com rastreabilidade explícita (`IsCrossProvider`, `OriginalProvider`, `FallbackProvider`) e prevenção de ciclos via lista de modelos já tentados.
-    - Gestão de custos de fronteira: autorização financeira para Tier T4 exigida explicitamente, e liberação excepcional do modelo Astra restrita a flag orçamentária (`OPENCODE_ASTRA_AUTHORIZED` ou autorização de custo formal).
+    - Gestão de custos de fronteira: Tier T4 Opus segue automaticamente após prova Kernel T3, sem autorização por chamada; Astra exige prova Kernel T4 Opus e a variável dedicada do operador `OPENCODE_ASTRA_AUTHORIZED=true` (autorização genérica de custo não basta).
   - **Estabilidade do Planner e Advisor Inteligente Sob Demanda:**
     - Planner (`build`) fixado estavelmente em GPT-6 Luna sem rotações prejudiciais de contexto durante o objetivo.
     - Engineering Advisor consultivo escalável sob demanda: GPT-6 Luna (regular), GPT-6.1 Sol (deadlock/impasses) e GPT-6 Astra (excepcional).

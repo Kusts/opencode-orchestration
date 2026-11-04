@@ -70,8 +70,10 @@ foreach ($mId in @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6-astr
 $cat = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $true
 Assert-V11 ($cat['T1'].CatalogModel -eq 'opencode-go/iceman-contributor-free') "T1 primario do catalogo e Iceman Contributor Free"
 Assert-V11 ($cat['T2'].CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') "T2 primario do catalogo e Muse"
-Assert-V11 ($cat['T3'].CatalogModel -eq 'openai/gpt-6.1-terra') "T3 primario do catalogo e GPT-6.1 Terra"
-Assert-V11 ($cat['T4'].CatalogModel -eq 'openai/gpt-6.1-sol') "T4 primario do catalogo e GPT-6.1 Sol"
+Assert-V11 ($cat['T3'].CatalogModel -eq 'claude-agent/sonnet') "T3 primario do catalogo e Sonnet"
+Assert-V11 ($cat['T3'].AlternativeModel -eq 'openai/gpt-6.1-terra') "T3 fallback do catalogo e Terra"
+Assert-V11 ($cat['T4'].CatalogModel -eq 'claude-agent/opus') "T4 primario do catalogo e Opus"
+Assert-V11 ($cat['T4'].AlternativeModel -eq 'openai/gpt-6.1-sol') "T4 fallback do catalogo e Sol"
 
 Write-Host "=== FASE 2: MODEL ROUTER E SELECAO POR AGENTE/RISCO ==="
 
@@ -95,7 +97,7 @@ Assert-V11 ($selCoder.selected_model_id -eq 'opencode-go/muse-spark-1.3-contribu
 
 $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 1 -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selCoderRetry.Tier -eq 'T3') "Coder complex apos 1 falha escala para T3"
-Assert-V11 ($selCoderRetry.selected_model_id -eq 'openai/gpt-6.1-terra') "Coder T3 seleciona GPT-6.1 Terra"
+Assert-V11 ($selCoderRetry.selected_model_id -eq 'claude-agent/sonnet') "Coder T3 seleciona Sonnet"
 
 # 2.4 Tester: T0 deterministico por default, T2 DeepSeek se RequiresLlm
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -110,11 +112,11 @@ Assert-V11 ($selTesterLlm.selected_model_id -eq 'opencode-go/muse-spark-1.3-cont
 # 2.5 Security-Reviewer: Sol T4 (somente com prova kernel-owned) ou Terra T3; proibido T0/T1/T2
 $selSecUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selSecUnauth.Tier -eq 'T3') "Security-Reviewer sem prova kernel-owned permanece em T3 Terra"
-Assert-V11 ($selSecUnauth.selected_model_id -eq 'openai/gpt-6.1-terra') "Security-Reviewer T3 usa Terra"
+Assert-V11 ($selSecUnauth.selected_model_id -eq 'claude-agent/sonnet') "Security-Reviewer T3 usa Sonnet"
 
 $selSecAuth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -T3FailureVerified $true -T3FailureReceipt 'verified:security-v11' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selSecAuth.Tier -eq 'T3') "Security-Reviewer critical com recibo arbitrario (sem TaskId/prova kernel) permanece em T3"
-Assert-V11 ($selSecAuth.selected_model_id -eq 'openai/gpt-6.1-terra') "Security-Reviewer T3 usa Terra sem prova kernel"
+Assert-V11 ($selSecAuth.selected_model_id -eq 'claude-agent/sonnet') "Security-Reviewer T3 usa Sonnet sem prova kernel"
 
 # 2.6 Restricao de AllowedProviders
 $selAllowedOpencodeOnly = Resolve-OrchestrationModelSelection -AgentName 'coder' -AllowedProviders @('opencode-go') -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -128,31 +130,31 @@ Assert-V11 ($selOpencodeOnlyDenied.Authorized -eq $false) "Status nao autorizado
 
 Write-Host "=== FASE 3: FALLBACK CROSS-PROVIDER E RASTREABILIDADE ==="
 
-# 3.1 Fallback intra-tier cross-provider: Muse (opencode-go) -> Luna (openai)
+# 3.1 T2 candidate order Muse -> Haiku -> Luna is audit-only HOLD without independent no-start proof.
 $selCoderBase = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 $fbCoderCross = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT'
-Assert-V11 ($fbCoderCross.Status -eq 'AUTHORIZED') "Fallback autorizado sob rate limit para Coder"
-Assert-V11 ($fbCoderCross.FallbackModel -eq 'openai/gpt-6-luna') "Fallback seleciona Luna"
+Assert-V11 ($fbCoderCross.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and -not [bool]$fbCoderCross.IsAuthorized) "Rate-limit fallback permanece HOLD"
+Assert-V11 ($null -eq $fbCoderCross.FallbackModel -and $fbCoderCross.CandidateModel -eq 'openai/gpt-6-luna') "Candidato Luna e auditavel, nao executavel"
 Assert-V11 ($fbCoderCross.OriginalProvider -eq 'opencode-go') "OriginalProvider rastreado como 'opencode-go'"
-Assert-V11 ($fbCoderCross.FallbackProvider -eq 'openai') "FallbackProvider rastreado como 'openai'"
+Assert-V11 ($null -eq $fbCoderCross.FallbackProvider) "FallbackProvider nao marca modelo nao executado"
 Assert-V11 ($fbCoderCross.IsCrossProvider -eq $true) "IsCrossProvider e true na transicao opencode-go -> openai"
 Assert-V11 ($fbCoderCross.AttemptsCount -eq 1) "AttemptsCount rastreia 1 tentativa real"
 Assert-V11 ($fbCoderCross.ReallyAttemptedModels -contains 'opencode-go/muse-spark-1.3-contributor') "ReallyAttemptedModels isola modelo que falhou"
 Assert-V11 ($fbCoderCross.PreventivelyExcluded.Count -ge 1) "PreventivelyExcluded registra candidatos descartados preventivamente"
 
-# 3.2 Proibicao de loops e esgotamento
-$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra') -TriggerReason 'TIMEOUT'
-Assert-V11 ($fbCoderExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') "Fallback esgotado retorna EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
+# 3.2 Proibicao de loops e HOLD em timeout/ambiguidade.
+$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderBase -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'claude-agent/sonnet', 'openai/gpt-6.1-terra', 'claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra') -TriggerReason 'TIMEOUT'
+Assert-V11 ($fbCoderExhausted.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF') "Timeout/ambiguidade retorna HOLD sem replay"
 Assert-V11 ($fbCoderExhausted.IsAuthorized -eq $false) "Esgotamento nao e autorizado"
-Assert-V11 ($fbCoderExhausted.AttemptsCount -eq 6) "AttemptsCount rastreia 6 tentativas reais"
-Assert-V11 ($fbCoderExhausted.ReallyAttemptedModels.Count -eq 6) "ReallyAttemptedModels contem exatamente os 6 modelos tentados"
+Assert-V11 ($fbCoderExhausted.AttemptsCount -eq 9) "AttemptsCount rastreia 9 tentativas reais"
+Assert-V11 ($fbCoderExhausted.ReallyAttemptedModels.Count -eq 9) "ReallyAttemptedModels contem exatamente os 9 modelos tentados"
 
 # 3.3 Downgrade proibido para Reviewer
 $selRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRev -FailedModel 'openai/gpt-6.1-terra' -AttemptedModels @('openai/gpt-6.1-terra','openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'QUOTA_EXCEEDED'
-Assert-V11 ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "Downgrade proibido para Reviewer sob risco high"
+$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRev -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra','claude-agent/opus','openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'QUOTA_EXCEEDED'
+Assert-V11 ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fbRevDegrade.FallbackModel -and -not [bool]$fbRevDegrade.IsAuthorized) "Reviewer high-risk transport fallback permanece rejeitado"
 Assert-V11 ($fbRevDegrade.IsDowngrade -eq $true) "Tentativa marcada como downgrade proibido"
-Assert-V11 ($fbRevDegrade.ReallyAttemptedModels.Count -eq 3) "ReallyAttemptedModels contem exatamente as 3 tentativas reais do Reviewer"
+Assert-V11 ($fbRevDegrade.ReallyAttemptedModels.Count -eq 5) "ReallyAttemptedModels contem exatamente as 5 tentativas reais do Reviewer"
 $downExcl = @($fbRevDegrade.PreventivelyExcluded | Where-Object { $_.Reason -eq 'DOWNGRADE_PROHIBITED' })
 Assert-V11 ($downExcl.Count -ge 1) "PreventivelyExcluded classifica modelos inferiores como DOWNGRADE_PROHIBITED"
 
@@ -164,11 +166,10 @@ Assert-V11 ($verifExact.ProofStatus -eq 'EXACT_MATCH') "Execucao com modelo e pr
 Assert-V11 ($verifExact.IsExactMatch -eq $true) "IsExactMatch e true"
 Assert-V11 ($verifExact.IsCrossProvider -eq $false) "Sem troca cross-provider"
 
-# 4.2 AUTHORIZED_FALLBACK com auditoria cross-provider
+# 4.2 CandidateModel in HOLD is not an AUTHORIZED_FALLBACK
 $verifFb = Test-ExecutedModelVerification -RequestedSelection $selCoderBase -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna'; AuthorizedFallback = $fbCoderCross } -NativeModelOverrideProven $true
-Assert-V11 ($verifFb.ProofStatus -eq 'AUTHORIZED_FALLBACK') "Fallback previamente autorizado retorna AUTHORIZED_FALLBACK"
-Assert-V11 ($verifFb.IsAuthorizedFallback -eq $true) "IsAuthorizedFallback e true"
-Assert-V11 ($verifFb.IsCrossProvider -eq $true) "Troca cross-provider registrada na auditoria (opencode-go -> openai)"
+Assert-V11 ($verifFb.ProofStatus -eq 'UNAUTHORIZED_MISMATCH') "Fallback CandidateModel em HOLD nunca retorna AUTHORIZED_FALLBACK"
+Assert-V11 ($verifFb.IsAuthorizedFallback -eq $false) "IsAuthorizedFallback permanece false sob HOLD"
 
 # 4.3 UNAUTHORIZED_MISMATCH na substituicao nao autorizada
 $verifMismatch = Test-ExecutedModelVerification -RequestedSelection $selCoderBase -ExecutedModelEvent @{ Model = 'openai/gpt-6.1-sol' } -NativeModelOverrideProven $true
@@ -195,10 +196,10 @@ Assert-V11 ($sigInvalid.Admitted -eq $false) "Escalonamento ao Advisor meramente
 
 # 5.2 Advisor permanece em Terra sem prova kernel-owned (recibo arbitrario nao autoriza T4)
 $selAdvNormal = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-V11 ($selAdvNormal.Tier -eq 'T3' -and $selAdvNormal.selected_model_id -eq 'openai/gpt-6.1-terra') "Advisor normal utiliza GPT-6.1 Terra"
+Assert-V11 ($selAdvNormal.Tier -eq 'T3' -and $selAdvNormal.selected_model_id -eq 'claude-agent/sonnet') "Advisor normal utiliza Sonnet T3"
 
 $selAdvDeadlockAuth = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:advisor-v11' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-V11 ($selAdvDeadlockAuth.Tier -eq 'T3' -and $selAdvDeadlockAuth.selected_model_id -eq 'openai/gpt-6.1-terra') "Advisor em deadlock com recibo arbitrario permanece em Terra (exige prova kernel-owned)"
+Assert-V11 ($selAdvDeadlockAuth.Tier -eq 'T3' -and $selAdvDeadlockAuth.selected_model_id -eq 'claude-agent/sonnet') "Advisor em deadlock com recibo arbitrario permanece em Sonnet (exige prova kernel-owned)"
 
 # 5.3 Astra excepcional: requer autorizacao de orcamento excepcional
 $catAstra = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } }
@@ -206,7 +207,7 @@ Assert-V11 ($catAstra.IsAuthorized -eq $false) "Astra sem autorizacao de orcamen
 
 $catAstraGeneral = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } } -ProviderCostAuthorized $true
 Assert-V11 ($catAstraGeneral.IsAuthorized -eq $false) "Astra com ProviderCostAuthorized=true NAO e autorizado (requer OPENCODE_ASTRA_AUTHORIZED)"
-Assert-V11 ($catAstraGeneral.CostAuthorizationSource -eq 'ASTRA_REQUIRES_VERIFIED_SOL_FAILURE') "Astra rejeitado com ASTRA_EXCEPTIONAL_BUDGET_REQUIRED"
+Assert-V11 ($catAstraGeneral.CostAuthorizationSource -eq 'ASTRA_REQUIRES_VERIFIED_OPUS_FAILURE') "Astra rejeitado com ASTRA_EXCEPTIONAL_BUDGET_REQUIRED"
 
 $env:OPENCODE_ASTRA_AUTHORIZED = 'true'
 $catAstraAuth = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } }
