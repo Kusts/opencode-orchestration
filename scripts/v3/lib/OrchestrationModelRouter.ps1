@@ -786,6 +786,26 @@ function Resolve-OrchestrationModelFallback {
             }
         }
 
+        # Cost-policy fail-closed: candidate-level cost_profile flags are a
+        # budget precondition, evaluated before capability proof gates.
+        # RequiresCost needs per-call cost authorization; Exceptional needs
+        # exceptional budget authorization. Neither is inferred from tier,
+        # failure count, receipts, or the T4/Sol proof gates below.
+        if ([bool]$CandObj.RequiresCost) {
+            $hasCostAuth = ([bool]$ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))
+            if (-not $hasCostAuth) {
+                & $RecordExclusion $mId $tier 'COST_AUTHORIZATION_REQUIRED'
+                return $null
+            }
+        }
+        if ([bool]$CandObj.Exceptional) {
+            $hasExcAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
+            if (-not $hasExcAuth) {
+                & $RecordExclusion $mId $tier 'EXCEPTIONAL_BUDGET_AUTHORIZATION_REQUIRED'
+                return $null
+            }
+        }
+
         # T4 is a capability escalation, never a reaction to a transient provider outage.
         # Kernel-owned gate: requires T3 failure proof for the exact task.
         if ($tier -eq 'T4' -and $reqTier -ne 'T4') {

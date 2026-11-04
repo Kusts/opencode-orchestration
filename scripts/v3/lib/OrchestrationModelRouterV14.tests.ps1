@@ -170,6 +170,43 @@ try {
 } finally {
     try { if (Test-Path -LiteralPath $routerFailureRootV14) { Remove-Item -LiteralPath $routerFailureRootV14 -Recurse -Force -ErrorAction SilentlyContinue } } catch { }
 }
+# PR207-COST-POLICY-FALLBACK-GATE: cost_profile fail-closed (no provider calls).
+# Temp policy copy flips luna.requires_authorization and deepseek_go.exceptional flag;
+# committed registry stays all-false. Both gates must exclude without AUTHORIZED.
+$costGatePolPath = Join-Path ([IO.Path]::GetTempPath()) ('v14-cost-gate-' + [guid]::NewGuid().ToString('N') + '.json')
+try {
+    $costBaseRaw = [IO.File]::ReadAllText((Join-Path (Get-Location) 'source\registry\model-routing-policy.json'), [Text.UTF8Encoding]::UTF8)
+    $costBasePol = ($costBaseRaw | ConvertFrom-Json -ErrorAction Stop)
+    $costBasePol.models.luna.cost_profile.requires_authorization = $true
+    $costBasePol.models.deepseek_go.cost_profile.requires_authorization = $false
+    $costBasePol.models.deepseek_go.cost_profile | Add-Member -NotePropertyName 'exceptional_budget_required' -NotePropertyValue $true -Force
+    [IO.File]::WriteAllText($costGatePolPath, ($costBasePol | ConvertTo-Json -Depth 16 -Compress), [Text.UTF8Encoding]::new($false))
+    $sCostGate = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+    $prevT4Auth = [string]$env:OPENCODE_T4_AUTHORIZED
+    $prevAstraAuth = [string]$env:OPENCODE_ASTRA_AUTHORIZED
+    try {
+        Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue
+        Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue
+        $fCostReq = Resolve-OrchestrationModelFallback -RequestedSelection $sCostGate -FailedModel 'opencode-go/muse-spark-1.3-contributor' -TriggerReason 'RATE_LIMIT' -ProviderCostAuthorized $false -IgnoreUserConfig $true -PolicyPath $costGatePolPath
+        $costExcl = @($fCostReq.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'openai/gpt-6-luna' -and [string]$_.Reason -ceq 'COST_AUTHORIZATION_REQUIRED' })
+        Assert-V14 (($fCostReq.FallbackModel -ne 'openai/gpt-6-luna' -and $costExcl.Count -ge 1) -and -not ($fCostReq.Status -eq 'AUTHORIZED' -and [bool]$fCostReq.ProviderCostAuthorized -and [string]$fCostReq.FallbackModel -eq 'openai/gpt-6-luna')) 'cost-profile-requires-authorization-excluded-fail-closed'
+        $fExcReq = Resolve-OrchestrationModelFallback -RequestedSelection $sCostGate -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -ProviderCostAuthorized $false -IgnoreUserConfig $true -PolicyPath $costGatePolPath
+        $excExcl = @($fExcReq.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$_.Reason -ceq 'EXCEPTIONAL_BUDGET_AUTHORIZATION_REQUIRED' })
+        Assert-V14 (($fExcReq.FallbackModel -ne 'opencode-go/deepseek-v4.1-flash' -and $excExcl.Count -ge 1) -and -not ($fExcReq.Status -eq 'AUTHORIZED' -and [bool]$fExcReq.ProviderCostAuthorized -and [string]$fExcReq.FallbackModel -eq 'opencode-go/deepseek-v4.1-flash')) 'exceptional-budget-required-excluded-fail-closed'
+        # PR207-EXCEPTIONAL-COST-AUTH-REGRESSION: ProviderCostAuthorized must not
+        # bypass the exceptional budget gate. Astra env stays unset here; only
+        # the general cost flag is true, and deepseek_go requires_authorization
+        # is false so the RequiresCost gate cannot explain the exclusion.
+        $fExcCostOnly = Resolve-OrchestrationModelFallback -RequestedSelection $sCostGate -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -ProviderCostAuthorized $true -IgnoreUserConfig $true -PolicyPath $costGatePolPath
+        $excCostOnlyExcl = @($fExcCostOnly.PreventivelyExcluded | Where-Object { [string]$_.Model -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$_.Reason -ceq 'EXCEPTIONAL_BUDGET_AUTHORIZATION_REQUIRED' })
+        Assert-V14 (($fExcCostOnly.FallbackModel -ne 'opencode-go/deepseek-v4.1-flash' -and $excCostOnlyExcl.Count -ge 1) -and -not ($fExcCostOnly.Status -eq 'AUTHORIZED' -and [string]$fExcCostOnly.FallbackModel -eq 'opencode-go/deepseek-v4.1-flash')) 'exceptional-budget-provider-cost-does-not-authorize'
+    } finally {
+        if (-not [string]::IsNullOrEmpty($prevT4Auth)) { $env:OPENCODE_T4_AUTHORIZED = $prevT4Auth } else { Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue }
+        if (-not [string]::IsNullOrEmpty($prevAstraAuth)) { $env:OPENCODE_ASTRA_AUTHORIZED = $prevAstraAuth } else { Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue }
+    }
+} finally {
+    try { if (Test-Path -LiteralPath $costGatePolPath) { Remove-Item -LiteralPath $costGatePolPath -Force -ErrorAction SilentlyContinue } } catch { }
+}
 Write-Host "RESULTS $script:pass PASS, $script:fail FAIL"
 if ($script:fail -gt 0) { exit 1 }
 exit 0
