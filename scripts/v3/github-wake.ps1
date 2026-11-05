@@ -38,6 +38,19 @@
         -ResolveExecutor -ExecutorProofPath <proof.json> `
         [-GraphQLSnapshotFile <raw-fixture>]
 
+    Usage (explicit dirs, solo-maintainer opt-in, no live booleans):
+      powershell -NoProfile -File github-wake.ps1 -WaitsDir <dir> `
+        -TasksDir <dir> -GoalStoreDir <dir> -CheckpointDir <dir> `
+        -FlagsPath <flags.json> -ResolveAuthorization `
+        -ResolveExecutor -ExecutorProofPath <proof.json> `
+        -DeliveryProfile solo-maintainer `
+        -SoloInternalReviewsDir <operator-dir> `
+        [-GraphQLSnapshotFile <raw-fixture>]
+      The profile is an explicit operator opt-in only (CLI flag or
+      delivery_profile/solo_internal_reviews_dir in the JSON config);
+      wait documents never select a profile. Without the opt-in the
+      tick stays on the default profile (GitHub approval required).
+
     Liveness resolvers (opt-in, fail-closed, never persisted as authority):
       -ResolveLease (-LeaseFromWait alias): derive LeaseAlive per wait
         from lease_expires_utc/deadline_utc vs NowUtc. Lease/owner are
@@ -86,6 +99,8 @@ param(
     [string]$ConfigFile = '',
     [string]$FlagsPath = '',
     [string]$PolicyPath = '',
+    [string]$DeliveryProfile = '',
+    [string]$SoloInternalReviewsDir = '',
     [string]$GraphQLSnapshotFile = '',
     [string]$EventId = '',
     $MaxAgeSeconds = 300,
@@ -121,6 +136,8 @@ $GHW_SavedCheckpointDir = $CheckpointDir
 $GHW_SavedConfigFile = $ConfigFile
 $GHW_SavedFlagsPath = $FlagsPath
 $GHW_SavedPolicyPath = $PolicyPath
+$GHW_SavedDeliveryProfile = $DeliveryProfile
+$GHW_SavedSoloInternalReviewsDir = $SoloInternalReviewsDir
 $GHW_SavedGraphQLSnapshotFile = $GraphQLSnapshotFile
 $GHW_SavedEventId = $EventId
 $GHW_SavedMaxAgeSeconds = $MaxAgeSeconds
@@ -143,6 +160,8 @@ $CheckpointDir = $GHW_SavedCheckpointDir
 $ConfigFile = $GHW_SavedConfigFile
 $FlagsPath = $GHW_SavedFlagsPath
 $PolicyPath = $GHW_SavedPolicyPath
+$DeliveryProfile = $GHW_SavedDeliveryProfile
+$SoloInternalReviewsDir = $GHW_SavedSoloInternalReviewsDir
 $GraphQLSnapshotFile = $GHW_SavedGraphQLSnapshotFile
 $EventId = $GHW_SavedEventId
 $MaxAgeSeconds = $GHW_SavedMaxAgeSeconds
@@ -166,6 +185,8 @@ $CheckpointDir = $GHW_SavedCheckpointDir
 $ConfigFile = $GHW_SavedConfigFile
 $FlagsPath = $GHW_SavedFlagsPath
 $PolicyPath = $GHW_SavedPolicyPath
+$DeliveryProfile = $GHW_SavedDeliveryProfile
+$SoloInternalReviewsDir = $GHW_SavedSoloInternalReviewsDir
 $GraphQLSnapshotFile = $GHW_SavedGraphQLSnapshotFile
 $EventId = $GHW_SavedEventId
 $MaxAgeSeconds = $GHW_SavedMaxAgeSeconds
@@ -180,7 +201,7 @@ $AutoDispatchExpectedProjectId = $GHW_SavedAutoDispatchExpectedProjectId
 $MaxApiAttempts = $GHW_SavedMaxApiAttempts
 $TimeoutMs = $GHW_SavedTimeoutMs
 $OutFile = $GHW_SavedOutFile
-Remove-Variable -Name GHW_SavedWaitsDir, GHW_SavedTasksDir, GHW_SavedGoalStoreDir, GHW_SavedCheckpointDir, GHW_SavedConfigFile, GHW_SavedFlagsPath, GHW_SavedPolicyPath, GHW_SavedGraphQLSnapshotFile, GHW_SavedEventId, GHW_SavedMaxAgeSeconds, GHW_SavedNowUtc, GHW_SavedActorIdentitySource, GHW_SavedAuthorizationAlive, GHW_SavedExecutorPresent, GHW_SavedCancelRequested, GHW_SavedAutoDispatchEnabled, GHW_SavedAutoDispatchExpectedDirectory, GHW_SavedAutoDispatchExpectedProjectId, GHW_SavedMaxApiAttempts, GHW_SavedTimeoutMs, GHW_SavedOutFile, GHW_SavedSnapshotsDir -ErrorAction SilentlyContinue
+Remove-Variable -Name GHW_SavedWaitsDir, GHW_SavedTasksDir, GHW_SavedGoalStoreDir, GHW_SavedCheckpointDir, GHW_SavedConfigFile, GHW_SavedFlagsPath, GHW_SavedPolicyPath, GHW_SavedDeliveryProfile, GHW_SavedSoloInternalReviewsDir, GHW_SavedGraphQLSnapshotFile, GHW_SavedEventId, GHW_SavedMaxAgeSeconds, GHW_SavedNowUtc, GHW_SavedActorIdentitySource, GHW_SavedAuthorizationAlive, GHW_SavedExecutorPresent, GHW_SavedCancelRequested, GHW_SavedAutoDispatchEnabled, GHW_SavedAutoDispatchExpectedDirectory, GHW_SavedAutoDispatchExpectedProjectId, GHW_SavedMaxApiAttempts, GHW_SavedTimeoutMs, GHW_SavedOutFile, GHW_SavedSnapshotsDir -ErrorAction SilentlyContinue
 try {
     $GHW_LibDir = $PSScriptRoot
     $GHW_DeliveryLib = Join-Path $GHW_LibDir 'lib\OrchestrationDelivery.ps1'
@@ -303,6 +324,89 @@ function Resolve-GHWPolicy {
         return @{ ok = $true; policy = $pol; reason = '' }
     }
     catch { return @{ ok = $false; policy = $null; reason = 'policy-invalid' } }
+}
+
+function Test-OrchestrationGitHubWakeSoloProfile {
+    # Explicit operator opt-in only: '' (default regime) or a declared
+    # profile name (e.g. 'solo-maintainer'). Never sourced from wait
+    # documents: Planner-owned wait data cannot select a profile. Returns
+    # the normalized profile ('' when unset); malformed values normalize
+    # to '' and the CLI entrypoint rejects a non-empty malformed value
+    # fail-closed before any evaluation.
+    param([string]$Value = '')
+    try {
+        $v = ([string]$Value).Trim()
+        if ([string]::IsNullOrWhiteSpace($v)) { return '' }
+        if ($v.Length -gt 64) { return '' }
+        if ($v -cnotmatch '\A[A-Za-z0-9._-]+\z') { return '' }
+        return $v
+    }
+    catch { return '' }
+}
+
+function Read-GHWSoloInternalReview {
+    # Operator-owned internal-agent review record for ONE task. File:
+    # <SoloInternalReviewsDir>\<task_id>.json. Returns $null when the
+    # profile is default (never consulted) or the record is absent (the
+    # resume caller then holds REVIEW_PENDING), the parsed record when
+    # present, or a shape-invalid sentinel when unreadable/unparseable
+    # (the resume caller then holds INCONCLUSIVE internal-review-invalid,
+    # never a silent pass). Never reads wait documents.
+    param([string]$TaskId = '', [string]$SoloInternalReviewsDir = '', [string]$DeliveryProfile = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace(([string]$DeliveryProfile).Trim())) { return $null }
+        $dir = ([string]$SoloInternalReviewsDir).Trim()
+        if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
+        $tid = ([string]$TaskId).Trim()
+        if (-not (Test-GHWTaskName -Value $tid)) { return $null }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $null }
+        $p = Join-Path $dir ($tid + '.json')
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+        $bad = [pscustomobject]@{ approved = 'invalid'; head_sha = 'invalid'; reviewer_identity = 'invalid'; author_identity = 'invalid' }
+        $fi = $null
+        try { $fi = Get-Item -LiteralPath $p -Force } catch { $fi = $null }
+        if (($null -eq $fi) -or ([long]$fi.Length -le 0) -or ([long]$fi.Length -gt 8192)) { return $bad }
+        $doc = $null
+        try { $doc = ConvertFrom-Json ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)) } catch { $doc = $null }
+        if ($null -eq $doc) { return $bad }
+        return $doc
+    }
+    catch { return $null }
+}
+
+function Invoke-GHWResumeDecision {
+    # Single shared gate for the normal tick path and the partial-tick
+    # recovery path: identical DeliveryProfile plus operator-owned
+    # InternalReview inputs flow into the SAME resume caller (and its
+    # readiness validators). No readiness synthesis here, no authority,
+    # no NativeResume, no settlement: the caller decides, the tick only
+    # observes the decision.
+    [CmdletBinding()]
+    param(
+        $Wait = $null,
+        $Snapshot = $null,
+        $Policy = $null,
+        [string]$NowUtc = '',
+        $MaxAgeSeconds = 300,
+        [bool]$LeaseAlive = $false,
+        [bool]$OwnerAlive = $false,
+        [bool]$AuthorizationAlive = $false,
+        [bool]$ExecutorPresent = $false,
+        [bool]$CancelRequested = $false,
+        [bool]$AlreadyApplied = $false,
+        [string]$EventDedupKey = '',
+        [string]$DeliveryProfile = '',
+        $InternalReview = $null
+    )
+    try {
+        return (Test-OrchestrationGitHubResume -Wait $Wait -Snapshot $Snapshot -Policy $Policy `
+            -NowUtc $NowUtc -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $LeaseAlive `
+            -OwnerAlive $OwnerAlive -AuthorizationAlive $AuthorizationAlive `
+            -ExecutorPresent $ExecutorPresent -CancelRequested $CancelRequested `
+            -AlreadyApplied $AlreadyApplied -EventDedupKey $EventDedupKey `
+            -DeliveryProfile $DeliveryProfile -InternalReview $InternalReview)
+    }
+    catch { return $null }
 }
 
 function Find-GHWNewestCheckpoint {
@@ -2048,6 +2152,8 @@ function Invoke-GitHubWake {
         [string]$CheckpointDir = '',
         [string]$FlagsPath = '',
         $Policy = $null,
+        [string]$DeliveryProfile = '',
+        [string]$SoloInternalReviewsDir = '',
         [string]$GraphQLSnapshotFile = '',
         [string]$EventId = '',
         [long]$MaxAgeSeconds = 300,
@@ -2069,6 +2175,8 @@ function Invoke-GitHubWake {
     $kernelMutated = $false
     $anyResume = $false
     $nextAction = $null
+    $ghwProfile = Test-OrchestrationGitHubWakeSoloProfile -Value ([string]$DeliveryProfile)
+    $ghwSoloDir = ([string]$SoloInternalReviewsDir).Trim()
     try {
         $lw = $null
         try { $lw = Get-OrchestrationGitHubWaits -WaitsDir $WaitsDir } catch { $lw = $null }
@@ -2122,6 +2230,8 @@ function Invoke-GitHubWake {
                     [void]$items.Add([pscustomobject]$rec)
                     continue
                 }
+                $ghwInternal = $null
+                try { $ghwInternal = Read-GHWSoloInternalReview -TaskId $tid -SoloInternalReviewsDir $ghwSoloDir -DeliveryProfile $ghwProfile } catch { $ghwInternal = $null }
                 $evt = ([string]$EventId).Trim()
                 if ([string]::IsNullOrWhiteSpace($evt)) { $evt = ('evt-' + $tid) }
                 if (-not (Test-GHWEventId -Value $evt)) {
@@ -2191,11 +2301,12 @@ function Invoke-GitHubWake {
                 if ([bool]$already) {
                     $dec = $null
                     try {
-                        $dec = Test-OrchestrationGitHubResume -Wait $w -Snapshot $null -Policy $Policy `
+                        $dec = Invoke-GHWResumeDecision -Wait $w -Snapshot $null -Policy $Policy `
                             -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $leaseAlive `
                             -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                             -ExecutorPresent $false -CancelRequested $false `
-                            -AlreadyApplied $true -EventDedupKey ''
+                            -AlreadyApplied $true -EventDedupKey '' `
+                            -DeliveryProfile $ghwProfile -InternalReview $ghwInternal
                     }
                     catch { $dec = $null }
                     $dName = 'DUPLICATE_NOOP'
@@ -2246,11 +2357,12 @@ function Invoke-GitHubWake {
                                         $recSnap = Get-GHWValue $recObs 'snapshot' $null
                                         $recDec = $null
                                         try {
-                                            $recDec = Test-OrchestrationGitHubResume -Wait $w -Snapshot $recSnap -Policy $Policy `
+                                            $recDec = Invoke-GHWResumeDecision -Wait $w -Snapshot $recSnap -Policy $Policy `
                                                 -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $recLease `
                                                 -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                                                 -ExecutorPresent $ghwResolvedExec -CancelRequested ([bool]$CancelRequested) `
-                                                -AlreadyApplied $false -EventDedupKey $ddk
+                                                -AlreadyApplied $false -EventDedupKey $ddk `
+                                                -DeliveryProfile $ghwProfile -InternalReview $ghwInternal
                                         }
                                         catch { $recDec = $null }
                                         $recName = ''
@@ -2413,7 +2525,7 @@ function Invoke-GitHubWake {
                 $snap = $obs.snapshot
                 $probe = $null
                 try {
-                    $probe = Get-OrchestrationGitHubReadiness -Repository $repo -PrNumber $prNum -ExpectedHeadSha $expSha -Snapshot $snap -Policy $Policy -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds
+                    $probe = Get-OrchestrationGitHubReadiness -Repository $repo -PrNumber $prNum -ExpectedHeadSha $expSha -Snapshot $snap -Policy $Policy -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -DeliveryProfile $ghwProfile -InternalReview $ghwInternal
                 }
                 catch { $probe = $null }
                 if ($null -eq $probe) {
@@ -2425,11 +2537,12 @@ function Invoke-GitHubWake {
                 try { $rec['readiness_probe'] = ([string](Get-GHWValue $probe 'readiness' 'UNKNOWN')) } catch { }
                 $dec = $null
                 try {
-                    $dec = Test-OrchestrationGitHubResume -Wait $w -Snapshot $snap -Policy $Policy `
+                    $dec = Invoke-GHWResumeDecision -Wait $w -Snapshot $snap -Policy $Policy `
                         -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $leaseAlive `
                         -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                         -ExecutorPresent $ghwResolvedExec -CancelRequested ([bool]$CancelRequested) `
-                        -AlreadyApplied $false -EventDedupKey $ddk
+                        -AlreadyApplied $false -EventDedupKey $ddk `
+                        -DeliveryProfile $ghwProfile -InternalReview $ghwInternal
                 }
                 catch { $dec = $null }
                 if ($null -eq $dec) {
@@ -2598,6 +2711,8 @@ function New-GitHubWakeConfig {
         [string]$CheckpointDir = '',
         [string]$FlagsPath = '',
         [string]$PolicyPath = '',
+        [string]$DeliveryProfile = '',
+        [string]$SoloInternalReviewsDir = '',
         [string]$GraphQLSnapshotFile = '',
         [string]$EventId = '',
         $MaxAgeSeconds = 300,
@@ -2634,6 +2749,8 @@ function New-GitHubWakeConfig {
             waits_dir = ([string]$WaitsDir); tasks_dir = ([string]$TasksDir)
             goal_store_dir = ([string]$GoalStoreDir); checkpoint_dir = ([string]$CheckpointDir)
             flags_path = ([string]$FlagsPath); policy_path = ([string]$PolicyPath)
+            delivery_profile = ([string]$DeliveryProfile)
+            solo_internal_reviews_dir = ([string]$SoloInternalReviewsDir)
             graphql_snapshot_file = ([string]$GraphQLSnapshotFile); event_id = ([string]$EventId)
             max_age_seconds = $maxAge; now_utc = ([string]$NowUtc)
             actor_identity_source = ([string]$ActorIdentitySource)
@@ -3130,6 +3247,8 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         $effEventId = ([string]$EventId).Trim()
         $effNow = ([string]$NowUtc).Trim()
         $effActor = ([string]$ActorIdentitySource).Trim()
+        $effProfileRaw = ([string]$DeliveryProfile).Trim()
+        $effSoloDir = ([string]$SoloInternalReviewsDir).Trim()
         $effOut = ([string]$OutFile).Trim()
         $effAuth = [bool]$AuthorizationAlive
         $effExec = [bool]$ExecutorPresent
@@ -3163,6 +3282,8 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             if ([string]::IsNullOrWhiteSpace($effEventId)) { $effEventId = ([string](Get-GHWValue $cfgDoc 'event_id' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effNow)) { $effNow = ([string](Get-GHWValue $cfgDoc 'now_utc' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effActor)) { $effActor = ([string](Get-GHWValue $cfgDoc 'actor_identity_source' 'explicit-cli')).Trim() }
+            if ([string]::IsNullOrWhiteSpace($effProfileRaw)) { $effProfileRaw = ([string](Get-GHWValue $cfgDoc 'delivery_profile' '')).Trim() }
+            if ([string]::IsNullOrWhiteSpace($effSoloDir)) { $effSoloDir = ([string](Get-GHWValue $cfgDoc 'solo_internal_reviews_dir' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effOut)) { $effOut = ([string](Get-GHWValue $cfgDoc 'out_file' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effAuthProof)) { $effAuthProof = ([string](Get-GHWValue $cfgDoc 'authorization_proof_path' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effExecProof)) { $effExecProof = ([string](Get-GHWValue $cfgDoc 'executor_proof_path' '')).Trim() }
@@ -3199,8 +3320,12 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             # true; a run without explicit -AuthorizationAlive (and without
             # opt-in -ResolveAuthorization plus a live proof source) ends in
             # TERMINAL authorization-revoked, never RESUME. The config may
-            # only carry resolver opt-ins (resolve_* plus *_proof_path);
-            # resolve opt-ins consult live sources, they are not authority.
+            # only carry resolver opt-ins (resolve_* plus *_proof_path) plus
+            # the explicit delivery-profile opt-in (delivery_profile plus
+            # solo_internal_reviews_dir); they only allow the tick to
+            # consult live/operator sources, they are not authority.
+            # Planner-owned wait documents never select a profile, even
+            # when they carry a delivery_profile field (ignored).
             # Scheduler opt-in (auto_dispatch_*) lives in config: a scheduler
             # tick consumes the wake envelope through the auto-dispatch
             # scheduler path, which re-derives the root session from the
@@ -3282,11 +3407,21 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             Write-GHWEnvelope (New-GHWErrorEnvelope -Reason ([string]$polRes.reason))
             exit 1
         }
+        $effProfile = Test-OrchestrationGitHubWakeSoloProfile -Value $effProfileRaw
+        if ((-not [string]::IsNullOrWhiteSpace($effProfileRaw)) -and [string]::IsNullOrWhiteSpace($effProfile)) {
+            Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-delivery-profile')
+            exit 2
+        }
+        if ((-not [string]::IsNullOrWhiteSpace($effProfile)) -and ([string]::IsNullOrWhiteSpace($effSoloDir) -or (-not (Test-Path -LiteralPath $effSoloDir -PathType Container)))) {
+            Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-solo-reviews-dir')
+            exit 2
+        }
         $result = $null
         try {
             $result = Invoke-GitHubWake -WaitsDir $effWaitsDir -TasksDir $effTasksDir `
                 -GoalStoreDir $effGoalStoreDir -CheckpointDir $effCheckpointDir -FlagsPath $effFlagsPath `
-                -Policy $polRes.policy -GraphQLSnapshotFile $effFixture -EventId $effEventId `
+                -Policy $polRes.policy -DeliveryProfile $effProfile -SoloInternalReviewsDir $effSoloDir `
+                -GraphQLSnapshotFile $effFixture -EventId $effEventId `
                 -MaxAgeSeconds $effMaxAge -NowUtc $effNow -ActorIdentitySource $effActor `
                 -AuthorizationAlive $effAuth -ExecutorPresent $effExec -CancelRequested $effCancel `
                 -ResolveAuthorization $effResolveAuth -ResolveExecutor $effResolveExec `

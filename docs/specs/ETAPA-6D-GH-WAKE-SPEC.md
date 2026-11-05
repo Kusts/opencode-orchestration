@@ -300,6 +300,17 @@ activation, or Live is implied by this option.
 
 ## Gates (policy, sem excecao docs-only)
 
+- Os gates abaixo sao os gates do perfil default (`github_approval`
+  exigido) e sua evidencia historica pertence ao default: o tick vivo de
+  2026-10-31 (PR 181, `KEEP_WAITING`/`REVIEW_PENDING`), as provas offline
+  (`AUTO_DISPATCH_OFFLINE_PASS`, matriz P2, harness P3) e as certificacoes
+  ja registradas permanecem validas e inalteradas para o default. O
+  perfil solo nao reabre, revalida nem substitui nenhuma delas; ele
+  troca, somente no caminho opt-in, o passo de approval GitHub nao-self
+  por um registro de review de agente interno validado (ver Gates do
+  perfil solo). Revisao tecnica (prontidao) e autorizacao operacional
+  (merge, scheduler, Live, deploy) sao independentes: prontidao tecnica
+  nunca cria autorizacao operacional.
 - `READY_FOR_RESUME` (observacao) exige review humana legitima
   nao-self pela policy: o external-action gate recusa self-review
   (`SELF_REVIEW => POLICY_BLOCKED`, case-insensitive); sem approval
@@ -386,6 +397,22 @@ activation, or Live is implied by this option.
   custo/request e todos os demais blockers seguem inalterados;
   `ETAPA_6D_READY` operacional continua BLOQUEADO (sem merge, sem Live,
   sem scheduler).
+- Integracao ao wake agendado (2026-11-05, sem nova arquitetura):
+  o tick seleciona o perfil somente por opt-in explicito do operador
+  (`-DeliveryProfile` na CLI ou `delivery_profile` no JSON de config,
+  mais o diretorio operado `solo_internal_reviews_dir` com um
+  `<task_id>.json` por task); documentos de wait nunca selecionam
+  perfil, mesmo quando carregam um campo `delivery_profile` (ignorado).
+  O caminho normal e o caminho de recuperacao de tick parcial usam os
+  mesmos gates sem duplicacao (`Invoke-GHWResumeDecision` alimenta o
+  mesmo `Test-OrchestrationGitHubResume` e os mesmos validadores de
+  readiness). Prontidao sem autorizacao/executor nao chama NativeResume
+  nem settlement: sem RESUME nao ha next_action, e sem next_action o
+  handoff opt-in nao executa. Task Kernel, NativeDispatch e
+  ExternalActionGate nao foram modificados.
+- Atestacao RSA segue experimental e BLOCKED: desconectada do caminho
+  de readiness, nunca pre-requisito, sem emissores confiaveis e sem
+  material de chave (`source/registry/solo-attestation-policy.json`).
 
 ### Contrato criptográfico offline — experimental, sem pré-requisito
 
