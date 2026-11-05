@@ -73,7 +73,8 @@ if ($null -ne $tmpl) {
     $node = $null
     try { $node = $tmpl.agents.$p } catch { $node = $null }
     Assert (($null -ne $node) -and ([string]$node.mode -ceq 'subagent')) ('planning com mode subagent: ' + $p)
-    Assert (($null -ne $node) -and ([string]$node.model -ceq 'x/cheap')) ('planning com model cheap: ' + $p)
+    $expectedModel = if ($p -ceq 'engineering-advisor') { 'x/strong' } else { 'x/cheap' }
+    Assert (($null -ne $node) -and ([string]$node.model -ceq $expectedModel)) ('planning model tier correta: ' + $p + ' -> ' + $expectedModel)
   }
 }
 

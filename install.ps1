@@ -515,12 +515,12 @@ function Merge-ManagedAgentConfig($ExistingAgent, $DesiredAgent) {
       if ($null -eq $b) { $b = (New-Object PSObject); Set-Prop $ExistingAgent 'build' $b }
       if (Set-PropIfDifferent $b 'mode' $desiredEntry.mode) { }
       [void]$appliedPaths.Add('agent.build.mode')
+      if (Has-Member $desiredEntry 'model') { Set-PropIfDifferent $b 'model' $desiredEntry.model | Out-Null }
+      [void]$appliedPaths.Add('agent.build.model')
       if (Has-Member $desiredEntry 'permission') {
         Merge-ManagedPermissionTask $b $desiredEntry.permission | Out-Null
         [void]$appliedPaths.Add('agent.build.permission.task')
       }
-      Remove-Prop $b 'model'
-      [void]$appliedPaths.Add('agent.build.model=ABSENT')
       continue
     }
     if ($key -eq 'title') {
@@ -565,7 +565,7 @@ function Get-DesiredManagedPaths($Desired) {
     if ($key -eq 'build') {
       [void]$paths.Add('agent.build.mode')
       [void]$paths.Add('agent.build.permission.task')
-      [void]$paths.Add('agent.build.model=ABSENT')
+      [void]$paths.Add('agent.build.model')
       continue
     }
     if ($key -eq 'title') { [void]$paths.Add('agent.title.model'); continue }
@@ -618,10 +618,10 @@ function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents, [switch]$Sk
       $node = $ExistingAgents.$key
       if ($key -eq 'build') {
         if (Set-PropIfDifferent $node 'mode' $desiredEntry.mode) { }
+        if (Has-Member $desiredEntry 'model') { Set-PropIfDifferent $node 'model' $desiredEntry.model | Out-Null }
         if ((-not $SkipPermissions) -and (Has-Member $desiredEntry 'permissions')) {
           if (Set-PropIfDifferent $node 'permissions' $desiredEntry.permissions) { }
         }
-        Remove-Prop $node 'model'
       }
       elseif ($key -eq 'title') {
         if (Has-Member $desiredEntry 'model') {
@@ -643,7 +643,7 @@ function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents, [switch]$Sk
     if ($key -eq 'build') {
       [void]$appliedPaths.Add('agents.build.mode')
       if (-not $SkipPermissions) { [void]$appliedPaths.Add('agents.build.permissions') }
-      [void]$appliedPaths.Add('agents.build.model=ABSENT')
+      [void]$appliedPaths.Add('agents.build.model')
     }
     elseif ($key -eq 'title') {
       [void]$appliedPaths.Add('agents.title.model')
@@ -666,7 +666,7 @@ function Get-DesiredManagedPathsV2($Desired) {
     if ($key -eq 'build') {
       [void]$paths.Add('agents.build.mode')
       [void]$paths.Add('agents.build.permissions')
-      [void]$paths.Add('agents.build.model=ABSENT')
+      [void]$paths.Add('agents.build.model')
       continue
     }
     if ($key -eq 'title') { [void]$paths.Add('agents.title.model'); continue }
@@ -809,11 +809,17 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   }
   if ($agentCount -ne 17) { $errs += ('template: esperado 17 blocos agent, encontrado ' + $agentCount) }
   if (Has-Member $desired.agent 'build') {
-    if (Has-Member $desired.agent.build 'model') {
-      $errs += 'template: bloco build nao deve conter "model" (DH-03, heranca de sessao).'
+    if (-not (Has-Member $desired.agent.build 'model') -or [string]$desired.agent.build.model -cne $Planner) {
+      $errs += 'template: agent.build.model deve ser MODEL_PLANNER (Planner Luna, isolado do modelo global).'
     }
   }
   else { $errs += 'template: bloco agent.build ausente.' }
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'openai/gpt-6-luna') {
+    $errs += 'template: modelo global deve permanecer openai/gpt-6-luna.'
+  }
+  if ((Has-Member $desired.agent 'title') -and [string]$desired.agent.title.model -cne 'openai/gpt-6-luna') {
+    $errs += 'template: agente title deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'
+  }
   if ((Count-TokenMarkers $resolved) -ne 0) { $errs += 'template: tokens nao resolvidos apos substituicao.' }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Desired = $null } }
   return @{ Ok = $true; Errors = @(); Desired = $desired }
@@ -822,7 +828,7 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
 function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/iceman-contributor-free') {
   # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
   # experimental.subagent_depth), 21 blocos agents (build + title + 15
-  # subagents explicitos + 4 planning), build sem model,
+  # subagents explicitos + 4 planning), build.model isolado por MODEL_PLANNER,
   # tokens resolvidos. Mesmos exit paths (precheck exit 3, nada escrito).
   $errs = @()
   $tmplPath = Join-Path $Root 'templates\opencode.v2.json.tmpl'
@@ -843,8 +849,8 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
   if ($agentCount -ne 21) { $errs += ('template V2: esperado 21 blocos agents, encontrado ' + $agentCount) }
   if (Has-Member $desired 'agents') {
     if (Has-Member $desired.agents 'build') {
-      if (Has-Member $desired.agents.build 'model') {
-        $errs += 'template V2: bloco build nao deve conter "model" (DH-03, heranca de sessao).'
+      if (-not (Has-Member $desired.agents.build 'model') -or [string]$desired.agents.build.model -cne $Planner) {
+        $errs += 'template V2: agents.build.model deve ser MODEL_PLANNER (Planner Luna, isolado do modelo global).'
       }
       if (-not (Has-Member $desired.agents.build 'permissions')) {
         $errs += 'template V2: bloco agents.build sem permissions array.'
@@ -859,6 +865,12 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
     else { $errs += 'template V2: bloco agents.title ausente.' }
   }
   else { $errs += 'template V2: bloco agents ausente.' }
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'openai/gpt-6-luna') {
+    $errs += 'template V2: modelo global deve permanecer openai/gpt-6-luna.'
+  }
+  if ((Has-Member $desired.agents 'title') -and [string]$desired.agents.title.model -cne 'openai/gpt-6-luna') {
+    $errs += 'template V2: agents.title.model deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'
+  }
   if (Has-Member $desired 'agent') { $errs += 'template V2: contem chave legada "agent" (singular).' }
   if (Has-Member $desired 'subagent_depth') { $errs += 'template V2: contem chave legada "subagent_depth" no topo (use experimental.subagent_depth).' }
   if (-not (Has-Member $desired 'experimental')) { $errs += 'template V2: bloco experimental ausente.' }
@@ -1706,10 +1718,6 @@ elseif ($IsV2) {
         $hasA = (Has-Member $after.agents $ak) -and (Has-Member $after.agents.$ak $leaf)
         $av = $null
         if ($hasA) { $av = Convert-Canonical $after.agents.$ak.$leaf }
-        if ($ak -eq 'build' -and $leaf -eq 'model') {
-          if ($hasB) { Add-Plan 'UPDATE' 'agents.build.model (REMOVIDO, heranca de sessao)' }
-          continue
-        }
         if ($bv -ne $av) { Add-Plan 'UPDATE' ('agents.' + $ak + '.' + $leaf) }
       }
     }
@@ -1735,11 +1743,6 @@ elseif ($IsV2) {
           Add-Plan 'PRESERVE' ('agents.' + $ak + '.' + $prop + ' (propriedade desconhecida)')
         }
       }
-    }
-  }
-  if ((Has-Member $before 'agents') -and (Has-Member $before.agents 'build')) {
-    if (Has-Member $before.agents.build 'model') {
-      Add-Plan 'UPDATE' 'agents.build.model (REMOVIDO, heranca de sessao)'
     }
   }
   if (($configFileName -eq 'opencode.jsonc') -and $configHadComments) {
@@ -1768,10 +1771,6 @@ else {
         $hasA = (Has-Member $after.agent $ak) -and (Has-Member $after.agent.$ak $leaf)
         $av = $null
         if ($hasA) { $av = Convert-Canonical $after.agent.$ak.$leaf }
-        if ($ak -eq 'build' -and $leaf -eq 'model') {
-          if ($hasB) { Add-Plan 'UPDATE' 'agent.build.model (REMOVIDO, heranca de sessao)' }
-          continue
-        }
         if ($bv -ne $av) { Add-Plan 'UPDATE' ('agent.' + $ak + '.' + $leaf) }
       }
     }
@@ -1794,11 +1793,6 @@ else {
           Add-Plan 'PRESERVE' ('agent.' + $ak + '.' + $prop + ' (propriedade desconhecida)')
         }
       }
-    }
-  }
-  if (Has-Member $before.agent 'build') {
-    if (Has-Member $before.agent.build 'model') {
-      Add-Plan 'UPDATE' 'agent.build.model (REMOVIDO, heranca de sessao)'
     }
   }
   if (($configFileName -eq 'opencode.jsonc') -and $configHadComments) {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "{{MODEL_PLANNER}}",
+  "model": "openai/gpt-6-luna",
   "default_agent": "build",
   "experimental": {
     "subagent_depth": 1
@@ -8,6 +8,7 @@
   "agents": {
     "build": {
       "mode": "primary",
+      "model": "{{MODEL_PLANNER}}",
       "permissions": [
         { "action": "subagent", "resource": "*", "effect": "deny" },
         { "action": "subagent", "resource": "ai-agent-engineer", "effect": "allow" },
@@ -32,7 +33,7 @@
       ]
     },
     "title": {
-      "model": "{{MODEL_PLANNER}}"
+      "model": "openai/gpt-6-luna"
     },
     "explorer": {
       "mode": "subagent",
@@ -43,7 +44,7 @@
     },
     "researcher": {
       "mode": "subagent",
-      "model": "{{MODEL_CHEAP}}",
+      "model": "{{MODEL_FREE}}",
       "permissions": [
         { "action": "subagent", "resource": "*", "effect": "deny" }
       ]
@@ -57,7 +58,7 @@
     },
     "tester": {
       "mode": "subagent",
-      "model": "{{MODEL_CHEAP}}",
+      "model": "{{MODEL_FREE}}",
       "permissions": [
         { "action": "subagent", "resource": "*", "effect": "deny" }
       ]
@@ -148,7 +149,7 @@
     },
     "engineering-advisor": {
       "mode": "subagent",
-      "model": "{{MODEL_CHEAP}}",
+      "model": "{{MODEL_STRONG}}",
       "permissions": [
         { "action": "subagent", "resource": "*", "effect": "deny" }
       ]

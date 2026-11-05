@@ -2,11 +2,12 @@
 .SYNOPSIS
     Fable gate contract: Astra availability only, proved pre-execution (CA-FABLE-FIX).
 .DESCRIPTION
-    Fable is only an Astra availability fallback. Astra is reached only after
-    proven incapacity (existing kernel gate). Availability fallback only when
-    execution demonstrably has not started. Ambiguous timeout: no replay.
+    Fable is only an Astra-ordered audit candidate (HOLD, never dispatched).
+    Astra is reached only after kernel-owned T4 Opus failure proof plus the
+    dedicated exceptional budget authorization; technical fallback stays HOLD.
     A raw non-empty VerifiedFailureReceipt plus AttemptedModels containing
-    Astra is NOT proof. VERIFIED_TASK_FAILURE never authorizes Fable.
+    Astra is NOT proof. VERIFIED_TASK_FAILURE never authorizes Fable; the
+    functional path requires read-only task-kernel model-select with sticky proof.
     Productive native dispatch stays HOLD: the test-only DispatchExecutor seam
     makes EXACTLY ONE call (no retry, no automatic fallback).
     Run: pwsh -NoProfile -File scripts/v3/lib/OrchestrationModelRouterFableGate.tests.ps1
@@ -31,23 +32,25 @@ function Assert-FG([bool]$Condition, [string]$Name) {
 $sT3Sel = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $sT4 = $sT3Sel | Select-Object *
 $sT4.Tier = 'T4'
-$sT4.CatalogModel = 'openai/gpt-6.1-sol'
-Assert-FG ($sT4.Tier -eq 'T4' -and $sT4.CatalogModel -eq 'openai/gpt-6.1-sol') 'fg-setup-T4-shape'
+$sT4.CatalogModel = 'claude-agent/opus'
+Assert-FG ($sT4.Tier -eq 'T4' -and $sT4.CatalogModel -eq 'claude-agent/opus') 'fg-setup-T4-shape'
 Assert-FG ([string]$sT3Sel.Tier -ne 'T4') 'fg-raw-receipts-never-enter-T4'
 
-# 1. Positive: Astra availability proved pre-execution -> Fable (all gates pass).
+# 1. Astra availability with proved pre-execution evidence surfaces Fable as a
+#    non-authorizing audit candidate (HOLD): ordered first, never dispatched.
 $fPos = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-FG ($fPos.Status -eq 'AUTHORIZED' -and $fPos.FallbackModel -eq 'claude-agent/fable') 'fg-positive-astra-availability-to-fable'
-Assert-FG ($fPos.FallbackTier -eq 'T4') 'fg-positive-tier-T4'
+Assert-FG ($fPos.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fPos.FallbackModel -eq $null -and $fPos.CandidateModel -eq 'claude-agent/fable') 'fg-positive-astra-availability-to-fable'
+Assert-FG ($fPos.FallbackTier -eq 'T4' -and -not [bool]$fPos.IsAuthorized) 'fg-positive-tier-T4'
 
-# 2. Opus must not jump ahead when Astra was the failed model.
+# 2. Opus must not jump ahead when Astra was the failed model; Fable is the
+#    ordered audit candidate (never a generic dispatched fallback).
 Assert-FG ($fPos.FallbackModel -ne 'claude-agent/opus') 'fg-no-opus-jump-ahead'
-Assert-FG ($fPos.FallbackModel -eq 'claude-agent/fable') 'fg-fable-before-generic'
+Assert-FG ($fPos.CandidateModel -eq 'claude-agent/fable' -and $fPos.FallbackModel -eq $null) 'fg-fable-before-generic'
 
 # 3. VERIFIED_TASK_FAILURE with generic receipt is NOT proof (even with no-start flag).
 $fVer = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra','claude-agent/opus') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:ca-fable' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-FG ($fVer.FallbackModel -ne 'claude-agent/fable') 'fg-negative-verified-task-failure-blocked'
-Assert-FG ($fVer.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') 'fg-verified-failure-exhausts'
+Assert-FG ($fVer.Status -eq 'KERNEL_MODEL_SELECT_REQUIRED' -and $fVer.FallbackModel -eq $null) 'fg-verified-failure-requires-kernel'
 
 # 4. Mismatched task receipt still blocked.
 $fMisTask = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:other-task-9' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
@@ -67,7 +70,7 @@ Assert-FG ($fFalseFlag.FallbackModel -ne 'claude-agent/fable') 'fg-negative-expl
 # 7. Ambiguous timeout: no replay, no Fable (both flag values).
 $fTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'TIMEOUT' -NoExecutionStarted $false -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-FG ($fTimeout.FallbackModel -ne 'claude-agent/fable') 'fg-negative-timeout-ambiguous'
-Assert-FG ($fTimeout.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') 'fg-timeout-exhausts'
+Assert-FG ($fTimeout.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fTimeout.FallbackModel -eq $null) 'fg-timeout-holds-no-replay'
 $fTimeoutTrue = Resolve-OrchestrationModelFallback -RequestedSelection $sT4 -FailedModel 'openai/gpt-6-astra' -AttemptedModels @('openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-FG ($fTimeoutTrue.FallbackModel -ne 'claude-agent/fable') 'fg-negative-timeout-even-with-flag'
 

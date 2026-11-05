@@ -181,14 +181,14 @@ function New-StaticSeam {
     }).GetNewClosure()
 }
 
-function New-TerraSeam {
+function New-SonnetSeam {
     param([string]$Session, [string]$Parent, [string]$Message)
-    return (New-StaticSeam -Session $Session -Parent $Parent -Provider 'openai' -ModelShort 'gpt-6.1-terra' -Message $Message)
+    return (New-StaticSeam -Session $Session -Parent $Parent -Provider 'claude-agent' -ModelShort 'sonnet' -Message $Message)
 }
 
-function New-SolSeam {
+function New-OpusSeam {
     param([string]$Session, [string]$Parent, [string]$Message)
-    return (New-StaticSeam -Session $Session -Parent $Parent -Provider 'openai' -ModelShort 'gpt-6.1-sol' -Message $Message)
+    return (New-StaticSeam -Session $Session -Parent $Parent -Provider 'claude-agent' -ModelShort 'opus' -Message $Message)
 }
 
 function New-GrowingSeam {
@@ -321,7 +321,7 @@ try {
     $fr = New-ModelProofTask -T $t -PolPath $polPath -Id 'proof-forged-001'
     $bfr = Invoke-ProofBindFlow -T $t -Id 'proof-forged-001' -Run 'run-fr' -Root 'ses_root_fr' -Child 'ses_child_fr' -Rev 1
     $null = Invoke-ProofFailResult -T $t -Id 'proof-forged-001' -Rev ([int]$bfr.revision) -SessionRef 'ses_child_fr' -MessageRefs @('msg_fr_1')
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_fr' -Parent 'ses_root_fr' -Message 'msg_fr_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_fr' -Parent 'ses_root_fr' -Message 'msg_fr_1')
     $rfr = Set-OrchestrationTaskModelAttempt -TaskId 'proof-forged-001' -ChildSessionId 'ses_child_fr' -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-forged-001') -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rfr.ok) 'forged fixture attempt recorded'
     $gfrAttempt = Get-OrchestrationTask -TaskId 'proof-forged-001' -TasksDir $t.tasks
@@ -476,7 +476,7 @@ try {
     $ub = New-ModelProofTask -T $t -PolPath $polPath -Id 'proof-nobind-001'
     $fu2 = Join-Path $t.tasks 'proof-nobind-001.json'
     $beforeU2 = Get-ModelProofBytesHash -Path $fu2
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_orphan_1' -Parent 'ses_root_x' -Message 'msg_orphan_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_orphan_1' -Parent 'ses_root_x' -Message 'msg_orphan_1')
     $ru = Set-OrchestrationTaskModelAttempt -TaskId 'proof-nobind-001' -ChildSessionId 'ses_orphan_1' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     $afterU2 = Get-ModelProofBytesHash -Path $fu2
     Assert-ModelProof (((-not [bool]$ru.ok) -and ([string]$ru.error -ceq 'MODEL_ATTEMPT_SESSION_NOT_BOUND') -and ($beforeU2 -ceq $afterU2))) 'unbound child session rejected with bytes unchanged'
@@ -490,7 +490,7 @@ try {
     $null = Invoke-ProofFailResult -T $t -Id 'proof-unnamed-001' -Rev ([int]$bn.revision)
     $fnj = Join-Path $t.tasks 'proof-unnamed-001.json'
     $beforeN = Get-ModelProofBytesHash -Path $fnj
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_n1' -Parent 'ses_root_n1' -Message 'msg_n1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_n1' -Parent 'ses_root_n1' -Message 'msg_n1')
     $rn = Set-OrchestrationTaskModelAttempt -TaskId 'proof-unnamed-001' -ChildSessionId 'ses_child_n1' -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-unnamed-001') -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     $afterN = Get-ModelProofBytesHash -Path $fnj
     Assert-ModelProof (((-not [bool]$rn.ok) -and ([string]$rn.error -ceq 'MODEL_ATTEMPT_SESSION_UNCORRELATED') -and ($beforeN -ceq $afterN))) 'bound child unnamed by failing candidate cannot record'
@@ -499,7 +499,7 @@ try {
     $mm = New-ModelProofTask -T $t -PolPath $polPath -Id 'proof-msgmm-001'
     $bmm = Invoke-ProofBindFlow -T $t -Id 'proof-msgmm-001' -Run 'run-mm' -Root 'ses_root_mm2' -Child 'ses_child_mm2' -Rev 1
     $null = Invoke-ProofFailResult -T $t -Id 'proof-msgmm-001' -Rev ([int]$bmm.revision) -SessionRef 'ses_child_mm2' -MessageRefs @('msg_named_a')
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_mm2' -Parent 'ses_root_mm2' -Message 'msg_other_b')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_mm2' -Parent 'ses_root_mm2' -Message 'msg_other_b')
     $rmm = Set-OrchestrationTaskModelAttempt -TaskId 'proof-msgmm-001' -ChildSessionId 'ses_child_mm2' -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-msgmm-001') -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof (((-not [bool]$rmm.ok) -and ([string]$rmm.error -ceq 'MODEL_ATTEMPT_MESSAGE_MISMATCH'))) 'named message mismatch with host observation fails closed'
     Clear-TaskKernelSessionReader
@@ -510,7 +510,7 @@ try {
     $null = Invoke-ProofFailResult -T $t -Id 'proof-foreign-001' -Rev ([int]$bf.revision) -SessionRef 'ses_child_f1' -MessageRefs @('msg_f1')
     $ff = Join-Path $t.tasks 'proof-foreign-001.json'
     $beforeF = Get-ModelProofBytesHash -Path $ff
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_f1' -Parent 'ses_foreign_parent' -Message 'msg_f1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_f1' -Parent 'ses_foreign_parent' -Message 'msg_f1')
     $rf = Set-OrchestrationTaskModelAttempt -TaskId 'proof-foreign-001' -ChildSessionId 'ses_child_f1' -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-foreign-001') -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     $afterF = Get-ModelProofBytesHash -Path $ff
     Assert-ModelProof (((-not [bool]$rf.ok) -and ([string]$rf.error -ceq 'SESSION_PARENT_MISMATCH') -and ($beforeF -ceq $afterF))) 'foreign parent session rejected with bytes unchanged'
@@ -585,20 +585,20 @@ try {
     $null = Invoke-ProofFailResult -T $s3 -Id 'proof-t3-001' -Rev ([int]$bs.revision) -SessionRef 'ses_child_t3a' -MessageRefs @('msg_t3a_1')
     $vvs = Invoke-ProofVerifyRun -T $s3 -Id 'proof-t3-001' -Rev (Get-TaskRevNow -T $s3 -Id 'proof-t3-001')
     Assert-ModelProof ([bool]$vvs.ok) 'verify-run executes planned failing profile'
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_t3a' -Parent 'ses_root_t3a' -Message 'msg_t3a_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_t3a' -Parent 'ses_root_t3a' -Message 'msg_t3a_1')
     $rs = Set-OrchestrationTaskModelAttempt -TaskId 'proof-t3-001' -ChildSessionId 'ses_child_t3a' -ExpectedRevision (Get-TaskRevNow -T $s3 -Id 'proof-t3-001') -TasksDir $s3.tasks -FlagsPath $s3.flags -PolicyPath $polPath
-    $envOk = (([bool]$rs.ok) -and ([string]$rs.model -ceq 'openai/gpt-6.1-terra') -and ([string]$rs.provider -ceq 'openai') `
+    $envOk = (([bool]$rs.ok) -and ([string]$rs.model -ceq 'claude-agent/sonnet') -and ([string]$rs.provider -ceq 'claude-agent') `
         -and ([string]$rs.tier -ceq 'T3') -and ([string]$rs.session_id -ceq 'ses_child_t3a') `
         -and ([string]$rs.parent_session_id -ceq 'ses_root_t3a') -and ([string]$rs.message_id -ceq 'msg_t3a_1') `
         -and ([string]$rs.policy_hash -cmatch '^[0-9a-f]{64}$') -and ([int]$rs.worker_revision -gt 0))
     Assert-ModelProof $envOk 'model attempt persists exact refs + policy hash (no dispatch)'
     $ps1 = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-t3-001' -RequiredTier 'T3' -TasksDir $s3.tasks -PolicyPath $polPath
-    $proofOk = (([bool]$ps1.ok) -and ([string]$ps1.model -ceq 'openai/gpt-6.1-terra') -and ([string]$ps1.tier -ceq 'T3') `
+    $proofOk = (([bool]$ps1.ok) -and ([string]$ps1.model -ceq 'claude-agent/sonnet') -and ([string]$ps1.tier -ceq 'T3') `
         -and ([string]$ps1.session_id -ceq 'ses_child_t3a') -and ([string]$ps1.message_id -ceq 'msg_t3a_1') `
         -and ([string]$ps1.reference -cmatch '^modelproof:proof-t3-001:T3:1:[0-9]+$') -and ([string]$ps1.digest -cmatch '^sha256:[0-9a-f]{64}$'))
     Assert-ModelProof $proofOk 'T3 failure proof returns persisted reference/digest'
     . $libPath
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_t3a' -Parent 'ses_root_t3a' -Message 'msg_t3a_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_t3a' -Parent 'ses_root_t3a' -Message 'msg_t3a_1')
     $ps2 = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-t3-001' -RequiredTier 'T3' -TasksDir $s3.tasks -PolicyPath $polPath
     Assert-ModelProof (([bool]$ps2.ok) -and ([string]$ps2.digest -ceq [string]$ps1.digest)) 'proof digest stable across re-read (restart-safe persisted refs)'
     Clear-TaskKernelSessionReader
@@ -611,13 +611,13 @@ try {
     $null = Invoke-ProofFailResult -T $s4 -Id 'proof-candpass-001' -Rev ([int]$bcp.revision) -WorkerStatus 'candidate_pass' -SessionRef 'ses_child_cp' -MessageRefs @('msg_cp_1') -Evidence 'criterion:0:widget renders (claimed)'
     $vcp = Invoke-ProofVerifyRun -T $s4 -Id 'proof-candpass-001' -Rev (Get-TaskRevNow -T $s4 -Id 'proof-candpass-001')
     Assert-ModelProof ([bool]$vcp.ok) 'candidate_pass verify-run executes'
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_cp' -Parent 'ses_root_cp' -Message 'msg_cp_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_cp' -Parent 'ses_root_cp' -Message 'msg_cp_1')
     $rcp = Set-OrchestrationTaskModelAttempt -TaskId 'proof-candpass-001' -ChildSessionId 'ses_child_cp' -ExpectedRevision (Get-TaskRevNow -T $s4 -Id 'proof-candpass-001') -TasksDir $s4.tasks -FlagsPath $s4.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rcp.ok) 'candidate_pass observation recorded'
     $gcp = Get-OrchestrationTask -TaskId 'proof-candpass-001' -TasksDir $s4.tasks
     Assert-ModelProof ((Get-ModelAttemptCountTolerant -Record $gcp) -eq 1) 'candidate_pass path records observation'
     $pcp = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-candpass-001' -RequiredTier 'T3' -TasksDir $s4.tasks -PolicyPath $polPath
-    Assert-ModelProof (([bool]$pcp.ok) -and ([string]$pcp.model -ceq 'openai/gpt-6.1-terra')) 'candidate_pass + verifier failure proves non-resolution'
+    Assert-ModelProof (([bool]$pcp.ok) -and ([string]$pcp.model -ceq 'claude-agent/sonnet')) 'candidate_pass + verifier failure proves non-resolution'
     Clear-TaskKernelSessionReader
 
     # 20. fabricated session record cannot create proof
@@ -653,7 +653,7 @@ try {
     $ogrec['verification'].Remove('verifier_executed')
     $ogw = Write-TaskKernelRecord -Record $ogrec -TaskFile $ogj
     Assert-ModelProof ([bool]$ogw.ok) 'pre-slice shape fixture written (legacy source claim)'
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_os' -Parent 'ses_root_os' -Message 'msg_os_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_os' -Parent 'ses_root_os' -Message 'msg_os_1')
     $rog = Set-OrchestrationTaskModelAttempt -TaskId 'proof-oldshape-001' -ChildSessionId 'ses_child_os' -ExpectedRevision (Get-TaskRevNow -T $t -Id 'proof-oldshape-001') -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rog.ok) 'old-shape fixture attempt recorded'
     $pog = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-oldshape-001' -RequiredTier 'T3' -TasksDir $t.tasks -PolicyPath $polPath
@@ -667,7 +667,7 @@ try {
     $bst = Invoke-ProofBindFlow -T $s5 -Id 'proof-stale-001' -Run 'run-st' -Root 'ses_root_st' -Child 'ses_child_st' -Rev 1
     $null = Invoke-ProofFailResult -T $s5 -Id 'proof-stale-001' -Rev ([int]$bst.revision) -SessionRef 'ses_child_st' -MessageRefs @('msg_st_1')
     $null = Invoke-ProofVerifyRun -T $s5 -Id 'proof-stale-001' -Rev (Get-TaskRevNow -T $s5 -Id 'proof-stale-001')
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_st' -Parent 'ses_root_st' -Message 'msg_st_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_st' -Parent 'ses_root_st' -Message 'msg_st_1')
     $rst = Set-OrchestrationTaskModelAttempt -TaskId 'proof-stale-001' -ChildSessionId 'ses_child_st' -ExpectedRevision (Get-TaskRevNow -T $s5 -Id 'proof-stale-001') -TasksDir $s5.tasks -FlagsPath $s5.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rst.ok) 'stale fixture attempt ok'
     $null = Set-OrchestrationTaskWorkerResult -TaskId 'proof-stale-001' -Status 'failed' -ClaimedEvidence @('criterion:0:second failure', 'session:ses_child_st', 'message:msg_st_2') -ProducedBy 'coder' -ExpectedRevision ([int]$rst.revision) -Hypothesis 'another angle' -DebuggerInvoked -NewEvidence -TasksDir $s5.tasks -FlagsPath $s5.flags -TelemetryRoot $s5.root
@@ -722,7 +722,7 @@ try {
     $vfiJson = New-ProofVerifierJson -Status 'verification_failed' -Evidence @('passes:failed:1', 'criterion:99:unverified', 'x')
     $null = Set-OrchestrationTaskVerification -TaskId 'proof-fakeidx-001' -VerifierEvidenceJson $vfiJson -ExpectedRevision ([int]$gfi.revision) -TasksDir $t.tasks -FlagsPath $t.flags
     $gfi2 = Get-OrchestrationTask -TaskId 'proof-fakeidx-001' -TasksDir $t.tasks
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_fi' -Parent 'ses_root_fi' -Message 'msg_fi_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_fi' -Parent 'ses_root_fi' -Message 'msg_fi_1')
     $rfi = Set-OrchestrationTaskModelAttempt -TaskId 'proof-fakeidx-001' -ChildSessionId 'ses_child_fi' -ExpectedRevision ([int]$gfi2.revision) -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rfi.ok) 'fake-index fixture attempt recorded'
     $pfi = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-fakeidx-001' -RequiredTier 'T3' -TasksDir $t.tasks -PolicyPath $polPath
@@ -734,7 +734,7 @@ try {
     $vavJson = New-ProofVerifierJson -Status 'verification_failed' -CriterionWord 'verified' -ProfileStatus 'failed' -ExitCode 1
     $null = Set-OrchestrationTaskVerification -TaskId 'proof-allver-001' -VerifierEvidenceJson $vavJson -ExpectedRevision ([int]$gav.revision) -TasksDir $t.tasks -FlagsPath $t.flags
     $gav2 = Get-OrchestrationTask -TaskId 'proof-allver-001' -TasksDir $t.tasks
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_av' -Parent 'ses_root_av' -Message 'msg_av_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_av' -Parent 'ses_root_av' -Message 'msg_av_1')
     $rav = Set-OrchestrationTaskModelAttempt -TaskId 'proof-allver-001' -ChildSessionId 'ses_child_av' -ExpectedRevision ([int]$gav2.revision) -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rav.ok) 'all-verified fixture attempt recorded'
     $pav = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-allver-001' -RequiredTier 'T3' -TasksDir $t.tasks -PolicyPath $polPath
@@ -746,14 +746,14 @@ try {
     $vpvJson = New-ProofVerifierJson -Status 'verification_failed' -Profiles @()
     $null = Set-OrchestrationTaskVerification -TaskId 'proof-prov-001' -VerifierEvidenceJson $vpvJson -ExpectedRevision ([int]$gpv.revision) -TasksDir $t.tasks -FlagsPath $t.flags
     $gpv2 = Get-OrchestrationTask -TaskId 'proof-prov-001' -TasksDir $t.tasks
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_pv' -Parent 'ses_root_pv' -Message 'msg_pv_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_pv' -Parent 'ses_root_pv' -Message 'msg_pv_1')
     $rpv = Set-OrchestrationTaskModelAttempt -TaskId 'proof-prov-001' -ChildSessionId 'ses_child_pv' -ExpectedRevision ([int]$gpv2.revision) -TasksDir $t.tasks -FlagsPath $t.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rpv.ok) 'no-profiles fixture attempt recorded'
     $ppv = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-prov-001' -RequiredTier 'T3' -TasksDir $t.tasks -PolicyPath $polPath
     Assert-ModelProof (((-not [bool]$ppv.ok) -and ([string]$ppv.error -ceq 'PROOF_VERIFIER_UNTRUSTED'))) 'caller shape without executed provenance cannot yield proof'
     Clear-TaskKernelSessionReader
 
-    # 27. T4 Sol without prior T3 proof fails closed
+    # 27. T4 Opus without prior T3 proof fails closed
     $s7 = New-RepoTaskRoot -Name 'vr7'
     [void]$roots.Add($s7.root)
     $o = New-ModelProofTask -T $s7 -PolPath $polPath -Id 'proof-sol-alone-001' -BaseRevision 'HEAD' -WriteScopes @() -VerProfiles @('failer')
@@ -761,24 +761,24 @@ try {
     $null = Invoke-ProofFailResult -T $s7 -Id 'proof-sol-alone-001' -Rev ([int]$bo.revision) -Evidence 'criterion:0:sol output incomplete' -SessionRef 'ses_child_o1' -MessageRefs @('msg_o1_1')
     $vvo = Invoke-ProofVerifyRun -T $s7 -Id 'proof-sol-alone-001' -Rev (Get-TaskRevNow -T $s7 -Id 'proof-sol-alone-001')
     Assert-ModelProof ([bool]$vvo.ok) 'sol verify-run executes'
-    Set-TaskKernelSessionReader -Reader (New-SolSeam -Session 'ses_child_o1' -Parent 'ses_root_o1' -Message 'msg_o1_1')
+    Set-TaskKernelSessionReader -Reader (New-OpusSeam -Session 'ses_child_o1' -Parent 'ses_root_o1' -Message 'msg_o1_1')
     $ro = Set-OrchestrationTaskModelAttempt -TaskId 'proof-sol-alone-001' -ChildSessionId 'ses_child_o1' -ExpectedRevision (Get-TaskRevNow -T $s7 -Id 'proof-sol-alone-001') -TasksDir $s7.tasks -FlagsPath $s7.flags -PolicyPath $polPath
     Assert-ModelProof (([bool]$ro.ok) -and ([string]$ro.tier -ceq 'T4')) 'sol observation records T4 tier'
     $po = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-sol-alone-001' -RequiredTier 'T4' -TasksDir $s7.tasks -PolicyPath $polPath
-    Assert-ModelProof (((-not [bool]$po.ok) -and ([string]$po.error -ceq 'T3_PROOF_REQUIRED'))) 'sol proof without prior T3 proof fails closed'
+    Assert-ModelProof (((-not [bool]$po.ok) -and ([string]$po.error -ceq 'T3_PROOF_REQUIRED'))) 'opus proof without prior T3 proof fails closed'
     Clear-TaskKernelSessionReader
 
-    # 28. T4 Sol with prior valid T3 proof succeeds (both kernel-executed)
+    # 28. T4 Opus with prior valid T3 proof succeeds (both kernel-executed)
     $s8 = New-RepoTaskRoot -Name 'vr8'
     [void]$roots.Add($s8.root)
     $w = New-ModelProofTask -T $s8 -PolPath $polPath -Id 'proof-sol-chain-001' -BaseRevision 'HEAD' -WriteScopes @() -VerProfiles @('failer')
     $bw = Invoke-ProofBindFlow -T $s8 -Id 'proof-sol-chain-001' -Run 'run-w1' -Root 'ses_root_w1' -Child 'ses_child_w1' -Rev 1
-    $null = Invoke-ProofFailResult -T $s8 -Id 'proof-sol-chain-001' -Rev ([int]$bw.revision) -Evidence 'criterion:0:terra output wrong' -SessionRef 'ses_child_w1' -MessageRefs @('msg_w1_t3')
+    $null = Invoke-ProofFailResult -T $s8 -Id 'proof-sol-chain-001' -Rev ([int]$bw.revision) -Evidence 'criterion:0:sonnet output wrong' -SessionRef 'ses_child_w1' -MessageRefs @('msg_w1_t3')
     $vvw = Invoke-ProofVerifyRun -T $s8 -Id 'proof-sol-chain-001' -Rev (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001')
-    Assert-ModelProof ([bool]$vvw.ok) 'chain: terra verify-run executes'
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_w1' -Parent 'ses_root_w1' -Message 'msg_w1_t3')
+    Assert-ModelProof ([bool]$vvw.ok) 'chain: sonnet verify-run executes'
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_w1' -Parent 'ses_root_w1' -Message 'msg_w1_t3')
     $rw = Set-OrchestrationTaskModelAttempt -TaskId 'proof-sol-chain-001' -ChildSessionId 'ses_child_w1' -ExpectedRevision (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001') -TasksDir $s8.tasks -FlagsPath $s8.flags -PolicyPath $polPath
-    Assert-ModelProof ([bool]$rw.ok) 'chain: terra attempt recorded'
+    Assert-ModelProof ([bool]$rw.ok) 'chain: sonnet attempt recorded'
     $pwT3 = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-sol-chain-001' -RequiredTier 'T3' -TasksDir $s8.tasks -PolicyPath $polPath
     Assert-ModelProof ([bool]$pwT3.ok) 'chain: T3 proof valid before escalation'
     $bw2 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId 'proof-sol-chain-001' -RunId 'run-w1' -SessionId 'ses_child_w1' -ExpectedRevision (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001') -TasksDir $s8.tasks -FlagsPath $s8.flags
@@ -786,19 +786,19 @@ try {
     $bw4 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId 'proof-sol-chain-001' -RunId 'run-w2' -SessionId 'ses_root_w1' -ExpectedRevision ([int]$bw3.revision) -TasksDir $s8.tasks -FlagsPath $s8.flags
     $bw5 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'proof-sol-chain-001' -RunId 'run-w2' -SessionId 'ses_child_w2' -WorkerSession -ExpectedRevision ([int]$bw4.revision) -TasksDir $s8.tasks -FlagsPath $s8.flags
     Assert-ModelProof ([bool]$bw5.ok) 'chain: second run bound for sol attempt'
-    $null = Invoke-ProofFailResult -T $s8 -Id 'proof-sol-chain-001' -Rev (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001') -Evidence 'criterion:0:sol output incomplete' -Approach 'broad context' -Tool 'src/model/sol.js' -SessionRef 'ses_child_w2' -MessageRefs @('msg_w1_sol')
+    $null = Invoke-ProofFailResult -T $s8 -Id 'proof-sol-chain-001' -Rev (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001') -Evidence 'criterion:0:opus output incomplete' -Approach 'broad context' -Tool 'src/model/opus.js' -SessionRef 'ses_child_w2' -MessageRefs @('msg_w1_sol')
     $vvw2 = Invoke-ProofVerifyRun -T $s8 -Id 'proof-sol-chain-001' -Rev (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001')
-    Assert-ModelProof ([bool]$vvw2.ok) 'chain: sol verify-run executes'
-    Set-TaskKernelSessionReader -Reader (New-SolSeam -Session 'ses_child_w2' -Parent 'ses_root_w1' -Message 'msg_w1_sol')
+    Assert-ModelProof ([bool]$vvw2.ok) 'chain: opus verify-run executes'
+    Set-TaskKernelSessionReader -Reader (New-OpusSeam -Session 'ses_child_w2' -Parent 'ses_root_w1' -Message 'msg_w1_sol')
     $rw2 = Set-OrchestrationTaskModelAttempt -TaskId 'proof-sol-chain-001' -ChildSessionId 'ses_child_w2' -ExpectedRevision (Get-TaskRevNow -T $s8 -Id 'proof-sol-chain-001') -TasksDir $s8.tasks -FlagsPath $s8.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rw2.ok) 'chain: sol attempt recorded'
     $pwT4 = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-sol-chain-001' -RequiredTier 'T4' -TasksDir $s8.tasks -PolicyPath $polPath
-    $t4ok = (([bool]$pwT4.ok) -and ([string]$pwT4.model -ceq 'openai/gpt-6.1-sol') -and ([string]$pwT4.tier -ceq 'T4') `
+    $t4ok = (([bool]$pwT4.ok) -and ([string]$pwT4.model -ceq 'claude-agent/opus') -and ([string]$pwT4.tier -ceq 'T4') `
         -and ([string]$pwT4.session_id -ceq 'ses_child_w2') -and ([string]$pwT4.digest -cmatch '^sha256:[0-9a-f]{64}$'))
-    Assert-ModelProof $t4ok 'chain: T4 sol proof valid with prior T3 proof'
+    Assert-ModelProof $t4ok 'chain: T4 Opus proof valid with prior T3 proof'
     Clear-TaskKernelSessionReader
 
-    # 29. terra pass then sol failed refuses T4 (no failed kernel-executed T3 record)
+    # 29. Sonnet pass then Opus failed refuses T4 (no failed kernel-executed T3 record)
     $s9 = New-RepoTaskRoot -Name 'vr9'
     [void]$roots.Add($s9.root)
     Write-ModelProofFixture -Path (Join-Path $s9.repo 'flip.ps1') -Text "if (Test-Path -LiteralPath 'seq-state/flip.txt') { exit 1 }`nNew-Item -ItemType Directory -Path 'seq-state' -Force | Out-Null`nSet-Content -LiteralPath 'seq-state/flip.txt' -Value '1'`nexit 0`n"
@@ -807,30 +807,30 @@ try {
     & git -C $s9.repo commit -m flipflop -q *>$null
     $tp = New-ModelProofTask -T $s9 -PolPath $polPath -Id 'proof-terrapass-001' -BaseRevision 'HEAD' -WriteScopes @('seq-state') -VerProfiles @('flipflop')
     $btp = Invoke-ProofBindFlow -T $s9 -Id 'proof-terrapass-001' -Run 'run-tp1' -Root 'ses_root_tp1' -Child 'ses_child_tp1' -Rev 1
-    $null = Set-OrchestrationTaskWorkerResult -TaskId 'proof-terrapass-001' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0:terra renders', 'session:ses_child_tp1', 'message:msg_tp_t3') -ProducedBy 'coder' -ExpectedRevision ([int]$btp.revision) -TasksDir $s9.tasks -FlagsPath $s9.flags -TelemetryRoot $s9.root
+    $null = Set-OrchestrationTaskWorkerResult -TaskId 'proof-terrapass-001' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0:sonnet renders', 'session:ses_child_tp1', 'message:msg_tp_t3') -ProducedBy 'coder' -ExpectedRevision ([int]$btp.revision) -TasksDir $s9.tasks -FlagsPath $s9.flags -TelemetryRoot $s9.root
     $vtp = Invoke-TaskKernelVerifyRun -TaskId 'proof-terrapass-001' -ExpectedRevision (Get-TaskRevNow -T $s9 -Id 'proof-terrapass-001') -TasksDir $s9.tasks -FlagsPath $s9.flags -RepoRoot $s9.repo
-    Assert-ModelProof (([bool]$vtp.ok) -and ([string]$vtp.status -ceq 'verified_pass') -and ([string]$vtp.verification_source -ceq 'kernel-executed')) 'terra pass verify-run executes'
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_tp1' -Parent 'ses_root_tp1' -Message 'msg_tp_t3')
+    Assert-ModelProof (([bool]$vtp.ok) -and ([string]$vtp.status -ceq 'verified_pass') -and ([string]$vtp.verification_source -ceq 'kernel-executed')) 'sonnet pass verify-run executes'
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_tp1' -Parent 'ses_root_tp1' -Message 'msg_tp_t3')
     $rtp = Set-OrchestrationTaskModelAttempt -TaskId 'proof-terrapass-001' -ChildSessionId 'ses_child_tp1' -ExpectedRevision (Get-TaskRevNow -T $s9 -Id 'proof-terrapass-001') -TasksDir $s9.tasks -FlagsPath $s9.flags -PolicyPath $polPath
-    Assert-ModelProof ([bool]$rtp.ok) 'terra pass observation recorded'
+    Assert-ModelProof ([bool]$rtp.ok) 'sonnet pass observation recorded'
     $btp2 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId 'proof-terrapass-001' -RunId 'run-tp1' -SessionId 'ses_child_tp1' -ExpectedRevision ([int]$rtp.revision) -TasksDir $s9.tasks -FlagsPath $s9.flags
     $btp3 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'proof-terrapass-001' -RunId 'run-tp2' -SessionId 'ses_root_tp1' -ExpectedRevision ([int]$btp2.revision) -TasksDir $s9.tasks -FlagsPath $s9.flags
     $btp4 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId 'proof-terrapass-001' -RunId 'run-tp2' -SessionId 'ses_root_tp1' -ExpectedRevision ([int]$btp3.revision) -TasksDir $s9.tasks -FlagsPath $s9.flags
     $btp5 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'proof-terrapass-001' -RunId 'run-tp2' -SessionId 'ses_child_tp2' -WorkerSession -ExpectedRevision ([int]$btp4.revision) -TasksDir $s9.tasks -FlagsPath $s9.flags
-    $null = Invoke-ProofFailResult -T $s9 -Id 'proof-terrapass-001' -Rev (Get-TaskRevNow -T $s9 -Id 'proof-terrapass-001') -Evidence 'criterion:0:sol output incomplete' -Approach 'broad context' -Tool 'src/model/sol.js' -SessionRef 'ses_child_tp2' -MessageRefs @('msg_tp_sol')
+    $null = Invoke-ProofFailResult -T $s9 -Id 'proof-terrapass-001' -Rev (Get-TaskRevNow -T $s9 -Id 'proof-terrapass-001') -Evidence 'criterion:0:opus output incomplete' -Approach 'broad context' -Tool 'src/model/opus.js' -SessionRef 'ses_child_tp2' -MessageRefs @('msg_tp_sol')
     $vtp2 = Invoke-ProofVerifyRun -T $s9 -Id 'proof-terrapass-001' -Rev (Get-TaskRevNow -T $s9 -Id 'proof-terrapass-001')
-    Assert-ModelProof (([bool]$vtp2.ok) -and ([string]$vtp2.status -ceq 'verification_failed') -and ([string]$vtp2.verification_source -ceq 'kernel-executed')) 'sol verify-run executes after terra pass'
-    Set-TaskKernelSessionReader -Reader (New-SolSeam -Session 'ses_child_tp2' -Parent 'ses_root_tp1' -Message 'msg_tp_sol')
+    Assert-ModelProof (([bool]$vtp2.ok) -and ([string]$vtp2.status -ceq 'verification_failed') -and ([string]$vtp2.verification_source -ceq 'kernel-executed')) 'opus verify-run executes after sonnet pass'
+    Set-TaskKernelSessionReader -Reader (New-OpusSeam -Session 'ses_child_tp2' -Parent 'ses_root_tp1' -Message 'msg_tp_sol')
     $rtp2 = Set-OrchestrationTaskModelAttempt -TaskId 'proof-terrapass-001' -ChildSessionId 'ses_child_tp2' -ExpectedRevision (Get-TaskRevNow -T $s9 -Id 'proof-terrapass-001') -TasksDir $s9.tasks -FlagsPath $s9.flags -PolicyPath $polPath
-    Assert-ModelProof ([bool]$rtp2.ok) 'sol observation recorded after terra pass'
+    Assert-ModelProof ([bool]$rtp2.ok) 'opus observation recorded after sonnet pass'
     $ptp = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-terrapass-001' -RequiredTier 'T4' -TasksDir $s9.tasks -PolicyPath $polPath
-    Assert-ModelProof (((-not [bool]$ptp.ok) -and ([string]$ptp.error -ceq 'T3_PROOF_REQUIRED'))) 'terra pass then sol failed refuses T4 (no failed T3 record)'
+    Assert-ModelProof (((-not [bool]$ptp.ok) -and ([string]$ptp.error -ceq 'T3_PROOF_REQUIRED'))) 'sonnet pass then opus failed refuses T4 (no failed T3 record)'
     Clear-TaskKernelSessionReader
 
     # 29A. persisted Kernel -> Router model-select (real store + real verify-run + seam; no stubs)
     . (Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1')
     $rpolA = Get-OrchestrationModelRoutingPolicy -PolicyPath $polPath
-    $canonSolA = [string]$rpolA.Policy.models.sol.model_id
+    $canonOpusA = [string]$rpolA.Policy.models.claude_opus.model_id
     $canonAstraA = [string]$rpolA.Policy.models.astra.model_id
     $selA = New-RepoTaskRoot -Name 'selA'
     [void]$roots.Add($selA.root)
@@ -839,20 +839,107 @@ try {
     $null = Invoke-ProofFailResult -T $selA -Id 'proof-sel-t3-001' -Rev ([int]$bsa.revision) -SessionRef 'ses_child_sa' -MessageRefs @('msg_sa_1')
     $vsa = Invoke-ProofVerifyRun -T $selA -Id 'proof-sel-t3-001' -Rev (Get-TaskRevNow -T $selA -Id 'proof-sel-t3-001')
     Assert-ModelProof ([bool]$vsa.ok) 'select: t3-only verify-run executes'
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_sa' -Parent 'ses_root_sa' -Message 'msg_sa_1')
+    Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session 'ses_child_sa' -Parent 'ses_root_sa' -Message 'msg_sa_1')
     $rsa = Set-OrchestrationTaskModelAttempt -TaskId 'proof-sel-t3-001' -ChildSessionId 'ses_child_sa' -ExpectedRevision (Get-TaskRevNow -T $selA -Id 'proof-sel-t3-001') -TasksDir $selA.tasks -FlagsPath $selA.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rsa.ok) 'select: t3-only attempt recorded'
     Clear-TaskKernelSessionReader
     $psaT3 = Get-OrchestrationTaskModelFailureProof -TaskId 'proof-sel-t3-001' -RequiredTier 'T3' -TasksDir $selA.tasks -PolicyPath $polPath
     Assert-ModelProof ([bool]$psaT3.ok) 'select: t3-only proof valid before model-select'
-    $selSol = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sel-t3-001' -TasksDir $selA.tasks -RepoRoot $selA.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-    Assert-ModelProof ((([string]$selSol.Tier -ceq 'T4') -and ([string]$selSol.CatalogModel -ceq $canonSolA))) 'select: T3 proof yields Sol'
-    Assert-ModelProof ((([string]$selSol.KernelProofReference -ceq [string]$psaT3.reference) -and ([string]$selSol.KernelProofDigest -ceq [string]$psaT3.digest))) 'select: Sol receipt exposes T3 proof ref/digest'
-    $selAstra = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sol-chain-001' -TasksDir $s8.tasks -RepoRoot $s8.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-    Assert-ModelProof ((([string]$selAstra.Tier -ceq 'T4') -and ([string]$selAstra.CatalogModel -ceq $canonAstraA))) 'select: Sol proof yields Astra'
-    Assert-ModelProof ((([string]$selAstra.KernelProofReference -ceq [string]$pwT4.reference) -and ([string]$selAstra.KernelProofDigest -ceq [string]$pwT4.digest) -and ([string]$selAstra.KernelProofReference -cne [string]$pwT3.reference))) 'select: Astra receipt exposes T4 proof ref/digest (not older T3 ref)'
+    $selOpus = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sel-t3-001' -TasksDir $selA.tasks -RepoRoot $selA.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+    Assert-ModelProof ((([string]$selOpus.Tier -ceq 'T4') -and ([string]$selOpus.CatalogModel -ceq $canonOpusA))) 'select: T3 proof yields Opus'
+    Assert-ModelProof ((([string]$selOpus.KernelProofReference -ceq [string]$psaT3.reference) -and ([string]$selOpus.KernelProofDigest -ceq [string]$psaT3.digest))) 'select: Opus decision exposes T3 proof ref/digest'
+    # Astra exceptional budget gate: same valid T4 (Opus) proof, varying only authorization.
+    # The API surface exposes no Astra auth bool: only the documented
+    # operator variable OPENCODE_ASTRA_AUTHORIZED=true authorizes Astra.
+    $selParamNames = @((Get-Command Resolve-OrchestrationModelSelection).Parameters.Keys)
+    Assert-ModelProof (-not ($selParamNames -contains 'AstraExceptionalAuthorized')) 'select: no caller-controlled Astra auth bool on API surface'
+    $prevAstraSel = [string]$env:OPENCODE_ASTRA_AUTHORIZED
+    $prevT4Sel = [string]$env:OPENCODE_T4_AUTHORIZED
+    try {
+        Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue
+        Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue
+        $selAstraDenied = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sol-chain-001' -TasksDir $s8.tasks -RepoRoot $s8.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+        Assert-ModelProof (([string]$selAstraDenied.Status -ceq 'REJECTED') -and ([string]$selAstraDenied.DecisionStatus -ceq 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED')) 'select: Opus proof without exceptional budget is rejected'
+        Assert-ModelProof ([string]$selAstraDenied.selected_model_id -ceq '' -or $null -eq $selAstraDenied.selected_model_id -or [string]$selAstraDenied.selected_model_id -ceq '') 'select: rejected Astra exposes no executable model'
+        Assert-ModelProof (([string]$selAstraDenied.selected_model_id -cne $canonOpusA) -and ([string]$selAstraDenied.selected_model_id -cne $canonAstraA)) 'select: rejected Astra does not silently retry proven-failed Opus'
+        $selAstraGenCost = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sol-chain-001' -TasksDir $s8.tasks -RepoRoot $s8.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true -ProviderCostAuthorized $true
+        Assert-ModelProof (([string]$selAstraGenCost.Status -ceq 'REJECTED') -and ([string]$selAstraGenCost.DecisionStatus -ceq 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED')) 'select: generic ProviderCostAuthorized does not bypass Astra budget gate'
+        $env:OPENCODE_T4_AUTHORIZED = 'true'
+        $selAstraGenT4Env = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sol-chain-001' -TasksDir $s8.tasks -RepoRoot $s8.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+        Assert-ModelProof (([string]$selAstraGenT4Env.Status -ceq 'REJECTED') -and ([string]$selAstraGenT4Env.DecisionStatus -ceq 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED')) 'select: generic OPENCODE_T4_AUTHORIZED does not bypass Astra budget gate'
+        Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue
+        $env:OPENCODE_ASTRA_AUTHORIZED = 'true'
+        $selAstra = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-sol-chain-001' -TasksDir $s8.tasks -RepoRoot $s8.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+        Assert-ModelProof ((([string]$selAstra.Tier -ceq 'T4') -and ([string]$selAstra.CatalogModel -ceq $canonAstraA))) 'select: Opus proof yields Astra'
+        Assert-ModelProof ((([string]$selAstra.KernelProofReference -ceq [string]$pwT4.reference) -and ([string]$selAstra.KernelProofDigest -ceq [string]$pwT4.digest) -and ([string]$selAstra.KernelProofReference -cne [string]$pwT3.reference))) 'select: Astra decision exposes T4 proof ref/digest (not older T3 ref)'
+    } finally {
+        if (-not [string]::IsNullOrEmpty($prevAstraSel)) { $env:OPENCODE_ASTRA_AUTHORIZED = $prevAstraSel } else { Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue }
+        if (-not [string]::IsNullOrEmpty($prevT4Sel)) { $env:OPENCODE_T4_AUTHORIZED = $prevT4Sel } else { Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue }
+    }
     $selNoAstra = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId 'proof-terrapass-001' -TasksDir $s9.tasks -RepoRoot $s9.repo -PolicyPath $polPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
     Assert-ModelProof ([string]$selNoAstra.CatalogModel -cne $canonAstraA) 'select: T3-pass/Sol-failed chain yields no Astra'
+
+    # 29B. valid T4 Opus proof + Astra unavailable under policy must never
+    # replay Opus/Sol/Astra: fail closed REJECTED with no executable model.
+    $prevAstra29B = [string]$env:OPENCODE_ASTRA_AUTHORIZED
+    $prevT429B = [string]$env:OPENCODE_T4_AUTHORIZED
+    try {
+        $env:OPENCODE_ASTRA_AUTHORIZED = 'true'
+        Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue
+        $baseRaw29B = [IO.File]::ReadAllText($polPath, [Text.UTF8Encoding]::UTF8)
+        $astraUnavailCases = @(
+            @{ name = 'disabled'; mutate = 'disabled' },
+            @{ name = 'role-ineligible'; mutate = 'role' },
+            @{ name = 'provider-disabled'; mutate = 'provider' }
+        )
+        foreach ($avCase in $astraUnavailCases) {
+            $avDoc = ($baseRaw29B | ConvertFrom-Json -ErrorAction Stop)
+            if ($avCase.mutate -ceq 'disabled') { $avDoc.models.astra.enabled = $false }
+            elseif ($avCase.mutate -ceq 'role') { $avDoc.models.astra.eligible_roles = @(@($avDoc.models.astra.eligible_roles) | Where-Object { $_ -cne 'coder' }) }
+            elseif ($avCase.mutate -ceq 'provider') { $avDoc.providers.openai.enabled = $false }
+            $avPolPath = Join-Path ([IO.Path]::GetTempPath()) ('v3-proof-astra-unavail-' + $avCase.name + '-' + [guid]::NewGuid().ToString('N') + '.json')
+            [IO.File]::WriteAllText($avPolPath, ($avDoc | ConvertTo-Json -Depth 16 -Compress), [Text.UTF8Encoding]::new($false))
+            [void]$roots.Add($avPolPath)
+            $avR = New-RepoTaskRoot -Name ('avu-' + $avCase.name)
+            [void]$roots.Add($avR.root)
+            $avId = ('proof-astra-unavail-' + $avCase.name + '-001')
+            $avT = New-ModelProofTask -T $avR -PolPath $avPolPath -Id $avId -BaseRevision 'HEAD' -WriteScopes @() -VerProfiles @('failer')
+            $avB = Invoke-ProofBindFlow -T $avR -Id $avId -Run ('run-av1-' + $avCase.name) -Root ('ses_root_av1_' + $avCase.name) -Child ('ses_child_av1_' + $avCase.name) -Rev 1
+            $null = Invoke-ProofFailResult -T $avR -Id $avId -Rev ([int]$avB.revision) -Evidence 'criterion:0:sonnet output wrong' -SessionRef ('ses_child_av1_' + $avCase.name) -MessageRefs @('msg_av1_t3')
+            $avV = Invoke-ProofVerifyRun -T $avR -Id $avId -Rev (Get-TaskRevNow -T $avR -Id $avId)
+            Assert-ModelProof ([bool]$avV.ok) ('unavail-' + $avCase.name + ': sonnet verify-run executes')
+            Set-TaskKernelSessionReader -Reader (New-SonnetSeam -Session ('ses_child_av1_' + $avCase.name) -Parent ('ses_root_av1_' + $avCase.name) -Message 'msg_av1_t3')
+            $avRw = Set-OrchestrationTaskModelAttempt -TaskId $avId -ChildSessionId ('ses_child_av1_' + $avCase.name) -ExpectedRevision (Get-TaskRevNow -T $avR -Id $avId) -TasksDir $avR.tasks -FlagsPath $avR.flags -PolicyPath $avPolPath
+            Assert-ModelProof ([bool]$avRw.ok) ('unavail-' + $avCase.name + ': sonnet attempt recorded')
+            $avT3 = Get-OrchestrationTaskModelFailureProof -TaskId $avId -RequiredTier 'T3' -TasksDir $avR.tasks -PolicyPath $avPolPath
+            Assert-ModelProof ([bool]$avT3.ok) ('unavail-' + $avCase.name + ': T3 proof valid before escalation')
+            Clear-TaskKernelSessionReader
+            $avB2 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId $avId -RunId ('run-av1-' + $avCase.name) -SessionId ('ses_child_av1_' + $avCase.name) -ExpectedRevision (Get-TaskRevNow -T $avR -Id $avId) -TasksDir $avR.tasks -FlagsPath $avR.flags
+            $avB3 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $avId -RunId ('run-av2-' + $avCase.name) -SessionId ('ses_root_av1_' + $avCase.name) -ExpectedRevision ([int]$avB2.revision) -TasksDir $avR.tasks -FlagsPath $avR.flags
+            $avB4 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId $avId -RunId ('run-av2-' + $avCase.name) -SessionId ('ses_root_av1_' + $avCase.name) -ExpectedRevision ([int]$avB3.revision) -TasksDir $avR.tasks -FlagsPath $avR.flags
+            $avB5 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $avId -RunId ('run-av2-' + $avCase.name) -SessionId ('ses_child_av2_' + $avCase.name) -WorkerSession -ExpectedRevision ([int]$avB4.revision) -TasksDir $avR.tasks -FlagsPath $avR.flags
+            Assert-ModelProof ([bool]$avB5.ok) ('unavail-' + $avCase.name + ': second run bound for opus attempt')
+            $null = Invoke-ProofFailResult -T $avR -Id $avId -Rev (Get-TaskRevNow -T $avR -Id $avId) -Evidence 'criterion:0:opus output incomplete' -Approach 'broad context' -Tool 'src/model/opus.js' -SessionRef ('ses_child_av2_' + $avCase.name) -MessageRefs @('msg_av1_t4')
+            $avV2 = Invoke-ProofVerifyRun -T $avR -Id $avId -Rev (Get-TaskRevNow -T $avR -Id $avId)
+            Assert-ModelProof ([bool]$avV2.ok) ('unavail-' + $avCase.name + ': opus verify-run executes')
+            Set-TaskKernelSessionReader -Reader (New-OpusSeam -Session ('ses_child_av2_' + $avCase.name) -Parent ('ses_root_av1_' + $avCase.name) -Message 'msg_av1_t4')
+            $avRw2 = Set-OrchestrationTaskModelAttempt -TaskId $avId -ChildSessionId ('ses_child_av2_' + $avCase.name) -ExpectedRevision (Get-TaskRevNow -T $avR -Id $avId) -TasksDir $avR.tasks -FlagsPath $avR.flags -PolicyPath $avPolPath
+            Assert-ModelProof (([bool]$avRw2.ok) -and ([string]$avRw2.tier -ceq 'T4')) ('unavail-' + $avCase.name + ': opus attempt recorded as T4')
+            $avT4 = Get-OrchestrationTaskModelFailureProof -TaskId $avId -RequiredTier 'T4' -TasksDir $avR.tasks -PolicyPath $avPolPath
+            Assert-ModelProof (([bool]$avT4.ok) -and ([string]$avT4.model -ceq 'claude-agent/opus')) ('unavail-' + $avCase.name + ': T4 Opus proof valid')
+            Clear-TaskKernelSessionReader
+            $avSel = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId $avId -TasksDir $avR.tasks -RepoRoot $avR.repo -PolicyPath $avPolPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
+            Assert-ModelProof (([string]$avSel.Status -ceq 'REJECTED') -and ([string]$avSel.DecisionStatus -ceq 'ASTRA_UNAVAILABLE_AFTER_OPUS_FAILURE')) ('unavail-' + $avCase.name + ': valid Opus proof with unavailable Astra is rejected')
+            Assert-ModelProof (($null -eq $avSel.selected_model_id) -or ([string]$avSel.selected_model_id -ceq '')) ('unavail-' + $avCase.name + ': rejected selection exposes no executable model')
+            Assert-ModelProof (([string]$avSel.selected_provider -ceq 'none') -and ([string]$avSel.Provider -ceq 'none')) ('unavail-' + $avCase.name + ': rejected selection exposes no provider')
+            Assert-ModelProof ((([string]$avSel.selected_model_id -cne 'claude-agent/opus') -and ([string]$avSel.selected_model_id -cne 'openai/gpt-6.1-sol') -and ([string]$avSel.selected_model_id -cne 'openai/gpt-6-astra')) -and (([string]$avSel.CatalogModel -cne 'claude-agent/opus') -and ([string]$avSel.CatalogModel -cne 'openai/gpt-6.1-sol') -and ([string]$avSel.CatalogModel -cne 'openai/gpt-6-astra'))) ('unavail-' + $avCase.name + ': no silent Opus/Sol/Astra retry')
+            Assert-ModelProof ((([string]$avSel.KernelProofReference -ceq [string]$avT4.reference) -and ([string]$avSel.KernelProofDigest -ceq [string]$avT4.digest))) ('unavail-' + $avCase.name + ': rejection preserves T4 proof ref/digest')
+        }
+    } finally {
+        if (-not [string]::IsNullOrEmpty($prevAstra29B)) { $env:OPENCODE_ASTRA_AUTHORIZED = $prevAstra29B } else { Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue }
+        if (-not [string]::IsNullOrEmpty($prevT429B)) { $env:OPENCODE_T4_AUTHORIZED = $prevT429B } else { Remove-Item Env:\OPENCODE_T4_AUTHORIZED -ErrorAction SilentlyContinue }
+        try { Clear-TaskKernelSessionReader } catch { }
+    }
 
     # 30. explicit missing RepoRoot fails closed
     $er1 = Set-OrchestrationTaskModelAttempt -TaskId 'proof-t3-001' -ChildSessionId 'ses_child_t3a' -ExpectedRevision 999 -TasksDir $s3.tasks -FlagsPath $s3.flags -RepoRoot 'Z:\no-such-dir-xyz-001' -PolicyPath $polPath
@@ -930,7 +1017,7 @@ try {
     $null = New-ModelProofTask -T $cp -PolPath $polPath -Id 'proof-opencost-001'
     $bcp = Invoke-ProofBindFlow -T $cp -Id 'proof-opencost-001' -Run 'run-cp' -Root 'ses_root_cp' -Child 'ses_child_cp' -Rev 1
     $null = Invoke-ProofFailResult -T $cp -Id 'proof-opencost-001' -Rev ([int]$bcp.revision) -SessionRef 'ses_child_cp' -MessageRefs @('msg_cp_1')
-    Set-TaskKernelSessionReader -Reader (New-TerraSeam -Session 'ses_child_cp' -Parent 'ses_root_cp' -Message 'msg_cp_1')
+    Set-TaskKernelSessionReader -Reader (New-StaticSeam -Session 'ses_child_cp' -Parent 'ses_root_cp' -Provider 'openai' -ModelShort 'gpt-6.1-terra' -Message 'msg_cp_1')
     $rcp2 = Set-OrchestrationTaskModelAttempt -TaskId 'proof-opencost-001' -ChildSessionId 'ses_child_cp' -ExpectedRevision (Get-TaskRevNow -T $cp -Id 'proof-opencost-001') -TasksDir $cp.tasks -FlagsPath $cp.flags -PolicyPath $polPath
     Assert-ModelProof ([bool]$rcp2.ok) 'non-Claude positive-cost attempt recorded' ([string]$rcp2.error)
     $gcp2 = Get-OrchestrationTask -TaskId 'proof-opencost-001' -TasksDir $cp.tasks

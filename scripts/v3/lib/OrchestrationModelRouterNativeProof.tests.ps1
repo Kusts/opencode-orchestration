@@ -12,7 +12,7 @@
     the canonical supported allowlist (2.2.5, 2.0.23). Unknown/missing live
     API fails closed. Process environment never sources proof. Part B: real
     TaskKernel fixture drives a persisted T3 proof and shows
-    Resolve-OrchestrationModelSelection yields T4 Sol (no stub of
+    Resolve-OrchestrationModelSelection yields T4 Opus (no stub of
     Get-OrchestrationTaskModelFailureProof for the positive case), plus
     spoofed task metadata cannot change the live capability, plus one
     hermetic CLI-level model-select check computed from the same live
@@ -87,7 +87,7 @@ try {
         Assert-NP ((-not [bool]$rnEnvNp.ok) -or ([string]$rnEnvNp.live_version -cne $envProbeNp)) 'NP10-env-var-never-proves-alone' ("ok=" + [string]$rnEnvNp.ok + " reason=" + [string]$rnEnvNp.reason)
     } finally { $env:ORCHESTRATION_TEST_NATIVE_INFO_VERSION = $prevEnvNp }
 
-    # Part B: real Kernel fixture -> persisted T3 proof -> T4 Sol (no stub).
+    # Part B: real Kernel fixture -> persisted T3 Sonnet proof -> T4 Opus (no stub).
     $tmpRoot = Join-Path ([IO.Path]::GetTempPath()) ('np-kernel-' + [guid]::NewGuid().ToString('N'))
     $tasksDir = Join-Path $tmpRoot 'tasks'
     $flagsPath = Join-Path $tmpRoot 'flags.json'
@@ -131,8 +131,8 @@ try {
     Assert-NP ([bool]$vr.ok) 'NP14-fixture-verify-run-executes' ([string]$vr.error)
     Set-TaskKernelSessionReader -Reader ({
         param([string]$ChildSid)
-        $sn = [ordered]@{ id = 'ses_child_np1'; parentID = 'ses_root_np1'; agent = 'coder'; model = [ordered]@{ providerID = 'openai'; id = 'gpt-6.1-terra' }; outcome = 'succeeded'; cost = 0.001; tokens = [ordered]@{ input = 100; output = 20; reasoning = 5 } }
-        $mm = [ordered]@{ id = 'msg_np1'; type = 'assistant'; agent = 'coder'; model = [ordered]@{ providerID = 'openai'; id = 'gpt-6.1-terra' }; time = [ordered]@{ created = '1000'; completed = '2000' }; finish = 'stop'; cost = 0.001; tokens = [ordered]@{ input = 100; output = 20; reasoning = 5 } }
+        $sn = [ordered]@{ id = 'ses_child_np1'; parentID = 'ses_root_np1'; agent = 'coder'; model = [ordered]@{ providerID = 'claude-agent'; id = 'sonnet' }; outcome = 'succeeded'; cost = 0.001; tokens = [ordered]@{ input = 100; output = 20; reasoning = 5 } }
+        $mm = [ordered]@{ id = 'msg_np1'; type = 'assistant'; agent = 'coder'; model = [ordered]@{ providerID = 'claude-agent'; id = 'sonnet' }; time = [ordered]@{ created = '1000'; completed = '2000' }; finish = 'stop'; cost = 0.001; tokens = [ordered]@{ input = 100; output = 20; reasoning = 5 } }
         return @{ session = $sn; messages = @($mm) }
     })
     $revNow = [int](Get-OrchestrationTask -TaskId $tid -TasksDir $tasksDir)['revision']
@@ -140,12 +140,12 @@ try {
     Assert-NP ([bool]$ar.ok) 'NP15-fixture-model-attempt-recorded' ([string]$ar.error)
     Clear-TaskKernelSessionReader
     $proof = Get-OrchestrationTaskModelFailureProof -TaskId $tid -RequiredTier 'T3' -TasksDir $tasksDir -PolicyPath $modelPolPath
-    Assert-NP (([bool]$proof.ok -and ([string]$proof.model -ceq 'openai/gpt-6.1-terra'))) 'NP16-real-T3-proof-persisted' ([string]$proof.error)
+    Assert-NP (([bool]$proof.ok -and ([string]$proof.model -ceq 'claude-agent/sonnet'))) 'NP16-real-T3-proof-persisted' ([string]$proof.error)
     $polRes = Get-OrchestrationModelRoutingPolicy
     $polHash = [string]$polRes.PolicyHash
     $nativeOk = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.2.5')
     $sel = Resolve-OrchestrationModelSelection -AgentName 'coder' -TaskId $tid -TasksDir $tasksDir -RepoRoot $repoDir -PolicyPath $modelPolPath -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven ([bool]$nativeOk.ok)
-    Assert-NP ((([string]$sel.Tier -ceq 'T4') -and ([string]$sel.CatalogModel -ceq 'openai/gpt-6.1-sol'))) 'NP17-persisted-T3-proof-yields-T4-Sol' ("tier=" + [string]$sel.Tier + " model=" + [string]$sel.CatalogModel)
+    Assert-NP ((([string]$sel.Tier -ceq 'T4') -and ([string]$sel.CatalogModel -ceq 'claude-agent/opus'))) 'NP17-persisted-T3-proof-yields-T4-Opus' ("tier=" + [string]$sel.Tier + " model=" + [string]$sel.CatalogModel)
     Assert-NP ((-not [string]::IsNullOrWhiteSpace([string]$sel.KernelProofReference)) -and ([string]$sel.policy_hash -ceq $polHash)) 'NP18-proof-ref-and-hash' ("ref=" + [string]$sel.KernelProofReference)
     $nativeBad = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '9.9.9')
     Assert-NP ((-not [bool]$nativeBad.ok)) 'NP19-unsupported-live-native-false-but-kernel-tier-holds' ("reason=" + [string]$nativeBad.reason)

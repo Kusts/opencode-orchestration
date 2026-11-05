@@ -607,7 +607,7 @@ Assert-That ([string](Get-OrchestrationTask -TaskId 'ghw-task-p' -TasksDir $e2.t
 Assert-That ([long](Get-OrchestrationTask -TaskId 'ghw-task-p' -TasksDir $e2.tasksDir -RepoRoot $e2.root).revision -eq ($revPBefore + 1)) 'liveness: exactly one unblock transition across both ticks'
 Assert-That ([bool](Get-GHWField $rp2.env 'kernel_mutated' $false)) 'liveness: recovery envelope reports kernel_mutated'
 # --- Unregister is fail-closed: existing task without -Force => confirmation-required, never deletes.
-$unAbs = Unregister-GitHubWakeSchedule -TaskName 'ghw-wake-absent-9f3a2b1c' 
+$unAbs = Unregister-GitHubWakeSchedule -TaskName 'ghw-wake-absent-9f3a2b1c'
 Assert-That (([bool](Get-GHWField $unAbs 'ok' $false)) -and ([string](Get-GHWField $unAbs 'reason' '') -ceq 'not-found')) 'unregister absent task => not-found (idempotent, no Force needed)'
 Assert-That ($null -ne (Get-Command Unregister-GitHubWakeSchedule -ErrorAction SilentlyContinue)) 'unregister command still exposed'
 $unSrc = [IO.File]::ReadAllText($script:cli, [Text.Encoding]::UTF8)

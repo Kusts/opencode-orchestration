@@ -54,19 +54,41 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier — **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo): em falha de disponibilidade/erro do modelo default, a política admite:
-  - **T2 geral:** `opencode-go/muse-spark-1.3-contributor` → `openai/gpt-6-luna` → `claude-agent/haiku`; qualquer salto para `claude-agent/*` exige razão de disponibilidade em allowlist + `NoExecutionStarted=true` provado + capacidade Claude local comprovada (executável `claude` autenticado).
-  - **Planner `build` (pinado em `openai/gpt-6-luna`, T2):** somente `openai/gpt-6-luna` → `claude-agent/haiku`, e somente com falha canônica exata de Luna + razão de disponibilidade em allowlist + `NoExecutionStarted=true` provado + capacidade Claude local; **nunca** a cadeia genérica Muse/DeepSeek, nunca Sonnet, nunca T3/T4.
-  - **T3:** `openai/gpt-6.1-terra` → `claude-agent/sonnet`. **T4:** `openai/gpt-6.1-sol` → `claude-agent/opus`.
-  - **Astra:** somente com prova kernel-owned da mesma tarefa de incapacidade T3/Sol (bloco "Prova kernel-owned" abaixo). **Fable:** somente após disponibilidade canônica de Astra em allowlist + `NoExecutionStarted=true` explicitamente provado + capacidade/alias/papel Claude provados; recibo genérico nunca libera Fable.
-  - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`; `opencode-go/deepseek-v4.1-flash` está bloqueado (`ZDR_EXPIRED_UNCONFIRMED`) e fora de qualquer cadeia.
-- Implementação nativa atual (HOLD): as condições acima são de elegibilidade da política, não um mecanismo em execução. `ModelExecution` documenta o fallback nativo pré-dispatch como HOLD — sem proveniência confiável de no-start (`NoExecutionStarted` do seam `DispatchExecutor` é booleano fornecido pelo caller e nunca prova que nada começou; o seam é test-only e faz exatamente uma chamada, sem retry) e `task-kernel model-select` é CLI somente-leitura sem caller de produção identificado. Hoje não há retry, fallback ou override automático no caminho da ferramenta `subagent` do Planner; escaladas deliberadas seguem as cotas e o reset ao baseline do item "Escalonamentos para Astra" abaixo.
+- Planner `build` (primario `openai/gpt-6-luna`, T2): sem fallback automático configurado.
+  O modelo global e `agents.build.model` permanecem Luna; outros agentes não herdam DeepSeek.
+  O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
+  necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
+  apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
+  por fallback automático.
+- Nenhuma cadeia de elegibilidade abaixo e executada pelo runtime nesta versao: sao regras estaticas da politica canonica, sem retry, fallback ou override automatico.
+- Researcher/Explorer/Docs Manager: T1 inicial, T2 sob escalonamento quando requerido. Tester: T0 determinístico, T1 trivial/simples, T2 não-trivial. Nenhum dos quatro usa T3/T4 automaticamente. Engineering-advisor: mínimo T3 (Sonnet primário/Terra fallback), T2 proibido.
+- Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier —
+  **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo):
+  em falha de disponibilidade/erro do modelo default, a ordem candidata é estática (apenas para auditoria), **implementação em HOLD**:
+  - **T1:** `opencode-go/iceman-contributor-free` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
+  - **T2 geral:** candidatos em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`; isto é apenas ordem estática de auditoria, a rota produtiva fica em HOLD. Capacidade Claude local e prova de no-start são condições de elegibilidade, não autorização de despacho; caller `NoExecutionStarted=true` não é prova.
+    `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. `opencode-go/deepseek-v4.1-flash` é o primário T2 por seleção explícita do operador (adendo 2026-11-04); ZDR segue `expired-unconfirmed` sem alegação de renovação/conformidade (não envie dados sensíveis cuja proteção exija ZDR; somente dados não-sensíveis até ZDR verificado).
+  - **T3:** candidatos em ordem `claude-agent/sonnet` (primário) → `openai/gpt-6.1-terra`; recuperação T2 só como candidata degradada para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Despacho técnico permanece HOLD sem prova independente de no-start. Engineering-advisor é T3-only.
+  - **T4:** candidatos em ordem `claude-agent/opus` (primário) → `openai/gpt-6.1-sol` (mesmo tier); recuperação T2 só como candidata degradada audit-only para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` (policy-level, sem retry em runtime; reviewer high/critical, security, advisor, architect e papéis não-T2 seguem `REJECTED_DOWNGRADE_FORBIDDEN`). `openai/gpt-6-astra` somente com prova kernel-owned de falha funcional do Opus, mesma tarefa e papel admissível; `claude-agent/fable` permanece HOLD porque a prova atual é primária e não comprova falha específica do Astra. T4 não exige aprovação manual por chamada (decisão do usuário); gates de prova, capability e papel continuam.
+  - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`;
+    `catalog_inventory_id` é proveniência do inventário, nunca mapeamento.
+    IDs `claude-agent/sonnet|opus|haiku|fable` exibem nomes Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 no catálogo local, todos `released=0`, `cost=[]`; outros IDs versionados não provam mapeamento dos aliases curtos. Sem prova independente, não afirmar pin/versão executada; resposta Haiku não prova passagem para Sonnet/Opus.
+  - **Fallback técnico/HOLD:** `Resolve-OrchestrationModelFallback` enumera ordem para auditoria e retorna HOLD (`CandidateModel` não-autorizador, `FallbackModel=null`, `IsAuthorized=false`). Booleans `NoExecutionStarted`/erros/timeout não confiáveis; sem prova independente não há replay. `Invoke-OrchestrationModelExecution` é single-call. Capacidade produtiva de fallback permanece HOLD até prova confiável de no-start. Um teste de matriz determinístico pode reportar ordem candidata mas não faz dispatch. A ordem candidata é estática da política e a implementação permanece em HOLD.
+- Implementacao nativa atual: o Planner e a propria sessao `build` (raiz do run), com
+  modelo primario `openai/gpt-6-luna` definido por `build.model` no `opencode.json`
+  (template: `{{MODEL_PLANNER}}`); o modelo global permanece Luna. Workers sao subagents
+  filhos da sessao raiz. O Kernel liga a raiz (`bind-session`), a solta (`detach-session`)
+  antes de ligar cada worker e registra model-attempt somente para filhos observados com
+  `parent_session_id` igual a raiz. O dispatch externo por `opencode run` foi removido:
+  a rota e recusada como ROUTE_BLOCKED_ROOT_SESSION, porque a sessao raiz nao e atribuivel.
+  Escalonamentos deliberados seguem as cotas e o reset ao baseline do item
+  "Escalonamentos para Astra" abaixo.
 - Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
 - Advisor Especializado Sob Demanda (`engineering-advisor`, Issue #60):
-  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Terra (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY: sem T2; T2 Muse é inelegível e diverge do default da política); Sol (T4) e Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
+  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Sonnet primário, Terra candidato, T2 proibido (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY). Opus/Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
 - Escalonamentos para Astra são temporários, por subtarefa, via override
   no spawn — nunca editando este arquivo nem os prompts dos agentes — e
   sempre com reset ao baseline. Antes de escalar, pergunte: falta
@@ -76,25 +98,22 @@ histórica, sem efeito).
   subtarefa; por objetivo pai, no máximo 2 execuções acima do baseline, das
   quais no máximo 1 pode usar Astra. Astra substitui, não soma. Nunca
   Astra em paralelo para a mesma pergunta. Nunca Astra como fan-out.
-- Prova kernel-owned (Router v1.4, sem executor/plugin/API paralelo): T3→Sol
-  somente com `Get-OrchestrationTaskModelFailureProof -TaskId <id> -RequiredTier T3`
+- Prova kernel-owned (Router v1.4, sem executor/plugin/API paralelo): **somente o caminho `task-kernel model-select` com prova Task Kernel sticky autoriza escalonamento**. T3 proof usa primary `claude-agent/sonnet`; T4 proof usa primary `claude-agent/opus` e requer prova T3 anterior. Astra/Fable mantêm gates excepcionais existentes. Kernel prova via verify-run `kernel-executed` com model/provider/session/message/run/policy hash. T3 proof = `claude-agent/sonnet`, T4 proof = `claude-agent/opus`; seleção após prova T4 Opus pode selecionar Astra sob política/papel; sem aprovação manual por chamada; candidatos técnicos permanecem HOLD; Fable permanece HOLD sem prova específica do modelo.
+  T3 (Sonnet) → T4 (Opus) somente com `Get-OrchestrationTaskModelFailureProof -TaskId <id> -RequiredTier T3`
   (`ok=true`, `policy_hash` igual ao da política vigente e `model`/`provider`
-  canônicos de Terra); Sol→Astra via `task-kernel model-select` somente com
-  prova `RequiredTier T4` válida da mesma tarefa (que exige T3 + Sol falhos
+  canônicos de `claude-agent/sonnet` conforme policy). Opus→Astra via `task-kernel model-select` somente com
+  prova `RequiredTier T4` válida da mesma tarefa (que exige T3 + Opus falhos
   persistidos; checagem T4 priorizada antes da T3 de head, sem apagar o
-  histórico) **e**, no fallback, Sol no conjunto tentado. Sem prova T4, Sol
-  somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
-  `eligible_roles` ⇒ sem Astra (fail closed para Sol/tier anterior, sem
-  bypass); recibo expõe ref/digest da prova T4 (nunca a ref T3 antiga como
-  falha atual de Sol). Recibos/bools arbitrários (`T3FailureVerified`,
+  histórico). Sem prova T4, Opus somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
+  `eligible_roles` ⇒ sem Astra (fail closed sem bypass); Fable permanece HOLD sem prova específica do modelo. Recibos/bools arbitrários (`T3FailureVerified`,
   `T3FailureReceipt`, `VerifiedFailureReceipt`), `FailureCount` e risco nunca
-  autorizam T4/Astra. Rota Planner-mediada: `task-kernel model-select`
+  autorizam T4/Astra/Fable. Candidatos técnicos (incluindo Opus→Sol) permanecem HOLD. Rota Planner-mediada: `task-kernel model-select`
   (somente leitura; retorna `tier` + `model` no formato `providerID/modelID`
-  — Sol em T3 válida, Astra em T4 válida posterior — + `policy_hash` + refs
+  — `claude-agent/opus` em T3 válida, `openai/gpt-6-astra` em T4 válida posterior — + `policy_hash` + refs
   da prova) → Planner informa `model` verbatim na propriedade `model` da
   ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
   → `task-kernel verify-run` → `model-attempt` → `model-proof`. A CLI nunca
-  cria sessões. Prova do override `subagent.model` é só do servidor OpenCode
+  cria sessões. Binding produtivo NOT_PROVEN (G1): não existe binding provado da saída `model-select` para a chamada nativa `subagent`, nem evento confiável de modelo executado correlacionado a TaskId + sessão filha + attempt + policy hash + recibo — nada neste documento implica que o Planner consuma a seleção automaticamente. O E2E real Luna→Haiku foi solicitado manualmente e vinculado/registrado após observação; prova atribuição e registro Kernel daquela execução, não roteamento produtivo automático. Prova do override `subagent.model` é só do servidor OpenCode
   local vivo: `native_model_override_proven=true` somente quando a versão
   viva de `opencode api get /api/info` está exatamente na allowlist
   `2.2.5`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
@@ -253,10 +272,9 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
-`requirements-analyst` baseline cheap → Sol para requisitos estruturalmente complexos;
-`engineering-advisor` baseline T3 Terra → Sol → Sol/high quando necessário;
-`product-designer` baseline cheap → Sol excepcionalmente; `skeptic` baseline cheap →
-Sol para plano/arquitetura high-risk. Nunca reutilize um
+`requirements-analyst` baseline cheap → sem escalonamento para Opus/Astra; apenas dentro de seu tier admissível (T1/T2/T3 conforme policy, sem T4);
+`engineering-advisor` baseline T3 Sonnet primário, Terra candidato → Opus/Astra somente via prova kernel-owned;
+`product-designer` baseline cheap (sem T4; sem recomendação de Opus/Astra); `skeptic` baseline cheap (sem T4; sem recomendação de Opus/Astra). Nunca reutilize um
 worker escalonado após a subtarefa.
 
 ### Planner Bridge: Router shadow (advisory, somente observação)
@@ -561,3 +579,7 @@ registrada em gate-closure, conforme as seções de Controlled Routing.
   accepted/loaded/used/helpful. MCP: trigger é dispatch-level tool/MCP scoping
   no runtime. Adaptive: trigger é volume relevante de outcomes reais com labels
   confiáveis e distribuição suficiente entre task types (sem threshold arbitrário).
+
+### Evidência de testes (observada)
+- `test-package-consistency` 16/16; `OrchestrationModelRouterMatrix` 35/35; `OrchestrationModelRouter` 107/107; V14 60/60; `OrchestrationModelRouterHaikuPlanner` 52/52 (nome legada; suíte mantém semântica alias+HOLD); `OrchestrationModelRouterModelConfig` 36/36; Kernel `OrchestrationTaskKernelModelProof` 104/104; `OrchestrationModelExecution` 36/36; `OrchestrationModelRouterKernelProof` 7/7.
+- Estes valores são estado/evidência atual; não afirmar que todos rodaram contra o `head` final integrado a menos que o código esteja inalterado — revalidação final pendente. Teste de matriz determinístico reporta ordem candidata mas não faz dispatch. `AGENTS.md` continua não reconciliado por conflito de proveniência (config ativa ajustada antes; agora direcionada para `build` Luna; root Luna igual; backups/rollback em `~/.config/opencode/reconciliation-backups/`; sem restauração whole-file).

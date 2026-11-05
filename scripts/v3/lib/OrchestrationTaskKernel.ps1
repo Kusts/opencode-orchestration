@@ -1414,13 +1414,31 @@ function Invoke-OrchestrationTaskSessionBinding {
             $b=$rec['bindings']; if ($null -eq $b) { $b=[ordered]@{runs=@();active_execution_owner=''} }
             $runs=@($b['runs']); $idx=-1
             for($i=0;$i -lt $runs.Count;$i++){if([string]$runs[$i]['run_id'] -ceq $run){$idx=$i;break}}
+            # Cross-run uniqueness. A worker session belongs to one run of this task:
+            # no other run may claim it, and no other run's root may become a worker.
+            # A root may continue into a later run of the same task (the Planner is
+            # one session across escalation attempts), but no other run's worker may
+            # become a root. Detached runs keep their sessions, hence this check.
+            if ($Operation -ne 'detach') {
+                foreach ($otherRun in $runs) {
+                    if ([string]$otherRun['run_id'] -ceq $run) { continue }
+                    $otherRoot = [string]$otherRun['root_session']
+                    $otherWorkers = @(@($otherRun['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) })
+                    $claimConflict = $false
+                    if ($WorkerSession) { $claimConflict = (($otherRoot -ceq $sid) -or ($otherWorkers -ccontains $sid)) }
+                    else { $claimConflict = ($otherWorkers -ccontains $sid) }
+                    if ($claimConflict) {
+                        return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{ existing_owner_id = [string]$otherRun['run_id']; scope = 'cross-run' })
+                    }
+                }
+            }
             if ($Operation -eq 'rebind' -and $idx -lt 0) { return (New-TaskKernelError -Code 'REBIND_RUN_MISMATCH') }
             if ($Operation -eq 'detach') {
                 if($idx -lt 0){return (New-TaskKernelError -Code 'NOT_FOUND')}
                 $entry=$runs[$idx]
-                $sessions=@($entry['worker_sessions']) + @($entry['root_session'])
+                $sessions=@(@($entry['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) }) + @($entry['root_session'])
                 if([string]$entry['status'] -eq 'detached'){
-                    $registered=@($entry['worker_sessions']) + @([string]$entry['root_session'])
+                    $registered=@(@($entry['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) }) + @([string]$entry['root_session'])
                     if($registered -cnotcontains $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$entry['root_session']})}
                     return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}
                 }
@@ -1438,7 +1456,7 @@ function Invoke-OrchestrationTaskSessionBinding {
             } else {
                 if($idx -lt 0){$entry=[ordered]@{run_id=$run;root_session='';worker_sessions=@();seat_id=$SeatId;status='attached';provenance=[ordered]@{runtime=(Protect-TaskKernelText $Runtime);version=(Protect-TaskKernelText $Version);parent_id=(Protect-TaskKernelText $ParentId);root_id=(Protect-TaskKernelText $RootId)};bound_at=(Get-TaskKernelTimestamp)}; $runs+=,$entry;$idx=$runs.Count-1}
                 $entry=$runs[$idx]
-                if($WorkerSession){$ws=@($entry['worker_sessions']);if($ws -ccontains $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['worker_sessions']=@($ws + $sid)}else{if([string]$entry['root_session'] -ceq $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['root_session']=$sid};$entry['status']='attached';$b['active_execution_owner']=$sid
+                if($WorkerSession){$ws=@(@($entry['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) });if($ws -ccontains $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['worker_sessions']=@($ws + $sid)}else{if([string]$entry['root_session'] -ceq $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['root_session']=$sid};$entry['status']='attached';$b['active_execution_owner']=$sid
             }
             $b['runs']=$runs;$rec['bindings']=$b;$rec['revision']=[int]$rec['revision']+1;$rec['updated_at']=Get-TaskKernelTimestamp
             $wr=Write-TaskKernelRecord -Record $rec -TaskFile $file
@@ -2800,6 +2818,21 @@ function Set-OrchestrationTaskReview {
         }
         catch { }
         $byClean = Protect-TaskKernelText -Text $by
+        # Review independence: the reviewer identity must differ from the
+        # recorded worker-result producer. Self-approval is rejected
+        # fail-closed (SELF_REVIEW_FORBIDDEN) so an E2E caller can never
+        # fabricate independence by recording its own approval. When no worker
+        # result exists yet there is no producer to conflict with.
+        try {
+            $wrkNode = $rec['worker_result']
+            if (($null -ne $wrkNode) -and ($wrkNode -is [System.Collections.IDictionary]) -and ($null -ne $wrkNode['produced_by'])) {
+                $producerName = ([string]$wrkNode['produced_by']).Trim()
+                if ((-not [string]::IsNullOrWhiteSpace($producerName)) -and ($by -ieq $producerName)) {
+                    return (New-TaskKernelError -Code 'SELF_REVIEW_FORBIDDEN' -Extra @{ detail = 'reviewer identity equals worker-result producer' })
+                }
+            }
+        }
+        catch { }
         $newRev = ([int]$rec['revision'] + 1)
         $entry = [ordered]@{
             status             = $status
@@ -6865,9 +6898,10 @@ function Get-OrchestrationTaskModelFailureProof {
         requires verification.status='verification_failed' with
         passed=false, a fresh worker-result candidate revision, the same
         failed attempt/strategy, the actual executed model/provider equal
-        to the canonical required T3 Terra (or T4 Sol), nonempty criterion
+        to the canonical required T3/T4 primary model from the current policy,
+        nonempty criterion
         evidence with at least one unverified criterion, and the bound
-        session still present in the recorded run. For T4 Sol, a prior
+        session still present in the recorded run. For T4 Opus, a prior
         valid T3 failure proof on the same task (earlier attempt) is
         required before Astra may be permitted. No dispatch, no
         bool/string proof parameters: only TaskId + RequiredTier. Root

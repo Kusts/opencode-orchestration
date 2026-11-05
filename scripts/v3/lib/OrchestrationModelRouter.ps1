@@ -36,7 +36,7 @@ $script:AgentModelAdmissibility = @{
         DefaultTier      = 'T3'
         AdmissibleTiers  = @('T3', 'T4')
         ProhibitedTiers  = @('T0', 'T1', 'T2')
-        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Terra; T2 prohibited (Muse ineligible per muse.eligible_roles; diverges from role_profiles default_model=terra/default_tier=T3). T4 only via kernel-owned T3 proof.'
+        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Sonnet (Terra fallback); T2 prohibited (DeepSeek Go and Muse both absent from engineering-advisor eligible_roles; profile prohibits T2 via role_profiles default_model=claude_sonnet/default_tier=T3). T4 only via kernel-owned T3 proof.'
     }
     'coder' = @{
         DefaultTier      = 'T2'
@@ -51,10 +51,10 @@ $script:AgentModelAdmissibility = @{
         ProhibitionNotes = 'Repository navigation and reading does not justify intermediate or frontier models.'
     }
     'researcher' = @{
-        DefaultTier      = 'T2'
-        AdmissibleTiers  = @('T1', 'T2', 'T3')
-        ProhibitedTiers  = @('T4')
-        ProhibitionNotes = 'Synthesis and web/code research does not justify T4.'
+        DefaultTier      = 'T1'
+        AdmissibleTiers  = @('T1', 'T2')
+        ProhibitedTiers  = @('T3', 'T4')
+        ProhibitionNotes = 'Synthesis and web/code research starts at T1; T3/T4 unjustified for this role.'
     }
     'tester' = @{
         DefaultTier      = 'T0'
@@ -146,9 +146,9 @@ $script:AgentModelAdmissibility = @{
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
     'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/iceman-contributor-free';  Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
-    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/muse-spark-1.3-contributor'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'openai/gpt-6-luna' }
-    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'openai/gpt-6.1-terra';                   Provider = 'openai';      Authorized = $true; AlternativeModel = 'opencode-go/muse-spark-1.3-contributor' }
-    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'openai/gpt-6.1-sol';                      Provider = 'openai';      Authorized = $true; ExceptionalModel = 'openai/gpt-6-astra' }
+    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'opencode-go/deepseek-v4.1-flash'; Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode-go/muse-spark-1.3-contributor'; AdditionalCandidates = @('claude-agent/haiku', 'openai/gpt-6-luna') }
+    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'claude-agent/sonnet';                  Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
+    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'claude-agent/opus';                    Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-sol'; ExceptionalModel = 'openai/gpt-6-astra' }
 }
 
 $script:CachedRoutingPolicy = $null
@@ -158,12 +158,12 @@ $script:CachedRoutingPolicy = $null
 # claude-agent/sonnet -> sonnet, claude-agent/opus -> opus,
 # claude-agent/fable -> fable. The OpenCode catalog never publishes an
 # alias->concrete mapping, successful session events expose only the alias, and
-# the concrete IDs merely LISTED in this account's local `opencode models` CLI
-# inventory are recorded in the policy as catalog_inventory_id (listing /
-# provenance ONLY, never read by this router). Alias-to-concrete runtime
-# resolution stays runtime-unverified until a successful session event proves
-# it: never store a concrete model ID here and never treat one as a mapping
-# (no invented 5.5/5.1 IDs; no resolved_model field anywhere).
+# the concrete IDs merely LISTED in the local `opencode models` CLI inventory
+# are recorded in the policy as catalog_inventory_id (listing / provenance
+# ONLY, never read by this router). Alias-to-concrete runtime resolution stays
+# runtime-unverified until a successful session event proves it: never store a
+# concrete model ID here and never treat one as a mapping (no invented IDs; no
+# resolved_model field anywhere).
 $script:ClaudeAgentDispatchAliasMap = @{
     'claude-agent/haiku'  = 'haiku'
     'claude-agent/sonnet' = 'sonnet'
@@ -171,9 +171,8 @@ $script:ClaudeAgentDispatchAliasMap = @{
     'claude-agent/fable'  = 'fable'
 }
 
-# Effort variants listed per alias in the current OpenCode model catalog
-# (tools.opencode.models metadata: low/medium/high/xhigh/max).
-# Recorded as catalog metadata only; smoke did not use a variant.
+# Effort variants listed per alias in the current OpenCode model catalog.
+# Recorded as catalog metadata only; dispatch never selects a variant here.
 $script:ClaudeAgentEffortVariants = @('low', 'medium', 'high', 'xhigh', 'max')
 
 # Availability/transport fault classes. A claude-agent substitute (Haiku/Sonnet/
@@ -496,18 +495,23 @@ function Get-OrchestrationUserConfigCatalog {
     $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
 
     $mIceman = if ($null -ne $pol -and $pol.models.iceman) { [string]$pol.models.iceman.model_id } elseif ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode-go/iceman-contributor-free' }
+    $mMimo = if ($null -ne $pol -and $pol.models.mimo) { [string]$pol.models.mimo.model_id } else { 'opencode/mimo-v2.6-flash-free' }
     $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
-    $mTerra = if ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'openai/gpt-6.1-terra' }
+    $mDeepSeekGo = if ($null -ne $pol -and $pol.models.deepseek_go) { [string]$pol.models.deepseek_go.model_id } else { 'opencode-go/deepseek-v4.1-flash' }
+    $mHaiku = if ($null -ne $pol -and $pol.models.claude_haiku) { [string]$pol.models.claude_haiku.model_id } else { 'claude-agent/haiku' }
     $mLuna = if ($null -ne $pol -and $pol.models.luna) { [string]$pol.models.luna.model_id } else { 'openai/gpt-6-luna' }
+    $mSonnet = if ($null -ne $pol -and $pol.models.claude_sonnet) { [string]$pol.models.claude_sonnet.model_id } elseif ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'claude-agent/sonnet' }
+    $mTerra = if ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'openai/gpt-6.1-terra' }
+    $mOpus = if ($null -ne $pol -and $pol.models.claude_opus) { [string]$pol.models.claude_opus.model_id } elseif ($null -ne $pol -and $pol.models.sol) { [string]$pol.models.sol.model_id } else { 'claude-agent/opus' }
     $mSol = if ($null -ne $pol -and $pol.models.sol) { [string]$pol.models.sol.model_id } else { 'openai/gpt-6.1-sol' }
     $mAstra = if ($null -ne $pol -and $pol.models.astra) { [string]$pol.models.astra.model_id } else { 'openai/gpt-6-astra' }
 
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
-        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mMuse;                                   Provider = (Get-ModelProviderFromId $mMuse); Authorized = $true; AlternativeModel = $mLuna }
-        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mTerra;                                  Provider = 'openai';      Authorized = $true; AlternativeModel = $mMuse }
-        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mSol;                                    Provider = 'openai';      Authorized = $true; ExceptionalModel = $mAstra }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true; AlternativeModel = $mMimo }
+        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mDeepSeekGo;                               Provider = (Get-ModelProviderFromId $mDeepSeekGo); Authorized = $true; AlternativeModel = $mMuse; AdditionalCandidates = @($mHaiku, $mLuna) }
+        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mSonnet;                                 Provider = (Get-ModelProviderFromId $mSonnet); Authorized = $true; AlternativeModel = $mTerra }
+        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mOpus;                                   Provider = (Get-ModelProviderFromId $mOpus); Authorized = $true; AlternativeModel = $mSol; ExceptionalModel = $mAstra }
     }
 
     if (-not $IgnoreUserConfig) {
@@ -583,7 +587,7 @@ function Resolve-CatalogModel {
         Resolves catalog model entry, token and authorization for a requested tier.
     .DESCRIPTION
         Separates technical admissibility from provider/cost authorization.
-        T4 and Astra are NEVER authorized merely by task risk or failure count; explicit cost authorization is required.
+        T4 is policy-authorized only after verified T3 failure; Astra remains separately exceptional and proof-gated.
     #>
     [CmdletBinding()]
     param(
@@ -633,23 +637,23 @@ function Resolve-CatalogModel {
     $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.3.0' }
 
     # T4 is a policy-authorized tier; the caller must prove T3 non-resolution before selection.
-    # Astra cannot be selected directly: it is only a fallback after a verified Sol failure.
+    # Astra cannot be selected directly: it is only an exceptional alternative after a verified Opus failure.
     if ($Tier -eq 'T4') {
         $authorized = $true
         $authSource = 'AUTO_ROUTER_POLICY_V14'
         $authEvidence = 'policy:t3-verified-failure-gate'
         if ($catModel -match 'astra') {
             $authorized = $false
-            $authSource = 'ASTRA_REQUIRES_VERIFIED_SOL_FAILURE'
+            $authSource = 'ASTRA_REQUIRES_VERIFIED_OPUS_FAILURE'
             $authEvidence = 'none'
         }
     }
 
     $candidates = switch ($Tier) {
         'T1' { @('opencode-go/iceman-contributor-free', 'opencode/mimo-v2.6-flash-free') }
-        'T2' { @('opencode-go/muse-spark-1.3-contributor', 'openai/gpt-6-luna', 'claude-agent/haiku', 'opencode-go/deepseek-v4.1-flash') }
-        'T3' { @('openai/gpt-6.1-terra', 'claude-agent/sonnet', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
-        'T4' { @('openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/opus', 'claude-agent/fable', 'opencode-go/muse-spark-1.3-contributor', 'opencode-go/deepseek-v4.1-flash') }
+        'T2' { @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna') }
+        'T3' { @('claude-agent/sonnet', 'openai/gpt-6.1-terra', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') }
+        'T4' { @('claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/fable') }
         default { @('none (deterministic)') }
     }
 
@@ -673,7 +677,7 @@ function Resolve-CatalogModel {
 function Test-OrchestrationModelKernelFailureProof {
     <#
     .SYNOPSIS
-        Kernel-owned failure-proof gate for T3->Sol (T4) and Sol->Astra escalation.
+        Kernel-owned failure-proof gate for T3 Sonnet -> T4 Opus and Opus -> Astra escalation.
     .DESCRIPTION
         Read-only. Calls Get-OrchestrationTaskModelFailureProof for TaskId +
         RequiredTier and requires: proof ok, policy_hash equals current routing
@@ -703,8 +707,31 @@ function Test-OrchestrationModelKernelFailureProof {
         $canonModel = ''
         $canonProvider = ''
         try {
-            if ($tier -ceq 'T3' -and $null -ne $pol.models.terra) { $canonModel = [string]$pol.models.terra.model_id; $canonProvider = [string]$pol.models.terra.provider }
-            elseif ($tier -ceq 'T4' -and $null -ne $pol.models.sol) { $canonModel = [string]$pol.models.sol.model_id; $canonProvider = [string]$pol.models.sol.provider }
+            $hasCanonFn = (Get-Command Get-TaskKernelCanonicalModelForTier -ErrorAction SilentlyContinue)
+            if ($null -ne $hasCanonFn) {
+                $canonRes = $null
+                try { $canonRes = Get-TaskKernelCanonicalModelForTier -Policy $pol -Tier $tier } catch { $canonRes = $null }
+                if ($null -ne $canonRes -and [bool]$canonRes.ok) {
+                    $canonModel = [string]$canonRes.model_id
+                    $canonProvider = [string]$canonRes.provider
+                }
+            } else {
+                $tierNode = $null
+                try { $tierNode = $pol.tiers.$tier } catch { $tierNode = $null }
+                $primaryKey = ''
+                try { if ($null -ne $tierNode) { $primaryKey = [string]$tierNode.primary } } catch { $primaryKey = '' }
+                if (-not [string]::IsNullOrWhiteSpace($primaryKey) -and $null -ne $pol.models) {
+                    $modelNode = $null
+                    try { $modelNode = $pol.models.$primaryKey } catch { $modelNode = $null }
+                    if ($null -eq $modelNode -and $null -ne $pol.models.PSObject) {
+                        try { $pp = $pol.models.PSObject.Properties[$primaryKey]; if ($null -ne $pp) { $modelNode = $pp.Value } } catch { $modelNode = $null }
+                    }
+                    if ($null -ne $modelNode) {
+                        $canonModel = [string]$modelNode.model_id
+                        $canonProvider = [string]$modelNode.provider
+                    }
+                }
+            }
         } catch { $canonModel = ''; $canonProvider = '' }
         if ([string]::IsNullOrWhiteSpace($canonModel)) { return @{ ok = $false; proof = $null; error = 'CANON_UNKNOWN' } }
         $hasFn = (Get-Command Get-OrchestrationTaskModelFailureProof -ErrorAction SilentlyContinue)
@@ -787,6 +814,9 @@ function Resolve-OrchestrationModelFallback {
         [bool]$ClaudeAgentProven = $false,
 
         [Parameter(Mandatory = $false)]
+        [bool]$HaikuPreRunUnavailable = $false,
+
+        [Parameter(Mandatory = $false)]
         [string]$TaskId = '',
 
         [Parameter(Mandatory = $false)]
@@ -850,6 +880,45 @@ function Resolve-OrchestrationModelFallback {
 
     # Admissibilidade estrita por papel do agente
     $admiss = if ($script:AgentModelAdmissibility.ContainsKey($cleanAgent)) { $script:AgentModelAdmissibility[$cleanAgent] } else { $null }
+
+    # Safety contract: this resolver performs NO model execution or dispatch
+    # and owns NO independent no-start proof. Caller-supplied booleans
+    # (NoExecutionStarted/HaikuPreRunUnavailable) are untrusted signals, not
+    # proof, and never authorize a substitute. There is no second router and
+    # no new proof seam in this patch: VERIFIED_TASK_FAILURE is a functional
+    # incapacity claim for the canonical model-select path (TaskKernel proof),
+    # never an availability fallback, so this resolver must not choose
+    # same-tier models or T1/T2 retries from it.
+    if ($TriggerReason -ceq 'VERIFIED_TASK_FAILURE') {
+        return [pscustomobject]@{
+            Status='KERNEL_MODEL_SELECT_REQUIRED'; IsAuthorized=$false; FallbackModel=$null
+            AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+            OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+            TriggerReason=$TriggerReason; Reason='Functional failure requires canonical model-select with TaskKernel proof (FUNCTIONAL_FAILURE_REQUIRES_MODEL_SELECT); this resolver authorizes no same-tier or downgrade substitute.'
+            AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+            AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+            ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+        }
+    }
+    # Allowlisted technical triggers may enumerate ordered candidates below
+    # for exclusions/audit only (admissibility, cost, capability, ZDR,
+    # alias checks still populate PreventivelyExcluded). Any other trigger
+    # (unknown strings, empty, TIMEOUT, AMBIGUOUS) returns immediate HOLD:
+    # without an allowlisted technical class there is no ordered candidate
+    # set to audit, and no generic same-tier selection is permitted.
+    $allowlistedTechnical = @('RATE_LIMIT', 'QUOTA', 'QUOTA_EXCEEDED', 'MODEL_UNAVAILABLE', 'MODEL_ERROR', 'PROVIDER_ERROR', 'OFFLINE', 'SERVICE_UNAVAILABLE')
+    $normReason = ([string]$TriggerReason).Trim().ToUpperInvariant()
+    if (($allowlistedTechnical -notcontains $TriggerReason) -and ($allowlistedTechnical -notcontains $normReason)) {
+        return [pscustomobject]@{
+            Status='FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF'; IsAuthorized=$false; FallbackModel=$null
+            AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+            OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+            TriggerReason=$TriggerReason; Reason='Non-technical/unknown trigger is not independent no-start proof; caller booleans are untrusted (FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF).'
+            AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+            AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+            ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+        }
+    }
 
     # Funcao para obter candidatos dinamicos por tier a partir da politica efetiva
     $GetDynamicCandidatesForTier = {
@@ -917,6 +986,24 @@ function Resolve-OrchestrationModelFallback {
                         Seq           = $seq
                     })
                     $seq++
+                }
+                if ($null -ne $entry.AdditionalCandidates) {
+                    foreach ($addModel in @($entry.AdditionalCandidates)) {
+                        if ([string]::IsNullOrWhiteSpace([string]$addModel)) { continue }
+                        $cands.Add([pscustomobject]@{
+                            ModelId       = [string]$addModel
+                            LogicalId     = [string]$addModel
+                            Provider      = Get-ModelProviderFromId ([string]$addModel)
+                            Enabled       = $true
+                            Priority      = 3
+                            EligibleRoles = @()
+                            RequiresCost  = $false
+                            Exceptional   = $false
+                            Tier          = $TargetTier
+                            Seq           = $seq
+                        })
+                        $seq++
+                    }
                 }
                 if ($entry.ExceptionalModel) {
                     $cands.Add([pscustomobject]@{
@@ -996,12 +1083,12 @@ function Resolve-OrchestrationModelFallback {
             }
         }
 
-        # 4b. claude-agent provider gate (policy-level route; productive native
-        # dispatch stays HOLD). Every condition is NECESSARY and none alone
-        # authorizes a substitute: capability proof (local authenticated 'claude'),
-        # remote capability for remote workers, an allowlisted availability reason,
-        # proved pre-execution no-start, and exact dispatch-alias identity
-        # (model_id + alias; no concrete/inventory ID is ever compared).
+        # 4b. claude-agent provider gate (audit filter only; nothing here
+        # authorizes dispatch). Every condition is NECESSARY for a candidate
+        # to survive evaluation (capability proof, remote capability,
+        # allowlisted technical reason, exact dispatch-alias identity), but
+        # none authorizes execution: the HOLD helper below still returns
+        # CandidateModel as non-authorizing audit only.
         if ($CandObj.Provider -eq 'claude-agent') {
             $capCheck = Test-ClaudeAgentProviderAdmissible -WorkerHost $WorkerHost -WorkerCapabilities $WorkerCapabilities -ClaudeAgentProven $ClaudeAgentProven
             if (-not $capCheck.Admissible) {
@@ -1038,12 +1125,13 @@ function Resolve-OrchestrationModelFallback {
             }
         }
 
-        # 4c. Fable gate: only as an Astra availability fallback with proved
-        # pre-execution evidence (canonical Astra FailedModel + allowlisted
-        # availability reason + NoExecutionStarted + Astra attempted + Claude
-        # capability/alias proof). A generic Task Kernel receipt
-        # (VERIFIED_TASK_FAILURE) NEVER authorizes Fable: the kernel proves
-        # T3/T4 Sol, never Astra.
+        # 4c. Fable gate (audit filter only): Fable survives evaluation only
+        # as an Astra-ordered candidate with canonical Astra FailedModel plus
+        # allowlisted technical reason plus Astra attempted plus Claude
+        # capability/alias proof. A generic Task Kernel receipt
+        # (VERIFIED_TASK_FAILURE) NEVER surfaces Fable here: VERIFIED returns
+        # KERNEL_MODEL_SELECT_REQUIRED before enumeration, and nothing in this
+        # resolver authorizes Fable dispatch.
         if ($CandObj.LogicalId -eq 'claude_fable' -or $mId -eq 'claude-agent/fable') {
             $fableAstraCanonical = 'openai/gpt-6-astra'
             $fableAvailOk = (($FailedModel -ceq $fableAstraCanonical) -and
@@ -1086,7 +1174,7 @@ function Resolve-OrchestrationModelFallback {
         # budget precondition, evaluated before capability proof gates.
         # RequiresCost needs per-call cost authorization; Exceptional needs
         # exceptional budget authorization. Neither is inferred from tier,
-        # failure count, receipts, or the T4/Sol proof gates below.
+        # failure count, receipts, or the T4/Opus proof gates below.
         if ([bool]$CandObj.RequiresCost) {
             $hasCostAuth = ([bool]$ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))
             if (-not $hasCostAuth) {
@@ -1117,12 +1205,25 @@ function Resolve-OrchestrationModelFallback {
         }
 
         # Astra is not a generic outage fallback. It requires kernel-owned T4
-        # (Sol) failure proof for the exact task plus attempted Sol.
+        # (canonical primary, currently Opus) failure proof for the exact task
+        # plus the attempted canonical T4 primary.
         if ($CandObj.Exceptional -or $mId -match 'astra') {
+            $canonT4Attempt = 'claude-agent/opus'
+            try {
+                if ($null -ne $policy -and $null -ne $policy.tiers -and $null -ne $policy.tiers.T4 -and -not [string]::IsNullOrWhiteSpace([string]$policy.tiers.T4.primary)) {
+                    $t4Key = [string]$policy.tiers.T4.primary
+                    $t4Node = $null
+                    try { $t4Node = $policy.models.$t4Key } catch { $t4Node = $null }
+                    if ($null -eq $t4Node -and $null -ne $policy.models.PSObject) {
+                        try { $pp4 = $policy.models.PSObject.Properties[$t4Key]; if ($null -ne $pp4) { $t4Node = $pp4.Value } } catch { $t4Node = $null }
+                    }
+                    if ($null -ne $t4Node -and -not [string]::IsNullOrWhiteSpace([string]$t4Node.model_id)) { $canonT4Attempt = [string]$t4Node.model_id }
+                }
+            } catch { $canonT4Attempt = 'claude-agent/opus' }
             $kpT4 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T4' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
             if ($reqTier -ne 'T4' -or $TriggerReason -ne 'VERIFIED_TASK_FAILURE' -or
                 (-not [bool]$kpT4.ok) -or
-                (-not $reallyAttempted.Contains('openai/gpt-6.1-sol'))) {
+                (-not $reallyAttempted.Contains($canonT4Attempt))) {
                 & $RecordExclusion $mId $tier 'SOL_VERIFIED_FAILURE_REQUIRED'
                 return $null
             }
@@ -1131,25 +1232,33 @@ function Resolve-OrchestrationModelFallback {
         return $CandObj
     }
 
-    # Helper function to build success result
+    # Helper function to build HOLD result for a would-be substitute.
+    # This resolver never dispatches: even when a candidate passes
+    # admissibility/cost/capability evaluation, the route stays HOLD because
+    # this code has no independent no-start proof (caller booleans are not
+    # proof). CandidateModel is an explicit non-authorizing audit field
+    # (ordered-candidate inspection for deterministic tests); FallbackModel
+    # stays null and IsAuthorized stays false on every route, including
+    # Astra/Fable, T1/T2/T3/T4 and reviewer special branches.
     $BuildAuthorizedResult = {
         param([string]$ChosenModel, [string]$TargetTier, [string]$ReasonMsg, [bool]$IsDown)
         $chosenProv = Get-ModelProviderFromId $ChosenModel
         $isCross = ($origProvider -ne $chosenProv -and $origProvider -ne 'unknown' -and $chosenProv -ne 'unknown')
         return [pscustomobject]@{
-            Status                 = 'AUTHORIZED'
-            IsAuthorized           = $true
-            FallbackModel          = $ChosenModel
-            AuthorizedModel        = $ChosenModel
+            Status                 = 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF'
+            IsAuthorized           = $false
+            FallbackModel          = $null
+            AuthorizedModel        = $null
+            CandidateModel         = $ChosenModel
             FallbackTier           = $TargetTier
             OriginalModel          = $origModel
             OriginalProvider       = $origProvider
-            FallbackProvider       = $chosenProv
+            FallbackProvider       = $null
             IsCrossProvider        = $isCross
             TriggerReason          = $TriggerReason
-            Reason                 = $ReasonMsg
+            Reason                 = [string]$ReasonMsg + ' (HOLD: no independent no-start proof in this resolver; CandidateModel is non-authorizing audit only.)'
             AuthorizationSource    = 'ROUTER_POLICY'
-            ProviderCostAuthorized = $true
+            ProviderCostAuthorized = $false
             AttemptsCount          = [Math]::Max(1, $reallyAttempted.Count)
             IsDowngrade            = $IsDown
             ReallyAttemptedModels  = @($reallyAttempted)
@@ -1161,7 +1270,7 @@ function Resolve-OrchestrationModelFallback {
     # Quando FailedModel e o Astra canonico, nenhum T4 generico (ex. Opus) pode
     # passar na frente. Somente indisponibilidade provada pre-execucao autoriza
     # Fable; qualquer outro caso fail-closed sem fallback generico. A kernel-owned
-    # incapacity path (T3->Sol, Sol->Astra) permanece separada e nao e substituida
+    # incapacity path (T3 Sonnet->T4 Opus, Opus->Astra) permanece separada e nao e substituida
     # por este caminho de disponibilidade.
     $astraCanonicalId = 'openai/gpt-6-astra'
     $astraAvailReasons = $script:AvailabilityTriggerReasons
@@ -1184,7 +1293,7 @@ function Resolve-OrchestrationModelFallback {
         if ($null -ne $policy -and $null -ne $policy.models -and $null -ne $policy.models.astra -and $null -ne $policy.models.astra.fallback_candidates) {
             $astraOrder = @($policy.models.astra.fallback_candidates)
         }
-        if ($astraOrder.Count -eq 0) { $astraOrder = @('claude_fable', 'muse', 'deepseek_go') }
+        if ($astraOrder.Count -eq 0) { $astraOrder = @('claude_fable', 'deepseek_go', 'muse') }
         foreach ($logical in $astraOrder) {
             $lid = [string]$logical
             $entry = $null
@@ -1222,7 +1331,7 @@ function Resolve-OrchestrationModelFallback {
             $valid = & $EvaluateCandidate $candObj
             if ($null -ne $valid) {
                 $isDown = ($candTier -ne $reqTier)
-                return (& $BuildAuthorizedResult $valid.ModelId $candTier "Astra availability fallback to '$($valid.ModelId)' per astra.fallback_candidates order after $TriggerReason (pre-execution proved)." $isDown)
+                return (& $BuildAuthorizedResult $valid.ModelId $candTier "Astra ordered candidate '$($valid.ModelId)' per astra.fallback_candidates order after $TriggerReason (audit only)." $isDown)
             }
         }
         return [pscustomobject]@{
@@ -1236,207 +1345,73 @@ function Resolve-OrchestrationModelFallback {
         }
     }
 
-    # Planner (build) dedicated fail-closed path: Luna primary, Haiku specialized
-    # fallback (T2-only, build-eligible). Policy-level only until the productive
-    # native dispatcher calls it (native pre-dispatch fallback stays HOLD).
-    # Never send build through generic T2/T3 candidate enumeration; never silently
-    # choose Muse/DeepSeek; build is prohibited from T4.
+    # Planner (build) is Luna-only (T2). No automatic model fallback is
+    # implemented or authorized: caller booleans (HaikuPreRunUnavailable,
+    # NoExecutionStarted) are untrusted signals, not independent proof.
+    # Never send build through generic T2/T3 candidate enumeration; never
+    # silently choose DeepSeek/Muse/Haiku; never Sonnet; build is prohibited
+    # from T4.
     if ($cleanAgent -eq 'build') {
-        $plannerLunaCanonical = 'openai/gpt-6-luna'
-        $plannerAvailReasons = $script:AvailabilityTriggerReasons
-        $plannerHaikuAlias = 'claude-agent/haiku'
-        if ($FailedModel -cne $plannerLunaCanonical) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_REQUIRES_LUNA_FAILURE'
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner fallback requires exact canonical Luna failure (PLANNER_REQUIRES_LUNA_FAILURE); no generic Muse/DeepSeek fallback.'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
+        & $RecordExclusion 'openai/gpt-6-luna' 'T2' 'PLANNER_NO_AUTOMATIC_FALLBACK'
+        return [pscustomobject]@{
+            Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+            AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
+            OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+            TriggerReason=$TriggerReason; Reason='Planner is Luna-only (T2) with no automatic fallback (PLANNER_NO_AUTOMATIC_FALLBACK); generic T2 chain and T3/T4 never apply to build.'
+            AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+            AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+            ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
         }
-        if ($plannerAvailReasons -notcontains $TriggerReason) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_AVAILABILITY_REQUIRED'
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner fallback requires an allowlisted availability reason (PLANNER_AVAILABILITY_REQUIRED); ambiguous or capability-failure claims without a model/task-bound T2 kernel proof authorize nothing.'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        if (-not [bool]$NoExecutionStarted) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_NO_START_PROOF_REQUIRED'
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner fallback requires proved pre-execution failure (NoExecutionStarted=true); no replay on ambiguous outcome (PLANNER_NO_START_PROOF_REQUIRED).'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        $plannerNode = $null
-        if ($null -ne $policy -and $null -ne $policy.planner) { $plannerNode = $policy.planner }
-        $cfgAlias = ''
-        $cfgAliasToken = ''
-        if ($null -ne $plannerNode) {
-            if ($null -ne $plannerNode.fallback_model_id) { $cfgAlias = [string]$plannerNode.fallback_model_id }
-            if ($null -ne $plannerNode.fallback_alias) { $cfgAliasToken = [string]$plannerNode.fallback_alias }
-        }
-        if ([string]::IsNullOrWhiteSpace($cfgAlias) -or ($cfgAlias -cne $plannerHaikuAlias)) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_FALLBACK_NOT_HAIKU'
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner policy fallback is not the configured Haiku alias (PLANNER_FALLBACK_NOT_HAIKU); no generic Muse/DeepSeek substitution.'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        $haikuEntry = $null
-        if ($null -ne $policy -and $null -ne $policy.models) {
-            $lp = $policy.models.PSObject.Properties['claude_haiku']
-            if ($null -ne $lp -and $null -ne $lp.Value) { $haikuEntry = $lp.Value }
-        }
-        if ($null -eq $haikuEntry) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_HAIKU_UNAVAILABLE'
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner Haiku entry unavailable in policy (PLANNER_HAIKU_UNAVAILABLE); no generic Muse/DeepSeek fallback.'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        # Exact build-fallback dispatch-alias identity, fail-closed:
-        #   planner.fallback_model_id == 'claude-agent/haiku' (checked above),
-        #   planner.fallback_alias == 'haiku',
-        #   linked claude_haiku entry model_id + alias matching the closed map,
-        #   and claude_haiku.resolution_status still 'runtime-unverified'.
-        # planner.fallback_catalog_inventory_id (local CLI listing) is provenance
-        # only and is NEVER compared: alias->concrete stays runtime-unverified and
-        # no concrete/inventory ID is ever treated as a mapping.
-        $entryAlias = ''
-        $entryModelId = ''
-        $entryResolutionStatus = ''
-        if ($null -ne $haikuEntry) {
-            if ($null -ne $haikuEntry.alias) { $entryAlias = [string]$haikuEntry.alias }
-            if ($null -ne $haikuEntry.model_id) { $entryModelId = [string]$haikuEntry.model_id }
-            if ($null -ne $haikuEntry.resolution_status) { $entryResolutionStatus = [string]$haikuEntry.resolution_status }
-        }
-        $plannerAliasReason = ''
-        if ([string]::IsNullOrWhiteSpace($cfgAliasToken) -or ($cfgAliasToken -cne 'haiku')) {
-            $plannerAliasReason = 'CLAUDE_ALIAS_MISMATCH'
-        } else {
-            $plannerAliasCheck = Resolve-ClaudeAgentAlias -AliasModelId $cfgAlias -PolicyAlias $entryAlias -PolicyModelId $entryModelId
-            if (-not $plannerAliasCheck.Matches) { $plannerAliasReason = [string]$plannerAliasCheck.Reason }
-            elseif ($entryResolutionStatus -cne 'runtime-unverified') { $plannerAliasReason = 'CLAUDE_RESOLUTION_STATUS_INVALID' }
-        }
-        if (-not [string]::IsNullOrWhiteSpace($plannerAliasReason)) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' $plannerAliasReason
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason="Planner Haiku dispatch-alias identity check failed ($plannerAliasReason); no alias->concrete mapping is claimed (runtime-unverified) and no generic fallback."
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        $plannerCap = Test-ClaudeAgentProviderAdmissible -WorkerHost $WorkerHost -WorkerCapabilities $WorkerCapabilities -ClaudeAgentProven $ClaudeAgentProven
-        if (-not $plannerCap.Admissible) {
-            & $RecordExclusion $plannerHaikuAlias 'T2' $plannerCap.Reason
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason="Planner Haiku requires local Claude capability proof ($($plannerCap.Reason)); no generic Muse/DeepSeek fallback."
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        $haikuTier = 'T2'
-        try {
-            $tp = @($haikuEntry.tier_profiles)
-            if ($tp.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$tp[0])) { $haikuTier = [string]$tp[0] }
-        } catch { $haikuTier = 'T2' }
-        if ($haikuTier -cne 'T2') {
-            & $RecordExclusion $plannerHaikuAlias 'T2' 'PLANNER_HAIKU_NOT_T2'
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner Haiku fallback must stay T2 (PLANNER_HAIKU_NOT_T2); build never routes to T3/T4.'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        $haikuRoles = @()
-        try { $haikuRoles = @($haikuEntry.eligible_roles) } catch { $haikuRoles = @() }
-        $haikuPrio = 3
-        try { if ($null -ne $haikuEntry.priority) { $haikuPrio = [int]$haikuEntry.priority } } catch { $haikuPrio = 3 }
-        $haikuEnabled = $true
-        try { $haikuEnabled = [bool]$haikuEntry.enabled } catch { $haikuEnabled = $true }
-        $haikuReq = $false
-        $haikuExc = $false
-        try { $haikuReq = [bool]($haikuEntry.cost_profile.requires_authorization) } catch { $haikuReq = $false }
-        try { $haikuExc = [bool]($haikuEntry.cost_profile.exceptional_budget_required) } catch { $haikuExc = $false }
-        $haikuCand = [pscustomobject]@{
-            ModelId = [string]$haikuEntry.model_id; LogicalId = [string]$haikuEntry.id; Provider = [string]$haikuEntry.provider
-            Enabled = $haikuEnabled; Priority = $haikuPrio; EligibleRoles = $haikuRoles
-            RequiresCost = $haikuReq; Exceptional = $haikuExc; Tier = $haikuTier; Seq = 0
-        }
-        $validPlanner = & $EvaluateCandidate $haikuCand
-        if ($null -eq $validPlanner) {
-            return [pscustomobject]@{
-                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
-                AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
-                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-                TriggerReason=$TriggerReason; Reason='Planner Haiku unavailable (already attempted, disabled, ineligible, capability/no-start unproven or provider not allowed); no generic Muse/DeepSeek fallback and never T4.'
-                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
-                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
-                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
-            }
-        }
-        return (& $BuildAuthorizedResult $validPlanner.ModelId $haikuTier "Planner Luna availability fallback to '$($validPlanner.ModelId)' per planner policy after $TriggerReason (pre-execution proved)." $false)
     }
 
-    # On availability/transport faults, T3/T4 first try an explicitly admitted
-    # SAME-TIER availability substitute (Sonnet for T3, Opus for T4; claude-agent
-    # capability + proved no-start required), never treating a downgrade as equal
-    # capability. Only when no same-tier candidate remains may T2 be used as
-    # degraded transport recovery. Security and high-risk review retain their
-    # no-downgrade invariant. Availability never escalates tier: reaching T3/T4
-    # from below requires an explicit, bound incapacity proof (kernel-owned),
-    # never a transport/availability reason.
+    # Forged-input guard: a caller-provided reviewer T2 selection with high,
+    # critical, or unknown/invalid risk contradicts the canonical selection
+    # (high/critical reviewer is T3; T2 admits only low/medium). Reject
+    # fail-closed before any same-tier candidate enumeration.
+    if ($cleanAgent -eq 'reviewer' -and $reqTier -ceq 'T2') {
+        $revRisk = if ($null -ne $RequestedSelection.Risk) { [string]$RequestedSelection.Risk } else { '' }
+        if ($revRisk -in @('high','critical') -or $revRisk -notin @('low','medium')) {
+            foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
+                & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
+            }
+            return [pscustomobject]@{
+                Status='REJECTED_DOWNGRADE_FORBIDDEN'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; CandidateModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason="Reviewer T2 fallback prohibited for risk '$revRisk' (high/critical/unknown never downgrades to T2; contradictory input rejected fail-closed)."
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$true
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
+    }
+
+    # On allowlisted technical faults, T3/T4 enumerate the explicitly admitted
+    # SAME-TIER order first (Sonnet for T3; Opus->Sol order for T4 retained as
+    # declarative candidates only) for exclusions/audit, then policy-level T2
+    # downgrade candidates (DeepSeek Go then Muse) strictly for roles whose
+    # AgentModelAdmissibility admits T2. Nothing here authorizes: the HOLD
+    # helper returns CandidateModel as non-authorizing audit only (no
+    # independent no-start proof in this resolver; policy-level candidates only
+    # and no runtime retry). Availability never escalates tier: reaching T3/T4
+    # from below requires the canonical model-select path with kernel-owned
+    # proof, never a transport/availability reason.
     $transientReasons = $script:AvailabilityTriggerReasons
     if ($reqTier -in @('T3','T4') -and $transientReasons -contains $TriggerReason) {
         $sameTierAvail = & $GetDynamicCandidatesForTier $reqTier
         foreach ($sc in $sameTierAvail) {
             $validSame = & $EvaluateCandidate $sc
             if ($null -ne $validSame) {
-                return (& $BuildAuthorizedResult $validSame.ModelId $reqTier "Availability fallback within $reqTier after $TriggerReason (same tier, degraded capability)." $false)
+                return (& $BuildAuthorizedResult $validSame.ModelId $reqTier "Same-tier ordered candidate within $reqTier after $TriggerReason (audit only)." $false)
             }
         }
         $downAllowed = $null -ne $admiss -and $admiss.AdmissibleTiers -contains 'T2' -and $admiss.ProhibitedTiers -notcontains 'T2'
-        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -ne 'low') { $downAllowed = $false }
+        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -in @('high','critical')) { $downAllowed = $false }
         if ($cleanAgent -eq 'security-reviewer') { $downAllowed = $false }
         if ($cleanAgent -eq 'engineering-advisor') { $downAllowed = $false }
+        if ($cleanAgent -eq 'architect') { $downAllowed = $false }
         if (-not $downAllowed) {
-            foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
+            foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
                 & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
             }
             return [pscustomobject]@{
@@ -1450,12 +1425,12 @@ function Resolve-OrchestrationModelFallback {
             }
         }
         $downCandidates = & $GetDynamicCandidatesForTier 'T2'
-        foreach ($mc in @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash')) {
+        foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
             foreach ($dc in $downCandidates) {
                 if ($dc.ModelId -ne $mc) { continue }
                 $validDown = & $EvaluateCandidate $dc
                 if ($null -ne $validDown) {
-                    return (& $BuildAuthorizedResult $validDown.ModelId 'T2' "Fallback from $reqTier after $TriggerReason (degraded capability)." $true)
+                    return (& $BuildAuthorizedResult $validDown.ModelId 'T2' "T2 ordered candidate after $reqTier $TriggerReason (audit only)." $true)
                 }
             }
         }
@@ -1472,10 +1447,11 @@ function Resolve-OrchestrationModelFallback {
     }
 
     # Politica de fallback por papel e regras de admissibilidade:
-    # 1. Reviewer / Security-Reviewer: Downgrade abaixo dos tiers admitidos e estritamente proibido!
+    # 1. Reviewer / Security-Reviewer: Downgrade abaixo dos tiers admitidos e
+    # proibido para high/critical (reviewer low/medium admite T2); Security segue proibido.
     if ($cleanAgent -in @('reviewer', 'security-reviewer')) {
         $isDowngradeProhibited = $true
-        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -eq 'low') {
+        if ($cleanAgent -eq 'reviewer' -and [string]$RequestedSelection.Risk -in @('low','medium')) {
             $isDowngradeProhibited = $false
         }
 
@@ -1491,7 +1467,7 @@ function Resolve-OrchestrationModelFallback {
         }
 
         if ($null -ne $validSameTierCand) {
-            return (& $BuildAuthorizedResult $validSameTierCand $reqTier "Router authorized same-tier fallback to '$validSameTierCand' for agent '$cleanAgent'." $false)
+            return (& $BuildAuthorizedResult $validSameTierCand $reqTier "Same-tier ordered candidate '$validSameTierCand' for agent '$cleanAgent' (audit only)." $false)
         }
 
         # Sem alternativa no mesmo tier. Reviewer pode escalar para T4 se autorizado por custo
@@ -1500,7 +1476,7 @@ function Resolve-OrchestrationModelFallback {
             foreach ($cand in $t4Cands) {
                 $valid = & $EvaluateCandidate $cand
                 if ($null -ne $valid) {
-                    return (& $BuildAuthorizedResult $valid.ModelId 'T4' "Router authorized tier escalation to '$($valid.ModelId)' (T4) for agent '$cleanAgent'." $false)
+                    return (& $BuildAuthorizedResult $valid.ModelId 'T4' "T4 ordered candidate '$($valid.ModelId)' for agent '$cleanAgent' (audit only)." $false)
                 }
             }
         }
@@ -1540,7 +1516,7 @@ function Resolve-OrchestrationModelFallback {
     foreach ($cand in $sameTierCands) {
         $valid = & $EvaluateCandidate $cand
         if ($null -ne $valid) {
-            return (& $BuildAuthorizedResult $valid.ModelId $reqTier "Router authorized same-tier alternative '$($valid.ModelId)' for agent '$cleanAgent'." $false)
+            return (& $BuildAuthorizedResult $valid.ModelId $reqTier "Same-tier ordered candidate '$($valid.ModelId)' for agent '$cleanAgent' (audit only)." $false)
         }
     }
 
@@ -1554,9 +1530,21 @@ function Resolve-OrchestrationModelFallback {
     if ($reqTier -ceq 'T3' -and $null -ne $admiss) {
         $upCands = & $GetDynamicCandidatesForTier 'T4'
         foreach ($candUp in $upCands) {
+            # T3 is a CAPABILITY escalation, never a fallback reaction. It requires
+            # an explicit, BOUND incapacity proof (kernel-owned: TaskId + policy
+            # hash + canonical model/provider), so a transport/availability reason
+            # or a caller-supplied string can never open it. T4/Astra keep their
+            # own kernel-owned proof gates in EvaluateCandidate.
+            $kpT3Esc = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
+            if (-not [bool]$kpT3Esc.ok) {
+                foreach ($candBlocked in $upCands) {
+                    & $RecordExclusion $candBlocked.ModelId 'T3' 'T3_ESCALATION_REQUIRES_INCAPACITY_PROOF'
+                }
+                break
+            }
             $validUp = & $EvaluateCandidate $candUp
             if ($null -ne $validUp) {
-                return (& $BuildAuthorizedResult $validUp.ModelId 'T4' "Router authorized tier escalation to '$($validUp.ModelId)' (T4) for agent '$cleanAgent'." $false)
+                return (& $BuildAuthorizedResult $validUp.ModelId 'T4' "T4 ordered candidate '$($validUp.ModelId)' for agent '$cleanAgent' (audit only)." $false)
             }
         }
     }
@@ -1992,7 +1980,7 @@ function Resolve-OrchestrationModelSelection {
     $selectedTier = $admissibility.DefaultTier
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
-    # Planner is pinned to Luna, classified T2 regardless of general T2 Muse pool.
+    # Planner is pinned to Luna, classified T2 regardless of DeepSeek Go T2 pool.
     if ($cleanAgent -eq 'build') {
         $selectedTier = 'T2'
         $reason = 'Planner build is stable on GPT-6 Luna under operational tier T2.'
@@ -2000,44 +1988,59 @@ function Resolve-OrchestrationModelSelection {
     elseif ($cleanAgent -eq 'reviewer') {
         if ($Risk -eq 'low' -and $Complexity -in @('trivial','simple')) {
             $selectedTier = 'T2'
-            $reason = 'Economical T2 for simple low-risk review.'
+            $reason = 'Economical T2 DeepSeek Go for simple low-risk review.'
         } else {
             $selectedTier = 'T3'
-            $reason = 'Capable T3 Terra for review.'
+            $reason = 'Capable T3 Sonnet for review (Terra fallback).'
         }
     }
     elseif ($cleanAgent -eq 'security-reviewer') {
         $selectedTier = 'T3'
-        $reason = 'Security-reviewer starts at T3 Terra; no T2 downgrade.'
+        $reason = 'Security-reviewer starts at T3 Sonnet (Terra fallback); no T2 downgrade.'
+    }
+    elseif ($cleanAgent -in @('researcher','explorer','docs-manager')) {
+        # These roles start with T1 for lightweight work. An explicit complex
+        # task or high/critical risk may use T2, their maximum admissible tier;
+        # FailureCount never promotes them, and T3/T4 remain prohibited.
+        if (($Complexity -ceq 'complex') -or ($Risk -in @('high','critical'))) {
+            $selectedTier = 'T2'
+            $reason = "$cleanAgent escalates from T1 to T2 for explicit complex/high-risk work; T3/T4 are prohibited."
+        } else {
+            $selectedTier = 'T1'
+            $reason = "$cleanAgent starts at T1 for lightweight work; explicit complex/high-risk criteria are required for T2."
+        }
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
         # ROUTER-V14-ADVISOR-T3-ONLY (explicit user decision): advisor always
-        # starts at T3 Terra regardless of risk/complexity/FailureCount. T2
-        # Muse violates muse.eligible_roles and diverges from role_profiles
-        # default_model=terra/default_tier=T3. T4 only via kernel-owned proof.
+        # starts at T3 Sonnet (Terra fallback) regardless of
+        # risk/complexity/FailureCount. T2 DeepSeek Go/Muse both absent from
+        # engineering-advisor eligibility and profile prohibits T2 via
+        # role_profiles default_model=claude_sonnet/default_tier=T3. T4 only via
+        # kernel-owned proof.
         $selectedTier = 'T3'
-        $reason = 'Engineering-advisor always uses T3 Terra; T4 only via kernel-owned T3 proof.'
+        $reason = 'Engineering-advisor always uses T3 Sonnet (Terra fallback); T4 only via kernel-owned T3 proof.'
     }
     elseif ($cleanAgent -eq 'coder') {
         # v1.4 matrix: FailureCount never promotes Coder. Complexity=complex
-        # selects T3 (role policy); everything else stays T2.
+        # selects T3 (role policy); everything else stays routine T2 on
+        # DeepSeek Go (T2 DeepSeek Go/Muse recovery order for transport, audit-only).
         if ($Complexity -eq 'complex') {
             $selectedTier = 'T3'
-            $reason = 'Coder uses T3 Terra for complex work.'
+            $reason = 'Coder uses T3 Sonnet (Terra fallback) for complex work.'
         } else {
             $selectedTier = 'T2'
-            $reason = 'Coder defaults to economical T2 Muse.'
+            $reason = 'Coder defaults to economical T2 DeepSeek Go.'
         }
     }
     elseif ($cleanAgent -eq 'debugger') {
         $selectedTier = 'T3'
-        $reason = 'Debugger uses T3 Terra for root-cause analysis.'
+        $reason = 'Debugger uses T3 Sonnet (Terra fallback) for root-cause analysis.'
     }
 
     elseif ($cleanAgent -eq 'tester') {
-        if ($RequiresLlm -and $Complexity -eq 'trivial' -and $Risk -eq 'low') {
+        if ($RequiresLlm -and $Complexity -in @('trivial', 'simple') -and $Risk -eq 'low') {
             $selectedTier = 'T1'
-            $reason = 'Tester uses ultralight T1 for trivial LLM-assisted checks.'
+            $reason = 'Tester uses ultralight T1 for trivial/simple low-risk LLM-assisted checks.'
         } elseif ($RequiresLlm -or $Complexity -in @('simple', 'medium', 'complex')) {
             $selectedTier = 'T2'
             $reason = 'Tester uses T2 for test authoring and nontrivial checks.'
@@ -2050,9 +2053,9 @@ function Resolve-OrchestrationModelSelection {
     # Automatic frontier escalation requires kernel-owned failure proof for
     # the exact task (policy_hash + canonical model/provider match).
     # DEPRECATED_UNTRUSTED T3FailureVerified/T3FailureReceipt/FailureCount are
-    # ignored. model-select is the Planner entry point for T3->Sol and,
-    # after a persisted failed Sol attempt, Sol->Astra. The T4 check runs
-    # FIRST: after Sol fails, the head attempt is Sol (T4) while the valid
+    # ignored. model-select is the Planner entry point for T3->Opus and,
+    # after a persisted failed Opus attempt, Opus->Astra. The T4 check runs
+    # FIRST: after Opus fails, the head attempt is Opus (T4) while the valid
     # T3 proof lives in verification_history, so a head T3 check alone
     # would hide the Astra escalation.
     $selUsesAstra = $false
@@ -2078,21 +2081,93 @@ function Resolve-OrchestrationModelSelection {
                     if ($roleOk -and $provOk) { $astraOk = $true }
                 }
             } catch { $astraOk = $false }
+            # Astra exceptional budget gate: environment-only dedicated
+            # authorization. Only the documented operator variable
+            # OPENCODE_ASTRA_AUTHORIZED=true plus the valid kernel-owned
+            # T4 proof above allows Astra. ProviderCostAuthorized (generic
+            # per-call T4/caller cost) and OPENCODE_T4_AUTHORIZED never
+            # authorize Astra.
+            $astraExcAuth = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
             if ($astraOk) {
-                $selectedTier = 'T4'
-                $reason = 'Kernel-owned T4 (Sol) failure proof; policy escalates to T4 Astra.'
-                $selUsesAstra = $true
-                $selT4Proof = $kpT4Sel.proof
+                if ($astraExcAuth) {
+                    $selectedTier = 'T4'
+                    $reason = 'Kernel-owned T4 (Opus) failure proof; policy escalates to T4 Astra.'
+                    $selUsesAstra = $true
+                    $selT4Proof = $kpT4Sel.proof
+                } else {
+                    # Fail closed: valid Opus proof but no exceptional budget.
+                    # Do not retry the already-proven-failed Opus and do not
+                    # return an executable Astra selection; the caller must
+                    # authorize the exceptional budget explicitly.
+                    return [pscustomobject]@{
+                        Status                    = 'REJECTED'
+                        DecisionStatus            = 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED'
+                        Reason                    = 'Kernel-owned T4 (Opus) failure proof is valid but Astra requires dedicated exceptional budget authorization (OPENCODE_ASTRA_AUTHORIZED=true); failing closed without retrying proven-failed Opus.'
+                        selection_reason          = 'Kernel-owned T4 (Opus) failure proof is valid but Astra requires dedicated exceptional budget authorization (OPENCODE_ASTRA_AUTHORIZED=true); failing closed without retrying proven-failed Opus.'
+                        Agent                     = $cleanAgent
+                        requested_role            = $cleanAgent
+                        Tier                      = 'T4'
+                        selected_tier             = 'T4'
+                        ModelToken                = $null
+                        selected_model_id         = $null
+                        selected_provider         = 'none'
+                        Provider                  = 'none'
+                        AuthorizedSelection       = $false
+                        Authorized                = $false
+                        ProviderCostAuthorized    = $false
+                        CostAuthorizationSource   = 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED'
+                        authorization_source      = 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED'
+                        CostAuthorizationEvidence = 'none'
+                        CostBudget                = 'exceptional_budget_required'
+                        IsCompliant               = $false
+                        policy_version            = $polVer
+                        policy_hash               = $polHash
+                        fallback_candidates       = @()
+                        runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
+                        KernelProofReference      = [string]$kpT4Sel.proof.reference
+                        KernelProofDigest         = [string]$kpT4Sel.proof.digest
+                    }
+                }
             } else {
-                $selectedTier = 'T4'
-                $reason = 'Kernel-owned T4 (Sol) failure proof; Astra unavailable, fail closed to T4 Sol.'
-                $selT4Proof = $kpT4Sel.proof
+                # Fail closed: valid Opus proof but Astra is unavailable under
+                # policy (disabled, role-ineligible, provider-disabled). Never
+                # replay the already-proven-failed Opus (nor Sol/Astra
+                # substitutes): the T4 incapacity path is exhausted and no
+                # executable model remains.
+                return [pscustomobject]@{
+                    Status                    = 'REJECTED'
+                    DecisionStatus            = 'ASTRA_UNAVAILABLE_AFTER_OPUS_FAILURE'
+                    Reason                    = 'Kernel-owned T4 (Opus) failure proof is valid but Astra is unavailable under policy; failing closed without retrying proven-failed Opus, Sol or Astra.'
+                    selection_reason          = 'Kernel-owned T4 (Opus) failure proof is valid but Astra is unavailable under policy; failing closed without retrying proven-failed Opus, Sol or Astra.'
+                    Agent                     = $cleanAgent
+                    requested_role            = $cleanAgent
+                    Tier                      = 'T4'
+                    selected_tier             = 'T4'
+                    ModelToken                = $null
+                    selected_model_id         = $null
+                    selected_provider         = 'none'
+                    Provider                  = 'none'
+                    AuthorizedSelection       = $false
+                    Authorized                = $false
+                    ProviderCostAuthorized    = $false
+                    CostAuthorizationSource   = 'ASTRA_UNAVAILABLE_AFTER_OPUS_FAILURE'
+                    authorization_source      = 'ASTRA_UNAVAILABLE_AFTER_OPUS_FAILURE'
+                    CostAuthorizationEvidence = 'none'
+                    CostBudget                = 'exceptional_budget_required'
+                    IsCompliant               = $false
+                    policy_version            = $polVer
+                    policy_hash               = $polHash
+                    fallback_candidates       = @()
+                    runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
+                    KernelProofReference      = [string]$kpT4Sel.proof.reference
+                    KernelProofDigest         = [string]$kpT4Sel.proof.digest
+                }
             }
         } else {
             $kpT3Sel = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
             if ([bool]$kpT3Sel.ok) {
                 $selectedTier = 'T4'
-                $reason = 'Kernel-owned T3 failure proof; policy escalates to T4 Sol.'
+                $reason = 'Kernel-owned T3 failure proof; policy escalates to T4 Opus.'
                 $selT3Proof = $kpT3Sel.proof
             }
         }
@@ -2111,16 +2186,16 @@ function Resolve-OrchestrationModelSelection {
     }
 
     # Advisor check (ROUTER-V14-ADVISOR-T3-ONLY): engineering-advisor NEVER
-    # T0/T1/T2; explicit user decision forces T3 Terra minimum.
+    # T0/T1/T2; explicit user decision forces T3 Sonnet (Terra fallback) minimum.
     if ($cleanAgent -eq 'engineering-advisor' -and $selectedTier -in @('T0', 'T1', 'T2')) {
         $selectedTier = 'T3'
-        $reason = "Advisor invariant enforced: engineering-advisor forced to T3 minimum (always Terra; T4 only via kernel-owned proof)."
+        $reason = "Advisor invariant enforced: engineering-advisor forced to T3 minimum (always Sonnet with Terra fallback; T4 only via kernel-owned proof)."
     }
 
-    # Coder T4 check: coder NEVER T4 without kernel-owned proof (T3 for Sol,
+    # Coder T4 check: coder NEVER T4 without kernel-owned proof (T3 for Opus,
     # T4 for Astra). FailureCount alone never authorizes; proof implies
     # persisted failures. T4 is checked first so the Astra path survives its
-    # own head (Sol) while the T3 proof lives in history.
+    # own head (Opus) while the T3 proof lives in history.
     if ($cleanAgent -eq 'coder' -and $selectedTier -eq 'T4') {
         $coderKeep = $false
         if ($selUsesAstra -or ($null -ne $selT4Proof) -or ($null -ne $selT3Proof)) {
@@ -2147,7 +2222,9 @@ function Resolve-OrchestrationModelSelection {
         }
     }
 
-    # Visual capability upgrade: eligible agents may use T3 (Terra) for visual/document tasks
+    # Visual capability upgrade: eligible agents may use T3 (Sonnet, Terra
+    # fallback) for visual/document tasks. Researcher stays T1: visual never
+    # auto-upgrades researcher to T3.
     $visualRequested = $RequiresVisualAnalysis
     if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($RequiredCapability)) {
         if ($RequiredCapability -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
@@ -2155,45 +2232,89 @@ function Resolve-OrchestrationModelSelection {
     if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($TaskType)) {
         if ($TaskType -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
     }
-    $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
+    $terraEligibleAgents = @('frontend-engineer','product-designer','architect')
     if (-not $selUsesAstra -and $visualRequested -and ($terraEligibleAgents -contains $cleanAgent) -and ($admissibleTiers -contains 'T3')) {
         $selectedTier = 'T3'
-        $reason = "Capable tier T3 selected for visual/document capability (Terra)."
+        $reason = "Capable tier T3 selected for visual/document capability (Sonnet, Terra fallback)."
     }
 
     # Catalog and authorization check: separate technical justification from explicit cost authorization
     $catalogRes = Resolve-CatalogModel -Tier $selectedTier -Catalog $ModelCatalog -FailureCount $FailureCount -Risk $Risk -ProviderCostAuthorized $ProviderCostAuthorized -PolicyPath $PolicyPath -IgnoreUserConfig $IgnoreUserConfig
     if ($selUsesAstra -and $selectedTier -eq 'T4') {
-        $astraId = ''
-        $astraProv = ''
-        try {
-            if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.models -and $null -ne $policyRes.Policy.models.astra) {
-                $astraId = [string]$policyRes.Policy.models.astra.model_id
-                $astraProv = [string]$policyRes.Policy.models.astra.provider
-            }
-        } catch { $astraId = ''; $astraProv = '' }
-        if (-not [string]::IsNullOrWhiteSpace($astraId)) {
-            $catalogRes.CatalogModel = $astraId
-            $catalogRes.Provider = if (-not [string]::IsNullOrWhiteSpace($astraProv)) { $astraProv } else { Get-ModelProviderFromId $astraId }
-            $catalogRes.CostAuthorizationSource = 'AUTO_ROUTER_POLICY_V14'
-            $catalogRes.CostAuthorizationEvidence = 'policy:t4-verified-failure-gate'
-            $catalogRes.IsAuthorized = $true
-            $catalogRes.ProviderCostAuthorized = $true
-        } else {
+        # Defense-in-depth: the T4-proof branch above already required
+        # the documented environment-only exceptional authorization.
+        # Re-check here so a future caller path cannot reach an
+        # executable Astra via selUsesAstra with only generic
+        # ProviderCostAuthorized.
+        $astraExcAuth2 = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
+        if (-not $astraExcAuth2) {
             $selUsesAstra = $false
-            $reason = 'Kernel-owned T4 (Sol) failure proof; Astra unavailable, fail closed to T4 Sol.'
+            $reason = 'Kernel-owned T4 (Opus) failure proof; Astra exceptional budget authorization absent, fail closed without executable Astra.'
+        } else {
+            $astraId = ''
+            $astraProv = ''
+            try {
+                if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.models -and $null -ne $policyRes.Policy.models.astra) {
+                    $astraId = [string]$policyRes.Policy.models.astra.model_id
+                    $astraProv = [string]$policyRes.Policy.models.astra.provider
+                }
+            } catch { $astraId = ''; $astraProv = '' }
+            if (-not [string]::IsNullOrWhiteSpace($astraId)) {
+                $catalogRes.CatalogModel = $astraId
+                $catalogRes.Provider = if (-not [string]::IsNullOrWhiteSpace($astraProv)) { $astraProv } else { Get-ModelProviderFromId $astraId }
+                $catalogRes.CostAuthorizationSource = 'AUTO_ROUTER_POLICY_V14'
+                $catalogRes.CostAuthorizationEvidence = 'policy:t4-verified-failure-gate+exceptional-budget-authorized'
+                $catalogRes.IsAuthorized = $true
+                $catalogRes.ProviderCostAuthorized = $true
+            } else {
+                $selUsesAstra = $false
+                $reason = 'Kernel-owned T4 (Opus) failure proof; Astra unavailable, fail closed to T4 Opus.'
+            }
         }
     }
     if ($cleanAgent -eq 'build') {
-        # Planner is not the general T2 pool. Keep Luna and its dedicated token.
-        # Recorded fallback: Luna -> Haiku only (claude-agent, T2-only, build
-        # eligible, capability + proved no-start required). Never silently remap
-        # Planner to Muse or DeepSeek Go; DeepSeek Go is additionally blocked
-        # (ZDR_EXPIRED_UNCONFIRMED). Build never routes to T4.
-        $catalogRes.CatalogModel = 'openai/gpt-6-luna'
+        # Planner is Luna-only (T2, MODEL_PLANNER, no automatic fallback).
+        # Never silently remap Planner to DeepSeek/Muse/Haiku; never Sonnet;
+        # build never routes to T4.
+        $plannerPrimaryId = 'openai/gpt-6-luna'
+        $plannerPrimaryProv = 'openai'
+        try {
+            if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.planner) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$policyRes.Policy.planner.model_id)) {
+                    $plannerPrimaryId = [string]$policyRes.Policy.planner.model_id
+                }
+                if (-not [string]::IsNullOrWhiteSpace([string]$policyRes.Policy.planner.provider)) {
+                    $plannerPrimaryProv = [string]$policyRes.Policy.planner.provider
+                }
+            }
+        } catch { }
+        if ($plannerPrimaryId -cne 'openai/gpt-6-luna') {
+            return [pscustomobject]@{
+                Status                    = 'REJECTED'
+                DecisionStatus            = 'PLANNER_PRIMARY_NOT_LUNA'
+                Reason                    = "Planner policy primary is not the configured Luna model ('$plannerPrimaryId')."
+                selection_reason          = "Planner policy primary is not the configured Luna model ('$plannerPrimaryId')."
+                Agent                     = $cleanAgent
+                requested_role            = $cleanAgent
+                Tier                      = $null
+                selected_tier             = $null
+                ModelToken                = $null
+                selected_model_id         = $null
+                selected_provider         = 'none'
+                FallbackTier              = 'T2'
+                FallbackToken             = 'MODEL_PLANNER'
+                IsCompliant               = $false
+                Authorized                = $false
+                policy_version            = $polVer
+                policy_hash               = $polHash
+                fallback_candidates       = @()
+                runtime_override_status   = if ($NativeModelOverrideProven) { 'PROVEN' } else { 'PROOF_ABSENT' }
+            }
+        }
+        $catalogRes.CatalogModel = $plannerPrimaryId
         $catalogRes.ModelToken = 'MODEL_PLANNER'
-        $catalogRes.Provider = 'openai'
-        $catalogRes.FallbackCandidates = @('claude-agent/haiku')
+        $catalogRes.Provider = $plannerPrimaryProv
+        $catalogRes.FallbackCandidates = @()
     }
     if (-not $catalogRes.IsAuthorized) {
         $degradedTier = if ($selectedTier -eq 'T4') { 'T3' } else { $admissibility.DefaultTier }
@@ -2241,7 +2362,7 @@ function Resolve-OrchestrationModelSelection {
         }
     }
 
-    # Terra specialization: prefer GPT-6.1 Terra for eligible visual/document tasks when explicitly requested
+    # Terra specialization: prefer policy Terra for eligible visual/document tasks when explicitly requested
     $visualRequested = $RequiresVisualAnalysis
     if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($RequiredCapability)) {
         if ($RequiredCapability -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
@@ -2249,9 +2370,9 @@ function Resolve-OrchestrationModelSelection {
     if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($TaskType)) {
         if ($TaskType -match 'visual|ui|image|document|screen|interface') { $visualRequested = $true }
     }
-    $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
+    $terraEligibleAgents = @('frontend-engineer','product-designer','architect')
     if ($selectedTier -eq 'T3' -and $visualRequested) {
-        $terraEligibleAgents = @('frontend-engineer','product-designer','researcher','architect')
+        $terraEligibleAgents = @('frontend-engineer','product-designer','architect')
         if ($terraEligibleAgents -contains $cleanAgent) {
             $polRes2 = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
             $terraEnabled = $true
@@ -2259,8 +2380,14 @@ function Resolve-OrchestrationModelSelection {
                 $terraEnabled = [bool]$polRes2.Policy.models.terra.enabled
             }
             if ($terraEnabled) {
-                $catalogRes.CatalogModel = 'openai/gpt-6.1-terra'
-                $selectedProv = 'openai'
+                $terraId = 'openai/gpt-6.1-terra'
+                try {
+                    if ($null -ne $polRes2.Policy -and $null -ne $polRes2.Policy.models -and $null -ne $polRes2.Policy.models.terra -and -not [string]::IsNullOrWhiteSpace([string]$polRes2.Policy.models.terra.model_id)) {
+                        $terraId = [string]$polRes2.Policy.models.terra.model_id
+                    }
+                } catch { $terraId = 'openai/gpt-6.1-terra' }
+                $catalogRes.CatalogModel = $terraId
+                $selectedProv = Get-ModelProviderFromId $terraId
                 $reason += " Terra selected for visual/document capability."
             }
         }

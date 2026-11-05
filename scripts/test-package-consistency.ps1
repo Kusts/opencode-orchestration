@@ -369,11 +369,11 @@ try {
     }
     $blocks11 = @($t11.agent.PSObject.Properties.Name)
     if ($blocks11.Count -ne 17) { [void]$errs11.Add(('blocos agent=' + $blocks11.Count + ', esperado 17')) }
-    if (($null -ne $t11.agent) -and ($null -ne $t11.agent.build) -and ($null -ne ($t11.agent.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue))) {
-      [void]$errs11.Add('template: bloco build nao deve conter "model"')
+    if (($null -eq $t11.agent) -or ($null -eq $t11.agent.build) -or ([string]$t11.agent.build.model -cne 'x/planner')) {
+      [void]$errs11.Add('template: bloco build deve usar MODEL_PLANNER (Haiku do Planner)')
     }
   }
-  if ($errs11.Count -eq 0) { Report-Ok '11 template V1 trimmed (sem autoupdate/skills/plugin)' '17 blocos agent; build sem model' }
+  if ($errs11.Count -eq 0) { Report-Ok '11 template V1 trimmed (sem autoupdate/skills/plugin)' '17 blocos agent; build model=MODEL_PLANNER' }
   else { Report-Fail '11 template V1 trimmed (sem autoupdate/skills/plugin)' ($errs11 -join ' | ') }
 }
 catch { Report-Fail '11 template V1 trimmed (sem autoupdate/skills/plugin)' $_.Exception.Message }
@@ -403,10 +403,10 @@ try {
     if ([string]$v2.default_agent -cne 'build') { [void]$errs12.Add(('V2 default_agent=' + [string]$v2.default_agent + ', esperado build')) }
     if (($null -ne $v2.agents) -and ($null -ne $v2.agents.build)) {
       if ([string]$v2.agents.build.mode -cne 'primary') { [void]$errs12.Add('V2 agents.build.mode != primary') }
-      if ($null -ne ($v2.agents.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue)) { [void]$errs12.Add('V2 bloco build nao deve conter model') }
+      if ([string]$v2.agents.build.model -cne 'x/planner') { [void]$errs12.Add('V2 agents.build.model != x/planner (Haiku do Planner)') }
     }
     if (($null -ne $v2.agents) -and ($null -ne $v2.agents.title)) {
-      if ([string]$v2.agents.title.model -cne 'x/planner') { [void]$errs12.Add('V2 agents.title.model != x/planner') }
+      if ([string]$v2.agents.title.model -cne 'openai/gpt-6-luna') { [void]$errs12.Add('V2 agents.title.model != openai/gpt-6-luna (title nao herda Haiku)') }
       if ($null -ne ($v2.agents.title | Get-Member -Name 'permissions' -ErrorAction SilentlyContinue)) { [void]$errs12.Add('V2 bloco title nao deve conter permissions') }
     }
     if ($v2Raw12 -match '"task"\s*:') { [void]$errs12.Add('V2 contem chave legada task') }
@@ -472,20 +472,20 @@ try {
   $v2Allow = @($t214.agents.build.permissions | Where-Object { [string]$_.effect -ceq 'allow' } | ForEach-Object { [string]$_.resource } | Sort-Object)
   $d14 = Compare-Object $v1Allow $v2Allow
   if ($null -ne $d14) { [void]$errs14.Add(('allowlist diverge: ' + (($d14 | ForEach-Object { $_.InputObject }) -join ','))) }
-  $strong14 = @('reviewer', 'debugger', 'security-reviewer', 'architect')
+   $strong14 = @('reviewer', 'debugger', 'security-reviewer', 'architect', 'engineering-advisor')
   foreach ($w in @($t114.agent.PSObject.Properties.Name | Where-Object { ($_ -ne 'build') -and ($_ -ne 'title') } | Sort-Object)) {
     $v2node = $t214.agents.$w
     if ($null -eq $v2node) { [void]$errs14.Add(('V2 sem worker: ' + $w)); continue }
     if ([string]$t114.agent.$w.model -cne [string]$v2node.model) { [void]$errs14.Add(('model diverge em ' + $w + ': V1=' + [string]$t114.agent.$w.model + ' V2=' + [string]$v2node.model)) }
     $exp14 = 'x/cheap'
     if ($strong14 -contains $w) { $exp14 = 'x/strong' }
-    if ($w -in @('explorer', 'docs-manager')) { $exp14 = 'x/free' }
+  if ($w -in @('explorer', 'researcher', 'docs-manager', 'tester')) { $exp14 = 'x/free' }
     if ([string]$v2node.model -cne $exp14) { [void]$errs14.Add(('V2 model inesperado em ' + $w + ': ' + [string]$v2node.model)) }
   }
   if ([string]$t114.default_agent -cne [string]$t214.default_agent) { [void]$errs14.Add('default_agent diverge') }
   if ([string]$t114.agent.build.mode -cne [string]$t214.agents.build.mode) { [void]$errs14.Add('build.mode diverge') }
   if ([string]$t114.agent.title.model -cne [string]$t214.agents.title.model) { [void]$errs14.Add('title.model diverge') }
-  if ($errs14.Count -eq 0) { Report-Ok '14 paridade V2 <-> V1' '19 allows iguais; 15 workers com mesmos models CHEAP/STRONG; default_agent/build/title iguais' }
+ if ($errs14.Count -eq 0) { Report-Ok '14 paridade V2 <-> V1' '19 allows iguais; T1 baseline para explorer/researcher/docs-manager/tester; modelos T2/T3/T4 alinhados; default_agent/build/title iguais' }
   else { Report-Fail '14 paridade V2 <-> V1' ($errs14 -join ' | ') }
 }
 catch { Report-Fail '14 paridade V2 <-> V1' $_.Exception.Message }

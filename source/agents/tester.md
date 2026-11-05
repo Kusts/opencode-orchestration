@@ -1,7 +1,7 @@
 ---
 description: Independent validator against acceptance criteria. Use PROACTIVELY after every feature, fix, logic/integration/state/API/DB change to run tests and hunt regressions. Nunca altera codigo da aplicacao para passar teste.
 mode: subagent
-model: {{MODEL_CHEAP}}
+model: {{MODEL_FREE}}
 temperature: 0.2
 permission:
   edit: deny

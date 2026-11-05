@@ -34,14 +34,16 @@ try {
   Assert (Test-Path -LiteralPath $jsonPath -PathType Leaf) 'opencode.json criado'
   if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
     $j = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
-    Assert ((@($j.agent.PSObject.Properties.Name).Count) -eq 17) 'opencode.json 17 blocos agent'
-    $hasBM = ($null -ne ($j.agent.build | Get-Member -Name 'model' -ErrorAction SilentlyContinue))
-    Assert (-not $hasBM) 'agent.build sem model'
-    $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
-    Assert ($j.model -eq $models.planner) 'root model = planner'
-    Assert ($j.agent.title.model -eq $models.planner) 'title.model = planner'
+     Assert ((@($j.agent.PSObject.Properties.Name).Count) -eq 17) 'opencode.json 17 blocos agent'
+     $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
+     Assert ($j.model -eq 'openai/gpt-6-luna') 'root model = Luna literal'
+     Assert ($j.agent.build.model -eq $models.planner) 'build.model = planner (per-agent)'
+     Assert ($j.agent.title.model -eq 'openai/gpt-6-luna') 'title.model = Luna literal, not Planner token'
     Assert ($j.agent.coder.model -eq $models.cheap) 'coder.model = cheap'
-    Assert ($j.agent.reviewer.model -eq $models.strong) 'reviewer.model = strong'
+     Assert ($j.agent.reviewer.model -eq $models.strong) 'reviewer.model = strong'
+     Assert ($j.agent.researcher.model -eq $models.free -and $j.agent.tester.model -eq $models.free) 'researcher/tester start at T1'
+     $advisorMd = [IO.File]::ReadAllText((Join-Path $ocDir 'agents\engineering-advisor.md'), [Text.Encoding]::UTF8)
+     Assert ($advisorMd -match ('(?m)^model:\s*' + [regex]::Escape([string]$models.strong) + '\s*$')) 'engineering-advisor frontmatter starts at T3 strong model'
   }
   foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     Assert (Test-Path -LiteralPath (Join-Path $ocDir ('skills\' + $s + '\SKILL.md')) -PathType Leaf) ('skill ' + $s)

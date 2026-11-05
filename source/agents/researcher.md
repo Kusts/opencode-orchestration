@@ -1,7 +1,7 @@
 ---
 description: Focused technical researcher. Use PROACTIVELY when a decision depends on external docs, versions, third-party APIs or behavior not determinable from the repo. Prioriza fontes oficiais e sintetiza so evidencias uteis.
 mode: subagent
-model: {{MODEL_CHEAP}}
+model: {{MODEL_FREE}}
 temperature: 0.2
 permission:
   edit: deny
