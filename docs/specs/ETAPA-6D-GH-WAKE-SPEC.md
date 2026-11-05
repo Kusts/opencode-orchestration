@@ -359,11 +359,16 @@ activation, or Live is implied by this option.
 - Sem excecao docs-only, sem self-review (`SELF_REVIEW => POLICY_BLOCKED`),
   sem merge/deploy/piloto nesta SPEC.
 
-## Gates — perfil solo-maintainer (2026-11-04, sem atestação)
+## Gates — perfil solo-maintainer (2026-11-04, sem atestacao)
 
-- O perfil `solo-maintainer` (`source/registry/delivery-policy.json`,
+- Os gates de approval acima (`READY_FOR_RESUME` exigindo review humana
+  legitima nao-self, `SELF_REVIEW => POLICY_BLOCKED`, sem excecao
+  docs-only) valem para o perfil default e como registro historico: o
+  default permanece inalterado (`github_approval` exigido, comportamento
+  byte-identico ao codigo pre-perfil). O perfil `solo-maintainer`
+  (`source/registry/delivery-policy.json`,
   `review.github_approval=not_required`, ativacao explicita por chamada)
-  remove o pre-requisito de approval GitHub nao-self e NAO exige
+  dispensa SOMENTE o approval humano GitHub nao-self e NAO exige
   atestacao assinada. Um registro de review de agente interno valido
   (`approved: true`, `head_sha` do SHA esperado, `reviewer_identity` e
   `author_identity` presentes e distintos), com todos os checks requeridos verdes no SHA esperado e
@@ -375,17 +380,31 @@ activation, or Live is implied by this option.
   agente e controle de qualidade apenas — nunca identidade autenticada,
   assinatura independente, aprovacao humana ou aprovacao GitHub — e sua
   origem/limites ficam gravados em `review_basis`/`review_detail`.
+- Revisao tecnica e autorizacao operacional seguem independentes: a
+  prontidao tecnica (`READY_FOR_RESUME`) nao cria executor nem
+  autorizacao (campos Planner nunca suprem essas provas); sem executor
+  ha apenas `READY` observavel sem unblock/settle, sem autorizacao ha
+  `TERMINAL`, e a decisao operacional do maintainer (merge, scheduler,
+  Live) nao decorre da prontidao tecnica e segue pendente.
 - Sem afrouxamento compensatorio: CI pendente espera, CI falho bloqueia,
   SHA divergente bloqueia, perfil default inalterado (`github_approval`
-  exigido). A decisao operacional do maintainer (merge, scheduler,
-  Live) nao decorre da prontidao tecnica e segue pendente.
+  exigido).
 - Waits registradas sob a expectativa antiga (`APPROVED`) divergem da
   expectativa efetiva solo (`ANY`) e retornam `INVALID`
   (`policy-diverged`); re-registro e explicito, nunca migracao silenciosa.
+- Integracao GH-WAKE (tick agendado real): opt-in explicito do operador
+  via `-DeliveryProfile`/`delivery_profile` (config) mais registro de
+  review via `-InternalReviewPath`/`internal_review_path` (config);
+  wait/snapshot/next-action/Planner nunca selecionam o perfil nem
+  fornecem o registro. O tick repassa o mesmo perfil+registro pelo probe
+  de readiness e pelos gates de resume principal e de recuperacao, sem
+  Confirm/unblock/settlement duplicados.
 - Requisitos de autorizacao (CI/Scheduler/modelo), limites de
   custo/request e todos os demais blockers seguem inalterados;
   `ETAPA_6D_READY` operacional continua BLOQUEADO (sem merge, sem Live,
-  sem scheduler).
+  sem scheduler). Certificacao A historica retida; atestacao RSA
+  experimental segue BLOCKED e desconectada do readiness (nao
+  pre-requisito, sem chaves). Scheduler A nao reexecutado nesta etapa.
 
 ### Contrato criptográfico offline — experimental, sem pré-requisito
 
