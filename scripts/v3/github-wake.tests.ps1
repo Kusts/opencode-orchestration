@@ -307,11 +307,23 @@ $xmlNoCfg = ('<?xml version="1.0" encoding="UTF-16"?><Task version="1.3" xmlns="
 Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlNoCfg -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact match: missing -ConfigFile pair => false'
 Assert-That ([bool](Test-GHWScheduleOwner -ExistingXml $xmlOwned -WakeScript $script:cli.ToLowerInvariant() -ConfigFile $script:cli.ToLowerInvariant())) 'owner exact match: valid owned with different case => true'
 $xmlQuotedCmd = (([string]$xmlOwned).Replace('<Command>', '<Command>"').Replace('powershell.exe</Command>', 'powershell.exe"</Command>'))
-Assert-That ([bool](Test-GHWScheduleOwner -ExistingXml $xmlQuotedCmd -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact match: quoted powershell.exe Command => true'
+Assert-That ([bool](Test-GHWScheduleOwner -ExistingXml $xmlQuotedCmd -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact match: quoted exact powershell.exe path => true'
 $xmlDupFile = ('<?xml version="1.0" encoding="UTF-16"?><Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Actions><Exec><Command>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</Command><Arguments>-NoProfile -File "C:\evil\run.ps1" -File "' + $script:cli + '" -ConfigFile "' + $script:cli + '"</Arguments></Exec></Actions></Task>')
 Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlDupFile -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact match: foreign first -File with second -File => false'
 $xmlDupCfg = ('<?xml version="1.0" encoding="UTF-16"?><Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Actions><Exec><Command>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</Command><Arguments>-NoProfile -File "' + $script:cli + '" -ConfigFile "' + $script:cli + '" -ConfigFile "' + $script:cli + '"</Arguments></Exec></Actions></Task>')
 Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlDupCfg -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact match: duplicate -ConfigFile => false'
+$xmlExtraCmd = (([string]$xmlOwned).Replace('</Arguments>', ' -Command "evil"</Arguments>'))
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlExtraCmd -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact sequence: extra -Command token => false'
+$xmlTrailFlag = (([string]$xmlOwned).Replace('</Arguments>', ' -NoExit</Arguments>'))
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlTrailFlag -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact sequence: trailing extra flag => false'
+$xmlReorder = (([string]$xmlOwned).Replace('-NoProfile -ExecutionPolicy Bypass', '-ExecutionPolicy Bypass -NoProfile'))
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlReorder -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact sequence: reordered flags => false'
+$xmlForeignPs = (([string]$xmlOwned).Replace('WindowsPowerShell\v1.0\powershell.exe', 'Evil\powershell.exe'))
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlForeignPs -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact command: foreign powershell.exe path => false'
+$xmlBarePs = (([string]$xmlOwned) -replace '(?s)<Command>.*?</Command>', '<Command>powershell.exe</Command>')
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlBarePs -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact command: bare powershell.exe => false'
+$xmlAliasCfg = (([string]$xmlOwned).Replace('-ConfigFile &quot;', '-Config &quot;'))
+Assert-That (-not [bool](Test-GHWScheduleOwner -ExistingXml $xmlAliasCfg -WakeScript $script:cli -ConfigFile $script:cli)) 'owner exact sequence: aliased -Config flag => false'
 $resumeIdxPin = $cliText.IndexOf('$dName -ceq')
 $confirmIdxPin = -1
 $transIdxPin = -1

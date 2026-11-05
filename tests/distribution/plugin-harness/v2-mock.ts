@@ -431,11 +431,38 @@ function makePwToolSurface() {
     },
   };
 }
-function makePwSessionSurface(info: any) {
+function makePwSessionSurface(info: any, recorded?: Array<any>) {
   return {
     hook: async (_name: string, _cb: Cb) => ({ dispose: () => {} }),
-    get: async (_id: string) => info,
+    // Exact pin @opencode/plugin 2.0.23 (Promise layer): get({sessionID})
+    // => Promise<SessionInfo> (direct). Records the raw host argument so
+    // tests can assert the object shape ({sessionID} — never a bare string).
+    get: async (arg: unknown) => {
+      try {
+        recorded?.push(arg);
+      } catch {
+        // Fail-open no mock.
+      }
+      return info;
+    },
   };
+}
+// Exact-pin direct SessionInfo fixtures (actual observed 2.0.23 shape:
+// id/projectID/cost(number)/tokens(location/time objects)/title; root has
+// NO own parentID key).
+function pwRootSession(id: string): any {
+  return {
+    id,
+    projectID: "proj-1",
+    title: "planner",
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    location: { directory: "/repo" },
+    time: { created: 1, updated: 2 },
+  };
+}
+function pwChildSession(id: string, parentID: string): any {
+  return { ...pwRootSession(id), title: "child", parentID };
 }
 const PW_ENV_KEYS = [
   "OPENCODE_PLANNER_WAIT_ENABLED",
@@ -584,7 +611,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
     const tool = makePwToolSurface();
     let threw = false;
     try {
-      await V2Plugin.setup({ event: makeEventStream(), session: makePwSessionSurface({ info: { id: "ses-root-1" } }), tool });
+      await V2Plugin.setup({ event: makeEventStream(), session: makePwSessionSurface(pwRootSession("ses-root-1")), tool });
     } catch {
       threw = true;
     }
@@ -620,7 +647,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
     const tool = makePwToolSurface();
     let threw = false;
     try {
-      await V2Plugin.setup({ event: makeEventStream(), session: makePwSessionSurface({ info: { id: "s" } }), tool });
+      await V2Plugin.setup({ event: makeEventStream(), session: makePwSessionSurface(pwRootSession("s")), tool });
     } catch {
       threw = true;
     }
@@ -636,7 +663,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
   const calls: Array<any> = [];
   const handler = pwT.makeExecute(
     { bridge: "b", shell: "s", timeoutMs: 1000 },
-    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => ({ info: { id: "ses-w-1" } }) },
+    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => pwRootSession("ses-w-1") },
   );
   let reason = "";
   try {
@@ -653,7 +680,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
   const calls: Array<any> = [];
   const handler = pwT.makeExecute(
     { bridge: "b", shell: "s", timeoutMs: 1000 },
-    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => ({ info: { id: "ses-root-1" } }) },
+    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => pwRootSession("ses-root-1") },
   );
   const args = pwValidArgs();
   args.session_id = "ses-forged";
@@ -672,7 +699,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
   const calls: Array<any> = [];
   const handler = pwT.makeExecute(
     { bridge: "b", shell: "s", timeoutMs: 1000 },
-    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => ({ info: { id: "ses-child-9", parentID: "ses-root-1" } }) },
+    { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => pwChildSession("ses-child-9", "ses-root-1") },
   );
   let reason = "";
   try {
@@ -701,7 +728,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
         stdout.emit("data", JSON.stringify(doc));
         child.emit("close", 0);
       }),
-      sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+      sessionGet: async () => pwRootSession("ses-root-1"),
     },
   );
   let out: any = null;
@@ -803,7 +830,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
       { bridge: "B", shell: "S", timeoutMs: 1000 },
       {
         spawnFn: pwStubSpawn(calls, () => {}),
-        sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+        sessionGet: async () => pwRootSession("ses-root-1"),
       },
     );
     let reason = "";
@@ -880,7 +907,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
         stdout.emit("data", JSON.stringify(doc));
         child.emit("close", 0);
       }),
-      sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+      sessionGet: async () => pwRootSession("ses-root-1"),
     },
   );
   let out: any = null;
@@ -906,7 +933,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
           stdout.emit("data", JSON.stringify(doc));
           child.emit("close", 0);
         }),
-        sessionGet: async () => ({ info: { id: "ses-root-1" } }),
+        sessionGet: async () => pwRootSession("ses-root-1"),
       },
     );
     let r2 = "";
@@ -926,7 +953,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
       { bridge: "B", shell: "S", timeoutMs: 1000 },
       {
         spawnFn: pwStubSpawn(c3, () => {}),
-        sessionGet: async () => ({ info: { id: "ses-w-1" } }),
+        sessionGet: async () => pwRootSession("ses-w-1"),
       },
     );
     let r3 = "";
@@ -937,6 +964,477 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
     }
     ok(/planner-wait-worker-denied/.test(r3), "PW-T12c worker canonico + alias forjado ainda nega", r3);
     ok(c3.length === 0, "PW-T12c worker forjado sem spawn");
+  }
+}
+
+// PW-T13 (ETAPA6D exact-pin): o adapter V2 invoca o host session.get com o
+// objeto exato {sessionID} (nunca string bare) e a proveniencia aceita o
+// SessionInfo direto do pin 2.0.23. Prova via setup real: session fake
+// registra o arg bruto; execute passa da proveniencia (raiz completa) e
+// chega ao bridge (stub nay? aqui o spawn real falha fail-closed como
+// bridge-refused — o ponto e que NAO e provenance-* e o arg e objeto).
+{
+  const saved = savePwEnv();
+  const fx = makePwBridgeFixture();
+  const seen: Array<any> = [];
+  let tool: any = null;
+  let cleanup: any = null;
+  try {
+    clearPwEnv();
+    process.env.OPENCODE_PLANNER_WAIT_ENABLED = "1";
+    process.env.OPENCODE_PLANNER_WAIT_BRIDGE = fx.bridge;
+    process.env.OPENCODE_PLANNER_WAIT_SHELL = process.execPath;
+    process.env.OPENCODE_PLANNER_WAIT_TIMEOUT_MS = "5000";
+    tool = makePwToolSurface();
+    const sess = makePwSessionSurface(pwRootSession("ses-root-1"), seen);
+    try {
+      cleanup = await V2Plugin.setup({ event: makeEventStream(), session: sess, tool });
+    } catch {
+      cleanup = null;
+    }
+    ok(tool.added.length === 1, "PW-T13 adapter registra tool para prova de arg", `added=${tool.added.length}`);
+    if (tool.added.length === 1) {
+      let reason = "";
+      try {
+        await tool.added[0].execute(pwValidArgs(), pwPlannerContext("ses-root-1"));
+      } catch (e) {
+        reason = String((e as Error)?.message ?? e);
+      }
+      ok(seen.length === 1, "PW-T13 session.get chamado exatamente 1x", `seen=${seen.length}`);
+      if (seen.length === 1) {
+        const arg = seen[0] as any;
+        const isObj = !!arg && typeof arg === "object" && !Array.isArray(arg);
+        ok(isObj, "PW-T13 session.get recebe objeto (nunca string bare)", String(typeof arg));
+        const keys = isObj ? Object.keys(arg).sort() : [];
+        ok(keys.length === 1 && keys[0] === "sessionID", "PW-T13 arg exato {sessionID}", JSON.stringify(keys));
+        ok(isObj && (arg as any).sessionID === "ses-root-1", "PW-T13 sessionID do HOST repassado", JSON.stringify(arg));
+      } else {
+        ok(false, "PW-T13 session.get recebe objeto (nunca string bare)", "sem chamada");
+        ok(false, "PW-T13 arg exato {sessionID}", "sem chamada");
+        ok(false, "PW-T13 sessionID do HOST repassado", "sem chamada");
+      }
+      // Raiz completa passa da proveniencia: o erro (se houver) nunca e
+      // provenance-*/not-root/mismatch — e bridge-* (fixture dummy real).
+      ok(
+        reason === "" || (/planner-wait-bridge-/.test(reason) && !/planner-wait-provenance-|planner-wait-not-root|planner-wait-provenance-mismatch/.test(reason)),
+        "PW-T13 raiz direta passa da proveniencia (so bridge pode falhar)",
+        reason,
+      );
+    }
+  } finally {
+    restorePwEnv(saved);
+    try {
+      if (typeof cleanup === "function") (cleanup as () => void)();
+    } catch {
+      // Fail-open no mock.
+    }
+    try {
+      const { rmSync } = await import("node:fs");
+      rmSync(fx.dir, { recursive: true, force: true });
+    } catch {
+      // Fail-open no mock.
+    }
+  }
+}
+
+// PW-T14 (ETAPA6D fail-closed): incompleto/ausente/ambiguo nega como
+// provenance-unavailable (ou mismatch), SEMPRE antes de qualquer spawn.
+// Cobre: null, {}, wrapper legado truncado {info:{id}}, {id} nu sem
+// projectID/time, parentID numerico (malformado), id mismatch e ids
+// ambiguos (dois valores distintos).
+{
+  const cases: Array<{ label: string; doc: any; reason: RegExp }> = [
+    { label: "null", doc: null, reason: /planner-wait-provenance-unavailable/ },
+    { label: "vazio {}", doc: {}, reason: /planner-wait-provenance-unavailable/ },
+    { label: "wrapper legado {info:{id}}", doc: { info: { id: "ses-root-1" } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "bare {id} sem projectID/time", doc: { id: "ses-root-1" }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "parentID numerico (malformado)", doc: { id: "ses-root-1", parentID: 123, projectID: "proj-1", time: {} }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "id mismatch", doc: pwRootSession("ses-other-9"), reason: /planner-wait-provenance-mismatch/ },
+    { label: "ids ambiguos", doc: { id: "ses-root-1", sessionID: "ses-other-9", projectID: "proj-1", time: {} }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem projectID", doc: { id: "ses-root-1", time: {} }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem time", doc: { id: "ses-root-1", projectID: "proj-1" }, reason: /planner-wait-provenance-unavailable/ },
+  ];
+  for (const tc of cases) {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => tc.doc },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(tc.reason.test(reason), "PW-T14 incompleto/ambiguo nega: " + tc.label, reason);
+    ok(calls.length === 0, "PW-T14 sem spawn para: " + tc.label);
+  }
+}
+
+// PW-T15 (ETAPA6D unwrap): envelope {data: SessionInfo} (transporte cru)
+// resolve como o direto; filho via {data} nega not-root; conflito
+// direto-vs-data nega unavailable — tudo antes do spawn (exceto o raiz
+// via {data}, que chega ao bridge stubado com sucesso).
+{
+  const doc = {
+    schema_version: 1, operation: "bind-wait", ok: true, reason: "registered",
+    run_id: "run-1", revision: 3, binding: "bound", wait_reused: false,
+    wait_file: "w", dedup_key: "d", task_mutated: true,
+    grants_authority: false, done_approved: false,
+  };
+  // T15a: {data: root} chega ao bridge (unwrap ok).
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, ({ child, stdout }) => {
+          stdout.emit("data", JSON.stringify(doc));
+          child.emit("close", 0);
+        }),
+        sessionGet: async () => ({ data: pwRootSession("ses-root-1") }),
+      },
+    );
+    let out: any = null;
+    let reason = "";
+    try {
+      out = await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(out !== null && reason === "", "PW-T15a {data:root} aceita (unwrap)", reason);
+    ok(calls.length === 1, "PW-T15a {data:root} chega ao spawn");
+  }
+  // T15b: {data: child} nega not-root sem spawn.
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ data: pwChildSession("ses-child-9", "ses-root-1") }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), { sessionID: "ses-child-9", agent: "build", messageID: "m", id: "c" });
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-not-root/.test(reason), "PW-T15b {data:child} nega not-root", reason);
+    ok(calls.length === 0, "PW-T15b {data:child} sem spawn");
+  }
+  // T15c: conflito direto-vs-data nega unavailable sem spawn.
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ id: "ses-root-1", data: pwRootSession("ses-other-9") }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T15c conflito direto-vs-data nega", reason);
+    ok(calls.length === 0, "PW-T15c conflito sem spawn");
+  }
+}
+
+// PW-T16 (reviewer MEDIUM follow-up): envelope `{data}` e autoritativo —
+// sem fallback para o outer. (a) outer raiz completa + inner filho SEM id
+// nega unavailable; (b) outer `id` == raiz + outer `sessionID` conflitante
+// + inner id == raiz nega unavailable (alias ignorado antes); (c) outer
+// parent malformado com inner raiz nega unavailable; (d) outer parent
+// nao-vazio com inner raiz nega not-root. Tudo antes de qualquer spawn.
+{
+  // T16a: outer raiz completa + inner filho sem id => unavailable (inner
+  // precisa carregar o id; outer nunca e fallback).
+  {
+    const calls: Array<any> = [];
+    const outer = pwRootSession("ses-root-1");
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ ...outer, data: { parentID: "ses-root-1", projectID: "proj-1", time: { created: 1, updated: 2 } } }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T16a outer raiz + data filho sem id nega", reason);
+    ok(calls.length === 0, "PW-T16a sem spawn");
+  }
+  // T16b: outer id == host + outer sessionID conflitante + inner id == host
+  // => unavailable (alias externo conflitante nao pode ser ignorado).
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ id: "ses-root-1", sessionID: "ses-other-9", data: pwRootSession("ses-root-1") }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T16b outer sessionID conflitante nega", reason);
+    ok(calls.length === 0, "PW-T16b sem spawn");
+  }
+  // T16c: outer parent malformado (numerico) + inner raiz => unavailable.
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ data: pwRootSession("ses-root-1"), parentID: 123 }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T16c outer parent malformado nega", reason);
+    ok(calls.length === 0, "PW-T16c sem spawn");
+  }
+  // T16d: outer parent nao-vazio (string) + inner raiz => not-root
+  // (parent inspecionado em AMBOS os escopos).
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ data: pwRootSession("ses-child-9"), parentID: "ses-root-1" }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), { sessionID: "ses-child-9", agent: "build", messageID: "m", id: "c" });
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-not-root/.test(reason), "PW-T16d outer parent nao-vazio nega not-root", reason);
+    ok(calls.length === 0, "PW-T16d sem spawn");
+  }
+  // T16e (security MEDIUM edge): outer raiz completa + own data:null =>
+  // unavailable (own `data` presence e envelope claim; sem fallback).
+  {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => ({ ...pwRootSession("ses-root-1"), data: null }),
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T16e outer raiz + data:null nega", reason);
+    ok(calls.length === 0, "PW-T16e sem spawn");
+  }
+  // T16f (security MEDIUM edge): outer raiz completa + own data:undefined =>
+  // unavailable (mesma regra fail-closed do T16e).
+  {
+    const calls: Array<any> = [];
+    const docWithUndefined: any = { ...pwRootSession("ses-root-1"), data: undefined };
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      {
+        spawnFn: pwStubSpawn(calls, () => {}),
+        sessionGet: async () => docWithUndefined,
+      },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T16f outer raiz + data:undefined nega", reason);
+    ok(calls.length === 0, "PW-T16f sem spawn");
+  }
+}
+
+// PW-T17 (debugger pinned-schema): cada required key de Session.Info
+// (id/projectID/cost/tokens/time/location) como OWN property com tipos do
+// pin; herdados nao contam. parentID opt: raiz OMITE a chave; own
+// null/undefined/empty/malformado => unavailable; nao-vazio valido =>
+// not-root (ja coberto em T6/T15b/T16d).
+{
+  const fullRoot = (): any => pwRootSession("ses-root-1");
+  const without = (k: string): any => {
+    const o: any = fullRoot();
+    delete o[k];
+    return o;
+  };
+  const cases: Array<{ label: string; doc: any; ctx?: any; reason: RegExp }> = [
+    { label: "sem id", doc: without("id"), reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem projectID", doc: without("projectID"), reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem cost", doc: without("cost"), reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem tokens", doc: without("tokens"), reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem time", doc: without("time"), reason: /planner-wait-provenance-unavailable/ },
+    { label: "sem location", doc: without("location"), reason: /planner-wait-provenance-unavailable/ },
+    { label: "id fora do padrao ^ses", doc: { ...fullRoot(), id: "xxx-1" }, ctx: { sessionID: "xxx-1", agent: "build", messageID: "m", id: "c" }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "cost nao-numerico", doc: { ...fullRoot(), cost: "0" }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens nao-objeto", doc: { ...fullRoot(), tokens: [] }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens vazio {}", doc: { ...fullRoot(), tokens: {} }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens sem input", doc: { ...fullRoot(), tokens: { output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens sem output", doc: { ...fullRoot(), tokens: { input: 0, reasoning: 0, cache: { read: 0, write: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens sem reasoning", doc: { ...fullRoot(), tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens sem cache", doc: { ...fullRoot(), tokens: { input: 0, output: 0, reasoning: 0 } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens.cache sem read", doc: { ...fullRoot(), tokens: { input: 0, output: 0, reasoning: 0, cache: { write: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens.cache sem write", doc: { ...fullRoot(), tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens.input nao-numerico", doc: { ...fullRoot(), tokens: { input: "0", output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens.cache.read nao-numerico", doc: { ...fullRoot(), tokens: { input: 0, output: 0, reasoning: 0, cache: { read: "0", write: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens.input herdado", doc: { ...fullRoot(), tokens: Object.assign(Object.create({ input: 0 }), { output: 0, reasoning: 0, cache: { read: 0, write: 0 } }) }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "tokens.cache herdado", doc: { ...fullRoot(), tokens: Object.assign(Object.create({ cache: { read: 0, write: 0 } }), { input: 0, output: 0, reasoning: 0 }) }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "time sem created", doc: { ...fullRoot(), time: { updated: 2 } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "time.created nao-numerico", doc: { ...fullRoot(), time: { created: "1", updated: 2 } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "location sem directory", doc: { ...fullRoot(), location: {} }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "location.directory vazio", doc: { ...fullRoot(), location: { directory: "" } }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "{data} inner sem cost", doc: { data: without("cost") }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "{data} inner sem location", doc: { data: without("location") }, reason: /planner-wait-provenance-unavailable/ },
+    { label: "{data} inner tokens sem cache", doc: { data: { ...without("tokens"), tokens: { input: 0, output: 0, reasoning: 0 } } }, reason: /planner-wait-provenance-unavailable/ },
+  ];
+  for (const tc of cases) {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => tc.doc },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), tc.ctx ?? pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(tc.reason.test(reason), "PW-T17 required ausente/invalido nega: " + tc.label, reason);
+    ok(calls.length === 0, "PW-T17 sem spawn: " + tc.label);
+  }
+  // Herdados nao contam como own: cada caso nega unavailable sem spawn.
+  const inheritedCases: Array<{ label: string; doc: any }> = [
+    {
+      label: "projectID herdado",
+      doc: Object.assign(Object.create({ projectID: "proj-1" }), {
+        id: "ses-root-1", cost: 0, tokens: { input: 0 },
+        location: { directory: "/repo" }, time: { created: 1, updated: 2 },
+      }),
+    },
+    {
+      label: "time herdado",
+      doc: Object.assign(Object.create({ time: { created: 1, updated: 2 } }), {
+        id: "ses-root-1", projectID: "proj-1", cost: 0,
+        tokens: { input: 0 }, location: { directory: "/repo" },
+      }),
+    },
+    {
+      label: "cost herdado",
+      doc: Object.assign(Object.create({ cost: 0 }), {
+        id: "ses-root-1", projectID: "proj-1", tokens: { input: 0 },
+        location: { directory: "/repo" }, time: { created: 1, updated: 2 },
+      }),
+    },
+    {
+      label: "location.directory herdado",
+      doc: { ...fullRoot(), location: Object.create({ directory: "/repo" }) },
+    },
+    {
+      label: "time.created herdado",
+      doc: { ...fullRoot(), time: Object.create({ created: 1, updated: 2 }) },
+    },
+  ];
+  for (const tc of inheritedCases) {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => tc.doc },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T17 herdado nega: " + tc.label, reason);
+    ok(calls.length === 0, "PW-T17 herdado sem spawn: " + tc.label);
+  }
+  // parentID opt: own null/undefined/"" recusa unavailable (raiz so passa
+  // com a chave AUSENTE — PW-T7/T12a/T13 provam o caminho positivo).
+  for (const pv of [null, undefined, ""] as Array<any>) {
+    const calls: Array<any> = [];
+    const doc: any = { ...fullRoot(), parentID: pv };
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => doc },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    const tag = pv === null ? "null" : pv === undefined ? "undefined" : "vazio";
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T17 parentID " + tag + " nega unavailable", reason);
+    ok(calls.length === 0, "PW-T17 parentID " + tag + " sem spawn");
+  }
+}
+
+// PW-T18 (reviewer MEDIUM): own ID-alias com null/undefined nao pode ser
+// ignorado — raiz completa + `sessionID:null` ou own `session_id:undefined`
+// e ambiguo/unavailable, no caminho direto e em ambos os escopos outer e
+// nested `{data}`. Inclui conflito entre escopos.
+{
+  const fullRoot = (): any => pwRootSession("ses-root-1");
+  const cases: Array<{ label: string; doc: any; ctx?: any }> = [
+    { label: "direto sessionID:null", doc: { ...fullRoot(), sessionID: null } },
+    { label: "direto session_id:undefined", doc: { ...fullRoot(), session_id: undefined } },
+    {
+      label: "outer sessionID:null + inner raiz",
+      doc: { ...fullRoot(), sessionID: null, data: pwRootSession("ses-root-1") },
+    },
+    {
+      label: "outer raiz + inner session_id:undefined",
+      doc: { ...fullRoot(), data: { ...pwRootSession("ses-root-1"), session_id: undefined } },
+    },
+    {
+      label: "outer sessionId:null + inner raiz (conflito entre escopos)",
+      doc: { ...fullRoot(), sessionId: null, data: pwRootSession("ses-root-1") },
+    },
+  ];
+  for (const tc of cases) {
+    const calls: Array<any> = [];
+    const handler = pwT.makeExecute(
+      { bridge: "B", shell: "S", timeoutMs: 1000 },
+      { spawnFn: pwStubSpawn(calls, () => {}), sessionGet: async () => tc.doc },
+    );
+    let reason = "";
+    try {
+      await handler(pwValidArgs(), tc.ctx ?? pwPlannerContext("ses-root-1"));
+    } catch (e) {
+      reason = String((e as Error)?.message ?? e);
+    }
+    ok(/planner-wait-provenance-unavailable/.test(reason), "PW-T18 alias null/undefined nega: " + tc.label, reason);
+    ok(calls.length === 0, "PW-T18 sem spawn: " + tc.label);
   }
 }
 

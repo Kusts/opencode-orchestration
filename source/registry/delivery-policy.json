@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "profile": "default",
   "require_pr": true,
   "direct_push": "deny",
   "force_push": "deny",
@@ -13,7 +14,16 @@
   ],
   "review": {
     "internal_reviewer": "required",
+    "github_approval": "required",
     "security_reviewer_on": ["auth", "credentials", "grants", "permissions", "infra", "security-sensitive"]
+  },
+  "profiles": {
+    "solo-maintainer": {
+      "review": {
+        "internal_reviewer": "required",
+        "github_approval": "not_required"
+      }
+    }
   },
   "findings_loop": "finding->repair->re-review (sem prompt ao usuario)",
   "auto_merge": {

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "policy_id": "solo-attestation-v1",
+  "status": "BLOCKED",
+  "notes": "FAIL-CLOSED HOLD: no trusted issuers and no key material. Operational solo-maintainer attestation issuance and verification remain disabled until a human operator provisions an explicit verifier policy with trusted issuer keys. This file never carries private keys or certificates.",
+  "max_skew_seconds": 60,
+  "max_lifetime_seconds": 900,
+  "trusted_issuers": [],
+  "revoked_jtis": []
+}

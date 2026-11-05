@@ -26,8 +26,16 @@
     absent executor yields READY (observation, never auto-advance).
     Contract-vs-policy gate: Test refuses persisted required_checks /
     review_expectation that diverge from the effective policy
-    (INVALID policy-diverged, fail-closed); snapshot evaluation stays
-    delegated to readiness. Filenames derive from the SHA256 of the full
+    (INVALID policy-diverged, fail-closed); the expected review value
+    derives solely from the effective github_approval field (required =>
+    APPROVED, not_required => ANY), never from the reviewer field.
+    Effective review resolves an explicit -DeliveryProfile via
+    Get-OrchestrationDeliveryEffectiveReview; -InternalReview is passed
+    through to readiness. Under the solo regime, a shape-valid review record
+    bound to the expected SHA and with reviewer distinct from the declared
+    author can satisfy technical readiness as QC-only evidence; it is never
+    an authenticated identity or an operational authorization. Filenames
+    derive from the SHA256 of the full
     dedup key; Register refuses overwrite on identity divergence
     (wait-filename-collision, no silent -Force). Confirm/Register persist
     via optimistic compare-and-swap on file bytes (wait-modified on
@@ -791,7 +799,9 @@ function Test-OrchestrationGitHubResume {
         $ExecutorPresent = $null,
         $CancelRequested = $null,
         $AlreadyApplied = $null,
-        [string]$EventDedupKey = ''
+        [string]$EventDedupKey = '',
+        $DeliveryProfile = '',
+        $InternalReview = $null
     )
     try {
         $shape = Test-GHRSWaitShape -Wait $Wait
@@ -891,21 +901,19 @@ function Test-OrchestrationGitHubResume {
             return (New-GHRSDecisionEnvelope -Ok $false -Decision 'INVALID' -Reason 'policy-diverged' -Reasons @('policy-diverged') -Wait $Wait)
         }
         $persistedRev = ([string](Get-GHRSValue $Wait 'review_expectation' '')).Trim().ToUpperInvariant()
-        $polIntRev = ''
-        try {
-            $polReview = Get-GHRSValue $Policy 'review' $null
-            $polIntRev = ([string](Get-GHRSValue $polReview 'internal_reviewer' '')).Trim().ToLowerInvariant()
-        }
-        catch { $polIntRev = '' }
-        if ([string]::IsNullOrWhiteSpace($polIntRev)) {
+        $effReview = $null
+        try { $effReview = Get-OrchestrationDeliveryEffectiveReview -Policy $Policy -DeliveryProfile $DeliveryProfile } catch { $effReview = $null }
+        if (($null -eq $effReview) -or (-not [bool]$effReview.ok)) {
             return (New-GHRSDecisionEnvelope -Ok $false -Decision 'INVALID' -Reason 'policy-invalid' -Reasons @('policy-invalid') -Wait $Wait)
         }
-        if (($polIntRev -ceq 'required') -and ($persistedRev -cne 'APPROVED')) {
+        $expectedRev = 'APPROVED'
+        if ([string]$effReview.github_approval -ceq 'not_required') { $expectedRev = 'ANY' }
+        if ($persistedRev -cne $expectedRev) {
             return (New-GHRSDecisionEnvelope -Ok $false -Decision 'INVALID' -Reason 'policy-diverged' -Reasons @('policy-diverged') -Wait $Wait)
         }
         $rdy = $null
         try {
-            $rdy = Get-OrchestrationGitHubReadiness -Repository ([string](Get-GHRSValue $Wait 'repository' '')) -PrNumber (Get-GHRSValue $Wait 'pr_number' $null) -ExpectedHeadSha ([string](Get-GHRSValue $Wait 'expected_head_sha' '')) -Snapshot $Snapshot -Policy $Policy -NowUtc $NowUtc -MaxAgeSeconds ([long]$MaxAgeSeconds)
+            $rdy = Get-OrchestrationGitHubReadiness -Repository ([string](Get-GHRSValue $Wait 'repository' '')) -PrNumber (Get-GHRSValue $Wait 'pr_number' $null) -ExpectedHeadSha ([string](Get-GHRSValue $Wait 'expected_head_sha' '')) -Snapshot $Snapshot -Policy $Policy -NowUtc $NowUtc -MaxAgeSeconds ([long]$MaxAgeSeconds) -DeliveryProfile $DeliveryProfile -InternalReview $InternalReview
         }
         catch { $rdy = $null }
         if ($null -eq $rdy) {

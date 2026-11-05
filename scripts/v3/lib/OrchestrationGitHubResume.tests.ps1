@@ -312,6 +312,63 @@ try {
     $tFlag = Test-OrchestrationGitHubResume -Wait $r.wait -Snapshot $green -Policy $policy -NowUtc $NOW -MaxAgeSeconds 300 -LeaseAlive 'yes' -OwnerAlive $true -AuthorizationAlive $true -ExecutorPresent $true -CancelRequested $false -AlreadyApplied $false
     Assert-That (([string]$tFlag.decision -ceq 'INVALID') -and (-not [bool]$tFlag.resume_authorized)) 'flag nao-bool => INVALID, nunca RESUME'
 
+    # --- SOLO-MAINTAINER: persisted expectation must equal the effective policy.
+    # No attestation required: a valid internal-agent record on the expected
+    # head satisfies TECHNICAL readiness, so ANY + green + valid record
+    # yields RESUME (executor present) with zero kernel/merge authority;
+    # missing/invalid/mismatched records still hold or fail closed.
+    function New-TWaitSolo {
+        param([string]$WaitsDir, [string]$Head = $script:SHA_A, [long]$Gen = ($script:GEN + 20), [string]$ReviewExp = 'ANY', [string]$Deadline = $script:FUTURE, [long]$Budget = 5)
+        return (Register-OrchestrationGitHubWait -WaitsDir $WaitsDir -ObjectiveId 'obj-1' -TaskId 'task.alpha-1' -RunId 'run-1' -Generation $Gen -Repository $script:REPO -PrNumber $script:PR -Branch 'fix/x' -ExpectedHeadSha $Head -RequiredChecks @($script:policy.required_checks) -ReviewExpectation $ReviewExp -Cursor '' -DeadlineUtc $Deadline -RetryBudgetMax $Budget -LeaseOwner 'planner-1' -LeaseExpiresUtc $script:FUTURE -Owner 'planner-1')
+    }
+    function New-TInternal {
+        param([bool]$Approved = $true, [string]$Sha = $script:SHA_A, [string]$Reviewer = 'reviewer-1', [string]$Author = 'author-1')
+        return [pscustomobject]@{ approved = $Approved; head_sha = $Sha; reviewer_identity = $Reviewer; author_identity = $Author }
+    }
+    function Invoke-TTestSolo {
+        param($Wait, $Snap, $Internal = $null, [string]$Profile = 'solo-maintainer', $Policy = $null)
+        $pol = $Policy
+        if ($null -eq $pol) { $pol = $script:policy }
+        return (Test-OrchestrationGitHubResume -Wait $Wait -Snapshot $Snap -Policy $pol -DeliveryProfile $Profile -InternalReview $Internal -NowUtc $script:NOW -MaxAgeSeconds 300 -LeaseAlive $true -OwnerAlive $true -AuthorizationAlive $true -ExecutorPresent $true -CancelRequested $false -AlreadyApplied $false -EventDedupKey '')
+    }
+    # case 6 (no attestation): ANY registers under explicit not_required,
+    # and a valid agent record on the expected head yields technical READY.
+    $wsDir = Join-Path $root 'wsolo'
+    $ws = New-TWaitSolo -WaitsDir $wsDir
+    Assert-That (([bool]$ws.ok) -and ([string]$ws.wait.review_expectation -ceq 'ANY')) 'solo: ANY wait registers'
+    $tSoloGreen = Invoke-TTestSolo -Wait $ws.wait -Snap $green -Internal (New-TInternal)
+    Assert-That (([string]$tSoloGreen.decision -ceq 'RESUME') -and ([string]$tSoloGreen.readiness -ceq 'READY_FOR_RESUME') -and ([string]$tSoloGreen.reason -ceq 'ready-for-resume') -and [bool]$tSoloGreen.resume_authorized) 'solo: ANY + green + valid agent record => RESUME without attestation'
+    Assert-That ((-not [bool]$tSoloGreen.grants_authority) -and (-not [bool]$tSoloGreen.done_approved) -and (-not [bool]$tSoloGreen.merge_authority) -and (-not [bool]$tSoloGreen.kernel_mutated)) 'solo: technical RESUME grants zero kernel/merge authority'
+    # technical readiness without operational authorization => zero dispatch effects.
+    $tSoloNoExec = Test-OrchestrationGitHubResume -Wait $ws.wait -Snapshot $green -Policy $script:policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-TInternal) -NowUtc $script:NOW -MaxAgeSeconds 300 -LeaseAlive $true -OwnerAlive $true -AuthorizationAlive $true -ExecutorPresent $false -CancelRequested $false -AlreadyApplied $false -EventDedupKey ''
+    Assert-That (([string]$tSoloNoExec.decision -ceq 'READY') -and ([string]$tSoloNoExec.readiness -ceq 'READY_FOR_RESUME') -and (-not [bool]$tSoloNoExec.resume_authorized)) 'solo: READY without executor => READY observation, never auto-advance'
+    $tSoloNoAuth = Test-OrchestrationGitHubResume -Wait $ws.wait -Snapshot $green -Policy $script:policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-TInternal) -NowUtc $script:NOW -MaxAgeSeconds 300 -LeaseAlive $true -OwnerAlive $true -AuthorizationAlive $false -ExecutorPresent $true -CancelRequested $false -AlreadyApplied $false -EventDedupKey ''
+    Assert-That (([string]$tSoloNoAuth.decision -ceq 'TERMINAL') -and ([string]$tSoloNoAuth.reason -ceq 'authorization-revoked') -and (-not [bool]$tSoloNoAuth.resume_authorized)) 'solo: technical READY with revoked authorization => TERMINAL, zero effects'
+    $tSoloNoLease = Test-OrchestrationGitHubResume -Wait $ws.wait -Snapshot $green -Policy $script:policy -DeliveryProfile 'solo-maintainer' -InternalReview (New-TInternal) -NowUtc $script:NOW -MaxAgeSeconds 300 -LeaseAlive $false -OwnerAlive $true -AuthorizationAlive $true -ExecutorPresent $true -CancelRequested $false -AlreadyApplied $false -EventDedupKey ''
+    Assert-That (([string]$tSoloNoLease.decision -ceq 'TERMINAL') -and ([string]$tSoloNoLease.reason -ceq 'lease-expired') -and (-not [bool]$tSoloNoLease.resume_authorized)) 'solo: technical READY with dead lease => TERMINAL, zero effects'
+    # case 4 (Test level): solo without internal evidence never authorizes.
+    $tSoloNoInt = Invoke-TTestSolo -Wait $ws.wait -Snap $green
+    Assert-That (([string]$tSoloNoInt.decision -ceq 'KEEP_WAITING') -and ([string]$tSoloNoInt.readiness -ceq 'REVIEW_PENDING') -and (@($tSoloNoInt.reasons) -contains 'internal-review-pending') -and (-not [bool]$tSoloNoInt.resume_authorized)) 'solo: missing internal review => KEEP_WAITING, never RESUME'
+    # case 7: persisted APPROVED under solo effective ANY => INVALID, never migrated.
+    $wsAppr = New-TWaitSolo -WaitsDir (Join-Path $root 'wsolo-appr') -Gen ($script:GEN + 21) -ReviewExp 'APPROVED'
+    $tSoloAppr = Invoke-TTestSolo -Wait $wsAppr.wait -Snap $green -Internal (New-TInternal)
+    Assert-That (([string]$tSoloAppr.decision -ceq 'INVALID') -and (-not [bool]$tSoloAppr.ok) -and ([string]$tSoloAppr.reason -ceq 'policy-diverged') -and (-not [bool]$tSoloAppr.resume_authorized)) 'solo: persisted APPROVED differs from effective ANY => INVALID policy-diverged'
+    Assert-That ([IO.File]::ReadAllText($wsAppr.wait_file, [Text.Encoding]::UTF8) -cmatch 'APPROVED') 'solo: divergent wait file left unmigrated on disk'
+    # case 6 (negative): required-approval profile rejects ANY.
+    $strictPolSolo = ConvertFrom-Json (ConvertTo-Json $script:policy -Depth 10 -Compress)
+    $strictPolSolo.profiles | Add-Member -NotePropertyName 'strict' -NotePropertyValue ([pscustomobject]@{ review = [pscustomobject]@{ internal_reviewer = 'required'; github_approval = 'required' } }) -Force
+    $wsStrict = New-TWaitSolo -WaitsDir (Join-Path $root 'wstrict') -Gen ($script:GEN + 22) -ReviewExp 'ANY'
+    $tStrictAny = Invoke-TTestSolo -Wait $wsStrict.wait -Snap $green -Profile 'strict' -Policy $strictPolSolo -Internal (New-TInternal)
+    Assert-That (([string]$tStrictAny.decision -ceq 'INVALID') -and ([string]$tStrictAny.reason -ceq 'policy-diverged') -and (-not [bool]$tStrictAny.resume_authorized)) 'solo: ANY under required-approval profile => INVALID policy-diverged'
+    # case 5 (Test level): required-approval profile with APPROVED wait proceeds to review gate.
+    $wsStrictAppr = New-TWaitSolo -WaitsDir (Join-Path $root 'wstrict-appr') -Gen ($script:GEN + 23) -ReviewExp 'APPROVED'
+    $pendStrictSnap = New-TSnap -Head $SHA_A -Commit $SHA_A -Review 'REVIEW_REQUIRED' -Checks (New-TGreenChecks -Sha $SHA_A)
+    $tStrictPend = Invoke-TTestSolo -Wait $wsStrictAppr.wait -Snap $pendStrictSnap -Profile 'strict' -Policy $strictPolSolo -Internal (New-TInternal)
+    Assert-That (([string]$tStrictPend.decision -ceq 'KEEP_WAITING') -and ([string]$tStrictPend.readiness -ceq 'REVIEW_PENDING')) 'solo: required profile without GitHub APPROVED keeps waiting'
+    # unknown profile fails closed at Test level.
+    $tUnknownProf = Invoke-TTestSolo -Wait $ws.wait -Snap $green -Profile 'no-such-profile' -Internal (New-TInternal)
+    Assert-That (([string]$tUnknownProf.decision -ceq 'INVALID') -and ([string]$tUnknownProf.reason -ceq 'policy-invalid') -and (-not [bool]$tUnknownProf.resume_authorized)) 'solo: unknown profile => INVALID policy-invalid'
+
     Write-Output "PASS: $($script:passed) assertions"
     exit 0
 }

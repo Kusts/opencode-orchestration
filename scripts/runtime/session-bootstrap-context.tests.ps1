@@ -106,6 +106,8 @@ $base = New-GuidDir 'rr-p31s2-'
 try {
     $fixedStamp = '2026-01-01T00:00:00.0000000Z'
     $quotedRepo = '"' + $repoRoot + '"'
+    # Session Bootstrap identifies the project by the supplied repository-root basename.
+    $expectedProjectId = Split-Path -Leaf ([IO.Path]::GetFullPath($repoRoot))
 
     # ---- AC2 / AC7: real repo integration, valid JSON, exit 0 ----
     $real = Invoke-BootstrapCli $scriptPath ('-RepoRoot ' + $quotedRepo + ' -Timestamp ' + $fixedStamp) $null 120000
@@ -118,7 +120,7 @@ try {
             if ($names -notcontains $s) { $missing += $s }
         }
         Assert-That ($missing.Count -eq 0) 'w1b: every builder section is present in the emitted JSON' ('missing=' + ($missing -join ','))
-        Assert-That ($doc.project_id -eq 'opencode-orchestration' -and (Get-ByteCount $real.Out) -le 8192) 'w1c: project_id resolved and output bounded by default budget' ('project_id=' + $doc.project_id)
+        Assert-That ($doc.project_id -eq $expectedProjectId -and (Get-ByteCount $real.Out) -le 8192) 'w1c: project_id resolved and output bounded by default budget' ('project_id=' + $doc.project_id)
         # Contract fidelity: all_off must mirror the flags file under the builder
         # rule (top-level `enabled`, else `active`). capability_registry.enabled
         # is a registry marker (not a rollout flag), so the repo value is false.
@@ -298,6 +300,12 @@ $iso = Join-Path $base ('iso-' + [guid]::NewGuid().ToString('N'))
     # ---- AC5 / AC6: hostile fixture, no dir => zero writes, canary never leaks ----
     $fxBase = Join-Path $base 'fixtures'
     New-Item -ItemType Directory -Path $fxBase -Force | Out-Null
+    # A distinct benign basename makes identity derivation an explicit contract test.
+    $identityRepo = New-FixtureRepo (Join-Path $base 'identity-fixtures') 'bootstrap-identity-alt-root' 'identity-fixture-task'
+    $identityRun = Invoke-BootstrapCli $scriptPath ('-RepoRoot "' + $identityRepo + '" -Timestamp ' + $fixedStamp) $null 120000
+    $identityDoc = Get-OnlyJsonLine $identityRun.Out
+    Assert-That ($identityRun.Code -eq 0 -and ($null -ne $identityDoc) -and [string]$identityDoc.project_id -eq 'bootstrap-identity-alt-root') 'w16: project_id follows a differently named temporary RepoRoot' ('actual=' + [string]$identityDoc.project_id)
+
     $fixture = New-FixtureRepo $fxBase $hostileName $canary
     $before = @(Get-ChildItem -LiteralPath $fxBase -Recurse -File | ForEach-Object { $_.FullName + '|' + $_.Length })
     $noWrite = Invoke-BootstrapCli $scriptPath ('-RepoRoot "' + $fixture + '" -Timestamp ' + $fixedStamp) $null 120000
@@ -377,7 +385,7 @@ $iso = Join-Path $base ('iso-' + [guid]::NewGuid().ToString('N'))
         try { if ($f7) { $c7 = [int]$p7.ExitCode } } catch { $c7 = -1 }
         try { $p7.Close() } catch { }
         $doc7 = Get-OnlyJsonLine $o7
-        Assert-That ($c7 -eq 0 -and ($null -ne $doc7) -and [string]$doc7.project_id -eq 'opencode-orchestration') 'w14: same wiring runs green under PS7 (pwsh)' ('code=' + $c7 + ' out=' + $o7)
+        Assert-That ($c7 -eq 0 -and ($null -ne $doc7) -and [string]$doc7.project_id -eq $expectedProjectId) 'w14: same wiring runs green under PS7 (pwsh)' ('code=' + $c7 + ' out=' + $o7)
     }
     else {
         # Explicit marker: the runner reports SKIP instead of a silent PASS.

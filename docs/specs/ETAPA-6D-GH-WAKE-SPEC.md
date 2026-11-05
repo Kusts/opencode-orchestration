@@ -247,17 +247,43 @@ DisallowStartIfOnBatteries=false, StopIfGoingOnBatteries=false,
 InteractiveToken/LeastPrivilege. AllowStartIfOnBatteries is absent on
 purpose: it is not part of the schtasks XML schema and was rejected on
 import (error 29,7), so it was removed; Disallow/StopIfGoing stay as the
-correct battery settings. Registration is ownership-checked: an existing name whose XML does not
-carry this wake script + config as the exact -File/-ConfigFile parameter
-pair returns task-name-conflict (fail-closed); -Force replaces only after
-that check (replaced-conflict/replaced-owned). Unregister is fail-closed
+correct battery settings. Registration is ownership-checked: owned means
+the single Exec Command is exactly the generated
+%windir%\System32\WindowsPowerShell\v1.0\powershell.exe path (quoted or
+unquoted, Windows case/separator normalization allowed) AND Arguments is
+exactly the generated 7-token sequence `-NoProfile -ExecutionPolicy
+Bypass -File <wake> -ConfigFile <cfg>` (exact flags, no aliases,
+reordering, duplicates, extras, or residual tokens; path values
+case/separator normalized). Anything else returns task-name-conflict
+(fail-closed), even with -Force; -Force replaces only the exact owned
+task (replaced-owned). The old replaced-conflict outcome (Force replacing
+an unowned name) no longer exists. Unregister is fail-closed
 too: deleting an existing task requires explicit -Force, otherwise
 confirmation-required; absent tasks stay idempotent not-found. Battery/location
 settings not expressible via schtasks.exe CLI are fixed in the imported XML,
 not via the ScheduledTasks module (unavailable on Server Core). Action runs
 `powershell -NoProfile -File github-wake.ps1 -ConfigFile <json>` as a
 separate process; args persist in the JSON config written by
-New-GitHubWakeConfig. No in-memory state crosses ticks.
+New-GitHubWakeConfig. No in-memory state crosses ticks. Single-shot
+opt-in: `Register-GitHubWakeSchedule -OneShot` (and the underlying
+`Get-GHWSchtasksXml -OneShot`) omit the complete `<Repetition>` element,
+which the Task Scheduler schema documents as optional (the official
+TimeTrigger one-shot example carries no `<Repetition>`). All other pins
+are retained: StartBoundary, InteractiveToken/LeastPrivilege,
+ExecutionTimeLimit, Disallow/StopIfGoingOnBatteries=false. Explicit
+`-IntervalMinutes`/`-DurationHours` combined with `-OneShot` are rejected
+fail-closed (`oneshot-schedule-conflict`; the raw helper returns empty
+XML); omitting them (defaults apply to the repeating path only) does not
+conflict. Reuse additionally requires the exact one-shot shape: the
+existing XML must carry exactly ONE `<TimeTrigger>` with ZERO
+`<Repetition>` inside it (`Test-GHWScheduleOneShotCompatible`); empty or
+unparseable XML, zero or multiple TimeTriggers, or any Repetition is
+incompatible and returns oneshot-mode-conflict without -Force (Force on
+an owned task regenerates without repetition). Default behavior without
+`-OneShot` is unchanged (bounded
+Repetition as before). Validated DryRun-only/pure in
+scripts/v3/github-wake-scheduler.tests.ps1 (S7-S9); no task registration,
+activation, or Live is implied by this option.
 
 ## Authority and limits
 
@@ -332,6 +358,84 @@ New-GitHubWakeConfig. No in-memory state crosses ticks.
   SCHEDULED+RESUMED+DISPATCHED na mesma jornada).
 - Sem excecao docs-only, sem self-review (`SELF_REVIEW => POLICY_BLOCKED`),
   sem merge/deploy/piloto nesta SPEC.
+
+## Gates — perfil solo-maintainer (2026-11-04, sem atestacao)
+
+- Os gates de approval acima (`READY_FOR_RESUME` exigindo review humana
+  legitima nao-self, `SELF_REVIEW => POLICY_BLOCKED`, sem excecao
+  docs-only) valem para o perfil default e como registro historico: o
+  default permanece inalterado (`github_approval` exigido, comportamento
+  byte-identico ao codigo pre-perfil). O perfil `solo-maintainer`
+  (`source/registry/delivery-policy.json`,
+  `review.github_approval=not_required`, ativacao explicita por chamada)
+  dispensa SOMENTE o approval humano GitHub nao-self e NAO exige
+  atestacao assinada. Um registro de review de agente interno valido
+  (`approved: true`, `head_sha` do SHA esperado, `reviewer_identity` e
+  `author_identity` presentes e distintos), com todos os checks requeridos verdes no SHA esperado e
+  `head_sha`/`commit_sha` coincidentes, satisfaz a prontidao TECNICA
+  (`READY_FOR_RESUME`, `review_basis: internal-agent`). Evidencia
+  ausente/invalida/divergente ou self-review nunca gera READY
+  (`REVIEW_PENDING`/`INCONCLUSIVE` fail-closed); `CHANGES_REQUESTED`
+  explicito sempre repara, mesmo com approval dispensado. O registro de
+  agente e controle de qualidade apenas — nunca identidade autenticada,
+  assinatura independente, aprovacao humana ou aprovacao GitHub — e sua
+  origem/limites ficam gravados em `review_basis`/`review_detail`.
+- Revisao tecnica e autorizacao operacional seguem independentes: a
+  prontidao tecnica (`READY_FOR_RESUME`) nao cria executor nem
+  autorizacao (campos Planner nunca suprem essas provas); sem executor
+  ha apenas `READY` observavel sem unblock/settle, sem autorizacao ha
+  `TERMINAL`, e a decisao operacional do maintainer (merge, scheduler,
+  Live) nao decorre da prontidao tecnica e segue pendente.
+- Sem afrouxamento compensatorio: CI pendente espera, CI falho bloqueia,
+  SHA divergente bloqueia, perfil default inalterado (`github_approval`
+  exigido).
+- Waits registradas sob a expectativa antiga (`APPROVED`) divergem da
+  expectativa efetiva solo (`ANY`) e retornam `INVALID`
+  (`policy-diverged`); re-registro e explicito, nunca migracao silenciosa.
+- Integracao GH-WAKE (tick agendado real): opt-in explicito do operador
+  via `-DeliveryProfile`/`delivery_profile` (config) mais registro de
+  review via `-InternalReviewPath`/`internal_review_path` (config);
+  wait/snapshot/next-action/Planner nunca selecionam o perfil nem
+  fornecem o registro. O tick repassa o mesmo perfil+registro pelo probe
+  de readiness e pelos gates de resume principal e de recuperacao, sem
+  Confirm/unblock/settlement duplicados.
+- Requisitos de autorizacao (CI/Scheduler/modelo), limites de
+  custo/request e todos os demais blockers seguem inalterados;
+  `ETAPA_6D_READY` operacional continua BLOQUEADO (sem merge, sem Live,
+  sem scheduler). Certificacao A historica retida; atestacao RSA
+  experimental segue BLOCKED e desconectada do readiness (nao
+  pre-requisito, sem chaves). Scheduler A nao reexecutado nesta etapa.
+
+### Contrato criptográfico offline — experimental, sem pré-requisito
+
+- `scripts/v3/lib/OrchestrationSoloAttestation.ps1` define um envelope
+  fechado, canônico e versionado, assinado por RSA-PSS-SHA256. O payload
+  vincula repositório/PR/SHA, Task/Run/operação, perfil, `policy_id` + digest,
+  emissor, `issued_at`/`expires_at`, `jti` e os dois reviews (`reviewer` e
+  `security-reviewer`), cada um com session id declarado, veredito, SHA
+  candidato, lista não vazia de hashes de evidência e hash do registro Kernel.
+  O envelope fora do perfil solo, desconhecido, expirado, revogado, inválido
+  ou divergente falha fechado. O binding impede reutilização em outra
+  operação; revalidação da mesma operação não consome estado e continua
+  idempotente.
+- O código é somente verificador de documento, retorna `{ok, reason}` e não
+  faz emissão, não assina JSON arbitrário e não participa do caminho de
+  readiness. A política `solo-attestation-policy.json` está `BLOCKED` sem
+  emissores. As 54 asserções offline usam chave sintética temporária em memória;
+  o verificador exige expoente público RSA exatamente 65537 e `revoked_jtis`
+  estrita (qualquer entrada malformada invalida a política); chaves
+  duplicadas na política (`status`/`trusted_issuers` na raiz ou
+  `issuer_id`/`revoked` no emissor) falham fechado como `policy-invalid`;
+  aceitação criptográfica do fixture não é prova de que o review real veio do
+  agente/session indicado.
+- Gap de proveniência (contexto do experimento, não bloqueador de
+  readiness): `Set-OrchestrationTaskReview` persiste `by` como texto
+  e a revisão candidata, sem identidade/session lineage autenticada nem hash
+  verificável do conteúdo de review. Gap de isolamento: o shell do
+  agente compartilha o principal Windows do operador. Por isso a atestação
+  permanece experimental e desconectada — jamais pré-requisito.
+- Nenhum provisionamento, ajuste de ACL,
+  geração de chave/certificado, wiring ou Live ocorreu nesta etapa.
 
 ## Prova viva (live tick honesto, REVIEW_PENDING, sem cadeia completa)
 

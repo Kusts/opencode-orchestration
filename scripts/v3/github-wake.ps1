@@ -38,6 +38,23 @@
         -ResolveExecutor -ExecutorProofPath <proof.json> `
         [-GraphQLSnapshotFile <raw-fixture>]
 
+    Usage (explicit operator opt-in, solo-maintainer profile):
+      powershell -NoProfile -File github-wake.ps1 -WaitsDir <dir> `
+        -TasksDir <dir> -GoalStoreDir <dir> -CheckpointDir <dir> `
+        -FlagsPath <flags.json> -AuthorizationAlive:$true `
+        -ExecutorPresent:$true -DeliveryProfile solo-maintainer `
+        -InternalReviewPath <review.json> [-GraphQLSnapshotFile <raw-fixture>]
+      The solo profile is explicit-operator-opt-in only: -DeliveryProfile
+      (or scheduler config delivery_profile) accepts '' (default, unchanged
+      behavior) or exactly 'solo-maintainer'; anything else fails the tick
+      with invalid-delivery-profile and zero mutations. Wait documents,
+      snapshots, next-action payloads, and Planner-provided fields can never
+      select the profile. -InternalReviewPath (or config
+      internal_review_path) points at an operator-owned JSON record that is
+      loaded through the existing Test-GHInternalReview validator as
+      quality-control evidence only (never authenticated identity, an
+      independent signature, human approval, or GitHub approval).
+
     Liveness resolvers (opt-in, fail-closed, never persisted as authority):
       -ResolveLease (-LeaseFromWait alias): derive LeaseAlive per wait
         from lease_expires_utc/deadline_utc vs NowUtc. Lease/owner are
@@ -86,6 +103,8 @@ param(
     [string]$ConfigFile = '',
     [string]$FlagsPath = '',
     [string]$PolicyPath = '',
+    [string]$DeliveryProfile = '',
+    [string]$InternalReviewPath = '',
     [string]$GraphQLSnapshotFile = '',
     [string]$EventId = '',
     $MaxAgeSeconds = 300,
@@ -121,6 +140,8 @@ $GHW_SavedCheckpointDir = $CheckpointDir
 $GHW_SavedConfigFile = $ConfigFile
 $GHW_SavedFlagsPath = $FlagsPath
 $GHW_SavedPolicyPath = $PolicyPath
+$GHW_SavedDeliveryProfile = $DeliveryProfile
+$GHW_SavedInternalReviewPath = $InternalReviewPath
 $GHW_SavedGraphQLSnapshotFile = $GraphQLSnapshotFile
 $GHW_SavedEventId = $EventId
 $GHW_SavedMaxAgeSeconds = $MaxAgeSeconds
@@ -143,6 +164,8 @@ $CheckpointDir = $GHW_SavedCheckpointDir
 $ConfigFile = $GHW_SavedConfigFile
 $FlagsPath = $GHW_SavedFlagsPath
 $PolicyPath = $GHW_SavedPolicyPath
+$DeliveryProfile = $GHW_SavedDeliveryProfile
+$InternalReviewPath = $GHW_SavedInternalReviewPath
 $GraphQLSnapshotFile = $GHW_SavedGraphQLSnapshotFile
 $EventId = $GHW_SavedEventId
 $MaxAgeSeconds = $GHW_SavedMaxAgeSeconds
@@ -166,6 +189,8 @@ $CheckpointDir = $GHW_SavedCheckpointDir
 $ConfigFile = $GHW_SavedConfigFile
 $FlagsPath = $GHW_SavedFlagsPath
 $PolicyPath = $GHW_SavedPolicyPath
+$DeliveryProfile = $GHW_SavedDeliveryProfile
+$InternalReviewPath = $GHW_SavedInternalReviewPath
 $GraphQLSnapshotFile = $GHW_SavedGraphQLSnapshotFile
 $EventId = $GHW_SavedEventId
 $MaxAgeSeconds = $GHW_SavedMaxAgeSeconds
@@ -180,7 +205,7 @@ $AutoDispatchExpectedProjectId = $GHW_SavedAutoDispatchExpectedProjectId
 $MaxApiAttempts = $GHW_SavedMaxApiAttempts
 $TimeoutMs = $GHW_SavedTimeoutMs
 $OutFile = $GHW_SavedOutFile
-Remove-Variable -Name GHW_SavedWaitsDir, GHW_SavedTasksDir, GHW_SavedGoalStoreDir, GHW_SavedCheckpointDir, GHW_SavedConfigFile, GHW_SavedFlagsPath, GHW_SavedPolicyPath, GHW_SavedGraphQLSnapshotFile, GHW_SavedEventId, GHW_SavedMaxAgeSeconds, GHW_SavedNowUtc, GHW_SavedActorIdentitySource, GHW_SavedAuthorizationAlive, GHW_SavedExecutorPresent, GHW_SavedCancelRequested, GHW_SavedAutoDispatchEnabled, GHW_SavedAutoDispatchExpectedDirectory, GHW_SavedAutoDispatchExpectedProjectId, GHW_SavedMaxApiAttempts, GHW_SavedTimeoutMs, GHW_SavedOutFile, GHW_SavedSnapshotsDir -ErrorAction SilentlyContinue
+Remove-Variable -Name GHW_SavedWaitsDir, GHW_SavedTasksDir, GHW_SavedGoalStoreDir, GHW_SavedCheckpointDir, GHW_SavedConfigFile, GHW_SavedFlagsPath, GHW_SavedPolicyPath, GHW_SavedDeliveryProfile, GHW_SavedInternalReviewPath, GHW_SavedGraphQLSnapshotFile, GHW_SavedEventId, GHW_SavedMaxAgeSeconds, GHW_SavedNowUtc, GHW_SavedActorIdentitySource, GHW_SavedAuthorizationAlive, GHW_SavedExecutorPresent, GHW_SavedCancelRequested, GHW_SavedAutoDispatchEnabled, GHW_SavedAutoDispatchExpectedDirectory, GHW_SavedAutoDispatchExpectedProjectId, GHW_SavedMaxApiAttempts, GHW_SavedTimeoutMs, GHW_SavedOutFile, GHW_SavedSnapshotsDir -ErrorAction SilentlyContinue
 try {
     $GHW_LibDir = $PSScriptRoot
     $GHW_DeliveryLib = Join-Path $GHW_LibDir 'lib\OrchestrationDelivery.ps1'
@@ -303,6 +328,64 @@ function Resolve-GHWPolicy {
         return @{ ok = $true; policy = $pol; reason = '' }
     }
     catch { return @{ ok = $false; policy = $null; reason = 'policy-invalid' } }
+}
+
+function Resolve-GHWDeliveryProfile {
+    # Explicit operator opt-in for the solo-maintainer delivery profile.
+    # Only the wake CLI switch -DeliveryProfile and the scheduler config key
+    # delivery_profile select the profile; wait documents, snapshots,
+    # next-action payloads, and Planner-provided fields are never consulted
+    # (no lookup here takes a wait/snapshot/next-action input). Empty/blank
+    # resolves to the default profile (byte-identical legacy behavior).
+    # Any non-empty value other than exactly 'solo-maintainer' fails closed
+    # with invalid-delivery-profile. Never throws. ASCII-only.
+    param([string]$DeliveryProfile = '')
+    try {
+        $p = ([string]$DeliveryProfile).Trim()
+        if ([string]::IsNullOrWhiteSpace($p)) { return @{ ok = $true; profile = ''; reason = '' } }
+        if (($p.Length -gt 64) -or ($p -cnotmatch '\A[A-Za-z0-9._-]+\z')) {
+            return @{ ok = $false; profile = ''; reason = 'invalid-delivery-profile' }
+        }
+        if ($p -ceq 'solo-maintainer') { return @{ ok = $true; profile = 'solo-maintainer'; reason = '' } }
+        return @{ ok = $false; profile = ''; reason = 'invalid-delivery-profile' }
+    }
+    catch { return @{ ok = $false; profile = ''; reason = 'invalid-delivery-profile' } }
+}
+
+function Read-GHWInternalReviewFile {
+    # Loads the operator-supplied internal-review record for the solo profile
+    # from an explicit file path (CLI -InternalReviewPath or scheduler config
+    # internal_review_path). The returned object is passed through to the
+    # existing Test-GHInternalReview validator inside readiness; this loader
+    # performs no approval judgment itself. Absent path loads as absent
+    # (review=$null, ok=$true): the solo gate then blocks downstream with
+    # internal-review-pending, never crashes the tick. Unreadable or
+    # unparseable files fail closed (ok=$false). The record is
+    # quality-control evidence only: never authenticated identity, an
+    # independent signature, human approval, or GitHub approval. Only the
+    # operator file is read; wait documents, snapshots, and Planner-provided
+    # fields are never consulted. Never throws. ASCII-only.
+    param([string]$Path = '')
+    try {
+        $p = ([string]$Path).Trim()
+        if ([string]::IsNullOrWhiteSpace($p)) { return @{ ok = $true; review = $null; reason = 'absent' } }
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+            return @{ ok = $false; review = $null; reason = 'internal-review-unreadable' }
+        }
+        $fi = Get-Item -LiteralPath $p -Force
+        if ([long]$fi.Length -le 0 -or [long]$fi.Length -gt 262144) {
+            return @{ ok = $false; review = $null; reason = 'internal-review-unreadable' }
+        }
+        $doc = $null
+        try { $doc = ConvertFrom-Json ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)) }
+        catch { return @{ ok = $false; review = $null; reason = 'internal-review-unreadable' } }
+        if ($null -eq $doc) { return @{ ok = $false; review = $null; reason = 'internal-review-invalid' } }
+        if (($doc -is [string]) -or ($doc -is [System.Collections.IList]) -or ($doc -is [ValueType])) {
+            return @{ ok = $false; review = $null; reason = 'internal-review-invalid' }
+        }
+        return @{ ok = $true; review = $doc; reason = '' }
+    }
+    catch { return @{ ok = $false; review = $null; reason = 'internal-review-unreadable' } }
 }
 
 function Find-GHWNewestCheckpoint {
@@ -2062,6 +2145,8 @@ function Invoke-GitHubWake {
         [bool]$ResolveLease = $false,
         [string]$AuthorizationProofPath = '',
         [string]$ExecutorProofPath = '',
+        [string]$DeliveryProfile = '',
+        $InternalReview = $null,
         [int]$MaxApiAttempts = 3,
         [int]$TimeoutMs = 10000
     )
@@ -2070,6 +2155,41 @@ function Invoke-GitHubWake {
     $anyResume = $false
     $nextAction = $null
     try {
+        # Solo-maintainer opt-in resolves here, once per tick, from the
+        # explicit operator parameter only. Wait documents, snapshots,
+        # next-action payloads, and Planner-provided fields are never
+        # consulted. Default ('') behavior is unchanged.
+        $ghwProfRes = $null
+        try { $ghwProfRes = Resolve-GHWDeliveryProfile -DeliveryProfile ([string]$DeliveryProfile) } catch { $ghwProfRes = $null }
+        if (($null -eq $ghwProfRes) -or (-not [bool](Get-GHWValue $ghwProfRes 'ok' $false))) {
+            return [pscustomobject]@{
+                ok = $false; harness = 'github-wake-v1'; verdict = 'WAKE_FAIL'
+                reason = 'invalid-delivery-profile'; items = @(); evaluated = [long]0; resumed = [long]0
+                kernel_mutated = $false; grants_authority = $false; done_approved = $false
+                merge_authority = $false; resume_authorized = $false
+                scheduler = 'schtasks-xml; single-shot per tick; no in-memory state'
+                next_action = $null
+            }
+        }
+        $effProfile = ([string](Get-GHWValue $ghwProfRes 'profile' ''))
+        $effInternal = $InternalReview
+        if (-not [string]::IsNullOrWhiteSpace($effProfile)) {
+            # Explicit profile must resolve against the effective policy
+            # before any wait is evaluated; drift fails the tick with zero
+            # mutations. Default ('') keeps the legacy per-item flow.
+            $effCheck = $null
+            try { $effCheck = Get-OrchestrationDeliveryEffectiveReview -Policy $Policy -DeliveryProfile $effProfile } catch { $effCheck = $null }
+            if (($null -eq $effCheck) -or (-not [bool](Get-GHWValue $effCheck 'ok' $false))) {
+                return [pscustomobject]@{
+                    ok = $false; harness = 'github-wake-v1'; verdict = 'WAKE_FAIL'
+                    reason = 'policy-invalid'; items = @(); evaluated = [long]0; resumed = [long]0
+                    kernel_mutated = $false; grants_authority = $false; done_approved = $false
+                    merge_authority = $false; resume_authorized = $false
+                    scheduler = 'schtasks-xml; single-shot per tick; no in-memory state'
+                    next_action = $null
+                }
+            }
+        }
         $lw = $null
         try { $lw = Get-OrchestrationGitHubWaits -WaitsDir $WaitsDir } catch { $lw = $null }
         if (($null -eq $lw) -or (-not [bool](Get-GHWValue $lw 'ok' $false))) {
@@ -2195,7 +2315,8 @@ function Invoke-GitHubWake {
                             -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $leaseAlive `
                             -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                             -ExecutorPresent $false -CancelRequested $false `
-                            -AlreadyApplied $true -EventDedupKey ''
+                            -AlreadyApplied $true -EventDedupKey '' `
+                            -DeliveryProfile $effProfile -InternalReview $effInternal
                     }
                     catch { $dec = $null }
                     $dName = 'DUPLICATE_NOOP'
@@ -2250,7 +2371,8 @@ function Invoke-GitHubWake {
                                                 -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $recLease `
                                                 -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                                                 -ExecutorPresent $ghwResolvedExec -CancelRequested ([bool]$CancelRequested) `
-                                                -AlreadyApplied $false -EventDedupKey $ddk
+                                                -AlreadyApplied $false -EventDedupKey $ddk `
+                                                -DeliveryProfile $effProfile -InternalReview $effInternal
                                         }
                                         catch { $recDec = $null }
                                         $recName = ''
@@ -2413,7 +2535,7 @@ function Invoke-GitHubWake {
                 $snap = $obs.snapshot
                 $probe = $null
                 try {
-                    $probe = Get-OrchestrationGitHubReadiness -Repository $repo -PrNumber $prNum -ExpectedHeadSha $expSha -Snapshot $snap -Policy $Policy -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds
+                    $probe = Get-OrchestrationGitHubReadiness -Repository $repo -PrNumber $prNum -ExpectedHeadSha $expSha -Snapshot $snap -Policy $Policy -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -DeliveryProfile $effProfile -InternalReview $effInternal
                 }
                 catch { $probe = $null }
                 if ($null -eq $probe) {
@@ -2429,7 +2551,8 @@ function Invoke-GitHubWake {
                         -NowUtc $nowStr -MaxAgeSeconds $MaxAgeSeconds -LeaseAlive $leaseAlive `
                         -OwnerAlive $ownerAlive -AuthorizationAlive $ghwResolvedAuth `
                         -ExecutorPresent $ghwResolvedExec -CancelRequested ([bool]$CancelRequested) `
-                        -AlreadyApplied $false -EventDedupKey $ddk
+                        -AlreadyApplied $false -EventDedupKey $ddk `
+                        -DeliveryProfile $effProfile -InternalReview $effInternal
                 }
                 catch { $dec = $null }
                 if ($null -eq $dec) {
@@ -2598,6 +2721,8 @@ function New-GitHubWakeConfig {
         [string]$CheckpointDir = '',
         [string]$FlagsPath = '',
         [string]$PolicyPath = '',
+        [string]$DeliveryProfile = '',
+        [string]$InternalReviewPath = '',
         [string]$GraphQLSnapshotFile = '',
         [string]$EventId = '',
         $MaxAgeSeconds = 300,
@@ -2624,6 +2749,12 @@ function New-GitHubWakeConfig {
         if ([string]::IsNullOrWhiteSpace($p)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-path'; path = '' }
         }
+        $profRes = $null
+        try { $profRes = Resolve-GHWDeliveryProfile -DeliveryProfile ([string]$DeliveryProfile) } catch { $profRes = $null }
+        if (($null -eq $profRes) -or (-not [bool](Get-GHWValue $profRes 'ok' $false))) {
+            return [pscustomobject]@{ ok = $false; reason = 'invalid-delivery-profile'; path = '' }
+        }
+        $profNorm = ([string](Get-GHWValue $profRes 'profile' ''))
         $maxAge = 300
         try { if (Test-GHWStrictInt -Value $MaxAgeSeconds -Min 1 -Max 3600) { $maxAge = [long]$MaxAgeSeconds } } catch { }
         $maxApi = 3
@@ -2634,6 +2765,7 @@ function New-GitHubWakeConfig {
             waits_dir = ([string]$WaitsDir); tasks_dir = ([string]$TasksDir)
             goal_store_dir = ([string]$GoalStoreDir); checkpoint_dir = ([string]$CheckpointDir)
             flags_path = ([string]$FlagsPath); policy_path = ([string]$PolicyPath)
+            delivery_profile = $profNorm; internal_review_path = ([string]$InternalReviewPath)
             graphql_snapshot_file = ([string]$GraphQLSnapshotFile); event_id = ([string]$EventId)
             max_age_seconds = $maxAge; now_utc = ([string]$NowUtc)
             actor_identity_source = ([string]$ActorIdentitySource)
@@ -2758,9 +2890,13 @@ function Get-GHWSchtasksXml {
         [string]$ConfigFile = '',
         [int]$IntervalMinutes = 5,
         [int]$DurationHours = 12,
-        [int]$ExecutionTimeLimitMinutes = 5
+        [int]$ExecutionTimeLimitMinutes = 5,
+        [switch]$OneShot
     )
     try {
+        if ([bool]$OneShot -and ($PSBoundParameters.ContainsKey('IntervalMinutes') -or $PSBoundParameters.ContainsKey('DurationHours'))) {
+            return ''
+        }
         $psExe = (Join-Path ([string]$env:windir) 'System32\WindowsPowerShell\v1.0\powershell.exe')
         # Scheduler parses StartBoundary as LOCAL time (no zone suffix): UtcNow
         # on a UTC-3 host fired ~3h late in live proof (LIVE-6D-PROOF DEVIATION-2).
@@ -2777,11 +2913,13 @@ function Get-GHWSchtasksXml {
         $xml += ('    <TimeTrigger>' + "`r`n")
         $xml += ('      <StartBoundary>' + $start + '</StartBoundary>' + "`r`n")
         $xml += ('      <Enabled>true</Enabled>' + "`r`n")
-        $xml += ('      <Repetition>' + "`r`n")
-        $xml += ('        <Interval>PT' + [string]$IntervalMinutes + 'M</Interval>' + "`r`n")
-        $xml += ('        <Duration>PT' + [string]$DurationHours + 'H</Duration>' + "`r`n")
-        $xml += ('        <StopAtDurationEnd>true</StopAtDurationEnd>' + "`r`n")
-        $xml += ('      </Repetition>' + "`r`n")
+        if (-not [bool]$OneShot) {
+            $xml += ('      <Repetition>' + "`r`n")
+            $xml += ('        <Interval>PT' + [string]$IntervalMinutes + 'M</Interval>' + "`r`n")
+            $xml += ('        <Duration>PT' + [string]$DurationHours + 'H</Duration>' + "`r`n")
+            $xml += ('        <StopAtDurationEnd>true</StopAtDurationEnd>' + "`r`n")
+            $xml += ('      </Repetition>' + "`r`n")
+        }
         $xml += ('    </TimeTrigger>' + "`r`n")
         $xml += ('  </Triggers>' + "`r`n")
         $xml += ('  <Principals>' + "`r`n")
@@ -2842,16 +2980,14 @@ function Test-GHWScheduleOwner {
             if (($cmdNorm.Length -ge 2) -and ((($cmdNorm.StartsWith('"')) -and ($cmdNorm.EndsWith('"'))) -or (($cmdNorm.StartsWith("'") -and ($cmdNorm.EndsWith("'")))))) { $cmdNorm = ($cmdNorm.Substring(1, $cmdNorm.Length - 2)).Trim() } else { break }
         }
         if ([string]::IsNullOrWhiteSpace($cmdNorm)) { return $false }
-        $leaf = ''
-        try { $leaf = [string][IO.Path]::GetFileName($cmdNorm) } catch { $leaf = '' }
-        if (-not ([string]$leaf -ieq 'powershell.exe')) { return $false }
         $expected = ''
         try { $expected = (Join-Path ([string]$env:windir) 'System32\WindowsPowerShell\v1.0\powershell.exe') } catch { $expected = '' }
+        if ([string]::IsNullOrWhiteSpace($expected)) { return $false }
         $cmdOk = $false
         try {
-            if ($cmdNorm -ieq 'powershell.exe') { $cmdOk = $true }
-            elseif ((-not [string]::IsNullOrWhiteSpace($expected)) -and ($cmdNorm -ieq $expected)) { $cmdOk = $true }
-            elseif (($cmdNorm -ilike '*\powershell.exe') -or ($cmdNorm -ilike '*/powershell.exe')) { $cmdOk = $true }
+            $cmdKey = ([string]$cmdNorm).ToLowerInvariant().Replace('/', '\')
+            $expKey = ([string]$expected).ToLowerInvariant().Replace('/', '\')
+            if ($cmdKey -ceq $expKey) { $cmdOk = $true }
         }
         catch { $cmdOk = $false }
         if (-not [bool]$cmdOk) { return $false }
@@ -2881,40 +3017,87 @@ function Test-GHWScheduleOwner {
         }
         if ($cur.Length -gt 0) { $tokens += $cur }
         $toks = @($tokens)
-        $fileCount = 0
-        $fileVal = ''
-        $cfgCount = 0
-        $cfgVal = ''
-        for ($ti = 0; $ti -lt @($toks).Count; $ti++) {
-            $tn = [string]@($toks)[$ti]
-            if ($tn -ieq '-File') {
-                $fileCount += 1
-                if (($fileCount -eq 1) -and (($ti + 1) -lt @($toks).Count)) {
-                    $v = ([string]@($toks)[$ti + 1]).Trim()
-                    for ($qi = 0; $qi -lt 4; $qi++) {
-                        if (($v.Length -ge 2) -and ((($v.StartsWith('"')) -and ($v.EndsWith('"'))) -or (($v.StartsWith("'") -and ($v.EndsWith("'")))))) { $v = ($v.Substring(1, $v.Length - 2)).Trim() } else { break }
-                    }
-                    $fileVal = $v.ToLowerInvariant().Replace('/', '\')
-                }
-            }
-            elseif (($tn -ieq '-ConfigFile') -or ($tn -ieq '-Config')) {
-                $cfgCount += 1
-                if (($cfgCount -eq 1) -and (($ti + 1) -lt @($toks).Count)) {
-                    $v = ([string]@($toks)[$ti + 1]).Trim()
-                    for ($qi = 0; $qi -lt 4; $qi++) {
-                        if (($v.Length -ge 2) -and ((($v.StartsWith('"')) -and ($v.EndsWith('"'))) -or (($v.StartsWith("'") -and ($v.EndsWith("'")))))) { $v = ($v.Substring(1, $v.Length - 2)).Trim() } else { break }
-                    }
-                    $cfgVal = $v.ToLowerInvariant().Replace('/', '\')
-                }
-            }
+        if (@($toks).Count -ne 7) { return $false }
+        $flagOk = $true
+        try {
+            if ([string]@($toks)[0] -cne '-NoProfile') { $flagOk = $false }
+            elseif ([string]@($toks)[1] -cne '-ExecutionPolicy') { $flagOk = $false }
+            elseif ([string]@($toks)[2] -cne 'Bypass') { $flagOk = $false }
+            elseif ([string]@($toks)[3] -cne '-File') { $flagOk = $false }
+            elseif ([string]@($toks)[5] -cne '-ConfigFile') { $flagOk = $false }
         }
-        if ($fileCount -ne 1) { return $false }
-        if ($cfgCount -ne 1) { return $false }
-        if ($fileVal -cne $wNorm) { return $false }
-        if ($cfgVal -cne $cNorm) { return $false }
+        catch { $flagOk = $false }
+        if (-not [bool]$flagOk) { return $false }
+        $fileGot = ([string]@($toks)[4]).Trim()
+        for ($qi = 0; $qi -lt 4; $qi++) {
+            if (($fileGot.Length -ge 2) -and ((($fileGot.StartsWith('"')) -and ($fileGot.EndsWith('"'))) -or (($fileGot.StartsWith("'") -and ($fileGot.EndsWith("'")))))) { $fileGot = ($fileGot.Substring(1, $fileGot.Length - 2)).Trim() } else { break }
+        }
+        $fileGot = $fileGot.ToLowerInvariant().Replace('/', '\')
+        if ($fileGot -cne $wNorm) { return $false }
+        $cfgGot = ([string]@($toks)[6]).Trim()
+        for ($qi = 0; $qi -lt 4; $qi++) {
+            if (($cfgGot.Length -ge 2) -and ((($cfgGot.StartsWith('"')) -and ($cfgGot.EndsWith('"'))) -or (($cfgGot.StartsWith("'") -and ($cfgGot.EndsWith("'")))))) { $cfgGot = ($cfgGot.Substring(1, $cfgGot.Length - 2)).Trim() } else { break }
+        }
+        $cfgGot = $cfgGot.ToLowerInvariant().Replace('/', '\')
+        if ($cfgGot -cne $cNorm) { return $false }
         return $true
     }
     catch { return $false }
+}
+
+function Test-GHWScheduleOneShotCompatible {
+    # Pure helper: true ONLY when task XML carries exactly ONE
+    # <TimeTrigger> with ZERO <Repetition> inside it (single-firing
+    # shape). Fail-closed: empty/unparseable XML, zero or multiple
+    # TimeTriggers, or any Repetition => false (incompatible), so a
+    # OneShot request against such XML conflicts instead of reusing it.
+    # Never throws, never touches schtasks.exe. ASCII only.
+    param([string]$Xml = '')
+    try {
+        $x = [string]$Xml
+        if ([string]::IsNullOrWhiteSpace($x)) { return $false }
+        $doc = $null
+        try { $doc = [xml]$x } catch { return $false }
+        if ($null -eq $doc) { return $false }
+        $triggers = @()
+        try { $triggers = @($doc.GetElementsByTagName('TimeTrigger')) } catch { return $false }
+        if (@($triggers).Count -ne 1) { return $false }
+        $reps = @()
+        try { $reps = @((@($triggers)[0]).GetElementsByTagName('Repetition')) } catch { return $false }
+        if (@($reps).Count -ne 0) { return $false }
+        return $true
+    }
+    catch { return $false }
+}
+
+function Get-GHWScheduleOwnedDecision {
+    # Pure decision for the existing-task branch of
+    # Register-GitHubWakeSchedule. Returns exactly one of
+    # 'task-name-conflict', 'oneshot-mode-conflict',
+    # 'already-registered', 'replace-owned'. An unowned task-name
+    # conflict always refuses, even with -Force: Force replaces only
+    # the exact owned task. OneShot against incompatible existing XML
+    # (not exactly one Repetition-free TimeTrigger) without -Force
+    # conflicts fail-closed, never already-registered, so recurrence
+    # (or an unexpected trigger shape) is never silently kept. Default
+    # repeating requests are unchanged for owned tasks: owned without
+    # -Force stays already-registered, owned with -Force regenerates.
+    # Never throws, never touches schtasks.exe.
+    param([bool]$OneShot = $false, [bool]$Force = $false, [bool]$Owned = $false, [string]$ExistingXml = '')
+    try {
+        if (-not [bool]$Owned) { return 'task-name-conflict' }
+        if ([bool]$Force) { return 'replace-owned' }
+        if ([bool]$OneShot -and (-not (Test-GHWScheduleOneShotCompatible -Xml ([string]$ExistingXml)))) {
+            return 'oneshot-mode-conflict'
+        }
+        return 'already-registered'
+    }
+    catch {
+        if (-not [bool]$Owned) { return 'task-name-conflict' }
+        if ([bool]$Force) { return 'replace-owned' }
+        if ([bool]$OneShot) { return 'oneshot-mode-conflict' }
+        return 'already-registered'
+    }
 }
 
 function Register-GitHubWakeSchedule {
@@ -2926,6 +3109,7 @@ function Register-GitHubWakeSchedule {
         [int]$IntervalMinutes = 5,
         [int]$DurationHours = 12,
         [int]$ExecutionTimeLimitMinutes = 5,
+        [switch]$OneShot,
         [switch]$Force,
         [switch]$DryRun
     )
@@ -2933,6 +3117,9 @@ function Register-GitHubWakeSchedule {
         $name = ([string]$TaskName).Trim()
         if (-not (Test-GHWTaskName -Value $name)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-task-name'; reused = $false; task_name = ''; xml_path = ''; command = '' }
+        }
+        if ([bool]$OneShot -and ($PSBoundParameters.ContainsKey('IntervalMinutes') -or $PSBoundParameters.ContainsKey('DurationHours'))) {
+            return [pscustomobject]@{ ok = $false; reason = 'oneshot-schedule-conflict'; reused = $false; task_name = $name; xml_path = ''; command = '' }
         }
         if (($IntervalMinutes -lt 1) -or ($IntervalMinutes -gt 1440)) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-interval'; reused = $false; task_name = $name; xml_path = ''; command = '' }
@@ -2951,8 +3138,16 @@ function Register-GitHubWakeSchedule {
         if ([string]::IsNullOrWhiteSpace($cfg) -or (-not (Test-Path -LiteralPath $cfg -PathType Leaf))) {
             return [pscustomobject]@{ ok = $false; reason = 'invalid-config-file'; reused = $false; task_name = $name; xml_path = ''; command = '' }
         }
-        $xml = Get-GHWSchtasksXml -TaskName $name -WakeScript $wake -ConfigFile $cfg -IntervalMinutes $IntervalMinutes -DurationHours $DurationHours -ExecutionTimeLimitMinutes $ExecutionTimeLimitMinutes
+        if ([bool]$OneShot) {
+            $xml = Get-GHWSchtasksXml -TaskName $name -WakeScript $wake -ConfigFile $cfg -ExecutionTimeLimitMinutes $ExecutionTimeLimitMinutes -OneShot
+        }
+        else {
+            $xml = Get-GHWSchtasksXml -TaskName $name -WakeScript $wake -ConfigFile $cfg -IntervalMinutes $IntervalMinutes -DurationHours $DurationHours -ExecutionTimeLimitMinutes $ExecutionTimeLimitMinutes
+        }
         if ([string]::IsNullOrWhiteSpace($xml)) {
+            if ([bool]$OneShot) {
+                return [pscustomobject]@{ ok = $false; reason = 'oneshot-schedule-conflict'; reused = $false; task_name = $name; xml_path = ''; command = '' }
+            }
             return [pscustomobject]@{ ok = $false; reason = 'xml-failed'; reused = $false; task_name = $name; xml_path = ''; command = '' }
         }
         $xmlPath = Join-Path ([IO.Path]::GetTempPath()) ($name + '.wake-schtasks.xml')
@@ -2971,19 +3166,14 @@ function Register-GitHubWakeSchedule {
             $existingXml = ''
             try { $existingXml = (& schtasks.exe /Query /TN $name /XML 2>&1 | Out-String) } catch { $existingXml = '' }
             $owned = Test-GHWScheduleOwner -ExistingXml ([string]$existingXml) -WakeScript $wake -ConfigFile $cfg
-            if (-not [bool]$owned) {
-                if (-not [bool]$Force) {
-                    return [pscustomobject]@{ ok = $false; reason = 'task-name-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
-                }
-                try { & schtasks.exe /Delete /TN $name /F 2>&1 | Out-Null } catch { }
-                $createOut = ''
-                try { $createOut = (& schtasks.exe /Create /TN $name /XML $xmlPath 2>&1 | Out-String) } catch { $createOut = '' }
-                if ($LASTEXITCODE -ne 0) {
-                    return [pscustomobject]@{ ok = $false; reason = 'schtasks-create-failed'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd }
-                }
-                return [pscustomobject]@{ ok = $true; reason = 'replaced-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd }
+            $reuse = Get-GHWScheduleOwnedDecision -OneShot ([bool]$OneShot) -Force ([bool]$Force) -Owned ([bool]$owned) -ExistingXml ([string]$existingXml)
+            if ($reuse -ceq 'task-name-conflict') {
+                return [pscustomobject]@{ ok = $false; reason = 'task-name-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
             }
-            if (-not [bool]$Force) {
+            if ($reuse -ceq 'oneshot-mode-conflict') {
+                return [pscustomobject]@{ ok = $false; reason = 'oneshot-mode-conflict'; reused = $false; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
+            }
+            if ($reuse -ceq 'already-registered') {
                 return [pscustomobject]@{ ok = $true; reason = 'already-registered'; reused = $true; task_name = $name; xml_path = $xmlPath; command = $createCmd; xml = $xml }
             }
             try { & schtasks.exe /Delete /TN $name /F 2>&1 | Out-Null } catch { }
@@ -3085,6 +3275,8 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         $effResolveLease = [bool]$ResolveLease
         $effAuthProof = ([string]$AuthorizationProofPath).Trim()
         $effExecProof = ([string]$ExecutorProofPath).Trim()
+        $effProfileRaw = ([string]$DeliveryProfile).Trim()
+        $effReviewPath = ([string]$InternalReviewPath).Trim()
         $effMaxAge = $MaxAgeSeconds
         $effMaxApi = $MaxApiAttempts
         $effTimeout = $TimeoutMs
@@ -3108,6 +3300,12 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             if ([string]::IsNullOrWhiteSpace($effOut)) { $effOut = ([string](Get-GHWValue $cfgDoc 'out_file' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effAuthProof)) { $effAuthProof = ([string](Get-GHWValue $cfgDoc 'authorization_proof_path' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effExecProof)) { $effExecProof = ([string](Get-GHWValue $cfgDoc 'executor_proof_path' '')).Trim() }
+            if ([string]::IsNullOrWhiteSpace($effProfileRaw)) {
+                try { $effProfileRaw = ([string](Get-GHWValue $cfgDoc 'delivery_profile' '')).Trim() } catch { }
+            }
+            if ([string]::IsNullOrWhiteSpace($effReviewPath)) {
+                try { $effReviewPath = ([string](Get-GHWValue $cfgDoc 'internal_review_path' '')).Trim() } catch { }
+            }
             if (-not $effResolveAuth) {
                 try {
                     $ghwRv = Get-GHWValue $cfgDoc 'resolve_authorization' $false
@@ -3224,6 +3422,38 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             Write-GHWEnvelope (New-GHWErrorEnvelope -Reason ([string]$polRes.reason))
             exit 1
         }
+        # Solo-maintainer opt-in validates here, once per tick, from the
+        # explicit operator CLI switch or scheduler config only. Wait
+        # documents, snapshots, next-action payloads, and Planner-provided
+        # fields can never select the profile: only $effProfileRaw (CLI or
+        # delivery_profile config key) is consulted. Unknown profiles fail
+        # the tick with exit 2 and zero mutations.
+        $profRes = $null
+        try { $profRes = Resolve-GHWDeliveryProfile -DeliveryProfile $effProfileRaw } catch { $profRes = $null }
+        if (($null -eq $profRes) -or (-not [bool](Get-GHWValue $profRes 'ok' $false))) {
+            Write-GHWEnvelope (New-GHWErrorEnvelope -Reason 'invalid-delivery-profile')
+            exit 2
+        }
+        $effProfile = ([string](Get-GHWValue $profRes 'profile' ''))
+        # Operator-supplied internal-review record loads here, once per tick,
+        # through the bounded file loader. Absent path stays absent ($null):
+        # the solo gate blocks downstream with internal-review-pending.
+        # Unreadable/unparseable files degrade to a string sentinel that the
+        # existing Test-GHInternalReview validator rejects as
+        # internal-review-invalid (per-wait INCONCLUSIVE, never a tick
+        # crash, never silent approval). Wait/snapshot/Planner fields are
+        # never read for this record.
+        $effInternal = $null
+        if (-not [string]::IsNullOrWhiteSpace($effReviewPath)) {
+            $revLoad = $null
+            try { $revLoad = Read-GHWInternalReviewFile -Path $effReviewPath } catch { $revLoad = $null }
+            if (($null -ne $revLoad) -and [bool](Get-GHWValue $revLoad 'ok' $false)) {
+                $effInternal = Get-GHWValue $revLoad 'review' $null
+            }
+            else {
+                $effInternal = 'invalid-internal-review-file'
+            }
+        }
         $result = $null
         try {
             $result = Invoke-GitHubWake -WaitsDir $effWaitsDir -TasksDir $effTasksDir `
@@ -3234,6 +3464,7 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
                 -ResolveAuthorization $effResolveAuth -ResolveExecutor $effResolveExec `
                 -ResolveOwner $effResolveOwner -ResolveLease $effResolveLease `
                 -AuthorizationProofPath $effAuthProof -ExecutorProofPath $effExecProof `
+                -DeliveryProfile $effProfile -InternalReview $effInternal `
                 -MaxApiAttempts $effMaxApi -TimeoutMs $effTimeout
         }
         catch { $result = $null }
