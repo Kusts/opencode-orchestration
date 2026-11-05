@@ -65,7 +65,8 @@ histórica, sem efeito).
   `researcher`, `coder`, `tester`, `docs-manager`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
-  `requirements-analyst`, `engineering-advisor`, `product-designer` e `skeptic`.
+  `requirements-analyst`, `product-designer` e `skeptic`.
+  `engineering-advisor` não é cheap: mínimo T3 (Sonnet primário, Terra candidato), T2 proibido.
   Escala horizontal: evidência, volume e especialização delimitada.
 - Fallback do cheap pool — HOLD no V1: a matriz rota/modelo canônica é a
   referência de nível de política `source/registry/model-routing-policy.json`
@@ -216,7 +217,7 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
 `requirements-analyst` baseline cheap → Sol para requisitos estruturalmente complexos;
-`engineering-advisor` baseline cheap → Sol → Sol/high quando necessário;
+`engineering-advisor` baseline T3 Sonnet primário, Terra candidato → Opus/Astra somente via prova kernel-owned;
 `product-designer` baseline cheap → Sol excepcionalmente; `skeptic` baseline cheap →
 Sol para plano/arquitetura high-risk. Nunca reutilize um
 worker escalonado após a subtarefa.
