@@ -65,7 +65,7 @@ Não foram encontradas sessões reais do Planner com telemetria de `orchestratio
 | Componente | Decisão planejada (código) | Execução observada |
 |---|---|---|
 | Preflight | Classifica trivial/non-trivial por risk+type+scope | Bug sensitiveHit sempre false (corrigido) |
-| ModelRouter | DIRECT_VERIFIED → T0 zero-cost | OK |
+| ModelRouter | Rota direta do preflight e separada da pseudo-selecao IsTrivialDirect (nao utilizada; retorna modelo herdado do Planner / multiplicador de custo 1.0, sem caller produtivo) | NOT_PROVEN (nenhum claim zero-cost; custo real ate DONE nao medido) |
 | NativeDispatch | Planner LLM é o executor (subagent) | Comportamental |
 | DONE gate | Exige worker participation para non-trivial | OK (fail-closed) |
 

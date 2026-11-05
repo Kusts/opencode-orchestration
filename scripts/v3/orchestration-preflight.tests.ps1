@@ -34,19 +34,19 @@ try {
     Assert-That (Test-Path -LiteralPath $cli -PathType Leaf) 'cli file exists' "Missing $cli"
     . $lib
 
-    # 1) trivial typo => SINGLE_WORKER with one cheap worker (full orchestration)
-    $r1 = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 1) trivial typo with explicit delegation => SINGLE_WORKER with one cheap worker
+    $r1 = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That (([string]$r1.orchestration_decision -ceq 'SINGLE_WORKER') -and ([string]$r1.task_class -ceq 'trivial')) '1 trivial typo => SINGLE_WORKER' ($r1 | ConvertTo-Json -Compress)
     Assert-That ((@($r1.selected_agents).Count -eq 1) -and (@($r1.selected_agents) -contains 'coder')) '1 SINGLE_WORKER returns 1 worker (coder)' ((@($r1.selected_agents)) -join ',')
     Assert-That ([string]$r1.bypass_verdict -ceq 'OK') '1 SINGLE_WORKER bypass_verdict OK' ([string]$r1.bypass_verdict)
 
-    # 2) point lookup => SINGLE_WORKER with explorer
-    $r2 = Get-OrchestrationPreflight -Objective 'point lookup: where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 2) point lookup with explicit delegation => SINGLE_WORKER with explorer
+    $r2 = Get-OrchestrationPreflight -Objective 'point lookup: where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That (([string]$r2.orchestration_decision -ceq 'SINGLE_WORKER') -and ([string]$r2.task_class -ceq 'trivial')) '2 point lookup => SINGLE_WORKER' ($r2 | ConvertTo-Json -Compress)
     Assert-That (@($r2.selected_agents) -contains 'explorer') '2 lookup selects explorer' ((@($r2.selected_agents)) -join ',')
 
-    # 2b) cosmetic CLI case from acceptance: typo fix => SINGLE_WORKER non-empty agents
-    $r2b = Get-OrchestrationPreflight -Objective 'corrigir typo no README' -TaskType 'cosmetic' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 2b) cosmetic CLI case with explicit delegation => SINGLE_WORKER non-empty agents
+    $r2b = Get-OrchestrationPreflight -Objective 'corrigir typo no README' -TaskType 'cosmetic' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That (([string]$r2b.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($r2b.selected_agents).Count -ge 1)) '2b cosmetic typo => SINGLE_WORKER with worker' ($r2b | ConvertTo-Json -Compress)
 
     # 3) non-trivial implementation => MULTI_WORKER with coder
@@ -72,10 +72,10 @@ try {
     $r5c = Get-OrchestrationPreflight -Objective 'implementar SPEC e PLAN em 3 fases' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write'
     Assert-That (([string]$r5c.orchestration_decision -ceq 'PERSISTENT_GOAL') -and ([string]$r5c.fallback_reason -ceq 'goal_promotion_spec_plan')) '5c spec+plan phases => PERSISTENT_GOAL' ($r5c | ConvertTo-Json -Compress)
 
-    # 5d) word-boundary: 'planilha'/'plant' nao promovem a goal (TDR-F1-12)
-    $r5d = Get-OrchestrationPreflight -Objective 'inspecionar planilha de custos' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    # 5d) word-boundary: 'planilha'/'plant' nao promovem a goal (explicit delegation kept)
+    $r5d = Get-OrchestrationPreflight -Objective 'inspecionar planilha de custos' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That ([string]$r5d.orchestration_decision -ceq 'SINGLE_WORKER') '5d planilha lookup => SINGLE_WORKER' ($r5d | ConvertTo-Json -Compress)
-    $r5e = Get-OrchestrationPreflight -Objective 'inspect plant labels' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    $r5e = Get-OrchestrationPreflight -Objective 'inspect plant labels' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
     Assert-That ([string]$r5e.orchestration_decision -ceq 'SINGLE_WORKER') '5e plant labels lookup => SINGLE_WORKER' ($r5e | ConvertTo-Json -Compress)
 
     # 5f) SINGLE_WORKER carrega post_execution_check trivial com participacao (FIX-03)
@@ -161,6 +161,156 @@ try {
     $rsens = Get-OrchestrationPreflight -Objective 'delete old note in guide' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
     Assert-That ($rsens.orchestration_decision -cne 'DIRECT_VERIFIED') 'preflight DIRECT_VERIFIED rejects micro edit with sensitive keyword' 'expected non-direct'
 
+    # 15c) #201: eligible safe trivial defaults to DIRECT_VERIFIED (no explicit strategy)
+    $rdef = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$rdef.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$rdef.task_class -ceq 'trivial')) '15c default eligible trivial => DIRECT_VERIFIED' ($rdef | ConvertTo-Json -Compress)
+    Assert-That ((@($rdef.selected_agents).Count -eq 0) -and ([string]$rdef.bypass_verdict -ceq 'OK')) '15c default direct spawns zero workers' ((@($rdef.selected_agents)) -join ',')
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision ([string]$rdef.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$rdef.direct_reason) -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15c default direct passes existing DONE gate with zero workers' ([string]$rdef.direct_reason)
+    # explicit SINGLE_WORKER remains available for useful delegation
+    $rsw = Get-OrchestrationPreflight -Objective 'fix typo in button label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
+    Assert-That (([string]$rsw.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($rsw.selected_agents).Count -eq 1)) '15c explicit SINGLE_WORKER still delegates' ($rsw | ConvertTo-Json -Compress)
+    # nearby negative: default strategy must not route unsafe write direct
+    $rneg = Get-OrchestrationPreflight -Objective 'delete old note in guide' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That ([string]$rneg.orchestration_decision -cne 'DIRECT_VERIFIED') '15c default rejects sensitive micro-edit (delete)' ($rneg | ConvertTo-Json -Compress)
+
+    # 15d) #201-fatia2: rota direta elegivel independe do router (classificador local)
+    $rdu = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rdu.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$rdu.task_class -ceq 'trivial')) '15d direct elegivel + router unhealthy => DIRECT_VERIFIED' ($rdu | ConvertTo-Json -Compress)
+    Assert-That ((@($rdu.selected_agents).Count -eq 0) -and ([string]$rdu.bypass_verdict -ceq 'OK')) '15d direct router-independent gera zero workers' ((@($rdu.selected_agents)) -join ',')
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision ([string]$rdu.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$rdu.direct_reason) -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15d direct router-independent passa no DONE gate' ([string]$rdu.direct_reason)
+    $rdst = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RegistryFresh $false
+    Assert-That ([string]$rdst.orchestration_decision -ceq 'DIRECT_VERIFIED') '15d direct elegivel + registry stale => DIRECT_VERIFIED' ($rdst | ConvertTo-Json -Compress)
+    $rdok = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RegistryOk $false
+    Assert-That ([string]$rdok.orchestration_decision -ceq 'DIRECT_VERIFIED') '15d direct elegivel + registry unhealthy => DIRECT_VERIFIED' ($rdok | ConvertTo-Json -Compress)
+    # controle: SINGLE_WORKER explicito com router unhealthy cai em fallback
+    $rsu = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RouterHealthy $false -ExecutionStrategy 'SINGLE_WORKER'
+    Assert-That (([string]$rsu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rsu.fallback_reason -ceq 'router_unavailable')) '15d SINGLE explicito + router unhealthy => fallback' ($rsu | ConvertTo-Json -Compress)
+    $rivi = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -RouterHealthy $false -ExecutionStrategy 'BOGUS_STRATEGY'
+    Assert-That (([string]$rivi.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rivi.fallback_reason -ceq 'router_unavailable')) '15d invalid strategy + router unhealthy => fallback, never direct' ($rivi | ConvertTo-Json -Compress)
+    # compat: estrategia nao reconhecida e nao vazia jamais vira direta (fallback delegado seguro)
+    $rinv = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'BOGUS_STRATEGY'
+    Assert-That (([string]$rinv.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($rinv.selected_agents).Count -ge 1)) '15d invalid strategy stays delegated (non-direct)' ($rinv | ConvertTo-Json -Compress)
+    # controle: nontrivial + router unhealthy inalterado
+    $rnu = Get-OrchestrationPreflight -Objective 'implement bounded edit for retry queue' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rnu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rnu.fallback_reason -ceq 'router_unavailable')) '15d nontrivial + router unhealthy => fallback inalterado' ($rnu | ConvertTo-Json -Compress)
+
+    # 15e) #201-fatia3: goal (explicito e spec+plan) com router unhealthy preserva fallback
+    $rgu = Get-OrchestrationPreflight -Objective 'alcancar o goal de cobertura de testes do modulo de cobranca' -TaskType 'goal' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rgu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rgu.fallback_reason -ceq 'router_unavailable')) '15e explicit goal + router unhealthy => fallback' ($rgu | ConvertTo-Json -Compress)
+    $rspu = Get-OrchestrationPreflight -Objective 'implementar SPEC e PLAN em 3 fases' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
+    Assert-That (([string]$rspu.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rspu.fallback_reason -ceq 'router_unavailable')) '15e spec+plan + router unhealthy => fallback' ($rspu | ConvertTo-Json -Compress)
+    $rgs = Get-OrchestrationPreflight -Objective 'alcancar o goal de cobertura de testes do modulo de cobranca' -TaskType 'goal' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RegistryFresh $false
+    Assert-That (([string]$rgs.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rgs.fallback_reason -ceq 'registry_stale')) '15e explicit goal + registry stale => fallback' ($rgs | ConvertTo-Json -Compress)
+
+    # 15f) #201-correcao: intento substantivo no Objective nunca e direto,
+    # mesmo com metadados triviais (usa Test-OrchestrationKeyword existente)
+    $radv = Get-OrchestrationPreflight -Objective 'Implement new workflow' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$radv.orchestration_decision -cne 'DIRECT_VERIFIED') '15f substantive objective with trivial metadata => not DIRECT_VERIFIED' ($radv | ConvertTo-Json -Compress)
+    Assert-That (([string]$radv.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$radv.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$radv.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15f substantive objective => worker route or fallback' ($radv | ConvertTo-Json -Compress)
+    # controles: typo e point lookup continuam DIRECT_VERIFIED por padrao
+    $rtypo = Get-OrchestrationPreflight -Objective 'fix typo in label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$rtypo.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($rtypo.selected_agents).Count -eq 0)) '15f ordinary typo still DIRECT_VERIFIED' ($rtypo | ConvertTo-Json -Compress)
+    $rlook = Get-OrchestrationPreflight -Objective 'where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$rlook.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($rlook.selected_agents).Count -eq 0)) '15f point lookup still DIRECT_VERIFIED' ($rlook | ConvertTo-Json -Compress)
+
+    # 15g) reviewer finding: whole-codebase performance analysis with
+    # trivial metadata must never take the direct route (Router-independent)
+    $rperf = Get-OrchestrationPreflight -Objective 'Analyze the entire codebase for performance bottlenecks' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rperf.orchestration_decision -cne 'DIRECT_VERIFIED') '15g whole-codebase performance analysis with trivial metadata => not DIRECT_VERIFIED' ($rperf | ConvertTo-Json -Compress)
+    Assert-That (([string]$rperf.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$rperf.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$rperf.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15g performance analysis => worker route or fallback' ($rperf | ConvertTo-Json -Compress)
+    # independent substantive investigation objective with the same trivial metadata
+    $rinvsub = Get-OrchestrationPreflight -Objective 'Investigate checkout latency across modules and compare retry strategies' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rinvsub.orchestration_decision -cne 'DIRECT_VERIFIED') '15g investigation/compare with trivial metadata => not DIRECT_VERIFIED' ($rinvsub | ConvertTo-Json -Compress)
+
+    # 15h) second review: broad-scope objective with trivial metadata is never
+    # direct, even when a lookup verb is present; direct requires bounded
+    # point-lookup/micro-edit evidence in the objective itself
+    $rh1 = Get-OrchestrationPreflight -Objective 'what should change across these modules?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rh1.orchestration_decision -cne 'DIRECT_VERIFIED') '15h broad across/modules with trivial metadata => not DIRECT_VERIFIED' ($rh1 | ConvertTo-Json -Compress)
+    Assert-That (([string]$rh1.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$rh1.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$rh1.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15h across/modules => worker route or fallback' ($rh1 | ConvertTo-Json -Compress)
+    $rh2 = Get-OrchestrationPreflight -Objective 'Find all usages of retry policy across the repository' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rh2.orchestration_decision -cne 'DIRECT_VERIFIED') '15h find all usages across repository => not DIRECT_VERIFIED' ($rh2 | ConvertTo-Json -Compress)
+    Assert-That (([string]$rh2.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$rh2.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$rh2.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15h all/usages/across => worker route or fallback' ($rh2 | ConvertTo-Json -Compress)
+    # scope-quantifier variants: every/entire/multiple stay delegated
+    $rh3 = Get-OrchestrationPreflight -Objective 'list every handler in the entire service' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rh3.orchestration_decision -cne 'DIRECT_VERIFIED') '15h every/entire scope => not DIRECT_VERIFIED' ($rh3 | ConvertTo-Json -Compress)
+    $rh4 = Get-OrchestrationPreflight -Objective 'summarize changes across multiple modules' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rh4.orchestration_decision -cne 'DIRECT_VERIFIED') '15h across/multiple scope => not DIRECT_VERIFIED' ($rh4 | ConvertTo-Json -Compress)
+    # controls: bounded point lookups and micro-edits stay direct by default
+    $ch1 = Get-OrchestrationPreflight -Objective 'fix typo in label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ch1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ch1.selected_agents).Count -eq 0)) '15h bounded typo still DIRECT_VERIFIED' ($ch1 | ConvertTo-Json -Compress)
+    $ch2 = Get-OrchestrationPreflight -Objective 'where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ch2.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ch2.selected_agents).Count -eq 0)) '15h bounded where-defined still DIRECT_VERIFIED' ($ch2 | ConvertTo-Json -Compress)
+    $ch3 = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That (([string]$ch3.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ch3.selected_agents).Count -eq 0)) '15h bounded docs micro-edit still DIRECT_VERIFIED' ($ch3 | ConvertTo-Json -Compress)
+    # control: explicit SINGLE_WORKER remains delegated even for bounded work
+    $ch4 = Get-OrchestrationPreflight -Objective 'where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'SINGLE_WORKER'
+    Assert-That (([string]$ch4.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($ch4.selected_agents).Count -ge 1)) '15h explicit SINGLE_WORKER still delegates' ($ch4 | ConvertTo-Json -Compress)
+
+    # 15i) third review: generic fix verb alone never establishes triviality;
+    # direct requires bounded point-lookup or specific micro-edit evidence
+    $ri1 = Get-OrchestrationPreflight -Objective 'Fix system behavior' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$ri1.orchestration_decision -cne 'DIRECT_VERIFIED') '15i generic fix system behavior read => not DIRECT_VERIFIED' ($ri1 | ConvertTo-Json -Compress)
+    Assert-That (([string]$ri1.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$ri1.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$ri1.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15i generic fix system behavior read => worker route or fallback' ($ri1 | ConvertTo-Json -Compress)
+    $ri2 = Get-OrchestrationPreflight -Objective 'Fix error handling in the workflow' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$ri2.orchestration_decision -cne 'DIRECT_VERIFIED') '15i generic fix error workflow read => not DIRECT_VERIFIED' ($ri2 | ConvertTo-Json -Compress)
+    Assert-That (([string]$ri2.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$ri2.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$ri2.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15i generic fix error workflow read => worker route or fallback' ($ri2 | ConvertTo-Json -Compress)
+    $ri3 = Get-OrchestrationPreflight -Objective 'Fix system behavior' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That ([string]$ri3.orchestration_decision -cne 'DIRECT_VERIFIED') '15i generic fix system behavior docs-write => not DIRECT_VERIFIED' ($ri3 | ConvertTo-Json -Compress)
+    $ri4 = Get-OrchestrationPreflight -Objective 'Fix error handling in the workflow' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That ([string]$ri4.orchestration_decision -cne 'DIRECT_VERIFIED') '15i generic fix error workflow docs-write => not DIRECT_VERIFIED' ($ri4 | ConvertTo-Json -Compress)
+    $ri5 = Get-OrchestrationPreflight -Objective 'Fix the workflow behavior across modules' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$ri5.orchestration_decision -cne 'DIRECT_VERIFIED') '15i fix workflow across modules => not DIRECT_VERIFIED' ($ri5 | ConvertTo-Json -Compress)
+    Assert-That (([string]$ri5.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$ri5.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$ri5.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15i fix workflow across modules => worker route or fallback' ($ri5 | ConvertTo-Json -Compress)
+    # controls: bounded point lookups and specific micro-edits stay direct
+    $ci1 = Get-OrchestrationPreflight -Objective 'fix typo in label' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ci1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci1.selected_agents).Count -eq 0)) '15i bounded typo read still DIRECT_VERIFIED' ($ci1 | ConvertTo-Json -Compress)
+    $ci2 = Get-OrchestrationPreflight -Objective 'fix typo in README' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That (([string]$ci2.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci2.selected_agents).Count -eq 0)) '15i bounded typo docs-write still DIRECT_VERIFIED' ($ci2 | ConvertTo-Json -Compress)
+    $ci3 = Get-OrchestrationPreflight -Objective 'where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ci3.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci3.selected_agents).Count -eq 0)) '15i where-defined still DIRECT_VERIFIED' ($ci3 | ConvertTo-Json -Compress)
+    $ci4 = Get-OrchestrationPreflight -Objective 'point lookup: where is retry flag defined' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ci4.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci4.selected_agents).Count -eq 0)) '15i point lookup still DIRECT_VERIFIED' ($ci4 | ConvertTo-Json -Compress)
+    $ci5 = Get-OrchestrationPreflight -Objective 'inspect plant labels' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ci5.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci5.selected_agents).Count -eq 0)) '15i inspect plant labels still DIRECT_VERIFIED' ($ci5 | ConvertTo-Json -Compress)
+    $ci6 = Get-OrchestrationPreflight -Objective 'inspecionar planilha de custos' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ci6.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci6.selected_agents).Count -eq 0)) '15i inspecionar planilha still DIRECT_VERIFIED' ($ci6 | ConvertTo-Json -Compress)
+    # control: exact quantifier matching avoids prefix overmatch (allow/allocate are not all)
+    $ci7 = Get-OrchestrationPreflight -Objective 'fix typo in allow list' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ci7.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ci7.selected_agents).Count -eq 0)) '15i allow prefix is not all quantifier' ($ci7 | ConvertTo-Json -Compress)
+
+    # 15j) bounded final correction: localized PT micro-edit stays direct; point cue + broad scope stays delegated
+    $rj1 = Get-OrchestrationPreflight -Objective 'corrigir pontuacao no guia de instalacao' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+    Assert-That (([string]$rj1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($rj1.selected_agents).Count -eq 0)) '15j PT punctuation micro-edit stays DIRECT_VERIFIED' ($rj1 | ConvertTo-Json -Compress)
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision ([string]$rj1.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$rj1.direct_reason) -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15j PT micro-edit passes DONE gate' ([string]$rj1.direct_reason)
+    $rj2 = Get-OrchestrationPreflight -Objective 'Where is this symbol defined everywhere?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rj2.orchestration_decision -cne 'DIRECT_VERIFIED') '15j where-defined everywhere => not DIRECT_VERIFIED' ($rj2 | ConvertTo-Json -Compress)
+    Assert-That (([string]$rj2.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$rj2.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$rj2.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15j where-defined everywhere => worker route or fallback' ($rj2 | ConvertTo-Json -Compress)
+    $rj3 = Get-OrchestrationPreflight -Objective 'Where is this symbol defined globally?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rj3.orchestration_decision -cne 'DIRECT_VERIFIED') '15j where-defined globally => not DIRECT_VERIFIED' ($rj3 | ConvertTo-Json -Compress)
+    $rj4 = Get-OrchestrationPreflight -Objective 'Onde este simbolo e definido globalmente?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rj4.orchestration_decision -cne 'DIRECT_VERIFIED') '15j onde-definido globalmente => not DIRECT_VERIFIED' ($rj4 | ConvertTo-Json -Compress)
+    $rj5 = Get-OrchestrationPreflight -Objective 'where is this flag defined repo-wide?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rj5.orchestration_decision -cne 'DIRECT_VERIFIED') '15j where-defined repo-wide => not DIRECT_VERIFIED' ($rj5 | ConvertTo-Json -Compress)
+    $rj6 = Get-OrchestrationPreflight -Objective 'where is this flag defined throughout the repository?' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rj6.orchestration_decision -cne 'DIRECT_VERIFIED') '15j where-defined throughout repository => not DIRECT_VERIFIED' ($rj6 | ConvertTo-Json -Compress)
+
+    # 15k) fourth review: generic PT 'qual' prefix must not authorize direct;
+    # 'Qualidade...' is a qualitative assessment, not a bounded point lookup.
+    # Narrow PT lookup phrases ('qual arquivo/campo/simbolo') stay explicit.
+    $rk1 = Get-OrchestrationPreflight -Objective 'Qualidade do sistema e dos fluxos' -TaskType 'trivial' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$rk1.orchestration_decision -cne 'DIRECT_VERIFIED') '15k qualitative Qualidade assessment => not DIRECT_VERIFIED' ($rk1 | ConvertTo-Json -Compress)
+    Assert-That (([string]$rk1.orchestration_decision -ceq 'MULTI_WORKER') -or ([string]$rk1.orchestration_decision -ceq 'SINGLE_WORKER') -or ([string]$rk1.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK')) '15k Qualidade assessment => worker route or fallback' ($rk1 | ConvertTo-Json -Compress)
+    # controls: bounded narrow PT lookups stay direct (explicit phrase evidence)
+    $ck1 = Get-OrchestrationPreflight -Objective 'qual arquivo contem retry flag?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ck1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ck1.selected_agents).Count -eq 0)) '15k qual arquivo lookup still DIRECT_VERIFIED' ($ck1 | ConvertTo-Json -Compress)
+    $ck2 = Get-OrchestrationPreflight -Objective 'qual campo define retry limit?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (([string]$ck2.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($ck2.selected_agents).Count -eq 0)) '15k qual campo lookup still DIRECT_VERIFIED' ($ck2 | ConvertTo-Json -Compress)
+    # 'qual simbolo implementa retry?' carries substantive verb 'implementa' so it
+    # stays delegated (fail-closed); it is not a bounded direct control.
+    $ck3 = Get-OrchestrationPreflight -Objective 'qual simbolo implementa retry?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That ([string]$ck3.orchestration_decision -cne 'DIRECT_VERIFIED') '15k qual simbolo + implementa verb => not DIRECT_VERIFIED' ($ck3 | ConvertTo-Json -Compress)
+
     # 16) CLI: malformed health string fails closed to fallback
     $c3 = Invoke-PreflightCliRaw -Argv @('-Objective', 'implement bounded edit for retry queue', '-TaskType', 'implementation', '-Domain', 'backend', '-Risk', 'medium', '-ReadWrite', 'write', '-RouterHealthy', 'maybe')
     $o3 = Get-JsonTail -Text $c3.Text
@@ -170,11 +320,21 @@ try {
     $rv = Get-OrchestrationPreflight -Objective '' -TaskType '' -Domain '' -Risk 'unknown' -ReadWrite ''
     Assert-That (([string]$rv.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ([string]$rv.fallback_reason -ceq 'vague_task_underspecified')) 'vague => DETERMINISTIC_FALLBACK vague_task_underspecified' ($rv | ConvertTo-Json -Compress)
 
-    # CLI: valid inline prints JSON with required keys, exit 0
+    # CLI: valid inline prints JSON with required keys, exit 0 (default eligible trivial => DIRECT_VERIFIED, zero workers)
     $c1 = Invoke-PreflightCliRaw -Argv @('-Objective', 'fix typo in label', '-TaskType', 'trivial', '-Domain', 'code', '-Risk', 'low', '-ReadWrite', 'read')
     $o1 = Get-JsonTail -Text $c1.Text
     Assert-That ($c1.Code -eq 0) 'cli trivial: exit 0' ("Exit $($c1.Code)")
-    Assert-That (($null -ne $o1) -and ([string]$o1.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($o1.selected_agents).Count -ge 1) -and ($null -ne $o1.evidence_hint)) 'cli trivial: JSON SINGLE_WORKER with worker + evidence_hint' $c1.Text
+    Assert-That (($null -ne $o1) -and ([string]$o1.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($o1.selected_agents).Count -eq 0) -and ($null -ne $o1.evidence_hint)) 'cli trivial: JSON DIRECT_VERIFIED zero workers + evidence_hint' $c1.Text
+
+    # CLI: explicit SINGLE_WORKER keeps the delegation path
+    $c1b = Invoke-PreflightCliRaw -Argv @('-Objective', 'fix typo in label', '-TaskType', 'trivial', '-Domain', 'code', '-Risk', 'low', '-ReadWrite', 'read', '-ExecutionStrategy', 'SINGLE_WORKER')
+    $o1b = Get-JsonTail -Text $c1b.Text
+    Assert-That (($c1b.Code -eq 0) -and ($null -ne $o1b) -and ([string]$o1b.orchestration_decision -ceq 'SINGLE_WORKER') -and (@($o1b.selected_agents).Count -ge 1)) 'cli trivial explicit SINGLE_WORKER: JSON SINGLE_WORKER with worker' $c1b.Text
+
+    # CLI: rota direta elegivel independe do router (bloqueador observado #201-fatia2)
+    $cdu = Invoke-PreflightCliRaw -Argv @('-Objective', 'fix typo in README', '-TaskType', 'cosmetic', '-Domain', 'docs', '-Risk', 'low', '-ReadWrite', 'write', '-RouterHealthy', 'false')
+    $odu = Get-JsonTail -Text $cdu.Text
+    Assert-That (($cdu.Code -eq 0) -and ($null -ne $odu) -and ([string]$odu.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($odu.selected_agents).Count -eq 0)) 'cli direct + RouterHealthy false => DIRECT_VERIFIED zero workers' $cdu.Text
 
     # CLI: invalid use => exit 2, never MCP
     $c2 = Invoke-PreflightCliRaw -Argv @()

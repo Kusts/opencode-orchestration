@@ -12,7 +12,7 @@
 No modelo arquitetural anterior (v0.1.0), todas as tarefas — independentemente de sua simplicidade ou impacto — eram obrigadas a despachar subagents:
 - Até para renomear uma variável ou corrigir um typo em documentação, o Preflight impunha a decisão `SINGLE_WORKER`, exigindo o spawn de um agente secundário via tool nativa `subagent` (`ActualWorkerParticipation > 0`).
 - Caso o Planner realizasse a alteração direta e chamasse o gate de conclusão sem despachar workers, a função `Test-OrchestrationDoneCompliance` retornava imediatamente `ORCHESTRATION_POLICY_BYPASS`, bloqueando o `DONE`.
-- Essa imposição gerava um desperdício contínuo de 3.500 a 7.000 tokens de prompt de sistema, leitura repetida de diretrizes, latência de 15 a 45 segundos e custos desnecessários em tarefas simples, localizadas e de baixo risco.
+- Essa imposição era modelada como desperdício contínuo de 3.500 a 7.000 tokens de prompt de sistema, leitura repetida de diretrizes, latência de 15 a 45 segundos e custos em tarefas simples, localizadas e de baixo risco — projeção analítica histórica (`ANALYTICAL_ESTIMATE_PROJECTION` em `evidence/v3.1/runtime-reliability/workflow-efficiency-benchmark-2026-10-21.json`), não evidência observada de custo-ate-DONE.
 
 ## 2. Decisão Arquitetural
 
@@ -49,7 +49,7 @@ Projetou-se e implementou-se a rota **`DIRECT_VERIFIED`**, permitindo que o Plan
 ## 3. Consequências e Benefícios
 
 ### Positivas
-- **Economia Drástica de Tokens:** Eliminação de 3.500 a 7.000 tokens de overhead por turno trivial.
+- **Economia Projetada de Tokens (não observada):** Projeção analítica histórica de eliminação de 3.500 a 7.000 tokens de overhead por turno trivial (mesmo artefato `ESTIMATE_PROJECTION` acima); custo-ate-DONE real NOT_PROVEN.
 - **Redução de Latência:** Tarefas simples são concluídas em segundos no próprio fluxo do Planner, sem esperas de inicialização de subprocesso de subagent.
 - **Eliminação de Falsos Rituais:** Fim do pipeline burocrático de revisão formal para alterações óbvias e cosméticas.
 - **Segurança Fail-Closed Preservada:** Tarefas com risco médio/alto, segredos ou escopo amplo continuam impossibilitadas de utilizar a via direta.

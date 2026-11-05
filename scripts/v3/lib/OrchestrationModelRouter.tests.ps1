@@ -30,13 +30,19 @@ function Assert-Router([bool]$Condition, [string]$Message) {
 # ==============================================================================
 Write-Host "=== SECAO A: MATRIZ CANONICA (POLICY MATRIX) ==="
 
-# A.1 DIRECT_VERIFIED & T0 Deterministico
+# A.1 DIRECT_VERIFIED nao e selecao de modelo worker: IsTrivialDirect fail-closed
 $selDirect = Resolve-OrchestrationModelSelection -AgentName 'coder' -IsTrivialDirect $true -IgnoreUserConfig $true
-Assert-Router ($selDirect.Status -eq 'SELECTED') "A.1: DIRECT_VERIFIED retorna status SELECTED"
-Assert-Router ($selDirect.Tier -eq 'T0') "A.1: DIRECT_VERIFIED retorna Tier T0"
-Assert-Router ($selDirect.ModelToken -eq 'NONE_DIRECT_VERIFIED') "A.1: DIRECT_VERIFIED nao usa token de modelo"
-Assert-Router ($selDirect.EstimatedCostMultiplier -gt 0.0) "A.1: DIRECT_VERIFIED nao e custo zero (Planner LLM)"
-Assert-Router ($selDirect.IsCompliant -eq $true) "A.1: DIRECT_VERIFIED e compliant"
+Assert-Router ($selDirect.Status -eq 'REJECTED') "A.1: IsTrivialDirect retorna status REJECTED (nao e worker model selection)"
+Assert-Router ($selDirect.DecisionStatus -eq 'NO_ELIGIBLE_MODEL') "A.1: IsTrivialDirect retorna DecisionStatus NO_ELIGIBLE_MODEL"
+Assert-Router ($null -eq $selDirect.Tier) "A.1: IsTrivialDirect nao produz Tier aceito"
+Assert-Router ($null -eq $selDirect.selected_tier) "A.1: IsTrivialDirect nao produz selected_tier aceito"
+Assert-Router ($null -eq $selDirect.ModelToken) "A.1: IsTrivialDirect nao usa token de modelo"
+Assert-Router ($null -eq $selDirect.selected_model_id) "A.1: IsTrivialDirect nao afirma model id herdado"
+Assert-Router ($selDirect.selected_provider -eq 'none') "A.1: IsTrivialDirect nao afirma provider LLM"
+Assert-Router ($selDirect.Tier -ne 'T2') "A.1: IsTrivialDirect nao faz silent route para coder T2"
+Assert-Router ($selDirect.IsCompliant -eq $false) "A.1: IsTrivialDirect nao e compliant como selecao"
+Assert-Router ($selDirect.Authorized -eq $false) "A.1: IsTrivialDirect nao e autorizado como selecao"
+Assert-Router (([string]$selDirect.Reason + [string]$selDirect.selection_reason) -match 'not a worker model selection') "A.1: IsTrivialDirect explica que direct nao e worker model selection"
 
 # A.2 Agente desconhecido fail-closed
 $selUnknown = Resolve-OrchestrationModelSelection -AgentName 'unknown-intruder' -IgnoreUserConfig $true
