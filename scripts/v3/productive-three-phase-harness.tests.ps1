@@ -2,11 +2,18 @@
 .SYNOPSIS
     Harness S6 Etapa D: prova 3 fases (harness-only, sem runtime real).
 .DESCRIPTION
-    Hermetic: temp dirs, cleanup ao final; repo nunca escrito (a
-    validation-policy.json real e apenas LIDA). Throw no primeiro FAIL,
-    imprime contagem no sucesso. Exit 0 tudo pass, 1 qualquer fail.
-    PS 5.1 compatible, ASCII-only. Sem network, sem spawn, sem Executor,
-    sem flags/pins, sem commit.
+    Hermetic: temp dirs, cleanup ao final; o repo real nunca e escrito.
+    Throw no primeiro FAIL, imprime contagem no sucesso. Exit 0 tudo pass,
+    1 qualquer fail. PS 5.1 compatible, ASCII-only. Sem network, sem
+    modelo, sem Executor (o profile de verificacao executa 1 comando
+    local allowlisted).
+    Fronteira de confianca: o registro de verificacao positivo vem SO de
+    Invoke-TaskKernelVerifyRun -- a criacao da task fixa RepoRoot,
+    base_revision (branch real do repo git da fixture) e o plano
+    verification_profiles commitado junto; o profile le o payload da
+    fixture de volta e o kernel persiste marcas kernel-executed.
+    Set-OrchestrationTaskVerification continua sendo evidencia nao
+    confiavel fornecida pelo chamador.
     FASE 1 (RED): fixture com conteudo verificavel (goal/task TEMP +
     arquivo payload com bytes conhecidos); settle via
     Invoke-ProductiveSettleAndContinue com auth explicita + proof
@@ -55,6 +62,11 @@ function Write-H3File {
     $lf = ($lf -replace "`r", "`n")
     [IO.File]::WriteAllText($Path, $lf, [Text.UTF8Encoding]::new($false))
 }
+function Invoke-H3Git {
+    param([string]$Dir, [string[]]$GitArgs)
+    & git -C $Dir @GitArgs *> $null
+    if ($LASTEXITCODE -ne 0) { throw ('FAIL: git ' + ($GitArgs -join ' ') + ' exited ' + [string]$LASTEXITCODE) }
+}
 function New-H3Root {
     $root = Join-Path ([IO.Path]::GetTempPath()) ('pa-h3-' + [guid]::NewGuid().ToString('N'))
     $goal = Join-Path $root 'goals'
@@ -69,7 +81,38 @@ function New-H3Root {
         New-Item -ItemType Directory -Path $d -Force | Out-Null
     }
     Write-H3File -Path $flags -Text '{"task_kernel":{"enabled":true,"shadow":false}}'
-    return @{ root = $root; goal = $goal; dispatch = $dispatch; ckpt = $ckpt; tasks = $tasks; tele = $tele; flags = $flags; receipt = $receipt; evidence = $evidence }
+    # Repo de verificacao fixado: o policy commitado e o plano da task e a
+    # branch 'h3-base' torna base_revision um ref real. O profile faz o
+    # read-back do payload (conteudo verificavel da fixture).
+    $repo = Join-Path $root 'verify-repo'
+    New-Item -ItemType Directory -Path (Join-Path $repo 'source\registry') -Force | Out-Null
+    Invoke-H3Git -Dir $repo -GitArgs @('init', '-q')
+    Invoke-H3Git -Dir $repo -GitArgs @('config', 'user.email', 'h3-fixture@example.com')
+    Invoke-H3Git -Dir $repo -GitArgs @('config', 'user.name', 'H3 Fixture')
+    Invoke-H3Git -Dir $repo -GitArgs @('config', 'core.autocrlf', 'false')
+    Invoke-H3Git -Dir $repo -GitArgs @('config', 'core.safecrlf', 'false')
+    $checkText = @'
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+$p = Join-Path $root 'evidence\harness-payload.txt'
+if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }
+$text = [IO.File]::ReadAllText($p, [Text.UTF8Encoding]::new($false))
+if ($text -cne 'h3-verifiable-payload-3ph') { exit 1 }
+if ([Text.Encoding]::UTF8.GetBytes($text).Length -lt 1) { exit 1 }
+exit 0
+'@
+    Write-H3File -Path (Join-Path $repo 'check-payload.ps1') -Text $checkText
+    $pol = [ordered]@{
+        version                 = 1
+        default_timeout_seconds = 60
+        max_output_chars        = 4000
+        profiles                = @{ 'h3-payload-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -File check-payload.ps1'; timeout_seconds = 30 } }
+    }
+    Write-H3File -Path (Join-Path $repo 'source\registry\verification-policy.json') -Text (($pol | ConvertTo-Json -Depth 6 -Compress))
+    Invoke-H3Git -Dir $repo -GitArgs @('add', '-A')
+    Invoke-H3Git -Dir $repo -GitArgs @('commit', '-q', '-m', 'fixture verification plan')
+    Invoke-H3Git -Dir $repo -GitArgs @('branch', 'h3-base')
+    return @{ root = $root; goal = $goal; dispatch = $dispatch; ckpt = $ckpt; tasks = $tasks; tele = $tele; flags = $flags; receipt = $receipt; evidence = $evidence; repo = $repo }
 }
 $script:H3Full = 'ops allow:dispatch allow:settlement allow:checkpoint allow:advance allow:terminalize allow:reconcile'
 function New-H3Goal {
@@ -85,7 +128,7 @@ function New-H3Goal {
 }
 function New-H3Task {
     param([string]$Id, [string]$GoalId, [long]$Gen, $F)
-    $t = New-OrchestrationTask -TaskId $Id -Objective ('h3 fixture work ' + $Id) -Actor 'owner-h3' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -TaskType 'implementation' -Risk 'low' -BaseRevision 'h3-base' -ReadScopes @('h3/a.txt') -WriteScopes @('h3/a.txt') -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -SettlementPolicy 'canonical-native-settle' -AttemptBudget 3 -TasksDir $F.tasks -FlagsPath $F.flags -TelemetryRoot $F.tele
+    $t = New-OrchestrationTask -TaskId $Id -Objective ('h3 fixture work ' + $Id) -Actor 'owner-h3' -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -TaskType 'implementation' -Risk 'low' -BaseRevision 'h3-base' -ReadScopes @('h3/a.txt') -WriteScopes @('h3/a.txt') -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('criterion:0') -SettlementPolicy 'canonical-native-settle' -AttemptBudget 3 -VerificationProfiles @('h3-payload-check') -RepoRoot $F.repo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) -TasksDir $F.tasks -FlagsPath $F.flags -TelemetryRoot $F.tele
     if (-not [bool]$t.ok) { throw ("FAIL: setup task " + $Id + " " + [string]$t.error) }
     $r1 = Invoke-OrchestrationTaskTransition -TaskId $Id -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision ([int]$t.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $F.tasks -FlagsPath $F.flags -TelemetryRoot $F.tele
     if (-not [bool]$r1.ok) { throw ("FAIL: setup planning " + $Id) }
@@ -151,10 +194,6 @@ function New-H3NativeFixture {
     }
     return @{ f = $f; gid = $gid; tid = $tid; wid = $wid; sess = $sess; gen = $gen; ndk = $ndk; msg = $msg; call = $call; child = $child; prep = $p; claim = $c; ctx = $ctx; proof = $proof; authND = $authND; payloadBytes = $payloadBytes; payloadPath = $payloadPath }
 }
-function New-H3VerifierJson {
-    param([int]$Bytes)
-    return (@{ ok = $true; task_id = 'h3-verifier'; status = 'verified_pass'; reason = 'h3 verifier read-back'; scope = $null; profiles = @(); evidence = @('criterion:0:artifact-bytes=' + [string]$Bytes + ';expected-match=True', 'criterion:0:file=harness-payload.txt'); command_classes = @('test') } | ConvertTo-Json -Depth 8 -Compress)
-}
 # --- FASE 1 (RED): fixture verificavel + settle; sem verificacao o gate bloqueia CONTINUE.
 $fx = New-H3NativeFixture -Tag '3ph'
 Assert-H3That (Test-Path -LiteralPath $fx.payloadPath -PathType Leaf) 'H3 fase1 payload file existe (conteudo verificavel)'
@@ -182,8 +221,10 @@ $vt = Invoke-OrchestrationTaskTransition -TaskId $fx.tid -ToState 'VALIDATING' -
 Assert-H3That ([bool]$vt.ok) 'H3 fase2 task validating'
 $rt = Invoke-OrchestrationTaskTransition -TaskId $fx.tid -ToState 'REVIEWING' -Actor 'planner' -ExpectedRevision ([int]$vt.revision) -ActorIdentitySource 'explicit-cli' -TasksDir $fx.f.tasks -FlagsPath $fx.f.flags -TelemetryRoot $fx.f.tele
 Assert-H3That ([bool]$rt.ok) 'H3 fase2 task reviewing'
-$sv = Set-OrchestrationTaskVerification -TaskId $fx.tid -VerifierEvidenceJson (New-H3VerifierJson -Bytes ([int]$fx.payloadBytes)) -ExpectedRevision ([int]$rt.revision) -TasksDir $fx.f.tasks -FlagsPath $fx.f.flags
-Assert-H3That ([bool]$sv.ok) 'H3 fase2 verificacao real registrada (read-back do payload)'
+$sv = Invoke-TaskKernelVerifyRun -TaskId $fx.tid -ExpectedRevision ([int]$rt.revision) -TasksDir $fx.f.tasks -FlagsPath $fx.f.flags -RepoRoot $fx.f.repo
+Assert-H3That ((([bool]$sv.ok) -and ([bool]$sv.passed)) -and (([string]$sv.status -ceq 'verified_pass') -and ([string]$sv.verification_source -ceq 'kernel-executed'))) 'H3 fase2 verificacao kernel-executed (profile le o payload de volta)'
+$svRec = (Get-OrchestrationTask -TaskId $fx.tid -TasksDir $fx.f.tasks)['verification']
+Assert-H3That ((([string]$svRec['verification_source'] -ceq 'kernel-executed') -and ([string]$svRec['source'] -ceq 'kernel-executed')) -and ([bool]$svRec['verifier_executed'])) 'H3 fase2 marcas persistidas sao kernel-executed (nunca caller-supplied)'
 $srBad = Set-OrchestrationTaskReview -TaskId $fx.tid -Kind 'reviewer' -Status 'changes_required' -By 'reviewer-1' -ExpectedRevision ([int]$sv.revision) -TasksDir $fx.f.tasks -FlagsPath $fx.f.flags
 Assert-H3That ([bool]$srBad.ok) 'H3 fase2 review registra defeito intencional (changes_required)'
 $dnBad = Complete-OrchestrationTask -TaskId $fx.tid -Actor 'planner' -ExpectedRevision ([int]$srBad.revision) -ResidualRisks @('h3-fixture-residual') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $fx.f.tasks -FlagsPath $fx.f.flags -TelemetryRoot $fx.f.tele

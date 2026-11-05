@@ -48,7 +48,29 @@ function New-CorrTestRoot {
     $flags = Join-Path $root 'flags.json'
     New-Item -ItemType Directory -Path $tasks -Force | Out-Null
     Write-CorrFixture -Path $flags -Text '{"task_kernel":{"enabled":true,"shadow":false}}'
-    return @{ root = $root; tasks = $tasks; flags = $flags }
+    # Fixed verification repo: the committed policy IS the task's plan and
+    # the 'corr-base' branch makes base_revision resolvable, which is what
+    # Invoke-TaskKernelVerifyRun requires to persist kernel-executed marks.
+    $repo = Join-Path $root 'verify-repo'
+    Write-CorrFixture -Path (Join-Path $repo 'base.txt') -Text "base`n"
+    & git -C $repo init -q *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $repo init *>$null }
+    if ($LASTEXITCODE -ne 0) { throw 'git init do repo de verificacao falhou' }
+    & git -C $repo config user.email 'corr-fixture@example.com' *>$null
+    & git -C $repo config user.name 'Corr Fixture' *>$null
+    & git -C $repo config core.autocrlf false *>$null
+    & git -C $repo config core.safecrlf false *>$null
+    $pol = [ordered]@{
+        version = 1; default_timeout_seconds = 60; max_output_chars = 4000
+        profiles = @{ 'corr-kernel-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 30 } }
+    }
+    Write-CorrFixture -Path (Join-Path $repo 'source\registry\verification-policy.json') -Text (($pol | ConvertTo-Json -Depth 6 -Compress))
+    & git -C $repo add -A *>$null
+    & git -C $repo commit -q -m 'fixture verification plan' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'git commit do repo de verificacao falhou' }
+    & git -C $repo branch 'corr-base' *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'branch de base revision nao criada' }
+    return @{ root = $root; tasks = $tasks; flags = $flags; repo = $repo }
 }
 
 function New-CorrVerifierJson {
@@ -124,8 +146,9 @@ try {
         -Risk 'low' -Actor 'planner' -OrchestrationDecision 'SINGLE_WORKER' -RuntimeId 'opencode-v1' `
         -RuntimeGeneration 1 -RuntimeProfile 'v1' -ReadScopes @('src/zebra') -WriteScopes @('src/zebra') `
         -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('zebra renders') -ExpectedArtifacts @('src/zebra/render.js') `
+        -BaseRevision 'corr-base' -VerificationProfiles @('corr-kernel-check') -RepoRoot $t.repo -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
         -AttemptBudget 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
-    Assert-Correlation ([bool]$c.ok) 'create ok with envelope wired'
+    Assert-Correlation ([bool]$c.ok) 'create ok with envelope wired' ([string]$c.error)
     $created = @(Get-CorrTelemetryLines -Root $t.root -EventType 'TASK_CREATED')
     Assert-Correlation (($created.Count -ge 1)) 'TASK_CREATED telemetry persisted'
     $cm = $created[0].metadata
@@ -144,7 +167,7 @@ try {
     $null = Invoke-OrchestrationTaskTransition -TaskId 'corr-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Set-OrchestrationTaskWorkerResult -TaskId 'corr-001' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0:zebra renders') -ProducedBy 'coder' -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Invoke-OrchestrationTaskTransition -TaskId 'corr-001' -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision 4 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
-    $null = Set-OrchestrationTaskVerification -TaskId 'corr-001' -VerifierEvidenceJson (New-CorrVerifierJson -Evidence @('criterion:0:verified zebra')) -ExpectedRevision 5 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-TaskKernelVerifyRun -TaskId 'corr-001' -ExpectedRevision 5 -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $t.repo
     $null = Invoke-OrchestrationTaskTransition -TaskId 'corr-001' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision 6 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root
     $null = Set-OrchestrationTaskReview -TaskId 'corr-001' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision 7 -TasksDir $t.tasks -FlagsPath $t.flags
     $done = Complete-OrchestrationTask -TaskId 'corr-001' -Actor 'planner' -ExpectedRevision 8 -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags -TelemetryRoot $t.root

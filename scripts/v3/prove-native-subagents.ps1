@@ -13,6 +13,12 @@
       7. Planner recebe settlements e avanca autonomamente via Invoke-OrchestrationSettledContinuation ate Goal COMPLETED.
       8. Fallback de rate limit via modelo autorizado pelo Router, preservando rastreabilidade e sem ampliar permissoes.
       9. Comparacao de eficiencia entre cenario direto/economico e multi-agente registrando tokens, tempo e qualidade.
+      10. Verificacao positiva SO via Invoke-TaskKernelVerifyRun: a Task fixa
+          RepoRoot, base_revision e verification_profiles no repo de
+          verificacao commitado (plano imutavel) e o kernel executa o
+          profile contra o artefato real antes de review/DONE.
+          Set-OrchestrationTaskVerification permanece como evidencia
+          fornecida pelo chamador, nao confiavel, e nunca marca DONE.
 #>
 [CmdletBinding()]
 param(
@@ -266,6 +272,70 @@ $gen = [long]$ownSlot.ownership['generation']
 $auth = @{ explicit_allow = $true; goal_id = $goalId; owner = 'planner'; generation = $gen; source = 'planner' }
 Write-Host "Ownership adquirida pelo Planner: Owner=$($ownSlot.ownership['owner']) Gen=$gen"
 
+# Repo de verificacao fixado do proof: o plano (verification_profiles) e o
+# policy vivem commitados ali, base_revision e o SHA do HEAD desse repo e o
+# profile revalida o artefato produzido (AST + asserts funcionais +
+# varredura estatica) antes de qualquer marcacao de verificacao.
+$verifyRepo = Join-Path $RepoRoot 'cache\runtime\verify-repo'
+$kernelFlagsPath = Join-Path $RepoRoot 'source\registry\capability-flags.json'
+$verifyRepoReg = Join-Path $verifyRepo 'source\registry'
+if (-not (Test-Path -LiteralPath $verifyRepoReg -PathType Container)) {
+    New-Item -ItemType Directory -Path $verifyRepoReg -Force | Out-Null
+}
+function Invoke-NativeProofGit {
+    param([string[]]$GitArgs)
+    & git -C $verifyRepo @GitArgs *> $null
+    if ($LASTEXITCODE -ne 0) { throw ('FAIL-CLOSED: git ' + ($GitArgs -join ' ') + ' saiu com ' + [string]$LASTEXITCODE) }
+}
+$nativeCheck = @'
+$ErrorActionPreference = 'Stop'
+$p = '__ARTIFACT__'
+if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }
+$src = $null
+try { $src = [IO.File]::ReadAllText($p, [Text.UTF8Encoding]::new($false)) } catch { exit 1 }
+if ([string]::IsNullOrWhiteSpace($src)) { exit 1 }
+$tk = $null
+$errs = $null
+[System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$tk, [ref]$errs) | Out-Null
+if (($null -ne $errs) -and (@($errs).Count -gt 0)) { exit 1 }
+if ($src -cnotmatch 'function\s+Format-OrchestrationSummary') { exit 1 }
+foreach ($bad in @('Invoke-Expression', 'DownloadString', 'DownloadFile', 'Start-Process', 'cmd /c')) {
+    if ($src -imatch ('(?<![A-Za-z0-9_])' + [regex]::Escape($bad) + '(?![A-Za-z0-9_])')) { exit 1 }
+}
+if ($src -imatch '(?<![A-Za-z0-9_])iex(?![A-Za-z0-9_])') { exit 1 }
+try {
+    . $p
+    $r1 = Format-OrchestrationSummary -Title 'Build' -Status 'SUCCESS'
+    if ($r1 -cne '[SUCCESS] Build') { exit 1 }
+    $r2 = Format-OrchestrationSummary -Title 'Lint' -Status 'OK'
+    if ($r2 -cne '[OK] Lint') { exit 1 }
+} catch { exit 1 }
+exit 0
+'@
+$nativeCheckText = $nativeCheck.Replace('__ARTIFACT__', ($artFile -replace "'", "''"))
+$nativeCheckText = ($nativeCheckText -replace "`r`n", "`n") -replace "`r", "`n"
+[IO.File]::WriteAllText((Join-Path $verifyRepo 'check-artifact.ps1'), $nativeCheckText, [Text.UTF8Encoding]::new($false))
+$nativePol = [ordered]@{
+    version                 = 1
+    default_timeout_seconds = 60
+    max_output_chars        = 4000
+    profiles                = @{ 'native-util-check' = [ordered]@{ class = 'test'; command = 'powershell -NoProfile -File check-artifact.ps1'; timeout_seconds = 60 } }
+}
+[IO.File]::WriteAllText((Join-Path $verifyRepoReg 'verification-policy.json'), ((($nativePol | ConvertTo-Json -Depth 6 -Compress) -replace "`r`n", "`n") -replace "`r", "`n"), [Text.UTF8Encoding]::new($false))
+if (-not (Test-Path -LiteralPath (Join-Path $verifyRepo '.git') -PathType Container)) {
+    Invoke-NativeProofGit @('init', '-q')
+    Invoke-NativeProofGit @('config', 'user.email', 'native-proof@example.com')
+    Invoke-NativeProofGit @('config', 'user.name', 'Native Proof')
+    Invoke-NativeProofGit @('config', 'core.autocrlf', 'false')
+    Invoke-NativeProofGit @('config', 'core.safecrlf', 'false')
+}
+Invoke-NativeProofGit @('add', '-A')
+& git -C $verifyRepo commit -q -m 'native proof verification plan' *> $null
+$verifyDirty = [string](& git -C $verifyRepo status --porcelain)
+if (-not [string]::IsNullOrWhiteSpace($verifyDirty)) { throw ('FAIL-CLOSED: repo de verificacao sujo: ' + $verifyDirty.Trim()) }
+$verifyBase = ([string](& git -C $verifyRepo rev-parse HEAD)).Trim()
+if (($verifyBase -notmatch '^[0-9a-f]{7,40}$')) { throw ('FAIL-CLOSED: base_revision invalida: ' + $verifyBase) }
+
 # Task Kernel: criacao inicial da Task associada ao Goal
 $initTask = New-OrchestrationTask `
     -TaskId $taskId `
@@ -275,7 +345,12 @@ $initTask = New-OrchestrationTask `
     -Risk 'medium' `
     -AcceptanceCriteria $criteria `
     -ExpectedArtifacts @('evidence/v3.1/runtime-reliability/artifacts/NativeSummaryUtil.ps1') `
-    -RepoRoot $RepoRoot
+    -BaseRevision $verifyBase `
+    -VerificationProfiles @('native-util-check') `
+    -RepoRoot $verifyRepo `
+    -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath) `
+    -TasksDir $tasksDir `
+    -FlagsPath $kernelFlagsPath
 
 if (-not $initTask.ok) { throw "Falha ao criar Task no Kernel: $($initTask.error)" }
 Write-Host "Task criada no Task Kernel: Rev=$($initTask.revision) State=$($initTask.state)"
@@ -606,29 +681,29 @@ if ($plannerCompletedAutonomously) {
     Write-Host "Settlement canonico do Tester concluido com recibo persistido: $($testerSettle.receipt_path)"
 }
 
-# Registrar verified_pass no Task Kernel SOMENTE apos comprovacao empirica e parecer estruturado
+# Verificacao KERNEL-EXECUTADA (Invoke-TaskKernelVerifyRun) SO apos a
+# comprovacao empirica: o kernel roda o plano commitado no repo de
+# verificacao fixado e persiste marcas kernel-executed. Nenhuma JSON de
+# chamador e aceita aqui; marcas caller-supplied nunca sao consideradas
+# prova e sempre disparam uma execucao real do plano.
 $tCur2 = Get-OrchestrationTask -TaskId $taskId -RepoRoot $RepoRoot
 $verSet = @{ ok = $true; revision = $tCur2.revision }
-if ($null -eq $tCur2.verification -or -not $tCur2.verification.passed) {
-    $verPayload = @{
-        status          = 'verified_pass'
-        evidence        = @('criterion:0', 'criterion:1')
-        command_classes = @('test', 'verification')
-        sessions        = @($testerEv.SessionId)
-    } | ConvertTo-Json -Compress
-
-    $verSet = Set-OrchestrationTaskVerification `
+$verTrusted = $false
+try { $verTrusted = (([string]$tCur2.verification.verification_source -ceq 'kernel-executed') -and ([bool]$tCur2.verification.verifier_executed)) } catch { $verTrusted = $false }
+if (-not $verTrusted) {
+    $verSet = Invoke-TaskKernelVerifyRun `
         -TaskId $taskId `
-        -VerifierEvidenceJson $verPayload `
-        -Passed $true `
-        -Evidence @('criterion:0', 'criterion:1', "file:$artFile", "sha256:$artSha", "session:$($testerEv.SessionId)", "receipt:$testerKey") `
         -ExpectedRevision ([int]$tCur2.revision) `
-        -RepoRoot $RepoRoot
+        -TasksDir $tasksDir `
+        -FlagsPath $kernelFlagsPath `
+        -RepoRoot $verifyRepo
 
-    if (-not $verSet.ok) { throw "Falha ao registrar verified_pass: $($verSet.error)" }
-    Write-Host "Kernel atualizado com verified_pass: Rev=$($verSet.revision)"
+    if (-not $verSet.ok) { throw "Falha ao executar verificacao kernel: $($verSet.error)" }
+    if ((-not [bool]$verSet.passed) -or ([string]$verSet.status -cne 'verified_pass')) { throw "FAIL-CLOSED: verificacao kernel nao passou: $($verSet.status)" }
+    if ([string]$verSet.verification_source -cne 'kernel-executed') { throw 'FAIL-CLOSED: origem da verificacao nao e kernel-executed' }
+    Write-Host "Verificacao KERNEL-EXECUTADA registrada: Rev=$($verSet.revision) status=$($verSet.status)"
 } else {
-    Write-Host "Kernel ja contem verified_pass registrado pelo Planner: Rev=$($tCur2.revision)"
+    Write-Host "Kernel ja contem verificacao kernel-executed: Rev=$($tCur2.revision)"
 }
 
 # 4. REVIEWER: TRANSICAO, DELEGACAO NATIVA E PARECER ESTRUTURADO SEM SOLICITACAO PREVIA DE APPROVED

@@ -1,6 +1,6 @@
 {
   "schema_version": "model-routing-policy/v1",
-  "policy_version": "1.3.0",
+  "policy_version": "1.4.0",
   "providers": {
     "opencode": {
       "name": "OpenCode Console",
@@ -25,6 +25,12 @@
       "type": "systemone",
       "enabled": true,
       "description": "System One structured advisory service"
+    },
+    "claude-agent": {
+      "name": "Claude Agent (subscription)",
+      "type": "claude-code",
+      "enabled": true,
+      "description": "Local Claude Code subscription execution; requires authenticated local 'claude' executable on the worker machine; no SDK-level retry on top (Claude Code retries internally)"
     }
   },
   "models": {
@@ -60,13 +66,17 @@
         "max_output_tokens": 8192
       },
       "data_policy": {
-        "sensitive_data_allowed": true
+        "sensitive_data_allowed": true,
+        "training": "prompts-completions-may-train",
+        "zdr": false,
+        "user_consent": "accepted-training-2026-11-03",
+        "consent_scope": "this-project",
+        "consent_note": "User explicitly chose `Aceitar treinamento` for Iceman Contributor on this project (2026-11-03). No global workspace privacy setting was toggled."
       },
       "availability_status": "active",
       "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
-        "muse",
-        "luna"
+        "mimo"
       ]
     },
     "deepseek": {
@@ -127,7 +137,8 @@
         "infra-engineer",
         "coder",
         "researcher",
-        "tester"
+        "tester",
+        "build"
       ],
       "capabilities": [
         "specialized-engineering",
@@ -135,7 +146,7 @@
         "automation",
         "api-design"
       ],
-      "priority": 2,
+      "priority": 1,
       "cost_profile": {
         "pricing_type": "plan_included",
         "relative_cost": 0.1,
@@ -147,12 +158,20 @@
       },
       "data_policy": {
         "sensitive_data_allowed": false,
-        "contributor_license_terms": true
+        "contributor_license_terms": true,
+        "training": "prompts-completions-train-meta-models",
+        "zdr": false,
+        "user_consent": "accepted-training-2026-11-03",
+        "consent_scope": "this-project",
+        "workspace_requirement": "Allow paid endpoints that train on request data",
+        "workspace_requirement_status": "unverified-required",
+        "consent_note": "User explicitly chose `Aceitar treinamento` for Muse Spark Contributor on this project (2026-11-03). OpenCode workspace must have `Allow paid endpoints that train on request data` enabled; that setting is UNVERIFIED and was not toggled by this change — do not claim it is enabled."
       },
       "availability_status": "active",
       "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
-        "luna"
+        "luna",
+        "claude_haiku"
       ]
     },
     "luna": {
@@ -161,7 +180,7 @@
       "model_id": "openai/gpt-6-luna",
       "enabled": true,
       "tier_profiles": [
-        "T3"
+        "T2"
       ],
       "eligible_roles": [
         "build",
@@ -189,10 +208,10 @@
         "technical-review",
         "architecture-coordination"
       ],
-      "priority": 1,
+      "priority": 2,
       "cost_profile": {
         "pricing_type": "usage_billed",
-        "relative_cost": 1.0,
+        "relative_cost": 1,
         "requires_authorization": false
       },
       "context_limits": {
@@ -205,7 +224,8 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-26T00:00:00Z",
       "fallback_candidates": [
-        "sol"
+        "claude_haiku",
+        "deepseek_go"
       ]
     },
     "sol": {
@@ -222,7 +242,10 @@
         "reviewer",
         "debugger",
         "skeptic",
-        "engineering-advisor"
+        "engineering-advisor",
+        "coder",
+        "backend-engineer",
+        "database-engineer"
       ],
       "capabilities": [
         "critical-reasoning",
@@ -234,8 +257,8 @@
       "priority": 1,
       "cost_profile": {
         "pricing_type": "usage_billed",
-        "relative_cost": 8.0,
-        "requires_authorization": true
+        "relative_cost": 8,
+        "requires_authorization": false
       },
       "context_limits": {
         "max_input_tokens": 256000,
@@ -247,7 +270,10 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-26T00:00:00Z",
       "fallback_candidates": [
-        "astra"
+        "claude_opus",
+        "astra",
+        "muse",
+        "deepseek_go"
       ]
     },
     "astra": {
@@ -261,7 +287,12 @@
       "eligible_roles": [
         "security-reviewer",
         "architect",
-        "engineering-advisor"
+        "engineering-advisor",
+        "coder",
+        "reviewer",
+        "debugger",
+        "backend-engineer",
+        "database-engineer"
       ],
       "capabilities": [
         "frontier-exceptional-reasoning",
@@ -271,9 +302,9 @@
       "priority": 2,
       "cost_profile": {
         "pricing_type": "usage_billed",
-        "relative_cost": 15.0,
-        "requires_authorization": true,
-        "exceptional_budget_required": true
+        "relative_cost": 15,
+        "requires_authorization": false,
+        "exceptional_budget_required": false
       },
       "context_limits": {
         "max_input_tokens": 512000,
@@ -285,7 +316,9 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-26T00:00:00Z",
       "fallback_candidates": [
-        "sol"
+        "claude_fable",
+        "muse",
+        "deepseek_go"
       ]
     },
     "terra": {
@@ -297,10 +330,23 @@
         "T3"
       ],
       "eligible_roles": [
+        "build",
+        "reviewer",
+        "debugger",
+        "architect",
+        "skeptic",
+        "engineering-advisor",
+        "coder",
         "frontend-engineer",
+        "backend-engineer",
+        "database-engineer",
+        "ai-agent-engineer",
+        "automation-engineer",
+        "infra-engineer",
+        "requirements-analyst",
         "product-designer",
         "researcher",
-        "architect"
+        "security-reviewer"
       ],
       "capabilities": [
         "visual-reasoning",
@@ -310,10 +356,10 @@
         "document-analysis",
         "technical-writing"
       ],
-      "priority": 2,
+      "priority": 1,
       "cost_profile": {
         "pricing_type": "usage_billed",
-        "relative_cost": 2.0,
+        "relative_cost": 2,
         "requires_authorization": false
       },
       "context_limits": {
@@ -333,8 +379,355 @@
       "availability_status": "active",
       "last_verified_at": "2026-10-27T00:00:00Z",
       "fallback_candidates": [
-        "luna"
+        "claude_sonnet",
+        "muse",
+        "deepseek_go"
       ]
+    },
+    "mimo": {
+      "id": "mimo",
+      "provider": "opencode",
+      "model_id": "opencode/mimo-v2.6-flash-free",
+      "enabled": true,
+      "tier_profiles": [
+        "T1"
+      ],
+      "eligible_roles": [
+        "explorer",
+        "docs-manager",
+        "researcher",
+        "tester"
+      ],
+      "capabilities": [
+        "exploration",
+        "file-locating",
+        "simple-classification",
+        "extraction",
+        "triage"
+      ],
+      "priority": 2,
+      "cost_profile": {
+        "pricing_type": "free",
+        "relative_cost": 0.01,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "free_offer_limited_time": true
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-11-03T00:00:00Z",
+      "fallback_candidates": []
+    },
+    "deepseek_go": {
+      "id": "deepseek_go",
+      "provider": "opencode-go",
+      "model_id": "opencode-go/deepseek-v4.1-flash",
+      "enabled": false,
+      "tier_profiles": [
+        "T2"
+      ],
+      "eligible_roles": [
+        "coder",
+        "researcher",
+        "tester",
+        "docs-manager",
+        "requirements-analyst",
+        "product-designer",
+        "explorer",
+        "frontend-engineer",
+        "backend-engineer",
+        "database-engineer",
+        "ai-agent-engineer",
+        "automation-engineer",
+        "infra-engineer",
+        "engineering-advisor",
+        "build"
+      ],
+      "capabilities": [
+        "code-generation",
+        "test-generation",
+        "refactoring",
+        "technical-analysis",
+        "routine-implementation"
+      ],
+      "priority": 4,
+      "cost_profile": {
+        "pricing_type": "plan_included",
+        "relative_cost": 0.15,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": true,
+        "zdr_status": "expired-unconfirmed",
+        "zdr_note": "Public Go docs show a ZDR agreement valid only through 2026-10-31; renewal unconfirmed as of 2026-11-03. User did NOT authorize use of unverified DeepSeek ZDR. Kept for provenance; router must exclude until renewal is confirmed."
+      },
+      "availability_status": "blocked",
+      "availability_reason": "ZDR_EXPIRED_UNCONFIRMED",
+      "availability_note": "Blocked pending DeepSeek ZDR renewal confirmation (agreement lapsed 2026-10-31 per public Go docs).",
+      "last_verified_at": "2026-11-03T00:00:00Z",
+      "fallback_candidates": []
+    },
+    "claude_haiku": {
+      "id": "claude_haiku",
+      "provider": "claude-agent",
+      "model_id": "claude-agent/haiku",
+      "catalog_inventory_id": "claude-haiku-4-5-20251001",
+      "resolution_status": "runtime-unverified",
+      "alias": "haiku",
+      "resolution_note": "Dispatch identity is model_id=claude-agent/haiku plus alias=haiku (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory (older name Haiku4.5): catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. The catalog publishes no alias->ID mapping (live catalog shows alias display name Haiku 5.5), and successful session events expose only the alias, so alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime; tamper fails closed. No invented 5.5 concrete IDs.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
+      "enabled": true,
+      "tier_profiles": [
+        "T2"
+      ],
+      "eligible_roles": [
+        "coder",
+        "researcher",
+        "tester",
+        "docs-manager",
+        "requirements-analyst",
+        "product-designer",
+        "explorer",
+        "frontend-engineer",
+        "backend-engineer",
+        "database-engineer",
+        "ai-agent-engineer",
+        "automation-engineer",
+        "infra-engineer",
+        "engineering-advisor",
+        "build"
+      ],
+      "capabilities": [
+        "code-generation",
+        "test-generation",
+        "refactoring",
+        "technical-analysis",
+        "routine-implementation"
+      ],
+      "priority": 3,
+      "capability_proof": {
+        "required": true,
+        "kind": "local-executable-authenticated",
+        "executable": "claude",
+        "remote_requires": "claude-agent-remote"
+      },
+      "cost_profile": {
+        "pricing_type": "subscription_included",
+        "relative_cost": 0.15,
+        "requires_authorization": false,
+        "usage_cost": "UNKNOWN",
+        "usage_note": "Subscription metering may report 0; never record 0 (zero_cost_on_unknown)."
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "note": "Verify workspace privacy restrictions before use."
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-11-03T00:00:00Z",
+      "fallback_candidates": []
+    },
+    "claude_sonnet": {
+      "id": "claude_sonnet",
+      "provider": "claude-agent",
+      "model_id": "claude-agent/sonnet",
+      "catalog_inventory_id": "claude-sonnet-5",
+      "resolution_status": "runtime-unverified",
+      "alias": "sonnet",
+      "resolution_note": "Dispatch identity is model_id=claude-agent/sonnet plus alias=sonnet (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory (older name Sonnet5): catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. The catalog publishes no alias->ID mapping (live catalog shows alias display name Sonnet 5.5), and successful session events expose only the alias, so alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime; tamper fails closed. No invented 5.5 concrete IDs.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
+      "enabled": true,
+      "tier_profiles": [
+        "T3"
+      ],
+      "eligible_roles": [
+        "build",
+        "reviewer",
+        "debugger",
+        "architect",
+        "skeptic",
+        "engineering-advisor",
+        "coder",
+        "frontend-engineer",
+        "backend-engineer",
+        "database-engineer",
+        "ai-agent-engineer",
+        "automation-engineer",
+        "infra-engineer",
+        "requirements-analyst",
+        "product-designer",
+        "researcher",
+        "security-reviewer"
+      ],
+      "capabilities": [
+        "visual-reasoning",
+        "computer-use",
+        "interface-interpretation",
+        "image-analysis",
+        "document-analysis",
+        "technical-writing"
+      ],
+      "priority": 2,
+      "capability_proof": {
+        "required": true,
+        "kind": "local-executable-authenticated",
+        "executable": "claude",
+        "remote_requires": "claude-agent-remote"
+      },
+      "cost_profile": {
+        "pricing_type": "subscription_included",
+        "relative_cost": 2,
+        "requires_authorization": false,
+        "usage_cost": "UNKNOWN",
+        "usage_note": "Subscription metering may report 0; never record 0 (zero_cost_on_unknown)."
+      },
+      "context_limits": {
+        "max_input_tokens": 256000,
+        "max_output_tokens": 16384
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "note": "Verify workspace privacy restrictions before use."
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-11-03T00:00:00Z",
+      "fallback_candidates": [
+        "muse",
+        "deepseek_go"
+      ]
+    },
+    "claude_opus": {
+      "id": "claude_opus",
+      "provider": "claude-agent",
+      "model_id": "claude-agent/opus",
+      "catalog_inventory_id": "claude-opus-5",
+      "resolution_status": "runtime-unverified",
+      "alias": "opus",
+      "resolution_note": "Dispatch identity is model_id=claude-agent/opus plus alias=opus (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory (older name Opus5): catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. The catalog publishes no alias->ID mapping (live catalog shows alias display name Opus 5.5), and successful session events expose only the alias, so alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime; tamper fails closed. No invented 5.5 concrete IDs.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
+      "enabled": true,
+      "tier_profiles": [
+        "T4"
+      ],
+      "eligible_roles": [
+        "security-reviewer",
+        "architect",
+        "reviewer",
+        "debugger",
+        "skeptic",
+        "engineering-advisor",
+        "coder",
+        "backend-engineer",
+        "database-engineer"
+      ],
+      "capabilities": [
+        "critical-reasoning",
+        "security-audit",
+        "deadlock-resolution",
+        "distributed-consensus",
+        "formal-architecture"
+      ],
+      "priority": 3,
+      "capability_proof": {
+        "required": true,
+        "kind": "local-executable-authenticated",
+        "executable": "claude",
+        "remote_requires": "claude-agent-remote"
+      },
+      "cost_profile": {
+        "pricing_type": "subscription_included",
+        "relative_cost": 8,
+        "requires_authorization": false,
+        "usage_cost": "UNKNOWN",
+        "usage_note": "Subscription metering may report 0; never record 0 (zero_cost_on_unknown)."
+      },
+      "context_limits": {
+        "max_input_tokens": 256000,
+        "max_output_tokens": 32768
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "note": "Verify workspace privacy restrictions before use."
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-11-03T00:00:00Z",
+      "fallback_candidates": [
+        "muse",
+        "deepseek_go"
+      ]
+    },
+    "claude_fable": {
+      "id": "claude_fable",
+      "provider": "claude-agent",
+      "model_id": "claude-agent/fable",
+      "catalog_inventory_id": "claude-fable-5",
+      "resolution_status": "runtime-unverified",
+      "alias": "fable",
+      "resolution_note": "Dispatch identity is model_id=claude-agent/fable plus alias=fable (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory (older name Fable5): catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. The catalog publishes no alias->ID mapping (live catalog shows alias display name Fable 5.1), and successful session events expose only the alias, so alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime; tamper fails closed. No invented 5.1 concrete IDs.",
+      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "smoke_variant": null,
+      "enabled": true,
+      "tier_profiles": [
+        "T4"
+      ],
+      "eligible_roles": [
+        "security-reviewer",
+        "architect",
+        "engineering-advisor",
+        "coder",
+        "reviewer",
+        "debugger",
+        "backend-engineer",
+        "database-engineer"
+      ],
+      "capabilities": [
+        "frontier-exceptional-reasoning",
+        "high-uncertainty-synthesis",
+        "critical-security-boundary"
+      ],
+      "priority": 4,
+      "gated": true,
+      "gate": "fable-requires-astra-failure",
+      "gate_note": "Reachable only as Astra availability fallback with proved pre-execution evidence (canonical Astra FailedModel + allowlisted availability reason + NoExecutionStarted=true + Astra attempted + Claude capability proof, honoring astra.fallback_candidates order); never a primary; VERIFIED_TASK_FAILURE generic receipt never authorizes.",
+      "capability_proof": {
+        "required": true,
+        "kind": "local-executable-authenticated",
+        "executable": "claude",
+        "remote_requires": "claude-agent-remote"
+      },
+      "cost_profile": {
+        "pricing_type": "subscription_included",
+        "relative_cost": 15,
+        "requires_authorization": false,
+        "usage_cost": "UNKNOWN",
+        "usage_note": "Subscription metering may report 0; never record 0 (zero_cost_on_unknown)."
+      },
+      "context_limits": {
+        "max_input_tokens": 512000,
+        "max_output_tokens": 65536
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "note": "Verify workspace privacy restrictions before use."
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-11-03T00:00:00Z",
+      "fallback_candidates": []
     }
   },
   "tiers": {
@@ -342,51 +735,61 @@
       "name": "Deterministic",
       "model_id": null,
       "primary": null,
-      "relative_cost": 0.0,
+      "relative_cost": 0,
       "description": "Deterministic AST, lint, tests, scripts without LLM"
     },
     "T1": {
       "name": "UltraLight",
       "primary": "iceman",
-      "alternatives": [],
+      "alternatives": [
+        "mimo"
+      ],
       "relative_cost": 0.01,
-      "description": "Free and ultra-lightweight exploration and triage"
+      "description": "Free and ultra-lightweight exploration and triage; same-tier fallback only (iceman<->mimo), transport exhaustion never upgrades to a higher tier",
+      "fallback": "mimo"
     },
     "T2": {
       "name": "Economical",
       "primary": "muse",
       "alternatives": [
-        "luna"
+        "luna",
+        "claude_haiku"
       ],
       "fallback": "luna",
       "relative_cost": 0.1,
-      "description": "Economical routine implementation and engineering"
+      "description": "Economical routine implementation and engineering; same-tier fallback only (muse/luna/deepseek_go), transport exhaustion never upgrades to a higher tier"
     },
     "T3": {
       "name": "Capable",
-      "primary": "luna",
+      "primary": "terra",
       "alternatives": [
-        "terra",
-        "sol"
+        "claude_sonnet",
+        "muse",
+        "deepseek_go"
       ],
-      "relative_cost": 1.0,
-      "description": "Advanced reasoning, strategic planning and architecture"
+      "relative_cost": 1,
+      "description": "Capable reasoning (Terra); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go), never as equal capability",
+      "fallback": "muse"
     },
     "T4": {
       "name": "Frontier",
       "primary": "sol",
       "exceptional": "astra",
       "alternatives": [
-        "astra"
+        "claude_opus",
+        "astra",
+        "muse",
+        "deepseek_go"
       ],
-      "relative_cost": 8.0,
-      "description": "Critical reasoning and frontier escalation"
+      "relative_cost": 8,
+      "description": "Critical reasoning after proven T3 failure; Astra after proven Sol capability failure; transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: muse/deepseek_go)",
+      "fallback": "muse"
     }
   },
   "role_profiles": {
     "build": {
       "default_model": "luna",
-      "default_tier": "T3",
+      "default_tier": "T2",
       "escalation": "engineering-advisor",
       "stable_objective": true,
       "admissible_tiers": [
@@ -396,7 +799,9 @@
       "prohibited_tiers": [
         "T4"
       ],
-      "alternatives": []
+      "alternatives": [
+        "claude_haiku"
+      ]
     },
     "explorer": {
       "default_model": "iceman",
@@ -575,7 +980,7 @@
       ]
     },
     "reviewer": {
-      "default_model": "luna",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
         "sol"
@@ -591,7 +996,7 @@
       ]
     },
     "debugger": {
-      "default_model": "luna",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
         "sol"
@@ -607,7 +1012,7 @@
       ]
     },
     "architect": {
-      "default_model": "luna",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
         "terra",
@@ -625,10 +1030,11 @@
       ]
     },
     "security-reviewer": {
-      "default_model": "sol",
-      "default_tier": "T4",
+      "default_model": "terra",
+      "default_tier": "T3",
       "exceptional": "astra",
       "alternatives": [
+        "sol",
         "astra"
       ],
       "admissible_tiers": [
@@ -675,7 +1081,7 @@
       ]
     },
     "skeptic": {
-      "default_model": "luna",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
         "sol"
@@ -691,7 +1097,7 @@
       ]
     },
     "engineering-advisor": {
-      "default_model": "luna",
+      "default_model": "terra",
       "default_tier": "T3",
       "advanced": "sol",
       "exceptional": "astra",
@@ -700,13 +1106,13 @@
         "astra"
       ],
       "admissible_tiers": [
-        "T2",
         "T3",
         "T4"
       ],
       "prohibited_tiers": [
         "T0",
-        "T1"
+        "T1",
+        "T2"
       ]
     }
   },
@@ -714,10 +1120,20 @@
     "primary": "luna",
     "model_id": "openai/gpt-6-luna",
     "provider": "openai",
-    "stable_during_objective": true
+    "stable_during_objective": true,
+    "tier": "T2",
+    "fallback": "claude_haiku",
+    "fallback_model_id": "claude-agent/haiku",
+    "fallback_alias": "haiku",
+    "fallback_catalog_inventory_id": "claude-haiku-4-5-20251001",
+    "fallback_requires_capability_proof": true,
+    "fallback_capability": "claude-agent-local-authenticated",
+    "fallback_resolution_note": "Dispatch identity of the build fallback is fallback_model_id=claude-agent/haiku plus fallback_alias=haiku, checked fail-closed against the closed dispatch-alias map together with the linked claude_haiku entry (model_id + alias) and its resolution_status=runtime-unverified. fallback_catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory (older name Haiku4.5): catalog listing/provenance ONLY, never compared and never an alias->concrete mapping. Alias-to-concrete resolution is UNRESOLVED until a successful session event proves it; never claim the alias resolves to this ID at runtime.",
+    "fallback_effort_variants": ["low", "medium", "high", "xhigh", "max"],
+    "fallback_smoke_variant": null
   },
   "advisor": {
-    "default": "luna",
+    "default": "terra",
     "advanced": "sol",
     "exceptional": "astra",
     "exceptional_conditions": [
@@ -737,27 +1153,34 @@
     "authority": "advisory-only"
   },
   "fallback_policy": {
-    "max_attempts": 3,
+    "max_attempts": 4,
     "prefer_same_tier": true,
     "prevent_cycles": true,
     "prohibited_downgrades": [
       "reviewer",
-      "security-reviewer"
+      "security-reviewer",
+      "engineering-advisor"
     ],
     "cross_provider_tracking": true,
     "prohibitions": [
       "fallback_loops",
       "unknown_models",
       "incompatible_downgrade",
-      "unauthorized_astra",
       "silent_provider_switch",
       "duplicate_execution_on_ambiguous",
-      "zero_cost_on_unknown"
+      "zero_cost_on_unknown",
+      "unverified_t3_escalation",
+      "unverified_astra_escalation",
+      "fallback_on_unverified_error",
+      "claude_capability_unproven",
+      "fable_without_astra_failure",
+      "t1_transport_escalation_prohibited",
+      "t2_transport_escalation_prohibited"
     ]
   },
   "cost_policy": {
-    "t4_requires_authorization": true,
-    "astra_requires_exceptional_authorization": true,
+    "t4_requires_authorization": false,
+    "astra_requires_exceptional_authorization": false,
     "unknown_cost_handling": "UNKNOWN"
   },
   "runtime_verification": {
@@ -768,6 +1191,8 @@
       "PROOF_ABSENT"
     ],
     "require_exact_provider_match": true,
-    "fail_closed_on_unproven_override": true
+    "fail_closed_on_unproven_override": true,
+    "require_failure_receipt_for_t4_escalation": true,
+    "require_failure_receipt_for_astra": true
   }
 }

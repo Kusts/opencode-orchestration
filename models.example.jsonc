@@ -1,15 +1,13 @@
 {
-  // Edite este arquivo e salve como models.jsonc (models.jsonc é ignorado pelo git).
-  // Configuração de modelos alinhada aos padrões do Dynamic Model Routing v1.1.
-  // Planner: agente primário "build" (Tier T3 - GPT-6 Luna).
+  // Model Router v1.4: Planner e fixo em Luna (tier operacional T2).
+  // Copie como models.jsonc (arquivo local ignorado pelo Git).
   "planner": "openai/gpt-6-luna",
-  // Pool barato: explorer, researcher, coder, tester, engineers, planning advisors (Tier T2 - Muse Spark 1.3 Contributor).
-  // Tier T1 (ultraleve) usa opencode-go/iceman-contributor-free para explorer/docs-manager (ver model-routing-policy.json).
+  // T2: pool economico Muse; fallback Luna em falha real.
   "cheap": "opencode-go/muse-spark-1.3-contributor",
-  // Pool ultra-leve (opcional): override local para agentes T1 (explorer, docs-manager). Ausente => default da politica canonica (opencode-go/iceman-contributor-free).
+  // T1: Iceman; fallback opencode/mimo-v2.6-flash-free.
   "free": "opencode-go/iceman-contributor-free",
-  // Pool forte: reviewer, debugger, security-reviewer, architect (Tier T3 - GPT-6 Luna).
-  "strong": "openai/gpt-6-luna",
-  // Pool fronteira (opcional): raciocínio crítico sob autorização de custo (Tier T4 - GPT-6.1 Sol).
+  // T3: Terra; fallback de transporte para Muse ou DeepSeek OpenCode Go.
+  "strong": "openai/gpt-6.1-terra",
+  // T4: Sol automatico apos falha comprovada do T3; Astra apos falha comprovada do Sol.
   "frontier": "openai/gpt-6.1-sol"
 }

@@ -107,7 +107,7 @@ function New-GHWEnv {
     return @{ root = $root; goalDir = $goalDir; ckptDir = $ckptDir; tasksDir = $tasksDir; waitsDir = $waitsDir; flagsPath = $flagsPath }
 }
 function New-GHWGoal {
-    param($Env, [string]$GoalId = 'ghw-goal-1', [string[]]$Tasks = @())
+    param($Env, [string]$GoalId = 'ghw-goal-1', [string[]]$Tasks = @(), [string]$BaseRevision = 'rev-ghw', [string[]]$VerificationProfiles = @(), [string]$VerificationRepoRoot = '', [string]$BudgetPolicyPath = '')
     $g = New-OrchestrationGoal -GoalId $GoalId -Objective 'etapa 6d wake' -Criteria @('c1') -TotalPhases 1 -StoreDir $Env.goalDir
     if (-not [bool](Get-GHWField $g 'ok' $false)) { throw ('goal-create:' + [string](Get-GHWField $g 'reason' '')) }
     $svNew = Save-OrchestrationGoal -Goal (Get-GHWField $g 'goal' $null) -StoreDir $Env.goalDir
@@ -121,7 +121,7 @@ function New-GHWGoal {
     if (-not [bool](Get-GHWField $own 'ok' $false)) { throw 'goal-ownership' }
     $gen = [long](Get-GHWField (Get-GHWField $own 'ownership' $null) 'generation' 0)
     foreach ($tid in @($Tasks)) {
-        $c = New-OrchestrationTask -TaskId $tid -Objective ('obj ' + $tid) -TaskType 'implementation' -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.3' -BaseRevision 'rev-ghw' -ReadScopes @('src/ghw.ps1') -Grants @('fs.read') -AcceptanceCriteria @('criterion:0') -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root
+        $c = New-OrchestrationTask -TaskId $tid -Objective ('obj ' + $tid) -TaskType 'implementation' -Risk 'low' -Actor 'planner-1' -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.2.3' -BaseRevision $BaseRevision -ReadScopes @('src/ghw.ps1') -Grants @('fs.read') -AcceptanceCriteria @('criterion:0') -VerificationProfiles $VerificationProfiles -AttemptBudget 3 -BudgetPolicyPath $BudgetPolicyPath -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root -RepoRoot $VerificationRepoRoot
         if (-not [bool](Get-GHWField $c 'ok' $false)) { throw ('task-create:' + $tid) }
         $curRev = [long](Get-OrchestrationGoal -GoalId $GoalId -StoreDir $Env.goalDir).goal['revision']
         $add = Add-OrchestrationGoalTaskPersisted -GoalId $GoalId -TaskId $tid -ExpectedRevision $curRev -StoreDir $Env.goalDir -OwnerId 'planner-1' -OwnershipGeneration $gen
@@ -140,8 +140,33 @@ function Set-GHWBlocked {
     $tr = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'BLOCKED' -Actor 'planner' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root -WaitType 'external_dependency' -WaitOwner 'planner-1' -WaitAction 'revalidate-github-ci' -WaitDependencyId $dep
     if (-not [bool](Get-GHWField $tr 'ok' $false)) { throw ('to-blocked:' + $TaskId + ':' + [string](Get-GHWField $tr 'error' '')) }
 }
+function New-GHWVerifyRepo {
+    param($Env, [string]$ProfileName = 'passes')
+    $repo = Join-Path $Env.root 'ghw-verify'
+    if (-not (Test-Path -LiteralPath $repo -PathType Container)) { [void][IO.Directory]::CreateDirectory($repo) }
+    $polPath = Join-Path $repo 'ghw-policy.json'
+    [IO.File]::WriteAllText((Join-Path $repo 'base.txt'), "base`n", (New-Object Text.UTF8Encoding $false))
+    $profObj = New-Object PSCustomObject
+    $profObj | Add-Member -NotePropertyName $ProfileName -NotePropertyValue ([PSCustomObject]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 60 })
+    $doc = [ordered]@{ version = 1; default_timeout_seconds = 120; max_output_chars = 4000; profiles = $profObj }
+    [IO.File]::WriteAllText($polPath, ((New-Object PSCustomObject -Property $doc) | ConvertTo-Json -Depth 6 -Compress), (New-Object Text.UTF8Encoding $false))
+    & git -C $repo init -b master *>$null
+    if ($LASTEXITCODE -ne 0) { & git -C $repo init *>$null }
+    & git -C $repo config user.email 'ghw-fixture@example.com' *>$null
+    & git -C $repo config user.name 'GHW Fixture' *>$null
+    & git -C $repo config core.autocrlf false *>$null
+    & git -C $repo config core.safecrlf false *>$null
+    & git -C $repo add -A *>$null
+    & git -C $repo commit -q -m init *>$null
+    & git -C $repo rev-parse HEAD *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'ghw-verify-repo-no-head' }
+    return @{ repo = $repo; policy = $polPath }
+}
 function Set-GHWDone {
-    param($Env, [string]$TaskId = '')
+    param($Env, [string]$TaskId = '', [Parameter(Mandatory = $true)][string]$VerificationRepoRoot, [Parameter(Mandatory = $true)][string]$VerificationPolicyPath)
+    $vrepo = ([string]$VerificationRepoRoot).Trim()
+    $vpol = ([string]$VerificationPolicyPath).Trim()
+    if ([string]::IsNullOrWhiteSpace($vrepo) -or [string]::IsNullOrWhiteSpace($vpol)) { throw 'Set-GHWDone requires task-linked VerificationRepoRoot + VerificationPolicyPath' }
     $t = Get-OrchestrationTask -TaskId $TaskId -TasksDir $Env.tasksDir -RepoRoot $Env.root
     $rev = [long](Get-GHWField $t 'revision' 0)
     foreach ($st in @('PLANNING', 'IMPLEMENTING')) {
@@ -150,18 +175,29 @@ function Set-GHWDone {
         $rev = [long](Get-GHWField $tr 'revision' 0)
     }
     $wr = Set-OrchestrationTaskWorkerResult -TaskId $TaskId -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision $rev -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root
+    if (-not [bool](Get-GHWField $wr 'ok' $false)) { throw 'worker' }
     $rev = [long](Get-GHWField $wr 'revision' 0)
     $tr = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root
+    if (-not [bool](Get-GHWField $tr 'ok' $false)) { throw 'pre:VALIDATING' }
     $rev = [long](Get-GHWField $tr 'revision' 0)
+    $kv = Invoke-TaskKernelVerifyRun -TaskId $TaskId -ExpectedRevision $rev -VerificationPolicyPath $vpol -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -RepoRoot $vrepo
+    if (-not [bool](Get-GHWField $kv 'ok' $false)) { throw ('verify-run:' + [string](Get-GHWField $kv 'error' '')) }
+    if ([string](Get-GHWField $kv 'status' '') -cne 'verified_pass') { throw 'verify-run-not-pass' }
+    if ([string](Get-GHWField $kv 'verification_source' '') -cne 'kernel-executed') { throw 'verify-run-not-kernel' }
+    $rev = [long](Get-GHWField $kv 'revision' 0)
+    $chk = Get-OrchestrationTask -TaskId $TaskId -TasksDir $Env.tasksDir -RepoRoot $Env.root
+    $vs = $null
+    try { $vs = $chk['verification'] } catch { $vs = $null }
+    if (($null -eq $vs) -or ([string](Get-GHWField $vs 'status' '') -cne 'verified_pass') -or (-not [bool](Get-GHWField $vs 'passed' $false)) -or ([string](Get-GHWField $vs 'verification_source' '') -cne 'kernel-executed') -or ([string](Get-GHWField $vs 'source' '') -cne 'kernel-executed') -or (-not [bool](Get-GHWField $vs 'verifier_executed' $false))) { throw 'verify-marks' }
     $tr = Invoke-OrchestrationTaskTransition -TaskId $TaskId -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision $rev -ActorIdentitySource 'explicit-cli' -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root
+    if (-not [bool](Get-GHWField $tr 'ok' $false)) { throw 'pre:REVIEWING' }
     $rev = [long](Get-GHWField $tr 'revision' 0)
-    $vr = Set-OrchestrationTaskVerification -TaskId $TaskId -VerifierEvidenceJson '{"ok":true,"task_id":"ghw","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}' -ExpectedRevision $rev -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath
-    $rev = [long](Get-GHWField $vr 'revision' 0)
     $rw = Set-OrchestrationTaskReview -TaskId $TaskId -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $rev -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath
+    if (-not [bool](Get-GHWField $rw 'ok' $false)) { throw 'review' }
     $rev = [long](Get-GHWField $rw 'revision' 0)
-    $gate = Test-OrchestrationTaskCompletion -TaskId $TaskId -TasksDir $Env.tasksDir -RepoRoot $Env.root -OrchestrationCompliance 'COMPLIANT' -Actor 'planner' -ResidualRisks @('none') -AcceptEmptyResidualRisks
+    $gate = Test-OrchestrationTaskCompletion -TaskId $TaskId -TasksDir $Env.tasksDir -RepoRoot $vrepo -OrchestrationCompliance 'COMPLIANT' -Actor 'planner' -ResidualRisks @('none') -AcceptEmptyResidualRisks
     if (-not [bool](Get-GHWField $gate 'complete' $false)) { throw 'gate' }
-    $dn = Complete-OrchestrationTask -TaskId $TaskId -Actor 'planner' -ExpectedRevision $rev -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root
+    $dn = Complete-OrchestrationTask -TaskId $TaskId -Actor 'planner' -ExpectedRevision $rev -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root -RepoRoot $vrepo
     if (-not [bool](Get-GHWField $dn 'ok' $false)) { throw 'done' }
 }
 function New-GHWWait {
@@ -327,8 +363,9 @@ $revDupAfter = [long](Get-OrchestrationTask -TaskId 'ghw-task-b' -TasksDir $e.ta
 Assert-That ($revDupAfter -eq $revDup) 'duplicate => kernel untouched'
 # --- DONE task wait => HOLD already-done (fresh env).
 $e2 = New-GHWEnv -Tag 'done'
-[void](New-GHWGoal -Env $e2 -GoalId 'ghw-goal-1' -Tasks @('ghw-task-a'))
-Set-GHWDone -Env $e2 -TaskId 'ghw-task-a'
+$vrDone = New-GHWVerifyRepo -Env $e2 -ProfileName 'passes'
+[void](New-GHWGoal -Env $e2 -GoalId 'ghw-goal-1' -Tasks @('ghw-task-a') -BaseRevision 'HEAD' -VerificationProfiles @('passes') -VerificationRepoRoot ([string]$vrDone.repo) -BudgetPolicyPath (Get-ExecutionBudgetDefaultPolicyPath))
+Set-GHWDone -Env $e2 -TaskId 'ghw-task-a' -VerificationRepoRoot ([string]$vrDone.repo) -VerificationPolicyPath ([string]$vrDone.policy)
 New-GHWWait -Env $e2 -TaskId 'ghw-task-a' -Sha $script:SHA_A
 [void](New-GHWCkpt -Env $e2 -GoalId 'ghw-goal-1')
 $fx2 = Write-GHWFixture -Env $e2 -Raw (New-GHWRaw -Nodes (New-GHWGreenNodes $script:SHA_A) -Head $script:SHA_A -Commit $script:SHA_A) -Name 'green.graphql.json'
@@ -337,6 +374,52 @@ $r = Invoke-GHWCase -Env $e2 -Fixture $fx2 -Auth $true -Exec $true
 $items = @(Get-GHWField $r.env 'items' @())
 Assert-That (([string](Get-GHWField @($items)[0] 'decision' '') -ceq 'HOLD') -and ([string](Get-GHWField @($items)[0] 'reason' '') -ceq 'already-done')) 'DONE task => HOLD already-done'
 Assert-That ([long](Get-OrchestrationTask -TaskId 'ghw-task-a' -TasksDir $e2.tasksDir -RepoRoot $e2.root).revision -eq $revA) 'DONE task => never reexecuted'
+# --- legacy without plan: caller-supplied verified_pass + approved review never DONEs.
+$eLeg = New-GHWEnv -Tag 'legacy'
+[void](New-GHWGoal -Env $eLeg -GoalId 'ghw-goal-1' -Tasks @('ghw-task-leg'))
+$tLeg0 = Get-OrchestrationTask -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root
+$revLeg = [long](Get-GHWField $tLeg0 'revision' 0)
+foreach ($stLeg in @('PLANNING', 'IMPLEMENTING')) {
+    $trLeg = Invoke-OrchestrationTaskTransition -TaskId 'ghw-task-leg' -ToState $stLeg -Actor 'planner' -ExpectedRevision $revLeg -ActorIdentitySource 'explicit-cli' -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath -TelemetryRoot $eLeg.root
+    if (-not [bool](Get-GHWField $trLeg 'ok' $false)) { throw ('legacy-pre:' + $stLeg) }
+    $revLeg = [long](Get-GHWField $trLeg 'revision' 0)
+}
+$wrLeg = Set-OrchestrationTaskWorkerResult -TaskId 'ghw-task-leg' -Status 'candidate_pass' -ClaimedEvidence @('criterion:0') -ProducedBy 'coder' -ExpectedRevision $revLeg -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath -TelemetryRoot $eLeg.root
+if (-not [bool](Get-GHWField $wrLeg 'ok' $false)) { throw 'legacy-worker' }
+$revLeg = [long](Get-GHWField $wrLeg 'revision' 0)
+$trLeg = Invoke-OrchestrationTaskTransition -TaskId 'ghw-task-leg' -ToState 'VALIDATING' -Actor 'coder' -ExpectedRevision $revLeg -ActorIdentitySource 'explicit-cli' -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath -TelemetryRoot $eLeg.root
+if (-not [bool](Get-GHWField $trLeg 'ok' $false)) { throw 'legacy-pre:VALIDATING' }
+$revLeg = [long](Get-GHWField $trLeg 'revision' 0)
+$trLeg = Invoke-OrchestrationTaskTransition -TaskId 'ghw-task-leg' -ToState 'REVIEWING' -Actor 'tester' -ExpectedRevision $revLeg -ActorIdentitySource 'explicit-cli' -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath -TelemetryRoot $eLeg.root
+if (-not [bool](Get-GHWField $trLeg 'ok' $false)) { throw 'legacy-pre:REVIEWING' }
+$revLeg = [long](Get-GHWField $trLeg 'revision' 0)
+$vrLeg = Set-OrchestrationTaskVerification -TaskId 'ghw-task-leg' -VerifierEvidenceJson '{"ok":true,"task_id":"ghw-task-leg","status":"verified_pass","reason":"","scope":null,"profiles":[],"evidence":["criterion:0:verified"],"command_classes":["test"]}' -ExpectedRevision $revLeg -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath
+if (-not [bool](Get-GHWField $vrLeg 'ok' $false)) { throw 'legacy-verify' }
+$revLeg = [long](Get-GHWField $vrLeg 'revision' 0)
+$legFile = Join-Path $eLeg.tasksDir 'ghw-task-leg.json'
+$legRec = Get-OrchestrationTask -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root
+if (($null -ne $legRec) -and ($legRec -is [System.Collections.IDictionary])) {
+    if ($legRec.Contains('verification_profiles')) { [void]$legRec.Remove('verification_profiles') }
+    if ($legRec.Contains('model_attempts')) { [void]$legRec.Remove('model_attempts') }
+    if ($legRec.Contains('completion_verification_contract')) { [void]$legRec.Remove('completion_verification_contract') }
+    [IO.File]::WriteAllText($legFile, ($legRec | ConvertTo-Json -Depth 24 -Compress), (New-Object Text.UTF8Encoding $false))
+}
+$legCheck = Get-OrchestrationTask -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root
+if (($null -ne $legCheck) -and ($legCheck -is [System.Collections.IDictionary]) -and $legCheck.Contains('verification_profiles')) { throw 'legacy-strip' }
+$revLeg = [long](Get-GHWField (Get-OrchestrationTask -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root) 'revision' 0)
+$rwLeg = Set-OrchestrationTaskReview -TaskId 'ghw-task-leg' -Kind 'reviewer' -Status 'approved' -By 'reviewer' -ExpectedRevision $revLeg -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath
+if (-not [bool](Get-GHWField $rwLeg 'ok' $false)) { throw 'legacy-review' }
+$revLeg = [long](Get-GHWField $rwLeg 'revision' 0)
+$legBytesBefore = [IO.File]::ReadAllText($legFile, [Text.Encoding]::UTF8)
+$legStateBefore = [string](Get-GHWField (Get-OrchestrationTask -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root) 'state' '')
+$gateLeg = Test-OrchestrationTaskCompletion -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root -OrchestrationCompliance 'COMPLIANT' -Actor 'planner' -ResidualRisks @('none') -AcceptEmptyResidualRisks
+Assert-That ((-not [bool](Get-GHWField $gateLeg 'complete' $true)) -and ((@($gateLeg.reasons) -contains 'verification-not-kernel-executed') -and (@($gateLeg.reasons) -contains 'verification-untrusted'))) 'legacy plan-less task => gate refuses caller-supplied verified_pass (verification-not-kernel-executed + verification-untrusted)'
+$cLeg = Complete-OrchestrationTask -TaskId 'ghw-task-leg' -Actor 'planner' -ExpectedRevision $revLeg -ResidualRisks @('none') -OrchestrationCompliance 'COMPLIANT' -ActorIdentitySource 'explicit-cli' -TasksDir $eLeg.tasksDir -FlagsPath $eLeg.flagsPath -TelemetryRoot $eLeg.root
+Assert-That ((-not [bool](Get-GHWField $cLeg 'ok' $true)) -and ([string](Get-GHWField $cLeg 'error' '') -ceq 'COMPLETION_GATE_FAILED')) 'legacy plan-less task => Complete refuses DONE (COMPLETION_GATE_FAILED)'
+Assert-That (((@($cLeg.reasons) -contains 'verification-not-kernel-executed') -and (@($cLeg.reasons) -contains 'verification-untrusted'))) 'legacy plan-less task => refusal reasons kept (no trusted proof created)'
+$legBytesAfter = [IO.File]::ReadAllText($legFile, [Text.Encoding]::UTF8)
+$legAfterRec = Get-OrchestrationTask -TaskId 'ghw-task-leg' -TasksDir $eLeg.tasksDir -RepoRoot $eLeg.root
+Assert-That ((($legBytesAfter -ceq $legBytesBefore) -and ([long](Get-GHWField $legAfterRec 'revision' 0) -eq $revLeg)) -and (([string](Get-GHWField $legAfterRec 'state' '') -ceq $legStateBefore) -and ([string](Get-GHWField $legAfterRec 'state' '') -cne 'DONE'))) 'legacy refusal => state/revision/bytes unchanged, never DONE'
 # --- stale SHA => TERMINAL head-superseded, still BLOCKED.
 $e3 = New-GHWEnv -Tag 'stale'
 [void](New-GHWGoal -Env $e3 -GoalId 'ghw-goal-1' -Tasks @('ghw-task-c'))

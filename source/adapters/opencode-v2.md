@@ -45,22 +45,28 @@ histórica, sem efeito).
 - Roteamento adaptativo por Tiers (Model Router vNext, T0..T4):
   - **T0 (Determinístico / Reuso):** Comandos determinísticos, validação de AST, reuso exato de evidências (zero tokens).
   - **T1 (Gratuito / Ultraleve):** Triagem rápida, extração de texto, busca semântica leve.
-  - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco, Advisor técnico simples.
+  - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco.
   - **T3 (Intermediário / Capaz):** Refatorações multi-arquivo, debugging de média complexidade, revisões de arquitetura.
   - **T4 (Frontier / Raciocínio Profundo — `{{MODEL_STRONG}}`):** Impasses técnicos comprovados, decisões críticas de segurança, bugs persistentes pós-falha.
 - Cheap worker pool — `{{MODEL_CHEAP}}`: `explorer`,
   `researcher`, `coder`, `tester`, `docs-manager`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
-  `requirements-analyst`, `engineering-advisor`, `product-designer` e `skeptic`.
+  `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Fallback do cheap pool — em indisponibilidade/erro do modelo default, escalar em ordem: 1º `opencode-go/muse-spark-1.3-contributor`, 2º `openai/gpt-6-luna`; override temporário no spawn com reset ao baseline, sujeito às cotas de escalonamento já definidas.
+- Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier — **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo): em falha de disponibilidade/erro do modelo default, a política admite:
+  - **T2 geral:** `opencode-go/muse-spark-1.3-contributor` → `openai/gpt-6-luna` → `claude-agent/haiku`; qualquer salto para `claude-agent/*` exige razão de disponibilidade em allowlist + `NoExecutionStarted=true` provado + capacidade Claude local comprovada (executável `claude` autenticado).
+  - **Planner `build` (pinado em `openai/gpt-6-luna`, T2):** somente `openai/gpt-6-luna` → `claude-agent/haiku`, e somente com falha canônica exata de Luna + razão de disponibilidade em allowlist + `NoExecutionStarted=true` provado + capacidade Claude local; **nunca** a cadeia genérica Muse/DeepSeek, nunca Sonnet, nunca T3/T4.
+  - **T3:** `openai/gpt-6.1-terra` → `claude-agent/sonnet`. **T4:** `openai/gpt-6.1-sol` → `claude-agent/opus`.
+  - **Astra:** somente com prova kernel-owned da mesma tarefa de incapacidade T3/Sol (bloco "Prova kernel-owned" abaixo). **Fable:** somente após disponibilidade canônica de Astra em allowlist + `NoExecutionStarted=true` explicitamente provado + capacidade/alias/papel Claude provados; recibo genérico nunca libera Fable.
+  - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`; `opencode-go/deepseek-v4.1-flash` está bloqueado (`ZDR_EXPIRED_UNCONFIRMED`) e fora de qualquer cadeia.
+- Implementação nativa atual (HOLD): as condições acima são de elegibilidade da política, não um mecanismo em execução. `ModelExecution` documenta o fallback nativo pré-dispatch como HOLD — sem proveniência confiável de no-start (`NoExecutionStarted` do seam `DispatchExecutor` é booleano fornecido pelo caller e nunca prova que nada começou; o seam é test-only e faz exatamente uma chamada, sem retry) e `task-kernel model-select` é CLI somente-leitura sem caller de produção identificado. Hoje não há retry, fallback ou override automático no caminho da ferramenta `subagent` do Planner; escaladas deliberadas seguem as cotas e o reset ao baseline do item "Escalonamentos para Astra" abaixo.
 - Strong worker pool - `{{MODEL_STRONG}}`: `reviewer`, `debugger`,
   `security-reviewer` (ID canônico com hífen; `security_reviewer` com
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
 - Advisor Especializado Sob Demanda (`engineering-advisor`, Issue #60):
-  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor pode ser instanciado em T2, T3 ou T4 pelo Model Router com base na severidade da dúvida. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
+  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Terra (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY: sem T2; T2 Muse é inelegível e diverge do default da política); Sol (T4) e Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
 - Escalonamentos para Astra são temporários, por subtarefa, via override
   no spawn — nunca editando este arquivo nem os prompts dos agentes — e
   sempre com reset ao baseline. Antes de escalar, pergunte: falta
@@ -70,6 +76,35 @@ histórica, sem efeito).
   subtarefa; por objetivo pai, no máximo 2 execuções acima do baseline, das
   quais no máximo 1 pode usar Astra. Astra substitui, não soma. Nunca
   Astra em paralelo para a mesma pergunta. Nunca Astra como fan-out.
+- Prova kernel-owned (Router v1.4, sem executor/plugin/API paralelo): T3→Sol
+  somente com `Get-OrchestrationTaskModelFailureProof -TaskId <id> -RequiredTier T3`
+  (`ok=true`, `policy_hash` igual ao da política vigente e `model`/`provider`
+  canônicos de Terra); Sol→Astra via `task-kernel model-select` somente com
+  prova `RequiredTier T4` válida da mesma tarefa (que exige T3 + Sol falhos
+  persistidos; checagem T4 priorizada antes da T3 de head, sem apagar o
+  histórico) **e**, no fallback, Sol no conjunto tentado. Sem prova T4, Sol
+  somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
+  `eligible_roles` ⇒ sem Astra (fail closed para Sol/tier anterior, sem
+  bypass); recibo expõe ref/digest da prova T4 (nunca a ref T3 antiga como
+  falha atual de Sol). Recibos/bools arbitrários (`T3FailureVerified`,
+  `T3FailureReceipt`, `VerifiedFailureReceipt`), `FailureCount` e risco nunca
+  autorizam T4/Astra. Rota Planner-mediada: `task-kernel model-select`
+  (somente leitura; retorna `tier` + `model` no formato `providerID/modelID`
+  — Sol em T3 válida, Astra em T4 válida posterior — + `policy_hash` + refs
+  da prova) → Planner informa `model` verbatim na propriedade `model` da
+  ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
+  → `task-kernel verify-run` → `model-attempt` → `model-proof`. A CLI nunca
+  cria sessões. Prova do override `subagent.model` é só do servidor OpenCode
+  local vivo: `native_model_override_proven=true` somente quando a versão
+  viva de `opencode api get /api/info` está exatamente na allowlist
+  `2.2.5`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
+  metadados de observabilidade informados pelo caller e nunca autorizam;
+  API viva desconhecida/indisponível falha fechada com `model` em branco.
+  Suposição residual: o `/api/info` local alcança o mesmo servidor que
+  recebe a chamada `subagent` subsequente (sem binding de sessão/dispatch
+  provado). `DIRECT_VERIFIED` é só via classificador (trivial + baixo
+  risco + motivo `DIRECT_VERIFIED_*`) e custa tokens do Planner, não é T0
+  sem custo.
 
 ### Workflow Adaptativo e Rota DIRECT_VERIFIED
 
@@ -219,7 +254,7 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
 `requirements-analyst` baseline cheap → Sol para requisitos estruturalmente complexos;
-`engineering-advisor` baseline cheap → Sol → Sol/high quando necessário;
+`engineering-advisor` baseline T3 Terra → Sol → Sol/high quando necessário;
 `product-designer` baseline cheap → Sol excepcionalmente; `skeptic` baseline cheap →
 Sol para plano/arquitetura high-risk. Nunca reutilize um
 worker escalonado após a subtarefa.

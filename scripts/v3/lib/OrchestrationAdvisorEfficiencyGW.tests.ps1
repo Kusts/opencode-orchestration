@@ -70,15 +70,18 @@ $sel04CritUnauth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Ri
 Assert-GW ($sel04CritUnauth.Tier -eq 'T3') 'GW-ADVISOR-04' "Reviewer critico sem autorizacao de custo faz fallback seguro para T3"
 
 $sel04CritAuth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'critical' -Complexity 'complex' -ProviderCostAuthorized $true
-Assert-GW ($sel04CritAuth.Tier -eq 'T4') 'GW-ADVISOR-04' "Reviewer critico autorizado para custo escala para T4 (frontier)"
-Assert-GW ($sel04CritAuth.ModelToken -eq 'MODEL_FRONTIER') 'GW-ADVISOR-04' "Reviewer T4 usa token distinto MODEL_FRONTIER"
+# v1.4: autorizacao de custo isolada NAO escala para T4; a selecao positiva
+# de T4 exige prova T3 real do TaskKernel (cuberta em RouterKernelProof/NativeProof).
+Assert-GW ($sel04CritAuth.Tier -eq 'T3') 'GW-ADVISOR-04' "Reviewer critico com custo autorizado mas sem prova T3 do TaskKernel permanece em T3"
+Assert-GW ($sel04CritAuth.ModelToken -eq 'MODEL_STRONG') 'GW-ADVISOR-04' "Sem prova T3 o reviewer usa o token forte T3 (nunca MODEL_FRONTIER)"
 
 # GW-ADVISOR-05: Verificacao de seguranca impoe T3 minimo e bloqueia T1/T2
 $sel05 = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial'
 Assert-GW ($sel05.Tier -eq 'T3') 'GW-ADVISOR-05' "Security-reviewer nunca opera abaixo de T3"
 Assert-GW ($sel05.AdmissibleTiers -notcontains 'T1' -and $sel05.AdmissibleTiers -notcontains 'T2') 'GW-ADVISOR-05' "T1 e T2 estritamente proibidos para seguranca"
 
-# GW-ADVISOR-06: Impasse comprovado (verified_deadlock) com 2 falhas escala para engineering-advisor em T4
+# GW-ADVISOR-06: impasse comprovado com 2 falhas NAO escala sozinho para T4;
+# o escalonamento positivo para T4 exige prova T3 real do TaskKernel
 $req06 = @{
     task_id        = 'GW-06-DEADLOCK'
     trigger_signal = 'verified_deadlock'
@@ -90,8 +93,9 @@ $req06 = @{
 $sel06NoFail = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 0
 Assert-GW ($sel06NoFail.Tier -eq 'T3') 'GW-ADVISOR-06' "Advisor apenas com complexidade seleciona T3 (sem escalonamento T4 sem falha)"
 
+# FailureCount bruto + autorizacao de custo isolados NAO escalam para T4
 $sel06 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
-Assert-GW ($sel06.Tier -eq 'T4') 'GW-ADVISOR-06' "Advisor escalado para Tier T4 sob deadlock comprovado com 2 falhas e autorizacao de custo"
+Assert-GW ($sel06.Tier -eq 'T3') 'GW-ADVISOR-06' "Advisor com 2 falhas e custo autorizado mas sem prova T3 do TaskKernel permanece em T3"
 
 # Execucao sem probe e com native desativado: registra PROOF_ABSENT sem recomendacao fabricada
 $resp06Unprobed = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -DisableNativeExecutor
@@ -118,7 +122,7 @@ $probe06Harness = {
 $resp06 = Invoke-AdvisorConsultation -Request $req06 -ModelRouterSelection $sel06 -AdvisorProbe $probe06Harness
 Assert-GW ($resp06.Status -eq 'COMPLETED') 'HARNESS_PROBED-06' "Consulta em harness executada via seam de teste"
 Assert-GW ($resp06.RecommendedOption -eq 'Adotar Exponential Backoff') 'HARNESS_PROBED-06' "Recomendacao do seam de teste registrada"
-Assert-GW ($resp06.ModelTierUsed -eq 'T4') 'HARNESS_PROBED-06' "Advisor executado em Tier T4 no harness"
+Assert-GW ($resp06.ModelTierUsed -eq 'T3') 'HARNESS_PROBED-06' "Advisor executado em Tier T3 no harness (selecao sem prova T3 do TaskKernel)"
 Assert-GW ($resp06.IsAdvisory -eq $true -and $resp06.Authoritative -eq $false) 'HARNESS_PROBED-06' "Advisor atua com limites estritamente consultivos"
 
 # GW-ADVISOR-07: [HARNESS_PROBED] Consulta repetida com mesmo contexto recupera do cache SHA256
@@ -378,11 +382,13 @@ try {
     Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-03-ROUTER' "Coder com 2 falhas sem autorizacao de custo faz fallback seguro para T3"
 
     $selCostAuth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -ModelCatalog $customCat -ProviderCostAuthorized $true
-    Assert-GW ($selCostAuth.Tier -eq 'T4') 'INT-03-ROUTER' "Coder com 2 falhas e autorizacao de custo recebe T4"
-    Assert-GW ($selCostAuth.CatalogModel -eq 'opencode-custom/frontier-model') 'INT-03-ROUTER' "Modelo de catalogo mapeado para frontier"
+    # v1.4: FailureCount bruto + autorizacao de custo NAO selecionam T4 sem
+    # prova T3 real do TaskKernel (cobertura positiva em RouterKernelProof/NativeProof).
+    Assert-GW ($selCostAuth.Tier -eq 'T3') 'INT-03-ROUTER' "Coder com 2 falhas e custo autorizado sem prova T3 do TaskKernel permanece em T3"
+    Assert-GW ($selCostAuth.CatalogModel -eq 'opencode-custom/strong-model') 'INT-03-ROUTER' "Modelo de catalogo mapeado para o tier forte T3"
 
-    # Verificacao de modelo executado
-    $verMatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'opencode-custom/frontier-model' } -NativeModelOverrideProven $true
+    # Verificacao de modelo executado contra o modelo efetivamente selecionado
+    $verMatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'opencode-custom/strong-model' } -NativeModelOverrideProven $true
     Assert-GW ($verMatch.VerifiedMatch -eq $true -and $verMatch.ProofStatus -in @('EXACT_MATCH', 'VERIFIED_MATCH')) 'INT-03-ROUTER' "Match de modelo executado comprovado"
 
     $verMismatch = Test-ExecutedModelVerification -RequestedSelection $selCostAuth -ExecutedModelEvent @{ Model = 'unauthorized-model' } -NativeModelOverrideProven $true
@@ -711,36 +717,36 @@ if (Test-Path -LiteralPath $jevLib) {
     # -------------------------------------------------------------------------------------------------
     # INT-07: AUTORIZACAO E RASTREABILIDADE DE CUSTO T4 NO MODEL ROUTER (P0 / P1)
     # -------------------------------------------------------------------------------------------------
-    # 7a. T4 sem autorizacao de custo degrada com seguranca para T3
+    # 7a. sem autorizacao de custo a selecao permanece em T3 (fail-closed)
     $oldT4Auth = [System.Environment]::GetEnvironmentVariable('OPENCODE_T4_AUTHORIZED')
     try {
         [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', $null)
         $selNoCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
-        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "T4 sem autorizacao de custo degrada com seguranca para T3"
+        Assert-GW ($selNoCost.Tier -eq 'T3') 'INT-07-ROUTER' "Sem prova Kernel permanece em T3 (fail-closed)"
         Assert-GW ($selNoCost.ModelToken -eq 'MODEL_STRONG') 'INT-07-ROUTER' "Degradacao utiliza MODEL_STRONG"
-        Assert-GW ($selNoCost.SelectionReason -match 'unauthorized') 'INT-07-ROUTER' "Razao explicita de degradacao por autorizacao ausente"
+        Assert-GW ($selNoCost.SelectionReason -match 'T3') 'INT-07-ROUTER' "Razao explicita de permanencia em T3 sem prova T3 do TaskKernel"
 
-        # 7b. T4 com autorizacao explicita via parametro
+        # 7b. autorizacao de custo explicita via parametro, SEM prova T3 do TaskKernel
         $selParamCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $true
-        Assert-GW ($selParamCost.Tier -eq 'T4') 'INT-07-ROUTER' "T4 autorizado explicitamente seleciona tier T4"
+        Assert-GW ($selParamCost.Tier -eq 'T3') 'INT-07-ROUTER' "Custo autorizado sem prova T3 do TaskKernel permanece em T3 (nao escala para T4)"
         Assert-GW ($selParamCost.ProviderCostAuthorized -eq $true) 'INT-07-ROUTER' "ProviderCostAuthorized marcado como true"
-        Assert-GW ($selParamCost.CostAuthorizationSource -eq 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Fonte de autorizacao EXPLICIT_PARAMETER registrada"
+        Assert-GW (($selParamCost.CostAuthorizationSource -cne 'EXPLICIT_PARAMETER') -and (-not [string]::IsNullOrWhiteSpace([string]$selParamCost.CostAuthorizationSource))) 'INT-07-ROUTER' "Nenhuma fonte de autorizacao T4 e registrada sem escalar para T4"
 
         $receiptParam = Get-OrchestrationModelRouterReceipt -Selection $selParamCost
-        Assert-GW ($receiptParam.tier -eq 'T4') 'INT-07-ROUTER' "Recibo confirma tier T4"
+        Assert-GW ($receiptParam.tier -eq 'T3') 'INT-07-ROUTER' "Recibo confirma tier T3 (nunca T4 sem prova do TaskKernel)"
         Assert-GW ($receiptParam.provider_cost_authorized -eq $true) 'INT-07-ROUTER' "Recibo confirma provider_cost_authorized=true"
-        Assert-GW ($receiptParam.authorization_source -eq 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Recibo rastreia fonte EXPLICIT_PARAMETER"
+        Assert-GW ($receiptParam.authorization_source -cne 'EXPLICIT_PARAMETER') 'INT-07-ROUTER' "Recibo nao rastreia fonte de autorizacao T4 sem T4"
         Assert-GW (-not [string]::IsNullOrWhiteSpace($receiptParam.budget)) 'INT-07-ROUTER' "Recibo registra orcamento de tier"
 
-        # 7c. T4 com autorizacao global via variavel de ambiente
+        # 7c. autorizacao global via variavel de ambiente, SEM prova T3 do TaskKernel
         [System.Environment]::SetEnvironmentVariable('OPENCODE_T4_AUTHORIZED', 'true')
         $selEnvCost = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -ProviderCostAuthorized $false
-        Assert-GW ($selEnvCost.Tier -eq 'T4') 'INT-07-ROUTER' "T4 autorizado globalmente via env seleciona T4"
-        Assert-GW ($selEnvCost.CostAuthorizationSource -eq 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Fonte GLOBAL_ENV_OPENCODE_T4_AUTHORIZED comprovada"
+        Assert-GW ($selEnvCost.Tier -eq 'T3') 'INT-07-ROUTER' "Env de autorizacao T4 sem prova T3 do TaskKernel permanece em T3"
+        Assert-GW ($selEnvCost.CostAuthorizationSource -cne 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Fonte de autorizacao global nao e registrada sem escalar para T4"
 
         $receiptEnv = Get-OrchestrationModelRouterReceipt -Selection $selEnvCost
-        Assert-GW ($receiptEnv.authorization_source -eq 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Recibo registra fonte de autorizacao global"
-        Assert-GW ($receiptEnv.authorization_evidence -match 'OPENCODE_T4_AUTHORIZED=true') 'INT-07-ROUTER' "Recibo exige evidencia de autorizacao global"
+        Assert-GW ($receiptEnv.authorization_source -cne 'GLOBAL_ENV_OPENCODE_T4_AUTHORIZED') 'INT-07-ROUTER' "Recibo nao registra fonte de autorizacao global sem T4"
+        Assert-GW ($receiptEnv.authorization_evidence -notmatch 'OPENCODE_T4_AUTHORIZED=true') 'INT-07-ROUTER' "Recibo nao apresenta evidencia de autorizacao global sem T4"
 
         # 7d. Invariante fail-closed: Recibo com T4 e provider_cost_authorized=false e estritamente proibido
         $fakeT4Unauthorized = [pscustomobject]@{
@@ -788,6 +794,7 @@ if (Test-Path -LiteralPath $jevLib) {
                 -Risk 'medium' `
                 -AcceptanceCriteria @('criterion:0:mutex_concurrency_verified', 'criterion:1:mutex_timeout_verified', 'criterion:2:mutex_abandon_recovery_verified') `
                 -ExpectedArtifacts @('code/LockResource.ps1') `
+                -VerificationProfiles @('passes') `
                 -TasksDir $tmpTaskDir
 
             Assert-GW ($taskInit.ok -and $taskInit.state -eq 'DISCOVERING') 'INT-08-CONCURRENCY-COMPONENT' "Task de componente inicializada no Kernel em DISCOVERING"
@@ -1024,7 +1031,19 @@ $res = Invoke-ExclusiveWork -LockName $LockName -Action { return "RECOVERED_AFTE
 
             Assert-GW ($revSet.ok -and $revSet.status -eq 'approved') 'INT-08-CONCURRENCY-COMPONENT' "Revisao formal independente aprovada no Kernel"
 
-            # 7. Conclusao formal para DONE no Task Kernel
+            # 7. Conclusao bloqueada: caller-supplied verified_pass nao produz DONE
+            #    (requer kernel-executed verify-run). Mantem as checagens de
+            #    mutex/timeout/abandoned acima; apenas o resultado final muda.
+            $revBeforeDone = [int](Get-OrchestrationTask -TaskId $taskIdReal -TasksDir $tmpTaskDir)['revision']
+            $taskFileDone = Join-Path $tmpTaskDir ("$taskIdReal.json")
+            $bytesBeforeDone = ''
+            if (Test-Path -LiteralPath $taskFileDone) {
+                if (Get-Command Get-TaskBytesHash -ErrorAction SilentlyContinue) {
+                    $bytesBeforeDone = Get-TaskBytesHash -Path $taskFileDone
+                } else {
+                    $bytesBeforeDone = (Get-FileHash -LiteralPath $taskFileDone -Algorithm SHA256).Hash
+                }
+            }
             $doneRes = Complete-OrchestrationTask `
                 -TaskId $taskIdReal `
                 -Actor 'task-kernel' `
@@ -1034,8 +1053,17 @@ $res = Invoke-ExclusiveWork -LockName $LockName -Action { return "RECOVERED_AFTE
                 -ActorIdentitySource 'explicit-cli' `
                 -TasksDir $tmpTaskDir
 
-            Assert-GW ($doneRes.ok -and $doneRes.state -eq 'DONE') 'INT-08-CONCURRENCY-COMPONENT' "Kernel autoriza transicao final para DONE em conformidade COMPLIANT"
-            Assert-GW ($doneRes.revision -eq 9) 'INT-08-CONCURRENCY-COMPONENT' "Revisao final CAS 9 alcancada em estado DONE"
+            Assert-GW ((-not [bool]$doneRes.ok) -and ([string]$doneRes.error -ceq 'COMPLETION_GATE_FAILED') -and (@($doneRes.reasons) -contains 'verification-untrusted')) 'INT-08-CONCURRENCY-COMPONENT' "Caller-supplied verified_pass cannot produce DONE (verification-untrusted); kernel-executed verify-run is required"
+            $doneAfterRec = Get-OrchestrationTask -TaskId $taskIdReal -TasksDir $tmpTaskDir
+            $bytesAfterDone = ''
+            if (Test-Path -LiteralPath $taskFileDone) {
+                if (Get-Command Get-TaskBytesHash -ErrorAction SilentlyContinue) {
+                    $bytesAfterDone = Get-TaskBytesHash -Path $taskFileDone
+                } else {
+                    $bytesAfterDone = (Get-FileHash -LiteralPath $taskFileDone -Algorithm SHA256).Hash
+                }
+            }
+            Assert-GW (([int]$doneAfterRec['revision'] -eq $revBeforeDone) -and ([string]$doneAfterRec['state'] -ceq 'REVIEWING') -and ($bytesAfterDone -ceq $bytesBeforeDone)) 'INT-08-CONCURRENCY-COMPONENT' "Refused caller-supplied DONE leaves task in REVIEWING at same revision with bytes unchanged"
         } finally {
             if (Test-Path -LiteralPath $tmpTaskDir) {
                 Remove-Item -LiteralPath $tmpTaskDir -Recurse -Force -ErrorAction SilentlyContinue

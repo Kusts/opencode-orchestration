@@ -46,6 +46,10 @@ $evDir = [string]$ctx.evidence_dir
 $tasksDir = [string]$ctx.tasks_dir
 $flagsPath = [string]$ctx.flags_path
 $artifactDir = [string]$ctx.artifact_dir
+$verifyRepo = [string]$ctx.verify_repo
+if ([string]::IsNullOrWhiteSpace($verifyRepo) -or (-not (Test-Path -LiteralPath $verifyRepo -PathType Container))) {
+    throw ('verify-repo-missing: pinned verification repo not found: ' + $verifyRepo)
+}
 $auth = @{ explicit_allow = $true; goal_id = $goalId; owner = [string]$ctx.owner; generation = [long]$ctx.generation; source = 'planner' }
 
 $artifactPath = Join-Path $artifactDir 'output-a.json'
@@ -109,7 +113,6 @@ function Complete-TaskCanonically {
 
     # Step 4: Independent verification (semantic JSON parsing + value check + scope)
     $verifyPassed = $false
-    $verifyEvidence = @()
     $artifactContent = ''
     if (-not (Test-Path -LiteralPath $ArtifactPath -PathType Leaf)) {
         $verifyPassed = $false
@@ -134,25 +137,26 @@ function Complete-TaskCanonically {
                     }
                 }
             }
-            if ($verifyPassed) { $verifyEvidence = @('criterion:0:verified') }
         } else {
             # Strict JSON required: non-JSON artifacts fail verification
             $verifyPassed = $false
-            $verifyEvidence = @()
         }
     }
 
-    # Construct verifier result from REAL verification (status reflects actual evaluation)
-    $verifyStatus = if ($verifyPassed) { 'verified_pass' } else { 'unverified' }
-    $verifyResult = @{ status = $verifyStatus; evidence = $verifyEvidence }
-    $verJson = ConvertTo-Json -InputObject $verifyResult -Depth 3 -Compress
-    $vr = Set-OrchestrationTaskVerification -TaskId $TaskId -VerifierEvidenceJson $verJson -ExpectedRevision $taskRev -TasksDir $tasksDir -FlagsPath $flagsPath
+    # Kernel-executed verification: the committed plan in the pinned
+    # verification repo re-checks the artifact above; this call never takes
+    # a caller-supplied result, so only the kernel can persist the marks.
+    $vr = Invoke-TaskKernelVerifyRun -TaskId $TaskId -ExpectedRevision $taskRev -TasksDir $tasksDir -FlagsPath $flagsPath -RepoRoot $verifyRepo
     if (-not [bool]$vr.ok) { throw ('verification failed: ' + [string]$vr.error) }
     $taskRev = [long]$vr.revision
-    Log ('  ' + $TaskId + ': verification set (' + $verifyStatus + ') - content evaluated')
+    $kernelPassed = (([bool]$vr.passed) -and ([string]$vr.status -ceq 'verified_pass') -and ([string]$vr.verification_source -ceq 'kernel-executed'))
+    Log ('  ' + $TaskId + ': verification kernel-executed (' + [string]$vr.status + ') - content evaluated')
 
     if (-not $verifyPassed) {
         throw ('verification-not-passed: artifact content invalid for ' + $TaskId)
+    }
+    if (-not $kernelPassed) {
+        throw ('verification-kernel-not-passed: ' + [string]$vr.status + ' for ' + $TaskId)
     }
 
     # Step 5: Review based on real evidence (scope check)
