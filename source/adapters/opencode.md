@@ -61,8 +61,9 @@ histórica, sem efeito).
   suporta `{{MODEL_PLANNER}}` ou `{{MODEL_STRONG}}` sem mudar o
   comportamento. Não fixe modelo no perfil `build`; o default global permanece
   GLM Flash.
-- Cheap worker pool — `{{MODEL_CHEAP}}`: `explorer`,
-  `researcher`, `coder`, `tester`, `docs-manager`, `frontend-engineer`,
+- Free worker pool — `{{MODEL_FREE}}`: `explorer`, `researcher`,
+  `tester`, `docs-manager` (T1 inicial; escala para T2 apenas quando necessário).
+- Cheap worker pool — `{{MODEL_CHEAP}}`: `coder`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.

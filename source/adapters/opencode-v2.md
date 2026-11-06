@@ -48,8 +48,9 @@ histórica, sem efeito).
   - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco.
   - **T3 (Intermediário / Capaz):** Refatorações multi-arquivo, debugging de média complexidade, revisões de arquitetura.
   - **T4 (Frontier / Raciocínio Profundo — `{{MODEL_STRONG}}`):** Impasses técnicos comprovados, decisões críticas de segurança, bugs persistentes pós-falha.
-- Cheap worker pool — `{{MODEL_CHEAP}}`: `explorer`,
-  `researcher`, `coder`, `tester`, `docs-manager`, `frontend-engineer`,
+- Free worker pool — `{{MODEL_FREE}}`: `explorer`, `researcher`,
+  `tester`, `docs-manager` (T1 inicial; escala para T2 apenas quando necessário).
+- Cheap worker pool — `{{MODEL_CHEAP}}`: `coder`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
@@ -130,9 +131,10 @@ histórica, sem efeito).
 A imposição de subagents para qualquer alteração é substituída pelo workflow adaptativo:
 
 1. **DIRECT_VERIFIED (Tarefas Triviais, Localizadas e Reversíveis):**
-   - Para mudanças estritamente cosméticas, ajustes pontuais de documentação, correção de typos e pequenas strings sem impacto lógico ou estrutural (`Risk = low`, `Complexity = trivial`), o Planner pode executar a alteração diretamente sem criar subagent subordinado.
-   - A rota direta continua sujeita à autorização, limites de escrita e validação focada. A conformidade de conclusão é garantida no Task Kernel via `Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED`.
-   - É terminantemente proibido utilizar `DIRECT_VERIFIED` para tarefas não triviais, introdução de novas funcionalidades, refatorações amplas ou alterações de segurança (`ORCHESTRATION_POLICY_BYPASS`).
+    - O Planner pode executar diretamente, sem preflight/worker/tarefa de Kernel/reviewer/worktree/PR obrigatórios, quando o classificador existente (`scripts/v3/orchestration-preflight.ps1`) reconhece o caso: mudanças cosméticas/documentação/typos e, em código funcional, **uma micro-correção que exige, no objetivo, tanto um único arquivo quanto uma única unidade de código (função, branch, condição ou expressão)**, além de um teste focado (`focused test`/`teste focado`) — os dois marcadores de escopo são obrigatórios, não alternativos — com `TaskType=trivial`, `Domain=code`, `Risk=low`, `ReadWrite=write`.
+    - Se o preflight for invocado, ele deve retornar `DIRECT_VERIFIED` (`DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK`, `selected_agents=[]`) e o Planner honra zero workers; esse micro-escopo não exige preflight universal.
+    - Ficam fora da rota direta, mantendo os contratos existentes de delegação, Kernel e autoridade: financeiro/pagamento/billing/pricing, permissão/auth/segurança, credenciais/segredos, produção, ações destrutivas, arquitetura, escopo amplo ou multi-arquivo/multi-módulo, feature nova, refactor, trabalho substantivo, incerto ou não trivial, concorrência e qualquer trabalho de propriedade do Kernel; o `coder` (T2) segue como implementador do trabalho substantivo rotineiro.
+    - A rota direta continua sujeita às permissões nativas, limites de escrita e validação focada; não cria uma Task do Kernel nem amplia autoridade. Se o check de conformidade existente for invocado, `Test-OrchestrationDoneCompliance` valida a forma trivial/zero-worker. Trabalho fora do micro-escopo segue sua rota apropriada.
 2. **SINGLE_WORKER / MULTI_WORKER (Tarefas Não Triviais):**
    - Roteamento com workers permanece disponível via runtime existente; delegação quando trouxer benefício concreto (dimensões da política compartilhada em Agent Config #21), com contratos delimitados. Sem exigência incondicional por impacto funcional.
 

@@ -46,11 +46,14 @@ seleciona o menor conjunto útil, define ownership, integra evidências e
 encerra. `coder` é o implementador padrão; especialistas de domínio só com
 profundidade, risco, workstream independente ou paralelização segura.
 
-**Cheap pool** (`{{MODEL_CHEAP}}`, escala horizontal — evidência e volume),
-11 workers de execução:
+**Free pool** (`{{MODEL_FREE}}`, T1 — ultraleve), 4 workers:
 
-`explorer`, `researcher`, `coder`, `tester`, `docs-manager`,
-`frontend-engineer`, `backend-engineer`, `database-engineer`,
+`explorer`, `researcher`, `tester`, `docs-manager`.
+
+**Cheap pool** (`{{MODEL_CHEAP}}`, escala horizontal — evidência e volume),
+7 workers de execução:
+
+`coder`, `frontend-engineer`, `backend-engineer`, `database-engineer`,
 `ai-agent-engineer`, `automation-engineer`, `infra-engineer`.
 
 **Strong pool** (`{{MODEL_STRONG}}`, escala vertical — decisões difíceis),

@@ -69,6 +69,29 @@ Assert-PMC ($advisorFrontmatter -match '(?m)^model:\s*\{\{MODEL_STRONG\}\}\s*$')
 Assert-PMC ($researcherFrontmatter -match '(?m)^model:\s*\{\{MODEL_FREE\}\}\s*$') 'pmc-researcher-frontmatter-uses-T1-token'
 Assert-PMC ($testerFrontmatter -match '(?m)^model:\s*\{\{MODEL_FREE\}\}\s*$') 'pmc-tester-frontmatter-uses-T1-token'
 
+# Adaptive adapter documentation: the free pool is T1 and the cheap block never
+# lists T1 roles (explorer/researcher/tester/docs-manager). Each block must own
+# only its token (free -> MODEL_FREE, cheap -> MODEL_CHEAP).
+foreach ($adapter in @(
+    @{ Tag = 'v1'; Path = 'source\adapters\opencode.md' },
+    @{ Tag = 'v2'; Path = 'source\adapters\opencode-v2.md' }
+)) {
+    $adapterText = [IO.File]::ReadAllText((Join-Path $repo $adapter.Path), [Text.Encoding]::UTF8)
+    Assert-PMC ($adapterText -match 'Free worker pool') ("pmc-$($adapter.Tag)-adapter-documents-free-worker-pool")
+
+    $cheapMatch = [regex]::Match($adapterText, '(?s)- Cheap worker pool.*?(?=\r?\n- |\z)')
+    $cheapBlock = if ($cheapMatch.Success) { $cheapMatch.Value } else { '' }
+    Assert-PMC ($cheapBlock.Length -gt 0 -and $cheapBlock.Contains('{{MODEL_CHEAP}}') -and -not $cheapBlock.Contains('{{MODEL_FREE}}')) ("pmc-$($adapter.Tag)-adapter-cheap-block-only-cheap-token")
+    Assert-PMC ($cheapBlock.Length -gt 0 -and -not ($cheapBlock -match '\b(explorer|researcher|tester|docs-manager)\b')) ("pmc-$($adapter.Tag)-adapter-cheap-block-excludes-T1-roles")
+
+    $freeMatch = [regex]::Match($adapterText, '(?s)- Free worker pool.*?(?=\r?\n- |\z)')
+    $freeBlock = if ($freeMatch.Success) { $freeMatch.Value } else { '' }
+    Assert-PMC ($freeBlock.Length -gt 0 -and $freeBlock.Contains('{{MODEL_FREE}}') -and -not $freeBlock.Contains('{{MODEL_CHEAP}}')) ("pmc-$($adapter.Tag)-adapter-free-block-only-free-token")
+    $missingFreeRoles = @(@('explorer','researcher','tester','docs-manager') | Where-Object { $freeBlock -notmatch ('\b' + [regex]::Escape($_) + '\b') })
+    Assert-PMC ($freeBlock.Length -gt 0 -and $missingFreeRoles.Count -eq 0) ("pmc-$($adapter.Tag)-adapter-free-block-lists-T1-roles")
+    Assert-PMC ($freeBlock.Length -gt 0 -and -not ($freeBlock -match '\b(coder|frontend-engineer|backend-engineer|database-engineer|ai-agent-engineer|automation-engineer|infra-engineer)\b')) ("pmc-$($adapter.Tag)-adapter-free-block-excludes-cheap-roles")
+}
+
 $localModels = Join-Path $repo 'models.jsonc'
 if (Test-Path -LiteralPath $localModels -PathType Leaf) {
     $local = Read-JsoncFile $localModels
