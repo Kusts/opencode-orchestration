@@ -814,8 +814,8 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
     }
   }
   else { $errs += 'template: bloco agent.build ausente.' }
-  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'openai/gpt-6-luna') {
-    $errs += 'template: modelo global deve permanecer openai/gpt-6-luna.'
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/deepseek-v4.1-flash') {
+    $errs += 'template: modelo global deve permanecer opencode-go/deepseek-v4.1-flash.'
   }
   if ((Has-Member $desired.agent 'title') -and [string]$desired.agent.title.model -cne 'openai/gpt-6-luna') {
     $errs += 'template: agente title deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'
@@ -865,8 +865,8 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
     else { $errs += 'template V2: bloco agents.title ausente.' }
   }
   else { $errs += 'template V2: bloco agents ausente.' }
-  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'openai/gpt-6-luna') {
-    $errs += 'template V2: modelo global deve permanecer openai/gpt-6-luna.'
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/deepseek-v4.1-flash') {
+    $errs += 'template V2: modelo global deve permanecer opencode-go/deepseek-v4.1-flash.'
   }
   if ((Has-Member $desired.agents 'title') -and [string]$desired.agents.title.model -cne 'openai/gpt-6-luna') {
     $errs += 'template V2: agents.title.model deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'

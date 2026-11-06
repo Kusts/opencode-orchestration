@@ -421,6 +421,7 @@
         "T2"
       ],
       "eligible_roles": [
+        "build",
         "coder",
         "researcher",
         "tester",
@@ -477,7 +478,13 @@
       "resolution_status": "runtime-unverified",
       "alias": "haiku",
       "resolution_note": "Dispatch identity is model_id=claude-agent/haiku plus alias=haiku (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
-      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "effort_variants": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
@@ -541,7 +548,13 @@
       "resolution_status": "runtime-unverified",
       "alias": "sonnet",
       "resolution_note": "Dispatch identity is model_id=claude-agent/sonnet plus alias=sonnet (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
-      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "effort_variants": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
@@ -612,7 +625,13 @@
       "resolution_status": "runtime-unverified",
       "alias": "opus",
       "resolution_note": "Dispatch identity is model_id=claude-agent/opus plus alias=opus (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
-      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "effort_variants": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
@@ -672,7 +691,13 @@
       "resolution_status": "runtime-unverified",
       "alias": "fable",
       "resolution_note": "Dispatch identity is model_id=claude-agent/fable plus alias=fable (closed dispatch-alias map); the router compares ONLY that model_id/alias pair and never a concrete ID. catalog_inventory_id is an exact ID merely LISTED in the local `opencode models` CLI inventory: catalog listing/provenance ONLY, never an alias->concrete mapping and never compared at dispatch. No resolved_model field exists. Alias-to-concrete resolution is UNRESOLVED until a session event proves it; an event reporting an unverified concrete ID must stay PROOF_ABSENT/UNAUTHORIZED_MISMATCH at verification. Never claim the alias resolves to this ID at runtime.",
-      "effort_variants": ["low", "medium", "high", "xhigh", "max"],
+      "effort_variants": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "smoke_variant": null,
       "enabled": true,
       "tier_profiles": [
@@ -743,11 +768,11 @@
     },
     "T2": {
       "name": "Economical",
-      "primary": "deepseek_go",
+      "primary": "luna",
       "alternatives": [
+        "deepseek_go",
         "muse",
-        "claude_haiku",
-        "luna"
+        "claude_haiku"
       ],
       "fallback": "muse",
       "relative_cost": 0.15,
@@ -779,7 +804,7 @@
   },
   "role_profiles": {
     "build": {
-      "default_model": "luna",
+      "default_model": "deepseek_go",
       "default_tier": "T2",
       "escalation": "engineering-advisor",
       "stable_objective": true,
@@ -830,7 +855,7 @@
       ]
     },
     "coder": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -887,7 +912,7 @@
       ]
     },
     "frontend-engineer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -904,7 +929,7 @@
       ]
     },
     "backend-engineer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -922,7 +947,7 @@
       ]
     },
     "database-engineer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -940,7 +965,7 @@
       ]
     },
     "ai-agent-engineer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -958,7 +983,7 @@
       ]
     },
     "automation-engineer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -976,7 +1001,7 @@
       ]
     },
     "infra-engineer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -1063,7 +1088,7 @@
       ]
     },
     "requirements-analyst": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -1081,7 +1106,7 @@
       ]
     },
     "product-designer": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -1099,7 +1124,7 @@
       ]
     },
     "skeptic": {
-      "default_model": "deepseek_go",
+      "default_model": "luna",
       "default_tier": "T2",
       "alternatives": [
         "muse",
@@ -1139,9 +1164,9 @@
     }
   },
   "planner": {
-    "primary": "luna",
-    "model_id": "openai/gpt-6-luna",
-    "provider": "openai",
+    "primary": "deepseek_go",
+    "model_id": "opencode-go/deepseek-v4.1-flash",
+    "provider": "opencode-go",
     "stable_during_objective": true,
     "tier": "T2",
     "fallback": null,
@@ -1149,7 +1174,7 @@
     "fallback_provider": null,
     "fallback_requires_capability_proof": false,
     "fallback_capability": null,
-    "fallback_resolution_note": "Planner is Luna-only (T2). No automatic fallback for Planner is implemented or authorized by this matrix; the generic T2 chain DeepSeek->Muse->Haiku->Luna applies to non-build roles only; build has no silent DeepSeek/Muse/Haiku fallback."
+    "fallback_resolution_note": "Planner is DeepSeek Go (T2). No automatic fallback for Planner is implemented or authorized by this matrix; the generic T2 chain applies to non-build roles only; build has no silent fallback."
   },
   "advisor": {
     "default": "claude_sonnet",

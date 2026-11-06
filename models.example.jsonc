@@ -3,9 +3,9 @@
   // Planner e Luna-only: nenhum fallback automatico implementado/autorizado por esta matriz; sem fallback silencioso para DeepSeek/Muse/Haiku.
   // O modelo global (topo do opencode.json) e Luna literal no template, nao este campo.
   // Copie como models.jsonc (arquivo local ignorado pelo Git).
-  "planner": "openai/gpt-6-luna",
+  "planner": "opencode-go/deepseek-v4.1-flash",
   // T2: pool economico DeepSeek Go->Muse->Haiku->Luna (mesmo tier; exaustao de transporte nunca sobe de tier).
-  "cheap": "opencode-go/deepseek-v4.1-flash",
+  "cheap": "openai/gpt-6-luna",
   // T1: Iceman; fallback opencode/mimo-v2.6-flash-free.
   "free": "opencode-go/iceman-contributor-free",
   // T3: alias Sonnet (claude-agent/sonnet; nome de catalogo Sonnet 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Fallback tecnico Terra.

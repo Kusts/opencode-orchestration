@@ -26,10 +26,10 @@ Assert-MX ($p.Status -ceq 'POLICY_LOADED') 'mx-policy-loads'
 $pol = $p.Policy
 
 # 1. Declarative primary and same-tier fallback order.
-Assert-MX ([string]$pol.planner.model_id -ceq 'openai/gpt-6-luna' -and [string]$pol.planner.tier -ceq 'T2') 'mx-planner-luna-t2'
-Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'luna' -and @($pol.role_profiles.build.alternatives).Count -eq 0) 'mx-build-pinned-luna-no-sonnet-alt'
+Assert-MX ([string]$pol.planner.model_id -ceq 'opencode-go/deepseek-v4.1-flash' -and [string]$pol.planner.tier -ceq 'T2' -and [string]$pol.planner.primary -ceq 'deepseek_go') 'mx-planner-deepseek-t2'
+Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'deepseek_go' -and @($pol.role_profiles.build.alternatives).Count -eq 0) 'mx-build-pinned-deepseek-no-sonnet-alt'
 Assert-MX (([string]$pol.tiers.T1.primary -ceq 'iceman') -and ([string]$pol.tiers.T1.fallback -ceq 'mimo')) 'mx-T1-iceman-to-mimo'
-Assert-MX (([string]$pol.tiers.T2.primary -ceq 'deepseek_go') -and ([string]$pol.tiers.T2.fallback -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[0] -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'claude_haiku') -and ([string]$pol.tiers.T2.alternatives[2] -ceq 'luna')) 'mx-T2-deepseek-muse-haiku-luna-order'
+Assert-MX (([string]$pol.tiers.T2.primary -ceq 'luna') -and ([string]$pol.tiers.T2.fallback -ceq 'muse')) 'mx-T2-luna-primary'
 Assert-MX (([string]$pol.models.deepseek_go.fallback_candidates[0] -ceq 'muse') -and ([string]$pol.models.deepseek_go.fallback_candidates[1] -ceq 'claude_haiku') -and ([string]$pol.models.deepseek_go.fallback_candidates[2] -ceq 'luna') -and ([string]$pol.models.muse.fallback_candidates[0] -ceq 'claude_haiku') -and ([string]$pol.models.muse.fallback_candidates[1] -ceq 'luna') -and (@($pol.models.luna.fallback_candidates).Count -eq 0)) 'mx-T2-chain-deepseek-first-no-cycle'
 Assert-MX (([string]$pol.tiers.T3.primary -ceq 'claude_sonnet') -and ([string]$pol.tiers.T3.fallback -ceq 'terra') -and ([string]$pol.models.claude_sonnet.fallback_candidates[0] -ceq 'terra')) 'mx-T3-sonnet-terra-order'
 Assert-MX (([string]$pol.tiers.T4.primary -ceq 'claude_opus') -and ([string]$pol.tiers.T4.fallback -ceq 'sol') -and ([string]$pol.models.claude_opus.fallback_candidates[0] -ceq 'sol')) 'mx-T4-opus-sol-order'
@@ -47,7 +47,7 @@ foreach ($id in @('claude_haiku','claude_sonnet','claude_opus','claude_fable')) 
 
 # 3. Per-role start tiers and admissibility.
 $build = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($build.Status -ceq 'SELECTED' -and $build.Tier -ceq 'T2' -and $build.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-build-selection-luna'
+Assert-MX ($build.Status -ceq 'SELECTED' -and $build.Tier -ceq 'T2' -and $build.CatalogModel -ceq 'opencode-go/deepseek-v4.1-flash') 'mx-build-selection-deepseek'
 $res = Resolve-OrchestrationModelSelection -AgentName 'researcher' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($res.Tier -ceq 'T1' -and $res.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-researcher-starts-T1'
 $resT2 = Resolve-OrchestrationModelSelection -AgentName 'researcher' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true

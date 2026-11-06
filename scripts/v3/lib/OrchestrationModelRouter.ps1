@@ -1982,10 +1982,10 @@ function Resolve-OrchestrationModelSelection {
     $selectedTier = $admissibility.DefaultTier
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
-    # Planner is pinned to Luna, classified T2 regardless of DeepSeek Go T2 pool.
+    # Planner is pinned to DeepSeek Go, classified T2.
     if ($cleanAgent -eq 'build') {
         $selectedTier = 'T2'
-        $reason = 'Planner build is stable on GPT-6 Luna under operational tier T2.'
+        $reason = 'Planner build is stable on DeepSeek Go under operational tier T2.'
     }
     elseif ($cleanAgent -eq 'reviewer') {
         if ($Risk -eq 'low' -and $Complexity -in @('trivial','simple')) {
@@ -2278,8 +2278,8 @@ function Resolve-OrchestrationModelSelection {
         # Planner is Luna-only (T2, MODEL_PLANNER, no automatic fallback).
         # Never silently remap Planner to DeepSeek/Muse/Haiku; never Sonnet;
         # build never routes to T4.
-        $plannerPrimaryId = 'openai/gpt-6-luna'
-        $plannerPrimaryProv = 'openai'
+        $plannerPrimaryId = 'opencode-go/deepseek-v4.1-flash'
+        $plannerPrimaryProv = 'opencode-go'
         try {
             if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.planner) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$policyRes.Policy.planner.model_id)) {
@@ -2290,12 +2290,12 @@ function Resolve-OrchestrationModelSelection {
                 }
             }
         } catch { }
-        if ($plannerPrimaryId -cne 'openai/gpt-6-luna') {
+        if ($plannerPrimaryId -cne 'opencode-go/deepseek-v4.1-flash') {
             return [pscustomobject]@{
                 Status                    = 'REJECTED'
                 DecisionStatus            = 'PLANNER_PRIMARY_NOT_LUNA'
-                Reason                    = "Planner policy primary is not the configured Luna model ('$plannerPrimaryId')."
-                selection_reason          = "Planner policy primary is not the configured Luna model ('$plannerPrimaryId')."
+                Reason                    = "Planner policy primary is not the configured DeepSeek Go model ('$plannerPrimaryId')."
+                selection_reason          = "Planner policy primary is not the configured DeepSeek Go model ('$plannerPrimaryId')."
                 Agent                     = $cleanAgent
                 requested_role            = $cleanAgent
                 Tier                      = $null

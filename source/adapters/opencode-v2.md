@@ -55,8 +55,8 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Planner `build` (primario `openai/gpt-6-luna`, T2): sem fallback automático configurado.
-  O modelo global e `agents.build.model` permanecem Luna; outros agentes não herdam DeepSeek.
+- Planner `build` (primario `opencode-go/deepseek-v4.1-flash`, T2): sem fallback automático configurado.
+  O modelo global e `agents.build.model` permanecem DeepSeek Go; outros agentes não herdam Luna.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
   necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
   apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
@@ -76,8 +76,8 @@ histórica, sem efeito).
     IDs `claude-agent/sonnet|opus|haiku|fable` exibem nomes Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 no catálogo local, todos `released=0`, `cost=[]`; outros IDs versionados não provam mapeamento dos aliases curtos. Sem prova independente, não afirmar pin/versão executada; resposta Haiku não prova passagem para Sonnet/Opus.
   - **Fallback técnico/HOLD:** `Resolve-OrchestrationModelFallback` enumera ordem para auditoria e retorna HOLD (`CandidateModel` não-autorizador, `FallbackModel=null`, `IsAuthorized=false`). Booleans `NoExecutionStarted`/erros/timeout não confiáveis; sem prova independente não há replay. `Invoke-OrchestrationModelExecution` é single-call. Capacidade produtiva de fallback permanece HOLD até prova confiável de no-start. Um teste de matriz determinístico pode reportar ordem candidata mas não faz dispatch. A ordem candidata é estática da política e a implementação permanece em HOLD.
 - Implementacao nativa atual: o Planner e a propria sessao `build` (raiz do run), com
-  modelo primario `openai/gpt-6-luna` definido por `build.model` no `opencode.json`
-  (template: `{{MODEL_PLANNER}}`); o modelo global permanece Luna. Workers sao subagents
+  modelo primario `opencode-go/deepseek-v4.1-flash` definido por `build.model` no `opencode.json`
+  (template: `{{MODEL_PLANNER}}`); o modelo global permanece DeepSeek Go. Workers sao subagents
   filhos da sessao raiz. O Kernel liga a raiz (`bind-session`), a solta (`detach-session`)
   antes de ligar cada worker e registra model-attempt somente para filhos observados com
   `parent_session_id` igual a raiz. O dispatch externo por `opencode run` foi removido:

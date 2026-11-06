@@ -66,23 +66,23 @@ Assert-HP ((-not [bool]$aliasTamper.Matches) -and ([string]$aliasTamper.Reason -
 $aliasUnknown = Resolve-ClaudeAgentAlias -AliasModelId 'claude-agent/unknown' -PolicyAlias 'unknown' -PolicyModelId 'claude-agent/unknown'
 Assert-HP ((-not [bool]$aliasUnknown.Matches) -and ([string]$aliasUnknown.Reason -ceq 'CLAUDE_UNKNOWN_ALIAS')) 'hp-alias-unknown-fail-closed'
 
-# 3. Planner/build is Luna T2 and has no automatic model fallback.
-Assert-HP ([string]$pol.planner.primary -eq 'luna' -and [string]$pol.planner.model_id -eq 'openai/gpt-6-luna' -and `
-    [string]$pol.planner.provider -eq 'openai' -and [string]$pol.planner.tier -eq 'T2') 'hp-planner-primary-luna-T2'
+# 3. Planner/build is DeepSeek Go T2 and has no automatic model fallback.
+Assert-HP ([string]$pol.planner.primary -eq 'deepseek_go' -and [string]$pol.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and `
+    [string]$pol.planner.provider -eq 'opencode-go' -and [string]$pol.planner.tier -eq 'T2') 'hp-planner-primary-deepseek-T2'
 Assert-HP (($null -eq $pol.planner.fallback_model_id) -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-no-automatic-fallback'
-Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'luna') 'hp-build-profile-luna'
+Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'deepseek_go') 'hp-build-profile-deepseek'
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'openai/gpt-6-luna' -and $sPlanner.selected_provider -eq 'openai') 'hp-planner-selection-luna-T2'
+Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $sPlanner.selected_provider -eq 'opencode-go') 'hp-planner-selection-deepseek-T2'
 
 # 4. Planner failure has no fallback ladder; caller booleans do not authorize replay.
-$fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'openai/gpt-6-luna' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+$fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-HP ($fbPlanner.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbPlanner.FallbackModel -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-luna-failure-no-replay'
-$fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'openai/gpt-6-luna' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
+$fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
 Assert-HP ($fbPlannerTimeout.FallbackModel -eq $null -and -not [bool]$fbPlannerTimeout.IsAuthorized) 'hp-planner-timeout-no-replay'
 
-# 5. T2 generic chain DeepSeek Go->Muse->Haiku->Luna; ordered candidates remain audit-only HOLD.
-Assert-HP ($pol.tiers.T2.primary -eq 'deepseek_go') 'hp-T2-primary-deepseek_go'
-Assert-HP (([string]$pol.tiers.T2.alternatives[0] -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'claude_haiku') -and ([string]$pol.tiers.T2.alternatives[2] -ceq 'luna')) 'hp-T2-alternatives-deepseek-muse-haiku-luna-order'
+# 5. T2 generic chain Luna primary->DeepSeek Go->Muse->Haiku; ordered candidates remain audit-only HOLD.
+Assert-HP ($pol.tiers.T2.primary -eq 'luna') 'hp-T2-primary-luna'
+Assert-HP (([string]$pol.tiers.T2.alternatives[0] -ceq 'deepseek_go') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[2] -ceq 'claude_haiku')) 'hp-T2-alternatives-luna-deepseek_go-muse-haiku-order'
 Assert-HP ($pol.tiers.T2.fallback -eq 'muse') 'hp-T2-fallback-muse'
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-HP ($sT2.Tier -eq 'T2' -and $sT2.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') 'hp-T2-default-deepseek_go'

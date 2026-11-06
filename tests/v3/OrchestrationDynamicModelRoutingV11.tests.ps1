@@ -80,8 +80,8 @@ Write-Host "=== FASE 2: MODEL ROUTER E SELECAO POR AGENTE/RISCO ==="
 # 2.1 Planner build: estavel em Luna T2
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selPlanner.Tier -eq 'T2') "Planner 'build' seleciona Tier T2"
-Assert-V11 ($selPlanner.selected_model_id -eq 'openai/gpt-6-luna') "Planner 'build' seleciona GPT-6 Luna"
-Assert-V11 ($selPlanner.selected_provider -eq 'openai') "Planner 'build' opera no provider 'openai'"
+Assert-V11 ($selPlanner.selected_model_id -eq 'opencode-go/deepseek-v4.1-flash') "Planner 'build' seleciona DeepSeek Go"
+Assert-V11 ($selPlanner.selected_provider -eq 'opencode-go') "Planner 'build' opera no provider 'opencode-go'"
 Assert-V11 ($selPlanner.policy_hash -eq $policyRes.PolicyHash) "Decisao vincula policy_hash da versao canonica"
 
 # 2.2 Explorer e Docs Manager: T1 Iceman
@@ -234,7 +234,7 @@ Assert-V11 ($grantGate.status -eq 'JEV_ADVISORY_CANNOT_GRANT') "Status normativo
 # 6.2 Recibo do Router
 $receipt = Get-OrchestrationModelRouterReceipt -Selection $selPlanner
 Assert-V11 ($receipt.stage -eq 'model_routing') "Recibo gerado para stage model_routing"
-Assert-V11 ($receipt.catalog_model -eq 'openai/gpt-6-luna') "Recibo registra modelo canonico"
+Assert-V11 ($receipt.catalog_model -eq 'opencode-go/deepseek-v4.1-flash') "Recibo registra modelo canonico"
 Assert-V11 ($receipt.tier -eq 'T2') "Recibo registra tier T2"
 
 Write-Host "=========================================================="
