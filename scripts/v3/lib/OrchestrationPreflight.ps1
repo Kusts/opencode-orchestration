@@ -456,6 +456,98 @@ function Get-OrchestrationPreflight {
             # trivialidade; typo preserva microedicao existente.
             $pointLookupHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('where', 'defined', 'defin', 'lookup', 'inspect', 'inspec', 'locate', 'localiz', 'point lookup', 'specific symbol', 'onde', 'qual arquivo', 'qual campo', 'qual simbolo')
             $microEditHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('typo', 'spelling', 'grammar', 'punctuation', 'comma', 'period', 'whitespace', 'spacing', 'heading', 'label text', 'one-word', 'one word', 'single-line', 'single line', 'comment', 'virgula', 'pontuac', 'ortograf', 'gramat')
+            # F2: functional code micro-edits need explicit evidence in the
+            # objective (a named focused test), never metadata alone. Word
+            # boundaries keep 'unfocused test' from counting as evidence.
+            $focusedTestHit = $false
+            try {
+                if ($objSubstantiveBlob -match '\b(?:focused (?:unit )?test|teste (?:unitario )?focado)\b') { $focusedTestHit = $true }
+            }
+            catch { $focusedTestHit = $false }
+            # Negation is checked BOTH before the test phrase (without/no need/
+            # never/nao/sem/nenhum) and after it ('test will not run'), so a
+            # positive phrase plus a later negation still blocks. Explicit 'no'
+            # phrases stay separate: bare 'no' is a Portuguese preposition.
+            $focusedTestNegated = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('without focused test', 'without a focused test', 'without any focused test', 'no focused test', 'no focused unit test', 'sem teste')
+            try {
+                if (-not $focusedTestNegated) {
+                    if ($objSubstantiveBlob -match '\b(without|no need(?: for| to)?|never|not|do not|don''?t|sem|nao|nenhum)\b[^.;!?]{0,48}\b(?:focused |unit |focused unit )?(?:test|teste)') { $focusedTestNegated = $true }
+                }
+                if (-not $focusedTestNegated) {
+                    # Skip/ignore/avoid negate only when the TEST is the object;
+                    # 'skip preflight ... run focused test' stays direct.
+                    if ($objSubstantiveBlob -match '\b(?:skip(?:ping|s|ped)?|pular|pulando|ignorar|ignorando|ignore|ignoring|ignores|ignored|avoid|avoiding|avoids|avoided|evitar|evite|evitando|evitamos|dispensar|dispensando|dispense)\b(?:\s+(?:the|a|an|o|os|as|um|uma|this|that|estes?|estas?|my|meu|minha|focused|unit|unitario|focado|flaky|slow|optional|preflight|unstable|instavel|lento|rapido|whole|entire|failing|failed|broken|e2e))*\s+(?:(?:run(?:ning)?|execut(?:e|ing)|rodar|rodando|executar|executando)\s+(?:it|isso|ele)\b|(?:test|teste)\b)') { $focusedTestNegated = $true }
+                }
+                if (-not $focusedTestNegated) {
+                    if ($objSubstantiveBlob -match '\b(?:test|teste)\b[^.;!?]{0,32}\b(?:will not(?: be)?|won t|cannot|can not|never run|do not run|don''?t run|no need|not needed|not run|nao vai|nao sera|nao rodar|nao executar|nao foi|sem rodar|sem executar|sem necessidade|nenhum)\b') { $focusedTestNegated = $true }
+                }
+                if (-not $focusedTestNegated) {
+                    # Sentence punctuation ('.'/';') must not hide execution
+                    # negation either; each alternative still requires an
+                    # execution verb or the low-risk no-need markers.
+                    if ($objSubstantiveBlob -match '\b(?:test|teste)\b.{0,40}\b(?:will not(?: be)? run|won t run|cannot run|can not run|never run|not run|without run(?:ning)?|don''?t run|pode ficar para depois|ficar para depois|adiar|nao vai rodar|nao sera executado|nao rodar|nao executar|sem rodar|sem executar|sem necessidade|no need|not needed|nao precisa(?:mos)?)\b') { $focusedTestNegated = $true }
+                }
+                if (-not $focusedTestNegated) {
+                    # Post-test skip/ignore/avoid must point at the test itself
+                    # (it/the focused test/teste), never at preflight or lint.
+                    if ($objSubstantiveBlob -match '\b(?:test|teste)\b.{0,40}\b(?:skip(?:ping|s|ped)?|ignore|ignoring|ignores|ignored|avoid|avoiding|avoids|avoided|pular|pulando|ignorar|ignorando|evitar|evite|evitando|evitamos|dispensar|dispensando|dispense)\b\s+(?:(?:it|isso|ele|(?:run(?:ning)?|execut(?:e|ing)|rodar|rodando|executar|executando)\s+(?:it|isso|ele))\b|(?:the|this|that|o|a|um|uma)\b(?:\s+(?:focused|unit|flaky|slow|optional|preflight|whole|entire|failing|failed|broken|e2e|instavel|lento|rapido))*\s+(?:test|teste)\b)') { $focusedTestNegated = $true }
+                }
+            }
+            catch { }
+            # A direct code micro-edit needs BOTH a single-file scope and one
+            # code unit (function/branch/condition/expression), never either/or.
+            $microFileScopeHit = $false
+            $microUnitScopeHit = $false
+            try {
+                # Word-boundary matching: 'um arquivo' must not match inside
+                # 'algum arquivo', nor 'um branch' inside 'algum branch'.
+                $microFileScopeHit = ($objSubstantiveBlob -match '\b(?:one file|single file|um arquivo|arquivo unico|um unico arquivo)\b')
+                $microUnitScopeHit = ($objSubstantiveBlob -match '\b(?:one function|single function|one branch|single branch|one condition|single condition|one expression|single expression|um branch|um ramo|ramo unico|uma funcao|uma condicao|uma expressao)\b')
+            }
+            catch { $microFileScopeHit = $false; $microUnitScopeHit = $false }
+            $microCodeScopeNegated = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('without a single file', 'without single file', 'without a single-file', 'without single-file', 'no single file', 'no single-file', 'not a single file', 'not a single-file', 'not single file', 'not single-file', 'not in a single file', 'not one file', 'not in one file', 'not only one file', 'not only a single file', 'not just one file', 'not just a single file', 'without one file', 'no one file', 'one more file', 'two files', 'three files', 'more than one file', 'both files', 'other file', 'other files', 'second file', 'second files', 'callers', 'another file', 'another module', 'dois arquivos', 'duas arquivos', 'mais de um arquivo', 'sem arquivo', 'sem um arquivo')
+            # Whole-token financial terms for words that prefix-match common
+            # non-financial words (feed(fee)back, load balancer(balance),
+            # taxonomy(tax)). PT-BR terms mirror the active adapter vocabulary.
+            $microCodeFinancialHit = Test-OrchestrationKeyword -Blob $blob -Words @('payment', 'payments', 'billing', 'invoice', 'invoices', 'invoicing', 'charge', 'charges', 'charging', 'refund', 'refunds', 'money', 'financial', 'financeiro', 'financeira', 'price', 'pricing', 'checkout', 'transaction', 'transactions', 'transacao', 'transacoes', 'taxa', 'taxas', 'subscription', 'subscriptions', 'payout', 'paga', 'pago', 'cobranca', 'cobrancas', 'cobrand', 'cobrar', 'cobrou', 'cobrador', 'fatura', 'faturas', 'preco', 'precos', 'assinatura', 'assinaturas', 'estorno', 'estornos', 'estorn', 'saldo', 'saldos', 'imposto', 'impostos', 'order total') -Exact @('fee', 'fees', 'tax', 'taxes', 'balance', 'balances')
+            # Code-local PT-BR credential terms; the shared sensitiveHit list
+            # stays untouched so docs/read direct behavior is unchanged.
+            $microCodePtSensitiveHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('credencial', 'credenciais', 'segredo', 'segredos', 'senha', 'senhas')
+            # Protected surfaces: standalone terms are word-bounded (so 'please'
+            # and 'release' are not hits); CamelCase compounds are detected only
+            # inside file tokens with a known extension. 'preflight' is therefore
+            # protected only as a file name, keeping 'skip preflight' direct.
+            $microCodeProtectedHit = $false
+            try {
+                if ($objSubstantiveBlob -match '\b(?:kernel|taskkernel|lease|leases|worktree|worktrees|grant|grants|verifier|verification|permission|permissions|auth|authz|authentication|authorization|credential|credentials|secret|secrets|enforcement|mandate|registry|capability|policy|policies|settings|dotenv|opencode)\b') { $microCodeProtectedHit = $true }
+                if (-not $microCodeProtectedHit -and $objSubstantiveBlob -match '\.env\b') { $microCodeProtectedHit = $true }
+                if (-not $microCodeProtectedHit -and $objSubstantiveBlob -match '\b(?:orchestrationtaskkernel|taskkernel|worktreelease|leasemanager|executiongrant|grantpolicy|verifierprofiles|permissiongate|orchestrationpreflight|orchestrationdonecompliance|capabilityacceptance|mcpsafety)\b') { $microCodeProtectedHit = $true }
+                if (-not $microCodeProtectedHit) {
+                    foreach ($protectedPath in [regex]::Matches($objSubstantiveBlob, '\b[\w./-]+\.(?:ps1|psm1|js|ts|tsx|jsx|json|cs|py|go|rs|java|sh)\b')) {
+                        if ($protectedPath.Value -match '(?:kernel|taskkernel|lease|worktree|grant|verifier|verification|permission|auth|authz|authentication|authorization|credential|secret|enforcement|mandate|registry|capability|policy|preflight|settings|opencode|dotenv)') { $microCodeProtectedHit = $true; break }
+                    }
+                }
+            }
+            catch { $microCodeProtectedHit = $true }
+            # Code-route authz/security/concurrency vocabulary (LOW review
+            # findings). Kept local so the docs/read branch and the shared
+            # $sensitiveHit semantics are unchanged.
+            $microCodeSensitiveHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('login', 'logon', 'role', 'rbac', 'acl', 'access control', 'access-control', 'jwt', 'sanitiz', 'sql', 'hash', 'hmac', 'signature', 'cors', 'concurrent', 'concurrency', 'race', 'mutex', 'lock', 'lease', 'worktree', 'shared file', 'shared-file')
+            # Two distinct code/test paths are multi-file scope; one path (even
+            # repeated) stays eligible. The extension list is deliberately
+            # bounded to code/test artifacts.
+            $microCodeMultiPathHit = $false
+            try {
+                $pathSet = @{}
+                foreach ($pathMatch in [regex]::Matches($objSubstantiveBlob, '\b[\w./-]+\.(?:ps1|psm1|js|ts|tsx|jsx|json|cs|py|go|rs|java|sh)\b')) { $pathSet[$pathMatch.Value] = $true }
+                if ($pathSet.Count -ge 2) { $microCodeMultiPathHit = $true }
+            }
+            catch { $microCodeMultiPathHit = $true }
+            # Removal/cleanup uses bounded stems so inflections (removing,
+            # deleting, erasing, pruning, apagando, excluindo) are covered
+            # without broad prefixes; 'clean'/'cleanup' stay whole-token so a
+            # 'cleaner helper' is not hit.
+            $microCodeDestructiveHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('remov', 'delet', 'eras', 'prun', 'apag', 'exclu', 'wipe', 'limpar', 'limpeza', 'limpando', 'clean up', 'cleanup') -Exact @('clean')
             # Quantificadores por casamento exato: o modo -Words usa starts-with
             # e 'all' casa 'allow'/'allocate'. Frases de escopo amplo seguem por
             # substring/prefixo (fail-closed para delegacao).
@@ -463,11 +555,19 @@ function Get-OrchestrationPreflight {
 
             $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $substantiveHit) -and ($pointLookupHit -or $microEditHit) -and (-not $broadScopeHit))
             $isMicroEditWrite = ($lenOk -and $riskOk -and ($rw -ceq 'write') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $sensitiveHit) -and (-not $substantiveHit) -and $microEditHit -and (-not $broadScopeHit) -and ($dom -in @('docs', 'documentation', 'comments', 'formatting', 'metadata', 'chore')))
+            # F2 narrow routing change: one localized functional code micro-edit
+            # with an explicit focused test. Requires explicit trivial/code
+            # metadata plus every existing safety cue; no new parameter, flag or
+            # stage, and the docs/read branches above stay unchanged.
+            $isCodeMicroEditWrite = ($lenOk -and $riskOk -and ($rw -ceq 'write') -and ($tt -ceq 'trivial') -and ($dom -ceq 'code') -and $localizedOk -and (-not $archHit) -and (-not $sensitiveHit) -and (-not $microCodeProtectedHit) -and (-not $microCodeSensitiveHit) -and (-not $microCodePtSensitiveHit) -and (-not $microCodeDestructiveHit) -and (-not $microCodeFinancialHit) -and (-not $substantiveHit) -and $microFileScopeHit -and $microUnitScopeHit -and (-not $microCodeScopeNegated) -and (-not $microCodeMultiPathHit) -and $focusedTestHit -and (-not $focusedTestNegated) -and (-not $broadScopeHit))
 
             if ($isReadTrivial) {
                 $isTrivial = $true
                 $directReason = 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED'
             } elseif ($isMicroEditWrite) {
+                $isTrivial = $true
+                $directReason = 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK'
+            } elseif ($isCodeMicroEditWrite) {
                 $isTrivial = $true
                 $directReason = 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK'
             }

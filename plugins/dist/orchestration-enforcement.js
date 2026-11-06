@@ -220,6 +220,13 @@ var PLANNER_LINES = [
   "For relevant changes, follow the coder → tester → reviewer cycle and integrate their syntheses. DONE requires observed worker participation on non-trivial work.",
   ""
 ];
+var V2_PLANNER_LINES = [
+  "Clear, low-risk, local, reversible work may be executed directly by you: inspect, make the smallest correct change, and run focused validation. No preflight, worker, Kernel task, review cycle, worktree, or PR is mandatory for that class of work.",
+  "Preflight (scripts/v3/orchestration-preflight.ps1) remains available when the route is uncertain or when risk/state warrants it; if it returns DIRECT_VERIFIED, honor it as zero workers. Delegate substantive work when delegation has a concrete benefit (specialization, independent review, volume, parallelism); do not call every agent by default.",
+  "Keep the Task Kernel and its authority boundaries for durable, shared, concurrent, or external-effect work, and for destructive actions, production changes, secrets, or sensitive data: grants, leases, evidence, review, and confirmation stay as they are. A direct route grants no authority.",
+  "Direct functional code is limited to one micro-fix with both one file and one code unit (a function, branch, condition, or expression) explicitly named in the objective, plus a focused test (TaskType=trivial, Domain=code, Risk=low, ReadWrite=write): if preflight is invoked it must return DIRECT_VERIFIED and you honor zero workers. Never route direct for money, payment, billing, pricing, permission, auth, security, secrets, credentials, production, sensitive, destructive actions, architecture, broad or multi-file scope, new features, refactors, substantive or non-trivial work, uncertainty, concurrency, or Kernel-owned work; those keep delegation, Kernel, and authority contracts, and routine substantive code work stays with the T2 coder.",
+  ""
+];
 var WORKER_LINES = [
   "You are a bounded specialist executing a delegated scope; do not orchestrate.",
   "Do not create or invoke other subagents (the task tool is unavailable/denied to you).",
@@ -247,7 +254,7 @@ function kindForRole(role) {
 function mandateFor(role, generation) {
   const kind = kindForRole(role);
   const marker = markerFor(kind, generation);
-  const lines = kind === "worker" ? WORKER_LINES : kind === "planner" ? PLANNER_LINES : NEUTRAL_LINES;
+  const lines = kind === "worker" ? WORKER_LINES : kind === "planner" ? generation === "v1" ? PLANNER_LINES : V2_PLANNER_LINES : NEUTRAL_LINES;
   return { text: [...lines, marker].join(`
 `), kind, marker };
 }

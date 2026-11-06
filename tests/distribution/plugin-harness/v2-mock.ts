@@ -252,6 +252,148 @@ const before = JSON.stringify(ctxEmpty);
 await sess.fire("context", ctxEmpty);
 ok(JSON.stringify(ctxEmpty) === before, "8 contexto repetido nao duplica mandato");
 
+// F2 (SIMPLIFY-F2-MANDATE): o mandato do Planner V2 nao pode transformar
+// preflight/worker/Kernel/reviewer em rito para trabalho claro, local,
+// reversivel e de baixo risco; Kernel/autoridade seguem obrigatorios onde
+// ha efeito durável/compartilhado/concorrente/externo e em acoes
+// destrutivas/producao/segredos. V1 e LEGACY_FROZEN: o texto emitido tem de
+// permanecer byte-identico (literais abaixo sao o contrato atual do V1).
+const V1_PLANNER_EXPECTED =
+  "Mandatory orchestration preflight before the first action: classify the task as SINGLE_WORKER, MULTI_WORKER, PERSISTENT_GOAL, DETERMINISTIC_FALLBACK, or BLOCKED. SINGLE_WORKER is full orchestration (Planner -> one cheap worker -> Planner); the Planner never performs the user's operational work directly when a suitable worker exists.\n" +
+  "Non-trivial tasks require material participation of at least one suitable subagent; doing everything alone without a recorded decision is ORCHESTRATION_POLICY_BYPASS.\n" +
+  "For relevant changes, follow the coder → tester → reviewer cycle and integrate their syntheses. DONE requires observed worker participation on non-trivial work.\n\n" +
+  "[orchestration-enforcement:v1]";
+
+const f2 = makeSurface();
+const f2Tool = makeSurface();
+let f2Cleanup: unknown = null;
+try {
+  f2Cleanup = await V2Plugin.setup({ event: makeEventStream(), session: f2, tool: f2Tool });
+} catch {
+  f2Cleanup = null;
+}
+const v2PlannerCtx: any = { sessionID: "f2-v2-planner", agent: "build", system: [{ type: "text", text: "base" }] };
+await f2.fire("context", v2PlannerCtx);
+const v2PlannerText =
+  Array.isArray(v2PlannerCtx.system) && v2PlannerCtx.system.length === 2 && typeof v2PlannerCtx.system[1]?.text === "string"
+    ? (v2PlannerCtx.system[1].text as string)
+    : "";
+ok(
+  v2PlannerText.includes("DIRECT_VERIFIED") && /zero workers/i.test(v2PlannerText),
+  "F2 V2 planner: DIRECT_VERIFIED honrado como zero workers",
+);
+ok(
+  /no preflight, worker, kernel task, review cycle, worktree, or pr is mandatory/i.test(v2PlannerText) &&
+    /low-risk, local, reversible/i.test(v2PlannerText),
+  "F2 V2 planner: direto permitido sem rito obrigatorio",
+  v2PlannerText.slice(0, 120),
+);
+ok(
+  /durable, shared, concurrent, or external-effect/i.test(v2PlannerText) &&
+    /destructive/i.test(v2PlannerText) &&
+    /production/i.test(v2PlannerText) &&
+    /secrets/i.test(v2PlannerText) &&
+    /grants no authority/i.test(v2PlannerText),
+  "F2 V2 planner: Kernel/autoridade preservados",
+);
+ok(
+  /one file and one code unit/i.test(v2PlannerText) &&
+    /function, branch, condition, or expression/i.test(v2PlannerText) &&
+    /one micro-fix/i.test(v2PlannerText) &&
+    /focused test/i.test(v2PlannerText) &&
+    /T2 coder/.test(v2PlannerText),
+  "F2-SCOPE V2 planner: um arquivo E uma unidade de codigo + teste focado",
+  v2PlannerText.slice(0, 220),
+);
+ok(
+  !/single file, function/i.test(v2PlannerText) &&
+    !/one file, function/i.test(v2PlannerText) &&
+    !/one file, branch/i.test(v2PlannerText) &&
+    !/one file or one/i.test(v2PlannerText),
+  "F2-SCOPE V2 planner: sem listagem ambigua arquivo-ou-unidade",
+  v2PlannerText.slice(0, 220),
+);
+ok(
+  ["payment", "billing", "pricing", "permission", "auth", "security", "secrets", "credentials", "production", "destructive", "architecture", "multi-file", "substantive", "concurrency", "Kernel-owned"].every(
+    (w) => new RegExp(w.replace("-", "\\-"), "i").test(v2PlannerText),
+  ) &&
+    !/docs-only microedits/i.test(v2PlannerText) &&
+    !/functional code writes still classify as MULTI_WORKER/i.test(v2PlannerText),
+  "F2-DIRECT V2 planner: exclusoes do micro-escopo + sem restricao stale",
+  v2PlannerText.slice(0, 200),
+);
+ok(
+  /TaskType=trivial/.test(v2PlannerText) &&
+    /Domain=code/.test(v2PlannerText) &&
+    /Risk=low/.test(v2PlannerText) &&
+    /ReadWrite=write/.test(v2PlannerText),
+  "F2-DIRECT V2 planner: criterio espelha o classificador existente",
+);
+ok(
+  /grants no authority/i.test(v2PlannerText) && /evidence/i.test(v2PlannerText) && !/docs-only microedits/i.test(v2PlannerText),
+  "F2-DIRECT V2 planner: Kernel Evidence Contract e autoridade preservados",
+);
+ok(
+  /multi-file/i.test(v2PlannerText) &&
+    /new feature/i.test(v2PlannerText) &&
+    /refactor/i.test(v2PlannerText) &&
+    /non-trivial/i.test(v2PlannerText) &&
+    /sensitive/i.test(v2PlannerText),
+  "F2-DIRECT V2 planner: fora do micro-escopo segue delegado/Kernel",
+);
+ok(
+  !v2PlannerText.includes("Mandatory orchestration preflight before the first action") &&
+    !v2PlannerText.includes("never performs the user's operational work directly") &&
+    !v2PlannerText.includes("DONE requires observed worker participation"),
+  "F2 V2 planner: sem as frases coercitivas antigas",
+);
+if (typeof f2Cleanup === "function") {
+  try {
+    (f2Cleanup as () => void)();
+  } catch {
+    // Fail-open no mock.
+  }
+}
+
+// F2-V1: mandato do Planner V1 byte-identico ao atual (LEGACY_FROZEN).
+const { OrchestrationEnforcement: V1PluginForF2 } = await import("../../../plugins/orchestration-enforcement.ts");
+let v1PlannerSeg = "";
+try {
+  const v1Hooks: any = await (V1PluginForF2 as any)({});
+  const v1Transform = v1Hooks["experimental.chat.system.transform"];
+  const v1Out: any = { system: ["v1-planner-base"] };
+  await v1Transform({ sessionID: "f2-v1-planner", agent: "build", model: {} }, v1Out);
+  const v1All = typeof v1Out.system?.[0] === "string" ? (v1Out.system[0] as string) : "";
+  const prefix = "v1-planner-base\n\n";
+  v1PlannerSeg = v1All.startsWith(prefix) ? v1All.slice(prefix.length) : "";
+} catch {
+  v1PlannerSeg = "";
+}
+ok(v1PlannerSeg === V1_PLANNER_EXPECTED, "F2 V1 planner mandate byte-identico", JSON.stringify(v1PlannerSeg.slice(0, 80)));
+
+// F2-SCOPE: o adapter V2 canonico (fonte do prompt gerado) precisa declarar
+// os DOIS marcadores de escopo (arquivo E unidade de codigo) + teste focado, e
+// nao a listagem ambigua que o predicado do preflight nao aceita sozinha.
+let adapterV2 = "";
+try {
+  adapterV2 = readFileSync(new URL("../../../source/adapters/opencode-v2.md", import.meta.url), "utf8");
+} catch {
+  adapterV2 = "";
+}
+ok(
+  /um\s+\S+\s+arquivo\s+quanto\s+uma\s+\S+\s+unidade/i.test(adapterV2) &&
+    /focused test/i.test(adapterV2) &&
+    /DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK/.test(adapterV2) &&
+    /billing/.test(adapterV2) &&
+    /Kernel/.test(adapterV2),
+  "F2-SCOPE adapter Orquestracao V2: arquivo E unidade + teste focado + exclusoes",
+  adapterV2.slice(0, 120),
+);
+ok(
+  !/arquivo,\s*\S*fun/i.test(adapterV2) && !/um\s+\S+\s+arquivo\s+ou\s+/i.test(adapterV2),
+  "F2-SCOPE adapter Orquestracao V2: sem arquivo-ou-unidade ambiguo",
+);
+
 // 9. superficies ausentes: setup({}) nao lanca e registra hooks-unavailable.
 let threwBare = false;
 let bareCleanup: unknown = null;

@@ -3,8 +3,12 @@
 //
 // Text contract: generation "v1" renders BYTE-IDENTICAL mandates to the
 // V1 original (markers [orchestration-enforcement:v1] and
-// [orchestration-enforcement:v1:worker]). Generation "v2" renders the
-// same sentences with v2 markers so telemetry can tell injections apart.
+// [orchestration-enforcement:v1:worker]) and is LEGACY_FROZEN — never edit
+// V1 lines. Generation "v2" keeps the same worker/neutral sentences but has
+// its own planner lines: preflight/worker/Kernel/review are capabilities,
+// not a ritual for clear low-risk local reversible work (ADR-201), while
+// Kernel and authority boundaries stay mandatory where they already apply.
+// Markers differ per generation so telemetry can tell injections apart.
 import type { Generation, MandateKind, Role } from "./types";
 
 // Broad idempotence substring: covers planner/worker markers of BOTH
@@ -18,6 +22,15 @@ const PLANNER_LINES: ReadonlyArray<string> = [
   "Mandatory orchestration preflight before the first action: classify the task as SINGLE_WORKER, MULTI_WORKER, PERSISTENT_GOAL, DETERMINISTIC_FALLBACK, or BLOCKED. SINGLE_WORKER is full orchestration (Planner -> one cheap worker -> Planner); the Planner never performs the user's operational work directly when a suitable worker exists.",
   "Non-trivial tasks require material participation of at least one suitable subagent; doing everything alone without a recorded decision is ORCHESTRATION_POLICY_BYPASS.",
   "For relevant changes, follow the coder → tester → reviewer cycle and integrate their syntheses. DONE requires observed worker participation on non-trivial work.",
+  "",
+];
+
+// V2 planner mandate only. V1 above is frozen byte-for-byte.
+const V2_PLANNER_LINES: ReadonlyArray<string> = [
+  "Clear, low-risk, local, reversible work may be executed directly by you: inspect, make the smallest correct change, and run focused validation. No preflight, worker, Kernel task, review cycle, worktree, or PR is mandatory for that class of work.",
+  "Preflight (scripts/v3/orchestration-preflight.ps1) remains available when the route is uncertain or when risk/state warrants it; if it returns DIRECT_VERIFIED, honor it as zero workers. Delegate substantive work when delegation has a concrete benefit (specialization, independent review, volume, parallelism); do not call every agent by default.",
+  "Keep the Task Kernel and its authority boundaries for durable, shared, concurrent, or external-effect work, and for destructive actions, production changes, secrets, or sensitive data: grants, leases, evidence, review, and confirmation stay as they are. A direct route grants no authority.",
+  "Direct functional code is limited to one micro-fix with both one file and one code unit (a function, branch, condition, or expression) explicitly named in the objective, plus a focused test (TaskType=trivial, Domain=code, Risk=low, ReadWrite=write): if preflight is invoked it must return DIRECT_VERIFIED and you honor zero workers. Never route direct for money, payment, billing, pricing, permission, auth, security, secrets, credentials, production, sensitive, destructive actions, architecture, broad or multi-file scope, new features, refactors, substantive or non-trivial work, uncertainty, concurrency, or Kernel-owned work; those keep delegation, Kernel, and authority contracts, and routine substantive code work stays with the T2 coder.",
   "",
 ];
 
@@ -49,7 +62,14 @@ export function kindForRole(role: Role): MandateKind {
 export function mandateFor(role: Role, generation: Generation): { text: string; kind: MandateKind; marker: string } {
   const kind = kindForRole(role);
   const marker = markerFor(kind, generation);
-  const lines = kind === "worker" ? WORKER_LINES : kind === "planner" ? PLANNER_LINES : NEUTRAL_LINES;
+  const lines =
+    kind === "worker"
+      ? WORKER_LINES
+      : kind === "planner"
+        ? generation === "v1"
+          ? PLANNER_LINES
+          : V2_PLANNER_LINES
+        : NEUTRAL_LINES;
   return { text: [...lines, marker].join("\n"), kind, marker };
 }
 

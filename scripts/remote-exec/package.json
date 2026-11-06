@@ -1,0 +1,18 @@
+{
+  "name": "@synkroo/remote-exec-client",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "mcp": "node ./remote-mcp-server.mjs",
+    "direct-mcp": "node ./direct-mcp-server.mjs",
+    "direct": "node ./direct-cli.mjs",
+    "test": "node --test ./direct-executor.test.mjs ./direct-operations.test.mjs ./direct-cli.test.mjs ./remote-mcp-server.test.mjs ./remote-sync.test.mjs ./remote-extract.test.mjs ./remote-recover.test.mjs && pwsh -NoProfile -File ./sync-preflight.tests.ps1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  }
+}

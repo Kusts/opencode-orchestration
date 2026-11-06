@@ -311,6 +311,166 @@ try {
     $ck3 = Get-OrchestrationPreflight -Objective 'qual simbolo implementa retry?' -TaskType 'lookup' -Domain 'code' -Risk 'low' -ReadWrite 'read'
     Assert-That ([string]$ck3.orchestration_decision -cne 'DIRECT_VERIFIED') '15k qual simbolo + implementa verb => not DIRECT_VERIFIED' ($ck3 | ConvertTo-Json -Compress)
 
+    # 15l-15x) F2 direct micro-edit route (compact table).
+    # Contract: DIRECT_VERIFIED needs trivial/code/low/write, ONE file marker
+    # AND ONE code-unit marker, an explicit focused test, and none of the
+    # negation/sensitive/financial/destructive/broad cues. Preflight, DONE and
+    # Kernel contracts are unchanged; this block only pins the F2 classifier.
+    # Pre-existing 15b-15d still cover docs micro-write and bounded reads.
+    $f2Direct = @(
+        'fix one branch in a single file helper run focused test',
+        'corrigir um branch em um arquivo unico e rodar teste focado',
+        'fix one function in a single file feedback helper and run focused test',
+        'fix one branch in a single file load balancer and run focused test',
+        'fix one branch in a single file taxonomy helper and run focused test',
+        'fix one branch in a single file payload helper and run focused test',
+        'fix one branch in a single file cleaner helper and run focused test',
+        'fix one branch in a single file helper; skip preflight and run focused test',
+        'fix one branch in a single file helper; avoid preflight and run focused test',
+        'fix one branch in a single file helper and run focused test; skip preflight',
+        'fix one branch in a single file helper and run focused test; avoid unrelated lint',
+        'fix one branch in a single file helper and run focused test; do not edit unrelated files',
+        'fix one branch in a single file scripts/v3/lib/Calc.ts and run focused test',
+        'fix one branch in a single file please helper and run focused test',
+        'fix one branch in a single file release helper and run focused test'
+    )
+    foreach ($f2O in $f2Direct) {
+        $f2R = Get-OrchestrationPreflight -Objective $f2O -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'write'
+        Assert-That (([string]$f2R.orchestration_decision -ceq 'DIRECT_VERIFIED') -and (@($f2R.selected_agents).Count -eq 0)) ("15l-15x direct: " + $f2O) ($f2R | ConvertTo-Json -Compress)
+    }
+    $f2Comp = Get-OrchestrationPreflight -Objective 'fix one branch in a single file helper run focused test' -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'write'
+    Assert-That ((Test-OrchestrationDoneCompliance -TaskClass ([string]$f2Comp.task_class) -Decision ([string]$f2Comp.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$f2Comp.direct_reason) -ActualWorkerParticipation 0) -ceq 'COMPLIANT') '15l-15x DONE gate COMPLIANT' ([string]$f2Comp.direct_reason)
+    $f2Denied = @(
+        @('no test', 'fix one branch in a single file helper'),
+        @('unfocused', 'fix one branch in a single file helper with unfocused test'),
+        @('skip test', 'fix one branch in a single file helper and skip the focused test'),
+        @('skip flaky', 'fix one branch in a single file helper and skip the flaky focused test'),
+        @('skip whole', 'fix one branch in a single file helper and skip this whole test and run focused test'),
+        @('skip entire', 'fix one branch in a single file helper and skip that entire test and run focused test'),
+        @('skip running it', 'fix one branch in a single file helper and skip running it and run focused test'),
+        @('avoid failing', 'fix one branch in a single file helper and avoid the failing test and run focused test'),
+        @('dont run', 'fix one branch in a single file helper and dont run focused test'),
+        @('post skip', 'fix one branch in a single file helper and run focused test; then skip it'),
+        @('post no need', 'fix one branch in a single file helper run focused test. no need to run it'),
+        @('post will not', 'fix one branch in a single file helper run focused test. it will not run'),
+        @('post without', 'fix one branch in a single file helper run focused test; without running it'),
+        @('post not run', 'fix one branch in a single file helper run focused test. not run'),
+        @('PT sem rodar', 'corrigir um branch em um arquivo unico e rodar teste focado sem rodar teste'),
+        @('PT sem nenhum', 'corrigir um branch em um arquivo unico sem nenhum teste focado'),
+        @('PT dispensar', 'corrigir um branch em um arquivo unico e dispensar teste e rodar teste focado'),
+        @('PT depois', 'corrigir um branch em um arquivo unico e rodar teste focado, teste pode ficar para depois'),
+        @('PT pular', 'corrigir um branch em um arquivo unico e pular teste focado'),
+        @('PT ignorar', 'corrigir um branch em um arquivo unico e ignorar o teste focado'),
+        @('PT evitar', 'corrigir um branch em um arquivo unico e evitar teste focado'),
+        @('missing file', 'fix one branch in helper and run focused test'),
+        @('missing code unit', 'fix helper in a single file and run focused test'),
+        @('substring file marker', 'fix one branch in algum arquivo helper and run focused test'),
+        @('substring unit marker', 'fix behavior in a single file on algum branch helper and run focused test'),
+        @('negative file', 'fix one branch in helper without a single file and run focused test'),
+        @('two files', 'fix one branch in a single file helper and two files and run focused test'),
+        @('three files', 'fix one branch in a single file helper and three files and run focused test'),
+        @('one more file', 'fix one branch in a single file helper and one more file and run focused test'),
+        @('duas arquivos', 'fix one branch in a single file helper and duas arquivos and run focused test'),
+        @('another module', 'fix one branch in a single file helper and another module and run focused test'),
+        @('not a single file', 'fix one branch in a single file helper not a single file and run focused test'),
+        @('not only one file', 'fix one branch in a single file helper and run focused test, not only one file'),
+        @('payment', 'fix one branch in a single file helper and payment calculation and run focused test'),
+        @('charging', 'fix one branch in a single file helper and charging logic and run focused test'),
+        @('invoicing', 'fix one branch in a single file helper and invoicing helper and run focused test'),
+        @('payout', 'fix one branch in a single file helper and payout helper and run focused test'),
+        @('pagando', 'corrigir um branch em um arquivo unico e pagando o helper e rodar teste focado'),
+        @('cobrando', 'corrigir um branch em um arquivo unico e cobrando o helper e rodar teste focado'),
+        @('estornando', 'corrigir um branch em um arquivo unico e estornando o valor e rodar teste focado'),
+        @('cobrador', 'corrigir um branch em um arquivo unico e ajustar o cobrador e rodar teste focado'),
+        @('removing', 'fix one branch in a single file helper and removing dead code and run focused test'),
+        @('deleting', 'fix one branch in a single file helper and deleting dead code and run focused test'),
+        @('erasing', 'fix one branch in a single file helper and erasing dead code and run focused test'),
+        @('prune', 'fix one branch in a single file helper and prune dead code and run focused test'),
+        @('remove', 'fix one branch in a single file helper and remove dead code and run focused test'),
+        @('clean up', 'fix one branch in a single file helper and clean up dead code and run focused test'),
+        @('apagando', 'corrigir um branch em um arquivo unico e apagando codigo e rodar teste focado'),
+        @('excluindo', 'corrigir um branch em um arquivo unico e excluindo codigo e rodar teste focado'),
+        @('remover', 'corrigir um branch em um arquivo unico e remover o codigo antigo rodando teste focado'),
+        @('excluir', 'corrigir um branch em um arquivo unico e excluir o codigo antigo rodando teste focado'),
+        @('apagar', 'corrigir um branch em um arquivo unico e apagar o codigo antigo rodando teste focado'),
+        @('permission', 'fix one branch in a permission helper in a single file and run focused test'),
+        @('secret', 'fix one branch in a single file secret helper and run focused test'),
+        @('auth', 'fix one branch in a single file auth helper and run focused test'),
+        @('security', 'fix one branch in a single file security helper and run focused test'),
+        @('credentials PT', 'corrigir um branch em um arquivo unico das credenciais e rodar teste focado'),
+        @('deploy', 'fix one branch in a single file helper and deploy it and run focused test'),
+        @('delete', 'fix one branch in a single file helper and delete old code and run focused test'),
+        @('login', 'fix one branch in a single file login helper and run focused test'),
+        @('role', 'fix one branch in a single file role helper and run focused test'),
+        @('jwt', 'fix one branch in a single file jwt helper and run focused test'),
+        @('rbac', 'fix one branch in a single file rbac helper and run focused test'),
+        @('acl', 'fix one branch in a single file acl helper and run focused test'),
+        @('access-control', 'fix one branch in a single file access-control helper and run focused test'),
+        @('sanitization', 'fix one branch in a single file sanitization helper and run focused test'),
+        @('sql', 'fix one branch in a single file sql helper and run focused test'),
+        @('hash', 'fix one branch in a single file hash helper and run focused test'),
+        @('hmac', 'fix one branch in a single file hmac helper and run focused test'),
+        @('signature', 'fix one branch in a single file signature helper and run focused test'),
+        @('cors', 'fix one branch in a single file cors helper and run focused test'),
+        @('concurrent', 'fix one branch in a single file concurrent helper and run focused test'),
+        @('race', 'fix one branch in a single file race helper and run focused test'),
+        @('mutex', 'fix one branch in a single file mutex helper and run focused test'),
+        @('lock', 'fix one branch in a single file lock helper and run focused test'),
+        @('lease', 'fix one branch in a single file lease helper and run focused test'),
+        @('worktree', 'fix one branch in a single file worktree helper and run focused test'),
+        @('shared-file', 'fix one branch in a single file shared-file helper and run focused test'),
+        @('not just one file', 'fix one branch in a single file helper not just one file and run focused test'),
+        @('both files', 'fix one branch in a single file helper both files and run focused test'),
+        @('other file', 'fix one branch in a single file helper other file and run focused test'),
+        @('second file', 'fix one branch in a single file helper second file and run focused test'),
+        @('callers', 'fix one branch in a single file helper callers and run focused test'),
+        @('two paths', 'fix one branch in a single file helper src/a.ps1 and tests/a.tests.ps1 and run focused test'),
+        @('kernel path', 'fix one branch in a single file scripts/v3/lib/OrchestrationTaskKernel.ps1 and run focused test'),
+        @('worktree lease path', 'fix one branch in a single file scripts/v3/lib/WorktreeLease.ps1 and run focused test'),
+        @('grant helper', 'fix one branch in a single file scripts/v3/lib/GrantIssuer.ps1 and run focused test'),
+        @('verifier helper', 'fix one branch in a single file scripts/v3/lib/VerifierRules.ps1 and run focused test'),
+        @('grant ts', 'fix one branch in a single file src/core/ExecutionGrant.ts and run focused test'),
+        @('verifier ts', 'fix one branch in a single file src/core/VerifierProfiles.ts and run focused test'),
+        @('opencode json', 'fix one branch in a single file opencode.json and run focused test'),
+        @('permission helper', 'fix one branch in a single file scripts/v3/lib/PermissionHelper.ps1 and run focused test'),
+        @('authz helper', 'fix one branch in a single file scripts/v3/lib/AuthzHelper.ps1 and run focused test'),
+        @('env file', 'fix one branch in a single file .env and run focused test'),
+        @('dotenv', 'fix one branch in a single file dotenv helper and run focused test'),
+        @('settings config', 'fix one branch in a single file settings config helper and run focused test'),
+        @('opencode config', 'fix one branch in a single file opencode config helper and run focused test'),
+        @('mandate enforcement', 'fix one branch in a single file src/core/MandateEnforcement.ts and run focused test'),
+        @('capability registry', 'fix one branch in a single file src/core/CapabilityRegistry.ts and run focused test'),
+        @('policy rules', 'fix one branch in a single file src/core/PolicyRules.ts and run focused test'),
+        @('preflight path', 'fix one branch in a single file scripts/v3/orchestration-preflight.ps1 and run focused test'),
+        @('orchestration taskkernel', 'fix one branch in a single file OrchestrationTaskKernel helper and run focused test'),
+        @('taskkernel', 'fix one branch in a single file TaskKernel helper and run focused test'),
+        @('worktree lease', 'fix one branch in a single file WorktreeLease helper and run focused test'),
+        @('lease manager', 'fix one branch in a single file LeaseManager helper and run focused test'),
+        @('execution grant', 'fix one branch in a single file ExecutionGrant helper and run focused test'),
+        @('grant policy', 'fix one branch in a single file GrantPolicy helper and run focused test'),
+        @('verifier profiles', 'fix one branch in a single file VerifierProfiles helper and run focused test'),
+        @('permission gate', 'fix one branch in a single file PermissionGate helper and run focused test'),
+        @('orchestration preflight', 'fix one branch in a single file OrchestrationPreflight helper and run focused test'),
+        @('done compliance', 'fix one branch in a single file OrchestrationDoneCompliance helper and run focused test'),
+        @('capability acceptance', 'fix one branch in a single file CapabilityAcceptance helper and run focused test'),
+        @('mcp safety', 'fix one branch in a single file McpSafety helper and run focused test')
+    )
+    $f2N = 0
+    foreach ($f2C in $f2Denied) {
+        $f2N++
+        $f2R = Get-OrchestrationPreflight -Objective ([string]$f2C[1]) -TaskType 'trivial' -Domain 'code' -Risk 'low' -ReadWrite 'write'
+        Assert-That ([string]$f2R.orchestration_decision -cne 'DIRECT_VERIFIED') ("15l-15x denied #" + $f2N + " " + $f2C[0]) ($f2R | ConvertTo-Json -Compress)
+    }
+    $f2Meta = @(
+        @('implementation', 'implementation', 'low'),
+        @('cosmetic', 'cosmetic', 'low'),
+        @('medium risk', 'trivial', 'medium'),
+        @('high risk', 'trivial', 'high')
+    )
+    foreach ($f2M in $f2Meta) {
+        $f2R = Get-OrchestrationPreflight -Objective 'fix one branch in a single file helper and run focused test' -TaskType ([string]$f2M[1]) -Domain 'code' -Risk ([string]$f2M[2]) -ReadWrite 'write'
+        Assert-That ([string]$f2R.orchestration_decision -cne 'DIRECT_VERIFIED') ("15l-15x metadata " + $f2M[0]) ($f2R | ConvertTo-Json -Compress)
+    }
     # 16) CLI: malformed health string fails closed to fallback
     $c3 = Invoke-PreflightCliRaw -Argv @('-Objective', 'implement bounded edit for retry queue', '-TaskType', 'implementation', '-Domain', 'backend', '-Risk', 'medium', '-ReadWrite', 'write', '-RouterHealthy', 'maybe')
     $o3 = Get-JsonTail -Text $c3.Text
