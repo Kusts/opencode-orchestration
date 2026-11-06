@@ -31,7 +31,7 @@ Load [brainstorming](../brainstorming/SKILL.md) for genuine ambiguity. Load [cod
 
 ## 3. Implement Verifiable Slices
 
-Reuse the project's stack, language, interfaces, and commands. Prefer the smallest coherent change and vertical slices that expose useful behavior. Avoid hypothetical abstractions and compatibility layers without real consumers or persisted data. Preserve preexisting work.
+Reuse the project's stack, language, interfaces, and commands. Prefer the smallest coherent change and vertical slices that expose useful behavior. Before new code or wrappers, check native runtime capabilities, existing project components, and established integrations or libraries; for new or unstable functionality, prove the smallest usable end-to-end happy path first, then harden according to evidence and risk. Avoid hypothetical abstractions and compatibility layers without real consumers or persisted data. Preserve preexisting work.
 
 For meaningful testable behavior, use [test-driven-development](../test-driven-development/SKILL.md): one independently specified expectation, relevant failure, minimal implementation, green checks, then safe refactoring. If test-first execution is impractical, document the alternative and its limits; do not fabricate a red phase or delete existing code to recreate it.
 
@@ -65,7 +65,7 @@ For work spanning sessions, update one existing project plan or handoff with obj
 
 ## Runtime Contract
 
-Load named skills with the native loader when available; otherwise read their `SKILL.md` with the available file reader. Resolve relative links from this skill directory, not the current project. If discovery fails, the canonical entrypoint in this repo is `skills-core/hybrid-development/SKILL.md` (installed at `~/.config/opencode/skills/hybrid-development/SKILL.md`).
+Load named skills with the native loader when available; otherwise read their `SKILL.md` with the available file reader. Resolve relative links from this skill directory, not the current project. If discovery fails, the canonical entrypoint on this installation is `C:/Users/walis/agent-config/skills/global/hybrid-development/SKILL.md`; on another machine use its configured control-plane root.
 
 Use the actual shell, test runner, editing tools, and permission model. No dependency on Bash, a specific model, tool names, hooks, or subagents. Without parallel agents, execute the same decomposition sequentially. Without execution capability, provide inspected reasoning and explicitly unverified checks, not an invented pass. Do not install a capability or bypass permissions solely to satisfy this method.
 
