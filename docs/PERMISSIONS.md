@@ -7,6 +7,12 @@ Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + templates po
 sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não só no
 `opencode.json`.
 
+No V2 com o marcador completo `agent-config:global`, os 19 perfis worker em
+`agents/*.md` e suas entradas JSON (`agents.<worker>`) pertencem ao Agent
+Config; o instalador preserva essas entradas. O modo standalone sem owner mantém
+os snapshots compatíveis. `build`/`title` e settings de raiz ficam fora dessa
+transferência.
+
 ## Tabela 19 agentes × classe × barreira
 
 | Agente | Classe | edit | bash | Barreira |

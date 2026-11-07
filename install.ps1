@@ -597,12 +597,13 @@ function Merge-ManagedOpencodeConfig($Existing, $Desired) {
 # permissions e array: substituicao integral quando o canonico diverge
 # (ordem broad-first do template e significativa no runtime V2).
 
-function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents, [switch]$SkipPermissions) {
+function Merge-ManagedAgentConfigV2($ExistingAgents, $DesiredAgents, [switch]$SkipPermissions, [switch]$SkipWorkerProfiles) {
   $appliedPaths = New-Object System.Collections.ArrayList
   if ($null -eq $ExistingAgents) {
     $ExistingAgents = (New-Object PSObject)
   }
   foreach ($key in @($DesiredAgents.PSObject.Properties.Name)) {
+    if ($SkipWorkerProfiles -and ($key -ne 'build') -and ($key -ne 'title')) { continue }
     $desiredEntry = $DesiredAgents.$key
     if (-not (Has-Member $ExistingAgents $key)) {
       if ($SkipPermissions -and (Has-Member $desiredEntry 'permissions')) {
@@ -677,7 +678,7 @@ function Get-DesiredManagedPathsV2($Desired) {
   return $paths
 }
 
-function Merge-ManagedOpencodeConfigV2($Existing, $Desired, [switch]$SkipPermissions) {
+function Merge-ManagedOpencodeConfigV2($Existing, $Desired, [switch]$SkipPermissions, [switch]$SkipWorkerProfiles) {
   $managedPaths = New-Object System.Collections.ArrayList
   foreach ($top in @('$schema', 'model', 'default_agent')) {
     if (Set-PropIfDifferent $Existing $top $Desired.$top) { }
@@ -691,7 +692,7 @@ function Merge-ManagedOpencodeConfigV2($Existing, $Desired, [switch]$SkipPermiss
   if (-not (Has-Member $Existing 'agents') -or ($null -eq $Existing.agents)) {
     Set-Prop $Existing 'agents' (New-Object PSObject)
   }
-  $agentRes = Merge-ManagedAgentConfigV2 $Existing.agents $Desired.agents -SkipPermissions:$SkipPermissions
+  $agentRes = Merge-ManagedAgentConfigV2 $Existing.agents $Desired.agents -SkipPermissions:$SkipPermissions -SkipWorkerProfiles:$SkipWorkerProfiles
   foreach ($p in $agentRes.ManagedPaths) { [void]$managedPaths.Add($p) }
   return @{ Config = $Existing; ManagedPaths = $managedPaths }
 }
@@ -1358,12 +1359,11 @@ $agentsTargetPath = Join-Path $ocDir 'AGENTS.md'
 $existingAgentsMd = $null
 if (Test-Path -LiteralPath $agentsTargetPath -PathType Leaf) { $existingAgentsMd = Read-Utf8 $agentsTargetPath }
 # O2.1: Config owns the global text when its namespaced marker is present.
-# The installer then writes NO global text, NO agents/*.md editable forks and
-# NO agents.*.permissions (Config canonical). Standalone mode keeps installing
-# snapshots, recorded as SNAPSHOT_COMPAT in the manifest.
+# The installer then writes NO global text, NO agents/*.md editable forks, or
+# worker agents.* profiles (Config canonical). Standalone mode keeps snapshots.
 $ConfigOwnsGlobal = (($null -ne $existingAgentsMd) -and ($existingAgentsMd -match '<!-- agent-config:global:start -->') -and ($existingAgentsMd -match '<!-- agent-config:global:end -->'))
 if ($ConfigOwnsGlobal) {
-  Write-Host '[install] Config owner detectado (agent-config:global): texto global, perfis agents/* e agents.*.permissions NAO serao escritos.' -ForegroundColor Cyan
+  Write-Host '[install] Config owner detectado: texto global e perfis worker agents.* NAO serao escritos.' -ForegroundColor Cyan
 }
 if ($ConfigOwnsGlobal -and (-not $IsV2)) {
   Write-Host '[install] Config owner (agent-config:global) exige o caminho V2: instalacao V1 recusada (fail-closed; V1 frozen). Use -Runtime V2.' -ForegroundColor Red
@@ -1531,6 +1531,7 @@ if ($null -eq $existingJsonObj) {
     $mergedObj = (($desired | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
     if (($null -ne $mergedObj) -and (Has-Member $mergedObj 'agents') -and ($null -ne $mergedObj.agents)) {
       foreach ($ak in @($mergedObj.agents.PSObject.Properties.Name)) {
+        if (($ak -ne 'build') -and ($ak -ne 'title')) { Remove-Prop $mergedObj.agents $ak; continue }
         Remove-Prop $mergedObj.agents.$ak 'permissions'
       }
     }
@@ -1541,13 +1542,13 @@ if ($null -eq $existingJsonObj) {
   if ($IsV2) { $managedPaths = @(Get-DesiredManagedPathsV2 $desired) }
   else { $managedPaths = @(Get-DesiredManagedPaths $desired) }
   if ($ConfigOwnsGlobal -and $IsV2) {
-    $managedPaths = @($managedPaths | Where-Object { $_ -notmatch '\.permissions$' })
+    $managedPaths = @($managedPaths | Where-Object { ($_ -notmatch '\.permissions$') -and ($_ -notmatch '^agents\.(?!build\.|title\.)') })
   }
 }
 else {
   $clone = (Strip-JsoncComments $existingJsonRaw) | ConvertFrom-Json
   if ($IsV2) {
-    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired -SkipPermissions:$ConfigOwnsGlobal
+    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired -SkipPermissions:$ConfigOwnsGlobal -SkipWorkerProfiles:$ConfigOwnsGlobal
     $mergedObj = $mergeRes.Config
     $managedPaths = @($mergeRes.ManagedPaths)
   }
@@ -2075,6 +2076,7 @@ try {
     else { $snapshotPaths = @(Get-DesiredManagedPaths $desired) }
     if ($ConfigOwnsGlobal -and $IsV2) {
       $snapshotPaths = @($snapshotPaths | Where-Object { $_ -notmatch '\.permissions$' })
+      $snapshotPaths = @($snapshotPaths | Where-Object { $_ -notmatch '^agents\.(?!build\.|title\.)' })
     }
     foreach ($mp in $snapshotPaths) {
       try {
@@ -2197,7 +2199,7 @@ try {
       bundle_canary = $bundleCanary
       bundle_active = $bundleActive
       config_ownership = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
-      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'agents/*.md profiles', 'agents.*.permissions') } else { @() })
+      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'agents/*.md profiles', 'opencode.json:agents.worker-profiles') } else { @() })
       snapshot_provenance = $(if ($ConfigOwnsGlobal) { 'consumer-shadow (no editable fork installed)' } else { 'SNAPSHOT_COMPAT (generated copies; not editable sources)' })
       managed_files = @($managedFiles)
       managed_config_paths = @($managedPaths)
