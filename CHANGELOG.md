@@ -622,6 +622,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   sem claim; nenhum FAIL atribuível às mudanças. Detalhe em
   `evidence/closure/FUNCTIONAL-CLOSURE-2026-10-20.md` §9.1.
 
+- **GH-WAKE — sessão raiz recuperada por ID (2026-11-07, issues #143/#137)**:
+  - `Resolve-GHWakeBoundRootSession` deixa de varrer as 100 sessões mais recentes e consulta `session.get` pelo `root_session` já vinculado à Task; `Get-NativeSessionIdentity` usa o mesmo lookup direto nas checagens pré/pós-resume. `Test-NativeSessionBinding` e todos os controles de Task/Run/Generation/Goal/lease/checkpoint continuam no caminho.
+  - Sessão ausente => `session-not-found`; sessão arquivada => `session-archived` (bloqueio explícito antes de qualquer dispatch, sem executor, receipt, marker ou mutação de Task). Ambas as razões entram no contrato estável do resume e em `knownBlocked` do auto-dispatch.
+  - Validação: 8 suítes focadas PASS em PS 5.1 e PS 7 (adapter 23/23, binding 37/37, scheduler 119, auto-dispatch 143, negatives 119, scheduler-tick 41, NativeResume 65/65, NativeResumeP2 62/62) e prova real no binário `opencode 2.2.6` (sessão por ID + NOT_FOUND). Evidência: `evidence/gh-wake-session-get-by-id-2026-11-07.md`.
+
 ## [0.2.0] - 2026-10-19 - Refinamento funcional P0/P1 (PARTIAL)
 
 Rodada de refinamento funcional 2026-10-17/19 (plano em

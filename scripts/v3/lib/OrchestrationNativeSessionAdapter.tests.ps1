@@ -65,6 +65,37 @@ try {
     $p = New-FixtureCmd $base 'slow' "@echo off`r`nping -n 6 127.0.0.1 >nul`r`necho []`r`n"
     $r = Get-NativeSessionList -BinaryCommand $p -TimeoutMs 200
     Assert-S ($r.ok -eq $false -and $r.error -eq 'TIMEOUT') 'TIMEOUT' $r.error
+
+    $byId = '{"data":{"id":"ses_1","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"D:\\\\x"},"projectID":"p1"}}'
+    $p = New-FixtureCmd $base 'byid' ("@echo off`r`nif `"%1`"==`"api`" (echo " + $byId + ") else (echo [])`r`n")
+    $r = Get-NativeSessionList -BinaryCommand $p
+    Assert-S ($r.ok -and $r.count -eq 0) 'by-id fixture list is empty' ($r.error + ':count=' + $r.count)
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p
+    Assert-S ($r.ok -and $r.count -eq 1 -and $r.sessions[0].id -ceq 'ses_1') 'by-id independent of list' ($r.error + ':' + $r.detail + ':count=' + $r.count)
+    $arch = '{"data":{"id":"ses_1","time":{"created":1,"updated":2,"archived":3000}}}'
+    $p = New-FixtureCmd $base 'archived' ("@echo off`r`necho " + $arch + "`r`n")
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p
+    Assert-S ($r.ok -and $r.sessions[0].archived -and $r.sessions[0].archivedAt -eq 3000) 'by-id archived' $r.error
+    $p = New-FixtureCmd $base 'notfound' "@echo off`r`necho SessionNotFoundError 1>&2`r`nexit /b 1`r`n"
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p
+    Assert-S ($r.error -eq 'NOT_FOUND') 'by-id not found' $r.error
+    $wrongJson = '{"data":{"id":"ses_2","time":{"created":1,"updated":2}}}'
+    $p = New-FixtureCmd $base 'wrongid' ("@echo off`r`necho " + $wrongJson + "`r`n")
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p
+    Assert-S ($r.error -eq 'FIELD_ERROR') 'by-id wrong id' $r.error
+    $p = New-FixtureCmd $base 'shouldnotrun' "@echo off`r`necho spawned > `"$base\spawned.txt`"`r`n"
+    $r = Get-NativeSessionById -SessionId 'bad!' -BinaryCommand $p
+    Assert-S ($r.error -eq 'INVALID_ID' -and -not (Test-Path (Join-Path $base 'spawned.txt'))) 'by-id invalid no spawn' $r.error
+    $p = New-FixtureCmd $base 'bybadjson' "@echo off`r`necho nope`r`n"
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p
+    Assert-S ($r.error -eq 'PARSE_ERROR') 'by-id malformed json' $r.error
+    $badts = '{"data":{"id":"ses_1","time":{"created":"1000","updated":2000}}}'
+    $p = New-FixtureCmd $base 'bybadts' ("@echo off`r`necho " + $badts + "`r`n")
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p
+    Assert-S ($r.error -eq 'FIELD_ERROR') 'by-id string timestamp' $r.error
+    $p = New-FixtureCmd $base 'byslow' "@echo off`r`nping -n 6 127.0.0.1 >nul`r`necho {}`r`n"
+    $r = Get-NativeSessionById -SessionId 'ses_1' -BinaryCommand $p -TimeoutMs 200
+    Assert-S ($r.error -eq 'TIMEOUT') 'by-id timeout' $r.error
 }
 finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
@@ -76,6 +107,9 @@ if ($hasOpencode) {
     $r = Get-NativeSessionList -MaxCount 2
     Assert-S ($r.ok -eq $true) 'runtime smoke ok' $r.error
     Assert-S ($r.count -ge 1 -and $r.count -le 2) 'runtime smoke bounded' ("got $($r.count)")
+    $sid = [string]$r.sessions[0].id
+    $byId = Get-NativeSessionById -SessionId $sid
+    Assert-S ($byId.ok -and $byId.sessions[0].id -ceq $sid) 'runtime smoke by id' $byId.error
 } else {
     Write-Host 'SKIP runtime smoke: opencode not available'
 }

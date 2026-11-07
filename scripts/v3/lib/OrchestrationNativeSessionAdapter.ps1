@@ -153,6 +153,55 @@ function Test-NativeSessionIdFormat {
     } catch { return $false }
 }
 
+function Get-NativeSessionById {
+    [CmdletBinding()]
+    param([string]$SessionId, [string]$BinaryCommand = 'opencode', [int]$TimeoutMs = 30000)
+    $empty = @()
+    if (-not (Test-NativeSessionIdFormat -SessionId $SessionId)) { return [pscustomobject]@{ ok=$false; error='INVALID_ID'; detail='invalid session id'; sessions=$empty; count=0 } }
+    try {
+        $resolved = $BinaryCommand; $useCmdShim = ($resolved -like '*.cmd' -or $resolved -like '*.bat')
+        if ($BinaryCommand -eq 'opencode') {
+            $cmd = Get-Command opencode.cmd -ErrorAction SilentlyContinue
+            if (-not $cmd) { $cmd = Get-Command opencode -ErrorAction SilentlyContinue }
+            if ($cmd) { $resolved=$cmd.Source; if ($resolved -like '*.cmd' -or $resolved -like '*.bat') { $useCmdShim=$true } }
+        }
+        $args = @('api','session.get','--param',('sessionID=' + $SessionId))
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        if ($useCmdShim) { $psi.FileName='cmd.exe'; $escaped=$resolved -replace '"','""'; $psi.Arguments='/c ""' + $escaped + '" ' + ($args -join ' ') + '"' }
+        else { $psi.FileName=$resolved; $psi.Arguments=($args -join ' ') }
+        $psi.RedirectStandardOutput=$true; $psi.RedirectStandardError=$true; $psi.UseShellExecute=$false; $psi.CreateNoWindow=$true
+        try { $proc=[System.Diagnostics.Process]::Start($psi) } catch { return [pscustomobject]@{ok=$false;error='LAUNCH_ERROR';detail=(Protect-Diag $_.Exception.Message);sessions=$empty;count=0} }
+        $ot=$proc.StandardOutput.ReadToEndAsync(); $et=$proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($TimeoutMs)) { try{$proc.Kill()}catch{}; return [pscustomobject]@{ok=$false;error='TIMEOUT';detail='';sessions=$empty;count=0} }
+        $stdout=$ot.Result; $stderr=$et.Result
+        if ($proc.ExitCode -ne 0) {
+            $diagText = $stderr; if ([string]::IsNullOrWhiteSpace($diagText)) { $diagText = $stdout }
+            $diag = Protect-Diag $diagText
+            if ($proc.ExitCode -eq 1 -and (($stderr + ' ' + $stdout) -match '(?i)SessionNotFoundError|HTTP\s+404')) { return [pscustomobject]@{ok=$false;error='NOT_FOUND';detail=$diag;sessions=$empty;count=0} }
+            return [pscustomobject]@{ok=$false;error=('EXIT_' + $proc.ExitCode);detail=$diag;sessions=$empty;count=0}
+        }
+        try { $parsed=$stdout | ConvertFrom-Json } catch { return [pscustomobject]@{ok=$false;error='PARSE_ERROR';detail=(Protect-Diag $_.Exception.Message);sessions=$empty;count=0} }
+        if ($null -eq $parsed -or $null -eq $parsed.data) { return [pscustomobject]@{ok=$false;error='FIELD_ERROR';detail='missing data object';sessions=$empty;count=0} }
+        $s=$parsed.data
+        $id=''; try{$id=[string]$s.id}catch{}
+        if (-not (Test-NativeSessionIdFormat -SessionId $id) -or $id -cne $SessionId) { return [pscustomobject]@{ok=$false;error='FIELD_ERROR';detail='invalid or mismatched id';sessions=$empty;count=0} }
+        try {
+            $createdRaw=$s.time.created; $updatedRaw=$s.time.updated
+            if (-not ($createdRaw -is [int] -or $createdRaw -is [long]) -or -not ($updatedRaw -is [int] -or $updatedRaw -is [long])) { throw 'timestamps must be integer' }
+            $created=[long]$createdRaw; $updated=[long]$updatedRaw
+        } catch { return [pscustomobject]@{ok=$false;error='FIELD_ERROR';detail=(Protect-Diag $_.Exception.Message);sessions=$empty;count=0} }
+        $dir=''; if ($null -ne $s.location) { $dir=[string]$s.location.directory }; if ([string]::IsNullOrWhiteSpace($dir)) {$dir=[string]$s.directory}
+        $projectValue=''; if ($null -ne $s.projectID) {$projectValue=[string]$s.projectID}; if ([string]::IsNullOrWhiteSpace($projectValue)) {$projectValue=[string]$s.projectId}
+        $archived=$false; $archivedAt=$null
+        if ($null -ne $s.time) {
+            $archived=($null -ne $s.time.PSObject.Properties['archived']) -and ($null -ne $s.time.archived)
+            if ($archived) {$archivedAt=$s.time.archived}
+        }
+        $session=[pscustomobject]@{id=$id;title=[string]$s.title;created=$created;updated=$updated;directory=$dir;projectId=$projectValue;archived=[bool]$archived;archivedAt=$archivedAt}
+        return [pscustomobject]@{ok=$true;error=$null;detail='';sessions=@($session);count=1}
+    } catch { return [pscustomobject]@{ok=$false;error='LAUNCH_ERROR';detail=(Protect-Diag $_.Exception.Message);sessions=$empty;count=0} }
+}
+
 function Resolve-NativeSessionDirectory {
     [CmdletBinding()]
     param([string]$Path = '')
@@ -289,9 +338,10 @@ function Get-NativeSessionIdentity {
         if (-not (Test-NativeSessionIdFormat -SessionId $SessionId)) {
             return [pscustomobject]@{ ok = $false; reason = 'session-id-invalid'; detail = (Protect-Diag ([string]$SessionId)); session = $null }
         }
+        # MaxCount is retained for call-site compatibility; direct lookup ignores it.
         $list = $null
         try {
-            $list = Get-NativeSessionList -MaxCount $MaxCount -BinaryCommand $BinaryCommand -TimeoutMs $TimeoutMs
+            $list = Get-NativeSessionById -SessionId $SessionId -BinaryCommand $BinaryCommand -TimeoutMs $TimeoutMs
         } catch {
             return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = (Protect-Diag $_.Exception.Message); session = $null }
         }
@@ -308,7 +358,8 @@ function Get-NativeSessionIdentity {
                 try { $det = [string]$list.detail } catch { $det = '' }
                 if ([string]::IsNullOrWhiteSpace($det)) { $d = $e } else { $d = ($e + ':' + $det) }
             } catch { $d = 'list failed' }
-            return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = (Protect-Diag $d); session = $null }
+            $why='session-not-found'; if ([string]$list.error -ceq 'INVALID_ID') {$why='session-id-invalid'}
+            return [pscustomobject]@{ ok = $false; reason = $why; detail = (Protect-Diag $d); session = $null }
         }
         $b = Test-NativeSessionBinding -SessionId $SessionId -ExpectedDirectory $ExpectedDirectory -ExpectedProjectId $ExpectedProjectId -SessionsResult $list
         if ($null -eq $b -or -not [bool]$b.ok) {
@@ -318,6 +369,7 @@ function Get-NativeSessionIdentity {
             } catch { }
             return [pscustomobject]@{ ok = $false; reason = $reason; detail = (Protect-Diag ($reason + ':' + [string]$SessionId)); session = $null }
         }
+        if ([bool]$b.session.archived) { return [pscustomobject]@{ok=$false;reason='session-archived';detail='session is archived';session=$null} }
         return [pscustomobject]@{ ok = $true; reason = ''; detail = ''; session = $b.session }
     } catch {
         return [pscustomobject]@{ ok = $false; reason = 'session-not-found'; detail = (Protect-Diag $_.Exception.Message); session = $null }

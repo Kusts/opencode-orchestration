@@ -60,7 +60,7 @@ function New-FixtureCmd($dir, $name, $content) {
     return $p
 }
 
-function New-SessionListCmd($dir, $name, $jsonArray) {
+function New-SessionGetCmd($dir, $name, $jsonArray) {
     return (New-FixtureCmd $dir $name ("@echo off`r`necho " + $jsonArray + "`r`n"))
 }
 
@@ -115,14 +115,15 @@ Write-JsonFile (Join-Path $tasksDir ($doneTaskId + '.json')) ([ordered]@{ revisi
 
 $workEsc = (([string]$workDir) -replace '\\', '\\')
 $otherEsc = (([string]$otherDir) -replace '\\', '\\')
-$goodJson = ('[{"id":"' + $sid + '","title":"t","created":1000,"updated":2000,"directory":"' + $workEsc + '","projectId":"proj1"}]')
-$otherProjJson = ('[{"id":"' + $sid + '","title":"t","created":1000,"updated":2000,"directory":"' + $workEsc + '","projectId":"other-proj"}]')
-$otherDirJson = ('[{"id":"' + $sid + '","title":"t","created":1000,"updated":2000,"directory":"' + $otherEsc + '","projectId":"proj1"}]')
+$goodJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $workEsc + '"},"projectID":"proj1"}}')
+$otherProjJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $workEsc + '"},"projectID":"other-proj"}}')
+$otherDirJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $otherEsc + '"},"projectID":"proj1"}}')
+$emptyJson = '{"data":null}'
 
-$goodCmd = New-SessionListCmd $base 'good' $goodJson
-$emptyCmd = New-SessionListCmd $base 'emptylist' '[]'
-$otherProjCmd = New-SessionListCmd $base 'otherproj' $otherProjJson
-$otherDirCmd = New-SessionListCmd $base 'otherdir' $otherDirJson
+$goodCmd = New-SessionGetCmd $base 'good' $goodJson
+$emptyCmd = New-SessionGetCmd $base 'emptylist' $emptyJson
+$otherProjCmd = New-SessionGetCmd $base 'otherproj' $otherProjJson
+$otherDirCmd = New-SessionGetCmd $base 'otherdir' $otherDirJson
 
 $okEvidence = '{"sessionId":"ses_abc123","role":"assistant"}'
 

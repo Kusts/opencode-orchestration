@@ -13,7 +13,7 @@ function New-FixtureCmd($dir, $name, $content) {
     return $p
 }
 
-function New-SessionListCmd($dir, $name, $jsonArray) {
+function New-SessionGetCmd($dir, $name, $jsonArray) {
     return (New-FixtureCmd $dir $name ("@echo off`r`necho " + $jsonArray + "`r`n"))
 }
 
@@ -68,14 +68,17 @@ Write-JsonFile (Join-Path $tasksDir ($planTaskId + '.json')) ([ordered]@{ revisi
 
 $workEsc = (([string]$workDir) -replace '\\', '\\')
 $otherEsc = (([string]$otherDir) -replace '\\', '\\')
-$goodJson = ('[{"id":"' + $sid + '","title":"t","created":1000,"updated":2000,"directory":"' + $workEsc + '","projectId":"proj1"}]')
-$otherProjJson = ('[{"id":"' + $sid + '","title":"t","created":1000,"updated":2000,"directory":"' + $workEsc + '","projectId":"other-proj"}]')
-$otherDirJson = ('[{"id":"' + $sid + '","title":"t","created":1000,"updated":2000,"directory":"' + $otherEsc + '","projectId":"proj1"}]')
+$goodJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $workEsc + '"},"projectID":"proj1"}}')
+$otherProjJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $workEsc + '"},"projectID":"other-proj"}}')
+$otherDirJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $otherEsc + '"},"projectID":"proj1"}}')
+$archJson = ('{"data":{"id":"' + $sid + '","title":"t","time":{"created":1000,"updated":2000,"archived":3000},"location":{"directory":"' + $workEsc + '"},"projectID":"proj1"}}')
+$emptyJson = '{"data":null}'
 
-$goodCmd = New-SessionListCmd $base 'good' $goodJson
-$emptyCmd = New-SessionListCmd $base 'emptylist' '[]'
-$otherProjCmd = New-SessionListCmd $base 'otherproj' $otherProjJson
-$otherDirCmd = New-SessionListCmd $base 'otherdir' $otherDirJson
+$goodCmd = New-SessionGetCmd $base 'good' $goodJson
+$emptyCmd = New-SessionGetCmd $base 'emptylist' $emptyJson
+$otherProjCmd = New-SessionGetCmd $base 'otherproj' $otherProjJson
+$otherDirCmd = New-SessionGetCmd $base 'otherdir' $otherDirJson
+$archCmd = New-SessionGetCmd $base 'archived' $archJson
 
 function New-BaseArgs($binaryCmd) {
     return @{
@@ -137,6 +140,13 @@ try {
     $r = Invoke-Resume $a $mk
     Assert-S (($r.ok -eq $false) -and ($r.reason -ceq 'session-not-found') -and ($r.action -ceq 'blocked')) 'B3-notfound' ($r.reason + '/' + $r.action)
     Assert-S ($st.n -eq 0) 'B3-no-run' ("calls=$($st.n)")
+
+    # --- B3b archived session is a stable pre-check refusal, never run ---
+    $st = @{ n = 0 }; $mk = { param($s) $st.n++; return [pscustomobject]@{ exit = 0; stdout = '{}'; stderr = ''; timedOut = $false } }
+    $a = New-BaseArgs $archCmd
+    $r = Invoke-Resume $a $mk
+    Assert-S (($r.ok -eq $false) -and ($r.reason -ceq 'session-archived') -and ($r.action -ceq 'blocked')) 'B3b-archived' ($r.reason + '/' + $r.action)
+    Assert-S ($st.n -eq 0) 'B3b-no-run' ("calls=$($st.n)")
 
     # --- B4 project mismatch ---
     $st = @{ n = 0 }; $mk = { param($s) $st.n++; return [pscustomobject]@{ exit = 0; stdout = '{}'; stderr = ''; timedOut = $false } }

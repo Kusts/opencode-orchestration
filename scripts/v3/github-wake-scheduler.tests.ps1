@@ -269,11 +269,11 @@ function Reset-SCSeams {
     $script:apiPre = @(); $script:apiPost = @(); $script:apiMsgs = @()
 }
 function Invoke-SCSched {
-    param($Case, [string]$Summary = 'sched proof', $Sessions = $null, [bool]$Enabled = $true, [string]$DirOverride = $null, [string]$ProjOverride = $null)
+    param($Case, [string]$Summary = 'sched proof', $Sessions = $null, [switch]$NoSessions, [bool]$Enabled = $true, [string]$DirOverride = $null, [string]$ProjOverride = $null)
     $e = $Case.env; $nx = $Case.nx
     $d = $e.root; if ($PSBoundParameters.ContainsKey('DirOverride')) { $d = $DirOverride }
     $p = $script:PROJ; if ($PSBoundParameters.ContainsKey('ProjOverride')) { $p = $ProjOverride }
-    $s = $Sessions; if ($null -eq $s) { $s = New-SCSessions -Env $e -Sid $script:ROOT -Proj $script:PROJ }
+    $s = $Sessions; if ($null -eq $s -and -not $NoSessions) { $s = New-SCSessions -Env $e -Sid $script:ROOT -Proj $script:PROJ }
     return (Invoke-GHWakeSchedulerDispatch -NextAction $nx -WaitsDir $e.waitsDir -TasksDir $e.tasksDir -GoalStoreDir $e.goalDir -CheckpointDir $e.ckptDir -FlagsPath $e.flagsPath -NowUtc $script:NOW -HandoffStateDir $e.ckptDir -ReceiptDir $e.receiptDir -RepoRoot $e.root -ExpectedDirectory $d -ExpectedProjectId $p -PromptText 'sched resume' -AutoDispatchEnabled $Enabled -ControllerProbe $script:probe -RunExecutor $script:runMock -SessionApiInvoker $script:apiMock -NativeSessionsResult $s -SettleResultSummary $Summary)
 }
 function Get-SCMarkers {
@@ -314,6 +314,32 @@ Assert-That (([string](Get-SCField $r3 'resume_session_id' '')) -ceq $script:ROO
 Assert-That ([int]$script:runCalls -eq 1) 'S3 exactly one executor call'
 Assert-That ((-not [bool](Get-SCField $r3 'dispatched' $true)) -and (-not [bool](Get-SCField $r3 'executed' $true))) 'S3 zero productive effect'
 Assert-That (([string](Get-SCField $r3 'reason' '')) -ceq 'auto-worker-non-native') 'S3 injected seams stay non-native'
+function Get-NativeSessionById { param([string]$SessionId, [string]$BinaryCommand, [int]$TimeoutMs) return (New-SCSessions -Env $script:lookupEnv -Sid $SessionId -Proj $script:PROJ) }
+function Get-NativeSessionList { throw 'limited session list must not be used' }
+Reset-SCSeams
+$case3direct = New-SCCase -Tag 's3-direct' -TaskId 'sched-task-s3-direct' -Evt 'evt-sched-s3-direct'
+Bind-SCRoot -Env $case3direct.env -TaskId 'sched-task-s3-direct' -Sid $script:ROOT
+$script:knownSids = @{ $script:ROOT = @{ dir = $case3direct.env.root; proj = $script:PROJ } }
+$script:lookupEnv = $case3direct.env
+Set-SCProof -Case $case3direct
+$r3direct = Invoke-SCSched -Case $case3direct -NoSessions
+Assert-That ($script:runSid -ceq $script:ROOT -and $script:runCalls -eq 1) 'S3 direct lookup recovers root once'
+Assert-That ((Get-SCField $r3direct 'reason' '') -ceq 'auto-worker-non-native' -and -not (Get-SCField $r3direct 'dispatched' $true)) 'S3 direct lookup zero productive effect'
+# Archived root is refused without executor, marker, or task-file mutation.
+$caseArch = New-SCCase -Tag 'arch' -TaskId 'sched-task-arch' -Evt 'evt-sched-arch'
+Bind-SCRoot -Env $caseArch.env -TaskId 'sched-task-arch' -Sid $script:ROOT
+$script:knownSids = @{ $script:ROOT = @{ dir = $caseArch.env.root; proj = $script:PROJ } }
+$taskArch = Get-SCTaskFile -Env $caseArch.env -TaskId 'sched-task-arch'
+$beforeBytes = [IO.File]::ReadAllBytes($taskArch); $sha = [Security.Cryptography.SHA256]::Create(); $beforeHash = [BitConverter]::ToString($sha.ComputeHash($beforeBytes))
+$beforeReceipts = @(Get-ChildItem -LiteralPath $caseArch.env.receiptDir -File -ErrorAction SilentlyContinue).Count
+$archSessions = New-SCSessions -Env $caseArch.env -Sid $script:ROOT -Proj $script:PROJ
+$archSessions.sessions[0] | Add-Member -NotePropertyName archived -NotePropertyValue $true
+Reset-SCSeams
+$rArch = Invoke-SCSched -Case $caseArch -Sessions $archSessions
+$afterBytes = [IO.File]::ReadAllBytes($taskArch); $afterHash = [BitConverter]::ToString($sha.ComputeHash($afterBytes))
+$afterReceipts = @(Get-ChildItem -LiteralPath $caseArch.env.receiptDir -File -ErrorAction SilentlyContinue).Count
+Assert-That ((Get-SCField $rArch 'reason' '') -ceq 'auto-session-archived' -and $script:runCalls -eq 0) 'archived session refused before executor'
+Assert-That (@(Get-SCMarkers $caseArch.env).Count -eq 0 -and $beforeHash -ceq $afterHash -and $beforeBytes.Length -eq $afterBytes.Length -and $beforeReceipts -eq $afterReceipts) 'archived session no marker, task, lease or receipt mutation'
 # --- S4: disabled scheduler blocks structured with zero effect ---
 Reset-SCSeams
 $r4 = Invoke-SCSched -Case $case3 -Enabled $false
