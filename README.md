@@ -60,6 +60,10 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
   `<!-- opencode-orchestration:end -->`. O resto do arquivo é preservado.
 - `~/.config/opencode/agents/*.md` — 19 agents (bloco `orchestration:` do
   frontmatter removido na instalação; o canônico com o bloco vive no repo).
+- Com o marcador completo `agent-config:global`, Agent Config é owner dos
+  perfis worker: a instalação preserva `agents/*.md` e `agents.<worker>` do
+  `opencode.json`; `build`, `title` e settings de raiz permanecem no escopo do
+  instalador da Orquestração.
 - `~/.config/opencode/plugins/orchestration-enforcement.js` — bundle
   autocontido do plugin dual-runtime (fonte única com adaptadores V1/V2 e
   lógica compartilhada); enforcement por sessão; telemetria em
