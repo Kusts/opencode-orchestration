@@ -46,6 +46,8 @@ try {
     Assert-NP (([string]$r1.live_version -ceq '2.2.5')) 'NP01b-live-version-echo-225' ("live=" + [string]$r1.live_version)
     $r1b = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.0.23')
     Assert-NP ([bool]$r1b.ok) 'NP02-supported-2023-proves' ("reason=" + [string]$r1b.reason + " live=" + [string]$r1b.live_version)
+    $r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.2.6')
+    Assert-NP (((-not [bool]$r226.ok) -and ([string]$r226.reason -ceq 'UNSUPPORTED_RUNTIME'))) 'NP02b-current-pin-does-not-widen-native-model-override'
     $r4 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '9.9.9')
     Assert-NP (((-not [bool]$r4.ok) -and ([string]$r4.reason -ceq 'UNSUPPORTED_RUNTIME'))) 'NP03-unknown-runtime-fails-closed' ("reason=" + [string]$r4.reason)
     $boom = ({ param() throw 'nope' }).GetNewClosure()

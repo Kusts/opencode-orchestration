@@ -40,11 +40,13 @@ Assert-Gate ($report.gates.G4_REPLAY_SETTLEMENT_IDEMPOTENCY.status -eq "PASS") "
 Assert-Gate ($report.gates.G5_GIT_PROTECTION_BOUNDARY.status -eq "PASS") "G5 Git Protection Boundary é PASS"
 
 # 3. Verificação da matriz de compatibilidade
-Assert-Gate ($report.compatibility_matrix.Count -eq 3) "Matriz cobre exatamente 3 perfis (2.0.23, 2.0.28-2.0.32, 2.1.2)"
+Assert-Gate ($report.compatibility_matrix.Count -eq 4) "Matriz preserva histórico e inclui o pin atual com status de smoke limitado"
 $pBaseline = $report.compatibility_matrix | Where-Object { $_.version -eq "2.0.23" }
 Assert-Gate ($pBaseline.profile -eq "certified-baseline" -and $pBaseline.status -eq "PASS_PINNED_BASELINE") "2.0.23 é certified-baseline com status PASS_PINNED_BASELINE"
+$pCurrent = $report.compatibility_matrix | Where-Object { $_.version -eq "2.2.6" }
+Assert-Gate ($pCurrent.profile -eq "current-pin" -and $pCurrent.status -eq "PASS_EXACT_LIFECYCLE_SMOKE") "2.2.6 lifecycle smoke exato passou; capacidades nativas continuam HOLD"
 $pActive = $report.compatibility_matrix | Where-Object { $_.version -eq "2.1.2" }
-Assert-Gate ($pActive.profile -eq "active-host") "2.1.2 é active-host"
+Assert-Gate ($pActive.profile -eq "previous-active-host") "2.1.2 permanece registrado como host anterior"
 
 # 4. Prova de escrita de evidência durável
 $testEvDir = Join-Path $env:TEMP ("gate-ev-" + [Guid]::NewGuid().ToString('N'))

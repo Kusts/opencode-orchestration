@@ -9,8 +9,8 @@
 // Spawn and
 // session lookup are injected as dependencies by the V2 adapter, so this
 // module stays typecheckable and unit-testable without a host. The V2
-// adapter proves the tool definition against the exact pinned
-// @opencode/plugin 2.0.23 API (`ToolInfo`/`ToolContext`/`ToolEditor`);
+// adapter typechecks the tool definition against the current registry pin
+// (`ToolInfo`/`ToolContext`/`ToolEditor`); runtime observations remain 2.0.23 only.
 // this module only defines the structural shapes those pinned types
 // accept (name/input/description/execute, JSON-schema input, text
 // content result).
@@ -239,8 +239,8 @@ export function readPlannerWaitHostContext(context: unknown): {
   try {
     if (!isPlainObject(context)) return fail;
     const c = context as Record<string, unknown>;
-    // PR181-A-TOOLCONTEXT-STRICT: read ONLY the canonical pinned
-    // @opencode/plugin 2.0.23 ToolContext fields (sessionID, agent —
+    // PR181-A-TOOLCONTEXT-STRICT: read ONLY canonical ToolContext fields;
+    // typechecked at 2.2.6, runtime-observed only at 2.0.23 (sessionID, agent -
     // alongside messageID/id; execute(input, context) is host-supplied and
     // separate from model args). Alias keys (sessionId/session_id/agentName/
     // agent_name) are NOT read: accepting them would let a forged
@@ -340,7 +340,8 @@ export function validatePlannerWaitArgs(args: unknown): {
   }
 }
 
-// Pinned Session.Info complete-shape gate (exact pin 2.0.23): required keys
+// Fail-closed Session.Info complete-shape gate; runtime-observed only at
+// 2.0.23, not 2.2.6: required keys
 // `id`, `projectID`, `cost`, `tokens`, `time`, `location` must EACH be an
 // OWN property (inherited values do NOT count) with pinned types —
 // canonical non-empty `id` matching `^ses`, non-empty `projectID`, number
@@ -409,7 +410,8 @@ export async function checkPlannerWaitRootProvenance(
     const doc = await sessionGet(sessionID);
     if (!isPlainObject(doc)) return { ok: false, reason: "planner-wait-provenance-unavailable" };
     const d = doc as Record<string, unknown>;
-    // Exact-pin 2.0.23 shape: session.get resolves to a DIRECT SessionInfo
+    // Prior 2.0.23 runtime-observed shape: session.get resolves to a DIRECT
+    // SessionInfo; the 2.2.6 runtime shape remains unobserved.
     // ({id, projectID, time, ...}; root has no parentID, child has
     // parentID === root id). The Promise adapter unwraps the transport
     // `{data: SessionInfo}` envelope, but a raw envelope may still surface;

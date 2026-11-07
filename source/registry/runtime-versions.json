@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-05",
+  "updated": "2026-11-07",
   "note": "Fonte unica dos pins de runtime/tools. Bump de versao = editar SOamente este arquivo (mais re-validacao no runtime exato). Registros historicos de evidencia (2.0.18/1.18.32) permanecem intactos.",
   "runtimes": {
     "v1": {
@@ -10,8 +10,8 @@
     },
     "v2": {
       "package": "@opencode/cli",
-      "version": "2.0.23",
-      "spec": "@opencode/cli@2.0.23"
+      "version": "2.2.6",
+      "spec": "@opencode/cli@2.2.6"
     }
   },
   "plugins": {
@@ -22,8 +22,8 @@
     },
     "v2": {
       "package": "@opencode/plugin",
-      "version": "2.0.23",
-      "spec": "@opencode/plugin@2.0.23"
+      "version": "2.2.6",
+      "spec": "@opencode/plugin@2.2.6"
     }
   },
   "tools": {

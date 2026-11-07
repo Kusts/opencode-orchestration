@@ -1,0 +1,136 @@
+{
+  "generated_at": "2026-11-07T16:50:42.2077128Z",
+  "runtime": "opencode v2.2.6",
+  "probe_dir": "C:\\Users\\walis\\AppData\\Local\\Temp\\native-session-archive-61abf2cc4eaf424caed9071804251231",
+  "tag": "i143probebac23741",
+  "steps": [
+    {
+      "step": "create_parent",
+      "value": "{\"data\":{\"id\":\"ses_e49146a34ffeKLqGd2jjYNNqDm\",\"projectID\":\"1b8411d7b0865c24a1b3e9264c2884c0b37203d9\",\"cost\":0,\"tokens\":{\"input\":0,\"output\":0,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":1794070255054,\"updated\":1794070255054},\"title\":\"i143probebac23741-parent\",\"location\":{\"directory\":\"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\native-session-archive-61abf2cc4eaf424caed9071804251231\"}}}"
+    },
+    {
+      "step": "create_child",
+      "value": "{\"data\":{\"id\":\"ses_e49146548ffe44njHbt5kwSORl\",\"parentID\":\"ses_e49146a34ffeKLqGd2jjYNNqDm\",\"projectID\":\"1b8411d7b0865c24a1b3e9264c2884c0b37203d9\",\"cost\":0,\"tokens\":{\"input\":0,\"output\":0,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":1794070256315,\"updated\":1794070256315},\"title\":\"i143probebac23741-child\",\"location\":{\"directory\":\"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\native-session-archive-61abf2cc4eaf424caed9071804251231\"}}}"
+    },
+    {
+      "step": "child_parentID",
+      "value": "ses_e49146a34ffeKLqGd2jjYNNqDm"
+    },
+    {
+      "step": "get_parent_directory",
+      "value": "C:\\Users\\walis\\AppData\\Local\\Temp\\native-session-archive-61abf2cc4eaf424caed9071804251231"
+    },
+    {
+      "step": "get_parent_projectID",
+      "value": "1b8411d7b0865c24a1b3e9264c2884c0b37203d9"
+    },
+    {
+      "step": "list_parentID_count",
+      "value": 1
+    },
+    {
+      "step": "list_parentID_ids",
+      "value": [
+        "ses_e49146548ffe44njHbt5kwSORl"
+      ]
+    },
+    {
+      "step": "list_root_search_ids",
+      "value": [
+        "ses_e49146a34ffeKLqGd2jjYNNqDm"
+      ]
+    },
+    {
+      "step": "archive_child_exit",
+      "value": 0
+    },
+    {
+      "step": "get_child_archived_time",
+      "value": "1794070261626"
+    },
+    {
+      "step": "get_child_parentID",
+      "value": "ses_e49146a34ffeKLqGd2jjYNNqDm"
+    },
+    {
+      "step": "list_active_ids",
+      "value": [
+        "ses_e49146a34ffeKLqGd2jjYNNqDm"
+      ]
+    },
+    {
+      "step": "list_archived_ids",
+      "value": [
+        "ses_e49146548ffe44njHbt5kwSORl"
+      ]
+    },
+    {
+      "step": "restore_child_exit",
+      "value": 0
+    },
+    {
+      "step": "list_active_after_restore_ids",
+      "value": [
+        "ses_e49146548ffe44njHbt5kwSORl",
+        "ses_e49146a34ffeKLqGd2jjYNNqDm"
+      ]
+    },
+    {
+      "step": "archive_parent_exit",
+      "value": 0
+    },
+    {
+      "step": "child_archived_flag_after_parent_archive",
+      "value": ""
+    },
+    {
+      "step": "restore_parent_exit",
+      "value": 0
+    },
+    {
+      "step": "cli_list_raw",
+      "value": "[\r\n  {\r\n    \"id\": \"ses_e49146a34ffeKLqGd2jjYNNqDm\",\r\n    \"title\": \"i143probebac23741-parent\",\r\n    \"updated\": 1794070278036,\r\n    \"created\": 1794070255054,\r\n    \"projectId\": \"1b8411d7b0865c24a1b3e9264c2884c0b37203d9\",\r\n    \"directory\": \"C:\\\\Users\\\\walis\\\\AppData\\\\Local\\\\Temp\\\\native-session-archive-61abf2cc4eaf424caed9071804251231\"\r\n  }\r\n]"
+    },
+    {
+      "step": "cli_list_count",
+      "value": 1
+    },
+    {
+      "step": "cli_list_ids",
+      "value": [
+        "ses_e49146a34ffeKLqGd2jjYNNqDm"
+      ]
+    },
+    {
+      "step": "delete_parent_exit",
+      "value": 0
+    },
+    {
+      "step": "get_deleted_parent_exit",
+      "value": 1
+    },
+    {
+      "step": "get_deleted_parent_text",
+      "value": "{\"_tag\":\"SessionNotFoundError\",\"sessionID\":\"ses_e49146a34ffeKLqGd2jjYNNqDm\",\"message\":\"Session not found: ses_e49146a34ffeKLqGd2jjYNNqDm\"}\r\nHTTP 404 Not Found"
+    },
+    {
+      "step": "get_deleted_child_exit",
+      "value": 1
+    }
+  ],
+  "kernel_state": {
+    "before": {
+      "D:\\projetos\\opencode-orchestration\\cache\\runtime\\tasks": "687798256ef122ad33f0a5613ddbf9d023e97ac85785869929476233ae6cca77",
+      "D:\\projetos\\opencode-orchestration\\cache\\runtime\\receipts": "1c587dde4e47eb12bf921fd88d5cd5d7bb48b7eaf55239f82305ef6a2223fba0",
+      "D:\\projetos\\opencode-orchestration\\cache\\runtime\\evidence": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "after": {
+      "D:\\projetos\\opencode-orchestration\\cache\\runtime\\tasks": "687798256ef122ad33f0a5613ddbf9d023e97ac85785869929476233ae6cca77",
+      "D:\\projetos\\opencode-orchestration\\cache\\runtime\\receipts": "1c587dde4e47eb12bf921fd88d5cd5d7bb48b7eaf55239f82305ef6a2223fba0",
+      "D:\\projetos\\opencode-orchestration\\cache\\runtime\\evidence": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "unchanged": true
+  },
+  "ok": true,
+  "failures": []
+}

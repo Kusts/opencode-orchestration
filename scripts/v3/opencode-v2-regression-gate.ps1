@@ -1,6 +1,6 @@
 <#!
 .SYNOPSIS
-    Gate operacional de regressão e compatibilidade para OpenCode V2.0.28-2.0.32 e V2.1.2 (Issues #101 e #146).
+     Gate operacional de regressão e compatibilidade; a matriz distingue o baseline histórico, o host anterior e o pin atual V2.2.6 (Issues #101 e #146).
 .DESCRIPTION
     Executa e valida a matriz de conformidade técnica para versões do OpenCode V2:
       1. Descoberta dinâmica de capacidades e fingerprint sem patch hardcoded.
@@ -67,9 +67,10 @@ $results = [ordered]@{
     host_runtime = if ($null -ne $doctorReport) { $doctorReport.runtime_identity } else { @{ generation = 2; runtime_id = "opencode-v2"; version_string = "synthetic/hermetic" } }
     gates = [ordered]@{}
     compatibility_matrix = @(
-        [ordered]@{ version = "2.0.23"; profile = "certified-baseline"; status = "PASS_PINNED_BASELINE"; note = "CI pinned reproducibly in runtime-versions.json" },
+        [ordered]@{ version = "2.0.23"; profile = "certified-baseline"; status = "PASS_PINNED_BASELINE"; note = "Historical exact-runtime baseline; not the current pin" },
+        [ordered]@{ version = "2.2.6"; profile = "current-pin"; status = "PASS_EXACT_LIFECYCLE_SMOKE"; note = "Exact 2.2.6 lifecycle smoke passed; native capability evidence remains HOLD" },
         [ordered]@{ version = "2.0.28-2.0.32"; profile = "historical-candidate"; status = "SPEC_COMPATIBLE_UNTESTED"; note = "Subcommands and permissions match specification; candidate pending host binary" },
-        [ordered]@{ version = "2.1.2"; profile = "active-host"; status = if ($null -ne $doctorReport -and $doctorReport.overall_verdict -eq 'COMPATIBLE_WITH_HOLDS') { "HARNESS_PASS" } else { "HARNESS_PASS" }; note = "Dynamic capability detection verified (surface-level)" }
+        [ordered]@{ version = "2.1.2"; profile = "previous-active-host"; status = "HARNESS_PASS"; note = "Previous host; dynamic capability detection verified (surface-level)" }
     )
     overall_status = "PENDING"
 }

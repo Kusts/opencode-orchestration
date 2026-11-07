@@ -2545,7 +2545,8 @@ function Test-OrchestrationNativeModelOverrideProof {
         retrieved read-only via `opencode api get /api/info`, is exactly in
         the canonical supported allowlist (2.2.5, 2.0.23; both official raw
         tags contain SubagentTool.Input.model with override ?? agent.model ??
-        parent.model). TaskKernel runtime profile/version metadata is caller
+        parent.model). Current package target 2.2.6 is not supported here until
+        a separate exact native-override proof authorizes it. TaskKernel runtime profile/version metadata is caller
         supplied at create time and NEVER authorizes this capability; this
         helper accepts no task profile/version parameters.
         Unknown versions and unavailable live API fail closed. Never infers

@@ -1,0 +1,185 @@
+{
+  "artifact": "i61-jev-native-integration-2026-11-06",
+  "issue": "61",
+  "runtime": {
+    "binary": "opencode 2.2.5",
+    "planner_agent": "build",
+    "planner_model": "opencode-go/deepseek-v4.1-flash",
+    "transport": "MCP local (node D:/projetos/jev-mcp/src/index.js)",
+    "mcp_health": "opencode mcp list => jev connected",
+    "planner_tools_discovered": ["jev_check", "jev_classify", "jev_decide", "jev_gate", "jev_score"],
+    "routing_flags_untouched": ["mcp_routing OFF/HOLD", "skill_routing OFF", "adaptive_ranking OFF"],
+    "kernel_vs_native": "MCP nativo V2 (tool calls host-side) permanece distinto do advisory HTTP kernel-side (OrchestrationJevAdvisory.ps1 / JEV_BASE_URL); nenhum dos dois foi alterado."
+  },
+  "scenarios": {
+    "A_planner_to_jev": {
+      "status": "PASS",
+      "session": "ses_e4d8b21cbffesnwexfRkMk40Mr",
+      "tool": "jev_decide",
+      "invocation_path": "Code Mode execute -> tools.jev.jev_decide",
+      "question": "escolha de metodo para o Teste C (config isolada com endpoint morto vs apenas suites kernel-side)",
+      "answer": { "approach": "A", "confidence": 0.74, "probabilities": { "A": 0.87, "B": 0.13 }, "sufficient_noul": 0.59 },
+      "usage": { "model": "jev-1.13-free", "input_tokens": 579, "output_tokens": 53, "cost": 0 },
+      "latency_ms": 4108,
+      "influence": "approach=A adotado; o Teste C foi executado em configuracao isolada real, nao apenas por suites estaticas."
+    },
+    "B_planner_to_t1_researcher_to_jev": {
+      "status": "PASS",
+      "proof_primary": {
+        "where": "sessao filha isolada com agent researcher fixado em T1",
+        "parent_session": "ses_e4d80d504ffeMoV0ddg4rjMpSu",
+        "child_session": "ses_e4d80afdaffeTot7xvFLPajYbU",
+        "child_session_parent_id": "ses_e4d80d504ffeMoV0ddg4rjMpSu",
+        "telemetry_source": "opencode session export (info.parentID, info.model, message content tool records)",
+        "child_agent": "researcher",
+        "child_model_effective": "opencode-go/iceman-contributor-free",
+        "tool_inside_child": "execute -> tools.jev.jev_check",
+        "child_result": { "probability": 0.38, "likely": false },
+        "child_tokens": { "input": 40447, "output": 171, "reasoning": 62, "cache_read": 32907 },
+        "child_latency_ms": 64099,
+        "parent_total_latency_ms": 83849,
+        "parent_consumed": "RESUMO_T1 incluiu a probabilidade 0.38 e a implicacao do researcher",
+        "reorchestration_in_child": "nenhuma chamada de subagent na sessao filha"
+      },
+      "live_environment_observation": {
+        "parent_session": "ses_e4d8b21cbffesnwexfRkMk40Mr",
+        "child_session": "ses_e4d89e17bffe3LfDH4oPzy9FYe",
+        "child_agent": "researcher",
+        "child_model_effective": "openai/gpt-6-luna (T2), nao o T1 canonico",
+        "tool_inside_child": "execute -> tools.jev.jev_check",
+        "child_result": { "probability": 0.32, "likely": false },
+        "child_tokens": { "input": 103780, "output": 754, "cache_read": 159616 },
+        "child_latency_ms": 20803,
+        "note": "MCP propagou e foi chamado na sessao filha real do ambiente vivo; o modelo efetivo divergiu do T1 por drift de configuracao ativa (ver findings.config_drift)."
+      }
+    },
+    "C_jev_unavailable": {
+      "status": "PASS",
+      "method": "projeto temporario isolado em TEMP com opencode.json de projeto sobrescrevendo apenas mcp.servers.jev.environment.JEV_BASE_URL para http://127.0.0.1:9/dead-jev; servico global nao foi tocado",
+      "session": "ses_e4d86c181ffeeAXioc8QYwO4O5",
+      "failure_observed": "jev-mcp error: Could not reach Jev: fetch failed",
+      "continuation": "sessao concluiu com CONCLUIDO_SEM_JEV, exit 0",
+      "attempts": 2,
+      "retry_loop": false,
+      "new_gate_created": false,
+      "latency_ms": 13600,
+      "tokens": { "input": 44803, "output": 270, "reasoning": 789, "cache_read": 84352 }
+    },
+    "D_trivial_task": {
+      "status": "PASS",
+      "runs": [
+        { "session": "ses_e4d7f20c2ffefEr4iDxqVWvRc3", "prompt": "capital da Franca", "answer": "Paris", "tool_calls": 0, "jev_calls": 0, "latency_ms": 7321, "tokens": { "input": 38751, "output": 10 } },
+        { "session": "ses_e4d7f4beeffeoJ5kDKsfNTZ5Ak", "prompt": "7*6+1", "answer": "43", "tool_calls": 0, "jev_calls": 0, "latency_ms": 4620, "tokens": { "input": 38762, "output": 17 } }
+      ],
+      "note": "Nenhuma consulta Jev, nenhum advisor/researcher convocado; execucao direta com resposta correta."
+    }
+  },
+  "findings": {
+    "mcp_propagation": "Suportada nativamente pelo runtime 2.2.5: ferramentas do MCP global ficaram disponiveis na sessao filha e a chamada real ocorreu dentro dela (nao em nome do filho pelo pai).",
+    "config_drift": {
+      "observed": "~/.config/opencode/agents/researcher.md e tester.md usam openai/gpt-6-luna; source/agents/*.md usam {{MODEL_FREE}} e models.jsonc define free=opencode-go/iceman-contributor-free (T1)",
+      "impact": "o researcher do ambiente vivo executou em T2 (Luna), nao em T1 (Iceman)",
+      "root_cause": "a fonte canonica do agent-config (source/agents/researcher.md, source/agents/tester.md e templates/opencode.v2.json.tmpl) declarava {{MODEL_CHEAP}}; o template da orquestracao ja declarava {{MODEL_FREE}}, mas os arquivos ativos eram escritos pelo reconciliador do agent-config.",
+      "action": "CORRIGIDO em 2026-11-06: fonte canonica migrada para {{MODEL_FREE}} (source/agents e template v2 do agent-config); reconciliacao aplicada apenas em researcher.md e tester.md; instrucoes sincronizadas com o trigger JEV.",
+      "fix_path": "concluido (ver correction_2026_11_06)"
+    },
+    "prompt_gap": "Nenhum adapter/AGENTS informa quando consultar o Jev MCP nativo; a unica mencao e 'quando o usuario pedir'. A capacidade existe, mas nao ha trigger positivo documentado para Planner/workers.",
+    "runtime_flake": "Primeira execucao isolada T1 concluiu a sessao filha com sucesso, mas o turno do Planner pai nao finalizou dentro de 300s; a repeticao com prompt mais curto concluiu em 83.8s. Registrado como flake, sem bloqueio de MCP."
+  },
+  "changes": {
+    "code": "nenhum",
+    "config": "nenhum no ambiente vivo; apenas projetos temporarios em %TEMP%",
+    "docs": ["docs/jev-advisory-trigger-matrix.md (secao MCP nativo)", "CHANGELOG.md"]
+  },
+  "suites": {
+    "OrchestrationJevAdvisory.tests.ps1": "188/188 PASS",
+    "mcp-subagent-propagation-probe.tests.ps1": "RESULT PASS",
+    "test-package-consistency.ps1": "PASS"
+  },
+  "correction_2026_11_06": {
+    "issue": 61,
+    "related_issues": [137, 21],
+    "diagnosis": {
+      "agent_config_source_tokens": "source/agents/researcher.md e source/agents/tester.md declaravam {{MODEL_CHEAP}}; source/agents/explorer.md e docs-manager.md ja declaravam {{MODEL_FREE}}.",
+      "agent_config_template": "templates/opencode.v2.json.tmpl declarava {{MODEL_CHEAP}} para researcher e tester, consistente com a fonte local e divergente do template da orquestracao.",
+      "orchestration_template": "templates/opencode.v2.json.tmpl da orquestracao ja declarava {{MODEL_FREE}} para researcher e tester; source/adapters/opencode-v2.md da orquestracao ja listava os quatro em T1.",
+      "live_resolution": "opencode.json ativo ja tinha agents.researcher/tester = opencode-go/iceman-contributor-free, mas o frontmatter dos .md ativos (Luna) prevalecia na sessao filha observada.",
+      "conclusion": "drift de fonte canonica no agent-config, nao no runtime nem no registry (free ja era iceman)."
+    },
+    "changes": {
+      "source": [
+        "agent-config/source/agents/researcher.md: model {{MODEL_CHEAP}} -> {{MODEL_FREE}} e texto de baseline",
+        "agent-config/source/agents/tester.md: model {{MODEL_CHEAP}} -> {{MODEL_FREE}} e texto de baseline",
+        "agent-config/templates/opencode.v2.json.tmpl: researcher/tester -> {{MODEL_FREE}}",
+        "agent-config/source/adapters/opencode-v2.md: free pool inclui researcher/tester; cheap pool sem eles",
+        "agent-config/source/global/AGENTS.md: trigger JEV (segunda opiniao opcional)"
+      ],
+      "tests_stale": [
+        "agent-config/scripts/v3/render-agents.tests.ps1: expectativas planner/cheap alinhadas ao registry vigente (DeepSeek/Luna)",
+        "agent-config/scripts/reconcile-agent-config.tests.ps1: idem na assercao dos seis modelos"
+      ],
+      "applied": {
+        "agents": "scripts/v3/reconcile-agents.ps1 -Apply -Force; 2 actionable (researcher, tester); 17 SAME",
+        "backup": "agent-config/reconciliation-backups/v3-agents/20261106-173427/rollback.json",
+        "instructions": "reconcile-agent-config.ps1 -Component Instructions -Runtime OpenCode -Apply -Force; 2 targets atualizados",
+        "instructions_backup": "C:/Users/walis/.agents/reconciliation-backups/reconcile-20261106-173643/rollback.json",
+        "idempotency": "preview posterior: agents 0 actionable; instructions 0 actionable"
+      }
+    },
+    "runtime_validation": {
+      "runtime": "opencode 2.2.5, --standalone (config carregada do disco)",
+      "planner": {
+        "session": "ses_e4d6be42effeJwVm1NiAWUo4Tn",
+        "agent": "build",
+        "model": "opencode-go/deepseek-v4.1-flash",
+        "evidence": "assistant message model + resposta PLANNER_MODEL=opencode-go/deepseek-v4.1-flash"
+      },
+      "delegation_parent": {
+        "session": "ses_e4d6b7a20ffedgLaBJ5BVnZo2p",
+        "agent": "build",
+        "model": "opencode-go/deepseek-v4.1-flash",
+        "tool": "subagent -> researcher",
+        "latency_ms": 138661
+      },
+      "delegation_child": {
+        "session": "ses_e4d6b4a39ffeKSLn3q15BETvSd",
+        "parentID": "ses_e4d6b7a20ffedgLaBJ5BVnZo2p",
+        "agent": "researcher",
+        "model": "opencode-go/iceman-contributor-free",
+        "model_source": "session export info.model + assistant message model",
+        "tool": "execute -> tools.jev.jev_check",
+        "jev_result": { "probability": 0.43, "status": "ok" },
+        "latency_ms": 126239,
+        "local_model_override": "nenhum"
+      },
+      "planner_consumption": {
+        "observed": "resposta final do Planner incluiu CHILD_JEV_PROB=0.43, CHILD_MODEL=opencode-go/iceman-contributor-free e PLANNER_CONSUMED=yes"
+      },
+      "tester": {
+        "session": "ses_e4d683fe6ffet5ogin0a7aIXbh",
+        "model": "opencode-go/iceman-contributor-free",
+        "outcome": "succeeded"
+      },
+      "coder": {
+        "session": "ses_e4d678819ffeYmLofEuuqFKs7r",
+        "model": "openai/gpt-6-luna",
+        "outcome": "succeeded"
+      },
+      "unavailable_and_trivial": "reaproveitados de scenarios.C e scenarios.D deste artefato, sem reexecucao integral"
+    },
+    "installed_instructions": {
+      "jev_trigger": "presente em ~/.config/opencode/AGENTS.md e ~/.agents/AGENTS.md (bloco agent-config:global)",
+      "pools": "free inclui explorer/researcher/tester/docs-manager; cheap mantem coder/engenheiros/planning",
+      "preview": "SAME (0 actionable) apos apply"
+    },
+    "mcp_routing": "enabled=false (inalterado)",
+    "latency_notes": "child researcher 126.2s e parent 138.7s nesta execucao; acima do caso anterior de 64s, mas sem repeticao do flake de 300s. Nenhum retry loop ou gate criado.",
+    "test_results": {
+      "agent-source-drift.tests.ps1": "21/21 PASS",
+      "reconcile-agents.tests.ps1": "51/51 PASS",
+      "render-agents.tests.ps1": "49/49 PASS (apos alinhar 2 expectativas stale)",
+      "reconcile-agent-config.tests.ps1": "102/102 PASS (apos alinhar 1 expectativa stale)"
+    }
+  },
+  "authority": "advisory-only; nenhuma resposta Jev concedeu permissao, alterou policy/flag ou escreveu DONE"
+}
