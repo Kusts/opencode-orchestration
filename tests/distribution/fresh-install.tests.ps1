@@ -36,7 +36,7 @@ try {
     $j = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
      Assert ((@($j.agent.PSObject.Properties.Name).Count) -eq 17) 'opencode.json 17 blocos agent'
      $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
-     Assert ($j.model -eq 'openai/gpt-6-luna') 'root model = Luna literal'
+      Assert ($j.model -eq 'opencode-go/deepseek-v4.1-flash') 'root model = DeepSeek Go literal'
      Assert ($j.agent.build.model -eq $models.planner) 'build.model = planner (per-agent)'
      Assert ($j.agent.title.model -eq 'openai/gpt-6-luna') 'title.model = Luna literal, not Planner token'
     Assert ($j.agent.coder.model -eq $models.cheap) 'coder.model = cheap'

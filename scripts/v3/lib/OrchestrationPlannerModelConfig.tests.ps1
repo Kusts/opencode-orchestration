@@ -2,18 +2,17 @@
 .SYNOPSIS
     Planner model configuration tests (hermetic, no inference).
 .DESCRIPTION
-    Haiku is the Planner model of the `build` agent only. The global model
-    (top level of opencode.json) stays Luna. These tests pin that scope across
+    Planner build uses DeepSeek Go while T2 cheap uses Luna. The global model
+    (top level of opencode.json) stays unchanged. These tests pin that scope across
     the canonical policy, the models example, the V1/V2 templates (rendered the
     same way install.ps1 resolves MODEL_* tokens), and the Router contract.
     Checks:
-      1. Policy planner primary is openai/gpt-6-luna, T2, and no model fallback
+      1. Policy planner primary is opencode-go/deepseek-v4.1-flash, T2, and no model fallback
          is authorized for build.
-      2. T1/T2/T3/T4 policy order is Iceman->Mimo, DeepSeek Go->Muse->Haiku->Luna,
+      2. T1/T2/T3/T4 policy order is Iceman->Mimo, Luna->DeepSeek Go->Muse->Haiku,
          Sonnet->Terra, Opus->Sol. Claude aliases stay runtime-unverified.
-      3. models.example.jsonc and local models.jsonc keep the Planner on Luna.
-      4. V2 and V1 templates: top-level model is literal Luna, build.model
-         resolves to Luna, and the configured strong/frontier agents follow T3/T4.
+      3. models.example.jsonc and local models.jsonc map Planner to DeepSeek Go and cheap to Luna.
+      4. V2 and V1 templates preserve the top-level model; build.model resolves to the Planner mapping.
       4. No template routes the global model through MODEL_PLANNER.
     Run: powershell -NoProfile -File scripts/v3/lib/OrchestrationPlannerModelConfig.tests.ps1
     PowerShell 5.1 compatible. ASCII-only.
@@ -95,8 +94,8 @@ foreach ($adapter in @(
 $localModels = Join-Path $repo 'models.jsonc'
 if (Test-Path -LiteralPath $localModels -PathType Leaf) {
     $local = Read-JsoncFile $localModels
-    Assert-PMC ([string]$local.planner -ceq 'openai/gpt-6-luna') 'pmc-local-models-planner-luna'
-    Assert-PMC ([string]$local.cheap -ceq 'opencode-go/deepseek-v4.1-flash') 'pmc-local-models-cheap-deepseek-go'
+    Assert-PMC ([string]$local.planner -ceq 'opencode-go/deepseek-v4.1-flash') 'pmc-local-models-planner-deepseek-go'
+    Assert-PMC ([string]$local.cheap -ceq 'openai/gpt-6-luna') 'pmc-local-models-cheap-luna'
     Assert-PMC ([string]$local.strong -ceq 'claude-agent/sonnet' -and [string]$local.frontier -ceq 'claude-agent/opus') 'pmc-local-models-strong-sonnet-frontier-opus'
 } else {
     Write-Host '[SKIP] pmc-local-models-planner-haiku (models.jsonc absent; git-ignored)'

@@ -49,16 +49,17 @@ $selUnknown = Resolve-OrchestrationModelSelection -AgentName 'unknown-intruder' 
 Assert-Router ($selUnknown.Status -eq 'REJECTED') "A.2: Agente desconhecido e rejeitado"
 Assert-Router ($selUnknown.IsCompliant -eq $false) "A.2: Agente desconhecido nao e compliant"
 
-# A.3 Planner (build): Luna T2 only; no automatic model fallback.
+# A.3 Planner (build): DeepSeek Go T2 only; no automatic model fallback.
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-Router ($selPlanner.Tier -eq 'T2') "A.3: Planner 'build' alocado em Tier T2"
-Assert-Router ($selPlanner.CatalogModel -eq 'openai/gpt-6-luna') "A.3: Planner 'build' seleciona Luna canonico"
-Assert-Router ($selPlanner.selected_provider -eq 'openai') "A.3: Planner 'build' fica no provider OpenAI"
+Assert-Router ($selPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "A.3: Planner 'build' seleciona DeepSeek Go canonico"
+Assert-Router ($selPlanner.selected_provider -eq 'opencode-go') "A.3: Planner 'build' fica no provider OpenCode Go"
 
 # A.4 Reviewer: Admissibilidade, escalonamento e proibições
 $selRevLow = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true
 Assert-Router ($selRevLow.Tier -eq 'T2') "A.4: Reviewer low-risk/simple seleciona T2 economico"
-Assert-Router ($selRevLow.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "A.4: Reviewer T2 canonico e DeepSeek Go"
+Assert-Router ($selRevLow.CatalogModel -eq 'openai/gpt-6-luna') "A.4: Reviewer T2 canonico e Luna"
+Assert-Router ($selRevLow.SelectionReason -match 'T2 Luna') "A.4: Motivo do Reviewer identifica a primaria T2 Luna"
 Assert-Router ($selRevLow.ModelToken -eq 'MODEL_CHEAP') "A.4: Reviewer T2 usa MODEL_CHEAP"
 
 $selRevMed = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
@@ -94,7 +95,7 @@ Assert-Router ($selSecCritAuth.ModelToken -eq 'MODEL_STRONG') "A.5: Security-rev
 # A.6 Coder: Escalonamento dinamico e custo
 $selCoderDef = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
 Assert-Router ($selCoderDef.Tier -eq 'T2') "A.6: Coder default seleciona T2"
-Assert-Router ($selCoderDef.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "A.6: Coder default canonico e DeepSeek Go"
+Assert-Router ($selCoderDef.CatalogModel -eq 'openai/gpt-6-luna') "A.6: Coder default canonico e Luna"
 Assert-Router ($selCoderDef.ModelToken -eq 'MODEL_CHEAP') "A.6: Coder default usa MODEL_CHEAP"
 
 $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0 -IgnoreUserConfig $true
@@ -105,7 +106,7 @@ $selCoderNoT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexi
 Assert-Router ($selCoderNoT4.Tier -ne 'T4') "A.6: Coder sem falha anterior nao pode receber T4"
 
 $selCoderT4Unauth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -FailureCount 2 -IgnoreUserConfig $true
-Assert-Router ($selCoderT4Unauth.Tier -eq 'T2' -and $selCoderT4Unauth.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "A.6: FailureCount nao promove Coder de T2 para T3"
+Assert-Router ($selCoderT4Unauth.Tier -eq 'T2' -and $selCoderT4Unauth.CatalogModel -eq 'openai/gpt-6-luna') "A.6: FailureCount nao promove Coder de T2 para T3"
 
 $selCoderT4Auth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:coder' -IgnoreUserConfig $true
 Assert-Router ($selCoderT4Auth.Tier -eq 'T3') "A.6: Complexity complex seleciona T3; recibo arbitrario nao e requisito nem autoridade"
@@ -139,7 +140,7 @@ Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_STRONG') "A.7: Advisor 
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex' -IgnoreUserConfig $true
 Assert-Router ($selExp.Tier -in @('T0', 'T1', 'T2')) "A.8: Explorer restrito a T0..T2"
 Assert-Router ($selExp.Tier -notin @('T3', 'T4')) "A.8: Explorer proibido em T3 e T4"
-Assert-Router ($selExp.CatalogModel -in @('opencode-go/iceman-contributor-free', 'opencode-go/deepseek-v4.1-flash')) "A.8: Explorer canonico alocado em T1/T2"
+Assert-Router ($selExp.CatalogModel -in @('opencode-go/iceman-contributor-free', 'openai/gpt-6-luna')) "A.8: Explorer canonico alocado em T1/T2"
 
 # A.9 Tester: T0 Deterministico vs T2 com LLM
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -IgnoreUserConfig $true
@@ -150,7 +151,7 @@ Assert-Router ($selTesterT0.EstimatedCostMultiplier -eq 0.0) "A.9: Tester T0 tem
 
 $selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-Router ($selTesterLlm.Tier -eq 'T2') "A.9: Tester com RequiresLlm seleciona tier autorizado T2"
-Assert-Router ($selTesterLlm.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "A.9: Tester LLM canonico seleciona DeepSeek Go"
+Assert-Router ($selTesterLlm.CatalogModel -eq 'openai/gpt-6-luna') "A.9: Tester LLM canonico seleciona Luna"
 Assert-Router ($selTesterLlm.ModelToken -eq 'MODEL_CHEAP') "A.9: Tester com LLM usa MODEL_CHEAP"
 Assert-Router ($selTesterLlm.ProviderCostAuthorized -eq $true) "A.9: Tester T2 e autorizado"
 
@@ -176,26 +177,25 @@ Remove-Item Env:\OPENCODE_ASTRA_AUTHORIZED -ErrorAction SilentlyContinue
 # A.11 Fallback order is auditable, but technical dispatch stays HOLD without an
 # independent proof that the failed operation never started.
 $selCoderCan = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-# 11.1 T2: DeepSeek Go -> Muse -> Haiku -> Luna; candidate order is recorded, not authorized.
-$fbCoderSameTier = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+# 11.1 After the Luna primary and DeepSeek Go candidate fail, Muse is next; audit-only.
+$fbCoderSameTier = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbCoderSameTier.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and -not $fbCoderSameTier.IsAuthorized) "A.11.1: Rate limit nao prova no-start"
 Assert-Router ($null -eq $fbCoderSameTier.FallbackModel -and $fbCoderSameTier.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') "A.11.1: Muse e registrada como candidata auditavel, nao executavel"
 Assert-Router ($fbCoderSameTier.FallbackTier -eq 'T2' -and $fbCoderSameTier.IsCrossProvider -eq $false) "A.11.1: Candidata preserva tier sem transicao cross-provider"
-Assert-Router ($fbCoderSameTier.AttemptsCount -eq 1) "A.11.1: AttemptsCount reflete apenas modelos realmente tentados (1)"
-Assert-Router ($fbCoderSameTier.ReallyAttemptedModels.Count -eq 1 -and $fbCoderSameTier.ReallyAttemptedModels -contains 'opencode-go/deepseek-v4.1-flash') "A.11.1: ReallyAttemptedModels rastreia modelo que falhou"
+Assert-Router ($fbCoderSameTier.AttemptsCount -eq 2) "A.11.1: AttemptsCount reflete Luna e DeepSeek realmente tentados (2)"
+Assert-Router ($fbCoderSameTier.ReallyAttemptedModels.Count -eq 2 -and $fbCoderSameTier.ReallyAttemptedModels -contains 'openai/gpt-6-luna' -and $fbCoderSameTier.ReallyAttemptedModels -contains 'opencode-go/deepseek-v4.1-flash') "A.11.1: ReallyAttemptedModels rastreia a primaria e o candidato que falhou"
 Assert-Router ($fbCoderSameTier.PreventivelyExcluded.Count -ge 1) "A.11.1: PreventivelyExcluded registra candidatos descartados preventivamente"
 
-# 11.2 Exhausting Muse and the next candidate advances the audit order to Luna,
-# but never replays a technical failure without independent no-start evidence.
-$fbCoderEscalateT3 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'claude-agent/haiku' -AttemptedModels @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Assert-Router ($fbCoderEscalateT3.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and -not $fbCoderEscalateT3.IsAuthorized) "A.11.2: T2 candidates permanecem em HOLD"
-Assert-Router ($null -eq $fbCoderEscalateT3.FallbackModel -and $fbCoderEscalateT3.CandidateModel -eq 'openai/gpt-6-luna' -and $fbCoderEscalateT3.FallbackTier -eq 'T2') "A.11.2: Ordem T2 chega a Luna sem autorizar replay"
-Assert-Router ($fbCoderEscalateT3.AttemptsCount -eq 3) "A.11.2: AttemptsCount reflete exatamente as 3 tentativas reais anteriores"
-Assert-Router ($fbCoderEscalateT3.ReallyAttemptedModels.Count -eq 3) "A.11.2: ReallyAttemptedModels contem exatamente as 3 tentativas reais"
+# 11.2 Haiku follows the primary and two T2 alternatives; no replay is authorized.
+$fbCoderHaiku = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-Router ($fbCoderHaiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and -not $fbCoderHaiku.IsAuthorized) "A.11.2: T2 candidates permanecem em HOLD"
+Assert-Router ($null -eq $fbCoderHaiku.FallbackModel -and $fbCoderHaiku.CandidateModel -eq 'claude-agent/haiku' -and $fbCoderHaiku.FallbackTier -eq 'T2') "A.11.2: Haiku e a terceira alternativa sem autorizar replay"
+Assert-Router ($fbCoderHaiku.AttemptsCount -eq 3) "A.11.2: AttemptsCount reflete Luna, DeepSeek Go e Muse (3)"
+Assert-Router ($fbCoderHaiku.ReallyAttemptedModels.Count -eq 3) "A.11.2: ReallyAttemptedModels contem as 3 tentativas reais"
 
 # 11.3 Exhaustion is terminal: no loops and no retry after the full ordered
 # matrix was already attempted.
-$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna', 'claude-agent/sonnet', 'openai/gpt-6.1-terra', 'claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra') -ProviderCostAuthorized $false -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$fbCoderExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoderCan -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'claude-agent/sonnet', 'openai/gpt-6.1-terra', 'claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra') -ProviderCostAuthorized $false -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbCoderExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK') "A.11.3: Tentativas esgotadas retornam EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 Assert-Router ($fbCoderExhausted.IsAuthorized -eq $false) "A.11.3: Esgotamento nao e autorizado"
 Assert-Router ($fbCoderExhausted.AttemptsCount -eq 9) "A.11.3: AttemptsCount reflete cada modelo realmente tentado"
@@ -218,13 +218,13 @@ $museExcl = $fbAllowed.PreventivelyExcluded | Where-Object { $_.Model -eq 'openc
 Assert-Router ($null -ne $museExcl -and $museExcl.Reason -eq 'PROVIDER_NOT_ALLOWED') "A.11.5: Muse excluido preventivamente como PROVIDER_NOT_ALLOWED"
 
 # A.12 Verificacao Pos-Execucao (Contract Verification)
-$vExact = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash' } -NativeModelOverrideProven $true
+$vExact = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna' } -NativeModelOverrideProven $true
 Assert-Router ($vExact.ProofStatus -eq 'EXACT_MATCH' -and $vExact.IsExactMatch -eq $true) "A.12: Execucao identica ao solicitado e EXACT_MATCH"
 
-$vFb = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna'; AuthorizedFallback = $fbCoderEscalateT3 } -NativeModelOverrideProven $true
+$vFb = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash'; AuthorizedFallback = $fbCoderHaiku } -NativeModelOverrideProven $true
 Assert-Router ($vFb.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vFb.IsAuthorizedFallback -eq $false -and $vFb.IsExactMatch -eq $false) "A.12: CandidateModel em HOLD nunca prova AUTHORIZED_FALLBACK"
 
-$vSameTierNoAuth = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna' } -NativeModelOverrideProven $true
+$vSameTierNoAuth = Test-ExecutedModelVerification -RequestedSelection $selCoderCan -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash' } -NativeModelOverrideProven $true
 Assert-Router ($vSameTierNoAuth.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vSameTierNoAuth.VerifiedMatch -eq $false) "A.12: Substituicao no mesmo tier sem autorizacao e UNAUTHORIZED_MISMATCH"
 
 $vInadmiss = Test-ExecutedModelVerification -RequestedSelection $selRevHighCan -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash'; AuthorizedFallback = [pscustomobject]@{ IsAuthorized = $true; FallbackModel = 'opencode-go/deepseek-v4.1-flash'; FallbackTier = 'T2' } } -NativeModelOverrideProven $true
@@ -261,8 +261,8 @@ Assert-Router ($null -ne $examplePath -and (Test-Path -LiteralPath $examplePath 
 $rawExample = Get-Content -LiteralPath $examplePath -Raw
 $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample
-Assert-Router ($parsedExample.planner -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default planner e Luna T2"
-Assert-Router ($parsedExample.cheap -eq 'opencode-go/deepseek-v4.1-flash') "B.1: models.example.jsonc default cheap e deepseek-v4.1-flash"
+Assert-Router ($parsedExample.planner -eq 'opencode-go/deepseek-v4.1-flash') "B.1: models.example.jsonc default planner e DeepSeek Go T2"
+Assert-Router ($parsedExample.cheap -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default cheap e Luna"
 Assert-Router ($parsedExample.strong -eq 'claude-agent/sonnet') "B.1: models.example.jsonc default strong e alias Sonnet T3"
 Assert-Router ($parsedExample.frontier -eq 'claude-agent/opus') "B.1: models.example.jsonc default frontier e alias Opus T4"
 

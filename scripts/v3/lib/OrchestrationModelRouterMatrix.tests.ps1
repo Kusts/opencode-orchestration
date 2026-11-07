@@ -51,21 +51,21 @@ Assert-MX ($build.Status -ceq 'SELECTED' -and $build.Tier -ceq 'T2' -and $build.
 $res = Resolve-OrchestrationModelSelection -AgentName 'researcher' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($res.Tier -ceq 'T1' -and $res.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-researcher-starts-T1'
 $resT2 = Resolve-OrchestrationModelSelection -AgentName 'researcher' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($resT2.Tier -ceq 'T2' -and $resT2.CatalogModel -ceq 'opencode-go/deepseek-v4.1-flash') 'mx-researcher-complex-escalates-T2'
+Assert-MX ($resT2.Tier -ceq 'T2' -and $resT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-researcher-complex-escalates-T2'
 $exp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($exp.Tier -ceq 'T1' -and $exp.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-explorer-starts-T1'
 $expT2 = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($expT2.Tier -ceq 'T2' -and $expT2.CatalogModel -ceq 'opencode-go/deepseek-v4.1-flash') 'mx-explorer-complex-escalates-T2'
+Assert-MX ($expT2.Tier -ceq 'T2' -and $expT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-explorer-complex-escalates-T2'
 $docs = Resolve-OrchestrationModelSelection -AgentName 'docs-manager' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($docs.Tier -ceq 'T1' -and $docs.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-docs-manager-starts-T1'
 $docsT2 = Resolve-OrchestrationModelSelection -AgentName 'docs-manager' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($docsT2.Tier -ceq 'T2' -and $docsT2.CatalogModel -ceq 'opencode-go/deepseek-v4.1-flash') 'mx-docs-manager-complex-escalates-T2'
+Assert-MX ($docsT2.Tier -ceq 'T2' -and $docsT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-docs-manager-complex-escalates-T2'
 $testT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $false -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($testT0.Tier -ceq 'T0' -and $testT0.CatalogModel -like '*deterministic*') 'mx-tester-deterministic-T0'
 $testT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'simple' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($testT1.Tier -ceq 'T1' -and $testT1.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-tester-simple-LLM-T1'
 $testT2 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'medium' -Risk 'medium' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($testT2.Tier -ceq 'T2' -and $testT2.CatalogModel -ceq 'opencode-go/deepseek-v4.1-flash') 'mx-tester-needed-LLM-T2'
+Assert-MX ($testT2.Tier -ceq 'T2' -and $testT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-tester-needed-LLM-T2'
 Assert-MX (@($pol.role_profiles.researcher.admissible_tiers) -notcontains 'T3' -and @($pol.role_profiles.researcher.prohibited_tiers) -contains 'T3') 'mx-researcher-no-auto-T3'
 $docsProfile = $pol.role_profiles.PSObject.Properties['docs-manager'].Value
 Assert-MX (@($pol.role_profiles.explorer.admissible_tiers) -notcontains 'T3' -and @($docsProfile.admissible_tiers) -notcontains 'T3' -and @($pol.role_profiles.tester.admissible_tiers) -notcontains 'T3') 'mx-T1-roles-not-admissible-T3'

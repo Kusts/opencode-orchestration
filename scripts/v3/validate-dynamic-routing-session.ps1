@@ -5,8 +5,8 @@
 .DESCRIPTION
     Scope (model-routing-policy 1.4.0):
       1. contract_verifications - policy-level and kernel-proof-path checks:
-         Planner Luna-only T2 (no automatic fallback); Coder T2 DeepSeek Go ->
-         Muse -> Haiku -> Luna (Claude leg gated, never fabricated; HOLD
+         Planner DeepSeek Go-only T2 (no automatic fallback); Coder T2 Luna ->
+         DeepSeek Go -> Muse -> Haiku (Claude leg gated, never fabricated; HOLD
          audit-only, never authorized dispatch); DeepSeek Go operator-enabled
          active with ZDR expired-unconfirmed (note records operator selection,
          no renewal claimed); Console DeepSeek Free disabled; Reviewer high
@@ -206,22 +206,22 @@ if ($null -ne $policyRes -and -not [string]::IsNullOrWhiteSpace($policyRes.Polic
 Add-ContractCheck "Canonical Policy Loaded" ($null -ne $policyRes -and $policyRes.Status -eq 'POLICY_LOADED' -and -not [string]::IsNullOrWhiteSpace($policyRes.PolicyHash)) "Version: $($policyRes.PolicyVersion), Hash: ${policyHashShort}..."
 $policy = $policyRes.Policy
 
-# 2. Roteamento do Planner (build): Luna-only T2 sem fallback automatico
+# 2. Roteamento do Planner (build): DeepSeek Go-only T2 sem fallback automatico
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Add-ContractCheck "Planner Model Selection" ($selPlanner.Tier -eq 'T2' -and $selPlanner.CatalogModel -eq 'openai/gpt-6-luna') "Planner alocado em Tier T2 com GPT-6 Luna (policy-backed)"
-Add-ContractCheck "Planner Provider Isolation" ($selPlanner.selected_provider -eq 'openai') "Provider efetivo: openai (Luna nunca redirecionado)"
-Add-ContractCheck "Planner Fallback Contract" ([string]$policy.planner.tier -eq 'T2' -and [string]$policy.planner.model_id -eq 'openai/gpt-6-luna' -and $null -eq $policy.planner.fallback_model_id -and (-not [bool]$policy.planner.fallback_requires_capability_proof)) "Planner luna T2 Luna-only; no automatic fallback (policy-level, non-dispatch)"
+Add-ContractCheck "Planner Model Selection" ($selPlanner.Tier -eq 'T2' -and $selPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "Planner alocado em Tier T2 com DeepSeek Go (policy-backed)"
+Add-ContractCheck "Planner Provider Isolation" ($selPlanner.selected_provider -eq 'opencode-go') "Provider efetivo: opencode-go (DeepSeek Go nunca redirecionado)"
+Add-ContractCheck "Planner Fallback Contract" ([string]$policy.planner.tier -eq 'T2' -and [string]$policy.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and $null -eq $policy.planner.fallback_model_id -and (-not [bool]$policy.planner.fallback_requires_capability_proof)) "Planner DeepSeek Go T2 DeepSeek Go-only; no automatic fallback (policy-level, non-dispatch)"
 Add-ContractCheck "Claude Alias Resolution Unverified" ([string]$policy.models.claude_haiku.resolution_status -eq 'runtime-unverified') "claude_haiku resolution_status=runtime-unverified; resolucao concreta de alias permanece NAO verificada em runtime"
-Add-ContractCheck "Claude Haiku Policy Eligibility" ([bool]$policy.models.claude_haiku.enabled -and (@($policy.models.claude_haiku.eligible_roles) -contains 'coder') -and (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build')) "claude_haiku habilitado e elegivel p/ coder (build Luna-only, sem Haiku) na politica (policy-level eligibility only; non-dispatch proof)"
+Add-ContractCheck "Claude Haiku Policy Eligibility" ([bool]$policy.models.claude_haiku.enabled -and (@($policy.models.claude_haiku.eligible_roles) -contains 'coder') -and (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build')) "claude_haiku habilitado e elegivel p/ coder (build DeepSeek Go-only, sem Haiku) na politica (policy-level eligibility only; non-dispatch proof)"
 
-# 3. Roteamento do Coder: T2 DeepSeek Go (primario operator-enabled)
+# 3. Roteamento do Coder: T2 Luna (primary), DeepSeek Go operator-enabled como alternativa
 $selCoder = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'simple' -Risk 'low' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Add-ContractCheck "Coder Model Selection" ($selCoder.Tier -eq 'T2' -and $selCoder.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "Coder alocado em Tier T2 com DeepSeek Go (policy-backed, operator-enabled)"
-Add-ContractCheck "Coder Provider Isolation" ($selCoder.selected_provider -eq 'opencode-go') "Provider efetivo: opencode-go"
+Add-ContractCheck "Coder Model Selection" ($selCoder.Tier -eq 'T2' -and $selCoder.CatalogModel -eq 'openai/gpt-6-luna') "Coder alocado em Tier T2 com Luna (policy primary)"
+Add-ContractCheck "Coder Provider Isolation" ($selCoder.selected_provider -eq 'openai') "Provider efetivo: openai"
 
 # 4. Cadeia de fallback do Coder no nivel da politica (non-dispatch proof)
-$goFallbacks = @($policy.models.deepseek_go.fallback_candidates)
-Add-ContractCheck "Coder Fallback Chain Eligibility" ($goFallbacks -contains 'muse' -and $goFallbacks -contains 'claude_haiku' -and $goFallbacks -contains 'luna') "deepseek_go.fallback_candidates contem muse, claude_haiku e luna (policy-level eligibility only; non-dispatch proof)"
+$t2Alternatives = @($policy.tiers.T2.alternatives)
+Add-ContractCheck "Coder Fallback Chain Eligibility" ([string]$policy.tiers.T2.primary -ceq 'luna' -and $t2Alternatives -contains 'deepseek_go' -and $t2Alternatives -contains 'muse' -and $t2Alternatives -contains 'claude_haiku') "tiers.T2 primary=luna com alternativas deepseek_go, muse e claude_haiku (policy-level eligibility only; non-dispatch proof)"
 
 # 5. DeepSeek Go operator-enabled active (ZDR expired-unconfirmed, sem claim de renovacao); Console Free desabilitado (read-only, non-dispatch)
 Add-ContractCheck "DeepSeek Console Disabled" ([bool]$policy.models.deepseek.enabled -eq $false -and [string]$policy.models.deepseek.availability_status -ceq 'disabled') "deepseek (Console) desabilitado na politica"
@@ -230,12 +230,15 @@ Add-ContractCheck "DeepSeek Go Note No Renewal Claim" (([string]$policy.models.d
 
 # 6. Fallback cross-provider do Coder (resolvedor de politica puro, sem execucao)
 $fbHop1 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel $selCoder.CatalogModel -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-Add-ContractCheck "Coder Cross-Provider Fallback Hop1" ($fbHop1.Status -ceq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbHop1.FallbackModel -and $fbHop1.CandidateModel -ceq 'opencode-go/muse-spark-1.3-contributor' -and (-not [bool]$fbHop1.IsAuthorized)) "DeepSeek Go falhou -> Muse HOLD audit-only; FallbackModel null, nunca autorizado (pure policy resolver; non-dispatch)"
+Add-ContractCheck "Coder Cross-Provider Fallback Hop1" ($fbHop1.Status -ceq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbHop1.FallbackModel -and $fbHop1.CandidateModel -ceq 'opencode-go/deepseek-v4.1-flash' -and (-not [bool]$fbHop1.IsAuthorized)) "Luna falhou -> DeepSeek Go HOLD audit-only; FallbackModel null, nunca autorizado (pure policy resolver; non-dispatch)"
 
-# 7. Segunda perna (Luna -> Haiku) gated: sem prova, Haiku nunca e selecionado
-$fbHop2 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
-$haikuExclusion = @($fbHop2.PreventivelyExcluded | Where-Object { $_.Model -eq 'claude-agent/haiku' }) | Select-Object -First 1
-Add-ContractCheck "Coder Fallback Hop2 Proof Gated" ($fbHop2.Status -ceq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbHop2.FallbackModel -and $fbHop2.CandidateModel -ceq 'openai/gpt-6-luna' -and (-not [bool]$fbHop2.IsAuthorized) -and $null -ne $haikuExclusion -and $fbHop2.CandidateModel -ne 'claude-agent/haiku') "Muse falhou -> Luna HOLD audit-only; Haiku excluido sem capability proof ($([string]$haikuExclusion.Reason)); FallbackModel null, prova nunca fabricada (pure policy resolver; non-dispatch)"
+# 7. Segunda perna (DeepSeek Go -> Muse) e terceira perna gated: sem prova, Haiku nunca e selecionado
+$fbHop2 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+Add-ContractCheck "Coder Fallback Hop2 Same-Tier" ($fbHop2.Status -ceq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbHop2.FallbackModel -and $fbHop2.CandidateModel -ceq 'opencode-go/muse-spark-1.3-contributor' -and (-not [bool]$fbHop2.IsAuthorized)) "DeepSeek Go falhou -> Muse HOLD audit-only; FallbackModel null, nunca autorizado (pure policy resolver; non-dispatch)"
+
+$fbHop3 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$haikuExclusion = @($fbHop3.PreventivelyExcluded | Where-Object { $_.Model -eq 'claude-agent/haiku' }) | Select-Object -First 1
+Add-ContractCheck "Coder Fallback Hop3 Proof Gated" ($fbHop3.Status -ceq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbHop3.FallbackModel -and $null -eq $fbHop3.CandidateModel -and (-not [bool]$fbHop3.IsAuthorized) -and $null -ne $haikuExclusion) "Muse falhou -> Haiku excluido sem capability proof ($([string]$haikuExclusion.Reason)); FallbackModel null, prova nunca fabricada (pure policy resolver; non-dispatch)"
 
 # 8. Reviewer high: Sonnet T3 (Terra fallback) + downgrade proibido no nivel da politica
 $selRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -259,7 +262,7 @@ $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexi
 Add-ContractCheck "Tester T0 Deterministic" ($selTesterT0.Tier -eq 'T0' -and $selTesterT0.selected_model_id -eq 'none (deterministic)') "Tester trivial usa T0 sem token de LLM"
 
 # 12. Vetores sinteticos do verificador (eventos artificiais; nenhum modelo executado)
-$vExact = Test-ExecutedModelVerification -RequestedSelection $selPlanner -ExecutedModelEvent @{ Model = 'openai/gpt-6-luna' } -NativeModelOverrideProven $true
+$vExact = Test-ExecutedModelVerification -RequestedSelection $selPlanner -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash' } -NativeModelOverrideProven $true
 Add-ContractCheck "Synthetic Vector Exact Match" ($vExact.ProofStatus -eq 'EXACT_MATCH' -and $vExact.VerifiedMatch -eq $true) "Vetor sintetico do verificador: EXACT_MATCH (synthetic event; no model executed)"
 
 $vFb = Test-ExecutedModelVerification -RequestedSelection $selCoder -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor'; AuthorizedFallback = $fbHop1 } -NativeModelOverrideProven $true
@@ -284,7 +287,7 @@ Add-ContractCheck "Jev Cannot Issue DONE" ($jevGate.done_written -eq $false) "Je
 
 # 14. Recibo do Router
 $receipt = Get-OrchestrationModelRouterReceipt -Selection $selPlanner
-Add-ContractCheck "Model Router Receipt Emission" ($receipt.stage -eq 'model_routing' -and $receipt.catalog_model -eq 'openai/gpt-6-luna' -and $receipt.tier -eq 'T2') "Recibo: stage=model_routing, modelo=gpt-6-luna, tier=T2"
+Add-ContractCheck "Model Router Receipt Emission" ($receipt.stage -eq 'model_routing' -and $receipt.catalog_model -eq 'opencode-go/deepseek-v4.1-flash' -and $receipt.tier -eq 'T2') "Recibo: stage=model_routing, modelo=deepseek-v4.1-flash, tier=T2"
 
 # --------------------------------------------------------------------------
 # PARTE 2: PROVA DE SESSAO PRODUTIVA (CALLER-SUPPLIED EXPORT ONLY)
