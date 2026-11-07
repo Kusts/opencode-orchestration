@@ -5,7 +5,7 @@
     Covers positive routes and negatives for the SINGLE existing policy file:
       - claude-agent provider registration (closed dispatch-alias identity:
         model_id + alias, no resolved_model field, no invented models)
-      - T2 ordered candidates DeepSeek Go -> Muse -> Haiku -> Luna, Planner Luna-only T2 (no
+      - T2 ordered candidates Luna -> DeepSeek Go -> Muse -> Haiku, Planner DeepSeek Go-only T2 (no
         automatic build fallback), T3 Sonnet primary -> Terra candidate,
         T4 Opus primary -> Sol candidate; technical fallback is audit-only HOLD
         (CandidateModel non-authorizing, FallbackModel null), Astra exceptional
@@ -108,17 +108,20 @@ Assert-CA ((Get-ModelProviderFromId 'opencode-go/muse-spark-1.3-contributor') -e
 Assert-CA ($pol.models.luna.provider -eq 'openai' -and $pol.models.terra.provider -eq 'openai' -and
     $pol.models.sol.provider -eq 'openai' -and $pol.models.astra.provider -eq 'openai') 'openai-keeps-luna-terra-sol-astra'
 
-# 5. T2 order: DeepSeek Go failure surfaces Muse as the non-authorizing audit
-#    candidate (HOLD, same tier, no replay, no escalation).
+# 5. T2 alternatives follow the Luna primary: DeepSeek Go -> Muse -> Haiku, audit-only.
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-CA ($sT2.Tier -eq 'T2' -and $sT2.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') 'T2-default-deepseek_go'
-$fHaiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-CA ($fHaiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fHaiku.FallbackModel -eq $null -and $fHaiku.CandidateModel -eq 'claude-agent/haiku' -and $fHaiku.FallbackTier -eq 'T2') 'T2-availability-to-haiku'
+Assert-CA ($sT2.Tier -eq 'T2' -and $sT2.CatalogModel -eq 'openai/gpt-6-luna') 'T2-default-luna'
+$fDeepSeek = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-CA ($fDeepSeek.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fDeepSeek.FallbackModel -eq $null -and $fDeepSeek.CandidateModel -eq 'opencode-go/deepseek-v4.1-flash' -and $fDeepSeek.FallbackTier -eq 'T2') 'T2-luna-failure-surfaces-deepseek'
+$fMuse = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-CA ($fMuse.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fMuse.FallbackModel -eq $null -and $fMuse.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor' -and $fMuse.FallbackTier -eq 'T2') 'T2-deepseek-failure-surfaces-muse'
+$fHaiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-CA ($fHaiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fHaiku.FallbackModel -eq $null -and $fHaiku.CandidateModel -eq 'claude-agent/haiku' -and $fHaiku.FallbackTier -eq 'T2') 'T2-muse-failure-surfaces-haiku'
 Assert-CA ([bool]$fHaiku.IsCrossProvider -and -not [bool]$fHaiku.IsDowngrade -and $fHaiku.FallbackModel -eq $null -and -not [bool]$fHaiku.IsAuthorized) 'haiku-cross-provider-not-downgrade'
 
 # 6. Same T2 chain without Claude capability -> fail-closed exhaustion; availability
 #    NEVER escalates to Terra/T3 (capability escalation needs bound incapacity proof).
-$fNoProof = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$fNoProof = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-CA ($fNoProof.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fNoProof.FallbackModel -eq $null) 'T2-exhausted-without-proof-fails-closed'
 Assert-CA ($fNoProof.FallbackModel -ne 'openai/gpt-6.1-terra' -and $fNoProof.FallbackTier -ne 'T3') 'availability-never-escalates-to-terra-T3'
 $haikuUnproven = @($fNoProof.PreventivelyExcluded | Where-Object { $_.Model -eq 'claude-agent/haiku' -and $_.Reason -eq 'CLAUDE_CAPABILITY_UNPROVEN' })
@@ -126,20 +129,20 @@ Assert-CA ($haikuUnproven.Count -ge 1) 'claude-provider-unavailable-without-proo
 $t3BlockedCa = @($fNoProof.PreventivelyExcluded | Where-Object { $_.Reason -in @('T3_ESCALATION_REQUIRES_INCAPACITY_PROOF','TIER_ESCALATION_PROHIBITED') })
 Assert-CA ($t3BlockedCa.Count -ge 1) 'T3-escalation-blocked-on-availability-recorded'
 
-# 7. Planner is Luna-only T2 with no automatic fallback. Policy records the
-#     Luna primary and the empty build alternative set; static assertions check
+# 7. Planner is DeepSeek Go-only T2 with no automatic fallback. Policy records
+#     the DeepSeek Go primary and the empty build alternative set; static assertions check
 #     the dispatch-alias identity and the runtime-unverified status, NOT actual
 #     runtime version resolution (alias->concrete stays runtime-unverified until
 #     a successful session event; static tests never prove version resolution
 #     and never validate an old concrete inventory ID as mapping).
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-CA ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'openai/gpt-6-luna') 'planner-stays-luna-T2'
+Assert-CA ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') 'planner-stays-deepseek-go-T2'
 Assert-CA (@($sPlanner.fallback_candidates).Count -eq 0) 'planner-no-automatic-fallback'
 Assert-CA ($null -eq $pol.planner.fallback -and $null -eq $pol.planner.fallback_model_id -and [bool]$pol.planner.fallback_requires_capability_proof -eq $false -and $null -eq $pol.planner.fallback_capability) 'planner-policy-no-fallback'
 Assert-CA ($null -eq $pol.planner.PSObject.Properties['fallback_alias'] -and $null -eq $pol.planner.PSObject.Properties['fallback_resolved_model']) 'planner-no-fallback-alias-field'
 Assert-CA ([string]$pol.models.claude_haiku.resolution_status -eq 'runtime-unverified' -and -not [string]::IsNullOrWhiteSpace([string]$pol.models.claude_haiku.catalog_inventory_id)) 'planner-fallback-runtime-unverified-listed-inventory-provenance'
 Assert-CA ($null -eq $pol.planner.PSObject.Properties['fallback_effort_variants'] -and $null -eq $pol.planner.PSObject.Properties['fallback_smoke_variant']) 'planner-no-fallback-effort-metadata'
-Assert-CA (@($pol.role_profiles.build.alternatives).Count -eq 0) 'build-alternatives-empty-luna-only'
+Assert-CA (@($pol.role_profiles.build.alternatives).Count -eq 0) 'build-alternatives-empty-deepseek-only'
 
 # 8. Reviewer never downgraded to Haiku: low-risk reviewer holds the ordered
 #    T2 audit candidate (DeepSeek->Muse order) and never Haiku; Haiku stays
@@ -331,33 +334,35 @@ Assert-CA ((Resolve-ClaudeAgentUsageCost -ReportedCost '') -eq 'UNKNOWN') 'empty
 Assert-CA ((Resolve-ClaudeAgentUsageCost -ReportedCost 'subscription') -eq 'UNKNOWN') 'non-numeric-cost-becomes-unknown'
 Assert-CA ((Resolve-ClaudeAgentUsageCost -ReportedCost '1.25') -eq '1.25') 'nonzero-cost-preserved'
 
-# 29. Planner (build) dedicated path: Luna primary, Haiku specialized fallback,
+# 29. Planner (build) dedicated path: DeepSeek Go primary, no fallback,
 #     T2-only (policy-level until the productive native dispatcher calls it).
 $sPlannerSel = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-CA ($sPlannerSel.CatalogModel -eq 'openai/gpt-6-luna' -and $sPlannerSel.Tier -eq 'T2') 'planner-repro-selects-luna-T2'
-$fPlannerRepro = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -ClaudeAgentProven $true
-Assert-CA ($fPlannerRepro.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fPlannerRepro.FallbackModel -eq $null) 'planner-luna-offline-exhausts-no-haiku-dispatch'
+Assert-CA ($sPlannerSel.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $sPlannerSel.Tier -eq 'T2') 'planner-repro-selects-deepseek-go-T2'
+$fPlannerRepro = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -ClaudeAgentProven $true
+Assert-CA ($fPlannerRepro.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fPlannerRepro.FallbackModel -eq $null) 'planner-deepseek-offline-exhausts-no-fallback'
+$plannerPrimaryExcluded = @($fPlannerRepro.PreventivelyExcluded | Where-Object { $_.Model -ceq 'opencode-go/deepseek-v4.1-flash' -and $_.Reason -ceq 'PLANNER_NO_AUTOMATIC_FALLBACK' })
+Assert-CA ($plannerPrimaryExcluded.Count -eq 1) 'planner-deepseek-primary-recorded-as-no-fallback'
 Assert-CA ($fPlannerRepro.FallbackModel -notin @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash','claude-agent/sonnet') -and $fPlannerRepro.FallbackTier -ne 'T4') 'planner-repro-never-generic-sonnet-muse-deepseek-T4'
-Assert-CA (@($fPlannerRepro.ReallyAttemptedModels) -contains 'openai/gpt-6-luna') 'planner-repro-preserves-attempt-history'
+Assert-CA (@($fPlannerRepro.ReallyAttemptedModels) -contains 'opencode-go/deepseek-v4.1-flash') 'planner-repro-preserves-attempt-history'
 
 # 30. Planner negatives fail closed with no generic Muse/DeepSeek fallback, never Sonnet, never T4.
-$fPlannerNoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true
+$fPlannerNoCap = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true
 Assert-CA ($fPlannerNoCap.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fPlannerNoCap.FallbackModel -eq $null) 'planner-no-capability-exhausts'
 Assert-CA ($fPlannerNoCap.FallbackModel -notin @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash','claude-agent/sonnet')) 'planner-no-capability-no-generic'
-$fPlannerNoStart = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'OFFLINE' -NoExecutionStarted $false -IgnoreUserConfig $true -ClaudeAgentProven $true
+$fPlannerNoStart = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash') -TriggerReason 'OFFLINE' -NoExecutionStarted $false -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-CA ($fPlannerNoStart.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fPlannerNoStart.FallbackModel -eq $null) 'planner-no-start-proof-exhausts'
 $fPlannerWrong = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/muse-spark-1.3-contributor') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-CA ($fPlannerWrong.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fPlannerWrong.FallbackModel -eq $null) 'planner-wrong-model-exhausts'
 Assert-CA ($fPlannerWrong.FallbackModel -notin @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash','claude-agent/haiku','claude-agent/sonnet')) 'planner-wrong-model-no-fallback'
-$fPlannerAmb = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+$fPlannerAmb = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash') -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-CA ($fPlannerAmb.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fPlannerAmb.FallbackModel -eq $null) 'planner-ambiguous-timeout-holds-no-replay'
-$fPlannerVer = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:task-1' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+$fPlannerVer = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash') -TriggerReason 'VERIFIED_TASK_FAILURE' -VerifiedFailureReceipt 'verified:task-1' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-CA ($fPlannerVer.Status -eq 'KERNEL_MODEL_SELECT_REQUIRED' -and $fPlannerVer.FallbackModel -eq $null) 'planner-verified-failure-requires-kernel'
-$fPlannerSonnet = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true -AllowedProviders @('openai')
+$fPlannerSonnet = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true -AllowedProviders @('openai')
 Assert-CA ($fPlannerSonnet.FallbackModel -ne 'claude-agent/sonnet' -and $fPlannerSonnet.FallbackTier -ne 'T3') 'planner-never-sonnet-T3'
 
 # 31. Planner loop protection: Haiku already attempted exhausts exactly, no repeat, no generic.
-$fPlannerLoop = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna','claude-agent/haiku') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+$fPlannerLoop = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','claude-agent/haiku') -TriggerReason 'OFFLINE' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-CA ($fPlannerLoop.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fPlannerLoop.FallbackModel -eq $null) 'planner-haiku-attempted-exhausts'
 Assert-CA ($fPlannerLoop.AttemptsCount -eq 2) 'planner-loop-exact-attempt-count'
 $plannerLoopUniq = @($fPlannerLoop.ReallyAttemptedModels | Sort-Object -Unique)

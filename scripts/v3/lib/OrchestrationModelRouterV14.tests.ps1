@@ -64,9 +64,9 @@ Assert-V14 ([string]$pol.models.claude_haiku.resolution_status -eq 'runtime-unve
 
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $sPlanner.selected_provider -eq 'opencode-go') 'planner-runtime-deepseek-T2'
-# T2 principal DeepSeek Go: catalog default, provider namespace, role defaults, no loops.
+# T2 primary Luna: catalog default; DeepSeek/Muse/Haiku remain ordered candidates.
 $catT2 = Resolve-CatalogModel -Tier 'T2' -IgnoreUserConfig $true
-Assert-V14 ($catT2.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $catT2.Provider -eq 'opencode-go') 'T2-catalog-default-deepseek-go-provider'
+Assert-V14 ($catT2.CatalogModel -eq 'openai/gpt-6-luna' -and $catT2.Provider -eq 'openai') 'T2-catalog-default-luna-provider'
 $fcT2 = @($catT2.FallbackCandidates)
 Assert-V14 (($fcT2 -contains 'opencode-go/deepseek-v4.1-flash') -and ($fcT2 -contains 'opencode-go/muse-spark-1.3-contributor') -and ([Array]::IndexOf($fcT2,'opencode-go/deepseek-v4.1-flash') -lt [Array]::IndexOf($fcT2,'opencode-go/muse-spark-1.3-contributor'))) 'T2-candidates-deepseek-before-muse'
 Assert-V14 ([string]$pol.role_profiles.coder.default_model -eq 'luna' -and [string]$pol.role_profiles.'frontend-engineer'.default_model -eq 'luna') 'T2-roles-default-luna'
@@ -86,7 +86,7 @@ Assert-V14 ($sT4.Tier -ne 'T4') 'arbitrary-T3-receipt-does-not-escalate-T4'
 Assert-V14 ($sT4.Tier -eq 'T3') 'arbitrary-T3-receipt-fail-closed-T3'
 # v1.4 matrix: FailureCount never promotes Coder/Advisor; T2 exhaustion never upgrades to T3.
 $sCoderLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') 'failurecount-never-promotes-coder'
+Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'openai/gpt-6-luna') 'failurecount-never-promotes-coder'
 $sAdvLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'claude-agent/sonnet') 'failurecount-never-promotes-advisor'
 # ROUTER-V14-ADVISOR-T3-ONLY: advisor remains T3-minimum; new matrix starts at
@@ -199,7 +199,7 @@ $selT2BadPol = [pscustomobject]@{ Agent='coder'; Tier='T2'; CatalogModel='openco
 $fBadPol = Resolve-OrchestrationModelFallback -RequestedSelection $selT2BadPol -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -PolicyPath $badPolPathV14
 Assert-V14 ($fBadPol.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fBadPol.FallbackModel -eq $null -and -not [bool]$fBadPol.IsAuthorized -and $fBadPol.CandidateModel -ceq 'opencode-go/muse-spark-1.3-contributor') 'defensive-catalog-T2-muse-second-audit-only'
 $catBadPol = Resolve-CatalogModel -Tier 'T2' -PolicyPath $badPolPathV14 -IgnoreUserConfig $true
-Assert-V14 ((@($catBadPol.FallbackCandidates)[0] -ceq 'opencode-go/deepseek-v4.1-flash') -and (@($catBadPol.FallbackCandidates)[1] -ceq 'opencode-go/muse-spark-1.3-contributor') -and (@($catBadPol.FallbackCandidates)[2] -ceq 'claude-agent/haiku') -and (@($catBadPol.FallbackCandidates)[3] -ceq 'openai/gpt-6-luna')) 'defensive-catalog-T2-order-deepseek-muse-haiku-luna'
+Assert-V14 ((@($catBadPol.FallbackCandidates)[0] -ceq 'openai/gpt-6-luna') -and (@($catBadPol.FallbackCandidates)[1] -ceq 'opencode-go/deepseek-v4.1-flash') -and (@($catBadPol.FallbackCandidates)[2] -ceq 'opencode-go/muse-spark-1.3-contributor') -and (@($catBadPol.FallbackCandidates)[3] -ceq 'claude-agent/haiku')) 'defensive-catalog-T2-order-luna-deepseek-muse-haiku'
 Assert-V14 ((@($pol.models.deepseek_go.eligible_roles) -contains 'build') -and (@($pol.models.deepseek_go.eligible_roles) -notcontains 'engineering-advisor')) 'deepseek-eligible-build-not-advisor'
 Assert-V14 ((@($pol.models.muse.eligible_roles) -notcontains 'build') -and (@($pol.models.muse.eligible_roles) -notcontains 'engineering-advisor')) 'muse-not-eligible-build-advisor'
 Assert-V14 ((@($pol.models.deepseek_go.eligible_roles) -contains 'coder') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'reviewer') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'debugger') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'skeptic')) 'deepseek-eligible-coder-reviewer-debugger-skeptic'

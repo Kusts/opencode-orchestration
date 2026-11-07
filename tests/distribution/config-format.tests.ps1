@@ -92,7 +92,7 @@ try {
   try { $jb = $rawB | ConvertFrom-Json } catch { $parseOk = $false }
   Assert ($parseOk) 'b: jsonc resultante parseia como JSON puro'
   $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
-  Assert ($jb.model -eq $models.planner) 'b: root model gerenciado aplicado'
+  Assert ($jb.model -eq 'opencode-go/deepseek-v4.1-flash') 'b: root model global DeepSeek gerenciado, separado do Planner token'
   Assert ($jb.agent.coder.model -eq $models.cheap) 'b: coder.model gerenciado aplicado'
   Assert ($jb.mcp.'my-server'.command[1] -eq 'srv.js') 'b: mcp.* do usuario preservado'
   Assert ($jb.agent.'meu-custom'.model -eq 'foo/bar') 'b: agente custom preservado'
