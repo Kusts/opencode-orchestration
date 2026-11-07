@@ -9,12 +9,16 @@
 
 Nota sobre o runtime: **OpenCode V1.x** (`1.18.34`) permanece
 **LEGACY_FROZEN** para perfis existentes; novas capacidades miram apenas o
-**OpenCode V2** (`@opencode/cli`, pin comprovado `2.0.23` em
-`source/registry/runtime-versions.json`). O pacote inclui render/config
+**OpenCode V2** (`@opencode/cli`, pin atual `2.2.6` em
+`source/registry/runtime-versions.json`; smoke explícito do ciclo de serviço passou, mas provas de capacidades nativas específicas seguem em HOLD). O pacote inclui render/config
 nativos por geração e plugin dual-runtime. O enforcement V2 usa as permissões nativas ordenadas
 (last-match-wins, broad-first); a camada `experimental.policies` (hard-deny)
 ainda não está ativada. V1 e V2 lado a lado só via perfis isolados
 (`-Runtime Both`) — nunca compartilhando o mesmo config nativo.
+
+No V2.2.6, o runtime permite acesso a diretórios externos por padrão quando
+nenhuma regra `external_directory` se aplica. Este pacote não define essa regra;
+veja [docs/PERMISSIONS.md](docs/PERMISSIONS.md) e o dono da configuração ativa.
 
 ## Resumo da política
 

@@ -69,10 +69,10 @@
       "id": "orchestration-enforcement",
       "description": "Plugin de enforcement da orquestracao (bundle autocontido + sidecar .sha256) com watchdog e kernel.",
       "type": "plugin",
-      "runtime": { "v2": true, "note": "plugin V2 @opencode/plugin@2.0.23; bundle verificado por sidecar" },
+      "runtime": { "v2": true, "note": "plugin V2 @opencode/plugin@2.2.6; tipo checado contra o pin; shape runtime observado somente em 2.0.23" },
       "managed_by": "control-plane",
       "declared_by": "package",
-      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "bundle + sidecar presentes; checker item 16 verde; flags task_kernel/watchdog/bounded_execution ON" },
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-11-07", "observed_note": "bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23; flags task_kernel/watchdog/bounded_execution ON" },
       "risk": { "level": "medium", "reason": "guarda autoridade; falha fecha (fail-closed), nunca amplia permissao" },
       "activation": { "mode": "always", "note": "watchdog ATIVO pelo operador em 2026-10-04" },
       "healthcheck": { "probe": "repo-file", "target": "plugins/dist/orchestration-enforcement.js", "integrity_sidecar": "plugins/dist/orchestration-enforcement.js.sha256", "command": "Test-Path bundle + sidecar .sha256 casa com Get-FileHash", "timeout_seconds": 15 }
@@ -472,12 +472,12 @@
     },
     {
       "id": "opencode-runtime",
-      "description": "CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.0.23).",
+      "description": "CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.2.6; certificacao runtime 2.2.6 pendente).",
       "type": "runtime",
-      "runtime": { "v2": true, "note": "pin V2 2.0.23 via loader fail-closed RuntimeVersions.ps1" },
+      "runtime": { "v2": true, "note": "pin V2 atual 2.2.6 via loader fail-closed RuntimeVersions.ps1; probes 2.0.23 sao historicos" },
       "managed_by": "control-plane",
       "declared_by": "package",
-      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "pins + loader presentes; CLI responde nesta maquina" },
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-11-07", "observed_note": "pin V2 2.2.6 exato; smoke explícito do ciclo de serviço passou; provas de capacidades nativas específicas seguem em HOLD" },
       "risk": { "level": "medium", "reason": "executa tudo; seguranca vem de permissoes/grants, nao do binario" },
       "activation": { "mode": "always", "note": "smoke opencode --version antes de uso real" },
       "healthcheck": { "probe": "command", "target": "opencode", "command": "opencode --version", "timeout_seconds": 15 }
