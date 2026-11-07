@@ -43,14 +43,14 @@ $vExact = Test-ExecutedModelVerification -RequestedSelection $selCoder -Executed
 Assert-Hardening ($vExact.ProofStatus -eq 'EXACT_MATCH' -and $vExact.IsExactMatch -eq $true -and $vExact.VerifiedMatch -eq $true) "P0-01.1: Match exato classifica como EXACT_MATCH e VerifiedMatch=true"
 
 # 1.2 Fallback tecnico permanece HOLD (CandidateModel nao-autorizador)
-# Ordem candidata T2 e DeepSeek Go->Muse: o resolver retorna HOLD com
+# Ordem candidata T2 e Luna->DeepSeek Go: o resolver retorna HOLD com
 # FallbackModel null e IsAuthorized false; CandidateModel e auditoria apenas.
 $fbDecision = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel $selCoder.CatalogModel -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true
-Assert-Hardening ($fbDecision.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbDecision.IsAuthorized -eq $false -and $null -eq $fbDecision.FallbackModel) "P0-01.2: Ordem candidata T2 DeepSeek Go->Muse permanece HOLD sem autorizacao produtiva"
-Assert-Hardening ($fbDecision.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') "P0-01.2: Primeiro candidato apos DeepSeek Go e Muse (audit-only)"
+Assert-Hardening ($fbDecision.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbDecision.IsAuthorized -eq $false -and $null -eq $fbDecision.FallbackModel) "P0-01.2: Ordem candidata T2 Luna->DeepSeek Go permanece HOLD sem autorizacao produtiva"
+Assert-Hardening ($fbDecision.CandidateModel -eq 'opencode-go/deepseek-v4.1-flash') "P0-01.2: Primeiro candidato apos Luna e DeepSeek Go (audit-only)"
 $evFb = @{ Model = $fbDecision.CandidateModel; AuthorizedFallback = $fbDecision }
 $vFb = Test-ExecutedModelVerification -RequestedSelection $selCoder -ExecutedModelEvent $evFb -NativeModelOverrideProven $true
-Assert-Hardening ($vFb.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vFb.IsAuthorizedFallback -eq $false -and $vFb.IsExactMatch -eq $false -and $vFb.VerifiedMatch -eq $false) "P0-01.2: Evento Muse sob HOLD verifica como UNAUTHORIZED_MISMATCH (CandidateModel nao autoriza)"
+Assert-Hardening ($vFb.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vFb.IsAuthorizedFallback -eq $false -and $vFb.IsExactMatch -eq $false -and $vFb.VerifiedMatch -eq $false) "P0-01.2: Evento DeepSeek sob HOLD verifica como UNAUTHORIZED_MISMATCH (CandidateModel nao autoriza)"
 
 # 1.3 Mismatch: mesmo tier sem decisao de fallback
 $altModelNoAuth = if ($selCoder.CatalogModel -eq 'opencode-go/muse-spark-1.3-contributor') { 'openai/gpt-6-luna' } else { 'opencode-go/muse-spark-1.3-contributor' }
@@ -84,33 +84,35 @@ $selSecRev = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' 
 $fbSecDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selSecRev -FailedModel $selSecRev.CatalogModel -AttemptedModels @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra') -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbSecDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "P0-02.2: Downgrade de Security-Reviewer e estritamente proibido mesmo sob risco low"
 
-# 2.3 Transporte T2 (matriz v1.4 vigente: DeepSeek Go -> Muse -> Haiku -> Luna, audit-only HOLD).
+# 2.3 Transporte T2 (matriz v1.4 vigente: Luna -> DeepSeek Go -> Muse -> Haiku, audit-only HOLD).
 # Disponibilidade permanece HOLD mesmo com capability + no-start provados:
 # CandidateModel e auditoria nao-autorizadora, nunca replay produtivo.
 # Muse e opencode-go (nao Claude), entao sem capability Claude o primeiro
-# candidato apos DeepSeek Go continua Muse em HOLD; Haiku exige capability
-# Claude + no-start e sem ela e excluido, com a auditoria alcancando Luna
-# em HOLD. Esgotados os quatro, EXHAUSTED; Console Free nunca e candidato;
+# candidato apos Luna e DeepSeek Go em HOLD, seguido por Muse; Haiku exige capability
+# Claude + no-start e sem ela e excluido. A primária Luna não reaparece.
+# Esgotados os candidatos elegíveis, EXHAUSTED; Console Free nunca e candidato;
 # T2 esgotado nunca escala para T3.
-$fbMuseHold = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true
+$fbMuseHold = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true
 Assert-Hardening ($fbMuseHold.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbMuseHold.IsAuthorized -eq $false -and $null -eq $fbMuseHold.FallbackModel) "P0-02.3: T2 DeepSeek Go->Muse permanece HOLD mesmo com capability + no-start (sem autorizacao produtiva)"
-Assert-Hardening ($fbMuseHold.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor' -and $fbMuseHold.FallbackTier -eq 'T2') "P0-02.3: Primeiro candidato audit-only apos DeepSeek Go e Muse no mesmo tier"
+Assert-Hardening ($fbMuseHold.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor' -and $fbMuseHold.FallbackTier -eq 'T2') "P0-02.3: Muse e candidato audit-only apos Luna e DeepSeek Go"
 $evMuseHold = @{ Model = $fbMuseHold.CandidateModel; AuthorizedFallback = $fbMuseHold }
 $vMuseHold = Test-ExecutedModelVerification -RequestedSelection $selCoder -ExecutedModelEvent $evMuseHold -NativeModelOverrideProven $true
 Assert-Hardening ($vMuseHold.ProofStatus -eq 'UNAUTHORIZED_MISMATCH' -and $vMuseHold.VerifiedMatch -eq $false -and $vMuseHold.IsAuthorizedFallback -eq $false) "P0-02.3: no-start + capability nao convertem CandidateModel em autorizacao (Muse sob HOLD e UNAUTHORIZED_MISMATCH)"
-$fbMuseNoClaude = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT'
-Assert-Hardening ($fbMuseNoClaude.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbMuseNoClaude.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor' -and $null -eq $fbMuseNoClaude.FallbackModel) "P0-02.3: sem capability Claude, DeepSeek Go->Muse continua HOLD (Muse e Go, nao Claude)"
-$fbLunaNoClaude = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT'
-Assert-Hardening ($fbLunaNoClaude.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbLunaNoClaude.CandidateModel -eq 'openai/gpt-6-luna' -and $null -eq $fbLunaNoClaude.FallbackModel) "P0-02.3: DeepSeek+Muse tentados sem capability Claude excluem Haiku; auditoria alcanca Luna em HOLD"
+$fbMuseNoClaude = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'openai/gpt-6-luna' -TriggerReason 'RATE_LIMIT'
+Assert-Hardening ($fbMuseNoClaude.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbMuseNoClaude.CandidateModel -eq 'opencode-go/deepseek-v4.1-flash' -and $null -eq $fbMuseNoClaude.FallbackModel) "P0-02.3: sem capability Claude, Luna->DeepSeek Go continua HOLD"
+$fbLunaNoClaude = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT'
+Assert-Hardening ($fbLunaNoClaude.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbLunaNoClaude.FallbackModel) "P0-02.3: Haiku excluido sem capability Claude; Luna tentada não reaparece"
 $haikuExcl = @($fbLunaNoClaude.PreventivelyExcluded | Where-Object { $_.Model -eq 'claude-agent/haiku' })
 Assert-Hardening ($haikuExcl.Count -ge 1) "P0-02.3: Haiku excluido sem capability Claude (PreventivelyExcluded registra)"
-$fbExhaustT2 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','claude-agent/haiku','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT'
-Assert-Hardening ($fbExhaustT2.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbExhaustT2.IsAuthorized -eq $false -and $null -eq $fbExhaustT2.FallbackModel) "P0-02.3: T2 esgotado (quatro candidatos tentados) retorna EXHAUSTED_NO_ELIGIBLE_FALLBACK"
-Assert-Hardening (($fbMuseHold.CandidateModel -ne 'opencode/deepseek-v4.1-flash-free') -and ($fbLunaNoClaude.CandidateModel -ne 'opencode/deepseek-v4.1-flash-free') -and ($fbExhaustT2.FallbackModel -ne 'opencode/deepseek-v4.1-flash-free')) "P0-02.3: Console Free nunca entra na lista candidata"
-Assert-Hardening ($fbMuseHold.FallbackTier -ne 'T3' -and $fbLunaNoClaude.FallbackTier -ne 'T3' -and $fbExhaustT2.FallbackTier -ne 'T3' -and $fbExhaustT2.FallbackModel -ne 'openai/gpt-6.1-terra') "P0-02.3: indisponibilidade T2 nunca escala para Terra/T3 sem prova de incapacidade"
+$fbHaiku = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true
+Assert-Hardening ($fbHaiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fbHaiku.CandidateModel -eq 'claude-agent/haiku' -and $null -eq $fbHaiku.FallbackModel) "P0-02.3: Após Luna+DeepSeek+Muse, Haiku é candidato audit-only sob HOLD quando Claude é provado"
+$fbExhaustT2 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT'
+Assert-Hardening ($fbExhaustT2.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbExhaustT2.IsAuthorized -eq $false -and $null -eq $fbExhaustT2.FallbackModel) "P0-02.3: T2 elegível esgotado sem Claude retorna EXHAUSTED_NO_ELIGIBLE_FALLBACK"
+Assert-Hardening (($fbMuseHold.CandidateModel -ne 'opencode/deepseek-v4.1-flash-free') -and ($fbHaiku.CandidateModel -ne 'opencode/deepseek-v4.1-flash-free') -and ($fbExhaustT2.FallbackModel -ne 'opencode/deepseek-v4.1-flash-free')) "P0-02.3: Console Free nunca entra na lista candidata"
+Assert-Hardening ($fbMuseHold.FallbackTier -ne 'T3' -and $fbHaiku.FallbackTier -ne 'T3' -and $fbExhaustT2.FallbackTier -ne 'T3' -and $fbExhaustT2.FallbackModel -ne 'openai/gpt-6.1-terra') "P0-02.3: indisponibilidade T2 nunca escala para Terra/T3 sem prova de incapacidade"
 
 # 2.4 Exaustao completa: todos os T2 elegiveis tentados => EXHAUSTED sem loop (sem custo T4)
-$allTiersExhausted = @('opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6-luna', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol')
+$allTiersExhausted = @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku', 'openai/gpt-6.1-terra', 'openai/gpt-6.1-sol')
 $fbExhausted = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -FailedModel 'openai/gpt-6.1-sol' -AttemptedModels $allTiersExhausted -ProviderCostAuthorized $false -TriggerReason 'RATE_LIMIT'
 Assert-Hardening ($fbExhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $fbExhausted.IsAuthorized -eq $false) "P0-02.4: Tentativas esgotadas retornam EXHAUSTED_NO_ELIGIBLE_FALLBACK sem loop"
 

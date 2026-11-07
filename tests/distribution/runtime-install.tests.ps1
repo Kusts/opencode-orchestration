@@ -77,7 +77,7 @@ $ocA = Join-Path $hA '.config\opencode'
 $jA = ([IO.File]::ReadAllText((Join-Path $ocA 'opencode.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
 Assert ((@($jA.agents.PSObject.Properties.Name).Count) -eq 21) 'a: 21 blocos agents'
 Assert (($null -ne ($jA.agents.build | Get-Member -Name 'permissions' -ErrorAction SilentlyContinue))) 'a: build tem permissions'
-Assert ([string]$jA.model -eq 'openai/gpt-6-luna') 'a: global model stays Luna literal'
+Assert ([string]$jA.model -eq 'opencode-go/deepseek-v4.1-flash') 'a: global model stays DeepSeek Go literal'
 Assert ([string]$jA.agents.build.model -eq $models.planner) 'a: build.model uses per-agent Planner token'
 Assert (([string]$jA.agents.build.permissions[0].effect -ceq 'deny') -and ([string]$jA.agents.build.permissions[0].resource -ceq '*')) 'a: build.permissions[0] deny-*'
 Assert ((@($jA.agents.build.permissions).Count) -eq 20) 'a: build.permissions 20 entradas'
@@ -116,7 +116,7 @@ $jB = ([IO.File]::ReadAllText((Join-Path $ocB 'opencode.json'), [Text.Encoding]:
 Assert ((@($jB.agent.PSObject.Properties.Name).Count) -eq 17) 'b: 17 blocos agent'
 Assert (($null -eq ($jB | Get-Member -Name 'agents' -ErrorAction SilentlyContinue))) 'b: sem chave agents (plural)'
 Assert ([int]$jB.subagent_depth -eq 1) 'b: subagent_depth=1 no topo'
-Assert ([string]$jB.model -eq 'openai/gpt-6-luna') 'b: global model stays Luna literal'
+Assert ([string]$jB.model -eq 'opencode-go/deepseek-v4.1-flash') 'b: global model stays DeepSeek Go literal'
 Assert ([string]$jB.agent.build.model -eq $models.planner) 'b: build.model uses per-agent Planner token'
 $mB = ([IO.File]::ReadAllText((Join-Path $hB '.opencode-orchestration\manifest.json'), [Text.Encoding]::UTF8)) | ConvertFrom-Json
 Assert ($mB.package_version -eq '1.1.0') 'b: manifest package_version 1.1.0'

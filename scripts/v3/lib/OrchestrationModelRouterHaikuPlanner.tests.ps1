@@ -2,12 +2,12 @@
 .SYNOPSIS
     Claude alias/model-tier routing contract (policy v1.4; deterministic, no provider calls).
 .DESCRIPTION
-    Planner/build primary is openai/gpt-6-luna (T2, Luna-only). Covers provider
+    Planner/build primary is opencode-go/deepseek-v4.1-flash (T2, DeepSeek Go-only). Covers provider
     registration, closed Claude dispatch-alias identity (no resolved_model,
-    runtime-unverified, catalog inventory provenance only), T2 DeepSeek Go->Muse->Haiku->Luna,
+    runtime-unverified, catalog inventory provenance only), T2 Luna->DeepSeek Go->Muse->Haiku,
     T3 Sonnet->Terra, T4 Opus->Sol, technical fallbacks held absent independent
     no-start proof, functional escalation through the Task Kernel only, Astra/Fable
-    exceptional gates, operator-selected DeepSeek Go T2 primary (ZDR expired-unconfirmed, no renewal claim), advisor T3 minimum, exactly-once
+    exceptional gates, DeepSeek Go T2 alternative (ZDR expired-unconfirmed, no renewal claim), advisor T3 minimum, exactly-once
     execution seam, UNKNOWN subscription cost, and capability rejection.
     No inference is performed here. Productive dispatch is Planner-owned.
     Run: powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRouterHaikuPlanner.tests.ps1
@@ -76,7 +76,7 @@ Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/
 
 # 4. Planner failure has no fallback ladder; caller booleans do not authorize replay.
 $fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlanner.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbPlanner.FallbackModel -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-luna-failure-no-replay'
+Assert-HP ($fbPlanner.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbPlanner.FallbackModel -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-deepseek-failure-no-replay'
 $fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
 Assert-HP ($fbPlannerTimeout.FallbackModel -eq $null -and -not [bool]$fbPlannerTimeout.IsAuthorized) 'hp-planner-timeout-no-replay'
 
@@ -85,17 +85,19 @@ Assert-HP ($pol.tiers.T2.primary -eq 'luna') 'hp-T2-primary-luna'
 Assert-HP (([string]$pol.tiers.T2.alternatives[0] -ceq 'deepseek_go') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[2] -ceq 'claude_haiku')) 'hp-T2-alternatives-luna-deepseek_go-muse-haiku-order'
 Assert-HP ($pol.tiers.T2.fallback -eq 'muse') 'hp-T2-fallback-muse'
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-HP ($sT2.Tier -eq 'T2' -and $sT2.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') 'hp-T2-default-deepseek_go'
-$fT2Haiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fT2Haiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Haiku.FallbackModel -and $fT2Haiku.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') 'hp-T2-muse-candidate-held'
-$fT2Luna = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fT2Luna.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Luna.FallbackModel -and $fT2Luna.CandidateModel -eq 'claude-agent/haiku') 'hp-T2-haiku-second-candidate-held'
-$fT2FinalLuna = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'claude-agent/haiku' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','claude-agent/haiku') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fT2FinalLuna.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2FinalLuna.FallbackModel -and $fT2FinalLuna.CandidateModel -eq 'openai/gpt-6-luna' -and (-not [bool]$fT2FinalLuna.IsAuthorized)) 'hp-T2-luna-final-candidate-held-not-authorized'
+Assert-HP ($sT2.Tier -eq 'T2' -and $sT2.CatalogModel -eq 'openai/gpt-6-luna') 'hp-T2-default-luna'
+$fT2DeepSeek = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'openai/gpt-6-luna' -AttemptedModels @('openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT2DeepSeek.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2DeepSeek.FallbackModel -and $fT2DeepSeek.CandidateModel -eq 'opencode-go/deepseek-v4.1-flash') 'hp-T2-deepseek-first-candidate-held'
+$fT2Muse = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT2Muse.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Muse.FallbackModel -and $fT2Muse.CandidateModel -eq 'opencode-go/muse-spark-1.3-contributor') 'hp-T2-muse-second-candidate-held'
+$fT2Haiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT2Haiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Haiku.FallbackModel -and $fT2Haiku.CandidateModel -eq 'claude-agent/haiku') 'hp-T2-haiku-third-candidate-held'
+$fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'claude-agent/haiku' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','claude-agent/haiku') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fT2Exhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fT2Exhausted.FallbackModel -and $null -eq $fT2Exhausted.CandidateModel -and (-not [bool]$fT2Exhausted.IsAuthorized)) 'hp-T2-alternatives-exhausted-after-primary'
 $fT2Timeout = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-HP ($null -eq $fT2Timeout.FallbackModel -and -not [bool]$fT2Timeout.IsAuthorized) 'hp-T2-timeout-never-replays'
 
-# 6. DeepSeek Go operator-selected T2 primary (ZDR expired-unconfirmed, no renewal claim).
+# 6. DeepSeek Go remains enabled as a T2 alternative (ZDR expired-unconfirmed, no renewal claim).
 Assert-HP ([bool]$pol.models.deepseek_go.enabled -eq $true) 'hp-deepseek-go-enabled'
 Assert-HP ([string]$pol.models.deepseek_go.availability_status -eq 'active' -and [string]$pol.models.deepseek_go.data_policy.zdr_status -eq 'expired-unconfirmed') 'hp-deepseek-go-active-zdr-unconfirmed'
 

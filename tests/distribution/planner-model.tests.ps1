@@ -1,4 +1,4 @@
-# planner-model.tests.ps1 — build uses per-agent Planner model; global root/title stay Luna.
+# planner-model.tests.ps1 — build uses the per-agent Planner model; global root is DeepSeek, title stays Luna.
 $ErrorActionPreference = 'Stop'
 $pass = 0
 $fail = 0
@@ -18,7 +18,7 @@ try {
   $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
   $j = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert ([string]$j.agent.build.model -eq $models.planner) 'build.model = Planner model no output'
-  Assert ($j.model -eq 'openai/gpt-6-luna') 'root model permanece Luna literal'
+  Assert ($j.model -eq 'opencode-go/deepseek-v4.1-flash') 'root model permanece DeepSeek Go literal'
   Assert ($j.agent.title.model -eq 'openai/gpt-6-luna') 'title.model permanece Luna literal'
   $j.agent.build.model = 'legacy/model'
   [IO.File]::WriteAllText($jsonPath, ((($j | ConvertTo-Json -Depth 32).TrimEnd()) + "`n"), (New-Object Text.UTF8Encoding $false))
@@ -26,7 +26,7 @@ try {
   Assert ($LASTEXITCODE -eq 0) 're-run exit 0'
   $j2 = ([IO.File]::ReadAllText($jsonPath, [Text.Encoding]::UTF8)) | ConvertFrom-Json
   Assert ([string]$j2.agent.build.model -eq $models.planner) 'build.model pre-existente restaurado para Planner model'
-  Assert ($j2.model -eq 'openai/gpt-6-luna') 'root model ainda = Luna literal'
+  Assert ($j2.model -eq 'opencode-go/deepseek-v4.1-flash') 'root model ainda = DeepSeek Go literal'
   Assert ($j2.agent.title.model -eq 'openai/gpt-6-luna') 'title.model ainda = Luna literal'
   Assert ($j2.agent.build.mode -eq 'primary') 'build.mode preservado/atualizado'
 }

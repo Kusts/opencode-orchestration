@@ -38,7 +38,7 @@ try {
   Assert ($j.agent.coder.temperature -eq 0.9) 'propriedade desconhecida em agente conhecido preservada'
   $models = (([IO.File]::ReadAllText((Join-Path $RepoRoot 'models.jsonc'), [Text.Encoding]::UTF8) -split "`n" | Where-Object { $_ -notmatch '^\s*//' }) -join "`n") | ConvertFrom-Json
   Assert ($j.agent.coder.model -eq $models.cheap) 'coder.model atualizado para cheap'
-  Assert ($j.model -eq 'openai/gpt-6-luna') 'modelo global Luna preservado, sem Planner token'
+  Assert ($j.model -eq 'opencode-go/deepseek-v4.1-flash') 'modelo global DeepSeek aplicado, sem Planner token'
   Assert ([string]$j.agent.build.model -eq $models.planner) 'build.model usa MODEL_PLANNER per-agent'
   Assert ([string]$j.agent.title.model -eq 'openai/gpt-6-luna') 'title.model permanece Luna, nao herda Planner token'
   $t = [IO.File]::ReadAllText((Join-Path $ocDir 'AGENTS.md'), [Text.Encoding]::UTF8)

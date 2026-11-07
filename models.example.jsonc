@@ -1,10 +1,10 @@
 {
-  // Model Router v1.4: Planner (agente build, sessao raiz) usa Luna (tier operacional T2).
-  // Planner e Luna-only: nenhum fallback automatico implementado/autorizado por esta matriz; sem fallback silencioso para DeepSeek/Muse/Haiku.
-  // O modelo global (topo do opencode.json) e Luna literal no template, nao este campo.
+  // Model Router v1.4: Planner (agente build, sessao raiz) usa DeepSeek Go (tier operacional T2).
+  // Planner usa DeepSeek Go; sem fallback automatico nem replay silencioso.
+  // O modelo global (topo do opencode.json) permanece DeepSeek Go, separado deste campo.
   // Copie como models.jsonc (arquivo local ignorado pelo Git).
   "planner": "opencode-go/deepseek-v4.1-flash",
-  // T2: pool economico DeepSeek Go->Muse->Haiku->Luna (mesmo tier; exaustao de transporte nunca sobe de tier).
+  // T2: primary Luna; alternativas DeepSeek Go->Muse->Haiku (mesmo tier; exaustao de transporte nunca sobe de tier).
   "cheap": "openai/gpt-6-luna",
   // T1: Iceman; fallback opencode/mimo-v2.6-flash-free.
   "free": "opencode-go/iceman-contributor-free",
