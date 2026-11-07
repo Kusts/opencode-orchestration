@@ -40,7 +40,9 @@
                               Prompt must be Kernel-built only (ids hex,
                               task ids, fixed words); never free text with
                               quotes or operators.
-      session-not-found       Pre-check list has no such session id.
+      session-not-found       Pre-check direct lookup has no such session id.
+      session-archived        Pre-check direct lookup found the session but it
+                              is archived; a resume must not proceed.
       project-mismatch        Live session projectId != ExpectedProjectId.
       directory-mismatch      Live session directory != ExpectedDirectory.
       authorization-denied    Authorization given but not explicitly
@@ -629,7 +631,7 @@ function Invoke-OrchestrationNativeResume {
             $why = 'session-not-found'
             try {
                 $r = ([string](Get-NRValue $pre 'reason' ''))
-                if (($r -ceq 'project-mismatch') -or ($r -ceq 'directory-mismatch') -or ($r -ceq 'session-id-invalid') -or ($r -ceq 'session-not-found')) { $why = $r }
+                if (($r -ceq 'project-mismatch') -or ($r -ceq 'directory-mismatch') -or ($r -ceq 'session-id-invalid') -or ($r -ceq 'session-not-found') -or ($r -ceq 'session-archived')) { $why = $r }
             }
             catch { }
             return (New-NRResumeEnvelope -Ok $false -Action 'blocked' -Reason $why -IdempotencyKey $key -Generation ([string]$Generation) -LeaseOwner ([string]$LeaseOwner))

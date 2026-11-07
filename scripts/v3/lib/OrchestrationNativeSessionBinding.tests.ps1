@@ -98,14 +98,15 @@ try {
     Assert-S ($null -eq $f) 'find case-sensitive' 'matched wrong case'
 
     # --- identity via injected BinaryCommand ---
-    $p = New-ListFixture $base 'identok' $json1
+    $byJson = '{"data":{"id":"ses_aaa","title":"t","time":{"created":1000,"updated":2000},"location":{"directory":"' + $jd + '"},"projectID":"p1"}}'
+    $p = New-FixtureCmd $base 'identok' ("@echo off`r`necho " + $byJson + "`r`n")
     $r = Get-NativeSessionIdentity -SessionId 'ses_aaa' -ExpectedDirectory $work -ExpectedProjectId 'p1' -BinaryCommand $p
     Assert-S ($r.ok -eq $true -and $r.session.id -ceq 'ses_aaa') 'identity ok' $r.reason
 
     $r = Get-NativeSessionIdentity -SessionId 'bad!' -ExpectedDirectory $work -ExpectedProjectId 'p1' -BinaryCommand (Join-Path $base 'nope.cmd')
     Assert-S ($r.ok -eq $false -and $r.reason -eq 'session-id-invalid') 'identity id-invalid' $r.reason
 
-    $pEmpty = New-ListFixture $base 'identempty' '[]'
+    $pEmpty = New-FixtureCmd $base 'identempty' "@echo off`r`necho {`"data`":null}`r`n"
     $r = Get-NativeSessionIdentity -SessionId 'ses_aaa' -ExpectedDirectory $work -ExpectedProjectId 'p1' -BinaryCommand $pEmpty
     Assert-S ($r.ok -eq $false -and $r.reason -eq 'session-not-found') 'identity empty-list' $r.reason
 
@@ -137,7 +138,13 @@ try {
     Assert-S ($src -notmatch '(?i)\bexport\b') 'binding no-export' 'found export token'
     Assert-S ($src -notmatch '--continue') 'binding no-continue' 'found --continue'
     Assert-S ($src -notmatch '(?i)\bsession\s+export\b') 'binding no-session-export' 'found session export'
-    Assert-S ($src -match 'Get-NativeSessionList') 'binding uses list' 'list not referenced'
+    Assert-S ((Get-Command Get-NativeSessionIdentity).ScriptBlock.ToString() -match 'Get-NativeSessionById') 'identity uses direct lookup' 'missing direct lookup'
+    Assert-S ((Get-Command Find-NativeSessionById).ScriptBlock.ToString() -match 'Get-NativeSessionList') 'find still uses list' 'list lookup missing'
+
+    $archJson = '{"data":{"id":"ses_aaa","time":{"created":1,"updated":2,"archived":3},"location":{"directory":"' + $jd + '"},"projectID":"p1"}}'
+    $pArch = New-FixtureCmd $base 'identarch' ("@echo off`r`necho " + $archJson + "`r`n")
+    $r = Get-NativeSessionIdentity -SessionId 'ses_aaa' -ExpectedDirectory $work -ExpectedProjectId 'p1' -BinaryCommand $pArch
+    Assert-S ($r.reason -eq 'session-archived' -and $null -eq $r.session) 'identity archived' $r.reason
 }
 finally {
     if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

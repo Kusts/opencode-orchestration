@@ -1093,10 +1093,10 @@ function Resolve-GHWakeBoundRootSession {
         if ($null -eq $sessRes) {
             $liveList = $null
             try {
-                if ($null -eq (Get-Command Get-NativeSessionList -ErrorAction SilentlyContinue)) {
+                if ($null -eq (Get-Command Get-NativeSessionById -ErrorAction SilentlyContinue)) {
                     return (& $mkRes -Ok $false -Reason 'scheduler-session-check-unavailable' -Root '')
                 }
-                $liveList = Get-NativeSessionList -MaxCount 100 -BinaryCommand 'opencode' -TimeoutMs 30000
+                $liveList = Get-NativeSessionById -SessionId $root -BinaryCommand 'opencode' -TimeoutMs 30000
             }
             catch { $liveList = $null }
             if (($null -eq $liveList) -or (-not [bool](Get-GHWADValue $liveList 'ok' $false))) {
@@ -1114,6 +1114,9 @@ function Resolve-GHWakeBoundRootSession {
             }
             catch { }
             return (& $mkRes -Ok $false -Reason $nr -Root '')
+        }
+        if ([bool](Get-GHWADValue $nb.session 'archived' $false)) {
+            return (& $mkRes -Ok $false -Reason 'session-archived' -Root '')
         }
         return (& $mkRes -Ok $true -Reason 'bound-root-session' -Root $root)
     }
@@ -1558,7 +1561,7 @@ function Invoke-GHWakeAutoDispatch {
         if (($rAction -ceq 'reconcile') -and (-not [bool]$rOk) -and [bool]$envelopeSane) {
             return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason ('auto-reconcile-' + $rReason) -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction 'reconcile' -Duplicate $false)
         }
-        $knownBlocked = @('session-id-invalid','invalid-idempotency-key','invalid-prompt','session-not-found','project-mismatch','directory-mismatch','authorization-denied','checkpoint-not-found','resume-not-resumable','kernel-not-ready','already-done','internal-error')
+        $knownBlocked = @('session-id-invalid','invalid-idempotency-key','invalid-prompt','session-not-found','session-archived','project-mismatch','directory-mismatch','authorization-denied','checkpoint-not-found','resume-not-resumable','kernel-not-ready','already-done','internal-error')
         if (($rAction -ceq 'blocked') -and (-not [bool]$rOk) -and [bool]$envelopeSane -and ($knownBlocked -contains $rReason)) {
             try { Remove-GHWakeHandoffClaim -MarkerPath $hMarker } catch { }
             return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'not-dispatched' -Reason ('auto-resume-' + $rReason) -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction $rAction -Duplicate $false)
