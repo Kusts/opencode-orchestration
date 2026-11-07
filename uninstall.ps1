@@ -251,6 +251,9 @@ if (($null -ne $manifestConfigName) -and (Test-Path -LiteralPath (Join-Path $ocD
 elseif (Test-Path -LiteralPath $jsoncCandidatePath -PathType Leaf) { $configFileName = 'opencode.jsonc' }
 $jsonPath = Join-Path $ocDir $configFileName
 $agentsMdPath = Join-Path $ocDir 'AGENTS.md'
+$agentsMdText = ''
+if (Test-Path -LiteralPath $agentsMdPath -PathType Leaf) { $agentsMdText = Read-Utf8 $agentsMdPath }
+$ConfigOwnsAgentProfiles = (($null -ne $manifest) -and (Has-Member $manifest 'config_ownership') -and ([string]$manifest.config_ownership -ceq 'agent-config')) -or ($agentsMdText.Contains('<!-- agent-config:global:start -->') -and $agentsMdText.Contains('<!-- agent-config:global:end -->'))
 # P4: nomes do plugin por concatenacao (relativas de destino, nao literais
 # de caminho do repo — mesmo padrao do install.ps1).
 $pluginBundleName = 'orchestration-enforcement.js'
@@ -260,6 +263,7 @@ $pluginLegacyName = 'orchestration-enforcement.ts'
 foreach ($n in $AgentNames) {
   $dst = Join-Path $ocDir ('agents\' + $n)
   $rel = 'agents\' + $n
+  if ($ConfigOwnsAgentProfiles) { Add-Plan 'KEEP' ($rel + ' (dono agent-config)'); continue }
   if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) {
     Add-Plan 'SKIP' ($rel + ' (ausente)')
     continue
@@ -284,8 +288,11 @@ if (-not (Test-Path -LiteralPath $agentsMdPath -PathType Leaf)) {
   Add-Plan 'SKIP' 'AGENTS.md (ausente)'
 }
 else {
-  $t = Read-Utf8 $agentsMdPath
-  if ($t.Contains($MarkStart) -and $t.Contains($MarkEnd)) {
+  $t = $agentsMdText
+  if ($ConfigOwnsAgentProfiles) {
+    Add-Plan 'KEEP' 'AGENTS.md (dono agent-config; bloco preservado)'
+  }
+  elseif ($t.Contains($MarkStart) -and $t.Contains($MarkEnd)) {
     Add-Plan 'REMOVE' 'AGENTS.md (bloco markered; resto preservado)'
     [void]$actions.Add(@{ Kind = 'unblock-agentsmd'; Dst = $agentsMdPath; Label = 'AGENTS.md' })
   }
@@ -311,6 +318,7 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
   # model/default_agent. Mesma regra do V1: so remove com snapshot do
   # manifest confirmando valor intacto; resto e KEEP.
   foreach ($w in $WorkerKeys) {
+    if ($ConfigOwnsAgentProfiles) { Add-Plan 'KEEP' ('agents.' + $w + '.* (dono agent-config)'); continue }
     foreach ($leaf in @('mode', 'model')) {
       $mp = 'agents.' + $w + '.' + $leaf
       $has = (Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents $w) -and (Has-Member $existingJson.agents.$w $leaf)
@@ -382,14 +390,19 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
       }
     }
     if (Has-Member $existingJson.agents.build 'permissions') {
-      $snap = Get-SnapshotValue $manifest 'agents.build.permissions'
-      $cur = Convert-Canonical $existingJson.agents.build.permissions
-      if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
-        Add-Plan 'REMOVE' 'agents.build.permissions (intacto; demais propriedades preservadas)'
-        [void]$configOps.Add(@{ Op = 'del-v2-perms'; Agent = 'build' })
+      if ($ConfigOwnsAgentProfiles) {
+        Add-Plan 'KEEP' 'agents.build.permissions (dono agent-config)'
       }
       else {
-        Add-Plan 'KEEP' 'agents.build.permissions (alterado ou manifest ausente, mantido)'
+        $snap = Get-SnapshotValue $manifest 'agents.build.permissions'
+        $cur = Convert-Canonical $existingJson.agents.build.permissions
+        if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
+          Add-Plan 'REMOVE' 'agents.build.permissions (intacto; demais propriedades preservadas)'
+          [void]$configOps.Add(@{ Op = 'del-v2-perms'; Agent = 'build' })
+        }
+        else {
+          Add-Plan 'KEEP' 'agents.build.permissions (alterado ou manifest ausente, mantido)'
+        }
       }
     }
   }

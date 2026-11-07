@@ -37,6 +37,17 @@ copy models.example.jsonc models.jsonc
 .\install.ps1 -Runtime V2          # instalação real (V2, instalações novas; Auto preservado p/ compatibilidade)
 ```
 
+### Ownership Agent Config (OpenCode V2)
+
+Com o par completo de marcadores `agent-config:global` em `AGENTS.md`, o
+instalador preserva `agents/*.md` e os perfis worker `agents.<worker>` de
+`opencode.json` (mode/model/permissions). Agent Config permanece owner desses
+perfis; `build`, `title` e settings de raiz continuam sob o instalador da
+Orquestração. Aplique primeiro os componentes existentes Instructions,
+Settings e Agent Profiles do Agent Config; o instalador não cria mirrors JSON
+para perfis worker ausentes quando o marcador indica ownership. Sem o marcador
+completo, o modo standalone mantém `SNAPSHOT_COMPAT`.
+
 Flags reais do `install.ps1`:
 
 | Flag | Efeito |

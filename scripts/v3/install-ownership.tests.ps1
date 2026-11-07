@@ -69,18 +69,30 @@ try {
   # --- T2: Config-owned home is respected.
   $h2 = New-FixtureHome 'owned'
   $cfgGlobal = "<!-- agent-config:global:start -->`n# Global`n<!-- agent-config:global:end -->`n"
+  $cfgWorker = "---`nmode: subagent`nmodel: openai/gpt-6-luna`npermissions: []`n---`n# Agent Config worker`n"
   Write-Utf8 (Oc-File $h2 @('AGENTS.md')) $cfgGlobal
-  Write-Utf8 (Oc-File $h2 @('opencode.json')) ((@{ plugin = @('keep-me'); permissions = @(@{ action = 'shell'; resource = 'mine *'; effect = 'allow' }); agents = @{ build = @{ mode = 'primary'; permissions = @(@{ action = 'subagent'; resource = 'x'; effect = 'deny' }) } } } | ConvertTo-Json -Depth 10))
+  New-Item -ItemType Directory -Path (Oc-File $h2 @('agents')) -Force | Out-Null
+  Write-Utf8 (Oc-File $h2 @('agents', 'coder.md')) $cfgWorker
+  Write-Utf8 (Oc-File $h2 @('agents', 'explorer.md')) $cfgWorker
+  Write-Utf8 (Oc-File $h2 @('opencode.json')) ((@{ plugin = @('keep-me'); permissions = @(@{ action = 'shell'; resource = 'mine *'; effect = 'allow' }); agents = @{ build = @{ mode = 'primary'; permissions = @(@{ action = 'subagent'; resource = 'x'; effect = 'deny' }) }; coder = @{ mode = 'user-mode'; model = 'user/model'; permissions = @(@{ action = 'shell'; resource = '*'; effect = 'deny' }) } } } | ConvertTo-Json -Depth 10))
   $o2 = Invoke-Install $h2 @()
   Assert-OwnTrue ($LASTEXITCODE -eq 0) 'T2 owned install exit 0' ($o2 | Select-Object -Last 1)
   Assert-OwnTrue (((Get-Content -LiteralPath (Oc-File $h2 @('AGENTS.md')) -Raw) -ceq $cfgGlobal)) 'T2 global text untouched'
-  Assert-OwnTrue (-not (Test-Path -LiteralPath (Oc-File $h2 @('agents')))) 'T2 no editable agent forks'
+  Assert-OwnTrue (((Get-Content -LiteralPath (Oc-File $h2 @('agents', 'coder.md')) -Raw) -ceq $cfgWorker)) 'T2 Agent Config worker file untouched'
+  Assert-OwnTrue (((Get-Content -LiteralPath (Oc-File $h2 @('agents', 'explorer.md')) -Raw) -ceq $cfgWorker)) 'T2 second Agent Config worker file untouched'
   $after2 = Get-Content -LiteralPath (Oc-File $h2 @('opencode.json')) -Raw | ConvertFrom-Json
   Assert-OwnTrue ((@($after2.permissions | Where-Object { $_.resource -ceq 'mine *' })).Count -eq 1) 'T2 top-level user permissions intact'
   Assert-OwnTrue ((@($after2.agents.build.permissions | Where-Object { $_.resource -ceq 'x' })).Count -eq 1) 'T2 agents.*.permissions untouched by installer'
   Assert-OwnTrue (($after2.plugin -contains 'keep-me')) 'T2 user plugin key preserved'
+  Assert-OwnTrue (($after2.agents.coder.mode -ceq 'user-mode') -and ($after2.agents.coder.model -ceq 'user/model') -and ($after2.agents.coder.permissions[0].effect -ceq 'deny')) 'T2 C-owned worker profile unchanged'
+  Assert-OwnTrue (-not (Get-Member -InputObject $after2.agents -Name 'explorer' -ErrorAction SilentlyContinue)) 'T2 missing worker JSON profile not inserted'
   $m2 = Read-Manifest $h2
   Assert-OwnTrue (($null -ne $m2) -and ($m2.config_ownership -ceq 'agent-config') -and ((@($m2.skipped_namespaces)).Count -eq 3)) 'T2 manifest records ownership+skips'
+  Assert-OwnTrue (@($m2.skipped_namespaces) -contains 'opencode.json:agents.worker-profiles') 'T2 manifest names skipped JSON worker profiles'
+  Assert-OwnTrue (-not (@($m2.managed_config_paths) | Where-Object { $_ -match '^agents\.(coder|explorer)\.' })) 'T2 manifest excludes C-owned worker paths'
+  $uninstall2 = Join-Path $repo 'uninstall.ps1'
+  $u2 = (& pwsh -NoProfile -File $uninstall2 -TargetHome $h2 -Runtime V2 -WhatIf 2>&1)
+  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and (($u2 -join "`n") -notmatch '\[REMOVE\] agents\.(coder|explorer)\.(mode|model|permissions)') -and (($u2 -join "`n") -notmatch '\[REMOVE\] agents\.build\.permissions') -and (($u2 -join "`n") -notmatch '\[REMOVE\] agents\\coder\.md') -and (Test-Path -LiteralPath (Oc-File $h2 @('agents', 'coder.md')))) 'T2 uninstall preview preserves C-owned profiles and permissions'
 
   # --- T3: idempotent re-install on owned home.
   $before3 = Get-Content -LiteralPath (Oc-File $h2 @('opencode.json')) -Raw
@@ -92,13 +104,23 @@ try {
   $o4a = Invoke-Install $h4 @()
   Assert-OwnTrue ($LASTEXITCODE -eq 0) 'T4a standalone first exit 0' ($o4a | Select-Object -Last 1)
   $t4a = Oc-File $h4 @('AGENTS.md')
+  $t4cfg = Oc-File $h4 @('opencode.json')
+  $t4json = Get-Content -LiteralPath $t4cfg -Raw | ConvertFrom-Json
+  $t4json.agents.coder.mode = 'agent-config-mode'
+  $t4json.agents.coder.model = 'agent-config/coder-model'
+  $t4json.agents.coder.permissions = @(@{ action = 'shell'; resource = '*'; effect = 'deny' })
+  Write-Utf8 $t4cfg (($t4json | ConvertTo-Json -Depth 20) + "`n")
   $conv = ((Get-Content -LiteralPath $t4a -Raw) -replace '<!-- opencode-orchestration:start -->', '<!-- agent-config:global:start -->') -replace '<!-- opencode-orchestration:end -->', '<!-- agent-config:global:end -->'
   Write-Utf8 $t4a $conv
+  $u4Legacy = (& pwsh -NoProfile -File (Join-Path $repo 'uninstall.ps1') -TargetHome $h4 -Runtime V2 -WhatIf 2>&1)
+  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and (($u4Legacy -join "`n") -notmatch '\[REMOVE\] agents\.build\.permissions') -and (($u4Legacy -join "`n") -notmatch '\[REMOVE\] agents\.coder\.(mode|model|permissions)') -and (($u4Legacy -join "`n") -notmatch '\[REMOVE\] agents\\coder\.md')) 'T4 legacy uninstall preserves profiles after Config takes ownership' ($u4Legacy -join "`n")
+  $profileBefore4 = ((Get-Content -LiteralPath $t4cfg -Raw | ConvertFrom-Json).agents.coder | ConvertTo-Json -Compress -Depth 8)
   $prePerms = ((Get-Content -LiteralPath (Oc-File $h4 @('opencode.json')) -Raw | ConvertFrom-Json).agents.build.permissions | ConvertTo-Json -Compress)
   $o4b = Invoke-Install $h4 @()
+  $profileAfter4 = ((Get-Content -LiteralPath $t4cfg -Raw | ConvertFrom-Json).agents.coder | ConvertTo-Json -Compress -Depth 8)
   $postPerms = ((Get-Content -LiteralPath (Oc-File $h4 @('opencode.json')) -Raw | ConvertFrom-Json).agents.build.permissions | ConvertTo-Json -Compress)
   $m4 = Read-Manifest $h4
-  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($prePerms -ceq $postPerms) -and ($m4.config_ownership -ceq 'agent-config')) 'T4 converges to ownership mode' ($o4b | Select-Object -Last 1)
+  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($prePerms -ceq $postPerms) -and ($profileBefore4 -ceq $profileAfter4) -and ($m4.config_ownership -ceq 'agent-config')) 'T4 converges without overwriting Config-owned profile' ($o4b | Select-Object -Last 1)
 
   # --- T5: unresolved token in user area fails stage validation.
   $h5 = New-FixtureHome 'token'
@@ -125,6 +147,22 @@ try {
   if (-not (Test-Path -LiteralPath $t7cfg)) { $t7cfg = Oc-File $h7 @('opencode.jsonc') }
   $m7 = Read-Manifest $h7
   Assert-OwnTrue (($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $t7cfg) -and ($m7.config_ownership -ceq 'orchestration-snapshot')) 'T7 incomplete marker stays standalone (hardening written)' ($o7 -join "`n" | Select-Object -Last 1)
+
+  # --- T8: Config-owned mode omits worker JSON profiles when config is new.
+  $h8 = New-FixtureHome 'owned-no-config'
+  Write-Utf8 (Oc-File $h8 @('AGENTS.md')) $cfgGlobal
+  $t8AgentsDir = Oc-File $h8 @('agents')
+  New-Item -ItemType Directory -Path $t8AgentsDir -Force | Out-Null
+  $t8SourceAgents = @(Get-ChildItem -LiteralPath (Join-Path $repo 'source\agents') -Filter '*.md' -File)
+  foreach ($sourceAgent in $t8SourceAgents) {
+    Write-Utf8 (Join-Path $t8AgentsDir $sourceAgent.Name) $cfgWorker
+  }
+  $o8 = Invoke-Install $h8 @()
+  $t8cfg = Oc-File $h8 @('opencode.json')
+  $t8json = $null
+  if (Test-Path -LiteralPath $t8cfg -PathType Leaf) { $t8json = Get-Content -LiteralPath $t8cfg -Raw | ConvertFrom-Json }
+  $t8WorkerFiles = @(Get-ChildItem -LiteralPath $t8AgentsDir -Filter '*.md' -File -ErrorAction SilentlyContinue).Count
+  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($t8WorkerFiles -eq $t8SourceAgents.Count) -and ($null -ne $t8json) -and (Get-Member -InputObject $t8json.agents -Name 'build' -ErrorAction SilentlyContinue) -and (-not (Get-Member -InputObject $t8json.agents -Name 'coder' -ErrorAction SilentlyContinue)) -and (-not (Get-Member -InputObject $t8json.agents -Name 'researcher' -ErrorAction SilentlyContinue))) 'T8 new Config-owned install uses markdown worker profiles, not JSON mirrors' ($o8 | Select-Object -Last 1)
 }
 finally {
   if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
