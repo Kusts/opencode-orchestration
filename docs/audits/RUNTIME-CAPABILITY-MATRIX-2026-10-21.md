@@ -1,6 +1,7 @@
 # OPENCODE ORCHESTRATION — RUNTIME CAPABILITY & NATIVE-FIRST AUDIT MATRIX
 
 **Data-base:** 2026-10-21  
+**Atualização de sessões:** 2026-11-07 (runtime real `opencode v2.2.6`)
 **Status:** ACTIVE AUDIT  
 **Baseline Git:** Commit `2e9c744` (origin/master)  
 **Referência:** `docs/specs/BACKLOG-CONSOLIDATION-NATIVE-FIRST-SPEC.md` e `docs/plans/NATIVE-FIRST-IMPLEMENTATION-2026-10-21.md`  
@@ -35,14 +36,39 @@
 
 ### 2.2 Sessões e Hierarquias Parent/Child
 - **Responsabilidade:** Rastreamento da sessão do Planner e das sessões filhas criadas para os workers delegados.
-- **Implementação Local:** `scripts/runtime/SessionBootstrapContext.ps1`, `scripts/v3/lib/OrchestrationSessionReconciler.ps1`.
-- **Caller Efetivo:** Bootstrap de sessão, Task Kernel e reconciliador de retomada.
+- **Implementação Local:** `scripts/runtime/SessionBootstrapContext.ps1`, `scripts/v3/lib/OrchestrationSessionReconciler.ps1`, `scripts/v3/lib/OrchestrationNativeSessionAdapter.ps1` e bindings CAS dentro de `OrchestrationTaskKernel.ps1`.
+- **Caller Efetivo:** Bootstrap de sessão, Task Kernel, reconciliador de retomada, `OrchestrationNativeResume.ps1` e `github-wake-auto-dispatch.ps1`.
 - **Estado Atual:** `PROVEN_LIVE` (contexto de bootstrap com hash determinístico e persistência auditada).
-- **Equivalente Nativo V2:** Sessões nativas do OpenCode V2 (`opencode session list`, `opencode session view`, hierarquia de sessões filhas).
-- **Capabilities Necessárias:** APIs de listagem, arquivamento e inspeção de status de sessões.
-- **Contrato de Compatibilidade:** O Task/Goal Kernel mapeia `SessionId` nativo para `GoalId`/`TaskId`/`RunId` sem substituir o armazenamento de sessões do host.
-- **Risco / Duplicação:** Manter bancos de dados próprios de histórico de chat quando o host já armazena as sessões.
-- **Decisão:** **ADAPT** (Utilizar as APIs nativas de sessão para histórico e listagem; reter no Kernel exclusivamente os contratos de Run, Receipt e CAS de conclusão).
+- **Equivalente Nativo V2:** Sessões nativas do OpenCode V2.
+  - CLI: `session list` (top-level do projeto atual, mais recentes primeiro, `-n`, `--format table|json`), `session export <id> [--sanitize]`, `session delete <id>` (cascata para filhas) e `session import <file> --directory`.
+  - API: `GET /api/session` (`limit`, `order`, `search`, `parentID` incl. `null`, `archived`, `directory`, `project`, `subpath`, `cursor`), `GET /api/session/{id}`, `POST /api/session`, `PATCH /api/session/{id}` (`archived: true|false`), `DELETE /api/session/{id}`, `POST /api/session/{id}/fork` e `/move`.
+- **Capabilities Necessárias:** APIs de listagem, busca por ID, parent/child, filtros, paginação, arquivamento/restauração e inspeção de status.
+- **Contrato de Compatibilidade:** O Task/Goal Kernel mapeia `SessionId` nativo para `GoalId`/`TaskId`/`RunId` sem substituir o armazenamento de sessões do host; `parentID` e `archived` são dados nativos, nunca autoridade de Task, lease, grant, receipt ou DONE.
+- **Risco / Duplicação:** Manter bancos de dados próprios de histórico de chat ou um segundo catálogo de sessões quando o host já armazena as sessões.
+- **Decisão:** **ADAPT** (Utilizar as APIs nativas de sessão para histórico, listagem, busca por ID e arquivamento; reter no Kernel exclusivamente os contratos de Run, Receipt, ownership e CAS de conclusão).
+
+**Contrato verificado (2026-11-07, runtime real `opencode v2.2.6`, pin `@opencode/cli@2.2.6`):** o texto original da issue citava 2.2.5; o binário instalado e pinado é 2.2.6. Evidência: `evidence/native-session-native-contract-2026-11-07.md` e `evidence/native-session-archive-probe-2026-11-07.json`.
+
+- Listagem: `opencode session list -n 2 --format json` retorna somente sessões top-level do projeto atual; a filha não aparece. `opencode api session.list --param parentID=<id>` retorna a filha; `--param parentID=null` retorna só raízes.
+- Busca por ID: `opencode api session.get --param sessionID=<id>` retorna `id`, `parentID` (quando filha), `projectID`, `location.directory`, `time.created/updated/archived`, agente/modelo/tokens/custo/outcome.
+- Paginação: `opencode api session.list --param limit=2` devolve `cursor.previous/next`; a página seguinte via `--param cursor=<next>` não repete IDs.
+- Filtros: `search`, `archived`, `directory`, `project`, `subpath` e `parentID` estão no OpenAPI e `search`/`archived`/`parentID` foram exercitados em runtime.
+- Exportação: `opencode session export <id>` devolve `info.parentID`, `info.location.directory`, modelo/tokens/custo/outcome e `messages`; `--sanitize` existe para diagnóstico.
+- Arquivamento: não há subcomando CLI `archive`/`restore`; a operação nativa é `PATCH /api/session/{id}` com `{"archived":true|false}` (204, no-op ao repetir o estado). Sessão arquivada continua acessível por ID (`session.get`) e sai de `archived=false`, entrando em `archived=true`. Arquivar a raiz não arquiva a filha (sem cascata); `DELETE` na raiz remove a filha (cascata).
+- Persistência: cada chamada CLI/API é um processo cliente novo e relê a mesma sessão; reinício completo do serviço não foi executado nesta rodada (derrubaria a sessão viva do operador). Evidência de restart real permanece em RR-E2E-18/19.
+- Limitações registradas: `ctx.session.list` do plugin não foi re-sondado nesta rodada (decisões de plugin congeladas; `client.session.get` já está ligado ao planner-wait); a CLI lista apenas o projeto atual e apenas top-level, enquanto a API lista globalmente e exige filtro explícito (`directory`/`project`/`parentID`).
+
+**Inventário e decisão por componente (2026-11-07):**
+
+| Componente | Caller produtivo | Dados | Classificação | Decisão |
+|---|---|---|---|---|
+| `OrchestrationNativeSessionAdapter.ps1` | `OrchestrationNativeResume.ps1` (`Get-NativeSessionIdentity`), `github-wake-auto-dispatch.ps1` (`Test-NativeSessionBinding`), prova Etapa 6D | id, título, timestamps, directory, projectId | wrapper fino de leitura nativa com validação; não é store | **KEEP** (ADAPT) |
+| `OrchestrationSessionReconciler.ps1` | `OrchestrationDurableResume.ps1`, lane de sessão V2 | Continuation Envelope + observações declaradas (bounded) | estado próprio de retomada/continuação; não é catálogo de sessões | **KEEP** |
+| Bindings de sessão do Task Kernel (`Get-OrchestrationTaskBindings`, `Invoke-OrchestrationTaskSessionBinding`) | `task-kernel.ps1`, `planner-session-binding.ps1`, `OrchestrationPlannerWait.ps1`, `github-wake-auto-dispatch.ps1` | `run_id`, `root_session`, `worker_sessions`, `seat_id`, status, provenance, CAS/revision | registro autoritativo de Run/Seat/ownership; `parentID` nativo não concede autoridade | **KEEP** |
+| `SessionBootstrapContext.ps1` + `OrchestrationBootstrapContext.ps1` | wiring de arranque (registro operator-owned) | contexto computado read-only | não é store de sessões | **KEEP** |
+| `OrchestrationSessionShadowComparator.ps1` + testes | **nenhum caller produtivo** (somente o próprio teste) | relatório de comparação catálogo local × lista nativa | caminho redundante: a premissa de catálogo local de sessões foi refutada em 2026-10-28 | **REMOVED** (326 linhas, 2 arquivos) |
+| `sessionIndex` do plugin (`shared/identity.ts`, `v1.ts`, `v2.ts`) | hook de contexto / mandate | cache em memória `{parentID, agent}` com cap 5000 | cache de resolução de papel; decisões de plugin congeladas nesta issue | **KEEP** (não reabrir) |
+| `session_id` em waits/markers/receipts do GH-WAKE | controller e auto-dispatch | vínculo de dispatch, dedupe e idempotência | estado de negócio, não espelho de sessão | **KEEP** |
 
 ---
 
