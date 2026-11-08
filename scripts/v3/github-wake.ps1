@@ -2740,6 +2740,7 @@ function New-GitHubWakeConfig {
         [bool]$AutoDispatchEnabled = $false,
         [string]$AutoDispatchExpectedDirectory = '',
         [string]$AutoDispatchExpectedProjectId = '',
+        [int]$ResumeTimeoutMs = 30000,
         $MaxApiAttempts = 3,
         $TimeoutMs = 10000,
         [string]$OutFile = ''
@@ -2761,6 +2762,8 @@ function New-GitHubWakeConfig {
         try { if (Test-GHWStrictInt -Value $MaxApiAttempts -Min 1 -Max 3) { $maxApi = [int]$MaxApiAttempts } } catch { }
         $toMs = 10000
         try { if (Test-GHWStrictInt -Value $TimeoutMs -Min 1 -Max 10000) { $toMs = [int]$TimeoutMs } } catch { }
+        $resumeMs = 30000
+        try { if (Test-GHWStrictInt -Value $ResumeTimeoutMs -Min 1000 -Max 600000) { $resumeMs = [int]$ResumeTimeoutMs } } catch { }
         $doc = [ordered]@{
             waits_dir = ([string]$WaitsDir); tasks_dir = ([string]$TasksDir)
             goal_store_dir = ([string]$GoalStoreDir); checkpoint_dir = ([string]$CheckpointDir)
@@ -2781,6 +2784,7 @@ function New-GitHubWakeConfig {
             auto_dispatch_enabled = [bool]$AutoDispatchEnabled
             auto_dispatch_expected_directory = ([string]$AutoDispatchExpectedDirectory)
             auto_dispatch_expected_project_id = ([string]$AutoDispatchExpectedProjectId)
+            resume_timeout_ms = $resumeMs
         }
         # Fail-closed: per-run authorization flags are NEVER persisted as
         # authority. Even when callers pass true, the config stores false;
@@ -3280,6 +3284,7 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         $effMaxAge = $MaxAgeSeconds
         $effMaxApi = $MaxApiAttempts
         $effTimeout = $TimeoutMs
+        $effResumeTimeout = 30000
         $cfgTrim = ([string]$ConfigFile).Trim()
         if (-not [string]::IsNullOrWhiteSpace($cfgTrim)) {
             $cfgDoc = Read-GHWJsonFile -Path $cfgTrim
@@ -3300,6 +3305,22 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
             if ([string]::IsNullOrWhiteSpace($effOut)) { $effOut = ([string](Get-GHWValue $cfgDoc 'out_file' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effAuthProof)) { $effAuthProof = ([string](Get-GHWValue $cfgDoc 'authorization_proof_path' '')).Trim() }
             if ([string]::IsNullOrWhiteSpace($effExecProof)) { $effExecProof = ([string](Get-GHWValue $cfgDoc 'executor_proof_path' '')).Trim() }
+            # Scheduler config is the durable policy for a scheduled tick.
+            # max_age_seconds must be honored (otherwise a proof older than
+            # the 300s CLI default is always stale); an explicit CLI switch
+            # still wins. resume_timeout_ms bounds the real resume turn.
+            if (-not $PSBoundParameters.ContainsKey('MaxAgeSeconds')) {
+                try {
+                    $cfgMaxAge = Get-GHWValue $cfgDoc 'max_age_seconds' $null
+                    if (Test-GHWStrictInt -Value $cfgMaxAge -Min 1 -Max 3600) { $effMaxAge = [long]$cfgMaxAge }
+                }
+                catch { }
+            }
+            try {
+                $cfgResumeTimeout = Get-GHWValue $cfgDoc 'resume_timeout_ms' $null
+                if (Test-GHWStrictInt -Value $cfgResumeTimeout -Min 1000 -Max 600000) { $effResumeTimeout = [int]$cfgResumeTimeout }
+            }
+            catch { }
             if ([string]::IsNullOrWhiteSpace($effProfileRaw)) {
                 try { $effProfileRaw = ([string](Get-GHWValue $cfgDoc 'delivery_profile' '')).Trim() } catch { }
             }
@@ -3512,7 +3533,7 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
                         -WaitsDir $effWaitsDir -TasksDir $effTasksDir -GoalStoreDir $effGoalStoreDir `
                         -CheckpointDir $effCheckpointDir -FlagsPath $effFlagsPath -NowUtc $effNow `
                         -ExpectedDirectory $effAutoDispatchDir -ExpectedProjectId $effAutoDispatchProj `
-                        -PromptText ''
+                        -PromptText '' -ResumeTimeoutMs $effResumeTimeout
                 }
                 catch { $tick = $null }
                 if (($null -ne $tick) -and [bool](Get-GHWValue $tick 'invoked' $false)) {

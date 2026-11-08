@@ -396,6 +396,10 @@ function Test-GHRSWaitShape {
         if (-not (Test-GHRSOwner -Value ([string](Get-GHRSValue $Wait 'owner' '')))) { return @{ ok = $false; reason = 'invalid-wait' } }
         if (-not (Test-GHRSOwner -Value ([string](Get-GHRSValue $Wait 'lease_owner' '')))) { return @{ ok = $false; reason = 'invalid-wait' } }
         $rcRaw = Get-GHRSValue $Wait 'required_checks' $null
+        # ConvertFrom-Json unwraps a single-element JSON array to a scalar
+        # string. The persisted contract is always a list, so normalize one
+        # name back to a list before the shape gate (multi-item unchanged).
+        if ($rcRaw -is [string]) { $rcRaw = @($rcRaw) }
         if (($null -eq $rcRaw) -or (-not ($rcRaw -is [System.Collections.IList]))) { return @{ ok = $false; reason = 'invalid-wait' } }
         $rcList = @($rcRaw)
         if (@($rcList).Count -gt 32) { return @{ ok = $false; reason = 'invalid-wait' } }
