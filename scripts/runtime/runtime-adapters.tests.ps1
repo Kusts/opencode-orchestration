@@ -134,9 +134,10 @@ try {
     $badLabel = ($badVer -replace "`n", '\n')
     Assert-That (($badThrew) -and ($badMsg -like '*fora do semver exato*')) "RuntimeVersions: version '$badLabel' rejeitada (semver estrito)" $badMsg
   }
-  # Controle positivo: o pin real do registry e um prerelease valido tem de
-  # passar pela MESMA regex (a correcao nao pode virar faz-tudo-negativo).
-  foreach ($goodVer in @('2.0.23', '2.0.23-beta.1')) {
+  # Controle positivo: o pin canonico do registry e um prerelease valido tem
+  # de passar pela MESMA regex (a correcao nao pode virar faz-tudo-negativo).
+  $canonicalV2Pin = [string](Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $repoRoot).Version
+  foreach ($goodVer in @($canonicalV2Pin, '2.0.23-beta.1')) {
     $goodRoot = Join-Path $base ('ok-ver-' + ($goodVer -replace '[^a-zA-Z0-9]', '-'))
     $goodJson = '{"schema_version":1,"runtimes":{"v2":{"package":"@opencode/cli","version":"' + $goodVer + '","spec":"@opencode/cli@' + $goodVer + '"}}}'
     Write-Fixture -Path (Join-Path $goodRoot 'source\registry\runtime-versions.json') -Text $goodJson

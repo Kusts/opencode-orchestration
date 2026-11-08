@@ -91,6 +91,17 @@ de enforcement contra o runtime V2 real **ainda não foram implementadas**
 permissões nativas, e nenhum claim de enforcement V2 vai além do que os
 checks cobrem.
 
+### Diretórios externos no OpenCode 2.2.6
+
+O runtime 2.2.6 permite por padrão o acesso a diretórios fora do projeto;
+sem regra explícita `external_directory`, esse acesso não pede confirmação.
+O template V2 deste pacote não define essa ação. Quando o marcador
+`agent-config:global` está presente, as permissões ativas pertencem ao Agent
+Config e este instalador não as altera. Quem precisar de confirmação ou bloqueio
+deve configurar uma regra `external_directory` no dono da configuração ativa;
+não inferir contenção a partir de `runtime_grant_enforcement.v2`, que permanece
+OFF/HOLD.
+
 ### Camadas de enforcement (matriz)
 
 | Camada | Status |

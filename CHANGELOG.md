@@ -6,6 +6,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Pin do OpenCode V2 atualizado para 2.2.6**:
+  - Pins canônicos de `@opencode/cli` e `@opencode/plugin` atualizados; V1 e Bun preservados.
+  - Smoke explícito do ciclo de serviço passou no binário exato 2.2.6; typecheck do plugin passou nas trilhas V1/V2/DUAL.
+  - Probes de 2.0.23 permanecem históricos; as oito capacidades nativas continuam `hold-unproven`, `runtime_grant_enforcement.v2` permanece OFF e a allowlist de override nativo de modelo não foi ampliada.
+
 - **Sessões native-first — contrato provado e redução segura (2026-11-07, issues #143/#137)**:
   - Contrato nativo exercitado no binário real `opencode 2.2.6`: `session list` (top-level do projeto atual, `-n`, `--format json`), `session export` (`info.parentID`, `location`, tokens/custo/outcome), `session delete` em cascata; API `session.list` (cursor, `parentID` incl. `null`, `archived`, `search`, `directory`, `project`) e `session.get`; arquivar/restaurar via `PATCH /api/session/{id}` (`archived: true|false`, no-op ao repetir). Sessão arquivada continua acessível por ID e sai/entra em `archived=true|false`.
   - Probe descartável de arquivamento/restauração: nenhuma sessão real tocada; `cache/runtime/tasks`, `receipts` e `evidence` com SHA-256 idênticos antes/depois; nenhuma Task concluída, lease liberado, grant alterado, receipt emitido, retry disparado ou DONE alterado.

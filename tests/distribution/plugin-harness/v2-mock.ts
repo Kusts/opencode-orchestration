@@ -576,7 +576,7 @@ function makePwToolSurface() {
 function makePwSessionSurface(info: any, recorded?: Array<any>) {
   return {
     hook: async (_name: string, _cb: Cb) => ({ dispose: () => {} }),
-    // Exact pin @opencode/plugin 2.0.23 (Promise layer): get({sessionID})
+    // Test fixture models prior 2.0.23 runtime-observed Promise layer; current 2.2.6 is typechecked, not runtime-observed. get({sessionID})
     // => Promise<SessionInfo> (direct). Records the raw host argument so
     // tests can assert the object shape ({sessionID} — never a bare string).
     get: async (arg: unknown) => {
@@ -589,7 +589,7 @@ function makePwSessionSurface(info: any, recorded?: Array<any>) {
     },
   };
 }
-// Exact-pin direct SessionInfo fixtures (actual observed 2.0.23 shape:
+// SessionInfo fixtures based on actual 2.0.23 observation only (not evidence for 2.2.6):
 // id/projectID/cost(number)/tokens(location/time objects)/title; root has
 // NO own parentID key).
 function pwRootSession(id: string): any {
@@ -740,7 +740,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
   }
 }
 
-// PW-T2: habilitado com fixture => exatamente uma tool, shape exato 2.0.23,
+// PW-T2: habilitado com fixture => exatamente uma tool, shape baseada na observação histórica 2.0.23,
 // input sem campo de sessao.
 {
   const saved = savePwEnv();
@@ -1029,7 +1029,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
 }
 
 // PW-T12 (PR181-A-TOOLCONTEXT-STRICT): ToolContext estrito — SOMENTE os
-// campos canonicos pinados @opencode/plugin 2.0.23 (sessionID/agent, ao
+// campos do contrato typechecked na pin atual; shape de runtime observada somente em 2.0.23 (sessionID/agent, ao
 // lado de messageID/id; execute(input, context) fornecido pelo host,
 // separado dos args do modelo). Alias (sessionId/session_id/agentName/
 // agent_name) NAO sao lidos.
@@ -1111,7 +1111,7 @@ if (!pwT || typeof pwT.makeExecute !== "function") {
 
 // PW-T13 (ETAPA6D exact-pin): o adapter V2 invoca o host session.get com o
 // objeto exato {sessionID} (nunca string bare) e a proveniencia aceita o
-// SessionInfo direto do pin 2.0.23. Prova via setup real: session fake
+// SessionInfo direto com fixture baseada na observação 2.0.23; isto não prova shape em 2.2.6. Prova via setup real: session fake
 // registra o arg bruto; execute passa da proveniencia (raiz completa) e
 // chega ao bridge (stub nay? aqui o spawn real falha fail-closed como
 // bridge-refused — o ponto e que NAO e provenance-* e o arg e objeto).

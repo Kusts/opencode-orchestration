@@ -19,7 +19,8 @@
         coercion, so a pin can never be reformatted by a locale);
       - feature_id matches the queried candidate;
       - type is exactly 'exact-binary-live', runtime exactly 'v2', pin exactly the
-        registry pin (2.0.18) and scenario exactly the declared required_evidence
+        pin declared by v2-native-capabilities.json (which tracks the canonical
+        runtime pin) and scenario exactly the declared required_evidence
         scenario;
       - verified_at is an instant with an explicit offset (RFC3339 text with 'Z' or
         +/-HH:MM, or a parsed DateTimeOffset/non-Unspecified DateTime) that normalizes to
