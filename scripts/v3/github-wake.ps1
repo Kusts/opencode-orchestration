@@ -1054,6 +1054,11 @@ function Set-GHWakeDispatchSettlement {
         if ((-not [string]::IsNullOrWhiteSpace($expTask)) -and ($mTask -cne $expTask)) {
             return (& $mkSettle -Ok $false -Dispatched $false -Reason 'settle-task-mismatch' -Settled $false -Duplicate $false)
         }
+        # Settlement post-terminal is refused by NativeDispatch itself
+        # (Test-NDLiveTaskAdmission -> task-terminal, invoked inside
+        # Invoke-OrchestrationNativeDispatchSettle). Re-checking the task
+        # state here only duplicated that gate without adding a distinct
+        # invariant, so it is intentionally not repeated (issue #86).
         $goalId = $mGoal
         if ([string]::IsNullOrWhiteSpace($goalId)) { $goalId = ([string]$ExpectedGoalId).Trim() }
         if ([string]::IsNullOrWhiteSpace($goalId)) {

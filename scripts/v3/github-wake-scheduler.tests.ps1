@@ -228,10 +228,12 @@ $script:apiMock = {
 }
 $script:runCalls = 0
 $script:runSid = ''
+$script:runPrompt = ''
 $script:runMock = {
     param($spec)
     $script:runCalls++
     try { $script:runSid = ([string](Get-SCField $spec 'session_id' '')) } catch { $script:runSid = '' }
+    try { $script:runPrompt = ([string](Get-SCField $spec 'prompt' '')) } catch { $script:runPrompt = '' }
     $body = ('{"sessionId":"' + $script:runSid + '","role":"assistant","type":"text"}')
     return [pscustomobject]@{ exit = 0; stdout = $body; stderr = ''; timedOut = $false }
 }
@@ -265,7 +267,7 @@ function Set-SCProof {
 }
 $script:probe = { param($na) return [pscustomobject]@{ dispatched = $true; reason = 'mock-dispatched' } }
 function Reset-SCSeams {
-    $script:runCalls = 0; $script:runSid = ''; $script:apiCalls = 0; $script:apiLists = 0
+    $script:runCalls = 0; $script:runSid = ''; $script:runPrompt = ''; $script:apiCalls = 0; $script:apiLists = 0
     $script:apiPre = @(); $script:apiPost = @(); $script:apiMsgs = @()
 }
 function Invoke-SCSched {
@@ -314,6 +316,16 @@ Assert-That (([string](Get-SCField $r3 'resume_session_id' '')) -ceq $script:ROO
 Assert-That ([int]$script:runCalls -eq 1) 'S3 exactly one executor call'
 Assert-That ((-not [bool](Get-SCField $r3 'dispatched' $true)) -and (-not [bool](Get-SCField $r3 'executed' $true))) 'S3 zero productive effect'
 Assert-That (([string](Get-SCField $r3 'reason' '')) -ceq 'auto-worker-non-native') 'S3 injected seams stay non-native'
+# Corrected path proof (issue #86): scheduler executes updated auto-dispatch with
+# New-GHWADTaskPrompt + Get-GHWADWorkerDirective effectively in the real prompt.
+# Caller PromptText "sched resume" is appended but never replaces the task context.
+Assert-That ($script:runPrompt.Contains('Task objective: obj sched-task-s3')) 'S3 real prompt carries task objective (New-GHWADTaskPrompt)'
+Assert-That ($script:runPrompt.Contains('read_scopes:')) 'S3 real prompt carries read_scopes'
+Assert-That ($script:runPrompt.Contains('criterion:0')) 'S3 real prompt carries acceptance criteria'
+Assert-That ($script:runPrompt.Contains('ghw-op goal=')) 'S3 real prompt carries operation marker'
+Assert-That ($script:runPrompt.Contains('Delegate via the native subagent tool')) 'S3 real prompt carries worker directive'
+Assert-That ($script:runPrompt.Contains('after settlement')) 'S3 real prompt defers DONE to settlement'
+Assert-That (-not $script:runPrompt.Contains('IDs only')) 'S3 real prompt not ID-only legacy path'
 function Get-NativeSessionById { param([string]$SessionId, [string]$BinaryCommand, [int]$TimeoutMs) return (New-SCSessions -Env $script:lookupEnv -Sid $SessionId -Proj $script:PROJ) }
 function Get-NativeSessionList { throw 'limited session list must not be used' }
 Reset-SCSeams
@@ -325,6 +337,8 @@ Set-SCProof -Case $case3direct
 $r3direct = Invoke-SCSched -Case $case3direct -NoSessions
 Assert-That ($script:runSid -ceq $script:ROOT -and $script:runCalls -eq 1) 'S3 direct lookup recovers root once'
 Assert-That ((Get-SCField $r3direct 'reason' '') -ceq 'auto-worker-non-native' -and -not (Get-SCField $r3direct 'dispatched' $true)) 'S3 direct lookup zero productive effect'
+Assert-That ($script:runPrompt.Contains('Task objective: obj sched-task-s3-direct')) 'S3 direct real prompt carries task objective'
+Assert-That ($script:runPrompt.Contains('Delegate via the native subagent tool')) 'S3 direct real prompt carries worker directive'
 # Archived root is refused without executor, marker, or task-file mutation.
 $caseArch = New-SCCase -Tag 'arch' -TaskId 'sched-task-arch' -Evt 'evt-sched-arch'
 Bind-SCRoot -Env $caseArch.env -TaskId 'sched-task-arch' -Sid $script:ROOT
