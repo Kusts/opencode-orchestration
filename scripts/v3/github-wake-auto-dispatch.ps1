@@ -289,6 +289,93 @@ function Test-GHWADPromptFits {
     catch { return $false }
 }
 
+function New-GHWADTaskPrompt {
+    # Builds the scheduled-resume task context from the canonical Task
+    # so the resumed Planner delegates the REGISTERED objective, scopes
+    # and acceptance criteria instead of inventing an alternative task
+    # from IDs alone. Free-text fields (objective, criterion descriptions)
+    # are sanitized to the Test-GHWADPromptFits charset (forbidden shell
+    # metacharacters become spaces, runs of whitespace collapse). Scope
+    # entries are NEVER rewritten: if any scope would change under
+    # sanitization (wildcards, backslashes, commas, brackets, etc.) the
+    # whole context returns $null (fail closed, no widened or corrupted
+    # authorization). The result is bounded so marker + settlement
+    # directive still fit in 2000 chars (worst-case reserve 1000).
+    # Never adds a generic write prohibition. Returns $null when the
+    # objective/scopes/criteria cannot be recovered (fail closed with
+    # auto-objective-unavailable before any worker run).
+    param($Task = $null)
+    try {
+        if ($null -eq $Task) { return $null }
+        $objective = ([string](Get-GHWADValue $Task 'objective' '')).Trim()
+        $readsRaw = Get-GHWADValue $Task 'read_scopes' @()
+        $writesRaw = Get-GHWADValue $Task 'write_scopes' @()
+        $criteriaRaw = Get-GHWADValue $Task 'acceptance_criteria' @()
+        $reads = @(); if ($null -ne $readsRaw) { $reads = @($readsRaw) }
+        $writes = @(); if ($null -ne $writesRaw) { $writes = @($writesRaw) }
+        $criteria = @(); if ($null -ne $criteriaRaw) { $criteria = @($criteriaRaw) }
+        if ([string]::IsNullOrWhiteSpace($objective)) { return $null }
+        foreach ($value in @($reads) + @($writes) + @($criteria)) {
+            if ([string]::IsNullOrWhiteSpace(([string]$value))) { return $null }
+        }
+        $sanitize = {
+            param([string]$Text)
+            try {
+                $t = ([string]$Text).Trim()
+                $t = ($t -replace '[^A-Za-z0-9 ._:=/,-]', ' ')
+                $t = ($t -replace '\s+', ' ').Trim()
+                return $t
+            }
+            catch { return '' }
+        }
+        $objectiveSafe = (& $sanitize $objective)
+        if ([string]::IsNullOrWhiteSpace($objectiveSafe)) { return $null }
+        $readSafe = @()
+        foreach ($r in @($reads)) {
+            $orig = ([string]$r).Trim()
+            if ($orig.Contains(',')) { return $null }
+            $s = (& $sanitize $orig)
+            if ([string]::IsNullOrWhiteSpace($s) -or ($s -cne $orig)) { return $null }
+            $readSafe += @($s)
+        }
+        $writeSafe = @()
+        foreach ($w in @($writes)) {
+            $orig = ([string]$w).Trim()
+            if ($orig.Contains(',')) { return $null }
+            $s = (& $sanitize $orig)
+            if ([string]::IsNullOrWhiteSpace($s) -or ($s -cne $orig)) { return $null }
+            $writeSafe += @($s)
+        }
+        $critSafe = @()
+        for ($i = 0; $i -lt @($criteria).Count; $i++) {
+            $raw = ([string]$criteria[$i]).Trim()
+            if ($raw -cmatch '^criterion:[0-9]+$') {
+                $critSafe += @($raw)
+            }
+            else {
+                $s = (& $sanitize $raw)
+                if ([string]::IsNullOrWhiteSpace($s)) { $s = 'criterion content' }
+                $critSafe += @(('criterion:' + [string]$i + ' ' + $s))
+            }
+        }
+        $readText = if (@($readSafe).Count -lt 1) { 'none' } else { ($readSafe -join ',') }
+        $writeText = if (@($writeSafe).Count -lt 1) { 'none' } else { ($writeSafe -join ',') }
+        $built = ('Task objective: ' + $objectiveSafe + ' read_scopes: ' + $readText + ' write_scopes: ' + $writeText + ' acceptance_criteria: ' + ($critSafe -join ' '))
+        # Reserve 1000 chars for marker (worst case ~300 with long IDs)
+        # + settlement directive (~700). Truncating never widens scopes.
+        $reserve = 1000
+        if ($built.Length -gt (2000 - $reserve)) {
+            $maxObjective = (2000 - $reserve) - ($built.Length - $objectiveSafe.Length) - 10
+            if ($maxObjective -lt 50) { return $null }
+            $objectiveSafe = $objectiveSafe.Substring(0, $maxObjective).Trim() + ' ...'
+            $built = ('Task objective: ' + $objectiveSafe + ' read_scopes: ' + $readText + ' write_scopes: ' + $writeText + ' acceptance_criteria: ' + ($critSafe -join ' '))
+        }
+        if (-not (Test-GHWADPromptFits -PromptText $built)) { return $null }
+        return $built
+    }
+    catch { return $null }
+}
+
 function Find-GHWADWorkerResultObject {
     # Pure parser over native tool-result text (no IO, never throws).
     # Extracts a STRUCTURED worker result object: tries the full text,
@@ -1364,6 +1451,12 @@ function Invoke-GHWakeAutoDispatch {
         # Pre-run native snapshot (BEFORE any run): without it the
         # pre/post comparison is unsound, so a transport failure here
         # reconciles with zero executor effect.
+        $canonicalTask = $null
+        try { $canonicalTask = Get-OrchestrationTask -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot } catch { $canonicalTask = $null }
+        $taskPrompt = New-GHWADTaskPrompt -Task $canonicalTask
+        if ($null -eq $taskPrompt) {
+            return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason 'auto-objective-unavailable' -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction '' -Duplicate $false)
+        }
         $preSnap = $null
         try {
             $preSnap = Get-GHWADChildSnapshot -ResumeSessionId $sid -ApiInvoker $SessionApiInvoker -TimeoutMs $apiTO
@@ -1380,9 +1473,18 @@ function Invoke-GHWakeAutoDispatch {
         }
         $preIds = @()
         try { $preIds = @((Get-GHWADValue $preSnap 'ids' @())) } catch { $preIds = @() }
-        $prompt = ([string]$PromptText).Trim()
-        if ([string]::IsNullOrWhiteSpace($prompt)) {
-            $prompt = ('resume goal ' + $gid + ' task ' + $tid + ' checkpoint ' + $cid + ' generation ' + [string]$genLong)
+        # Scheduled-resume task context is mandatory and leads the prompt;
+        # the caller-supplied prompt (when present) is appended after it
+        # so an over-gate caller prompt still fails closed with
+        # auto-prompt-unfittable. An empty caller prompt contributes
+        # nothing: the registered objective is never replaced by an
+        # IDs-only summary.
+        $callerPrompt = ([string]$PromptText).Trim()
+        if ([string]::IsNullOrWhiteSpace($callerPrompt)) {
+            $prompt = $taskPrompt
+        }
+        else {
+            $prompt = ($taskPrompt + ' ' + $callerPrompt)
         }
         # Exact operation marker for the Planner to forward to the worker,
         # plus the delegation directive; the worker's structured result
