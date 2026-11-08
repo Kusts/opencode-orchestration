@@ -6,6 +6,12 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **GH-WAKE settlement autonomo — ordem e wiring da espera duravel (issue #86, branch `fix/86-gh-wake-settlement`, sem merge)**:
+  - Directive do resume proibe concluir a Task no turno retomado (somente delega e retorna o resultado do worker); verificacao/revisao/DONE seguem pela continuacao existente apos o settlement. `task-terminal` nao relaxado; settlement exige prova nativa (nunca so declaracao textual).
+  - Releitura limitada da prova nativa apos o run (no maximo 3 leituras read-only de snapshot+mensagens; sem sleep, sem reexecutar o worker) para eventual consistencia da API nativa.
+  - Scheduler propaga `handoff_state_dir`/`receipt_dir`/`repo_root`/`evidence_store_dir` do config ate o tick (sem fallback ao cache da ferramenta); `Write-GHWakeTickOutFile` arquiva o tick anterior antes de escrever o atual.
+  - Lease da Goal derivada do deadline da espera via `Renew-OrchestrationGoalOwnership` no registro da espera (nunca TTL arbitrario de 2h): o fencing sobrevive a espera duravel.
+  - Suite focada `scripts/v3/github-wake-86-settlement.tests.ps1` (28 asserts; falhava antes, passa depois). Vizinhos: regressions 8, tick 41, scheduler 115, auto-dispatch 143, negatives 119, controller 253, wake 236, solo 101, PlannerWait 120, NativeResume 63, P2 62, reconcile 116, GitHubResume 119.
 - **Pin do OpenCode V2 atualizado para 2.2.6**:
   - Pins canônicos de `@opencode/cli` e `@opencode/plugin` atualizados; V1 e Bun preservados.
   - Smoke explícito do ciclo de serviço passou no binário exato 2.2.6; typecheck do plugin passou nas trilhas V1/V2/DUAL.
