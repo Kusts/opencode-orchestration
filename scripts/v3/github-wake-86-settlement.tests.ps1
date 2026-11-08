@@ -286,5 +286,29 @@ Assert-ST ([bool]$archHasFirst) 'S5 archived tick preserves first evidence'
 Assert-ST ($null -ne (Get-Command Set-GHWakeDispatchSettlement -ErrorAction SilentlyContinue)) 'S6 settlement entry exists'
 $wakeSrc6 = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'github-wake.ps1'), [Text.Encoding]::UTF8)
 Assert-ST ($wakeSrc6 -cmatch 'settle-not-prepared') 'S6 settlement vocabulary preserved'
+# --- S7: directive teaches exact criterion refs without weakening the parser. ---
+Assert-ST ($directive.Contains('criterion:0')) 'S7 directive includes criterion:0'
+Assert-ST ($directive.Contains('criterion:1')) 'S7 directive includes criterion:1'
+Assert-ST ($directive -cmatch '(?i)array') 'S7 claimed evidence is an array'
+Assert-ST ($directive -cmatch '(?i)only') 'S7 claimed evidence is only refs'
+Assert-ST ($directive -cmatch '(?i)no second colon') 'S7 forbids a second colon'
+Assert-ST ($directive -cmatch '(?i)no description') 'S7 forbids descriptions'
+Assert-ST ($directive -cmatch '(?i)no suffix') 'S7 forbids suffixes'
+Assert-ST (Test-GHWADPromptFits -PromptText $directive) 'S7 directive fits prompt gate'
+$s7Key = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+$s7Base = @{ task_id = 's86-task-1'; goal_id = 's86-goal-1'; generation = '1'; idempotency_key = $s7Key; status = 'candidate_pass' }
+$s7One = $s7Base.Clone(); $s7One.claimed_evidence = @('criterion:0')
+$s7Both = $s7Base.Clone(); $s7Both.claimed_evidence = @('criterion:0', 'criterion:1')
+$s7SecondColon = $s7Base.Clone(); $s7SecondColon.claimed_evidence = @('criterion:0: marker forwarded verbatim')
+$s7Suffix = $s7Base.Clone(); $s7Suffix.claimed_evidence = @('criterion:0 verified')
+$s7Expected = @{ ExpectedTaskId = 's86-task-1'; ExpectedGoalId = 's86-goal-1'; ExpectedGeneration = '1'; ExpectedIdempotencyKey = $s7Key }
+$s7Parsed = Find-GHWADWorkerResultObject -Text (ConvertTo-Json -InputObject $s7One -Compress) @s7Expected
+Assert-ST ([bool](Get-STField $s7Parsed 'ok' $false)) 'S7 parser accepts criterion:0'
+$s7Parsed = Find-GHWADWorkerResultObject -Text (ConvertTo-Json -InputObject $s7Both -Compress) @s7Expected
+Assert-ST ([bool](Get-STField $s7Parsed 'ok' $false)) 'S7 parser accepts criterion:0 and criterion:1'
+$s7Parsed = Find-GHWADWorkerResultObject -Text (ConvertTo-Json -InputObject $s7SecondColon -Compress) @s7Expected
+Assert-ST (-not [bool](Get-STField $s7Parsed 'ok' $false)) 'S7 parser rejects second colon and description'
+$s7Parsed = Find-GHWADWorkerResultObject -Text (ConvertTo-Json -InputObject $s7Suffix -Compress) @s7Expected
+Assert-ST (-not [bool](Get-STField $s7Parsed 'ok' $false)) 'S7 parser rejects textual suffix'
 Write-Output ('OK github-wake-86-settlement (' + [string]$script:passed + ' asserts)')
 exit 0

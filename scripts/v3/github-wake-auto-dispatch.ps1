@@ -268,7 +268,7 @@ function Get-GHWADWorkerDirective {
     [CmdletBinding()]
     param()
     try {
-        return 'Delegate via the native subagent tool. Forward the marker exactly. Require the worker to return one JSON object with task_id, goal_id, generation, idempotency_key, status of candidate_pass failed blocked, claimed_evidence as criterion refs. Never substitute your own result for the worker result. Do not call any task transition, verification, review, or completion function in this turn. Return after the worker result. Verification, review, and DONE run only after settlement.'
+        return 'Delegate via the native subagent tool. Forward the marker exactly. Require the worker to return one JSON object with task_id, goal_id, generation, idempotency_key, status of candidate_pass failed blocked, claimed_evidence as an array containing only exact refs criterion:0 or criterion:1 using the real task indexes with no description no suffix and no second colon. Never substitute your own result for the worker result. Do not call any task transition, verification, review, or completion function in this turn. Return after the worker result. Verification, review, and DONE run only after settlement.'
     }
     catch { return '' }
 }
