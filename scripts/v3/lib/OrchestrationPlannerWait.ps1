@@ -308,6 +308,37 @@ function Invoke-OrchestrationPlannerWaitBinding {
             if ($null -eq (Convert-GHRSUtc -Value $canonLeaseExpires)) { return (& $fail 'ownership-not-held') }
         }
         catch { return (& $fail 'ownership-not-held') }
+        # Cover the durable wait with the goal lease via the existing
+        # Renew mechanism. The canonical lease used to be the 60 s acquire
+        # default, so any wait longer than 60 s expired before the
+        # scheduler fired and Prepare later refused
+        # ownership-not-held:owner-lease-expired. Derive the renewal TTL
+        # from the wait deadline (never arbitrary): renew only when the
+        # deadline outlives the current goal lease, same holder/generation.
+        try {
+            $ddlObj = $null
+            try { $ddlObj = Convert-GHRSUtc -Value $DeadlineUtc } catch { $ddlObj = $null }
+            $leaseObj = $null
+            try { $leaseObj = Convert-GHRSUtc -Value $canonLeaseExpires } catch { $leaseObj = $null }
+            if (($null -ne $ddlObj) -and ($null -ne $leaseObj) -and ($ddlObj -gt $leaseObj)) {
+                $ttlMs = [long](($ddlObj - [datetime]::UtcNow).TotalMilliseconds)
+                if ($ttlMs -gt 0) {
+                    $ren = $null
+                    try { $ren = Renew-OrchestrationGoalOwnership -GoalId $gid -OwnerId $own -Generation ([long]$genArg) -StoreDir $GoalStoreDir -LeaseTtlMs $ttlMs } catch { $ren = $null }
+                    if (($null -eq $ren) -or (-not [bool](Get-PWValue $ren 'ok' $false))) { return (& $fail 'ownership-not-held') }
+                    try {
+                        $goalSlot = Get-OrchestrationGoal -GoalId $gid -StoreDir $GoalStoreDir
+                        if (($null -eq $goalSlot) -or (-not [bool](Get-PWValue $goalSlot 'ok' $false))) { return (& $fail 'ownership-not-held') }
+                        $live = Get-PWValue $goalSlot 'goal' $null
+                        if ($null -eq $live) { return (& $fail 'ownership-not-held') }
+                        $canonLeaseExpires = ([string](Get-PWValue (Get-PWValue $live 'ownership' $null) 'expires_at' '')).Trim()
+                        if ([string]::IsNullOrWhiteSpace($canonLeaseExpires)) { return (& $fail 'ownership-not-held') }
+                    }
+                    catch { return (& $fail 'ownership-not-held') }
+                }
+            }
+        }
+        catch { return (& $fail 'ownership-not-held') }
         # Explicit Task membership is mandatory: an empty or missing
         # active_tasks list never authorizes the binding.
         $tracked = @()

@@ -2741,6 +2741,10 @@ function New-GitHubWakeConfig {
         [string]$AutoDispatchExpectedDirectory = '',
         [string]$AutoDispatchExpectedProjectId = '',
         [int]$ResumeTimeoutMs = 30000,
+        [string]$HandoffStateDir = '',
+        [string]$ReceiptDir = '',
+        [string]$RepoRoot = '',
+        [string]$EvidenceStoreDir = '',
         $MaxApiAttempts = 3,
         $TimeoutMs = 10000,
         [string]$OutFile = ''
@@ -2785,6 +2789,10 @@ function New-GitHubWakeConfig {
             auto_dispatch_expected_directory = ([string]$AutoDispatchExpectedDirectory)
             auto_dispatch_expected_project_id = ([string]$AutoDispatchExpectedProjectId)
             resume_timeout_ms = $resumeMs
+            handoff_state_dir = ([string]$HandoffStateDir)
+            receipt_dir = ([string]$ReceiptDir)
+            repo_root = ([string]$RepoRoot)
+            evidence_store_dir = ([string]$EvidenceStoreDir)
         }
         # Fail-closed: per-run authorization flags are NEVER persisted as
         # authority. Even when callers pass true, the config stores false;
@@ -2805,6 +2813,60 @@ function New-GitHubWakeConfig {
         return [pscustomobject]@{ ok = $true; reason = ''; path = $p }
     }
     catch { return [pscustomobject]@{ ok = $false; reason = 'internal-error'; path = '' } }
+}
+
+function Write-GHWakeTickOutFile {
+    # Per-tick evidence writer. The scheduler tick out_file used to be a
+    # single fixed path overwritten on every tick, so the first tick
+    # envelope (with auto_dispatch) was lost. This writer preserves the
+    # previous tick by archiving its bytes to a timestamped sibling before
+    # writing the new tick, reusing only the out_file mechanism (no new
+    # store, no daemon). Never throws. ASCII only.
+    [CmdletBinding()]
+    param([string]$Path = '', [string]$Content = '')
+    try {
+        $p = ([string]$Path).Trim()
+        if ([string]::IsNullOrWhiteSpace($p)) { return [pscustomobject]@{ ok = $false; reason = 'invalid-path'; path = '' } }
+        $arch = ''
+        try {
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+                $prev = ''
+                try { $prev = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) } catch { $prev = '' }
+                if (-not [string]::IsNullOrWhiteSpace($prev)) {
+                    $dir = ''
+                    try { $dir = [IO.Path]::GetDirectoryName($p) } catch { $dir = '' }
+                    if ([string]::IsNullOrWhiteSpace($dir)) { $dir = ([IO.Path]::GetTempPath()).TrimEnd('\', '/') }
+                    $base = ''
+                    try { $base = [IO.Path]::GetFileNameWithoutExtension($p) } catch { $base = '' }
+                    if ([string]::IsNullOrWhiteSpace($base)) { $base = 'wake-out' }
+                    $stamp = ([datetime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))
+                    $cand = (Join-Path $dir ($base + '.' + $stamp + '.json'))
+                    for ($n = 0; $n -le 10; $n++) {
+                        if (-not (Test-Path -LiteralPath $cand -PathType Leaf)) { break }
+                        $cand = (Join-Path $dir ($base + '.' + $stamp + '.' + [string]$n + '.json'))
+                    }
+                    try {
+                        [IO.File]::WriteAllText($cand, $prev, (New-Object Text.UTF8Encoding $false))
+                        $arch = $cand
+                    }
+                    catch { $arch = '' }
+                }
+            }
+        }
+        catch { $arch = '' }
+        try {
+            $wdir = ''
+            try { $wdir = [IO.Path]::GetDirectoryName($p) } catch { $wdir = '' }
+            if ((-not [string]::IsNullOrWhiteSpace($wdir)) -and (-not (Test-Path -LiteralPath $wdir -PathType Container))) {
+                [void][IO.Directory]::CreateDirectory($wdir)
+            }
+        }
+        catch { }
+        try { [IO.File]::WriteAllText($p, ([string]$Content), (New-Object Text.UTF8Encoding $false)) }
+        catch { return [pscustomobject]@{ ok = $false; reason = 'tick-persist-failed'; path = $p; archived = $arch } }
+        return [pscustomobject]@{ ok = $true; reason = ''; path = $p; archived = ([string]$arch) }
+    }
+    catch { return [pscustomobject]@{ ok = $false; reason = 'internal-error'; path = ([string]$Path) } }
 }
 
 function Invoke-GHWakeSchedulerTick {
@@ -2840,7 +2902,8 @@ function Invoke-GHWakeSchedulerTick {
         $NativeSessionsResult = $null,
         [string]$SettleResultSummary = 'gh-wake scheduled tick via bound root session',
         [int]$ResumeTimeoutMs = 30000,
-        [int]$SessionApiTimeoutMs = 30000
+        [int]$SessionApiTimeoutMs = 30000,
+        [int]$ProofRetryCount = 3
     )
     $mkTick = {
         param([bool]$Invoked, $Dispatch)
@@ -2878,7 +2941,7 @@ function Invoke-GHWakeSchedulerTick {
                 -AutoDispatchEnabled $true -ControllerProbe $ControllerProbe -RunExecutor $RunExecutor `
                 -SessionApiInvoker $SessionApiInvoker -NativeSessionsResult $NativeSessionsResult `
                 -SettleResultSummary ([string]$SettleResultSummary).Trim() -ResumeTimeoutMs ([int]$ResumeTimeoutMs) `
-                -SessionApiTimeoutMs ([int]$SessionApiTimeoutMs)
+                -SessionApiTimeoutMs ([int]$SessionApiTimeoutMs) -ProofRetryCount ([int]$ProofRetryCount)
         }
         catch { $out = $null }
         if ($null -eq $out) { return (& $mkTick -Invoked $true -Dispatch $null) }
@@ -3285,6 +3348,10 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         $effMaxApi = $MaxApiAttempts
         $effTimeout = $TimeoutMs
         $effResumeTimeout = 30000
+        $effHandoffDir = ''
+        $effReceiptDir = ''
+        $effRepoRoot = ''
+        $effEvidenceDir = ''
         $cfgTrim = ([string]$ConfigFile).Trim()
         if (-not [string]::IsNullOrWhiteSpace($cfgTrim)) {
             $cfgDoc = Read-GHWJsonFile -Path $cfgTrim
@@ -3321,6 +3388,18 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
                 if (Test-GHWStrictInt -Value $cfgResumeTimeout -Min 1000 -Max 600000) { $effResumeTimeout = [int]$cfgResumeTimeout }
             }
             catch { }
+            if ([string]::IsNullOrWhiteSpace($effHandoffDir)) {
+                try { $effHandoffDir = ([string](Get-GHWValue $cfgDoc 'handoff_state_dir' '')).Trim() } catch { }
+            }
+            if ([string]::IsNullOrWhiteSpace($effReceiptDir)) {
+                try { $effReceiptDir = ([string](Get-GHWValue $cfgDoc 'receipt_dir' '')).Trim() } catch { }
+            }
+            if ([string]::IsNullOrWhiteSpace($effRepoRoot)) {
+                try { $effRepoRoot = ([string](Get-GHWValue $cfgDoc 'repo_root' '')).Trim() } catch { }
+            }
+            if ([string]::IsNullOrWhiteSpace($effEvidenceDir)) {
+                try { $effEvidenceDir = ([string](Get-GHWValue $cfgDoc 'evidence_store_dir' '')).Trim() } catch { }
+            }
             if ([string]::IsNullOrWhiteSpace($effProfileRaw)) {
                 try { $effProfileRaw = ([string](Get-GHWValue $cfgDoc 'delivery_profile' '')).Trim() } catch { }
             }
@@ -3531,7 +3610,9 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
                 try {
                     $tick = Invoke-GHWakeSchedulerTick -WakeResult $result -AutoDispatchEnabled $true `
                         -WaitsDir $effWaitsDir -TasksDir $effTasksDir -GoalStoreDir $effGoalStoreDir `
-                        -CheckpointDir $effCheckpointDir -FlagsPath $effFlagsPath -NowUtc $effNow `
+                        -CheckpointDir $effCheckpointDir -HandoffStateDir $effHandoffDir `
+                        -ReceiptDir $effReceiptDir -RepoRoot $effRepoRoot -EvidenceStoreDir $effEvidenceDir `
+                        -FlagsPath $effFlagsPath -NowUtc $effNow `
                         -ExpectedDirectory $effAutoDispatchDir -ExpectedProjectId $effAutoDispatchProj `
                         -PromptText '' -ResumeTimeoutMs $effResumeTimeout
                 }
@@ -3544,7 +3625,7 @@ if ((-not [string]::IsNullOrWhiteSpace($WaitsDir)) -or (-not [string]::IsNullOrW
         if (-not [string]::IsNullOrWhiteSpace($effOut)) {
             try {
                 $json = ConvertTo-Json -InputObject $result -Depth 10 -Compress
-                [IO.File]::WriteAllText($effOut, $json, (New-Object Text.UTF8Encoding $false))
+                $null = Write-GHWakeTickOutFile -Path $effOut -Content $json
             }
             catch { }
         }
