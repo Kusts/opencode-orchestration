@@ -268,7 +268,7 @@ function Get-GHWADWorkerDirective {
     [CmdletBinding()]
     param()
     try {
-        return 'Delegate via the native subagent tool. Forward the marker exactly. Require the worker to return one JSON object with task_id, goal_id, generation, idempotency_key, status of candidate_pass failed blocked, claimed_evidence as criterion refs. Never substitute your own result for the worker result.'
+        return 'Delegate via the native subagent tool. Forward the marker exactly. Require the worker to return one JSON object with task_id, goal_id, generation, idempotency_key, status of candidate_pass failed blocked, claimed_evidence as an array containing only exact refs criterion:0 or criterion:1 using the real task indexes with no description no suffix and no second colon. Never substitute your own result for the worker result. Do not call Complete-OrchestrationTask, any task transition, verification, review, or completion function, and do not transition to DONE in this turn. Return one of candidate_pass, failed, or blocked based on evidence only. Return after the worker result. Verification, review, and DONE run only after settlement.'
     }
     catch { return '' }
 }
@@ -287,6 +287,93 @@ function Test-GHWADPromptFits {
         return $true
     }
     catch { return $false }
+}
+
+function New-GHWADTaskPrompt {
+    # Builds the scheduled-resume task context from the canonical Task
+    # so the resumed Planner delegates the REGISTERED objective, scopes
+    # and acceptance criteria instead of inventing an alternative task
+    # from IDs alone. Free-text fields (objective, criterion descriptions)
+    # are sanitized to the Test-GHWADPromptFits charset (forbidden shell
+    # metacharacters become spaces, runs of whitespace collapse). Scope
+    # entries are NEVER rewritten: if any scope would change under
+    # sanitization (wildcards, backslashes, commas, brackets, etc.) the
+    # whole context returns $null (fail closed, no widened or corrupted
+    # authorization). The result is bounded so marker + settlement
+    # directive still fit in 2000 chars (worst-case reserve 1000).
+    # Never adds a generic write prohibition. Returns $null when the
+    # objective/scopes/criteria cannot be recovered (fail closed with
+    # auto-objective-unavailable before any worker run).
+    param($Task = $null)
+    try {
+        if ($null -eq $Task) { return $null }
+        $objective = ([string](Get-GHWADValue $Task 'objective' '')).Trim()
+        $readsRaw = Get-GHWADValue $Task 'read_scopes' @()
+        $writesRaw = Get-GHWADValue $Task 'write_scopes' @()
+        $criteriaRaw = Get-GHWADValue $Task 'acceptance_criteria' @()
+        $reads = @(); if ($null -ne $readsRaw) { $reads = @($readsRaw) }
+        $writes = @(); if ($null -ne $writesRaw) { $writes = @($writesRaw) }
+        $criteria = @(); if ($null -ne $criteriaRaw) { $criteria = @($criteriaRaw) }
+        if ([string]::IsNullOrWhiteSpace($objective)) { return $null }
+        foreach ($value in @($reads) + @($writes) + @($criteria)) {
+            if ([string]::IsNullOrWhiteSpace(([string]$value))) { return $null }
+        }
+        $sanitize = {
+            param([string]$Text)
+            try {
+                $t = ([string]$Text).Trim()
+                $t = ($t -replace '[^A-Za-z0-9 ._:=/,-]', ' ')
+                $t = ($t -replace '\s+', ' ').Trim()
+                return $t
+            }
+            catch { return '' }
+        }
+        $objectiveSafe = (& $sanitize $objective)
+        if ([string]::IsNullOrWhiteSpace($objectiveSafe)) { return $null }
+        $readSafe = @()
+        foreach ($r in @($reads)) {
+            $orig = ([string]$r).Trim()
+            if ($orig.Contains(',')) { return $null }
+            $s = (& $sanitize $orig)
+            if ([string]::IsNullOrWhiteSpace($s) -or ($s -cne $orig)) { return $null }
+            $readSafe += @($s)
+        }
+        $writeSafe = @()
+        foreach ($w in @($writes)) {
+            $orig = ([string]$w).Trim()
+            if ($orig.Contains(',')) { return $null }
+            $s = (& $sanitize $orig)
+            if ([string]::IsNullOrWhiteSpace($s) -or ($s -cne $orig)) { return $null }
+            $writeSafe += @($s)
+        }
+        $critSafe = @()
+        for ($i = 0; $i -lt @($criteria).Count; $i++) {
+            $raw = ([string]$criteria[$i]).Trim()
+            if ($raw -cmatch '^criterion:[0-9]+$') {
+                $critSafe += @($raw)
+            }
+            else {
+                $s = (& $sanitize $raw)
+                if ([string]::IsNullOrWhiteSpace($s)) { $s = 'criterion content' }
+                $critSafe += @(('criterion:' + [string]$i + ' ' + $s))
+            }
+        }
+        $readText = if (@($readSafe).Count -lt 1) { 'none' } else { ($readSafe -join ',') }
+        $writeText = if (@($writeSafe).Count -lt 1) { 'none' } else { ($writeSafe -join ',') }
+        $built = ('Task objective: ' + $objectiveSafe + ' read_scopes: ' + $readText + ' write_scopes: ' + $writeText + ' acceptance_criteria: ' + ($critSafe -join ' '))
+        # Reserve 1000 chars for marker (worst case ~300 with long IDs)
+        # + settlement directive (~700). Truncating never widens scopes.
+        $reserve = 1000
+        if ($built.Length -gt (2000 - $reserve)) {
+            $maxObjective = (2000 - $reserve) - ($built.Length - $objectiveSafe.Length) - 10
+            if ($maxObjective -lt 50) { return $null }
+            $objectiveSafe = $objectiveSafe.Substring(0, $maxObjective).Trim() + ' ...'
+            $built = ('Task objective: ' + $objectiveSafe + ' read_scopes: ' + $readText + ' write_scopes: ' + $writeText + ' acceptance_criteria: ' + ($critSafe -join ' '))
+        }
+        if (-not (Test-GHWADPromptFits -PromptText $built)) { return $null }
+        return $built
+    }
+    catch { return $null }
 }
 
 function Find-GHWADWorkerResultObject {
@@ -380,7 +467,11 @@ function Find-GHWADWorkerResultObject {
             if (($ot -cne $expTask) -or ($og -cne $expGoal) -or ($ogen -cne $expGen) -or ($okey -cne $expKey)) { continue }
             if (@('candidate_pass', 'failed', 'blocked') -cnotcontains $ost) { continue }
             $refs = @(Get-GHWADValue $o 'claimed_evidence' @())
-            if (@($refs).Count -lt 1) { continue }
+            # For candidate_pass, evidence is mandatory (>=1 valid ref).
+            # For failed/blocked, empty evidence is a legitimate negative result.
+            if ($ost -ceq 'candidate_pass') {
+                if (@($refs).Count -lt 1) { continue }
+            }
             $refsOk = $true
             foreach ($r in @($refs)) {
                 if (($r -isnot [string]) -or (([string]$r).Trim() -cnotmatch '^criterion:[0-9]+$')) { $refsOk = $false; break }
@@ -783,6 +874,12 @@ function Find-GHWADNativeWorkerProof {
                 if ((($wStatus -ceq 'failed') -or ($wStatus -ceq 'blocked')) -and ($outcome -ceq 'failed')) {
                     return (& $mkProof -Ok $true -Reason 'worker-proven-native' -Worker $childId -ResultOk $false)
                 }
+                # Legitimate negative: worker completed (outcome=succeeded) but
+                # reported blocked/failed with empty/valid evidence. Accept as a
+                # proven native execution with result_ok=false (never candidate_pass).
+                if ((($wStatus -ceq 'failed') -or ($wStatus -ceq 'blocked')) -and ($outcome -ceq 'succeeded')) {
+                    return (& $mkProof -Ok $true -Reason 'worker-proven-native' -Worker $childId -ResultOk $false)
+                }
                 $seenResult = $true
             }
         }
@@ -1148,7 +1245,8 @@ function Invoke-GHWakeAutoDispatch {
         $NativeSessionsResult = $null,
         [string]$SettleResultSummary = 'gh-wake auto dispatch via native resume',
         [int]$ResumeTimeoutMs = 30000,
-        [int]$SessionApiTimeoutMs = 30000
+        [int]$SessionApiTimeoutMs = 30000,
+        [int]$ProofRetryCount = 3
     )
     $mkAuto = {
         param([bool]$Ok, [string]$Verdict, [bool]$Dispatched, [string]$Decision, [string]$Reason, [string]$Controller, [string]$SessionId, [string]$MarkerPath, [string]$ResumeAction, [bool]$Duplicate)
@@ -1363,6 +1461,12 @@ function Invoke-GHWakeAutoDispatch {
         # Pre-run native snapshot (BEFORE any run): without it the
         # pre/post comparison is unsound, so a transport failure here
         # reconciles with zero executor effect.
+        $canonicalTask = $null
+        try { $canonicalTask = Get-OrchestrationTask -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot } catch { $canonicalTask = $null }
+        $taskPrompt = New-GHWADTaskPrompt -Task $canonicalTask
+        if ($null -eq $taskPrompt) {
+            return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason 'auto-objective-unavailable' -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction '' -Duplicate $false)
+        }
         $preSnap = $null
         try {
             $preSnap = Get-GHWADChildSnapshot -ResumeSessionId $sid -ApiInvoker $SessionApiInvoker -TimeoutMs $apiTO
@@ -1379,9 +1483,18 @@ function Invoke-GHWakeAutoDispatch {
         }
         $preIds = @()
         try { $preIds = @((Get-GHWADValue $preSnap 'ids' @())) } catch { $preIds = @() }
-        $prompt = ([string]$PromptText).Trim()
-        if ([string]::IsNullOrWhiteSpace($prompt)) {
-            $prompt = ('resume goal ' + $gid + ' task ' + $tid + ' checkpoint ' + $cid + ' generation ' + [string]$genLong)
+        # Scheduled-resume task context is mandatory and leads the prompt;
+        # the caller-supplied prompt (when present) is appended after it
+        # so an over-gate caller prompt still fails closed with
+        # auto-prompt-unfittable. An empty caller prompt contributes
+        # nothing: the registered objective is never replaced by an
+        # IDs-only summary.
+        $callerPrompt = ([string]$PromptText).Trim()
+        if ([string]::IsNullOrWhiteSpace($callerPrompt)) {
+            $prompt = $taskPrompt
+        }
+        else {
+            $prompt = ($taskPrompt + ' ' + $callerPrompt)
         }
         # Exact operation marker for the Planner to forward to the worker,
         # plus the delegation directive; the worker's structured result
@@ -1466,47 +1579,75 @@ function Invoke-GHWakeAutoDispatch {
             # binding + structured result) settles, with the NATIVE
             # child id. NATIVE_SESSION_RESUMED alone reconciles as
             # auto-worker-unproven (claim kept, no settle).
-            $postSnap = $null
-            try {
-                $postSnap = Get-GHWADChildSnapshot -ResumeSessionId $sid -ApiInvoker $SessionApiInvoker -TimeoutMs $apiTO
-            }
-            catch { $postSnap = $null }
-            if (($null -eq $postSnap) -or (-not [bool](Get-GHWADValue $postSnap 'ok' $false))) {
-                return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason 'auto-worker-api-unavailable' -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction 'proceed' -Duplicate $false)
-            }
-            $postById = @{}
-            try {
-                $rawById = Get-GHWADValue $postSnap 'byId' @{}
-                if ($rawById -is [System.Collections.IDictionary]) {
-                    foreach ($k in @($rawById.Keys)) { $postById[([string]$k)] = $rawById[$k] }
-                }
-            }
-            catch { }
-            $msgRead = $null
-            try {
-                $msgRead = Get-GHWADResumeMessages -ResumeSessionId $sid -ApiInvoker $SessionApiInvoker -TimeoutMs $apiTO
-            }
-            catch { $msgRead = $null }
-            if (($null -eq $msgRead) -or (-not [bool](Get-GHWADValue $msgRead 'ok' $false))) {
-                return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason 'auto-worker-api-unavailable' -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction 'proceed' -Duplicate $false)
-            }
+            # The native API persists the worker child shortly after the
+            # resume process exits, so a single immediate read can miss it
+            # (real PARTIAL of 2026-11-08). Bounded re-read: retry the
+            # read-only snapshot+messages+validator a few times. The resume
+            # already ran exactly once above; the retry never re-executes
+            # the worker and uses no sleep (each read spawns a native API
+            # child, which paces the attempts). Single-shot preserved.
+            $proofAttempts = [int]$ProofRetryCount
+            if ($proofAttempts -lt 1) { $proofAttempts = 1 }
+            if ($proofAttempts -gt 10) { $proofAttempts = 10 }
             $wproof = $null
-            try {
-                $wproof = Find-GHWADNativeWorkerProof -ResumeSessionId $sid -PreChildIds $preIds -PostChildrenById $postById `
-                    -Messages @(Get-GHWADValue $msgRead 'messages' @()) -ExpectedTaskId $tid -ExpectedGoalId $gid `
-                    -ExpectedGeneration ([string]$genLong) -ExpectedIdempotencyKey $idem `
-                    -ExpectedProjectId ([string]$ExpectedProjectId).Trim() -RunStartMs ([long]$runStartMs)
-            }
-            catch { $wproof = $null }
-            $wOk = (($null -ne $wproof) -and [bool](Get-GHWADValue $wproof 'ok' $false))
-            if (-not [bool]$wOk) {
-                $wWhy = 'auto-worker-unproven'
+            $wOk = $false
+            $wLastReason = 'auto-worker-unproven'
+            for ($pattempt = 0; $pattempt -lt $proofAttempts; $pattempt++) {
+                $postSnap = $null
                 try {
-                    $wr = ([string](Get-GHWADValue $wproof 'reason' ''))
-                    if (-not [string]::IsNullOrWhiteSpace($wr)) { $wWhy = $wr }
+                    $postSnap = Get-GHWADChildSnapshot -ResumeSessionId $sid -ApiInvoker $SessionApiInvoker -TimeoutMs $apiTO
+                }
+                catch { $postSnap = $null }
+                if (($null -eq $postSnap) -or (-not [bool](Get-GHWADValue $postSnap 'ok' $false))) {
+                    $wLastReason = 'auto-worker-api-unavailable'
+                    try {
+                        $pr = ([string](Get-GHWADValue $postSnap 'reason' ''))
+                        if (-not [string]::IsNullOrWhiteSpace($pr)) { $wLastReason = $pr }
+                    }
+                    catch { }
+                    $wproof = $null; $wOk = $false
+                    continue
+                }
+                $postById = @{}
+                try {
+                    $rawById = Get-GHWADValue $postSnap 'byId' @{}
+                    if ($rawById -is [System.Collections.IDictionary]) {
+                        foreach ($k in @($rawById.Keys)) { $postById[([string]$k)] = $rawById[$k] }
+                    }
                 }
                 catch { }
-                return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason $wWhy -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction 'proceed' -Duplicate $false)
+                $msgRead = $null
+                try {
+                    $msgRead = Get-GHWADResumeMessages -ResumeSessionId $sid -ApiInvoker $SessionApiInvoker -TimeoutMs $apiTO
+                }
+                catch { $msgRead = $null }
+                if (($null -eq $msgRead) -or (-not [bool](Get-GHWADValue $msgRead 'ok' $false))) {
+                    $wLastReason = 'auto-worker-api-unavailable'
+                    try {
+                        $mr = ([string](Get-GHWADValue $msgRead 'reason' ''))
+                        if (-not [string]::IsNullOrWhiteSpace($mr)) { $wLastReason = $mr }
+                    }
+                    catch { }
+                    $wproof = $null; $wOk = $false
+                    continue
+                }
+                try {
+                    $wproof = Find-GHWADNativeWorkerProof -ResumeSessionId $sid -PreChildIds $preIds -PostChildrenById $postById `
+                        -Messages @(Get-GHWADValue $msgRead 'messages' @()) -ExpectedTaskId $tid -ExpectedGoalId $gid `
+                        -ExpectedGeneration ([string]$genLong) -ExpectedIdempotencyKey $idem `
+                        -ExpectedProjectId ([string]$ExpectedProjectId).Trim() -RunStartMs ([long]$runStartMs)
+                }
+                catch { $wproof = $null }
+                $wOk = (($null -ne $wproof) -and [bool](Get-GHWADValue $wproof 'ok' $false))
+                if ([bool]$wOk) { break }
+                try {
+                    $wr = ([string](Get-GHWADValue $wproof 'reason' ''))
+                    if (-not [string]::IsNullOrWhiteSpace($wr)) { $wLastReason = $wr } else { $wLastReason = 'auto-worker-unproven' }
+                }
+                catch { $wLastReason = 'auto-worker-unproven' }
+            }
+            if (-not [bool]$wOk) {
+                return (& $mkAuto -Ok $false -Verdict 'AUTO_FAIL' -Dispatched $false -Decision 'reconcile' -Reason ([string]$wLastReason) -Controller $hCtrl -SessionId '' -MarkerPath $hMarker -ResumeAction 'proceed' -Duplicate $false)
             }
             if (($null -ne $SessionApiInvoker) -or ($null -ne $RunExecutor)) {
                 # Injected (non-native) transport or mocked resume: a fully
@@ -1603,7 +1744,8 @@ function Invoke-GHWakeSchedulerDispatch {
         $NativeSessionsResult = $null,
         [string]$SettleResultSummary = 'gh-wake scheduler dispatch via bound root session',
         [int]$ResumeTimeoutMs = 30000,
-        [int]$SessionApiTimeoutMs = 30000
+        [int]$SessionApiTimeoutMs = 30000,
+        [int]$ProofRetryCount = 3
     )
     $mkSched = {
         param([bool]$Ok, [string]$Decision, [string]$Reason)
@@ -1639,7 +1781,7 @@ function Invoke-GHWakeSchedulerDispatch {
                 -SessionApiInvoker $SessionApiInvoker -UseBoundRootSession `
                 -NativeSessionsResult $NativeSessionsResult `
                 -SettleResultSummary $SettleResultSummary -ResumeTimeoutMs $ResumeTimeoutMs `
-                -SessionApiTimeoutMs $SessionApiTimeoutMs
+                -SessionApiTimeoutMs $SessionApiTimeoutMs -ProofRetryCount $ProofRetryCount
         }
         catch { $out = $null }
         if ($null -eq $out) {
