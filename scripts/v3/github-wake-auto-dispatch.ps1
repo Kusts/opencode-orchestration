@@ -467,7 +467,11 @@ function Find-GHWADWorkerResultObject {
             if (($ot -cne $expTask) -or ($og -cne $expGoal) -or ($ogen -cne $expGen) -or ($okey -cne $expKey)) { continue }
             if (@('candidate_pass', 'failed', 'blocked') -cnotcontains $ost) { continue }
             $refs = @(Get-GHWADValue $o 'claimed_evidence' @())
-            if (@($refs).Count -lt 1) { continue }
+            # For candidate_pass, evidence is mandatory (>=1 valid ref).
+            # For failed/blocked, empty evidence is a legitimate negative result.
+            if ($ost -ceq 'candidate_pass') {
+                if (@($refs).Count -lt 1) { continue }
+            }
             $refsOk = $true
             foreach ($r in @($refs)) {
                 if (($r -isnot [string]) -or (([string]$r).Trim() -cnotmatch '^criterion:[0-9]+$')) { $refsOk = $false; break }
@@ -868,6 +872,12 @@ function Find-GHWADNativeWorkerProof {
                     return (& $mkProof -Ok $true -Reason 'worker-proven-native' -Worker $childId -ResultOk $true)
                 }
                 if ((($wStatus -ceq 'failed') -or ($wStatus -ceq 'blocked')) -and ($outcome -ceq 'failed')) {
+                    return (& $mkProof -Ok $true -Reason 'worker-proven-native' -Worker $childId -ResultOk $false)
+                }
+                # Legitimate negative: worker completed (outcome=succeeded) but
+                # reported blocked/failed with empty/valid evidence. Accept as a
+                # proven native execution with result_ok=false (never candidate_pass).
+                if ((($wStatus -ceq 'failed') -or ($wStatus -ceq 'blocked')) -and ($outcome -ceq 'succeeded')) {
                     return (& $mkProof -Ok $true -Reason 'worker-proven-native' -Worker $childId -ResultOk $false)
                 }
                 $seenResult = $true
