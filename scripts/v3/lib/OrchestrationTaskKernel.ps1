@@ -2757,6 +2757,60 @@ function Invoke-TaskKernelVerifyRun {
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 
+function ConvertTo-TaskKernelReviewFindings {
+    <#
+    .SYNOPSIS
+        Validates and normalizes reviewer findings (anchored schema).
+    .DESCRIPTION
+        Untrusted caller JSON. Bounded (max 50 findings, 256 KiB, message
+        2000 chars). Uses the shared anchor helper so file/line/commit and
+        owner routing stay identical to the rest of the review flow.
+    #>
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$FindingsJson = '', [string]$TaskId = '')
+    try {
+        if ([string]::IsNullOrWhiteSpace($FindingsJson)) { return @{ ok = $true; findings = @(); error = '' } }
+        if ($FindingsJson.Length -gt 262144) { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_TOO_LARGE' } }
+        $parsed = $null
+        try { $parsed = ($FindingsJson | ConvertFrom-Json) } catch { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_INVALID' } }
+        $items = @($parsed)
+        if ($items.Count -gt 50) { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_TOO_MANY' } }
+        $anchorLib = Join-Path $PSScriptRoot 'OrchestrationReviewAnchor.ps1'
+        if (-not (Test-Path -LiteralPath $anchorLib -PathType Leaf)) { return @{ ok = $false; findings = @(); error = 'REVIEW_ANCHOR_LIB_MISSING' } }
+        . $anchorLib
+        $out = New-Object System.Collections.ArrayList
+        foreach ($item in $items) {
+            if ($null -eq $item) { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_INVALID' } }
+            $fid = [string](Get-TaskKernelNodeField -Object $item -Name 'finding_id')
+            $file = [string](Get-TaskKernelNodeField -Object $item -Name 'file')
+            $commit = [string](Get-TaskKernelNodeField -Object $item -Name 'commit_sha')
+            $msg = [string](Get-TaskKernelNodeField -Object $item -Name 'message')
+            $sev = [string](Get-TaskKernelNodeField -Object $item -Name 'severity')
+            if ([string]::IsNullOrWhiteSpace($sev)) { $sev = 'medium' }
+            $lineRaw = Get-TaskKernelNodeField -Object $item -Name 'line'
+            $line = 0
+            if ($null -ne $lineRaw) { try { $line = [int]$lineRaw } catch { $line = -1 } }
+            if ($msg.Length -gt 2000) { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_INVALID' } }
+            $norm = New-OrchestrationReviewFinding -FindingId $fid -File $file -CommitSha $commit -Message $msg -Severity $sev -Line $line -TaskId $TaskId
+            if (-not [bool]$norm.ok) { return @{ ok = $false; findings = @(); error = ('REVIEW_FINDINGS_INVALID:' + [string]$norm.error) } }
+            [void]$out.Add([ordered]@{
+                finding_id = [string]$norm.finding_id
+                file       = [string]$norm.file
+                line       = [int]$norm.line
+                commit_sha = [string]$norm.commit_sha
+                severity   = [string]$norm.severity
+                message    = Protect-TaskKernelText -Text ([string]$norm.message)
+                owner      = [string]$norm.worker
+                owner_reason = [string]$norm.owner_reason
+                file_sha256 = [string]$norm.file_sha256
+                anchor     = [string]$norm.anchor
+            })
+        }
+        return @{ ok = $true; findings = @($out.ToArray()); error = '' }
+    }
+    catch { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_INVALID' } }
+}
+
 function Set-OrchestrationTaskReview {
     [CmdletBinding()]
     param(
@@ -2765,6 +2819,7 @@ function Set-OrchestrationTaskReview {
         [Parameter(Mandatory = $true)][string]$Status,
         [Parameter(Mandatory = $true)][string]$By,
         [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$FindingsJson = '',
         [string]$TasksDir = '',
         [string]$FlagsPath = '',
         [string]$RepoRoot = ''
@@ -2787,6 +2842,14 @@ function Set-OrchestrationTaskReview {
             return (New-TaskKernelError -Code 'INVALID_ACTOR')
         }
         $tid = ([string]$TaskId).Trim()
+        $findingsSlot = ConvertTo-TaskKernelReviewFindings -FindingsJson $FindingsJson -TaskId $tid
+        if (-not [bool]$findingsSlot.ok) {
+            return (New-TaskKernelError -Code ([string]$findingsSlot.error))
+        }
+        $findings = @($findingsSlot.findings)
+        if ($status -ceq 'approved' -and @($findings).Count -gt 0) {
+            return (New-TaskKernelError -Code 'REVIEW_FINDINGS_ON_APPROVED')
+        }
         $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($taskFile)) {
             return (New-TaskKernelError -Code 'NOT_FOUND')
@@ -2838,9 +2901,26 @@ function Set-OrchestrationTaskReview {
             status             = $status
             by                 = $byClean
             candidate_revision = $candRev
+            findings_count     = @($findings).Count
+            findings           = @($findings)
             at                 = (Get-TaskKernelTimestamp)
             revision           = $newRev
         }
+        # Preserve prior review rounds (including their anchored findings).
+        # The current review stays in `review`/`security_review`; history is
+        # bounded so a long retry loop cannot grow the task without limit.
+        $histKey = 'review_history'
+        $history = New-Object System.Collections.ArrayList
+        try {
+            if ($kind -ceq 'security') { $histKey = 'security_review_history' }
+            if ($null -ne $rec[$histKey]) { foreach ($h in @($rec[$histKey])) { [void]$history.Add($h) } }
+            $prevKey = 'review'
+            if ($kind -ceq 'security') { $prevKey = 'security_review' }
+            if ($null -ne $rec[$prevKey]) { [void]$history.Add($rec[$prevKey]) }
+            while ($history.Count -gt 20) { $history.RemoveAt(0) }
+        }
+        catch { $history = New-Object System.Collections.ArrayList }
+        $rec[$histKey] = @($history.ToArray())
         if ($kind -ceq 'reviewer') { $rec['review'] = $entry }
         else { $rec['security_review'] = $entry }
         $rec['revision'] = $newRev

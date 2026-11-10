@@ -135,10 +135,18 @@ if ($null -ne $cat) {
       $expected = @($invAgents + $invOpOnly)
       if ($invAgents.Count -ne 105) { [void]$invErrs.Add(('inventario agents != 105: ' + $invAgents.Count)) }
       if ($invOpOnly.Count -ne 3) { [void]$invErrs.Add(('inventario opencode-only != 3: ' + $invOpOnly.Count)) }
-      $d1 = @(Compare-Object $expected $ids | ForEach-Object { $_.InputObject })
-      if ($d1.Count -gt 0) { [void]$invErrs.Add(('catalogo != inventario: ' + ($d1 -join ','))) }
+      # O inventario e um snapshot datado dos roots externos. Adicoes
+      # deliberadas do repo (version_policy=repo-pinned) sao permitidas; nada
+      # do inventario pode sumir e nenhum extra nao-repo-pinned e aceito.
+      $d1 = @(Compare-Object $expected $ids)
+      $missingInv = @($d1 | Where-Object { $_.SideIndicator -eq '<=' } | ForEach-Object { [string]$_.InputObject })
+      $extraCat = @($d1 | Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object { [string]$_.InputObject })
+      $repoPinnedIds = @($skills | Where-Object { [string]$_.version_policy -ceq 'repo-pinned' } | ForEach-Object { [string]$_.id })
+      $badExtra = @($extraCat | Where-Object { $repoPinnedIds -notcontains $_ })
+      if ($missingInv.Count -gt 0) { [void]$invErrs.Add(('inventario ausente no catalogo: ' + ($missingInv -join ','))) }
+      if ($badExtra.Count -gt 0) { [void]$invErrs.Add(('extras nao repo-pinned: ' + ($badExtra -join ','))) }
     } catch { [void]$invErrs.Add(('inventario ilegivel: ' + $_.Exception.Message)) }
-    Assert ($invErrs.Count -eq 0) 'catalogo == inventario versionado (105 + 3, sem sobra/falta)' ($invErrs -join ' | ')
+    Assert ($invErrs.Count -eq 0) 'catalogo cobre inventario + adicoes repo-pinned (105 + 3)' ($invErrs -join ' | ')
   }
 
   # Roots discovery (defaults originais; overrides servem so a fixtures).

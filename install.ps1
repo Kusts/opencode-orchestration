@@ -763,7 +763,7 @@ function Validate-RequiredFiles([string]$Root, [string[]]$RequiredTemplates) {
       $errs += ('fonte obrigatoria ausente: ' + $trel)
     }
   }
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root ('skills-core\' + $s + '\SKILL.md')) -PathType Leaf)) {
       $errs += ('skill-core ausente: ' + $s + '/SKILL.md')
     }
@@ -978,7 +978,7 @@ function Validate-PluginBundle([string]$Root) {
 
 function Validate-Skills([string]$Root) {
   $errs = @()
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root ('skills-core\' + $s + '\SKILL.md')) -PathType Leaf)) {
       $errs += ('SKILL.md ausente: ' + $s)
     }
@@ -1490,7 +1490,7 @@ $pluginDst = Join-Path $ocDir ('plugins\' + $pluginBundleName)
 
 $skillsSrc = Join-Path $RepoRoot 'skills-core'
 $skillsDst = Join-Path $ocDir 'skills'
-$skillNames = @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')
+$skillNames = @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')
 
 # Formato do config: opencode.json e/ou opencode.jsonc. O runtime (OpenCode V1)
 # suporta ambos e, se AMBOS existirem no mesmo diretorio, faz merge com o

@@ -69,10 +69,11 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
   lógica compartilhada); enforcement por sessão; telemetria em
   `~/.opencode-orchestration/evidence/...`. Um `.ts` legado pré-bundle é
   adotado para backup e removido.
-- `~/.config/opencode/skills/*` — as 5 skills-core (a menos que
-  `-NoCoreSkills`: `hybrid-development`, `dispatching-parallel-agents`,
-  `subagent-driven-development`, `verification-before-completion`,
-  `using-superpowers`).
+- `~/.config/opencode/skills/*` — as 8 skills-core (a menos que
+  `-NoCoreSkills`: `hybrid-development`, `bmad-structured-delivery`,
+  `pocock-technical-decisions`, `addy-incremental-delivery`,
+  `dispatching-parallel-agents`, `subagent-driven-development`,
+  `verification-before-completion`, `using-superpowers`).
 - `~/.config/opencode/opencode.json` — **merge estrutural**, no dialeto do
   `-Runtime` escolhido: V1 gerencia `$schema`, `model`, `default_agent`,
   `subagent_depth`, `agent.*`; V2 gerencia `$schema`, `model`,
@@ -115,10 +116,11 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 powershell -NoProfile -File tests\distribution\run-distribution-tests.ps1
 ```
 
-O primeiro checa consistência interna do pacote (16 checks, exit 0/1 —
-incluindo shape/paridade dos templates V1 e V2 e integridade do bundle do
-plugin); o segundo roda as suítes `*.tests.ps1` de `scripts/v3/` e
-`scripts/runtime/`; o terceiro roda as validações de distribuição
+O primeiro checa consistência interna do pacote (17 checks, exit 0/1 —
+incluindo shape/paridade dos templates V1 e V2, integridade do bundle do
+plugin e a cadeia canônica de escalonamento Sonnet → Opus → Astra); o
+segundo roda as suítes `*.tests.ps1` de `scripts/v3/` e `scripts/runtime/`;
+o terceiro roda as validações de distribuição
 (fresh-install, idempotência, rollback, uninstall, runtime V1/V2, perfis
 isolados — 23 suítes) de `tests/distribution/`. Gate vigente = lane V2
 real; o smoke com OpenCode V1 real 1.18.34 num home isolado (`opencode

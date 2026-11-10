@@ -45,7 +45,7 @@ try {
      $advisorMd = [IO.File]::ReadAllText((Join-Path $ocDir 'agents\engineering-advisor.md'), [Text.Encoding]::UTF8)
      Assert ($advisorMd -match ('(?m)^model:\s*' + [regex]::Escape([string]$models.strong) + '\s*$')) 'engineering-advisor frontmatter starts at T3 strong model'
   }
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     Assert (Test-Path -LiteralPath (Join-Path $ocDir ('skills\' + $s + '\SKILL.md')) -PathType Leaf) ('skill ' + $s)
   }
 
@@ -88,7 +88,7 @@ try {
   }
   $skillsCore = Join-Path $RepoRoot 'skills-core'
   $skillsDstRoot = Join-Path $ocDir 'skills'
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     $srcSet = @(Get-TreeSet (Join-Path $skillsCore $s) | Sort-Object)
     $dstSet = @(Get-TreeSet (Join-Path $skillsDstRoot $s) | Sort-Object)
     Assert (($srcSet -join '|') -eq ($dstSet -join '|')) ('estrutura skill ' + $s + ' isomorfa a fonte (sem fragmentos/extras): ' + $srcSet.Count + ' entradas')
@@ -101,12 +101,12 @@ try {
     }
     Assert ($mismatch.Count -eq 0) ('hash(source normalizado)==hash(dest) skill ' + $s + ($mismatch -join ', '))
   }
-  $extraSkillDirs = @(Get-ChildItem -Directory $skillsDstRoot -ErrorAction SilentlyContinue | Where-Object { @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion') -notcontains $_.Name })
+  $extraSkillDirs = @(Get-ChildItem -Directory $skillsDstRoot -ErrorAction SilentlyContinue | Where-Object { @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion') -notcontains $_.Name })
   Assert ($extraSkillDirs.Count -eq 0) 'nenhum diretorio inesperado sob skills/ (nenhum fragmento nt/rs/on/ts)'
   $expectedManaged = New-Object System.Collections.ArrayList
   [void]$expectedManaged.Add('AGENTS.md')
   foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') | Sort-Object Name)) { [void]$expectedManaged.Add('agents\' + $f.Name) }
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     foreach ($rel in @(Get-FileRelSet (Join-Path $skillsCore $s))) {
       [void]$expectedManaged.Add('skills\' + $s + '\' + $rel)
     }

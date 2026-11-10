@@ -8,6 +8,8 @@ Este índice mapeia todas as especificações e planos técnicos mantidos no rep
 
 | Documento | Status | Assunto |
 | :--- | :--- | :--- |
+| [EVOLUTION-INTEGRATED-2026-11-10-SPEC.md](EVOLUTION-INTEGRATED-2026-11-10-SPEC.md) | active | SPEC — plano integrado de evolução (25 issues + PR #210, M0–M7) |
+| [EVOLUTION-INTEGRATED-2026-11-10-PLAN.md](EVOLUTION-INTEGRATED-2026-11-10-PLAN.md) | active | Plano de execução incremental por marco |
 | [DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md](DYNAMIC-MODEL-ROUTING-v1.1-SPEC.md) | approved | SPEC — Dynamic Model Routing & Intelligent Advisory v1.1 |
 | [DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md](DYNAMIC-MODEL-ROUTING-v1.1-PLAN.md) | ready | Plano de implementação Dynamic Model Routing v1.1 (Fases 0–8) |
 | [WORKFLOW-EFFICIENCY-v0.2.0-SPEC.md](WORKFLOW-EFFICIENCY-v0.2.0-SPEC.md) | active | SPEC v0.2.0 — Workflow Efficiency & Adaptive Model Routing |

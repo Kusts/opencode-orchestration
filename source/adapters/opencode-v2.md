@@ -71,6 +71,15 @@ histórica, sem efeito).
     `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. `opencode-go/deepseek-v4.1-flash` é o primário T2 por seleção explícita do operador (adendo 2026-11-04); ZDR segue `expired-unconfirmed` sem alegação de renovação/conformidade (não envie dados sensíveis cuja proteção exija ZDR; somente dados não-sensíveis até ZDR verificado).
   - **T3:** candidatos em ordem `claude-agent/sonnet` (primário) → `openai/gpt-6.1-terra`; recuperação T2 só como candidata degradada para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Despacho técnico permanece HOLD sem prova independente de no-start. Engineering-advisor é T3-only.
   - **T4:** candidatos em ordem `claude-agent/opus` (primário) → `openai/gpt-6.1-sol` (mesmo tier); recuperação T2 só como candidata degradada audit-only para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` (policy-level, sem retry em runtime; reviewer high/critical, security, advisor, architect e papéis não-T2 seguem `REJECTED_DOWNGRADE_FORBIDDEN`). `openai/gpt-6-astra` somente com prova kernel-owned de falha funcional do Opus, mesma tarefa e papel admissível; `claude-agent/fable` permanece HOLD porque a prova atual é primária e não comprova falha específica do Astra. T4 não exige aprovação manual por chamada (decisão do usuário); gates de prova, capability e papel continuam.
+  - **Cadeia canônica de escalonamento (decisão 2026-11-10, issue #208):** o caminho
+    autorizado para prova é T3 `claude-agent/sonnet` → T4 `claude-agent/opus` →
+    `openai/gpt-6-astra` (excepcional, somente após prova T4 válida). `openai/gpt-6.1-sol`
+    é **candidato de mesmo tier T4**, não um degrau entre T3 e Astra; `claude-agent/fable`
+    permanece HOLD. A formulação histórica da issue #208 que interpõe Sol entre T3 e Astra não
+    altera esta política. A consistência entre `source/registry/model-routing-policy.json`
+    e este adapter é verificada por `scripts/test-package-consistency.ps1` (check 17);
+    mudar o baseline exige política, adapter e contrato de verificação na mesma decisão.
+    <!-- model-chain:canonical source=model-routing-policy.json -->
   - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`;
     `catalog_inventory_id` é proveniência do inventário, nunca mapeamento.
     IDs `claude-agent/sonnet|opus|haiku|fable` exibem nomes Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 no catálogo local, todos `released=0`, `cost=[]`; outros IDs versionados não provam mapeamento dos aliases curtos. Sem prova independente, não afirmar pin/versão executada; resposta Haiku não prova passagem para Sonnet/Opus.

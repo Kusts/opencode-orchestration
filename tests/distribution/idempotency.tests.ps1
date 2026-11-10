@@ -44,7 +44,7 @@ try {
   $s2 = Get-StateKey $ocDir
   Assert ($s1 -eq $s2) 'estado identico entre run1 e run2 (exceto backups/manifest timestamps)'
   # P9.1: idempotencia VISIVEL no plano — toda skill gerenciada deve SKIP.
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     Assert ($out2 -match ('\[SKIP\] skills/' + $s + '/ \(inalterado\)')) ('run2 [SKIP] skills/' + $s + '/')
   }
   Assert ($out2 -notmatch '\[UPDATE\] skills/') 'run2 sem [UPDATE] de skills'

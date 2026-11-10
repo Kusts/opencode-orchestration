@@ -11,7 +11,7 @@
       record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision; optional strategy/recovery fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -FailureClass -FailureDetail -RecoverySource -NewEvidenceRefs)
       verify        - Set-OrchestrationTaskVerification (UNTRUSTED caller JSON/file; persists verification_source=caller-supplied, never proof-capable)
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
-      review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision)
+      review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
@@ -62,6 +62,8 @@ param(
     [string]$ReviewKind = '',
     [string]$ReviewStatus = '',
     [string]$ReviewBy = '',
+    [string]$FindingsFile = '',
+    [string]$FindingsJson = '',
     [string]$Reason = '',
     [int]$ExpectedRevision = -1,
     [string[]]$ResidualRisks = @(),
@@ -432,8 +434,24 @@ switch ($action) {
             exit 2
         }
         Assert-TaskKernelRevision
+        if ((-not [string]::IsNullOrWhiteSpace($FindingsFile)) -and (-not [string]::IsNullOrWhiteSpace($FindingsJson))) {
+            Write-TaskKernelCliError 'review aceita -FindingsFile OU -FindingsJson, nunca ambos.'
+            exit 2
+        }
+        $reviewFindings = $FindingsJson
+        if (-not [string]::IsNullOrWhiteSpace($FindingsFile)) {
+            if (-not (Test-Path -LiteralPath $FindingsFile -PathType Leaf)) {
+                Write-TaskKernelCliError 'review: arquivo de findings nao encontrado.'
+                exit 2
+            }
+            try { $reviewFindings = [IO.File]::ReadAllText($FindingsFile, [Text.UTF8Encoding]::new($false)) }
+            catch {
+                Write-TaskKernelCliError 'review: falha ao ler o arquivo de findings.'
+                exit 2
+            }
+        }
         $result = Set-OrchestrationTaskReview -TaskId $TaskId -Kind $ReviewKind -Status $ReviewStatus -By $ReviewBy `
-            -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
+            -ExpectedRevision ([int]$ExpectedRevision) -FindingsJson $reviewFindings -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'block' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason)) {

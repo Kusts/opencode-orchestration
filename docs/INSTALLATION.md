@@ -57,7 +57,7 @@ Flags reais do `install.ps1`:
 | `-Runtime Auto\|V1\|V2\|Both` | Geração alvo. `Auto` (default) faz probe do `opencode` no PATH e falha fechado em ambiguidade; explícito sempre vence. `Both` cria perfis isolados (ver seção abaixo). |
 | `-RepoRoot <caminho>` | Instala a partir de outro diretório do pacote. |
 | `-TargetHome <perfil>` | Instala em outro perfil (padrão: `$env:USERPROFILE`). |
-| `-NoCoreSkills` | Pula as 5 skills-core em `~/.config/opencode/skills/`. |
+| `-NoCoreSkills` | Pula as 8 skills-core em `~/.config/opencode/skills/`. |
 | `-ProfileRoot`, `-BinaryV1`, `-BinaryV2`, `-ProvisionRuntime` | Controles do caminho `-Runtime Both` (detalhes na seção "Perfis isolados"). |
 
 ## O que cada fase faz

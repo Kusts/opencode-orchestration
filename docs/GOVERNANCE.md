@@ -53,7 +53,7 @@ Toda release atualiza o [CHANGELOG](../CHANGELOG.md) (Keep a Changelog).
 
 Uma versão só é publicada com, cumulativamente:
 
-1. **Suítes verdes**: 16 checks de consistência
+1. **Suítes verdes**: 17 checks de consistência
    (`scripts/test-package-consistency.ps1`), suítes V3
    (`scripts/v3/run-v3-tests.ps1`, incluindo as de `scripts/runtime/`) e
    13 suítes de distribuição
