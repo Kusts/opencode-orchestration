@@ -271,3 +271,8 @@ Lê `source/agents/*.md` + `source/registry/capability-policy.json` e
 escreve o registry em `cache/v3/` (`capability-registry.json`, ignorado pelo
 git; nunca toca alvos live). Sem esse cache, roteamento usa fallback determinístico.
 Flags em `source/registry/capability-flags.json` nascem todas `false`.
+
+
+## Integração das quatro metodologias de planejamento
+
+Consulte **[PLANNING-METHODS.md](PLANNING-METHODS.md)** para as quatro origens, links de instalação oficiais, comandos nativos opcionais, roteamento pelo Planner e estado de empacotamento automático. **Hoje Superpowers/Matt estão adaptados no bundle; BMAD/Addy ainda não vêm automaticamente**, dependência [#237](https://github.com/Kusts/opencode-orchestration/issues/237). O comando de instalação principal permanece `.\install.ps1 -Runtime V2`.
