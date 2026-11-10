@@ -6,7 +6,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **GH-WAKE settlement autonomo — ordem e wiring da espera duravel (issue #86, branch `fix/86-gh-wake-settlement`, sem merge)**:
+- **Continuidade por missao (issue #234) - fluxo ja coberto + fix real de lease no E2E**:
+  - Auditoria read-only confirmou `ALREADY_COVERED` no fluxo de missao: Task DONE/candidate_pass nunca conclui o Goal (o gate `Test-ObjectiveCompletionAllowed` exige `progress.satisfied >= total`), o controller nao tem estado de retorno ao usuario, `Invoke-OrchestrationDurableResume` escolhe a proxima Task nao-DONE e so retorna `complete` com criterios verificados, e `Invoke-OrchestrationSettledContinuation`/NativeDispatch reutilizam receipts sem duplicar efeitos.
+  - Bloqueio real encontrado e corrigido no caminho de prova de runtime: o lease de ownership (TTL default 60s) expirava durante o turno do worker, recusando o CAS de progresso com `owner-lease-expired`. `full-delivery-pilot-driver.ps1` agora renova (ou assume o proprio lease expirado) antes do primeiro turno longo e antes de cada CAS, mantendo owner/generation quando o lease esta vivo e sem enfraquecer o fencing do kernel.
+  - Evidencia: `OrchestrationFullDeliveryEtapa1Runtime.tests.ps1` com `FULL_DELIVERY_RUNTIME=1` passou 10/10 (duas Tasks dependentes, Goal COMPLETED por CAS, artefato B consome A, ordem A->B); deterministicas vizinhas: FullDeliveryEtapa1 25/25, AutonomousLoop 47/47, DurableResume 22/22, ObjectiveController 67 asserts, external-action-boundary 17/17, external-action-gate 30/30, AdvisorEscalation 28/28, DecisionWiring 28/28.
+- **GH-WAKE settlement autonomo - ordem e wiring da espera duravel (issue #86, branch `fix/86-gh-wake-settlement`, sem merge)**:
   - Directive do resume proibe concluir a Task no turno retomado (somente delega e retorna o resultado do worker); verificacao/revisao/DONE seguem pela continuacao existente apos o settlement. `task-terminal` nao relaxado; settlement exige prova nativa (nunca so declaracao textual).
   - Releitura limitada da prova nativa apos o run (no maximo 3 leituras read-only de snapshot+mensagens; sem sleep, sem reexecutar o worker) para eventual consistencia da API nativa.
   - Scheduler propaga `handoff_state_dir`/`receipt_dir`/`repo_root`/`evidence_store_dir` do config ate o tick (sem fallback ao cache da ferramenta); `Write-GHWakeTickOutFile` arquiva o tick anterior antes de escrever o atual.
