@@ -271,6 +271,10 @@ uma linha nesse registro; não criar arquivo ou relatório novo.
   `ATTACH/OBSERVE/NEW_TASK/IGNORE/ESCALATE` (11/11); transporte GH-WAKE,
   admissão versionada (#184) e ownership de follow-up (#185) pendentes.
   Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
+- M4 (#177/#77): gateway verificado, lição Markdown, receita determinística e
+  decisão de reuso (20/20); round-trip real no AI Memory MCP (write→read→delete).
+  Uso em segunda sessão e segunda execução da receita pendentes. Evidência em
+  `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
 - README e CHANGELOG atualizados.
 
 **Não entregue / não alegado:**
