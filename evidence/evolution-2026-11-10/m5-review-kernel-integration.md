@@ -65,11 +65,29 @@ O review aprovado **sobrescrevia** o review anterior com findings. Corrigido:
 (bounded em 20) e o teste de integração passou a exigir o anchor histórico
 (17/17).
 
-### Limites do E2E
+### DONE completo (prova adicional)
 
-- O gate de conclusão do Kernel exige uma Task criada com plano de verificação
-  e compliance de orquestração; provar o `DONE` completo exige um E2E próprio
-  com essa criação. O fluxo review→correção→aprovação está provado.
+Task `m5-done-proof6-20261110` (criada com `-VerifierProfiles criterion-smoke`
+e `-BaseRevision acc13b2`):
+
+1. `record-result candidate_pass` com `criterion:0` (revision 2);
+2. `verify-run` → `verified_pass`, `verification_source=kernel-executed`
+   (revision 3);
+3. `review approved` (revision 4);
+4. transições `PLANNING → IMPLEMENTING → VALIDATING → REVIEWING`;
+5. `complete` com `OrchestrationCompliance=COMPLIANT` → **state DONE**
+   (revision 9).
+
+Isso fecha o caminho `review approved → verify → DONE` que a Task descartável
+do E2E não conseguia completar por falta de plano de verificação.
+
+### Limites
+
 - Nenhuma duplicação de execução: cada worker foi registrado uma vez; o
   reviewer não foi gravado como worker result para não violar a independência.
+- O perfil `criterion-smoke` é um verificador determinístico de fumaça; não
+  substitui a suíte real do projeto.
+- O prompt padrão do reviewer ainda não emite o schema de findings; o E2E
+  usou instrução explícita.
+- Nenhuma flag, permissão, credencial ou produção foi alterada.
 
