@@ -107,6 +107,16 @@ try {
     $oAtt = @($o.execution_log.attempted_models)
     Assert-ME (([string]$o.status -ceq 'EXECUTED_VERIFIED')) '[ME13] snapshot => EXECUTED_VERIFIED' ([string]$o.status)
     Assert-ME ((($oAtt.Count -eq 1) -and ([string]$oAtt[0] -ceq [string]$o.subagent_model_param))) '[ME13] snapshot registra modelo efetivo exato uma vez' (($oAtt -join ',') + ' vs ' + [string]$o.subagent_model_param)
+    # 14. Issue #208 (item 5): falha ambigua sem prova NAO pode provocar
+    # execucao duplicada. O seam e single-call: exatamente uma invocacao,
+    # sem retry e sem segundo dispatch.
+    $script:me14Calls = 0
+    $execAmbiguous = { param($Model,$Agent,$TaskId) $script:me14Calls = $script:me14Calls + 1; return @{ FailureClass = 'TIMEOUT'; NoExecutionStarted = $false } }
+    $amb = Invoke-OrchestrationModelExecution -AgentName 'coder' -TaskId 't-ambiguous' -Risk 'low' -Complexity 'simple' -NativeModelOverrideProven $true -DispatchExecutor $execAmbiguous
+    Assert-ME (($script:me14Calls -eq 1)) '[ME14] timeout ambiguo => exatamente uma chamada ao seam' ([string]$script:me14Calls)
+    Assert-ME (([string]$amb.status -ceq 'PROOF_ABSENT')) '[ME14] timeout ambiguo => PROOF_ABSENT' ([string]$amb.status)
+    Assert-ME (([string]$amb.reason -ceq 'transport-failure-no-proof')) '[ME14] timeout ambiguo => transport-failure-no-proof' ([string]$amb.reason)
+    Assert-ME ((@($amb.execution_log.attempted_models).Count -eq 1)) '[ME14] timeout ambiguo => um unico modelo tentado' ([string](@($amb.execution_log.attempted_models).Count))
     Write-Host ''
     Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + ($script:passed + $script:failed) + ' passed (0 skipped)')
     Write-Host ('[SUMMARY] pass ' + $script:passed + ' fail ' + $script:failed)

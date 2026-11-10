@@ -114,10 +114,10 @@ histórica, sem efeito).
   da prova) → Planner informa `model` verbatim na propriedade `model` da
   ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
   → `task-kernel verify-run` → `model-attempt` → `model-proof`. A CLI nunca
-  cria sessões. Binding produtivo NOT_PROVEN (G1): não existe binding provado da saída `model-select` para a chamada nativa `subagent`, nem evento confiável de modelo executado correlacionado a TaskId + sessão filha + attempt + policy hash + recibo — nada neste documento implica que o Planner consuma a seleção automaticamente. O E2E real Luna→Haiku foi solicitado manualmente e vinculado/registrado após observação; prova atribuição e registro Kernel daquela execução, não roteamento produtivo automático. Prova do override `subagent.model` é só do servidor OpenCode
+  cria sessões. Binding produtivo PARTIAL (G1): as primitivas funcionam em runtime real (model-select, NativeDispatch com subagent.model, model-attempt, model-proof), mas a integração automática do fluxo completo (model-select → dispatch → attempt → proof → decisão) depende de comandos manuais do Planner e não está comprovada como automática. Evidência 2026-11-10: T3 dispatch real (subagente com model=claude-agent/sonnet retornou T3_DISPATCH_OK model=claude-sonnet-5-5); model-attempt registrado (attempt_n=1, model=claude-agent/sonnet, tier=T3, parent_session_id, message_id, policy_hash); model-proof verificou corretamente (PROOF_VERIFICATION_MISSING quando não há prova de falha). O fluxo manual das primitivas está comprovado; a integração automática produtiva ainda precisa ser demonstrada. Status: PARTIAL — primitivas validadas, integração automática pendente. Prova do override `subagent.model` é só do servidor OpenCode
   local vivo: `native_model_override_proven=true` somente quando a versão
   viva de `opencode api get /api/info` está exatamente na allowlist
-  `2.2.5`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
+  `2.2.5`/`2.2.6`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
   metadados de observabilidade informados pelo caller e nunca autorizam;
   API viva desconhecida/indisponível falha fechada com `model` em branco.
   Suposição residual: o `/api/info` local alcança o mesmo servidor que
