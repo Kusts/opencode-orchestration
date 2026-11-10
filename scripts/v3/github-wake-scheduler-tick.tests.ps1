@@ -217,10 +217,12 @@ $script:apiMock = {
 }
 $script:runCalls = 0
 $script:runSid = ''
+$script:runPrompt = ''
 $script:runMock = {
     param($spec)
     $script:runCalls++
     try { $script:runSid = ([string](Get-TXField $spec 'session_id' '')) } catch { $script:runSid = '' }
+    try { $script:runPrompt = ([string](Get-TXField $spec 'prompt' '')) } catch { $script:runPrompt = '' }
     $body = ('{"sessionId":"' + $script:runSid + '","role":"assistant","type":"text"}')
     return [pscustomobject]@{ exit = 0; stdout = $body; stderr = ''; timedOut = $false }
 }
@@ -252,7 +254,7 @@ function Set-TXProof {
     $script:apiMsgs = @(New-TXToolMsg -MsgId 'msg-tick-1' -MsgCreated $script:FUTUREMS -CallId 'call-tick-1' -ChildId $ChildId -Nx $Case.nx)
 }
 function Reset-TXSeams {
-    $script:runCalls = 0; $script:runSid = ''; $script:apiCalls = 0; $script:apiLists = 0
+    $script:runCalls = 0; $script:runSid = ''; $script:runPrompt = ''; $script:apiCalls = 0; $script:apiLists = 0
     $script:apiPre = @(); $script:apiPost = @(); $script:apiMsgs = @()
 }
 function Invoke-TXTick {
@@ -302,6 +304,15 @@ Assert-That (([string]$script:runSid) -ceq $script:ROOT) 'B4 run used recovered 
 Assert-That ([int]$script:runCalls -eq 1) 'B4 exactly one executor call'
 Assert-That ((-not [bool](Get-TXField $ad4 'dispatched' $true)) -and (-not [bool](Get-TXField $ad4 'executed' $true))) 'B4 zero productive effect'
 Assert-That (([string](Get-TXField $ad4 'reason' '')) -ceq 'auto-worker-non-native') 'B4 injected seams stay non-native'
+# Corrected path proof (issue #86): tick/scheduler executes updated auto-dispatch
+# with New-GHWADTaskPrompt + Get-GHWADWorkerDirective in the real prompt (no legacy ID-only path).
+Assert-That ($script:runPrompt.Contains('Task objective: obj tick-task-b4')) 'B4 real prompt carries task objective (New-GHWADTaskPrompt)'
+Assert-That ($script:runPrompt.Contains('read_scopes:')) 'B4 real prompt carries read_scopes'
+Assert-That ($script:runPrompt.Contains('criterion:0')) 'B4 real prompt carries acceptance criteria'
+Assert-That ($script:runPrompt.Contains('ghw-op goal=')) 'B4 real prompt carries operation marker'
+Assert-That ($script:runPrompt.Contains('Delegate via the native subagent tool')) 'B4 real prompt carries worker directive (Get-GHWADWorkerDirective)'
+Assert-That ($script:runPrompt.Contains('after settlement')) 'B4 real prompt defers to settlement'
+Assert-That (-not [string]::IsNullOrWhiteSpace($script:runPrompt)) 'B4 real prompt non-empty (not legacy empty/ID-only)'
 $case4.wake | Add-Member -NotePropertyName 'auto_dispatch' -NotePropertyValue $ad4 -Force
 Assert-That (([string](Get-TXField (Get-TXField $case4.wake 'auto_dispatch' $null) 'resume_session_id' '')) -ceq $script:ROOT) 'B4 wake envelope carries auto_dispatch'
 # --- B5: enabled tick, absent binding stays refused with zero effect ---
