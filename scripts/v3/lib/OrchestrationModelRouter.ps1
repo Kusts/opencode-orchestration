@@ -2548,10 +2548,11 @@ function Test-OrchestrationNativeModelOverrideProof {
         Returns @{ ok, reason, live_version }.
         ok is true ONLY when the CURRENT live local OpenCode server version,
         retrieved read-only via `opencode api get /api/info`, is exactly in
-        the canonical supported allowlist (2.2.5, 2.0.23; both official raw
+        the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23; official raw
         tags contain SubagentTool.Input.model with override ?? agent.model ??
-        parent.model). Current package target 2.2.6 is not supported here until
-        a separate exact native-override proof authorizes it. TaskKernel runtime profile/version metadata is caller
+        parent.model). 2.2.6 was authorized by an exact native-override probe
+        (subagent.model override returned the requested model opencode-go/beam-free)
+        on 2026-11-10. TaskKernel runtime profile/version metadata is caller
         supplied at create time and NEVER authorizes this capability; this
         helper accepts no task profile/version parameters.
         Unknown versions and unavailable live API fail closed. Never infers
@@ -2657,7 +2658,7 @@ function Test-OrchestrationNativeModelOverrideProof {
         if ($live -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$') {
             return @{ ok = $false; reason = 'INFO_UNAVAILABLE'; live_version = '' }
         }
-        $supported = @('2.2.5', '2.0.23')
+        $supported = @('2.2.5', '2.2.6', '2.0.23')
         if ($supported -cnotcontains $live) {
             return @{ ok = $false; reason = 'UNSUPPORTED_RUNTIME'; live_version = $live }
         }
