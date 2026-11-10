@@ -59,6 +59,24 @@ $gen = [long]$ctx.generation
 $ph = Get-NativeDispatchHash32 'fd-pilot-prompt-material'
 $baseRev = 'rev-pilot'
 
+# Durability (#234): the default ownership lease (60s) expires while the
+# worker turn (`opencode run`) is still executing, so the progress CAS is
+# refused with `owner-lease-expired`. Renew/take over before the long turn
+# and before every CAS, keeping the same owner and generation whenever the
+# lease is still live. Renewal is caller responsibility; fencing stays in
+# the kernel (never weaken the commit gate).
+function Ensure-GoalLease {
+    param([long]$TtlMs = 1800000)
+    $r = Renew-OrchestrationGoalOwnership -GoalId $goalId -OwnerId $owner -Generation $script:gen -StoreDir $goalDir -LeaseTtlMs $TtlMs
+    if ([bool]$r.ok) { $script:gen = [long]$r.ownership['generation']; return $true }
+    if ([string]$r.reason -ceq 'owner-lease-expired') {
+        $t = Takeover-OrchestrationGoalOwnership -GoalId $goalId -OwnerId $owner -StoreDir $goalDir -LeaseTtlMs $TtlMs
+        if ([bool]$t.ok) { $script:gen = [long]$t.ownership['generation']; return $true }
+        throw ('goal-lease-takeover-failed: ' + [string]$t.reason)
+    }
+    throw ('goal-lease-renew-failed: ' + [string]$r.reason)
+}
+
 # Logging
 $log = New-Object System.Collections.ArrayList
 function Log { param([string]$m); [void]$log.Add((Get-Date).ToString('o') + ' ' + $m); Write-Host $m }
@@ -323,6 +341,7 @@ function Get-DoneCount {
 
 function Sync-GoalProgress {
     param([string[]]$Mandatory = @(), [int]$Total = 2)
+    $null = Ensure-GoalLease
     $dc = Get-DoneCount -Mandatory $Mandatory
     $cnt = [int]$dc.count
     $liveG = (Get-OrchestrationGoal -GoalId $goalId -StoreDir $goalDir).goal
@@ -340,6 +359,9 @@ function Sync-GoalProgress {
 }
 
 $mandatory = @('fd-task-a','fd-task-b')
+
+# Renew before the first long worker turn (default 60s TTL expires inside it).
+$null = Ensure-GoalLease
 
 # --- Task A: full canonical chain ---
 Log '=== TASK A ==='
@@ -392,7 +414,7 @@ $null = Sync-GoalProgress -Mandatory $mandatory -Total 2
 $dcFinal = Get-DoneCount -Mandatory $mandatory
 if ((@($dcFinal.ids).Count -eq 2) -and ($dcFinal.ids -contains 'fd-task-a') -and ($dcFinal.ids -contains 'fd-task-b')) {
     Log 'COMPLETING GOAL via CAS...'
-    $renew = Renew-OrchestrationGoalOwnership -GoalId $goalId -OwnerId $owner -Generation $gen -StoreDir $goalDir -LeaseTtlMs 120000
+    $null = Ensure-GoalLease -TtlMs 120000
     $finalSlot2 = & powershell -NoProfile -Command ". '$PSScriptRoot\lib\OrchestrationGoalKernel.ps1'; (Get-OrchestrationGoal -GoalId '$goalId' -StoreDir '$goalDir').goal | ConvertTo-Json -Depth 8 -Compress" 2>&1
     $final2 = ($finalSlot2 | Select-Object -Last 1) | ConvertFrom-Json
     $liveRev = [long]$final2.revision
