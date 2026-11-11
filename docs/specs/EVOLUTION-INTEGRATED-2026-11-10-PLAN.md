@@ -275,6 +275,10 @@ uma linha nesse registro; não criar arquivo ou relatório novo.
   decisão de reuso (20/20); round-trip real no AI Memory MCP (write→read→delete).
   Uso em segunda sessão e segunda execução da receita pendentes. Evidência em
   `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
+- M6 (#183/#185): intake CLI com dedup durável (8/8) e prova com comentário
+  real do GitHub (`issue:6`) roteado `ATTACH` e deduplicado; criação/
+  encaminhamento de Task real e wiring GH-WAKE pendentes. Evidência em
+  `evidence/evolution-2026-11-10/m6-event-correlation.md`.
 - README e CHANGELOG atualizados.
 
 **Não entregue / não alegado:**

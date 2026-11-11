@@ -18,6 +18,18 @@ function Get-OrchestrationEventHash {
     finally { $sha.Dispose() }
 }
 
+function Get-OrchestrationEventField {
+    param($Node, [string]$Name)
+    if ($null -eq $Node) { return $null }
+    if ($Node -is [System.Collections.IDictionary]) {
+        if ($Node.Contains($Name)) { return $Node[$Name] }
+        return $null
+    }
+    $p = $Node.PSObject.Properties[$Name]
+    if ($null -eq $p) { return $null }
+    return $p.Value
+}
+
 function New-OrchestrationEventEnvelope {
     [CmdletBinding()]
     param(
@@ -90,10 +102,10 @@ function Resolve-OrchestrationEventRoute {
         $matches = @()
         foreach ($r in @($TaskRoutes)) {
             if ($null -eq $r) { continue }
-            if ([string]$r['thread'] -cne $thread) { continue }
-            $state = ([string]$r['state']).Trim().ToUpperInvariant()
+            if ([string](Get-OrchestrationEventField -Node $r -Name 'thread') -cne $thread) { continue }
+            $state = ([string](Get-OrchestrationEventField -Node $r -Name 'state')).Trim().ToUpperInvariant()
             if ($state -in @('DONE', 'CANCELLED', 'FAILED')) { continue }
-            $tid = ([string]$r['task_id']).Trim()
+            $tid = ([string](Get-OrchestrationEventField -Node $r -Name 'task_id')).Trim()
             if ([string]::IsNullOrWhiteSpace($tid)) { continue }
             $matches += $tid
         }

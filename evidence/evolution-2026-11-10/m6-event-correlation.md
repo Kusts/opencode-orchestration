@@ -29,14 +29,26 @@ que comentário informativo não crie Task. A decisão pura acima resolve os doi
 pontos sem criar transporte, polling ou segundo Planner. GH-WAKE e o Kernel
 continuam donos da execução e do estado.
 
+## Intake CLI e prova real (2026-11-10)
+
+`scripts/v3/event-intake.ps1` é a camada fina sobre a lib: valida envelope,
+lê rotas, aplica dedup com ledger limitado e, com `-Record`, grava a chave de
+entrega. Não cria Task nem dispara worker.
+
+Prova com um comentário **real** do GitHub (read-only):
+
+- issue `#6`, comment `5993719807`, thread `issue:6`;
+- rota sintética `task-e2e-event` (estado `IMPLEMENTING`);
+- 1ª execução: `ATTACH`, `task_id=task-e2e-event`, `recorded=true`;
+- 2ª execução: `IGNORE`, `reason=duplicate-delivery`, sem duplicar.
+
+Testes: `OrchestrationEventIntake.tests.ps1` — 8/8 PASS (ATTACH, dedup,
+informativo, OBSERVE, NEW_TASK, fonte inválida, entradas ambíguas).
+
 ## Limites
 
-- Não há wiring com GitHub webhooks/GH-WAKE nesta rodada; a lib é a camada de
-  decisão.
-- Admissão proativa (#184) ainda não tem regras versionadas; o parâmetro
-  `AdmissionEnabled` é a costura, desligado por padrão.
-- Ownership de conversa e handback (#185) ainda não persistem no Kernel; o
-  `ATTACH` é o primeiro passo.
-- Agent Teams (#2) dependem de #143 (coberto) e #183 (esta fatia) antes de
-  qualquer múltipla sessão.
+- O destino do `ATTACH` na prova real é uma rota sintética; ainda não há
+  criação/encaminhamento de uma Task real do Kernel a partir do evento.
+- Não há wiring com webhook/GH-WAKE; a intake é chamada explicitamente.
+- Admissão proativa (#184) e ownership/handback (#185) continuam pendentes.
 - Nenhuma flag, permissão, credencial ou produção foi alterada.

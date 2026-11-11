@@ -120,7 +120,7 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #103 | M5 | PARCIAL | decisão local/replan/escalate (13/13) usada pelo Planner no E2E, mesma Task; consulta automática no retry pendente | Consultar no caminho de retry |
 | #192 | M5 | ABERTO | nenhuma medição Single/Cascade/Critique | Comparar em cenários representativos |
 | #2 | M6 | ABERTO | Agent Teams não implementado; sessões nativas provadas (#143) | Depende de #143/#183 |
-| #183 | M6 | PARCIAL | envelope + dedup + roteamento ATTACH/OBSERVE/ESCALATE (11/11); transporte/Kernel pendentes | Wiring GH-WAKE → Kernel |
+| #183 | M6 | PARCIAL | envelope/dedup/roteamento (11/11) + intake CLI (8/8) + comentário real GitHub `issue:6` roteado `ATTACH` e deduplicado; falta criar/encaminhar Task real | Wiring GH-WAKE → Kernel |
 | #184 | M6 | ABERTO | admissão proativa sem regras versionadas; costura `AdmissionEnabled` existe | Regras observe→auto |
 | #185 | M6 | ABERTO | follow-up por Task não persistido; `ATTACH` é o primeiro passo | Ownership/handback no Kernel |
 | #205 | M7 | HOLD | T3 Code não avaliado; piloto exige produto/credenciais e projeto descartável | Executar piloto read-only → ação controlada |
