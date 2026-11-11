@@ -302,6 +302,11 @@ ok(
   "M5 V2 planner: repair decision wired to retry choices",
 );
 ok(
+  /evidence-virtualize\.ps1/.test(v2PlannerText) &&
+    /cache-metrics\.ps1/.test(v2PlannerText),
+  "M4 V2 planner: evidence virtualization and cache metrics wired",
+);
+ok(
   !/executed directly by you/i.test(v2PlannerText) &&
     !/one micro-fix/i.test(v2PlannerText) &&
     !/No preflight, worker, Kernel task/i.test(v2PlannerText),

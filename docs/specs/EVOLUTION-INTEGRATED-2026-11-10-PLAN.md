@@ -360,7 +360,24 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
   parâmetros, fronteiras de finding_id/file/line/commit, line fracionária,
   nomes derivados).
 
-**Achado M6 (2026-11-11):** o tick do GH-WAKE produz `github-wake-v1` +
+**P0.6 executado em 2026-11-11:** sessão OpenCode descartável
+`ses_e33ea8cdcffeiZrUtkt0puBPS3` criada por `opencode run`; processo encerrado e
+retomado com `opencode run --session`, recuperando o token exato da primeira
+mensagem (input 108, cache read 47.744) sem repetir a tarefa. Goal
+`p0-autonomy-session-20261111` `COMPLETED` (rev 13). Evidência em
+`p0-autonomy/session-resume/`.
+
+**#12/#11 e M3 (2026-11-11):** CLIs `evidence-virtualize.ps1` (7/7;
+109.209 bytes → preview 2.000; recall com SHA) e `cache-metrics.ps1`
+(amostras reais, custo `UNKNOWN`) integradas ao mandato. #140 provado com
+`POST/GET/DELETE /api/worktree`; #203 provado em leitura com
+`ssh contabo-prod "uname -a; docker ps"`. M7/#205 permanece HOLD.
+
+**M3 fechado em 2026-11-11:** #140 provado com `POST/GET/DELETE /api/worktree`
+(worktree descartável criado, usado e removido; nenhum existente tocado).
+#203 provado em leitura: `ssh contabo-prod "uname -a; docker ps"` a partir do
+PC (Linux + 5 containers), sem mutação. #139 já estava coberto. M7/#205 segue
+HOLD (produto/credenciais externos).
 `next_action` (CI/wait), não o envelope `source/trigger/thread/delivery_id`
 consumido pelo bridge. **Decisão do orientador (opção b):** GH-WAKE permanece
 retomada/readiness; o envelope pertence ao event-intake/bridge, cujo produtor

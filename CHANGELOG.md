@@ -6,6 +6,21 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **P0.6 + #12/#11 + M3 (2026-11-11)**:
+  - P0.6: `opencode run --session` retomou uma sessão descartável
+    (`ses_e33ea8cdcffeiZrUtkt0puBPS3`) em processo novo e recuperou o token da
+    primeira mensagem (input 108, cache read 47.744), sem repetir a tarefa;
+    Goal `p0-autonomy-session-20261111` COMPLETED (rev 13).
+  - #12/#11: `scripts/v3/evidence-virtualize.ps1` (store/recall com SHA e
+    preview; 109.209 bytes → 2.000, 7/7) e `scripts/v3/cache-metrics.ps1`
+    (métricas observadas; custo UNKNOWN), com regra no mandato V2; harness V2
+    248/0; plugin-dual-runtime 20/20; typecheck PASS.
+  - M3: #140 provado com `POST/GET/DELETE /api/worktree` (worktree descartável
+    criado, usado e removido; lista 42→0 do probe, sem tocar existentes).
+    #203 provado em leitura com `ssh contabo-prod "uname -a; docker ps"`
+    (Linux 7.0.0-42-generic, 5 containers; sem mutação).
+  - M7/#205 permanece HOLD por produto/credenciais externos.
+
 - **P0.5 - Missão real com Goal de 3 Tasks (2026-11-11)**:
   - Goal `p0-autonomy-20261111` (GoalKernel) conduzido pelo Planner: T1 delegada
     ao coder (teste 3/0); T2 falhou de forma real (`3/1`, aceite `2*3=7` vs `6`),

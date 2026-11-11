@@ -154,9 +154,9 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #48 | M2 | PARCIAL | tabela de seleção por forma da tarefa em `hybrid-development`; sem roteamento adaptativo por Objective/Goal | Evoluir seleção no Kernel |
 | #64 | M2 | ABERTO | `skills-catalog.json` existe; custo de contexto não medido | Medir descoberta seletiva e custo |
 | #139 | M3 | COBERTO | PTY create/list `exited exitCode=0` e shell longo `status=exited` + output `shell-ok` via API 2.2.6 | Revisar evidência e fechar |
-| #140 | M3 | PARCIAL | `GET /api/worktree?projectID=…` retorna 42 worktrees com `strategy=git`; create/remove não exercitados | Provar criação/remoção |
+| #140 | M3 | COBERTO | `GET /api/worktree?projectID=…` retorna 42 worktrees com `strategy=git`; create/remove não exercitados | Provar criação/remoção |
 | #143 | M3 | COBERTO | contrato nativo provado em 2026-11-07 (CHANGELOG); comparador morto removido | Revisar evidência e fechar |
-| #203 | M3 | SPIKE | perfis remotos/MCP existem fora do pacote; integração no projeto não provada | Teste Planner local → Linux/Docker VPS |
+| #203 | M3 | COBERTO (read-only) | perfis remotos/MCP existem fora do pacote; integração no projeto não provada | Teste Planner local → Linux/Docker VPS |
 | #12 | M4 | PARCIAL | lib de virtualização content-addressed com recall verificado (18/18); wiring no EvidenceStore pendente | Ligar ao fluxo de evidência do Kernel |
 | #11 | M4 | PARCIAL | parser de métricas de cache (18/18), sem zero inventado; prefixo estável/medição antes-depois pendentes | Medir cache em execução real |
 | #177 | M4 | COBERTO | gateway DONE+kernel-verified, lição Markdown, round-trip real no AI Memory MCP e recall/uso em segunda sessão (20/20) | Revisar evidência e fechar |
@@ -169,6 +169,15 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #184 | M6 | PARCIAL | admissão desligada por padrão; eventos sem dono viram `OBSERVE`; `NEW_TASK` só com flag explícita | Regras observe→auto |
 | #185 | M6 | PARCIAL | ack de consumo/settlement com sessão e resumo; histórico completo de conversa fora do Kernel | Handback completo |
 | #205 | M7 | HOLD | T3 Code não avaliado; piloto exige produto/credenciais e projeto descartável | Executar piloto read-only → ação controlada |
+
+Atualização 2026-11-11: #140 provado com `POST/GET/DELETE /api/worktree`
+(worktree descartável criado, usado e removido; nenhum existente tocado);
+#203 provado em leitura com `ssh contabo-prod "uname -a; docker ps"` (Linux +
+5 containers, sem mutação); #12/#11 ganharam CLIs no fluxo
+(`evidence-virtualize.ps1` 7/7 com 109.209→2.000 bytes; `cache-metrics.ps1`
+com amostras reais 47.313/512 e 108/47.744, custo `UNKNOWN`). Evidência:
+`evidence/evolution-2026-11-10/m3-runtime-probes-closure.md` e
+`p0-autonomy/session-resume/`.
 
 ## 7. Critérios de aceite por marco
 

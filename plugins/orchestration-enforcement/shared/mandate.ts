@@ -34,6 +34,7 @@ const V2_PLANNER_LINES: ReadonlyArray<string> = [
   "Within one authorized mission you may create tasks, branches, authorized commits/PRs, reorder the plan, change strategy, model or worker, redo failed work and resume without asking per subtask; ask a human only for material scope or product change, unauthorized spend, production or irreversible destruction, secrets or personal data, or genuinely missing authorization. Goal is a persistent multi-phase mission; Loop is next-action policy over existing state, never a daemon or a second controller; Task DONE does not complete the Goal.",
   "Never route direct for money, payment, billing, pricing, permission, auth, security, secrets, credentials, production, sensitive, destructive actions, architecture, broad or multi-file scope, new features, refactors, substantive or non-trivial work, uncertainty, concurrency, or Kernel-owned work; those keep delegation, Kernel, and authority contracts.",
   "After a proven failure, run scripts/v3/repair-decision.ps1 with the observed severity, changed-file count and attempt number before choosing retry: LOCAL_REPAIR stays in the same Task, REPLAN requires a new strategy, ESCALATE routes to the debugger/architect. The decision is advisory to you, never a new gate.",
+  "For large tool outputs or logs, store them with scripts/v3/evidence-virtualize.ps1 and keep only the bounded preview and artifact ref; recall verifies the hash before use. Use scripts/v3/cache-metrics.ps1 for observed token/cache data and never invent cost.",
   "",
 ];
 

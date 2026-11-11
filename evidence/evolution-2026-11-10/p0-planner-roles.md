@@ -56,18 +56,17 @@ de edição.
 
 ## 4. Autonomia longa (P0.5)
 
-**Provado (determinístico, mesmo processo):** GoalKernel com Tasks, Loop
-(`Get-OrchestrationGoalNextMove`), continuação por `SettledKey`, bloqueio de
-`CONTINUE` sem verificação, review `changes_required` bloqueando DONE,
-re-execução automática após correção, retomada por `DurableResume` e regra
-Task DONE ≠ Goal DONE.
+**Provado:** ver `p0-autonomy/p0-5-mission.md`. Goal `p0-autonomy-20261111`
+concluído (rev 16) com 3 Tasks, falha real na T2, `LOCAL_REPAIR`, retomada por
+processo novo, validação independente na T3 e `complete` recusado antes dela.
+0 intervenções humanas; 4 dispatches; ~2m30s; tokens `UNKNOWN`.
 
-**Não alegado (perna faltante):** uma missão contínua de 3 Tasks com modelo
-vivo, falha real e replan dentro de um único Goal, sem intervenção humana, não
-foi executada nesta rodada. Motivo concreto: o Planner LLM é o único ponto de
-efeito externo e não pode ser dirigido por script; provar isso exige uma sessão
-interativa multi-turn com provider vivo, e um daemon/scheduler é proibido pelo
-escopo. O harness determinístico cobre o mecanismo, não o transporte multi-turn.
+**P0.6:** retomada real de sessão OpenCode (`opencode run --session`) em
+sessão descartável, com contexto recuperado e cache read 47.744; ver
+`p0-autonomy/session-resume/`.
+
+**Limite residual:** a sessão do Planner não foi encerrada; a prova usa uma
+sessão descartável e o mecanismo nativo, sem novo controlador.
 
 ## 5. Baseline P0.6
 
