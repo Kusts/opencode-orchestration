@@ -6,6 +6,19 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **P0.5 - Missão real com Goal de 3 Tasks (2026-11-11)**:
+  - Goal `p0-autonomy-20261111` (GoalKernel) conduzido pelo Planner: T1 delegada
+    ao coder (teste 3/0); T2 falhou de forma real (`3/1`, aceite `2*3=7` vs `6`),
+    `repair-decision` retornou `LOCAL_REPAIR`, o Planner mudou a estratégia
+    (defeito na expectativa), o coder reparou e o teste passou (4/0); estado
+    recarregado por processo novo (`resume`, rev 12); T3 validada por tester
+    independente (3/0 e 4/0); `complete` recusado com T1+T2 e Goal `COMPLETED`
+    (rev 16) só após T3. 0 intervenções humanas; 4 dispatches; ~2m30s;
+    tokens `UNKNOWN`. Interrupção de processo/sessão de worker, não reinício do
+    OpenCode. Evidência em `evidence/evolution-2026-11-10/p0-autonomy/`.
+  - `scripts/v3/p0-autonomy-proof.ps1` + testes (14/14 PS5.1+PS7) gerenciam só
+    estado do GoalKernel; sem scheduler/controlador.
+
 - **Decisão #183 (b) + wiring #200/#103 no fluxo real - 2026-11-11**:
   - #183: GH-WAKE permanece retomada/readiness; o envelope `source/trigger/
     thread/delivery_id` pertence ao event-intake/bridge, com produtor real

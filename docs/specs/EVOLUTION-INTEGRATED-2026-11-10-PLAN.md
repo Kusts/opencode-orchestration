@@ -127,11 +127,11 @@ emitir `DIRECT_VERIFIED` para escrita e usar o ramo `SINGLE_WORKER` já existent
 
 | Métrica | Antes (baseline documentado) | Depois |
 |---|---|---|
-| DONE correto | M5 `m5-done-proof6` (kernel-executed) | medir nas Tasks P0 |
-| Intervenções humanas por missão | 1 por checkpoint (pausa 2026-11-11) | 0 em subtarefas cobertas |
-| Tempo até DONE | não medido de forma comparável | registrar início/fim por Task |
-| Tokens/custo por DONE | `model_attempts` e cache metrics existentes | registrar por Task |
-| Retrabalho / retomadas | E2E M5 (2 findings, 1 rodada) | registrar replans e retomadas |
+| DONE correto | M5 `m5-done-proof6` (kernel-executed) | Goal `p0-autonomy-20261111` `COMPLETED` rev 16 com 3/3 Tasks; `complete` recusado antes de T3 |
+| Intervenções humanas por missão | 1 por checkpoint (pausa 2026-11-11) | 0 dentro da missão P0.5 |
+| Tempo até DONE | não medido de forma comparável | ~2m30s para as 3 Tasks (Goal 18:29:28Z→18:31:58Z); harness à parte |
+| Tokens/custo por DONE | `model_attempts` e cache metrics existentes | `UNKNOWN` (4 dispatches de worker; nenhum token inventado) |
+| Retrabalho / retomadas | E2E M5 (2 findings, 1 rodada) | 1 falha real (teste `3/1`) + 1 `LOCAL_REPAIR`; retomada por processo novo (rev 12) |
 
 Nenhum valor é inventado: sem medição, `UNKNOWN`.
 
@@ -383,11 +383,19 @@ documentada, integração automática externa pendente.
   alinhadas ao contrato de papéis, à rota
   por mutação e ao contrato Goal/Loop.
 
-**Pendente em P0:** P0.4/P0.5 com uma missão contínua de 3 Tasks em modelo vivo
-(a perna determinística está provada; o transporte multi-turn exige sessão
-interativa e não foi executado — ver
-`evidence/evolution-2026-11-10/p0-planner-roles.md` §4) e P0.6 com tempo/tokens
-medidos. Evidência da fatia em `p0-planner-roles.md`.
+**Pendente em P0:** P0.6 com tempo/tokens medidos além da amostra P0.5. Evidência
+da fatia em `p0-planner-roles.md`; a missão real está em
+`p0-autonomy/p0-5-mission.md`.
+
+**P0.5 executado em 2026-11-11:** Goal `p0-autonomy-20261111` com 3 Tasks
+dependentes, delegadas a coder/tester. T2 falhou de forma real (`3/1`,
+`2*3=7` vs `6`); `repair-decision` retornou `LOCAL_REPAIR`; o Planner mudou a
+estratégia (defeito na expectativa de aceite), o coder corrigiu e o teste
+passou (`4/0`). O estado foi recarregado por processo novo (`resume`, rev 12),
+`complete` foi recusado com T1+T2 e o Goal concluiu `COMPLETED` (rev 16) só
+após a validação independente de T3. 0 intervenções humanas; 4 dispatches;
+~2m30s; tokens `UNKNOWN`. A interrupção foi de processo/sessão de worker, não
+reinício do OpenCode.
 
 **Registro da pausa anterior (preservado):**
 
