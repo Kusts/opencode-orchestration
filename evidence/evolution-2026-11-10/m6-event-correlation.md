@@ -45,10 +45,27 @@ Prova com um comentário **real** do GitHub (read-only):
 Testes: `OrchestrationEventIntake.tests.ps1` — 8/8 PASS (ATTACH, dedup,
 informativo, OBSERVE, NEW_TASK, fonte inválida, entradas ambíguas).
 
+## Entrega em Task real (event-attach)
+
+`task-kernel.ps1 -Action event-attach` adiciona `Add-OrchestrationTaskEvent`
+ao Kernel: valida o envelope, grava em `event_inbox` (bounded 50), deduplica
+por `dedup_key` e respeita CAS/estado terminal.
+
+Prova com a Task real `m6-event-proof-20261110`:
+
+- 1ª entrega: revision 2, `duplicate=false`, thread `issue:6`, delivery
+  `comment-5993719807`;
+- 2ª entrega: `duplicate=true`, revision permanece 2;
+- leitura da Task: `event_inbox` com **1** evento.
+
+Isso prova que um evento real do GitHub chega uma única vez à Task correta,
+sem duplicar estado. O dispatch/follow-up ao worker ainda é decisão do Planner.
+
 ## Limites
 
-- O destino do `ATTACH` na prova real é uma rota sintética; ainda não há
-  criação/encaminhamento de uma Task real do Kernel a partir do evento.
-- Não há wiring com webhook/GH-WAKE; a intake é chamada explicitamente.
+- O destino do `ATTACH` na prova real é uma rota sintética; a entrega na Task
+  real foi provada com `event-attach`, mas a criação automática da Task e o
+  follow-up ao worker ainda não estão ligados ao GH-WAKE.
+- Não há wiring com webhook; a intake é chamada explicitamente.
 - Admissão proativa (#184) e ownership/handback (#185) continuam pendentes.
 - Nenhuma flag, permissão, credencial ou produção foi alterada.

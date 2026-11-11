@@ -2811,6 +2811,88 @@ function ConvertTo-TaskKernelReviewFindings {
     catch { return @{ ok = $false; findings = @(); error = 'REVIEW_FINDINGS_INVALID' } }
 }
 
+function Add-OrchestrationTaskEvent {
+    <#
+    .SYNOPSIS
+        Delivers one validated GitHub event to a Task inbox (claim-once).
+    .DESCRIPTION
+        Persists the event under `event_inbox` with a bounded history (50) and
+        idempotent dedup by `dedup_key`. Terminal tasks are immutable; CAS and
+        path confinement are enforced. It never creates a Task, dispatches a
+        worker or changes authority. Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$EnvelopeJson,
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED') }
+        $lib = Join-Path $PSScriptRoot 'OrchestrationEventCorrelation.ps1'
+        if (-not (Test-Path -LiteralPath $lib -PathType Leaf)) { return (New-TaskKernelError -Code 'EVENT_LIB_MISSING') }
+        . $lib
+        $doc = $null
+        try { $doc = ($EnvelopeJson | ConvertFrom-Json) } catch { return (New-TaskKernelError -Code 'EVENT_INVALID_JSON') }
+        $ev = New-OrchestrationEventEnvelope -Source ([string](Get-TaskKernelNodeField -Object $doc -Name 'source')) `
+            -Trigger ([string](Get-TaskKernelNodeField -Object $doc -Name 'trigger')) `
+            -Thread ([string](Get-TaskKernelNodeField -Object $doc -Name 'thread')) `
+            -DeliveryId ([string](Get-TaskKernelNodeField -Object $doc -Name 'delivery_id')) `
+            -Repo ([string](Get-TaskKernelNodeField -Object $doc -Name 'repo')) `
+            -InformationalOnly ([bool](Get-TaskKernelNodeField -Object $doc -Name 'informational_only')) `
+            -Summary ([string](Get-TaskKernelNodeField -Object $doc -Name 'summary'))
+        if (-not [bool]$ev.ok) { return (New-TaskKernelError -Code ([string]$ev.error)) }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) { return (New-TaskKernelError -Code 'LOCK_TIMEOUT') }
+        try {
+            $slot = Read-TaskKernelRecord -TaskFile $taskFile
+            if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec = $slot.record
+            if ([int]$rec['revision'] -ne [int]$ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+                return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+            }
+            if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) { return (New-TaskKernelError -Code 'PATH_NOT_CONFINED') }
+            $inbox = @()
+            try { if ($null -ne $rec['event_inbox']) { $inbox = @($rec['event_inbox']) } } catch { $inbox = @() }
+            foreach ($existing in $inbox) {
+                if ([string](Get-TaskKernelNodeField -Object $existing -Name 'dedup_key') -ceq [string]$ev.dedup_key) {
+                    return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = [int]$rec['revision']; duplicate = $true; dedup_key = [string]$ev.dedup_key }
+                }
+            }
+            $entry = [ordered]@{
+                dedup_key   = [string]$ev.dedup_key
+                source      = [string]$ev.source
+                trigger     = [string]$ev.trigger
+                thread      = [string]$ev.thread
+                delivery_id = [string]$ev.delivery_id
+                repo        = [string]$ev.repo
+                informational_only = [bool]$ev.informational_only
+                summary     = Protect-TaskKernelText -Text ([string]$ev.summary)
+                at          = (Get-TaskKernelTimestamp)
+            }
+            $inbox += $entry
+            $inbox = @($inbox | Select-Object -Last 50)
+            $rec['event_inbox'] = @($inbox)
+            $rec['revision'] = [int]$rec['revision'] + 1
+            $rec['updated_at'] = (Get-TaskKernelTimestamp)
+            $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+            if (-not [bool]$wr.ok) { return (New-TaskKernelError -Code ([string]$wr.error)) }
+            return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = [int]$rec['revision']; duplicate = $false; dedup_key = [string]$ev.dedup_key; thread = [string]$ev.thread }
+        }
+        finally { Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
 function Set-OrchestrationTaskReview {
     [CmdletBinding()]
     param(

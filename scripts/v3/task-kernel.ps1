@@ -12,6 +12,7 @@
       verify        - Set-OrchestrationTaskVerification (UNTRUSTED caller JSON/file; persists verification_source=caller-supplied, never proof-capable)
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
+      event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
@@ -64,6 +65,8 @@ param(
     [string]$ReviewBy = '',
     [string]$FindingsFile = '',
     [string]$FindingsJson = '',
+    [string]$EnvelopeFile = '',
+    [string]$EnvelopeJson = '',
     [string]$Reason = '',
     [int]$ExpectedRevision = -1,
     [string[]]$ResidualRisks = @(),
@@ -188,7 +191,7 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'event-attach', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
 if ($validActions -cnotcontains $action) {
     Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
     exit 2
@@ -452,6 +455,40 @@ switch ($action) {
         }
         $result = Set-OrchestrationTaskReview -TaskId $TaskId -Kind $ReviewKind -Status $ReviewStatus -By $ReviewBy `
             -ExpectedRevision ([int]$ExpectedRevision) -FindingsJson $reviewFindings -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'event-attach' {
+        if ([string]::IsNullOrWhiteSpace($TaskId)) {
+            Write-TaskKernelCliError 'event-attach exige -TaskId -ExpectedRevision e -EnvelopeFile ou -EnvelopeJson.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        if ((-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) -and (-not [string]::IsNullOrWhiteSpace($EnvelopeJson))) {
+            Write-TaskKernelCliError 'event-attach aceita -EnvelopeFile OU -EnvelopeJson, nunca ambos.'
+            exit 2
+        }
+        $envText = $EnvelopeJson
+        if (-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) {
+            if (-not (Test-Path -LiteralPath $EnvelopeFile -PathType Leaf)) {
+                Write-TaskKernelCliError 'event-attach: arquivo de envelope nao encontrado.'
+                exit 2
+            }
+            $envInfo = Get-Item -LiteralPath $EnvelopeFile
+            if ([int64]$envInfo.Length -gt 65536) {
+                Write-TaskKernelCliError 'event-attach: envelope acima do limite.'
+                exit 2
+            }
+            try { $envText = [IO.File]::ReadAllText($EnvelopeFile, [Text.UTF8Encoding]::new($false)) }
+            catch {
+                Write-TaskKernelCliError 'event-attach: falha ao ler o envelope.'
+                exit 2
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($envText)) {
+            Write-TaskKernelCliError 'event-attach exige -EnvelopeFile ou -EnvelopeJson.'
+            exit 2
+        }
+        $result = Add-OrchestrationTaskEvent -TaskId $TaskId -EnvelopeJson $envText -ExpectedRevision ([int]$ExpectedRevision) `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'block' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason)) {
