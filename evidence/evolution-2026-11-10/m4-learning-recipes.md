@@ -48,6 +48,22 @@ O Markdown gerado foi escrito, lido e removido via MCP no escopo
 Isso prova o caminho de armazenamento/recuperação. A aplicação da lição em uma
 segunda sessão real (usar a lição para decidir) é o próximo passo de #177.
 
+## Recuperação em segunda sessão (#177)
+
+A lição foi gravada de forma durável em `lessons/m4-verified-learning.md`
+(página `01a1c815-0ab1-70a0-9701-a8e04999e601`). Uma sessão nova
+(`researcher`, `ses_e37ea6928ffeJRT2ctmj8XZFE3`) recuperou a página pelo MCP
+ai-memory e respondeu:
+
+- `LESSON_RECALLED: sim`
+- Título: `Licao verificada: review aprovado + verify kernel-executed + DONE`
+- Decisão: `candidate_pass` sem verificação kernel-executed e sem review
+  aprovado **não** pode ser promovido a DONE/lição.
+- Regra anti-gaming citada corretamente.
+
+Isso fecha o ciclo `Kernel DONE → lição verificada → AI Memory → recuperação e
+uso em outra sessão`.
+
 ## Segunda execução da receita (#77)
 
 Receita de `m5-done-proof6-20261110` (`criterion-smoke`):
@@ -63,8 +79,8 @@ foi criado.
 
 ## Limites
 
-- #177: armazenamento e recall provados; uso efetivo em outra sessão ainda não
-  demonstrado. Resultados `UNKNOWN`/`PARTIAL`/não verificados são recusados.
+- #177: armazenamento, recall e uso em segunda sessão provados; resultados
+  `UNKNOWN`/`PARTIAL`/não verificados são recusados.
 - #77: extração, decisão de reuso e dupla execução do procedimento provadas;
   a comparação de custo contra uma execução original com chamadas de modelo
   significativas ainda não foi feita.
