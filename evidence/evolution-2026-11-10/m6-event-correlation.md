@@ -61,11 +61,33 @@ Prova com a Task real `m6-event-proof-20261110`:
 Isso prova que um evento real do GitHub chega uma única vez à Task correta,
 sem duplicar estado. O dispatch/follow-up ao worker ainda é decisão do Planner.
 
+## E2E produtivo (evento real → worker → ack)
+
+`scripts/v3/github-event-bridge.ps1` liga intake + Kernel sem novo controlador:
+roteia, entrega em `event_inbox` e devolve `delivered/duplicate/revision`.
+`task-kernel.ps1 -Action event-ack` registra consumo/settlement de forma
+idempotente.
+
+Prova com o comentário real `issue:6` / `comment-5993719807`:
+
+1. bridge → `ATTACH` para `m6-event-proof-20261110`, `duplicate=true`
+   (evento já entregue), revision 2;
+2. worker `coder` (`ses_e37b7ee65ffeAlrhf42otB8zHV`) leu o evento e gravou
+   `scratchpad/m6-e2e/response.json`;
+3. `event-ack` → revision 3, `duplicate=false`, `ack_session` e
+   `response_summary` persistidos;
+4. segundo `event-ack` → `duplicate=true`, revision 3 (sem duplicar);
+5. Task lida: `event_inbox[0].acknowledged=true`.
+
+Isso fecha o caminho evento real → intake → Kernel → worker → evidência,
+com deduplicação e sem reativar Task encerrada (estado terminal é recusado).
+
 ## Limites
 
-- O destino do `ATTACH` na prova real é uma rota sintética; a entrega na Task
-  real foi provada com `event-attach`, mas a criação automática da Task e o
-  follow-up ao worker ainda não estão ligados ao GH-WAKE.
-- Não há wiring com webhook; a intake é chamada explicitamente.
-- Admissão proativa (#184) e ownership/handback (#185) continuam pendentes.
+- O call-site do GH-WAKE ainda não chama a bridge automaticamente; a ponte é
+  acionável pelo scheduler/Planner existente.
+- Admissão proativa (#184) permanece desligada por padrão; eventos sem dono
+  viram `OBSERVE`, não criam Task.
+- Ownership/handback de conversa (#185) persiste ack/settlement, mas o
+  histórico completo de mensagens continua fora do Kernel.
 - Nenhuma flag, permissão, credencial ou produção foi alterada.

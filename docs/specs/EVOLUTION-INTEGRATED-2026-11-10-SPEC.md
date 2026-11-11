@@ -120,9 +120,9 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #103 | M5 | PARCIAL | decisão local/replan/escalate (13/13) usada pelo Planner no E2E, mesma Task; consulta automática no retry pendente | Consultar no caminho de retry |
 | #192 | M5 | ABERTO | nenhuma medição Single/Cascade/Critique | Comparar em cenários representativos |
 | #2 | M6 | ABERTO | Agent Teams não implementado; sessões nativas provadas (#143) | Depende de #143/#183 |
-| #183 | M6 | PARCIAL | envelope/dedup/roteamento (11/11), intake CLI (8/8), entrega real em Task com `event_inbox` idempotente (12/12) e comentário real `issue:6`; falta wiring GH-WAKE e follow-up | Ligar GH-WAKE → Kernel → worker |
-| #184 | M6 | ABERTO | admissão proativa sem regras versionadas; costura `AdmissionEnabled` existe | Regras observe→auto |
-| #185 | M6 | ABERTO | follow-up por Task não persistido; `ATTACH` é o primeiro passo | Ownership/handback no Kernel |
+| #183 | M6 | PARCIAL | envelope/dedup/roteamento, intake (8/8), bridge GH-WAKE→Kernel, entrega+ack idempotentes (12/12), E2E real `issue:6` → worker → ack; falta call-site GH-WAKE | Ligar tick do GH-WAKE à bridge |
+| #184 | M6 | PARCIAL | admissão desligada por padrão; eventos sem dono viram `OBSERVE`; `NEW_TASK` só com flag explícita | Regras observe→auto |
+| #185 | M6 | PARCIAL | ack de consumo/settlement com sessão e resumo; histórico completo de conversa fora do Kernel | Handback completo |
 | #205 | M7 | HOLD | T3 Code não avaliado; piloto exige produto/credenciais e projeto descartável | Executar piloto read-only → ação controlada |
 
 ## 7. Critérios de aceite por marco

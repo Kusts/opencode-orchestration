@@ -275,10 +275,10 @@ uma linha nesse registro; não criar arquivo ou relatório novo.
   decisão de reuso (20/20), round-trip real no AI Memory MCP, recall em segunda
   sessão e comparação de custo (1 chamada original → 0 no replay duplo).
   Evidência em `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
-- M6 (#183/#185): intake CLI com dedup durável (8/8), entrega real em Task
-  com `event_inbox` idempotente (12/12) e comentário real do GitHub (`issue:6`)
-  entregue uma única vez. Wiring GH-WAKE e follow-up ao worker pendentes.
-  Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
+- M6 (#183/#185): intake CLI (8/8), bridge GH-WAKE→Kernel, entrega+ack
+  idempotentes (12/12, bridge 9/9) e E2E real `issue:6` → worker → ack.
+  Call-site automático do GH-WAKE, admissão (#184) e handback completo
+  pendentes. Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
 - README e CHANGELOG atualizados.
 
 **Não entregue / não alegado:**

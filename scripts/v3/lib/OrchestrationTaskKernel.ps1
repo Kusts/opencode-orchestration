@@ -2893,6 +2893,74 @@ function Add-OrchestrationTaskEvent {
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 
+function Confirm-OrchestrationTaskEvent {
+    <#
+    .SYNOPSIS
+        Acknowledges delivery/consumption/settlement of one Task event.
+    .DESCRIPTION
+        Idempotent by dedup key: a second ack returns duplicate without a new
+        revision. CAS, terminal-state and path confinement are enforced.
+        Never throws.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskId,
+        [Parameter(Mandatory = $true)][string]$DedupKey,
+        [Parameter(Mandatory = $true)][string]$SessionId,
+        [string]$ResponseSummary = '',
+        [Parameter(Mandatory = $true)][int]$ExpectedRevision,
+        [string]$TasksDir = '',
+        [string]$FlagsPath = '',
+        [string]$RepoRoot = ''
+    )
+    try {
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED') }
+        $key = ([string]$DedupKey).Trim().ToLowerInvariant()
+        if ($key -cnotmatch '^[0-9a-f]{64}$') { return (New-TaskKernelError -Code 'EVENT_DEDUP_KEY_INVALID') }
+        if (-not (Test-TaskKernelBindingId -Value $SessionId)) { return (New-TaskKernelError -Code 'EVENT_SESSION_INVALID') }
+        if ($ResponseSummary.Length -gt 1000) { return (New-TaskKernelError -Code 'EVENT_SUMMARY_TOO_LARGE') }
+        $tid = ([string]$TaskId).Trim()
+        $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) { return (New-TaskKernelError -Code 'LOCK_TIMEOUT') }
+        try {
+            $slot = Read-TaskKernelRecord -TaskFile $taskFile
+            if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec = $slot.record
+            if ([int]$rec['revision'] -ne [int]$ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) {
+                return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{ detail = 'terminal state is immutable' })
+            }
+            if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) { return (New-TaskKernelError -Code 'PATH_NOT_CONFINED') }
+            $inbox = @()
+            try { if ($null -ne $rec['event_inbox']) { $inbox = @($rec['event_inbox']) } } catch { $inbox = @() }
+            $idx = -1
+            for ($i = 0; $i -lt $inbox.Count; $i++) {
+                if ([string](Get-TaskKernelNodeField -Object $inbox[$i] -Name 'dedup_key') -ceq $key) { $idx = $i; break }
+            }
+            if ($idx -lt 0) { return (New-TaskKernelError -Code 'EVENT_NOT_FOUND') }
+            if ([bool](Get-TaskKernelNodeField -Object $inbox[$idx] -Name 'acknowledged')) {
+                return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = [int]$rec['revision']; duplicate = $true; dedup_key = $key }
+            }
+            $inbox[$idx]['acknowledged'] = $true
+            $inbox[$idx]['ack_session'] = [string]$SessionId
+            $inbox[$idx]['response_summary'] = Protect-TaskKernelText -Text ([string]$ResponseSummary)
+            $inbox[$idx]['settled_at'] = (Get-TaskKernelTimestamp)
+            $rec['event_inbox'] = @($inbox)
+            $rec['revision'] = [int]$rec['revision'] + 1
+            $rec['updated_at'] = (Get-TaskKernelTimestamp)
+            $wr = Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+            if (-not [bool]$wr.ok) { return (New-TaskKernelError -Code ([string]$wr.error)) }
+            return [PSCustomObject]@{ ok = $true; task_id = $tid; revision = [int]$rec['revision']; duplicate = $false; dedup_key = $key }
+        }
+        finally { Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile }
+    }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
 function Set-OrchestrationTaskReview {
     [CmdletBinding()]
     param(
