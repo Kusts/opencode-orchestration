@@ -115,7 +115,7 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #12 | M4 | PARCIAL | lib de virtualização content-addressed com recall verificado (18/18); wiring no EvidenceStore pendente | Ligar ao fluxo de evidência do Kernel |
 | #11 | M4 | PARCIAL | parser de métricas de cache (18/18), sem zero inventado; prefixo estável/medição antes-depois pendentes | Medir cache em execução real |
 | #177 | M4 | COBERTO | gateway DONE+kernel-verified, lição Markdown, round-trip real no AI Memory MCP e recall/uso em segunda sessão (20/20) | Revisar evidência e fechar |
-| #77 | M4 | PARCIAL | receita determinística + decisão de reuso (REUSABLE/STALE/ENV) (20/20); segunda execução real pendente | Executar duas vezes e comparar |
+| #77 | M4 | COBERTO | receita determinística + decisão de reuso (20/20) + comparação real: 1 chamada de modelo na execução original, 0 no replay duplo | Revisar evidência e fechar |
 | #200 | M5 | PARCIAL | âncora/drift/owner (18/18), persistência no Kernel (17/17) e E2E vivo coder→reviewer→coder com 2 findings reais corrigidos e aprovação; prompt padrão ainda é manual | Emitir schema por padrão |
 | #103 | M5 | PARCIAL | decisão local/replan/escalate (13/13) usada pelo Planner no E2E, mesma Task; consulta automática no retry pendente | Consultar no caminho de retry |
 | #192 | M5 | ABERTO | nenhuma medição Single/Cascade/Critique | Comparar em cenários representativos |

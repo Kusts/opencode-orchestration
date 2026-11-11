@@ -271,10 +271,10 @@ uma linha nesse registro; não criar arquivo ou relatório novo.
   `ATTACH/OBSERVE/NEW_TASK/IGNORE/ESCALATE` (11/11); transporte GH-WAKE,
   admissão versionada (#184) e ownership de follow-up (#185) pendentes.
   Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
-- M4 (#177/#77): gateway verificado, lição Markdown, receita determinística e
-  decisão de reuso (20/20); round-trip real no AI Memory MCP (write→read→delete).
-  Uso em segunda sessão e segunda execução da receita pendentes. Evidência em
-  `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
+- M4 (#177/#77): gateway verificado, lição Markdown, receita determinística,
+  decisão de reuso (20/20), round-trip real no AI Memory MCP, recall em segunda
+  sessão e comparação de custo (1 chamada original → 0 no replay duplo).
+  Evidência em `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
 - M6 (#183/#185): intake CLI com dedup durável (8/8), entrega real em Task
   com `event_inbox` idempotente (12/12) e comentário real do GitHub (`issue:6`)
   entregue uma única vez. Wiring GH-WAKE e follow-up ao worker pendentes.

@@ -77,11 +77,24 @@ O procedimento foi executado duas vezes com o mesmo resultado e sem chamadas
 de modelo, usando o perfil de verificação já existente. Nenhum executor novo
 foi criado.
 
+## Comparação de custo (#77)
+
+Task `m4-recipe-proof2-20261110` (DONE, revision 13) executada com um coder
+real e `model-attempt` registrado:
+
+```
+state=DONE model_attempts=1
+recipe deterministic=True original_model_attempts=1
+reuse=REUSABLE replay1=0 replay2=0 replay_model_calls=0
+```
+
+A execução original usou 1 chamada de modelo; o replay determinístico usou 0
+em duas execuções, com o mesmo resultado. Nenhum executor novo foi criado.
+
 ## Limites
 
 - #177: armazenamento, recall e uso em segunda sessão provados; resultados
   `UNKNOWN`/`PARTIAL`/não verificados são recusados.
-- #77: extração, decisão de reuso e dupla execução do procedimento provadas;
-  a comparação de custo contra uma execução original com chamadas de modelo
-  significativas ainda não foi feita.
+- #77: extração, decisão de reuso e comparação de custo (1 chamada original →
+  0 no replay) provadas.
 - Nenhuma flag, permissão, credencial ou produção alterada.
