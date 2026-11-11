@@ -35,17 +35,17 @@ $results = [ordered]@{
     workloads              = @()
 }
 
-# 1. Componente DIRECT_VERIFIED: elegibilidade de preflight + forma do gate de DONE (SEM execucao de tarefa pelo Planner LLM; Planner LLM NOT_INVOKED)
+# 1. Componente DIRECT_VERIFIED read-only lookup: preflight + forma do gate de DONE (Planner LLM NOT_INVOKED)
 $swDirect = [System.Diagnostics.Stopwatch]::StartNew()
-$pfDirect = Get-OrchestrationPreflight -Objective 'atualizar notas de versao e typos no README' `
-    -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
+$pfDirect = Get-OrchestrationPreflight -Objective 'where is the release notes section defined' `
+    -TaskType 'lookup' -Domain 'docs' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'DIRECT_VERIFIED'
 $compDirect = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision $pfDirect.orchestration_decision `
     -ExecutionShape 'DIRECT_VERIFIED' -DirectReason $pfDirect.direct_reason -ActualWorkerParticipation 0
 $swDirect.Stop()
 
 $results.workloads += [ordered]@{
-    workload_id            = "WL-01-DIRECT-VERIFIED-MICRO-EDIT"
-    description            = "Componente deterministico apenas: elegibilidade de preflight + forma do gate de DONE para microedicao em documentacao (Planner LLM NOT_INVOKED; nenhuma tarefa executada)"
+    workload_id            = "WL-01-DIRECT-VERIFIED-READ-ONLY-LOOKUP"
+    description            = "Componente deterministico apenas: lookup read-only de secao de release notes + forma do gate de DONE (Planner LLM NOT_INVOKED; nenhuma tarefa executada)"
     execution_strategy     = "DIRECT_VERIFIED"
     wall_clock_ms          = [Math]::Round($swDirect.Elapsed.TotalMilliseconds, 2)
     subagents_spawned      = 0
@@ -144,11 +144,12 @@ $swAdv.Stop()
 
 $advTokensIn = 0
 $advTokensOut = 0
-$advCost = 0.0
+$advCost = $null
 if ($advRes.Status -eq 'COMPLETED') {
     $advTokensIn = if ($advRes.TokensInput) { [int]$advRes.TokensInput } else { 0 }
     $advTokensOut = if ($advRes.TokensOutput) { [int]$advRes.TokensOutput } else { 0 }
-    $advCost = if ($advRes.CostUsd) { [double]$advRes.CostUsd } else { 0.0 }
+    $parsedAdvCost = 0.0
+    if ([double]::TryParse([string]$advRes.CostUsd, [ref]$parsedAdvCost)) { $advCost = $parsedAdvCost }
 }
 
 $results.workloads += [ordered]@{
@@ -162,8 +163,8 @@ $results.workloads += [ordered]@{
     model_tier             = "T3"
     tokens_input           = if ($advRes.Status -eq 'COMPLETED') { $advTokensIn } else { $null }
     tokens_output          = if ($advRes.Status -eq 'COMPLETED') { $advTokensOut } else { $null }
-    estimated_cost_usd     = if ($advRes.Status -eq 'COMPLETED') { $advCost } else { "UNKNOWN" }
-    cost_status            = if ($advRes.Status -eq 'COMPLETED') { "MEASURED_HOST_EVIDENCE" } else { "UNKNOWN_UNEXECUTED" }
+    estimated_cost_usd     = if ($null -ne $advCost) { $advCost } else { "UNKNOWN" }
+    cost_status            = if ($null -ne $advCost) { "MEASURED_HOST_EVIDENCE" } else { "UNKNOWN_UNEXECUTED" }
     retries                = 0
     cache_hit              = [bool]$advRes.FromCache
     compliance_verdict     = "COMPLIANT"

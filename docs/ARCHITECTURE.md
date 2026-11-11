@@ -72,22 +72,42 @@ vivem só nos `.md` + allowlist do `build` (by design — ver check 3 de
 `scripts/test-package-consistency.ps1`). `agent.build.model` nunca existe:
 o Planner herda o modelo da sessão.
 
-## Mandatory Preflight (5 estados; v0.1.0 — V3/V3.1 são histórico)
+## Mandatory Preflight (6 estados; v0.1.0 — V3/V3.1 são histórico)
 
-Toda tarefa passa pelo preflight **antes** da primeira ação
-(`scripts/v3/orchestration-preflight.ps1`, lib em `scripts/v3/lib/`):
+Rota e delegação passam pelo preflight **antes** da primeira ação quando a rota
+não é óbvia (`scripts/v3/orchestration-preflight.ps1`, lib em
+`scripts/v3/lib/`). O classificador é condicional: leitura trivial pode ser
+resolvida direto; qualquer escrita vai a um worker.
 
 | Estado | Significado |
 |---|---|
-| `SINGLE_WORKER` | Orquestração plena do trivial (Planner → um cheap worker → Planner); prova via `ExecutionShape` `SINGLE_WORKER` no DONE gate. Tokens `DIRECT_*` legados (pré-v0.1.0) são rejeitados. |
+| `DIRECT_VERIFIED` | Leitura/planejamento trivial e localizado (zero workers); `direct_reason=DIRECT_VERIFIED_*` só vale sem mutação. Exige evidência de consulta no objetivo; vocabulário de edição com `ReadWrite=read` é delegado. Nunca cobre escrita. |
+| `SINGLE_WORKER` | Um worker apropriado, inclusive no trivial com escrita; prova via `ExecutionShape` `SINGLE_WORKER` e participação observada no DONE gate. Tokens `DIRECT_*` legados (pré-v0.1.0) são rejeitados. |
 | `MULTI_WORKER` | Pré-decisão que planeja (`UNVERIFIED_POST_EXECUTION_REQUIRED`); compliance só no DONE gate. |
-| `PERSISTENT_GOAL` | Pré-decisão para goals persistentes/spec+plan (`UNVERIFIED_POST_EXECUTION_REQUIRED`); compliance só no DONE gate. |
+| `PERSISTENT_GOAL` | Pré-decisão para goals persistentes/spec+plan (`UNVERIFIED_POST_EXECUTION_REQUIRED`); compliance só no DONE gate e no GoalKernel. |
 | `DETERMINISTIC_FALLBACK` | Router/registry indisponível, stale, exceção, timeout ou resposta malformada — nunca execução solitária. |
 | `BLOCKED` | Não prosseguir; devolver ao usuário. |
 
 Tarefa não trivial exige participação material de ao menos 1 subagent
-adequado. `non-trivial + participação = 0` produz
-`ORCHESTRATION_POLICY_BYPASS`: sem `DONE` compliant.
+adequado; escrita trivial também exige worker observado. `participação = 0`
+onde worker é exigido produz `ORCHESTRATION_POLICY_BYPASS`: sem `DONE`
+compliant.
+
+## Contrato de papéis, Goal e Loop
+
+O Planner `build` é o cérebro da missão: decide, decompõe, delega, acompanha,
+replaneja e encerra. Ele não edita arquivo, não implementa e não roda teste de
+implementação. Workers executam no escopo delegado; o Task Kernel mantém
+estado, verificação, evidência e `DONE` (worker nunca emite `verified_pass`).
+
+Goal é missão persistente multifase, usado quando houver mais de uma Task.
+Loop é a política de próxima ação sobre o estado existente
+(`Get-OrchestrationGoalNextMove` em `OrchestrationAutonomousLoop.ps1`), nunca
+daemon, scheduler ou segundo controlador. Retomada usa NativeResume, GH-WAKE e
+resume-reconcile existentes. Task DONE não conclui Goal: a conclusão do Goal é
+CAS persistido no GoalKernel depois de todas as Tasks exigidas verificadas.
+Uma autorização por missão cobre subtarefas, branches, commits/PRs autorizados
+e replanejamento; intervenção humana é excepcional.
 
 ## DONE gate
 

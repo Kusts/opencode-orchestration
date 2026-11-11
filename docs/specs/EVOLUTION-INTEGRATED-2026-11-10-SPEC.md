@@ -1,11 +1,11 @@
 # EVOLUTION INTEGRATED — SPEC (2026-11-10)
 
-**Versão:** 1.0
-**Data-base:** 2026-11-10
-**Baseline de commit:** `8c9befb` (branch `feat/evolution-integrated-20261110`)
+**Versão:** 1.1
+**Data-base:** 2026-11-10 (revisão 2026-11-11)
+**Baseline de commit:** `beb0ea4` (branch `feat/evolution-integrated-20261110`)
 **Repositório:** `Kusts/opencode-orchestration`
-**Status:** PAUSED — implementação interrompida a pedido do usuário em 2026-11-11; estado e evidências preservados
-**Escopo:** 25 issues + PR #210, organizados em 8 marcos (M0–M7)
+**Status:** ACTIVE — P0 (reformulação do Planner) na frente; M0–M7 preservados
+**Escopo:** 25 issues + PR #210, organizados em 8 marcos (M0–M7) + P0 transversal
 **Runtime-alvo:** OpenCode V2 (V1 permanece `LEGACY_FROZEN`, issue #62)
 
 ---
@@ -55,6 +55,48 @@ Ficam conscientemente fora desta SPEC:
   provar que o Planner consegue executar o encadeamento com as primitivas
   existentes.
 
+## 3.1 P0 — Contrato de papéis e autonomia por missão (transversal)
+
+Diretriz vigente (#48, 2026-11-10). P0 corrige o contrato de papéis antes de
+retomar M2–M7; não substitui marcos nem cria componente novo.
+
+**Papéis.** O Planner é o cérebro da missão: decide, decompõe, delega,
+acompanha, replaneja e encerra. Ele **não** edita arquivos, implementa ou roda
+teste de implementação. Workers executam no escopo delegado; o Task Kernel
+mantém estado, verificação, evidência e `DONE`.
+
+**Roteamento por mutação.** Leitura/análise/planejamento sem mutação pode usar
+`DIRECT_VERIFIED` (zero workers), com evidência de consulta no objetivo.
+`ReadWrite` deve refletir a intenção real: objetivo com vocabulário de edição e
+metadado `read` é tratado como mutação e delegado. Qualquer escrita de arquivo
+usa `SINGLE_WORKER` com um worker apropriado e teste focado; o gate trivial
+exige participação observada > 0 e rejeita zero-worker como
+`ORCHESTRATION_POLICY_BYPASS`. Não há estado, flag ou parâmetro novo: o
+classificador passa a usar o ramo `SINGLE_WORKER` já existente.
+
+**Goal e Loop.** Goal é missão persistente multifase, usado quando houver mais
+de uma Task. Loop é a política de próxima ação sobre o estado existente
+(`Get-OrchestrationGoalNextMove`), nunca daemon, scheduler ou segundo
+controlador. Retomada usa NativeResume/GH-WAKE/resume-reconcile existentes.
+Task DONE não conclui Goal; Goal conclui por CAS do GoalKernel após todas as
+Tasks exigidas verificadas.
+
+**Autonomia.** Uma autorização por missão cobre criar Tasks, branches, commits,
+PRs autorizados, reordenar plano, trocar estratégia/modelo/worker, refazer
+trabalho falho e retomar. Intervenção humana é excepcional: escopo/produto
+material, gasto não autorizado, produção/destruição irreversível,
+segredos/dados pessoais ou autorização ausente.
+
+**Advisor/JEV.** Consultoria opcional, read-only, no máximo uma por decisão;
+nunca gate, nunca autoridade, indisponibilidade não bloqueia trabalho
+reversível.
+
+**Aceite P0.** (a) microedição executada por worker, não pelo Planner;
+(b) escrita com participação zero rejeitada pelo DONE gate; (c) Goal com ≥ 3
+Tasks, falha real, replan e retomada até DONE do Goal sem intervenção humana;
+(d) instruções, adapter, arquitetura e classificador descrevem a mesma regra;
+(e) baseline antes/depois registrado ou `UNKNOWN` explícito.
+
 ## 4. Decisão de escalonamento de modelos (issue #208)
 
 O texto histórico da issue #208 cita `T3→Sol→Astra`. A política vigente
@@ -78,6 +120,9 @@ Mudar o baseline exige alterar política, adapter e contrato de verificação na
 mesma decisão explícita; nunca por edição isolada.
 
 ## 5. Marcos
+
+**P0 (transversal, prioridade atual)** — definido em §3.1; antecede a retomada
+de M2–M7 e não altera os marcos abaixo.
 
 | Marco | Issues | Entrega principal | Prioridade |
 |---|---|---|---|
@@ -126,6 +171,14 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #205 | M7 | HOLD | T3 Code não avaliado; piloto exige produto/credenciais e projeto descartável | Executar piloto read-only → ação controlada |
 
 ## 7. Critérios de aceite por marco
+
+**P0.** Leitura/planejamento sem mutação é a única rota `DIRECT_VERIFIED`
+(zero workers). Qualquer escrita de arquivo passa por `SINGLE_WORKER` com
+participação observada; o gate trivial rejeita zero worker. Goal/Loop usam os
+mecanismos existentes e Task DONE não conclui Goal. Instruções canônicas,
+adapter, arquitetura e classificador dizem a mesma regra. Prova runtime-real de
+microedição/bug por worker e de Goal ≥ 3 Tasks com falha/replan/retomada, ou
+`BLOCKED` com a perna exata.
 
 **M0.** Backlog reconciliado; nenhuma evidência perdida; nenhuma
 implementação duplicada; PR #210 comparado com a política atual.

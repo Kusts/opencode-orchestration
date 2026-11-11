@@ -1,10 +1,11 @@
 # EVOLUTION INTEGRATED — PLAN (2026-11-10)
 
-**Versão:** 1.0
-**Data-base:** 2026-11-10
-**Baseline de commit:** `8c9befb` (branch `feat/evolution-integrated-20261110`)
+**Versão:** 1.1
+**Data-base:** 2026-11-10 (revisão 2026-11-11)
+**Baseline de commit:** `beb0ea4` (branch `feat/evolution-integrated-20261110`)
 **SPEC:** [EVOLUTION-INTEGRATED-2026-11-10-SPEC.md](EVOLUTION-INTEGRATED-2026-11-10-SPEC.md)
-**Status:** PAUSED — implementação interrompida a pedido do usuário em 2026-11-11; estado, evidências e PR preservados
+**Status:** ACTIVE — P0 (reformulação do Planner) é a prioridade atual; M0–M7
+preservados e retomados depois da fatia P0.
 
 ---
 
@@ -45,6 +46,101 @@ Regras de dependência:
 - **M7** é independente e pode ser executado a qualquer momento.
 - Nenhum marco posterior bloqueia M0/M1; impedimento real em um marco não
   interrompe entregas independentes.
+
+## 2.1 P0 — Reformulação do Planner (transversal, prioridade atual)
+
+**Origem:** diretriz de 2026-11-10 na issue #48 (Kusts/opencode-orchestration),
+relacionadas #8/#10/#60/#141/#237 e política global `kust-projetos/agent-config#21/#4`.
+**Regra:** P0 não é um marco novo nem um segundo sistema; é uma correção de
+contrato de papéis aplicada às peças existentes antes de retomar M2–M7.
+M0/M1 e as entregas já commitadas permanecem válidos.
+
+### 2.1.1 Diagnóstico (estado real, não hipótese)
+
+| # | Achado | Evidência |
+|---|---|---|
+| D1 | O texto global descrevia o Planner como coordenador, mas autorizava execução direta em mudanças pequenas, sem worker. | `source/global/AGENTS.md` §Método de desenvolvimento (bullets 1 e 7) e §Orquestração (apontador) |
+| D2 | O adapter V2 tratava `DIRECT_VERIFIED` como rota zero-worker para micro-edição **com escrita** (docs e código funcional). | `source/adapters/opencode-v2.md` §Workflow Adaptativo (142-146), §Runtime Wiring (202-205), §Controlled Routing (339), §Ciclo/DONE (513-515) |
+| D3 | O classificador confirmava o comportamento: `isMicroEditWrite` e `isCodeMicroEditWrite` retornavam `DIRECT_VERIFIED` com `selected_agents=[]`. | `scripts/v3/lib/OrchestrationPreflight.ps1` (556-573, 583-585) |
+| D4 | O DONE gate já sabia exigir worker no trivial (`SINGLE_WORKER` + participação > 0); faltava o roteamento, não um gate novo. | `Test-OrchestrationDoneCompliance` (113-186) |
+| D5 | As instruções deste checkout repetiam a mesma permissão (“trabalho local… segue direto”). | `AGENTS.md` §Orquestração |
+| D6 | `docs/ARCHITECTURE.md` não listava `DIRECT_VERIFIED` na tabela de estados nem documentava Goal/Loop; a tabela ainda dizia “preflight obrigatório”, divergindo do adapter condicional. | `docs/ARCHITECTURE.md` 75-90 |
+| D7 | Goal/Loop existem e estão provados em testes, mas o plano não fixava o contrato de uso nem a regra Task DONE ≠ Goal DONE no texto de papéis. | `OrchestrationGoalKernel.ps1`, `Get-OrchestrationGoalNextMove`, `OrchestrationAutonomousLoop.ps1`, `OrchestrationPlannerLoop.ps1`, `OrchestrationNativeResume.ps1`; evidência de #234 no `CHANGELOG.md` |
+| D8 | Bloqueios reais observados: CI do PR #238 estava pendente na pausa; provider de modelo limita turnos vivos; M7 depende de produto/credenciais. | PR #238 (agora 6/6 verde), `evidence/evolution-2026-11-10/m7-t3code-hold.md` |
+
+### 2.1.2 Contrato de papéis (P0-R1)
+
+- **Planner (`build`):** interpreta objetivo, escolhe estratégia, metodologia,
+  modelo e worker, decompõe Goal em Tasks, acompanha evidência, decide replan,
+  espera/retomada, prioriza e encerra. Pode ler, planejar e consultar estado.
+  **Não edita arquivos, não implementa, não roda teste de implementação.**
+- **Workers:** cada um executa sua função no escopo delegado. Coder implementa e
+  roda o teste focado; Tester valida independentemente quando útil; Reviewer
+  julga; Debugger investiga; Docs Manager cuida de documentação afetada por
+  contrato/API. Nenhum é convocado por ritual.
+- **Task Kernel:** estado, grants/leases, verificação allowlisted, evidências e
+  `DONE`. Worker nunca emite `verified_pass`/`DONE`.
+- **Advisor/JEV:** consultoria opcional e read-only em decisão difícil; nunca
+  gate, nunca autoridade, no máximo uma consulta por decisão.
+
+### 2.1.3 Roteamento (P0-R2)
+
+| Situação | Rota | Gate |
+|---|---|---|
+| Leitura, análise, ponto de código, planejamento sem mutação | `DIRECT_VERIFIED` (zero workers) | `-Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason DIRECT_VERIFIED_*` |
+| Escrita de qualquer arquivo (docs, comentário, código) | `SINGLE_WORKER` com um worker apropriado + teste focado | trivial exige `ExecutionShape=SINGLE_WORKER` e participação observada > 0; zero participação ⇒ `ORCHESTRATION_POLICY_BYPASS` |
+| Não trivial, multi-arquivo, risco, Kernel | `MULTI_WORKER` / `PERSISTENT_GOAL` / `BLOCKED` | regras existentes |
+| Router/registry indisponível em rota delegada | `DETERMINISTIC_FALLBACK` | owner determinístico observado |
+
+Sem novo estado, flag, parâmetro ou gate: a mudança é o classificador deixar de
+emitir `DIRECT_VERIFIED` para escrita e usar o ramo `SINGLE_WORKER` já existente.
+
+### 2.1.4 Goal, Loop e continuidade (P0-R3)
+
+- **Task** = unidade de execução. **Goal** = missão persistente multifase,
+  somente quando houver mais de uma Task; criado/atualizado no GoalKernel com
+  CAS persistido.
+- **Loop** = `Get-OrchestrationGoalNextMove` + `Invoke-OrchestrationAutonomousObjective`
+  sobre estado existente. Não é daemon, scheduler novo, polling intenso nem
+  segundo controlador.
+- **Retomada** = `OrchestrationNativeResume` / `github-resume-reconcile` /
+  GH-WAKE já existentes; nunca reexecutar efeito ambíguo.
+- **Conclusão:** Task DONE não conclui Goal. Goal só conclui por CAS do
+  GoalKernel quando todas as Tasks exigidas estiverem verificadas.
+- **Intervenção humana:** só em mudança material de escopo/produto, gasto não
+  autorizado, produção/destruição irreversível, segredos/dados pessoais ou
+  ausência real de autorização. Espera de CI, falha de provider, review
+  rotineiro e subtarefa falha não viram pergunta ao usuário.
+
+### 2.1.5 Entregas P0
+
+| ID | Entrega | Owner | Aceite |
+|---|---|---|---|
+| P0.1 | Classificador: escrita deixa de ser `DIRECT_VERIFIED` e passa a `SINGLE_WORKER`; leitura direta exige evidência de consulta e `read` com intenção de edição também delega; leitura continua direta | coder | suíte de preflight + GW verdes; regressão 15z + matriz de escrita |
+| P0.2 | Instruções canônicas: `source/global/AGENTS.md`, `source/adapters/opencode-v2.md`, `AGENTS.md` do checkout | Planner | contrato de papéis, rota por mutação, Goal/Loop, autonomia por missão |
+| P0.3 | `docs/ARCHITECTURE.md`: estados reais, contrato de papéis, Goal/Loop | Planner | doc consistente com `source/` |
+| P0.4 | Prova runtime-real curta: microedição por worker (A) e correção de bug por worker (B) | worker + Planner | evidência com sessão/dispatch; Planner não edita |
+| P0.5 | Prova de autonomia longa: Goal ≥ 3 Tasks, falha real, replan, retomada, DONE do Goal sem intervenção | Planner + workers | evidência; se provider bloquear, `BLOCKED` com perna exata |
+| P0.6 | Baseline antes/depois (DONE correto, prompts humanos, tempo, tokens/custo, retrabalho) | Planner | tabela com medição observada ou `UNKNOWN` |
+
+### 2.1.6 Baseline a coletar (P0.6)
+
+| Métrica | Antes (baseline documentado) | Depois |
+|---|---|---|
+| DONE correto | M5 `m5-done-proof6` (kernel-executed) | medir nas Tasks P0 |
+| Intervenções humanas por missão | 1 por checkpoint (pausa 2026-11-11) | 0 em subtarefas cobertas |
+| Tempo até DONE | não medido de forma comparável | registrar início/fim por Task |
+| Tokens/custo por DONE | `model_attempts` e cache metrics existentes | registrar por Task |
+| Retrabalho / retomadas | E2E M5 (2 findings, 1 rodada) | registrar replans e retomadas |
+
+Nenhum valor é inventado: sem medição, `UNKNOWN`.
+
+### 2.1.7 Sequência
+
+1. P0.1 → P0.2 → P0.3 (contrato e roteamento consistentes).
+2. P0.4 e P0.5 com evidência runtime; P0.6 preenchido com o que for observado.
+3. Só então retomar as pendências de M2/M4/M6 listadas na seção 13.
+4. Nenhuma entrega de M0–M7 é descartada; entregas já provadas não são refeitas.
 
 ## 3. M0 — Reconciliar pendências
 
@@ -226,9 +322,40 @@ Ao concluir ou interromper um marco, registrar em um único registro primário
 alterações, validação, decisões/pendências e próximo passo. Para microtarefas,
 uma linha nesse registro; não criar arquivo ou relatório novo.
 
-## 13. Estado desta execução — pausa de 2026-11-11
+## 13. Estado desta execução — retomada P0 (2026-11-11)
 
-**Status:** PAUSED. Implementação interrompida a pedido do usuário; nenhum
+**Status:** ACTIVE. A missão foi retomada com a diretriz P0 (§2.1). O PR #238
+está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
+
+**P0 executado nesta retomada:**
+
+- Diagnóstico D1–D8 consolidado (§2.1.1), incluindo o ponto exato do
+  classificador que autorizava escrita direta.
+- P0.1: `Get-OrchestrationPreflight` deixou de emitir `DIRECT_VERIFIED` para
+  `isMicroEditWrite`/`isCodeMicroEditWrite`; essas rotas caem no ramo
+  `SINGLE_WORKER` trivial já existente. `Test-OrchestrationDoneCompliance`
+  permaneceu intocado.
+- Testes: `orchestration-preflight.tests.ps1` 286/286 (novos casos 15z:
+  leitura direta, escrita com worker, participação zero ⇒ bypass, escrita
+  sensível/arquitetura fora da rota trivial, matriz de 12 combinações de
+  escrita); `OrchestrationAdvisorEfficiencyGW.tests.ps1` 145/145;
+  `test-package-consistency.ps1` 17/17.
+- Revisão independente: F1 (`ReadWrite=read` com intenção de edição) e F2
+  (consumidores de evidência com escrita direta) corrigidos; WL-01 agora mede
+  lookup read-only e retorna `COMPLIANT`.
+- P0.2/P0.3: instruções canônicas (global, adapter V2, `AGENTS.md` do
+  checkout) e `docs/ARCHITECTURE.md` alinhadas ao contrato de papéis, à rota
+  por mutação e ao contrato Goal/Loop.
+
+**Pendente em P0:** P0.4/P0.5 com uma missão contínua de 3 Tasks em modelo vivo
+(a perna determinística está provada; o transporte multi-turn exige sessão
+interativa e não foi executado — ver
+`evidence/evolution-2026-11-10/p0-planner-roles.md` §4) e P0.6 com tempo/tokens
+medidos. Evidência da fatia em `p0-planner-roles.md`.
+
+**Registro da pausa anterior (preservado):**
+
+**Status anterior:** PAUSED. Implementação interrompida a pedido do usuário; nenhum
 trabalho em andamento. Branch, commits e PR preservados.
 
 **Publicação:**

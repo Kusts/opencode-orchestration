@@ -6,7 +6,37 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **Pausa de implementação (2026-11-11)** — estado consolidado no PR #238:
+- **P0 - Reformulacao do Planner (2026-11-11)** - retomada da missao integrada
+  com a diretriz da issue #48: Planner planeja/decide/delega, worker executa.
+  - Classificador (`scripts/v3/lib/OrchestrationPreflight.ps1`): `DIRECT_VERIFIED`
+    (zero workers) passa a valer apenas para leitura/planejamento sem mutacao.
+    Micro-edicao com escrita (docs e codigo) cai no ramo `SINGLE_WORKER`
+    trivial ja existente, com `direct_reason` vazio e o DONE gate exigindo
+    `ExecutionShape=SINGLE_WORKER` + participacao observada; zero participacao
+    em escrita => `ORCHESTRATION_POLICY_BYPASS`. `Test-OrchestrationDoneCompliance`
+    nao mudou; nenhum estado, flag ou parametro novo.
+  - Testes: nova secao `15z P0` (leitura direta, escrita com worker,
+    participacao zero, sensivel/arquitetura fora da rota trivial) e matriz de
+    12 combinacoes de escrita; expectativas de escrita e de `read` com
+    intencao de edicao foram alinhadas. `orchestration-preflight.tests.ps1`
+    286/286, `OrchestrationAdvisorEfficiencyGW.tests.ps1` 145/145,
+    `test-package-consistency.ps1` 17/17.
+  - Achados da revisao independente corrigidos: `ReadWrite=read` com
+    vocabulario de edicao sem evidencia de consulta agora delega; consumidores
+    de evidencia `measure-workflow-efficiency.ps1` (WL-01) e
+    `prove-native-subagents.ps1` (SCENARIO-01) medem lookup read-only e
+    registram `COMPLIANT`.
+  - Instrucoes: `source/global/AGENTS.md` ganhou o contrato de papeis e a
+    autonomia por missao; `source/adapters/opencode-v2.md` separa
+    `DIRECT_VERIFIED` (leitura) de `SINGLE_WORKER` (qualquer mutacao) e fixa o
+    contrato Goal/Loop; `AGENTS.md` deste checkout e `docs/ARCHITECTURE.md`
+    (6 estados, papeis, Goal/Loop) foram alinhados.
+  - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-{SPEC,PLAN}.md` v1.1: P0
+    transversal com diagnostico D1-D8, roteamento, contrato Goal/Loop,
+    entregas P0.1-P0.6 e baseline a medir. M0-M7 preservados.
+  - Sem alteracao de flags, permissoes, credenciais, allowlist ou producao.
+
+- **Pausa de implementação (2026-11-11)** - estado consolidado no PR #238:
   - Branch `feat/evolution-integrated-20261110`; commits até `8c9befb`; nenhum merge/deploy.
   - Entregues e verificados: M0, M1 (runtime real), M2, M3 (#139), M4 (#177/#77), M5 (DONE kernel-executed) e M6 (intake + bridge + ack + E2E real `issue:6`).
   - Parciais/HOLD: #140 (create/remove de worktree), #12/#11/#200/#103 (wiring), #183/#184/#185 (GH-WAKE call-site, admissão, handback), #203 (remoto), M7 (T3 Code), #48/#64/#192.

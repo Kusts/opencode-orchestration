@@ -75,14 +75,39 @@ usuário ou ampliar materialmente o escopo.
   for compartilhada.
 - Não habilite bypass global de permissões como atalho para autonomia.
 
+## Papéis e autonomia por missão
+
+O Planner (agente primário) é o cérebro da missão: interpreta o objetivo,
+decide estratégia, metodologia, modelo e worker, decompõe Goals em Tasks,
+acompanha evidência, replaneja e encerra. Ele não substitui Coder, Tester,
+Reviewer, Debugger ou Docs Manager em implementação, validação ou revisão
+substantiva.
+
+- Leitura, análise e planejamento sem mutação: o Planner resolve direto.
+  `ReadWrite` deve refletir a intenção real; objetivo com vocabulário de edição
+  e metadado `read` é tratado como mutação e delegado.
+- Qualquer tarefa que altere arquivos ou código: Planner → um worker
+  apropriado → teste focado → resultado. A rota barata (`DIRECT_VERIFIED`)
+  vale para leitura/planejamento, nunca para escrita.
+- Tarefa trivial não exige vários workers; exige o worker certo e a
+  verificação proporcional ao risco.
+- Goal é missão persistente multifase, usado quando houver mais de uma Task;
+  Loop é a política de próxima ação sobre o estado existente, nunca daemon,
+  polling intenso ou segundo controlador. Task concluída não conclui o Goal.
+- Uma autorização por missão cobre criar Tasks, branches, commits, PRs
+  autorizados, reordenar o plano, trocar estratégia/modelo/worker, refazer
+  trabalho falho e retomar. Intervenção humana é excepcional: mudança material
+  de escopo/produto, gasto não autorizado, produção/destruição irreversível,
+  segredos/dados pessoais ou autorização ausente.
+
 ## Método de desenvolvimento
 
 Use um único método híbrido: entender o contrato, resolver incertezas materiais,
 implementar em fatias verificáveis, revisar conforme o risco e entregar com
 evidências. Pedido de análise ou plano não autoriza implementação.
 
-- Mudança clara, pequena e reversível: inspecione, faça a menor alteração
-  correta e execute a verificação focada; não exija brainstorming, PRD ou TDD.
+- Mudança clara, pequena e reversível: delegue ao worker apropriado e valide a
+  entrega com verificação focada; não exija brainstorming, PRD ou TDD.
 - Trabalho não trivial de implementação, refatoração, debugging ou revisão:
   carregue `hybrid-development` uma vez e somente as técnicas necessárias à
   próxima decisão. Não carregue toda a biblioteca nem reinicie o fluxo a cada
@@ -144,8 +169,9 @@ uma skill; respeite o pedido atual e as restrições do runtime.
 ## Autorização de delegação (apontador; política canônica em Agent Config #21)
 
 Autorização e dimensões de benefício da delegação: Agent Config #21 (dono
-canônico; nada aqui redefine). O Planner coordena; delegação só com benefício
-concreto; trivial elegível segue direto sem worker.
+canônico; nada aqui redefine). O Planner coordena e delega; leitura/planejamento
+sem mutação pode ser direto; qualquer mutação de arquivo vai a um worker
+apropriado; trivial não vira cerimônia de vários workers.
 
 ## Orquestração (apontador; política canônica em Agent Config #21)
 
@@ -155,8 +181,9 @@ redefine). Implementação de runtime neste repo: preflight condicional em
 `scripts/v3/lib/OrchestrationPreflight.ps1`), suíte
 `scripts/v3/orchestration-preflight.tests.ps1`, DONE gate em
 `Test-OrchestrationDoneCompliance`, Kernel em `scripts/v3/task-kernel.ps1`.
-Trivial elegível segue `DIRECT_VERIFIED` por padrão (zero workers, sem exigir
-router/registry saudável); delegação só com benefício concreto.
+Trivial de leitura/planejamento segue `DIRECT_VERIFIED` (zero workers);
+trivial com mutação de arquivo segue `SINGLE_WORKER` (um worker + verificação
+focada); o DONE gate rejeita escrita sem participação observada.
 
 ## Fonte e destinos
 
