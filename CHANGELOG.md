@@ -6,6 +6,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Pausa documentada para a próxima sessão (2026-11-11)**:
+  - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-PLAN.md` §14 registra o
+    handoff: estado (HEAD `16a1c84`, PR #238, CI 6/6), backlog ordenado
+    (#12/#11 no EvidenceStore → #200/#103 E2E → #183 produtor externo →
+    #64/#192 → #50/#141 → #2/#184/#185 → #172 → PR #210 → M7), restrições,
+    comandos de retomada e os cinco campos.
+  - SPEC e INDEX passam a `PAUSED`; nenhum código, flag ou permissão alterado.
+
 - **Encerramento da missão integrada (2026-11-11)** - decisão `ENCERRAR` do
   orientador após P0.6/#12/#11/M3:
   - Critérios cobertos: plano M0–M7 atualizado; Planner planeja/decide/delega

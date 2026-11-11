@@ -1,10 +1,10 @@
 # EVOLUTION INTEGRATED — PLAN (2026-11-10)
 
-**Versão:** 1.1
+**Versão:** 1.2
 **Data-base:** 2026-11-10 (revisão 2026-11-11)
 **Baseline de commit:** `beb0ea4` (branch `feat/evolution-integrated-20261110`)
 **SPEC:** [EVOLUTION-INTEGRATED-2026-11-10-SPEC.md](EVOLUTION-INTEGRATED-2026-11-10-SPEC.md)
-**Status:** CLOSED — missão encerrada pelo orientador em 2026-11-11, com pendências residuais documentadas (ver §13).
+**Status:** PAUSED — missão encerrada pelo orientador; implementação do backlog residual continua na próxima sessão (handoff em §14).
 
 ---
 
@@ -470,7 +470,7 @@ trabalho em andamento. Branch, commits e PR preservados.
 - `ReviewIntegration` 17/17; `fresh-install` 53/0; `idempotency` 17/0;
   `rollback` 33/0
 
-**Pendências para retomar:**
+**Pendências para retomar (histórico da pausa anterior — superado por §14):**
 
 1. Confirmar o CI final do PR #238 (ps51/ps7/v2 lane).
 2. #140: provar criação/remoção de dois worktrees nativos.
@@ -485,3 +485,91 @@ trabalho em andamento. Branch, commits e PR preservados.
 **Não alegado:** automação M1 em um único comando; M3 remoto; M6 totalmente
 automático; M7; dispatch T4/Astra; qualquer alteração de flag, permissão,
 credencial ou produção.
+
+## 14. Handoff para a próxima sessão (2026-11-11)
+
+**Objetivo:** continuar a implementação do backlog residual M0–M7 na próxima
+sessão, sem refazer o que já está provado.
+
+### 14.1 Estado atual (reconciliar antes de agir)
+
+- Branch `feat/evolution-integrated-20261110`; HEAD `16a1c84`; PR #238 aberto e
+  mergeable; CI do HEAD **6/6 SUCCESS** (linux collector, ps51, ps7, v2 lane,
+  smokes V1/V2). Nenhum merge/deploy.
+- Missão integrada encerrada pelo orientador em 2026-11-11. O encerramento vale
+  para os critérios da missão, **não** para todo o backlog: 9 issues COBERTAS,
+  9 PARCIAIS, 6 ABERTAS, 1 HOLD e PR #210 não integrado.
+- Config ativo `~/.config/opencode` **não** foi reconciliado; as mudanças estão
+  em `source/`, `generated/` e no bundle do plugin. Reconciliar só com pedido
+  explícito.
+- Evidências: `evidence/evolution-2026-11-10/` (P0, P0.5, P0.6, M3, M5, M6,
+  M7) e `evidence/evolution-2026-11-10/p0-autonomy/`.
+
+### 14.2 Ordem recomendada
+
+1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).**
+   - Inspecionar `Set-OrchestrationTaskWorkerResult` e `evidence_refs` em
+     `OrchestrationTaskKernel.ps1`; integrar `New-OrchestrationArtifactRef`
+     para detalhes/logs grandes, persistindo ref + preview e recuperando por
+     hash. Não alterar o significado de `verified_pass`/`DONE`.
+   - Aceite: Task real com log grande; ref e preview persistidos; recall
+     íntegro; comparação de bytes/contexto/tokens/tempo com e sem
+     virtualização. Se não houver benefício medido, manter apenas os helpers
+     atuais e registrar a decisão.
+   - Base existente: `scripts/v3/evidence-virtualize.ps1` (7/7),
+     `scripts/v3/cache-metrics.ps1` (4/4), `OrchestrationObservationVirtualization.ps1`,
+     `OrchestrationCacheMetrics.ps1`.
+2. **#200/#103 — E2E com o fluxo real.**
+   - Reviewer recebe o schema por padrão (`reviewer.md` + `review-schema`);
+     Planner interpreta findings, roda `repair-decision` e delega a correção.
+   - Aceite: findings ancorados persistidos na Task, decisão registrada e
+     correção validada sem novo gate.
+3. **#183 — produtor externo de eventos.**
+   - Avaliar webhook/Action que emite o envelope `source/trigger/thread/
+     delivery_id`; não fabricar `delivery_id` no tick. Se o produtor ficar
+     externo, manter PARTIAL com a fronteira documentada.
+4. **#64/#192, #50/#141, #2/#184/#185, #172.**
+   - #64: medir custo de descoberta de skills.
+   - #192: comparar Single/Cascade/Critique em cenários representativos.
+   - #50/#141: capability-first e auditoria de autoridade por superfície.
+   - #2/#184/#185: sessões subordinadas, observe→auto e handback completo.
+   - #172: só reproduzir o flake com sinal real.
+5. **PR #210:** comparar com a master atual; descartar ou reabrir contra a
+   master. Não integrar configuração anterior ao merge #236.
+6. **M7/#205:** piloto somente com produto/credenciais; caso contrário, HOLD.
+7. **Reconciliação do config ativo:** somente após pedido explícito de
+   install/reconcile; usar `scripts/reconcile-opencode-config.ps1` com backup.
+
+### 14.3 Restrições que continuam valendo
+
+- Sem novo controlador, scheduler, banco ou framework.
+- Sem alterar flags, permissões, allowlist, credenciais ou produção.
+- Sem merge/deploy fora de autorização explícita.
+- Preservar evidências e não refazer etapas já provadas.
+- Worker executa implementação/teste; Planner decide e delega; Kernel verifica.
+
+### 14.4 Comandos de retomada
+
+```powershell
+git status --short
+gh pr view 238 --json state,mergeable,statusCheckRollup
+powershell -NoProfile -File scripts\test-package-consistency.ps1
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+```
+
+Primeira ação da próxima sessão: reconciliar HEAD/PR/CI e iniciar pelo item 1
+(#12/#11), registrando a decisão de adotar ou não a integração com base em
+benefício medido.
+
+### 14.5 Handoff compacto (5 campos)
+
+- **Objetivo/estado:** continuar M0–M7; P0, P0.5 e P0.6 provados; missão
+  encerrada com residuais.
+- **Alterações:** P0 (papéis/roteamento/instruções/mandato), M5 wiring, P0.5
+  (Goal 3 Tasks), P0.6 (resume nativo), #12/#11 helpers, M3 (#140/#203).
+- **Validação:** CI 6/6; V3 168/179; preflight 286/286; GW 145/145;
+  TaskKernel 117/117; P0.5 14/14; evidence-virtualize 7/7; cache-metrics 4/4;
+  typecheck PASS; package-consistency 17/17.
+- **Decisões/pendências:** #183 opção (b); M7 HOLD; #12/#11 no EvidenceStore;
+  #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172; PR #210; config ativo.
+- **Próximo passo:** item 1 de §14.2.
