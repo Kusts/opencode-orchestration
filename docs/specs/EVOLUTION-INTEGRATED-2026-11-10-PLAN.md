@@ -253,11 +253,10 @@ uma linha nesse registro; não criar arquivo ou relatório novo.
   #48 segue PARCIAL (sem roteamento adaptativo por Objective/Goal) e #64
   segue aberto (sem medição de custo de contexto). Falha ambiental registrada:
   `skills-healthcheck` acusa drift user-owned em `hybrid-development`.
-- M3 (probes): OpenCode 2.2.6 anuncia `persistentPty=true` mas não prova
-  lifecycle; `opencode worktree` não expõe superfície CLI; remoto não foi
-  probado neste repo. #143 segue coberto; #139/#140/#203 permanecem HOLD/SPIKE
-  e nenhum componente foi removido. Evidência em
-  `evidence/evolution-2026-11-10/m3-runtime-probes.md`.
+- M3 (#139/#140/#203): PTY e shell nativos provados em runtime (comando
+  longo retorna output; PTY exited exitCode 0); 42 worktrees nativos listados.
+  #139 COBERTO, #140 PARCIAL (create/remove pendente), #203 SPIKE. Evidência
+  em `evidence/evolution-2026-11-10/m3-runtime-probes.md`.
 - M4 (#12/#11): virtualização content-addressed com recall verificado
   (18/18) e parser de métricas de cache sem zero inventado (18/18); wiring no
   EvidenceStore/Kernel pendente.

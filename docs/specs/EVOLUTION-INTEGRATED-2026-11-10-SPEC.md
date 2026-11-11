@@ -108,8 +108,8 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #237 | M2 | COBERTO | 8 skills-core instaladas (5 + BMAD/Pocock/Addy); `fresh-install` 53/0 e `idempotency` 17/0 | Revisar evidência e fechar |
 | #48 | M2 | PARCIAL | tabela de seleção por forma da tarefa em `hybrid-development`; sem roteamento adaptativo por Objective/Goal | Evoluir seleção no Kernel |
 | #64 | M2 | ABERTO | `skills-catalog.json` existe; custo de contexto não medido | Medir descoberta seletiva e custo |
-| #139 | M3 | ABERTO | PTY nativo não adotado | Adotar com lifecycle e teste de comando longo |
-| #140 | M3 | PARCIAL | `worktree_isolation` ON; paridade com worktree nativo não provada | Testar dois trabalhos isolados |
+| #139 | M3 | COBERTO | PTY create/list `exited exitCode=0` e shell longo `status=exited` + output `shell-ok` via API 2.2.6 | Revisar evidência e fechar |
+| #140 | M3 | PARCIAL | `GET /api/worktree?projectID=…` retorna 42 worktrees com `strategy=git`; create/remove não exercitados | Provar criação/remoção |
 | #143 | M3 | COBERTO | contrato nativo provado em 2026-11-07 (CHANGELOG); comparador morto removido | Revisar evidência e fechar |
 | #203 | M3 | SPIKE | perfis remotos/MCP existem fora do pacote; integração no projeto não provada | Teste Planner local → Linux/Docker VPS |
 | #12 | M4 | PARCIAL | lib de virtualização content-addressed com recall verificado (18/18); wiring no EvidenceStore pendente | Ligar ao fluxo de evidência do Kernel |
