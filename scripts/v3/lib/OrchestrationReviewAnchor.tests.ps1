@@ -8,6 +8,7 @@
 param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'OrchestrationReviewAnchor.ps1')
+. (Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1')
 
 $script:passed = 0
 $script:failed = 0
@@ -65,15 +66,22 @@ try {
     Assert-RA ([int]$schema.schema_version -eq 1) '[RA9] schema version is 1' ([string]$schema.schema_version)
     Assert-RA (([int]$schema.max_findings -eq 50) -and ([int]$schema.max_bytes -eq 262144) -and ([int]$schema.max_message_chars -eq 2000)) '[RA9] schema limits match review bounds' ''
     Assert-RA ((@($schema.required_fields) -join ',') -ceq 'finding_id,file,commit_sha,message') '[RA9] required fields are stable' ''
-    Assert-RA ((@($schema.optional_fields) -join ',') -ceq 'severity,line,task_id,worker,file_sha256') '[RA9] optional fields are stable' ''
+    Assert-RA ((@($schema.optional_fields) -join ',') -ceq 'severity,line') '[RA9] optional fields are stable' ''
+    Assert-RA ((@($schema.derived_fields) -join ',') -ceq 'anchor,worker,owner_reason,file_sha256') '[RA9] derived fields are stable' ''
+    Assert-RA (([int]$schema.limits.finding_id_max_chars -eq 128) -and ([int]$schema.limits.file_max_chars -eq 512) -and ([int]$schema.limits.line_min -eq 0) -and ([int]$schema.limits.line_max -eq 10000000) -and ([int]$schema.limits.message_max_chars -eq 2000) -and ([string]$schema.limits.commit_sha -ceq '7-40 hexadecimal characters') -and (@($schema.limits.path_rules).Count -eq 4)) '[RA9] schema advertises Kernel input limits' ''
     $exampleJson = ConvertTo-Json -InputObject @($schema.example) -Depth 8 -Compress
-    $exampleParsed = ConvertFrom-Json -InputObject $exampleJson
-    $exampleFields = @($exampleParsed[0].PSObject.Properties.Name)
-    $exampleHasRequired = $true
-    foreach ($field in @($schema.required_fields)) {
-        if ($exampleFields -cnotcontains [string]$field) { $exampleHasRequired = $false }
-    }
-    Assert-RA ((@($exampleParsed).Count -eq 1) -and $exampleHasRequired) '[RA9] example is parseable JSON with required fields' $exampleJson
+    $exampleResult = ConvertTo-TaskKernelReviewFindings -FindingsJson $exampleJson -TaskId 'schema-test'
+    Assert-RA ([bool]$exampleResult.ok -and (@($exampleResult.findings).Count -eq 1)) '[RA9] example is accepted by real Kernel findings validator' ([string]$exampleResult.error)
+    $finding = [ordered]@{ finding_id = 'F-1'; file = 'src/example.ps1'; commit_sha = 'abcdef1234567'; message = 'x' }
+    $manyFindings = @(); for ($i = 0; $i -lt 51; $i++) { $item = [ordered]@{}; foreach ($key in $finding.Keys) { $item[$key] = $finding[$key] }; $item.finding_id = ('F-' + $i); $manyFindings += $item }
+    $tooManyResult = ConvertTo-TaskKernelReviewFindings -FindingsJson (ConvertTo-Json -InputObject $manyFindings -Depth 8 -Compress)
+    Assert-RA ((-not [bool]$tooManyResult.ok) -and ([string]$tooManyResult.error -ceq 'REVIEW_FINDINGS_TOO_MANY')) '[RA10] Kernel rejects 51 findings' ([string]$tooManyResult.error)
+    $longMessage = 'x' * 2001
+    $longResult = ConvertTo-TaskKernelReviewFindings -FindingsJson (ConvertTo-Json -InputObject @([ordered]@{ finding_id = 'F-long'; file = 'src/example.ps1'; commit_sha = 'abcdef1234567'; message = $longMessage }) -Depth 8 -Compress)
+    Assert-RA ((-not [bool]$longResult.ok) -and ([string]$longResult.error -like 'REVIEW_FINDINGS_INVALID*')) '[RA10] Kernel rejects 2001-character message' ([string]$longResult.error)
+    $boundaryFindings = @(); for ($i = 0; $i -lt 50; $i++) { $item = [ordered]@{ finding_id = ('F-' + $i); file = 'src/example.ps1'; commit_sha = 'abcdef1234567'; message = ('x' * 2000) }; $boundaryFindings += $item }
+    $boundaryResult = ConvertTo-TaskKernelReviewFindings -FindingsJson (ConvertTo-Json -InputObject $boundaryFindings -Depth 8 -Compress)
+    Assert-RA ([bool]$boundaryResult.ok -and (@($boundaryResult.findings).Count -eq 50)) '[RA10] Kernel accepts 50 findings with 2000-character messages' ([string]$boundaryResult.error)
     Assert-RA ((ConvertTo-Json -InputObject $schema -Depth 8 -Compress) -ceq (ConvertTo-Json -InputObject $schemaAgain -Depth 8 -Compress)) '[RA9] schema is deterministic' ''
 }
 finally { }

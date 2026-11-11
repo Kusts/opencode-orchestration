@@ -543,9 +543,11 @@ tentativa só com hipótese, informação ou estratégia nova.
 
 Review ancorado: `task-kernel.ps1 -Action review-schema` publica o schema
 versionado (50 findings, 256 KiB, 2000 chars por mensagem). O reviewer devolve
-findings ancorados em arquivo + linha + commit revisado; a Task persiste
-`findings`, `review_history` e o owner sugerido. `approved` com findings é
-recusado.
+somente os campos de entrada; `task_id`, `worker`, `anchor` e `file_sha256` sao
+derivados, nao enviados (o `file_sha256` so e calculado com conteudo de arquivo,
+que o Kernel nao fornece hoje). Findings sao ancorados em arquivo + linha +
+commit revisado; a Task persiste `findings`, `review_history` e o owner
+sugerido. `approved` com findings e recusado.
 
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 `PLANNING`, `IMPLEMENTING`, `VALIDATING`, `REVIEWING`, `FIXING`, `BLOCKED`,

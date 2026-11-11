@@ -357,8 +357,11 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
   PS7), TaskKernel 116/116 (PS5.1); no PS7 local, a suíte para em 93/94 por
   falha ambiental ao iniciar `powershell.exe` a partir do WindowsApps (não
   relacionada ao diff); package-consistency 17/17. Revisão independente
-  pendente: o provider retornou limite de 5h durante a revisão — nenhuma
-  aprovação foi inventada.
+  executada após o reset de quota: CHANGES_REQUIRED com F1 (schema anunciava
+  campos derivados como entrada) e três LOW; corrigidos (schema com
+  `derived_fields`/`limits`, testes de fronteira com o validador real,
+  `review-schema` rejeita parâmetros). Re-revisão pendente; nenhuma aprovação
+  inventada.
 
 **Achado M6 (2026-11-11):** o tick do GH-WAKE produz `github-wake-v1` +
 `next_action` (CI/wait), não o envelope `source/trigger/thread/delivery_id`

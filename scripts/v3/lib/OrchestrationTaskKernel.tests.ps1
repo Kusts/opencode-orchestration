@@ -837,6 +837,22 @@ try {
     Assert-TaskKernel (($schemaProcess.ExitCode -eq 0) -and ($null -ne $schemaJson) -and ([int]$schemaJson.schema_version -eq 1)) 'review-schema CLI returns version 1 without TaskId' $schemaStdout
     $schemaProcess.Dispose()
 
+    $schemaBadPsi = New-Object System.Diagnostics.ProcessStartInfo
+    $schemaBadPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
+    $schemaBadPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action review-schema -TaskId x'
+    $schemaBadPsi.UseShellExecute = $false
+    $schemaBadPsi.CreateNoWindow = $true
+    $schemaBadPsi.RedirectStandardOutput = $true
+    $schemaBadPsi.RedirectStandardError = $true
+    $schemaBadProcess = New-Object System.Diagnostics.Process
+    $schemaBadProcess.StartInfo = $schemaBadPsi
+    [void]$schemaBadProcess.Start()
+    $null = $schemaBadProcess.StandardOutput.ReadToEnd()
+    $schemaBadStderr = $schemaBadProcess.StandardError.ReadToEnd()
+    $schemaBadProcess.WaitForExit()
+    Assert-TaskKernel (($schemaBadProcess.ExitCode -eq 2) -and ($schemaBadStderr -match 'review-schema nao aceita')) 'review-schema CLI rejects TaskId with exit 2'
+    $schemaBadProcess.Dispose()
+
     $invalidPsi = New-Object System.Diagnostics.ProcessStartInfo
     $invalidPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
     $invalidPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action invalid-action'

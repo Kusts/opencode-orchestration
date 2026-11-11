@@ -16,8 +16,19 @@ function Get-OrchestrationReviewFindingsSchema {
         max_findings = 50
         max_bytes = 262144
         max_message_chars = 2000
+        limits = [ordered]@{
+            finding_id_max_chars = 128
+            file_max_chars = 512
+            line_min = 0
+            line_max = 10000000
+            commit_sha = '7-40 hexadecimal characters'
+            path_rules = @('repository-relative', 'no .. path segment', 'no drive or absolute path', 'no control characters')
+            severity_default = 'medium'
+            message_max_chars = 2000
+        }
         required_fields = @('finding_id', 'file', 'commit_sha', 'message')
-        optional_fields = @('severity', 'line', 'task_id', 'worker', 'file_sha256')
+        optional_fields = @('severity', 'line')
+        derived_fields = @('anchor', 'worker', 'owner_reason', 'file_sha256')
         severities = @('low', 'medium', 'high', 'critical')
         fields = [ordered]@{
             finding_id = 'Non-empty stable finding identifier.'
@@ -26,9 +37,6 @@ function Get-OrchestrationReviewFindingsSchema {
             message = 'Non-empty finding text, at most 2000 characters.'
             severity = 'low, medium, high, or critical; defaults to medium.'
             line = 'Integer line number greater than or equal to 0.'
-            task_id = 'Optional associated task identifier.'
-            worker = 'Optional suggested worker owner.'
-            file_sha256 = 'Optional SHA-256 of the reviewed file content.'
         }
         example = @(
             [ordered]@{
@@ -41,7 +49,8 @@ function Get-OrchestrationReviewFindingsSchema {
             }
         )
         notes = @(
-            'The anchor is derived from the finding and reviewed state; do not send it in the input.'
+            'anchor, worker, owner_reason, and file_sha256 are derived; do not send them in the input.'
+            'file_sha256 is calculated only when file content is supplied; the Kernel does not send it today.'
             'An approved review containing findings is rejected.'
         )
     }

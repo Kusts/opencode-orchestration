@@ -271,6 +271,17 @@ function Convert-TaskKernelBudgetInt {
 $result = $null
 switch ($action) {
     'review-schema' {
+        $hasReviewSchemaArgs = (-not [string]::IsNullOrWhiteSpace($TaskId)) -or
+            (($PSBoundParameters.ContainsKey('ExpectedRevision')) -and ([int]$ExpectedRevision -ne 0)) -or
+            (-not [string]::IsNullOrWhiteSpace($ReviewKind)) -or
+            (-not [string]::IsNullOrWhiteSpace($ReviewStatus)) -or
+            (-not [string]::IsNullOrWhiteSpace($ReviewBy)) -or
+            (-not [string]::IsNullOrWhiteSpace($FindingsFile)) -or
+            (-not [string]::IsNullOrWhiteSpace($FindingsJson))
+        if ($hasReviewSchemaArgs) {
+            Write-TaskKernelCliError 'review-schema nao aceita -TaskId, -ExpectedRevision diferente de 0, -ReviewKind, -ReviewStatus, -ReviewBy, -FindingsFile ou -FindingsJson.'
+            exit 2
+        }
         . (Join-Path $v3root 'lib\OrchestrationReviewAnchor.ps1')
         $reviewSchema = Get-OrchestrationReviewFindingsSchema
         Write-Output (ConvertTo-Json -InputObject $reviewSchema -Depth 8)
