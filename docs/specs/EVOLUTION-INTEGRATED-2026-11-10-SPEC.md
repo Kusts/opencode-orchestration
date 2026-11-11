@@ -2,9 +2,9 @@
 
 **Versão:** 1.0
 **Data-base:** 2026-11-10
-**Baseline de commit:** `54a9d3c` (merge PR #236 / issue #208)
+**Baseline de commit:** `8c9befb` (branch `feat/evolution-integrated-20261110`)
 **Repositório:** `Kusts/opencode-orchestration`
-**Status:** ACTIVE — plano canônico aprovado para execução incremental
+**Status:** PAUSED — implementação interrompida a pedido do usuário em 2026-11-11; estado e evidências preservados
 **Escopo:** 25 issues + PR #210, organizados em 8 marcos (M0–M7)
 **Runtime-alvo:** OpenCode V2 (V1 permanece `LEGACY_FROZEN`, issue #62)
 

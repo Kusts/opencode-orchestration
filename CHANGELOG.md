@@ -6,6 +6,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Pausa de implementação (2026-11-11)** — estado consolidado no PR #238:
+  - Branch `feat/evolution-integrated-20261110`; commits até `8c9befb`; nenhum merge/deploy.
+  - Entregues e verificados: M0, M1 (runtime real), M2, M3 (#139), M4 (#177/#77), M5 (DONE kernel-executed) e M6 (intake + bridge + ack + E2E real `issue:6`).
+  - Parciais/HOLD: #140 (create/remove de worktree), #12/#11/#200/#103 (wiring), #183/#184/#185 (GH-WAKE call-site, admissão, handback), #203 (remoto), M7 (T3 Code), #48/#64/#192.
+  - Validação: package-consistency 17/17; TaskKernel 114/114; ModelProof 169/169; ModelChain 32/32; Learning 20/20; EventIntake 8/8; TaskEvent 12/12; EventBridge 9/9; ReviewIntegration 17/17; fresh-install 53/0; idempotency 17/0; rollback 33/0.
+  - CI do run `42943040689`: linux + smokes V1/V2 PASS; ps51/ps7/v2 lane pendentes no momento da pausa.
+  - Plano e estado por issue: `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-{SPEC,PLAN}.md`; evidências em `evidence/evolution-2026-11-10/`.
+
 - **Plano integrado de evolução 2026-11-10 (25 issues + PR #210) — M0/M1 iniciados**:
   - SPEC/PLAN canônicos em `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-SPEC.md` e `...-PLAN.md`: 8 marcos (M0–M7), estado reconciliado por issue contra o baseline `54a9d3c`, dependências (`#177` antes de `#77`; `#143`/`#183` antes de `#2`/`#185`), critérios de aceite por marco e protocolo de prova runtime-real do M1.
   - Decisão de escalonamento (#208) registrada no adapter V2: cadeia canônica `claude-agent/sonnet` (T3) → `claude-agent/opus` (T4) → `openai/gpt-6-astra` (excepcional, após prova T4); `openai/gpt-6.1-sol` é candidato de mesmo tier T4, não degrau T3→Astra; `claude-agent/fable` permanece HOLD. O texto histórico "T3→Sol→Astra" da issue não altera a política.

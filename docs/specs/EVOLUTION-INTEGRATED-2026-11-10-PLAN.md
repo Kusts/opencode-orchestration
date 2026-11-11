@@ -2,9 +2,9 @@
 
 **Versão:** 1.0
 **Data-base:** 2026-11-10
-**Baseline de commit:** `54a9d3c`
+**Baseline de commit:** `8c9befb` (branch `feat/evolution-integrated-20261110`)
 **SPEC:** [EVOLUTION-INTEGRATED-2026-11-10-SPEC.md](EVOLUTION-INTEGRATED-2026-11-10-SPEC.md)
-**Status:** ACTIVE — execução incremental por marco
+**Status:** PAUSED — implementação interrompida a pedido do usuário em 2026-11-11; estado, evidências e PR preservados
 
 ---
 
@@ -226,73 +226,67 @@ Ao concluir ou interromper um marco, registrar em um único registro primário
 alterações, validação, decisões/pendências e próximo passo. Para microtarefas,
 uma linha nesse registro; não criar arquivo ou relatório novo.
 
-## 13. Estado desta execução (2026-11-10)
+## 13. Estado desta execução — pausa de 2026-11-11
 
-**Entregue nesta rodada:**
+**Status:** PAUSED. Implementação interrompida a pedido do usuário; nenhum
+trabalho em andamento. Branch, commits e PR preservados.
 
-- SPEC e PLAN canônicos deste programa;
-- decisão explícita da cadeia Sonnet → Opus → Astra no adapter V2;
-- `scripts/v3/lib/OrchestrationModelChain.ps1` (leitura pura da política e
-  verificação política ↔ adapter);
-- `scripts/v3/lib/OrchestrationModelChain.tests.ps1` (15 asserts, incluindo
-  drift de T3, excepcional, adapter sem cadeia e adapter T3→Sol);
-- check 17 em `scripts/test-package-consistency.ps1` (17/17 PASS);
-- revalidação da #21: as 6 suítes citadas passaram (53/13/44/9/22/39 asserts;
-  2 SKIP ambientais de pin em `profile-isolation`), com evidência em
-  `evidence/evolution-2026-11-10/m0-issue21-revalidation.md`;
-- prova M1 em runtime real (2026-11-10): Task `evo-m1-proof-20261110` executou
-  `model-select → dispatch T3 sonnet → model-attempt → model-proof` sem
-  comando humano intermediário; `model-proof` T3/T4 falharam fechado sem prova
-  de falha; reviewer T3 retornou `CHANGES_REQUIRED` e os 3 achados foram
-  corrigidos com 32 asserts (evidência em
-  `evidence/evolution-2026-11-10/m1-planner-chain-runtime.md`);
-- M2 (#237/#48) entregue parcialmente: 8 skills-core (BMAD, Pocock e Addy
-  como texto original pinado) e tabela de seleção em `hybrid-development`;
-  `fresh-install` 53/0, `idempotency` 17/0, `rollback` 33/0 e consistência
-  17/17. Evidência em `evidence/evolution-2026-11-10/m2-methodologies-distribution.md`.
-  #48 segue PARCIAL (sem roteamento adaptativo por Objective/Goal) e #64
-  segue aberto (sem medição de custo de contexto). Falha ambiental registrada:
-  `skills-healthcheck` acusa drift user-owned em `hybrid-development`.
-- M3 (#139/#140/#203): PTY e shell nativos provados em runtime (comando
-  longo retorna output; PTY exited exitCode 0); 42 worktrees nativos listados.
-  #139 COBERTO, #140 PARCIAL (create/remove pendente), #203 SPIKE. Evidência
-  em `evidence/evolution-2026-11-10/m3-runtime-probes.md`.
-- M4 (#12/#11): virtualização content-addressed com recall verificado
-  (18/18) e parser de métricas de cache sem zero inventado (18/18); wiring no
-  EvidenceStore/Kernel pendente.
-- M5 (#200/#103): finding ancorado em arquivo/linha/commit com drift e owner
-  (18/18), decisão local/replan/escalate (13/13) e integração no registro de
-  review do Kernel (14/14; findings validados/persistidos, `approved` com
-  findings recusado). Suítes do Kernel verdes (114/114, 34/0, 169/169, 8/0).
-  Prompt do reviewer e E2E vivo ainda pendentes. Evidência em
-  `evidence/evolution-2026-11-10/m5-review-kernel-integration.md`.
-- M6 (#183/#185, primeira fatia): envelope + dedup + roteamento
-  `ATTACH/OBSERVE/NEW_TASK/IGNORE/ESCALATE` (11/11); transporte GH-WAKE,
-  admissão versionada (#184) e ownership de follow-up (#185) pendentes.
-  Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
-- M4 (#177/#77): gateway verificado, lição Markdown, receita determinística,
-  decisão de reuso (20/20), round-trip real no AI Memory MCP, recall em segunda
-  sessão e comparação de custo (1 chamada original → 0 no replay duplo).
-  Evidência em `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
-- M6 (#183/#185): intake CLI (8/8), bridge GH-WAKE→Kernel, entrega+ack
-  idempotentes (12/12, bridge 9/9) e E2E real `issue:6` → worker → ack.
-  Call-site automático do GH-WAKE, admissão (#184) e handback completo
-  pendentes. Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
-- README e CHANGELOG atualizados.
+**Publicação:**
+- Branch `feat/evolution-integrated-20261110`
+- PR #238: https://github.com/Kusts/opencode-orchestration/pull/238
+- Últimos commits: `dd3f5e8` (bridge/ack M6), `408a112` (#77 custo),
+  `8c9befb` (probes M3).
+- CI do run `42943040689` no momento da pausa: linux collector e smokes
+  V1/V2 **PASS**; ps51, ps7 e v2 lane **pending**. Nenhum merge/deploy.
 
-**Não entregue / não alegado:**
+**Entregue e verificado:**
 
-- automação do encadeamento M1 em um único comando (decisão explícita
-  pendente; o Planner executou o fluxo comportamental);
-- fechamento de #61/#143/#21/#208/#237 (exige revisão do maintainer);
-- M3 funcional (#139/#140/#203), M6 completo (transporte/admissão/follow-up)
-  e M7 (T3 Code, HOLD por depender de produto externo e projeto descartável);
-- wiring de #12/#11/#200/#103 no Kernel/Planner; #48 completo; #64; #177/#77;
-- #192 (comparação de estratégias) e #205 (piloto T3 Code);
-- dispatch T4/Astra, qualquer alteração de flag, permissão, credencial ou
-  produção.
+- **M0:** #21 revalidada (6/6 suítes), #61/#143 mapeadas, PR #210 não
+  mergeável; evidência em `evidence/evolution-2026-11-10/m0-issue21-revalidation.md`.
+- **M1:** cadeia canônica Sonnet→Opus→Astra + check 17 (32 asserts); prova
+  runtime real `model-select → dispatch T3 → model-attempt → model-proof`
+  (T3/T4 fail-closed); evidência em `m1-planner-chain-runtime.md`.
+- **M2:** 8 skills-core (BMAD/Pocock/Addy em texto original) e seleção por
+  forma da tarefa; `fresh-install` 53/0, `idempotency` 17/0, `rollback` 33/0.
+- **M3:** PTY nativo (`exited exitCode=0`) e shell longo (`status=exited`,
+  output `shell-ok`) provados; 42 worktrees nativos listados. #139 COBERTO;
+  #140 PARCIAL (create/remove não exercitados); #203 SPIKE.
+- **M4:** #12/#11 PARCIAL (libs 18/18, wiring pendente); #177 COBERTO
+  (lição durável + recall em segunda sessão); #77 COBERTO (receita
+  determinística, custo 1 chamada original → 0 no replay duplo).
+- **M5:** #200/#103 PARCIAL (âncora/drift/owner 18/18, reparo 13/13,
+  integração no Kernel 17/17); E2E vivo coder→reviewer→coder com 2 findings
+  reais corrigidos; `DONE` kernel-executed provado na Task
+  `m5-done-proof6-20261110`.
+- **M6:** intake (8/8), entrega+ack idempotentes (12/12), bridge
+  GH-WAKE→Kernel (9/9) e E2E real `issue:6`/`comment-5993719807` →
+  worker → ack. #183/#184/#185 PARCIAL: call-site automático do GH-WAKE,
+  regras observe→auto e handback completo pendentes.
+- **M7:** HOLD — depende de acesso ao T3 Code e projeto descartável.
 
-**Próximo incremento recomendado:** provar #139 (PTY lifecycle) e #140
-(paridade de worktree) em runtime; depois ligar #200/#103 ao fluxo de review e
-retry sem criar novo controlador. M7 só inicia com acesso ao T3 Code e um
-projeto descartável.
+**Validação final executada:**
+
+- `package-consistency` 17/17
+- `TaskKernel` 114/114; `ModelProof` 169/169; `Correlation` 34/0;
+  `TrustedPaths` 8/0
+- `ModelChain` 32/32; `Observation` 18/18; `CacheMetrics` 18/18;
+  `ReviewAnchor` 18/18; `LocalizedRepair` 13/13; `Learning` 20/20
+- `EventIntake` 8/8; `TaskEvent` 12/12; `EventBridge` 9/9
+- `ReviewIntegration` 17/17; `fresh-install` 53/0; `idempotency` 17/0;
+  `rollback` 33/0
+
+**Pendências para retomar:**
+
+1. Confirmar o CI final do PR #238 (ps51/ps7/v2 lane).
+2. #140: provar criação/remoção de dois worktrees nativos.
+3. #203: provar SSH/Docker real a partir do Planner local.
+4. M6: ligar o tick do GH-WAKE à bridge, regras observe→auto (#184) e
+   handback completo (#185).
+5. M7 (#205): piloto T3 Code quando houver acesso/produto.
+6. #64 (custo de descoberta), #48 completo e #192 (estratégias).
+7. Wiring de #12/#11/#200/#103 no Kernel/Planner.
+8. Revisão do maintainer para fechar #21/#61/#139/#143/#177/#77/#237/#208.
+
+**Não alegado:** automação M1 em um único comando; M3 remoto; M6 totalmente
+automático; M7; dispatch T4/Astra; qualquer alteração de flag, permissão,
+credencial ou produção.
