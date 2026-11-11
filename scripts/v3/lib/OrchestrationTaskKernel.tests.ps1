@@ -819,8 +819,18 @@ try {
     Assert-TaskKernel ([bool]$cc.ok) 'race fixture create ok'
     $cliPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'task-kernel.ps1'
     # 30b. read-only review schema CLI needs no task; invalid action is usage error.
+    $cliHostExe = ''
+    try { $cliHostExe = [string](Get-Process -Id $PID).Path } catch { $cliHostExe = '' }
+    if ([string]::IsNullOrWhiteSpace($cliHostExe)) {
+        if ($PSVersionTable.PSEdition -eq 'Core') { $cliHostExe = Join-Path $PSHOME 'pwsh.exe' }
+        else { $cliHostExe = Join-Path $PSHOME 'powershell.exe' }
+    }
+    if (-not (Test-Path -LiteralPath $cliHostExe -PathType Leaf)) {
+        Assert-TaskKernel $false 'CLI host executable available' $cliHostExe
+    }
+    if (Test-Path -LiteralPath $cliHostExe -PathType Leaf) {
     $schemaPsi = New-Object System.Diagnostics.ProcessStartInfo
-    $schemaPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
+    $schemaPsi.FileName = $cliHostExe
     $schemaPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action review-schema'
     $schemaPsi.UseShellExecute = $false
     $schemaPsi.CreateNoWindow = $true
@@ -838,7 +848,7 @@ try {
     $schemaProcess.Dispose()
 
     $schemaBadPsi = New-Object System.Diagnostics.ProcessStartInfo
-    $schemaBadPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
+    $schemaBadPsi.FileName = $cliHostExe
     $schemaBadPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action review-schema -TaskId x'
     $schemaBadPsi.UseShellExecute = $false
     $schemaBadPsi.CreateNoWindow = $true
@@ -854,7 +864,7 @@ try {
     $schemaBadProcess.Dispose()
 
     $invalidPsi = New-Object System.Diagnostics.ProcessStartInfo
-    $invalidPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
+    $invalidPsi.FileName = $cliHostExe
     $invalidPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action invalid-action'
     $invalidPsi.UseShellExecute = $false
     $invalidPsi.CreateNoWindow = $true
@@ -868,6 +878,7 @@ try {
     $invalidProcess.WaitForExit()
     Assert-TaskKernel (($invalidProcess.ExitCode -eq 2) -and ($invalidStderr -match 'Uso: task-kernel')) 'invalid task-kernel action exits 2 with usage'
     $invalidProcess.Dispose()
+    }
 
     $childOut1 = Join-Path $t.root 'race1.json'
     $childOut2 = Join-Path $t.root 'race2.json'

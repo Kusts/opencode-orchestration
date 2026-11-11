@@ -353,15 +353,12 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
 - `scripts/v3/repair-decision.ps1` expõe `LOCAL_REPAIR`/`REPLAN`/`ESCALATE`
   deterministicamente para o Planner consultar antes do retry; nenhum dispatch,
   nenhuma decisão automática pelo Kernel. #103 segue PARCIAL.
-- Testes: ReviewAnchor 24/24 (PS5.1 e PS7), repair-decision 10/10 (PS5.1 e
-  PS7), TaskKernel 116/116 (PS5.1); no PS7 local, a suíte para em 93/94 por
-  falha ambiental ao iniciar `powershell.exe` a partir do WindowsApps (não
-  relacionada ao diff); package-consistency 17/17. Revisão independente
-  executada após o reset de quota: CHANGES_REQUIRED com F1 (schema anunciava
-  campos derivados como entrada) e três LOW; corrigidos (schema com
-  `derived_fields`/`limits`, testes de fronteira com o validador real,
-  `review-schema` rejeita parâmetros). Re-revisão pendente; nenhuma aprovação
-  inventada.
+- Testes: ReviewAnchor 29/29 (PS5.1 e PS7), repair-decision 10/10 (PS5.1 e
+  PS7), TaskKernel 117/117 (PS5.1 e PS7, após tornar o spawn do CLI portátil),
+  package-consistency 17/17. Revisão independente: F1 MEDIUM + LOWs corrigidos;
+  re-revisão **APPROVED** com 5 LOW residuais não bloqueantes (strictness de
+  parâmetros, fronteiras de finding_id/file/line/commit, line fracionária,
+  nomes derivados).
 
 **Achado M6 (2026-11-11):** o tick do GH-WAKE produz `github-wake-v1` +
 `next_action` (CI/wait), não o envelope `source/trigger/thread/delivery_id`

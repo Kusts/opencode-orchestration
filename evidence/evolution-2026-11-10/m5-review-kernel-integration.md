@@ -101,14 +101,15 @@ do E2E não conseguia completar por falta de plano de verificação.
   `Resolve-OrchestrationLocalizedRepair`; retorna `LOCAL_REPAIR`/`REPLAN`/
   `ESCALATE` com motivo e constraints. O Planner consulta antes do retry; o
   Kernel não decide estratégia sozinho.
-- Evidência: ReviewAnchor 24/24 (PS5.1 e PS7), repair-decision 10/10,
-  TaskKernel 116/116 (PS5.1; PS7 local para em 93/94 por falha ambiental de
-  spawn de `powershell.exe` no WindowsApps), package-consistency 17/17.
-- Revisão independente (após reset de quota): CHANGES_REQUIRED com 1 MEDIUM
-  (schema listava `task_id`/`worker`/`file_sha256` como entrada, mas o Kernel
-  os deriva) e 3 LOW. Corrigido: `optional_fields` = severity/line,
-  `derived_fields` + `limits` no schema, testes de fronteira contra
-  `ConvertTo-TaskKernelReviewFindings` (50/51, 2000/2001), e `review-schema`
-  rejeita `-TaskId`/findings com exit 2. ReviewAnchor 29/29, TaskKernel 117/117.
-  Re-revisão pendente.
+- Evidência: ReviewAnchor 29/29 (PS5.1 e PS7), repair-decision 10/10,
+  TaskKernel 117/117 (PS5.1 e PS7, após spawn do CLI portátil),
+  package-consistency 17/17.
+- Revisão independente: CHANGES_REQUIRED com 1 MEDIUM (schema listava
+  `task_id`/`worker`/`file_sha256` como entrada, mas o Kernel os deriva) e 3
+  LOW. Corrigido: `optional_fields` = severity/line, `derived_fields` +
+  `limits`, testes de fronteira contra `ConvertTo-TaskKernelReviewFindings`
+  (50/51, 2000/2001), e `review-schema` rejeita `-TaskId`/findings com exit 2.
+  Re-revisão **APPROVED**; restam 5 LOW não bloqueantes (strictness de
+  parâmetros, fronteiras de finding_id/file/line/commit, `line` fracionária,
+  nomes derivados).
 
