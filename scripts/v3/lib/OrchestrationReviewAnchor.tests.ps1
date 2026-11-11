@@ -59,6 +59,22 @@ try {
     Assert-RA (((Resolve-OrchestrationReviewOwner -File '.github/workflows/ci.yml').owner) -ceq 'infra-engineer') '[RA8] owner infra' ''
     Assert-RA (((Resolve-OrchestrationReviewOwner -File 'docs/README.md').owner) -ceq 'docs-manager') '[RA8] owner docs' ''
     Assert-RA (((Resolve-OrchestrationReviewOwner -File 'scripts/tool.ps1').owner) -ceq 'coder') '[RA8] owner default coder' ''
+
+    $schema = Get-OrchestrationReviewFindingsSchema
+    $schemaAgain = Get-OrchestrationReviewFindingsSchema
+    Assert-RA ([int]$schema.schema_version -eq 1) '[RA9] schema version is 1' ([string]$schema.schema_version)
+    Assert-RA (([int]$schema.max_findings -eq 50) -and ([int]$schema.max_bytes -eq 262144) -and ([int]$schema.max_message_chars -eq 2000)) '[RA9] schema limits match review bounds' ''
+    Assert-RA ((@($schema.required_fields) -join ',') -ceq 'finding_id,file,commit_sha,message') '[RA9] required fields are stable' ''
+    Assert-RA ((@($schema.optional_fields) -join ',') -ceq 'severity,line,task_id,worker,file_sha256') '[RA9] optional fields are stable' ''
+    $exampleJson = ConvertTo-Json -InputObject @($schema.example) -Depth 8 -Compress
+    $exampleParsed = ConvertFrom-Json -InputObject $exampleJson
+    $exampleFields = @($exampleParsed[0].PSObject.Properties.Name)
+    $exampleHasRequired = $true
+    foreach ($field in @($schema.required_fields)) {
+        if ($exampleFields -cnotcontains [string]$field) { $exampleHasRequired = $false }
+    }
+    Assert-RA ((@($exampleParsed).Count -eq 1) -and $exampleHasRequired) '[RA9] example is parseable JSON with required fields' $exampleJson
+    Assert-RA ((ConvertTo-Json -InputObject $schema -Depth 8 -Compress) -ceq (ConvertTo-Json -InputObject $schemaAgain -Depth 8 -Compress)) '[RA9] schema is deterministic' ''
 }
 finally { }
 

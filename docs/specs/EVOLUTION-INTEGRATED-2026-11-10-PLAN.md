@@ -343,6 +343,28 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
 - Revisão independente: F1 (`ReadWrite=read` com intenção de edição) e F2
   (consumidores de evidência com escrita direta) corrigidos; WL-01 agora mede
   lookup read-only e retorna `COMPLIANT`.
+
+**M5 wiring entregue em 2026-11-11:**
+
+- `task-kernel.ps1 -Action review-schema` publica o schema versionado de
+  findings ancorados (read-only, sem `-TaskId`); `Get-OrchestrationReviewFindingsSchema`
+  é puro e determinístico. #200 segue PARCIAL: falta injetar o schema no
+  contrato de dispatch do reviewer.
+- `scripts/v3/repair-decision.ps1` expõe `LOCAL_REPAIR`/`REPLAN`/`ESCALATE`
+  deterministicamente para o Planner consultar antes do retry; nenhum dispatch,
+  nenhuma decisão automática pelo Kernel. #103 segue PARCIAL.
+- Testes: ReviewAnchor 24/24 (PS5.1 e PS7), repair-decision 10/10 (PS5.1 e
+  PS7), TaskKernel 116/116 (PS5.1); no PS7 local, a suíte para em 93/94 por
+  falha ambiental ao iniciar `powershell.exe` a partir do WindowsApps (não
+  relacionada ao diff); package-consistency 17/17. Revisão independente
+  pendente: o provider retornou limite de 5h durante a revisão — nenhuma
+  aprovação foi inventada.
+
+**Achado M6 (2026-11-11):** o tick do GH-WAKE produz `github-wake-v1` +
+`next_action` (CI/wait), não o envelope `source/trigger/thread/delivery_id`
+consumido pelo bridge. Ligar o tick ao bridge exige um contrato de derivação
+ou um produtor webhook/Action; não foi implementado por hipótese. #183 segue
+PARCIAL com essa perna registrada.
 - P0.2/P0.3: instruções canônicas (global, adapter V2, `AGENTS.md` do
   checkout), `docs/ARCHITECTURE.md` e o mandato V2 injetado pelo plugin
   (`plugins/orchestration-enforcement/shared/mandate.ts`, bundle regenerado)

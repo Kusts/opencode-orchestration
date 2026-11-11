@@ -8,6 +8,45 @@
 #>
 $script:ReviewSeverities = @('low', 'medium', 'high', 'critical')
 
+function Get-OrchestrationReviewFindingsSchema {
+    [CmdletBinding()]
+    param()
+    return [ordered]@{
+        schema_version = 1
+        max_findings = 50
+        max_bytes = 262144
+        max_message_chars = 2000
+        required_fields = @('finding_id', 'file', 'commit_sha', 'message')
+        optional_fields = @('severity', 'line', 'task_id', 'worker', 'file_sha256')
+        severities = @('low', 'medium', 'high', 'critical')
+        fields = [ordered]@{
+            finding_id = 'Non-empty stable finding identifier.'
+            file = 'Repository-relative path; must not contain a .. path segment.'
+            commit_sha = 'Reviewed commit identifier: 7-40 hexadecimal characters.'
+            message = 'Non-empty finding text, at most 2000 characters.'
+            severity = 'low, medium, high, or critical; defaults to medium.'
+            line = 'Integer line number greater than or equal to 0.'
+            task_id = 'Optional associated task identifier.'
+            worker = 'Optional suggested worker owner.'
+            file_sha256 = 'Optional SHA-256 of the reviewed file content.'
+        }
+        example = @(
+            [ordered]@{
+                finding_id = 'F-1'
+                file = 'src/example.ps1'
+                commit_sha = 'abcdef1234567'
+                message = 'Handle the empty input case.'
+                severity = 'medium'
+                line = 12
+            }
+        )
+        notes = @(
+            'The anchor is derived from the finding and reviewed state; do not send it in the input.'
+            'An approved review containing findings is rejected.'
+        )
+    }
+}
+
 function Get-OrchestrationReviewFileHash {
     param([AllowEmptyString()][string]$Content)
     $bytes = [Text.Encoding]::UTF8.GetBytes([string]$Content)

@@ -6,6 +6,18 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Wiring M5 (#200/#103) e achado M6 (#183) - 2026-11-11**:
+  - `task-kernel.ps1 -Action review-schema` (read-only, sem `-TaskId`) publica o
+    schema versionado de findings ancorados; `Get-OrchestrationReviewFindingsSchema`
+    e puro/deterministico (50 findings, 256 KiB, 2000 chars). ReviewAnchor 24/24.
+  - `scripts/v3/repair-decision.ps1` expoe `LOCAL_REPAIR`/`REPLAN`/`ESCALATE`
+    deterministicamente para consulta antes do retry; sem dispatch nem decisao
+    automatica no Kernel. repair-decision 10/10; TaskKernel 116/116.
+  - Adapter V2 documenta o uso dos dois helpers no ciclo de retry/review.
+  - Achado: o tick do GH-WAKE nao produz o envelope de evento consumido pelo
+    bridge (`source/trigger/thread/delivery_id`); a perna do call-site exige
+    contrato de derivacao ou produtor webhook/Action e permanece pendente.
+
 - **P0 - Reformulacao do Planner (2026-11-11)** - retomada da missao integrada
   com a diretriz da issue #48: Planner planeja/decide/delega, worker executa.
   - Classificador (`scripts/v3/lib/OrchestrationPreflight.ps1`): `DIRECT_VERIFIED`

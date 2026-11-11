@@ -91,3 +91,18 @@ do E2E não conseguia completar por falta de plano de verificação.
   usou instrução explícita.
 - Nenhuma flag, permissão, credencial ou produção foi alterada.
 
+## Wiring 2026-11-11 (#200/#103)
+
+- `task-kernel.ps1 -Action review-schema`: schema versionado read-only (sem
+  `-TaskId`), derivado de `Get-OrchestrationReviewFindingsSchema` (puro,
+  determinístico): 50 findings, 256 KiB, 2000 chars, campos obrigatórios e
+  exemplo. O prompt do reviewer ainda não injeta o schema automaticamente.
+- `scripts/v3/repair-decision.ps1`: CLI read-only sobre
+  `Resolve-OrchestrationLocalizedRepair`; retorna `LOCAL_REPAIR`/`REPLAN`/
+  `ESCALATE` com motivo e constraints. O Planner consulta antes do retry; o
+  Kernel não decide estratégia sozinho.
+- Evidência: ReviewAnchor 24/24 (PS5.1 e PS7), repair-decision 10/10,
+  TaskKernel 116/116 (PS5.1; PS7 local para em 93/94 por falha ambiental de
+  spawn de `powershell.exe` no WindowsApps), package-consistency 17/17.
+- Revisão independente pendente por limite de quota do provider (não alegada).
+

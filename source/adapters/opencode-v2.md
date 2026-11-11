@@ -532,10 +532,20 @@ verificação determinística, nunca prova.
 Estágios possíveis `coder`, `tester`, `reviewer` conforme política de verificação
 e risco da tarefa, sem ciclo padrão obrigatório em toda mudança (com superfície
 sensível, Reviewer + Security Reviewer como análises independentes). Finding válido → Planner
-delimita → Coder corrige → repete só validações e review afetados. 1ª
+delimita → Coder corrige → repete só validações e review afetados. Antes de
+repetir, consulte `scripts/v3/repair-decision.ps1 -Severity <s> -ChangedFiles <n>
+-Attempts <n> -FailureClass <localized|unknown|structural>`: `LOCAL_REPAIR`
+mantém a correção na mesma Task; `REPLAN` exige estratégia nova; `ESCALATE`
+aciona Debugger/Architect. 1ª
 tentativa falhou → reavaliar evidência. 2ª falhou → parar e acionar
 Debugger com evidência nova; se incerteza estrutural, Architect. 3ª
 tentativa só com hipótese, informação ou estratégia nova.
+
+Review ancorado: `task-kernel.ps1 -Action review-schema` publica o schema
+versionado (50 findings, 256 KiB, 2000 chars por mensagem). O reviewer devolve
+findings ancorados em arquivo + linha + commit revisado; a Task persiste
+`findings`, `review_history` e o owner sugerido. `approved` com findings é
+recusado.
 
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 `PLANNING`, `IMPLEMENTING`, `VALIDATING`, `REVIEWING`, `FIXING`, `BLOCKED`,

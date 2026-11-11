@@ -818,6 +818,41 @@ try {
     $cc = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id 'race-001'
     Assert-TaskKernel ([bool]$cc.ok) 'race fixture create ok'
     $cliPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'task-kernel.ps1'
+    # 30b. read-only review schema CLI needs no task; invalid action is usage error.
+    $schemaPsi = New-Object System.Diagnostics.ProcessStartInfo
+    $schemaPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
+    $schemaPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action review-schema'
+    $schemaPsi.UseShellExecute = $false
+    $schemaPsi.CreateNoWindow = $true
+    $schemaPsi.RedirectStandardOutput = $true
+    $schemaPsi.RedirectStandardError = $true
+    $schemaProcess = New-Object System.Diagnostics.Process
+    $schemaProcess.StartInfo = $schemaPsi
+    [void]$schemaProcess.Start()
+    $schemaStdout = $schemaProcess.StandardOutput.ReadToEnd()
+    $null = $schemaProcess.StandardError.ReadToEnd()
+    $schemaProcess.WaitForExit()
+    $schemaJson = $null
+    try { $schemaJson = $schemaStdout | ConvertFrom-Json } catch { }
+    Assert-TaskKernel (($schemaProcess.ExitCode -eq 0) -and ($null -ne $schemaJson) -and ([int]$schemaJson.schema_version -eq 1)) 'review-schema CLI returns version 1 without TaskId' $schemaStdout
+    $schemaProcess.Dispose()
+
+    $invalidPsi = New-Object System.Diagnostics.ProcessStartInfo
+    $invalidPsi.FileName = (Join-Path $PSHOME 'powershell.exe')
+    $invalidPsi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $cliPath + '" -Action invalid-action'
+    $invalidPsi.UseShellExecute = $false
+    $invalidPsi.CreateNoWindow = $true
+    $invalidPsi.RedirectStandardOutput = $true
+    $invalidPsi.RedirectStandardError = $true
+    $invalidProcess = New-Object System.Diagnostics.Process
+    $invalidProcess.StartInfo = $invalidPsi
+    [void]$invalidProcess.Start()
+    $null = $invalidProcess.StandardOutput.ReadToEnd()
+    $invalidStderr = $invalidProcess.StandardError.ReadToEnd()
+    $invalidProcess.WaitForExit()
+    Assert-TaskKernel (($invalidProcess.ExitCode -eq 2) -and ($invalidStderr -match 'Uso: task-kernel')) 'invalid task-kernel action exits 2 with usage'
+    $invalidProcess.Dispose()
+
     $childOut1 = Join-Path $t.root 'race1.json'
     $childOut2 = Join-Path $t.root 'race2.json'
     $argTpl = '/c powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" -Action transition -TaskId race-001 -ToState PLANNING -Actor planner -ExpectedRevision 1 -TasksDir "{1}" -FlagsPath "{2}"'

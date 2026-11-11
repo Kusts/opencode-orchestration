@@ -91,3 +91,12 @@ com deduplicação e sem reativar Task encerrada (estado terminal é recusado).
 - Ownership/handback de conversa (#185) persiste ack/settlement, mas o
   histórico completo de mensagens continua fora do Kernel.
 - Nenhuma flag, permissão, credencial ou produção foi alterada.
+
+## Achado 2026-11-11 (#183)
+
+O tick do GH-WAKE retorna `github-wake-v1` + `next_action` (readiness de
+CI/wait), não o envelope `source/trigger/thread/delivery_id/repo/summary`
+consumido por `github-event-bridge.ps1`. Não existe call-site runtime do
+bridge. Ligar o tick ao bridge exige um contrato determinístico de derivação
+wake→evento ou um produtor webhook/Action (fora do repo); implementar por
+hipótese criaria shape/dupla ingestão. Perna permanece pendente e registrada.
