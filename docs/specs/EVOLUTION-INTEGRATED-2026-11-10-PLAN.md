@@ -344,7 +344,9 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
   (consumidores de evidência com escrita direta) corrigidos; WL-01 agora mede
   lookup read-only e retorna `COMPLIANT`.
 - P0.2/P0.3: instruções canônicas (global, adapter V2, `AGENTS.md` do
-  checkout) e `docs/ARCHITECTURE.md` alinhadas ao contrato de papéis, à rota
+  checkout), `docs/ARCHITECTURE.md` e o mandato V2 injetado pelo plugin
+  (`plugins/orchestration-enforcement/shared/mandate.ts`, bundle regenerado)
+  alinhadas ao contrato de papéis, à rota
   por mutação e ao contrato Goal/Loop.
 
 **Pendente em P0:** P0.4/P0.5 com uma missão contínua de 3 Tasks em modelo vivo

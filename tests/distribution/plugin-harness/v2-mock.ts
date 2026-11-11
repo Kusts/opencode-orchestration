@@ -252,12 +252,8 @@ const before = JSON.stringify(ctxEmpty);
 await sess.fire("context", ctxEmpty);
 ok(JSON.stringify(ctxEmpty) === before, "8 contexto repetido nao duplica mandato");
 
-// F2 (SIMPLIFY-F2-MANDATE): o mandato do Planner V2 nao pode transformar
-// preflight/worker/Kernel/reviewer em rito para trabalho claro, local,
-// reversivel e de baixo risco; Kernel/autoridade seguem obrigatorios onde
-// ha efeito durável/compartilhado/concorrente/externo e em acoes
-// destrutivas/producao/segredos. V1 e LEGACY_FROZEN: o texto emitido tem de
-// permanecer byte-identico (literais abaixo sao o contrato atual do V1).
+// F2 mandate contract: Planner coordinates, delegates all writes, and keeps
+// read-only DIRECT_VERIFIED distinct from worker-backed writes. V1 stays frozen.
 const V1_PLANNER_EXPECTED =
   "Mandatory orchestration preflight before the first action: classify the task as SINGLE_WORKER, MULTI_WORKER, PERSISTENT_GOAL, DETERMINISTIC_FALLBACK, or BLOCKED. SINGLE_WORKER is full orchestration (Planner -> one cheap worker -> Planner); the Planner never performs the user's operational work directly when a suitable worker exists.\n" +
   "Non-trivial tasks require material participation of at least one suitable subagent; doing everything alone without a recorded decision is ORCHESTRATION_POLICY_BYPASS.\n" +
@@ -279,73 +275,37 @@ const v2PlannerText =
     ? (v2PlannerCtx.system[1].text as string)
     : "";
 ok(
-  v2PlannerText.includes("DIRECT_VERIFIED") && /zero workers/i.test(v2PlannerText),
-  "F2 V2 planner: DIRECT_VERIFIED honrado como zero workers",
+  /DIRECT_VERIFIED/i.test(v2PlannerText) && /read-only/i.test(v2PlannerText),
+  "F2 V2 planner: DIRECT_VERIFIED somente read-only",
 );
 ok(
-  /no preflight, worker, kernel task, review cycle, worktree, or pr is mandatory/i.test(v2PlannerText) &&
-    /low-risk, local, reversible/i.test(v2PlannerText),
-  "F2 V2 planner: direto permitido sem rito obrigatorio",
-  v2PlannerText.slice(0, 120),
+  /SINGLE_WORKER/i.test(v2PlannerText) && /one appropriate worker/i.test(v2PlannerText),
+  "F2 V2 planner: SINGLE_WORKER despacha um worker",
 );
 ok(
-  /durable, shared, concurrent, or external-effect/i.test(v2PlannerText) &&
-    /destructive/i.test(v2PlannerText) &&
-    /production/i.test(v2PlannerText) &&
-    /secrets/i.test(v2PlannerText) &&
-    /grants no authority/i.test(v2PlannerText),
-  "F2 V2 planner: Kernel/autoridade preservados",
+  /focused test/i.test(v2PlannerText) && /T2 coder/i.test(v2PlannerText),
+  "F2 V2 planner: escrita delegada com teste focado e T2 coder",
 );
 ok(
-  /one file and one code unit/i.test(v2PlannerText) &&
-    /function, branch, condition, or expression/i.test(v2PlannerText) &&
-    /one micro-fix/i.test(v2PlannerText) &&
-    /focused test/i.test(v2PlannerText) &&
-    /T2 coder/.test(v2PlannerText),
-  "F2-SCOPE V2 planner: um arquivo E uma unidade de codigo + teste focado",
-  v2PlannerText.slice(0, 220),
+  /Task Kernel/i.test(v2PlannerText) && /grants no authority|authority boundaries/i.test(v2PlannerText),
+  "F2 V2 planner: Task Kernel e limites de autoridade",
 );
 ok(
-  !/single file, function/i.test(v2PlannerText) &&
-    !/one file, function/i.test(v2PlannerText) &&
-    !/one file, branch/i.test(v2PlannerText) &&
-    !/one file or one/i.test(v2PlannerText),
-  "F2-SCOPE V2 planner: sem listagem ambigua arquivo-ou-unidade",
-  v2PlannerText.slice(0, 220),
+  /observed worker participation/i.test(v2PlannerText) && /ORCHESTRATION_POLICY_BYPASS/.test(v2PlannerText),
+  "F2 V2 planner: DONE trivial exige participacao observada",
+);
+ok(
+  !/executed directly by you/i.test(v2PlannerText) &&
+    !/one micro-fix/i.test(v2PlannerText) &&
+    !/No preflight, worker, Kernel task/i.test(v2PlannerText),
+  "F2 V2 planner: sem mandato antigo de escrita direta",
 );
 ok(
   ["payment", "billing", "pricing", "permission", "auth", "security", "secrets", "credentials", "production", "destructive", "architecture", "multi-file", "substantive", "concurrency", "Kernel-owned"].every(
     (w) => new RegExp(w.replace("-", "\\-"), "i").test(v2PlannerText),
   ) &&
-    !/docs-only microedits/i.test(v2PlannerText) &&
-    !/functional code writes still classify as MULTI_WORKER/i.test(v2PlannerText),
-  "F2-DIRECT V2 planner: exclusoes do micro-escopo + sem restricao stale",
-  v2PlannerText.slice(0, 200),
-);
-ok(
-  /TaskType=trivial/.test(v2PlannerText) &&
-    /Domain=code/.test(v2PlannerText) &&
-    /Risk=low/.test(v2PlannerText) &&
-    /ReadWrite=write/.test(v2PlannerText),
-  "F2-DIRECT V2 planner: criterio espelha o classificador existente",
-);
-ok(
-  /grants no authority/i.test(v2PlannerText) && /evidence/i.test(v2PlannerText) && !/docs-only microedits/i.test(v2PlannerText),
-  "F2-DIRECT V2 planner: Kernel Evidence Contract e autoridade preservados",
-);
-ok(
-  /multi-file/i.test(v2PlannerText) &&
-    /new feature/i.test(v2PlannerText) &&
-    /refactor/i.test(v2PlannerText) &&
-    /non-trivial/i.test(v2PlannerText) &&
-    /sensitive/i.test(v2PlannerText),
-  "F2-DIRECT V2 planner: fora do micro-escopo segue delegado/Kernel",
-);
-ok(
-  !v2PlannerText.includes("Mandatory orchestration preflight before the first action") &&
-    !v2PlannerText.includes("never performs the user's operational work directly") &&
-    !v2PlannerText.includes("DONE requires observed worker participation"),
-  "F2 V2 planner: sem as frases coercitivas antigas",
+    /never a daemon/i.test(v2PlannerText) && /Task DONE does not complete the Goal/i.test(v2PlannerText),
+  "F2 V2 planner: exclusoes, Goal persistente e Loop nao-daemon",
 );
 if (typeof f2Cleanup === "function") {
   try {
@@ -371,9 +331,7 @@ try {
 }
 ok(v1PlannerSeg === V1_PLANNER_EXPECTED, "F2 V1 planner mandate byte-identico", JSON.stringify(v1PlannerSeg.slice(0, 80)));
 
-// F2-SCOPE: o adapter V2 canonico (fonte do prompt gerado) precisa declarar
-// os DOIS marcadores de escopo (arquivo E unidade de codigo) + teste focado, e
-// nao a listagem ambigua que o predicado do preflight nao aceita sozinha.
+// F2 adapter contract: read-only direct route and worker-backed writes.
 let adapterV2 = "";
 try {
   adapterV2 = readFileSync(new URL("../../../source/adapters/opencode-v2.md", import.meta.url), "utf8");
@@ -381,17 +339,16 @@ try {
   adapterV2 = "";
 }
 ok(
-  /um\s+\S+\s+arquivo\s+quanto\s+uma\s+\S+\s+unidade/i.test(adapterV2) &&
-    /focused test/i.test(adapterV2) &&
-    /DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK/.test(adapterV2) &&
-    /billing/.test(adapterV2) &&
-    /Kernel/.test(adapterV2),
-  "F2-SCOPE adapter Orquestracao V2: arquivo E unidade + teste focado + exclusoes",
+    /SINGLE_WORKER/.test(adapterV2) &&
+    /DIRECT_VERIFIED/.test(adapterV2) &&
+    /ReadWrite=read/.test(adapterV2) &&
+    /Kernel/.test(adapterV2) &&
+    /nenhuma escrita|read-only/i.test(adapterV2) &&
+    !/DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK/.test(adapterV2) &&
+    !/um\s+\S+\s+arquivo\s+quanto\s+uma\s+\S+\s+unidade/i.test(adapterV2) &&
+    /billing/i.test(v2PlannerText),
+  "F2 adapter Orquestracao V2: direct read-only, escrita via SINGLE_WORKER e billing vedado no mandato",
   adapterV2.slice(0, 120),
-);
-ok(
-  !/arquivo,\s*\S*fun/i.test(adapterV2) && !/um\s+\S+\s+arquivo\s+ou\s+/i.test(adapterV2),
-  "F2-SCOPE adapter Orquestracao V2: sem arquivo-ou-unidade ambiguo",
 );
 
 // 9. superficies ausentes: setup({}) nao lanca e registra hooks-unavailable.

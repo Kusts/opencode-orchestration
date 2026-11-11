@@ -15,6 +15,7 @@ autonomia por missão. Sem flag, permissão, credencial, allowlist ou produção
 | `ReadWrite=read` com objetivo de edição escapava (achado F1 da revisão) | leitura direta exige evidência de consulta; edição declarada `read` delega |
 | Dois scripts de evidência mediam escrita direta (F2) | WL-01 e SCENARIO-01 passaram a medir lookup read-only |
 | `AGENTS.md` do checkout e `docs/ARCHITECTURE.md` repetiam a permissão | alinhados (6 estados, papéis, Goal/Loop) |
+| Mandato V2 injetado pelo plugin (`plugins/orchestration-enforcement/shared/mandate.ts`) ainda autorizava "one micro-fix" direto; o bundle `plugins/dist` é derivado | V2_PLANNER_LINES reescrito para o contrato P0 (V1 intocado), harness do plugin atualizado e bundle + sha256 regenerados |
 
 `Test-OrchestrationDoneCompliance` não mudou: o gate trivial já exigia
 `ExecutionShape=SINGLE_WORKER` + participação observada > 0.
@@ -46,6 +47,7 @@ subtarefas cobertas pela missão.
 | `OrchestrationGoalKernel.tests.ps1` | 103 asserts |
 | `OrchestrationDurableResume.tests.ps1` | 22/22 (inclui "task DONE não completa goal") |
 | `git diff --check` | limpo |
+| `tests/distribution/run-distribution-tests.ps1` | 22/24 suítes; 2 falhas ambientais (`profile-isolation` timeout do binário V2 2.0.18 em cache; `skills-catalog` drift user-owned em `hybrid-development`), nenhuma relacionada à mudança |
 
 Novos testes relevantes: seção `15z P0` (leitura direta, escrita com worker,
 participação zero ⇒ `ORCHESTRATION_POLICY_BYPASS`, sensível/arquitetura fora da

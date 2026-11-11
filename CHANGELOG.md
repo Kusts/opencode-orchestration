@@ -31,6 +31,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
     `DIRECT_VERIFIED` (leitura) de `SINGLE_WORKER` (qualquer mutacao) e fixa o
     contrato Goal/Loop; `AGENTS.md` deste checkout e `docs/ARCHITECTURE.md`
     (6 estados, papeis, Goal/Loop) foram alinhados.
+  - Mandato V2 injetado pelo plugin (`shared/mandate.ts`) reescrito para o
+    mesmo contrato (V1 byte-identico), com harness `v2-mock` atualizado e
+    bundle `plugins/dist` + sha256 regenerados; `plugin-dual-runtime` 20/20 e
+    typecheck V1/V2/DUAL PASS.
   - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-{SPEC,PLAN}.md` v1.1: P0
     transversal com diagnostico D1-D8, roteamento, contrato Goal/Loop,
     entregas P0.1-P0.6 e baseline a medir. M0-M7 preservados.
