@@ -32,3 +32,10 @@ piloto.
 
 Mantido em HOLD até o operador fornecer acesso ao produto. Nenhuma dependência
 do pacote foi alterada.
+
+## Reverificação 2026-11-11
+
+- Nenhum executável `t3`/`t3code`/`t3-code` no PATH; nenhuma variável de
+  ambiente `T3*`; nenhum produto/credencial fornecido nesta sessão.
+- Piloto não executado por ausência externa concreta; M7 permanece HOLD, sem
+  instalar Control Center ou infraestrutura adicional.

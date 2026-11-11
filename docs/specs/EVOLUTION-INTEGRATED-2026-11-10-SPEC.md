@@ -4,7 +4,8 @@
 **Data-base:** 2026-11-10 (revisão 2026-11-11)
 **Baseline de commit:** `beb0ea4` (branch `feat/evolution-integrated-20261110`)
 **Repositório:** `Kusts/opencode-orchestration`
-**Status:** ACTIVE — P0 (reformulação do Planner) na frente; M0–M7 preservados
+**Status:** CLOSED — missão encerrada pelo orientador em 2026-11-11; M0–M7
+preservados, com pendências residuais documentadas
 **Escopo:** 25 issues + PR #210, organizados em 8 marcos (M0–M7) + P0 transversal
 **Runtime-alvo:** OpenCode V2 (V1 permanece `LEGACY_FROZEN`, issue #62)
 

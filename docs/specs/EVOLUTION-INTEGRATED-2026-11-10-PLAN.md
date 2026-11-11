@@ -4,8 +4,7 @@
 **Data-base:** 2026-11-10 (revisão 2026-11-11)
 **Baseline de commit:** `beb0ea4` (branch `feat/evolution-integrated-20261110`)
 **SPEC:** [EVOLUTION-INTEGRATED-2026-11-10-SPEC.md](EVOLUTION-INTEGRATED-2026-11-10-SPEC.md)
-**Status:** ACTIVE — P0 (reformulação do Planner) é a prioridade atual; M0–M7
-preservados e retomados depois da fatia P0.
+**Status:** CLOSED — missão encerrada pelo orientador em 2026-11-11, com pendências residuais documentadas (ver §13).
 
 ---
 
@@ -413,6 +412,14 @@ passou (`4/0`). O estado foi recarregado por processo novo (`resume`, rev 12),
 após a validação independente de T3. 0 intervenções humanas; 4 dispatches;
 ~2m30s; tokens `UNKNOWN`. A interrupção foi de processo/sessão de worker, não
 reinício do OpenCode.
+
+**Encerramento (2026-11-11):** decisão `ENCERRAR` do orientador após o
+checkpoint de P0.6/#12/#11/M3. Critérios cobertos: plano atualizado, papéis
+corrigidos, autonomia longa validada (P0.5) e retomada nativa (P0.6), PR #238
+com CI 6/6, próxima etapa definida. Pendências residuais preservadas:
+#12/#11 no `EvidenceStore` do Kernel, produtor externo do #183, #64/#192,
+M7/#205 (HOLD) e reconciliação do config ativo. Nenhum novo ciclo de
+implementação, merge ou instalação nesta missão.
 
 **Registro da pausa anterior (preservado):**
 

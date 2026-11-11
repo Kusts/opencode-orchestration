@@ -6,6 +6,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Encerramento da missão integrada (2026-11-11)** - decisão `ENCERRAR` do
+  orientador após P0.6/#12/#11/M3:
+  - Critérios cobertos: plano M0–M7 atualizado; Planner planeja/decide/delega
+    com workers executando; autonomia longa validada (P0.5); retomada nativa de
+    sessão (P0.6); PR #238 com CI 6/6; próxima etapa definida.
+  - Pendências preservadas: #12/#11 no `EvidenceStore` do Kernel, produtor
+    externo do #183, #64/#192, M7/#205 (HOLD) e reconciliação do config ativo.
+  - Nenhum merge/instalação; nenhum novo ciclo de implementação nesta missão.
+  - P0.6 comprova retomada de sessão descartável pelo mecanismo nativo; não é
+    prova de reinício da sessão principal do Planner.
+
 - **P0.6 + #12/#11 + M3 (2026-11-11)**:
   - P0.6: `opencode run --session` retomou uma sessão descartável
     (`ses_e33ea8cdcffeiZrUtkt0puBPS3`) em processo novo e recuperou o token da
