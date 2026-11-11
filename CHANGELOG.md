@@ -6,6 +6,19 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Decisão #183 (b) + wiring #200/#103 no fluxo real - 2026-11-11**:
+  - #183: GH-WAKE permanece retomada/readiness; o envelope `source/trigger/
+    thread/delivery_id` pertence ao event-intake/bridge, com produtor real
+    webhook/Action externo. Sem fabricar `delivery_id`, sem novo controlador;
+    integração automática externa permanece PARTIAL e documentada.
+  - #200: `source/agents/reviewer.md` exige findings ancorados no schema e cita
+    `task-kernel -Action review-schema`; o adapter fixa que o Planner inclui o
+    schema no dispatch e registra com `-FindingsJson`.
+  - #103: mandato V2 instrui o Planner a rodar `scripts/v3/repair-decision.ps1`
+    após falha comprovada antes do retry, como decisão advisory.
+  - Harness V2 247/0; plugin-dual-runtime 20/20; typecheck PASS; bundle
+    regenerado; package-consistency 17/17.
+
 - **Wiring M5 (#200/#103) e achado M6 (#183) - 2026-11-11**:
   - `task-kernel.ps1 -Action review-schema` (read-only, sem `-TaskId`) publica o
     schema versionado de findings ancorados; `Get-OrchestrationReviewFindingsSchema`

@@ -362,9 +362,21 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
 
 **Achado M6 (2026-11-11):** o tick do GH-WAKE produz `github-wake-v1` +
 `next_action` (CI/wait), não o envelope `source/trigger/thread/delivery_id`
-consumido pelo bridge. Ligar o tick ao bridge exige um contrato de derivação
-ou um produtor webhook/Action; não foi implementado por hipótese. #183 segue
-PARCIAL com essa perna registrada.
+consumido pelo bridge. **Decisão do orientador (opção b):** GH-WAKE permanece
+retomada/readiness; o envelope pertence ao event-intake/bridge, cujo produtor
+real é webhook/Action externo. Não fabricar `delivery_id` nem criar
+webhook/Action/scheduler/controlador. #183 segue PARCIAL — fronteira
+documentada, integração automática externa pendente.
+
+**Wiring #200/#103 (fluxo real):**
+
+- #200: `source/agents/reviewer.md` exige findings ancorados no schema e
+  referencia `task-kernel -Action review-schema`; o adapter fixa que o Planner
+  inclui o schema no dispatch e registra os findings com `-FindingsJson`.
+- #103: o mandato V2 injetado instrui o Planner a rodar
+  `scripts/v3/repair-decision.ps1` após falha comprovada antes de escolher
+  retry (`LOCAL_REPAIR`/`REPLAN`/`ESCALATE`), como decisão advisory, sem novo
+  gate. Harness V2 247/0; plugin-dual-runtime 20/20; typecheck PASS.
 - P0.2/P0.3: instruções canônicas (global, adapter V2, `AGENTS.md` do
   checkout), `docs/ARCHITECTURE.md` e o mandato V2 injetado pelo plugin
   (`plugins/orchestration-enforcement/shared/mandate.ts`, bundle regenerado)

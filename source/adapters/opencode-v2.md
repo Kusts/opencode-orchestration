@@ -547,7 +547,9 @@ somente os campos de entrada; `task_id`, `worker`, `anchor` e `file_sha256` sao
 derivados, nao enviados (o `file_sha256` so e calculado com conteudo de arquivo,
 que o Kernel nao fornece hoje). Findings sao ancorados em arquivo + linha +
 commit revisado; a Task persiste `findings`, `review_history` e o owner
-sugerido. `approved` com findings e recusado.
+sugerido. No dispatch do reviewer, o Planner inclui o schema (via `review-schema`)
+e registra os findings retornados com `-FindingsJson` ou `-FindingsFile`.
+`approved` com findings e recusado.
 
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 `PLANNING`, `IMPLEMENTING`, `VALIDATING`, `REVIEWING`, `FIXING`, `BLOCKED`,

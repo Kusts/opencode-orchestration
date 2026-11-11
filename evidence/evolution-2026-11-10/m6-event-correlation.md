@@ -100,3 +100,8 @@ consumido por `github-event-bridge.ps1`. Não existe call-site runtime do
 bridge. Ligar o tick ao bridge exige um contrato determinístico de derivação
 wake→evento ou um produtor webhook/Action (fora do repo); implementar por
 hipótese criaria shape/dupla ingestão. Perna permanece pendente e registrada.
+
+**Decisão 2026-11-11 (opção b):** o GH-WAKE fica com retomada/readiness; o
+envelope de evento e seu produtor pertencem ao event-intake/bridge (webhook/
+Action externo). Não fabricar `delivery_id`, não criar webhook/Action/scheduler
+novo. #183 permanece PARTIAL com a fronteira explícita.

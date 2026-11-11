@@ -165,7 +165,7 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #103 | M5 | PARCIAL | decisão local/replan/escalate (13/13) usada pelo Planner no E2E, mesma Task; `scripts/v3/repair-decision.ps1` expõe a decisão determinística no retry, sem chamada automática pelo Kernel | Consultar no caminho de retry do loop |
 | #192 | M5 | ABERTO | nenhuma medição Single/Cascade/Critique | Comparar em cenários representativos |
 | #2 | M6 | ABERTO | Agent Teams não implementado; sessões nativas provadas (#143) | Depende de #143/#183 |
-| #183 | M6 | PARCIAL | envelope/dedup/roteamento, intake (8/8), bridge GH-WAKE→Kernel, entrega+ack idempotentes (12/12), E2E real `issue:6` → worker → ack; falta call-site GH-WAKE | Ligar tick do GH-WAKE à bridge |
+| #183 | M6 | PARCIAL — decisão (b) 2026-11-11 | intake (8/8), entrega+ack idempotentes (12/12), bridge GH-WAKE→Kernel (9/9) e E2E real `issue:6` → worker → ack. Decisão: GH-WAKE permanece retomada/readiness; o envelope de evento pertence ao event-intake/bridge e seu produtor real (webhook/Action) é externo. Sem fabricar `delivery_id` nem novo controlador | Documentar a fronteira; integração automática externa permanece PARTIAL |
 | #184 | M6 | PARCIAL | admissão desligada por padrão; eventos sem dono viram `OBSERVE`; `NEW_TASK` só com flag explícita | Regras observe→auto |
 | #185 | M6 | PARCIAL | ack de consumo/settlement com sessão e resumo; histórico completo de conversa fora do Kernel | Handback completo |
 | #205 | M7 | HOLD | T3 Code não avaliado; piloto exige produto/credenciais e projeto descartável | Executar piloto read-only → ação controlada |

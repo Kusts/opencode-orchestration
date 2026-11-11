@@ -295,6 +295,13 @@ ok(
   "F2 V2 planner: DONE trivial exige participacao observada",
 );
 ok(
+  /repair-decision\.ps1/.test(v2PlannerText) &&
+    /LOCAL_REPAIR/.test(v2PlannerText) &&
+    /REPLAN/.test(v2PlannerText) &&
+    /ESCALATE/.test(v2PlannerText),
+  "M5 V2 planner: repair decision wired to retry choices",
+);
+ok(
   !/executed directly by you/i.test(v2PlannerText) &&
     !/one micro-fix/i.test(v2PlannerText) &&
     !/No preflight, worker, Kernel task/i.test(v2PlannerText),
