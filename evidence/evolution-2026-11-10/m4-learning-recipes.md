@@ -48,10 +48,24 @@ O Markdown gerado foi escrito, lido e removido via MCP no escopo
 Isso prova o caminho de armazenamento/recuperação. A aplicação da lição em uma
 segunda sessão real (usar a lição para decidir) é o próximo passo de #177.
 
+## Segunda execução da receita (#77)
+
+Receita de `m5-done-proof6-20261110` (`criterion-smoke`):
+
+```
+decision=REUSABLE deterministic=True profiles=criterion-smoke
+run1=0 run2=0 model_calls=0
+```
+
+O procedimento foi executado duas vezes com o mesmo resultado e sem chamadas
+de modelo, usando o perfil de verificação já existente. Nenhum executor novo
+foi criado.
+
 ## Limites
 
 - #177: armazenamento e recall provados; uso efetivo em outra sessão ainda não
   demonstrado. Resultados `UNKNOWN`/`PARTIAL`/não verificados são recusados.
-- #77: extração e decisão de reuso implementadas; a segunda execução real do
-  procedimento não foi rodada nesta fatia. Nenhum executor novo foi criado.
+- #77: extração, decisão de reuso e dupla execução do procedimento provadas;
+  a comparação de custo contra uma execução original com chamadas de modelo
+  significativas ainda não foi feita.
 - Nenhuma flag, permissão, credencial ou produção alterada.
