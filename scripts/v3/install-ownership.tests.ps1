@@ -243,6 +243,23 @@ try {
   $hash12 = (Get-FileHash -LiteralPath $ag12 -Algorithm SHA256).Hash; $run12b = Invoke-Install $h12 @()
   $t12checks = @("exit=$exit12/$LASTEXITCODE", "body=$($legacyBodyAfter12 -ceq $legacyBodyBefore12)", "personal=$($text12 -match 'personal outside')", "agentsDir=$(Test-Path $agents12)", "worker=$(($null -ne $hasWorker12))", "owner=$($m12.config_ownership)/$($m12.ownership.global_text)", "ownerWarn=$(($run12 -join "`n") -match '\[OWNER\]')", "hash=$((Get-FileHash -LiteralPath $ag12 -Algorithm SHA256).Hash -ceq $hash12)")
   Assert-OwnTrue (($exit12 -eq 0) -and ($LASTEXITCODE -eq 0) -and ($legacyBodyAfter12 -ceq $legacyBodyBefore12) -and ($text12 -match 'personal outside') -and (-not (Test-Path $agents12)) -and ($null -eq $hasWorker12) -and ($m12.config_ownership -ceq 'agent-config') -and ($m12.ownership.global_text -ceq 'agent-config') -and (($run12 -join "`n") -match '\[OWNER\] AGENTS\.md: conteúdo do Agent Config sob marcador legado preservado') -and ((Get-FileHash -LiteralPath $ag12 -Algorithm SHA256).Hash -ceq $hash12)) 'T12 Agent Config legacy-marked content preserved and idempotent' ($t12checks -join '; ')
+
+  # T13: remove only the orchestration banner at file start when Config owns global text.
+  $h13 = New-FixtureHome 'owned-banner'; $ag13 = Oc-File $h13 @('AGENTS.md')
+  $banner13 = '<!-- GENERATED FILE: direct edits will be overwritten. -->' + "`n" + '<!-- Canonical source: source/; regenerate with scripts/render-opencode-config.ps1. -->' + "`n" + '<!-- This file is active only after scripts/reconcile-opencode-config.ps1 applies it. -->' + "`n"
+  $caseVariant13 = '<!-- GENERATED FILE: direct edits will be overwritten. -->' + "`n" + '<!-- Canonical SOURCE: source/; regenerate with scripts/render-opencode-config.ps1. -->' + "`n" + '<!-- This file is active only after scripts/reconcile-opencode-config.ps1 Applies It. -->' + "`n"
+  $agentBanner13 = '<!-- GENERATED FILE: direct edits will be overwritten. -->' + "`n" + '<!-- Canonical source: source/; regenerate with scripts/render-agent-config.ps1. -->' + "`n"
+  $config13 = '<!-- agent-config:global:start -->' + "`n" + $agentBanner13 + '# Canonical Config text' + "`n" + '<!-- agent-config:global:end -->'
+  $personal13 = '# personal rule' + "`n"
+  Write-Utf8 $ag13 ("`n`n" + $banner13 + "`n" + '# user immediately after banner' + "`n" + $caseVariant13 + '<!-- opencode-orchestration:start -->' + "`n" + 'legacy orchestration content' + "`n" + '<!-- opencode-orchestration:end -->' + "`n" + $config13 + "`n" + $personal13)
+  $run13 = Invoke-Install $h13 @(); $exit13 = $LASTEXITCODE; $mf13 = Read-Manifest $h13
+  $text13 = Get-Content -LiteralPath $ag13 -Raw
+  $configAfter13 = [regex]::Match($text13, '(?s)<!-- agent-config:global:start -->(.*?)<!-- agent-config:global:end -->').Groups[1].Value -replace "`r`n", "`n" -replace "`r", "`n"
+  $firstHash13 = (Get-FileHash -LiteralPath $ag13 -Algorithm SHA256).Hash; $run13b = Invoke-Install $h13 @()
+  $configExpected13 = "`n" + $agentBanner13 + '# Canonical Config text' + "`n"
+  $t13checks = @("exit=$exit13/$LASTEXITCODE", "config=$($configAfter13 -ceq $configExpected13)", "caseVariant=$($text13.Contains($caseVariant13.TrimEnd("`n")))", "agentBanner=$($text13.Contains('render-agent-config.ps1'))", "userAfter=$($text13.Contains('# user immediately after banner'))", "personal=$($text13 -match 'personal rule')", "retired=$(@($mf13.retired_blocks) -join ',')", "hash=$((Get-FileHash -LiteralPath $ag13 -Algorithm SHA256).Hash -ceq $firstHash13)")
+  $exactBannerRemaining13 = [regex]::Matches($text13, [regex]::Escape($banner13)).Count
+  Assert-OwnTrue (($exit13 -eq 0) -and ($LASTEXITCODE -eq 0) -and ($exactBannerRemaining13 -eq 0) -and ($text13.Contains($caseVariant13.TrimEnd("`n"))) -and ($text13.Contains('render-agent-config.ps1')) -and ($text13.Contains('# user immediately after banner')) -and ($configAfter13 -ceq $configExpected13) -and ($text13 -match 'personal rule') -and ($mf13.config_ownership -ceq 'agent-config') -and (@($mf13.retired_blocks) -contains 'opencode-orchestration-banner') -and (@($mf13.retired_blocks) -contains 'opencode-orchestration') -and ((Get-FileHash -LiteralPath $ag13 -Algorithm SHA256).Hash -ceq $firstHash13)) 'T13 retires only exact orchestration banner and preserves Config/personal content idempotently' ($t13checks -join '; ')
 }
 finally {
   if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

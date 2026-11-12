@@ -471,12 +471,18 @@ function Merge-ManagedAgentsMdBlock([string]$ExistingOrNull, [string]$Content, [
 
 function Remove-LegacyOrchestrationBlock([string]$Text) {
   if ($null -eq $Text) {
-    return @{ Text = $Text; Removed = $false }
+    return @{ Text = $Text; Removed = $false; RemovedBlock = $false; RemovedBanner = $false }
   }
   $Text = $Text -replace "`r`n", "`n" -replace "`r", "`n"
-  if ((-not $Text.Contains($MarkStart)) -or (-not $Text.Contains($MarkEnd))) { return @{ Text = $Text; Removed = $false } }
-  $banner = $header.TrimEnd() + "`n"
-  $removed = $false
+  $banner = (($header -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd("`n")) + "`n"
+  $removedBlock = $false
+  $removedBanner = $false
+  $startBannerPattern = '^(?:\n)*' + [regex]::Escape($banner) + '(?:\n)*'
+  $mBanner = [regex]::Match($Text, $startBannerPattern)
+  if ($mBanner.Success) {
+    $Text = $Text.Substring($mBanner.Length)
+    $removedBanner = $true
+  }
   while ($true) {
     $start = $Text.IndexOf($MarkStart, [StringComparison]::Ordinal)
     if ($start -lt 0) { break }
@@ -488,7 +494,10 @@ function Remove-LegacyOrchestrationBlock([string]$Text) {
     if ($bannerAt -ge 0) {
       $between = $prefix.Substring($bannerAt)
       $bannerPattern = '^' + [regex]::Escape($banner).Replace('\n', '\n(?:\n)*') + '$'
-      if ($between -match $bannerPattern) { $prefix = $prefix.Substring(0, $bannerAt) }
+      if ($between -cmatch $bannerPattern) {
+        $prefix = $prefix.Substring(0, $bannerAt)
+        $removedBanner = $true
+      }
     }
     $suffix = $Text.Substring($end)
     $prefix = $prefix.TrimEnd("`n")
@@ -496,11 +505,11 @@ function Remove-LegacyOrchestrationBlock([string]$Text) {
     if (($prefix.Length -gt 0) -and ($suffix.Length -gt 0)) { $Text = $prefix + "`n`n" + $suffix }
     elseif ($prefix.Length -gt 0) { $Text = $prefix + "`n" }
     else { $Text = $suffix }
-    $removed = $true
+    $removedBlock = $true
   }
-  if (-not $removed) { return @{ Text = $Text; Removed = $false } }
+  if ((-not $removedBlock) -and (-not $removedBanner)) { return @{ Text = $Text; Removed = $false; RemovedBlock = $false; RemovedBanner = $false } }
   $Text = ($Text -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd("`n") + "`n"
-  return @{ Text = $Text; Removed = $true }
+  return @{ Text = $Text; Removed = $true; RemovedBlock = $removedBlock; RemovedBanner = $removedBanner }
 }
 
 function Set-PropIfDifferent($Obj, [string]$Name, $Value) {
@@ -1476,10 +1485,12 @@ $agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.
 
 $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $header
 $retiredBlock = $false
+$retiredOrchestrationBanner = $false
 if ($ConfigOwnsGlobal -and (-not $ConfigContentInLegacyMarker) -and ($null -ne $existingAgentsMd)) {
   $retireResult = Remove-LegacyOrchestrationBlock $existingAgentsMd
-  $retiredBlock = [bool]$retireResult.Removed
-  if ($retiredBlock) { $agentsMdRes = @{ Text = $retireResult.Text; Action = 'RETIRE' } }
+  $retiredBlock = [bool]$retireResult.RemovedBlock
+  $retiredOrchestrationBanner = [bool]$retireResult.RemovedBanner
+  if ($retireResult.Removed) { $agentsMdRes = @{ Text = $retireResult.Text; Action = 'RETIRE' } }
 }
 
 $repoEsc = $RepoRoot.Replace('\', '\\')
@@ -1620,7 +1631,7 @@ $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 # SourcePath na fonte canonica, StagePath e DestinationPath derivados por
 # Join-Path a partir do RelativePath (nunca por Substring de FullName).
 $ops = New-Object System.Collections.ArrayList
-if ($ConfigOwnsGlobal -and (-not $retiredBlock)) {
+if ($ConfigOwnsGlobal -and (-not ($retiredBlock -or $retiredOrchestrationBanner))) {
   Write-Host '[install] SKIP agents-md/agents: dono agent-config (sem fork editavel; snapshot nao instalado).' -ForegroundColor Cyan
 }
 else {
@@ -1734,7 +1745,7 @@ function File-Plan([string]$Dst, [string]$DesiredText, [string]$Label) {
 }
 if ($ConfigOwnsGlobal) {
   if ($ConfigContentInLegacyMarker) { Add-Plan 'SKIP' 'AGENTS.md (conteúdo do Agent Config sob marcador legado; preservado)' }
-  elseif ($retiredBlock) { Add-Plan 'RETIRE' 'AGENTS.md (bloco opencode-orchestration legado removido; texto global é do agent-config)' }
+  elseif ($retiredBlock -or $retiredOrchestrationBanner) { Add-Plan 'RETIRE' 'AGENTS.md (banner/bloco legado da Orquestração retirado; texto global é do agent-config)' }
   else { Add-Plan 'SKIP' 'AGENTS.md (dono agent-config:global; texto global nao aplicado)' }
   foreach ($a in $agentFiles) {
     Add-Plan 'SKIP' (('agents/' + $a.Name) + ' (dono agent-config; sem fork editavel)')
@@ -2330,6 +2341,9 @@ try {
         elseif (($cfgBlockText -match 'SINGLE_WORKER') -and ($cfgBlockText -match '(?is)write.{0,100}worker|worker.{0,100}write|escrita.{0,100}worker')) { $instructionsContract = 'CURRENT' }
       }
     }
+    $retiredBlockRecords = @()
+    if ($retiredBlock) { $retiredBlockRecords += 'opencode-orchestration' }
+    if ($retiredOrchestrationBanner) { $retiredBlockRecords += 'opencode-orchestration-banner' }
     $manifest = [ordered]@{
       package_version = $PackageVersion
       installed_at = (Get-Date).ToString('o')
@@ -2351,7 +2365,7 @@ try {
         plugin = 'orchestration'
         top_level_permissions = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
       }
-      retired_blocks = $(if ($retiredBlock) { @('opencode-orchestration') } else { @() })
+      retired_blocks = @($retiredBlockRecords)
       removed_stale = @($staleSkillFiles | Where-Object { -not $_.Preserve } | ForEach-Object { @{ relative = $_.RelativePath; sha256 = $_.ExpectedHash } })
       instructions_contract = $instructionsContract
       managed_files = @($managedFiles)
