@@ -6,6 +6,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **#50/#141 PARCIAL (2026-11-12):** inventários locais gerados pelos extratores read-only: 1351 ocorrências de versão (0 candidatos capability-first classificados pelo scanner conservador) e 536 declarações em três superfícies, com 4 duplicações UNPROVEN. Nenhuma permissão/template/agente/flag foi alterada e nenhuma duplicação removida. Revisão semântica e provas de paridade ainda necessárias.
+
 - **#192 PARCIAL (2026-11-12):** comparação local limitada às decisões pré-execução do preflight e à política do gate; nenhuma execução foi realizada. Direct/Single correspondem a decisões implementadas; Cascade/Critique são NOT_IMPLEMENTED. Wall-clock, tokens e custo do provedor não foram observados. Comparação de desempenho depende de implementar Cascade/Critique e executar cenários reais. Evidência: `evidence/issue-192/strategy-comparison-2026-11-12.json`.
 
 - **#183 — contrato executável do produtor GitHub (PARCIAL)**:
