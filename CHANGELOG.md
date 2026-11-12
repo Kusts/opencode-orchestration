@@ -6,6 +6,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **#192 PARCIAL (2026-11-12):** comparação local limitada às decisões pré-execução do preflight e à política do gate; nenhuma execução foi realizada. Direct/Single correspondem a decisões implementadas; Cascade/Critique são NOT_IMPLEMENTED. Wall-clock, tokens e custo do provedor não foram observados. Comparação de desempenho depende de implementar Cascade/Critique e executar cenários reais. Evidência: `evidence/issue-192/strategy-comparison-2026-11-12.json`.
+
 - **#183 — contrato executável do produtor GitHub (PARCIAL)**:
   - Teste de correlação agora cobre os quatro triggers canônicos, formatos de
     thread, campos deriváveis versus `delivery_id` fornecido, estabilidade e
