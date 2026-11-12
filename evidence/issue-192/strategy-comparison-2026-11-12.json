@@ -1,0 +1,332 @@
+{
+    "evidence_kind":  "decision_and_policy_probe",
+    "runtime_real":  false,
+    "execution_performed":  false,
+    "generated_at":  "2026-11-12T00:00:00Z",
+    "decisions":  [
+                      {
+                          "id":  "A",
+                          "inputs":  {
+                                         "Objective":  "Where is the definition of the local setting?",
+                                         "TaskType":  "lookup",
+                                         "Domain":  "code",
+                                         "Risk":  "low",
+                                         "ReadWrite":  "read"
+                                     },
+                          "objective_chars_observed":  45,
+                          "decision":  "DIRECT_VERIFIED",
+                          "selected_agents":  [
+
+                                              ],
+                          "direct_allowed":  true
+                      },
+                      {
+                          "id":  "B",
+                          "inputs":  {
+                                         "Objective":  "Fix typo in one file comment",
+                                         "TaskType":  "trivial",
+                                         "Domain":  "docs",
+                                         "Risk":  "low",
+                                         "ReadWrite":  "write"
+                                     },
+                          "objective_chars_observed":  28,
+                          "decision":  "SINGLE_WORKER",
+                          "selected_agents":  [
+                                                  "coder"
+                                              ],
+                          "direct_allowed":  false
+                      },
+                      {
+                          "id":  "C",
+                          "inputs":  {
+                                         "Objective":  "Implement a new validation workflow",
+                                         "TaskType":  "implementation",
+                                         "Domain":  "code",
+                                         "Risk":  "medium",
+                                         "ReadWrite":  "write"
+                                     },
+                          "objective_chars_observed":  35,
+                          "decision":  "MULTI_WORKER",
+                          "selected_agents":  [
+                                                  "automation-engineer"
+                                              ],
+                          "direct_allowed":  false
+                      },
+                      {
+                          "id":  "D",
+                          "inputs":  {
+                                         "Objective":  "Design architecture for a local cache",
+                                         "TaskType":  "planning",
+                                         "Domain":  "architecture",
+                                         "Risk":  "medium",
+                                         "ReadWrite":  "write"
+                                     },
+                          "objective_chars_observed":  37,
+                          "decision":  "MULTI_WORKER",
+                          "selected_agents":  [
+                                                  "requirements-analyst"
+                                              ],
+                          "direct_allowed":  false
+                      }
+                  ],
+    "compliance_matrix":  [
+                              {
+                                  "scenario_id":  "A",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "SINGLE_WORKER",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "SINGLE_WORKER"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
+                              },
+                              {
+                                  "scenario_id":  "A",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "SINGLE_WORKER",
+                                                 "ActualWorkerParticipation":  1,
+                                                 "Decision":  "SINGLE_WORKER"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "COMPLIANT"
+                              },
+                              {
+                                  "scenario_id":  "A",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "DIRECT_VERIFIED",
+                                                 "DirectReason":  "DIRECT_VERIFIED_LOW_RISK_LOCALIZED",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "DIRECT_VERIFIED"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "COMPLIANT"
+                              },
+                              {
+                                  "scenario_id":  "A",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "DIRECT_VERIFIED",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "DIRECT_VERIFIED"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                              },
+                              {
+                                  "scenario_id":  "B",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "SINGLE_WORKER",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "SINGLE_WORKER"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
+                              },
+                              {
+                                  "scenario_id":  "B",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "SINGLE_WORKER",
+                                                 "ActualWorkerParticipation":  1,
+                                                 "Decision":  "SINGLE_WORKER"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "COMPLIANT"
+                              },
+                              {
+                                  "scenario_id":  "B",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "DIRECT_VERIFIED",
+                                                 "DirectReason":  "DIRECT_VERIFIED_LOW_RISK_LOCALIZED",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "DIRECT_VERIFIED"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "COMPLIANT"
+                              },
+                              {
+                                  "scenario_id":  "B",
+                                  "inputs":  {
+                                                 "TaskClass":  "trivial",
+                                                 "ExecutionShape":  "DIRECT_VERIFIED",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "DIRECT_VERIFIED"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                              },
+                              {
+                                  "scenario_id":  "C",
+                                  "inputs":  {
+                                                 "TaskClass":  "non_trivial",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "SINGLE_WORKER"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
+                              },
+                              {
+                                  "scenario_id":  "D",
+                                  "inputs":  {
+                                                 "TaskClass":  "non_trivial",
+                                                 "ActualWorkerParticipation":  0,
+                                                 "Decision":  "SINGLE_WORKER"
+                                             },
+                                  "declared_inputs":  true,
+                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
+                              }
+                          ],
+    "strategies":  [
+                       {
+                           "name":  "Direct",
+                           "status":  "implemented",
+                           "mapping":  "DIRECT_VERIFIED",
+                           "source":  "scripts/v3/lib/OrchestrationPreflight.ps1:Get-OrchestrationPreflight"
+                       },
+                       {
+                           "name":  "Single",
+                           "status":  "implemented",
+                           "mapping":  "SINGLE_WORKER",
+                           "source":  "scripts/v3/lib/OrchestrationPreflight.ps1:Get-OrchestrationPreflight"
+                       },
+                       {
+                           "name":  "Cascade",
+                           "status":  "NOT_IMPLEMENTED",
+                           "reason":  "Only present in docs; no selector, registry, or implementation."
+                       },
+                       {
+                           "name":  "Critique",
+                           "status":  "NOT_IMPLEMENTED",
+                           "reason":  "Only present in docs; no selector, registry, or implementation."
+                       }
+                   ],
+    "comparison":  [
+                       {
+                           "scenario_id":  "A",
+                           "decision":  "DIRECT_VERIFIED",
+                           "selected_agent_count":  0,
+                           "selected_agents":  [
+
+                                               ],
+                           "execution_performed":  false,
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT",
+                                                     "COMPLIANT",
+                                                     "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                                                 ]
+                       },
+                       {
+                           "scenario_id":  "B",
+                           "decision":  "SINGLE_WORKER",
+                           "selected_agent_count":  1,
+                           "selected_agents":  [
+                                                   "coder"
+                                               ],
+                           "execution_performed":  false,
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT",
+                                                     "COMPLIANT",
+                                                     "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                                                 ]
+                       },
+                       {
+                           "scenario_id":  "C",
+                           "decision":  "MULTI_WORKER",
+                           "selected_agent_count":  1,
+                           "selected_agents":  [
+                                                   "automation-engineer"
+                                               ],
+                           "execution_performed":  false,
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS"
+                                                 ]
+                       },
+                       {
+                           "scenario_id":  "D",
+                           "decision":  "MULTI_WORKER",
+                           "selected_agent_count":  1,
+                           "selected_agents":  [
+                                                   "requirements-analyst"
+                                               ],
+                           "execution_performed":  false,
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS"
+                                                 ]
+                       }
+                   ],
+    "metrics":  {
+                    "estimated_tokens":  [
+                                             {
+                                                 "scenario_id":  "A",
+                                                 "value":  12,
+                                                 "is_estimate":  true,
+                                                 "method":  "chars/4"
+                                             },
+                                             {
+                                                 "scenario_id":  "B",
+                                                 "value":  7,
+                                                 "is_estimate":  true,
+                                                 "method":  "chars/4"
+                                             },
+                                             {
+                                                 "scenario_id":  "C",
+                                                 "value":  9,
+                                                 "is_estimate":  true,
+                                                 "method":  "chars/4"
+                                             },
+                                             {
+                                                 "scenario_id":  "D",
+                                                 "value":  10,
+                                                 "is_estimate":  true,
+                                                 "method":  "chars/4"
+                                             }
+                                         ]
+                },
+    "unknown":  [
+                    {
+                        "name":  "wall_clock",
+                        "reason":  "No execution performed."
+                    },
+                    {
+                        "name":  "provider_tokens",
+                        "reason":  "No model call."
+                    },
+                    {
+                        "name":  "provider_cost",
+                        "reason":  "No model call."
+                    },
+                    {
+                        "name":  "execution_shape_observed",
+                        "reason":  "No execution performed; preflight returns no observed shape."
+                    },
+                    {
+                        "name":  "worker_participation_observed",
+                        "reason":  "No execution performed."
+                    },
+                    {
+                        "name":  "cascade_outcome",
+                        "reason":  "Cascade is not implemented."
+                    },
+                    {
+                        "name":  "critique_outcome",
+                        "reason":  "Critique is not implemented."
+                    }
+                ],
+    "method":  {
+                   "type":  "deterministic_local_io",
+                   "no_model_call":  true,
+                   "no_second_router":  true,
+                   "base_revision":  "8fdeb89e51e0ef8d96f36c6f06a06e5b5a6817e7",
+                   "generated_by_commit":  "916a957",
+                   "limitations":  [
+                                       "No execution was performed; decisions are pre-execution and the compliance matrix uses declared inputs."
+                                   ]
+               }
+}
