@@ -119,7 +119,13 @@ function Invoke-InstallValidation {
     if ($agentConfig.build.model -cne $modelPlanner) { $conflicts += 'router: agent.build.model divergente' }
     foreach ($af in $agentFiles) { $id = [IO.Path]::GetFileNameWithoutExtension($af.Name); if ((Has-Member $agentConfig $id) -and [string]::IsNullOrWhiteSpace([string]$agentConfig.$id.model)) { $conflicts += ('router: agent.' + $id + ' sem model') } }
   }
-  foreach ($s in $skillNames) { if (-not (Test-Path -LiteralPath (Join-Path $ocDir ('skills\' + $s + '\SKILL.md')) -PathType Leaf)) { $conflicts += ('skills: ausente ' + $s) } }
+  foreach ($s in $skillNames) {
+    $skillEntry = Join-Path $ocDir ('skills\' + $s + '\SKILL.md')
+    if (-not (Test-Path -LiteralPath $skillEntry -PathType Leaf)) {
+      if (@($script:sharedSkillNames) -contains $s) { $conflicts += ('skills: junction compartilhada quebrada ou SKILL.md inacessivel ' + $s) }
+      else { $conflicts += ('skills: ausente ' + $s) }
+    }
+  }
   try { $installedCfg = (Read-Utf8 (Join-Path $ocDir $configFileName)) | ConvertFrom-Json -ErrorAction Stop; if ($IsV2) { if ($installedCfg.experimental.subagent_depth -ne 1) { $conflicts += 'config: experimental.subagent_depth diferente de 1' } } elseif ($installedCfg.subagent_depth -ne 1) { $conflicts += 'config: subagent_depth diferente de 1' } } catch { $conflicts += ('config: JSON invalido: ' + $_.Exception.Message) }
   $instructions = Read-Utf8 (Join-Path $ocDir 'AGENTS.md')
   $globalStart = [regex]::Matches($instructions, [regex]::Escape('<!-- agent-config:global:start -->')).Count; $globalEnd = [regex]::Matches($instructions, [regex]::Escape('<!-- agent-config:global:end -->')).Count
@@ -506,6 +512,17 @@ function Assert-NoReparseUnder([string]$Root, [string]$Leaf, [string]$What) {
     }
     $cur = $parent
   }
+}
+
+function Test-PathHasReparsePoint([string]$Root, [string]$Leaf) {
+  $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+  $cur = [IO.Path]::GetFullPath($Leaf)
+  while ($cur.StartsWith($rootFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    $item = Get-Item -LiteralPath $cur -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item -and (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { return $true }
+    $cur = Split-Path -Parent $cur
+  }
+  return $false
 }
 
 function Restore-FileAtomicBytes([string]$BackupPath, [string]$DstPath) {
@@ -1704,6 +1721,7 @@ $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 # SourcePath na fonte canonica, StagePath e DestinationPath derivados por
 # Join-Path a partir do RelativePath (nunca por Substring de FullName).
 $ops = New-Object System.Collections.ArrayList
+$sharedSkillNames = New-Object System.Collections.ArrayList
 if ($ConfigOwnsGlobal -and (-not ($retiredBlock -or $retiredOrchestrationBanner))) {
   Write-Host '[install] SKIP agents-md: texto global pertence ao agent-config.' -ForegroundColor Cyan
 }
@@ -1716,6 +1734,9 @@ foreach ($a in $agentFiles) {
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
     $skillSrcDir = Join-Path $skillsSrc $s
+    $skillDst = Join-Path (Join-Path $ocDir 'skills') $s
+    $sharedSkill = Test-PathHasReparsePoint -Root (Join-Path $ocDir 'skills') -Leaf $skillDst
+    if ($sharedSkill) { [void]$sharedSkillNames.Add($s); continue }
     foreach ($sf in @(Get-ManagedSourceFiles $skillSrcDir)) {
       if (-not (Test-ManagedRelativePath $sf.RelativePath)) {
         throw ('relative path invalido na fonte da skill: ' + $sf.RelativePath)
@@ -1757,6 +1778,7 @@ if ($Clean -and ($null -ne $priorManifest) -and (Has-Member $priorManifest 'mana
     $safeType = (($rel -match '^agents\\[^\\]+\.md$') -or ($rel -match '^skills\\.+') -or ($rel -ceq ('plugins\' + $pluginBundleName)))
     if (-not $safeType -or -not (Test-ManagedRelativePath $rel)) { [void]$cleanPreserved.Add($rel); continue }
     $dst = [IO.Path]::GetFullPath((Join-Path $ocDir $rel))
+    if ((Test-PathHasReparsePoint -Root (Join-Path $ocDir 'skills') -Leaf $dst) -and ($rel -match '^skills\\')) { [void]$cleanPreserved.Add($rel); continue }
     try { Assert-PathUnder $dst $ocDir 'clean destination'; Assert-NoReparseUnder $ocDir $dst 'clean destination' }
     catch { [void]$cleanPreserved.Add($rel); continue }
     if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { continue }
@@ -1826,7 +1848,9 @@ if ((-not $NoCoreSkills) -and ($null -ne $priorManifest) -and (Has-Member $prior
 foreach ($op in $ops) {
   $dstOp = Join-Path $ocDir $op.RelativePath
   Assert-PathUnder $dstOp $ocDir ('destino de ' + $op.Label)
-  Assert-NoReparseUnder $ocDir $dstOp ('destino de ' + $op.Label)
+  if (($op.Component -ne 'skills') -or (-not (Test-PathHasReparsePoint -Root (Join-Path $ocDir 'skills') -Leaf $dstOp))) {
+    Assert-NoReparseUnder $ocDir $dstOp ('destino de ' + $op.Label)
+  }
   $op.DestinationPath = $dstOp
 }
 foreach ($op in $staleSkillFiles) { if (-not $op.Preserve) { [void]$ops.Add($op) } }
@@ -1872,6 +1896,7 @@ if ($Clean) {
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
+    if (@($sharedSkillNames) -contains $s) { Add-Plan 'PRESERVE' ('skills/' + $s + '/ (junction; skills compartilhadas do agent-config)'); continue }
     # Comparacao normalizada (EOL) entre fonte canonica e destino: o installer
     # grava LF deliberadamente, entao conteudo equivalente com EOL diferente
     # NAO e divergencia. Idempotencia: tudo igual => SKIP.
@@ -2472,6 +2497,7 @@ try {
         build_profile_model = 'orchestration'
         build_permissions = $(if ($ConfigOwnsGlobal) { 'orchestration' } else { 'orchestration-snapshot' })
         skills = 'orchestration'
+        shared_skills = @($sharedSkillNames)
         plugin = 'orchestration'
         top_level_permissions = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
       }

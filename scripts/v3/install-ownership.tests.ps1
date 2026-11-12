@@ -315,6 +315,20 @@ try {
   Assert-OwnTrue (($LASTEXITCODE -eq 0) -and (($out26 -join "`n") -match 'RESULT:') -and ($countBefore26 -eq $countAfter26)) 'T26 WhatIf reports summary without backup writes'
   $h27=New-FixtureHome 'clean-no-core'; $cfg27=Oc-File $h27 @('opencode.json'); $out27=Invoke-Install $h27 @('-Clean','-NoCoreSkills')
   Assert-OwnTrue (($LASTEXITCODE -eq 2) -and (-not (Test-Path -LiteralPath $cfg27)) -and (-not (Test-Path -LiteralPath (Oc-File $h27 @('.opencode-orchestration','manifest.json')))) -and (($out27 -join "`n") -match 'exige core skills')) 'T27 Clean NoCoreSkills refused without writes'
+  $h28=New-FixtureHome 'shared-skill-junction'; $sharedTarget=Join-Path $base 'shared-hybrid-target'; New-Item -ItemType Directory -Path $sharedTarget -Force | Out-Null
+  Write-Utf8 (Join-Path $sharedTarget 'SKILL.md') "# shared hybrid`n"
+  $sharedJunction=Oc-File $h28 @('skills','hybrid-development'); New-Item -ItemType Directory -Path (Split-Path -Parent $sharedJunction) -Force | Out-Null
+  $junctionMade28=$false
+  try { New-Item -ItemType Junction -Path $sharedJunction -Target $sharedTarget -ErrorAction Stop | Out-Null; $junctionMade28=$true }
+  catch { Write-Host ('[SKIP] T28 junction fixture unsupported in this PowerShell: ' + $_.Exception.Message) }
+  if ($junctionMade28) {
+    $targetHash28=(Get-FileHash -LiteralPath (Join-Path $sharedTarget 'SKILL.md') -Algorithm SHA256).Hash
+    $out28=Invoke-Install $h28 @(); $m28=Read-Manifest $h28
+    $out28clean=Invoke-Install $h28 @('-Clean','-WhatIf')
+    $targetHash28After=(Get-FileHash -LiteralPath (Join-Path $sharedTarget 'SKILL.md') -Algorithm SHA256).Hash
+    $junctionStill28=((Get-Item -LiteralPath $sharedJunction -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($targetHash28 -ceq $targetHash28After) -and $junctionStill28 -and ($null -ne $m28) -and (@($m28.ownership.shared_skills) -contains 'hybrid-development') -and (($out28 -join "`n") -match '\[PRESERVE\] skills/hybrid-development/ \(junction; skills compartilhadas do agent-config\)') -and (($out28 -join "`n") -match '\[STATE\] skills PASS') -and (($out28clean -join "`n") -match '\[PRESERVE\] skills/hybrid-development/ \(junction; skills compartilhadas do agent-config\)')) 'T28 shared junction preserved across install and clean WhatIf'
+  }
 }
 finally {
   if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
