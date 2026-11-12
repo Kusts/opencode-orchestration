@@ -275,6 +275,15 @@ original.
 Validação: revisão localizada retorna ao coder correto e passa sem reiniciar
 tarefas concluídas; comparação apresenta sucesso, custo e latência observados.
 
+### 8.1 Entrega determinística #200/#103 (2026-11-12)
+
+- Contrato role `reviewer` inclui schema da fonte canônica; demais roles não.
+- `retry-decision` persiste resultado da política pura sob lock/CAS; advisory,
+  sem dispatch, gate ou mudança de autoridade.
+- Harness TEMP cobre LOCAL_REPAIR/REPLAN/ESCALATE, input inválido fail-closed,
+  review bloqueante, re-review e DONE pelo verifier-executed existente.
+- A prova não inclui chamada de modelo nem valida adesão do Planner em runtime.
+
 ## 9. M6 — Autonomia prolongada
 
 Primeira fatia pequena: GitHub como único canal, no máximo duas sessões.
@@ -343,15 +352,17 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
   (consumidores de evidência com escrita direta) corrigidos; WL-01 agora mede
   lookup read-only e retorna `COMPLIANT`.
 
-**M5 wiring entregue em 2026-11-11:**
+**M5 wiring entregue em 2026-11-12 (prova determinística sintética; sem LLM):**
 
-- `task-kernel.ps1 -Action review-schema` publica o schema versionado de
-  findings ancorados (read-only, sem `-TaskId`); `Get-OrchestrationReviewFindingsSchema`
-  é puro e determinístico. #200 segue PARCIAL: falta injetar o schema no
-  contrato de dispatch do reviewer.
-- `scripts/v3/repair-decision.ps1` expõe `LOCAL_REPAIR`/`REPLAN`/`ESCALATE`
-  deterministicamente para o Planner consultar antes do retry; nenhum dispatch,
-  nenhuma decisão automática pelo Kernel. #103 segue PARCIAL.
+- O contrato `reviewer` injeta `REVIEW_FINDINGS_SCHEMA` da fonte canônica;
+  outros roles não recebem o campo. `review-schema` segue read-only. #200
+  coberto em contrato determinístico; consumo do schema pelo LLM não provado.
+- `task-kernel -Action retry-decision` consulta a política canônica sob lock e
+  persiste decisão advisory com sinais e motivo. Não despacha nem adiciona gate.
+  #103 coberto no ponto de decisão; execução de reparo pelo Planner/LLM não provada.
+- Harness TEMP: cadeia Kernel até review `changes_required`, retry LOCAL_REPAIR,
+  re-review aprovada e DONE pelo verifier-executed existente; negativos REPLAN
+  e argumentos inválidos. Nenhum `pass-real` alegado.
 - Testes: ReviewAnchor 29/29 (PS5.1 e PS7), repair-decision 10/10 (PS5.1 e
   PS7), TaskKernel 117/117 (PS5.1 e PS7, após tornar o spawn do CLI portátil),
   package-consistency 17/17. Revisão independente: F1 MEDIUM + LOWs corrigidos;
@@ -449,10 +460,9 @@ trabalho em andamento. Branch, commits e PR preservados.
 - **M4:** #12/#11 PARCIAL (libs 18/18, wiring pendente); #177 COBERTO
   (lição durável + recall em segunda sessão); #77 COBERTO (receita
   determinística, custo 1 chamada original → 0 no replay duplo).
-- **M5:** #200/#103 PARCIAL (âncora/drift/owner 18/18, reparo 13/13,
-  integração no Kernel 17/17); E2E vivo coder→reviewer→coder com 2 findings
-  reais corrigidos; `DONE` kernel-executed provado na Task
-  `m5-done-proof6-20261110`.
+- **M5 (snapshot anterior, 2026-11-11):** #200/#103 ainda descritos como
+  PARCIAL; ver a entrega determinística de 2026-11-12 em §8.1 para o estado
+  atualizado. A prova LLM/runtime real permanece fora do E2E sintético.
 - **M6:** intake (8/8), entrega+ack idempotentes (12/12), bridge
   GH-WAKE→Kernel (9/9) e E2E real `issue:6`/`comment-5993719807` →
   worker → ack. #183/#184/#185 PARCIAL: call-site automático do GH-WAKE,
@@ -502,7 +512,7 @@ credencial ou produção.
 
 ### 14.2 Ordem recomendada
 
-1. **#200/#103 — E2E com fluxo real.** Aceite: reviewer recebe o schema por padrão; Planner interpreta findings, roda `repair-decision` após falha comprovada e delega a correção; findings ancorados persistidos na Task, decisão registrada e correção validada sem novo gate.
+1. **#200/#103 — fatia determinística entregue; prova runtime/LLM residual.** Contrato reviewer/schema, decisão advisory persistida, bloqueio por changes_required, re-review e DONE validado em harness TEMP; o consumo do schema e a execução da correção pelo Planner/LLM real ainda exigem prova runtime e não são declarados COBERTOS.
 2. **#183 — produtor externo do envelope `source/trigger/thread/delivery_id`.** Aceite: avaliar webhook/Action que emita o envelope; não fabricar `delivery_id`; se o produtor permanecer externo, manter PARCIAL com a fronteira documentada.
 3. **#64, #192, #50/#141, #2/#184/#185, #172.** Aceite: #64 medir custo de descoberta de skills; #192 comparar Single/Cascade/Critique em cenários representativos com métricas observadas; #50/#141 capability-first e auditoria de autoridade por superfície; #2/#184/#185 sessões subordinadas, observe→auto e handback completo; #172 só reproduzir o flake com sinal real.
 4. **PR #210.** Aceite: comparar com a master; descartar ou reabrir contra a master; não integrar configuração anterior ao merge #236.

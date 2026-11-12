@@ -14,6 +14,7 @@
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+      retry-decision - Record advisory localized-repair decision (needs task/revision and failure signals; never dispatches)
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
       event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary; idempotent consumption/settlement ack)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
@@ -126,6 +127,11 @@ param(
     [string]$StrategyFingerprint = '',
     [string]$FailureClass = '',
     [string]$FailureDetail = '',
+    [ValidateSet('low','medium','high','critical')][string]$Severity = 'medium',
+    [int]$ChangedFiles = 1,
+    [ValidateSet('true','false')][string]$ScopeOverlap = '',
+    [ValidateSet('true','false')][string]$ExternalEffectsAmbiguous = '',
+    [ValidateSet('true','false')][string]$EvidenceCurrent = '',
     [string]$EvidenceStoreDir = '',
     [int]$VirtualizeThresholdBytes = 4096,
     [int]$Attempt = 0,
@@ -202,9 +208,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'get-evidence', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'get-evidence', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'review-schema', 'retry-decision', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|get-evidence|status|transition|record-result|verify|review|review-schema|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|get-evidence|status|transition|record-result|verify|review|review-schema|retry-decision|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
     exit 2
 }
 
@@ -293,6 +299,20 @@ switch ($action) {
         $reviewSchema = Get-OrchestrationReviewFindingsSchema
         Write-Output (ConvertTo-Json -InputObject $reviewSchema -Depth 8)
         exit 0
+    }
+    'retry-decision' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or $ExpectedRevision -lt 0 -or [string]::IsNullOrWhiteSpace($FailureClass)) {
+            Write-TaskKernelCliError 'retry-decision exige -TaskId -ExpectedRevision -FailureClass localized|unknown|structural.'; exit 2
+        }
+        if ($FailureClass -notin @('localized','unknown','structural') -or $ChangedFiles -lt 0 -or $ChangedFiles -gt 100000) {
+            Write-TaskKernelCliError 'retry-decision recebeu sinais invalidos.'; exit 2
+        }
+        $allowed=@('Action','TaskId','ExpectedRevision','Severity','ChangedFiles','ScopeOverlap','ExternalEffectsAmbiguous','EvidenceCurrent','FailureClass','TasksDir','FlagsPath')
+        foreach($bound in $PSBoundParameters.Keys) { if($bound -notin $allowed) { Write-TaskKernelCliError ('retry-decision nao aceita -'+$bound+'.'); exit 2 } }
+        if (-not $PSBoundParameters.ContainsKey('ScopeOverlap') -or -not $PSBoundParameters.ContainsKey('ExternalEffectsAmbiguous') -or -not $PSBoundParameters.ContainsKey('EvidenceCurrent')) {
+            Write-TaskKernelCliError 'retry-decision exige os tres sinais booleanos explicitamente.'; exit 2
+        }
+        $result=Set-OrchestrationTaskRepairDecision -TaskId $TaskId -ExpectedRevision $ExpectedRevision -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap:($ScopeOverlap -eq 'true') -ExternalEffectsAmbiguous:($ExternalEffectsAmbiguous -eq 'true') -EvidenceCurrent:($EvidenceCurrent -eq 'true') -FailureClass $FailureClass -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'create' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Objective)) {

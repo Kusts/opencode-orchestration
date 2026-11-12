@@ -491,6 +491,16 @@ function Get-DPContract {
     $c['missing_fields']=@($missing)
     $c['invalid_fields']=@($invalid)
     foreach($field in $script:DPContractFields){if(Test-DPValuePresent $values[$field]){$c[$field]=$values[$field]}}
+    if ([string]::Equals([string]$Role, 'reviewer', [StringComparison]::Ordinal)) {
+        $schemaCommand = Get-Command Get-OrchestrationReviewFindingsSchema -ErrorAction SilentlyContinue
+        if ($null -eq $schemaCommand) {
+            $schemaPath = Join-Path $PSScriptRoot 'OrchestrationReviewAnchor.ps1'
+            if (Test-Path -LiteralPath $schemaPath -PathType Leaf) { . $schemaPath }
+        }
+        if (Get-Command Get-OrchestrationReviewFindingsSchema -ErrorAction SilentlyContinue) {
+            $c['REVIEW_FINDINGS_SCHEMA'] = Get-OrchestrationReviewFindingsSchema
+        }
+    }
     return $c
 }
 

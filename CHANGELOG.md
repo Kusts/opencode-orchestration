@@ -6,6 +6,12 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **#200/#103 — contrato de review e decisão advisory de retry (2026-11-12)**:
+  - Contrato do role `reviewer` injeta o schema versionado da fonte canônica; demais roles não o recebem. `review-schema` permanece read-only.
+  - `retry-decision` consulta `Resolve-OrchestrationLocalizedRepair` sob lock/CAS e grava a decisão, motivo, constraints e sinais no Task. Não despacha, não cria gate e não altera autoridade de verificação/DONE.
+  - Harness TEMP determinístico comprova review bloqueante, LOCAL_REPAIR, REPLAN, fail-closed e completion pelo verifier-executed existente. Cobertura LLM/provider e dispatch/reparo reais continuam fora da prova.
+  - Validação desta fatia: runner V3 174 PASS / 0 FAIL / 10 SKIP (184 suites); package-consistency 17/17; harness 6/6 em PS5.1 e pwsh; `git diff --check` limpo. Uma execução anterior do runner teve 1 falha concorrente no teste read-only do Capability Doctor; rerun serial ficou verde (doctor isolado 46 assertions).
+
 - **#12/#11 — Virtualização opt-in de evidência no EvidenceStore do Task Kernel (2026-11-12, branch `feat/kernel-evidence-store-20261111`, worktree)**:
   - `Set-OrchestrationTaskWorkerResult` ganhou `-EvidenceStoreDir` (default vazio = caminho legado byte-idêntico) e `-VirtualizeThresholdBytes` (default 4096; faixa 1024..1048576). Com store e `FailureDetail` acima do threshold em status `failed`: conteúdo redigido e persistido content-addressed no store; o attempt grava `evidence_artifacts` (`sha256`, `bytes`, `kind`, `preview` <= 2000, `field='failure_detail'`, `store_rel` relativo ao repo) e mantém `failure_detail` truncado em 2000.
   - Fail-closed: sem sanitizador confiável (`Get-TaskKernelRedactionResult` falha/timeout 5s no caminho virtualizado) a chamada é recusada com `EVIDENCE_REDACTION_UNAVAILABLE` e zero escritas. Caminho legado sem store mantém a redação sem timeout do HEAD.

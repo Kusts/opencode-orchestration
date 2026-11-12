@@ -35,9 +35,11 @@ CHANGES REQUIRED.
 Cada finding deve incluir `finding_id`, `file` (caminho relativo, sem `..`),
 `commit_sha` (7-40 caracteres hexadecimais do commit revisado), `line` (inteiro
 >=0), `severity` (`low|medium|high|critical`) e `message` (<=2000 caracteres).
-Limites: no maximo 50 findings e 256 KiB no JSON. O schema versionado pode ser
-obtido com `powershell -NoProfile -File scripts/v3/task-kernel.ps1 -Action review-schema`.
-Entregue os findings em JSON para o Planner registrar com `-FindingsJson`.
+Limites: no maximo 50 findings e 256 KiB no JSON. O contrato de dispatch do
+role `reviewer` inclui automaticamente `REVIEW_FINDINGS_SCHEMA`, derivado da
+fonte canonica `Get-OrchestrationReviewFindingsSchema`. Use-o para moldar a
+resposta; `-Action review-schema` permanece disponivel como diagnostico. Entregue
+os findings em JSON para o Planner registrar com `-FindingsJson`.
 
 Equivalência Codex: `reviewer.toml` (`gpt-6.1-sol/high`, `read-only`).
 Base atual mantida em Sol (gpt-6.1-sol) via provider OpenAI. Escalonamento usa

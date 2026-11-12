@@ -107,6 +107,12 @@ function Get-ContractByRole($Bundle,[string]$Role){
     return $null
 }
 $now='2026-10-02T12:00:00Z'
+$schemaContract=Get-DPContract -Role reviewer -Plan $null -Descriptor @{task_id='schema-task';read_scope=@('src');write_scope=@();acceptance_criteria=@('check');return_format='findings'} -Level L2 -RequiredRoles @('reviewer')
+$coderContract=Get-DPContract -Role coder -Plan $null -Descriptor @{task_id='schema-task';read_scope=@('src');write_scope=@();acceptance_criteria=@('check');return_format='result'} -Level L2 -RequiredRoles @('coder')
+. (Join-Path $PSScriptRoot 'OrchestrationReviewAnchor.ps1')
+$canonicalReviewSchema=Get-OrchestrationReviewFindingsSchema
+Assert-DP ($schemaContract.Contains('REVIEW_FINDINGS_SCHEMA') -and [int]$schemaContract['REVIEW_FINDINGS_SCHEMA'].schema_version -eq [int]$canonicalReviewSchema.schema_version) 'reviewer-contract-carries-canonical-findings-schema'
+Assert-DP (-not $coderContract.Contains('REVIEW_FINDINGS_SCHEMA')) 'non-reviewer-contract-omits-findings-schema'
 $store=''
 $dotStore=''
 try {

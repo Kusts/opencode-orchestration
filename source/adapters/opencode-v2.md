@@ -541,14 +541,17 @@ tentativa falhou → reavaliar evidência. 2ª falhou → parar e acionar
 Debugger com evidência nova; se incerteza estrutural, Architect. 3ª
 tentativa só com hipótese, informação ou estratégia nova.
 
-Review ancorado: `task-kernel.ps1 -Action review-schema` publica o schema
-versionado (50 findings, 256 KiB, 2000 chars por mensagem). O reviewer devolve
+Review ancorado: o contrato de dispatch do role `reviewer` injeta automaticamente
+`REVIEW_FINDINGS_SCHEMA`, derivado de `Get-OrchestrationReviewFindingsSchema`.
+`task-kernel.ps1 -Action review-schema` continua como diagnostico/fallback
+read-only. O schema versionado limita (50 findings, 256 KiB, 2000 chars por mensagem). O reviewer devolve
 somente os campos de entrada; `task_id`, `worker`, `anchor` e `file_sha256` sao
 derivados, nao enviados (o `file_sha256` so e calculado com conteudo de arquivo,
 que o Kernel nao fornece hoje). Findings sao ancorados em arquivo + linha +
 commit revisado; a Task persiste `findings`, `review_history` e o owner
-sugerido. No dispatch do reviewer, o Planner inclui o schema (via `review-schema`)
-e registra os findings retornados com `-FindingsJson` ou `-FindingsFile`.
+sugerido. O Planner registra os findings retornados com `-FindingsJson` ou
+`-FindingsFile`. `retry-decision` consulta a politica deterministica e grava
+`repair_decision` como estado advisory sob lock/CAS; nao despacha nem altera gates.
 `approved` com findings e recusado.
 
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
