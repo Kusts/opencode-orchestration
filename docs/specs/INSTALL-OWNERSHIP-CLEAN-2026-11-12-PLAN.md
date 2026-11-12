@@ -9,7 +9,7 @@
 
 Transferir o ownership dos perfis/runtime de execução para a Orquestração e permitir uma reinstalação limpa, transacional, segura e idempotente. O estado anterior deixava perfis live stale: `~/.config/opencode/agents/*.md` vinham do Agent Config e os 19 perfis divergiam da fonte canônica da Orquestração; com `agent-config:global` presente, o instalador anterior não aplicava os perfis (`install.ps1:1750-1752` no comportamento histórico). O manifest anterior atribuía `global_text`, `worker_profiles`, `build_permissions` e `top_level_permissions` ao Agent Config (`install.ps1:2356-2366`).
 
-As regras de detecção, merge, plano por recurso e preservação são visíveis em `install.ps1:1400-1428`, `install.ps1:1595-1625`, `install.ps1:1733-1758` e `uninstall.ps1:262-302`. O changelog registra a condição de reconciliação do config ativo como pendente (CHANGELOG.md:22-24). A suíte de ownership cobre T1-T26 (`scripts/v3/install-ownership.tests.ps1`).
+As regras de detecção, merge, plano por recurso e preservação são visíveis em `install.ps1:1400-1428`, `install.ps1:1595-1625`, `install.ps1:1733-1758` e `uninstall.ps1:262-302`. O changelog registra a condição de reconciliação do config ativo como pendente (CHANGELOG.md:22-24). A suíte de ownership cobre T1-T28 (`scripts/v3/install-ownership.tests.ps1`).
 
 ## 2. Contrato normativo de ownership v2
 
@@ -47,7 +47,7 @@ Esta matriz é o contrato desejado para a missão; a matriz normativa vigente da
 
 **O que remove:** somente artefatos que o manifest anterior atribua à Orquestração e cujo hash atual corresponda ao hash registrado; também pode remover artefato legado explicitamente conhecido e comprovado pelo manifest/regra de migração. Qualquer arquivo ausente do manifest, hash divergente, path inválido ou ownership externo é preservado e reportado como conflito/preservado. Não inferir posse por nome ou localização.
 
-**O que preserva:** bloco `agent-config:global`, `mcp`, `ai-memory`, plugins de terceiros, skills externas, credenciais, `models.jsonc` e conteúdo/arquivos editados pelo usuário; preserva tudo fora do manifest e campos/chaves de outros owners. Tratamento de junction/reparse deve falhar fechado ou preservar sem atravessar o destino redirecionado.
+**O que preserva:** bloco `agent-config:global`, `mcp`, `ai-memory`, plugins de terceiros, skills externas, credenciais, `models.jsonc` e conteúdo/arquivos editados pelo usuário; preserva tudo fora do manifest e campos/chaves de outros owners. Skills compartilhadas por junction do Agent Config são preservadas (`ownership.shared_skills`) e validadas, nunca escritas. Tratamento de junction/reparse deve falhar fechado ou preservar sem atravessar o destino redirecionado.
 
 **Ordem transacional:** (1) ler manifest e inventariar; (2) validar paths/owners/hashes e precheck; (3) gerar plano; (4) em `-WhatIf`, imprimir plano e sair sem criar backup/stage/arquivo; (5) fazer backup; (6) stage e validar estado desejado; (7) CAS imediatamente antes de cada mutação; (8) remover obsoletos comprovados e aplicar estado desejado; (9) executar validações; (10) gravar manifest como última mutação; (11) em qualquer falha durante apply/validação/manifest, restaurar bytes anteriores e manter evidência do rollback. Segunda execução sem drift deve reportar `UNCHANGED` e não modificar artefatos.
 
@@ -121,7 +121,7 @@ O ADR/SPEC propõe Agent Config como owner de perfis globais e de permissões/de
 
 Comandos e N/N medidos na implementação/revisão (evidência fornecida à tarefa; suítes não reexecutadas nesta rodada de documentação):
 
-- `scripts/v3/install-ownership.tests.ps1`: **44/44** em PowerShell 7 e Windows PowerShell 5.1.
+- `scripts/v3/install-ownership.tests.ps1`: **45/45** em PowerShell 7 e Windows PowerShell 5.1.
 - `scripts/test-package-consistency.ps1`: **17/17**.
 - Suíte distribution (pwsh e PS5.1): **22 PASS / 1 FAIL** (`skills-catalog`, preexistente) / **1 SKIP** (`live-hook-v2`) / **1 ERROR** (`eol-checkout`, timeout preexistente).
 - Runner V3 (rodada anterior): **27 PASS / 0 FAIL / 2 SKIP**.

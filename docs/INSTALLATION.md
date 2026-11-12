@@ -40,7 +40,7 @@ copy models.example.jsonc models.jsonc
 
 ### Ownership Agent Config (OpenCode V2)
 
-Nova matriz de ownership (OpenCode V2, conforme `install.ps1`, manifest e `scripts/v3/install-ownership.tests.ps1` T1-T26):
+Nova matriz de ownership (OpenCode V2, conforme `install.ps1`, manifest e `scripts/v3/install-ownership.tests.ps1` T1-T28):
 
 | Recurso | Owner | Limite do outro owner |
 |---|---|---|
@@ -48,6 +48,7 @@ Nova matriz de ownership (OpenCode V2, conforme `install.ps1`, manifest e `scrip
 | `~/.config/opencode/agents/*.md` (19 perfis worker) | Orquestração | Agent Config não é owner dos perfis OpenCode V2. |
 | `opencode.json` objeto `agents` (build, title e 19 subagentes: mode/model/permissions do escopo da Orquestração) | Orquestração | Agent Config não escreve esse objeto. |
 | `opencode.json` `permissions` de topo, `mcp`, chave `plugin`/plugins externos e campos user-owned | Agent Config / usuário | A Orquestração preserva. |
+| Skills compartilhadas por junction do Agent Config (`ownership.shared_skills`) | Agent Config | Preservadas e validadas, nunca escritas. |
 | Skills centrais/MCP globais e demais runtimes (Claude/Codex/Pi/Antigravity, launchers) | Agent Config | A Orquestração não aplica esses recursos. |
 | `plugins/orchestration-enforcement.js` e as 8 skills-core da Orquestração | Orquestração | Agent Config preserva. |
 | `models.jsonc`, credenciais e conteúdo fora do ownership | Usuário | Ambos preservam. |
