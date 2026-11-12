@@ -11,6 +11,7 @@ $gitStatusBefore = (& git -C $repo status --porcelain | Out-String).TrimEnd()
 $gitDiffBefore = (& git -C $repo diff --name-only | Out-String).TrimEnd()
 $total = 0; $passed = 0
 function Assert-True { param([bool]$Condition,[string]$Name) $script:total++; if ($Condition) { $script:passed++ } else { throw "FAIL: $Name" } }
+function Assert-NoObservedEstimate { param($Value) if (Test-ObservedEstimate $Value) { throw 'Estimated metadata found in observed field.' } }
 function Test-EstimateMarker {
     param($Value)
     if ($null -eq $Value) { return $false }
@@ -31,9 +32,14 @@ try {
     $cleanFixture = [pscustomobject]@{ catalog=[pscustomobject]@{ entries_observed=3 }; roots=@() }
     $badNested = [pscustomobject]@{ observed_x=[pscustomobject]@{ is_estimate=$true } }
     $badMethod = [pscustomobject]@{ total_observed=123; method='chars/4' }
-    Assert-True (-not (Test-ObservedEstimate $cleanFixture)) 'recursive detector accepts clean fixture'
-    Assert-True (Test-ObservedEstimate $badNested) 'recursive detector rejects nested is_estimate fixture'
-    Assert-True (Test-ObservedEstimate $badMethod) 'recursive detector rejects chars/4 fixture'
+    Assert-NoObservedEstimate $cleanFixture
+    Assert-True $true 'recursive detector accepts clean fixture'
+    $nestedRejected = $false
+    try { Assert-NoObservedEstimate $badNested } catch { $nestedRejected = $true }
+    Assert-True $nestedRejected 'assert fails for nested is_estimate fixture'
+    $methodRejected = $false
+    try { Assert-NoObservedEstimate $badMethod } catch { $methodRejected = $true }
+    Assert-True $methodRejected 'assert fails for chars/4 fixture'
     & $scriptPath -OutFile $outA -GeneratedAt '2026-11-12T00:00:00Z'
     & $scriptPath -OutFile $outB -GeneratedAt '2026-11-12T00:00:00Z'
     $aText = [IO.File]::ReadAllText($outA); $bText = [IO.File]::ReadAllText($outB)
