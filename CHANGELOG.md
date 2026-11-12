@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **#183 — contrato executável do produtor GitHub (PARCIAL)**:
+  - Teste de correlação agora cobre os quatro triggers canônicos, formatos de
+    thread, campos deriváveis versus `delivery_id` fornecido, estabilidade e
+    sensibilidade do dedup key, seis rejeições de campo e replay ignorado.
+  - `docs/specs/GITHUB-EVENT-PRODUCER-CONTRACT.md` documenta o envelope,
+    consumo CLI existente e checklist para webhook/Action externo. Nenhum
+    produtor foi criado; GH-WAKE não emite envelope; #184 permanece off por
+    padrão. #183 continua PARCIAL até existir prova do produtor externo.
+
 - **#200/#103 — contrato de review e decisão advisory de retry (2026-11-12)**:
   - Contrato do role `reviewer` injeta o schema versionado da fonte canônica; demais roles não o recebem. `review-schema` permanece read-only.
   - `retry-decision` consulta `Resolve-OrchestrationLocalizedRepair` sob lock/CAS e grava a decisão, motivo, constraints e sinais no Task. Cada chamada persiste registro advisory e incrementa a revision da Task; concorrente com `ExpectedRevision` anterior recebe `CAS_CONFLICT`, intencionalmente como nos demais mutators. Não despacha, não cria gate e não altera autoridade de verificação/DONE.
