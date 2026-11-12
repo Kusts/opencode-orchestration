@@ -964,6 +964,33 @@ try {
     }
     $script:RaceDiagHandled = $true
 
+    # 31b. opt-in failure evidence virtualization
+    $evTask = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id 'evidence-task-001'
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'evidence-task-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'evidence-task-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags
+    $originalEvidence = 'synthetic-evidence-' + ('x' * 200000)
+    $evidenceStore = Join-Path $t.root 'evidence-store'
+    $evResult = Set-OrchestrationTaskWorkerResult -TaskId 'evidence-task-001' -Status 'failed' -ProducedBy 'coder' -FailureDetail $originalEvidence -EvidenceStoreDir $evidenceStore -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags
+    $evRecord = Get-OrchestrationTask -TaskId 'evidence-task-001' -TasksDir $t.tasks
+    $evAttempt = @($evRecord['attempts'])[0]
+    $evEntry = @($evAttempt['evidence_artifacts'])[0]
+    $evPath = Join-Path (Join-Path $evidenceStore 'other') ([string]$evEntry['sha256'] + '.txt')
+    $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id 'evidence-legacy-001'
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'evidence-legacy-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-OrchestrationTaskTransition -TaskId 'evidence-legacy-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Set-OrchestrationTaskWorkerResult -TaskId 'evidence-legacy-001' -Status 'failed' -ProducedBy 'coder' -FailureDetail $originalEvidence -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags
+    $legacyRecord = Get-OrchestrationTask -TaskId 'evidence-legacy-001' -TasksDir $t.tasks
+    $legacyAttempt = @($legacyRecord['attempts'])[0]
+    $recordLegacyBytes = [Text.Encoding]::UTF8.GetByteCount((ConvertTo-Json -InputObject $legacyAttempt -Depth 12 -Compress))
+    $legacyExact = (-not $legacyAttempt.Contains('evidence_artifacts')) -and ([string]$legacyAttempt['failure_detail']).Length -eq 2000
+    Assert-TaskKernel ($legacyExact) 'opt-out preserves 2000-char legacy attempt without evidence_artifacts'
+    Assert-TaskKernel ([bool]$evResult.ok -and (Test-Path -LiteralPath $evPath -PathType Leaf) -and $evEntry['bytes'] -eq [Text.Encoding]::UTF8.GetByteCount($originalEvidence) -and ([string]$evEntry['preview']).Length -le 2000) 'opt-in persists full failure detail with bounded artifact metadata'
+    $outside = Join-Path ([IO.Path]::GetTempPath()) ('evidence-outside-' + [guid]::NewGuid().ToString('N'))
+    $outsideResult = Set-OrchestrationTaskWorkerResult -TaskId 'evidence-task-001' -Status 'failed' -ProducedBy 'coder' -FailureDetail $originalEvidence -EvidenceStoreDir $outside -RepoRoot $t.root -ExpectedRevision 4 -TasksDir $t.tasks -FlagsPath $t.flags
+    Assert-TaskKernel (([string]$outsideResult.error -ceq 'EVIDENCE_STORE_OUTSIDE_REPO') -and (-not (Test-Path -LiteralPath $outside))) 'outside evidence store rejected before writes'
+    $noRoot = Set-OrchestrationTaskWorkerResult -TaskId 'evidence-task-001' -Status 'failed' -ProducedBy 'coder' -FailureDetail $originalEvidence -EvidenceStoreDir $evidenceStore -ExpectedRevision 4 -TasksDir $t.tasks -FlagsPath $t.flags
+    Assert-TaskKernel ([string]$noRoot.error -ceq 'EVIDENCE_STORE_REQUIRES_REPO_ROOT') 'virtualization requires explicit repo root'
+
     # 32. race diagnostics helpers: sanitize, cap, render (diagnostic-only)
     $dCanary = 'sk-SYNTHETICSECRET Bearer abcdef1234567890 token=hunter2'
     $dClean = Get-TaskKernelDiagText -Text ('lineA ' + $dCanary + ' C:\Users\someuser\AppData\Local\Temp\race1.json' + "`r`n" + 'lineB') -MaxChars 400
@@ -1014,6 +1041,67 @@ try {
     Assert-TaskKernel (($dRender.Count -ge 8) -and ($dJoined -match 'process_1\.exit_code=1') -and ($dJoined -match 'process_1\.finished=True') -and ($dJoined -match 'duration_ms=12') -and ($dJoined -match 'waitfor_exit_return=True') -and ($dJoined -match 'task_final_revision=2') -and ($dJoined -match 'stdout_stderr_chars=64')) 'diagnostic renderer emits exit codes, finished flags, durations and task state'
     Assert-TaskKernel ($dJoined -match 'stdout_stderr_truncated=False') 'diagnostic renderer records that captured output is complete'
     Assert-TaskKernel (($dJoined -notmatch 'sk-SYNTHETICSECRET') -and ($dJoined -notmatch 'someuser')) 'diagnostic renderer sanitizes child output and paths even when capture missed it'
+
+    # 33. Evidence virtualization redaction fail-closed and regex timeout coverage.
+    $evSecretId = 'evidence-secret-virtual-001'
+    $evSecretDetail = ('large detail sk-SYNTHETICSECRET ' + (('secret-line' + "`r`n") * 800))
+    $evSecretStore = Join-Path $t.root 'evidence-secret-store'
+    $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $evSecretId
+    $null = Invoke-OrchestrationTaskTransition -TaskId $evSecretId -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-OrchestrationTaskTransition -TaskId $evSecretId -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags
+    $evSecretResult = Set-OrchestrationTaskWorkerResult -TaskId $evSecretId -Status failed -ProducedBy coder -FailureDetail $evSecretDetail -EvidenceStoreDir $evSecretStore -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags
+    $evSecretRecord = Get-OrchestrationTask -TaskId $evSecretId -TasksDir $t.tasks
+    $evSecretAttempt = @($evSecretRecord['attempts'])[0]
+    $evSecretEntry = @($evSecretAttempt['evidence_artifacts'])[0]
+    $evSecretPath = Join-Path (Join-Path $evSecretStore 'other') ([string]$evSecretEntry['sha256'] + '.txt')
+    $evSecretJson = [IO.File]::ReadAllText((Join-Path $t.tasks ($evSecretId + '.json')))
+    $evSecretContent = [IO.File]::ReadAllText($evSecretPath)
+    Assert-TaskKernel ($evSecretResult.ok -and $evSecretEntry.preview -notmatch 'sk-SYNTHETICSECRET' -and $evSecretContent -notmatch 'sk-SYNTHETICSECRET' -and $evSecretJson -notmatch 'sk-SYNTHETICSECRET') 'F1a virtualized detail redacts canary from preview, artifact and task record'
+
+    $evFailId = 'evidence-redaction-fail-001'
+    $evFailStore = Join-Path $t.root 'evidence-redaction-fail-store'
+    $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $evFailId
+    $null = Invoke-OrchestrationTaskTransition -TaskId $evFailId -ToState 'PLANNING' -Actor planner -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-OrchestrationTaskTransition -TaskId $evFailId -ToState 'IMPLEMENTING' -Actor planner -ExpectedRevision 2 -ActorIdentitySource explicit-cli -TasksDir $t.tasks -FlagsPath $t.flags
+    $evFailRecordBefore = Get-OrchestrationTask -TaskId $evFailId -TasksDir $t.tasks
+    $evFailRevisionBefore = [int]$evFailRecordBefore['revision']
+    $originalSecretPatternFunction = Get-Item Function:\script:Get-SecretValuePattern -ErrorAction SilentlyContinue
+    try {
+        Set-Item Function:\script:Get-SecretValuePattern { throw 'synthetic redaction failure' }
+        $evFailResult = Set-OrchestrationTaskWorkerResult -TaskId $evFailId -Status failed -ProducedBy coder -FailureDetail ('raw sk-SYNTHETICSECRET ' + ('z' * 6000)) -EvidenceStoreDir $evFailStore -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags
+    }
+    finally {
+        Remove-Item Function:\script:Get-SecretValuePattern -ErrorAction SilentlyContinue
+        if ($null -ne $originalSecretPatternFunction) { Set-Item Function:\script:Get-SecretValuePattern $originalSecretPatternFunction.ScriptBlock }
+    }
+    $evFailRecord = Get-OrchestrationTask -TaskId $evFailId -TasksDir $t.tasks
+    $evFailAttempt = @($evFailRecord['attempts'])[0]
+    $evFailJson = [IO.File]::ReadAllText((Join-Path $t.tasks ($evFailId + '.json')))
+    $evFailArtifacts = @(Get-ChildItem -LiteralPath $evFailStore -Recurse -File -ErrorAction SilentlyContinue)
+    $evFailRawInTasks = @()
+    foreach ($taskFile in (Get-ChildItem -LiteralPath $t.tasks -Filter '*.json' -File)) { if ([IO.File]::ReadAllText($taskFile.FullName).Contains('raw sk-SYNTHETICSECRET')) { $evFailRawInTasks += $taskFile.FullName } }
+    Assert-TaskKernel ((-not $evFailResult.ok) -and $evFailResult.error -ceq 'EVIDENCE_REDACTION_UNAVAILABLE' -and [int]$evFailRecord['revision'] -eq $evFailRevisionBefore -and @($evFailRecord['attempts']).Count -eq @($evFailRecordBefore['attempts']).Count -and $evFailJson -notmatch 'raw sk-SYNTHETICSECRET' -and $evFailRawInTasks.Count -eq 0 -and $evFailArtifacts.Count -eq 0) 'F1b redaction failure refuses without record revision, attempt or artifact writes'
+
+    $evLinesId = 'evidence-many-lines-001'
+    $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $evLinesId
+    $null = Invoke-OrchestrationTaskTransition -TaskId $evLinesId -ToState PLANNING -Actor planner -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-OrchestrationTaskTransition -TaskId $evLinesId -ToState IMPLEMENTING -Actor planner -ExpectedRevision 2 -ActorIdentitySource explicit-cli -TasksDir $t.tasks -FlagsPath $t.flags
+    $manyLines = ('line x' + "`r`n") * 35000
+    $evLinesThrown = $false
+    try { $evLinesResult = Set-OrchestrationTaskWorkerResult -TaskId $evLinesId -Status failed -ProducedBy coder -FailureDetail $manyLines -EvidenceStoreDir (Join-Path $t.root 'evidence-lines-store') -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags } catch { $evLinesThrown = $true }
+    $evLinesRecord = Get-OrchestrationTask -TaskId $evLinesId -TasksDir $t.tasks
+    $evLinesAttempt = @($evLinesRecord['attempts'])[0]
+    Assert-TaskKernel ((-not $evLinesThrown) -and ($evLinesResult.ok -or $evLinesResult.error -ceq 'EVIDENCE_REDACTION_UNAVAILABLE')) 'F2 one-megabyte multiline detail is handled without unhandled exception'
+
+    $legacyLargeId = 'evidence-legacy-large-lines-001'
+    $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $legacyLargeId
+    $null = Invoke-OrchestrationTaskTransition -TaskId $legacyLargeId -ToState PLANNING -Actor planner -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
+    $null = Invoke-OrchestrationTaskTransition -TaskId $legacyLargeId -ToState IMPLEMENTING -Actor planner -ExpectedRevision 2 -ActorIdentitySource explicit-cli -TasksDir $t.tasks -FlagsPath $t.flags
+    $legacyLargeDetail = (('many lines without token' + "`r`n") * 38000) + ' sk-SYNTHETICSECRET'
+    $legacyLargeResult = Set-OrchestrationTaskWorkerResult -TaskId $legacyLargeId -Status failed -ProducedBy coder -FailureDetail $legacyLargeDetail -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags
+    $legacyLargeRecord = Get-OrchestrationTask -TaskId $legacyLargeId -TasksDir $t.tasks
+    $legacyLargeFailure = [string]@($legacyLargeRecord['attempts'])[0]['failure_detail']
+    Assert-TaskKernel ($legacyLargeResult.ok -and $legacyLargeFailure.Length -eq 2000 -and $legacyLargeFailure -notmatch 'sk-SYNTHETICSECRET') 'legacy ~1MiB multiline detail redacts token while preserving 2000-character cap'
 }
 catch {
     Write-Host ("[FAIL] unexpected error: {0}" -f $_)

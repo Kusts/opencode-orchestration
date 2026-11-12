@@ -507,18 +507,10 @@ sessão, sem refazer o que já está provado.
 
 ### 14.2 Ordem recomendada
 
-1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).**
-   - Inspecionar `Set-OrchestrationTaskWorkerResult` e `evidence_refs` em
-     `OrchestrationTaskKernel.ps1`; integrar `New-OrchestrationArtifactRef`
-     para detalhes/logs grandes, persistindo ref + preview e recuperando por
-     hash. Não alterar o significado de `verified_pass`/`DONE`.
-   - Aceite: Task real com log grande; ref e preview persistidos; recall
-     íntegro; comparação de bytes/contexto/tokens/tempo com e sem
-     virtualização. Se não houver benefício medido, manter apenas os helpers
-     atuais e registrar a decisão.
-   - Base existente: `scripts/v3/evidence-virtualize.ps1` (7/7),
-     `scripts/v3/cache-metrics.ps1` (4/4), `OrchestrationObservationVirtualization.ps1`,
-     `OrchestrationCacheMetrics.ps1`.
+1. **#12/#11 — wiring no EvidenceStore do Kernel — CONCLUÍDO (2026-11-12, branch `feat/kernel-evidence-store-20261111`, worktree).**
+   - `Set-OrchestrationTaskWorkerResult` com `-EvidenceStoreDir` (opt-in, default vazio = legado byte-idêntico) e `-VirtualizeThresholdBytes` (default 4096); `FailureDetail` grande em `failed` é redigido, persistido content-addressed e referenciado em `evidence_artifacts` (hash, bytes, kind, preview, `store_rel`), com `failure_detail` truncado. Fail-closed: sanitizador indisponível/timeout (5s) no caminho virtualizado ⇒ `EVIDENCE_REDACTION_UNAVAILABLE` e zero escritas. CLI `get-evidence` com recall verificado por SHA-256 e confinamento de store/path; `verified_pass`/`DONE`/compliance inalterados.
+   - **Decisão: ADOTAR (opt-in).** Medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record sem/com virtualização 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash verificado e byte-idêntico `true`; tokens `chars/4` 50.004; `redaction=applied`, `redaction_fail_closed=true`, `store_rel=true`. Overhead do record compensado pela recuperação integral verificada.
+   - Validação: kernel lib 125/125 (pwsh e PS5.1); CLI 20/20 (pwsh e PS5.1); virtualização 18/18; runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); package-consistency 17/17; `git diff --check` limpo. Sem merge/push/CI.
 2. **#200/#103 — E2E com o fluxo real.**
    - Reviewer recebe o schema por padrão (`reviewer.md` + `review-schema`);
      Planner interpreta findings, roda `repair-decision` e delega a correção.
@@ -564,12 +556,19 @@ benefício medido.
 ### 14.5 Handoff compacto (5 campos)
 
 - **Objetivo/estado:** continuar M0–M7; P0, P0.5 e P0.6 provados; missão
-  encerrada com residuais.
+  encerrada com residuais; item 1 de §14.2 (#12/#11) concluído no worktree.
 - **Alterações:** P0 (papéis/roteamento/instruções/mandato), M5 wiring, P0.5
-  (Goal 3 Tasks), P0.6 (resume nativo), #12/#11 helpers, M3 (#140/#203).
-- **Validação:** CI 6/6; V3 168/179; preflight 286/286; GW 145/145;
-  TaskKernel 117/117; P0.5 14/14; evidence-virtualize 7/7; cache-metrics 4/4;
-  typecheck PASS; package-consistency 17/17.
-- **Decisões/pendências:** #183 opção (b); M7 HOLD; #12/#11 no EvidenceStore;
-  #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172; PR #210; config ativo.
-- **Próximo passo:** item 1 de §14.2.
+  (Goal 3 Tasks), P0.6 (resume nativo), M3 (#140/#203); wiring opt-in de
+  virtualização de evidência no EvidenceStore do Task Kernel (#12/#11, branch
+  `feat/kernel-evidence-store-20261111`, sem commit) com CLI `get-evidence`
+  fail-closed.
+- **Validação:** CI 6/6 (HEAD anterior); V3 agregado 173 PASS / 0 FAIL / 10 SKIP
+  (183, exit 0); kernel lib 125/125 (pwsh e PS5.1); CLI 20/20 (pwsh e PS5.1);
+  virtualização 18/18; package-consistency 17/17; `git diff --check` limpo.
+  Preflight 286/286, GW 145/145, P0.5 14/14, typecheck PASS permanecem válidos
+  da rodada anterior; CI desta branch não executado.
+- **Decisões/pendências:** #12/#11 ADOTAR (opt-in), medido em
+  `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`;
+  #183 opção (b); M7 HOLD; #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172;
+  PR #210; config ativo.
+- **Próximo passo:** item 2 de §14.2 (#200/#103 E2E).

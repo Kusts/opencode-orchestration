@@ -536,28 +536,37 @@ function Exit-TaskKernelFileLock {
 
 # ---------- free-text sanitize (F8) ----------
 
-function Protect-TaskKernelText {
-    <#
-    .SYNOPSIS
-        Secret-value redaction (CapabilitySanitize pattern, substring
-        preserving) + 2000 char cap. Never throws.
-    #>
+function Get-TaskKernelRedactionResult {
+    [CmdletBinding()]
+    param([string]$Text, [int]$TimeoutSeconds = 0)
+    try {
+        $command = Get-Command Get-SecretValuePattern -ErrorAction SilentlyContinue
+        if ($null -eq $command) { return @{ ok=$false; text=''; error='REDACTION_UNAVAILABLE' } }
+        $pattern = [string](Get-SecretValuePattern)
+        if ([string]::IsNullOrWhiteSpace($pattern)) { return @{ ok=$false; text=''; error='REDACTION_UNAVAILABLE' } }
+        if ($TimeoutSeconds -gt 0) {
+            $timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+            $clean = [regex]::Replace([string]$Text, $pattern, '[REDACTED]', [Text.RegularExpressions.RegexOptions]::None, $timeout)
+        }
+        else { $clean = [regex]::Replace([string]$Text, $pattern, '[REDACTED]') }
+        return @{ ok=$true; text=$clean; error='' }
+    }
+    catch { return @{ ok=$false; text=''; error='REDACTION_UNAVAILABLE' } }
+}
+
+function Get-TaskKernelRedactedText {
     [CmdletBinding()]
     param([string]$Text)
-    $t = [string]$Text
-    try {
-        if ((Get-Command Get-SecretValuePattern -ErrorAction SilentlyContinue) -ne $null) {
-            $pat = Get-SecretValuePattern
-            if (-not [string]::IsNullOrWhiteSpace([string]$pat)) {
-                $t = ([regex]::Replace($t, [string]$pat, '[REDACTED]'))
-            }
-        }
-    }
-    catch { $t = [string]$Text }
-    try {
-        if ($t.Length -gt 2000) { $t = $t.Substring(0, 2000) }
-    }
-    catch { }
+    $result = Get-TaskKernelRedactionResult -Text $Text
+    if ($result.ok) { return [string]$result.text }
+    return [string]$Text
+}
+function Protect-TaskKernelText {
+    <# Secret-value redaction plus the legacy 2000 character cap. #>
+    [CmdletBinding()]
+    param([string]$Text)
+    $t = Get-TaskKernelRedactedText -Text $Text
+    try { if ($t.Length -gt 2000) { $t = $t.Substring(0, 2000) } } catch { }
     return $t
 }
 
@@ -1833,6 +1842,8 @@ function Set-OrchestrationTaskWorkerResult {
         [string]$StrategyFingerprint = '',
         [string]$FailureClass = '',
         [string]$FailureDetail = '',
+        [string]$EvidenceStoreDir = '',
+        [int]$VirtualizeThresholdBytes = 4096,
         [string]$RecoverySource = '',
         [string[]]$NewEvidenceRefs = @(),
         [string]$ProposedBudgetJson = '',
@@ -1886,6 +1897,9 @@ function Set-OrchestrationTaskWorkerResult {
             }
         }
         $status = ([string]$Status).Trim().ToLowerInvariant()
+        if ($VirtualizeThresholdBytes -lt 1024 -or $VirtualizeThresholdBytes -gt 1048576) {
+            return (New-TaskKernelError -Code 'EVIDENCE_THRESHOLD_INVALID')
+        }
         if (@('candidate_pass', 'failed', 'blocked') -cnotcontains $status) {
             return (New-TaskKernelError -Code 'STATUS_NOT_ALLOWED_FROM_WORKER')
         }
@@ -1927,6 +1941,27 @@ function Set-OrchestrationTaskWorkerResult {
         $taskFile = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($taskFile)) {
             return (New-TaskKernelError -Code 'NOT_FOUND')
+        }
+        $evidenceArtifact = $null
+        $evidenceArtifactError = ''
+        $evidenceShouldVirtualize = (($status -ceq 'failed') -and (-not [string]::IsNullOrWhiteSpace($EvidenceStoreDir)) -and ([Text.Encoding]::UTF8.GetByteCount([string]$FailureDetail) -gt $VirtualizeThresholdBytes))
+        $storeFull = ''
+        $evidenceContent = ''
+        if ($evidenceShouldVirtualize) {
+            if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return (New-TaskKernelError -Code 'EVIDENCE_STORE_REQUIRES_REPO_ROOT') }
+            try {
+                $repoFull = [IO.Path]::GetFullPath($RepoRoot).TrimEnd([char[]]@('\', '/'))
+                $storeFull = [IO.Path]::GetFullPath($EvidenceStoreDir).TrimEnd([char[]]@('\', '/'))
+                $repoPrefix = $repoFull + [IO.Path]::DirectorySeparatorChar
+                if (-not $storeFull.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) { return (New-TaskKernelError -Code 'EVIDENCE_STORE_OUTSIDE_REPO') }
+            } catch { return (New-TaskKernelError -Code 'EVIDENCE_STORE_OUTSIDE_REPO') }
+            $redaction = Get-TaskKernelRedactionResult -Text ([string]$FailureDetail) -TimeoutSeconds 5
+            if ($redaction.ok) { $evidenceContent = [string]$redaction.text }
+            else {
+                # Without a trusted sanitizer, free text cannot be persisted; restore redaction or omit EvidenceStoreDir to use the legacy path.
+                return (New-TaskKernelError -Code 'EVIDENCE_REDACTION_UNAVAILABLE')
+            }
+            . (Join-Path $PSScriptRoot 'OrchestrationObservationVirtualization.ps1')
         }
         $lock = Enter-TaskKernelFileLock -TaskFile $taskFile
         if (-not [bool]$lock.acquired) {
@@ -2147,7 +2182,25 @@ function Set-OrchestrationTaskWorkerResult {
             $p27RecFp = ''
             $p27RecSlot = Get-OrchestrationRecoveryFingerprint -FailureClass $p27Class -StrategyFingerprint $p27Fp -Scope $p27Scope
             if ([bool]$p27RecSlot.ok) { $p27RecFp = ([string]$p27RecSlot.fingerprint) }
-            $attempts += [ordered]@{
+            if (($n -ge $budget) -and (-not $effNewEv) -and (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec))) {
+                return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
+            }
+            if ($evidenceShouldVirtualize) {
+                # The artifact store intentionally keeps redacted evidence, never raw secret material at rest.
+                if ((Test-TaskKernelPathHasReparsePoint -Path $storeFull) -or (Test-TaskKernelPathHasReparsePoint -Path (Join-Path $storeFull 'other'))) {
+                    $evidenceArtifactError = 'ARTIFACT_PATH_ESCAPE'
+                }
+                else {
+                    $artifact = New-OrchestrationArtifactRef -Content $evidenceContent -StoreDir $storeFull -Kind 'other' -TaskId $tid -MaxBytes 1048576
+                    if ([bool]$artifact.ok) {
+                        $preview = $evidenceContent
+                        if ($preview.Length -gt 2000) { $preview = $preview.Substring(0, 2000) }
+                        $evidenceArtifact = [ordered]@{ sha256 = [string]$artifact.sha256; bytes = [int]$artifact.bytes; kind = 'other'; preview = $preview; field = 'failure_detail'; store_rel = $storeFull.Substring($repoFull.Length + 1) }
+                    }
+                    else { $evidenceArtifactError = [string]$artifact.error }
+                }
+            }
+            $newAttempt = [ordered]@{
                 n                      = $n
                 status                 = 'failed'
                 hypothesis             = $hypClean
@@ -2166,11 +2219,11 @@ function Set-OrchestrationTaskWorkerResult {
                 changed_from_previous  = [bool]$p27Changed
                 at                     = $stamp
             }
+            if ($null -ne $evidenceArtifact) { $newAttempt['evidence_artifacts'] = @($evidenceArtifact) }
+            if (-not [string]::IsNullOrWhiteSpace($evidenceArtifactError)) { $newAttempt['evidence_artifact_error'] = $evidenceArtifactError }
+            $attempts += $newAttempt
             $rec['attempts'] = $attempts
             if (($n -ge $budget) -and (-not $effNewEv)) {
-                if (-not (Test-TaskKernelWatchdogSettlementClear -Record $rec)) {
-                    return (New-TaskKernelError -Code 'SETTLEMENT_REQUIRED' -Extra @{ detail = 'watchdog interrupt engaged without confirmed settlement' })
-                }
                 $hist = @()
                 if ($null -ne $rec['history']) { $hist = @($rec['history']) }
                 $hist += [ordered]@{

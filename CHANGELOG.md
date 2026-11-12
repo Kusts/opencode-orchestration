@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **#12/#11 — Virtualização opt-in de evidência no EvidenceStore do Task Kernel (2026-11-12, branch `feat/kernel-evidence-store-20261111`, worktree)**:
+  - `Set-OrchestrationTaskWorkerResult` ganhou `-EvidenceStoreDir` (default vazio = caminho legado byte-idêntico) e `-VirtualizeThresholdBytes` (default 4096; faixa 1024..1048576). Com store e `FailureDetail` acima do threshold em status `failed`: conteúdo redigido e persistido content-addressed no store; o attempt grava `evidence_artifacts` (`sha256`, `bytes`, `kind`, `preview` <= 2000, `field='failure_detail'`, `store_rel` relativo ao repo) e mantém `failure_detail` truncado em 2000.
+  - Fail-closed: sem sanitizador confiável (`Get-TaskKernelRedactionResult` falha/timeout 5s no caminho virtualizado) a chamada é recusada com `EVIDENCE_REDACTION_UNAVAILABLE` e zero escritas. Caminho legado sem store mantém a redação sem timeout do HEAD.
+  - Nova ação CLI `get-evidence` (`-TaskId` + `-Attempt` ou `-ArtifactId`; `-StoreDir` opcional confinado; `-Full`): recall verificado por SHA-256, exige `store_rel`/`store_dir` confinados à raiz canônica, recusa `kind`/`sha` inválidos, sem stack trace (JSON de domínio). Store confinado dentro de `-RepoRoot`; `record-result` com store valida `-CliRepoRoot`/`-TasksDir`/`-FlagsPath` por `Test-TaskKernelCliTrustedPath`; reparse points recusados.
+  - `verified_pass`/`DONE`/`Test-OrchestrationDoneCompliance` não alterados. Nenhum flag/permissão alterado.
+  - **Decisão: ADOTAR (opt-in)**, com base em `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record sem/com virtualização 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash verificado e byte-idêntico `true`; tokens = estimativa `chars/4` 50.004; `redaction=applied`, `redaction_fail_closed=true`, `store_rel=true`. Overhead do record compensado pela recuperação integral verificada.
+  - Validação: kernel lib 125/125 (pwsh e PS5.1); CLI 20/20 (pwsh e PS5.1); virtualização 18/18; runner V3 agregado 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); `scripts/test-package-consistency.ps1` 17 OK / 0 FAIL; `git diff --check` limpo.
+  - Sem merge, push, deploy, reconciliação do config ativo; CI desta branch não executado.
+
 - **Pausa documentada para a próxima sessão (2026-11-11)**:
   - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-PLAN.md` §14 registra o
     handoff: estado (HEAD `16a1c84`, PR #238, CI 6/6), backlog ordenado

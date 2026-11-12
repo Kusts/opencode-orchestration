@@ -158,8 +158,8 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #140 | M3 | COBERTO | `GET /api/worktree?projectID=…` retorna 42 worktrees com `strategy=git`; create/remove não exercitados | Provar criação/remoção |
 | #143 | M3 | COBERTO | contrato nativo provado em 2026-11-07 (CHANGELOG); comparador morto removido | Revisar evidência e fechar |
 | #203 | M3 | COBERTO (read-only) | perfis remotos/MCP existem fora do pacote; integração no projeto não provada | Teste Planner local → Linux/Docker VPS |
-| #12 | M4 | PARCIAL | lib de virtualização content-addressed com recall verificado (18/18); wiring no EvidenceStore pendente | Ligar ao fluxo de evidência do Kernel |
-| #11 | M4 | PARCIAL | parser de métricas de cache (18/18), sem zero inventado; prefixo estável/medição antes-depois pendentes | Medir cache em execução real |
+| #12 | M4 | COBERTA | wiring opt-in no EvidenceStore do Kernel (`Set-OrchestrationTaskWorkerResult`, CLI `get-evidence`), fail-closed, recall SHA-256; medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json` (200.013 B → preview 2.000 B; recall 815 ms; hash/byte-idêntico `true`); validação kernel 125/125, CLI 20/20, virtualização 18/18 (pwsh e PS5.1). Branch `feat/kernel-evidence-store-20261111` (worktree), sem merge/CI | Seguir cache/prefixo estável (#11) e validar em cenários adicionais se necessário |
+| #11 | M4 | COBERTA | parser/métricas de cache com observação real e `UNKNOWN` sem inventar; medição #12 com estimativa `chars/4` registrada; sem prefixo estável medido antes-depois de forma conclusiva além da medição observada | Medir prefixo estável/cache em execução real quando o provedor expuser métricas |
 | #177 | M4 | COBERTO | gateway DONE+kernel-verified, lição Markdown, round-trip real no AI Memory MCP e recall/uso em segunda sessão (20/20) | Revisar evidência e fechar |
 | #77 | M4 | COBERTO | receita determinística + decisão de reuso (20/20) + comparação real: 1 chamada de modelo na execução original, 0 no replay duplo | Revisar evidência e fechar |
 | #200 | M5 | PARCIAL | âncora/drift/owner (24/24), persistência no Kernel (17/17) e E2E vivo coder→reviewer→coder; schema versionado agora exposto por `task-kernel -Action review-schema` (read-only), prompt do reviewer ainda não o injeta automaticamente | Injetar schema no contrato de dispatch |
@@ -179,6 +179,8 @@ Atualização 2026-11-11: #140 provado com `POST/GET/DELETE /api/worktree`
 com amostras reais 47.313/512 e 108/47.744, custo `UNKNOWN`). Evidência:
 `evidence/evolution-2026-11-10/m3-runtime-probes-closure.md` e
 `p0-autonomy/session-resume/`.
+
+Atualização 2026-11-12 (branch `feat/kernel-evidence-store-20261111`, worktree): #12/#11 com wiring opt-in no EvidenceStore do Task Kernel (`Set-OrchestrationTaskWorkerResult`, `get-evidence`), fail-closed, recall verificado; decisão **ADOTAR (opt-in)** com medição em `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json` (200.013 B, record 4.633→6.880 B, preview 2.000 B, recall 815 ms, hash/byte-idêntico `true`, `chars/4` 50.004). Sem merge/CI.
 
 ## 7. Critérios de aceite por marco
 
