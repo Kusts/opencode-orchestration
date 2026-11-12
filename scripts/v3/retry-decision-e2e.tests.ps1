@@ -11,10 +11,10 @@ $temp=Join-Path ([IO.Path]::GetTempPath()) ('retry-decision-' + [guid]::NewGuid(
 $tasks=Get-TaskKernelDefaultTasksDir -RepoRoot ''; $flags=Get-TaskKernelDefaultFlagsPath -RepoRoot ''; $testRepo=Join-Path $temp 'repo'; $taskIds=@()
 $script:passed=0; $script:failed=0
 function Assert-E2E([bool]$ok,[string]$name){if($ok){$script:passed++;Write-Host ('[PASS] '+$name)}else{$script:failed++;Write-Host ('[FAIL] '+$name)}}
-function Invoke-DecisionCli([string]$id,[int]$revision,[string]$ambiguous='false',[string]$failureClass='localized'){
+function Invoke-DecisionCli([string]$id,[int]$revision,[string]$ambiguous='false',[string]$failureClass='localized',[string]$changed='1'){
     $hostPath=[string](Get-Process -Id $PID).Path
     $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'task-kernel.ps1'),'-Action','retry-decision','-TaskId',$id,'-ExpectedRevision',[string]$revision,'-Severity','high','-ScopeOverlap','true','-ExternalEffectsAmbiguous',$ambiguous,'-EvidenceCurrent','true')
-    $args+=@('-ChangedFiles','1','-FailureClass',$failureClass)
+    $args+=@('-ChangedFiles',$changed,'-FailureClass',$failureClass)
     $oldPreference=$ErrorActionPreference; $ErrorActionPreference='Continue'
     try {$out=& $hostPath @args 2>&1} finally {$ErrorActionPreference=$oldPreference}
     return [pscustomobject]@{code=$LASTEXITCODE;stdout=($out -join "`n");json=$(try{($out -join "`n")|ConvertFrom-Json}catch{$null})}
@@ -58,21 +58,35 @@ try {
     $local=Invoke-DecisionCli $id 8
     $after=Get-OrchestrationTask -TaskId $id -TasksDir $tasks
     Assert-E2E ($local.code -eq 0 -and $local.json.repair_decision.decision -eq 'LOCAL_REPAIR' -and $after.repair_decision.reason -eq 'localized-finding') 'cli-persists-local-repair-advisory'
+    $taskFile=Join-Path $tasks ($id+'.json')
+    $beforeStale=[IO.File]::ReadAllBytes($taskFile); $beforeStaleHash=[Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash($beforeStale))
+    $stale=Invoke-DecisionCli $id 8
+    $afterStale=[IO.File]::ReadAllBytes($taskFile); $afterStaleHash=[Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash($afterStale))
+    Assert-E2E ($stale.code -eq 3 -and $beforeStaleHash -eq $afterStaleHash -and (Get-OrchestrationTask -TaskId $id -TasksDir $tasks).revision -eq 9) 'stale-revision-cas-refuses-without-bytes-change'
+    $repeatFirst=Invoke-DecisionCli $id 9
+    $afterFirstRepeat=[IO.File]::ReadAllBytes($taskFile); $afterFirstHash=[Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash($afterFirstRepeat))
+    $repeatSecond=Invoke-DecisionCli $id 9
+    $afterSecondRepeat=[IO.File]::ReadAllBytes($taskFile); $afterSecondHash=[Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash($afterSecondRepeat))
+    Assert-E2E ($repeatFirst.code -eq 0 -and $repeatSecond.code -eq 3 -and $afterFirstHash -eq $afterSecondHash) 'repeated-call-cas-prevents-duplicate-write'
     # Record a second advisory decision at the task's current revision.
-    $replan=Invoke-DecisionCli $id 9 'true'
+    $replan=Invoke-DecisionCli $id 10 'true'
     Assert-E2E ($replan.code -eq 0 -and $replan.json.repair_decision.decision -eq 'REPLAN') 'ambiguous-effect-replans'
+    $invalidId=('repair-e2e-invalid-'+$suffix); $taskIds+=@($invalidId)
+    $ic=New-OrchestrationTask -TaskId $invalidId -Objective 'invalid policy must not persist' -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion '2.2.6' -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags
+    $invalidTaskFile=Join-Path $tasks ($invalidId+'.json'); $invalidBefore=[IO.File]::ReadAllBytes($invalidTaskFile); $invalidHash=[Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash($invalidBefore))
+    $policyInvalid=Set-OrchestrationTaskRepairDecision -TaskId $invalidId -ExpectedRevision 1 -Severity high -ChangedFiles -1 -ScopeOverlap $true -ExternalEffectsAmbiguous $false -EvidenceCurrent $true -FailureClass localized -TasksDir $tasks -FlagsPath $flags
+    $invalidAfter=Get-OrchestrationTask -TaskId $invalidId -TasksDir $tasks; $invalidBytes=[IO.File]::ReadAllBytes($invalidTaskFile); $invalidHashAfter=[Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash($invalidBytes))
+    Assert-E2E ($ic.ok -and -not $policyInvalid.ok -and $invalidHash -eq $invalidHashAfter -and $invalidAfter.revision -eq 1 -and $null -eq $invalidAfter.repair_decision) 'policy-ok-false-does-not-persist-on-active-task'
     $escalateId=('repair-e2e-budget-'+$suffix); $taskIds+=@($escalateId)
     $ec=New-OrchestrationTask -TaskId $escalateId -Objective 'retry budget proof' -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion '2.2.6' -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags
     $null=Set-OrchestrationTaskWorkerResult -TaskId $escalateId -Status failed -ProducedBy coder -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
     $null=Set-OrchestrationTaskWorkerResult -TaskId $escalateId -Status failed -ProducedBy coder -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
     $escalated=Invoke-DecisionCli $escalateId 3
     Assert-E2E ($ec.ok -and $escalated.code -eq 0 -and $escalated.json.repair_decision.decision -eq 'ESCALATE' -and $escalated.json.repair_decision.inputs.attempts -eq 2) 'task-attempt-counter-escalates-after-two'
-    $approved=Set-OrchestrationTaskReview -TaskId $id -Kind reviewer -Status approved -By reviewer -ExpectedRevision 10 -TasksDir $tasks -FlagsPath $flags
+    $approved=Set-OrchestrationTaskReview -TaskId $id -Kind reviewer -Status approved -By reviewer -ExpectedRevision 11 -TasksDir $tasks -FlagsPath $flags
     $gate=Test-OrchestrationTaskCompletion -TaskId $id -TasksDir $tasks -OrchestrationCompliance COMPLIANT -ResidualRisks @('none')
-    $done=Complete-OrchestrationTask -TaskId $id -Actor planner -ExpectedRevision 11 -ResidualRisks @('none') -OrchestrationCompliance COMPLIANT -ActorIdentitySource explicit-cli -TasksDir $tasks -FlagsPath $flags
+    $done=Complete-OrchestrationTask -TaskId $id -Actor planner -ExpectedRevision 12 -ResidualRisks @('none') -OrchestrationCompliance COMPLIANT -ActorIdentitySource explicit-cli -TasksDir $tasks -FlagsPath $flags
     Assert-E2E ($approved.ok -and $gate.complete -and $done.ok -and (Get-OrchestrationTask -TaskId $id -TasksDir $tasks).state -eq 'DONE') 'approved-review-completes-through-existing-kernel-gate'
-    $invalid=Invoke-DecisionCli $id 12 'false' 'invalid'
-    Assert-E2E ($invalid.code -ne 0 -and (Get-OrchestrationTask -TaskId $id -TasksDir $tasks).repair_decision.decision -eq 'REPLAN') 'invalid-input-fails-closed-without-overwriting-decision'
 } catch {Write-Host ('[FAIL] unexpected: '+$_);Write-Host $_.ScriptStackTrace;$script:failed++}
 finally {
     foreach($taskId in $taskIds){$taskFile=Join-Path $tasks ($taskId+'.json'); foreach($path in @($taskFile,($taskFile+'.lock'))){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}}}
