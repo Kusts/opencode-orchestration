@@ -47,10 +47,21 @@ $script:DPRoleAllowlist=@('coder','tester','reviewer','security-reviewer','explo
 # Canonical dispatch order used for the sequential routing (parallel keeps it).
 $script:DPRoleRank=@{explorer=0;researcher=1;coder=2;tester=3;reviewer=4;'security-reviewer'=5;debugger=6;architect=7}
 $script:DPContractFields=@('TASK_ID','OBJECTIVE','READ_SCOPE','WRITE_SCOPE','ACCEPTANCE_CRITERIA','VALIDATION','PROHIBITED_OPERATIONS','RETURN_FORMAT','ESCALATION_CONDITIONS')
-$script:DPDiscardOrder=@('escalations and free-text rationale','incomplete contract detail','evidence prefill detail','complete contract detail','replace with minimum valid envelope')
+$script:DPDiscardOrder=@('review findings schema','escalations and free-text rationale','incomplete contract detail','evidence prefill detail','complete contract detail','replace with minimum valid envelope')
 $script:DPJsonCap=8192
 $script:DPMinByteCap=512
 $script:DPConditionsMax=20
+$script:DPReviewFindingsSchemaStatus='unavailable'
+$script:DPReviewFindingsSchema=$null
+try {
+    $reviewSchemaPath=Join-Path $PSScriptRoot 'OrchestrationReviewAnchor.ps1'
+    if (Test-Path -LiteralPath $reviewSchemaPath -PathType Leaf) {
+        . $reviewSchemaPath
+        $script:DPReviewFindingsSchema=Get-OrchestrationReviewFindingsSchema
+        if ($null -ne $script:DPReviewFindingsSchema) { $script:DPReviewFindingsSchemaStatus='available' }
+    }
+}
+catch { $script:DPReviewFindingsSchema=$null; $script:DPReviewFindingsSchemaStatus='unavailable' }
 # P35 invalidation condition contract (mirrors New-OrchestrationEvidenceRecord):
 # declared conditions are validated here and either transported whole or the
 # persistence is refused; a partial condition set is never written.
@@ -492,13 +503,14 @@ function Get-DPContract {
     $c['invalid_fields']=@($invalid)
     foreach($field in $script:DPContractFields){if(Test-DPValuePresent $values[$field]){$c[$field]=$values[$field]}}
     if ([string]::Equals([string]$Role, 'reviewer', [StringComparison]::Ordinal)) {
-        $schemaCommand = Get-Command Get-OrchestrationReviewFindingsSchema -ErrorAction SilentlyContinue
-        if ($null -eq $schemaCommand) {
-            $schemaPath = Join-Path $PSScriptRoot 'OrchestrationReviewAnchor.ps1'
-            if (Test-Path -LiteralPath $schemaPath -PathType Leaf) { . $schemaPath }
+        $c['review_findings_schema_status']=$script:DPReviewFindingsSchemaStatus
+        if ($script:DPReviewFindingsSchemaStatus -eq 'available') {
+            $c['REVIEW_FINDINGS_SCHEMA']=$script:DPReviewFindingsSchema
         }
-        if (Get-Command Get-OrchestrationReviewFindingsSchema -ErrorAction SilentlyContinue) {
-            $c['REVIEW_FINDINGS_SCHEMA'] = Get-OrchestrationReviewFindingsSchema
+        else {
+            $c['status']='incomplete'
+            $c['incomplete']=$true
+            $c['missing_fields']=@($c['missing_fields']) + @('REVIEW_FINDINGS_SCHEMA')
         }
     }
     return $c
@@ -751,6 +763,21 @@ function Invoke-OrchestrationDispatchPipeline {
         # --- bounded serialization with a declared, ordered discard ladder
         $json=ConvertTo-Json -InputObject $bundle -Depth 12 -Compress
         $discarded=@()
+        if((Get-DPJsonBytes $json) -gt $cap){
+            $schemaDiscarded=$false
+            foreach($c in @($bundle['contracts'])){
+                if($c -is [System.Collections.IDictionary] -and $c.Contains('REVIEW_FINDINGS_SCHEMA')){
+                    [void]$c.Remove('REVIEW_FINDINGS_SCHEMA')
+                    $c['review_findings_schema_status']='discarded-bundle-size'
+                    $schemaDiscarded=$true
+                }
+            }
+            if($schemaDiscarded){
+                $discarded+=@('review findings schema')
+                $bundle['discard_applied']=@($discarded)
+                $json=ConvertTo-Json -InputObject $bundle -Depth 12 -Compress
+            }
+        }
         if((Get-DPJsonBytes $json) -gt $cap){
             $bundle['escalations']=@()
             $bundle['recommendation']=''

@@ -113,6 +113,11 @@ $coderContract=Get-DPContract -Role coder -Plan $null -Descriptor @{task_id='sch
 $canonicalReviewSchema=Get-OrchestrationReviewFindingsSchema
 Assert-DP ($schemaContract.Contains('REVIEW_FINDINGS_SCHEMA') -and [int]$schemaContract['REVIEW_FINDINGS_SCHEMA'].schema_version -eq [int]$canonicalReviewSchema.schema_version) 'reviewer-contract-carries-canonical-findings-schema'
 Assert-DP (-not $coderContract.Contains('REVIEW_FINDINGS_SCHEMA')) 'non-reviewer-contract-omits-findings-schema'
+$savedSchemaStatus=$script:DPReviewFindingsSchemaStatus; $savedSchema=$script:DPReviewFindingsSchema
+$script:DPReviewFindingsSchemaStatus='unavailable'; $script:DPReviewFindingsSchema=$null
+$unavailableSchemaContract=Get-DPContract -Role reviewer -Plan $null -Descriptor @{task_id='schema-missing';read_scope=@('src');write_scope=@();acceptance_criteria=@('check');return_format='findings'} -Level L2 -RequiredRoles @('reviewer')
+$script:DPReviewFindingsSchemaStatus=$savedSchemaStatus; $script:DPReviewFindingsSchema=$savedSchema
+Assert-DP ($unavailableSchemaContract.status -eq 'incomplete' -and $unavailableSchemaContract.incomplete -and $unavailableSchemaContract.review_findings_schema_status -eq 'unavailable' -and -not $unavailableSchemaContract.Contains('REVIEW_FINDINGS_SCHEMA')) 'schema-unavailable-is-explicit-incomplete'
 $store=''
 $dotStore=''
 try {
@@ -134,6 +139,16 @@ try {
     Assert-DP (@($smoke.bundle.contracts).Count -eq 3 -and [string]$smoke.bundle.contracts[0].role -eq 'coder') 'smoke-normal-plan-contracts-intact'
     $smokeCompletion=Test-OrchestrationDispatchCompletion $smoke.bundle @('coder','tester','reviewer')
     Assert-DP ($smokeCompletion.status -eq 'allowed' -and $smokeCompletion.gate_verifiable) 'smoke-normal-completion-allowed'
+    $bigPlan=[pscustomobject]@{frame=[pscustomobject]@{objective='Large review plan'};risk_uncertainty=[pscustomobject]@{risk='medium';uncertainty='medium'};validation=[pscustomobject]@{status='ok';level='L3';required_roles=@('coder','tester','reviewer','security-reviewer')};dispatch_plan=[pscustomobject]@{workers=@('coder','tester','reviewer','security-reviewer');parallel_ok=$true;escalations=@()};budget_reservation=[pscustomobject]@{validation_reserved=$true}}
+    $schemaFirst=$null
+    for($n=100;$n -le 700;$n+=25){
+        $long='x' * $n
+        $largeDescriptor=@{task_id='T-schema-cap';objective=$long;read_scope=@($long);write_scope=@($long);acceptance_criteria=@($long);validation=$long;prohibited_operations=@($long);return_format=$long;escalation_conditions=@($long)}
+        $candidate=Invoke-OrchestrationDispatchPipeline $bigPlan $largeDescriptor @{timestamp=$now}
+        if(@($candidate.bundle.discard_applied) -contains 'review findings schema'){$schemaFirst=$candidate;break}
+    }
+    $otherContracts=@($schemaFirst.bundle.contracts | Where-Object {$_.role -ne 'reviewer'})
+    Assert-DP ($null -ne $schemaFirst -and @($schemaFirst.bundle.discard_applied)[0] -eq 'review findings schema' -and $schemaFirst.bundle.discard_applied -notcontains 'complete contract detail' -and @($otherContracts).Count -eq 3 -and @($otherContracts | Where-Object { (Get-ContractFieldCount $_) -eq 9 }).Count -eq 3) 'schema-first-discard-preserves-other-role-detail'
 
     # ---- AC2 minimum route: no reserved validation budget -> exactly one contract, sequential.
     $nobudget=Invoke-OrchestrationPlannerLoop @{objective='Complex work';risk='high';validation_budget_available=$false} @{timestamp=$now}
@@ -400,7 +415,7 @@ try {
     $big=Invoke-OrchestrationDispatchPipeline $rigor.plan $bigDescriptor @{timestamp=$now}
     $bigParsed=$null
     try{$bigParsed=$big.bundle_json | ConvertFrom-Json -ErrorAction Stop}catch{}
-    Assert-DP ($big.discard_order.Count -eq 5 -and $big.bounded -and $big.byte_length -le 8192 -and $null -ne $bigParsed) 'bounded-discard-ladder-valid-json'
+    Assert-DP ($big.discard_order.Count -eq 6 -and $big.bounded -and $big.byte_length -le 8192 -and $null -ne $bigParsed) 'bounded-discard-ladder-valid-json'
     Assert-DP ((Get-NormalizedJson $big.bundle) -ceq (Get-NormalizedJson $bigParsed)) 'bounded-object-and-json-agree'
     Assert-DP (@($big.bundle.discard_applied).Count -ge 1 -and ($big.status -in @('ok','degraded','oversized'))) 'bounded-discard-order-declared'
     if($big.status -eq 'oversized'){
@@ -419,7 +434,7 @@ try {
     $tightParsed=$tight.bundle_json | ConvertFrom-Json -ErrorAction Stop
     Assert-DP ($tight.byte_cap -eq 512 -and $first.byte_cap -eq 8192) 'f9-cap-only-tightens'
     Assert-DP ($tight.status -eq 'oversized' -and $tight.truncated -and $tight.bounded -and $tight.byte_length -le 512) 'f9-tight-cap-forces-envelope'
-    Assert-DP ([string]$tightParsed.status -eq 'oversized' -and $tightParsed.truncated -eq $true -and -not [string]::IsNullOrWhiteSpace([string]$tightParsed.generated_at) -and @($tightParsed.discard_applied).Count -eq 5) 'f9-minimum-envelope-valid'
+    Assert-DP ([string]$tightParsed.status -eq 'oversized' -and $tightParsed.truncated -eq $true -and -not [string]::IsNullOrWhiteSpace([string]$tightParsed.generated_at) -and @($tightParsed.discard_applied).Count -eq 6) 'f9-minimum-envelope-valid'
     Assert-DP ((Get-NormalizedJson $tight.bundle) -ceq (Get-NormalizedJson $tightParsed)) 'f9-envelope-object-and-json-agree'
     $tightVerdict=Test-OrchestrationDispatchCompletion $tight.bundle @('coder','tester','reviewer','security-reviewer')
     Assert-DP (-not $tightVerdict.allowed -and $tightVerdict.reason -eq 'gate-unverifiable' -and -not $tightVerdict.persistence.created) 'f9-envelope-cannot-complete'
