@@ -1,5 +1,5 @@
 param([string]$OutFile='evidence/issue-141/authority-surface-audit.json',[string]$GeneratedAt='',[string]$TemplatesRoot='templates')
-$ErrorActionPreference='Stop';$root=(Get-Location).Path;$base=(git rev-parse HEAD).Trim();$unparseable=@();$permissions=@();$surfaces=@();$protected=@()
+$ErrorActionPreference='Stop';$root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path;Set-Location $root;$base=(git -C $root rev-parse HEAD).Trim();$unparseable=@();$permissions=@();$surfaces=@();$protected=@()
 function Add-ProtectedFile([string]$Path){$full=(Resolve-Path $Path).Path;$rel=$full.Substring($root.Length+1).Replace('\','/');if(-not ($script:protected|Where-Object path -eq $rel)){$script:protected += [pscustomobject]@{path=$rel;sha256=(Get-FileHash $full -Algorithm SHA256).Hash}}}
 # OpenCode templates are parsed as JSON, not scanned as text.
 $templateFiles=@((Join-Path $TemplatesRoot 'opencode.v1.json.tmpl'),(Join-Path $TemplatesRoot 'opencode.v2.json.tmpl'))

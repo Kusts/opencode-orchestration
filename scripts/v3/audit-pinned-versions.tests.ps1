@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop';$out='evidence/issue-50/pinned-versions-audit.test.json';$script="$PSScriptRoot/audit-pinned-versions.ps1";$baseline=@(git status --porcelain);$protectedBefore=@{}
+$ErrorActionPreference='Stop';$root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path;Set-Location $root;$out='evidence/issue-50/pinned-versions-audit.test.json';$script=Join-Path $PSScriptRoot 'audit-pinned-versions.ps1';$baseline=@(git -C $root status --porcelain);$protectedBefore=@{}
 $protectedPaths=@('templates/opencode.v1.json.tmpl','templates/opencode.v2.json.tmpl','source/agents','source/global/AGENTS.md','source/adapters')
 foreach($p in $protectedPaths){if(Test-Path $p){$i=Get-Item $p;if($i.PSIsContainer){$fs=Get-ChildItem $p -File -Recurse}else{$fs=@($i)};foreach($f in $fs){$protectedBefore[$f.FullName]=(Get-FileHash $f.FullName -Algorithm SHA256).Hash}}}
 try{
@@ -12,5 +12,5 @@ try{
  foreach($u in $j.unparseable){if($u.classification -ne 'UNPARSEABLE'){throw 'UNPARSEABLE was silently resolved'}}
  if($j.scan_scope -contains 'evidence/'){throw 'evidence must not be scanned'}
  $first=Get-Content $out -Raw;& $script -OutFile $out -GeneratedAt fixed;if($first -ne (Get-Content $out -Raw)){throw 'not deterministic'}
- $changed=@(git status --porcelain|Where-Object{$_ -notmatch [regex]::Escape($out)});if(($changed -join "`n") -ne ($baseline -join "`n")){throw 'write outside OutFile'};'PASS audit-pinned-versions'
+ $changed=@(git -C $root status --porcelain|Where-Object{$_ -notmatch [regex]::Escape($out)});if(($changed -join "`n") -ne ($baseline -join "`n")){throw 'write outside OutFile'};'PASS audit-pinned-versions'
 }finally{Remove-Item $out -ErrorAction SilentlyContinue}
