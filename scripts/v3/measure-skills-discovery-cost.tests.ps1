@@ -77,6 +77,10 @@ try {
         & $scriptPath -Roots $testRoot -OutFile $capOut -GeneratedAt '2026-11-12T00:00:00Z' -MaxNodes 1 -MaxDepth 10
         $capDoc = Get-Content -LiteralPath $capOut -Raw | ConvertFrom-Json
         Assert-True ($capDoc.roots[0].truncated -and $capDoc.roots[0].truncated_reason.Count -gt 0) 'node cap reports truncation'
+        $depthOut = Join-Path $junctionBase 'depth-capped.json'
+        & $scriptPath -Roots $testRoot -OutFile $depthOut -GeneratedAt '2026-11-12T00:00:00Z' -MaxNodes 100 -MaxDepth 0
+        $depthDoc = Get-Content -LiteralPath $depthOut -Raw | ConvertFrom-Json
+        Assert-True ($depthDoc.roots[0].truncated -and $depthDoc.roots[0].truncated_reason -contains 'max_depth') 'depth cap reports truncation'
         Remove-Item -LiteralPath $junctionBase -Recurse -Force
     } else { Write-Output '[SKIP] Junction/cycle tests require Windows' }
     Write-Output "PASS: $passed/$total"
