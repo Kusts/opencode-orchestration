@@ -18,7 +18,11 @@
                           "selected_agents":  [
 
                                               ],
-                          "direct_allowed":  true
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  true,
+                                                 "derived_from":  "decision"
+                                             }
                       },
                       {
                           "id":  "B",
@@ -34,7 +38,11 @@
                           "selected_agents":  [
                                                   "coder"
                                               ],
-                          "direct_allowed":  false
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  false,
+                                                 "derived_from":  "decision"
+                                             }
                       },
                       {
                           "id":  "C",
@@ -50,7 +58,11 @@
                           "selected_agents":  [
                                                   "automation-engineer"
                                               ],
-                          "direct_allowed":  false
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  false,
+                                                 "derived_from":  "decision"
+                                             }
                       },
                       {
                           "id":  "D",
@@ -66,121 +78,78 @@
                           "selected_agents":  [
                                                   "requirements-analyst"
                                               ],
-                          "direct_allowed":  false
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  false,
+                                                 "derived_from":  "decision"
+                                             }
                       }
                   ],
-    "compliance_matrix":  [
-                              {
-                                  "scenario_id":  "A",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "SINGLE_WORKER",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "SINGLE_WORKER"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
-                              },
-                              {
-                                  "scenario_id":  "A",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "SINGLE_WORKER",
-                                                 "ActualWorkerParticipation":  1,
-                                                 "Decision":  "SINGLE_WORKER"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "COMPLIANT"
-                              },
-                              {
-                                  "scenario_id":  "A",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "DIRECT_VERIFIED",
-                                                 "DirectReason":  "DIRECT_VERIFIED_LOW_RISK_LOCALIZED",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "DIRECT_VERIFIED"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "COMPLIANT"
-                              },
-                              {
-                                  "scenario_id":  "A",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "DIRECT_VERIFIED",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "DIRECT_VERIFIED"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "NON_COMPLIANT_MISSING_DIRECT_REASON"
-                              },
-                              {
-                                  "scenario_id":  "B",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "SINGLE_WORKER",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "SINGLE_WORKER"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
-                              },
-                              {
-                                  "scenario_id":  "B",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "SINGLE_WORKER",
-                                                 "ActualWorkerParticipation":  1,
-                                                 "Decision":  "SINGLE_WORKER"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "COMPLIANT"
-                              },
-                              {
-                                  "scenario_id":  "B",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "DIRECT_VERIFIED",
-                                                 "DirectReason":  "DIRECT_VERIFIED_LOW_RISK_LOCALIZED",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "DIRECT_VERIFIED"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "COMPLIANT"
-                              },
-                              {
-                                  "scenario_id":  "B",
-                                  "inputs":  {
-                                                 "TaskClass":  "trivial",
-                                                 "ExecutionShape":  "DIRECT_VERIFIED",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "DIRECT_VERIFIED"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "NON_COMPLIANT_MISSING_DIRECT_REASON"
-                              },
-                              {
-                                  "scenario_id":  "C",
-                                  "inputs":  {
-                                                 "TaskClass":  "non_trivial",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "SINGLE_WORKER"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
-                              },
-                              {
-                                  "scenario_id":  "D",
-                                  "inputs":  {
-                                                 "TaskClass":  "non_trivial",
-                                                 "ActualWorkerParticipation":  0,
-                                                 "Decision":  "SINGLE_WORKER"
-                                             },
-                                  "declared_inputs":  true,
-                                  "token":  "ORCHESTRATION_POLICY_BYPASS"
-                              }
-                          ],
+    "policy_probe":  [
+                         {
+                             "id":  "direct_valid",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "DIRECT_VERIFIED",
+                                            "DirectReason":  "DIRECT_VERIFIED_LOW_RISK_LOCALIZED",
+                                            "Decision":  "DIRECT_VERIFIED"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "COMPLIANT"
+                         },
+                         {
+                             "id":  "direct_missing_reason",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "DIRECT_VERIFIED",
+                                            "Decision":  "DIRECT_VERIFIED"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                         },
+                         {
+                             "id":  "single_zero",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "SINGLE_WORKER",
+                                            "ActualWorkerParticipation":  0,
+                                            "Decision":  "SINGLE_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "ORCHESTRATION_POLICY_BYPASS"
+                         },
+                         {
+                             "id":  "single_one",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "SINGLE_WORKER",
+                                            "ActualWorkerParticipation":  1,
+                                            "Decision":  "SINGLE_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "COMPLIANT"
+                         },
+                         {
+                             "id":  "multi_zero",
+                             "inputs":  {
+                                            "TaskClass":  "non_trivial",
+                                            "ActualWorkerParticipation":  0,
+                                            "Decision":  "MULTI_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "ORCHESTRATION_POLICY_BYPASS"
+                         },
+                         {
+                             "id":  "multi_one",
+                             "inputs":  {
+                                            "TaskClass":  "non_trivial",
+                                            "ActualWorkerParticipation":  1,
+                                            "Decision":  "MULTI_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "COMPLIANT"
+                         }
+                     ],
     "strategies":  [
                        {
                            "name":  "Direct",
@@ -209,14 +178,20 @@
                        {
                            "scenario_id":  "A",
                            "decision":  "DIRECT_VERIFIED",
-                           "selected_agent_count":  0,
+                           "selected_agent_count":  {
+                                                        "value":  0,
+                                                        "derived_from":  "selected_agents"
+                                                    },
                            "selected_agents":  [
 
                                                ],
+                           "selected_agent_semantics":  "single_lead_selection",
                            "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "direct_valid",
+                                                               "direct_missing_reason"
+                                                           ],
                            "compliance_tokens":  [
-                                                     "ORCHESTRATION_POLICY_BYPASS",
-                                                     "COMPLIANT",
                                                      "COMPLIANT",
                                                      "NON_COMPLIANT_MISSING_DIRECT_REASON"
                                                  ]
@@ -224,70 +199,98 @@
                        {
                            "scenario_id":  "B",
                            "decision":  "SINGLE_WORKER",
-                           "selected_agent_count":  1,
+                           "selected_agent_count":  {
+                                                        "value":  1,
+                                                        "derived_from":  "selected_agents"
+                                                    },
                            "selected_agents":  [
                                                    "coder"
                                                ],
+                           "selected_agent_semantics":  "single_lead_selection",
                            "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "single_zero",
+                                                               "single_one"
+                                                           ],
                            "compliance_tokens":  [
                                                      "ORCHESTRATION_POLICY_BYPASS",
-                                                     "COMPLIANT",
-                                                     "COMPLIANT",
-                                                     "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                                                     "COMPLIANT"
                                                  ]
                        },
                        {
                            "scenario_id":  "C",
                            "decision":  "MULTI_WORKER",
-                           "selected_agent_count":  1,
+                           "selected_agent_count":  {
+                                                        "value":  1,
+                                                        "derived_from":  "selected_agents"
+                                                    },
                            "selected_agents":  [
                                                    "automation-engineer"
                                                ],
+                           "selected_agent_semantics":  "single_lead_selection",
                            "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "multi_zero",
+                                                               "multi_one"
+                                                           ],
                            "compliance_tokens":  [
-                                                     "ORCHESTRATION_POLICY_BYPASS"
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT"
                                                  ]
                        },
                        {
                            "scenario_id":  "D",
                            "decision":  "MULTI_WORKER",
-                           "selected_agent_count":  1,
+                           "selected_agent_count":  {
+                                                        "value":  1,
+                                                        "derived_from":  "selected_agents"
+                                                    },
                            "selected_agents":  [
                                                    "requirements-analyst"
                                                ],
+                           "selected_agent_semantics":  "single_lead_selection",
                            "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "multi_zero",
+                                                               "multi_one"
+                                                           ],
                            "compliance_tokens":  [
-                                                     "ORCHESTRATION_POLICY_BYPASS"
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT"
                                                  ]
                        }
                    ],
     "metrics":  {
-                    "estimated_tokens":  [
-                                             {
-                                                 "scenario_id":  "A",
-                                                 "value":  12,
-                                                 "is_estimate":  true,
-                                                 "method":  "chars/4"
-                                             },
-                                             {
-                                                 "scenario_id":  "B",
-                                                 "value":  7,
-                                                 "is_estimate":  true,
-                                                 "method":  "chars/4"
-                                             },
-                                             {
-                                                 "scenario_id":  "C",
-                                                 "value":  9,
-                                                 "is_estimate":  true,
-                                                 "method":  "chars/4"
-                                             },
-                                             {
-                                                 "scenario_id":  "D",
-                                                 "value":  10,
-                                                 "is_estimate":  true,
-                                                 "method":  "chars/4"
-                                             }
-                                         ]
+                    "objective_chars_proxy":  [
+                                                  {
+                                                      "scenario_id":  "A",
+                                                      "value":  12,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  },
+                                                  {
+                                                      "scenario_id":  "B",
+                                                      "value":  7,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  },
+                                                  {
+                                                      "scenario_id":  "C",
+                                                      "value":  9,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  },
+                                                  {
+                                                      "scenario_id":  "D",
+                                                      "value":  10,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  }
+                                              ]
                 },
     "unknown":  [
                     {
@@ -323,10 +326,12 @@
                    "type":  "deterministic_local_io",
                    "no_model_call":  true,
                    "no_second_router":  true,
-                   "base_revision":  "8fdeb89e51e0ef8d96f36c6f06a06e5b5a6817e7",
-                   "generated_by_commit":  "916a957",
+                   "base_revision":  "bb5bf7204ced4b55c5a357a42e09a50138bd081c",
+                   "generated_by_commit":  "505968e",
                    "limitations":  [
-                                       "No execution was performed; decisions are pre-execution and the compliance matrix uses declared inputs."
+                                       "No execution was performed; decisions are pre-execution and the compliance matrix uses declared inputs.",
+                                       "MULTI_WORKER is a decision class; selected_agents is a single lead selection, not executed worker count.",
+                                       "objective_chars_proxy is identical across strategies and is not a strategy performance comparison."
                                    ]
                }
 }
