@@ -25,21 +25,61 @@ $defaultRoots = @(
     (Join-Path $env:USERPROFILE '.agents\skills')
 )
 if ($null -eq $Roots -or $Roots.Count -eq 0) { $Roots = $defaultRoots }
+$repoRevision = (& git -C $repoRoot rev-parse HEAD).Trim()
+function Get-CanonicalDirectoryPath {
+    param([string]$Path)
+    $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+    return [IO.Path]::GetFullPath($resolved).TrimEnd([IO.Path]::DirectorySeparatorChar).ToLowerInvariant()
+}
+function Get-DirectoryTarget {
+    param($Item)
+    if ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        $targetProperty = $Item.PSObject.Properties['Target']
+        if ($null -ne $targetProperty -and $targetProperty.Value) { return [string]@($targetProperty.Value)[0] }
+        return $null
+    }
+    return $Item.FullName
+}
 $rootResults = @()
 foreach ($root in $Roots) {
     $exists = Test-Path -LiteralPath $root -PathType Container
     $perSkill = @()
+    $entryCount = 0; $reparseCount = 0; $unreachable = 0; $lowerBound = $false
     if ($exists) {
-        foreach ($file in Get-ChildItem -LiteralPath $root -Filter 'SKILL.md' -File -Recurse | Sort-Object FullName) {
-            $bytes = [IO.File]::ReadAllBytes($file.FullName)
-            $text = [Text.UTF8Encoding]::new($false).GetString($bytes)
-            $id = Split-Path -Leaf (Split-Path -Parent $file.FullName)
-            $perSkill += [pscustomobject]@{ id = $id; bytes = $bytes.Length; chars = $text.Length; sha256 = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
+        $queue = New-Object 'System.Collections.Generic.Queue[object]'
+        $queue.Enqueue(@{ visible=$root; physical=$root })
+        $visited = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        while ($queue.Count -gt 0) {
+            $node = $queue.Dequeue()
+            try {
+                $canonical = Get-CanonicalDirectoryPath $node.physical
+                if (-not $visited.Add($canonical)) { continue }
+                $children = @(Get-ChildItem -LiteralPath $node.physical -Force -ErrorAction Stop)
+                if ($node.physical -eq $root) { $entryCount = $children.Count }
+                foreach ($child in $children) {
+                    if (-not $child.PSIsContainer) { continue }
+                    $target = Get-DirectoryTarget $child
+                    if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { $reparseCount++ }
+                    if ([string]::IsNullOrWhiteSpace($target) -or -not (Test-Path -LiteralPath $target -PathType Container)) { $unreachable++; $lowerBound=$true; continue }
+                    $physical = if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { $target } else { $child.FullName }
+                    $queue.Enqueue(@{ visible=$child.FullName; physical=$physical })
+                }
+                $skillFile = Join-Path $node.physical 'SKILL.md'
+                if (Test-Path -LiteralPath $skillFile -PathType Leaf) {
+                    $bytes = [IO.File]::ReadAllBytes($skillFile)
+                    $text = [Text.UTF8Encoding]::new($false).GetString($bytes)
+                    $id = Split-Path -Leaf $node.visible
+                    $sha = [Security.Cryptography.SHA256]::Create()
+                    try { $hash = ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+                    $perSkill += [pscustomobject]@{ id=$id; bytes=$bytes.Length; chars=$text.Length; sha256=$hash }
+                }
+            } catch { $unreachable++; $lowerBound=$true }
         }
     }
     $sumBytes = 0; $sumChars = 0
     foreach ($item in $perSkill) { $sumBytes += $item.bytes; $sumChars += $item.chars }
-    $rootResults += [pscustomobject]@{ path = $root; exists = [bool]$exists; entry_count_observed = $(if ($exists) { @(Get-ChildItem -LiteralPath $root -Directory).Count } else { 0 }); skill_md_count_observed = $perSkill.Count; total_skill_md_bytes_observed = $sumBytes; total_skill_md_chars_observed = $sumChars; per_skill = @($perSkill) }
+    $label = if ($root -eq $defaultRoots[0]) { 'repo:skills-core' } elseif ($root -eq $defaultRoots[1]) { 'user:opencode-skills' } elseif ($root -eq $defaultRoots[2]) { 'user:agents-skills' } else { 'override:' + [IO.Path]::GetFileName($root) }
+    $rootResults += [pscustomobject]@{ path=$root; path_label=$label; exists=[bool]$exists; entry_count_observed=$entryCount; reparse_point_entries_observed=$reparseCount; unreachable_count=$unreachable; total_is_lower_bound=$lowerBound; skill_md_count_observed=$perSkill.Count; total_skill_md_bytes_observed=$sumBytes; total_skill_md_chars_observed=$sumChars; per_skill=@($perSkill) }
 }
 $taskPath = Join-Path ([IO.Path]::GetTempPath()) ('skill-cost-task-' + [guid]::NewGuid().ToString('N') + '.json')
 try {
@@ -56,11 +96,10 @@ foreach ($item in @(@{ name='catalog_chars'; chars=$catalogText.Length }, @{ nam
     $estimates += [pscustomobject]@{ source=$item.name; estimated_tokens=[int][Math]::Ceiling($item.chars / 4.0); is_estimate=$true; method='chars/4' }
 }
 $unknown = @(
-    [pscustomobject]@{ item='runtime_skill_listing'; reason='Runtime-injected skill listing is not observable from local files.' },
+    [pscustomobject]@{ item='runtime_skill_listing'; reason='Runtime-injected skill listing is not derivable from filesystem contents, even when junctions are resolved.' },
     [pscustomobject]@{ item='actual_context_tokens'; reason='Actual provider context tokenization requires a real session observation.' },
     [pscustomobject]@{ item='provider_cache_and_cost'; reason='Cache read/write and provider cost require a real session via cache-metrics.ps1.' }
 )
-$revision = (& git -C $repoRoot rev-parse HEAD).Trim()
 $result = [pscustomobject]@{
     generated_at=$GeneratedAt
     catalog=[pscustomobject]@{ path=$catalogPath; bytes_observed=([IO.File]::ReadAllBytes($catalogPath)).Length; chars_observed=$catalogText.Length; entries_observed=$entries.Count; fields_observed=@($fields | Sort-Object) }
@@ -68,8 +107,8 @@ $result = [pscustomobject]@{
     dispatch_context=[pscustomobject]@{ status=$bridge.status; chars_observed=$ctxChars; bytes_observed=$ctxBytes; text=$contextText; explanation=$(if ($bridge.status -eq 'disabled') { 'skill_routing.enabled is false; no dispatch context is emitted.' } else { $bridge.reason }) }
     estimates=@($estimates)
     unknown=@($unknown)
-    method=[pscustomobject]@{ name='deterministic_local_io'; no_model_call=$true; base_revision=$revision; limitations=@('Token estimates use chars/4 and are not observed tokens.', 'Runtime injection and provider cache/cost are not measured.') }
-    limitations=@('Local filesystem observations do not represent runtime-injected skills or provider accounting.')
+    method=[pscustomobject]@{ name='deterministic_local_io'; no_model_call=$true; base_revision=$repoRevision; generated_by_commit=$repoRevision; limitations=@('Token estimates use chars/4 and are not observed tokens.', 'Runtime injection and provider cache/cost are not measured.') }
+    limitations=@('Local filesystem observations do not represent runtime-injected skills or provider accounting.', 'path is machine-specific; use path_label for stable identification.')
 }
 $json = $result | ConvertTo-Json -Depth 12
 if (-not [string]::IsNullOrWhiteSpace($OutFile)) { [IO.File]::WriteAllText($OutFile, $json + "`n", [Text.UTF8Encoding]::new($false)) }
