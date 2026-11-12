@@ -163,6 +163,86 @@ try {
   if (Test-Path -LiteralPath $t8cfg -PathType Leaf) { $t8json = Get-Content -LiteralPath $t8cfg -Raw | ConvertFrom-Json }
   $t8WorkerFiles = @(Get-ChildItem -LiteralPath $t8AgentsDir -Filter '*.md' -File -ErrorAction SilentlyContinue).Count
   Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($t8WorkerFiles -eq $t8SourceAgents.Count) -and ($null -ne $t8json) -and (Get-Member -InputObject $t8json.agents -Name 'build' -ErrorAction SilentlyContinue) -and (-not (Get-Member -InputObject $t8json.agents -Name 'coder' -ErrorAction SilentlyContinue)) -and (-not (Get-Member -InputObject $t8json.agents -Name 'researcher' -ErrorAction SilentlyContinue))) 'T8 new Config-owned install uses markdown worker profiles, not JSON mirrors' ($o8 | Select-Object -Last 1)
+
+  # T9: legacy retirement is EOL-independent; stale deletion requires manifest hash proof.
+  foreach ($eolName in @('LF','CRLF')) {
+    $h9 = New-FixtureHome ('combined-' + $eolName); $nl = "`n"; if ($eolName -eq 'CRLF') { $nl = "`r`n" }
+    $bn = '<!-- GENERATED FILE: direct edits will be overwritten. -->' + $nl + '<!-- Canonical source: source/; regenerate with scripts/render-opencode-config.ps1. -->' + $nl + '<!-- This file is active only after scripts/reconcile-opencode-config.ps1 applies it. -->' + $nl + $nl
+    $ob = '<!-- opencode-orchestration:start -->' + $nl + 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK' + $nl + '<!-- opencode-orchestration:end -->' + $nl
+    $personal = '# regra pessoal' + $nl; $cfg = '<!-- agent-config:global:start -->' + $nl + '# Config' + $nl + '<!-- agent-config:global:end -->' + $nl
+    $ag = Oc-File $h9 @('AGENTS.md'); Write-Utf8 $ag ($bn + $ob + $bn + $ob + $personal + $cfg)
+    $thirdPlugin = Oc-File $h9 @('plugins','terceiro.js'); New-Item -ItemType Directory -Path (Split-Path -Parent $thirdPlugin) -Force | Out-Null; Write-Utf8 $thirdPlugin 'third-party bytes'
+    $thirdHash = (Get-FileHash -LiteralPath $thirdPlugin -Algorithm SHA256).Hash
+    $config9 = Oc-File $h9 @('opencode.json'); Write-Utf8 $config9 ((@{plugin=@('terceiro-plugin');mcp=@{terceiro=@{type='local';command=@('x')}}} | ConvertTo-Json -Depth 8) + "`n")
+    $sd = Oc-File $h9 @('skills','retired-fixture'); New-Item -ItemType Directory -Path $sd -Force | Out-Null
+    $owned = Join-Path $sd 'owned.txt'; Write-Utf8 $owned 'owned bytes'; $edited = Join-Path $sd 'edited.txt'; Write-Utf8 $edited 'edited bytes'
+    $outside = Oc-File $h9 @('outside-canary.txt'); Write-Utf8 $outside 'outside must survive'; $outsideHash = (Get-FileHash -LiteralPath $outside -Algorithm SHA256).Hash
+    $nestedDir = Oc-File $h9 @('skills','empty-tree','sub'); New-Item -ItemType Directory -Path $nestedDir -Force | Out-Null
+    $nestedFile = Join-Path $nestedDir 'file.md'; Write-Utf8 $nestedFile 'nested old file'; $nestedHash = (Get-FileHash -LiteralPath $nestedFile -Algorithm SHA256).Hash
+    $siblingA = Oc-File $h9 @('skills','x','a'); $siblingB = Oc-File $h9 @('skills','x','b'); New-Item -ItemType Directory -Path $siblingA,$siblingB -Force | Out-Null
+    $siblingFileA = Join-Path $siblingA 'f'; $siblingFileB = Join-Path $siblingB 'g'; Write-Utf8 $siblingFileA 'a'; Write-Utf8 $siblingFileB 'b'
+    $siblingHashA = (Get-FileHash -LiteralPath $siblingFileA -Algorithm SHA256).Hash; $siblingHashB = (Get-FileHash -LiteralPath $siblingFileB -Algorithm SHA256).Hash
+    $oh = (Get-FileHash -LiteralPath $owned -Algorithm SHA256).Hash
+    $md = Join-Path $h9 '.opencode-orchestration'; New-Item -ItemType Directory -Path $md -Force | Out-Null
+    $junctionTarget = Join-Path $base ('junction-target-' + $eolName); New-Item -ItemType Directory -Path $junctionTarget -Force | Out-Null
+    $junctionFile = Join-Path $junctionTarget 'keep.txt'; Write-Utf8 $junctionFile 'junction target bytes'; $junctionHash = (Get-FileHash -LiteralPath $junctionFile -Algorithm SHA256).Hash
+    $junction = Oc-File $h9 @('skills','legacy-link'); $junctionMade = $false
+    try { New-Item -ItemType Junction -Path $junction -Target $junctionTarget -ErrorAction Stop | Out-Null; $junctionMade = $true } catch { Write-Host ('[SKIP] junction fixture unavailable: ' + $_.Exception.Message) }
+    $entries9 = @(@{relative='skills\retired-fixture\owned.txt';sha256=$oh.ToLowerInvariant()},@{relative='skills\retired-fixture\owned.txt';sha256=$oh.ToLowerInvariant()},@{relative='skills\retired-fixture\edited.txt';sha256=('0'*64)},@{relative='skills\empty-tree\sub\file.md';sha256=$nestedHash},@{relative='skills\x\a\f';sha256=$siblingHashA},@{relative='skills\x\b\g';sha256=$siblingHashB},@{relative='skills\..\outside-canary.txt';sha256=$outsideHash})
+    if ($junctionMade) { $entries9 += @{relative='skills\legacy-link\keep.txt';sha256=$junctionHash} }
+    Write-Utf8 (Join-Path $md 'manifest.json') (@{managed_files=$entries9} | ConvertTo-Json -Depth 8)
+    $run = Invoke-Install $h9 @(); $mf = Read-Manifest $h9
+    $backupExists = @(Get-ChildItem -LiteralPath (Oc-File $h9 @('backups')) -Recurse -Filter 'owned.txt' -ErrorAction SilentlyContinue).Count -gt 0
+    $jsonAfter = Get-Content -LiteralPath $config9 -Raw | ConvertFrom-Json
+    $cleanManaged = @($mf.managed_files | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.sha256) }).Count -eq 0
+    $agentText = Get-Content -LiteralPath $ag -Raw
+    $cfgAfter = [regex]::Match($agentText, '(?s)<!-- agent-config:global:start -->(.*?)<!-- agent-config:global:end -->').Groups[1].Value -replace "`r`n", "`n" -replace "`r", "`n"
+    $cfgExpected = "`n# Config`n"
+    $junctionSafe = (-not $junctionMade) -or ((Get-FileHash -LiteralPath $junctionFile -Algorithm SHA256).Hash -ceq $junctionHash)
+    if ($junctionMade -and (($run -join "`n") -notmatch '\[PRESERVE\].*reparse point')) { $junctionSafe = $false }
+    Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($agentText -notmatch 'opencode-orchestration:start|GENERATED FILE') -and ($agentText -match 'regra pessoal') -and ($cfgAfter -ceq $cfgExpected) -and (-not (Test-Path $owned)) -and (Test-Path $edited) -and (Test-Path $outside) -and (($run -join "`n") -match '\[PRESERVE\].*outside-canary') -and (-not (Test-Path (Oc-File $h9 @('skills','empty-tree')))) -and (-not (Test-Path (Oc-File $h9 @('skills','x')))) -and $junctionSafe -and $backupExists -and ((Get-FileHash -LiteralPath $thirdPlugin -Algorithm SHA256).Hash -ceq $thirdHash) -and ($jsonAfter.plugin -contains 'terceiro-plugin') -and ($jsonAfter.mcp.terceiro.type -ceq 'local') -and ($jsonAfter.mcp.terceiro.command[0] -ceq 'x') -and $cleanManaged -and ($mf.config_ownership -ceq 'agent-config') -and (@($mf.retired_blocks).Count -gt 0) -and (@($mf.removed_stale).Count -eq 4) -and ($null -ne $mf.ownership)) ('T9 ' + $eolName + ' retirement, pruning and third-party preservation') ($run | Select-Object -Last 1)
+    $hfirst = (Get-FileHash -LiteralPath $ag -Algorithm SHA256).Hash; $run2 = Invoke-Install $h9 @()
+    Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ((Get-FileHash -LiteralPath $ag -Algorithm SHA256).Hash -ceq $hfirst)) ('T9 ' + $eolName + ' idempotence') ($run2 | Select-Object -Last 1)
+  }
+  # T10: manifest failure rolls back both changed targets byte-for-byte.
+  $h10 = New-FixtureHome 'rollback'; $ag10 = Oc-File $h10 @('AGENTS.md')
+  Write-Utf8 $ag10 ($bn + $ob + $personal + $cfg); $d10 = Oc-File $h10 @('skills','old'); New-Item -ItemType Directory -Path $d10 -Force | Out-Null
+  $f10 = Join-Path $d10 'restore.txt'; Write-Utf8 $f10 'restore bytes'; $hh10 = (Get-FileHash -LiteralPath $f10 -Algorithm SHA256).Hash
+  $m10dir = Join-Path $h10 '.opencode-orchestration'; New-Item -ItemType Directory -Path $m10dir -Force | Out-Null
+  $manifest10 = Join-Path $m10dir 'manifest.json'; $manifestText10 = (@{managed_files=@(@{relative='skills\old\restore.txt';sha256=$hh10})} | ConvertTo-Json -Depth 8); Write-Utf8 $manifest10 $manifestText10
+  $a10hash = (Get-FileHash -LiteralPath $ag10 -Algorithm SHA256).Hash; $manifestBefore10 = [IO.File]::ReadAllBytes($manifest10); $run10 = Invoke-Install $h10 @('-InjectFailureAfter','manifest')
+  $manifestAfter10 = [IO.File]::ReadAllBytes($manifest10); $manifestSame10 = ([Convert]::ToBase64String($manifestBefore10) -ceq [Convert]::ToBase64String($manifestAfter10))
+  $backup10 = @(Get-ChildItem -LiteralPath (Oc-File $h10 @('backups')) -Directory -Filter 'oo-*' -ErrorAction SilentlyContinue | ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Recurse -File -ErrorAction SilentlyContinue })
+  $hasAgentBackup10 = @($backup10 | Where-Object { $_.Name -eq 'AGENTS.md' }).Count -gt 0; $hasSkillBackup10 = @($backup10 | Where-Object { $_.Name -eq 'restore.txt' }).Count -gt 0
+  Assert-OwnTrue (($LASTEXITCODE -eq 5) -and (($run10 -join "`n") -match 'ROLLBACK_COMPLETED') -and ((Get-FileHash -LiteralPath $ag10 -Algorithm SHA256).Hash -ceq $a10hash) -and ((Get-FileHash -LiteralPath $f10 -Algorithm SHA256).Hash -ceq $hh10) -and $manifestSame10 -and $hasAgentBackup10 -and $hasSkillBackup10) 'T10 manifest failure fully rolls back bytes and proves backups' ($run10 | Select-Object -Last 2)
+
+  # T11: injected failure after the final apply operation proves removal rollback.
+  $h11 = New-FixtureHome 'apply-last-rollback'; $ag11 = Oc-File $h11 @('AGENTS.md'); Write-Utf8 $ag11 ($bn + $ob + $personal + $cfg)
+  $d11 = Oc-File $h11 @('skills','old'); New-Item -ItemType Directory -Path $d11 -Force | Out-Null
+  $f11 = Join-Path $d11 'stale.txt'; Write-Utf8 $f11 'stale restore'; $fh11 = (Get-FileHash -LiteralPath $f11 -Algorithm SHA256).Hash
+  $m11dir = Join-Path $h11 '.opencode-orchestration'; New-Item -ItemType Directory -Path $m11dir -Force | Out-Null
+  Write-Utf8 (Join-Path $m11dir 'manifest.json') (@{managed_files=@(@{relative='skills\old\stale.txt';sha256=$fh11})} | ConvertTo-Json -Depth 8)
+  $agentBytes11 = [IO.File]::ReadAllBytes($ag11); $skillBytes11 = [IO.File]::ReadAllBytes($f11)
+  $run11 = Invoke-Install $h11 @('-InjectFailureAfter','apply-last')
+  $agentRestored11 = [Convert]::ToBase64String($agentBytes11) -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($ag11))
+  $skillRestored11 = [Convert]::ToBase64String($skillBytes11) -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($f11))
+  Assert-OwnTrue (($LASTEXITCODE -eq 5) -and (($run11 -join "`n") -match 'ROLLBACK_COMPLETED') -and $agentRestored11 -and $skillRestored11) 'T11 apply-last removal rollback restores exact bytes' ($run11 | Select-Object -Last 2)
+
+  # T12: Agent Config content inside the legacy marker is preserved, not retired or replaced.
+  $h12 = New-FixtureHome 'config-in-legacy-marker'; $ag12 = Oc-File $h12 @('AGENTS.md')
+  $configLegacyBody = '<!-- GENERATED FILE: direct edits will be overwritten. -->' + "`n" + '<!-- Canonical source: source/; regenerate with scripts/render-agent-config.ps1. -->' + "`n" + 'SINGLE_WORKER: write work must use a worker.' + "`n"
+  $personal12 = '# personal outside' + "`n"
+  Write-Utf8 $ag12 ('<!-- opencode-orchestration:start -->' + $configLegacyBody + '<!-- opencode-orchestration:end -->' + "`n" + $personal12)
+  $legacyBodyBefore12 = $configLegacyBody -replace "`r`n", "`n" -replace "`r", "`n"
+  $run12 = Invoke-Install $h12 @(); $exit12 = $LASTEXITCODE; $m12 = Read-Manifest $h12
+  $text12 = Get-Content -LiteralPath $ag12 -Raw
+  $legacyBodyAfter12 = [regex]::Match($text12, '(?s)<!-- opencode-orchestration:start -->(.*?)<!-- opencode-orchestration:end -->').Groups[1].Value -replace "`r`n", "`n" -replace "`r", "`n"
+  $cfg12 = Get-Content -LiteralPath (Oc-File $h12 @('opencode.json')) -Raw | ConvertFrom-Json
+  $hasWorker12 = Get-Member -InputObject $cfg12.agents -Name 'coder' -ErrorAction SilentlyContinue
+  $agents12 = Oc-File $h12 @('agents')
+  $hash12 = (Get-FileHash -LiteralPath $ag12 -Algorithm SHA256).Hash; $run12b = Invoke-Install $h12 @()
+  $t12checks = @("exit=$exit12/$LASTEXITCODE", "body=$($legacyBodyAfter12 -ceq $legacyBodyBefore12)", "personal=$($text12 -match 'personal outside')", "agentsDir=$(Test-Path $agents12)", "worker=$(($null -ne $hasWorker12))", "owner=$($m12.config_ownership)/$($m12.ownership.global_text)", "ownerWarn=$(($run12 -join "`n") -match '\[OWNER\]')", "hash=$((Get-FileHash -LiteralPath $ag12 -Algorithm SHA256).Hash -ceq $hash12)")
+  Assert-OwnTrue (($exit12 -eq 0) -and ($LASTEXITCODE -eq 0) -and ($legacyBodyAfter12 -ceq $legacyBodyBefore12) -and ($text12 -match 'personal outside') -and (-not (Test-Path $agents12)) -and ($null -eq $hasWorker12) -and ($m12.config_ownership -ceq 'agent-config') -and ($m12.ownership.global_text -ceq 'agent-config') -and (($run12 -join "`n") -match '\[OWNER\] AGENTS\.md: conteúdo do Agent Config sob marcador legado preservado') -and ((Get-FileHash -LiteralPath $ag12 -Algorithm SHA256).Hash -ceq $hash12)) 'T12 Agent Config legacy-marked content preserved and idempotent' ($t12checks -join '; ')
 }
 finally {
   if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }

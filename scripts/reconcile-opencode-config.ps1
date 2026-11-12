@@ -177,7 +177,10 @@ if ($null -ne $currentHash) {
     $cfgOwnEnd = '<!-- agent-config:global:end -->'
     if ($existing.Contains($cfgOwnStart) -and $existing.Contains($cfgOwnEnd)) {
         Write-Host '' ; Write-Host '=== OPENCODE CONFIG RECONCILIATION ===' -ForegroundColor Cyan
-        Write-Host ('[SKIP] ' + $targetPath + ' (dono agent-config:global; texto global nao aplicado)') -ForegroundColor Cyan
+        if ($existing.Contains($markStart) -and $existing.Contains($markEnd)) {
+            Write-Host ('[RETIRE_REQUIRED] ' + $targetPath + ' (bloco legado opencode-orchestration; execute install.ps1 para retirar)') -ForegroundColor Yellow
+        }
+        Write-Host ('[SKIP] ' + $targetPath + ' (owner=agent-config:global; texto global nao aplicado)') -ForegroundColor Cyan
         if ($Apply) { Write-Host 'Apply skipped: Config owner. Nothing was written.' -ForegroundColor Cyan }
         else { Write-Host 'Preview complete. No active file was changed.' -ForegroundColor Cyan }
         exit 0

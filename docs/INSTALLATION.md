@@ -40,20 +40,23 @@ copy models.example.jsonc models.jsonc
 
 ### Ownership Agent Config (OpenCode V2)
 
-Com o par completo de marcadores `agent-config:global` em `AGENTS.md`, o
-instalador preserva `agents/*.md` e os perfis worker `agents.<worker>` de
-`opencode.json` (mode/model/permissions). Agent Config permanece owner desses
-perfis; `build`, `title` e settings de raiz continuam sob o instalador da
-Orquestração. Aplique primeiro os componentes existentes Instructions,
-Settings e Agent Profiles do Agent Config; o instalador não cria mirrors JSON
-para perfis worker ausentes quando o marcador indica ownership. Sem o marcador
-completo, o modo standalone mantém `SNAPSHOT_COMPAT`.
+Com o par completo `agent-config:global`, texto global, perfis worker e
+permissões de topo pertencem ao Agent Config; perfil `build`, skills e plugin
+pertencem à Orquestração. Sem Config, texto/perfis worker/permissões de topo
+são snapshots da Orquestração. O instalador não grava perfis worker nesse modo.
+Se houver bloco legado `opencode-orchestration`, install retira somente esse
+bloco e banner gerado contíguo, preservando o restante. Reconciliação apenas
+avisa `[RETIRE_REQUIRED]` e direciona a `install.ps1`. Skills antigas só são
+removidas com prova do manifest anterior (`skills\` + SHA-256 igual); hash
+divergente é preservado. `-NoCoreSkills` desativa a poda.
+Se o conteúdo do Agent Config estiver dentro do marcador legado (banner
+`render-agent-config.ps1`), o install preserva o bloco e avisa `[OWNER]` para migrar os marcadores pelo reconciliador do Agent Config.
 
 Flags reais do `install.ps1`:
 
 | Flag | Efeito |
 |---|---|
-| `-WhatIf` | Imprime o plano (`CREATE`/`UPDATE`/`SKIP`/`PRESERVE` por recurso) e sai sem escrever. |
+| `-WhatIf` | Imprime o plano (`CREATE`/`UPDATE`/`SKIP`/`PRESERVE`/`RETIRE`/`REMOVE`) e sai sem escrever. |
 | `-Runtime Auto\|V1\|V2\|Both` | Geração alvo. `Auto` (default) faz probe do `opencode` no PATH e falha fechado em ambiguidade; explícito sempre vence. `Both` cria perfis isolados (ver seção abaixo). |
 | `-RepoRoot <caminho>` | Instala a partir de outro diretório do pacote. |
 | `-TargetHome <perfil>` | Instala em outro perfil (padrão: `$env:USERPROFILE`). |
@@ -75,8 +78,9 @@ Flags reais do `install.ps1`:
    `agent`, `build` sem `model`, zero tokens pendentes), plugin e skills.
    Falha → exit 3, **nada escrito**.
 2. **Stage** — monta o resultado em diretório temporário e valida:
-   `opencode.json` parseia, nenhum token `{{...}}` restante, markers do
-   `AGENTS.md` exatamente 1 par. Stage inválido → exit 5.
+    `opencode.json` parseia, nenhum token `{{...}}` restante. Stage de
+    `AGENTS.md`: standalone exige exatamente 1 par orchestration; Config-owned
+    exige zero pares orchestration e exatamente 1 par agent-config. Inválido → exit 5.
 3. **CAS** — compara o hash atual de cada destino com o hash do preview;
    se algo mudou no meio tempo → `CAS_CONFLICT`, exit 4, **nada aplicado,
    sem rollback** (nada foi tocado).
@@ -105,6 +109,9 @@ runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 | `target_home` | Perfil onde instalou. |
 | `runtime` | Runtime/gravação instalada (`opencode-v1` ou `opencode-v2`; manifest legado sem esta seção é tratado como v1). |
 | `managed_files[]` | `{relative, sha256}` de cada arquivo do pacote. |
+| `ownership{}` | Owners de `global_text`, `worker_profiles`, `build_profile_model`, `build_permissions`, `skills`, `plugin` e `top_level_permissions`. |
+| `retired_blocks[]` / `removed_stale[]` | Blocos legados retirados e skills removidas com hash comprovado (`relative`, `sha256`). |
+| `instructions_contract` | `CURRENT`, `STALE` ou `UNKNOWN` para o contrato de Instructions do Agent Config. |
 | `managed_config_paths[]` | Caminhos gerenciados no config, no dialeto do runtime (V1: `$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*`; V2: `$schema`, `model`, `default_agent`, `experimental.subagent_depth`, `agents.*`). |
 | `adopted_paths[]` | Lista legada mantida por compatibilidade (hoje sempre vazia — nenhuma chave é mais adotada). |
 | `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
