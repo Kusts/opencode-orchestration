@@ -25,8 +25,12 @@
     "roots":  [
                   {
                       "path":  "D:\\projetos\\opencode-orchestration-wt-evidence\\skills-core",
+                      "path_label":  "repo:skills-core",
                       "exists":  true,
                       "entry_count_observed":  8,
+                      "reparse_point_entries_observed":  0,
+                      "unreachable_count":  0,
+                      "total_is_lower_bound":  false,
                       "skill_md_count_observed":  8,
                       "total_skill_md_bytes_observed":  24161,
                       "total_skill_md_chars_observed":  23941,
@@ -83,17 +87,93 @@
                   },
                   {
                       "path":  "C:\\Users\\walis\\.config\\opencode\\skills",
+                      "path_label":  "user:opencode-skills",
                       "exists":  true,
                       "entry_count_observed":  125,
-                      "skill_md_count_observed":  17,
-                      "total_skill_md_bytes_observed":  111758,
-                      "total_skill_md_chars_observed":  111202,
+                      "reparse_point_entries_observed":  108,
+                      "unreachable_count":  0,
+                      "total_is_lower_bound":  false,
+                      "skill_md_count_observed":  125,
+                      "total_skill_md_bytes_observed":  929085,
+                      "total_skill_md_chars_observed":  917869,
                       "per_skill":  [
                                         {
                                             "id":  "addy-incremental-delivery",
                                             "bytes":  2283,
                                             "chars":  2219,
                                             "sha256":  "30b74f5e4ba9033620232218d1c6f5296d08236551c0362a92b199bb004c6583"
+                                        },
+                                        {
+                                            "id":  "adversarial-challenger",
+                                            "bytes":  3393,
+                                            "chars":  3278,
+                                            "sha256":  "60705a19cd1256244a6f4c2f22e57ada1f24c8869082ce6918ab852f1b1a7c28"
+                                        },
+                                        {
+                                            "id":  "agent-instructions-writing",
+                                            "bytes":  2254,
+                                            "chars":  2254,
+                                            "sha256":  "cadf89d0e68d8c1a32e87be630eef00b513d6e9cea2af41a6c809e4967debd03"
+                                        },
+                                        {
+                                            "id":  "agents-sdk",
+                                            "bytes":  12416,
+                                            "chars":  12340,
+                                            "sha256":  "9a182fe215850f5c31d9e9427df4fbd7b1d16cc254a5c8680a08b4815b084989"
+                                        },
+                                        {
+                                            "id":  "ai-memory-durable-pages",
+                                            "bytes":  5276,
+                                            "chars":  5266,
+                                            "sha256":  "fd7c958a6f8657328b739deb949c0e6b8ac2f971808ddba2bac80b834f411e2b"
+                                        },
+                                        {
+                                            "id":  "ai-memory-handoff",
+                                            "bytes":  4416,
+                                            "chars":  4414,
+                                            "sha256":  "388ab623e6a39929864e3a972e54c65cb20bbce9281c3ae5869bcb93a3419e2a"
+                                        },
+                                        {
+                                            "id":  "ai-memory-learning-maintenance",
+                                            "bytes":  4716,
+                                            "chars":  4712,
+                                            "sha256":  "d3f3a03c8306c220f075a52642b9ed4af7109a8d8c7a9c87631197a6334e095e"
+                                        },
+                                        {
+                                            "id":  "ai-memory-retrieval",
+                                            "bytes":  7191,
+                                            "chars":  7189,
+                                            "sha256":  "f08a5a784f395d2ab1d10594718c95c46484cd6122b731a0a648f3e4a40c03cc"
+                                        },
+                                        {
+                                            "id":  "ai-memory-routing-install",
+                                            "bytes":  3602,
+                                            "chars":  3602,
+                                            "sha256":  "3188484cdb944782badb25e7749d33b7ab336d913a3a72aafb1a9e548b579614"
+                                        },
+                                        {
+                                            "id":  "algorithmic-art",
+                                            "bytes":  21271,
+                                            "chars":  21207,
+                                            "sha256":  "b2a77b55c0936b8e448516677b4ab55bfc28db86fd67a6194eee6630c6d49ff3"
+                                        },
+                                        {
+                                            "id":  "appsec-elite-auditor",
+                                            "bytes":  3502,
+                                            "chars":  3366,
+                                            "sha256":  "9242b337d7fbd4035e3cf7796b4d3db5f03b3cc75c40f2866a6f98c791463c28"
+                                        },
+                                        {
+                                            "id":  "ast-skeletonizer",
+                                            "bytes":  3590,
+                                            "chars":  3523,
+                                            "sha256":  "2ea8012ec2d2b35a05a346faa6d835d300732bfb7931fec908aa529c189af0a5"
+                                        },
+                                        {
+                                            "id":  "authenticated-browser",
+                                            "bytes":  3420,
+                                            "chars":  3353,
+                                            "sha256":  "9e5527b98b5de175d3ee0c5657e48d18a82ae5233ab5056e51cdfca54fdaf396"
                                         },
                                         {
                                             "id":  "autoresearch",
@@ -108,10 +188,82 @@
                                             "sha256":  "795eb8a328750aba82762258c356843823e5714869f8241b8017c5d944633fe5"
                                         },
                                         {
+                                            "id":  "book-to-skill",
+                                            "bytes":  37903,
+                                            "chars":  37487,
+                                            "sha256":  "4f0309f2b1437034631d13c806dae5d1174571c7d01d09dfb8cb2f7b776836c1"
+                                        },
+                                        {
+                                            "id":  "brainstorming",
+                                            "bytes":  2755,
+                                            "chars":  2755,
+                                            "sha256":  "3e99a24e0bb9c9fcfb5d92f026c4680f1cc2026e8e5eeb03dffae385c8f437ae"
+                                        },
+                                        {
+                                            "id":  "brand-guidelines",
+                                            "bytes":  3473,
+                                            "chars":  3447,
+                                            "sha256":  "03431a59955aa05b11ba5e4569b121b7613963e7db9472b944b94b4a99ba2978"
+                                        },
+                                        {
+                                            "id":  "canvas-design",
+                                            "bytes":  13152,
+                                            "chars":  13124,
+                                            "sha256":  "a8db523fd32047e2695792962ddfd259fb4e56ac4ed4b9794e51ca02ba06ecbc"
+                                        },
+                                        {
+                                            "id":  "chatgpt-orca-bridge",
+                                            "bytes":  37877,
+                                            "chars":  34866,
+                                            "sha256":  "21d606203734dab22ea080b9ee8a6a9a455221c72224bbc158e3eaffe5673eb3"
+                                        },
+                                        {
+                                            "id":  "claude-api",
+                                            "bytes":  36535,
+                                            "chars":  36233,
+                                            "sha256":  "dba5c9484caa59438ad84ec38494aa1072753a982e03e7f1dc2eb4446c8457a5"
+                                        },
+                                        {
                                             "id":  "cli-tooling",
                                             "bytes":  2416,
                                             "chars":  2375,
                                             "sha256":  "95ab10a6f99fa52fc3a89e415f300d53025bf5bdf6ce99c67de453ef06284e6b"
+                                        },
+                                        {
+                                            "id":  "cloudflare",
+                                            "bytes":  8931,
+                                            "chars":  8621,
+                                            "sha256":  "560b782a81a11c180dedc39b2539680d3a28f2354cce2237020b81448cf83203"
+                                        },
+                                        {
+                                            "id":  "cloudflare-email-service",
+                                            "bytes":  8059,
+                                            "chars":  8031,
+                                            "sha256":  "4099fbb6baa79b3dcf9f79e0ae85af022765684764e1f7727bf8099ac07ff7b3"
+                                        },
+                                        {
+                                            "id":  "cloudflare-one",
+                                            "bytes":  23552,
+                                            "chars":  23526,
+                                            "sha256":  "79b3950247606087ba4bfff052c19d7af3134fc16daf6054730e926ec524d5bd"
+                                        },
+                                        {
+                                            "id":  "cloudflare-one-migrations",
+                                            "bytes":  13567,
+                                            "chars":  13541,
+                                            "sha256":  "610de9718b8f907eb17e41bc97e523a2312beca340986c1da5bfadb883204f77"
+                                        },
+                                        {
+                                            "id":  "code-craftsman",
+                                            "bytes":  13971,
+                                            "chars":  13771,
+                                            "sha256":  "de2afc171d0e6c7a2c73e3aae8d58c79da3c69a90526c8be554352061236637c"
+                                        },
+                                        {
+                                            "id":  "codebase-design",
+                                            "bytes":  2926,
+                                            "chars":  2926,
+                                            "sha256":  "40203837e20216bbd503d31d74d8c79929edc09b6986257f08cde1c9f3a81b57"
                                         },
                                         {
                                             "id":  "composition-patterns",
@@ -120,10 +272,148 @@
                                             "sha256":  "fb8f849b4d46c0c4d364ae6fb398a5cb693b54f9a4c31765a1ec0689c7cb93d5"
                                         },
                                         {
+                                            "id":  "computer-use",
+                                            "bytes":  13408,
+                                            "chars":  13380,
+                                            "sha256":  "cbbb90e354c9f346d8dae08d84603090326e08ca89766cdf05ab5ed37633558c"
+                                        },
+                                        {
+                                            "id":  "copy-persuasao-br",
+                                            "bytes":  5893,
+                                            "chars":  5729,
+                                            "sha256":  "d609188bd668731121d9941095b5d3a963700047c22096c079b8b01006d9c214"
+                                        },
+                                        {
+                                            "id":  "decision-map",
+                                            "bytes":  3475,
+                                            "chars":  3426,
+                                            "sha256":  "bf7b6c4e483a7a2814eb9258a4ba7939ced610c34d8e02a87eb23eb5ff93b6db"
+                                        },
+                                        {
+                                            "id":  "decision-prototype",
+                                            "bytes":  3384,
+                                            "chars":  3353,
+                                            "sha256":  "713915bf990faf2bf191813a19153f29ad42f3a2aa87880ee92c3df70c619a20"
+                                        },
+                                        {
                                             "id":  "deploy-to-vercel",
                                             "bytes":  11504,
                                             "chars":  11452,
                                             "sha256":  "bed987621c2ec54ec479eff9661739f496880a0b4b64d2c67a92a093217f1bce"
+                                        },
+                                        {
+                                            "id":  "design-an-interface",
+                                            "bytes":  2888,
+                                            "chars":  2888,
+                                            "sha256":  "4bd7311cd560e975d8d11b720e0da02139a45f94f41c0f6184b328a66dcc078a"
+                                        },
+                                        {
+                                            "id":  "design-fundamentals",
+                                            "bytes":  13849,
+                                            "chars":  13562,
+                                            "sha256":  "657a973afc741c149aaa2ace2a141028eb9196564cdf7e92c202cfd29e2d6244"
+                                        },
+                                        {
+                                            "id":  "dispatching-parallel-agents",
+                                            "bytes":  2331,
+                                            "chars":  2331,
+                                            "sha256":  "751ad62979bc44bd622e88b32ce903296a35a5e0fa7b8683cb7436dfa5a40575"
+                                        },
+                                        {
+                                            "id":  "doc-coauthoring",
+                                            "bytes":  1052,
+                                            "chars":  1016,
+                                            "sha256":  "17b67ab5b07e9b6284b37d8ff137b848ff448b59e9295a813886f5c4ec6a78bc"
+                                        },
+                                        {
+                                            "id":  "document-artifacts",
+                                            "bytes":  3239,
+                                            "chars":  3121,
+                                            "sha256":  "4f20d66640828e25558d08f34605101f68958ee95e384d127200bf9f9ba62dc0"
+                                        },
+                                        {
+                                            "id":  "domain-aware-brainstorming",
+                                            "bytes":  3400,
+                                            "chars":  3376,
+                                            "sha256":  "892ab72c03ecf9ec4c984b07e901753983637671e6ddb53ff8b35b85204bc5ef"
+                                        },
+                                        {
+                                            "id":  "domain-language",
+                                            "bytes":  3422,
+                                            "chars":  3384,
+                                            "sha256":  "90654f32bac3ad429ad99db98966d13e4feee4fd4b8963cbdc3ac9fb4de8daa0"
+                                        },
+                                        {
+                                            "id":  "durable-objects",
+                                            "bytes":  6053,
+                                            "chars":  6053,
+                                            "sha256":  "8ecddfec282cdc8f964dbe577bdc176a5b5a490b3d7ddd68cb4b34cbafb0b177"
+                                        },
+                                        {
+                                            "id":  "edit-article",
+                                            "bytes":  3239,
+                                            "chars":  3110,
+                                            "sha256":  "0e3baae155568a0c85a212580126514e702dec49358725f92cc10f10c2c3a304"
+                                        },
+                                        {
+                                            "id":  "executing-plans",
+                                            "bytes":  2807,
+                                            "chars":  2807,
+                                            "sha256":  "3e34cde69d0be4ac1550160f1387916164f5fd2ae61a0ea3dac4a688442ac891"
+                                        },
+                                        {
+                                            "id":  "ffuf-skill",
+                                            "bytes":  3280,
+                                            "chars":  3172,
+                                            "sha256":  "a0596192955d7faa56952c56c787e26cb98ff5146b2692ebfb84a32057448da9"
+                                        },
+                                        {
+                                            "id":  "finishing-a-development-branch",
+                                            "bytes":  3133,
+                                            "chars":  3034,
+                                            "sha256":  "4a69349e40a9d191becf536e3452d089e416c73795319d76505040d0787566a0"
+                                        },
+                                        {
+                                            "id":  "frontend-design",
+                                            "bytes":  4041,
+                                            "chars":  3912,
+                                            "sha256":  "50de9447d0a4d6cd853e43397f6b4e8c84e8d1d763eb1c2f1044634e44de5575"
+                                        },
+                                        {
+                                            "id":  "github-triage",
+                                            "bytes":  3178,
+                                            "chars":  3073,
+                                            "sha256":  "11459734739a46f0d5fe2810d8bc6c2ec1d4b0524db340fd67b812eb1ea022f4"
+                                        },
+                                        {
+                                            "id":  "herdr",
+                                            "bytes":  11219,
+                                            "chars":  11193,
+                                            "sha256":  "bb6cf11947ddcda2f5de03bc3cdc836455dff4452521580391093953fc0e62f5"
+                                        },
+                                        {
+                                            "id":  "hero-visual-prompt-generator",
+                                            "bytes":  5756,
+                                            "chars":  5725,
+                                            "sha256":  "19ab339a7fc4e1edc14f17607eefc8525da62c0b495a3a356e9f9773bd65f4d1"
+                                        },
+                                        {
+                                            "id":  "hybrid-development",
+                                            "bytes":  8782,
+                                            "chars":  8782,
+                                            "sha256":  "fa588f2158aac7281d03411c93bc945481daeb9d374f014e1bc34e0c406a15a4"
+                                        },
+                                        {
+                                            "id":  "impeccable",
+                                            "bytes":  12208,
+                                            "chars":  12193,
+                                            "sha256":  "71964eb6cd8337604dfa58b3913dbe69e16a5f1eab87a809f19f1816bed57c24"
+                                        },
+                                        {
+                                            "id":  "internal-comms",
+                                            "bytes":  3597,
+                                            "chars":  3571,
+                                            "sha256":  "45f6f6569a1f661502b7fecf930217bc313c0137553a0c74ad43aa496d5e50dd"
                                         },
                                         {
                                             "id":  "jev-ultrafast",
@@ -132,10 +422,124 @@
                                             "sha256":  "4e61d52d3c678a0514e3a86f77aab1e84924dea4c9a8f0896b6680a5ec953d65"
                                         },
                                         {
+                                            "id":  "loops-workflow-improvement",
+                                            "bytes":  3144,
+                                            "chars":  3052,
+                                            "sha256":  "cea4cbe7c686042c7b2cc89241ba235eb401135bec8fe2bf88bd5fd50546a1e9"
+                                        },
+                                        {
+                                            "id":  "maestri",
+                                            "bytes":  7087,
+                                            "chars":  7041,
+                                            "sha256":  "acd7b30d8cc3404937d90690d838004392aeb510edb612e76564462eec4242af"
+                                        },
+                                        {
+                                            "id":  "maestri-manager",
+                                            "bytes":  20178,
+                                            "chars":  20114,
+                                            "sha256":  "72dddea2aa915a36468c506be265c7ec867d3f8f1a4ff212211c788c19ac55ac"
+                                        },
+                                        {
+                                            "id":  "maestri-portal",
+                                            "bytes":  7513,
+                                            "chars":  7430,
+                                            "sha256":  "e44cdc459732c1fcd997950337ffbeb391f369e44684d669ac785e928ca4a097"
+                                        },
+                                        {
+                                            "id":  "maestri-portal-devices",
+                                            "bytes":  4131,
+                                            "chars":  4131,
+                                            "sha256":  "19e17bca858bedf8acba986b319de9d89bf53387357997377bcafc0511bd287a"
+                                        },
+                                        {
+                                            "id":  "maestri-routines",
+                                            "bytes":  4847,
+                                            "chars":  4813,
+                                            "sha256":  "7e12febe139f929ddacb584fee9148277a1387f2c35d0c90568395e415fcac3b"
+                                        },
+                                        {
+                                            "id":  "maestri-workspace",
+                                            "bytes":  14145,
+                                            "chars":  14101,
+                                            "sha256":  "34d8c35d2767857013af6a11b446e532eeee1381d709eb8d3652e1361541e47a"
+                                        },
+                                        {
+                                            "id":  "mcp-builder",
+                                            "bytes":  10484,
+                                            "chars":  10440,
+                                            "sha256":  "8dd397dc8d7359305c29581a55b8453cda2e05415396acfaa59d0f8d9cc942fd"
+                                        },
+                                        {
+                                            "id":  "orca-cli",
+                                            "bytes":  2372,
+                                            "chars":  2370,
+                                            "sha256":  "aa76f86505010096e8ea9edda1705a78aae7af45e54485f3fe0460664c1d9e4a"
+                                        },
+                                        {
+                                            "id":  "orca-emulator",
+                                            "bytes":  12791,
+                                            "chars":  12233,
+                                            "sha256":  "e65abacb61a512c105cf1a0e459b6b35e992eb82492fd7e75da7ed034352f0a1"
+                                        },
+                                        {
+                                            "id":  "orca-emulator-android",
+                                            "bytes":  10111,
+                                            "chars":  9769,
+                                            "sha256":  "b09d9866be4c1baccb7e9beb38b89788c0dae4f868b4f9738b2372e3d40594a8"
+                                        },
+                                        {
+                                            "id":  "orca-linear",
+                                            "bytes":  13255,
+                                            "chars":  13229,
+                                            "sha256":  "7e4320ba4bd3c675e3862aa872a16aab23a8fe837d4653609da2257ba3984fba"
+                                        },
+                                        {
+                                            "id":  "orca-per-workspace-env",
+                                            "bytes":  47432,
+                                            "chars":  47036,
+                                            "sha256":  "741e7de17e85d6249085167cb1fca198f96daef1f63a2f26c69db3f3cbc6947a"
+                                        },
+                                        {
+                                            "id":  "orca-team",
+                                            "bytes":  15137,
+                                            "chars":  14655,
+                                            "sha256":  "127714f5ba01e08d5e7408b78d23a37e373083cc96698cd5203ebac9eb7aff7b"
+                                        },
+                                        {
+                                            "id":  "orchestration",
+                                            "bytes":  40842,
+                                            "chars":  40814,
+                                            "sha256":  "dc408873057e820dc7247b5f7daa570a4ef0f0a42a369346b67bed27ac9c9649"
+                                        },
+                                        {
+                                            "id":  "playwright-cli",
+                                            "bytes":  2111,
+                                            "chars":  2057,
+                                            "sha256":  "e2113ec9aa79c42cc752fcb04710c8f59c50c8406bc528e522dcb6e1a364b2b9"
+                                        },
+                                        {
                                             "id":  "pocock-technical-decisions",
                                             "bytes":  2259,
                                             "chars":  2192,
                                             "sha256":  "24d6f75080848f5c12e3929ae0da2cb40a07fd99ca4c69bb4434c4cdc27297ce"
+                                        },
+                                        {
+                                            "id":  "pr",
+                                            "bytes":  2046,
+                                            "chars":  2046,
+                                            "sha256":  "e3bb4674cca753d6960442eecb1225a4bbd72afb480ddaf89fc5ec0e1e67138c"
+                                        },
+                                        {
+                                            "id":  "presentation-artifacts",
+                                            "bytes":  3360,
+                                            "chars":  3243,
+                                            "sha256":  "6852f660a5b5a446adfc1dff47532db3c1a2b608e3ac2b2ef684be6d26707ee2"
+                                        },
+                                        {
+                                            "id":  "rakazo",
+                                            "bytes":  4172,
+                                            "chars":  4172,
+                                            "sha256":  "b22df73b8f3e16e15798ed3d6fd4c1bb638df5125b42944e0ac01f598a70b7ab"
                                         },
                                         {
                                             "id":  "react-best-practices",
@@ -156,6 +560,108 @@
                                             "sha256":  "5f5cd199cf57de44855685847ff49446207f00bdf80783f05795aec6884e0830"
                                         },
                                         {
+                                            "id":  "receiving-code-review",
+                                            "bytes":  2208,
+                                            "chars":  2208,
+                                            "sha256":  "01bed4e37cce4c21fff5f2ff8779b3a455546a311ed8dada01710148c72ad18a"
+                                        },
+                                        {
+                                            "id":  "repo-doc",
+                                            "bytes":  4690,
+                                            "chars":  4570,
+                                            "sha256":  "60cf2ebb14fd190014a9861702dc968146b544c8b0b4f2ab34c46c091fb9ca32"
+                                        },
+                                        {
+                                            "id":  "requesting-code-review",
+                                            "bytes":  2429,
+                                            "chars":  2429,
+                                            "sha256":  "714530cf5b570daf51c557cd95eea01c696f9c850212cb86d3127db0864d76ff"
+                                        },
+                                        {
+                                            "id":  "research",
+                                            "bytes":  2168,
+                                            "chars":  2168,
+                                            "sha256":  "0cbf3e62b689732c22524ce5445c81ac7d5af571ff8239424b3dcdba14ff2b7a"
+                                        },
+                                        {
+                                            "id":  "resolving-merge-conflicts",
+                                            "bytes":  3412,
+                                            "chars":  3338,
+                                            "sha256":  "758d84ab61e17b3ddeab907cda683e86c13d4c32c9b704d13edd6eb36ef3f54b"
+                                        },
+                                        {
+                                            "id":  "retro",
+                                            "bytes":  2613,
+                                            "chars":  2613,
+                                            "sha256":  "bb09b329dcbc122d55185e99af8fe12df807df63a117513f445196cca9d97e3a"
+                                        },
+                                        {
+                                            "id":  "sandbox-sdk",
+                                            "bytes":  5947,
+                                            "chars":  5947,
+                                            "sha256":  "6bb6866ee2fc3f71f90edfc94b66a2ff2490dec0e0327ee5be57946295b7dbb6"
+                                        },
+                                        {
+                                            "id":  "sb-capture",
+                                            "bytes":  3697,
+                                            "chars":  3598,
+                                            "sha256":  "74328e258ea22aeda3b8e402b17ad242d8f0ec141e7da28d5acd8052c7de61c0"
+                                        },
+                                        {
+                                            "id":  "sb-curate",
+                                            "bytes":  3449,
+                                            "chars":  3392,
+                                            "sha256":  "4f736ef919300a25769d0a1f125251a259b07fdefb13fce965bce3c010175588"
+                                        },
+                                        {
+                                            "id":  "sb-search",
+                                            "bytes":  3715,
+                                            "chars":  3613,
+                                            "sha256":  "7a37ee02b02802d5653906a55b6622eed34c624b139474fa78df52dba59c25bf"
+                                        },
+                                        {
+                                            "id":  "scrapling-official",
+                                            "bytes":  3273,
+                                            "chars":  3163,
+                                            "sha256":  "91aad2e8360b18b36c28ee6f01f9ab4fa640295f3a59d72d4f4473fef9c302da"
+                                        },
+                                        {
+                                            "id":  "second-brain",
+                                            "bytes":  3461,
+                                            "chars":  3392,
+                                            "sha256":  "1ca5bb5679c48ab4b2c922497cf9be66e1355d7d84d6ac82d2ae6f3cba4a2590"
+                                        },
+                                        {
+                                            "id":  "setup-pre-commit",
+                                            "bytes":  3172,
+                                            "chars":  3071,
+                                            "sha256":  "9c966e1810b5ff0f65a1fd32b795169212adbde06481ce68752e2821fc2f78be"
+                                        },
+                                        {
+                                            "id":  "skill-discovery",
+                                            "bytes":  3092,
+                                            "chars":  2999,
+                                            "sha256":  "293082bddec3c17b72c8e4faeedcbf1b6c0664837500ebc245ddf6f43a946081"
+                                        },
+                                        {
+                                            "id":  "spreadsheet-artifacts",
+                                            "bytes":  3246,
+                                            "chars":  3130,
+                                            "sha256":  "af321b0e5aab0ed722f83d80b332947e36e77f00724ecc3d76cb85cade40a882"
+                                        },
+                                        {
+                                            "id":  "standards-spec-review",
+                                            "bytes":  2340,
+                                            "chars":  2340,
+                                            "sha256":  "a0aedd29f7db6bcaedb288264e0aef5792ffafba34a3b42f722cfe6a6a5b8396"
+                                        },
+                                        {
+                                            "id":  "subagent-driven-development",
+                                            "bytes":  2059,
+                                            "chars":  2059,
+                                            "sha256":  "6e1ac6cdcfabfd41be02d62a8669004b5f17312884dca644da4c7b0fc7e13b11"
+                                        },
+                                        {
                                             "id":  "supabase",
                                             "bytes":  14462,
                                             "chars":  14426,
@@ -166,6 +672,96 @@
                                             "bytes":  3295,
                                             "chars":  3293,
                                             "sha256":  "4d7d1bd60f2ad7fd0d510269279519059dcc630d832f4c241d90735244c70525"
+                                        },
+                                        {
+                                            "id":  "systematic-debugging",
+                                            "bytes":  2167,
+                                            "chars":  2167,
+                                            "sha256":  "a97bdb98f05df3b187b50c6c87b2a027f14584273e923225ea6bfa7ded831915"
+                                        },
+                                        {
+                                            "id":  "teach",
+                                            "bytes":  2729,
+                                            "chars":  2729,
+                                            "sha256":  "b1ffb82c2e7c6193632ec341ecd8b318e57d721bcd390c384397f113af094c4f"
+                                        },
+                                        {
+                                            "id":  "test-driven-development",
+                                            "bytes":  1955,
+                                            "chars":  1955,
+                                            "sha256":  "b2c3682e825a0e792e5e592d29ce6c0473fd499ed800213cae91345d512720d2"
+                                        },
+                                        {
+                                            "id":  "theme-factory",
+                                            "bytes":  4262,
+                                            "chars":  4236,
+                                            "sha256":  "88bb76f619b0dc17dcd94f73c5583a2df6e5ef836b2855242410fbd20d135da8"
+                                        },
+                                        {
+                                            "id":  "tight-feedback-debugging",
+                                            "bytes":  2147,
+                                            "chars":  2147,
+                                            "sha256":  "90f424317c7605d98b355dd51be42f0d7fc33a1ebf1f5362bf95cf816916c546"
+                                        },
+                                        {
+                                            "id":  "to-issues",
+                                            "bytes":  3069,
+                                            "chars":  3069,
+                                            "sha256":  "cb46687bd2007a42ea79954201c5d3bd031dd24404c718c9ac4df2e4c040f9bd"
+                                        },
+                                        {
+                                            "id":  "to-prd",
+                                            "bytes":  2865,
+                                            "chars":  2865,
+                                            "sha256":  "655cfc12e28815d84c3a871c6243c40bbd6105bfbd1314349e8d9c4e4217dd86"
+                                        },
+                                        {
+                                            "id":  "to-questionnaire",
+                                            "bytes":  4097,
+                                            "chars":  4053,
+                                            "sha256":  "1d2e83abba1cd5207c09346a91fcefddf72ebb653a73231403e7642f9e5518e1"
+                                        },
+                                        {
+                                            "id":  "trafego-pago-br",
+                                            "bytes":  5140,
+                                            "chars":  5016,
+                                            "sha256":  "791006c211232ad7d2fa521e1dab01b1f24b7129c7f91445b285ae3417683e21"
+                                        },
+                                        {
+                                            "id":  "triage-issue",
+                                            "bytes":  3106,
+                                            "chars":  2989,
+                                            "sha256":  "ef50d53682d9467fcbc3fcbcfa1703fe498315f051b2e53a6210cae706961bd0"
+                                        },
+                                        {
+                                            "id":  "turnstile-spin",
+                                            "bytes":  15118,
+                                            "chars":  15104,
+                                            "sha256":  "d567b3877acc2478aa3e60fa82182cf57c140dab9be49144c77c3d722a5acbbe"
+                                        },
+                                        {
+                                            "id":  "ui-libraries-curator",
+                                            "bytes":  7614,
+                                            "chars":  7483,
+                                            "sha256":  "46c30f37e5b77b1c840eff0dccc7d6981b465855e6b6eea1130eca50d992c9be"
+                                        },
+                                        {
+                                            "id":  "using-git-worktrees",
+                                            "bytes":  3074,
+                                            "chars":  2984,
+                                            "sha256":  "1819621d1073fc1c03151a7f3415fe36f0a36108437f08f6ce101aed77a63db4"
+                                        },
+                                        {
+                                            "id":  "using-superpowers",
+                                            "bytes":  676,
+                                            "chars":  676,
+                                            "sha256":  "81ff182997a61972410bbe5c11dfac13ecc5a64e29313bc4f2a69af03c9c819d"
+                                        },
+                                        {
+                                            "id":  "vendas-br",
+                                            "bytes":  5196,
+                                            "chars":  5039,
+                                            "sha256":  "dfdd5a739f157bef977019958b619f390b4034ccc604aadc37bb7d426b0204ed"
                                         },
                                         {
                                             "id":  "vercel-cli-with-tokens",
@@ -180,32 +776,330 @@
                                             "sha256":  "3675219c3b9622513696dd359ff70a8fa38c0b3c3b554b237e10f2b4807fcfb3"
                                         },
                                         {
+                                            "id":  "verification-before-completion",
+                                            "bytes":  2184,
+                                            "chars":  2184,
+                                            "sha256":  "8171b95c6dae77822ba5f63e4ff5bdc05bb7978f0b36bdbcebbeeb0468137610"
+                                        },
+                                        {
+                                            "id":  "wait-what",
+                                            "bytes":  1264,
+                                            "chars":  1264,
+                                            "sha256":  "d13f60ea09db4b257cd98f0afc962d35515fccc2e604c602163caa76bb9ca830"
+                                        },
+                                        {
+                                            "id":  "watch",
+                                            "bytes":  17332,
+                                            "chars":  17295,
+                                            "sha256":  "be9e1b870bc7c2794c34ae7d277956c7d2b471d120916153d78ee1e870c5feca"
+                                        },
+                                        {
+                                            "id":  "web-artifacts-builder",
+                                            "bytes":  4251,
+                                            "chars":  4211,
+                                            "sha256":  "9e9a53fb10ac63526cfd84a401232be0368e5b06201463404955d4fbf8d29e1c"
+                                        },
+                                        {
                                             "id":  "web-design-guidelines",
                                             "bytes":  1270,
                                             "chars":  1270,
                                             "sha256":  "17e48da905f83a19c174079b50760a98c069527ba50079239b3c187236627c29"
                                         },
                                         {
+                                            "id":  "web-perf",
+                                            "bytes":  9475,
+                                            "chars":  9441,
+                                            "sha256":  "5c49830e48c2f1d8b29b5a8afe0cedcb744f5a09f40148c08c81f195b4011822"
+                                        },
+                                        {
+                                            "id":  "wizard",
+                                            "bytes":  5281,
+                                            "chars":  5223,
+                                            "sha256":  "0be29584e72975596eaf26fb3f84760e5c232a8c5aa6eadcb357bc496ac8afcb"
+                                        },
+                                        {
+                                            "id":  "workers-best-practices",
+                                            "bytes":  7219,
+                                            "chars":  7171,
+                                            "sha256":  "b812711b9ea2e0def66553c46361998473845f319e3189c2c4f52ed3e15d8e85"
+                                        },
+                                        {
+                                            "id":  "wrangler",
+                                            "bytes":  20358,
+                                            "chars":  20330,
+                                            "sha256":  "e93d696c8149363f6c759e71c39eb786cca70af90819f2ca072fbb28a7c4b53c"
+                                        },
+                                        {
                                             "id":  "writing-guidelines",
                                             "bytes":  1272,
                                             "chars":  1272,
                                             "sha256":  "c28458a39d09a2fb7d6459eb7311d1a30c7c7f17069ad28132031b916d74d269"
+                                        },
+                                        {
+                                            "id":  "writing-plans",
+                                            "bytes":  2903,
+                                            "chars":  2903,
+                                            "sha256":  "5baef2855a52358bc67d968e58c9926a4a591524c6534bb8a5ab9b6d418b7208"
+                                        },
+                                        {
+                                            "id":  "writing-skills",
+                                            "bytes":  2334,
+                                            "chars":  2334,
+                                            "sha256":  "71133cc181039fd1c9ff080447100e3dc34184a5f67dcdbfb04b08fa24a9a00e"
                                         }
                                     ]
                   },
                   {
                       "path":  "C:\\Users\\walis\\.agents\\skills",
+                      "path_label":  "user:agents-skills",
                       "exists":  true,
                       "entry_count_observed":  113,
-                      "skill_md_count_observed":  5,
-                      "total_skill_md_bytes_observed":  33381,
-                      "total_skill_md_chars_observed":  33284,
+                      "reparse_point_entries_observed":  108,
+                      "unreachable_count":  0,
+                      "total_is_lower_bound":  false,
+                      "skill_md_count_observed":  113,
+                      "total_skill_md_bytes_observed":  850708,
+                      "total_skill_md_chars_observed":  839951,
                       "per_skill":  [
+                                        {
+                                            "id":  "adversarial-challenger",
+                                            "bytes":  3393,
+                                            "chars":  3278,
+                                            "sha256":  "60705a19cd1256244a6f4c2f22e57ada1f24c8869082ce6918ab852f1b1a7c28"
+                                        },
+                                        {
+                                            "id":  "agent-instructions-writing",
+                                            "bytes":  2254,
+                                            "chars":  2254,
+                                            "sha256":  "cadf89d0e68d8c1a32e87be630eef00b513d6e9cea2af41a6c809e4967debd03"
+                                        },
+                                        {
+                                            "id":  "agents-sdk",
+                                            "bytes":  12416,
+                                            "chars":  12340,
+                                            "sha256":  "9a182fe215850f5c31d9e9427df4fbd7b1d16cc254a5c8680a08b4815b084989"
+                                        },
+                                        {
+                                            "id":  "ai-memory-durable-pages",
+                                            "bytes":  5276,
+                                            "chars":  5266,
+                                            "sha256":  "fd7c958a6f8657328b739deb949c0e6b8ac2f971808ddba2bac80b834f411e2b"
+                                        },
+                                        {
+                                            "id":  "ai-memory-handoff",
+                                            "bytes":  4416,
+                                            "chars":  4414,
+                                            "sha256":  "388ab623e6a39929864e3a972e54c65cb20bbce9281c3ae5869bcb93a3419e2a"
+                                        },
+                                        {
+                                            "id":  "ai-memory-learning-maintenance",
+                                            "bytes":  4716,
+                                            "chars":  4712,
+                                            "sha256":  "d3f3a03c8306c220f075a52642b9ed4af7109a8d8c7a9c87631197a6334e095e"
+                                        },
                                         {
                                             "id":  "ai-memory-messaging",
                                             "bytes":  4120,
                                             "chars":  4112,
                                             "sha256":  "7a86bdd78e947372ebba0cbbeb3ec3b16f54ab23ef8a64b854f2f9dd4af0d9c1"
+                                        },
+                                        {
+                                            "id":  "ai-memory-retrieval",
+                                            "bytes":  7191,
+                                            "chars":  7189,
+                                            "sha256":  "f08a5a784f395d2ab1d10594718c95c46484cd6122b731a0a648f3e4a40c03cc"
+                                        },
+                                        {
+                                            "id":  "ai-memory-routing-install",
+                                            "bytes":  3602,
+                                            "chars":  3602,
+                                            "sha256":  "3188484cdb944782badb25e7749d33b7ab336d913a3a72aafb1a9e548b579614"
+                                        },
+                                        {
+                                            "id":  "algorithmic-art",
+                                            "bytes":  21271,
+                                            "chars":  21207,
+                                            "sha256":  "b2a77b55c0936b8e448516677b4ab55bfc28db86fd67a6194eee6630c6d49ff3"
+                                        },
+                                        {
+                                            "id":  "appsec-elite-auditor",
+                                            "bytes":  3502,
+                                            "chars":  3366,
+                                            "sha256":  "9242b337d7fbd4035e3cf7796b4d3db5f03b3cc75c40f2866a6f98c791463c28"
+                                        },
+                                        {
+                                            "id":  "ast-skeletonizer",
+                                            "bytes":  3590,
+                                            "chars":  3523,
+                                            "sha256":  "2ea8012ec2d2b35a05a346faa6d835d300732bfb7931fec908aa529c189af0a5"
+                                        },
+                                        {
+                                            "id":  "authenticated-browser",
+                                            "bytes":  3420,
+                                            "chars":  3353,
+                                            "sha256":  "9e5527b98b5de175d3ee0c5657e48d18a82ae5233ab5056e51cdfca54fdaf396"
+                                        },
+                                        {
+                                            "id":  "book-to-skill",
+                                            "bytes":  37903,
+                                            "chars":  37487,
+                                            "sha256":  "4f0309f2b1437034631d13c806dae5d1174571c7d01d09dfb8cb2f7b776836c1"
+                                        },
+                                        {
+                                            "id":  "brainstorming",
+                                            "bytes":  2755,
+                                            "chars":  2755,
+                                            "sha256":  "3e99a24e0bb9c9fcfb5d92f026c4680f1cc2026e8e5eeb03dffae385c8f437ae"
+                                        },
+                                        {
+                                            "id":  "brand-guidelines",
+                                            "bytes":  3473,
+                                            "chars":  3447,
+                                            "sha256":  "03431a59955aa05b11ba5e4569b121b7613963e7db9472b944b94b4a99ba2978"
+                                        },
+                                        {
+                                            "id":  "canvas-design",
+                                            "bytes":  13152,
+                                            "chars":  13124,
+                                            "sha256":  "a8db523fd32047e2695792962ddfd259fb4e56ac4ed4b9794e51ca02ba06ecbc"
+                                        },
+                                        {
+                                            "id":  "chatgpt-orca-bridge",
+                                            "bytes":  37877,
+                                            "chars":  34866,
+                                            "sha256":  "21d606203734dab22ea080b9ee8a6a9a455221c72224bbc158e3eaffe5673eb3"
+                                        },
+                                        {
+                                            "id":  "claude-api",
+                                            "bytes":  36535,
+                                            "chars":  36233,
+                                            "sha256":  "dba5c9484caa59438ad84ec38494aa1072753a982e03e7f1dc2eb4446c8457a5"
+                                        },
+                                        {
+                                            "id":  "cloudflare",
+                                            "bytes":  8931,
+                                            "chars":  8621,
+                                            "sha256":  "560b782a81a11c180dedc39b2539680d3a28f2354cce2237020b81448cf83203"
+                                        },
+                                        {
+                                            "id":  "cloudflare-email-service",
+                                            "bytes":  8059,
+                                            "chars":  8031,
+                                            "sha256":  "4099fbb6baa79b3dcf9f79e0ae85af022765684764e1f7727bf8099ac07ff7b3"
+                                        },
+                                        {
+                                            "id":  "cloudflare-one",
+                                            "bytes":  23552,
+                                            "chars":  23526,
+                                            "sha256":  "79b3950247606087ba4bfff052c19d7af3134fc16daf6054730e926ec524d5bd"
+                                        },
+                                        {
+                                            "id":  "cloudflare-one-migrations",
+                                            "bytes":  13567,
+                                            "chars":  13541,
+                                            "sha256":  "610de9718b8f907eb17e41bc97e523a2312beca340986c1da5bfadb883204f77"
+                                        },
+                                        {
+                                            "id":  "code-craftsman",
+                                            "bytes":  13971,
+                                            "chars":  13771,
+                                            "sha256":  "de2afc171d0e6c7a2c73e3aae8d58c79da3c69a90526c8be554352061236637c"
+                                        },
+                                        {
+                                            "id":  "codebase-design",
+                                            "bytes":  2926,
+                                            "chars":  2926,
+                                            "sha256":  "40203837e20216bbd503d31d74d8c79929edc09b6986257f08cde1c9f3a81b57"
+                                        },
+                                        {
+                                            "id":  "computer-use",
+                                            "bytes":  13408,
+                                            "chars":  13380,
+                                            "sha256":  "cbbb90e354c9f346d8dae08d84603090326e08ca89766cdf05ab5ed37633558c"
+                                        },
+                                        {
+                                            "id":  "copy-persuasao-br",
+                                            "bytes":  5893,
+                                            "chars":  5729,
+                                            "sha256":  "d609188bd668731121d9941095b5d3a963700047c22096c079b8b01006d9c214"
+                                        },
+                                        {
+                                            "id":  "decision-map",
+                                            "bytes":  3475,
+                                            "chars":  3426,
+                                            "sha256":  "bf7b6c4e483a7a2814eb9258a4ba7939ced610c34d8e02a87eb23eb5ff93b6db"
+                                        },
+                                        {
+                                            "id":  "decision-prototype",
+                                            "bytes":  3384,
+                                            "chars":  3353,
+                                            "sha256":  "713915bf990faf2bf191813a19153f29ad42f3a2aa87880ee92c3df70c619a20"
+                                        },
+                                        {
+                                            "id":  "design-an-interface",
+                                            "bytes":  2888,
+                                            "chars":  2888,
+                                            "sha256":  "4bd7311cd560e975d8d11b720e0da02139a45f94f41c0f6184b328a66dcc078a"
+                                        },
+                                        {
+                                            "id":  "design-fundamentals",
+                                            "bytes":  13849,
+                                            "chars":  13562,
+                                            "sha256":  "657a973afc741c149aaa2ace2a141028eb9196564cdf7e92c202cfd29e2d6244"
+                                        },
+                                        {
+                                            "id":  "dispatching-parallel-agents",
+                                            "bytes":  2331,
+                                            "chars":  2331,
+                                            "sha256":  "751ad62979bc44bd622e88b32ce903296a35a5e0fa7b8683cb7436dfa5a40575"
+                                        },
+                                        {
+                                            "id":  "doc-coauthoring",
+                                            "bytes":  1052,
+                                            "chars":  1016,
+                                            "sha256":  "17b67ab5b07e9b6284b37d8ff137b848ff448b59e9295a813886f5c4ec6a78bc"
+                                        },
+                                        {
+                                            "id":  "document-artifacts",
+                                            "bytes":  3239,
+                                            "chars":  3121,
+                                            "sha256":  "4f20d66640828e25558d08f34605101f68958ee95e384d127200bf9f9ba62dc0"
+                                        },
+                                        {
+                                            "id":  "domain-aware-brainstorming",
+                                            "bytes":  3400,
+                                            "chars":  3376,
+                                            "sha256":  "892ab72c03ecf9ec4c984b07e901753983637671e6ddb53ff8b35b85204bc5ef"
+                                        },
+                                        {
+                                            "id":  "domain-language",
+                                            "bytes":  3422,
+                                            "chars":  3384,
+                                            "sha256":  "90654f32bac3ad429ad99db98966d13e4feee4fd4b8963cbdc3ac9fb4de8daa0"
+                                        },
+                                        {
+                                            "id":  "durable-objects",
+                                            "bytes":  6053,
+                                            "chars":  6053,
+                                            "sha256":  "8ecddfec282cdc8f964dbe577bdc176a5b5a490b3d7ddd68cb4b34cbafb0b177"
+                                        },
+                                        {
+                                            "id":  "edit-article",
+                                            "bytes":  3239,
+                                            "chars":  3110,
+                                            "sha256":  "0e3baae155568a0c85a212580126514e702dec49358725f92cc10f10c2c3a304"
+                                        },
+                                        {
+                                            "id":  "executing-plans",
+                                            "bytes":  2807,
+                                            "chars":  2807,
+                                            "sha256":  "3e34cde69d0be4ac1550160f1387916164f5fd2ae61a0ea3dac4a688442ac891"
+                                        },
+                                        {
+                                            "id":  "ffuf-skill",
+                                            "bytes":  3280,
+                                            "chars":  3172,
+                                            "sha256":  "a0596192955d7faa56952c56c787e26cb98ff5146b2692ebfb84a32057448da9"
                                         },
                                         {
                                             "id":  "find-skills",
@@ -214,10 +1108,70 @@
                                             "sha256":  "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f"
                                         },
                                         {
+                                            "id":  "finishing-a-development-branch",
+                                            "bytes":  3133,
+                                            "chars":  3034,
+                                            "sha256":  "4a69349e40a9d191becf536e3452d089e416c73795319d76505040d0787566a0"
+                                        },
+                                        {
+                                            "id":  "frontend-design",
+                                            "bytes":  4041,
+                                            "chars":  3912,
+                                            "sha256":  "50de9447d0a4d6cd853e43397f6b4e8c84e8d1d763eb1c2f1044634e44de5575"
+                                        },
+                                        {
+                                            "id":  "github-triage",
+                                            "bytes":  3178,
+                                            "chars":  3073,
+                                            "sha256":  "11459734739a46f0d5fe2810d8bc6c2ec1d4b0524db340fd67b812eb1ea022f4"
+                                        },
+                                        {
                                             "id":  "hallmark",
                                             "bytes":  18239,
                                             "chars":  18168,
                                             "sha256":  "25a1ff92d925b2389e8409f42fb8ad7e033fceca8b5d1f07ed4ca4c28da53dc3"
+                                        },
+                                        {
+                                            "id":  "herdr",
+                                            "bytes":  11219,
+                                            "chars":  11193,
+                                            "sha256":  "bb6cf11947ddcda2f5de03bc3cdc836455dff4452521580391093953fc0e62f5"
+                                        },
+                                        {
+                                            "id":  "hero-visual-prompt-generator",
+                                            "bytes":  5756,
+                                            "chars":  5725,
+                                            "sha256":  "19ab339a7fc4e1edc14f17607eefc8525da62c0b495a3a356e9f9773bd65f4d1"
+                                        },
+                                        {
+                                            "id":  "hybrid-development",
+                                            "bytes":  8782,
+                                            "chars":  8782,
+                                            "sha256":  "fa588f2158aac7281d03411c93bc945481daeb9d374f014e1bc34e0c406a15a4"
+                                        },
+                                        {
+                                            "id":  "impeccable",
+                                            "bytes":  12208,
+                                            "chars":  12193,
+                                            "sha256":  "71964eb6cd8337604dfa58b3913dbe69e16a5f1eab87a809f19f1816bed57c24"
+                                        },
+                                        {
+                                            "id":  "internal-comms",
+                                            "bytes":  3597,
+                                            "chars":  3571,
+                                            "sha256":  "45f6f6569a1f661502b7fecf930217bc313c0137553a0c74ad43aa496d5e50dd"
+                                        },
+                                        {
+                                            "id":  "loops-workflow-improvement",
+                                            "bytes":  3144,
+                                            "chars":  3052,
+                                            "sha256":  "cea4cbe7c686042c7b2cc89241ba235eb401135bec8fe2bf88bd5fd50546a1e9"
+                                        },
+                                        {
+                                            "id":  "maestri",
+                                            "bytes":  7087,
+                                            "chars":  7041,
+                                            "sha256":  "acd7b30d8cc3404937d90690d838004392aeb510edb612e76564462eec4242af"
                                         },
                                         {
                                             "id":  "maestri-chat",
@@ -226,10 +1180,364 @@
                                             "sha256":  "f8a554ff579acaead218b6445adc193a6af8f9a4464466acd5b306d0030d4e20"
                                         },
                                         {
+                                            "id":  "maestri-manager",
+                                            "bytes":  20178,
+                                            "chars":  20114,
+                                            "sha256":  "72dddea2aa915a36468c506be265c7ec867d3f8f1a4ff212211c788c19ac55ac"
+                                        },
+                                        {
+                                            "id":  "maestri-portal",
+                                            "bytes":  7513,
+                                            "chars":  7430,
+                                            "sha256":  "e44cdc459732c1fcd997950337ffbeb391f369e44684d669ac785e928ca4a097"
+                                        },
+                                        {
+                                            "id":  "maestri-portal-devices",
+                                            "bytes":  4131,
+                                            "chars":  4131,
+                                            "sha256":  "19e17bca858bedf8acba986b319de9d89bf53387357997377bcafc0511bd287a"
+                                        },
+                                        {
+                                            "id":  "maestri-routines",
+                                            "bytes":  4847,
+                                            "chars":  4813,
+                                            "sha256":  "7e12febe139f929ddacb584fee9148277a1387f2c35d0c90568395e415fcac3b"
+                                        },
+                                        {
+                                            "id":  "maestri-workspace",
+                                            "bytes":  14145,
+                                            "chars":  14101,
+                                            "sha256":  "34d8c35d2767857013af6a11b446e532eeee1381d709eb8d3652e1361541e47a"
+                                        },
+                                        {
+                                            "id":  "mcp-builder",
+                                            "bytes":  10484,
+                                            "chars":  10440,
+                                            "sha256":  "8dd397dc8d7359305c29581a55b8453cda2e05415396acfaa59d0f8d9cc942fd"
+                                        },
+                                        {
+                                            "id":  "orca-cli",
+                                            "bytes":  2372,
+                                            "chars":  2370,
+                                            "sha256":  "aa76f86505010096e8ea9edda1705a78aae7af45e54485f3fe0460664c1d9e4a"
+                                        },
+                                        {
                                             "id":  "orca-computer-use",
                                             "bytes":  2221,
                                             "chars":  2219,
                                             "sha256":  "69376456185483ea494eb354be09bce5b8bde9d1c792e8cb1ce7687691d1a021"
+                                        },
+                                        {
+                                            "id":  "orca-emulator",
+                                            "bytes":  12791,
+                                            "chars":  12233,
+                                            "sha256":  "e65abacb61a512c105cf1a0e459b6b35e992eb82492fd7e75da7ed034352f0a1"
+                                        },
+                                        {
+                                            "id":  "orca-emulator-android",
+                                            "bytes":  10111,
+                                            "chars":  9769,
+                                            "sha256":  "b09d9866be4c1baccb7e9beb38b89788c0dae4f868b4f9738b2372e3d40594a8"
+                                        },
+                                        {
+                                            "id":  "orca-linear",
+                                            "bytes":  13255,
+                                            "chars":  13229,
+                                            "sha256":  "7e4320ba4bd3c675e3862aa872a16aab23a8fe837d4653609da2257ba3984fba"
+                                        },
+                                        {
+                                            "id":  "orca-per-workspace-env",
+                                            "bytes":  47432,
+                                            "chars":  47036,
+                                            "sha256":  "741e7de17e85d6249085167cb1fca198f96daef1f63a2f26c69db3f3cbc6947a"
+                                        },
+                                        {
+                                            "id":  "orca-team",
+                                            "bytes":  15137,
+                                            "chars":  14655,
+                                            "sha256":  "127714f5ba01e08d5e7408b78d23a37e373083cc96698cd5203ebac9eb7aff7b"
+                                        },
+                                        {
+                                            "id":  "orchestration",
+                                            "bytes":  40842,
+                                            "chars":  40814,
+                                            "sha256":  "dc408873057e820dc7247b5f7daa570a4ef0f0a42a369346b67bed27ac9c9649"
+                                        },
+                                        {
+                                            "id":  "playwright-cli",
+                                            "bytes":  2111,
+                                            "chars":  2057,
+                                            "sha256":  "e2113ec9aa79c42cc752fcb04710c8f59c50c8406bc528e522dcb6e1a364b2b9"
+                                        },
+                                        {
+                                            "id":  "pr",
+                                            "bytes":  2046,
+                                            "chars":  2046,
+                                            "sha256":  "e3bb4674cca753d6960442eecb1225a4bbd72afb480ddaf89fc5ec0e1e67138c"
+                                        },
+                                        {
+                                            "id":  "presentation-artifacts",
+                                            "bytes":  3360,
+                                            "chars":  3243,
+                                            "sha256":  "6852f660a5b5a446adfc1dff47532db3c1a2b608e3ac2b2ef684be6d26707ee2"
+                                        },
+                                        {
+                                            "id":  "rakazo",
+                                            "bytes":  4172,
+                                            "chars":  4172,
+                                            "sha256":  "b22df73b8f3e16e15798ed3d6fd4c1bb638df5125b42944e0ac01f598a70b7ab"
+                                        },
+                                        {
+                                            "id":  "receiving-code-review",
+                                            "bytes":  2208,
+                                            "chars":  2208,
+                                            "sha256":  "01bed4e37cce4c21fff5f2ff8779b3a455546a311ed8dada01710148c72ad18a"
+                                        },
+                                        {
+                                            "id":  "repo-doc",
+                                            "bytes":  4690,
+                                            "chars":  4570,
+                                            "sha256":  "60cf2ebb14fd190014a9861702dc968146b544c8b0b4f2ab34c46c091fb9ca32"
+                                        },
+                                        {
+                                            "id":  "requesting-code-review",
+                                            "bytes":  2429,
+                                            "chars":  2429,
+                                            "sha256":  "714530cf5b570daf51c557cd95eea01c696f9c850212cb86d3127db0864d76ff"
+                                        },
+                                        {
+                                            "id":  "research",
+                                            "bytes":  2168,
+                                            "chars":  2168,
+                                            "sha256":  "0cbf3e62b689732c22524ce5445c81ac7d5af571ff8239424b3dcdba14ff2b7a"
+                                        },
+                                        {
+                                            "id":  "resolving-merge-conflicts",
+                                            "bytes":  3412,
+                                            "chars":  3338,
+                                            "sha256":  "758d84ab61e17b3ddeab907cda683e86c13d4c32c9b704d13edd6eb36ef3f54b"
+                                        },
+                                        {
+                                            "id":  "retro",
+                                            "bytes":  2613,
+                                            "chars":  2613,
+                                            "sha256":  "bb09b329dcbc122d55185e99af8fe12df807df63a117513f445196cca9d97e3a"
+                                        },
+                                        {
+                                            "id":  "sandbox-sdk",
+                                            "bytes":  5947,
+                                            "chars":  5947,
+                                            "sha256":  "6bb6866ee2fc3f71f90edfc94b66a2ff2490dec0e0327ee5be57946295b7dbb6"
+                                        },
+                                        {
+                                            "id":  "sb-capture",
+                                            "bytes":  3697,
+                                            "chars":  3598,
+                                            "sha256":  "74328e258ea22aeda3b8e402b17ad242d8f0ec141e7da28d5acd8052c7de61c0"
+                                        },
+                                        {
+                                            "id":  "sb-curate",
+                                            "bytes":  3449,
+                                            "chars":  3392,
+                                            "sha256":  "4f736ef919300a25769d0a1f125251a259b07fdefb13fce965bce3c010175588"
+                                        },
+                                        {
+                                            "id":  "sb-search",
+                                            "bytes":  3715,
+                                            "chars":  3613,
+                                            "sha256":  "7a37ee02b02802d5653906a55b6622eed34c624b139474fa78df52dba59c25bf"
+                                        },
+                                        {
+                                            "id":  "scrapling-official",
+                                            "bytes":  3273,
+                                            "chars":  3163,
+                                            "sha256":  "91aad2e8360b18b36c28ee6f01f9ab4fa640295f3a59d72d4f4473fef9c302da"
+                                        },
+                                        {
+                                            "id":  "second-brain",
+                                            "bytes":  3461,
+                                            "chars":  3392,
+                                            "sha256":  "1ca5bb5679c48ab4b2c922497cf9be66e1355d7d84d6ac82d2ae6f3cba4a2590"
+                                        },
+                                        {
+                                            "id":  "setup-pre-commit",
+                                            "bytes":  3172,
+                                            "chars":  3071,
+                                            "sha256":  "9c966e1810b5ff0f65a1fd32b795169212adbde06481ce68752e2821fc2f78be"
+                                        },
+                                        {
+                                            "id":  "skill-discovery",
+                                            "bytes":  3092,
+                                            "chars":  2999,
+                                            "sha256":  "293082bddec3c17b72c8e4faeedcbf1b6c0664837500ebc245ddf6f43a946081"
+                                        },
+                                        {
+                                            "id":  "spreadsheet-artifacts",
+                                            "bytes":  3246,
+                                            "chars":  3130,
+                                            "sha256":  "af321b0e5aab0ed722f83d80b332947e36e77f00724ecc3d76cb85cade40a882"
+                                        },
+                                        {
+                                            "id":  "standards-spec-review",
+                                            "bytes":  2340,
+                                            "chars":  2340,
+                                            "sha256":  "a0aedd29f7db6bcaedb288264e0aef5792ffafba34a3b42f722cfe6a6a5b8396"
+                                        },
+                                        {
+                                            "id":  "subagent-driven-development",
+                                            "bytes":  2059,
+                                            "chars":  2059,
+                                            "sha256":  "6e1ac6cdcfabfd41be02d62a8669004b5f17312884dca644da4c7b0fc7e13b11"
+                                        },
+                                        {
+                                            "id":  "systematic-debugging",
+                                            "bytes":  2167,
+                                            "chars":  2167,
+                                            "sha256":  "a97bdb98f05df3b187b50c6c87b2a027f14584273e923225ea6bfa7ded831915"
+                                        },
+                                        {
+                                            "id":  "teach",
+                                            "bytes":  2729,
+                                            "chars":  2729,
+                                            "sha256":  "b1ffb82c2e7c6193632ec341ecd8b318e57d721bcd390c384397f113af094c4f"
+                                        },
+                                        {
+                                            "id":  "test-driven-development",
+                                            "bytes":  1955,
+                                            "chars":  1955,
+                                            "sha256":  "b2c3682e825a0e792e5e592d29ce6c0473fd499ed800213cae91345d512720d2"
+                                        },
+                                        {
+                                            "id":  "theme-factory",
+                                            "bytes":  4262,
+                                            "chars":  4236,
+                                            "sha256":  "88bb76f619b0dc17dcd94f73c5583a2df6e5ef836b2855242410fbd20d135da8"
+                                        },
+                                        {
+                                            "id":  "tight-feedback-debugging",
+                                            "bytes":  2147,
+                                            "chars":  2147,
+                                            "sha256":  "90f424317c7605d98b355dd51be42f0d7fc33a1ebf1f5362bf95cf816916c546"
+                                        },
+                                        {
+                                            "id":  "to-issues",
+                                            "bytes":  3069,
+                                            "chars":  3069,
+                                            "sha256":  "cb46687bd2007a42ea79954201c5d3bd031dd24404c718c9ac4df2e4c040f9bd"
+                                        },
+                                        {
+                                            "id":  "to-prd",
+                                            "bytes":  2865,
+                                            "chars":  2865,
+                                            "sha256":  "655cfc12e28815d84c3a871c6243c40bbd6105bfbd1314349e8d9c4e4217dd86"
+                                        },
+                                        {
+                                            "id":  "to-questionnaire",
+                                            "bytes":  4097,
+                                            "chars":  4053,
+                                            "sha256":  "1d2e83abba1cd5207c09346a91fcefddf72ebb653a73231403e7642f9e5518e1"
+                                        },
+                                        {
+                                            "id":  "trafego-pago-br",
+                                            "bytes":  5140,
+                                            "chars":  5016,
+                                            "sha256":  "791006c211232ad7d2fa521e1dab01b1f24b7129c7f91445b285ae3417683e21"
+                                        },
+                                        {
+                                            "id":  "triage-issue",
+                                            "bytes":  3106,
+                                            "chars":  2989,
+                                            "sha256":  "ef50d53682d9467fcbc3fcbcfa1703fe498315f051b2e53a6210cae706961bd0"
+                                        },
+                                        {
+                                            "id":  "turnstile-spin",
+                                            "bytes":  15118,
+                                            "chars":  15104,
+                                            "sha256":  "d567b3877acc2478aa3e60fa82182cf57c140dab9be49144c77c3d722a5acbbe"
+                                        },
+                                        {
+                                            "id":  "ui-libraries-curator",
+                                            "bytes":  7614,
+                                            "chars":  7483,
+                                            "sha256":  "46c30f37e5b77b1c840eff0dccc7d6981b465855e6b6eea1130eca50d992c9be"
+                                        },
+                                        {
+                                            "id":  "using-git-worktrees",
+                                            "bytes":  3074,
+                                            "chars":  2984,
+                                            "sha256":  "1819621d1073fc1c03151a7f3415fe36f0a36108437f08f6ce101aed77a63db4"
+                                        },
+                                        {
+                                            "id":  "using-superpowers",
+                                            "bytes":  676,
+                                            "chars":  676,
+                                            "sha256":  "81ff182997a61972410bbe5c11dfac13ecc5a64e29313bc4f2a69af03c9c819d"
+                                        },
+                                        {
+                                            "id":  "vendas-br",
+                                            "bytes":  5196,
+                                            "chars":  5039,
+                                            "sha256":  "dfdd5a739f157bef977019958b619f390b4034ccc604aadc37bb7d426b0204ed"
+                                        },
+                                        {
+                                            "id":  "verification-before-completion",
+                                            "bytes":  2184,
+                                            "chars":  2184,
+                                            "sha256":  "8171b95c6dae77822ba5f63e4ff5bdc05bb7978f0b36bdbcebbeeb0468137610"
+                                        },
+                                        {
+                                            "id":  "wait-what",
+                                            "bytes":  1264,
+                                            "chars":  1264,
+                                            "sha256":  "d13f60ea09db4b257cd98f0afc962d35515fccc2e604c602163caa76bb9ca830"
+                                        },
+                                        {
+                                            "id":  "watch",
+                                            "bytes":  17332,
+                                            "chars":  17295,
+                                            "sha256":  "be9e1b870bc7c2794c34ae7d277956c7d2b471d120916153d78ee1e870c5feca"
+                                        },
+                                        {
+                                            "id":  "web-artifacts-builder",
+                                            "bytes":  4251,
+                                            "chars":  4211,
+                                            "sha256":  "9e9a53fb10ac63526cfd84a401232be0368e5b06201463404955d4fbf8d29e1c"
+                                        },
+                                        {
+                                            "id":  "web-perf",
+                                            "bytes":  9475,
+                                            "chars":  9441,
+                                            "sha256":  "5c49830e48c2f1d8b29b5a8afe0cedcb744f5a09f40148c08c81f195b4011822"
+                                        },
+                                        {
+                                            "id":  "wizard",
+                                            "bytes":  5281,
+                                            "chars":  5223,
+                                            "sha256":  "0be29584e72975596eaf26fb3f84760e5c232a8c5aa6eadcb357bc496ac8afcb"
+                                        },
+                                        {
+                                            "id":  "workers-best-practices",
+                                            "bytes":  7219,
+                                            "chars":  7171,
+                                            "sha256":  "b812711b9ea2e0def66553c46361998473845f319e3189c2c4f52ed3e15d8e85"
+                                        },
+                                        {
+                                            "id":  "wrangler",
+                                            "bytes":  20358,
+                                            "chars":  20330,
+                                            "sha256":  "e93d696c8149363f6c759e71c39eb786cca70af90819f2ca072fbb28a7c4b53c"
+                                        },
+                                        {
+                                            "id":  "writing-plans",
+                                            "bytes":  2903,
+                                            "chars":  2903,
+                                            "sha256":  "5baef2855a52358bc67d968e58c9926a4a591524c6534bb8a5ab9b6d418b7208"
+                                        },
+                                        {
+                                            "id":  "writing-skills",
+                                            "bytes":  2334,
+                                            "chars":  2334,
+                                            "sha256":  "71133cc181039fd1c9ff080447100e3dc34184a5f67dcdbfb04b08fa24a9a00e"
                                         }
                                     ]
                   }
@@ -258,7 +1566,7 @@
     "unknown":  [
                     {
                         "item":  "runtime_skill_listing",
-                        "reason":  "Runtime-injected skill listing is not observable from local files."
+                        "reason":  "Runtime-injected skill listing is not derivable from filesystem contents, even when junctions are resolved."
                     },
                     {
                         "item":  "actual_context_tokens",
@@ -272,13 +1580,15 @@
     "method":  {
                    "name":  "deterministic_local_io",
                    "no_model_call":  true,
-                   "base_revision":  "e09eb4f34416bab396cbbef656f58e09a45fe2bc",
+                   "base_revision":  "4f7744be1e53608f9acbfa2b18565fbe824dadf1",
+                   "generated_by_commit":  "4f7744be1e53608f9acbfa2b18565fbe824dadf1",
                    "limitations":  [
                                        "Token estimates use chars/4 and are not observed tokens.",
                                        "Runtime injection and provider cache/cost are not measured."
                                    ]
                },
     "limitations":  [
-                        "Local filesystem observations do not represent runtime-injected skills or provider accounting."
+                        "Local filesystem observations do not represent runtime-injected skills or provider accounting.",
+                        "path is machine-specific; use path_label for stable identification."
                     ]
 }
