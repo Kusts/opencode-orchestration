@@ -6,7 +6,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **#50/#141 PARCIAL (2026-11-12, revisão R2):** #50 ancora nos 5 pins de `runtime-versions.json`; scan limitado encontrou 126 ocorrências (18 fonte, 108 literais duplicados, 0 mensagem/comparador literal) e 13 comparadores. #141 lista 536 declarações, 4 grupos duplicados UNPROVEN (permission, subagent, deny, edit) com lados path:line; 8 hashes de arquivos protegidos. Nenhuma permissão/template/agente/flag foi alterada nem duplicação removida. Cópias e paridade ainda requerem revisão/prova.
+- **#50/#141 COBERTAS (2026-11-12, revisão R3 estruturada):** #50 leu os 5 pins do registry, deduplicou 3 literais em 62 path:line (25 registry: 10 source-of-truth + 15 outros; 26 fixtures; 9 comentário/doc; 2 product code) e não encontrou comparadores. Residual: gate `OrchestrationModelRouter.ps1:2661` ainda tem allowlist hardcoded; nenhuma troca executada. #141 parseou templates JSON, frontmatter pelo `Split-AgentFileText` e grants JSON; 0 tokens cross-surface e Agent Config sem declarações estruturadas. Nenhuma permissão alterada; remoção não aplicável. Correção transparente: totais R1/R2 (126/108/536/4) foram artefatos dos scanners regex/prosa e substituídos pelo método estruturado.
 
 - **#192 PARCIAL (2026-11-12):** comparação local limitada às decisões pré-execução do preflight e à política do gate; nenhuma execução foi realizada. Direct/Single correspondem a decisões implementadas; Cascade/Critique são NOT_IMPLEMENTED. Wall-clock, tokens e custo do provedor não foram observados. Comparação de desempenho depende de implementar Cascade/Critique e executar cenários reais. Evidência: `evidence/issue-192/strategy-comparison-2026-11-12.json`.
 

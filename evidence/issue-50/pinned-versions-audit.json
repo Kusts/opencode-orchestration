@@ -16,672 +16,341 @@
                        ],
     "declared_pins":  [
                           {
-                              "key":  "vv1",
+                              "key":  "runtimes.v1",
                               "package":  "opencode-ai",
                               "version":  "1.18.34",
                               "spec":  "opencode-ai@1.18.34"
                           },
                           {
-                              "key":  "vv2",
+                              "key":  "runtimes.v2",
                               "package":  "@opencode/cli",
                               "version":  "2.2.6",
                               "spec":  "@opencode/cli@2.2.6"
                           },
                           {
-                              "key":  "plugin_vv1",
+                              "key":  "plugins.v1",
                               "package":  "@opencode-ai/plugin",
                               "version":  "1.18.34",
                               "spec":  "@opencode-ai/plugin@1.18.34"
                           },
                           {
-                              "key":  "plugin_vv2",
+                              "key":  "plugins.v2",
                               "package":  "@opencode/plugin",
                               "version":  "2.2.6",
                               "spec":  "@opencode/plugin@2.2.6"
                           },
                           {
-                              "key":  "bun",
+                              "key":  "tools.bun",
                               "package":  "bun",
                               "version":  "1.3.14",
                               "spec":  "bun@1.3.14"
                           }
                       ],
+    "distinct_literals":  [
+                              "1.18.34",
+                              "2.2.6",
+                              "1.3.14"
+                          ],
     "literals":  [
                      {
-                         "path":  "scripts/ci/session-real-lane-v2.ps1",
-                         "line":  2968,
-                         "literal":  "1.18.34",
-                         "context":  "# V1 imprime so \u00271.18.34\u0027 (sem o prefixo \u0027opencode v\u0027 do V2);",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/ci/session-real-lane-v2.ps1",
-                         "line":  2968,
-                         "literal":  "1.18.34",
-                         "context":  "# V1 imprime so \u00271.18.34\u0027 (sem o prefixo \u0027opencode v\u0027 do V2);",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/runtime/detect-opencode-capabilities.tests.ps1",
-                         "line":  82,
-                         "literal":  "1.18.34",
-                         "context":  "return @{ Ok = $true; ExitCode = 0; Output = \"opencode v1.18.34\"; Reason = \"probe ok\" }",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/runtime/detect-opencode-capabilities.tests.ps1",
-                         "line":  82,
-                         "literal":  "1.18.34",
-                         "context":  "return @{ Ok = $true; ExitCode = 0; Output = \"opencode v1.18.34\"; Reason = \"probe ok\" }",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-objective.tests.ps1",
-                         "line":  102,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId $TaskId -Objective \u0027Create and verify resume-proof.txt inside the authorized write scope.\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86o\u0027 -ReadScopes @(\u0027src/readme.md\u0027) -WriteScopes @(\u0027resume-proof.txt\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-objective.tests.ps1",
-                         "line":  102,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId $TaskId -Objective \u0027Create and verify resume-proof.txt inside the authorized write scope.\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86o\u0027 -ReadScopes @(\u0027src/readme.md\u0027) -WriteScopes @(\u0027resume-proof.txt\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-settlement.tests.ps1",
-                         "line":  89,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId $tid -Objective (\u0027obj \u0027 + $tid) -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86s\u0027 -ReadScopes @(\u0027src/s86.ps1\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-settlement.tests.ps1",
-                         "line":  89,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId $tid -Objective (\u0027obj \u0027 + $tid) -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86s\u0027 -ReadScopes @(\u0027src/s86.ps1\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  3,
-                         "literal":  "2.2.6",
-                         "context":  "Gate operacional de regressão e compatibilidade; a matriz distingue o baseline histórico, o host anterior e o pin atual V2.2.6 (Issues #101 e #146).",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  3,
-                         "literal":  "2.2.6",
-                         "context":  "Gate operacional de regressão e compatibilidade; a matriz distingue o baseline histórico, o host anterior e o pin atual V2.2.6 (Issues #101 e #146).",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  71,
-                         "literal":  "2.2.6",
-                         "context":  "[ordered]@{ version = \"2.2.6\"; profile = \"current-pin\"; status = \"PASS_EXACT_LIFECYCLE_SMOKE\"; note = \"Exact 2.2.6 lifecycle smoke passed; native capability evidence remains HOLD\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  71,
-                         "literal":  "2.2.6",
-                         "context":  "[ordered]@{ version = \"2.2.6\"; profile = \"current-pin\"; status = \"PASS_EXACT_LIFECYCLE_SMOKE\"; note = \"Exact 2.2.6 lifecycle smoke passed; native capability evidence remains HOLD\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  46,
-                         "literal":  "2.2.6",
-                         "context":  "$pCurrent = $report.compatibility_matrix | Where-Object { $_.version -eq \"2.2.6\" }",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  46,
-                         "literal":  "2.2.6",
-                         "context":  "$pCurrent = $report.compatibility_matrix | Where-Object { $_.version -eq \"2.2.6\" }",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  47,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-Gate ($pCurrent.profile -eq \"current-pin\" -and $pCurrent.status -eq \"PASS_EXACT_LIFECYCLE_SMOKE\") \"2.2.6 lifecycle smoke exato passou; capacidades nativas continuam HOLD\"",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  47,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-Gate ($pCurrent.profile -eq \"current-pin\" -and $pCurrent.status -eq \"PASS_EXACT_LIFECYCLE_SMOKE\") \"2.2.6 lifecycle smoke exato passou; capacidades nativas continuam HOLD\"",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/OrchestrationEventBridge.tests.ps1",
-                         "line":  40,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-bridge-1\u0027 -Objective \u0027receber evento via bridge\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/OrchestrationEventBridge.tests.ps1",
-                         "line":  40,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-bridge-1\u0027 -Objective \u0027receber evento via bridge\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  47,
-                         "literal":  "2.2.6",
-                         "context":  "$c=New-OrchestrationTask -TaskId $id -Objective \u0027review repair proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BaseRevision $baseRevision -AcceptanceCriteria @(\u0027fixture passes\u0027) -VerificationProfiles @(\u0027passes\u0027) -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  47,
-                         "literal":  "2.2.6",
-                         "context":  "$c=New-OrchestrationTask -TaskId $id -Objective \u0027review repair proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BaseRevision $baseRevision -AcceptanceCriteria @(\u0027fixture passes\u0027) -VerificationProfiles @(\u0027passes\u0027) -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  75,
-                         "literal":  "2.2.6",
-                         "context":  "$ic=New-OrchestrationTask -TaskId $invalidId -Objective \u0027invalid policy must not persist\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  75,
-                         "literal":  "2.2.6",
-                         "context":  "$ic=New-OrchestrationTask -TaskId $invalidId -Objective \u0027invalid policy must not persist\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  81,
-                         "literal":  "2.2.6",
-                         "context":  "$ec=New-OrchestrationTask -TaskId $escalateId -Objective \u0027retry budget proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  81,
-                         "literal":  "2.2.6",
-                         "context":  "$ec=New-OrchestrationTask -TaskId $escalateId -Objective \u0027retry budget proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2551,
-                         "literal":  "2.2.6",
-                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23; official raw",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2551,
-                         "literal":  "2.2.6",
-                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23; official raw",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2553,
-                         "literal":  "2.2.6",
-                         "context":  "parent.model). 2.2.6 was authorized by an exact native-override probe",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2553,
-                         "literal":  "2.2.6",
-                         "context":  "parent.model). 2.2.6 was authorized by an exact native-override probe",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2661,
-                         "literal":  "2.2.6",
-                         "context":  "$supported = @(\u00272.2.5\u0027, \u00272.2.6\u0027, \u00272.0.23\u0027)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2661,
-                         "literal":  "2.2.6",
-                         "context":  "$supported = @(\u00272.2.5\u0027, \u00272.2.6\u0027, \u00272.0.23\u0027)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  12,
-                         "literal":  "2.2.6",
-                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23). Unknown/missing live",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  12,
-                         "literal":  "2.2.6",
-                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23). Unknown/missing live",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  49,
-                         "literal":  "2.2.6",
-                         "context":  "$r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam \u00272.2.6\u0027)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  49,
-                         "literal":  "2.2.6",
-                         "context":  "$r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam \u00272.2.6\u0027)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  51,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-NP (([string]$r226.live_version -ceq \u00272.2.6\u0027)) \u0027NP02c-live-version-echo-226\u0027 (\"live=\" + [string]$r226.live_version)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  51,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-NP (([string]$r226.live_version -ceq \u00272.2.6\u0027)) \u0027NP02c-live-version-echo-226\u0027 (\"live=\" + [string]$r226.live_version)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationReviewIntegration.tests.ps1",
-                         "line":  32,
-                         "literal":  "2.2.6",
-                         "context":  "$create = New-OrchestrationTask -TaskId \u0027task-review-1\u0027 -Objective \u0027validar review ancorado\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationReviewIntegration.tests.ps1",
-                         "line":  32,
-                         "literal":  "2.2.6",
-                         "context":  "$create = New-OrchestrationTask -TaskId \u0027task-review-1\u0027 -Objective \u0027validar review ancorado\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
-                         "line":  76,
-                         "literal":  "1.18.34",
-                         "context":  "$probeV1=\"opencode version 1.18.34 windows\"",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
-                         "line":  76,
-                         "literal":  "1.18.34",
-                         "context":  "$probeV1=\"opencode version 1.18.34 windows\"",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  30,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-event-1\u0027 -Objective \u0027receber evento\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  30,
-                         "literal":  "2.2.6",
-                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-event-1\u0027 -Objective \u0027receber evento\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  57,
-                         "literal":  "2.2.6",
-                         "context":  "$c2 = New-OrchestrationTask -TaskId \u0027task-event-2\u0027 -Objective \u0027task terminal\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  57,
-                         "literal":  "2.2.6",
-                         "context":  "$c2 = New-OrchestrationTask -TaskId \u0027task-event-2\u0027 -Objective \u0027task terminal\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  18,
-                         "literal":  "2.2.6",
-                         "context":  "$doc=[ordered]@{schema_version=1;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;records=@($Records)}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  18,
-                         "literal":  "2.2.6",
-                         "context":  "$doc=[ordered]@{schema_version=1;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;records=@($Records)}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  24,
-                         "literal":  "2.2.6",
-                         "context":  "$record=[ordered]@{feature_id=$FeatureId;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$Scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  24,
-                         "literal":  "2.2.6",
-                         "context":  "$record=[ordered]@{feature_id=$FeatureId;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$Scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  42,
-                         "literal":  "2.2.6",
-                         "context":  "if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq \u0027exact-binary-live\u0027 -and [string]$entry.required_evidence.runtime -ceq \u0027v2\u0027 -and [string]$entry.required_evidence.pin -ceq \u00272.2.6\u0027){$holdCount++}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  42,
-                         "literal":  "2.2.6",
-                         "context":  "if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq \u0027exact-binary-live\u0027 -and [string]$entry.required_evidence.runtime -ceq \u0027v2\u0027 -and [string]$entry.required_evidence.pin -ceq \u00272.2.6\u0027){$holdCount++}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  48,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) \u0027every candidate is hold-unproven with exact-binary-live/v2/2.2.6 requirements\u0027",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  48,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) \u0027every candidate is hold-unproven with exact-binary-live/v2/2.2.6 requirements\u0027",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  51,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-That ($registry.runtime -ceq \u0027v2\u0027 -and $registry.pin -ceq \u00272.2.6\u0027 -and $registry.PSObject.Properties.Name -notcontains \u0027enabled\u0027) \u0027registry declares no global activation switch\u0027",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  51,
-                         "literal":  "2.2.6",
-                         "context":  "Assert-That ($registry.runtime -ceq \u0027v2\u0027 -and $registry.pin -ceq \u00272.2.6\u0027 -and $registry.PSObject.Properties.Name -notcontains \u0027enabled\u0027) \u0027registry declares no global activation switch\u0027",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  88,
-                         "literal":  "2.2.6",
-                         "context":  "[void](Assert-NotProven -Name \u0027pin.json\u0027 -Reason \u0027evidence-pin-mismatch\u0027 -Records @((New-ProvenRecord -FeatureId $target -Scenario $scenario -Override @{pin=\u00272.0.23\u0027})) -Label \u0027historical 2.0.23 evidence does not prove current 2.2.6\u0027)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  88,
-                         "literal":  "2.2.6",
-                         "context":  "[void](Assert-NotProven -Name \u0027pin.json\u0027 -Reason \u0027evidence-pin-mismatch\u0027 -Records @((New-ProvenRecord -FeatureId $target -Scenario $scenario -Override @{pin=\u00272.0.23\u0027})) -Label \u0027historical 2.0.23 evidence does not prove current 2.2.6\u0027)",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  224,
-                         "literal":  "2.2.6",
-                         "context":  "$typedInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]\u00272026-10-02T12:00:00Z\u0027);verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  224,
-                         "literal":  "2.2.6",
-                         "context":  "$typedInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]\u00272026-10-02T12:00:00Z\u0027);verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  225,
-                         "literal":  "2.2.6",
-                         "context":  "$textInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  225,
-                         "literal":  "2.2.6",
-                         "context":  "$textInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  248,
-                         "literal":  "2.2.6",
-                         "context":  "$unspecified=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]::SpecifyKind([DateTime]\u00272026-10-02 12:00:00\u0027,[DateTimeKind]::Unspecified));verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  248,
-                         "literal":  "2.2.6",
-                         "context":  "$unspecified=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]::SpecifyKind([DateTime]\u00272026-10-02 12:00:00\u0027,[DateTimeKind]::Unspecified));verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  250,
-                         "literal":  "2.2.6",
-                         "context":  "$wallClock=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=[DateTime]\u00272026-10-02 12:00:00\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  250,
-                         "literal":  "2.2.6",
-                         "context":  "$wallClock=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=[DateTime]\u00272026-10-02 12:00:00\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  164,
-                         "literal":  "2.2.6",
-                         "context":  "// Typechecked against current @opencode/plugin registry pin 2.2.6; prior runtime observation is 2.0.23 only. get({sessionID})",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  164,
-                         "literal":  "2.2.6",
-                         "context":  "// Typechecked against current @opencode/plugin registry pin 2.2.6; prior runtime observation is 2.0.23 only. get({sessionID})",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  177,
-                         "literal":  "2.2.6",
-                         "context":  "// Typecheck uses current registry pin 2.2.6; runtime observation is historical 2.0.23 only. This literal is checked by tsc against",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  177,
-                         "literal":  "2.2.6",
-                         "context":  "// Typecheck uses current registry pin 2.2.6; runtime observation is historical 2.0.23 only. This literal is checked by tsc against",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
                          "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
                          "line":  243,
                          "literal":  "2.2.6",
                          "context":  "// typechecked at 2.2.6, runtime-observed only at 2.0.23 (sessionID, agent -",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  243,
-                         "literal":  "2.2.6",
-                         "context":  "// typechecked at 2.2.6, runtime-observed only at 2.0.23 (sessionID, agent -",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "COMMENT_OR_DOC"
                      },
                      {
                          "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
                          "line":  344,
                          "literal":  "2.2.6",
                          "context":  "// 2.0.23, not 2.2.6: required keys",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  344,
-                         "literal":  "2.2.6",
-                         "context":  "// 2.0.23, not 2.2.6: required keys",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "COMMENT_OR_DOC"
                      },
                      {
                          "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
                          "line":  414,
                          "literal":  "2.2.6",
                          "context":  "// SessionInfo; the 2.2.6 runtime shape remains unobserved.",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "COMMENT_OR_DOC"
                      },
                      {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  414,
+                         "path":  "plugins/orchestration-enforcement/v2.ts",
+                         "line":  164,
                          "literal":  "2.2.6",
-                         "context":  "// SessionInfo; the 2.2.6 runtime shape remains unobserved.",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "context":  "// Typechecked against current @opencode/plugin registry pin 2.2.6; prior runtime observation is 2.0.23 only. get({sessionID})",
+                         "classification":  "COMMENT_OR_DOC"
+                     },
+                     {
+                         "path":  "plugins/orchestration-enforcement/v2.ts",
+                         "line":  177,
+                         "literal":  "2.2.6",
+                         "context":  "// Typecheck uses current registry pin 2.2.6; runtime observation is historical 2.0.23 only. This literal is checked by tsc against",
+                         "classification":  "COMMENT_OR_DOC"
+                     },
+                     {
+                         "path":  "scripts/ci/session-real-lane-v2.ps1",
+                         "line":  2968,
+                         "literal":  "1.18.34",
+                         "context":  "# V1 imprime so \u00271.18.34\u0027 (sem o prefixo \u0027opencode v\u0027 do V2);",
+                         "classification":  "COMMENT_OR_DOC"
+                     },
+                     {
+                         "path":  "scripts/runtime/detect-opencode-capabilities.tests.ps1",
+                         "line":  82,
+                         "literal":  "1.18.34",
+                         "context":  "return @{ Ok = $true; ExitCode = 0; Output = \"opencode v1.18.34\"; Reason = \"probe ok\" }",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/github-wake-86-objective.tests.ps1",
+                         "line":  102,
+                         "literal":  "2.2.6",
+                         "context":  "$c = New-OrchestrationTask -TaskId $TaskId -Objective \u0027Create and verify resume-proof.txt inside the authorized write scope.\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86o\u0027 -ReadScopes @(\u0027src/readme.md\u0027) -WriteScopes @(\u0027resume-proof.txt\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/github-wake-86-settlement.tests.ps1",
+                         "line":  89,
+                         "literal":  "2.2.6",
+                         "context":  "$c = New-OrchestrationTask -TaskId $tid -Objective (\u0027obj \u0027 + $tid) -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86s\u0027 -ReadScopes @(\u0027src/s86.ps1\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
+                         "line":  2551,
+                         "literal":  "2.2.6",
+                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23; official raw",
+                         "classification":  "COMMENT_OR_DOC"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
+                         "line":  2553,
+                         "literal":  "2.2.6",
+                         "context":  "parent.model). 2.2.6 was authorized by an exact native-override probe",
+                         "classification":  "COMMENT_OR_DOC"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
+                         "line":  2661,
+                         "literal":  "2.2.6",
+                         "context":  "$supported = @(\u00272.2.5\u0027, \u00272.2.6\u0027, \u00272.0.23\u0027)",
+                         "classification":  "PRODUCT_CODE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+                         "line":  12,
+                         "literal":  "2.2.6",
+                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23). Unknown/missing live",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+                         "line":  49,
+                         "literal":  "2.2.6",
+                         "context":  "$r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam \u00272.2.6\u0027)",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+                         "line":  51,
+                         "literal":  "2.2.6",
+                         "context":  "Assert-NP (([string]$r226.live_version -ceq \u00272.2.6\u0027)) \u0027NP02c-live-version-echo-226\u0027 (\"live=\" + [string]$r226.live_version)",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationReviewIntegration.tests.ps1",
+                         "line":  32,
+                         "literal":  "2.2.6",
+                         "context":  "$create = New-OrchestrationTask -TaskId \u0027task-review-1\u0027 -Objective \u0027validar review ancorado\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
+                         "line":  76,
+                         "literal":  "1.18.34",
+                         "context":  "$probeV1=\"opencode version 1.18.34 windows\"",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
+                         "line":  30,
+                         "literal":  "2.2.6",
+                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-event-1\u0027 -Objective \u0027receber evento\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
+                         "line":  57,
+                         "literal":  "2.2.6",
+                         "context":  "$c2 = New-OrchestrationTask -TaskId \u0027task-event-2\u0027 -Objective \u0027task terminal\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  18,
+                         "literal":  "2.2.6",
+                         "context":  "$doc=[ordered]@{schema_version=1;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;records=@($Records)}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  24,
+                         "literal":  "2.2.6",
+                         "context":  "$record=[ordered]@{feature_id=$FeatureId;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$Scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  42,
+                         "literal":  "2.2.6",
+                         "context":  "if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq \u0027exact-binary-live\u0027 -and [string]$entry.required_evidence.runtime -ceq \u0027v2\u0027 -and [string]$entry.required_evidence.pin -ceq \u00272.2.6\u0027){$holdCount++}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  48,
+                         "literal":  "2.2.6",
+                         "context":  "Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) \u0027every candidate is hold-unproven with exact-binary-live/v2/2.2.6 requirements\u0027",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  51,
+                         "literal":  "2.2.6",
+                         "context":  "Assert-That ($registry.runtime -ceq \u0027v2\u0027 -and $registry.pin -ceq \u00272.2.6\u0027 -and $registry.PSObject.Properties.Name -notcontains \u0027enabled\u0027) \u0027registry declares no global activation switch\u0027",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  88,
+                         "literal":  "2.2.6",
+                         "context":  "[void](Assert-NotProven -Name \u0027pin.json\u0027 -Reason \u0027evidence-pin-mismatch\u0027 -Records @((New-ProvenRecord -FeatureId $target -Scenario $scenario -Override @{pin=\u00272.0.23\u0027})) -Label \u0027historical 2.0.23 evidence does not prove current 2.2.6\u0027)",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  224,
+                         "literal":  "2.2.6",
+                         "context":  "$typedInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]\u00272026-10-02T12:00:00Z\u0027);verified_by=\u0027livehook-v2.tests.ps1\u0027}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  225,
+                         "literal":  "2.2.6",
+                         "context":  "$textInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  248,
+                         "literal":  "2.2.6",
+                         "context":  "$unspecified=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]::SpecifyKind([DateTime]\u00272026-10-02 12:00:00\u0027,[DateTimeKind]::Unspecified));verified_by=\u0027livehook-v2.tests.ps1\u0027}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+                         "line":  250,
+                         "literal":  "2.2.6",
+                         "context":  "$wallClock=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=[DateTime]\u00272026-10-02 12:00:00\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
+                         "line":  3,
+                         "literal":  "2.2.6",
+                         "context":  "Gate operacional de regress├úo e compatibilidade; a matriz distingue o baseline hist├│rico, o host anterior e o pin atual V2.2.6 (Issues #101 e #146).",
+                         "classification":  "COMMENT_OR_DOC"
+                     },
+                     {
+                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
+                         "line":  71,
+                         "literal":  "2.2.6",
+                         "context":  "[ordered]@{ version = \"2.2.6\"; profile = \"current-pin\"; status = \"PASS_EXACT_LIFECYCLE_SMOKE\"; note = \"Exact 2.2.6 lifecycle smoke passed; native capability evidence remains HOLD\" },",
+                         "classification":  "PRODUCT_CODE"
+                     },
+                     {
+                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
+                         "line":  46,
+                         "literal":  "2.2.6",
+                         "context":  "$pCurrent = $report.compatibility_matrix | Where-Object { $_.version -eq \"2.2.6\" }",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
+                         "line":  47,
+                         "literal":  "2.2.6",
+                         "context":  "Assert-Gate ($pCurrent.profile -eq \"current-pin\" -and $pCurrent.status -eq \"PASS_EXACT_LIFECYCLE_SMOKE\") \"2.2.6 lifecycle smoke exato passou; capacidades nativas continuam HOLD\"",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/OrchestrationEventBridge.tests.ps1",
+                         "line":  40,
+                         "literal":  "2.2.6",
+                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-bridge-1\u0027 -Objective \u0027receber evento via bridge\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
+                         "line":  47,
+                         "literal":  "2.2.6",
+                         "context":  "$c=New-OrchestrationTask -TaskId $id -Objective \u0027review repair proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BaseRevision $baseRevision -AcceptanceCriteria @(\u0027fixture passes\u0027) -VerificationProfiles @(\u0027passes\u0027) -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
+                         "line":  75,
+                         "literal":  "2.2.6",
+                         "context":  "$ic=New-OrchestrationTask -TaskId $invalidId -Objective \u0027invalid policy must not persist\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
+                     },
+                     {
+                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
+                         "line":  81,
+                         "literal":  "2.2.6",
+                         "context":  "$ec=New-OrchestrationTask -TaskId $escalateId -Objective \u0027retry budget proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
+                         "classification":  "TEST_FIXTURE"
                      },
                      {
                          "path":  "source/registry/capabilities-v2.json",
                          "line":  72,
                          "literal":  "2.2.6",
                          "context":  "\"runtime\": { \"v2\": true, \"note\": \"plugin V2 @opencode/plugin@2.2.6; tipo checado contra o pin; shape runtime observado somente em 2.0.23\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  72,
-                         "literal":  "2.2.6",
-                         "context":  "\"runtime\": { \"v2\": true, \"note\": \"plugin V2 @opencode/plugin@2.2.6; tipo checado contra o pin; shape runtime observado somente em 2.0.23\" },",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/capabilities-v2.json",
                          "line":  75,
                          "literal":  "1.18.34",
                          "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23; flags task_kernel/watchdog/bounded_execution ON\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "literal":  "2.2.6",
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23; flags task_kernel/watchdog/bounded_execution ON\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "literal":  "1.18.34",
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23; flags task_kernel/watchdog/bounded_execution ON\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "literal":  "2.2.6",
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23; flags task_kernel/watchdog/bounded_execution ON\" },",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/capabilities-v2.json",
                          "line":  475,
                          "literal":  "1.18.34",
                          "context":  "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.2.6; certificacao runtime 2.2.6 pendente).\",",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "literal":  "2.2.6",
-                         "context":  "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.2.6; certificacao runtime 2.2.6 pendente).\",",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "literal":  "1.18.34",
-                         "context":  "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.2.6; certificacao runtime 2.2.6 pendente).\",",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "literal":  "2.2.6",
-                         "context":  "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.2.6; certificacao runtime 2.2.6 pendente).\",",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/capabilities-v2.json",
                          "line":  477,
                          "literal":  "2.2.6",
                          "context":  "\"runtime\": { \"v2\": true, \"note\": \"pin V2 atual 2.2.6 via loader fail-closed RuntimeVersions.ps1; probes 2.0.23 sao historicos\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  477,
-                         "literal":  "2.2.6",
-                         "context":  "\"runtime\": { \"v2\": true, \"note\": \"pin V2 atual 2.2.6 via loader fail-closed RuntimeVersions.ps1; probes 2.0.23 sao historicos\" },",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/capabilities-v2.json",
                          "line":  480,
                          "literal":  "2.2.6",
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"pin V2 2.2.6 exato; smoke explícito do ciclo de serviço passou; provas de capacidades nativas específicas seguem em HOLD\" },",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  480,
-                         "literal":  "2.2.6",
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"pin V2 2.2.6 exato; smoke explícito do ciclo de serviço passou; provas de capacidades nativas específicas seguem em HOLD\" },",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"pin V2 2.2.6 exato; smoke expl├¡cito do ciclo de servi├ºo passou; provas de capacidades nativas espec├¡ficas seguem em HOLD\" },",
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/runtime-versions.json",
                          "line":  8,
                          "literal":  "1.18.34",
                          "context":  "\"version\": \"1.18.34\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  8,
-                         "literal":  "1.18.34",
-                         "context":  "\"version\": \"1.18.34\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  9,
-                         "literal":  "1.18.34",
-                         "context":  "\"spec\": \"opencode-ai@1.18.34\"",
                          "classification":  "SOURCE_OF_TRUTH"
                      },
                      {
@@ -700,30 +369,9 @@
                      },
                      {
                          "path":  "source/registry/runtime-versions.json",
-                         "line":  13,
-                         "literal":  "2.2.6",
-                         "context":  "\"version\": \"2.2.6\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
                          "line":  14,
                          "literal":  "2.2.6",
                          "context":  "\"spec\": \"@opencode/cli@2.2.6\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  14,
-                         "literal":  "2.2.6",
-                         "context":  "\"spec\": \"@opencode/cli@2.2.6\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  20,
-                         "literal":  "1.18.34",
-                         "context":  "\"version\": \"1.18.34\",",
                          "classification":  "SOURCE_OF_TRUTH"
                      },
                      {
@@ -742,30 +390,9 @@
                      },
                      {
                          "path":  "source/registry/runtime-versions.json",
-                         "line":  21,
-                         "literal":  "1.18.34",
-                         "context":  "\"spec\": \"@opencode-ai/plugin@1.18.34\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
                          "line":  25,
                          "literal":  "2.2.6",
                          "context":  "\"version\": \"2.2.6\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  25,
-                         "literal":  "2.2.6",
-                         "context":  "\"version\": \"2.2.6\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  26,
-                         "literal":  "2.2.6",
-                         "context":  "\"spec\": \"@opencode/plugin@2.2.6\"",
                          "classification":  "SOURCE_OF_TRUTH"
                      },
                      {
@@ -794,889 +421,285 @@
                          "line":  4,
                          "literal":  "2.2.6",
                          "context":  "\"pin\": \"2.2.6\",",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  4,
-                         "literal":  "2.2.6",
-                         "context":  "\"pin\": \"2.2.6\",",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  5,
                          "literal":  "2.2.6",
                          "context":  "\"pin_note\": \"This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); the target moved from 2.0.23 to 2.2.6 on 2026-11-07 by explicit operator request. The exact 2.2.6 service-lifecycle smoke passed on 2026-11-07, but it does not prove any feature below. CLOSURE 2026-10-06: historical real-runtime probe collection ran against 2.0.23 (evidence/v3.1/runtime-reliability/session-lane-2026-10-06/v2-native-probes.json); those observations do not prove 2.2.6. Session-permission-narrowing was observed NOT enforced on the /shell surface (fail-open observed there) on 2.0.23; the other probes stayed ambiguous without model inference or operator-owned policy config. NO feature-specific exact-binary-live record exists for 2.2.6, so all 8 features remain hold-unproven; runtime_grant_enforcement.v2 stays OFF (sustained HOLD, program-status.json#closure_2026_10_06). Collection plus validation is operator-owned by design (see evidence_contract.writer_contract).\",",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  5,
-                         "literal":  "2.2.6",
-                         "context":  "\"pin_note\": \"This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); the target moved from 2.0.23 to 2.2.6 on 2026-11-07 by explicit operator request. The exact 2.2.6 service-lifecycle smoke passed on 2026-11-07, but it does not prove any feature below. CLOSURE 2026-10-06: historical real-runtime probe collection ran against 2.0.23 (evidence/v3.1/runtime-reliability/session-lane-2026-10-06/v2-native-probes.json); those observations do not prove 2.2.6. Session-permission-narrowing was observed NOT enforced on the /shell surface (fail-open observed there) on 2.0.23; the other probes stayed ambiguous without model inference or operator-owned policy config. NO feature-specific exact-binary-live record exists for 2.2.6, so all 8 features remain hold-unproven; runtime_grant_enforcement.v2 stays OFF (sustained HOLD, program-status.json#closure_2026_10_06). Collection plus validation is operator-owned by design (see evidence_contract.writer_contract).\",",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  22,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"session-hierarchy-provenance-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  22,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"session-hierarchy-provenance-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  30,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"session-permission-narrowing-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  30,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"session-permission-narrowing-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  38,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"experimental-policies-hard-deny-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  38,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"experimental-policies-hard-deny-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  46,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"native-step-limits-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  46,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"native-step-limits-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  54,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"background-subagents-bounded-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  54,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"background-subagents-bounded-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  62,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"plugin-storage-index-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  62,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"plugin-storage-index-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  70,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"snapshots-auxiliary-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  70,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"snapshots-auxiliary-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
+                         "classification":  "REGISTRY_RECORD"
                      },
                      {
                          "path":  "source/registry/v2-native-capabilities.json",
                          "line":  78,
                          "literal":  "2.2.6",
                          "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"durable-event-log-replay-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  78,
-                         "literal":  "2.2.6",
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"durable-event-log-replay-exact-binary\"},",
-                         "classification":  "DUPLICATE_LITERAL"
-                     }
-                 ],
-    "comparators":  [
-                        {
-                            "path":  "scripts/ci/plugin-healthcheck.tests.ps1",
-                            "line":  15,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/runtime/New-OrchestrationProfile.ps1",
-                            "line":  1237,
-                            "expression":  "$tmpl = $tmpl.Replace(\u0027{PINNED_VERSION}\u0027, (Get-P7PinnedVersion -RepoRoot $RepoRoot -Generation $Generation))",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/audit-pinned-versions.ps1",
-                            "line":  7,
-                            "expression":  "foreach($f in $files){$rel=$f.FullName.Substring($root.Length+1).Replace(\u0027\\\u0027,\u0027/\u0027);if($excluded|Where-Object{$rel.StartsWith($_,[StringComparison]::OrdinalIgnoreCase)}){continue};$n=0;foreach($line in [IO.File]::ReadLines($f.FullName)){$n++;$isVersionComparison=($line -match \u0027(?i)(version|semver|runtime.?version|plugin.?version|bun.?version).{0,80}(-ge|-gt|-le|-lt|\\[version\\]|CompareTo\\s*\\()\u0027) -or ($line -match \u0027(?i)(-ge|-gt|-le|-lt|\\[version\\]|CompareTo\\s*\\().{0,80}(version|semver|runtime.?version|plugin.?version|bun.?version)\u0027);foreach($pin in $declared){if($line.Contains($pin.version)){$cl=if($rel -eq $registry){\u0027SOURCE_OF_TRUTH\u0027}elseif($isVersionComparison){\u0027VERSION_COMPARATOR\u0027}elseif($line -match \u0027(?i)throw|error|help|message|write-warning|write-host\u0027){\u0027MESSAGE_ONLY\u0027}else{\u0027DUPLICATE_LITERAL\u0027};$literals += [pscustomobject]@{path=$rel;line=$n;literal=$pin.version;context=$line.Trim();classification=$cl}}};if($isVersionComparison){$comparators += [pscustomobject]@{path=$rel;line=$n;expression=$line.Trim();justification=\u0027KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe.\u0027}}}}",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/github-await.tests.ps1",
-                            "line":  196,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/github-wake-controller.tests.ps1",
-                            "line":  64,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/github-wake-solo.tests.ps1",
-                            "line":  88,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/github-wake.tests.ps1",
-                            "line":  44,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/github-watch.tests.ps1",
-                            "line":  49,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/native-dispatch-claim.tests.ps1",
-                            "line":  27,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/objective-step.tests.ps1",
-                            "line":  30,
-                            "expression":  "if (($Engine -eq \u0027pwsh\u0027) -or (($Engine -eq \u0027auto\u0027) -and ([int]$PSVersionTable.PSVersion.Major -ge 6))) {",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "scripts/v3/lib/CapabilityAdvisoryCollector.tests.ps1",
-                            "line":  1393,
-                            "expression":  "if ($PSVersionTable.PSVersion.Major -ge 7) { $detChildExe = \u0027pwsh\u0027 }",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "source/registry/skills-catalog.json",
-                            "line":  45,
-                            "expression":  "{ \"id\": \"ai-memory-learning-maintenance\", \"category\": \"Memory\", \"priority\": \"P2\", \"classification\": \"RECOMMENDED\", \"managed_by\": \"orchestration\", \"activation\": \"on-demand\", \"agents\": [\"build\"], \"conflicts\": [], \"replaces\": [], \"source\": \"agent-config/skills/global/ai-memory-learning-maintenance (external, unpinned)\", \"version_policy\": \"unpinned-external\", \"status\": \"ACTIVE\", \"note\": \"consolidacao/lint/sweep com dry-run antes de destrutivo\" },",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        },
-                        {
-                            "path":  "source/registry/skills-catalog.json",
-                            "line":  91,
-                            "expression":  "{ \"id\": \"hero-visual-prompt-generator\", \"category\": \"Content\", \"priority\": \"P4\", \"classification\": \"DOMAIN\", \"managed_by\": \"orchestration\", \"activation\": \"on-demand\", \"agents\": [\"frontend-engineer\"], \"conflicts\": [], \"replaces\": [], \"source\": \"agent-config/skills/global/hero-visual-prompt-generator (external, unpinned)\", \"version_policy\": \"unpinned-external\", \"status\": \"ACTIVE\", \"note\": \"prompts de hero para geradores de imagem/video\" },",
-                            "justification":  "KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe."
-                        }
-                    ],
-    "candidates":  [
-
-                   ],
-    "proposal":  [
-                     {
-                         "path":  "scripts/ci/session-real-lane-v2.ps1",
-                         "line":  2968,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "scripts/ci/session-real-lane-v2.ps1",
-                         "line":  2968,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "scripts/runtime/detect-opencode-capabilities.tests.ps1",
-                         "line":  82,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "scripts/runtime/detect-opencode-capabilities.tests.ps1",
-                         "line":  82,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-objective.tests.ps1",
-                         "line":  102,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-objective.tests.ps1",
-                         "line":  102,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-settlement.tests.ps1",
-                         "line":  89,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-settlement.tests.ps1",
-                         "line":  89,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  3,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  3,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  71,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  71,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  46,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  46,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  47,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  47,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/OrchestrationEventBridge.tests.ps1",
-                         "line":  40,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/OrchestrationEventBridge.tests.ps1",
-                         "line":  40,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  47,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  47,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  75,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  75,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  81,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  81,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2551,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2551,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2553,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2553,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2661,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2661,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  12,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  12,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  49,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  49,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  51,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  51,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationReviewIntegration.tests.ps1",
-                         "line":  32,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationReviewIntegration.tests.ps1",
-                         "line":  32,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
-                         "line":  76,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
-                         "line":  76,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  30,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  30,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  57,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  57,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  18,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  18,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  24,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  24,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  42,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  42,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  48,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  48,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  51,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  51,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  88,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  88,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  224,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  224,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  225,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  225,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  248,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  248,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  250,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  250,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  164,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  164,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  177,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  177,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  243,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  243,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  344,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  344,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  414,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  414,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  72,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  72,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "1.18.34"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  477,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  477,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  480,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  480,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  4,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  4,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  5,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  5,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  22,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  22,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  30,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  30,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  38,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  38,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  46,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  46,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  54,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  54,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  62,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  62,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  70,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  70,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  78,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  78,
-                         "action":  "Use scripts/runtime/lib/RuntimeVersions.ps1",
-                         "literal":  "2.2.6"
+                         "classification":  "REGISTRY_RECORD"
                      }
                  ],
     "counts":  {
-                   "SOURCE_OF_TRUTH":  18,
-                   "DUPLICATE_LITERAL":  108,
-                   "MESSAGE_ONLY":  0,
-                   "VERSION_COMPARATOR":  0,
-                   "literals":  126,
-                   "comparators":  13
+                   "distinct_literals":  3,
+                   "path_lines":  62,
+                   "SOURCE_OF_TRUTH":  10,
+                   "REGISTRY_RECORD":  25,
+                   "TEST_FIXTURE":  26,
+                   "COMMENT_OR_DOC":  9,
+                   "PRODUCT_CODE":  2,
+                   "UNCLASSIFIED_NEEDS_REVIEW":  0,
+                   "comparators":  0
                },
+    "reviewed_product_code":  [
+                                  {
+                                      "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
+                                      "line":  71,
+                                      "rationale":  "Output matrix data, not a gate."
+                                  },
+                                  {
+                                      "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
+                                      "line":  2661,
+                                      "rationale":  "Hardcoded supported-runtime allowlist gates UNSUPPORTED_RUNTIME; explicit supported set or capability probe, fail-closed."
+                                  }
+                              ],
+    "reviewed_comment_or_doc":  [
+                                    {
+                                        "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
+                                        "line":  243
+                                    },
+                                    {
+                                        "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
+                                        "line":  344
+                                    },
+                                    {
+                                        "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
+                                        "line":  414
+                                    },
+                                    {
+                                        "path":  "plugins/orchestration-enforcement/v2.ts",
+                                        "line":  164
+                                    },
+                                    {
+                                        "path":  "plugins/orchestration-enforcement/v2.ts",
+                                        "line":  177
+                                    },
+                                    {
+                                        "path":  "scripts/ci/session-real-lane-v2.ps1",
+                                        "line":  2968
+                                    },
+                                    {
+                                        "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
+                                        "line":  2551
+                                    },
+                                    {
+                                        "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
+                                        "line":  2553
+                                    },
+                                    {
+                                        "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
+                                        "line":  3
+                                    }
+                                ],
+    "comparators":  [
+
+                    ],
+    "comparator_search":  {
+                              "method":  "Directed keyword search; search hits are manually distinguished from actual comparison expressions. No broad -ge/-lt scan.",
+                              "scope":  "scripts/, plugins/, templates/, install.ps1, uninstall.ps1, source/registry/",
+                              "needles":  [
+                                              "[version]",
+                                              "CompareTo",
+                                              "semver"
+                                          ],
+                              "matches":  4,
+                              "comparator_matches":  0,
+                              "excluded":  "*.tests.ps1"
+                          },
+    "comparator_search_hits":  [
+                                   {
+                                       "path":  "scripts/runtime/lib/RuntimeAdapters.ps1",
+                                       "line":  115,
+                                       "needle":  "semver",
+                                       "context":  "$res.Reason = \u0027nenhum token semver x.y.z na saida\u0027",
+                                       "actual_comparator":  false
+                                   },
+                                   {
+                                       "path":  "scripts/runtime/lib/RuntimeVersions.ps1",
+                                       "line":  106,
+                                       "needle":  "semver",
+                                       "context":  "# version: semver estrito (semver.org 2.0.0) ancorado em \\A...\\z -- NUNCA",
+                                       "actual_comparator":  false
+                                   },
+                                   {
+                                       "path":  "scripts/runtime/lib/RuntimeVersions.ps1",
+                                       "line":  110,
+                                       "needle":  "semver",
+                                       "context":  "# major/minor/patch e identificador de prerelease vazio nao sao semver =\u003e",
+                                       "actual_comparator":  false
+                                   },
+                                   {
+                                       "path":  "scripts/runtime/lib/RuntimeVersions.ps1",
+                                       "line":  119,
+                                       "needle":  "semver",
+                                       "context":  "throw (\u0027runtime versions registry: \u0027 + $group + \u0027.\u0027 + $key + \u0027 com version fora do semver exato (esperado \u0027 + $verPattern + \u0027; rejeita latest/range/^/~/espaco): \u0027 + $ver + \u0027 em \u0027 + $path)",
+                                       "actual_comparator":  false
+                                   }
+                               ],
+    "unparseable":  [
+
+                    ],
+    "protected_files":  [
+                            {
+                                "path":  "templates/opencode.v1.json.tmpl",
+                                "sha256":  "658DEC2718FDC8288BDA7D8A9C0BE2D2D1498C14E8A71EAF6425E1C272F76850"
+                            },
+                            {
+                                "path":  "templates/opencode.v2.json.tmpl",
+                                "sha256":  "FC5B101B2EEE1B656CAF11CBBBFABAA10A8A848DF5E448E0657963369FBD5C24"
+                            },
+                            {
+                                "path":  "source/agents/ai-agent-engineer.md",
+                                "sha256":  "CEDE0F80545389F998421B0A0362587C05421E8D67F71A56F9AA9DBEB3448AB2"
+                            },
+                            {
+                                "path":  "source/agents/architect.md",
+                                "sha256":  "00015C30D171A005ED78E9A822255E009CD0928E61997B7830B13B26B28D606E"
+                            },
+                            {
+                                "path":  "source/agents/automation-engineer.md",
+                                "sha256":  "C8C4CA5120A0D28EB0D4992DD2DF6ACA33D0E9447EB28CC43B06017BE4325BA1"
+                            },
+                            {
+                                "path":  "source/agents/backend-engineer.md",
+                                "sha256":  "0DA30EBDFABC8881D80E11E97440937C986D90E9EB1117F6972903A65E8A8AA2"
+                            },
+                            {
+                                "path":  "source/agents/coder.md",
+                                "sha256":  "56AFFF8FF184E296BE82547B34A27E96D938050C46BF4E9127AD31C6D1A6CDA2"
+                            },
+                            {
+                                "path":  "source/agents/database-engineer.md",
+                                "sha256":  "77E4709AE79A3560DE73C853FEB7EE21911D428A8AD387226F381825193BD5D5"
+                            },
+                            {
+                                "path":  "source/agents/debugger.md",
+                                "sha256":  "FEAB3BEE2C06EB45884A85D8C6BA932ACBFAAF05F926C1792FBBD35341338C01"
+                            },
+                            {
+                                "path":  "source/agents/docs-manager.md",
+                                "sha256":  "3AEFC8B9CFC56543EBFC5273C1E08870CD33FECA6AB41D0B8EEEDB6778F64F37"
+                            },
+                            {
+                                "path":  "source/agents/engineering-advisor.md",
+                                "sha256":  "0D6E1DEE9557D88B1A40EC4566F3472529D63E92175CAA9C9AAE17DAC03A11B5"
+                            },
+                            {
+                                "path":  "source/agents/explorer.md",
+                                "sha256":  "7FF10BED33FFAC40DD3CEC39F22686C018161D077A3D7D1A9F84F2154C8049B2"
+                            },
+                            {
+                                "path":  "source/agents/frontend-engineer.md",
+                                "sha256":  "C383529A8E120C350F2E81E2A4C131075E4ADF561A8B186F2E3B65A4D25FB530"
+                            },
+                            {
+                                "path":  "source/agents/infra-engineer.md",
+                                "sha256":  "818456B72C401EF150F716FC146140A2D9DE4CA9658B0E7AE3F22B78BDF8E906"
+                            },
+                            {
+                                "path":  "source/agents/product-designer.md",
+                                "sha256":  "9E671ADED93E6078CED5F1A34057E3D7EFC1BF2EC3108DDE1A84E75B4CA9C626"
+                            },
+                            {
+                                "path":  "source/agents/requirements-analyst.md",
+                                "sha256":  "47B46541E70D5A47C24B4DDAA3B2216C9D683D77E4AE08251C1105826133834A"
+                            },
+                            {
+                                "path":  "source/agents/researcher.md",
+                                "sha256":  "A5CD9875B8543DA700D344CBB4982E144ECB1226736B7782561AE252C7B4CC8B"
+                            },
+                            {
+                                "path":  "source/agents/reviewer.md",
+                                "sha256":  "8654C6DAEDB824A9688BA97A9DE818675122DC29F19DF0ED6EF1F78C7A3F0633"
+                            },
+                            {
+                                "path":  "source/agents/security-reviewer.md",
+                                "sha256":  "0490861086C437C04289C23C70C6B1932FE044CA10F1FCF22130ED1EC800A687"
+                            },
+                            {
+                                "path":  "source/agents/skeptic.md",
+                                "sha256":  "D3E3006595F7D7FEB347FE0EE232CEBB132CC420FCC801F39E8BD996A683A247"
+                            },
+                            {
+                                "path":  "source/agents/tester.md",
+                                "sha256":  "C2C0893D71C7A8CB0B3DE12F1385098D5C674AD593C8D5302EDA589012EDFEB8"
+                            },
+                            {
+                                "path":  "source/global/AGENTS.md",
+                                "sha256":  "1B9CDA5F01C6D91023AE5A4305A43B759F6C0AED546369C98A360726D44CFDA8"
+                            },
+                            {
+                                "path":  "source/adapters/opencode-v2.md",
+                                "sha256":  "3D96992C426D8EA0D5F072D66B874DCCF6005227C0E10AD871829ED4A4264A1A"
+                            },
+                            {
+                                "path":  "source/adapters/opencode.md",
+                                "sha256":  "9A881C1DBF4CABD7837FD21B1AB52AF5CF9543C532D469186F16AB17491F4932"
+                            }
+                        ],
     "method":  {
-                   "mode":  "deterministic_local_io",
+                   "mode":  "git_grep_fixed_literal_path_line_dedup",
                    "no_model_call":  true,
-                   "base_revision":  "c77443d7a011f47e9308845cf978e67ad0d5e78a",
-                   "generated_by_commit":  "c77443d7a011f47e9308845cf978e67ad0d5e78a",
-                   "limitations":  "Literal scan does not detect dynamically assembled versions or complete semantic comparisons."
+                   "base_revision":  "c9ddea91b21e5aa84b888140b63ab36dd324df20",
+                   "generated_by_commit":  "c9ddea91b21e5aa84b888140b63ab36dd324df20",
+                   "limitations":  "Literal search does not detect dynamically assembled versions; semantic comparators are found only by directed keyword search."
                },
     "generated_at":  "2026-11-12T00:00:00Z"
 }

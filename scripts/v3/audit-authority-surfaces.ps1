@@ -1,41 +1,24 @@
 param([string]$OutFile='evidence/issue-141/authority-surface-audit.json',[string]$GeneratedAt='')
-$ErrorActionPreference='Stop';$root=(Get-Location).Path;$base=(git rev-parse HEAD).Trim()
-$specs=@(
- @{name='opencode';paths=@('templates/opencode.v1.json.tmpl','templates/opencode.v2.json.tmpl','opencode.json')},
- @{name='agent-config';paths=@('source/global/AGENTS.md','source/adapters')},
- @{name='task-kernel';paths=@('scripts/v3/lib/OrchestrationTaskKernel.ps1','scripts/v3/lib/OrchestrationNativeDispatch.ps1','source/registry/verification-policy.json')})
-$surfaces=@();$permissions=@();$owners=@();$seen=@{};$protected=@()
-foreach($s in $specs){
- $existing=@($s.paths|Where-Object {Test-Path $_})
- $surfaces += [pscustomobject]@{name=$s.name;paths=$existing}
- $owners += [pscustomobject]@{surface=$s.name;controlled_by=($s.paths -join '; ')}
- foreach($p in $existing){
-  $it=Get-Item $p
-  if($it.PSIsContainer){$fs=@(Get-ChildItem $p -File -Recurse)}else{$fs=@($it)}
-  foreach($f in $fs){
-   $rel=$f.FullName.Substring($root.Length+1).Replace('\','/')
-   $protected += [pscustomobject]@{path=$rel;sha256=(Get-FileHash $f.FullName -Algorithm SHA256).Hash}
-   $n=0;foreach($line in [IO.File]::ReadLines($f.FullName)){
-    $n++
-    if($line -match '(?i)(edit|bash:\*|subagent|deny|permission|allow|verification|lease|worktree)'){
-     $token=if($line -match '(?i)bash:\*'){'bash:*'}elseif($line -match '(?i)subagent'){'subagent'}elseif($line -match '(?i)deny'){'deny'}elseif($line -match '(?i)edit'){'edit'}else{'permission'}
-     $kind=if($s.name -eq 'agent-config'){'documented-only'}else{'advisory'};$ev="$rel`:$n"
-     $permissions += [pscustomobject]@{permission=$token;surface=$s.name;path=$rel;line=$n;declared_by=$ev;enforced_by=$ev;enforcement_kind=$kind;evidence=$line.Trim()}
-     if(!$seen.ContainsKey($token)){$seen[$token]=@()};$seen[$token]+=[pscustomobject]@{surface=$s.name;path=$rel;line=$n}
-    }
-   }
-  }
- }
-}
-$dups=@()
-foreach($token in $seen.Keys){
- $groups=@($seen[$token]|Group-Object surface)
- if($groups.Count -gt 1){
-  $sides=@();foreach($g in $groups){$x=@($g.Group)[0];$sides += [pscustomobject]@{surface=$x.surface;path=$x.path;line=$x.line;additional_declarations=@($g.Group).Count-1}}
-  $dups += [pscustomobject]@{permission=$token;parity='UNPROVEN';sides=$sides;what_missing='Behavioral parity test showing identical allow/deny outcome and precedence across both surfaces.';parity_evidence='No cross-surface behavior test established by this static scan.'}
- }
-}
-$proposal=@(foreach($d in $dups){[pscustomobject]@{permission=$d.permission;action='No removal proposed';required_proof=$d.what_missing}})
-$now=if($GeneratedAt){$GeneratedAt}else{(Get-Date).ToUniversalTime().ToString('o')}
-$o=[pscustomobject]@{scan_scope=@('templates/opencode.v1.json.tmpl','templates/opencode.v2.json.tmpl','opencode.json','source/global/AGENTS.md','source/adapters/','scripts/v3/lib/OrchestrationTaskKernel.ps1','scripts/v3/lib/OrchestrationNativeDispatch.ps1','source/registry/verification-policy.json');excluded_paths=@('evidence/','docs/','cache/','.git/','node_modules/');surfaces=$surfaces;permissions=$permissions;duplications=$dups;owners=$owners;protected_files=$protected;proposal=$proposal;method=[pscustomobject]@{mode='deterministic_local_io';no_model_call=$true;base_revision=$base;generated_by_commit=$base;limitations='Static scan cannot establish live runtime enforcement; enforcement_kind stays advisory/documented-only absent an explicitly cited behavioral guard/test.'};generated_at=$now}
-$dest=Join-Path $root $OutFile;New-Item -ItemType Directory -Force (Split-Path $dest)|Out-Null;$o|ConvertTo-Json -Depth 10|Set-Content -Encoding UTF8 $dest
+$ErrorActionPreference='Stop';$root=(Get-Location).Path;$base=(git rev-parse HEAD).Trim();$unparseable=@();$permissions=@();$surfaces=@();$protected=@()
+function Add-ProtectedFile([string]$Path){$full=(Resolve-Path $Path).Path;$rel=$full.Substring($root.Length+1).Replace('\','/');if(-not ($script:protected|Where-Object path -eq $rel)){$script:protected += [pscustomobject]@{path=$rel;sha256=(Get-FileHash $full -Algorithm SHA256).Hash}}}
+# OpenCode templates are parsed as JSON, not scanned as text.
+foreach($p in @('templates/opencode.v1.json.tmpl','templates/opencode.v2.json.tmpl')){try{$j=Get-Content $p -Raw|ConvertFrom-Json;Add-ProtectedFile $p;if($p -like '*v1*'){$agents=$j.agent;foreach($a in $agents.PSObject.Properties){$perm=$a.Value.permission;if($perm){foreach($k in $perm.PSObject.Properties){$permissions += [pscustomobject]@{token=$k.Name;surface='opencode';path=$p;declared_by="$p agent.$($a.Name).permission.$($k.Name)";enforced_by=$null;enforcement_kind='advisory';value=$k.Value}}};if($a.Name -eq 'build' -and $j.subagent_depth -ne $null){$permissions += [pscustomobject]@{token='subagent_depth';surface='opencode';path=$p;declared_by="$p subagent_depth";enforced_by=$null;enforcement_kind='advisory';value=$j.subagent_depth}}}}else{foreach($a in $j.agents.PSObject.Properties){foreach($rule in $a.Value.permissions){$token=[string]$rule.action+':'+[string]$rule.resource;$permissions += [pscustomobject]@{token=$token;surface='opencode';path=$p;declared_by="$p agents.$($a.Name).permissions[]";enforced_by=$null;enforcement_kind='advisory';value=$rule.effect}}};$permissions += [pscustomobject]@{token='subagent_depth';surface='opencode';path=$p;declared_by="$p experimental.subagent_depth";enforced_by=$null;enforcement_kind='advisory';value=$j.experimental.subagent_depth}}}catch{$unparseable += [pscustomobject]@{path=$p;reason=$_.Exception.Message;classification='UNPARSEABLE'}}}
+# Agent declarations use the repository's YAML parser and canonical schema.
+. scripts/runtime/lib/AgentTranslator.ps1
+$agentFiles=Get-ChildItem source/agents -Filter '*.md' -File
+foreach($f in $agentFiles){$rel=$f.FullName.Substring($root.Length+1).Replace('\','/');try{$split=Split-AgentFileText -RawText (Get-Content $f.FullName -Raw) -SourceName $f.BaseName;$canon=Convert-AgentFrontmatterYamlToCanonical -FrontmatterText $split.FrontmatterText -SourceName $f.BaseName;Add-ProtectedFile $rel;if($canon.EditPresent){$permissions += [pscustomobject]@{token='edit';surface='opencode';path=$rel;declared_by="$rel permission.edit";enforced_by=$null;enforcement_kind='advisory';value=$canon.Edit}};if($canon.BashKind -ne 'absent'){$permissions += [pscustomobject]@{token='bash';surface='opencode';path=$rel;declared_by="$rel permission.bash";enforced_by=$null;enforcement_kind='advisory';value=$canon.BashKind}};foreach($x in $canon.ExtraPermissions){$permissions += [pscustomobject]@{token=$x.Name;surface='opencode';path=$rel;declared_by="$rel permission.$($x.Name)";enforced_by=$null;enforcement_kind='advisory';value=$x.Effect}}}catch{$unparseable += [pscustomobject]@{path=$rel;reason=$_.Exception.Message;classification='UNPARSEABLE'}}}
+# Agent Config sources are instruction prose; do not infer structured permissions.
+$surfaces += [pscustomobject]@{name='opencode';structured_sources=@('templates/opencode.v1.json.tmpl','templates/opencode.v2.json.tmpl','source/agents/*.md')}
+$surfaces += [pscustomobject]@{name='agent-config';no_structured_declarations=$true;inspected=@('source/global/AGENTS.md','source/adapters/*')}
+$grantPath='source/registry/execution-grants.json';try{$g=Get-Content $grantPath -Raw|ConvertFrom-Json;Add-ProtectedFile $grantPath;foreach($x in $g.grants){$permissions += [pscustomobject]@{token=$x;surface='task-kernel';path=$grantPath;declared_by="$grantPath grants[]";enforced_by=$null;enforcement_kind='documented-only';value='grant'}};foreach($role in $g.role_baselines.PSObject.Properties){foreach($x in $role.Value){$permissions += [pscustomobject]@{token=$x;surface='task-kernel';path=$grantPath;declared_by="$grantPath role_baselines.$($role.Name)[]";enforced_by=$null;enforcement_kind='documented-only';value='baseline'}}};foreach($category in @('trusted','untrusted')){foreach($x in $g.actor_identity_sources.$category){$permissions += [pscustomobject]@{token=('actor_identity.'+$category+':'+$x);surface='task-kernel';path=$grantPath;declared_by="$grantPath actor_identity_sources.$category[]";enforced_by=$null;enforcement_kind='documented-only';value=$category}}}}catch{$unparseable += [pscustomobject]@{path=$grantPath;reason=$_.Exception.Message;classification='UNPARSEABLE'}}
+$guardDefs=@(@{name='Get-TaskKernelSensitiveGrants';path='scripts/v3/lib/OrchestrationTaskKernel.ps1'},@{name='Assert-OrchestrationGrantsJson';path='scripts/v3/lib/OrchestrationTaskKernel.ps1'},@{name='Get-OrchestrationEffectiveGrants';path='scripts/v3/lib/OrchestrationTaskKernel.ps1'},@{name='Test-NDGrantProjection';path='scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1'},@{name='Test-NativeDispatchAuthorization';path='scripts/v3/lib/OrchestrationNativeDispatch.ps1'},@{name='Test-OrchestrationAuthorityBoundary';path='scripts/v3/lib/OrchestrationAutonomy.ps1'})
+$guards=@();foreach($gd in $guardDefs){$lines=[IO.File]::ReadAllLines((Resolve-Path $gd.path));$decl=0;$calls=@();for($i=0;$i -lt $lines.Length;$i++){if($lines[$i] -match ('^\s*function\s+'+[regex]::Escape($gd.name)+'\b')){$decl=$i+1};if($lines[$i].Contains($gd.name) -and $lines[$i] -notmatch '^\s*function\s+' -and $gd.path -notlike '*.tests.ps1'){$calls += $i+1}};if(!$decl){$unparseable += [pscustomobject]@{path=$gd.path;anchor=$gd.name;reason='Function anchor missing';classification='UNPARSEABLE'}}else{$guards += [pscustomobject]@{name=$gd.name;path=$gd.path;line=$decl;call_sites=$calls};Add-ProtectedFile $gd.path}}
+$surfaces += [pscustomobject]@{name='task-kernel';structured_sources=@($grantPath);guards=$guards}
+# Attach real enforcement references only when the function exists and has a non-test call site.
+$enforcementRefs=@();foreach($guard in $guards){if(@($guard.call_sites).Count -gt 0){$enforcementRefs += "$($guard.path):$($guard.line)";foreach($call in $guard.call_sites){$enforcementRefs += "$($guard.path):$call"}}}
+foreach($p in $permissions|Where-Object surface -eq 'task-kernel'){if($enforcementRefs.Count -gt 0){$p.enforced_by=@($enforcementRefs|Select-Object -Unique);$p.enforcement_kind='hard'}}
+# Protect the documented Agent Config instruction sources without interpreting their prose.
+foreach($p in @('source/global/AGENTS.md','source/adapters')){if(Test-Path $p){$item=Get-Item $p;if($item.PSIsContainer){$files=Get-ChildItem $p -File -Recurse}else{$files=@($item)};foreach($f in $files){Add-ProtectedFile $f.FullName}}}
+# Only compare normalized tokens across distinct surfaces. OpenCode v1/v2 and source/agents form one pipeline.
+$byToken=@{};foreach($p in $permissions){if(!$byToken.ContainsKey($p.token)){$byToken[$p.token]=@()};$byToken[$p.token]+=$p.surface};$cross=@();foreach($token in $byToken.Keys){$distinct=@($byToken[$token]|Select-Object -Unique);if($distinct.Count -gt 1){$cross += [pscustomobject]@{token=$token;surfaces=$distinct;rule='Distinct normalized tokens compared by top-level surface; OpenCode templates and source/agents are one pipeline.'}}}
+$now=if($GeneratedAt){$GeneratedAt}else{(Get-Date).ToUniversalTime().ToString('o')};$o=[pscustomobject]@{surfaces=$surfaces;permissions=$permissions;cross_surface_tokens=$cross;cross_surface_rule='Deduplicate by token within the top-level surface; OpenCode templates plus source/agents are one pipeline; Agent Config prose is not parsed as declarations.';unparseable=$unparseable;protected_files=$protected;method=[pscustomobject]@{mode='structured_json_frontmatter_and_function_anchor_parse';no_model_call=$true;base_revision=$base;generated_by_commit=$base;limitations='Template format must remain JSON; AgentTranslator parser governs frontmatter; static guards/call sites do not prove runtime effects.'};generated_at=$now};$dest=Join-Path $root $OutFile;New-Item -ItemType Directory -Force (Split-Path $dest)|Out-Null;$o|ConvertTo-Json -Depth 12|Set-Content -Encoding UTF8 $dest
