@@ -3041,6 +3041,8 @@ function Set-OrchestrationTaskRepairDecision {
             if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
             $rec=$slot.record
             if ([int]$rec['revision'] -ne $ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            if (-not (Test-TaskKernelWriteBoundary -TaskFile $taskFile)) { return (New-TaskKernelError -Code 'PATH_NOT_CONFINED') }
+            # EXHAUSTED is terminal by contract; ESCALATE is recordable only while attempts remain below budget.
             if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) { return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION') }
             $attemptsKnown=$false
             $attempts=0

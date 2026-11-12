@@ -14,7 +14,7 @@
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
-      retry-decision - Record advisory localized-repair decision (needs task/revision and failure signals; never dispatches)
+       retry-decision - Record advisory localized-repair decision; increments revision (concurrent writers may CAS_CONFLICT); EXHAUSTED is terminal, so ESCALATE is recordable only while attempts < budget
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
       event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary; idempotent consumption/settlement ack)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
@@ -301,8 +301,8 @@ switch ($action) {
         exit 0
     }
     'retry-decision' {
-        if ([string]::IsNullOrWhiteSpace($TaskId) -or $ExpectedRevision -lt 0 -or [string]::IsNullOrWhiteSpace($FailureClass)) {
-            Write-TaskKernelCliError 'retry-decision exige -TaskId -ExpectedRevision -FailureClass localized|unknown|structural.'; exit 2
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or $ExpectedRevision -lt 0 -or [string]::IsNullOrWhiteSpace($FailureClass) -or -not $PSBoundParameters.ContainsKey('Severity') -or -not $PSBoundParameters.ContainsKey('ChangedFiles')) {
+            Write-TaskKernelCliError 'retry-decision exige -TaskId -ExpectedRevision -Severity -ChangedFiles -FailureClass localized|unknown|structural.'; exit 2
         }
         if ($FailureClass -notin @('localized','unknown','structural') -or $ChangedFiles -lt 0 -or $ChangedFiles -gt 100000) {
             Write-TaskKernelCliError 'retry-decision recebeu sinais invalidos.'; exit 2
@@ -312,7 +312,11 @@ switch ($action) {
         if (-not $PSBoundParameters.ContainsKey('ScopeOverlap') -or -not $PSBoundParameters.ContainsKey('ExternalEffectsAmbiguous') -or -not $PSBoundParameters.ContainsKey('EvidenceCurrent')) {
             Write-TaskKernelCliError 'retry-decision exige os tres sinais booleanos explicitamente.'; exit 2
         }
-        $result=Set-OrchestrationTaskRepairDecision -TaskId $TaskId -ExpectedRevision $ExpectedRevision -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap:($ScopeOverlap -eq 'true') -ExternalEffectsAmbiguous:($ExternalEffectsAmbiguous -eq 'true') -EvidenceCurrent:($EvidenceCurrent -eq 'true') -FailureClass $FailureClass -TasksDir $TasksDir -FlagsPath $FlagsPath
+        $canonTasksRetry=Get-TaskKernelDefaultTasksDir -RepoRoot ''
+        $canonFlagsRetry=Get-TaskKernelDefaultFlagsPath -RepoRoot ''
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksRetry)) { $result=New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{path_role='tasks_dir';action='retry-decision'}; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsRetry)) { $result=New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{path_role='flags_path';action='retry-decision'}; break }
+        $result=Set-OrchestrationTaskRepairDecision -TaskId $TaskId -ExpectedRevision $ExpectedRevision -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap:($ScopeOverlap -eq 'true') -ExternalEffectsAmbiguous:($ExternalEffectsAmbiguous -eq 'true') -EvidenceCurrent:($EvidenceCurrent -eq 'true') -FailureClass $FailureClass -TasksDir $canonTasksRetry -FlagsPath $canonFlagsRetry
     }
     'create' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Objective)) {

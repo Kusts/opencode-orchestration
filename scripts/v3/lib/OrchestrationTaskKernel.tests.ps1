@@ -284,6 +284,18 @@ try {
     # 1. create + roundtrip, all fields survive
     $t = New-TaskKernelTestRoot
     [void]$roots.Add($t.root)
+    # Repair-decision writes must reject a task reached through a junction.
+    $boundaryTask = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id 'repair-boundary-001'
+    $boundaryFile = Join-Path $t.tasks 'repair-boundary-001.json'
+    $boundaryHash = Get-TaskBytesHash -Path $boundaryFile
+    $junction = Join-Path $t.root 'tasks-junction'
+    try {
+        New-Item -ItemType Junction -Path $junction -Target $t.tasks -ErrorAction Stop | Out-Null
+        $boundary = Set-OrchestrationTaskRepairDecision -TaskId 'repair-boundary-001' -ExpectedRevision 1 -Severity high -ChangedFiles 1 -ScopeOverlap $true -ExternalEffectsAmbiguous $false -EvidenceCurrent $true -FailureClass localized -TasksDir $junction -FlagsPath $t.flags
+        Assert-TaskKernel ($boundaryTask.ok -and -not $boundary.ok -and $boundary.error -ceq 'PATH_NOT_CONFINED' -and (Get-TaskBytesHash -Path $boundaryFile) -ceq $boundaryHash) 'repair decision rejects junction without task write'
+    }
+    catch { Assert-TaskKernel $false 'repair decision junction boundary test setup' $_.Exception.Message }
+    finally { try { [IO.Directory]::Delete($junction) } catch { } }
     $r = New-OrchestrationTask -TaskId 'round-trip-001' -Objective 'Migrate the cache layer' -TaskType 'implementation' `
         -Risk 'medium' -ParentTaskId 'parent-001' -TraceId 'trace-abc' -OrchestrationDecision 'MULTI_WORKER' -Actor 'planner' `
         -RuntimeId 'opencode-v2' -RuntimeGeneration 2 -RuntimeProfile 'v2' -RuntimeVersion '2.0.18' -BaseRevision 'abc123' `
@@ -1105,6 +1117,7 @@ try {
 }
 catch {
     Write-Host ("[FAIL] unexpected error: {0}" -f $_)
+    Write-Host $_.ScriptStackTrace
     $script:failed++
 }
 finally {

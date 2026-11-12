@@ -8,21 +8,26 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'lib\OrchestrationTaskKernel.ps1')
 $repo=Get-TaskKernelRepoRoot
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('retry-decision-' + [guid]::NewGuid().ToString('N'))
-$tasks=Join-Path $temp 'tasks'; $flags=Join-Path $temp 'flags.json'; $testRepo=Join-Path $temp 'repo'
+$tasks=Get-TaskKernelDefaultTasksDir -RepoRoot ''; $flags=Get-TaskKernelDefaultFlagsPath -RepoRoot ''; $testRepo=Join-Path $temp 'repo'; $taskIds=@()
 $script:passed=0; $script:failed=0
 function Assert-E2E([bool]$ok,[string]$name){if($ok){$script:passed++;Write-Host ('[PASS] '+$name)}else{$script:failed++;Write-Host ('[FAIL] '+$name)}}
 function Invoke-DecisionCli([string]$id,[int]$revision,[string]$ambiguous='false',[string]$failureClass='localized'){
     $hostPath=[string](Get-Process -Id $PID).Path
-    $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'task-kernel.ps1'),'-Action','retry-decision','-TaskId',$id,'-ExpectedRevision',[string]$revision,'-Severity','high','-ScopeOverlap','true','-ExternalEffectsAmbiguous',$ambiguous,'-EvidenceCurrent','true','-TasksDir',$tasks,'-FlagsPath',$flags)
+    $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'task-kernel.ps1'),'-Action','retry-decision','-TaskId',$id,'-ExpectedRevision',[string]$revision,'-Severity','high','-ScopeOverlap','true','-ExternalEffectsAmbiguous',$ambiguous,'-EvidenceCurrent','true')
     $args+=@('-ChangedFiles','1','-FailureClass',$failureClass)
     $oldPreference=$ErrorActionPreference; $ErrorActionPreference='Continue'
     try {$out=& $hostPath @args 2>&1} finally {$ErrorActionPreference=$oldPreference}
     return [pscustomobject]@{code=$LASTEXITCODE;stdout=($out -join "`n");json=$(try{($out -join "`n")|ConvertFrom-Json}catch{$null})}
 }
 try {
-    New-Item -ItemType Directory -Path $tasks -Force | Out-Null
     New-Item -ItemType Directory -Path $testRepo -Force | Out-Null
-    [IO.File]::WriteAllText($flags,'{"task_kernel":{"enabled":true,"shadow":false}}',[Text.UTF8Encoding]::new($false))
+    New-Item -ItemType Directory -Path $temp -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $temp 'untrusted-flags.json'),'{"task_kernel":{"enabled":true}}',[Text.UTF8Encoding]::new($false))
+    $hostPath=[string](Get-Process -Id $PID).Path
+    $oldPreference=$ErrorActionPreference; $ErrorActionPreference='Continue'
+    try {$guardOut=& $hostPath -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'task-kernel.ps1') -Action retry-decision -TaskId guard-probe -ExpectedRevision 1 -Severity high -ChangedFiles 1 -FailureClass localized -ScopeOverlap true -ExternalEffectsAmbiguous false -EvidenceCurrent true -TasksDir $temp -FlagsPath (Join-Path $temp 'untrusted-flags.json') 2>&1} finally {$ErrorActionPreference=$oldPreference}
+    $guardJson=try{($guardOut -join "`n")|ConvertFrom-Json}catch{$null}
+    Assert-E2E ($LASTEXITCODE -eq 1 -and $guardJson.error -eq 'TRUSTED_PATH_MISMATCH') 'cli-rejects-noncanonical-path-overrides'
     & git -C $testRepo init -b main *>$null
     if($LASTEXITCODE -ne 0){& git -C $testRepo init *>$null}
     & git -C $testRepo config user.email 'test@example.com' *>$null
@@ -36,7 +41,8 @@ try {
     [IO.File]::WriteAllText($policy,([ordered]@{version=1;default_timeout_seconds=60;max_output_chars=1000;profiles=$profiles}|ConvertTo-Json -Depth 6 -Compress),[Text.UTF8Encoding]::new($false))
     & git -C $testRepo add -A *>$null; & git -C $testRepo commit -m init -q *>$null
     $baseRevision=(& git -C $testRepo rev-parse HEAD).Trim()
-    $id='repair-e2e-001'
+    $suffix=[guid]::NewGuid().ToString('N')
+    $id=('repair-e2e-'+$suffix); $taskIds+=@($id)
     $budgetPolicy=Get-ExecutionBudgetDefaultPolicyPath
     $c=New-OrchestrationTask -TaskId $id -Objective 'review repair proof' -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion '2.2.6' -Actor planner -BaseRevision $baseRevision -AcceptanceCriteria @('fixture passes') -VerificationProfiles @('passes') -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags
     $null=Invoke-OrchestrationTaskTransition -TaskId $id -ToState PLANNING -Actor planner -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
@@ -52,10 +58,10 @@ try {
     $local=Invoke-DecisionCli $id 8
     $after=Get-OrchestrationTask -TaskId $id -TasksDir $tasks
     Assert-E2E ($local.code -eq 0 -and $local.json.repair_decision.decision -eq 'LOCAL_REPAIR' -and $after.repair_decision.reason -eq 'localized-finding') 'cli-persists-local-repair-advisory'
-    # Restore a fresh review state for a separate ambiguous-effects decision.
+    # Record a second advisory decision at the task's current revision.
     $replan=Invoke-DecisionCli $id 9 'true'
     Assert-E2E ($replan.code -eq 0 -and $replan.json.repair_decision.decision -eq 'REPLAN') 'ambiguous-effect-replans'
-    $escalateId='repair-e2e-002'
+    $escalateId=('repair-e2e-budget-'+$suffix); $taskIds+=@($escalateId)
     $ec=New-OrchestrationTask -TaskId $escalateId -Objective 'retry budget proof' -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion '2.2.6' -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags
     $null=Set-OrchestrationTaskWorkerResult -TaskId $escalateId -Status failed -ProducedBy coder -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
     $null=Set-OrchestrationTaskWorkerResult -TaskId $escalateId -Status failed -ProducedBy coder -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
@@ -68,6 +74,9 @@ try {
     $invalid=Invoke-DecisionCli $id 12 'false' 'invalid'
     Assert-E2E ($invalid.code -ne 0 -and (Get-OrchestrationTask -TaskId $id -TasksDir $tasks).repair_decision.decision -eq 'REPLAN') 'invalid-input-fails-closed-without-overwriting-decision'
 } catch {Write-Host ('[FAIL] unexpected: '+$_);Write-Host $_.ScriptStackTrace;$script:failed++}
-finally {if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}}
+finally {
+    foreach($taskId in $taskIds){$taskFile=Join-Path $tasks ($taskId+'.json'); foreach($path in @($taskFile,($taskFile+'.lock'))){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}}}
+    if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}
+}
 Write-Host ('RETRY-DECISION-E2E: '+$script:passed+' passed / '+$script:failed+' failed')
 if($script:failed){exit 1};exit 0
