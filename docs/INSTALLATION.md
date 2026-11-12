@@ -40,28 +40,49 @@ copy models.example.jsonc models.jsonc
 
 ### Ownership Agent Config (OpenCode V2)
 
-Com o par completo `agent-config:global`, texto global, perfis worker e
-permissões de topo pertencem ao Agent Config; perfil `build`, skills e plugin
-pertencem à Orquestração. Sem Config, texto/perfis worker/permissões de topo
-são snapshots da Orquestração. O instalador não grava perfis worker nesse modo.
-Se houver bloco legado `opencode-orchestration`, install retira somente esse
-bloco e banner gerado contíguo, preservando o restante. Reconciliação apenas
-avisa `[RETIRE_REQUIRED]` e direciona a `install.ps1`. Skills antigas só são
-removidas com prova do manifest anterior (`skills\` + SHA-256 igual); hash
-divergente é preservado. `-NoCoreSkills` desativa a poda.
-Se o conteúdo do Agent Config estiver dentro do marcador legado (banner
-`render-agent-config.ps1`), o install preserva o bloco e avisa `[OWNER]` para migrar os marcadores pelo reconciliador do Agent Config.
+Nova matriz de ownership (OpenCode V2, conforme `install.ps1`, manifest e `scripts/v3/install-ownership.tests.ps1` T1-T26):
+
+| Recurso | Owner | Limite do outro owner |
+|---|---|---|
+| `AGENTS.md` texto global (`<!-- agent-config:global:start/end -->`) | Agent Config | A Orquestração não escreve o texto global; pode retirar apenas bloco/banner legado `opencode-orchestration` comprovado. |
+| `~/.config/opencode/agents/*.md` (19 perfis worker) | Orquestração | Agent Config não é owner dos perfis OpenCode V2. |
+| `opencode.json` objeto `agents` (build, title e 19 subagentes: mode/model/permissions do escopo da Orquestração) | Orquestração | Agent Config não escreve esse objeto. |
+| `opencode.json` `permissions` de topo, `mcp`, chave `plugin`/plugins externos e campos user-owned | Agent Config / usuário | A Orquestração preserva. |
+| Skills centrais/MCP globais e demais runtimes (Claude/Codex/Pi/Antigravity, launchers) | Agent Config | A Orquestração não aplica esses recursos. |
+| `plugins/orchestration-enforcement.js` e as 8 skills-core da Orquestração | Orquestração | Agent Config preserva. |
+| `models.jsonc`, credenciais e conteúdo fora do ownership | Usuário | Ambos preservam. |
+| `.opencode-orchestration/manifest.json` | Orquestração | Agent Config não escreve. |
+
+Com marcador `agent-config:global` presente, o instalador preserva o texto global e ainda instala os perfis canônicos e o bloco `agents` da Orquestração; o uninstall remove apenas perfis markdown hash-provados pelo manifest (não remove `agents.build.permissions`/perfis JSON por esse caminho de ownership do Agent Config). Sem marcador, o instalador opera em modo standalone/snapshot. Se o conteúdo do Agent Config estiver dentro do marcador legado (`render-agent-config.ps1`), o install preserva o bloco e avisa `[OWNER]` para migração de marcadores pelo reconciliador do Agent Config. Skills antigas só são removidas com prova do manifest anterior (`skills\` + SHA-256 igual); hash divergente é preservado. `-NoCoreSkills` desativa a poda.
 
 Flags reais do `install.ps1`:
 
 | Flag | Efeito |
 |---|---|
-| `-WhatIf` | Imprime o plano (`CREATE`/`UPDATE`/`SKIP`/`PRESERVE`/`RETIRE`/`REMOVE`) e sai sem escrever. |
+| `-WhatIf` | Imprime o plano (`CREATE`/`UPDATE`/`SKIP`/`PRESERVE`/`RETIRE`/`REMOVE`) e o `RESULT:` sem criar backup/stage/arquivos. |
 | `-Runtime Auto\|V1\|V2\|Both` | Geração alvo. `Auto` (default) faz probe do `opencode` no PATH e falha fechado em ambiguidade; explícito sempre vence. `Both` cria perfis isolados (ver seção abaixo). |
+| `-Clean` | Reinstalação limpa transacional (somente V2; `-Runtime V1`/`Both` recusa com exit 2). Remove apenas obsoletos hash-provados pelo manifest anterior, preserva editados/terceiros e faz rollback em falha. |
 | `-RepoRoot <caminho>` | Instala a partir de outro diretório do pacote. |
 | `-TargetHome <perfil>` | Instala em outro perfil (padrão: `$env:USERPROFILE`). |
 | `-NoCoreSkills` | Pula as 8 skills-core em `~/.config/opencode/skills/`. |
 | `-ProfileRoot`, `-BinaryV1`, `-BinaryV2`, `-ProvisionRuntime` | Controles do caminho `-Runtime Both` (detalhes na seção "Perfis isolados"). |
+
+## Reinstalação limpa (`-Clean`)
+
+Uso:
+
+```powershell
+.\install.ps1 -Runtime V2 -Clean -WhatIf  # plano por recurso, nenhuma escrita
+.\install.ps1 -Runtime V2 -Clean          # reinstalação limpa transacional
+```
+
+- **Suporte:** somente `-Runtime V2` (ou perfil V2 resolvido). Com `-Runtime V1` ou `-Runtime Both`, o instalador recusa antes de escrever (`exit 2`).
+- **O que remove:** apenas artefatos obsoletos (ausentes do estado desejado) cujo hash atual corresponde ao hash registrado no manifest anterior; remoções hash-provadas são registradas em backup e no plano (`[REMOVE]`).
+- **O que preserva:** arquivos editados pelo usuário/divergentes do manifest (`[PRESERVE]`), texto global `agent-config:global`, `permissions` de topo, `mcp`, ai-memory, plugins/skills externos, `models.jsonc`, credenciais e demais conteúdo fora do ownership comprovado. Conflitos de config obsoleta com valor divergente também são preservados (`CONFLICT` no clean/config conforme o caso).
+- **Ordem transacional:** precheck/plan → backup → stage → CAS → apply (remoções limpas + estado desejado) → validação pós-install → manifest por último; falha em apply/validação/manifest tenta rollback (bytes anteriores/manifest preservado conforme o ponto de falha).
+- **`-WhatIf`:** somente leitura — imprime plano e `RESULT:` sem backup, stage ou escrita.
+- **Idempotência:** segunda execução sem drift converge para `UNCHANGED` nos recursos estáveis e não remove artefatos de terceiros.
+- **Sem manifest anterior:** cai em instalação normal (`[CLEAN] nenhum manifest anterior; instalacao normal`).
 
 ## O que cada fase faz
 
@@ -97,7 +118,18 @@ Flags reais do `install.ps1`:
 Exit codes: `0` ok · `3` precheck (nada escrito) · `4` CAS_CONFLICT (nada
 aplicado) · `5` falha no apply/manifest (rollback tentado) · `6`
 fail-closed de runtime (Both sem isolamento provado, ou conflito de
-runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
+runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime` · `8`
+`VALIDATION_FAILED` (validação pós-install falhou; rollback tentado; manifest
+anterior preservado quando aplicável).
+
+## Resultado da instalação
+
+Ao final (e no `-WhatIf`), o instalador emite:
+
+- `RESULT: INSTALLED=<n> UNCHANGED=<n> PRESERVED=<n> CONFLICT=<n> FAILED=<n>` — contagem por estado do plano/execução (`INSTALLED`, `UNCHANGED`, `PRESERVED`, `CONFLICT`, `FAILED`).
+- Linhas `[STATE]` por componente: `agents`, `config`, `plugin`, `skills`, `AGENTS.md` (estados de validação como `PASS`/`CONFLICT`/`NOT_VERIFIED`).
+
+Validação pós-install coberta por `Invoke-InstallValidation` (registrada no manifest): plugin, planner/build, 19 perfis, router, skills, config e instructions. `functional_delegation` é registrado como `NOT_RUN` (prova funcional não executada pelo instalador). Para executar a prova real separadamente, use `scripts\v3\prove-native-subagents.ps1` quando houver provider/runtime disponível; **não afirmar PASS de delegação funcional sem essa execução**. Em `VALIDATION_FAILED`, o resultado reporta conflitos e o processo sai com exit `8` após rollback.
 
 ## manifest.json (campos)
 
@@ -109,7 +141,7 @@ runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 | `target_home` | Perfil onde instalou. |
 | `runtime` | Runtime/gravação instalada (`opencode-v1` ou `opencode-v2`; manifest legado sem esta seção é tratado como v1). |
 | `managed_files[]` | `{relative, sha256}` de cada arquivo do pacote. |
-| `ownership{}` | Owners de `global_text`, `worker_profiles`, `build_profile_model`, `build_permissions`, `skills`, `plugin` e `top_level_permissions`. |
+| `config_ownership` / `ownership{}` | Ownership aplicado: `config_ownership` (`agent-config` ou `orchestration-snapshot`) e owners por recurso (`global_text`, `worker_profiles`, `build_profile_model`, `build_permissions`, `skills`, `plugin`, `top_level_permissions`). |
 | `retired_blocks[]` / `removed_stale[]` | Blocos legados retirados e skills removidas com hash comprovado (`relative`, `sha256`). |
 | `instructions_contract` | `CURRENT`, `STALE` ou `UNKNOWN` para o contrato de Instructions do Agent Config. |
 | `managed_config_paths[]` | Caminhos gerenciados no config, no dialeto do runtime (V1: `$schema`, `model`, `default_agent`, `subagent_depth`, `agent.*`; V2: `$schema`, `model`, `default_agent`, `experimental.subagent_depth`, `agents.*`). |
@@ -117,6 +149,8 @@ runtime no uninstall) · `7` falha de rede no `-ProvisionRuntime`.
 | `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
 | `models{}` | `planner`/`cheap`/`strong`/`free` resolvidos na instalação; `frontier` não integra o manifest do instalador. |
 | `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.34` no V1 legado; `@opencode/plugin@2.2.6` no V2). |
+| `validation` | Estados pós-install por componente (`plugin`, `planner`, `profiles`, `router`, `skills`, `config`, `instructions`) e `functional_delegation` (`NOT_RUN` pelo instalador). |
+| `clean` | Presente quando `-Clean`: `{ requested, removed, preserved }` com evidência de limpeza/preservação. |
 
 ## Upgrade
 

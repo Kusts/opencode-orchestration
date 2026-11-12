@@ -6,6 +6,12 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Instalador V2 — ownership único dos perfis, `-Clean` e validação pós-install (2026-11-12)** (entrega implementada em código/testes; migração do ambiente real ainda a executar):
+  - Ownership único dos perfis OpenCode V2: a Orquestração passa a ser dona dos 19 perfis worker (`agents/*.md`) e do bloco `agents` do `opencode.json`; o Agent Config mantém texto global/instruções, `permissions` de topo, skills centrais, MCP e demais runtimes.
+  - Reinstalação limpa transacional `-Clean` (V2): remove apenas obsoletos hash-provados pelo manifest, preserva editados/terceiros (`mcp`, ai-memory, plugins/skills externas, credenciais, `models.jsonc`), com backup/CAS/rollback, `-WhatIf` sem escrita e idempotência.
+  - Relatório e validação pós-install: estados `INSTALLED`/`UNCHANGED`/`PRESERVED`/`CONFLICT`/`FAILED`, `RESULT:`/`[STATE]`, validação de plugin/planner/perfis/router/skills/config/instructions, `functional_delegation=NOT_RUN` (prova real separada via `scripts\v3\prove-native-subagents.ps1`, sem alegar PASS sem provider) e exit code `8` (`VALIDATION_FAILED`, rollback/manifest anterior preservado).
+  - Testes: `scripts/v3/install-ownership.tests.ps1` 44/44 em PS7 e PS5.1; consistência de pacote 17/17; distribution 22 PASS / 1 FAIL preexistente (`skills-catalog`) / 1 SKIP (`live-hook-v2`) / 1 ERROR preexistente por timeout (`eol-checkout`) em pwsh e PS5.1; V3 27 PASS / 0 FAIL / 2 SKIP (rodada anterior); Agent Config 39/44 (5 preexistentes) e `planning-roles` 107/108 (1 preexistente de token, com mirror/lock). A revisão reviewer/security `CHANGES_REQUIRED` foi fechada corrigindo guard `-TestRoot`/junction, ESM `.mjs`, V1 managed ids, uninstall `agents.*` por snapshot, `-Clean -NoCoreSkills`/exit 2, importer `-Check`/conflito sem lock e exit 8 exclusivo. Evidência detalhada no plano. Migração real não executada.
+
 - **Pausa documentada para a próxima sessão (2026-11-11)**:
   - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-PLAN.md` §14 registra o
     handoff: estado (HEAD `16a1c84`, PR #238, CI 6/6), backlog ordenado
