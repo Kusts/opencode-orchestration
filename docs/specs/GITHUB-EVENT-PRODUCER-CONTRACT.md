@@ -11,12 +11,12 @@ and computes the dedup key.
 
 | Field | Type and constraint | Required | Producer source |
 |---|---|---:|---|
-| `source` | string; only `github` | yes | derivable |
-| `trigger` | string; `issue_comment`, `pull_request_review`, `ci_status`, `push` | yes | derivable |
-| `thread` | string; `^(pr|issue|branch):[A-Za-z0-9._/-]{1,120}$`, normalized lowercase | yes | derivable |
-| `delivery_id` | string; `^[A-Za-z0-9._:-]{4,160}$` | yes | supplied by upstream delivery; never synthesize |
-| `repo` | string; `^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$` | yes | derivable |
-| `summary` | string; at most 2000 characters | no | derivable |
+| `source` | string; only `github`; trim + lowercase; error `EVENT_SOURCE_UNSUPPORTED` | yes | derivable |
+| `trigger` | string; `issue_comment`, `pull_request_review`, `ci_status`, `push`; trim + lowercase; error `EVENT_TRIGGER_UNSUPPORTED` | yes | derivable |
+| `thread` | string; `^(pr|issue|branch):[A-Za-z0-9._/-]{1,120}$`; lowercase; error `EVENT_THREAD_INVALID` | yes | derivable |
+| `delivery_id` | string; `^[A-Za-z0-9._:-]{4,160}$`; trim only, case-sensitive; error `EVENT_DELIVERY_INVALID` | yes | supplied by upstream delivery; never synthesize |
+| `repo` | string; `^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`; error `EVENT_REPO_INVALID` | yes | derivable |
+| `summary` | string; at most 2000 characters; error `EVENT_SUMMARY_TOO_LARGE` | no | derivable |
 | `informational_only` | boolean | no | derivable |
 
 Derivable means the producer may map the GitHub event's authoritative fields
@@ -24,6 +24,9 @@ and policy into the envelope. `delivery_id` must preserve the upstream's stable
 delivery identity. `dedup_key` is lowercase SHA-256 of
 `source|repo_lower|delivery_id`; identical delivery identity within a repo
 produces the same key, while a different `delivery_id` produces another key.
+Because only `delivery_id` is case-sensitive in this hash input, changing its
+case changes the key; repo casing does not, because repo is lowercased before
+hashing. Trigger and thread do not participate in the key.
 
 ## Existing consumption paths
 
@@ -31,10 +34,13 @@ produces the same key, while a different `delivery_id` produces another key.
    `powershell -NoProfile -File scripts/v3/event-intake.ps1 -EnvelopeFile <path> -SeenFile <ledger> -Record`
    or use `-EnvelopeJson '<json>'`. CLI and ledger behavior are in
    `scripts/v3/event-intake.ps1:10-19,48-52,68-90`.
-2. Route GH-WAKE through intake and deliver an event to the owning Task:
-   `powershell -NoProfile -File scripts/v3/github-event-bridge.ps1 -EnvelopeFile <path> -TasksDir <tasks-dir> -FlagsPath <flags-path>`
-   or `-EnvelopeJson '<json>'`. The bridge uses existing correlation and
-   Kernel functions; see `scripts/v3/github-event-bridge.ps1:1-20,23-24,73`.
+2. Route GH-WAKE through intake. To deliver, supply routes containing the
+   matching `thread` owner:
+   `powershell -NoProfile -File scripts/v3/github-event-bridge.ps1 -EnvelopeFile <path> -RoutesFile <routes-path> -SeenFile <ledger> -Record -TasksDir <tasks-dir> -FlagsPath <flags-path>`
+   or use `-EnvelopeJson '<json>' -RoutesJson '<routes-json>'`. Without routes
+   the route is `OBSERVE` and the bridge never delivers. The bridge records its
+   dedup ledger only after successful delivery. See
+   `scripts/v3/github-event-bridge.ps1:1-20,23-24,52-66,73,78`.
 3. Kernel operations are also available directly:
    `powershell -NoProfile -File scripts/v3/task-kernel.ps1 -Action event-attach -TaskId <id> -ExpectedRevision <revision> -EnvelopeFile <path> -TasksDir <tasks-dir> -FlagsPath <flags-path>`
    and
@@ -54,9 +60,10 @@ default; no-owner events are observed unless explicit admission is enabled.
   ignores a seen key (`OrchestrationEventCorrelation.ps1:91-99`).
 - Kernel event ack is idempotent; `event-ack` uses the existing
   `Confirm-OrchestrationTaskEvent` path (`task-kernel.ps1:18-19,613-615`).
-- Kernel attachment preserves CAS/revision checks, terminal-task handling and
-  trusted-path confinement; implementation is in
-  `scripts/v3/lib/OrchestrationTaskKernel.ps1:2814-2962`.
+- `Add-OrchestrationTaskEvent` preserves CAS/revision checks, terminal-task
+  handling and trusted-path confinement; `Confirm-OrchestrationTaskEvent`
+  provides idempotent acknowledgement. Implementations are in
+  `scripts/v3/lib/OrchestrationTaskKernel.ps1:2867-2947,2949-3015`.
 
 ## External producer acceptance checklist
 

@@ -500,7 +500,7 @@ credencial ou produção.
 
 ### 14.1 Estado atual (reconciliar antes de agir)
 
-- **Worktree/branch/HEAD:** `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`; base de código `589cce4` + commit de docs desta rodada. Commits de código: `3909600` (wiring #200/#103 + E2E), `cbae9d7` (confinement), `de0d26c` (schema cap ladder + fail-closed), `589cce4` (write-refusal tests).
+- **Worktree/branch/HEAD:** `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`; base atual `d59c59d` (contrato #183) + commit local deste fix. Commits anteriores de código: `3909600` (wiring #200/#103 + E2E), `cbae9d7` (confinement), `de0d26c` (schema cap ladder + fail-closed), `589cce4` (write-refusal tests).
 - **Commitado e não publicado:** item 1 de §14.2 (#12/#11, wiring no EvidenceStore) concluído e commitado em `8b9a22e` nesta branch/worktree. **Nada foi pushado, mergeado ou deployado; CI desta branch não rodou.**
 - **Checkout principal (outro fluxo, não tocar):** branch `feat/install-ownership-agent-config-20261111` avança em outro fluxo (HEAD `4f1aa65` no momento desta rodada); checkout limpo.
 - **Entrega #12/#11:** `-EvidenceStoreDir` opt-in (vazio = legado byte-idêntico) + `-VirtualizeThresholdBytes`; conteúdo redigido persistido content-addressed; `evidence_artifacts` com `sha256`/`bytes`/`kind`/`preview<=2000`/`field=failure_detail`/`store_rel`; fail-closed `EVIDENCE_REDACTION_UNAVAILABLE`; escrita dentro do lock; confinamento de store + reparse point; ação CLI `get-evidence` com recall verificado; `verified_pass`/`DONE` intocados.
@@ -514,7 +514,7 @@ credencial ou produção.
 ### 14.2 Ordem recomendada
 
 1. **CONCLUÍDO (2026-11-12) — #200/#103 — E2E com fluxo real.** Contrato reviewer/schema, decisão advisory persistida, bloqueio por changes_required, re-review e DONE validado em harness TEMP; o consumo do schema e a execução da correção pelo Planner/LLM real ainda exigem prova runtime e não são declarados COBERTOS.
-2. **#183 — produtor externo do envelope `source/trigger/thread/delivery_id`.** Aceite: avaliar webhook/Action que emita o envelope; não fabricar `delivery_id`; se o produtor permanecer externo, manter PARCIAL com a fronteira documentada.
+2. **#183 — contrato do produtor codificado e testado; PARCIAL.** Commits `d59c59d` + este fix cobrem envelope, validação/replay e documentação de consumo; produtor externo não existe e `delivery_id` real não pode ser fabricado. Próximo passo é decisão de operador: construir produtor externo (webhook/Action) ou seguir para #64/#192.
 3. **#64, #192, #50/#141, #2/#184/#185, #172.** Aceite: #64 medir custo de descoberta de skills; #192 comparar Single/Cascade/Critique em cenários representativos com métricas observadas; #50/#141 capability-first e auditoria de autoridade por superfície; #2/#184/#185 sessões subordinadas, observe→auto e handback completo; #172 só reproduzir o flake com sinal real.
 4. **PR #210.** Aceite: comparar com a master; descartar ou reabrir contra a master; não integrar configuração anterior ao merge #236.
 5. **M7/#205.** Aceite: piloto somente com produto/credenciais; sem acesso/produto, manter HOLD com resultado registrado.
@@ -543,8 +543,8 @@ Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem re
 
 ### 14.5 Handoff compacto (5 campos)
 
-- **Objetivo/estado:** #200/#103 concluído em código + E2E determinístico (base `589cce4` + docs desta rodada); #12/#11 previamente concluído em `8b9a22e`.
+- **Objetivo/estado:** #200/#103 concluído em código + E2E determinístico (base `589cce4` + docs desta rodada); #12/#11 previamente concluído em `8b9a22e`; #183 continua PARCIAL, com contrato do produtor codificado/testado nos commits `d59c59d` + este fix. Base deste handoff: `d59c59d`; HEAD inclui o commit deste fix.
 - **Alterações:** schema no contrato role-gated do `reviewer` (fonte canônica, primeiro degrau de descarte); `retry-decision` advisory sob lock/CAS com guard de confinamento; harness E2E; documentação.
 - **Validação:** focadas PS 5.1 pós-reparo 206/9/126/29/17/13/10 e package-consistency 17/17; pwsh pré-reparo 204/6/125/29/17/13/10 (pós-reparo não observado); runner amplo NÃO verde 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184, falhas ambientais descritas em §14.1.
-- **Decisões/pendências:** LOWs aceitos (last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E no store default real com cleanup em `finally`; comportamento LLM/provider fora da prova); #183 próximo; sem push/CI.
-- **Próximo passo:** item 2 de §14.2 (#183).
+- **Decisões/pendências:** LOWs aceitos (last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E no store default real com cleanup em `finally`; comportamento LLM/provider fora da prova); #183 PARCIAL e produtor externo pendente; sem push/CI.
+- **Próximo passo:** decisão de operador entre construir webhook/Action externo para #183 ou seguir para #64/#192.
