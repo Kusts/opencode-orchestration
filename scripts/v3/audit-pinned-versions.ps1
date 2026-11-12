@@ -1,28 +1,10 @@
-param([string]$OutFile = 'evidence/issue-50/pinned-versions-audit.json', [string]$GeneratedAt = '')
-$ErrorActionPreference = 'Stop'
-$root = (Get-Location).Path
-$base = (git rev-parse HEAD).Trim()
-$pins = @(); $caps = @()
-$files = Get-ChildItem -Path $root -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/](\.git|node_modules|evidence)[\\/]' -and $_.Extension -in '.ps1','.psm1','.json','.jsonc','.md','.tmpl','.yml','.yaml' }
-foreach ($file in $files) {
-  $rel = $file.FullName.Substring($root.Length + 1).Replace('\','/')
-  $n=0; foreach ($line in [IO.File]::ReadLines($file.FullName)) { $n++
-    if ($line -match '(?i)(\d+\.\d+(?:\.\d+){0,2}|v\d+\.\d+\.\d+)' -and $line -match '(?i)pin|version|runtime|plugin|bun|opencode|compare|requires|must be') {
-      $kind='version_literal'; $truth=''
-      if ($rel -match 'runtime-versions\.json') { $kind='source_registry_pin'; $truth='source/registry/runtime-versions.json' }
-      elseif ($rel -match 'RuntimeVersions\.ps1') { $kind='fail_closed_loader'; $truth='source/registry/runtime-versions.json; scripts/runtime/lib/RuntimeVersions.ps1' }
-      elseif ($line -match '(?i)plugin') { $kind='plugin_pin'; $truth='source/registry/runtime-versions.json' }
-      elseif ($line -match '(?i)bun') { $kind='tool_pin'; $truth='source/registry/runtime-versions.json' }
-      $pins += [pscustomobject]@{path=$rel;line=$n;literal=$Matches[1];kind=$kind;source_of_truth=$truth}
-    }
-    if ($line -match '(?i)capabilit|healthcheck|probe|doctor') { $caps += [pscustomobject]@{path=$rel;line=$n;observes=$line.Trim()} }
-  }
-}
-$candidates=@();$proposal=@()
-foreach($p in $pins){$class='KEEP_PIN';$why='Version is an explicit reproducibility/compatibility contract; no equivalent observable check proven.';$risk='Changing the version contract may run incompatible behavior.'
- if($p.kind -eq 'version_literal' -and $p.path -notmatch 'docs/|CHANGELOG'){ $class='UNKNOWN';$why='Literal found, but its runtime role cannot be decided from local evidence.' }
- $candidates += [pscustomobject]@{path=$p.path;line=$p.line;literal=$p.literal;classification=$class;rationale=$why;risk=$risk}
-}
-$now=if($GeneratedAt){$GeneratedAt}else{(Get-Date).ToUniversalTime().ToString('o')}
-$obj=[pscustomobject]@{pins=$pins;capability_checks=$caps;candidates=$candidates;proposal=$proposal;method=[pscustomobject]@{mode='deterministic_local_io';no_model_call=$true;base_revision=$base;generated_by_commit=$base;limitations='Regex inventory can miss computed/versioned dependencies; no external runtime compatibility proved.'};generated_at=$now}
-$dest=Join-Path $root $OutFile; New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null; $obj | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 $dest
+param([string]$OutFile='evidence/issue-50/pinned-versions-audit.json',[string]$GeneratedAt='')
+$ErrorActionPreference='Stop';$root=(Get-Location).Path;$base=(git rev-parse HEAD).Trim();$registry='source/registry/runtime-versions.json'
+$doc=Get-Content $registry -Raw|ConvertFrom-Json
+$declared=@();foreach($g in @('runtimes','plugins','tools')){foreach($p in $doc.$g.PSObject.Properties){$key=if($g -eq 'runtimes'){'v'+$p.Name}elseif($g -eq 'plugins'){'plugin_v'+$p.Name}else{$p.Name};$declared += [pscustomobject]@{key=$key;package=$p.Value.package;version=$p.Value.version;spec=$p.Value.spec}}}
+$scope=@('scripts/','plugins/','templates/','install.ps1','uninstall.ps1','source/registry/');$excluded=@('evidence/','docs/','cache/','.git/','node_modules/')
+$files=@();foreach($s in $scope){if(Test-Path $s){if((Get-Item $s).PSIsContainer){$files+=Get-ChildItem $s -File -Recurse}else{$files+=Get-Item $s}}};$literals=@();$comparators=@()
+foreach($f in $files){$rel=$f.FullName.Substring($root.Length+1).Replace('\','/');if($excluded|Where-Object{$rel.StartsWith($_,[StringComparison]::OrdinalIgnoreCase)}){continue};$n=0;foreach($line in [IO.File]::ReadLines($f.FullName)){$n++;$isVersionComparison=($line -match '(?i)(version|semver|runtime.?version|plugin.?version|bun.?version).{0,80}(-ge|-gt|-le|-lt|\[version\]|CompareTo\s*\()') -or ($line -match '(?i)(-ge|-gt|-le|-lt|\[version\]|CompareTo\s*\().{0,80}(version|semver|runtime.?version|plugin.?version|bun.?version)');foreach($pin in $declared){if($line.Contains($pin.version)){$cl=if($rel -eq $registry){'SOURCE_OF_TRUTH'}elseif($isVersionComparison){'VERSION_COMPARATOR'}elseif($line -match '(?i)throw|error|help|message|write-warning|write-host'){'MESSAGE_ONLY'}else{'DUPLICATE_LITERAL'};$literals += [pscustomobject]@{path=$rel;line=$n;literal=$pin.version;context=$line.Trim();classification=$cl}}};if($isVersionComparison){$comparators += [pscustomobject]@{path=$rel;line=$n;expression=$line.Trim();justification='KEEP: version comparator is an explicit compatibility/ordering contract; capability replacement requires a behavior-specific probe.'}}}}
+$counts=[pscustomobject]@{SOURCE_OF_TRUTH=@($literals|? classification -eq SOURCE_OF_TRUTH).Count;DUPLICATE_LITERAL=@($literals|? classification -eq DUPLICATE_LITERAL).Count;MESSAGE_ONLY=@($literals|? classification -eq MESSAGE_ONLY).Count;VERSION_COMPARATOR=@($literals|? classification -eq VERSION_COMPARATOR).Count;literals=$literals.Count;comparators=$comparators.Count}
+$proposal=@(foreach($x in $literals|? classification -eq DUPLICATE_LITERAL){[pscustomobject]@{path=$x.path;line=$x.line;action='Use scripts/runtime/lib/RuntimeVersions.ps1';literal=$x.literal}});$now=if($GeneratedAt){$GeneratedAt}else{(Get-Date).ToUniversalTime().ToString('o')}
+$o=[pscustomobject]@{scan_scope=$scope;excluded_paths=$excluded;declared_pins=$declared;literals=$literals;comparators=$comparators;candidates=@();proposal=$proposal;counts=$counts;method=[pscustomobject]@{mode='deterministic_local_io';no_model_call=$true;base_revision=$base;generated_by_commit=$base;limitations='Literal scan does not detect dynamically assembled versions or complete semantic comparisons.'};generated_at=$now};$dest=Join-Path $root $OutFile;New-Item -ItemType Directory -Force (Split-Path $dest)|Out-Null;$o|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 $dest

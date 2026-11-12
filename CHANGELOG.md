@@ -6,7 +6,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **#50/#141 PARCIAL (2026-11-12):** inventários locais gerados pelos extratores read-only: 1351 ocorrências de versão (0 candidatos capability-first classificados pelo scanner conservador) e 536 declarações em três superfícies, com 4 duplicações UNPROVEN. Nenhuma permissão/template/agente/flag foi alterada e nenhuma duplicação removida. Revisão semântica e provas de paridade ainda necessárias.
+- **#50/#141 PARCIAL (2026-11-12, revisão R2):** #50 ancora nos 5 pins de `runtime-versions.json`; scan limitado encontrou 126 ocorrências (18 fonte, 108 literais duplicados, 0 mensagem/comparador literal) e 13 comparadores. #141 lista 536 declarações, 4 grupos duplicados UNPROVEN (permission, subagent, deny, edit) com lados path:line; 8 hashes de arquivos protegidos. Nenhuma permissão/template/agente/flag foi alterada nem duplicação removida. Cópias e paridade ainda requerem revisão/prova.
 
 - **#192 PARCIAL (2026-11-12):** comparação local limitada às decisões pré-execução do preflight e à política do gate; nenhuma execução foi realizada. Direct/Single correspondem a decisões implementadas; Cascade/Critique são NOT_IMPLEMENTED. Wall-clock, tokens e custo do provedor não foram observados. Comparação de desempenho depende de implementar Cascade/Critique e executar cenários reais. Evidência: `evidence/issue-192/strategy-comparison-2026-11-12.json`.
 
