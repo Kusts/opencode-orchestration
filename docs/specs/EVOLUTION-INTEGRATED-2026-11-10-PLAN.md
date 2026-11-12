@@ -500,13 +500,13 @@ credencial ou produção.
 
 ### 14.1 Estado atual (reconciliar antes de agir)
 
-- **Worktree/branch/HEAD:** trabalhar em `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`, HEAD `8b9a22e`.
+- **Worktree/branch/HEAD:** trabalhar em `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`, HEAD `589cce4`; commits `3909600` (wiring #200/#103 + E2E), `cbae9d7` (confinement), `de0d26c` (schema cap ladder + fail-closed), `589cce4` (write-refusal tests).
 - **Commitado e não publicado:** item 1 de §14.2 (#12/#11, wiring no EvidenceStore) concluído e commitado em `8b9a22e` nesta branch/worktree. **Nada foi pushado, mergeado ou deployado; CI desta branch não rodou.**
 - **Checkout principal (outro fluxo, não trocar por inferência):** `D:\projetos\opencode-orchestration` está em `feat/install-ownership-agent-config-20261111` (commits `2cfc78e`, `92f37ff`, `ffa5a4d`, PR/fluxo de install ownership). A próxima sessão deve trabalhar na worktree da branch `feat/kernel-evidence-store-20261111` ou coordenar explicitamente com o outro fluxo.
 - **Entrega #12/#11:** `-EvidenceStoreDir` opt-in (vazio = legado byte-idêntico) + `-VirtualizeThresholdBytes`; conteúdo redigido persistido content-addressed; `evidence_artifacts` com `sha256`/`bytes`/`kind`/`preview<=2000`/`field=failure_detail`/`store_rel`; fail-closed `EVIDENCE_REDACTION_UNAVAILABLE`; escrita dentro do lock; confinamento de store + reparse point; ação CLI `get-evidence` com recall verificado; `verified_pass`/`DONE` intocados.
 - **Decisão:** ADOTAR (opt-in) com medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash e byte-idêntico `true`; tokens (estimativa `chars/4`) 50.004.
-- **Validação:** kernel 125/125 e CLI 20/20 em `pwsh` e PS 5.1; virtualização 18/18; runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); `package-consistency` 17/17; `git diff --check` limpo; DONE compliance COMPLIANT.
-- **Revisões:** revisão de segurança rodada 2 com achados corrigidos; revisão de código da rodada 3 bloqueada por cota de modelo (5 h, reset 01:00 America/Sao_Paulo / 04:00 UTC), coberta por diff review do Planner.
+- **Validação:** reviewer rodada 2 APPROVED; security APPROVED. Suítes verdes: DispatchPipeline 206, retry-decision-e2e 9, TaskKernel 126, ReviewAnchor 29, ReviewIntegration 17, LocalizedRepair 13, repair-decision 10, package-consistency 17/17. Runner amplo NÃO verde: 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184. Falhas ambientais sem overlap: CapabilityDoctor TEMP-listing race, isolado 46 asserts 3/3; RuntimeWatchdogEnforcement log ilegível/ausente por captura do runner, isolado 459 asserts 2/2.
+- **Revisões:** reviewer rodada 2 APPROVED; security APPROVED.
 - **Evidências:** `evidence/evolution-2026-11-10/evidence-store-integration/` (inclui `measurement.json`), além de `evidence/evolution-2026-11-10/` e `evidence/evolution-2026-11-10/p0-autonomy/`.
 - **Ressalva honesta:** #11 marcada COBERTA no escopo medido; "prefixo estável/cache antes-depois" continua dependente de métricas do provedor.
 
@@ -520,6 +520,8 @@ credencial ou produção.
 6. **Reconciliação do config ativo.** Aceite: somente após pedido explícito de install/reconcile, usando `scripts/reconcile-opencode-config.ps1` com backup.
 
 ### 14.3 Restrições que continuam valendo
+
+Residuais LOW aceitos: `repair_decision` last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E usa o store default real com cleanup em `finally` (crash pode deixar resíduo); comportamento mediado por LLM/provider fora da prova.
 
 - Sem novo controlador, scheduler, banco ou framework.
 - Sem alterar flags, permissões, allowlist, credenciais ou produção.
@@ -540,8 +542,8 @@ Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem re
 
 ### 14.5 Handoff compacto (5 campos)
 
-- **Objetivo/estado:** continuar backlog residual (M0–M7) a partir do item 2 (#200/#103 E2E); item 1 (#12/#11) concluído e commitado em `8b9a22e` na worktree `D:\projetos\opencode-orchestration-wt-evidence` (branch `feat/kernel-evidence-store-20261111`, sem push/merge/deploy/CI).
+- **Objetivo/estado:** continuar backlog residual (M0–M7) a partir do item 2 de §14.2 (#183); item 1 (#12/#11) concluído e commitado em `8b9a22e` na worktree `D:\projetos\opencode-orchestration-wt-evidence` (branch `feat/kernel-evidence-store-20261111`, sem push/merge/deploy/CI).
 - **Alterações:** wiring opt-in `-EvidenceStoreDir`/`-VirtualizeThresholdBytes` no EvidenceStore do Task Kernel, persistência content-addressed com `evidence_artifacts`/recall `get-evidence`, redação e confinamento fail-closed, `verified_pass`/`DONE` preservados (conforme `8b9a22e`).
 - **Validação:** kernel 125/125 e CLI 20/20 (pwsh e PS 5.1), virtualização 18/18, runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0), `package-consistency` 17/17, `git diff --check` limpo, DONE compliance COMPLIANT; revisão de segurança rodada 2 corrigida; revisão de código rodada 3 bloqueada por cota (reset 01:00 America/Sao_Paulo / 04:00 UTC), coberta por diff review do Planner. CI desta branch não executada.
 - **Decisões/pendências:** #12/#11 ADOTAR (opt-in), medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`; #11 "prefixo estável/cache antes-depois" dependente de métricas do provedor; #183 fronteira externa (opção b); checkout principal em outro fluxo (`feat/install-ownership-agent-config-20261111`); pendências #200/#103, #183, #64/#192/#50/#141/#2/#184/#185/#172, PR #210, M7/#205 HOLD, config ativo; sem push/CI.
-- **Próximo passo:** reconciliar HEAD/estado na worktree e iniciar item 1 de §14.2 (#200/#103 E2E) com aceite objetivo; push/PR/merge/deploy só com pedido explícito.
+- **Próximo passo:** iniciar item 2 de §14.2 (#183), com aceite objetivo; push/PR/merge/deploy só com pedido explícito.

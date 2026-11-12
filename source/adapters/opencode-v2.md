@@ -551,8 +551,8 @@ que o Kernel nao fornece hoje). Findings sao ancorados em arquivo + linha +
 commit revisado; a Task persiste `findings`, `review_history` e o owner
 sugerido. O Planner registra os findings retornados com `-FindingsJson` ou
 `-FindingsFile`. `retry-decision` consulta a politica deterministica e grava
-`repair_decision` como estado advisory sob lock/CAS; nao despacha nem altera gates.
-`approved` com findings e recusado.
+`repair_decision` como estado advisory sob lock/CAS; nao despacha nem altera gates. Cada chamada persiste esse registro e incrementa a `revision` da Task; um ator concorrente com `ExpectedRevision` anterior recebe `CAS_CONFLICT`, intencionalmente como nos demais mutators. `EXHAUSTED` é terminal (`ILLEGAL_TRANSITION`), portanto `ESCALATE` só é registrável enquanto `attempts < budget`; a máquina de estados não muda.
+`approved` com findings e recusado. Se o bundle exceder `DPJsonCap`, `REVIEW_FINDINGS_SCHEMA` é o primeiro degrau de descarte e o contrato do reviewer mantém `status=ready` com `review_findings_schema_status='discarded-bundle-size'`. Consumidores que precisam do schema devem checar esse campo, não apenas `status`/`incomplete`; em contraste, schema indisponível marca o contrato `incomplete`.
 
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 `PLANNING`, `IMPLEMENTING`, `VALIDATING`, `REVIEWING`, `FIXING`, `BLOCKED`,

@@ -8,7 +8,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 - **#200/#103 — contrato de review e decisão advisory de retry (2026-11-12)**:
   - Contrato do role `reviewer` injeta o schema versionado da fonte canônica; demais roles não o recebem. `review-schema` permanece read-only.
-  - `retry-decision` consulta `Resolve-OrchestrationLocalizedRepair` sob lock/CAS e grava a decisão, motivo, constraints e sinais no Task. Não despacha, não cria gate e não altera autoridade de verificação/DONE.
+  - `retry-decision` consulta `Resolve-OrchestrationLocalizedRepair` sob lock/CAS e grava a decisão, motivo, constraints e sinais no Task. Cada chamada persiste registro advisory e incrementa a revision da Task; concorrente com `ExpectedRevision` anterior recebe `CAS_CONFLICT`, intencionalmente como nos demais mutators. Não despacha, não cria gate e não altera autoridade de verificação/DONE.
   - Harness TEMP determinístico comprova review bloqueante, LOCAL_REPAIR, REPLAN, fail-closed e completion pelo verifier-executed existente. Cobertura LLM/provider e dispatch/reparo reais continuam fora da prova.
   - Validação desta fatia: runner V3 174 PASS / 0 FAIL / 10 SKIP (184 suites); package-consistency 17/17; harness 6/6 em PS5.1 e pwsh; `git diff --check` limpo. Uma execução anterior do runner teve 1 falha concorrente no teste read-only do Capability Doctor; rerun serial ficou verde (doctor isolado 46 assertions).
 
