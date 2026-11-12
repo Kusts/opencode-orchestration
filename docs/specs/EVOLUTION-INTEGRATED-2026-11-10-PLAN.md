@@ -515,7 +515,7 @@ credencial ou produção.
 
 1. **CONCLUÍDO (2026-11-12) — #200/#103 — E2E com fluxo real.** Contrato reviewer/schema, decisão advisory persistida, bloqueio por changes_required, re-review e DONE validado em harness TEMP; o consumo do schema e a execução da correção pelo Planner/LLM real ainda exigem prova runtime e não são declarados COBERTOS.
 2. **#183 — contrato do produtor codificado e testado; PARCIAL.** Commits `d59c59d` + este fix cobrem envelope, validação/replay e documentação de consumo; produtor externo não existe e `delivery_id` real não pode ser fabricado. Próximo passo é decisão de operador: construir produtor externo (webhook/Action) ou seguir para #64/#192.
-3. **#64, #192, #50/#141, #2/#184/#185, #172.** Aceite: #64 medir custo de descoberta de skills; #192 comparar Single/Cascade/Critique em cenários representativos com métricas observadas; #50/#141 capability-first e auditoria de autoridade por superfície; #2/#184/#185 sessões subordinadas, observe→auto e handback completo; #172 só reproduzir o flake com sinal real.
+3. **#64 PARCIAL (medição local), #192, #50/#141, #2/#184/#185, #172.** #64 mediu bytes/chars do catálogo, corpos SKILL.md por raiz e tamanho/status do contexto da bridge; runtime listing, tokens reais e cache/custo do provider seguem UNKNOWN. Próximo passo: #192. #192 compara Single/Cascade/Critique em cenários representativos com métricas observadas; #50/#141 capability-first e auditoria de autoridade por superfície; #2/#184/#185 sessões subordinadas, observe→auto e handback completo; #172 só reproduzir o flake com sinal real.
 4. **PR #210.** Aceite: comparar com a master; descartar ou reabrir contra a master; não integrar configuração anterior ao merge #236.
 5. **M7/#205.** Aceite: piloto somente com produto/credenciais; sem acesso/produto, manter HOLD com resultado registrado.
 6. **Reconciliação do config ativo.** Aceite: somente após pedido explícito de install/reconcile, usando `scripts/reconcile-opencode-config.ps1` com backup.
@@ -543,8 +543,8 @@ Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem re
 
 ### 14.5 Handoff compacto (5 campos)
 
-- **Objetivo/estado:** #200/#103 concluído em código + E2E determinístico (base `589cce4` + docs desta rodada); #12/#11 previamente concluído em `8b9a22e`; #183 continua PARCIAL, com contrato do produtor codificado/testado nos commits `d59c59d` + este fix. Base deste handoff: `d59c59d`; HEAD inclui o commit deste fix.
+- **Objetivo/estado:** #64 PARCIAL (medição local) em `e09eb4f`; #200/#103 concluído em código + E2E determinístico; #183 continua PARCIAL. Esta rodada registra medição local; UNKNOWN runtime listing, tokens reais e cache/custo provider.
 - **Alterações:** schema no contrato role-gated do `reviewer` (fonte canônica, primeiro degrau de descarte); `retry-decision` advisory sob lock/CAS com guard de confinamento; harness E2E; documentação.
 - **Validação:** focadas PS 5.1 pós-reparo 206/9/126/29/17/13/10 e package-consistency 17/17; pwsh pré-reparo 204/6/125/29/17/13/10 (pós-reparo não observado); runner amplo NÃO verde 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184, falhas ambientais descritas em §14.1.
 - **Decisões/pendências:** LOWs aceitos (last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E no store default real com cleanup em `finally`; comportamento LLM/provider fora da prova); #183 PARCIAL e produtor externo pendente; PR #240 aberto. CI parcialmente observado naquele momento: 3 pass, 3 pending; sem merge/deploy.
-- **Próximo passo:** decisão de operador entre construir webhook/Action externo para #183 ou seguir para #64/#192.
+- **Próximo passo:** #192 — comparar Single/Cascade/Critique com métricas observadas.

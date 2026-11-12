@@ -1,0 +1,284 @@
+{
+    "generated_at":  "2026-11-12T00:00:00Z",
+    "catalog":  {
+                    "path":  "D:\\projetos\\opencode-orchestration-wt-evidence\\source\\registry\\skills-catalog.json",
+                    "bytes_observed":  53868,
+                    "chars_observed":  53865,
+                    "entries_observed":  111,
+                    "fields_observed":  [
+                                            "activation",
+                                            "agents",
+                                            "category",
+                                            "classification",
+                                            "conflicts",
+                                            "id",
+                                            "managed_by",
+                                            "note",
+                                            "priority",
+                                            "replaced_by",
+                                            "replaces",
+                                            "source",
+                                            "status",
+                                            "version_policy"
+                                        ]
+                },
+    "roots":  [
+                  {
+                      "path":  "D:\\projetos\\opencode-orchestration-wt-evidence\\skills-core",
+                      "exists":  true,
+                      "entry_count_observed":  8,
+                      "skill_md_count_observed":  8,
+                      "total_skill_md_bytes_observed":  24161,
+                      "total_skill_md_chars_observed":  23941,
+                      "per_skill":  [
+                                        {
+                                            "id":  "addy-incremental-delivery",
+                                            "bytes":  2283,
+                                            "chars":  2219,
+                                            "sha256":  "30b74f5e4ba9033620232218d1c6f5296d08236551c0362a92b199bb004c6583"
+                                        },
+                                        {
+                                            "id":  "bmad-structured-delivery",
+                                            "bytes":  2902,
+                                            "chars":  2813,
+                                            "sha256":  "795eb8a328750aba82762258c356843823e5714869f8241b8017c5d944633fe5"
+                                        },
+                                        {
+                                            "id":  "dispatching-parallel-agents",
+                                            "bytes":  2331,
+                                            "chars":  2331,
+                                            "sha256":  "751ad62979bc44bd622e88b32ce903296a35a5e0fa7b8683cb7436dfa5a40575"
+                                        },
+                                        {
+                                            "id":  "hybrid-development",
+                                            "bytes":  9467,
+                                            "chars":  9467,
+                                            "sha256":  "18ee17515983f0f096f8df5f1b759c758f38705ef0f724cbca04ab32d0afb770"
+                                        },
+                                        {
+                                            "id":  "pocock-technical-decisions",
+                                            "bytes":  2259,
+                                            "chars":  2192,
+                                            "sha256":  "24d6f75080848f5c12e3929ae0da2cb40a07fd99ca4c69bb4434c4cdc27297ce"
+                                        },
+                                        {
+                                            "id":  "subagent-driven-development",
+                                            "bytes":  2059,
+                                            "chars":  2059,
+                                            "sha256":  "6e1ac6cdcfabfd41be02d62a8669004b5f17312884dca644da4c7b0fc7e13b11"
+                                        },
+                                        {
+                                            "id":  "using-superpowers",
+                                            "bytes":  676,
+                                            "chars":  676,
+                                            "sha256":  "81ff182997a61972410bbe5c11dfac13ecc5a64e29313bc4f2a69af03c9c819d"
+                                        },
+                                        {
+                                            "id":  "verification-before-completion",
+                                            "bytes":  2184,
+                                            "chars":  2184,
+                                            "sha256":  "8171b95c6dae77822ba5f63e4ff5bdc05bb7978f0b36bdbcebbeeb0468137610"
+                                        }
+                                    ]
+                  },
+                  {
+                      "path":  "C:\\Users\\walis\\.config\\opencode\\skills",
+                      "exists":  true,
+                      "entry_count_observed":  125,
+                      "skill_md_count_observed":  17,
+                      "total_skill_md_bytes_observed":  111758,
+                      "total_skill_md_chars_observed":  111202,
+                      "per_skill":  [
+                                        {
+                                            "id":  "addy-incremental-delivery",
+                                            "bytes":  2283,
+                                            "chars":  2219,
+                                            "sha256":  "30b74f5e4ba9033620232218d1c6f5296d08236551c0362a92b199bb004c6583"
+                                        },
+                                        {
+                                            "id":  "autoresearch",
+                                            "bytes":  7938,
+                                            "chars":  7868,
+                                            "sha256":  "e5b6271bad24bcdae68408143176cf6b2a0663e0109e9bd0daabd2e7df16c47f"
+                                        },
+                                        {
+                                            "id":  "bmad-structured-delivery",
+                                            "bytes":  2902,
+                                            "chars":  2813,
+                                            "sha256":  "795eb8a328750aba82762258c356843823e5714869f8241b8017c5d944633fe5"
+                                        },
+                                        {
+                                            "id":  "cli-tooling",
+                                            "bytes":  2416,
+                                            "chars":  2375,
+                                            "sha256":  "95ab10a6f99fa52fc3a89e415f300d53025bf5bdf6ce99c67de453ef06284e6b"
+                                        },
+                                        {
+                                            "id":  "composition-patterns",
+                                            "bytes":  2975,
+                                            "chars":  2971,
+                                            "sha256":  "fb8f849b4d46c0c4d364ae6fb398a5cb693b54f9a4c31765a1ec0689c7cb93d5"
+                                        },
+                                        {
+                                            "id":  "deploy-to-vercel",
+                                            "bytes":  11504,
+                                            "chars":  11452,
+                                            "sha256":  "bed987621c2ec54ec479eff9661739f496880a0b4b64d2c67a92a093217f1bce"
+                                        },
+                                        {
+                                            "id":  "jev-ultrafast",
+                                            "bytes":  2426,
+                                            "chars":  2417,
+                                            "sha256":  "4e61d52d3c678a0514e3a86f77aab1e84924dea4c9a8f0896b6680a5ec953d65"
+                                        },
+                                        {
+                                            "id":  "pocock-technical-decisions",
+                                            "bytes":  2259,
+                                            "chars":  2192,
+                                            "sha256":  "24d6f75080848f5c12e3929ae0da2cb40a07fd99ca4c69bb4434c4cdc27297ce"
+                                        },
+                                        {
+                                            "id":  "react-best-practices",
+                                            "bytes":  7400,
+                                            "chars":  7400,
+                                            "sha256":  "3286ace648b4d740317b9c1cb7fbd38600eaacc62a8b57ea5e06fd2992b5582e"
+                                        },
+                                        {
+                                            "id":  "react-native-skills",
+                                            "bytes":  4560,
+                                            "chars":  4560,
+                                            "sha256":  "aff91057282facb41ddc8873a482e19cfb928056fc32b350e1b084b16cb58dc2"
+                                        },
+                                        {
+                                            "id":  "react-view-transitions",
+                                            "bytes":  14834,
+                                            "chars":  14768,
+                                            "sha256":  "5f5cd199cf57de44855685847ff49446207f00bdf80783f05795aec6884e0830"
+                                        },
+                                        {
+                                            "id":  "supabase",
+                                            "bytes":  14462,
+                                            "chars":  14426,
+                                            "sha256":  "44f4cfefb57751abf9288fb2920de621c748964de1301db627dea725e187bccf"
+                                        },
+                                        {
+                                            "id":  "supabase-postgres-best-practices",
+                                            "bytes":  3295,
+                                            "chars":  3293,
+                                            "sha256":  "4d7d1bd60f2ad7fd0d510269279519059dcc630d832f4c241d90735244c70525"
+                                        },
+                                        {
+                                            "id":  "vercel-cli-with-tokens",
+                                            "bytes":  12329,
+                                            "chars":  12273,
+                                            "sha256":  "1b5e37800e31058ad9ac811eafc357f2fa67a6d880984f5b4dcb0f05e2619784"
+                                        },
+                                        {
+                                            "id":  "vercel-optimize",
+                                            "bytes":  17633,
+                                            "chars":  17633,
+                                            "sha256":  "3675219c3b9622513696dd359ff70a8fa38c0b3c3b554b237e10f2b4807fcfb3"
+                                        },
+                                        {
+                                            "id":  "web-design-guidelines",
+                                            "bytes":  1270,
+                                            "chars":  1270,
+                                            "sha256":  "17e48da905f83a19c174079b50760a98c069527ba50079239b3c187236627c29"
+                                        },
+                                        {
+                                            "id":  "writing-guidelines",
+                                            "bytes":  1272,
+                                            "chars":  1272,
+                                            "sha256":  "c28458a39d09a2fb7d6459eb7311d1a30c7c7f17069ad28132031b916d74d269"
+                                        }
+                                    ]
+                  },
+                  {
+                      "path":  "C:\\Users\\walis\\.agents\\skills",
+                      "exists":  true,
+                      "entry_count_observed":  113,
+                      "skill_md_count_observed":  5,
+                      "total_skill_md_bytes_observed":  33381,
+                      "total_skill_md_chars_observed":  33284,
+                      "per_skill":  [
+                                        {
+                                            "id":  "ai-memory-messaging",
+                                            "bytes":  4120,
+                                            "chars":  4112,
+                                            "sha256":  "7a86bdd78e947372ebba0cbbeb3ec3b16f54ab23ef8a64b854f2f9dd4af0d9c1"
+                                        },
+                                        {
+                                            "id":  "find-skills",
+                                            "bytes":  5472,
+                                            "chars":  5456,
+                                            "sha256":  "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f"
+                                        },
+                                        {
+                                            "id":  "hallmark",
+                                            "bytes":  18239,
+                                            "chars":  18168,
+                                            "sha256":  "25a1ff92d925b2389e8409f42fb8ad7e033fceca8b5d1f07ed4ca4c28da53dc3"
+                                        },
+                                        {
+                                            "id":  "maestri-chat",
+                                            "bytes":  3329,
+                                            "chars":  3329,
+                                            "sha256":  "f8a554ff579acaead218b6445adc193a6af8f9a4464466acd5b306d0030d4e20"
+                                        },
+                                        {
+                                            "id":  "orca-computer-use",
+                                            "bytes":  2221,
+                                            "chars":  2219,
+                                            "sha256":  "69376456185483ea494eb354be09bce5b8bde9d1c792e8cb1ce7687691d1a021"
+                                        }
+                                    ]
+                  }
+              ],
+    "dispatch_context":  {
+                             "status":  "disabled",
+                             "chars_observed":  0,
+                             "bytes_observed":  0,
+                             "text":  "",
+                             "explanation":  "skill_routing.enabled is false; no dispatch context is emitted."
+                         },
+    "estimates":  [
+                      {
+                          "source":  "catalog_chars",
+                          "estimated_tokens":  13467,
+                          "is_estimate":  true,
+                          "method":  "chars/4"
+                      },
+                      {
+                          "source":  "dispatch_context_chars",
+                          "estimated_tokens":  0,
+                          "is_estimate":  true,
+                          "method":  "chars/4"
+                      }
+                  ],
+    "unknown":  [
+                    {
+                        "item":  "runtime_skill_listing",
+                        "reason":  "Runtime-injected skill listing is not observable from local files."
+                    },
+                    {
+                        "item":  "actual_context_tokens",
+                        "reason":  "Actual provider context tokenization requires a real session observation."
+                    },
+                    {
+                        "item":  "provider_cache_and_cost",
+                        "reason":  "Cache read/write and provider cost require a real session via cache-metrics.ps1."
+                    }
+                ],
+    "method":  {
+                   "name":  "deterministic_local_io",
+                   "no_model_call":  true,
+                   "base_revision":  "e09eb4f34416bab396cbbef656f58e09a45fe2bc",
+                   "limitations":  [
+                                       "Token estimates use chars/4 and are not observed tokens.",
+                                       "Runtime injection and provider cache/cost are not measured."
+                                   ]
+               },
+    "limitations":  [
+                        "Local filesystem observations do not represent runtime-injected skills or provider accounting."
+                    ]
+}

@@ -153,7 +153,7 @@ sem implementação; **SPIKE** = avaliação/piloto.
 | #141 | M1 | ABERTO | ownership Agent Config documentado no instalador; duplicação de autoridade não auditada | Auditoria de permissões por superfície |
 | #237 | M2 | COBERTO | 8 skills-core instaladas (5 + BMAD/Pocock/Addy); `fresh-install` 53/0 e `idempotency` 17/0 | Revisar evidência e fechar |
 | #48 | M2 | PARCIAL | tabela de seleção por forma da tarefa em `hybrid-development`; sem roteamento adaptativo por Objective/Goal | Evoluir seleção no Kernel |
-| #64 | M2 | ABERTO | `skills-catalog.json` existe; custo de contexto não medido | Medir descoberta seletiva e custo |
+| #64 | M2 | PARCIAL (medição local) | Catálogo, corpos SKILL.md por raiz e contexto de dispatch da bridge medidos localmente; listing injetado pelo runtime, tokens reais e cache/custo do provider UNKNOWN | Observar sessão real via cache-metrics; seguir #192 |
 | #139 | M3 | COBERTO | PTY create/list `exited exitCode=0` e shell longo `status=exited` + output `shell-ok` via API 2.2.6 | Revisar evidência e fechar |
 | #140 | M3 | COBERTO | `GET /api/worktree?projectID=…` retorna 42 worktrees com `strategy=git`; create/remove não exercitados | Provar criação/remoção |
 | #143 | M3 | COBERTO | contrato nativo provado em 2026-11-07 (CHANGELOG); comparador morto removido | Revisar evidência e fechar |
