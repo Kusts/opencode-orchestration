@@ -1,5 +1,6 @@
 {
     "generated_at":  "2026-11-12T00:00:00Z",
+    "generated_at_source":  "parameter",
     "catalog":  {
                     "path":  "D:\\projetos\\opencode-orchestration-wt-evidence\\source\\registry\\skills-catalog.json",
                     "bytes_observed":  53868,
@@ -31,6 +32,10 @@
                       "reparse_point_entries_observed":  0,
                       "unreachable_count":  0,
                       "total_is_lower_bound":  false,
+                      "truncated":  false,
+                      "truncated_reason":  [
+
+                                           ],
                       "skill_md_count_observed":  8,
                       "total_skill_md_bytes_observed":  24161,
                       "total_skill_md_chars_observed":  23941,
@@ -93,6 +98,10 @@
                       "reparse_point_entries_observed":  108,
                       "unreachable_count":  0,
                       "total_is_lower_bound":  false,
+                      "truncated":  false,
+                      "truncated_reason":  [
+
+                                           ],
                       "skill_md_count_observed":  125,
                       "total_skill_md_bytes_observed":  929085,
                       "total_skill_md_chars_observed":  917869,
@@ -857,6 +866,10 @@
                       "reparse_point_entries_observed":  108,
                       "unreachable_count":  0,
                       "total_is_lower_bound":  false,
+                      "truncated":  false,
+                      "truncated_reason":  [
+
+                                           ],
                       "skill_md_count_observed":  113,
                       "total_skill_md_bytes_observed":  850708,
                       "total_skill_md_chars_observed":  839951,
@@ -1580,8 +1593,8 @@
     "method":  {
                    "name":  "deterministic_local_io",
                    "no_model_call":  true,
-                   "base_revision":  "4f7744be1e53608f9acbfa2b18565fbe824dadf1",
-                   "generated_by_commit":  "4f7744be1e53608f9acbfa2b18565fbe824dadf1",
+                   "base_revision":  "80867821fc146d0f965305f4020761031578cb14",
+                   "generated_by_commit":  "80867821fc146d0f965305f4020761031578cb14",
                    "limitations":  [
                                        "Token estimates use chars/4 and are not observed tokens.",
                                        "Runtime injection and provider cache/cost are not measured."
