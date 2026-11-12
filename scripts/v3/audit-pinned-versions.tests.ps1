@@ -7,7 +7,7 @@ try{
  if($j.counts.path_lines -ne 62 -or $j.counts.REGISTRY_RECORD -ne 25 -or $j.counts.TEST_FIXTURE -ne 26 -or $j.counts.COMMENT_OR_DOC -ne 9 -or $j.counts.PRODUCT_CODE -ne 2 -or $j.counts.UNCLASSIFIED_NEEDS_REVIEW -ne 0){throw 'literal class counts differ from reviewed expected counts'}
  if(@($j.comparators).Count -ne 0 -or $j.comparator_search.comparator_matches -ne 0){throw 'unexpected comparator'}
  $ids=@($j.literals|ForEach-Object{"$($_.path):$($_.line)"});if(@($ids|Select-Object -Unique).Count -ne $ids.Count){throw 'duplicate path:line'}
- if(@($j.reviewed_product_code).Count -ne 2){throw 'manual product review set mismatch'};foreach($f in $j.protected_files){if((Get-FileHash $f.path -Algorithm SHA256).Hash -ne $f.sha256){throw "protected hash mismatch $($f.path)"}}
+ if(@($j.reviewed_product_code).Count -ne 2){throw 'manual product review set mismatch'};$productIds=@($j.literals|Where-Object classification -eq PRODUCT_CODE|ForEach-Object{"$($_.path):$($_.line)"}|Sort-Object);if(($productIds -join '|') -ne 'scripts/v3/lib/OrchestrationModelRouter.ps1:2661|scripts/v3/opencode-v2-regression-gate.ps1:71'){throw 'PRODUCT_CODE anchors differ from reviewed set'};foreach($f in $j.protected_files){if((Get-FileHash $f.path -Algorithm SHA256).Hash -ne $f.sha256){throw "protected hash mismatch $($f.path)"}}
  foreach($p in $protectedBefore.Keys){if((Get-FileHash $p -Algorithm SHA256).Hash -ne $protectedBefore[$p]){throw "protected file changed $p"}}
  foreach($u in $j.unparseable){if($u.classification -ne 'UNPARSEABLE'){throw 'UNPARSEABLE was silently resolved'}}
  if($j.scan_scope -contains 'evidence/'){throw 'evidence must not be scanned'}

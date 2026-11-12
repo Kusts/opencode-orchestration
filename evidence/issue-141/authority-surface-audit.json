@@ -1,4 +1,23 @@
 ﻿{
+    "scan_scope":  [
+                       "templates/opencode.v1.json.tmpl",
+                       "templates/opencode.v2.json.tmpl",
+                       "source/agents/*.md",
+                       "source/global/AGENTS.md",
+                       "source/adapters/*",
+                       "source/registry/execution-grants.json",
+                       "scripts/v3/lib/OrchestrationTaskKernel.ps1",
+                       "scripts/v3/lib/OrchestrationNativeDispatchGrantProjection.ps1",
+                       "scripts/v3/lib/OrchestrationNativeDispatch.ps1",
+                       "scripts/v3/lib/OrchestrationAutonomy.ps1"
+                   ],
+    "excluded_paths":  [
+                           "evidence/",
+                           "docs/",
+                           "cache/",
+                           ".git/",
+                           "node_modules/"
+                       ],
     "surfaces":  [
                      {
                          "name":  "opencode",
@@ -4301,8 +4320,8 @@
     "method":  {
                    "mode":  "structured_json_frontmatter_and_function_anchor_parse",
                    "no_model_call":  true,
-                   "base_revision":  "c9ddea91b21e5aa84b888140b63ab36dd324df20",
-                   "generated_by_commit":  "c9ddea91b21e5aa84b888140b63ab36dd324df20",
+                   "base_revision":  "9699f9e909d2968da15f5c1e8446945a1d8d7791",
+                   "generated_by_commit":  "9699f9e909d2968da15f5c1e8446945a1d8d7791",
                    "limitations":  "Template format must remain JSON; AgentTranslator parser governs frontmatter; static guards/call sites do not prove runtime effects."
                },
     "generated_at":  "2026-11-12T00:00:00Z"

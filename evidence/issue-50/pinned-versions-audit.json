@@ -697,8 +697,8 @@
     "method":  {
                    "mode":  "git_grep_fixed_literal_path_line_dedup",
                    "no_model_call":  true,
-                   "base_revision":  "c9ddea91b21e5aa84b888140b63ab36dd324df20",
-                   "generated_by_commit":  "c9ddea91b21e5aa84b888140b63ab36dd324df20",
+                   "base_revision":  "9699f9e909d2968da15f5c1e8446945a1d8d7791",
+                   "generated_by_commit":  "9699f9e909d2968da15f5c1e8446945a1d8d7791",
                    "limitations":  "Literal search does not detect dynamically assembled versions; semantic comparators are found only by directed keyword search."
                },
     "generated_at":  "2026-11-12T00:00:00Z"
