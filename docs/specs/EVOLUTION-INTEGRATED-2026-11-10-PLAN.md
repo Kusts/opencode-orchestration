@@ -486,89 +486,52 @@ trabalho em andamento. Branch, commits e PR preservados.
 automático; M7; dispatch T4/Astra; qualquer alteração de flag, permissão,
 credencial ou produção.
 
-## 14. Handoff para a próxima sessão (2026-11-11)
-
-**Objetivo:** continuar a implementação do backlog residual M0–M7 na próxima
-sessão, sem refazer o que já está provado.
+## 14. Handoff para a próxima sessão (2026-11-12)
 
 ### 14.1 Estado atual (reconciliar antes de agir)
 
-- Branch `feat/evolution-integrated-20261110`; HEAD `16a1c84`; PR #238 aberto e
-  mergeable; CI do HEAD **6/6 SUCCESS** (linux collector, ps51, ps7, v2 lane,
-  smokes V1/V2). Nenhum merge/deploy.
-- Missão integrada encerrada pelo orientador em 2026-11-11. O encerramento vale
-  para os critérios da missão, **não** para todo o backlog: 9 issues COBERTAS,
-  9 PARCIAIS, 6 ABERTAS, 1 HOLD e PR #210 não integrado.
-- Config ativo `~/.config/opencode` **não** foi reconciliado; as mudanças estão
-  em `source/`, `generated/` e no bundle do plugin. Reconciliar só com pedido
-  explícito.
-- Evidências: `evidence/evolution-2026-11-10/` (P0, P0.5, P0.6, M3, M5, M6,
-  M7) e `evidence/evolution-2026-11-10/p0-autonomy/`.
+- **Worktree/branch/HEAD:** trabalhar em `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`, HEAD `8b9a22e`.
+- **Commitado e não publicado:** item 1 de §14.2 (#12/#11, wiring no EvidenceStore) concluído e commitado em `8b9a22e` nesta branch/worktree. **Nada foi pushado, mergeado ou deployado; CI desta branch não rodou.**
+- **Checkout principal (outro fluxo, não trocar por inferência):** `D:\projetos\opencode-orchestration` está em `feat/install-ownership-agent-config-20261111` (commits `2cfc78e`, `92f37ff`, `ffa5a4d`, PR/fluxo de install ownership). A próxima sessão deve trabalhar na worktree da branch `feat/kernel-evidence-store-20261111` ou coordenar explicitamente com o outro fluxo.
+- **Entrega #12/#11:** `-EvidenceStoreDir` opt-in (vazio = legado byte-idêntico) + `-VirtualizeThresholdBytes`; conteúdo redigido persistido content-addressed; `evidence_artifacts` com `sha256`/`bytes`/`kind`/`preview<=2000`/`field=failure_detail`/`store_rel`; fail-closed `EVIDENCE_REDACTION_UNAVAILABLE`; escrita dentro do lock; confinamento de store + reparse point; ação CLI `get-evidence` com recall verificado; `verified_pass`/`DONE` intocados.
+- **Decisão:** ADOTAR (opt-in) com medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash e byte-idêntico `true`; tokens (estimativa `chars/4`) 50.004.
+- **Validação:** kernel 125/125 e CLI 20/20 em `pwsh` e PS 5.1; virtualização 18/18; runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); `package-consistency` 17/17; `git diff --check` limpo; DONE compliance COMPLIANT.
+- **Revisões:** revisão de segurança rodada 2 com achados corrigidos; revisão de código da rodada 3 bloqueada por cota de modelo (5 h, reset 01:00 America/Sao_Paulo / 04:00 UTC), coberta por diff review do Planner.
+- **Evidências:** `evidence/evolution-2026-11-10/evidence-store-integration/` (inclui `measurement.json`), além de `evidence/evolution-2026-11-10/` e `evidence/evolution-2026-11-10/p0-autonomy/`.
+- **Ressalva honesta:** #11 marcada COBERTA no escopo medido; "prefixo estável/cache antes-depois" continua dependente de métricas do provedor.
 
 ### 14.2 Ordem recomendada
 
-1. **#12/#11 — wiring no EvidenceStore do Kernel — CONCLUÍDO (2026-11-12, branch `feat/kernel-evidence-store-20261111`, worktree).**
-   - `Set-OrchestrationTaskWorkerResult` com `-EvidenceStoreDir` (opt-in, default vazio = legado byte-idêntico) e `-VirtualizeThresholdBytes` (default 4096); `FailureDetail` grande em `failed` é redigido, persistido content-addressed e referenciado em `evidence_artifacts` (hash, bytes, kind, preview, `store_rel`), com `failure_detail` truncado. Fail-closed: sanitizador indisponível/timeout (5s) no caminho virtualizado ⇒ `EVIDENCE_REDACTION_UNAVAILABLE` e zero escritas. CLI `get-evidence` com recall verificado por SHA-256 e confinamento de store/path; `verified_pass`/`DONE`/compliance inalterados.
-   - **Decisão: ADOTAR (opt-in).** Medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record sem/com virtualização 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash verificado e byte-idêntico `true`; tokens `chars/4` 50.004; `redaction=applied`, `redaction_fail_closed=true`, `store_rel=true`. Overhead do record compensado pela recuperação integral verificada.
-   - Validação: kernel lib 125/125 (pwsh e PS5.1); CLI 20/20 (pwsh e PS5.1); virtualização 18/18; runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); package-consistency 17/17; `git diff --check` limpo. Sem merge/push/CI.
-2. **#200/#103 — E2E com o fluxo real.**
-   - Reviewer recebe o schema por padrão (`reviewer.md` + `review-schema`);
-     Planner interpreta findings, roda `repair-decision` e delega a correção.
-   - Aceite: findings ancorados persistidos na Task, decisão registrada e
-     correção validada sem novo gate.
-3. **#183 — produtor externo de eventos.**
-   - Avaliar webhook/Action que emite o envelope `source/trigger/thread/
-     delivery_id`; não fabricar `delivery_id` no tick. Se o produtor ficar
-     externo, manter PARTIAL com a fronteira documentada.
-4. **#64/#192, #50/#141, #2/#184/#185, #172.**
-   - #64: medir custo de descoberta de skills.
-   - #192: comparar Single/Cascade/Critique em cenários representativos.
-   - #50/#141: capability-first e auditoria de autoridade por superfície.
-   - #2/#184/#185: sessões subordinadas, observe→auto e handback completo.
-   - #172: só reproduzir o flake com sinal real.
-5. **PR #210:** comparar com a master atual; descartar ou reabrir contra a
-   master. Não integrar configuração anterior ao merge #236.
-6. **M7/#205:** piloto somente com produto/credenciais; caso contrário, HOLD.
-7. **Reconciliação do config ativo:** somente após pedido explícito de
-   install/reconcile; usar `scripts/reconcile-opencode-config.ps1` com backup.
+1. **#200/#103 — E2E com fluxo real.** Aceite: reviewer recebe o schema por padrão; Planner interpreta findings, roda `repair-decision` após falha comprovada e delega a correção; findings ancorados persistidos na Task, decisão registrada e correção validada sem novo gate.
+2. **#183 — produtor externo do envelope `source/trigger/thread/delivery_id`.** Aceite: avaliar webhook/Action que emita o envelope; não fabricar `delivery_id`; se o produtor permanecer externo, manter PARCIAL com a fronteira documentada.
+3. **#64, #192, #50/#141, #2/#184/#185, #172.** Aceite: #64 medir custo de descoberta de skills; #192 comparar Single/Cascade/Critique em cenários representativos com métricas observadas; #50/#141 capability-first e auditoria de autoridade por superfície; #2/#184/#185 sessões subordinadas, observe→auto e handback completo; #172 só reproduzir o flake com sinal real.
+4. **PR #210.** Aceite: comparar com a master; descartar ou reabrir contra a master; não integrar configuração anterior ao merge #236.
+5. **M7/#205.** Aceite: piloto somente com produto/credenciais; sem acesso/produto, manter HOLD com resultado registrado.
+6. **Reconciliação do config ativo.** Aceite: somente após pedido explícito de install/reconcile, usando `scripts/reconcile-opencode-config.ps1` com backup.
 
 ### 14.3 Restrições que continuam valendo
 
 - Sem novo controlador, scheduler, banco ou framework.
 - Sem alterar flags, permissões, allowlist, credenciais ou produção.
-- Sem merge/deploy fora de autorização explícita.
-- Preservar evidências e não refazer etapas já provadas.
+- Sem merge/deploy sem autorização explícita.
+- Preservar evidências; não refazer etapas já provadas.
 - Worker executa implementação/teste; Planner decide e delega; Kernel verifica.
 
 ### 14.4 Comandos de retomada
 
 ```powershell
-git status --short
-gh pr view 238 --json state,mergeable,statusCheckRollup
-powershell -NoProfile -File scripts\test-package-consistency.ps1
+cd D:\projetos\opencode-orchestration-wt-evidence
+git log --oneline -3
 powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+powershell -NoProfile -File scripts\test-package-consistency.ps1
 ```
 
-Primeira ação da próxima sessão: reconciliar HEAD/PR/CI e iniciar pelo item 1
-(#12/#11), registrando a decisão de adotar ou não a integração com base em
-benefício medido.
+Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem realizar merge/deploy.
 
 ### 14.5 Handoff compacto (5 campos)
 
-- **Objetivo/estado:** continuar M0–M7; P0, P0.5 e P0.6 provados; missão
-  encerrada com residuais; item 1 de §14.2 (#12/#11) concluído no worktree.
-- **Alterações:** P0 (papéis/roteamento/instruções/mandato), M5 wiring, P0.5
-  (Goal 3 Tasks), P0.6 (resume nativo), M3 (#140/#203); wiring opt-in de
-  virtualização de evidência no EvidenceStore do Task Kernel (#12/#11, branch
-  `feat/kernel-evidence-store-20261111`, sem commit) com CLI `get-evidence`
-  fail-closed.
-- **Validação:** CI 6/6 (HEAD anterior); V3 agregado 173 PASS / 0 FAIL / 10 SKIP
-  (183, exit 0); kernel lib 125/125 (pwsh e PS5.1); CLI 20/20 (pwsh e PS5.1);
-  virtualização 18/18; package-consistency 17/17; `git diff --check` limpo.
-  Preflight 286/286, GW 145/145, P0.5 14/14, typecheck PASS permanecem válidos
-  da rodada anterior; CI desta branch não executado.
-- **Decisões/pendências:** #12/#11 ADOTAR (opt-in), medido em
-  `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`;
-  #183 opção (b); M7 HOLD; #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172;
-  PR #210; config ativo.
-- **Próximo passo:** item 2 de §14.2 (#200/#103 E2E).
+- **Objetivo/estado:** continuar backlog residual (M0–M7) a partir do item 2 (#200/#103 E2E); item 1 (#12/#11) concluído e commitado em `8b9a22e` na worktree `D:\projetos\opencode-orchestration-wt-evidence` (branch `feat/kernel-evidence-store-20261111`, sem push/merge/deploy/CI).
+- **Alterações:** wiring opt-in `-EvidenceStoreDir`/`-VirtualizeThresholdBytes` no EvidenceStore do Task Kernel, persistência content-addressed com `evidence_artifacts`/recall `get-evidence`, redação e confinamento fail-closed, `verified_pass`/`DONE` preservados (conforme `8b9a22e`).
+- **Validação:** kernel 125/125 e CLI 20/20 (pwsh e PS 5.1), virtualização 18/18, runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0), `package-consistency` 17/17, `git diff --check` limpo, DONE compliance COMPLIANT; revisão de segurança rodada 2 corrigida; revisão de código rodada 3 bloqueada por cota (reset 01:00 America/Sao_Paulo / 04:00 UTC), coberta por diff review do Planner. CI desta branch não executada.
+- **Decisões/pendências:** #12/#11 ADOTAR (opt-in), medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`; #11 "prefixo estável/cache antes-depois" dependente de métricas do provedor; #183 fronteira externa (opção b); checkout principal em outro fluxo (`feat/install-ownership-agent-config-20261111`); pendências #200/#103, #183, #64/#192/#50/#141/#2/#184/#185/#172, PR #210, M7/#205 HOLD, config ativo; sem push/CI.
+- **Próximo passo:** reconciliar HEAD/estado na worktree e iniciar item 1 de §14.2 (#200/#103 E2E) com aceite objetivo; push/PR/merge/deploy só com pedido explícito.
