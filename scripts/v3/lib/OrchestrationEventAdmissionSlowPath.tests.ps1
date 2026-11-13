@@ -33,7 +33,7 @@ try{
  A ((Import-OrchestrationEventAdmissionSlowPathPolicy (Join-Path $tmp 'missing.json')).error -eq 'SLOWPATH_POLICY_PATH_NOT_FOUND') 'missing policy'
  $mal=Join-Path $tmp 'malformed.json';
   [IO.File]::WriteAllText($mal,'{');
-  A ((Import-OrchestrationEventAdmissionSlowPathPolicy $mal).error -eq 'SLOWPATH_POLICY_INVALID_JSON') 'invalid json'
+  A ((Import-OrchestrationEventAdmissionSlowPathPolicy $mal).error -eq 'SLOWPATH_POLICY_SCHEMA_INVALID') 'invalid json schema'
  $big=Join-Path $tmp 'big.json';
   [IO.File]::WriteAllText($big,(' '*20));
   A ((Import-OrchestrationEventAdmissionSlowPathPolicy $big -MaxBytes 10).error -eq 'SLOWPATH_POLICY_TOO_LARGE') 'max bytes'
@@ -85,18 +85,35 @@ try{
   foreach($name in $names){$changed[$name]=$req.request.$name};
   $changed.summary+='x';
   A ((Get-SlowPathDigest $changed) -cne (Get-SlowPathDigest $req.request)) 'digest detects one-char change'
-  $unicode=New-OrchestrationEventEnvelope github issue_comment pr:12 delivery-2 a/b -Summary "<>&' café";
+  $unicode=New-OrchestrationEventEnvelope github issue_comment pr:12 delivery-2 a/b -Summary ([string]::Concat('<>&',[char]39,' caf',[char]0xE9));
   $unicodeReq=Request-OrchestrationEventAdmissionSlowPath $unicode $c $f $pol $usage;
   A ($unicodeReq.decision -eq 'request' -and (Get-SlowPathDigest $unicodeReq.request) -ceq $unicodeReq.request.request_digest) 'unicode canonical digest'
+  $golden=[ordered]@{
+   version=1;policy_version='1';dedup_key=('a'*64);thread='pr:12'
+   trigger='issue_comment';summary=[string]::Concat('<>&',[char]39,' caf',[char]0xE9)
+   signals=@('ambiguous');classes=@('candidate','context_only','ignore')
+   max_rationale_chars=12;min_confidence=0.7;request_digest=''
+  }
+  A ((Get-SlowPathDigest $golden) -ceq '63b9c846450ae88c87f3ec80896539608dc0bd04465c355b6e17baaf6c356b96') 'golden canonical digest'
   $secretSamples = @(
-   'Authorization: Bearer token-secret', 'api_key=abc123',
-   'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234', 'sk-abcdefghijklmnop',
+   'Authorization: Bearer token-secret extra fields',
+   'proxy-authorization: Basic user:pass', 'api_key=abc123',
+   'DB_PASSWORD=x', 'AWS_SECRET_ACCESS_KEY=x', 'X_API_KEY=x',
+   'refresh_token=x', 'id_token=x', 'token=abc', '"password":"a b"',
+   'secret_key=x', 'github_pat_abcdefghijklmnopqrstuv',
+   'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234', 'glpat-abcdefghijklmnopqrst',
+   'sk_live_abcdefghijklmnop', 'sk-abcdefghijklmnop',
+   'AKIA1234567890ABCDEF', 'AIzaabcdefghijklmnopqrstuvwxyz123456',
+   'xoxb-abcdefghijk', 'xapp-abcdefghijk', 'npm_abcdefghijklmnopqrstuvwxyz123456',
+   'eyJabcdefghij.abcdefghij.abcdefghij',
    '-----BEGIN RSA PRIVATE KEY-----secret-----END RSA PRIVATE KEY-----',
+   '-----BEGIN RSA PRIVATE KEY-----secret without end marker',
    'https://user:pass@example.test/path', '{"Authorization": "Bearer secret"}'
   )
   foreach ($raw in $secretSamples) {
    $safeText = Get-SlowPathRedactedText $raw
-   A ($safeText -notmatch '(token-secret|abc123|ghp_[A-Za-z0-9]+|sk-[A-Za-z0-9]+|user:pass|Bearer secret|PRIVATE KEY-----secret)') 'secret redaction'
+   A ($safeText -notmatch '(token-secret|user:pass|Bearer secret|PRIVATE KEY-----secret|=x\z|=abc\z| a b\z|ghp_[A-Za-z0-9]+|sk-[A-Za-z0-9]+|glpat-[A-Za-z0-9]+)') 'secret redaction'
+   A ($safeText.Contains('[REDACTED]')) 'redaction marker'
   }
   $emoji='A' + [char]::ConvertFromUtf32(0x1F600) + 'B';
   A ((Limit-SlowPathText $emoji 2) -ceq 'A') 'surrogate-safe truncation'
@@ -195,12 +212,22 @@ try{
   A ((Request-OrchestrationEventAdmissionSlowPath $noKey $c $f $pol $usage).reason -eq 'invalid-envelope') 'missing dedup';
   A ((Request-OrchestrationEventAdmissionSlowPath $e $c $f $null $usage).reason -eq 'invalid-policy') 'null policy';
   A ((Request-OrchestrationEventAdmissionSlowPath $e $c $f $real.policy $usage).reason -eq 'policy-disabled') 'policy disabled'
+  $redactor = (Get-Command Get-SlowPathRedactedText).ScriptBlock
+  Set-Item Function:\Get-SlowPathRedactedText -Value { throw 'synthetic redaction error' }
+  $internal=Request-OrchestrationEventAdmissionSlowPath $e $c $f $pol $usage
+  Set-Item Function:\Get-SlowPathRedactedText -Value $redactor
+  A (!$internal.ok -and $internal.reason -eq 'internal-error') 'request catches internal exception'
   $baseResponse=@{request_digest=$req.request.request_digest;
   classification='candidate';
   confidence=0.9;
   rationale='ok'};
   $valid=Test-OrchestrationEventAdmissionSlowPathResponse $req.request ([pscustomobject]$baseResponse) $pol;
   A ($valid.ok -and $valid.action -eq 'would_new_task' -and !$valid.executable) 'candidate shadow'
+  $policyValidator = (Get-Command Test-SlowPathPolicyObject).ScriptBlock
+  Set-Item Function:\Test-SlowPathPolicyObject -Value { throw 'synthetic policy error' }
+  $caught=Test-OrchestrationEventAdmissionSlowPathResponse $req.request $baseResponse $pol
+  Set-Item Function:\Test-SlowPathPolicyObject -Value $policyValidator
+  A (!$caught.ok -and $caught.error -eq 'SLOWPATH_RESPONSE_INVALID') 'response catches internal exception'
   $missing=Copy-Request $req.request;
   $missing.Remove('summary');
   A ((Test-OrchestrationEventAdmissionSlowPathResponse $missing $baseResponse $pol).error -eq 'SLOWPATH_REQUEST_INVALID') 'request missing field';
@@ -274,7 +301,8 @@ try{
  $usageFile = Join-Path $tmp 'usage.json'
  $reqFile = Join-Path $tmp 'request.json'
  $respFile = Join-Path $tmp 'response.json'
- $cliEnvelope = New-OrchestrationEventEnvelope github issue_comment pr:12 delivery-html a/b -Summary "<>&' café"
+ $cliSummary = [string]::Concat('<>&', [char]39, ' caf', [char]0xE9)
+ $cliEnvelope = New-OrchestrationEventEnvelope github issue_comment pr:12 delivery-html a/b -Summary $cliSummary
  [IO.File]::WriteAllText($envFile, (ConvertTo-Json $cliEnvelope -Compress))
  [IO.File]::WriteAllText($ctxFile, (ConvertTo-Json $c -Compress))
  [IO.File]::WriteAllText($fastFile, (ConvertTo-Json $f -Compress))
@@ -288,6 +316,7 @@ try{
  $out2 = (& $exe @cliArgs | Out-String).Trim()
  A ($LASTEXITCODE -eq 0 -and $out1 -ceq $out2) 'CLI deterministic'
  $cliRequest = (ConvertFrom-Json $out1).request
+ A ($cliRequest.summary -ceq $cliSummary) 'CLI UTF-8 stdout roundtrip'
  [IO.File]::WriteAllText($reqFile, (ConvertTo-Json $cliRequest -Compress))
  $response = [ordered]@{
   request_digest = $cliRequest.request_digest; classification = 'candidate'

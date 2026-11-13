@@ -46,6 +46,7 @@ function Get-SlowPathCanonicalDocument {
 
 function Get-SlowPathDigest {
     param($Request)
+    # Digest detects corruption, not caller identity; HMAC/nonce await an external caller.
     $bytes = [Text.Encoding]::UTF8.GetBytes((Get-SlowPathCanonicalDocument $Request))
     $sha = [Security.Cryptography.SHA256]::Create()
     try {
@@ -56,11 +57,36 @@ function Get-SlowPathDigest {
 function Get-SlowPathRedactedText {
     param([string]$Text)
     $value = $Text
-    $value = [regex]::Replace($value, '(?is)-----BEGIN [^-\r\n]*PRIVATE KEY-----.*?-----END [^-\r\n]*PRIVATE KEY-----', '[REDACTED]')
-    $value = [regex]::Replace($value, '(?i)gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|xox[bp]-[A-Za-z0-9-]{10,}', '[REDACTED]')
-    $value = [regex]::Replace($value, '(?i)\b(authorization|proxy-authorization)\b["'']?\s*[:=]\s*["'']?(?:bearer|basic|token)?\s*[^\s"'',;]+', 'Authorization=[REDACTED]')
-    $value = [regex]::Replace($value, '(?i)\b(api[_-]?key|apikey|access[_-]?token|client[_-]?secret|secret|password|passwd)\b["'']?\s*[:=]\s*["'']?[^\s"'',;&]+', '$1=[REDACTED]')
-    return [regex]::Replace($value, '(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+(:[^/\s@]*)?@', '$1[REDACTED]@')
+    $pem = '-----BEGIN [^\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^\r\n]*PRIVATE KEY-----'
+    $value = Invoke-SlowPathRegexReplace $value $pem '[REDACTED]' 'IgnoreCase'
+    $unterminatedPem = '-----BEGIN [^\r\n]*PRIVATE KEY-----[\s\S]*\z'
+    $value = Invoke-SlowPathRegexReplace $value $unterminatedPem '[REDACTED]' 'IgnoreCase'
+    $prefixes = 'github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|' +
+        'glpat-[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{16,}|' +
+        'sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|' +
+        'xox[abposr]-[A-Za-z0-9-]{10,}|xapp-[A-Za-z0-9-]{10,}|npm_[A-Za-z0-9]{30,}'
+    $value = Invoke-SlowPathRegexReplace $value $prefixes '[REDACTED]' 'IgnoreCase'
+    $jwt = 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+    $value = Invoke-SlowPathRegexReplace $value $jwt '[REDACTED]' 'IgnoreCase'
+    $auth = '(?i)(?<![A-Za-z0-9])(authorization|proxy-authorization)["'']?\s*[:=]\s*["'']?(?:bearer|basic|token|digest)?\s*("[^"]*"|''[^'']*''|[^\r\n]+)'
+    $value = Invoke-SlowPathRegexReplace $value $auth 'Authorization=[REDACTED]' 'IgnoreCase'
+    $key = '(?i)(?<![A-Za-z0-9])([A-Za-z0-9_.-]*' +
+        '(?:api[_-]?key|access[_-]?token|token|secret|password|passwd|' +
+        'credential|private[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*)' +
+        '["'']?\s*[:=]\s*("[^"]*"|''[^'']*''|[^\s,;&"'']+)'
+    $value = Invoke-SlowPathRegexReplace $value $key '$1=[REDACTED]' 'IgnoreCase'
+    $url = '(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+(:[^/\s@]*)?@'
+    return Invoke-SlowPathRegexReplace $value $url '$1[REDACTED]@' 'IgnoreCase'
+}
+
+function Invoke-SlowPathRegexReplace {
+    param([string]$Text, [string]$Pattern, [string]$Replacement, [string]$Options)
+    $regexOptions = [Text.RegularExpressions.RegexOptions]::$Options
+    try {
+        return [regex]::Replace($Text, $Pattern, $Replacement, $regexOptions, [TimeSpan]::FromMilliseconds(250))
+    } catch [TimeoutException] {
+        return '[REDACTED]'
+    }
 }
 
 function Limit-SlowPathText {
@@ -90,6 +116,7 @@ function Import-OrchestrationEventAdmissionSlowPathPolicy {
     [CmdletBinding()]
     param([string]$Path, [string]$RepoRoot, [int]$MaxBytes = 65536)
     $result = [ordered]@{ ok = $false; policy = $null; error = '' }
+    $phase = 'path'
     try {
         if (-not $Path) {
             if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path }
@@ -119,8 +146,10 @@ function Import-OrchestrationEventAdmissionSlowPathPolicy {
         if ($file.Length -gt $MaxBytes) {
             $result.error = 'SLOWPATH_POLICY_TOO_LARGE'; return [pscustomobject]$result
         }
-        try { $doc = Get-Content -LiteralPath $full -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop }
-        catch { $result.error = 'SLOWPATH_POLICY_INVALID_JSON'; return [pscustomobject]$result }
+        $raw = [IO.File]::ReadAllText($full, [Text.Encoding]::UTF8)
+        $phase = 'parse'
+        try { $doc = ConvertFrom-Json -InputObject $raw -ErrorAction Stop }
+        catch { $result.error = 'SLOWPATH_POLICY_SCHEMA_INVALID'; return [pscustomobject]$result }
 
         $names = @('schema_version', 'policy_version', 'enabled', 'min_confidence',
             'max_summary_chars', 'max_rationale_chars', 'max_requests_per_day',
@@ -163,7 +192,10 @@ function Import-OrchestrationEventAdmissionSlowPathPolicy {
             max_requests_per_thread = [int]$doc.max_requests_per_thread
             classes = @($doc.classes)
         }
-    } catch { $result.error = 'SLOWPATH_POLICY_PATH_INVALID' }
+    } catch {
+        if ($phase -eq 'parse') { $result.error = 'SLOWPATH_POLICY_SCHEMA_INVALID' }
+        else { $result.error = 'SLOWPATH_POLICY_PATH_INVALID' }
+    }
     return [pscustomobject]$result
 }
 
@@ -288,11 +320,11 @@ function Request-OrchestrationEventAdmissionSlowPath {
         }
         $request.request_digest = Get-SlowPathDigest $request
         $out.decision = 'request'; $out.reason = 'ambiguous'; $out.request = [pscustomobject]$request
-    } catch { $out.ok = $false; $out.reason = 'invalid-fast-result' }
+    } catch { $out.ok = $false; $out.reason = 'internal-error' }
     return [pscustomobject]$out
 }
 
-function Test-OrchestrationEventAdmissionSlowPathResponse {
+function Invoke-OrchestrationEventAdmissionSlowPathResponseCore {
     [CmdletBinding()]
     param($Request, $Response, $Policy)
     $out = [ordered]@{ ok = $false; intent = 'ignore'; action = 'ignore'; reason = 'SLOWPATH_RESPONSE_INVALID'; error = ''; source = 'slow-path'; shadow = $true; executable = $false }
@@ -300,6 +332,7 @@ function Test-OrchestrationEventAdmissionSlowPathResponse {
     if (-not $Policy.enabled) { $out.reason = 'policy-disabled'; $out.error = 'SLOWPATH_POLICY_DISABLED'; return [pscustomobject]$out }
     if ($null -eq $Request -or $null -eq $Response) { return [pscustomobject]$out }
 
+    # Digest is integrity, not authenticity; HMAC/nonce need an external caller.
     # Exact request keys prevent omitted or attacker-added fields being ignored.
     $expected = @('version', 'policy_version', 'dedup_key', 'thread', 'trigger', 'summary',
         'signals', 'classes', 'max_rationale_chars', 'min_confidence', 'request_digest')
@@ -393,4 +426,19 @@ function Test-OrchestrationEventAdmissionSlowPathResponse {
         $out.action = switch ($class) { 'candidate' { 'would_new_task' } 'context_only' { 'observe' } default { 'ignore' } }
     }
     return [pscustomobject]$out
+}
+
+function Test-OrchestrationEventAdmissionSlowPathResponse {
+    [CmdletBinding()]
+    param($Request, $Response, $Policy)
+    try {
+        return Invoke-OrchestrationEventAdmissionSlowPathResponseCore `
+            -Request $Request -Response $Response -Policy $Policy
+    } catch {
+        return [pscustomobject][ordered]@{
+            ok = $false; intent = 'ignore'; action = 'ignore'
+            reason = 'SLOWPATH_RESPONSE_INVALID'; error = 'SLOWPATH_RESPONSE_INVALID'
+            source = 'slow-path'; shadow = $true; executable = $false
+        }
+    }
 }
