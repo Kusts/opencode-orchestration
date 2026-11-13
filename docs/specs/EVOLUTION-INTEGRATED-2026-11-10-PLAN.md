@@ -582,3 +582,64 @@ benefício medido.
 - **Decisões/pendências:** #183 opção (b); M7 HOLD; #12/#11 no EvidenceStore;
   #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172; PR #210; config ativo.
 - **Próximo passo:** item 1 de §14.2.
+
+## 15. Handoff para a próxima sessão (2026-11-13)
+
+### 15.1 Estado
+
+- Branch `feat/install-ownership-agent-config-20261111`, HEAD `3dbd000` (pushado).
+- PR #239 **MERGEABLE**. No momento do handoff: 4 checks **SUCCESS** + 2 **IN_PROGRESS** (`ps7`, `v2 lane`). Reconciliar o estado final de CI antes de agir.
+- **Sem merge/deploy.**
+
+### 15.2 O que foi entregue desde o §14
+
+- `c0fdfdc` — fechar M6 (docs). Evidência: registro documental de fechamento M6.
+- `0ac82b8` — kernel #12/#11 + #200/#103. Evidência: `worker_result.detail` + `artifact_ref` (suíte 10/10) e `repair_decisions` advisory com mandato/E2E vivo DONE rev. 12.
+- `2865de7` — docs. Evidência: atualização documental associada ao avanço do kernel/review-repair.
+- `2ef9aa8` — #183 boundary. Evidência: fronteira de eventos GitHub documentada; integração automática externa autenticada/persistente pendente.
+- `ca2291e` — #64 medição. Evidência: 133 skills, 10.174 tokens (metadados, ocorrência), razão corpo/metadados 21,90x, seleção lexical top-5 3,58%; F1 não executado.
+- `2499838` — #50/#141 auditoria. Evidência: auditoria capability-first/autoridade com 3 HIGH (grants sem runtime, precedência não provada, `/shell` REST sem deny) e ressalvas em `PERMISSIONS/SECURITY`.
+- `48ee518` — #192 harness. Evidência: desenho + corpus + harness; piloto bloqueado, sem modelo.
+- `3dbd000` — #184 fatia 1. Evidência: fast path determinístico de admissão de eventos em shadow (`executable=false`).
+
+**Estados atuais:** #12 **COBERTO**; #200/#103 **COBERTOS**; #183 **PARCIAL** (produtor/ingress autenticado pendente; risco de origem não autenticada); #64 **PARCIAL** (medição concluída, F1 pendente); #50/#141 **PARCIAL** (auditoria concluída, correções/provas runtime pendentes); #192 **PARCIAL** (piloto bloqueado, sem modelo); #184 **PARCIAL** (fatia 1); #11 **PARCIAL** (medição de cache em execução real pendente); #2/#185 **abertos**; #172 **flake** (aguarda sinal real); PR #210 **CONFLICTING**; M7/#205 **HOLD**.
+
+**Agent Config:** ADR/SPEC alinhados ao ownership v2 (commit `4f0fd88` no repo `agent-config`, local `main`, **sem push**).
+
+### 15.3 Pendências ordenadas
+
+1. **#185** — handback/context_only.
+2. **#184** fatias 2–6 — regras de operador, slow path LLM, auto com policy/grant, criação de Task, ingest autenticado.
+3. **#2** — Agent Teams.
+4. **#172** — reproduzir somente com sinal real.
+5. **PR #210** — comparar com `master`; descartar ou reabrir contra `master` conforme o estado real.
+6. **M7/#205** — **HOLD** (piloto somente com produto/credenciais).
+7. **#11** — medição de cache em execução real.
+8. **M6** — já fechado.
+
+### 15.4 Restrições
+
+- Sem merge/deploy.
+- Sem alteração de flags ou permissões.
+- Sem reconciliar config ativo (`~/.config/opencode`) sem pedido explícito.
+- Sem LLM no #192 até teto aprovado.
+- Fixtures do #192 ainda **design-only**.
+
+### 15.5 Comandos de retomada
+
+```powershell
+git status --short
+gh pr view 239 --json state,mergeable,statusCheckRollup
+powershell -NoProfile -File scripts\test-package-consistency.ps1
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+```
+
+**Nota:** `.git/config` local foi reconstruído após corrupção por teste; backup em `.git/config.corrupt-20261112-194205`. Remote/identidade/`autocrlf` restaurados; a suíte deve usar `.git` de fixture.
+
+### 15.6 Handoff compacto (5 campos)
+
+- **Objetivo/estado:** continuar backlog residual M0–M7 em `feat/install-ownership-agent-config-20261111` (HEAD `3dbd000`, PR #239 MERGEABLE, CI parcial no handoff); sem merge/deploy.
+- **Alterações desde §14:** `c0fdfdc` (M6 docs), `0ac82b8` (#12/#11+#200/#103), `2865de7` (docs), `2ef9aa8` (#183 boundary), `ca2291e` (#64 medição), `2499838` (#50/#141 auditoria), `48ee518` (#192 harness), `3dbd000` (#184 fatia 1). Agent Config `4f0fd88` local sem push.
+- **Validação/evidência:** #12 e #200/#103 cobertos (suíte 10/10, E2E DONE rev. 12); #183/#64/#50/#141/#192/#184/#11 parciais com evidências curtas registradas; #172 flake; PR #210 CONFLICTING. CI de PR #239 a reconciliar (4 SUCCESS + 2 IN_PROGRESS no handoff).
+- **Decisões/pendências:** #185; #184 fatias 2–6; #2; #172 com sinal real; PR #210 vs `master`; M7/#205 HOLD; #11 cache real; M6 fechado. Sem flags/permissões/config ativo/LLM #192 sem teto/fixtures #192 design-only.
+- **Próximo passo:** reconciliar HEAD/PR/CI e iniciar por #185 (handback/context_only), depois #184 fatias 2–6.
