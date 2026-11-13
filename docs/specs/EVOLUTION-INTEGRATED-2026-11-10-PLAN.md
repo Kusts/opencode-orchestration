@@ -389,7 +389,9 @@ consumido pelo bridge. **Decisão do orientador (opção b):** GH-WAKE permanece
 retomada/readiness; o envelope pertence ao event-intake/bridge, cujo produtor
 real é webhook/Action externo. Não fabricar `delivery_id` nem criar
 webhook/Action/scheduler/controlador. #183 segue PARCIAL — fronteira
-documentada, integração automática externa pendente.
+documentada em `docs/specs/GITHUB-EVENT-ENVELOPE-BOUNDARY-2026-11-12.md`
+(2026-11-12); integração automática externa autenticada/persistente pendente
+(risco material: ingress não autenticado, sem prova criptográfica de origem).
 
 **Wiring #200/#103 (fluxo real):**
 
@@ -532,10 +534,9 @@ sessão, sem refazer o que já está provado.
      Planner interpreta findings, roda `repair-decision`, persiste a decisão
      advisory e delega a correção.
    - **Resultado (2026-11-12):** código: `Add-OrchestrationTaskRepairDecision` no Task Kernel persiste `repair_decisions` (array aditivo, bound 20) com `decision/reason/constraints/severity/changed_files/scope_overlap/external_effects_ambiguous/evidence_current/attempts/failure_class/recorded_by/at/revision` (lock+CAS, recusa terminal, erros tipados `REPAIR_DECISION_INVALID`/`REPAIR_DECISION_NOT_ALLOWED`/`REPAIR_DECISION_TOO_LARGE`/`CAS_CONFLICT`, validação de contexto; advisory, sem gate — nenhum consumidor de DONE lê `repair_decisions`). CLI: `task-kernel.ps1 -Action record-repair-decision` (`-TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy`). Mandato V2: Planner roda `review-schema`, inclui schema no dispatch do reviewer, registra findings com `-FindingsJson/-FindingsFile` e persiste a decisão com `record-repair-decision` (bundle regenerado; sidecar confere; typecheck v1/v2/dual PASS). Testes: `OrchestrationReviewRepairLoop` 17/17 (PS7/PS5.1), `OrchestrationReviewAnchor` 29/29, `OrchestrationReviewIntegration` 17/17, `OrchestrationLocalizedRepair` 13/13, `repair-decision` 10/10, runner `-Name OrchestrationTaskKernel` 5/5; `package-consistency` 17/17; `git diff --check` 0. E2E vivo (fixture `cache/e2e-review-repair-6ee1a9eb`, git real, task `e2e-review-repair-001`): implementação inicial `74847a6`; reviewer real com schema retornou CHANGES_REQUIRED com 2 findings ancorados (F1-no-input-validation, F2-missing-nonnumeric-test) persistidos na revisão 6 (âncoras `4016527d...`, `866a2762...`); `repair-decision` retornou LOCAL_REPAIR/localized-finding e decisão persistida na revisão 7; correção `42b2d22` (validação de inteiros e teste negativo); re-review APPROVED; verificação kernel-executed `verified_pass` (revisão 10); REVIEWING (11) e DONE (revisão 12). `review_history` preserva a rodada CHANGES_REQUIRED; `repair_decisions` preserva a decisão. Persistência no E2E feita via libs (as mesmas dos testes); CLI `record-repair-decision` com smoke próprio. Nenhum gate relaxado; `verified_pass`/DONE inalterados.
-3. **#183 — produtor externo de eventos.**
-   - Avaliar webhook/Action que emite o envelope `source/trigger/thread/
-     delivery_id`; não fabricar `delivery_id` no tick. Se o produtor ficar
-     externo, manter PARTIAL com a fronteira documentada.
+3. **#183 — produtor externo de eventos.** — **concluído em 2026-11-12 (documentação).**
+   - Resultado: fronteira operacional/honesta documentada em `docs/specs/GITHUB-EVENT-ENVELOPE-BOUNDARY-2026-11-12.md` (contrato do envelope, mapeamento trigger→thread, `dedup_key`/`X-GitHub-Delivery`, fluxo, idempotência em três camadas, modelo de confiança com ingress devendo validar `X-Hub-Signature-256`/HMAC-SHA256, exemplos de referência não ativados, critérios para sair de PARTIAL).
+   - Nota: integração automática externa autenticada/persistente segue **PARTIAL**; sem webhook/Action instalado/ativo, sem scheduler/daemon/controlador e sem fabricação de `delivery_id`.
 4. **#64/#192, #50/#141, #2/#184/#185, #172.**
    - #64: medir custo de descoberta de skills.
    - #192: comparar Single/Cascade/Critique em cenários representativos.
