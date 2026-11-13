@@ -7426,3 +7426,130 @@ function Get-OrchestrationTaskModelFailureProof {
     }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
+function Get-OrchestrationTaskTeam {
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][string]$TaskId,[string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot='')
+    try {
+        $flags=Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not $flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED') }
+        $file=Get-TaskKernelFilePath -TaskId $TaskId.Trim() -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($file)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $slot=Read-TaskKernelRecord -TaskFile $file
+        if (-not $slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        if ($slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+        $team=$slot.record['team']
+        if ($null -eq $team) { $team=[ordered]@{schema_version=1;max_members=8;members=@();updated_at=''} }
+        return [PSCustomObject]@{ok=$true;task_id=$TaskId.Trim();revision=[int]$slot.record['revision'];team=$team}
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+# Canonical roles are the source/agents/*.md basenames; this closed set is case-sensitive.
+function Add-OrchestrationTaskTeamMember {
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$SessionId,
+        [Parameter(Mandatory=$true)][string]$Role,[Parameter(Mandatory=$true)][string]$RunId,
+        [string]$CoordinatorSessionId='', [Parameter(Mandatory=$true)][int]$ExpectedRevision,
+        [string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot='')
+    try {
+        $roles=@('ai-agent-engineer','architect','automation-engineer','backend-engineer',
+            'coder','database-engineer','debugger','docs-manager','engineering-advisor',
+            'explorer','frontend-engineer','infra-engineer','product-designer',
+            'requirements-analyst','researcher','reviewer','security-reviewer','skeptic','tester')
+        if ($roles -cnotcontains $Role) { return (New-TaskKernelError -Code 'TEAM_ROLE_INVALID') }
+        return (Invoke-OrchestrationTaskTeamMutation -Operation add -TaskId $TaskId `
+            -SessionId $SessionId -Role $Role -RunId $RunId `
+            -CoordinatorSessionId $CoordinatorSessionId -ExpectedRevision $ExpectedRevision `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath -RepoRoot $RepoRoot)
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+function Remove-OrchestrationTaskTeamMember {
+    [CmdletBinding()]
+    param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$SessionId,
+        [string]$CoordinatorSessionId='', [Parameter(Mandatory=$true)][int]$ExpectedRevision,
+        [string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot='')
+    try { return (Invoke-OrchestrationTaskTeamMutation -Operation remove -TaskId $TaskId `
+        -SessionId $SessionId -CoordinatorSessionId $CoordinatorSessionId `
+        -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir `
+        -FlagsPath $FlagsPath -RepoRoot $RepoRoot) }
+    catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+function Invoke-OrchestrationTaskTeamMutation {
+    [CmdletBinding()]
+    param([string]$Operation,[string]$TaskId,[string]$SessionId,[string]$Role='',[string]$RunId='',
+        [string]$CoordinatorSessionId='',[int]$ExpectedRevision=-1,[string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot='')
+    try {
+        $flags=Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not $flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED') }
+        $sid=$SessionId.Trim(); if (-not (Test-TaskKernelBindingId -Value $sid)) { return (New-TaskKernelError -Code 'BIND_INVALID_ID') }
+        $file=Get-TaskKernelFilePath -TaskId $TaskId.Trim() -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($file)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $lock=Enter-TaskKernelFileLock -TaskFile $file
+        if (-not $lock.acquired) { return (New-TaskKernelError -Code 'LOCK_TIMEOUT') }
+        try {
+            $slot=Read-TaskKernelRecord -TaskFile $file
+            if (-not $slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ($slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec=$slot.record
+            if ([int]$rec['revision'] -ne $ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) { return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{detail='terminal state is immutable'}) }
+            if (-not (Test-TaskKernelWriteBoundary -TaskFile $file)) { return (New-TaskKernelError -Code 'PATH_NOT_CONFINED') }
+            $b=$rec['bindings']; $runs=@(); if ($null -ne $b) { $runs=@($b['runs']) }
+            $owner=''; if ($null -ne $b) { $owner=([string]$b['active_execution_owner']).Trim() }
+            if ([string]::IsNullOrWhiteSpace($owner)) { for($i=$runs.Count-1;$i -ge 0;$i--){ if([string]$runs[$i]['status'] -ceq 'attached'){$owner=[string]$runs[$i]['root_session'];break} } }
+            if ((-not [string]::IsNullOrWhiteSpace($CoordinatorSessionId)) -and $CoordinatorSessionId -cne $owner) { return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR') }
+            $team=$rec['team']; if ($null -eq $team) { $team=[ordered]@{schema_version=1;max_members=8;members=@();updated_at=''} }
+            $members=@($team['members'])
+            if ($Operation -eq 'add') {
+                $run=$null; foreach($r in $runs){if([string]$r['run_id'] -ceq $RunId){$run=$r;break} }
+                if ($null -eq $run -or [string]$run['status'] -cne 'attached' -or
+                    (([string]$run['root_session'] -cne $sid) -and
+                    (@($run['worker_sessions']) -cnotcontains $sid))) {
+                    return (New-TaskKernelError -Code 'TEAM_MEMBER_NOT_BOUND')
+                }
+                foreach($m in $members) {
+                    if ([string]$m['session_id'] -ceq $sid -and
+                        [string]::IsNullOrWhiteSpace([string]$m['released_at'])) {
+                        if ([string]$m['role'] -cne $Role -or [string]$m['run_id'] -cne $RunId) {
+                            return (New-TaskKernelError -Code 'TEAM_MEMBER_CONFLICT')
+                        }
+                        return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true}
+                    }
+                }
+                if ($sid -ceq $owner) { return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR') }
+                $active=@($members | Where-Object {[string]::IsNullOrWhiteSpace([string]$_['released_at'])})
+                if ($active.Count -ge 8) { return (New-TaskKernelError -Code 'TEAM_LIMIT_EXCEEDED') }
+                $members+=,[ordered]@{session_id=$sid;run_id=$RunId;role=$Role;added_by=$owner;added_at=(Get-TaskKernelTimestamp);released_at=''}
+            } else {
+                $idx=-1; for($i=0;$i -lt $members.Count;$i++){if([string]$members[$i]['session_id'] -ceq $sid -and [string]::IsNullOrWhiteSpace([string]$members[$i]['released_at'])){$idx=$i;break} }
+                if ($idx -lt 0) {
+                    foreach($m in $members) {
+                        if ([string]$m['session_id'] -ceq $sid) {
+                            return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true}
+                        }
+                    }
+                    return (New-TaskKernelError -Code 'TEAM_MEMBER_NOT_FOUND')
+                }
+                if (-not [string]::IsNullOrWhiteSpace($CoordinatorSessionId) -and
+                    $CoordinatorSessionId -cne $owner -and $sid -cne $CoordinatorSessionId) {
+                    return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR')
+                }
+                $members[$idx]['released_at']=Get-TaskKernelTimestamp
+            }
+            $activeMembers=New-Object System.Collections.Generic.List[object]
+            $released=New-Object System.Collections.Generic.List[object]
+            foreach($member in $members) {
+                if ([string]::IsNullOrWhiteSpace([string]$member['released_at'])) { $activeMembers.Add($member) }
+                else { $released.Add($member) }
+            }
+            $members=@(); foreach($member in $activeMembers){$members+=,$member}
+            $keepReleased=[Math]::Max(0,16-$activeMembers.Count)
+            for($ri=[Math]::Max(0,$released.Count-$keepReleased);$ri -lt $released.Count;$ri++){$members+=,$released[$ri]}
+            $now=Get-TaskKernelTimestamp
+            $rec['team']=[ordered]@{schema_version=1;max_members=8;members=$members;updated_at=$now}
+            $rec['revision']=[int]$rec['revision']+1; $rec['updated_at']=$now
+            $wr=Write-TaskKernelRecord -Record $rec -TaskFile $file
+            if (-not $wr.ok) { return (New-TaskKernelError -Code $wr.error) }
+            return [PSCustomObject]@{ok=$true;task_id=$TaskId.Trim();revision=[int]$rec['revision'];duplicate=$false;team=$rec['team']}
+        } finally { Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile }
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}

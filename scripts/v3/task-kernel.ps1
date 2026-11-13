@@ -154,6 +154,7 @@ param(
     ,[string]$RunId = '', [string]$SeatId = '', [string]$BindingRuntime = '', [string]$BindingVersion = '',
     [string]$ParentSessionId = '', [string]$RootSessionId = '', [switch]$WorkerSession,
     [string]$RequiredTier = '', [string]$ChildSessionId = '', [string]$PolicyPath = '',
+    [string]$Role = '', [string]$CoordinatorSessionId = '',
     [string]$CliRepoRoot = '', [string[]]$VerifierProfiles = @(),
     [string]$ModelComplexity = '', [switch]$RequiresLlm
 )
@@ -213,9 +214,14 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'record-repair-decision', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'handback', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'record-repair-decision',
+    'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'handback',
+    'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn',
+    'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session',
+    'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select',
+    'team-add', 'team-release', 'team-get')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|record-repair-decision|verify|review|review-schema|event-ack|handback|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...; handback exige -TaskId -SessionId -Summary -ExpectedRevision.'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action <acao>; team-add exige -TaskId -SessionId -Role -RunId -ExpectedRevision; team-release exige -TaskId -SessionId -ExpectedRevision; team-get exige -TaskId.'
     exit 2
 }
 
@@ -288,6 +294,29 @@ function Convert-TaskKernelBudgetInt {
 
 $result = $null
 switch ($action) {
+    'team-add' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or
+            [string]::IsNullOrWhiteSpace($Role) -or [string]::IsNullOrWhiteSpace($RunId)) {
+            Write-TaskKernelCliError 'team-add exige -TaskId -SessionId -Role -RunId -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $result = Add-OrchestrationTaskTeamMember -TaskId $TaskId -SessionId $SessionId `
+            -Role $Role -RunId $RunId -CoordinatorSessionId $CoordinatorSessionId `
+            -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'team-release' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId)) { Write-TaskKernelCliError 'team-release exige -TaskId -SessionId -ExpectedRevision.'; exit 2 }
+        Assert-TaskKernelRevision
+        $result = Remove-OrchestrationTaskTeamMember -TaskId $TaskId -SessionId $SessionId `
+            -CoordinatorSessionId $CoordinatorSessionId -ExpectedRevision $ExpectedRevision `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'team-get' {
+        if ([string]::IsNullOrWhiteSpace($TaskId)) { Write-TaskKernelCliError 'team-get exige -TaskId.'; exit 2 }
+        $result = Get-OrchestrationTaskTeam -TaskId $TaskId -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+
     'review-schema' {
         $hasReviewSchemaArgs = (-not [string]::IsNullOrWhiteSpace($TaskId)) -or
             (($PSBoundParameters.ContainsKey('ExpectedRevision')) -and ([int]$ExpectedRevision -ne 0)) -or
@@ -552,7 +581,7 @@ switch ($action) {
             -ContextOnly:$ContextOnly -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'handback' {
-        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Summary)) { Write-TaskKernelCliError 'handback exige -TaskId -SessionId -Summary -ExpectedRevision.'; exit 2 }
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Summary)) { Write-TaskKernelCliError 'handback exige -TaskId -SessionId -Summary -ExpectedRevision; team-add/-team-release exigem -TaskId -SessionId -ExpectedRevision.'; exit 2 }
         Assert-TaskKernelRevision
         $result = Set-OrchestrationTaskHandback -TaskId $TaskId -SessionId $SessionId -Summary $Summary -NextSteps $NextSteps -DedupKey $DedupKey -ContextOnly:$ContextOnly -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
     }

@@ -6,6 +6,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Agent Teams #2 - fatia 1:** Task Kernel registra membros subordinados
+  com papel canonico, limite 8 e gate de coordenador; sem spawn ou execucao.
+  Suite focada: 25 asserts em PS 5.1/pwsh; Bindings 29/29 em PS 5.1/pwsh, Handback 24,
+  Event 7 suites, package-consistency 17/17 e diff-check limpo.
+
 - **Verificação HMAC opt-in do ingress GitHub (#183):** verificador reutilizável de `X-Hub-Signature-256`, leitura restrita de segredo e integração fail-closed opcional no intake antes de parse/ledger; sem segredo mantém legado explícito. Testes atualizados: assinatura 31 asserts, intake 18/18; `OrchestrationEvent*` 7/7 suites em Windows PowerShell 5.1 e pwsh; package-consistency 17/17. Evidência: `evidence/evolution-2026-11-10/m6-ingress-signature-183.md`. #183 permanece PARCIAL (sem produtor/receiver real, rotação ou proteção de replay).
 
 - **Slow path seletivo - contrato canônico e fail-closed (#184 fatia 3):** digest SHA-256 de documento canônico UTF-8 independente de `ConvertTo-Json`, request estrito vinculado à policy atual, redaction ampliada em resumo/rationale; erros tipados `internal-error`, `SLOWPATH_REQUEST_INVALID`, `SLOWPATH_POLICY_DRIFT` e `SLOWPATH_RESPONSE_INVALID`; digest integrity-only, sem modelo/rede/Kernel, `shadow=true`/`executable=false`. Golden cross-engine fixado. Suite: 146 assertions; Admission 3/3, Event 6/6 nos dois runtimes; package-consistency 17/17; `git diff --check` limpo.
