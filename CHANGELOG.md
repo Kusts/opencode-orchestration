@@ -6,6 +6,15 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Healthcheck de skills `same-target`:** a isenção só vale para skills sem
+  pin; pares aprovados em `shadow_table` continuam obrigados a coincidir com
+  os hashes registrados, inclusive quando junctions resolvem ao mesmo alvo.
+  Hashes vazios não qualificam como `same-target`. Regressões cobrem alvos
+  distintos com conteúdo idêntico e pin divergente no mesmo alvo, além das
+  fixtures existentes de junction dupla, diretório real + junction e
+  conteúdo divergente.
+  O gate também reprova fail-closed quando `shadow_table` não é confiável.
+
 - **T1: Iceman → Luna (2026-11-13):** T1 passa de `opencode-go/iceman-contributor-free` a `openai/gpt-6-luna` (provider `openai`), com fallback free `opencode/mimo-v2.6-flash-free`. Removido Iceman da política, router, install/reconcile, adapter, guias, testes e config ativo. Policy `1.4.0` → `1.5.0`; custo relativo T1 `0.01` → `1` (Luna `usage_billed`). Validações: testes de routing/planner/dynamic, package-consistency 17/17 e diff-check. Pós-revisão: guias alinhados ao ADR-02 (Luna sempre via `openai`) e `$script:ModelTiers.T1` alinhado à política (valor descritivo/telemetria; T2 mantém 0.10 legado, sem consumidor de autorização).
 
 - **Agent Teams #2 - fatia 1 / bindings:** Task Kernel registra membros
