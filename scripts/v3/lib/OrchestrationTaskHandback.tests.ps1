@@ -79,6 +79,12 @@ try {
     $workerState=Get-OrchestrationTask -TaskId 'task-handback-worker' -TasksDir $tmp
     Assert-HB ([bool]$workerBind.ok -and [bool]$workerHandback.ok -and $workerState['bindings']['active_execution_owner'] -ceq 'ses-owner') 'worker handback leaves other owner intact'
 
+    $workerOwnerTask=New-OrchestrationTask -TaskId 'task-handback-worker-owner' -Objective 'worker owner release' -Actor planner -TasksDir $tmp -FlagsPath $flags
+    $workerOwnerBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker-owner' -RunId 'run-worker-owner' -SessionId 'ses-worker-owner' -ExpectedRevision 1 -WorkerSession -TasksDir $tmp -FlagsPath $flags
+    $workerOwnerHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-worker-owner' -SessionId 'ses-worker-owner' -Summary 'worker owner' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+    $workerOwnerState=Get-OrchestrationTask -TaskId 'task-handback-worker-owner' -TasksDir $tmp
+    Assert-HB ([bool]$workerOwnerBind.ok -and [bool]$workerOwnerHandback.ok -and $workerOwnerState['bindings']['active_execution_owner'] -ceq '') 'worker owner handback releases ownership'
+
     $detachedTask=New-OrchestrationTask -TaskId 'task-handback-detached' -Objective 'detached bind' -Actor planner -TasksDir $tmp -FlagsPath $flags
     $detachedBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-detached' -RunId 'run-detached' -SessionId 'ses-detached' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
     $detach=Detach-OrchestrationTaskSession -TaskId 'task-handback-detached' -RunId 'run-detached' -SessionId 'ses-detached' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
