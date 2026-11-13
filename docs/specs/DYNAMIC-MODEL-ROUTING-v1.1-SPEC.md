@@ -25,8 +25,8 @@ A seleção deverá ser aplicada ao runtime nativo do OpenCode V2 e verificada a
 2. Política T0–T4 configurável.
 3. Seleção específica por papel e tarefa.
 4. Fallback autorizado entre modelos e providers.
-5. Planner estável utilizando GPT-6 Luna.
-6. Advisor com Luna, Sol e Astra sob demanda.
+5. Planner estável utilizando DeepSeek Go (T2), sem fallback automático.
+6. Advisor com Sonnet, Opus e Astra sob demanda; Sol é candidato T4.
 7. Jev 1.13 Free integrado ao processo de decisão.
 8. Verificação do modelo efetivamente executado.
 9. Telemetria de qualidade, custo e eficiência.
@@ -48,8 +48,8 @@ A configuração deverá reconhecer separadamente:
 
 | Provider | Modelos iniciais |
 |---|---|
-| OpenCode Console (`opencode`) | DeepSeek V4.1 Flash Free |
-| OpenCode Go (`opencode-go`) | Muse Spark 1.3 Contributor, Iceman Contributor Free |
+| OpenCode Console (`opencode`) | MiMo V2.6 Flash Free; legacy DeepSeek Free disabled |
+| OpenCode Go (`opencode-go`) | DeepSeek V4.1 Flash, Muse Spark 1.3 Contributor |
 | OpenAI (`openai`) | GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra |
 | Jev / System One | Jev 1.13 Free |
 
@@ -60,12 +60,11 @@ A disponibilidade, autenticação, cobrança e os limites devem ser verificados 
 ### ADR-03 — Separação de responsabilidades
 
 **Agent Config**
-- Preferências globais.
-- Referências às credenciais.
-- Configurações gerais de providers.
-- Preferências de modelos e agentes.
+- Texto global (`AGENTS.md`), `permissions` de topo, MCP, skills compartilhadas e demais runtimes.
+- Não é dono dos 19 perfis nem do bloco `agents` do OpenCode.
 
 **Orchestration**
+- 19 perfis worker (`agents/*.md`), bloco `agents` (mode/model/permissions do escopo), plugin de enforcement e `skills-core`.
 - Seleção de papéis.
 - Classificação da tarefa.
 - Tiers e admissibilidade.
@@ -105,19 +104,36 @@ A metodologia incremental, os workflows de entrega e os contratos de conclusão 
 
 Esta SPEC trata exclusivamente de roteamento de modelos e integração consultiva.
 
+### ADR-06 — Fallback T1 por despacho nativo e prova observada
+
+Fallback produtivo usa exclusivamente a ferramenta nativa `subagent` para criar
+uma child session. A classe do erro é apenas classificação; a prova de
+não-início precisa ser observada independentemente. Um erro nativo
+`tool.execution` sem `sessionID`/child session pode sustentar essa prova quando
+o resultado observado atesta indisponibilidade do modelo antes da criação da
+sessão. Booleanos fornecidos pelo chamador não são prova.
+
+É proibido criar executor paralelo por `opencode run` ou outra via CLI para
+implementar retries/fallback. O Task Kernel permanece dono de
+`model-attempt`/`model-proof`; fallback não contorna esses gates.
+
 ---
 
 ## 3. Catálogo inicial de modelos
 
 | ID lógico | Modelo | Provider/model ID inicial | Tier |
 |---|---|---|---|
-| iceman | Iceman Contributor Free | `opencode-go/iceman-contributor-free` | T1 |
-| deepseek | DeepSeek V4.1 Flash Free (desabilitado/legado) | `opencode/deepseek-v4.1-flash-free` | T2 (disabled) |
+| luna | GPT-6 Luna | `openai/gpt-6-luna` | T1 primary, T2 primary |
+| mimo | MiMo V2.6 Flash Free | `opencode/mimo-v2.6-flash-free` | T1 fallback |
+| deepseek_go | DeepSeek V4.1 Flash | `opencode-go/deepseek-v4.1-flash` | T2 candidate / Planner |
 | muse | Muse Spark 1.3 Contributor | `opencode-go/muse-spark-1.3-contributor` | T2 |
-| terra | GPT-6.1 Terra | `openai/gpt-6.1-terra` | T3 (especializado visual) |
-| luna | GPT-6 Luna | `openai/gpt-6-luna` | T3 |
-| sol | GPT-6.1 Sol | `openai/gpt-6.1-sol` | T4 |
-| astra | GPT-6 Astra | `openai/gpt-6-astra` | T4 excepcional |
+| claude_haiku | Claude Haiku alias | `claude-agent/haiku` | T2 candidate |
+| claude_sonnet | Claude Sonnet alias | `claude-agent/sonnet` | T3 |
+| terra | GPT-6.1 Terra | `openai/gpt-6.1-terra` | T3 candidate |
+| claude_opus | Claude Opus alias | `claude-agent/opus` | T4 |
+| sol | GPT-6.1 Sol | `openai/gpt-6.1-sol` | T4 candidate |
+| astra | GPT-6 Astra | `openai/gpt-6-astra` | T4 exceptional, proof-gated |
+| claude_fable | Claude Fable alias | `claude-agent/fable` | HOLD; only proof-gated exceptional fallback |
 
 Os IDs são os identificadores inicialmente escolhidos e devem ser confirmados contra o catálogo realmente disponível no OpenCode e na conta OpenAI durante a implementação.
 
@@ -170,9 +186,9 @@ Executa:
 
 O uso de T0 não significa autorização para dispensar um worker exigido pelo contrato de orquestração.
 
-### T1 — Gratuito e ultraleve
+### T1 — Luna with same-tier free alternative
 
-**Primário:** Iceman Contributor Free (`opencode-go`).
+**Primário:** `openai/gpt-6-luna`. **Fallback de política:** `opencode/mimo-v2.6-flash-free` (não autoriza execução sem prova de no-start).
 
 Tarefas:
 - Exploração.
@@ -181,14 +197,12 @@ Tarefas:
 - Extração de informação.
 - Triagem de baixo risco.
 
-Em caso de indisponibilidade, o Router poderá solicitar T2 quando o trabalho justificar essa elevação.
-
-Não tratar DeepSeek T2 como se fosse um T1 somente porque ambos são gratuitos.
+Luna pertence aos perfis T1 e T2. Transporte esgotado em T1 não promove automaticamente para tier superior.
 
 ### T2 — Execução econômica
 
-**Primário:** DeepSeek V4.1 Flash Free (`opencode`).
-**Alternativo:** Muse Spark 1.3 Contributor (`opencode-go`).
+**Primário:** Luna (`openai/gpt-6-luna`).
+**Candidatos:** DeepSeek Go, Muse e Claude Haiku.
 
 Tarefas:
 - Implementação rotineira.
@@ -198,11 +212,14 @@ Tarefas:
 - Desenvolvimento por especialistas.
 - Revisões simples permitidas.
 
-Uma falha de provider deverá priorizar alternativas T2 antes de escalonar cognitivamente.
+Os candidatos T2 são inventário/política, não retries automáticos. Fallback
+produtivo exige prova independente de no-start; o Kernel mantém
+`model-attempt`/`model-proof`.
 
 ### T3 — Raciocínio avançado
 
-**Primário:** GPT-6 Luna (`openai`).
+**Primário:** Claude Sonnet (`claude-agent/sonnet`).
+**Candidato:** Terra (`openai/gpt-6.1-terra`).
 
 Tarefas:
 - Programação complexa.
@@ -216,8 +233,10 @@ Não rebaixar automaticamente tarefas T3 para T2 quando houver requisito de capa
 
 ### T4 — Raciocínio crítico
 
-**Primário:** GPT-6.1 Sol (`openai`).
-**Excepcional:** GPT-6 Astra (`openai`).
+**Primário:** Claude Opus (`claude-agent/opus`).
+**Candidato same-tier:** Sol (`openai/gpt-6.1-sol`).
+**Excepcional:** Astra (`openai/gpt-6-astra`), somente com prova e autorização excepcional.
+**Fable:** HOLD; não é fallback geral.
 
 Tarefas:
 - Arquitetura crítica.
@@ -243,26 +262,26 @@ Uma autorização de T4 não autoriza automaticamente qualquer utilização do A
 
 | Agente | Padrão | Alternativa / escalonamento |
 |---|---|---|
-| Planner (`build`) | Luna | Advisor sob demanda |
-| Explorer | Iceman | DeepSeek |
-| Researcher | DeepSeek | Muse → Luna |
-| Coder | DeepSeek | Muse → Luna |
-| Tester com LLM | DeepSeek | Muse |
-| Docs Manager | Iceman | DeepSeek |
-| Frontend Engineer | Muse | Luna |
-| Backend Engineer | Muse | Luna |
-| Database Engineer | Muse | Luna |
-| AI Agent Engineer | Muse | Luna |
-| Automation Engineer | Muse | Luna |
-| Infra Engineer | Muse | Luna |
-| Reviewer | Luna | Sol |
-| Debugger | Luna | Sol |
-| Architect | Luna | Sol → Astra |
-| Security Reviewer | Sol | Astra excepcional |
-| Requirements Analyst | DeepSeek | Luna |
-| Product Designer | DeepSeek | Luna |
-| Skeptic | Luna | Sol |
-| Engineering Advisor | Luna | Sol → Astra |
+| Planner (`build`) | `opencode-go/deepseek-v4.1-flash` (T2) | Nenhum fallback automático |
+| Explorer | Luna | Candidatos T2 conforme policy |
+| Researcher | Luna | Candidatos T2 conforme policy |
+| Coder | Luna | Muse / Haiku conforme admissibilidade |
+| Tester com LLM | Luna | MiMo / DeepSeek Go / Muse / Haiku |
+| Docs Manager | Luna | Candidatos T2 conforme policy |
+| Frontend Engineer | Luna | Muse / Haiku; T3 permitido conforme perfil |
+| Backend Engineer | Luna | Muse / Haiku; T3/T4 somente conforme perfil |
+| Database Engineer | Luna | Muse / Haiku; T3/T4 somente conforme perfil |
+| AI Agent Engineer | Luna | Muse / Haiku; T3 conforme perfil |
+| Automation Engineer | Luna | Muse / Haiku; sem T3/T4 automático |
+| Infra Engineer | Luna | Muse / Haiku; T3 conforme perfil |
+| Reviewer | Sonnet | Opus; sem downgrade incompatível |
+| Debugger | Sonnet | Opus |
+| Architect | Sonnet | Terra / Opus / Sol; Astra excepcional |
+| Security Reviewer | Sonnet | Opus / Sol; Astra excepcional proof-gated |
+| Requirements Analyst | Luna | Candidatos T2 |
+| Product Designer | Luna | Candidatos T2 |
+| Skeptic | Luna | Candidatos T2/T3 conforme policy |
+| Engineering Advisor | Sonnet | Terra / Opus / Sol; Astra excepcional |
 
 Essa matriz é a configuração inicial, e não uma lista de modelos permanentemente embutida nos agentes.
 
@@ -308,8 +327,9 @@ Exemplo conceitual:
 
 **Models**
 
-- `iceman`: provider `opencode-go`, model `iceman-contributor-free`.
-- `deepseek`: provider `opencode`, model `deepseek-v4.1-flash-free`.
+- `luna`: provider `openai`, model `gpt-6-luna`.
+- `mimo`: provider `opencode`, model `mimo-v2.6-flash-free`.
+- `deepseek_go`: provider `opencode-go`, model `deepseek-v4.1-flash`.
 - `muse`: provider `opencode-go`, model `muse-spark-1.3-contributor`.
 - `luna`: provider `openai`, model `gpt-6-luna`.
 - `sol`: provider `openai`, model `gpt-6.1-sol`.
@@ -318,20 +338,20 @@ Exemplo conceitual:
 **Tiers**
 
 - `T0`: deterministic.
-- `T1`: primary `iceman`.
-- `T2`: primary `deepseek`, fallback `muse`.
-- `T3`: primary `luna`.
-- `T4`: primary `sol`, exceptional `astra`.
+- `T1`: Luna primary; MiMo fallback.
+- `T2`: Luna primary; candidates DeepSeek Go, Muse, Haiku.
+- `T3`: Sonnet primary; Terra candidate.
+- `T4`: Opus primary; Sol candidate; Astra exceptional and proof-gated; Fable HOLD.
 
 **Planner**
 
-- Primary: `luna`.
+- Primary: `deepseek_go` (`opencode-go/deepseek-v4.1-flash`), no automatic fallback.
 - Stable during objective: true.
 
 **Advisor**
 
-- Default: `luna`.
-- Advanced: `sol`.
+- Default: `claude_sonnet`.
+- Advanced: `claude_opus`; Sol é candidato T4.
 - Exceptional: `astra`.
 
 **Jev**
@@ -354,7 +374,7 @@ Preferências globais não podem sobrescrever proibições de risco ou custo.
 
 Deve ser possível:
 
-- Trocar Iceman por outro gratuito.
+- Alterar T1 primary/fallback somente conforme policy canônica.
 - Mudar DeepSeek para outro provider.
 - Substituir Muse por outro modelo econômico.
 - Alterar o modelo do Planner.
@@ -739,14 +759,14 @@ Não reinstalar MCPs ou substituir infraestrutura já funcional.
 - [ ] Catálogo configurável implantado.
 - [ ] OpenCode, OpenCode Go e OpenAI separados corretamente.
 - [ ] Luna, Sol e Astra usam provider `openai`.
-- [ ] Iceman, DeepSeek e Muse usam os respectivos providers definidos.
+- [ ] Luna usa `openai`; MiMo, DeepSeek Go, Muse e aliases Claude usam os providers da policy atual.
 - [ ] T0 não executa LLM.
 - [ ] Modelo pode ser substituído por configuração.
 - [ ] Provider pode ser substituído por configuração autorizada.
 - [ ] Router aplica risco, capacidade e orçamento.
 - [ ] Fallbacks são limitados e rastreáveis.
 - [ ] Native Dispatch utiliza e verifica a seleção.
-- [ ] Planner permanece estável em Luna.
+- [ ] Planner permanece em `opencode-go/deepseek-v4.1-flash`, sem fallback automático.
 - [ ] Advisor utiliza Luna/Sol/Astra conforme gatilhos.
 - [ ] Jev Free funciona e permanece consultivo.
 - [ ] Task/Goal Kernel preserva seus contratos.

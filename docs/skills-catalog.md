@@ -53,8 +53,10 @@ datado, não uma medição atual.
 
 ## Estrutura desejada de skills.paths
 
+8 skills-core atuais; 103 é histórico de 2026-10-07.
+
 ```text
-managed core      → skills-core/ do repo (5 pinnadas) + wg RECOMMENDED de adoção seletiva
+managed core      → skills-core/ do repo (8 atuais) + wg RECOMMENDED de adoção seletiva
 managed catalog   → source/registry/skills-catalog.json (77 aprovadas, on-demand por tarefa)
 project-local     → .opencode/skills do projeto (0 hoje; só PROJECT_SPECIFIC)
 personal          → ~/.agents/skills real dirs + agent-config global (fora do ownership)

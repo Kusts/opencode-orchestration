@@ -1,0 +1,222 @@
+{
+  "timestamp": "2026-11-13T19:24:46.4980367Z",
+  "observed_commands": {
+    "version": "opencode --version => opencode v2.3.0",
+    "api_info": "opencode api get /api/info => version 2.3.0",
+    "auth_list": "opencode auth list => provider labels; no auth contents recorded",
+    "models": {
+      "command": "opencode models",
+      "main_environment": "Planner confirmed these seven IDs present",
+      "worktree": "Failed: ServiceUnavailableError: Location plugins did not finish activating (worktree plugin activation limitation)"
+    }
+  },
+  "available_model_ids": [
+    "openai/gpt-6-luna",
+    "opencode/mimo-v2.6-flash-free",
+    "opencode-go/iceman-contributor-free",
+    "opencode-go/deepseek-v4.1-flash",
+    "opencode-go/muse-spark-1.3-contributor",
+    "claude-agent/sonnet",
+    "claude-agent/opus"
+  ],
+  "providers": {
+    "openai": {
+      "auth_type": "oauth",
+      "quota": "subscription OAuth quota",
+      "cost_observation": "Luna calls reported cost 0; this is reported subscription-call cost, not a universal free-tier claim."
+    },
+    "openrouter": {
+      "auth_type": "api"
+    }
+  },
+  "runtime": {
+    "installed": "2.3.0",
+    "canonical_pin": "@opencode/cli@2.2.6",
+    "divergence": true
+  },
+  "policy": {
+    "version": "1.5.0",
+    "sha256": "C1DE89FA3B24CA949BC4E4BA825FC967DE2F49B490708A11DCCF99E84BDA316D"
+  },
+  "live_config_agents": {
+    "engineering-advisor": "claude-agent/sonnet",
+    "tester": "opencode-go/iceman-contributor-free",
+    "title": "openai/gpt-6-luna",
+    "docs-manager": "opencode-go/iceman-contributor-free",
+    "product-designer": "openai/gpt-6-luna",
+    "build": "opencode-go/deepseek-v4.1-flash",
+    "reviewer": "claude-agent/sonnet",
+    "researcher": "opencode-go/iceman-contributor-free",
+    "debugger": "claude-agent/sonnet",
+    "global": "opencode-go/deepseek-v4.1-flash",
+    "automation-engineer": "openai/gpt-6-luna",
+    "ai-agent-engineer": "openai/gpt-6-luna",
+    "database-engineer": "openai/gpt-6-luna",
+    "backend-engineer": "openai/gpt-6-luna",
+    "architect": "claude-agent/sonnet",
+    "coder": "openai/gpt-6-luna",
+    "skeptic": "openai/gpt-6-luna",
+    "explorer": "opencode-go/iceman-contributor-free",
+    "security-reviewer": "claude-agent/sonnet",
+    "frontend-engineer": "openai/gpt-6-luna",
+    "requirements-analyst": "openai/gpt-6-luna",
+    "infra-engineer": "openai/gpt-6-luna"
+  },
+  "declared_vs_effective": [
+    "models.jsonc local free is Luna; live explorer/researcher/tester/docs-manager remain iceman",
+    "reinstallation required to update live configuration (Etapa 5)",
+    "installed 2.3.0 differs from pin 2.2.6"
+  ],
+  "limitations": [
+    "No secrets/auth content included",
+    "Override proof allowlist excludes 2.3.0; accepts 2.2.5/2.2.6/2.0.23",
+    "Full model-dependent turns 18/20/21/22 remain unproven; the two bounded child-session samples below do not establish those complete scenarios",
+    "DeepSeek Go ZDR expired-unconfirmed",
+    "Worktree opencode models command returned plugin activation ServiceUnavailableError"
+  ],
+  "native_fallback_proof": {
+    "tool": "subagent",
+    "model": "openai/does-not-exist",
+    "observed_error": {
+      "type": "tool.execution",
+      "message": "Model \"openai/does-not-exist\" is not available. Use the models tool to see what is available."
+    },
+    "child_session_created": false,
+    "sessionID": null,
+    "interpretation": "Observed native tool.execution before child session creation; evidence of non-start for this unavailable-model case only.",
+    "productive_fallback_authorized": true,
+    "observed_native_result": "{\"error\":{\"type\":\"tool.execution\",\"message\":\"Model \\\"openai/does-not-exist\\\" is not available. Use the models tool to see what is available.\"}}",
+    "helper_validation": {
+      "status": "passed",
+      "test_suites": [
+        "39/39",
+        "70/70",
+        "8/8"
+      ],
+      "runtimes": [
+        "Windows PowerShell 5.1",
+        "pwsh"
+      ]
+    }
+  },
+  "mimo_subagent": {
+    "sessionID": "ses_e2998abdfffeYkbpwJ2MqlHngN",
+    "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+    "agent": "explorer",
+    "model": "opencode/mimo-v2.6-flash-free",
+    "providerID": "opencode",
+    "outcome": "succeeded",
+    "cost": 0,
+    "tokens": {
+      "input": 32708,
+      "output": 3,
+      "reasoning": 14,
+      "cacheRead": 1536
+    }
+  },
+  "native_subagent_runs": [
+    {
+      "prompt": "Responda apenas com a palavra OK. Não use ferramentas.",
+      "cost": 0,
+      "providerID": "openai",
+      "outcome": "succeeded",
+      "agent": "explorer",
+      "tokens": {
+        "input": 33736,
+        "output": 5,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "sessionID": "ses_e2997d1b7ffeC2u2qiyqASh4Wq",
+      "model": "openai/gpt-6-luna",
+      "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+      "cost_interpretation": "reported subscription-call cost, not universal free"
+    },
+    {
+      "prompt": "Responda apenas com a palavra OK. Não use ferramentas.",
+      "cost": 0,
+      "providerID": "opencode",
+      "outcome": "succeeded",
+      "agent": "explorer",
+      "sessionID": "ses_e2998abdfffeYkbpwJ2MqlHngN",
+      "model": "opencode/mimo-v2.6-flash-free",
+      "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+      "tokens": {
+        "input": 32708,
+        "output": 3,
+        "reasoning": 14,
+        "cacheRead": 1536
+      }
+    },
+    {
+      "prompt": "Responda apenas com a palavra OK. Não use ferramentas.",
+      "cost": 0,
+      "providerID": "opencode",
+      "outcome": "succeeded",
+      "agent": "explorer",
+      "tokens": {
+        "input": 32712,
+        "output": 3,
+        "reasoning": 17,
+        "cacheRead": 1024
+      },
+      "sessionID": "ses_e29808f9dffeyyU67grp62rgFD",
+      "model": "opencode/mimo-v2.6-flash-free",
+      "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+      "cost_interpretation": "reported cost",
+      "attempt_id": "094d08b2ceee4855a4cfa0074987a959"
+    }
+  ],
+  "fallback_transition": {
+    "error": {
+      "type": "tool.execution",
+      "message": "Model \"openai/does-not-exist\" is not available. Use the models tool to see what is available.",
+      "failed_model": "openai/does-not-exist",
+      "session_created": false
+    },
+    "classification": "MODEL_UNAVAILABLE",
+    "decision": {
+      "command": "scripts/v3/model-fallback.ps1 -Action next",
+      "status": "FALLBACK_AUTHORIZED",
+      "no_start_proof": true,
+      "attempt_id": "094d08b2ceee4855a4cfa0074987a959",
+      "next_model": "opencode/mimo-v2.6-flash-free",
+      "next_tier": "T1",
+      "reason": "Same-tier ordered candidate ... (audit only). ...",
+      "recorded_at": "2026-11-13T20:00:33.6629381Z"
+    },
+    "fallback_session": {
+      "sessionID": "ses_e29808f9dffeyyU67grp62rgFD",
+      "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+      "agent": "explorer",
+      "model": "opencode/mimo-v2.6-flash-free",
+      "observed_model": "opencode/mimo-v2.6-flash-free",
+      "outcome": "succeeded",
+      "providerID": "opencode",
+      "usage": {
+        "input": 32712,
+        "output": 3,
+        "reasoning": 17,
+        "cacheRead": 1024,
+        "cost": 0
+      },
+      "started_at": "2026-11-13T20:00:51.2889557Z",
+      "finished_at": "2026-11-13T20:00:51.2930569Z"
+    },
+    "attempt_record": {
+      "command": "scripts/v3/model-fallback.ps1 -Action record",
+      "attempt_id": "094d08b2ceee4855a4cfa0074987a959",
+      "stage": "post_dispatch",
+      "success": true,
+      "observed_model": "opencode/mimo-v2.6-flash-free",
+      "sessionID": "ses_e29808f9dffeyyU67grp62rgFD",
+      "record_file": "evidence/mission-2026-11-13/model-attempts.jsonl"
+    },
+    "limitations": [
+      "Primary failure was synthetic unavailable model openai/does-not-exist, not a real Luna 429.",
+      "429/quota/503 classes are covered by synthetic tests only; no real provider error for those classes is claimed.",
+      "The transition is Planner-mediated through the native subagent tool; fallback is not automatic.",
+      "Model override via explicit subagent.model was empirically demonstrated in Luna/MiMo calls; installed runtime 2.3.0 remains outside the native proof allowlist 2.2.5/2.2.6/2.0.23, which was not changed; pin/allowlist decision remains pending."
+    ]
+  }
+}

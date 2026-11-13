@@ -6,6 +6,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Missão de reconciliação documental (2026-11-13):** SPEC/PLAN adicionados e docs correntes reconciliadas com policy 1.5.0; auditorias datadas permanecem históricas.
+- **Configuração efetiva de modelos (2026-11-13):** OpenAI autenticado por OAuth (quota da assinatura; nenhum segredo registrado); runtime instalado 2.3.0 diverge do pin 2.2.6. Evidência em `evidence/mission-2026-11-13/model-config-effective.json`.
+- **Correção do claim T1 (2026-11-13):** atualização cobre policy/templates e configuração declarada; config viva ainda contém Iceman para quatro agentes e depende de reinstalação.
+- **Fallback T1 nativo (implementação em andamento, 2026-11-13):** decisão de usar `subagent`/child session e prova observada de no-start; nenhum executor paralelo `opencode run`/CLI. O Kernel segue dono de `model-attempt`/`model-proof`; implementação e validação produtiva não concluídas.
+
 - **Healthcheck de skills `same-target`:** a isenção só vale para skills sem
   pin; pares aprovados em `shadow_table` continuam obrigados a coincidir com
   os hashes registrados, inclusive quando junctions resolvem ao mesmo alvo.
@@ -15,7 +20,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   conteúdo divergente.
   O gate também reprova fail-closed quando `shadow_table` não é confiável.
 
-- **T1: Iceman → Luna (2026-11-13):** T1 passa de `opencode-go/iceman-contributor-free` a `openai/gpt-6-luna` (provider `openai`), com fallback free `opencode/mimo-v2.6-flash-free`. Removido Iceman da política, router, install/reconcile, adapter, guias, testes e config ativo. Policy `1.4.0` → `1.5.0`; custo relativo T1 `0.01` → `1` (Luna `usage_billed`). Validações: testes de routing/planner/dynamic, package-consistency 17/17 e diff-check. Pós-revisão: guias alinhados ao ADR-02 (Luna sempre via `openai`) e `$script:ModelTiers.T1` alinhado à política (valor descritivo/telemetria; T2 mantém 0.10 legado, sem consumidor de autorização).
+- **T1: Iceman → Luna (2026-11-13):** T1 passa de `opencode-go/iceman-contributor-free` a `openai/gpt-6-luna` (provider `openai`), com fallback free `opencode/mimo-v2.6-flash-free`. Removido Iceman da política, router, install/reconcile, adapter, guias, testes e configuração declarada/templates; configuração viva pendente de reinstalação. Policy `1.4.0` → `1.5.0`; custo relativo T1 `0.01` → `1` (Luna `usage_billed`). Validações: testes de routing/planner/dynamic, package-consistency 17/17 e diff-check. Pós-revisão: guias alinhados ao ADR-02 (Luna sempre via `openai`) e `$script:ModelTiers.T1` alinhado à política (valor descritivo/telemetria; T2 mantém 0.10 legado, sem consumidor de autorização).
 
 - **Agent Teams #2 - fatia 1 / bindings:** Task Kernel registra membros
   subordinados com papel canonico, limite 8 e gate de coordenador derivado de

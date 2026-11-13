@@ -1,0 +1,87 @@
+{
+  "schema_version": "mission-efficiency-measurements/v1",
+  "measured_at": "2026-11-13",
+  "estimator": "chars/4",
+  "cache_continuity": {
+    "session": "ses_e2997d1b7ffeC2u2qiyqASh4Wq",
+    "agent": "explorer",
+    "observations": [
+      {
+        "command": "opencode run --session <luna> --agent explorer -m openai/gpt-6-luna",
+        "model": "openai/gpt-6-luna",
+        "case": "second_turn_same_model",
+        "tokens": {
+          "output": 5,
+          "cacheRead": 32128,
+          "input": 161
+        },
+        "cost": 0
+      },
+      {
+        "command": "opencode run --session <luna> --agent explorer -m opencode/mimo-v2.6-flash-free",
+        "model": "opencode/mimo-v2.6-flash-free",
+        "case": "model_switch_same_session_agent",
+        "tokens": {
+          "reasoning": 8,
+          "output": 3,
+          "cacheRead": 34176,
+          "input": 116
+        },
+        "cost": 0
+      },
+      {
+        "tokens": {
+          "input": 32273,
+          "cacheRead": 0
+        },
+        "agent": "build (default; no --agent explorer)",
+        "case": "negative_control_default_agent"
+      }
+    ],
+    "interpretation": "Cache depends on stable instructions/agent; switching model within the same agent preserved cache in this test. Do not generalize."
+  },
+  "skills": {
+    "measurement_tool": "scripts/v3/skill-discovery-metrics.ps1",
+    "roots": [
+      "skills-core",
+      "~/.config/opencode/skills"
+    ],
+    "query": "code review security",
+    "limit": 5,
+    "iterations": 5,
+    "entries": 134,
+    "skills_core": 8,
+    "installed": 126,
+    "unique_names": 126,
+    "invalid": 1,
+    "junctions_followed": 109,
+    "estimated_metadata_tokens": 10288,
+    "estimated_body_tokens": 228139,
+    "body_to_metadata_ratio": 22.18,
+    "top5": {
+      "estimated_tokens": 496,
+      "metadata_percent": 5.04,
+      "term_coverage": 3
+    },
+    "scan_latency_ms": {
+      "p50": 168,
+      "p95": 488
+    },
+    "duplicate_names_across_roots": 8,
+    "ownership_skew": {
+      "skill": "hybrid-development",
+      "core_bytes": 9129,
+      "agent_config_junction_bytes": 8439,
+      "status": "DIVERGES"
+    },
+    "interpretation": "Native loading is already lazy: metadata discovery followed by on-demand loading. Do not create a new platform/flag; skill_routing remains OFF."
+  },
+  "conclusion": "Cache continuity was observed only in the stated explorer tests. Native skills loading is lazy; measurements support no new platform or flag. #64 remains PARTIAL: measurement is complete, but real completion journey and completion latency were not measured. No DONE latency is claimed.",
+  "limitations": [
+    "Token counts are estimates using chars/4, not provider token accounting.",
+    "Cache observations are limited to the specific Luna/explorer session and listed turns; do not generalize.",
+    "The negative control changes the agent/system prompt, so cacheRead=0 does not isolate other variables.",
+    "Skills duplicate names and hybrid-development content divergence are reported risks only; no ownership/content changes were made.",
+    "No end-to-end completion latency or latency-to-DONE measurement was collected."
+  ]
+}

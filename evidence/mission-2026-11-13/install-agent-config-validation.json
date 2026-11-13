@@ -1,0 +1,102 @@
+{
+  "schema_version": "mission-install-agent-config-validation/v1",
+  "date": "2026-11-13",
+  "install": {
+    "temporary_target_home": {
+      "command": "install.ps1 -Runtime V2 -Clean -TargetHome <temp>",
+      "resources_created": 30,
+      "conflicts": 0,
+      "worker_profiles": 19,
+      "models": {
+        "explorer": "openai/gpt-6-luna",
+        "tester": "openai/gpt-6-luna",
+        "coder": "openai/gpt-6-luna"
+      },
+      "orchestration_plugin_present": true
+    },
+    "live": {
+      "command": "install.ps1 -Runtime V2 -Clean",
+      "backup": "~/.config/opencode/backups/oo-20261113-170209",
+      "backup_files": 24,
+      "updated_models": {
+        "explorer": "openai/gpt-6-luna",
+        "researcher": "openai/gpt-6-luna",
+        "tester": "openai/gpt-6-luna",
+        "docs-manager": "openai/gpt-6-luna"
+      },
+      "worker_profiles": 19,
+      "preserved": {
+        "mcp": [
+          "servers",
+          "reason-network"
+        ],
+        "top_level_permission_count": 24,
+        "skills_roots": true,
+        "plugin": "/plugins/orchestration-enforcement.js"
+      },
+      "manifest": "~/.opencode-orchestration/manifest.json",
+      "ownership": {
+        "config_ownership": "agent-config",
+        "worker_profiles": "orchestration",
+        "global_text": "agent-config",
+        "skills": "orchestration"
+      }
+    }
+  },
+  "agent_config": {
+    "settings_tests": {
+      "file": "OpenCodeSettingsReconciler.tests.ps1",
+      "passed": 36,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "settings_preview": {
+      "command": "-Component Settings -Runtime OpenCode",
+      "drift": [
+        "top-level permissions: read|* allow"
+      ],
+      "preserves_extras": true
+    },
+    "full_reconcile": {
+      "command": "-Component All -Runtime OpenCode (without -Apply)",
+      "status": "BLOCKED_UPSTREAM",
+      "error": "Substring / ArgumentOutOfRangeException while processing AGENTS.md block",
+      "current_lines": 105,
+      "desired_lines": 301,
+      "changes_made_in_agent_config_repo": false,
+      "recommendation": "Fix the AGENTS.md block processing bug in the Agent Config repository, then rerun the full reconcile preview."
+    }
+  },
+  "delegation": {
+    "planner": "build",
+    "native_tool": "subagent",
+    "observed_roles": [
+      {
+        "purpose": "implementation",
+        "role": "coder"
+      },
+      {
+        "purpose": "validation",
+        "role": "tester"
+      },
+      {
+        "purpose": "native Luna/MiMo executions",
+        "role": "explorer"
+      }
+    ]
+  },
+  "issues_and_prs": {
+    "step1": "PARTIAL; issue closure/update performed only where direct evidence supports it",
+    "step3": {
+      "pr238": "MERGED",
+      "pr239": "awaiting update-branch CI",
+      "pr240": "awaiting update-branch CI"
+    }
+  },
+  "step5_status": "PARTIAL",
+  "limitations": [
+    "Clean installs and ownership are proven, but complete Agent Config synchronization is blocked upstream.",
+    "No edits were made in the Agent Config repository.",
+    "No secrets or credential values are included."
+  ]
+}
