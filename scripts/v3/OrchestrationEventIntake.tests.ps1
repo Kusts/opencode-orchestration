@@ -63,7 +63,12 @@ try {
     Assert-EI (($h.code -eq 2) -and ([string]$h.doc.error -ceq 'ENVELOPE_INPUT_AMBIGUOUS')) '[EI8] entradas ambiguas recusadas' ([string]$h.raw)
 
     Assert-EI ([string]$a.doc.signature_status -ceq 'not-configured') '[EI9] legacy explicito'
-    $secretFile=Write-Fixture 'secret.txt' 'sk-SYNTHETICSECRET';$body=[IO.File]::ReadAllBytes($envFile);$key=[Text.Encoding]::UTF8.GetBytes('sk-SYNTHETICSECRET');$hm=New-Object -TypeName Security.Cryptography.HMACSHA256 -ArgumentList (,$key);$mac=([BitConverter]::ToString($hm.ComputeHash($body))).Replace('-','').ToLowerInvariant();$sig='sha256='+$mac
+    $secretFile=Write-Fixture 'secret.txt' 'sk-SYNTHETICSECRET'
+    $body=[IO.File]::ReadAllBytes($envFile)
+    $key=[Text.Encoding]::UTF8.GetBytes('sk-SYNTHETICSECRET')
+    $hm=New-Object -TypeName Security.Cryptography.HMACSHA256 -ArgumentList (,$key)
+    $mac=([BitConverter]::ToString($hm.ComputeHash($body))).Replace('-','').ToLowerInvariant()
+    $sig='sha256='+$mac
     $signed=Join-Path $tmp 'signed-seen';$v=Invoke-Intake @('-EnvelopeFile',$envFile,'-SecretFile',$secretFile,'-SignatureHeader',$sig,'-SeenFile',$signed,'-Record')
     Assert-EI (($v.code -eq 0) -and ($v.doc.signature_status -eq 'verified') -and $v.doc.recorded) '[EI10] HMAC valido'
     $beforeLedger=[IO.File]::ReadAllText($signed)
@@ -73,6 +78,26 @@ try {
     Assert-EI (($noSig.code -eq 1) -and ($noSig.doc.error -eq 'SIGNATURE_MISSING') -and ([IO.File]::ReadAllText($signed) -ceq $beforeLedger)) '[EI12] assinatura ausente nao grava'
     $jsonSig=Invoke-Intake @('-EnvelopeJson','{}','-SecretFile',$secretFile)
     Assert-EI (($jsonSig.code -eq 2) -and ($jsonSig.doc.error -eq 'SIGNATURE_REQUIRES_FILE')) '[EI13] JSON com segredo exige arquivo'
+    $ignored=Invoke-Intake @('-EnvelopeFile',$envFile,'-SignatureHeader','ignored-header')
+    Assert-EI (($ignored.code -eq 0) -and $ignored.doc.signature_header_ignored) '[EI14] header ignorado sinalizado'
+    $missing=Invoke-Intake @('-EnvelopeFile',(Join-Path $tmp 'absent.json'),'-SecretFile',$secretFile)
+    Assert-EI (($missing.code -eq 2) -and $missing.doc.error -eq 'ENVELOPE_REQUIRED') '[EI15] arquivo ausente com segredo'
+    $large=Join-Path $tmp 'large.json';$stream=[IO.File]::OpenWrite($large)
+    try {$stream.SetLength(65537)} finally {$stream.Dispose()}
+    $tooLarge=Invoke-Intake @('-EnvelopeFile',$large,'-SecretFile',$secretFile,'-SignatureHeader',$sig)
+    Assert-EI (($tooLarge.code -eq 1) -and $tooLarge.doc.error -eq 'EVENT_INPUT_TOO_LARGE') '[EI16] limite intake antes da leitura'
+    $env:EI_TEST_SECRET="sk-SYNTHETICSECRET`n"
+    $fromEnv=Invoke-Intake @('-EnvelopeFile',$envFile,'-SecretEnvVar','EI_TEST_SECRET','-SignatureHeader',$sig)
+    Assert-EI (($fromEnv.code -eq 0) -and $fromEnv.doc.signature_status -eq 'verified') '[EI17] env secret trim'
+    Remove-Item Env:EI_TEST_SECRET -ErrorAction SilentlyContinue
+    $bomFile=Join-Path $tmp 'bom.json';$plain=[IO.File]::ReadAllBytes($envFile)
+    $bomBytes=[byte[]]@(0xEF,0xBB,0xBF)+$plain;[IO.File]::WriteAllBytes($bomFile,$bomBytes)
+    $bomKey=[Text.Encoding]::UTF8.GetBytes('sk-SYNTHETICSECRET')
+    $bomMac=New-Object -TypeName Security.Cryptography.HMACSHA256 -ArgumentList (,$bomKey)
+    $bomSig='sha256='+([BitConverter]::ToString($bomMac.ComputeHash($bomBytes))).Replace('-','').ToLowerInvariant()
+    $bomResult=Invoke-Intake @('-EnvelopeFile',$bomFile,'-SecretFile',$secretFile,'-SignatureHeader',$bomSig)
+    Assert-EI (($bomResult.code -eq 0) -and $bomResult.doc.ok -and
+        $bomResult.doc.signature_status -eq 'verified') '[EI18] BOM assinado parseado'
 }
 finally {
     if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }

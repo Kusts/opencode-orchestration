@@ -53,6 +53,28 @@ try {
     $usage=& powershell -NoProfile -File (Join-Path $PSScriptRoot '..\github-webhook-verify.ps1') `
         -BodyFile $cliBody 2>&1
     A ($LASTEXITCODE -eq 2) 'cli usage exit'
+    $env:ORCH_SIGNATURE_TEST_SECRET="$secret`n"
+    $cli=& powershell @cliArgs 2>&1
+    $cliDoc=($cli -join "`n")|ConvertFrom-Json
+    A ($LASTEXITCODE -eq 0 -and $cliDoc.ok) 'cli env secret trim'
+    $bigBody=Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+    $stream=[IO.File]::OpenWrite($bigBody)
+    try {$stream.SetLength(1048577)} finally {$stream.Dispose()}
+    $bigOut=& powershell -NoProfile -File (Join-Path $PSScriptRoot '..\github-webhook-verify.ps1') `
+        -BodyFile $bigBody -SignatureHeader $sig -SecretEnvVar ORCH_SIGNATURE_TEST_SECRET 2>&1
+    $bigDoc=($bigOut -join "`n")|ConvertFrom-Json
+    A ($LASTEXITCODE -eq 2 -and $bigDoc.error -eq 'BODY_TOO_LARGE') 'cli body limit exit'
+    Remove-Item $bigBody -Force
+    $spaceHeader=& powershell -NoProfile -File (Join-Path $PSScriptRoot '..\github-webhook-verify.ps1') `
+        -BodyFile $cliBody -SignatureHeader ($sig+' ') `
+        -SecretEnvVar ORCH_SIGNATURE_TEST_SECRET 2>&1
+    $spaceDoc=($spaceHeader -join "`n")|ConvertFrom-Json
+    A ($LASTEXITCODE -eq 1 -and $spaceDoc.error -eq 'SIGNATURE_FORMAT_INVALID') 'cli header whitespace rejected'
+    $newlineHeader=& powershell -NoProfile -File (Join-Path $PSScriptRoot '..\github-webhook-verify.ps1') `
+        -BodyFile $cliBody -SignatureHeader ($sig+"`n") `
+        -SecretEnvVar ORCH_SIGNATURE_TEST_SECRET 2>&1
+    $newlineDoc=($newlineHeader -join "`n")|ConvertFrom-Json
+    A ($LASTEXITCODE -eq 1 -and $newlineDoc.error -eq 'SIGNATURE_FORMAT_INVALID') 'cli header newline rejected'
 } finally {
     Remove-Item $cliBody -Force
     Remove-Item Env:ORCH_SIGNATURE_TEST_SECRET -ErrorAction SilentlyContinue

@@ -5,6 +5,9 @@
     Thin CLI over OrchestrationEventCorrelation. It never creates a Task,
     dispatches a worker or mutates goal state. An optional -Record appends the
     dedup key to a bounded ledger so the same delivery is ignored once.
+    Secret values must not contain leading or trailing whitespace.
+    Oversized envelope files return EVENT_INPUT_TOO_LARGE with exit 1;
+    this differs from verifier BODY_TOO_LARGE / exit 2 convention.
     PS 5.1, ASCII-only.
 #>
 [CmdletBinding()]
@@ -39,7 +42,7 @@ function Write-EventResult($Result, [int]$Code) {
 try {
     $configured = (-not [string]::IsNullOrWhiteSpace($SecretFile)) -or (-not [string]::IsNullOrWhiteSpace($SecretEnvVar))
     if ($configured -and -not [string]::IsNullOrWhiteSpace($EnvelopeJson)) {
-        Write-EventResult @{ok=$false;error='SIGNATURE_REQUIRES_FILE';route='INVALID';reason='';signature_status='not-configured'} 2
+        Write-EventResult @{ok=$false;error='SIGNATURE_REQUIRES_FILE';route='INVALID';reason='';signature_status='required-unverified'} 2
     }
     if (-not [string]::IsNullOrWhiteSpace($SecretFile) -and -not [string]::IsNullOrWhiteSpace($SecretEnvVar)) {
         Write-EventResult @{ok=$false;error='SECRET_SOURCE_AMBIGUOUS';route='INVALID';reason=''} 2
@@ -49,22 +52,38 @@ try {
     }
     $rawEnvelope = $EnvelopeJson
     $signatureStatus = 'not-configured'
+    $signatureIgnored = $false
+    if (-not $configured -and -not [string]::IsNullOrWhiteSpace($SignatureHeader)) {
+        $signatureIgnored = $true
+    }
     if (-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) {
         if ($configured) {
+            if (-not (Test-Path -LiteralPath $EnvelopeFile -PathType Leaf)) {
+                Write-EventResult @{ok=$false;error='ENVELOPE_REQUIRED';route='INVALID';reason=''} 2
+            }
+            $envelopeInfo=Get-Item -LiteralPath $EnvelopeFile
+            if ([int64]$envelopeInfo.Length -gt 65536) {
+                Write-EventResult @{ok=$false;error='EVENT_INPUT_TOO_LARGE';route='INVALID';reason=''} 1
+            }
             if (-not [string]::IsNullOrWhiteSpace($SecretFile)) {
                 $sr=Read-OrchestrationWebhookSecret -Path $SecretFile
                 if(-not $sr.ok){Write-EventResult @{ok=$false;error=$sr.error;route='INVALID';reason=''} 1}
                 $secret=$sr.secret
             } else {
                 $secret=[Environment]::GetEnvironmentVariable($SecretEnvVar)
+                if ($null -eq $secret) { $secret='' }
+                $secret=$secret.Trim(" `t`r`n")
                 if([string]::IsNullOrWhiteSpace($secret)){
                     Write-EventResult @{ok=$false;error='SECRET_INVALID';route='INVALID';reason=''} 1
                 }
             }
-            $bytes=[IO.File]::ReadAllBytes($EnvelopeFile);if($bytes.Length -gt 65536){Write-EventResult @{ok=$false;error='EVENT_INPUT_TOO_LARGE';route='INVALID';reason=''} 1}
+            $bytes=[IO.File]::ReadAllBytes($EnvelopeFile)
             $sig=Test-OrchestrationGitHubSignature -BodyBytes $bytes -SignatureHeader $SignatureHeader -Secret $secret
             if(-not $sig.ok){$err=$sig.error;if($err -eq 'SIGNATURE_MISMATCH'){$err='SIGNATURE_MISMATCH'};Write-EventResult @{ok=$false;error=$err;route='INVALID';reason=''} 1}
             $signatureStatus='verified';$rawEnvelope=[Text.Encoding]::UTF8.GetString($bytes)
+            if ($rawEnvelope.Length -gt 0 -and $rawEnvelope[0] -eq [char]0xFEFF) {
+                $rawEnvelope=$rawEnvelope.Substring(1)
+            }
         } else {$rawEnvelope = Read-EventText $EnvelopeFile 65536}
     }
     if ([string]::IsNullOrWhiteSpace($rawEnvelope)) {
@@ -128,6 +147,7 @@ try {
         thread = [string]$env.thread
         trigger = [string]$env.trigger
         signature_status = $signatureStatus
+        signature_header_ignored = $signatureIgnored
     } 0
 }
 catch {
