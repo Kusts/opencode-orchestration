@@ -155,9 +155,23 @@ try {
  $badMember=Get-OrchestrationTaskTeam -TaskId team-corrupt -TasksDir $tmp -FlagsPath $flags
  $badDoc.team=[ordered]@{members=@([ordered]@{session_id='active-without-role'})}
  [IO.File]::WriteAllText($badPath,($badDoc|ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
- $badActive=Get-OrchestrationTaskTeam -TaskId team-corrupt -TasksDir $tmp -FlagsPath $flags
- Assert-Team ($badMembers.error -eq 'MALFORMED' -and $badMember.error -eq 'MALFORMED' -and
-    $badActive.error -eq 'MALFORMED') 'corrupt members and active role/run shape rejected'
+ $badActiveNoRole=Get-OrchestrationTaskTeam -TaskId team-corrupt -TasksDir $tmp -FlagsPath $flags
+ $badDoc.team=[ordered]@{members=@([ordered]@{session_id='active-without-run';role='coder'})}
+ [IO.File]::WriteAllText($badPath,($badDoc|ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+ $badActiveNoRun=Get-OrchestrationTaskTeam -TaskId team-corrupt -TasksDir $tmp -FlagsPath $flags
+ Assert-Team ($badMembers.error -eq 'MALFORMED' -and $badMember.error -eq 'MALFORMED') 'corrupt members rejected'
+ Assert-Team ($badActiveNoRole.error -eq 'MALFORMED' -and $badActiveNoRun.error -eq 'MALFORMED') 'active members missing role or run rejected on read'
+ $badDoc.team=[ordered]@{members=@([ordered]@{session_id='active-without-role'})}
+ [IO.File]::WriteAllText($badPath,($badDoc|ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+ $badMutationNoRole=Add-OrchestrationTaskTeamMember -TaskId team-corrupt -SessionId corrupt-root `
+    -Role coder -RunId corrupt-run -CoordinatorSessionId corrupt-root `
+    -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+ $badDoc.team=[ordered]@{members=@([ordered]@{session_id='active-without-run';role='coder'})}
+ [IO.File]::WriteAllText($badPath,($badDoc|ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+ $badMutationNoRun=Add-OrchestrationTaskTeamMember -TaskId team-corrupt -SessionId corrupt-root `
+    -Role coder -RunId corrupt-run -CoordinatorSessionId corrupt-root `
+    -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+ Assert-Team ($badMutationNoRole.error -eq 'MALFORMED' -and $badMutationNoRun.error -eq 'MALFORMED') 'active members missing role or run rejected on mutation'
  $x=Add-OrchestrationTaskTeamMember -TaskId team-task -SessionId ses-worker -Role coder -RunId r1 -CoordinatorSessionId ses-root -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
  Assert-Team ($x.error -eq 'CAS_CONFLICT') 'CAS conflict'
  $x=Add-OrchestrationTaskTeamMember -TaskId missing -SessionId ses-worker -Role coder -RunId r1 -CoordinatorSessionId ses-root -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
@@ -165,5 +179,3 @@ try {
 } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 Write-Host ("passed=$script:passed failed=$script:failed")
 if($script:failed -gt 0){exit 1}
-
-

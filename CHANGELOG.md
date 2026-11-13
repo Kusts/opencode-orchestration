@@ -15,7 +15,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   `-ParentSessionId` igual ao owner/raiz; nao altera owner. Bind de raiz em run
   ja enraizado exige `rebind-session`; rebind nao toma coordenacao alheia.
   Owner vazio deixa a janela de bind de raiz aberta a qualquer chamador:
-  identidade afirmada, sem prova criptografica. Bindings 38/38, Team 48/48,
+  identidade afirmada, sem prova criptografica. Bindings 38/38, Team 50/50,
   Handback 24/24 e PlannerRootBinding 16/16 em PowerShell 5.1/pwsh; as
   selecoes Kernel (5 suites), Event (7), Planner (5) e ModelProof (1)
   passaram nos dois runtimes. Package-consistency 17/17; diff-check limpo.

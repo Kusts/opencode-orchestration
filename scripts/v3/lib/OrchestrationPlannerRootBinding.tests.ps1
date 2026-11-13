@@ -77,7 +77,8 @@ try {
     Assert-PRB ([bool]$w0.ok) 'prb-worker-bound-under-active-root-with-parent'
     $rev2b = [int]$w0.revision
 
-    # 3. Rebind the root after detach; a worker cannot reattach the run.
+    # 3. An ownerless detached run is reattached by worker bind without rebind.
+    # This is intentional for model-proof flows; it does not create a coordinator.
     $d1 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId $tid -RunId $runId -SessionId $rootSid -ExpectedRevision $rev2b `
         -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
     Assert-PRB ([bool]$d1.ok) 'prb-root-detached'

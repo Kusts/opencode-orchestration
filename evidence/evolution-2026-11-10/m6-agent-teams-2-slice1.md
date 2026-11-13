@@ -30,6 +30,17 @@ Esta entrega nao faz spawn, execucao, permissao, assentos, reatribuicao,
 telemetria nem enforcement no plugin. Bindings e handback seguem seus
 contratos atualizados descritos acima.
 
+## Limites conhecidos
+
+- Worker bind em run `detached` com owner vazio reanexa o run (`attached`) sem
+  `rebind`. E intencional: fluxos de model-proof dependem disso. O run fica
+  attached com owner vazio, sem coordenador, ate uma raiz fazer `rebind`.
+- `detach` por worker derruba o run; e DoS recuperavel por `rebind`, mantido
+  como backlog.
+- A CLI pre-checa worker sem `-ParentSessionId` e sai 2; a biblioteca retorna
+  `BIND_PARENT_REQUIRED` (exit 1). Divergencia documentada como intencional.
+- Identidade de sessao e afirmada, nao criptografica.
+
 ## Erros
 
 `TEAM_NOT_COORDINATOR`, `TEAM_ROLE_INVALID`, `TEAM_MEMBER_NOT_BOUND`,
@@ -38,7 +49,7 @@ Persistencia usa CAS, lock, protecao de caminho e recusa estado terminal.
 
 ## Validacao
 
-Suite focada: 48 asserts, PASS em Windows PowerShell 5.1 e pwsh. Bindings:
+Suite focada: 50 asserts, PASS em Windows PowerShell 5.1 e pwsh. Bindings:
 32/32 em ambos (inclui binding de worker subordinado sem takeover do owner).
 Handback: 24 asserts em ambos. Package-consistency: 17/17;
 `git diff --check` limpo. Inclui integração pura via CLI:
