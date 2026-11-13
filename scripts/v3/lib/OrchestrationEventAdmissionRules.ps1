@@ -1,3 +1,9 @@
+<#
+.DESCRIPTION
+    Reparse-point validation covers every path ancestor. A checkout reached through a
+    junction/symlink, or a OneDrive placeholder with reparse attributes, fails closed
+    with RULES_PATH_INVALID; this is an intentional limitation.
+#>
 function Import-OrchestrationEventAdmissionRules {
     [CmdletBinding()]
     param([string]$Path,[string]$RepoRoot,[int]$MaxBytes=262144,[int]$MaxRules=50)
@@ -5,13 +11,14 @@ function Import-OrchestrationEventAdmissionRules {
     try {
         if($MaxRules -lt 1 -or $MaxRules -gt 200){$result.error='RULES_CONFIG_INVALID';return [pscustomobject]$result}
         if(-not $Path){if(-not $RepoRoot){$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path};$Path=Join-Path $RepoRoot 'source\registry\event-admission-rules.json'}
-        if($Path -match '^(\\\\|//)'){$result.error='RULES_PATH_INVALID';return [pscustomobject]$result}
+        if($Path -match '^[\\/]{2}' -or $Path -match '^FileSystem::'){$result.error='RULES_PATH_INVALID';return [pscustomobject]$result}
         if(-not (Test-Path -LiteralPath $Path -PathType Leaf)){$result.error='RULES_PATH_NOT_FOUND';return [pscustomobject]$result}
         $full=[IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Path).Path);$item=Get-Item -LiteralPath $full -ErrorAction Stop
+        if($full -match '^[\\/]{2}' -or $full -match '^FileSystem::'){$result.error='RULES_PATH_INVALID';return [pscustomobject]$result}
         $cursor=[IO.Path]::GetPathRoot($full);$relative=$full.Substring($cursor.Length)
         foreach($part in ($relative -split '[\\/]')){if(-not $part){continue};$cursor=Join-Path $cursor $part;$entry=Get-Item -LiteralPath $cursor -Force -ErrorAction Stop;if(($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){$result.error='RULES_PATH_INVALID';return [pscustomobject]$result}}
         if($item.Length -gt $MaxBytes){$result.error='RULES_TOO_LARGE';return [pscustomobject]$result}
-        try {$doc=Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop} catch {$result.error='RULES_INVALID_JSON';return [pscustomobject]$result}
+        try {$doc=Get-Content -LiteralPath $full -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop} catch {$result.error='RULES_INVALID_JSON';return [pscustomobject]$result}
         $rootAllowed=@('schema_version','policy_version','rules');foreach($property in $doc.PSObject.Properties){if($property.Name -cnotin $rootAllowed){$result.error='RULES_SCHEMA_INVALID';return [pscustomobject]$result}}
         if($null -eq $doc.schema_version -or ($doc.schema_version -isnot [int] -and $doc.schema_version -isnot [long]) -or $doc.schema_version -ne 1 -or $null -eq $doc.rules -or $doc.rules -isnot [array]){$result.error='RULES_SCHEMA_INVALID';return [pscustomobject]$result}
         if($doc.policy_version -isnot [string] -or $doc.policy_version.Length -lt 1 -or $doc.policy_version.Length -gt 64){$result.error='RULES_POLICY_VERSION_INVALID';return [pscustomobject]$result}

@@ -14,4 +14,6 @@ O reviewer aprovou a fatia com 2 achados MINOR de corretude e 4 ressalvas LOW de
 
 Correcoes: (1) CLI retorna o shape completo do classificador no erro de registry; (2) regex usa terminador `\z`; (3) rejeita UNC/device e caminhos com reparse point; (4) schema raiz rejeita campos desconhecidos; (5) `scope_allowlist` aplica charset restrito; (6) verificacao de chaves permitidas e case-sensitive.
 
-Testes de follow-up cobrem registry vazio, thread valida, limite exato, conflitos CLI, shape de erro, normalizacao habilitada, novas linhas finais, raiz desconhecida, scope fora do charset, UNC e junction.
+Testes de follow-up cobrem registry vazio, thread valida, limite exato, conflitos CLI, shape de erro, normalizacao habilitada, novas linhas finais, tipos invalidos de `schema_version`, raiz desconhecida, scope fora do charset, UNC/device e provider path (`\\host`, `//host`, `/\host`, `\/host`, `\\?\`, `FileSystem::`) e junction. Suite do loader: 40 asserts.
+
+Limitacao intencional: a verificacao de reparse point cobre todos os ancestrais do arquivo. Checkout acessado por junction/symlink ou arquivo OneDrive-placeholder com atributo reparse falha fail-closed como `RULES_PATH_INVALID`.
