@@ -41,18 +41,25 @@ synthetic-test-only.
 - Step 4: **DONE for measured T1/T2 fallbacks** - normalized error, observed
   no-start, authorized decisions, native MiMo/DeepSeek Go success and attempt
   records. Both were Planner-mediated, not automatic.
-- Step 5: **PARTIAL** - temporary/live `-Clean` installs and ownership
-  boundaries verified; Agent Config full reconciliation is blocked by an
-  upstream `Substring` / `ArgumentOutOfRangeException` on the AGENTS.md
-  block (105 current lines vs 301 desired). The settings tests pass 36/36,
-  and preview reports only permission drift while preserving extras. No change
-  was made in the Agent Config repository; fix is recommended upstream.
+- Step 5: **DONE** - Agent Config PR #51 (`54f3b9c`) fixes the
+  `Substring`/`ArgumentOutOfRange` bug near line 886 using trimmed
+  `$lineText`. The fixed preview exited 0; Instructions applied against the
+  canonical `C:\Users\walis\agent-config` root; Settings applied with
+  `-Force`; previews converged; post-sync install WhatIf reported zero drift.
+  `OpenCodeSettingsReconciler` passed 36/36. Full evidence is in
+  `evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`. The PR
+  remains open. PS5.1 suite was 91/95 with four pre-existing failures
+  (baseline 87/91); pwsh was 95/95.
 - Step 6: **DONE** for measurement. The G1/T4 DONE journey includes observed
-  cache reads/writes. #11 remains **PARTIAL**: this supplies cache evidence in
-  a DONE journey but does not close all acceptance criteria. #64 remains
-  **PARTIAL**: no skill was loaded in this journey, and this journey did not
-  run a skills benchmark. Native skills loading is lazy; no new platform/flag
-  is proposed.
+  cache reads/writes. A one-pair MiMo free A/B measured loading
+  `verification-before-completion` via tool versus no skill; the skill body
+  is ~2,184 bytes (~546 estimated tokens), while the ~34k input difference
+  reflects context resend/cache rather than body size. Native lazy loading
+  avoids preloading ~228k estimated body tokens, but a skill load adds a tool
+  round-trip. No new platform/flag; `skill_routing` remains OFF.
+  #11 remains **PARTIAL** (cache evidenced in DONE but remaining acceptance
+  criteria open); #64 remains **PARTIAL** (single MiMo pair, no
+  skills-assisted completion journey).
 - Step 7: **PARTIAL** - T1 Luna→MiMo and T2 Luna→DeepSeek Go availability
   fallback decisions/child executions were real. For T2, the failed model was
   synthetic `openai/does-not-exist`, not a real Luna provider failure.
@@ -64,8 +71,8 @@ synthetic-test-only.
   limited to a trivial, non-sensitive prompt; `sensitive_data_allowed=false`
   and ZDR is `expired-unconfirmed`.
 
-PR consolidation status: #238 and #239 **MERGED**; #242/#243/#244 remain
-**OPEN**. Do not declare open items complete.
+PR consolidation status: #238 and #239 **MERGED**; #240 **CLOSED → #243**;
+#242/#243/#244 remain **OPEN**. Do not declare open items complete.
 
 The G1/T4 evidence is recorded in
 `evidence/mission-2026-11-13/g1-t4-done-proof.json`. The controlled fixture
@@ -80,6 +87,9 @@ The allowlist was not changed; pin/allowlist remains a human decision.
 Step 5 install evidence, including backup, preserved settings, ownership
 manifest and upstream blocker, is recorded in
 `evidence/mission-2026-11-13/install-agent-config-validation.json`.
+The resolved Agent Config fix and converged sync are recorded in
+`evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`; the earlier
+blocker is retained there as history, not current status.
 
 ## Target error taxonomy
 

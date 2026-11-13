@@ -76,13 +76,13 @@
     },
     "interpretation": "Native loading is already lazy: metadata discovery followed by on-demand loading. Do not create a new platform/flag; skill_routing remains OFF."
   },
-  "conclusion": "Cache continuity was measured in the real G1/T4 journey through DONE; #11 remains PARTIAL beyond this cache evidence. #64 remains PARTIAL: no skill was loaded in this journey and no skills benchmark was performed here. Existing independent skills measurements remain as recorded; no end-to-end skill selection/load benchmark is inferred.",
+  "conclusion": "Cache continuity was measured in a real G1/T4 journey through DONE. The skill A/B observed a separate on-demand tool round-trip in one MiMo free sample pair; the prompt delta reflects context resend/cache rather than the ~546-token skill body. No new platform/flag; skill_routing remains OFF. #11 remains PARTIAL despite cache evidence in DONE; #64 remains PARTIAL because there is no skills-assisted completion journey and this A/B is only one pair.",
   "limitations": [
     "Token counts are estimates using chars/4, not provider token accounting.",
     "The negative control changes the agent/system prompt, so cacheRead=0 does not isolate other variables.",
     "Skills duplicate names and hybrid-development content divergence are reported risks only; no ownership/content changes were made.",
     "G1/T4 DONE journey busy times are per-session only; no aggregate end-to-end DONE latency is claimed.",
-    "No skills were loaded in the G1/T4 journey; this is not a skills benchmark."
+    "Skill A/B has one sample per arm, MiMo free only, and no completion journey with a loaded skill; it is not a causal benchmark."
   ],
   "done_journey": {
     "task_id": "proof-g1-20261113",
@@ -138,5 +138,52 @@
     "final_state": "DONE",
     "final_revision": 18,
     "skills_loaded": 0
+  },
+  "skill_load_ab": {
+    "schema_version": "mission-skill-load-ab/v1",
+    "observed_date": "2026-11-13",
+    "agent": "explorer",
+    "model": "opencode/mimo-v2.6-flash-free",
+    "sample_count_per_arm": 1,
+    "arm_a": {
+      "condition": "Loaded skill verification-before-completion through the skill tool",
+      "sessionID": "ses_e2935ad04ffe8BNx0npvt5OEeL",
+      "usage": {
+        "input": 32909,
+        "output": 114,
+        "reasoning": 16,
+        "cache_read": 35328,
+        "cache_write": 0,
+        "reported_cost": 0
+      },
+      "busy_ms": 8981
+    },
+    "arm_b": {
+      "condition": "Control without loading a skill",
+      "sessionID": "ses_e2934d42effegkNQAS4zbTa6rU",
+      "usage": {
+        "input": 46,
+        "output": 43,
+        "reasoning": 33,
+        "cache_read": 33792,
+        "cache_write": 0,
+        "reported_cost": 0
+      },
+      "busy_ms": 6575
+    },
+    "skill_payload": {
+      "name": "verification-before-completion",
+      "body_bytes_approx": 2184,
+      "estimated_tokens": 546
+    },
+    "interpretation": "Native lazy loading avoids preloading the 228k-token estimated skill bodies, but loading a skill incurs a separate tool round-trip/inference with context resend. The approximately 34k prompt difference reflects resend/cache behavior, not the skill body size. Do not interpret this one-pair sample as a causal latency or token benchmark.",
+    "conclusion": "No new platform or flag is warranted; skill_routing remains OFF. A skill load is on-demand and costs a round-trip. #64 remains PARTIAL because this is one MiMo free sample per arm and not a skills-assisted completion journey.",
+    "limitations": [
+      "One observation per arm; no statistical inference.",
+      "MiMo free model only.",
+      "No full completion/DONE journey with a loaded skill was measured.",
+      "Reported cost 0 is the observed call cost, not a universal free-cost claim.",
+      "Prompt token difference reflects context resend/cache and is not the skill payload size."
+    ]
   }
 }

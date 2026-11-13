@@ -3,18 +3,18 @@
 Status: Step 1 **PARTIAL** (this slice); Step 2 **DONE** (declared/effective,
 OAuth and native Luna/MiMo samples recorded; live-config reinstall remains
 Step 5); Step 3 **IN PROGRESS**; Step 4 **DONE for measured T1/T2 fallbacks**
-(Planner-mediated; not automatic); Step 5 **PARTIAL** (install/ownership
-proved; Agent Config full sync blocked upstream); Step 6 **DONE**
+(Planner-mediated; not automatic); Step 5 **DONE** (Agent Config fix and live
+sync converged); Step 6 **DONE**
 (measurement; #11/#64 remain PARTIAL); Step 7 **PARTIAL**.
 
 | Step | Work | Dependency | Initial status |
 |---|---|---|---|
 | 1 | Docs/backlog against current code | policy/code and issue evidence | PARTIAL; issue closure/update completed only where directly proven; remaining disposition tracked below |
 | 2 | Model policy/quota | policy 1.5.0, OAuth, effective config and native samples | DONE; live configuration still awaits Step 5 reinstall |
-| 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | IN PROGRESS; #238/#239 MERGED; #242/#243/#244 open |
+| 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | IN PROGRESS; #238/#239 MERGED; #240 CLOSED → #243; #242/#243/#244 open |
 | 4 | Normalize errors + T1/T2 fallback | classification, observed no-start, Kernel gates | DONE for T1/T2 proofs: authorized decisions, native fallback child sessions succeeded and `model-attempt` recorded; Planner-mediated, not automatic |
-| 5 | Orchestration/Agent Config/-Clean integration | Steps 1-2; ownership and authorized reinstall | PARTIAL; clean installs and ownership verified, full Agent Config reconciliation blocked by upstream AGENTS.md substring error |
-| 6 | Cache/skills | same-session cache observations + metrics | DONE for measurement; #11/#64 remain PARTIAL (see DONE journey and no-skills caveat) |
+| 5 | Orchestration/Agent Config/-Clean integration | Steps 1-2; ownership and authorized reinstall | DONE; Agent Config fix applied, Instructions/Settings converged, post-sync install WhatIf reports zero drift |
+| 6 | Cache/skills | cache and skill A/B measurements | DONE for measurement; #11/#64 remain PARTIAL (cache in DONE journey; one-pair skill A/B, no skills-assisted completion journey) |
 | 7 | T2-T4 routing | Steps 3-6; runtime/model proof | PARTIAL; T1/T2 availability fallback real; T3→T4 kernel-proof escalation and DONE real; T3/T4 availability fallback and Astra not executed |
 
 ## Blockers and risks
@@ -35,12 +35,10 @@ proved; Agent Config full sync blocked upstream); Step 6 **DONE**
   real Luna 429. 429/quota/503 are covered by synthetic tests only.
 - DeepSeek Go T2 proof and G1/T4 proof are bounded to their recorded prompts
   and task fixtures; neither establishes a general provider-failure rate.
-- Agent Config Settings tests passed 36/36. Preview shows only top-level
-  permission drift (`read|* allow`) and preserves extra settings. Full
-  `-Component All -Runtime OpenCode` reconcile (without `-Apply`) is BLOCKED
-  upstream: `Substring` / `ArgumentOutOfRangeException` while processing
-  AGENTS.md (105 current lines versus 301 desired). No changes were made in
-  Agent Config; recommend fixing the parser there.
+- Agent Config reconciliation blocker is fixed and live sync converged.
+  Agent Config PR #51 (`54f3b9c`) contains the `$lineText` trim fix. Suites:
+  pwsh 95/95; PS5.1 91/95 with four pre-existing failures (base 87/91);
+  OpenCodeSettingsReconciler 36/36.
 
 ## Etapa 4 — sequência operacional do Planner
 
@@ -82,7 +80,7 @@ Não enviar dados sensíveis.
 
 ## Etapa 5 — instalação e ownership
 
-Evidence: `evidence/mission-2026-11-13/install-agent-config-validation.json`.
+Install evidence: `evidence/mission-2026-11-13/install-agent-config-validation.json`.
 Temporary `-TargetHome` install created 30 resources with 0 conflicts and
 validated 19 profiles; explorer/tester/coder resolved to Luna and the plugin
 was present. The live `install.ps1 -Runtime V2 -Clean` made backup
@@ -91,8 +89,35 @@ explorer/researcher/tester/docs-manager to Luna, preserved MCP (`servers`,
 `reason-network`), 24 top-level permissions, skills roots and the enforcement
 plugin, with 19 profiles. Manifest ownership was
 `agent-config` for config/global text, `orchestration` for worker profiles
-and skills. This does not close Step 5: full Agent Config sync remains blocked
-by the upstream reconciler error above.
+and skills.
+
+**Step 5 closure:** Agent Config PR #51 (`54f3b9c`) fixes the previous
+`Substring`/`ArgumentOutOfRange` error at approximately line 886 by using
+trimmed `$lineText`. Preview exited 0 with the 105-vs-301-line marker diff and
+no exception. Instructions apply used the canonical repo root and applied
+global + OpenCode, with rollback at
+`C:\Users\walis\.agents\reconciliation-backups\reconcile-20261113-182722\rollback.json`.
+Settings `-Apply -Force` applied permissions 24→25 while preserving extras;
+backup `opencode.json.20261113-182740...bak`. Instructions and Settings
+previews converged (`SAME`, hashes `3784D3AD9BFB` and `80E3767353D8`).
+Post-sync install `-WhatIf`: `INSTALLED=0 UNCHANGED=24 PRESERVED=15
+CONFLICT=0 FAILED=0`. Full evidence:
+`evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`.
+
+## Etapa 6 — medição A/B de skill (#64)
+
+`evidence/mission-2026-11-13/skill-load-ab.json` registra dois subagents
+MiMo/explorer (uma amostra por braço): A carregou
+`verification-before-completion` e B não carregou skill. O corpo é ~2.184
+bytes (~546 tokens), mas o round-trip da tool adiciona uma inferência com
+reenvio/cache de contexto; a diferença de ~34k tokens de prompt não é o
+tamanho da skill. Lazy loading evita preload dos ~228k tokens estimados de
+corpos, mas uma skill carregada custa um round-trip. Não criar plataforma/flag;
+`skill_routing` permanece OFF.
+
+A medição é limitada a MiMo free, uma amostra por braço e não inclui uma
+jornada de conclusão com skill. #64 segue PARTIAL; #11 segue PARTIAL apesar da
+evidência de cache na jornada DONE.
 
 ## Issue / PR triage
 
@@ -103,6 +128,7 @@ by the upstream reconciler error above.
 | #11 / #64 | Partial | Existing implementation is not full acceptance; document remaining requirements and require proof |
 | #238 | MERGED | Merge confirmado |
 | #239 | MERGED | Merge confirmado |
+| #240 | CLOSED → #243 | Substituído pelo follow-up #243 |
 | #242 / #243 / #244 | OPEN | Abertos; não declarar concluídos |
 
 No issue is declared complete in this plan without direct proof and maintainer

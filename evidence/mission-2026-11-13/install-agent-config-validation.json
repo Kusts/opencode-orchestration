@@ -58,13 +58,22 @@
       "preserves_extras": true
     },
     "full_reconcile": {
-      "command": "-Component All -Runtime OpenCode (without -Apply)",
-      "status": "BLOCKED_UPSTREAM",
-      "error": "Substring / ArgumentOutOfRangeException while processing AGENTS.md block",
-      "current_lines": 105,
-      "desired_lines": 301,
-      "changes_made_in_agent_config_repo": false,
-      "recommendation": "Fix the AGENTS.md block processing bug in the Agent Config repository, then rerun the full reconcile preview."
+      "status": "FIXED_SYNCED",
+      "preview_exit_code": 0,
+      "preview_diff": "marker-block diff (105 current vs 301 desired lines); no exception",
+      "instructions_apply": "APPLIED",
+      "settings_apply": "APPLIED",
+      "converged": true,
+      "install_whatif": "INSTALLED=0 UNCHANGED=24 PRESERVED=15 CONFLICT=0 FAILED=0"
+    },
+    "full_reconcile_history": {
+      "observed_blocker": "Substring / ArgumentOutOfRangeException while processing AGENTS.md block",
+      "status": "FIXED",
+      "fix_repository": "kust-projetos/agent-config",
+      "pull_request": 51,
+      "commit": "54f3b9c",
+      "fix_summary": "Trimmed $lineText is used for Substring at approximately line 886.",
+      "resolved_by": "Agent Config PR fix and subsequent live Instructions/Settings sync documented in agent-config-sync-2026-11-13.json"
     }
   },
   "delegation": {
@@ -89,14 +98,17 @@
     "step1": "PARTIAL; issue closure/update performed only where direct evidence supports it",
     "step3": {
       "pr238": "MERGED",
-      "pr239": "awaiting update-branch CI",
-      "pr240": "awaiting update-branch CI"
+      "pr239": "MERGED",
+      "pr240": "CLOSED -> #243",
+      "pr242": "OPEN",
+      "pr243": "OPEN",
+      "pr244": "OPEN"
     }
   },
-  "step5_status": "PARTIAL",
+  "step5_status": "DONE",
   "limitations": [
-    "Clean installs and ownership are proven, but complete Agent Config synchronization is blocked upstream.",
-    "No edits were made in the Agent Config repository.",
+    "PR #51 remains open though fix and live sync are applied; details in agent-config-sync-2026-11-13.json.",
+    "PS5.1 has four pre-existing failures: 91/95 current versus base 87/91.",
     "No secrets or credential values are included."
   ]
 }
