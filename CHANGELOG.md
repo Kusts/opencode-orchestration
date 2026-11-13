@@ -6,6 +6,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- #240 — Portada a ação advisory `retry-decision`; registra decisão de reparo sem dispatch nem alteração do gate de conclusão.
+
 - **Healthcheck de skills `same-target`:** a isenção só vale para skills sem
   pin; pares aprovados em `shadow_table` continuam obrigados a coincidir com
   os hashes registrados, inclusive quando junctions resolvem ao mesmo alvo.
