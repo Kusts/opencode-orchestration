@@ -11,7 +11,7 @@ if($Mode -cnotin @('off','observe','auto')){[Console]::Error.WriteLine('invalid 
 if(@([bool]$RulesFile,[bool]$RulesJson,[bool]$RulesRegistry).Where({$_}).Count -ne 1){[Console]::Error.WriteLine('USAGE');exit 2}
 try {
  $e=Read-InputObject $EnvelopeFile $EnvelopeJson 65536;$c=Read-InputObject $ContextFile $ContextJson 65536
- if($RulesRegistry){. (Join-Path $PSScriptRoot 'lib/OrchestrationEventAdmissionRules.ps1');$loaded=Import-OrchestrationEventAdmissionRules -Path $RulesRegistry;if(-not $loaded.ok){$failure=[ordered]@{ok=$false;intent='ignore';action='ignore';reason='invalid-rule';error=$loaded.error};[Console]::Out.WriteLine((ConvertTo-Json $failure -Compress));exit 1};$r=[pscustomobject]@{policy_version=$loaded.policy_version;rules=$loaded.rules}}
+ if($RulesRegistry){. (Join-Path $PSScriptRoot 'lib/OrchestrationEventAdmissionRules.ps1');$loaded=Import-OrchestrationEventAdmissionRules -Path $RulesRegistry;if(-not $loaded.ok){$failure=[ordered]@{ok=$false;intent='ignore';mode=$Mode;action='ignore';reason='invalid-rule';error=$loaded.error;rule_id='';shadow=$true;executable=$false;dedup_key='';thread='';signals=@()};[Console]::Out.WriteLine((ConvertTo-Json $failure -Depth 12 -Compress));exit 1};$r=[pscustomobject]@{policy_version=$loaded.policy_version;rules=$loaded.rules}}
  else {$r=Read-InputObject $RulesFile $RulesJson 262144}
 } catch { [Console]::Error.WriteLine($_.Exception.Message);if($_.Exception.Message -in @('USAGE','LIMIT')){exit 2}else{exit 1} }
 . (Join-Path $PSScriptRoot 'lib/OrchestrationEventAdmissionIntent.ps1')
