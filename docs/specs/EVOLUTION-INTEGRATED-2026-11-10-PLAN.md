@@ -642,4 +642,49 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 - **Alterações desde §14:** `c0fdfdc` (M6 docs), `0ac82b8` (#12/#11+#200/#103), `2865de7` (docs), `2ef9aa8` (#183 boundary), `ca2291e` (#64 medição), `2499838` (#50/#141 auditoria), `48ee518` (#192 harness), `3dbd000` (#184 fatia 1). Agent Config `4f0fd88` local sem push.
 - **Validação/evidência:** #12 e #200/#103 cobertos (suíte 10/10, E2E DONE rev. 12); #183/#64/#50/#141/#192/#184/#11 parciais com evidências curtas registradas; #172 flake; PR #210 CONFLICTING. CI de PR #239 a reconciliar (4 SUCCESS + 2 IN_PROGRESS no handoff).
 - **Decisões/pendências:** #185; #184 fatias 2–6; #2; #172 com sinal real; PR #210 vs `master`; M7/#205 HOLD; #11 cache real; M6 fechado. Sem flags/permissões/config ativo/LLM #192 sem teto/fixtures #192 design-only.
-- **Próximo passo:** reconciliar HEAD/PR/CI e iniciar por #185 (handback/context_only), depois #184 fatias 2–6.
+- **Próximo passo:** reconciliar HEAD/PR/CI e iniciar por #185 (handback/context_only), depois #184 fatias 2-6.
+
+## 16. Handoff para a próxima sessão (2026-11-13, segunda rodada)
+
+### 16.1 Estado
+
+- Branch `feat/install-ownership-agent-config-20261111`, HEAD de código `baa096f` (pushado; este commit documental passa o HEAD para `fd707be`, que é o HEAD final a reconciliar no CI); PR #239 OPEN/MERGEABLE.
+- CI: última rodada COMPLETA verde é a de `4cf3cc6` (6/6 checks após conclusão). A rodada de `83df402` (run 43427027633) foi interrompida pelo push de `baa096f` e a rodada de `baa096f` estava em execução no fechamento — **reconciliar antes de agir**. Jobs ps51/ps7/v2 lane levam ~1h.
+- Sem merge/deploy; sem alteração de flags/permissões/config ativo.
+
+### 16.2 Entregue nesta rodada (com evidência)
+
+- **#185 fatia 1 (handback/context-only):** `bdab362` (feature) + `547cce8` (hardening pós-review) + `83df402` (docs/teste). Kernel `Set-OrchestrationTaskHandback` e `event-ack -ContextOnly`; CLI `-Action handback`. Evidência: `scripts/v3/lib/OrchestrationTaskHandback.tests.ps1` 24/24, `OrchestrationTaskEvent.tests.ps1` 16/16 (PS 5.1 e pwsh), CLI 0/1/2/3, `package-consistency` 17/17; `evidence/evolution-2026-11-10/m6-handback-185.md`. Reviewer APPROVED; security APPROVED (sem CRITICAL/HIGH/MEDIUM).
+- **#184 fatia 2 (regras de operador):** `e2c9ee2` (registry/loader/CLI) + `f65c9b8` e `baa096f` (hardening pós-review). `source/registry/event-admission-rules.json` com regra de exemplo `enabled=false`; `scripts/v3/lib/OrchestrationEventAdmissionRules.ps1`; `-RulesRegistry` no CLI. Evidência: `OrchestrationEventAdmissionRules.tests.ps1` 40 asserts, `OrchestrationEventAdmission*` 2/2 e `OrchestrationEvent*` 5/5 (PS 5.1 e pwsh), `package-consistency` 17/17; `evidence/evolution-2026-11-10/m6-admission-rules-184-f2.md`. Reviewer APPROVED (2 rodadas); security APPROVED com LOW residuais (caminho UNC/device e ancestors reparse agora fail-closed).
+- **Testes executados pelo Planner/tester:** tester deu `verified_pass` em ambas as fatias (matriz CLI manual incluída).
+
+### 16.3 Estados atualizados
+
+- #185 **PARCIAL (fatia 1)**; #184 **PARCIAL (fatias 1-2)**. Nenhuma promoção a COBERTO.
+- Pendentes: #184 fatias 3-6 (slow path LLM, auto executável com policy/grant, criação de Task, ingest autenticado); #2; #183 (ingress autenticado); #11 (cache real); #192 (fixtures/teto); #50/#141 (correções/provas); #172 (só com sinal real); PR #210 (comparar com `master`); M7/#205 HOLD.
+
+### 16.4 Decisões desta rodada
+
+- Handback no Kernel guarda apenas sessão, resumo/next_steps limitados e referência opcional de evento; histórico completo de conversa permanece FORA do Kernel.
+- `-ContextOnly` no handback exige `-DedupKey` de evento `informational_only`; no ack também. Sessão precisa estar em run `attached`.
+- Regras de operador nascem `enabled=false` e apenas `risk=low` é aceito nesta fatia; loader é mais estrito que o classificador; nada executável.
+- `repair-decision` sugeriu REPLAN por "escopo amplo" no hardening do loader; foi tratado como reparo coeso do MESMO módulo (decisão advisory, registrada na evidência).
+- Residuais conhecidos e aceitos: qualquer sessão `attached` pode sobrescrever o slot `handback` (histórico preserva); identidade de sessão e `informational_only` seguem sem prova criptográfica até o ingest autenticado (#183/#184 fatia 6); checkout sob junction/symlink ou OneDrive-placeholder é rejeitado como `RULES_PATH_INVALID`.
+
+### 16.5 Comandos de retomada
+
+```powershell
+git status --short
+gh pr view 239 --json state,mergeable,statusCheckRollup
+powershell -NoProfile -File scripts\test-package-consistency.ps1
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1 -Name 'OrchestrationTaskHandback*'
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1 -Name 'OrchestrationEventAdmission*'
+```
+
+### 16.6 Handoff compacto (5 campos)
+
+- **Objetivo/estado:** continuar backlog M0-M7 na branch `feat/install-ownership-agent-config-20261111` (HEAD final `fd707be`, PR #239 MERGEABLE, CI a reconciliar); sem merge/deploy.
+- **Alterações:** 6 commits — #185 fatia 1 (`bdab362`, `547cce8`, `83df402`) e #184 fatia 2 (`e2c9ee2`, `f65c9b8`, `baa096f`).
+- **Validação:** handback 24/24 + eventos 16/16; admission 40 asserts + 5/5 suites de eventos; package-consistency 17/17; tester `verified_pass`; reviews APPROVED (code+security) nas duas fatias.
+- **Decisões/pendências:** #184 fatias 3-6, #2, #183, #11, #192, #50/#141, #172, PR #210, M7 HOLD; resíduos aceitos listados em 16.4.
+- **Próximo passo:** reconciliar CI de `baa096f`; se verde, seguir para #184 fatia 3 (slow path seletivo/LLM, ainda shadow) ou para a comparação do PR #210 com `master` — escolher por valor e risco.
