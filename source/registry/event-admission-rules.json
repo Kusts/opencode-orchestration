@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "policy_version": "1",
+  "rules": [
+    {
+      "rule_id": "operador-comentario-issue-exemplo",
+      "enabled": false,
+      "risk": "low",
+      "trigger": "issue_comment",
+      "scope_allowlist": ["repo"],
+      "description": "Regra de exemplo (desligada): comentario de humano autorizado no escopo repo vira candidato em modo shadow.",
+      "owner": "operador"
+    }
+  ]
+}

@@ -102,6 +102,13 @@ $z=Invoke-Cli @('-EnvelopeFile',$badEventFile,'-ContextFile',$cf,'-RulesFile',$r
 foreach($field in @('source','trigger','thread','delivery_id','repo')){$missing=@{source='github';trigger='issue_comment';thread='pr:12';delivery_id='test-1234';repo='a/b';informational_only=$false;summary=''};$missing.Remove($field);$missingPath=Join-Path $tmp ('missing-'+$field+'.json');[IO.File]::WriteAllText($missingPath,($missing|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));$z=Invoke-Cli @('-EnvelopeFile',$missingPath,'-ContextFile',$cf,'-RulesFile',$rf);Assert ($z.code -eq 1) ('CLI missing '+$field);$mout=$z.text|ConvertFrom-Json;$errorField=if($field -eq 'delivery_id'){'EVENT_DELIVERY_INVALID'}else{'EVENT_'+$field.ToUpperInvariant()+'_INVALID'};Assert (-not $mout.ok -and $mout.error -eq $errorField) ('typed missing '+$field)}
 $upperLib=Resolve-OrchestrationEventAdmissionIntent $event $ctx $rules 'OBSERVE';Assert (-not $upperLib.ok -and $upperLib.reason -ceq 'invalid-mode') 'lib mode is case-sensitive'
 $upper=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesFile',$rf,'-Mode','OBSERVE');Assert ($upper.code -eq 2) 'CLI rejects uppercase mode'
+$registry=Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'source/registry/event-admission-rules.json'
+$registryDoc=Get-Content -LiteralPath $registry -Raw|ConvertFrom-Json;$equivalent=Join-Path $tmp 'equivalent-rules.json';[IO.File]::WriteAllText($equivalent,($registryDoc|ConvertTo-Json -Depth 10 -Compress),[Text.UTF8Encoding]::new($false))
+$regSuccess=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesRegistry',$registry);$fileSuccess=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesFile',$equivalent)
+Assert ($regSuccess.code -eq 0 -and $regSuccess.text -ceq $fileSuccess.text) 'CLI registry equals equivalent file'
+$z=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesRegistry',$registry,'-RulesFile',$rf);Assert ($z.code -eq 2) 'CLI registry/file conflict'
+$z=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesRegistry',$registry,'-RulesJson',$rj);Assert ($z.code -eq 2) 'CLI registry/json conflict'
+$z=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesRegistry',$badJson);Assert ($z.code -eq 1 -and $z.text -match 'RULES_INVALID_JSON') 'CLI invalid registry'
 Remove-Item -LiteralPath $tmp -Recurse -Force
 Write-Output 'PASS AdmissionIntent'
 
