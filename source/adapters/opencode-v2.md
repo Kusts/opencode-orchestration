@@ -126,7 +126,7 @@ histórica, sem efeito).
   cria sessões. Binding produtivo PARTIAL (G1): as primitivas funcionam em runtime real (model-select, NativeDispatch com subagent.model, model-attempt, model-proof), mas a integração automática do fluxo completo (model-select → dispatch → attempt → proof → decisão) depende de comandos manuais do Planner e não está comprovada como automática. Evidência 2026-11-10: T3 dispatch real (subagente com model=claude-agent/sonnet retornou T3_DISPATCH_OK model=claude-sonnet-5-5); model-attempt registrado (attempt_n=1, model=claude-agent/sonnet, tier=T3, parent_session_id, message_id, policy_hash); model-proof verificou corretamente (PROOF_VERIFICATION_MISSING quando não há prova de falha). O fluxo manual das primitivas está comprovado; a integração automática produtiva ainda precisa ser demonstrada. Status: PARTIAL — primitivas validadas, integração automática pendente. Prova do override `subagent.model` é só do servidor OpenCode
   local vivo: `native_model_override_proven=true` somente quando a versão
   viva de `opencode api get /api/info` está exatamente na allowlist
-  `2.2.5`/`2.2.6`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
+  `2.2.5`/`2.2.6`/`2.3.0`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
   metadados de observabilidade informados pelo caller e nunca autorizam;
   API viva desconhecida/indisponível falha fechada com `model` em branco.
   Suposição residual: o `/api/info` local alcança o mesmo servidor que
@@ -659,3 +659,5 @@ registrada em gate-closure, conforme as seções de Controlled Routing.
 ### Evidência de testes (observada)
 - `test-package-consistency` 16/16; `OrchestrationModelRouterMatrix` 35/35; `OrchestrationModelRouter` 107/107; V14 60/60; `OrchestrationModelRouterHaikuPlanner` 52/52 (nome legada; suíte mantém semântica alias+HOLD); `OrchestrationModelRouterModelConfig` 36/36; Kernel `OrchestrationTaskKernelModelProof` 104/104; `OrchestrationModelExecution` 36/36; `OrchestrationModelRouterKernelProof` 7/7.
 - Estes valores são estado/evidência atual; não afirmar que todos rodaram contra o `head` final integrado a menos que o código esteja inalterado — revalidação final pendente. Teste de matriz determinístico reporta ordem candidata mas não faz dispatch. `AGENTS.md` continua não reconciliado por conflito de proveniência (config ativa ajustada antes; agora direcionada para `build` Luna; root Luna igual; backups/rollback em `~/.config/opencode/reconciliation-backups/`; sem restauração whole-file).
+
+  A evidência 2.3.0 é live-server-only; o pin de source/registry/runtime-versions.json permanece 2.2.6 (alvo de CI/provisionamento). Bump para 2.3.0 exige smoke/CI no binário exato e decisão separada.
