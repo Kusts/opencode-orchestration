@@ -1,0 +1,149 @@
+{
+  "schema_version": "mission-g1-t4-done-proof/v1",
+  "observed_date": "2026-11-13",
+  "source_worktree": "D:\\projetos\\_wt\\orch-proof",
+  "source_branch": "proof/g1-20261113",
+  "source_base": "feat/native-override-230-20261113",
+  "task_id": "proof-g1-20261113",
+  "fixture": {
+    "files": [
+      "scratchpad/proof-result.txt",
+      "scratchpad/proof-verify.ps1"
+    ],
+    "git_status": "uncommitted and ignored under scratchpad/"
+  },
+  "model_select_t3": {
+    "role": "coder",
+    "risk": "medium",
+    "complexity": "complex",
+    "tier": "T3",
+    "model": "claude-agent/sonnet",
+    "native_model_override_proven": true
+  },
+  "t3_controlled_failure": {
+    "sessionID": "ses_e293f74bcffeG5cNj9f7N8OSNo",
+    "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+    "assistantMessageID": "msg_1d6c0a0090010aF8ixEb1WyRN1",
+    "observed_model": "claude-agent/sonnet",
+    "outcome": "succeeded",
+    "usage": {
+      "input": 4,
+      "output": 109,
+      "cache_read": 55220,
+      "cache_write": 55369,
+      "cost": 0
+    },
+    "busy_ms": 7192,
+    "controlled_functional_failure": {
+      "fixture_remained": "bad",
+      "verify_run": "verification_failed",
+      "evidence_kind": "kernel-executed",
+      "trigger": "controlled by prompt, not natural model incapability"
+    }
+  },
+  "t3_attempt": {
+    "action": "model-attempt",
+    "attempt_n": 1,
+    "tier": "T3",
+    "sessionID": "ses_e293f74bcffeG5cNj9f7N8OSNo",
+    "assistantMessageID": "msg_1d6c0a0090010aF8ixEb1WyRN1",
+    "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+    "candidate_revision": 9,
+    "verification_revision": 11
+  },
+  "controlled_retry": {
+    "action_sequence": [
+      "record-result failed",
+      "verify-run failed",
+      "model-attempt"
+    ],
+    "notes": "Controlled restart to construct a kernel-owned T3 failure proof."
+  },
+  "kernel_model_proof": {
+    "action": "model-proof",
+    "required_tier": "T3",
+    "ok": true,
+    "model": "claude-agent/sonnet",
+    "reference": "modelproof:proof-g1-20261113:T3:2:9",
+    "digest": "sha256:df06d9f728227a510c890f2e9d55ac58f663ad752fd69b3588c7daa6afa77c8e"
+  },
+  "model_select_t4": {
+    "role": "coder",
+    "risk": "medium",
+    "complexity": "complex",
+    "tier": "T4",
+    "model": "claude-agent/opus",
+    "kernel_proof_reference": "modelproof:proof-g1-20261113:T3:2:9",
+    "kernel_proof_digest": "sha256:df06d9f728227a510c890f2e9d55ac58f663ad752fd69b3588c7daa6afa77c8e",
+    "native_model_override_proven": true
+  },
+  "t4_execution": {
+    "sessionID": "ses_e293ccf88ffe1WKYmwUr03Cvir",
+    "assistantMessageID": "msg_1d6c34845001SGqBCZn8E3gd2O",
+    "observed_model": "claude-agent/opus",
+    "outcome": "succeeded",
+    "fixture_after": "good",
+    "usage": {
+      "input": 4,
+      "output": 109,
+      "reasoning": 65,
+      "cache_read": 55257,
+      "cache_write": 55471,
+      "cost": 0
+    },
+    "busy_ms": 6900
+  },
+  "debugger_execution": {
+    "sessionID": "ses_e293bdf04ffemu3LRRD3sebOkO",
+    "observed_model": "claude-agent/sonnet",
+    "usage": {
+      "input": 4,
+      "output": 732,
+      "cache_read": 60372,
+      "cache_write": 51839
+    },
+    "busy_ms": 14072,
+    "used_for": "retry gate and new evidence"
+  },
+  "verification_and_done": {
+    "candidate_pass": {
+      "record_result": "candidate_pass",
+      "debugger_invoked": true,
+      "new_evidence": true,
+      "new_evidence_ref": "session:ses_e293bdf04ffemu3LRRD3sebOkO"
+    },
+    "verify_run": {
+      "result": "verified_pass",
+      "evidence_kind": "kernel-executed"
+    },
+    "t4_model_attempt": {
+      "attempt_n": 2,
+      "worker_revision": 13,
+      "model": "claude-agent/opus",
+      "sessionID": "ses_e293ccf88ffe1WKYmwUr03Cvir",
+      "assistantMessageID": "msg_1d6c34845001SGqBCZn8E3gd2O"
+    },
+    "transitions": [
+      "REVIEWING",
+      "review approved",
+      "complete"
+    ],
+    "final_task": {
+      "state": "DONE",
+      "revision": 18,
+      "worker_attempts": 2,
+      "model_attempts": 2,
+      "verification": "verified_pass",
+      "verification_source": "kernel-executed",
+      "review": "approved"
+    }
+  },
+  "limitations": [
+    "T3 functional failure was deliberately induced by prompt and does not establish natural model incapability.",
+    "Astra was not executed.",
+    "Fixture and proof artifacts are in the separate proof worktree; scratchpad files are ignored and uncommitted.",
+    "T4 is an escalation authorized by kernel-owned T3 proof, not an availability fallback.",
+    "Reported cost 0 is the observed runtime report, not a universal free-cost claim.",
+    "Busy times are the reported per-session runtime values; no aggregate end-to-end DONE latency is inferred."
+  ]
+}

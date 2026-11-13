@@ -76,12 +76,67 @@
     },
     "interpretation": "Native loading is already lazy: metadata discovery followed by on-demand loading. Do not create a new platform/flag; skill_routing remains OFF."
   },
-  "conclusion": "Cache continuity was observed only in the stated explorer tests. Native skills loading is lazy; measurements support no new platform or flag. #64 remains PARTIAL: measurement is complete, but real completion journey and completion latency were not measured. No DONE latency is claimed.",
+  "conclusion": "Cache continuity was measured in the real G1/T4 journey through DONE; #11 remains PARTIAL beyond this cache evidence. #64 remains PARTIAL: no skill was loaded in this journey and no skills benchmark was performed here. Existing independent skills measurements remain as recorded; no end-to-end skill selection/load benchmark is inferred.",
   "limitations": [
     "Token counts are estimates using chars/4, not provider token accounting.",
-    "Cache observations are limited to the specific Luna/explorer session and listed turns; do not generalize.",
     "The negative control changes the agent/system prompt, so cacheRead=0 does not isolate other variables.",
     "Skills duplicate names and hybrid-development content divergence are reported risks only; no ownership/content changes were made.",
-    "No end-to-end completion latency or latency-to-DONE measurement was collected."
-  ]
+    "G1/T4 DONE journey busy times are per-session only; no aggregate end-to-end DONE latency is claimed.",
+    "No skills were loaded in the G1/T4 journey; this is not a skills benchmark."
+  ],
+  "done_journey": {
+    "task_id": "proof-g1-20261113",
+    "observed_date": "2026-11-13",
+    "sessions": [
+      {
+        "role": "coder",
+        "tier": "T3",
+        "model": "claude-agent/sonnet",
+        "sessionID": "ses_e293f74bcffeG5cNj9f7N8OSNo",
+        "busy_ms": 7192,
+        "usage": {
+          "input": 4,
+          "output": 109,
+          "cache_read": 55220,
+          "cache_write": 55369,
+          "cost": 0
+        },
+        "result": "controlled functional failure; verification_failed"
+      },
+      {
+        "role": "coder",
+        "tier": "T4",
+        "model": "claude-agent/opus",
+        "sessionID": "ses_e293ccf88ffe1WKYmwUr03Cvir",
+        "busy_ms": 6900,
+        "usage": {
+          "input": 4,
+          "output": 109,
+          "reasoning": 65,
+          "cache_read": 55257,
+          "cache_write": 55471,
+          "cost": 0
+        },
+        "result": "succeeded; fixture good"
+      },
+      {
+        "role": "debugger",
+        "model": "claude-agent/sonnet",
+        "sessionID": "ses_e293bdf04ffemu3LRRD3sebOkO",
+        "busy_ms": 14072,
+        "usage": {
+          "input": 4,
+          "output": 732,
+          "cache_read": 60372,
+          "cache_write": 51839
+        },
+        "result": "new evidence for retry gate"
+      }
+    ],
+    "verification": "verified_pass / kernel-executed",
+    "review": "approved",
+    "final_state": "DONE",
+    "final_revision": 18,
+    "skills_loaded": 0
+  }
 }

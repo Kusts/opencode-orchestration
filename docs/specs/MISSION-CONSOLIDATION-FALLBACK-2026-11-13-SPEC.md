@@ -38,30 +38,39 @@ synthetic-test-only.
 
 - Step 2: **DONE** for policy/quota and bounded native model observations;
   installed live-config reconciliation remains Step 5.
-- Step 4: **DONE for the measured T1 fallback** - normalized error, observed
-  no-start, authorized decision, native MiMo success and attempt record.
+- Step 4: **DONE for measured T1/T2 fallbacks** - normalized error, observed
+  no-start, authorized decisions, native MiMo/DeepSeek Go success and attempt
+  records. Both were Planner-mediated, not automatic.
 - Step 5: **PARTIAL** - temporary/live `-Clean` installs and ownership
   boundaries verified; Agent Config full reconciliation is blocked by an
   upstream `Substring` / `ArgumentOutOfRangeException` on the AGENTS.md
   block (105 current lines vs 301 desired). The settings tests pass 36/36,
   and preview reports only permission drift while preserving extras. No change
   was made in the Agent Config repository; fix is recommended upstream.
-- Step 6: **DONE** for cache/skills measurement. The cache test observed reuse
-  across a model switch only within the same agent/session; do not generalize.
-  Native skills loading is lazy; no new platform/flag is proposed.
-- #11 and #64 remain **PARTIAL**: real completion journey and completion
-  latency were not measured. No DONE-latency claim is made.
-- Step 7: **PARTIAL** - two real transitions executed: T1 Luna→MiMo and T2
-  Luna→DeepSeek Go. For T2, the decision and DeepSeek Go child execution were
-  real, but the failed model was synthetic `openai/does-not-exist`, not a real
-  Luna provider failure. T3 Sonnet→Terra and T4 Opus→Sol remain policy
-  candidates with no real fallback transitions. Astra is
-  exceptional/proof-gated and is not claimed executed. T2 evidence is bounded
-  to a trivial, non-sensitive prompt; DeepSeek Go has
-  `sensitive_data_allowed=false` and ZDR `expired-unconfirmed`.
+- Step 6: **DONE** for measurement. The G1/T4 DONE journey includes observed
+  cache reads/writes. #11 remains **PARTIAL**: this supplies cache evidence in
+  a DONE journey but does not close all acceptance criteria. #64 remains
+  **PARTIAL**: no skill was loaded in this journey, and this journey did not
+  run a skills benchmark. Native skills loading is lazy; no new platform/flag
+  is proposed.
+- Step 7: **PARTIAL** - T1 Luna→MiMo and T2 Luna→DeepSeek Go availability
+  fallback decisions/child executions were real. For T2, the failed model was
+  synthetic `openai/does-not-exist`, not a real Luna provider failure.
+  Separately, a real T3→T4 escalation used kernel-owned T3 proof, selected
+  Opus, passed verification/review, and reached **DONE**. The T3 failure was
+  deliberately induced by prompt and is not evidence of natural incapability.
+  T3/T4 availability fallback Sonnet→Terra and Opus→Sol were not executed;
+  Astra is exceptional/proof-gated and was not executed. DeepSeek Go proof was
+  limited to a trivial, non-sensitive prompt; `sensitive_data_allowed=false`
+  and ZDR is `expired-unconfirmed`.
 
-PR consolidation status: #238 and #239 **MERGED**; #240 remains in
-focused-port reconciliation and is not complete.
+PR consolidation status: #238 and #239 **MERGED**; #242/#243/#244 remain
+**OPEN**. Do not declare open items complete.
+
+The G1/T4 evidence is recorded in
+`evidence/mission-2026-11-13/g1-t4-done-proof.json`. The controlled fixture
+lives in the separate, ignored proof worktree; Astra was not used and this
+T4 event is a kernel-proof escalation, not availability fallback.
 
 The explicit native `subagent.model` override was empirically observed on
 Luna/MiMo calls. Runtime 2.3.0 remains outside
