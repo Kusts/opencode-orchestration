@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-13",
+  "runtime": {"version": "2.3.0", "source": "opencode api get /api/info"},
+  "checks": [
+    {"conceptual_command": "subagent(agent=explorer, model=openai/gpt-6-luna)", "session_id": "ses_e2997d1b7ffeC2u2qiyqASh4Wq", "observed_model": {"providerID": "openai", "id": "gpt-6-luna"}, "outcome": "succeeded", "input": 33736},
+    {"conceptual_command": "subagent(agent=explorer, model=opencode/mimo-v2.6-flash-free)", "session_id": "ses_e29808f9dffeyyU67grp62rgFD", "observed_model": {"providerID": "opencode", "id": "mimo-v2.6-flash-free"}, "outcome": "succeeded", "input": 32712, "cache": 1024},
+    {"conceptual_command": "subagent(agent=coder, model=opencode-go/deepseek-v4.1-flash)", "session_id": "ses_e295a469effeMUnrmkh0CrTgXn", "observed_model": {"providerID": "opencode-go", "id": "deepseek-v4.1-flash"}, "outcome": "succeeded", "input": 37576}
+  ],
+  "result": "In all three calls, the child session model matched the explicit requested model; this proves native subagent.model override on live OpenCode 2.3.0.",
+  "limitations": ["One execution per model; not proof for all profiles.", "Live-server evidence only; unknown or unavailable versions remain fail-closed.", "No runtime pin change: source/registry/runtime-versions.json remains 2.2.6.", "Pin bump requires exact-binary smoke/CI and a separate decision."]
+}

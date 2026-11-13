@@ -39,6 +39,8 @@ Limites: no maximo 50 findings e 256 KiB no JSON. O schema versionado pode ser
 obtido com `powershell -NoProfile -File scripts/v3/task-kernel.ps1 -Action review-schema`.
 Entregue os findings em JSON para o Planner registrar com `-FindingsJson`.
 
+A decisão `retry-decision` é advisory: informe sinais de falha/localização com evidência atual; ela não autoriza dispatch, reparo ou mudança de autoridade. A decisão persistida é recomendação, não gate de conclusão.
+
 Equivalência Codex: `reviewer.toml` (`gpt-6.1-sol/high`, `read-only`).
 Base atual mantida em Sol (gpt-6.1-sol) via provider OpenAI. Escalonamento usa
 OpenAI: Sol/xhigh → Sol/max; Astra só em review crítico excepcional.

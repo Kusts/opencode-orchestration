@@ -10,6 +10,9 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - **Configuração efetiva de modelos (2026-11-13):** OpenAI autenticado por OAuth (quota da assinatura; nenhum segredo registrado); runtime instalado 2.3.0 diverge do pin 2.2.6. Evidência em `evidence/mission-2026-11-13/model-config-effective.json`.
 - **Correção do claim T1 (2026-11-13):** atualização cobre policy/templates e configuração declarada; config viva ainda contém Iceman para quatro agentes e depende de reinstalação.
 - **Fallback T1 nativo (implementação em andamento, 2026-11-13):** decisão de usar `subagent`/child session e prova observada de no-start; nenhum executor paralelo `opencode run`/CLI. O Kernel segue dono de `model-attempt`/`model-proof`; implementação e validação produtiva não concluídas.
+- **Override nativo `subagent.model` no OpenCode 2.3.0:** autorizado para o servidor vivo após três sessões observadas com o modelo explicitamente solicitado (Luna, MiMo e DeepSeek); evidência em `evidence/mission-2026-11-13/native-override-2.3.0.json`. A allowlist continua live-server-only e fail-closed. Pin `runtime-versions.json` permanece 2.2.6 (alvo de CI/provisionamento); bump exige smoke/CI no binário exato e decisão separada.
+- #240 - Portada a ação advisory `retry-decision`; registra decisão de reparo sem dispatch nem alteração do gate de conclusão.
+- **Atualização posterior da missão (2026-11-13):** provas T1/T2 e jornada G1 T3→T4→DONE registradas; Agent Config sincronizado e skill A/B medido. As entradas anteriores de andamento descrevem o estado observado naquele momento.
 
 - **Healthcheck de skills `same-target`:** a isenção só vale para skills sem
   pin; pares aprovados em `shadow_table` continuam obrigados a coincidir com
