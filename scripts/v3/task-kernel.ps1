@@ -12,7 +12,8 @@
       verify        - Set-OrchestrationTaskVerification (UNTRUSTED caller JSON/file; persists verification_source=caller-supplied, never proof-capable)
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
-      review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+       record-repair-decision - Add advisory repair decision (needs -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy; optional -Severity low|medium|high|critical -ChangedFiles 0..100000 -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts 0..100 -FailureClass localized|unknown|structural)
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
       event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary; idempotent consumption/settlement ack)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
@@ -56,6 +57,11 @@ param(
     [string]$ToState = '',
     [string]$WorkerStatus = '',
     [string]$ProducedBy = '',
+    [string]$DetailContent = '',
+    [string]$DetailPath = '',
+    [ValidateSet('tool-output','session-log','test-output','diff','other')][string]$DetailKind = 'other',
+    [string]$EvidenceStoreDir = '',
+    [int]$DetailPreviewChars = 2000,
     [string[]]$ClaimedEvidence = @(),
     [string]$Passed = '',
     [string[]]$Evidence = @(),
@@ -67,6 +73,14 @@ param(
     [string]$ReviewBy = '',
     [string]$FindingsFile = '',
     [string]$FindingsJson = '',
+    [string]$RepairDecisionJson = '',
+    [string]$RecordedBy = '',
+    [string]$Severity = 'medium',
+    [int]$ChangedFiles = 0,
+    [bool]$ScopeOverlap = $true,
+    [bool]$ExternalEffectsAmbiguous = $false,
+    [bool]$EvidenceCurrent = $true,
+    [int]$Attempts = 0,
     [string]$EnvelopeFile = '',
     [string]$EnvelopeJson = '',
     [string]$DedupKey = '',
@@ -195,9 +209,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'record-repair-decision', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|review-schema|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|record-repair-decision|verify|review|review-schema|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...; record-repair-decision exige -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy e aceita -Severity -ChangedFiles -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts -FailureClass.'
     exit 2
 }
 
@@ -397,15 +411,27 @@ switch ($action) {
             exit 2
         }
         Assert-TaskKernelRevision
-        $result = Set-OrchestrationTaskWorkerResult -TaskId $TaskId -Status $WorkerStatus `
-            -ClaimedEvidence (Split-TaskKernelCliList -Value $ClaimedEvidence) -ProducedBy $ProducedBy `
-            -ExpectedRevision ([int]$ExpectedRevision) -Hypothesis $Hypothesis -NewEvidence:$NewEvidence `
-            -DebuggerInvoked:$DebuggerInvoked `
-            -StrategyId $StrategyId -StrategyApproach $StrategyApproach -StrategyTool $StrategyTool `
-            -StrategyParams (Split-TaskKernelCliList -Value $StrategyParams) -StrategyFingerprint $StrategyFingerprint `
-            -FailureClass $FailureClass -FailureDetail $FailureDetail -RecoverySource $RecoverySource `
-            -NewEvidenceRefs (Split-TaskKernelCliList -Value $NewEvidenceRefs) `
-            -TasksDir $TasksDir -FlagsPath $FlagsPath
+        $workerResultArgs = @{
+            TaskId = $TaskId; Status = $WorkerStatus
+            ClaimedEvidence = (Split-TaskKernelCliList -Value $ClaimedEvidence); ProducedBy = $ProducedBy
+            ExpectedRevision = [int]$ExpectedRevision; Hypothesis = $Hypothesis; NewEvidence = [bool]$NewEvidence
+            DebuggerInvoked = [bool]$DebuggerInvoked; StrategyId = $StrategyId; StrategyApproach = $StrategyApproach
+            StrategyTool = $StrategyTool; StrategyParams = (Split-TaskKernelCliList -Value $StrategyParams)
+            StrategyFingerprint = $StrategyFingerprint; FailureClass = $FailureClass; FailureDetail = $FailureDetail
+            RecoverySource = $RecoverySource; NewEvidenceRefs = (Split-TaskKernelCliList -Value $NewEvidenceRefs)
+            TasksDir = $TasksDir; FlagsPath = $FlagsPath; DetailKind = $DetailKind
+            EvidenceStoreDir = $EvidenceStoreDir; DetailPreviewChars = $DetailPreviewChars
+        }
+        if ($PSBoundParameters.ContainsKey('DetailContent')) { $workerResultArgs.DetailContent = $DetailContent }
+        if ($PSBoundParameters.ContainsKey('DetailPath')) { $workerResultArgs.DetailPath = $DetailPath }
+        $result = Set-OrchestrationTaskWorkerResult @workerResultArgs
+    }
+    'record-repair-decision' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($RecordedBy) -or [string]::IsNullOrWhiteSpace($RepairDecisionJson)) { Write-TaskKernelCliError 'record-repair-decision exige -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy.'; exit 2 }
+        Assert-TaskKernelRevision
+        $repairFailureClass = $FailureClass
+        if ([string]::IsNullOrWhiteSpace($repairFailureClass)) { $repairFailureClass = 'unknown' }
+        $result = Add-OrchestrationTaskRepairDecision -TaskId $TaskId -RepairDecisionJson $RepairDecisionJson -ExpectedRevision $ExpectedRevision -RecordedBy $RecordedBy -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap $ScopeOverlap -ExternalEffectsAmbiguous $ExternalEffectsAmbiguous -EvidenceCurrent $EvidenceCurrent -Attempts $Attempts -FailureClass $repairFailureClass -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'verify' {
         if ([string]::IsNullOrWhiteSpace($TaskId)) {

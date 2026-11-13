@@ -1815,6 +1815,62 @@ function Test-TaskKernelSettlementContext {
     catch { return (& $refuse 'SETTLEMENT_CONTEXT_INVALID' 'internal-error') }
 }
 
+function Add-OrchestrationTaskRepairDecision {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$TaskId,
+        [Parameter(Mandatory=$true)][string]$RepairDecisionJson,
+        [Parameter(Mandatory=$true)][int]$ExpectedRevision,
+        [Parameter(Mandatory=$true)][string]$RecordedBy,
+        [string]$Severity = 'medium', [int]$ChangedFiles = 0,
+        [bool]$ScopeOverlap = $true, [bool]$ExternalEffectsAmbiguous = $false,
+        [bool]$EvidenceCurrent = $true, [int]$Attempts = 0,
+        [string]$FailureClass = 'unknown', [string]$TasksDir = '',
+        [string]$FlagsPath = ''
+    )
+    try {
+        if (@('low','medium','high','critical') -cnotcontains $Severity -or
+            @('localized','unknown','structural') -cnotcontains $FailureClass -or
+            $ChangedFiles -lt 0 -or $ChangedFiles -gt 100000 -or
+            $Attempts -lt 0 -or $Attempts -gt 100) {
+            return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID')
+        }
+        if ([Text.Encoding]::UTF8.GetByteCount($RepairDecisionJson) -gt 16384) { return (New-TaskKernelError -Code 'REPAIR_DECISION_TOO_LARGE') }
+        $parsed = $null
+        try { $parsed = $RepairDecisionJson | ConvertFrom-Json -ErrorAction Stop } catch { return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID') }
+        if ($null -eq $parsed -or $parsed.ok -isnot [bool] -or -not $parsed.ok) { return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID') }
+        $decision = ([string]$parsed.decision).Trim()
+        if (@('LOCAL_REPAIR','REPLAN','ESCALATE') -cnotcontains $decision) { return (New-TaskKernelError -Code 'REPAIR_DECISION_NOT_ALLOWED') }
+        $reason = [string]$parsed.reason
+        if ([string]::IsNullOrWhiteSpace($reason) -or $reason.Length -gt 2000) { return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID') }
+        if ($null -eq $parsed.constraints) { return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID') }
+        $constraints = @($parsed.constraints)
+        if ($constraints.Count -gt 10) { return (New-TaskKernelError -Code 'REPAIR_DECISION_TOO_LARGE') }
+        foreach ($item in $constraints) { if (-not ($item -is [string]) -or [string]::IsNullOrWhiteSpace($item) -or $item.Length -gt 64) { return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID') } }
+        $tid = $TaskId.Trim(); $file = Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir
+        if ([string]::IsNullOrWhiteSpace($file)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath
+        if (-not $flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED') }
+        $lock = Enter-TaskKernelFileLock -TaskFile $file
+        if (-not $lock.acquired) { return (New-TaskKernelError -Code 'LOCK_TIMEOUT') }
+        try {
+            $slot = Read-TaskKernelRecord -TaskFile $file
+            if (-not $slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ($slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec = $slot.record
+            if ([int]$rec.revision -ne $ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            if (Test-TaskKernelTerminalState -State ([string]$rec.state)) { return (New-TaskKernelError -Code 'TASK_TERMINAL') }
+            $entries = @(); if ($rec.Contains('repair_decisions')) { $entries = @($rec.repair_decisions) }
+            $entry = [ordered]@{ decision=$decision; reason=(Protect-TaskKernelText $reason); constraints=@(Protect-TaskKernelStringList -Items ([string[]]$constraints)); severity=(Protect-TaskKernelText $Severity); changed_files=$ChangedFiles; scope_overlap=$ScopeOverlap; external_effects_ambiguous=$ExternalEffectsAmbiguous; evidence_current=$EvidenceCurrent; attempts=$Attempts; failure_class=(Protect-TaskKernelText $FailureClass); recorded_by=(Protect-TaskKernelText $RecordedBy); at=(Get-TaskKernelTimestamp); revision=($ExpectedRevision + 1) }
+            $entries += ,$entry; if ($entries.Count -gt 20) { $entries = @($entries | Select-Object -Last 20) }
+            $rec['repair_decisions'] = @($entries); $rec['revision'] = $ExpectedRevision + 1; $rec['updated_at'] = Get-TaskKernelTimestamp
+            $write = Write-TaskKernelRecord -Record $rec -TaskFile $file
+            if (-not $write.ok) { return (New-TaskKernelError -Code $write.error) }
+            return [PSCustomObject]@{ ok=$true; revision=($ExpectedRevision + 1); decision=$decision }
+        } finally { Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile }
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
 function Set-OrchestrationTaskWorkerResult {
     [CmdletBinding()]
     param(
@@ -1840,7 +1896,12 @@ function Set-OrchestrationTaskWorkerResult {
         [string]$FlagsPath = '',
         [string]$RepoRoot = '',
         [string]$TelemetryRoot = '',
-        $SettlementContext = $null
+        $SettlementContext = $null,
+        [string]$DetailContent = '',
+        [string]$DetailPath = '',
+        [ValidateSet('tool-output','session-log','test-output','diff','other')][string]$DetailKind = 'other',
+        [string]$EvidenceStoreDir = '',
+        [int]$DetailPreviewChars = 2000
     )
     try {
         $flags = Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
@@ -1898,6 +1959,54 @@ function Set-OrchestrationTaskWorkerResult {
         }
         $ev = Get-TaskKernelEvidenceList -Value $ClaimedEvidence
         if (-not [bool]$ev.valid) { return (New-TaskKernelError -Code 'INVALID_EVIDENCE') }
+        $contentProvided = $PSBoundParameters.ContainsKey('DetailContent')
+        $pathBound = $PSBoundParameters.ContainsKey('DetailPath')
+        $pathProvided = $pathBound
+        if ($contentProvided -and $pathBound) { return (New-TaskKernelError -Code 'DETAIL_INPUT_CONFLICT') }
+        if ($pathBound -and [string]::IsNullOrWhiteSpace($DetailPath)) { return (New-TaskKernelError -Code 'DETAIL_PATH_INVALID') }
+        # An explicitly supplied empty DetailContent is valid; only an empty bound DetailPath is invalid.
+        $hasDetail = $contentProvided -or $pathProvided
+        if ($hasDetail -and ($DetailPreviewChars -lt 1 -or $DetailPreviewChars -gt 65536)) { return (New-TaskKernelError -Code 'DETAIL_ARTIFACT_FAILED' -Extra @{ detail = 'PREVIEW_CHARS_INVALID' }) }
+        $detailContentRaw = $null
+        if ($hasDetail) {
+            try {
+                if ($pathProvided) {
+                    $root = [IO.Path]::GetFullPath((Get-TaskKernelRepoRoot -RepoRoot $RepoRoot)).TrimEnd('\','/')
+                    $candidatePath = $DetailPath
+                    if (-not [IO.Path]::IsPathRooted($candidatePath)) { $candidatePath = Join-Path $root $candidatePath }
+                    $rootPrefix = $root + [IO.Path]::DirectorySeparatorChar
+                    if ($candidatePath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                        $relativeCandidate = $candidatePath.Substring($rootPrefix.Length)
+                    }
+                    else {
+                        $relativeCandidate = $candidatePath
+                        if ($relativeCandidate -match '^[A-Za-z]:[\\/]') { $relativeCandidate = $relativeCandidate.Substring(3) }
+                    }
+                    foreach ($part in @($relativeCandidate -split '[\\/]')) {
+                        if (($part -match '~') -or ($part -match ':')) { return (New-TaskKernelError -Code 'DETAIL_PATH_NOT_ALLOWED') }
+                    }
+                    $fullDetailPath = [IO.Path]::GetFullPath($candidatePath)
+                    # Detail files are readable only below RepoRoot\cache; reject ambiguous Windows aliases/streams and sensitive paths within that area.
+                    $cacheRoot = [IO.Path]::GetFullPath((Join-Path $root 'cache')).TrimEnd('\','/')
+                    if (-not $fullDetailPath.StartsWith(($cacheRoot + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) { return (New-TaskKernelError -Code 'DETAIL_PATH_NOT_ALLOWED') }
+                    $relativeDetailPath = $fullDetailPath.Substring($root.Length).TrimStart('\','/')
+                    $detailParts = @($relativeDetailPath -split '[\\/]')
+                    foreach ($part in $detailParts) {
+                        if (($part -match '~') -or ($part -match ':')) { return (New-TaskKernelError -Code 'DETAIL_PATH_NOT_ALLOWED') }
+                    }
+                    $tasksDenyDir = $TasksDir
+                    if ([string]::IsNullOrWhiteSpace($tasksDenyDir)) { $tasksDenyDir = Get-TaskKernelDefaultTasksDir -RepoRoot $root }
+                    $tasksFull = (Get-TaskKernelFullPath -Path $tasksDenyDir).TrimEnd('\','/')
+                    if ($fullDetailPath.StartsWith(($tasksFull + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or ($detailParts | Where-Object { $_ -match '[:~]' }) -or ($detailParts -contains '.git') -or ($detailParts | Where-Object { $_ -match '(?i)^models\.jsonc(?::\$DATA)?$' }) -or ($detailParts | Where-Object { $_ -match '(?i)^\.env' })) { return (New-TaskKernelError -Code 'DETAIL_PATH_NOT_ALLOWED') }
+                    if (Test-TaskKernelPathHasReparsePoint -Path $fullDetailPath) { return (New-TaskKernelError -Code 'DETAIL_PATH_NOT_ALLOWED') }
+                    $fi = Get-Item -LiteralPath $fullDetailPath -Force
+                    if ($fi.Length -gt 1048576) { return (New-TaskKernelError -Code 'DETAIL_TOO_LARGE') }
+                    $detailContentRaw = [IO.File]::ReadAllText($fullDetailPath, [Text.Encoding]::UTF8)
+                }
+                else { $detailContentRaw = [string]$DetailContent }
+                if ([Text.Encoding]::UTF8.GetByteCount([string]$detailContentRaw) -gt 1048576) { return (New-TaskKernelError -Code 'DETAIL_TOO_LARGE') }
+            } catch { return (New-TaskKernelError -Code 'DETAIL_ARTIFACT_FAILED' -Extra @{ detail = 'DETAIL_READ_FAILED' }) }
+        }
         $p27Strat = Resolve-TaskKernelStrategyFingerprint -Explicit $StrategyFingerprint -Approach $StrategyApproach -ToolOrPath $StrategyTool -KeyParams $StrategyParams
         if (-not [bool]$p27Strat.ok) {
             return (New-TaskKernelError -Code ([string]$p27Strat.error))
@@ -2117,6 +2226,7 @@ function Set-OrchestrationTaskWorkerResult {
         }
         $claimedItems = Protect-TaskKernelStringList -Items ([string[]]$ev.items)
         $hypClean = Protect-TaskKernelText -Text $effHypothesis
+        $detailRecord = $null
         $newRev = ([int]$rec['revision'] + 1)
         $stamp = Get-TaskKernelTimestamp
         $rec['worker_result'] = [ordered]@{
@@ -2184,6 +2294,28 @@ function Set-OrchestrationTaskWorkerResult {
                 $rec['state'] = 'EXHAUSTED'
                 $exhausted = $true
             }
+        }
+        if ($hasDetail) {
+            try {
+                $virtualizationPath = Join-Path $PSScriptRoot 'OrchestrationObservationVirtualization.ps1'
+                if (-not (Get-Command New-OrchestrationVirtualizedObservation -ErrorAction SilentlyContinue)) { . $virtualizationPath }
+                if ([string]::IsNullOrWhiteSpace($EvidenceStoreDir)) { $EvidenceStoreDir = Join-Path (Join-Path (Get-TaskKernelRepoRoot -RepoRoot $RepoRoot) 'cache') 'v3\evidence-artifacts' }
+                $storeRoot = [IO.Path]::GetFullPath((Get-TaskKernelRepoRoot -RepoRoot $RepoRoot)).TrimEnd('\','/')
+                $storeFull = [IO.Path]::GetFullPath($EvidenceStoreDir)
+                $storeCacheRoot = [IO.Path]::GetFullPath((Join-Path $storeRoot 'cache')).TrimEnd('\','/')
+                if (-not $storeFull.StartsWith(($storeCacheRoot + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or (Test-TaskKernelPathHasReparsePoint -Path $storeFull)) { return (New-TaskKernelError -Code 'DETAIL_ARTIFACT_FAILED' -Extra @{ detail = 'ARTIFACT_PATH_ESCAPE' }) }
+                $kindFull = [IO.Path]::GetFullPath((Join-Path $storeFull $DetailKind))
+                if (-not $kindFull.StartsWith(($storeFull.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or (Test-TaskKernelPathHasReparsePoint -Path $kindFull)) { return (New-TaskKernelError -Code 'DETAIL_ARTIFACT_FAILED' -Extra @{ detail = 'ARTIFACT_PATH_ESCAPE' }) }
+                if ((Get-Command Get-SecretValuePattern -ErrorAction SilentlyContinue) -eq $null) { return (New-TaskKernelError -Code 'DETAIL_REDACTION_UNAVAILABLE') }
+                $secretPattern = Get-SecretValuePattern
+                if ([string]::IsNullOrWhiteSpace([string]$secretPattern)) { return (New-TaskKernelError -Code 'DETAIL_REDACTION_UNAVAILABLE') }
+                $redactedDetail = [regex]::Replace([string]$detailContentRaw, [string]$secretPattern, '[REDACTED]')
+                $virtualized = New-OrchestrationVirtualizedObservation -Content $redactedDetail -StoreDir $EvidenceStoreDir -Kind $DetailKind -TaskId $tid -PreviewChars $DetailPreviewChars
+                if (-not [bool]$virtualized.ok) { return (New-TaskKernelError -Code 'DETAIL_ARTIFACT_FAILED' -Extra @{ detail = [string]$virtualized.error }) }
+                $ref = $virtualized.artifact_ref
+                $detailRecord = [ordered]@{ preview = $virtualized.preview; truncated = [bool]$virtualized.truncated; total_chars = [int]$virtualized.total_chars; preview_chars = [int]$DetailPreviewChars; artifact_ref = [ordered]@{ sha256=$ref.sha256; path=$ref.path; bytes=$ref.bytes; kind=$ref.kind; created=$ref.created } }
+            } catch { return (New-TaskKernelError -Code 'DETAIL_ARTIFACT_FAILED') }
+            $rec['worker_result']['detail'] = $detailRecord
         }
         $rec['revision'] = $newRev
         $rec['updated_at'] = (Get-TaskKernelTimestamp)
