@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-13T19:24:46.4980367Z",
+  "timestamp": "2026-11-13T20:09:15.9754454Z",
   "observed_commands": {
     "version": "opencode --version => opencode v2.3.0",
     "api_info": "opencode api get /api/info => version 2.3.0",
@@ -40,13 +40,13 @@
   },
   "live_config_agents": {
     "engineering-advisor": "claude-agent/sonnet",
-    "tester": "opencode-go/iceman-contributor-free",
+    "tester": "openai/gpt-6-luna",
     "title": "openai/gpt-6-luna",
-    "docs-manager": "opencode-go/iceman-contributor-free",
+    "docs-manager": "openai/gpt-6-luna",
     "product-designer": "openai/gpt-6-luna",
     "build": "opencode-go/deepseek-v4.1-flash",
     "reviewer": "claude-agent/sonnet",
-    "researcher": "opencode-go/iceman-contributor-free",
+    "researcher": "openai/gpt-6-luna",
     "debugger": "claude-agent/sonnet",
     "global": "opencode-go/deepseek-v4.1-flash",
     "automation-engineer": "openai/gpt-6-luna",
@@ -56,16 +56,15 @@
     "architect": "claude-agent/sonnet",
     "coder": "openai/gpt-6-luna",
     "skeptic": "openai/gpt-6-luna",
-    "explorer": "opencode-go/iceman-contributor-free",
+    "explorer": "openai/gpt-6-luna",
     "security-reviewer": "claude-agent/sonnet",
     "frontend-engineer": "openai/gpt-6-luna",
     "requirements-analyst": "openai/gpt-6-luna",
     "infra-engineer": "openai/gpt-6-luna"
   },
   "declared_vs_effective": [
-    "models.jsonc local free is Luna; live explorer/researcher/tester/docs-manager remain iceman",
-    "reinstallation required to update live configuration (Etapa 5)",
-    "installed 2.3.0 differs from pin 2.2.6"
+    "V2 -Clean reinstall executed and verified on 2026-11-13; backup ~/.config/opencode/backups/oo-20261113-170209.",
+    "Installed OpenCode 2.3.0 differs from canonical pin @opencode/cli@2.2.6; runtime/pin divergence remains pending."
   ],
   "limitations": [
     "No secrets/auth content included",

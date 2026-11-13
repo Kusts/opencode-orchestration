@@ -69,11 +69,19 @@ manifest and upstream blocker, is recorded in
 
 ## Target error taxonomy
 
-1. `RATE_LIMIT`; 2. `QUOTA_EXCEEDED`; 3. `PROVIDER_ERROR`; 4. `MODEL_UNAVAILABLE`;
-5. `MODEL_ERROR`; 6. `SERVICE_UNAVAILABLE`; 7. `OFFLINE`; 8. `UNKNOWN`.
+Exactly eight implemented classes:
+`RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`,
+`PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID`,
+`EXECUTION_UNKNOWN`.
 
-These labels classify reports only. Neither an error class nor a caller-supplied
-`NoExecutionStarted` value proves non-start.
+`RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE` and
+`PROVIDER_UNAVAILABLE` are eligible for fallback only with observed proof of
+non-start. `PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID` and
+`EXECUTION_UNKNOWN` do not authorize fallback. Classification alone and a
+caller-supplied `NoExecutionStarted` value never prove non-start.
+
+Legacy Router triggers `MODEL_ERROR`, `SERVICE_UNAVAILABLE` and `OFFLINE` map
+to the implemented classes; they are not members of this taxonomy.
 
 ## Acceptance criteria
 
