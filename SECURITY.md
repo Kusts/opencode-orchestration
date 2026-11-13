@@ -40,6 +40,14 @@ veja [docs/PERMISSIONS.md](docs/PERMISSIONS.md) e o dono da configuração ativa
 - **CI sem segredos**: nenhuma ação além de `actions/checkout`; testes
   usam canários sintéticos (ex. `sk-SYNTHETICSECRET`), nunca credenciais
   reais.
+- **Ressalvas de autoridade/enforcement (auditoria 2026-11-12, #50/#141):**
+  "runtime-enforced" refere-se à rota de tool — a superfície REST
+  `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)
+  e não deve ser assumida como deny; grants do Kernel são registro/decisão, não
+  enforcement de runtime enquanto `runtime_grant_enforcement` (v1/v2) estiver OFF;
+  a precedência topo vs agente (last-match-wins) não foi provada no binário exato.
+  Detalhes e limitações em
+  [docs/specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](docs/specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md).
 
 Detalhes normativos em [docs/SECURITY.md](docs/SECURITY.md) (boundaries,
 credenciais, regras de produção, telemetria, limitações do runtime).

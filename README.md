@@ -41,12 +41,15 @@ git clone <este-repo>
 cd opencode-orchestration
 copy models.example.jsonc models.jsonc
 # planner, cheap e strong sao obrigatorios; free e frontier sao opcionais
-.\install.ps1 -Runtime V2 -WhatIf  # plano por recurso, nenhuma escrita
-.\install.ps1 -Runtime V2          # V2: instalações novas (Auto detecta a geração no PATH, p/ compatibilidade)
-.\install.ps1 -Runtime V1          # legado frozen (dialeto agent/permission/task) — só perfis existentes
-.\install.ps1 -Runtime V2          # prospectivo (dialeto agents/permissions/subagent) — instalações novas
-.\install.ps1 -Runtime Both        # perfis isolados V1+V2 = migração/perfils legados (fail-closed sem binários provados)
+.\install.ps1 -Runtime V2 -Clean -WhatIf  # reinstalação limpa: plano, nenhuma escrita
+.\install.ps1 -Runtime V2 -Clean          # reinstalação limpa transacional (V2)
+.\install.ps1 -Runtime V2 -WhatIf         # instalação/atualização normal: plano
+.\install.ps1 -Runtime V2                 # V2: instalações novas/atualização
+.\install.ps1 -Runtime V1                 # legado frozen (dialeto agent/permission/task) — só perfis existentes
+.\install.ps1 -Runtime Both               # perfis isolados V1+V2 = migração/perfis legados (fail-closed sem binários provados)
 ```
+
+Divisão de responsabilidades (OpenCode V2): a **Orquestração** é dona dos 19 perfis worker e do bloco `agents` (execução/delegação/modelos de perfil); o **Agent Config** compartilha texto global/instruções, `permissions` de topo, skills centrais, MCP e demais runtimes. `models.jsonc` e credenciais permanecem do usuário.
 
 Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
 (inclui perfis isolados e `-ProvisionRuntime`).
@@ -58,12 +61,7 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
   `source/adapters/opencode.md` com modelos resolvidos, dentro dos
   marcadores `<!-- opencode-orchestration:start -->` /
   `<!-- opencode-orchestration:end -->`. O resto do arquivo é preservado.
-- `~/.config/opencode/agents/*.md` — 19 agents (bloco `orchestration:` do
-  frontmatter removido na instalação; o canônico com o bloco vive no repo).
-- Com o marcador completo `agent-config:global`, Agent Config é owner dos
-  perfis worker: a instalação preserva `agents/*.md` e `agents.<worker>` do
-  `opencode.json`; `build`, `title` e settings de raiz permanecem no escopo do
-  instalador da Orquestração.
+- `~/.config/opencode/agents/*.md` — 19 perfis worker canônicos da Orquestração (bloco `orchestration:` do frontmatter removido na instalação; o canônico com o bloco vive no repo). Com marcador completo `agent-config:global`, o texto global permanece do Agent Config, mas a Orquestração instala os perfis e o bloco `agents`; `permissions` de topo, `mcp` e demais chaves user/Agent Config são preservadas.
 - `~/.config/opencode/plugins/orchestration-enforcement.js` — bundle
   autocontido do plugin dual-runtime (fonte única com adaptadores V1/V2 e
   lógica compartilhada); enforcement por sessão; telemetria em

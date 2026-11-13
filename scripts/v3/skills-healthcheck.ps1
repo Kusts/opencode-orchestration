@@ -32,6 +32,25 @@ if ([string]::IsNullOrWhiteSpace($CatalogPath)) {
 }
 
 function Get-SkillDirs([string]$Root) {
+  function Get-EffectivePath([string]$Path) {
+    try {
+      $current = [IO.Path]::GetFullPath($Path)
+      for ($depth = 0; $depth -lt 8; $depth++) {
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+          return ($current.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)).ToLowerInvariant()
+        }
+        $target = $item.Target
+        if ($target -is [array]) { $target = $target[0] }
+        if ([string]::IsNullOrWhiteSpace([string]$target)) { return $null }
+        if (-not [IO.Path]::IsPathRooted([string]$target)) { $target = Join-Path (Split-Path -Parent $current) ([string]$target) }
+        $next = [IO.Path]::GetFullPath([string]$target)
+        if ($next -ceq $current) { return $null }
+        $current = $next
+      }
+    } catch { return $null }
+    return $null
+  }
   $out = @()
   if ([string]::IsNullOrWhiteSpace($Root)) { return $out }
   if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return $out }
@@ -50,7 +69,7 @@ function Get-SkillDirs([string]$Root) {
         $hash = ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
       } catch { $hash = '' }
     }
-    $out += [ordered]@{ id = $d.Name; present = [bool]$present; sha256 = $hash }
+    $out += [ordered]@{ id = $d.Name; present = [bool]$present; sha256 = $hash; effective_path = (Get-EffectivePath $d.FullName) }
   }
   return $out
 }
@@ -116,10 +135,17 @@ foreach ($s in $agentsSkills) {
   $id = [string]$s.id
   if ($opencodeById.ContainsKey($id)) {
     $o = $opencodeById[$id]
+    $sameTarget = ([bool]$s.present -and [bool]$o.present -and
+      -not [string]::IsNullOrWhiteSpace([string]$s.effective_path) -and
+      -not [string]::IsNullOrWhiteSpace([string]$o.effective_path) -and
+      ([string]$s.effective_path -ieq [string]$o.effective_path) -and
+      -not [string]::IsNullOrWhiteSpace([string]$s.sha256) -and
+      ([string]$s.sha256 -ceq [string]$o.sha256))
     $state = 'identical'
     if (([string]$s.sha256) -ne ([string]$o.sha256)) { $state = 'diverged' }
     if ((-not [bool]$s.present) -or (-not [bool]$o.present)) { $state = 'incomplete-' + $state }
-    $shadowed += [ordered]@{ id = $id; state = $state; winner = '~/.config/opencode/skills' }
+    if ($sameTarget) { $state = 'same-target' }
+    $shadowed += [ordered]@{ id = $id; state = $state; same_target = [bool]$sameTarget; winner = '~/.config/opencode/skills' }
   }
 }
 
@@ -151,14 +177,21 @@ foreach ($e in @($cat.skills)) {
 $coreGate = @()
 $coreFail = @()
 $shadowApproved = @{}
+$shadowTableLoaded = $false
 try {
-  foreach ($st in @($cat.shadow_table)) {
+  $shadowTable = $cat.shadow_table
+  if (($null -eq $shadowTable) -or ($shadowTable -is [string]) -or ($shadowTable -isnot [System.Collections.IEnumerable])) {
+    throw 'shadow_table ausente ou com forma invalida'
+  }
+  foreach ($st in $shadowTable) {
+    if ($null -eq $st) { throw 'shadow_table contem entrada nula' }
     $shadowApproved[[string]$st.id] = [ordered]@{
       state = [string]$st.state
       agents = ([string]$st.agents_sha256).ToLowerInvariant()
       opencode = ([string]$st.opencode_sha256).ToLowerInvariant()
     }
   }
+  $shadowTableLoaded = $true
 } catch { $shadowApproved = @{} }
 foreach ($e in @($cat.skills | Where-Object { [string]$_.classification -ceq 'CORE' })) {
   $id = [string]$e.id
@@ -185,6 +218,10 @@ foreach ($e in @($cat.skills | Where-Object { [string]$_.classification -ceq 'CO
         $notShadowed = $false
         $shadowNote = 'diverged-undocumented'
       }
+    }
+    elseif ($shadowTableLoaded -and [bool]$sh[0].same_target) {
+      $notShadowed = $true
+      $shadowNote = 'same-target'
     }
     else { $notShadowed = $false; $shadowNote = 'shadow-undocumented' }
   }

@@ -1,0 +1,272 @@
+{
+  "schema": "strategy-benchmark-corpus/v1",
+  "pilot_ready": false,
+  "pilot_cost_ceiling": "UNKNOWN",
+  "pilot_task_ids": ["sb-01", "sb-07", "sb-02", "sb-08", "sb-03", "sb-09"],
+  "tasks": [
+    {
+      "task_id": "sb-01",
+      "category": "small-edit",
+      "objective": "Corrigir texto de ajuda sem alterar comportamento.",
+      "acceptance_criteria": [
+        "A frase definida na fixture aparece exatamente no help."
+      ],
+      "verification_profile": "text-fixture",
+      "verification_command": "Assert-HelpText.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-01",
+      "expected_outcome": "verified_pass",
+      "risk": "low",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Edição localizada; sem fixture concreta.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-02",
+      "category": "multi-file-bug",
+      "objective": "Corrigir erro de normalização compartilhado por dois chamadores.",
+      "acceptance_criteria": [
+        "Ambos os chamadores normalizam valores válidos e inválidos corretamente."
+      ],
+      "verification_profile": "focused-tests",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-02.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-02",
+      "expected_outcome": "verified_pass",
+      "risk": "medium",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Sem fixture concreta.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-03",
+      "category": "research",
+      "objective": "Identificar compatibilidade de uma dependência usando documentação local congelada.",
+      "acceptance_criteria": [
+        "Conclusão cita as fontes da fixture e responde a cada requisito."
+      ],
+      "verification_profile": "citation-check",
+      "verification_command": "Assert-Citations.ps1 -Fixture sb-03",
+      "fixture": "fixtures/strategy-benchmark/sb-03",
+      "expected_outcome": "verified_pass",
+      "risk": "low",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Fontes locais; não permite rede.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-04",
+      "category": "replan",
+      "objective": "Replanejar após teste de fixture revelar requisito incompatível.",
+      "acceptance_criteria": [
+        "Plano identifica conflito, atualiza abordagem e mantém escopo."
+      ],
+      "verification_profile": "plan-assertions",
+      "verification_command": "Assert-Replan.ps1 -Fixture sb-04",
+      "fixture": "fixtures/strategy-benchmark/sb-04",
+      "expected_outcome": "verified_pass",
+      "risk": "medium",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Mesmo sinal de falha para as três estratégias.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-05",
+      "category": "refactor-test",
+      "objective": "Extrair lógica duplicada preservando contrato público.",
+      "acceptance_criteria": [
+        "Testes existentes e novos testes de contrato passam."
+      ],
+      "verification_profile": "focused-tests",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-05.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-05",
+      "expected_outcome": "verified_pass",
+      "risk": "medium",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Refatoração limitada com teste de comportamento.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-06",
+      "category": "external-mock",
+      "objective": "Tratar timeout de integração externa usando somente transporte simulado.",
+      "acceptance_criteria": [
+        "Timeout produz resultado tipado sem chamada de rede."
+      ],
+      "verification_profile": "mocked-integration",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-06.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-06",
+      "expected_outcome": "verified_pass",
+      "risk": "high",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Operação externa mockada; rede proibida.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-07",
+      "category": "small-edit",
+      "objective": "Adicionar validação de campo obrigatório em um formulário de fixture.",
+      "acceptance_criteria": [
+        "Campo vazio é rejeitado e valor válido aceito."
+      ],
+      "verification_profile": "focused-tests",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-07.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-07",
+      "expected_outcome": "verified_pass",
+      "risk": "low",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Mudança de um arquivo.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-08",
+      "category": "multi-file-bug",
+      "objective": "Corrigir divergência de serialização entre produtor e consumidor.",
+      "acceptance_criteria": [
+        "Round-trip mantém campos permitidos e rejeita campos inválidos."
+      ],
+      "verification_profile": "contract-tests",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-08.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-08",
+      "expected_outcome": "verified_pass",
+      "risk": "high",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Contrato explícito; sem alteração de autoridade.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-09",
+      "category": "research",
+      "objective": "Comparar duas alternativas com base em evidência fornecida.",
+      "acceptance_criteria": [
+        "Tabela cobre critérios, evidências e incertezas sem inventar dados."
+      ],
+      "verification_profile": "evidence-matrix",
+      "verification_command": "Assert-EvidenceMatrix.ps1 -Fixture sb-09",
+      "fixture": "fixtures/strategy-benchmark/sb-09",
+      "expected_outcome": "verified_pass",
+      "risk": "low",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Avaliação offline.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-10",
+      "category": "replan",
+      "objective": "Ajustar plano quando uma dependência local simulada falha.",
+      "acceptance_criteria": [
+        "Plano propõe fallback permitido e condição de parada."
+      ],
+      "verification_profile": "plan-assertions",
+      "verification_command": "Assert-Replan.ps1 -Fixture sb-10",
+      "fixture": "fixtures/strategy-benchmark/sb-10",
+      "expected_outcome": "verified_pass",
+      "risk": "medium",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Falha idêntica para cada corrida.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-11",
+      "category": "refactor-test",
+      "objective": "Simplificar fluxo de erro preservando estados observáveis.",
+      "acceptance_criteria": [
+        "Testes de sucesso, falha e estado terminal passam."
+      ],
+      "verification_profile": "focused-tests",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-11.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-11",
+      "expected_outcome": "verified_pass",
+      "risk": "medium",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Comparar custo total incluindo correções.",
+      "fixture_status": "design-only"
+    },
+    {
+      "task_id": "sb-12",
+      "category": "external-mock",
+      "objective": "Validar retry limitado de serviço externo inteiramente mockado.",
+      "acceptance_criteria": [
+        "Retry respeita limite e termina sem rede real."
+      ],
+      "verification_profile": "mocked-integration",
+      "verification_command": "Invoke-Pester tests/fixtures/strategy-benchmark/sb-12.tests.ps1",
+      "fixture": "fixtures/strategy-benchmark/sb-12",
+      "expected_outcome": "verified_pass",
+      "risk": "high",
+      "estimated_tier": "T2",
+      "allowed_strategies": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "source_gw": null,
+      "notes": "Mock determinístico.",
+      "fixture_status": "design-only"
+    }
+  ]
+}

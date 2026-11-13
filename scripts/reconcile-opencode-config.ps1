@@ -43,7 +43,7 @@ function Get-ReconcileModels {
     $parsed = ($lines -join "`n") | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace($parsed.planner) -or [string]::IsNullOrWhiteSpace($parsed.cheap) -or [string]::IsNullOrWhiteSpace($parsed.strong)) { throw 'Arquivo de modelos precisa definir planner, cheap e strong.' }
     if ([string]::IsNullOrWhiteSpace($parsed.free)) {
-      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'opencode-go/iceman-contributor-free' -Force
+      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'openai/gpt-6-luna' -Force
     }
     return $parsed
 }
@@ -55,12 +55,12 @@ function Resolve-ReconcileTokens {
         $r = $r.Replace('{{MODEL_PLANNER}}', $Models.planner)
         $r = $r.Replace('{{MODEL_CHEAP}}', $Models.cheap)
         $r = $r.Replace('{{MODEL_STRONG}}', $Models.strong)
-        $freeModel = 'opencode-go/iceman-contributor-free'
+        $freeModel = 'openai/gpt-6-luna'
         if (-not [string]::IsNullOrWhiteSpace($Models.free)) { $freeModel = [string]$Models.free }
         $r = $r.Replace('{{MODEL_FREE}}', $freeModel)
     }
     else {
-        $r = $r.Replace('{{MODEL_FREE}}', 'opencode-go/iceman-contributor-free')
+        $r = $r.Replace('{{MODEL_FREE}}', 'openai/gpt-6-luna')
     }
     $homeSlash = $HomeValue -replace '\\', '/'
     $r = $r.Replace('{{HOME}}', $homeSlash)
@@ -177,7 +177,10 @@ if ($null -ne $currentHash) {
     $cfgOwnEnd = '<!-- agent-config:global:end -->'
     if ($existing.Contains($cfgOwnStart) -and $existing.Contains($cfgOwnEnd)) {
         Write-Host '' ; Write-Host '=== OPENCODE CONFIG RECONCILIATION ===' -ForegroundColor Cyan
-        Write-Host ('[SKIP] ' + $targetPath + ' (dono agent-config:global; texto global nao aplicado)') -ForegroundColor Cyan
+        if ($existing.Contains($markStart) -and $existing.Contains($markEnd)) {
+            Write-Host ('[RETIRE_REQUIRED] ' + $targetPath + ' (bloco legado opencode-orchestration; execute install.ps1 para retirar)') -ForegroundColor Yellow
+        }
+        Write-Host ('[SKIP] ' + $targetPath + ' (owner=agent-config:global; texto global nao aplicado)') -ForegroundColor Cyan
         if ($Apply) { Write-Host 'Apply skipped: Config owner. Nothing was written.' -ForegroundColor Cyan }
         else { Write-Host 'Preview complete. No active file was changed.' -ForegroundColor Cyan }
         exit 0

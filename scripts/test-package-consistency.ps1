@@ -485,7 +485,7 @@ try {
   if ([string]$t114.default_agent -cne [string]$t214.default_agent) { [void]$errs14.Add('default_agent diverge') }
   if ([string]$t114.agent.build.mode -cne [string]$t214.agents.build.mode) { [void]$errs14.Add('build.mode diverge') }
   if ([string]$t114.agent.title.model -cne [string]$t214.agents.title.model) { [void]$errs14.Add('title.model diverge') }
- if ($errs14.Count -eq 0) { Report-Ok '14 paridade V2 <-> V1' '19 allows iguais; T1 baseline para explorer/researcher/docs-manager/tester; modelos T2/T3/T4 alinhados; default_agent/build/title iguais' }
+ if ($errs14.Count -eq 0) { Report-Ok '14 paridade V2 <-> V1' '19 allows iguais; T1 baseline (Luna) para explorer/researcher/docs-manager/tester; modelos T2/T3/T4 alinhados; default_agent/build/title iguais' }
   else { Report-Fail '14 paridade V2 <-> V1' ($errs14 -join ' | ') }
 }
 catch { Report-Fail '14 paridade V2 <-> V1' $_.Exception.Message }

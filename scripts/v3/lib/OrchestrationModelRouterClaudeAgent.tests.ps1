@@ -52,7 +52,7 @@ function New-CaT4Request($Selection) {
 
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-CA ($p.Status -eq 'POLICY_LOADED') 'policy-loads'
-Assert-CA ($p.PolicyVersion -eq '1.4.0') 'policy-stays-v1.4'
+Assert-CA ($p.PolicyVersion -eq '1.5.0') 'policy-stays-v1.5'
 $pol = $p.Policy
 
 # 1. Provider registration (single catalog, no second catalog).
@@ -410,7 +410,7 @@ Assert-CA ($dsNotDisabled.Count -eq 0) 'deepseek-go-not-disabled'
 #     T2 but sensitive data stays disallowed while ZDR is expired-unconfirmed;
 #     claude-agent entries stay sensitive_data_allowed=false with runtime-unverified aliases.
 Assert-CA ([string]$pol.models.deepseek_go.data_policy.zdr_status -eq 'expired-unconfirmed' -and $null -eq $pol.models.deepseek_go.data_policy.PSObject.Properties['training']) 'deepseek-go-zdr-note-no-training-claim'
-Assert-CA ($null -eq $pol.models.muse.data_policy.PSObject.Properties['training'] -and $null -eq $pol.models.iceman.data_policy.PSObject.Properties['training']) 'muse-iceman-no-training-claims'
+Assert-CA ($null -eq $pol.models.muse.data_policy.PSObject.Properties['training'] -and $null -eq $pol.models.luna.data_policy.PSObject.Properties['training']) 'muse-luna-no-training-claims'
 Assert-CA ([bool]$pol.models.claude_haiku.data_policy.sensitive_data_allowed -eq $false -and [bool]$pol.models.claude_sonnet.data_policy.sensitive_data_allowed -eq $false -and [bool]$pol.models.claude_opus.data_policy.sensitive_data_allowed -eq $false -and [bool]$pol.models.claude_fable.data_policy.sensitive_data_allowed -eq $false) 'claude-agent-no-sensitive-data'
 
 Write-Host ("RESULTS " + $script:pass + " PASS, " + $script:fail + " FAIL")

@@ -65,20 +65,29 @@ try {
     $run1 = @($rec1['bindings']['runs'])[0]
     Assert-PRB (([string]$run1['root_session'] -ceq $rootSid) -and ([string]$run1['status'] -ceq 'attached')) 'prb-root-recorded-attached'
 
-    # 2. Protocol: a worker cannot bind while the root is the active owner.
+    # 2. Active owner requires an asserted matching worker parent.
+    $wMissing = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId $runId -SessionId $childSid `
+        -WorkerSession -ExpectedRevision $rev2 -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+    Assert-PRB ((-not [bool]$wMissing.ok) -and ([string]$wMissing.error -ceq 'BIND_PARENT_REQUIRED')) 'prb-worker-parent-required-under-active-root'
+    $wWrong = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId $runId -SessionId $childSid -ParentId 'ses-other-root' `
+        -WorkerSession -ExpectedRevision $rev2 -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+    Assert-PRB ((-not [bool]$wWrong.ok) -and ([string]$wWrong.error -ceq 'BIND_PARENT_MISMATCH')) 'prb-worker-wrong-parent-refused'
     $w0 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId $runId -SessionId $childSid -ParentId $rootSid -RootId $rootSid `
         -WorkerSession -ExpectedRevision $rev2 -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
-    Assert-PRB ((-not [bool]$w0.ok) -and ([string]$w0.error -ceq 'BIND_CONFLICT')) 'prb-worker-refused-while-root-active'
-    $rev2b = [int](Get-OrchestrationTask -TaskId $tid -TasksDir $tasks)['revision']
+    Assert-PRB ([bool]$w0.ok) 'prb-worker-bound-under-active-root-with-parent'
+    $rev2b = [int]$w0.revision
 
-    # 3. Detach the root, then the worker binds under the same run.
+    # 3. An ownerless detached run is reattached by worker bind without rebind.
+    # This is intentional for model-proof flows; it does not create a coordinator.
     $d1 = Invoke-OrchestrationTaskSessionBinding -Operation detach -TaskId $tid -RunId $runId -SessionId $rootSid -ExpectedRevision $rev2b `
         -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
     Assert-PRB ([bool]$d1.ok) 'prb-root-detached'
     $rev3 = [int]$d1.revision
+    $rootAgain=Invoke-OrchestrationTaskSessionBinding -Operation rebind -TaskId $tid -RunId $runId -SessionId $rootSid `
+        -ExpectedRevision $rev3 -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
     $w1 = Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId $tid -RunId $runId -SessionId $childSid -ParentId $rootSid -RootId $rootSid `
-        -WorkerSession -ExpectedRevision $rev3 -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
-    Assert-PRB ([bool]$w1.ok) 'prb-worker-bound-after-detach'
+        -WorkerSession -ExpectedRevision ([int]$rootAgain.revision) -Runtime 'opencode-v2' -Version 'native-run' -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+    Assert-PRB ([bool]$rootAgain.ok -and [bool]$w1.ok) 'prb-root-rebind-restores-worker-run'
     $rec2 = Get-OrchestrationTask -TaskId $tid -TasksDir $tasks
     $run2 = @($rec2['bindings']['runs'])[0]
     Assert-PRB (([string]$run2['status'] -ceq 'attached') -and (@($run2['worker_sessions']) -contains $childSid)) 'prb-worker-recorded-under-attached-run'

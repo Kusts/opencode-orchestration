@@ -263,7 +263,6 @@ $pluginLegacyName = 'orchestration-enforcement.ts'
 foreach ($n in $AgentNames) {
   $dst = Join-Path $ocDir ('agents\' + $n)
   $rel = 'agents\' + $n
-  if ($ConfigOwnsAgentProfiles) { Add-Plan 'KEEP' ($rel + ' (dono agent-config)'); continue }
   if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) {
     Add-Plan 'SKIP' ($rel + ' (ausente)')
     continue
@@ -318,7 +317,6 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
   # model/default_agent. Mesma regra do V1: so remove com snapshot do
   # manifest confirmando valor intacto; resto e KEEP.
   foreach ($w in $WorkerKeys) {
-    if ($ConfigOwnsAgentProfiles) { Add-Plan 'KEEP' ('agents.' + $w + '.* (dono agent-config)'); continue }
     foreach ($leaf in @('mode', 'model')) {
       $mp = 'agents.' + $w + '.' + $leaf
       $has = (Has-Member $existingJson 'agents') -and (Has-Member $existingJson.agents $w) -and (Has-Member $existingJson.agents.$w $leaf)
@@ -390,10 +388,6 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
       }
     }
     if (Has-Member $existingJson.agents.build 'permissions') {
-      if ($ConfigOwnsAgentProfiles) {
-        Add-Plan 'KEEP' 'agents.build.permissions (dono agent-config)'
-      }
-      else {
         $snap = Get-SnapshotValue $manifest 'agents.build.permissions'
         $cur = Convert-Canonical $existingJson.agents.build.permissions
         if (($null -ne $manifest) -and ($null -ne $snap) -and ($cur -eq $snap)) {
@@ -403,7 +397,6 @@ if (($null -ne $existingJson) -and ($existingJson -ne 'UNPARSEABLE') -and $IsV2U
         else {
           Add-Plan 'KEEP' 'agents.build.permissions (alterado ou manifest ausente, mantido)'
         }
-      }
     }
   }
   if ((Has-Member $existingJson 'experimental') -and ($null -ne $existingJson.experimental) -and (Has-Member $existingJson.experimental 'subagent_depth')) {

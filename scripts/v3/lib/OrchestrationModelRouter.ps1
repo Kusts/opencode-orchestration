@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 # Define standard model tiers
 $script:ModelTiers = @{
     'T0' = @{ Name = 'Deterministic'; RelativeCost = 0.0;  Description = 'Scripts, AST, ArtifactRef, deterministic execution' }
-    'T1' = @{ Name = 'UltraLight';    RelativeCost = 0.01; Description = 'Free/micro models, simple extraction or triage' }
+    'T1' = @{ Name = 'UltraLight';    RelativeCost = 1.00; Description = 'Luna (openai) primary with free MiMo fallback; simple extraction or triage' }
     'T2' = @{ Name = 'Economical';    RelativeCost = 0.10; Description = 'Flash/cheap models, standard coding and routine tasks' }
     'T3' = @{ Name = 'Capable';       RelativeCost = 1.00; Description = 'Intermediate capable models, complex refactoring and design' }
     'T4' = @{ Name = 'Frontier';      RelativeCost = 8.00; Description = 'Deep reasoning/frontier models, deadlocks and critical security' }
@@ -145,7 +145,7 @@ $script:AgentModelAdmissibility = @{
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/iceman-contributor-free';  Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'openai/gpt-6-luna';  Provider = 'openai'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
     'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'openai/gpt-6-luna'; Provider = 'openai'; Authorized = $true; AlternativeModel = 'opencode-go/deepseek-v4.1-flash'; AdditionalCandidates = @('opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') }
     'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'claude-agent/sonnet';                  Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
     'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'claude-agent/opus';                    Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-sol'; ExceptionalModel = 'openai/gpt-6-astra' }
@@ -494,7 +494,11 @@ function Get-OrchestrationUserConfigCatalog {
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
 
-    $mIceman = if ($null -ne $pol -and $pol.models.iceman) { [string]$pol.models.iceman.model_id } elseif ($null -ne $pol -and $pol.models.beam) { [string]$pol.models.beam.model_id } else { 'opencode-go/iceman-contributor-free' }
+    $mT1 = 'openai/gpt-6-luna'
+    if ($null -ne $pol -and $pol.tiers.T1 -and $pol.tiers.T1.primary) {
+        $primaryT1 = [string]$pol.tiers.T1.primary
+        if ($pol.models.$primaryT1 -and $pol.models.$primaryT1.model_id) { $mT1 = [string]$pol.models.$primaryT1.model_id }
+    }
     $mMimo = if ($null -ne $pol -and $pol.models.mimo) { [string]$pol.models.mimo.model_id } else { 'opencode/mimo-v2.6-flash-free' }
     $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
     $mDeepSeekGo = if ($null -ne $pol -and $pol.models.deepseek_go) { [string]$pol.models.deepseek_go.model_id } else { 'opencode-go/deepseek-v4.1-flash' }
@@ -513,7 +517,7 @@ function Get-OrchestrationUserConfigCatalog {
     }
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mIceman;                                 Provider = (Get-ModelProviderFromId $mIceman); Authorized = $true; AlternativeModel = $mMimo }
+        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mT1;                                 Provider = (Get-ModelProviderFromId $mT1); Authorized = $true; AlternativeModel = $mMimo }
         'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mCheap;                                    Provider = (Get-ModelProviderFromId $mCheap); Authorized = $true; AlternativeModel = $mDeepSeekGo; AdditionalCandidates = @($mMuse, $mHaiku) }
         'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mSonnet;                                 Provider = (Get-ModelProviderFromId $mSonnet); Authorized = $true; AlternativeModel = $mTerra }
         'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mOpus;                                   Provider = (Get-ModelProviderFromId $mOpus); Authorized = $true; AlternativeModel = $mSol; ExceptionalModel = $mAstra }
@@ -655,7 +659,7 @@ function Resolve-CatalogModel {
     }
 
     $candidates = switch ($Tier) {
-        'T1' { @('opencode-go/iceman-contributor-free', 'opencode/mimo-v2.6-flash-free') }
+        'T1' { @('openai/gpt-6-luna', 'opencode/mimo-v2.6-flash-free') }
         'T2' { @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') }
         'T3' { @('claude-agent/sonnet', 'openai/gpt-6.1-terra', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') }
         'T4' { @('claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/fable') }

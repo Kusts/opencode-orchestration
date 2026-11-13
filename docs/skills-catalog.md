@@ -6,7 +6,7 @@ Inventário real: `evidence/capabilities-phase-2b/skills-inventory-2026-10-07.js
 Healthcheck: `scripts/v3/skills-healthcheck.ps1` (veredito PASS em 2026-10-07).
 Testes: `tests/distribution/skills-catalog.tests.ps1` (15/15).
 
-## Números (2026-10-07)
+## Números (snapshot de 2026-10-07)
 
 | Métrica | Valor |
 |---|---|
@@ -37,10 +37,19 @@ Testes: `tests/distribution/skills-catalog.tests.ps1` (15/15).
 ## Precedência (later-wins V2)
 
 `~/.config/opencode/skills` vence `~/.agents/skills` (ordem de registro do
-runtime; detalhe em `docs/capability-planning-v2.md`, seção 3). Proteção:
-o healthcheck sonda os 5 ids shadowed e o gate Core falha se divergência
-não documentada aparecer. Divergência conhecida: `hybrid-development`
-(diverged-benign — só o path canônico do entrypoint difere).
+runtime; detalhe em `docs/capability-planning-v2.md`, seção 3). Se ambos os
+roots projetam a mesma skill por junction/symlink para o mesmo alvo físico e
+com hashes não vazios iguais, o healthcheck pode isentar essa duplicação do
+gate Core com `same-target` somente quando a skill não tem pin. Se houver par
+aprovado em `shadow_table`, a skill continua obrigada a bater os hashes
+registrados, mesmo quando ambos os roots resolvem para o mesmo alvo físico.
+Para alvos físicos distintos, a `shadow_table` continua obrigatória e
+vinculada aos hashes; divergência não documentada reprova.
+Se `shadow_table` não puder ser lida ou validada, a isenção `same-target` é
+desativada e o gate volta a reprovar (fail-closed).
+Divergência conhecida: `hybrid-development` (diverged-benign — só o path
+canônico do entrypoint difere). A tabela de números acima é um snapshot
+datado, não uma medição atual.
 
 ## Estrutura desejada de skills.paths
 

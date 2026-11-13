@@ -3,7 +3,7 @@
 - **Issue:** #64 — avaliar selective skill discovery (search-first) sem preload total.
 - **Decisão:** **ADAPT restrito** (não full, não reject) — adotar somente padrão adaptado: índice local + protótipo shadow offline + leitura exata verificada.
 - **REJECT:** `skill_routing` / `mcp_routing`, Full/autoload, ativação em V1, auto-install, escalação de modelo.
-- **Status:** ADR registrado; protótipo **PLANEJADO — NÃO EXECUTADO**. Nenhum índice remoto consultado, nenhum pin ativado, nenhuma flag ligada por este ADR.
+- **Status:** ADR registrado; medição de custo executada (2026-11-12); protótipo F1 **NÃO** executado. Nenhum índice remoto consultado, nenhum pin ativado, nenhuma flag ligada por este ADR.
 - **Escopo de escrita:** apenas este arquivo (`docs/plans/SKILL-DISCOVERY-64-ADR.md`).
 
 ## 1. Contexto (RES-64)
@@ -98,3 +98,48 @@
 - Nenhuma escalação de modelo; nenhum toque em V1 (#62 freeze).
 - Nenhum commit/push executado por este trabalho.
 - Arquivo tocado neste ADR: apenas `docs/plans/SKILL-DISCOVERY-64-ADR.md`.
+
+## 9. Medição de custo (2026-11-12)
+
+Medição **reproduzível** do custo de descoberta de skills, sem alteração de runtime/código de produto e **sem seleção seletiva executada**. Protótipo F1 (índice local shadow) **não executado**.
+
+### Ferramenta e método
+
+- Ferramenta: `scripts/v3/skill-discovery-metrics.ps1` + testes `17/17` em PS7 e PS5.1; `package-consistency 17/17`; `git diff --check` 0.
+- Raízes medidas (default, refletindo o runtime): `skills-core` + `%USERPROFILE%\.config\opencode\skills`.
+- Query de referência da seleção lexical: `review code changes findings`.
+- `-SkipReparse` disponível como modo estrito para auditoria de origem (o default segue junctions porque o runtime as resolve).
+
+### Números
+
+| Métrica | Valor |
+| --- | --- |
+| Skills válidas / inválidas / ilegíveis | 133 / 1 / 0 |
+| Junctions seguidos (default) | 109 |
+| Metadados (estimativa `chars/4`) — por ocorrência | 10.174 tokens |
+| Metadados (estimativa `chars/4`) — únicos (125 nomes) | 9.720 tokens |
+| Razão corpo/metadados | **21,90** (corpo completo ≈ 21,9× os metadados) |
+| Latência descoberta+parse (não determinística) | p50 ~196 ms · p95 ~296 ms (varia por máquina/carga) |
+| Seleção lexical top-5 | `receiving-code-review`, `requesting-code-review`, `writing-skills`, `addy-incremental-delivery`, `code-craftsman` (~348 tokens estimados) |
+| `selection_ratio_vs_unique` | **0,0358** (≈3,6% do baseline único de metadados) |
+| Duplicatas entre raízes (8) | `addy-incremental-delivery`, `bmad-structured-delivery`, `dispatching-parallel-agents`, `hybrid-development`, `pocock-technical-decisions`, `subagent-driven-development`, `using-superpowers`, `verification-before-completion` |
+
+### Achados
+
+- **Drift de conteúdo:** `hybrid-development` apresenta conteúdo divergente (`differs=true`) entre `skills-core` e o catálogo global; as demais 7 duplicatas são idênticas entre raízes.
+- **Determinismo:** o JSON sem o bloco `timing` é byte-a-byte idêntico entre execuções; `timing` varia (latência não determinística).
+
+### Limitações
+
+- Tokens são estimativa `chars/4`, **não** tokenização real.
+- Frontmatter YAML-lite (campos `name`/`description` de linha única; blocos `>`/`|` marcados como *unsupported*).
+- Junctions seguidas por padrão (alinhado ao runtime); modo `-SkipReparse` serve à auditoria de origem.
+- Latência de descoberta+parse depende de máquina/carga (p50/p95 indicativos, não SLO).
+
+### Ainda falta (para evoluir além de PARCIAL)
+
+- Relevância/recall da seleção (a seleção lexical medida é indicativa, não validada por recall).
+- Taxa de falsa seleção.
+- Custo-até-DONE atribuído à descoberta/seleção (fim-a-fim).
+- Continuidade de cache com Golden Workflows (sem medição de reuso/cold-vs-warm no fluxo real).
+- **F1 (protótipo shadow, índice local + leitura exata verificada): não executado.** Promover a COBERTO exige evidência dessas dimensões.
