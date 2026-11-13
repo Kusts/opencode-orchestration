@@ -61,6 +61,18 @@ try {
 
     $h = Invoke-Intake @('-EnvelopeJson', '{}', '-EnvelopeFile', $envFile)
     Assert-EI (($h.code -eq 2) -and ([string]$h.doc.error -ceq 'ENVELOPE_INPUT_AMBIGUOUS')) '[EI8] entradas ambiguas recusadas' ([string]$h.raw)
+
+    Assert-EI ([string]$a.doc.signature_status -ceq 'not-configured') '[EI9] legacy explicito'
+    $secretFile=Write-Fixture 'secret.txt' 'sk-SYNTHETICSECRET';$body=[IO.File]::ReadAllBytes($envFile);$key=[Text.Encoding]::UTF8.GetBytes('sk-SYNTHETICSECRET');$hm=New-Object -TypeName Security.Cryptography.HMACSHA256 -ArgumentList (,$key);$mac=([BitConverter]::ToString($hm.ComputeHash($body))).Replace('-','').ToLowerInvariant();$sig='sha256='+$mac
+    $signed=Join-Path $tmp 'signed-seen';$v=Invoke-Intake @('-EnvelopeFile',$envFile,'-SecretFile',$secretFile,'-SignatureHeader',$sig,'-SeenFile',$signed,'-Record')
+    Assert-EI (($v.code -eq 0) -and ($v.doc.signature_status -eq 'verified') -and $v.doc.recorded) '[EI10] HMAC valido'
+    $beforeLedger=[IO.File]::ReadAllText($signed)
+    $badSig=Invoke-Intake @('-EnvelopeFile',$envFile,'-SecretFile',$secretFile,'-SignatureHeader',('sha256='+('0'*64)),'-SeenFile',$signed,'-Record')
+    Assert-EI (($badSig.code -eq 1) -and ([IO.File]::ReadAllText($signed) -ceq $beforeLedger)) '[EI11] HMAC invalido nao grava'
+    $noSig=Invoke-Intake @('-EnvelopeFile',$envFile,'-SecretFile',$secretFile,'-SeenFile',$signed,'-Record')
+    Assert-EI (($noSig.code -eq 1) -and ($noSig.doc.error -eq 'SIGNATURE_MISSING') -and ([IO.File]::ReadAllText($signed) -ceq $beforeLedger)) '[EI12] assinatura ausente nao grava'
+    $jsonSig=Invoke-Intake @('-EnvelopeJson','{}','-SecretFile',$secretFile)
+    Assert-EI (($jsonSig.code -eq 2) -and ($jsonSig.doc.error -eq 'SIGNATURE_REQUIRES_FILE')) '[EI13] JSON com segredo exige arquivo'
 }
 finally {
     if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }

@@ -15,10 +15,14 @@ param(
     [string]$RoutesJson = '',
     [string]$SeenFile = '',
     [switch]$AdmissionEnabled,
-    [switch]$Record
+    [switch]$Record,
+    [string]$SignatureHeader = '',
+    [string]$SecretFile = '',
+    [string]$SecretEnvVar = ''
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\OrchestrationEventCorrelation.ps1')
+. (Join-Path $PSScriptRoot 'lib\OrchestrationEventSignature.ps1')
 
 function Read-EventText([string]$Path, [int]$MaxBytes) {
     if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
@@ -33,11 +37,36 @@ function Write-EventResult($Result, [int]$Code) {
 }
 
 try {
+    $configured = (-not [string]::IsNullOrWhiteSpace($SecretFile)) -or (-not [string]::IsNullOrWhiteSpace($SecretEnvVar))
+    if ($configured -and -not [string]::IsNullOrWhiteSpace($EnvelopeJson)) {
+        Write-EventResult @{ok=$false;error='SIGNATURE_REQUIRES_FILE';route='INVALID';reason='';signature_status='not-configured'} 2
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SecretFile) -and -not [string]::IsNullOrWhiteSpace($SecretEnvVar)) {
+        Write-EventResult @{ok=$false;error='SECRET_SOURCE_AMBIGUOUS';route='INVALID';reason=''} 2
+    }
     if ((-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) -and (-not [string]::IsNullOrWhiteSpace($EnvelopeJson))) {
         Write-EventResult @{ ok = $false; error = 'ENVELOPE_INPUT_AMBIGUOUS'; route = 'INVALID'; reason = '' } 2
     }
     $rawEnvelope = $EnvelopeJson
-    if (-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) { $rawEnvelope = Read-EventText $EnvelopeFile 65536 }
+    $signatureStatus = 'not-configured'
+    if (-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) {
+        if ($configured) {
+            if (-not [string]::IsNullOrWhiteSpace($SecretFile)) {
+                $sr=Read-OrchestrationWebhookSecret -Path $SecretFile
+                if(-not $sr.ok){Write-EventResult @{ok=$false;error=$sr.error;route='INVALID';reason=''} 1}
+                $secret=$sr.secret
+            } else {
+                $secret=[Environment]::GetEnvironmentVariable($SecretEnvVar)
+                if([string]::IsNullOrWhiteSpace($secret)){
+                    Write-EventResult @{ok=$false;error='SECRET_INVALID';route='INVALID';reason=''} 1
+                }
+            }
+            $bytes=[IO.File]::ReadAllBytes($EnvelopeFile);if($bytes.Length -gt 65536){Write-EventResult @{ok=$false;error='EVENT_INPUT_TOO_LARGE';route='INVALID';reason=''} 1}
+            $sig=Test-OrchestrationGitHubSignature -BodyBytes $bytes -SignatureHeader $SignatureHeader -Secret $secret
+            if(-not $sig.ok){$err=$sig.error;if($err -eq 'SIGNATURE_MISMATCH'){$err='SIGNATURE_MISMATCH'};Write-EventResult @{ok=$false;error=$err;route='INVALID';reason=''} 1}
+            $signatureStatus='verified';$rawEnvelope=[Text.Encoding]::UTF8.GetString($bytes)
+        } else {$rawEnvelope = Read-EventText $EnvelopeFile 65536}
+    }
     if ([string]::IsNullOrWhiteSpace($rawEnvelope)) {
         Write-EventResult @{ ok = $false; error = 'ENVELOPE_REQUIRED'; route = 'INVALID'; reason = '' } 2
     }
@@ -98,6 +127,7 @@ try {
         recorded = [bool]$recorded
         thread = [string]$env.thread
         trigger = [string]$env.trigger
+        signature_status = $signatureStatus
     } 0
 }
 catch {

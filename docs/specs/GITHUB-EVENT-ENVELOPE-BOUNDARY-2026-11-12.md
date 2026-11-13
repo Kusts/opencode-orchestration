@@ -22,7 +22,7 @@ Pipeline (fronteira → consumo):
 
 1. **Produtor externo (fora do repositório/runtime atual):** webhook GitHub, GitHub Action ou componente equivalente que recebe o evento de origem, autentica a entrega, extrai metadados confiáveis e monta o envelope normativo. **Não instalado/ativo neste repositório.**
 2. **Ingress autenticado (obrigatório para operação real):** ponto de confiança que valida a origem/assinatura antes de invocar o intake (ver seção 5). Sem ingress autenticado, o envelope é apenas bem-formado, não confiável.
-3. **`scripts/v3/event-intake.ps1`:** valida/normaliza envelope (arquivo ou JSON, limite 64 KB), carrega rotas (256 KB), resolve rota/dedup de entrega com `-SeenFile` (256 KB) e, com `-Record`, grava `dedup_key` para rotas `ATTACH`/`NEW_TASK`/`OBSERVE` (retenção 5000, escrita atômica). **Não verifica assinatura/HMAC** — confiança implícita no chamador/ingress.
+3. **`scripts/v3/event-intake.ps1`:** valida/normaliza envelope (arquivo ou JSON, limite 64 KB), carrega rotas (256 KB), resolve rota/dedup de entrega com `-SeenFile` (256 KB) e, com `-Record`, grava `dedup_key` para rotas `ATTACH`/`NEW_TASK`/`OBSERVE` (retenção 5000, escrita atômica). Verifica HMAC opt-in para arquivo bruto via `-SignatureHeader` + segredo; sem segredo, legado não autenticado.
 4. **`scripts/v3/github-event-bridge.ps1`:** intake → `Add-OrchestrationTaskEvent` / `task-kernel -Action event-attach` (CAS por revision) → opcional `-Record` no `SeenFile`; pode emitir ack via `task-kernel -Action event-ack` (idempotente por `dedup_key`).
 5. **Kernel (`scripts/v3/task-kernel.ps1`, libs):** mantém inbox limitado (50 eventos), sanitiza `summary`, registra entrega/ack; ack exige `dedup_key` hex, sessão e `response_summary` (<=1000).
 
@@ -101,7 +101,7 @@ O mapeamento é responsabilidade do produtor externo; `thread` deve obedecer ao 
 
 ## 5. Modelo de confiança e segurança
 
-**Risco material (documentado, sem atenuação criptográfica interna):** `event-intake.ps1`, `github-event-bridge.ps1` e o kernel aceitam envelope bem-formado de qualquer chamador. **Não há prova criptográfica de origem** no intake/bridge/kernel. Um chamador local/remoto com acesso ao script pode injetar envelopes válidos (spoof) se não houver controle externo.
+**Risco material (atenuação opt-in, não padrão):** o `event-intake.ps1` dispõe de verificação interna GitHub `X-Hub-Signature-256` (HMAC-SHA256) sobre os bytes brutos, antes de parse/ledger, quando segredo e header são fornecidos. Sem segredo configurado, comportamento legado permanece e envelopes bem-formados continuam sem prova criptográfica de origem; bridge/kernel não autenticam origem independentemente.
 
 **Replay:** mitigado por dedup (`dedup_key`) **enquanto** ledger/estado persistirem; perda de estado ou janela expirada enfraquece a proteção.
 
