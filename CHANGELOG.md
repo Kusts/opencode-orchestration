@@ -6,7 +6,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- #240 — Portada a ação advisory `retry-decision`; registra decisão de reparo sem dispatch nem alteração do gate de conclusão.
+- **Override nativo `subagent.model` no OpenCode 2.3.0:** autorizado para o servidor vivo após três sessões observadas com o modelo explicitamente solicitado (Luna, MiMo e DeepSeek); evidência em `evidence/mission-2026-11-13/native-override-2.3.0.json`. A allowlist continua live-server-only e fail-closed. Pin `runtime-versions.json` permanece 2.2.6 (alvo de CI/provisionamento); bump exige smoke/CI no binário exato e decisão separada.
+- #240 - Portada a ação advisory `retry-decision`; registra decisão de reparo sem dispatch nem alteração do gate de conclusão.
 
 - **Healthcheck de skills `same-target`:** a isenção só vale para skills sem
   pin; pares aprovados em `shadow_table` continuam obrigados a coincidir com
@@ -2800,3 +2801,5 @@ Primeira release estável do pacote `opencode-orchestration`.
   (`install.ps1 -Runtime Both` / `scripts/runtime/new-opencode-profile.ps1`).
 
 Status da release **1.0.0** (histórico): V2 não suportado naquela data.
+
+- **Override nativo subagent.model no OpenCode 2.3.0:** autorizado para o servidor vivo após três sessões observadas com o modelo explicitamente solicitado (Luna, MiMo e DeepSeek); evidência em vidence/mission-2026-11-13/native-override-2.3.0.json. A allowlist continua live-server-only e fail-closed. Pin untime-versions.json permanece 2.2.6 (alvo de CI/provisionamento); bump exige smoke/CI no binário exato e decisão separada.

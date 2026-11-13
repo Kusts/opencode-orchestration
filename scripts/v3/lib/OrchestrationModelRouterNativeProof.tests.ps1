@@ -9,7 +9,7 @@
     injectable read-only info seam (-InfoReader). Task profile/version are
     caller metadata and never authorize the subagent.model override:
     capability derives solely from the bounded live /api/info version plus
-    the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23). Unknown/missing live
+    the canonical supported allowlist (2.2.5, 2.2.6, 2.3.0, 2.0.23). Unknown/missing live
     API fails closed. Process environment never sources proof. Part B: real
     TaskKernel fixture drives a persisted T3 proof and shows
     Resolve-OrchestrationModelSelection yields T4 Opus (no stub of
@@ -46,6 +46,9 @@ try {
     Assert-NP (([string]$r1.live_version -ceq '2.2.5')) 'NP01b-live-version-echo-225' ("live=" + [string]$r1.live_version)
     $r1b = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.0.23')
     Assert-NP ([bool]$r1b.ok) 'NP02-supported-2023-proves' ("reason=" + [string]$r1b.reason + " live=" + [string]$r1b.live_version)
+    $r230 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.3.0')
+    Assert-NP ([bool]$r230.ok) 'NP02c-supported-230-proves' ("reason=" + [string]$r230.reason + " live=" + [string]$r230.live_version)
+    Assert-NP (([string]$r230.live_version -ceq '2.3.0')) 'NP02d-live-version-echo-230' ("live=" + [string]$r230.live_version)
     $r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.2.6')
     Assert-NP ([bool]$r226.ok) 'NP02b-current-pin-226-proves-with-native-override-evidence' ("reason=" + [string]$r226.reason + " live=" + [string]$r226.live_version)
     Assert-NP (([string]$r226.live_version -ceq '2.2.6')) 'NP02c-live-version-echo-226' ("live=" + [string]$r226.live_version)

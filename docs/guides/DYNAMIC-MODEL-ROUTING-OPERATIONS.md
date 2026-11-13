@@ -1,4 +1,4 @@
-﻿# Guia Operacional — Dynamic Model Routing & Intelligent Advisory v1.1
+# Guia Operacional — Dynamic Model Routing & Intelligent Advisory v1.1
 
 **Arquivo canônico de política:** [`source/registry/model-routing-policy.json`](file:///source/registry/model-routing-policy.json)
 **Biblioteca do Router:** [`scripts/v3/lib/OrchestrationModelRouter.ps1`](file:///scripts/v3/lib/OrchestrationModelRouter.ps1)
@@ -315,3 +315,7 @@ Toda seleção de modelo despachada gera um recibo com a seguinte estrutura:
 ```
 
 O Kernel valida este recibo no fechamento do objetivo. Inconsistências (como Tier T4 desprovido de autorização financeira ou incompatibilidade com a matriz de admissibilidade) resultam em recusa de fechamento (`POLICY_BYPASS_DETECTED`).
+
+### Prova do override nativo subagent.model`r
+
+A allowlist de prova baseada exclusivamente na versão do servidor vivo /api/info é 2.2.5/2.2.6/2.3.0/2.0.23; versão desconhecida/indisponível falha fechada e metadados da task não autorizam. O runtime vivo 2.3.0 foi aceito após evidência exata em 2026-11-13. O pin source/registry/runtime-versions.json permanece 2.2.6, alvo de CI/provisionamento; bump para 2.3.0 exige smoke/CI no binário exato e decisão separada.
