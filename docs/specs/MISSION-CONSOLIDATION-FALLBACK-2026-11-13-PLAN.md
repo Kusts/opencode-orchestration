@@ -11,11 +11,11 @@ proved; Agent Config full sync blocked upstream); Step 6 **DONE**
 |---|---|---|---|
 | 1 | Docs/backlog against current code | policy/code and issue evidence | PARTIAL; issue closure/update completed only where directly proven; remaining disposition tracked below |
 | 2 | Model policy/quota | policy 1.5.0, OAuth, effective config and native samples | DONE; live configuration still awaits Step 5 reinstall |
-| 3 | Consolidate PRs #238/#239/#240 | #238 merged; #239/#240 update-branch CI | IN PROGRESS; #239/#240 awaiting CI |
+| 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | IN PROGRESS; #238/#239 MERGED, #240 in focused-port reconciliation |
 | 4 | Normalize errors + T1 fallback | classification, observed no-start, Kernel gates | DONE for T1 proof: normalized error, observed non-start, authorized same-tier decision, native MiMo succeeded and `model-attempt` recorded; Planner-mediated, not automatic |
 | 5 | Orchestration/Agent Config/-Clean integration | Steps 1-2; ownership and authorized reinstall | PARTIAL; clean installs and ownership verified, full Agent Config reconciliation blocked by upstream AGENTS.md substring error |
 | 6 | Cache/skills | same-session cache observations + metrics | DONE for measurement; #11/#64 PARTIAL (no real completion journey/latency) |
-| 7 | T2–T4 routing | Steps 3–6; runtime/model proof | PARTIAL; bounded routing chains measured, T4 remains policy/test-only |
+| 7 | T2-T4 routing | Steps 3-6; runtime/model proof | PARTIAL; two real transitions measured (T1 Luna→MiMo, T2 Luna→DeepSeek Go); T3/T4 remain policy candidates without real transitions |
 
 ## Blockers and risks
 
@@ -61,17 +61,20 @@ passed 39/39, 70/70 and 8/8 in Windows PowerShell 5.1 and pwsh. No parallel
 
 | Role / tier | Modelo observado em ordem | Estado / limite |
 |---|---|---|
-| explorer T1 | `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` | Cadeia real medida |
-| coder complex T3 | `claude-agent/sonnet` → `openai/gpt-6.1-terra` → `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` | Cadeia real medida |
-| reviewer high T3 | `claude-agent/sonnet` → `openai/gpt-6.1-terra` | Cadeia real medida |
-| security-reviewer critical T3 | `claude-agent/sonnet` → `openai/gpt-6.1-terra` | Cadeia real medida |
-| architect high T3 | `claude-agent/sonnet` → `openai/gpt-6.1-terra` | Cadeia real medida |
+| explorer T1 | `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` | Transição real executada; evidência T1 |
+| coder T2 | Luna T2 selection → `opencode-go/deepseek-v4.1-flash` | Decision + child execution real; failed model was synthetic `openai/does-not-exist`, not a real Luna provider failure; prompt trivial não-sensível |
+| T3 | Sonnet → Terra | Candidato de política; sem transição real |
 | T4 | Opus → Sol | Candidato de policy coberto por testes do Router; sem transição real. Requer seleção T4 e prova Kernel-owned. |
 | Astra | Excepcional proof-gated | Não alegado como executado |
 
 As evidências/medições estão limitadas às execuções relatadas; não implicam
 autorização geral de fallback, execução de Astra, nem conclusão dos turns
 18/20/21/22.
+
+Prova T2: `evidence/mission-2026-11-13/fallback-t2-proof.json`.
+DeepSeek Go tem `sensitive_data_allowed=false` e ZDR
+`expired-unconfirmed`; a execução foi somente um prompt trivial não-sensível.
+Não enviar dados sensíveis.
 
 ## Etapa 5 — instalação e ownership
 
@@ -94,7 +97,9 @@ by the upstream reconciler error above.
 | PR #210 | Recommend closing as obsolete/conflicting; do not close here | Superseded by #238/#239; retain useful planner/Haiku components only where already absorbed |
 | #208 | Update with evidence and actual remaining blockers | Do not claim complete; cite runtime and proof gaps |
 | #11 / #64 | Partial | Existing implementation is not full acceptance; document remaining requirements and require proof |
-| #238 / #239 / #240 | Consolidation track | Coordinate as successor work; no item is complete without its acceptance evidence |
+| #238 | MERGED | Merge confirmado |
+| #239 | MERGED | Merge confirmado |
+| #240 | In focused-port reconciliation | Não declarar concluído |
 
 No issue is declared complete in this plan without direct proof and maintainer
 disposition.

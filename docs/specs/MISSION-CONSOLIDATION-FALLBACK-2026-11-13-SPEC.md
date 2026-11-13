@@ -51,12 +51,17 @@ synthetic-test-only.
   Native skills loading is lazy; no new platform/flag is proposed.
 - #11 and #64 remain **PARTIAL**: real completion journey and completion
   latency were not measured. No DONE-latency claim is made.
-- Step 7: **PARTIAL** — real bounded chains measured for explorer T1,
-  complex coder T3, high reviewer T3, critical security-reviewer T3 and high
-  architect T3 (details in the mission PLAN). T4 Opus→Sol remains a policy
-  candidate covered by Router tests, with no real transition; it requires
-  T4 selection plus Kernel-owned proof. Astra is exceptional/proof-gated and
-  is not claimed executed.
+- Step 7: **PARTIAL** - two real transitions executed: T1 Luna→MiMo and T2
+  Luna→DeepSeek Go. For T2, the decision and DeepSeek Go child execution were
+  real, but the failed model was synthetic `openai/does-not-exist`, not a real
+  Luna provider failure. T3 Sonnet→Terra and T4 Opus→Sol remain policy
+  candidates with no real fallback transitions. Astra is
+  exceptional/proof-gated and is not claimed executed. T2 evidence is bounded
+  to a trivial, non-sensitive prompt; DeepSeek Go has
+  `sensitive_data_allowed=false` and ZDR `expired-unconfirmed`.
+
+PR consolidation status: #238 and #239 **MERGED**; #240 remains in
+focused-port reconciliation and is not complete.
 
 The explicit native `subagent.model` override was empirically observed on
 Luna/MiMo calls. Runtime 2.3.0 remains outside

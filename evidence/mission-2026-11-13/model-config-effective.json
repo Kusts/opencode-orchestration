@@ -217,5 +217,85 @@
       "The transition is Planner-mediated through the native subagent tool; fallback is not automatic.",
       "Model override via explicit subagent.model was empirically demonstrated in Luna/MiMo calls; installed runtime 2.3.0 remains outside the native proof allowlist 2.2.5/2.2.6/2.0.23, which was not changed; pin/allowlist decision remains pending."
     ]
+  },
+  "t2_fallback_transition": {
+    "schema_version": "t2-native-fallback-proof/v1",
+    "observed_date": "2026-11-13",
+    "task_id": "mission-fallback-proof-20261113",
+    "attempt_role": "coder",
+    "requested_risk": "medium",
+    "requested_complexity": "simple",
+    "primary_attempt": {
+      "requested_tier": "T2",
+      "model": "openai/does-not-exist",
+      "synthetic_unavailable_model": true,
+      "native_tool": "subagent",
+      "observed_date": "2026-11-13",
+      "error": {
+        "type": "tool.execution",
+        "message": "Model \"openai/does-not-exist\" is not available. ...",
+        "raw_json": "{ \"error\": { \"type\": \"tool.execution\", \"message\": \"Model \\\"openai/does-not-exist\\\" is not available. ...\" } }"
+      },
+      "sessionID": null,
+      "child_session_created": false,
+      "classification": "MODEL_UNAVAILABLE",
+      "no_start_proof": true
+    },
+    "decision": {
+      "command": "scripts/v3/model-fallback.ps1 -Action next",
+      "arguments": {
+        "AttemptRole": "coder",
+        "Risk": "medium",
+        "Complexity": "simple",
+        "FailedModel": "openai/does-not-exist"
+      },
+      "observed_date": "2026-11-13",
+      "attempt_id": "2e47d6c042cb436babfb20e46139299d",
+      "classification": "MODEL_UNAVAILABLE",
+      "no_start_proof": true,
+      "next_model": "opencode-go/deepseek-v4.1-flash",
+      "next_tier": "T2",
+      "status": "FALLBACK_AUTHORIZED"
+    },
+    "fallback_execution": {
+      "tool": "native subagent",
+      "agent": "coder",
+      "requested_model": "opencode-go/deepseek-v4.1-flash",
+      "observed_model": "opencode-go/deepseek-v4.1-flash",
+      "sessionID": "ses_e295a469effeMUnrmkh0CrTgXn",
+      "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+      "outcome": "succeeded",
+      "observed_date": "2026-11-13",
+      "usage": {
+        "input": 37576,
+        "output": 3,
+        "reasoning": 0,
+        "cacheRead": 0,
+        "cost": 0
+      }
+    },
+    "attempt_record": {
+      "command": "scripts/v3/model-fallback.ps1 -Action record",
+      "attempt_id": "2e47d6c042cb436babfb20e46139299d",
+      "sessionID": "ses_e295a469effeMUnrmkh0CrTgXn",
+      "stage": "post_dispatch",
+      "success": true,
+      "observed_model": "opencode-go/deepseek-v4.1-flash",
+      "observed_date": "2026-11-13"
+    },
+    "model_constraints": {
+      "sensitive_data_allowed": false,
+      "zdr": "expired-unconfirmed",
+      "prompt_sensitivity": "trivial non-sensitive prompt",
+      "sensitive_data_sent": false
+    },
+    "execution_mode": "Planner-mediated via native subagent; not automatic",
+    "limitations": [
+      "The failed primary was synthetic openai/does-not-exist, not an observed real provider failure of Luna.",
+      "This proves the bounded T2 authorization and DeepSeek Go execution for a trivial non-sensitive prompt; it does not prove a real Luna-to-DeepSeek fallback triggered by a Luna provider fault.",
+      "T3 Sonnet→Terra and T4 Opus→Sol were not executed as fallback transitions.",
+      "Astra was not executed; it remains exceptional and proof-gated.",
+      "DeepSeek Go has sensitive_data_allowed=false and ZDR expired-unconfirmed; do not send sensitive data."
+    ]
   }
 }
