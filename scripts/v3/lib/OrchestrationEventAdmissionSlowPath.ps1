@@ -1,5 +1,10 @@
 # Deterministic, shadow-only slow-path request contract. No provider or kernel calls.
 . (Join-Path $PSScriptRoot 'OrchestrationEventCorrelation.ps1')
+<#
+.DESCRIPTION
+    The strict policy root requires all nine keys; no defaults are applied.
+    max_requests_per_* = 0 means no declared budget and therefore skip.
+#>
 function Import-OrchestrationEventAdmissionSlowPathPolicy {
  [CmdletBinding()] param([string]$Path,[string]$RepoRoot,[int]$MaxBytes=65536)
  $o=[ordered]@{ok=$false;policy=$null;error=''}
@@ -30,7 +35,7 @@ function Request-OrchestrationEventAdmissionSlowPath {
   $intent=Get-OrchestrationEventField $FastResult 'intent';if($intent -cne 'context_only'){$o.reason='not-ambiguous:'+$intent;return [pscustomobject]$o}
   if((Get-OrchestrationEventField $Context 'actor_type') -ceq 'bot'){$o.reason='bot';return [pscustomobject]$o};if((Get-OrchestrationEventField $Context 'blocklisted') -eq $true){$o.reason='blocklisted';return [pscustomobject]$o};if((Get-OrchestrationEventField $Context 'duplicate') -eq $true){$o.reason='duplicate';return [pscustomobject]$o}
   if((Get-OrchestrationEventField $Envelope 'informational_only') -eq $true){$o.reason='informational-only';return [pscustomobject]$o}
-  if((Get-OrchestrationEventField $Context 'source_allowlisted') -ne $true){$o.reason='source-not-allowlisted';return [pscustomobject]$o};$actor=Get-OrchestrationEventField $Context 'actor_type';if($actor -ceq 'unknown'){$o.reason='unknown-actor';return [pscustomobject]$o};if($actor -cne 'human'){$o.reason='invalid-fast-result';return [pscustomobject]$o}
+   if((Get-OrchestrationEventField $Context 'source_allowlisted') -ne $true){$o.reason='source-not-allowlisted';return [pscustomobject]$o};$actor=Get-OrchestrationEventField $Context 'actor_type';if($actor -ceq 'unknown'){$o.reason='unknown-actor';return [pscustomobject]$o};if($actor -cne 'human'){$o.reason='non-human-actor';return [pscustomobject]$o}
   if($null -eq $UsageState -or $null -eq (Get-OrchestrationEventField $UsageState 'requests_today') -or $null -eq (Get-OrchestrationEventField $UsageState 'requests_for_thread') -or $Policy.max_requests_per_day -le 0 -or $Policy.max_requests_per_thread -le 0 -or [int](Get-OrchestrationEventField $UsageState 'requests_today') -ge $Policy.max_requests_per_day -or [int](Get-OrchestrationEventField $UsageState 'requests_for_thread') -ge $Policy.max_requests_per_thread){$o.reason='usage-cap';return [pscustomobject]$o}
   foreach($n in @('source','trigger','thread','repo','summary','dedup_key')){if($null -eq (Get-OrchestrationEventField $Envelope $n)){$o.ok=$false;$o.reason='invalid-envelope';return [pscustomobject]$o}}
   $summary=[string](Get-OrchestrationEventField $Envelope 'summary');$summary=$summary -replace '(?i)(token|secret|password|authorization)\s*[:=]\s*\S+','$1=[REDACTED]';if($summary.Length -gt $Policy.max_summary_chars){$summary=$summary.Substring(0,$Policy.max_summary_chars)}
@@ -43,8 +48,8 @@ function Test-OrchestrationEventAdmissionSlowPathResponse {
  try{
   if($null -eq $Request -or $null -eq $Response -or $null -eq $Policy){return [pscustomobject]$o}
   $allowed=@('request_digest','classification','confidence','rationale','provider','model');$responseNames=if($Response -is [System.Collections.IDictionary]){@($Response.Keys)}else{@($Response.PSObject.Properties|ForEach-Object{$_.Name})};foreach($n in $responseNames){if($n -cnotin $allowed){$o.error='SLOWPATH_RESPONSE_INVALID';return [pscustomobject]$o}}
-  $copy=[ordered]@{};foreach($p in $Request.PSObject.Properties){if($p.Name -cne 'request_digest'){$copy[$p.Name]=$p.Value}};$digest=Get-SlowPathDigest $copy
-  if((Get-OrchestrationEventField $Request 'request_digest') -cnotmatch '^[0-9a-f]{64}$' -or (Get-OrchestrationEventField $Response 'request_digest') -cne $digest -or (Get-OrchestrationEventField $Request 'request_digest') -cne $digest){$o.error='SLOWPATH_DIGEST_MISMATCH';return [pscustomobject]$o}
+   $copy=[ordered]@{};$requestNames=if($Request -is [System.Collections.IDictionary]){@($Request.Keys)}else{@($Request.PSObject.Properties|ForEach-Object{$_.Name})};foreach($n in $requestNames){if($n -cne 'request_digest'){if($n -cin @('signals','classes')){$copy[$n]=@((Get-OrchestrationEventField $Request $n))}else{$copy[$n]=Get-OrchestrationEventField $Request $n}}};$digest=Get-SlowPathDigest $copy
+   if((Get-OrchestrationEventField $Request 'request_digest') -cnotmatch '^[0-9a-f]{64}$' -or (Get-OrchestrationEventField $Response 'request_digest') -cne $digest -or (Get-OrchestrationEventField $Request 'request_digest') -cne $digest){$o.error='SLOWPATH_DIGEST_MISMATCH';return [pscustomobject]$o}
   $class=Get-OrchestrationEventField $Response 'classification';if($class -isnot [string] -or $class -cnotin @($Policy.classes)){$o.error='SLOWPATH_CLASS_INVALID';return [pscustomobject]$o}
   $conf=Get-OrchestrationEventField $Response 'confidence';if($conf -isnot [ValueType] -or $conf -is [bool] -or [double]$conf -lt 0 -or [double]$conf -gt 1){$o.error='SLOWPATH_CONFIDENCE_INVALID';return [pscustomobject]$o}
   $r=Get-OrchestrationEventField $Response 'rationale';if($r -isnot [string] -or $r.Length -gt $Policy.max_rationale_chars){$o.error='SLOWPATH_RATIONALE_INVALID';return [pscustomobject]$o}
