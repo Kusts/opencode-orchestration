@@ -648,9 +648,8 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 
 ### 16.1 Estado
 
-- Branch `feat/install-ownership-agent-config-20261111`, HEAD de código `c44401d` (este commit documental gera o HEAD final); PR #239 OPEN/MERGEABLE.
-- CI: a rodada de `5b58f06` (que já contém #185 fatia 1 e #184 fatias 1-2) fechou **6/6 SUCCESS**. O HEAD final desta rodada precisa de nova execução/reconciliação; jobs ps51/ps7/v2 lane levam ~1h.
-- CI: última rodada COMPLETA verde é a de `4cf3cc6` (6/6 checks após conclusão). A rodada de `83df402` (run 43427027633) foi interrompida pelo push de `baa096f` e a rodada de `baa096f` estava em execução no fechamento — **reconciliar antes de agir**. Jobs ps51/ps7/v2 lane levam ~1h.
+- Branch `feat/install-ownership-agent-config-20261111`, HEAD de código `430c8ca`; PR #239 OPEN/MERGEABLE.
+- A última rodada COMPLETA verde é `5b58f06` (**6/6**). `8ea738b` estava parcial (**3/6**) quando foi substituída. O HEAD final desta rodada precisa de reconciliação; jobs ps51/ps7/v2 lane levam ~1h.
 - Sem merge/deploy; sem alteração de flags/permissões/config ativo.
 
 ### 16.2 Entregue nesta rodada (com evidência)
@@ -658,12 +657,14 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 - **#185 fatia 1 (handback/context-only):** `bdab362` (feature) + `547cce8` (hardening pós-review) + `83df402` (docs/teste). Kernel `Set-OrchestrationTaskHandback` e `event-ack -ContextOnly`; CLI `-Action handback`. Evidência: `scripts/v3/lib/OrchestrationTaskHandback.tests.ps1` 24/24, `OrchestrationTaskEvent.tests.ps1` 16/16 (PS 5.1 e pwsh), CLI 0/1/2/3, `package-consistency` 17/17; `evidence/evolution-2026-11-10/m6-handback-185.md`. Reviewer APPROVED; security APPROVED (sem CRITICAL/HIGH/MEDIUM).
 - **#184 fatia 2 (regras de operador):** `e2c9ee2` (registry/loader/CLI) + `f65c9b8` e `baa096f` (hardening pós-review). `source/registry/event-admission-rules.json` com regra de exemplo `enabled=false`; `scripts/v3/lib/OrchestrationEventAdmissionRules.ps1`; `-RulesRegistry` no CLI. Evidência: `OrchestrationEventAdmissionRules.tests.ps1` 40 asserts, `OrchestrationEventAdmission*` 2/2 e `OrchestrationEvent*` 5/5 (PS 5.1 e pwsh), `package-consistency` 17/17; `evidence/evolution-2026-11-10/m6-admission-rules-184-f2.md`. Reviewer APPROVED (2 rodadas); security APPROVED com LOW residuais (caminho UNC/device e ancestors reparse agora fail-closed).
 - **Testes executados pelo Planner/tester:** tester deu `verified_pass` em ambas as fatias (matriz CLI manual incluída).
+- **#183 — verificação de assinatura do ingress (opt-in):** `399241d` + `430c8ca`. `scripts/v3/lib/OrchestrationEventSignature.ps1` (HMAC-SHA256 sobre bytes crus, comparação em tempo constante), CLI `scripts/v3/github-webhook-verify.ps1`, integração opt-in em `scripts/v3/event-intake.ps1` (verifica antes do parse/ledger; sem segredo = legado com `signature_status='not-configured'`; com segredo e header ausente/inválido = falha fechada, ledger intocado). Evidência: `OrchestrationEventSignature.tests.ps1` 31 asserts, intake 18/18, `OrchestrationEvent*` 7/7 em PS 5.1 e pwsh, `package-consistency` 17/17; `evidence/evolution-2026-11-10/m6-ingress-signature-183.md`. Reviewer APPROVED, security APPROVED, tester `verified_pass` (BOM, limites pré-leitura, trim de segredo, não-vazamento). #183 segue PARCIAL (sem receiver real, rotação ou replay).
+- **M0 — comparação do PR #210:** `8657a5d`, memo em `evidence/evolution-2026-11-10/m0-pr210-comparison.md`. Recomendação técnica **DISCARD como proposta atual** (conflita com a política vigente Sonnet→Opus→Astra/Planner atual; 6 arquivos changed-in-both), preservando dispatch/RunId como referência caso o produto mude. **Decisão de fechar/reabrir no GitHub é do usuário** — não executada.
 - **#184 fatia 3 (slow path seletivo — contrato e gate, sem chamada de modelo):** `b84122e` (feature) + `b6c63ea` (cobertura) + `c095b4b` (contrato canônico/fail-closed) + `c44401d` (redação completa, erros tipados, vetor golden). `source/registry/event-admission-slow-path-policy.json` (`enabled=false`), `scripts/v3/lib/OrchestrationEventAdmissionSlowPath.ps1` (loader, gate, validador de resposta), CLI `scripts/v3/event-admission-slow-path.ps1` (`request|evaluate`). Digest SHA-256 canônico (integridade, **não** autenticidade) com vetor golden cross-engine PS 5.1 ↔ pwsh; redação de credenciais/PEM/JWT com timeout e fallback fail-closed. Evidência: `OrchestrationEventAdmissionSlowPath.tests.ps1` **146 asserts**, `OrchestrationEventAdmission*` 3/3, `OrchestrationEvent*` 6/6 (PS 5.1 e pwsh), `package-consistency` 17/17; `evidence/evolution-2026-11-10/m6-admission-slowpath-184-f3.md`. Reviewer APPROVED (3 rodadas), security APPROVED (3 rodadas), tester `verified_pass` (cross-engine e spot-check de redação). Custo de LLM **não** incorrido; chamada real depende de teto aprovado.
 
 ### 16.3 Estados atualizados
 
-- #185 **PARCIAL (fatia 1)**; #184 **PARCIAL (fatias 1-3)**. Nenhuma promoção a COBERTO.
-- Pendentes: #184 fatias 4-6 (auto executável com policy/grant, criação de Task, ingest autenticado — exigem decisão de operador); #2; #183 (ingress autenticado); #11 (cache real); #192 (fixtures/teto); #50/#141 (correções/provas); #172 (só com sinal real); PR #210 (comparar com `master`); M7/#205 HOLD.
+- #185 **PARCIAL (fatia 1)**; #184 **PARCIAL (fatias 1-3)**; #183 **PARCIAL (verificação opt-in entregue; falta produtor/receiver real, rotação e replay)**. Nenhuma promoção a COBERTO.
+- Pendentes: #184 fatias 4-6 (auto executável com policy/grant, criação de Task, ingest autenticado — exigem decisão de operador); #2; #183 (ponta a ponta com receiver real/rotação/replay); #11 (cache real); #192 (fixtures/teto); #50/#141 (correções/provas); #172 (só com sinal real); PR #210 (decisão do usuário); M7/#205 HOLD.
 
 ### 16.4 Decisões desta rodada
 
@@ -672,6 +673,8 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 - Regras de operador nascem `enabled=false` e apenas `risk=low` é aceito nesta fatia; loader é mais estrito que o classificador; nada executável.
 - Slow path entregue como **gate + contrato determinístico** (sem LLM/rede/custo): a chamada real a modelo exige teto aprovado; o digest canônico prova integridade, não origem (HMAC/nonce ficam para a integração externa). Redação falha fechada e pode reduzir contexto (`token:` em prosa), o que é aceito nesta fase shadow.
 - `repair-decision` sugeriu REPLAN por "escopo amplo" no hardening do loader; foi tratado como reparo coeso do MESMO módulo (decisão advisory, registrada na evidência).
+- Ingress: verificação HMAC é **opt-in e fail-closed**; sem segredo o comportamento legado permanece e o JSON declara `not-configured` (nunca alega autenticação). Enviar header sem segredo marca `signature_header_ignored=true`. Segredo é lido de arquivo/env, nunca ecoado.
+- PR #210: recomendação técnica de descarte da proposta funcional atual; nenhuma ação no GitHub foi tomada.
 - Residuais conhecidos e aceitos: qualquer sessão `attached` pode sobrescrever o slot `handback` (histórico preserva); identidade de sessão e `informational_only` seguem sem prova criptográfica até o ingest autenticado (#183/#184 fatia 6); checkout sob junction/symlink ou OneDrive-placeholder é rejeitado como `RULES_PATH_INVALID`.
 
 ### 16.5 Comandos de retomada
@@ -686,8 +689,8 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1 -Name 'OrchestrationEven
 
 ### 16.6 Handoff compacto (5 campos)
 
-- **Objetivo/estado:** continuar backlog M0-M7 na branch `feat/install-ownership-agent-config-20261111` (HEAD final `c44401d` + este commit documental, PR #239 MERGEABLE, CI de `5b58f06` 6/6 verde, HEAD final a reconciliar); sem merge/deploy.
-- **Alterações:** 6 commits — #185 fatia 1 (`bdab362`, `547cce8`, `83df402`) e #184 fatia 2 (`e2c9ee2`, `f65c9b8`, `baa096f`); e #184 fatia 3 (`b84122e`, `b6c63ea`, `c095b4b`, `c44401d`), total 12 commits nesta rodada.
-- **Validação:** handback 24/24 + eventos 16/16; admission 40 asserts + 5/5 suites de eventos; slow path 146 asserts + cross-engine PS↔pwsh; package-consistency 17/17; tester `verified_pass`; reviews APPROVED (code+security) nas duas fatias.
-- **Decisões/pendências:** #184 fatias 4-6, #2, #183, #11, #192, #50/#141, #172, PR #210, M7 HOLD; resíduos aceitos listados em 16.4.
-- **Próximo passo:** reconciliar CI do HEAD final; depois PR #210 (comparar com `master`) e #2 (Agent Teams), deixando as fatias 4-6 do #184 para decisão explícita de operador (policy/grant/ingest autenticado).
+- **Objetivo/estado:** continuar backlog M0-M7 na branch `feat/install-ownership-agent-config-20261111` (HEAD de código `430c8ca`; última rodada COMPLETA verde `5b58f06` 6/6; HEAD final a reconciliar); sem merge/deploy.
+- **Alterações:** #185 fatia 1 (`bdab362`, `547cce8`, `83df402`); #184 fatia 2 (`e2c9ee2`, `f65c9b8`, `baa096f`) e fatia 3 (`b84122e`, `b6c63ea`, `c095b4b`, `c44401d`); #183 HMAC (`399241d`, `430c8ca`); PR #210 comparação (`8657a5d`).
+- **Validação:** handback 24/24 + eventos 16/16; admission 40 asserts + 5/5 suites; slow path 146 asserts; assinatura 31 asserts, intake 18/18, `OrchestrationEvent*` 7/7; package-consistency 17/17; tester `verified_pass`; reviews APPROVED (code+security) nas fatias indicadas.
+- **Decisões/pendências:** #184 fatias 4-6, #2, #183 ponta a ponta com receiver real/rotação/replay, #11, #192, #50/#141, #172, decisão do usuário sobre PR #210, M7 HOLD; resíduos aceitos listados em 16.4.
+- **Próximo passo:** reconciliar CI do HEAD final; decisão do usuário sobre PR #210; #184 fatias 4-6 mediante autorização; #2 (Agent Teams) como próximo item sem dependência externa.
