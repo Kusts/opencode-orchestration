@@ -538,7 +538,7 @@ sessão, sem refazer o que já está provado.
    - Resultado: fronteira operacional/honesta documentada em `docs/specs/GITHUB-EVENT-ENVELOPE-BOUNDARY-2026-11-12.md` (contrato do envelope, mapeamento trigger→thread, `dedup_key`/`X-GitHub-Delivery`, fluxo, idempotência em três camadas, modelo de confiança com ingress devendo validar `X-Hub-Signature-256`/HMAC-SHA256, exemplos de referência não ativados, critérios para sair de PARTIAL).
    - Nota: integração automática externa autenticada/persistente segue **PARTIAL**; sem webhook/Action instalado/ativo, sem scheduler/daemon/controlador e sem fabricação de `delivery_id`.
 4. **#64/#192, #50/#141, #2/#184/#185, #172.**
-   - #64: medir custo de descoberta de skills.
+   - [x] #64: medição de custo reproduzível concluída em 2026-11-12 (`scripts/v3/skill-discovery-metrics.ps1`, 17/17 PS7+PS5.1): 133 skills válidas/1 inválida/109 junctions; metadados 10.174/9.720 tokens (ocorrência/únicos, `chars/4`), razão corpo/metadados 21,90, latência p50 ~196 ms/p95 ~296 ms (não determinística), seleção lexical top-5 ~348 tokens (`selection_ratio_vs_unique` 0,0358), 8 duplicatas com drift de conteúdo em `hybrid-development` (`differs=true`). Protótipo seletivo (F1 shadow) segue pendente: relevância/recall, falsa seleção, custo-até-DONE e continuidade de cache (Golden Workflows); status PARCIAL, sem promoção a COBERTO.
    - #192: comparar Single/Cascade/Critique em cenários representativos.
    - #50/#141: capability-first e auditoria de autoridade por superfície.
    - #2/#184/#185: sessões subordinadas, observe→auto e handback completo.
