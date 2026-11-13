@@ -394,6 +394,16 @@ switch ($action) {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or ([string]::IsNullOrWhiteSpace($RunId) -and $action -ne 'detach-session')) { Write-TaskKernelCliError 'binding exige -TaskId -SessionId e -RunId (exceto detach-session, que o resolve se unico).'; exit 1 }
         if ($ExpectedRevision -lt 0) { Write-TaskKernelCliError 'binding exige -ExpectedRevision.'; exit 1 }
         $op='bind'; if($action -eq 'rebind-session'){$op='rebind'} elseif($action -eq 'detach-session'){$op='detach'}
+        if ($op -eq 'bind' -and $WorkerSession) {
+            $bindTask=Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir
+            $activeOwner=''
+            try { $activeOwner=([string]$bindTask['bindings']['active_execution_owner']).Trim() } catch { $activeOwner='' }
+            if (-not [string]::IsNullOrWhiteSpace($activeOwner) -and
+                [string]::IsNullOrWhiteSpace($ParentSessionId)) {
+                Write-TaskKernelCliError 'bind-session -WorkerSession exige -ParentSessionId igual ao owner ativo.'
+                exit 2
+            }
+        }
         if ($op -eq 'detach' -and [string]::IsNullOrWhiteSpace($RunId)) {
             $boundTask=Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir
             if ($null -eq $boundTask -or $boundTask.PSObject.Properties['error']) { $result=$boundTask }

@@ -72,18 +72,26 @@ try {
     Assert-HB ([bool]$legacyBind.ok -and [bool]$legacyResult.ok -and @($legacyRead['handback_history']).Count -eq 1 -and $null -ne $legacyRead['handback_history'][0] -and $legacyRead['handback_history'][0]['session_id'] -ceq 'ses-legacy') 'legacy handback history has one non-null entry'
 
     $workerTask=New-OrchestrationTask -TaskId 'task-handback-worker' -Objective 'worker bind' -Actor planner -TasksDir $tmp -FlagsPath $flags
-    $workerBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker' -RunId 'run-worker' -SessionId 'ses-worker' -ExpectedRevision 1 -WorkerSession -TasksDir $tmp -FlagsPath $flags
+    $workerRoot=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker' -RunId 'run-worker' -SessionId 'ses-root' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
+    $workerBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker' -RunId 'run-worker' -SessionId 'ses-worker' -ParentId 'ses-root' -ExpectedRevision 2 -WorkerSession -TasksDir $tmp -FlagsPath $flags
     $workerPath=Join-Path $tmp 'task-handback-worker.json'; $workerDoc=[IO.File]::ReadAllText($workerPath) | ConvertFrom-Json
     $workerDoc.bindings.active_execution_owner='ses-owner'; [IO.File]::WriteAllText($workerPath,($workerDoc | ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
-    $workerHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-worker' -SessionId 'ses-worker' -Summary 'worker' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+    $workerHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-worker' -SessionId 'ses-worker' -Summary 'worker' -ExpectedRevision 3 -TasksDir $tmp -FlagsPath $flags
     $workerState=Get-OrchestrationTask -TaskId 'task-handback-worker' -TasksDir $tmp
-    Assert-HB ([bool]$workerBind.ok -and [bool]$workerHandback.ok -and $workerState['bindings']['active_execution_owner'] -ceq 'ses-owner') 'worker handback leaves other owner intact'
+    Assert-HB ([bool]$workerTask.ok -and [bool]$workerRoot.ok -and [bool]$workerBind.ok -and
+        [bool]$workerHandback.ok -and $workerState['bindings']['active_execution_owner'] -ceq 'ses-owner') 'worker handback leaves injected other owner intact'
 
     $workerOwnerTask=New-OrchestrationTask -TaskId 'task-handback-worker-owner' -Objective 'worker owner release' -Actor planner -TasksDir $tmp -FlagsPath $flags
-    $workerOwnerBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker-owner' -RunId 'run-worker-owner' -SessionId 'ses-worker-owner' -ExpectedRevision 1 -WorkerSession -TasksDir $tmp -FlagsPath $flags
-    $workerOwnerHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-worker-owner' -SessionId 'ses-worker-owner' -Summary 'worker owner' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+    $workerOwnerRoot=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker-owner' -RunId 'run-worker-owner' -SessionId 'ses-root-owner' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
+    $workerOwnerBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker-owner' -RunId 'run-worker-owner' -SessionId 'ses-worker-owner' -ParentId 'ses-root-owner' -ExpectedRevision 2 -WorkerSession -TasksDir $tmp -FlagsPath $flags
+    $workerOwnerPath=Join-Path $tmp 'task-handback-worker-owner.json'
+    $workerOwnerDoc=[IO.File]::ReadAllText($workerOwnerPath) | ConvertFrom-Json
+    $workerOwnerDoc.bindings.active_execution_owner='ses-worker-owner'
+    [IO.File]::WriteAllText($workerOwnerPath,($workerOwnerDoc | ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+    $workerOwnerHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-worker-owner' -SessionId 'ses-worker-owner' -Summary 'worker owner' -ExpectedRevision 3 -TasksDir $tmp -FlagsPath $flags
     $workerOwnerState=Get-OrchestrationTask -TaskId 'task-handback-worker-owner' -TasksDir $tmp
-    Assert-HB ([bool]$workerOwnerBind.ok -and [bool]$workerOwnerHandback.ok -and $workerOwnerState['bindings']['active_execution_owner'] -ceq '') 'worker owner handback releases ownership'
+    Assert-HB ([bool]$workerOwnerRoot.ok -and [bool]$workerOwnerBind.ok -and
+        [bool]$workerOwnerHandback.ok -and $workerOwnerState['bindings']['active_execution_owner'] -ceq '') 'injected worker owner handback releases ownership'
 
     $detachedTask=New-OrchestrationTask -TaskId 'task-handback-detached' -Objective 'detached bind' -Actor planner -TasksDir $tmp -FlagsPath $flags
     $detachedBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-detached' -RunId 'run-detached' -SessionId 'ses-detached' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags

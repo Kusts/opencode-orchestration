@@ -1447,6 +1447,12 @@ function Invoke-OrchestrationTaskSessionBinding {
                 if([string]$b['active_execution_owner'] -ceq $sid){$b['active_execution_owner']=''}
             } elseif ($Operation -eq 'rebind') {
                 $entry=$runs[$idx]; $old=[string]$entry['root_session']
+                if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and
+                    [string]$b['active_execution_owner'] -cne $sid) {
+                    return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{
+                        existing_owner_id=[string]$b['active_execution_owner']
+                    })
+                }
                 if($old -ceq $sid -and [string]$entry['status'] -eq 'attached'){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}}
                 if([string]$entry['status'] -ne 'detached'){
                     return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})
@@ -1454,6 +1460,9 @@ function Invoke-OrchestrationTaskSessionBinding {
                 $entry['root_session']=$sid;$entry['status']='attached';$entry.Remove('detached_at')
                 $b['active_execution_owner']=$sid
             } else {
+                if ($WorkerSession -and $idx -lt 0) {
+                    return (New-TaskKernelError -Code 'BIND_RUN_UNROOTED')
+                }
                 if($idx -lt 0) {
                     $entry=[ordered]@{run_id=$run;root_session='';worker_sessions=@();seat_id=$SeatId;
                         status='attached';provenance=[ordered]@{runtime=(Protect-TaskKernelText $Runtime);
@@ -1463,6 +1472,19 @@ function Invoke-OrchestrationTaskSessionBinding {
                 }
                 $entry=$runs[$idx]
                 if($WorkerSession) {
+                    $runRoot=([string]$entry['root_session']).Trim()
+                    if ([string]::IsNullOrWhiteSpace($runRoot)) {
+                        return (New-TaskKernelError -Code 'BIND_RUN_UNROOTED')
+                    }
+                    $owner=([string]$b['active_execution_owner']).Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($owner)) {
+                        if ([string]::IsNullOrWhiteSpace($ParentId)) {
+                            return (New-TaskKernelError -Code 'BIND_PARENT_REQUIRED')
+                        }
+                        if ($ParentId -cne $owner -or $runRoot -cne $owner) {
+                            return (New-TaskKernelError -Code 'BIND_PARENT_MISMATCH')
+                        }
+                    }
                     $ws=@(@($entry['worker_sessions']) | Where-Object {
                         ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_))
                     })
@@ -1475,6 +1497,9 @@ function Invoke-OrchestrationTaskSessionBinding {
                     if([string]$entry['root_session'] -ceq $sid) {
                         return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;
                             revision=[int]$rec['revision'];idempotent=$true}
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$entry['root_session'])) {
+                        return (New-TaskKernelError -Code 'BIND_ROOT_EXISTS')
                     }
                     if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and
                         [string]$b['active_execution_owner'] -cne $sid) {
@@ -7488,6 +7513,12 @@ function Test-TaskKernelTeamShape {
             if (-not ($member -is [System.Collections.IDictionary]) -or
                 -not $member.Contains('session_id') -or
                 -not ($member['session_id'] -is [string])) { return $false }
+            if ([string]::IsNullOrWhiteSpace([string]$member['released_at'])) {
+                if (-not $member.Contains('role') -or -not ($member['role'] -is [string]) -or
+                    -not $member.Contains('run_id') -or -not ($member['run_id'] -is [string])) {
+                    return $false
+                }
+            }
         }
         return $true
     } catch { return $false }

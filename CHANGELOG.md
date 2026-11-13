@@ -15,8 +15,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   `-ParentSessionId` igual ao owner/raiz; nao altera owner. Bind de raiz em run
   ja enraizado exige `rebind-session`; rebind nao toma coordenacao alheia.
   Owner vazio deixa a janela de bind de raiz aberta a qualquer chamador:
-  identidade afirmada, sem prova criptografica. (Atualizar contagens apos
-  validacao final.)
+  identidade afirmada, sem prova criptografica. Bindings 38/38, Team 48/48,
+  Handback 24/24 e PlannerRootBinding 16/16 em PowerShell 5.1/pwsh; as
+  selecoes Kernel (5 suites), Event (7), Planner (5) e ModelProof (1)
+  passaram nos dois runtimes. Package-consistency 17/17; diff-check limpo.
   Sem spawn ou execucao.
 
 - **Verificação HMAC opt-in do ingress GitHub (#183):** verificador reutilizável de `X-Hub-Signature-256`, leitura restrita de segredo e integração fail-closed opcional no intake antes de parse/ledger; sem segredo mantém legado explícito. Testes atualizados: assinatura 31 asserts, intake 18/18; `OrchestrationEvent*` 7/7 suites em Windows PowerShell 5.1 e pwsh; package-consistency 17/17. Evidência: `evidence/evolution-2026-11-10/m6-ingress-signature-183.md`. #183 permanece PARCIAL (sem produtor/receiver real, rotação ou proteção de replay).

@@ -27,7 +27,9 @@ Erros tipados de handback: `HANDBACK_SESSION_NOT_BOUND` (sessão não pertence a
 - Aplica `Trim()` em `NextSteps` antes do limite e da persistência.
 - Documenta handback como informativo, sem autoridade, e permite que qualquer sessão de run attached substitua o slot atual; o histórico limitado preserva entradas anteriores (achado MAJOR do reviewer sobre legado nulo no histórico corrigido).
 - CLI testada por subprocesso: sucesso 0, duplicata 0 com `duplicate=true`, argumentos incompletos 2, CAS obsoleto 3.
-- Caso positivo adicional: sessão worker que é o `active_execution_owner` consegue handback e libera seu próprio ownership; o caso worker não-owner permanece coberto separadamente.
+- Caso positivo adicional: o teste injeta `active_execution_owner=<worker>` no
+  record temporário antes do handback e confirma a liberação. O bind de worker
+  atual não atribui ownership; o caso worker não-owner permanece coberto.
 
 ## Limites / pendências
 

@@ -26,7 +26,7 @@ try {
  $bad=Rebind-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-b' -SessionId 'sess-c' -ExpectedRevision 4 -TasksDir $tasks -FlagsPath $flags
  Check ($bad.error -eq 'REBIND_RUN_MISMATCH') 'rebind different run rejected'
  $conflict=Bind-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'sess-c' -ExpectedRevision 4 -TasksDir $tasks -FlagsPath $flags
- Check ($conflict.error -eq 'BIND_CONFLICT') 'different owner rejected'
+ Check ($conflict.error -eq 'BIND_ROOT_EXISTS') 'different root requires explicit rebind'
  $stale=Bind-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'sess-d' -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
  Check ($stale.error -eq 'CAS_CONFLICT') 'stale CAS loses race'
  $detach=Detach-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'sess-b' -ExpectedRevision 4 -TasksDir $tasks -FlagsPath $flags
@@ -38,16 +38,36 @@ try {
  Check ($wrongDetach.error -eq 'BIND_CONFLICT') 'detached run rejects foreign session detach'
  $workerTask=New-OrchestrationTask -TaskId 'p32-worker-bind' -Objective 'worker bind' -Actor planner -TasksDir $tasks -FlagsPath $flags
  $workerRoot=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-root' -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
- $workerBind=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -WorkerSession -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
+ $workerMissingParent=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -WorkerSession -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
+ Check ($workerMissingParent.error -eq 'BIND_PARENT_REQUIRED') 'worker parent required under active owner'
+ $workerWrongParent=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -ParentId 'wrong-root' -WorkerSession -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
+ Check ($workerWrongParent.error -eq 'BIND_PARENT_MISMATCH') 'worker parent must match active root'
+ $workerBind=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -ParentId 'ses-root' -WorkerSession -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
  Check ($workerTask.ok -and $workerRoot.ok -and $workerBind.ok -and $workerBind.revision -eq 3 -and
      $workerBind.bindings.active_execution_owner -eq 'ses-root' -and
      $workerBind.bindings.runs[0].worker_sessions -contains 'ses-w') 'worker binds under active root without taking ownership'
- $workerRepeat=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -WorkerSession -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
+ $workerRepeat=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -ParentId 'ses-root' -WorkerSession -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
  Check ($workerRepeat.ok -and $workerRepeat.idempotent -and $workerRepeat.revision -eq 3) 'worker bind is idempotent'
  $rootConflict=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-2' -SessionId 'ses-root-2' -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
  Check ($rootConflict.error -eq 'BIND_CONFLICT') 'competing root still conflicts'
- $reattach=Bind-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'sess-e' -ExpectedRevision 5 -TasksDir $tasks -FlagsPath $flags
- Check ($reattach.ok -and $reattach.bindings.runs[0].status -eq 'attached') 'reattach after detach'
+ $rootExists=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-root-2' -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
+ Check ($rootExists.error -eq 'BIND_ROOT_EXISTS') 'root replacement requires explicit rebind'
+ $takeoverTask=New-OrchestrationTask -TaskId 'p32-rebind-owner' -Objective 'rebind owner guard' -Actor planner -TasksDir $tasks -FlagsPath $flags
+ $takeA=Bind-OrchestrationTaskSession -TaskId 'p32-rebind-owner' -RunId 'run-a' -SessionId 'root-a' -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
+ $dropA=Detach-OrchestrationTaskSession -TaskId 'p32-rebind-owner' -RunId 'run-a' -SessionId 'root-a' -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
+ $takeB=Bind-OrchestrationTaskSession -TaskId 'p32-rebind-owner' -RunId 'run-b' -SessionId 'root-b' -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
+  $stealB=Rebind-OrchestrationTaskSession -TaskId 'p32-rebind-owner' -RunId 'run-a' -SessionId 'root-a' -ExpectedRevision 4 -TasksDir $tasks -FlagsPath $flags
+  Check ($takeoverTask.ok -and $takeA.ok -and $dropA.ok -and $takeB.ok -and $stealB.error -eq 'BIND_CONFLICT') 'rebind cannot take another run owner'
+ $unrootedTask=New-OrchestrationTask -TaskId 'p32-unrooted-worker' -Objective 'unrooted worker' -Actor planner -TasksDir $tasks -FlagsPath $flags
+  $unrooted=Bind-OrchestrationTaskSession -TaskId 'p32-unrooted-worker' -RunId 'run-u' -SessionId 'worker-u' -WorkerSession -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
+  $unrootedAfter=Get-OrchestrationTask -TaskId 'p32-unrooted-worker' -TasksDir $tasks
+  $unrootedRuns=@($unrootedAfter.bindings.runs)
+  $unrootedRoot=''; if($unrootedRuns.Count -gt 0){$unrootedRoot=[string]$unrootedRuns[0].root_session}
+  Check ($unrootedTask.ok -and $unrooted.error -eq 'BIND_RUN_UNROOTED' -and
+      $unrootedRuns.Count -le 1 -and [string]::IsNullOrWhiteSpace($unrootedRoot) -and
+      $unrootedAfter.revision -eq 1) 'unrooted worker refused without write'
+ $reattach=Rebind-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'sess-e' -ExpectedRevision 5 -TasksDir $tasks -FlagsPath $flags
+ Check ($reattach.ok -and $reattach.bindings.runs[0].status -eq 'attached') 'reattach after detach uses explicit rebind'
  $reconstructed=Get-OrchestrationTaskBindings -TaskId 'p32-test-task' -TasksDir $tasks
  Check ($reconstructed.ok -and @($reconstructed.bindings.runs).Count -eq 1) 'kernel is reconstruction source'
 
@@ -90,7 +110,7 @@ try {
    $cliDetachedRebind=Invoke-CLI @('-Action','rebind-session','-TaskId','p32-cli-task','-RunId','run-cli','-SessionId','cli-2','-ExpectedRevision','3','-TasksDir',$tasks,'-FlagsPath',$flags)
    $cliConflict=Invoke-CLI @('-Action','bind-session','-TaskId','p32-cli-task','-RunId','run-cli','-SessionId','cli-4','-ExpectedRevision','4','-TasksDir',$tasks,'-FlagsPath',$flags)
    $cliFinalDetach=Invoke-CLI @('-Action','detach-session','-TaskId','p32-cli-task','-RunId','run-cli','-SessionId','cli-2','-ExpectedRevision','4','-TasksDir',$tasks,'-FlagsPath',$flags)
-   $cliReattach=Invoke-CLI @('-Action','bind-session','-TaskId','p32-cli-task','-RunId','run-cli','-SessionId','cli-3','-ExpectedRevision','5','-TasksDir',$tasks,'-FlagsPath',$flags)
+    $cliReattach=Invoke-CLI @('-Action','rebind-session','-TaskId','p32-cli-task','-RunId','run-cli','-SessionId','cli-3','-ExpectedRevision','5','-TasksDir',$tasks,'-FlagsPath',$flags)
   $cliGet=Invoke-CLI @('-Action','get-bindings','-TaskId','p32-cli-task','-TasksDir',$tasks)
   $cliState=Get-OrchestrationTaskBindings -TaskId 'p32-cli-task' -TasksDir $tasks
   $cliUse=Invoke-CLI @('-Action','bind-session','-TaskId','p32-cli-task')
@@ -98,6 +118,9 @@ try {
   $cliOptionalBind=Invoke-CLI @('-Action','bind-session','-TaskId','p32-cli-detach','-RunId','run-one','-SessionId','only-session','-ExpectedRevision','1','-TasksDir',$tasks,'-FlagsPath',$flags)
   $cliOptionalDetach=Invoke-CLI @('-Action','detach-session','-TaskId','p32-cli-detach','-SessionId','only-session','-ExpectedRevision','2','-TasksDir',$tasks,'-FlagsPath',$flags)
   $cliBadId=Invoke-CLI @('-Action','bind-session','-TaskId','p32-cli-detach','-RunId','bad|id','-SessionId','sid','-ExpectedRevision','3','-TasksDir',$tasks,'-FlagsPath',$flags)
+  $cliWorkerNoParent=Invoke-CLI @('-Action','bind-session','-TaskId','p32-cli-task','-RunId','run-cli',
+      '-SessionId','cli-worker','-WorkerSession','-ExpectedRevision','6','-TasksDir',$tasks,'-FlagsPath',$flags)
+  Check ($cliWorkerNoParent -eq 2) 'worker CLI requires parent with active owner'
  Check ($cliBind -eq 0 -and $cliRebind -eq 2 -and $cliDetach -eq 0 -and $cliDetachedRebind -eq 0 -and $cliFinalDetach -eq 0 -and $cliReattach -eq 0 -and $cliConflict -eq 2 -and $cliGet -eq 0 -and $cliUse -eq 1 -and $cliState.bindings.runs.status -eq 'attached' -and $cliOptionalBind -eq 0 -and $cliOptionalDetach -eq 0 -and $cliBadId -eq 1) 'CLI exits, optional run resolution, and get-bindings'
 
  . (Join-Path $PSScriptRoot 'OrchestrationBootstrapContext.ps1')
