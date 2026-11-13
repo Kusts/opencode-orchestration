@@ -44,11 +44,67 @@ try {
     $evt=Add-OrchestrationTaskEvent -TaskId 'task-handback-1' -EnvelopeJson '{"source":"github","trigger":"issue_comment","thread":"issue:2","delivery_id":"d-hb1","repo":"Kusts/opencode-orchestration"}' -ExpectedRevision $revision -TasksDir $tmp -FlagsPath $flags
     $revision=[int]$evt.revision
     $valid=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'event ref' -DedupKey $evt.dedup_key -ExpectedRevision $revision -TasksDir $tmp -FlagsPath $flags
+    $revision=[int]$valid.revision
     $t=Get-OrchestrationTask -TaskId 'task-handback-1' -TasksDir $tmp
     Assert-HB ([bool]$valid.ok -and [string]$t['handback']['dedup_key'] -ceq [string]$evt.dedup_key) 'valid event reference'
+    $badContext=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'context' -ExpectedRevision $revision -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    Assert-HB ($badContext.error -ceq 'HANDBACK_CONTEXT_ONLY_REQUIRES_EVENT') 'context only requires event'
+    $actionableContext=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'context' -DedupKey $evt.dedup_key -ExpectedRevision $revision -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    Assert-HB ($actionableContext.error -ceq 'EVENT_CONTEXT_ONLY_NOT_ALLOWED' -and [int](Get-OrchestrationTask -TaskId 'task-handback-1' -TasksDir $tmp).revision -eq $revision) 'actionable context rejected without write'
+    $trimmed=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'trim' -NextSteps '  next  ' -ExpectedRevision $revision -TasksDir $tmp -FlagsPath $flags
+    $revision=[int]$trimmed.revision; $t=Get-OrchestrationTask -TaskId 'task-handback-1' -TasksDir $tmp
+    Assert-HB ([bool]$trimmed.ok -and $t['handback']['next_steps'] -ceq 'next') 'next steps trimmed'
+
+    $info=Add-OrchestrationTaskEvent -TaskId 'task-handback-1' -EnvelopeJson '{"source":"github","trigger":"issue_comment","thread":"issue:3","delivery_id":"d-hb2","repo":"Kusts/opencode-orchestration","informational_only":true}' -ExpectedRevision $revision -TasksDir $tmp -FlagsPath $flags
+    $revision=[int]$info.revision
+    $contextOk=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'context' -DedupKey $info.dedup_key -ExpectedRevision $revision -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    $revision=[int]$contextOk.revision
+    $t=Get-OrchestrationTask -TaskId 'task-handback-1' -TasksDir $tmp
+    Assert-HB ([bool]$contextOk.ok -and [bool]$t['handback']['context_only']) 'informational context-only persists'
+
+    $legacy=New-OrchestrationTask -TaskId 'task-handback-legacy' -Objective 'legacy handback' -Actor planner -TasksDir $tmp -FlagsPath $flags
+    $legacyBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-legacy' -RunId 'run-legacy' -SessionId 'ses-legacy' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
+    $legacyPath=Join-Path $tmp 'task-handback-legacy.json'; $legacyDoc=[IO.File]::ReadAllText($legacyPath) | ConvertFrom-Json
+    $legacyDoc.PSObject.Properties.Remove('handback'); $legacyDoc.PSObject.Properties.Remove('handback_history')
+    [IO.File]::WriteAllText($legacyPath,($legacyDoc | ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+    $legacyResult=Set-OrchestrationTaskHandback -TaskId 'task-handback-legacy' -SessionId 'ses-legacy' -Summary 'legacy' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+    $legacyRead=Get-OrchestrationTask -TaskId 'task-handback-legacy' -TasksDir $tmp
+    Assert-HB ([bool]$legacyBind.ok -and [bool]$legacyResult.ok -and @($legacyRead['handback_history']).Count -eq 1 -and $null -ne $legacyRead['handback_history'][0] -and $legacyRead['handback_history'][0]['session_id'] -ceq 'ses-legacy') 'legacy handback history has one non-null entry'
+
+    $workerTask=New-OrchestrationTask -TaskId 'task-handback-worker' -Objective 'worker bind' -Actor planner -TasksDir $tmp -FlagsPath $flags
+    $workerBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-worker' -RunId 'run-worker' -SessionId 'ses-worker' -ExpectedRevision 1 -WorkerSession -TasksDir $tmp -FlagsPath $flags
+    $workerPath=Join-Path $tmp 'task-handback-worker.json'; $workerDoc=[IO.File]::ReadAllText($workerPath) | ConvertFrom-Json
+    $workerDoc.bindings.active_execution_owner='ses-owner'; [IO.File]::WriteAllText($workerPath,($workerDoc | ConvertTo-Json -Depth 30),[Text.UTF8Encoding]::new($false))
+    $workerHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-worker' -SessionId 'ses-worker' -Summary 'worker' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+    $workerState=Get-OrchestrationTask -TaskId 'task-handback-worker' -TasksDir $tmp
+    Assert-HB ([bool]$workerBind.ok -and [bool]$workerHandback.ok -and $workerState['bindings']['active_execution_owner'] -ceq 'ses-owner') 'worker handback leaves other owner intact'
+
+    $detachedTask=New-OrchestrationTask -TaskId 'task-handback-detached' -Objective 'detached bind' -Actor planner -TasksDir $tmp -FlagsPath $flags
+    $detachedBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-detached' -RunId 'run-detached' -SessionId 'ses-detached' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
+    $detach=Detach-OrchestrationTaskSession -TaskId 'task-handback-detached' -RunId 'run-detached' -SessionId 'ses-detached' -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
+    $detachedHandback=Set-OrchestrationTaskHandback -TaskId 'task-handback-detached' -SessionId 'ses-detached' -Summary 'not allowed' -ExpectedRevision 3 -TasksDir $tmp -FlagsPath $flags
+    Assert-HB ([bool]$detachedBind.ok -and [bool]$detach.ok -and $detachedHandback.error -ceq 'HANDBACK_SESSION_NOT_BOUND') 'detached session rejected'
+
+    $cliTask=New-OrchestrationTask -TaskId 'task-handback-cli' -Objective 'handback CLI' -Actor planner -TasksDir $tmp -FlagsPath $flags
+    $cliBind=Invoke-OrchestrationTaskSessionBinding -Operation bind -TaskId 'task-handback-cli' -RunId 'run-cli' -SessionId 'ses-cli' -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
+    $cli=Join-Path (Split-Path -Parent $PSScriptRoot) 'task-kernel.ps1'
+    $cliHost='powershell.exe'; if($PSVersionTable.PSEdition -eq 'Core'){$cliHost='pwsh.exe'}
+    function Invoke-HBCLI([string[]]$CliArgs) {
+        $quoted=@($CliArgs | ForEach-Object { if($_ -match '\s'){ '"'+$_+'"' } else { $_ } }) -join ' '
+        $outFile=Join-Path $tmp ('cli-'+[guid]::NewGuid().ToString('N')+'.out')
+        $proc=Start-Process -FilePath (Get-Command $cliHost).Source -ArgumentList (('-NoProfile -File "{0}" ' -f $cli)+$quoted) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile
+        $stdout=''; if(Test-Path $outFile){$stdout=[IO.File]::ReadAllText($outFile)}
+        return @{code=[int]($proc.ExitCode -band 0xffff);stdout=$stdout}
+    }
+    $cliBase=@('-Action','handback','-TaskId','task-handback-cli','-SessionId','ses-cli','-TasksDir',$tmp,'-FlagsPath',$flags)
+    $cliSuccess=Invoke-HBCLI ($cliBase+@('-Summary','ok','-ExpectedRevision','2'))
+    $cliDuplicate=Invoke-HBCLI ($cliBase+@('-Summary','ok','-ExpectedRevision','3'))
+    $cliUsage=Invoke-HBCLI ($cliBase+@('-ExpectedRevision','3'))
+    $cliCas=Invoke-HBCLI ($cliBase+@('-Summary','stale','-ExpectedRevision','1'))
+    Assert-HB ([bool]$cliBind.ok -and $cliSuccess.code -eq 0 -and $cliDuplicate.code -eq 0 -and $cliDuplicate.stdout -match '"duplicate":\s*true' -and $cliUsage.code -eq 2 -and $cliCas.code -eq 3) 'CLI exit codes and duplicate result'
     $cas=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'stale' -ExpectedRevision 0 -TasksDir $tmp -FlagsPath $flags
     Assert-HB ($cas.error -ceq 'CAS_CONFLICT') 'CAS conflict'
-    $cancel=Cancel-OrchestrationTask -TaskId 'task-handback-1' -Actor planner -Reason done -ExpectedRevision ([int]$valid.revision) -ActorIdentitySource explicit-cli -TasksDir $tmp -FlagsPath $flags
+    $cancel=Cancel-OrchestrationTask -TaskId 'task-handback-1' -Actor planner -Reason done -ExpectedRevision $revision -ActorIdentitySource explicit-cli -TasksDir $tmp -FlagsPath $flags
     $terminal=Set-OrchestrationTaskHandback -TaskId 'task-handback-1' -SessionId 'ses-root' -Summary 'late' -ExpectedRevision ([int]$cancel.revision) -TasksDir $tmp -FlagsPath $flags
     Assert-HB ([bool]$cancel.ok -and $terminal.error -ceq 'ILLEGAL_TRANSITION') 'terminal rejected'
 } finally { if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue} }

@@ -3101,11 +3101,12 @@ function Confirm-OrchestrationTaskEvent {
 function Set-OrchestrationTaskHandback {
     <#
     .SYNOPSIS
-        Persists a bounded task handback and releases matching conversation ownership.
+        Persists an informational bounded handback and releases matching conversation ownership.
     .DESCRIPTION
         The Kernel persists only session identity, a bounded summary/next_steps,
         and an optional event reference. Full conversation history remains OUTSIDE
-        the Kernel. Never throws.
+        the Kernel. It grants no authority. Only attached-run sessions may write;
+        any attached session may replace the current slot while history preserves prior entries. Never throws.
     #>
     [CmdletBinding()]
     param(
@@ -3120,11 +3121,12 @@ function Set-OrchestrationTaskHandback {
         $flags=Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
         if (-not [bool]$flags.enabled) { return (New-TaskKernelError 'KERNEL_DISABLED') }
         if (-not (Test-TaskKernelBindingId -Value $SessionId)) { return (New-TaskKernelError 'BIND_INVALID_ID') }
-        $summaryText=([string]$Summary).Trim(); $nextText=[string]$NextSteps
+        $summaryText=([string]$Summary).Trim(); $nextText=([string]$NextSteps).Trim()
         if ([string]::IsNullOrWhiteSpace($summaryText)) { return (New-TaskKernelError 'HANDBACK_SUMMARY_REQUIRED') }
         if ($summaryText.Length -gt 1000 -or $nextText.Length -gt 1000) { return (New-TaskKernelError 'HANDBACK_CONTENT_TOO_LARGE') }
         $key=([string]$DedupKey).Trim().ToLowerInvariant()
         if (-not [string]::IsNullOrWhiteSpace($key) -and $key -cnotmatch '^[0-9a-f]{64}$') { return (New-TaskKernelError 'EVENT_DEDUP_KEY_INVALID') }
+        if ($ContextOnly -and [string]::IsNullOrWhiteSpace($key)) { return (New-TaskKernelError 'HANDBACK_CONTEXT_ONLY_REQUIRES_EVENT') }
         $tid=([string]$TaskId).Trim(); $file=Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
         if ([string]::IsNullOrWhiteSpace($file)) { return (New-TaskKernelError 'NOT_FOUND') }
         $lock=Enter-TaskKernelFileLock -TaskFile $file
@@ -3138,15 +3140,22 @@ function Set-OrchestrationTaskHandback {
             if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) { return (New-TaskKernelError 'ILLEGAL_TRANSITION' -Extra @{detail='terminal state is immutable'}) }
             if (-not (Test-TaskKernelWriteBoundary -TaskFile $file)) { return (New-TaskKernelError 'PATH_NOT_CONFINED') }
             $inbox=@($rec['event_inbox']); $foundKey=([string]::IsNullOrWhiteSpace($key))
-            if (-not $foundKey) { foreach($event in $inbox) { if ([string](Get-TaskKernelNodeField $event 'dedup_key') -ceq $key) { $foundKey=$true; break } }; if (-not $foundKey) { return (New-TaskKernelError 'EVENT_NOT_FOUND') } }
+            if (-not $foundKey) {
+                $eventInfo=$false
+                foreach($event in $inbox) { if ([string](Get-TaskKernelNodeField $event 'dedup_key') -ceq $key) { $foundKey=$true; $eventInfo=[bool](Get-TaskKernelNodeField $event 'informational_only'); break } }
+                if (-not $foundKey) { return (New-TaskKernelError 'EVENT_NOT_FOUND') }
+                if ($ContextOnly -and -not $eventInfo) { return (New-TaskKernelError 'EVENT_CONTEXT_ONLY_NOT_ALLOWED') }
+            }
             $bindings=$rec['bindings']; $bound=$false
-            if ($null -ne $bindings) { foreach($run in @($bindings['runs'])) { if ([string]$run['root_session'] -ceq $SessionId -or (@($run['worker_sessions']) -ccontains $SessionId)) { $bound=$true; break } } }
+            if ($null -ne $bindings) { foreach($run in @($bindings['runs'])) { if ([string]$run['status'] -cne 'attached') { continue }; if ([string]$run['root_session'] -ceq $SessionId -or (@($run['worker_sessions']) -ccontains $SessionId)) { $bound=$true; break } } }
             if (-not $bound) { return (New-TaskKernelError 'HANDBACK_SESSION_NOT_BOUND') }
             $current=$rec['handback']; $safeSummary=Protect-TaskKernelText $summaryText; $safeNext=Protect-TaskKernelText $nextText
             if ($null -ne $current -and [string]$current['session_id'] -ceq $SessionId -and [string]$current['summary'] -ceq $safeSummary -and [string]$current['next_steps'] -ceq $safeNext -and [string]$current['dedup_key'] -ceq $key -and [bool]$current['context_only'] -eq [bool]$ContextOnly) { return [PSCustomObject]@{ok=$true;task_id=$tid;revision=[int]$rec['revision'];duplicate=$true;sequence=[int]$current['sequence']} }
             $seq=1; if ($null -ne $current) { $seq=[int]$current['sequence']+1 }
             $entry=[ordered]@{sequence=$seq;session_id=$SessionId;summary=$safeSummary;next_steps=$safeNext;dedup_key=$key;context_only=[bool]$ContextOnly;at=(Get-TaskKernelTimestamp)}
-            $rec['handback']=$entry; $rec['handback_history']=@(@($rec['handback_history']) + @($entry) | Select-Object -Last 5)
+            $rec['handback']=$entry
+            $hist=@(); if ($null -ne $rec['handback_history']) { $hist=@(@($rec['handback_history']) | Where-Object { $null -ne $_ }) }
+            $rec['handback_history']=@(@($hist) + @($entry) | Select-Object -Last 5)
             if ($null -ne $bindings -and [string]$bindings['active_execution_owner'] -ceq $SessionId) { $bindings['active_execution_owner']=''; $rec['bindings']=$bindings }
             $rec['revision']=[int]$rec['revision']+1; $rec['updated_at']=Get-TaskKernelTimestamp
             $wr=Write-TaskKernelRecord -Record $rec -TaskFile $file

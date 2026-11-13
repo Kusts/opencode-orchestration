@@ -69,9 +69,11 @@ try {
     Assert-TE ([bool]$ack.ok -and [string]$ackTask['event_inbox'][0]['ack_kind'] -ceq 'context_only') '[TE9] ack context-only informativo'
     $ackDup = Confirm-OrchestrationTaskEvent -TaskId 'task-event-info' -DedupKey $key -SessionId 'ses-info' -ExpectedRevision 3 -ContextOnly -TasksDir $tmp -FlagsPath $flags
     Assert-TE ([bool]$ackDup.duplicate -and [int]$ackDup.revision -eq 3) '[TE9] segundo ack context-only idempotente'
-    $denied = Confirm-OrchestrationTaskEvent -TaskId 'task-event-1' -DedupKey ([string]$a.dedup_key) -SessionId 'ses-act' -ExpectedRevision 3 -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    $responseAck = Confirm-OrchestrationTaskEvent -TaskId 'task-event-1' -DedupKey ([string]$a.dedup_key) -SessionId 'ses-act' -ExpectedRevision 3 -TasksDir $tmp -FlagsPath $flags
+    $denied = Confirm-OrchestrationTaskEvent -TaskId 'task-event-1' -DedupKey ([string]$a.dedup_key) -SessionId 'ses-act' -ExpectedRevision 4 -ContextOnly -TasksDir $tmp -FlagsPath $flags
     $unchanged = Get-OrchestrationTask -TaskId 'task-event-1' -TasksDir $tmp
-    Assert-TE ([string]$denied.error -ceq 'EVENT_CONTEXT_ONLY_NOT_ALLOWED' -and [int]$unchanged.revision -eq 3) '[TE9] context-only acionavel recusado sem revision'
+    Assert-TE ([bool]$responseAck.ok -and [string]$unchanged['event_inbox'][0]['ack_kind'] -ceq 'response') '[TE9] ack acionavel registra response'
+    Assert-TE ([string]$denied.error -ceq 'EVENT_CONTEXT_ONLY_NOT_ALLOWED' -and [int]$unchanged.revision -eq 4) '[TE9] context-only retry de ack response recusado sem revision'
 }
 finally {
     if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
