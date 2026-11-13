@@ -958,8 +958,8 @@ $totalCostReported = if ($allCostsNumeric) { [Math]::Round(([double]$plannerCost
 # 7. COMPARACAO DE EFICIENCIA: CENARIO DIRETO/ECONOMICO VS MULTI-AGENTE (P1)
 Write-Host "`n>>> [7/7] Executando medicao comparativa de eficiencia (Direto/Economico vs Multi-Agente)..."
 $swDirectBench = [System.Diagnostics.Stopwatch]::StartNew()
-$directPf = Get-OrchestrationPreflight -Objective 'Implementar utilitario PowerShell Format-OrchestrationSummary' -TaskType 'cosmetic' -Domain 'runtime' -Risk 'low' -ReadWrite 'write' -ExecutionStrategy 'DIRECT_VERIFIED'
-$directComp = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision $directPf.orchestration_decision -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOCAL_INSPECTION' -ActualWorkerParticipation 0
+$directPf = Get-OrchestrationPreflight -Objective 'where is Format-OrchestrationSummary defined' -TaskType 'lookup' -Domain 'runtime' -Risk 'low' -ReadWrite 'read' -ExecutionStrategy 'DIRECT_VERIFIED'
+$directComp = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision $directPf.orchestration_decision -ExecutionShape 'DIRECT_VERIFIED' -DirectReason $directPf.direct_reason -ActualWorkerParticipation 0
 $swDirectBench.Stop()
 
 $coderMs = if ($null -ne $coderRun) { [double]$coderRun.elapsed_ms } else { [Math]::Round($plannerRun.elapsed_ms * 0.3, 2) }
@@ -971,17 +971,17 @@ $efficiencyComparison = [ordered]@{
     comparison_title = "Comparacao de Eficiencia de Workflow: Direto/Economico vs Multi-Agente"
     scenarios = @(
         [ordered]@{
-            scenario_id        = "SCENARIO-01-DIRECT-PREFLIGHT-OVERHEAD"
-            description        = "Medicao de overhead deterministico / preflight local sem spawn de subagents"
+            scenario_id        = "SCENARIO-01-DIRECT-READ-ONLY-LOOKUP"
+            description        = "Lookup read-only de definicao sem mutacao ou spawn de subagents"
             execution_shape    = "DIRECT_VERIFIED"
             agents_involved    = @("planner (preflight)")
             subagents_spawned  = 0
             wall_clock_ms      = $directMs
-            tokens_input       = 0
-            tokens_output      = 0
-            tokens_total       = 0
-            cost_usd           = 0.0
-            quality_score      = "DETERMINISTIC_PREFLIGHT_ONLY (Avaliacao estatica de preflight local; nao executa sintese dinamica nem testes no host; compliance rejeita DIRECT_VERIFIED para tarefa nao trivial: NON_COMPLIANT_DEPRECATED_DIRECT)"
+            tokens_input       = $null
+            tokens_output      = $null
+            tokens_total       = $null
+            cost_usd           = "UNKNOWN"
+            quality_score      = "READ_ONLY_LOOKUP (preflight local para consulta pontual; nenhuma mutacao; Planner nao executou tarefa de escrita)"
             compliance         = $directComp
         },
         [ordered]@{
@@ -1000,7 +1000,7 @@ $efficiencyComparison = [ordered]@{
         }
     )
     analysis = [ordered]@{
-        measurement_summary = "Cenario direto reflete overhead deterministico de preflight em $directMs ms com 0 tokens de subagents; cenario multi-agente reflete ciclo produtivo completo de execucao e verificacao em $multiTotalMs ms (253 s) com 297941 tokens e tripla checagem independente"
+        measurement_summary = "Cenario direto reflete lookup read-only e overhead deterministico de preflight em $directMs ms; tokens/custo do lookup nao foram medidos; cenario multi-agente reflete ciclo produtivo completo de execucao e verificacao em $multiTotalMs ms (253 s) com 297941 tokens e tripla checagem independente"
         quality_assessment  = "Os cenarios nao possuem a mesma profundidade: o cenario direto avalia apenas regras de preflight e conformidade de politicas locais, enquanto o cenario multi-agente executa a sintese real de artefatos, testes funcionais no host e revisao independente de seguranca"
         controls_preserved  = "Controles de custo, orcamentos de tier, cache de evidencias, Advisor sob demanda e Jev preservados intactos"
     }

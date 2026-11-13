@@ -19,6 +19,7 @@ evidence/v3/etapa6d-resume/*.jsonl
 !evidence/v0.1.0/
 !evidence/closure/
 !evidence/dev-telemetry/
+!evidence/evolution-2026-11-10/
 evidence/closure/*
 !evidence/closure/*.md
 cache/

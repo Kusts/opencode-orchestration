@@ -2,7 +2,7 @@
 .SYNOPSIS
     Valida a consistencia interna do pacote opencode-orchestration (P6.3 + V3.1 Phase 2).
 .DESCRIPTION
-    16 checks, exit 0/1, uma linha [OK]/[FAIL] por check. PS 5.1 compativel.
+    17 checks, exit 0/1, uma linha [OK]/[FAIL] por check. PS 5.1 compativel.
     Se um check apontar defeito REAL no pacote, conserte o pacote, nao o teste.
 #>
 $ErrorActionPreference = 'Stop'
@@ -201,7 +201,7 @@ catch { Report-Fail '5 refs de scripts existem' $_.Exception.Message }
 # ---- 6. skills citadas ---------------------------------------------------------
 try {
   $errs6 = New-Object System.Collections.ArrayList
-  $core = @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')
+  $core = @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')
   foreach ($s in $core) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ('skills-core\' + $s + '\SKILL.md')) -PathType Leaf)) {
       [void]$errs6.Add(('skills-core sem SKILL.md: ' + $s))
@@ -211,7 +211,7 @@ try {
   foreach ($s in $core) {
     if ($installTxt -notmatch [regex]::Escape($s)) { [void]$errs6.Add(('install.ps1 nao instala: ' + $s)) }
   }
-  if ($errs6.Count -eq 0) { Report-Ok '6 skills-core + install' '5 skills com SKILL.md e presentes no instalador (entrypoint hybrid-development)' }
+  if ($errs6.Count -eq 0) { Report-Ok '6 skills-core + install' '8 skills com SKILL.md e presentes no instalador (entrypoint hybrid-development; 4 origens metodologicas)' }
   else { Report-Fail '6 skills-core + install' ($errs6 -join ' | ') }
 }
 catch { Report-Fail '6 skills-core + install' $_.Exception.Message }
@@ -556,8 +556,26 @@ try {
 }
 catch { Report-Fail '16 bundle do plugin autocontido + sidecar' $_.Exception.Message }
 
+# ---- 17. cadeia canonica de escalonamento (policy <-> adapter V2) -----------
+# Issue #208: o texto da issue cita T3->Sol->Astra; a politica vigente e o
+# adapter falam T3 Sonnet -> T4 Opus -> Astra excepcional, com Sol apenas
+# como candidato de mesmo tier T4. A divergencia e drift, nao decisao.
+try {
+  . (Join-Path $RepoRoot 'scripts\v3\lib\OrchestrationModelChain.ps1')
+  $chain17 = Test-OrchestrationModelChainConsistency `
+    -PolicyPath (Join-Path $RepoRoot 'source\registry\model-routing-policy.json') `
+    -AdapterPath (Join-Path $RepoRoot 'source\adapters\opencode-v2.md')
+  if ([bool]$chain17.ok) {
+    Report-Ok '17 cadeia de escalonamento canonica' ('T3=' + [string]$chain17.chain.T3Model + ' -> T4=' + [string]$chain17.chain.T4Model + ' -> excepcional=' + [string]$chain17.chain.ExceptionalModel + '; sol=candidato T4')
+  }
+  else {
+    Report-Fail '17 cadeia de escalonamento canonica' ([string]($chain17.errors -join ' | '))
+  }
+}
+catch { Report-Fail '17 cadeia de escalonamento canonica' $_.Exception.Message }
+
 Write-Host ''
-Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 16)')
+Write-Host ('CHECKS: ' + $script:nOk + ' OK / ' + $script:nBad + ' FAIL (total 17)')
 try {
   $teleMs = 0
   try { $teleWatch.Stop(); $teleMs = [int]$teleWatch.ElapsedMilliseconds } catch { $teleMs = 0 }

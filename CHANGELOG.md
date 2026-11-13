@@ -6,6 +6,142 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **Pausa documentada para a próxima sessão (2026-11-11)**:
+  - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-PLAN.md` §14 registra o
+    handoff: estado (HEAD `16a1c84`, PR #238, CI 6/6), backlog ordenado
+    (#12/#11 no EvidenceStore → #200/#103 E2E → #183 produtor externo →
+    #64/#192 → #50/#141 → #2/#184/#185 → #172 → PR #210 → M7), restrições,
+    comandos de retomada e os cinco campos.
+  - SPEC e INDEX passam a `PAUSED`; nenhum código, flag ou permissão alterado.
+
+- **Encerramento da missão integrada (2026-11-11)** - decisão `ENCERRAR` do
+  orientador após P0.6/#12/#11/M3:
+  - Critérios cobertos: plano M0–M7 atualizado; Planner planeja/decide/delega
+    com workers executando; autonomia longa validada (P0.5); retomada nativa de
+    sessão (P0.6); PR #238 com CI 6/6; próxima etapa definida.
+  - Pendências preservadas: #12/#11 no `EvidenceStore` do Kernel, produtor
+    externo do #183, #64/#192, M7/#205 (HOLD) e reconciliação do config ativo.
+  - Nenhum merge/instalação; nenhum novo ciclo de implementação nesta missão.
+  - P0.6 comprova retomada de sessão descartável pelo mecanismo nativo; não é
+    prova de reinício da sessão principal do Planner.
+
+- **P0.6 + #12/#11 + M3 (2026-11-11)**:
+  - P0.6: `opencode run --session` retomou uma sessão descartável
+    (`ses_e33ea8cdcffeiZrUtkt0puBPS3`) em processo novo e recuperou o token da
+    primeira mensagem (input 108, cache read 47.744), sem repetir a tarefa;
+    Goal `p0-autonomy-session-20261111` COMPLETED (rev 13).
+  - #12/#11: `scripts/v3/evidence-virtualize.ps1` (store/recall com SHA e
+    preview; 109.209 bytes → 2.000, 7/7) e `scripts/v3/cache-metrics.ps1`
+    (métricas observadas; custo UNKNOWN), com regra no mandato V2; harness V2
+    248/0; plugin-dual-runtime 20/20; typecheck PASS.
+  - M3: #140 provado com `POST/GET/DELETE /api/worktree` (worktree descartável
+    criado, usado e removido; lista 42→0 do probe, sem tocar existentes).
+    #203 provado em leitura com `ssh contabo-prod "uname -a; docker ps"`
+    (Linux 7.0.0-42-generic, 5 containers; sem mutação).
+  - M7/#205 permanece HOLD por produto/credenciais externos.
+
+- **P0.5 - Missão real com Goal de 3 Tasks (2026-11-11)**:
+  - Goal `p0-autonomy-20261111` (GoalKernel) conduzido pelo Planner: T1 delegada
+    ao coder (teste 3/0); T2 falhou de forma real (`3/1`, aceite `2*3=7` vs `6`),
+    `repair-decision` retornou `LOCAL_REPAIR`, o Planner mudou a estratégia
+    (defeito na expectativa), o coder reparou e o teste passou (4/0); estado
+    recarregado por processo novo (`resume`, rev 12); T3 validada por tester
+    independente (3/0 e 4/0); `complete` recusado com T1+T2 e Goal `COMPLETED`
+    (rev 16) só após T3. 0 intervenções humanas; 4 dispatches; ~2m30s;
+    tokens `UNKNOWN`. Interrupção de processo/sessão de worker, não reinício do
+    OpenCode. Evidência em `evidence/evolution-2026-11-10/p0-autonomy/`.
+  - `scripts/v3/p0-autonomy-proof.ps1` + testes (14/14 PS5.1+PS7) gerenciam só
+    estado do GoalKernel; sem scheduler/controlador.
+
+- **Decisão #183 (b) + wiring #200/#103 no fluxo real - 2026-11-11**:
+  - #183: GH-WAKE permanece retomada/readiness; o envelope `source/trigger/
+    thread/delivery_id` pertence ao event-intake/bridge, com produtor real
+    webhook/Action externo. Sem fabricar `delivery_id`, sem novo controlador;
+    integração automática externa permanece PARTIAL e documentada.
+  - #200: `source/agents/reviewer.md` exige findings ancorados no schema e cita
+    `task-kernel -Action review-schema`; o adapter fixa que o Planner inclui o
+    schema no dispatch e registra com `-FindingsJson`.
+  - #103: mandato V2 instrui o Planner a rodar `scripts/v3/repair-decision.ps1`
+    após falha comprovada antes do retry, como decisão advisory.
+  - Harness V2 247/0; plugin-dual-runtime 20/20; typecheck PASS; bundle
+    regenerado; package-consistency 17/17.
+
+- **Wiring M5 (#200/#103) e achado M6 (#183) - 2026-11-11**:
+  - `task-kernel.ps1 -Action review-schema` (read-only, sem `-TaskId`) publica o
+    schema versionado de findings ancorados; `Get-OrchestrationReviewFindingsSchema`
+    e puro/deterministico (50 findings, 256 KiB, 2000 chars). ReviewAnchor 24/24.
+  - `scripts/v3/repair-decision.ps1` expoe `LOCAL_REPAIR`/`REPLAN`/`ESCALATE`
+    deterministicamente para consulta antes do retry; sem dispatch nem decisao
+    automatica no Kernel. repair-decision 10/10; TaskKernel 116/116.
+  - Adapter V2 documenta o uso dos dois helpers no ciclo de retry/review.
+  - Achado: o tick do GH-WAKE nao produz o envelope de evento consumido pelo
+    bridge (`source/trigger/thread/delivery_id`); a perna do call-site exige
+    contrato de derivacao ou produtor webhook/Action e permanece pendente.
+
+- **P0 - Reformulacao do Planner (2026-11-11)** - retomada da missao integrada
+  com a diretriz da issue #48: Planner planeja/decide/delega, worker executa.
+  - Classificador (`scripts/v3/lib/OrchestrationPreflight.ps1`): `DIRECT_VERIFIED`
+    (zero workers) passa a valer apenas para leitura/planejamento sem mutacao.
+    Micro-edicao com escrita (docs e codigo) cai no ramo `SINGLE_WORKER`
+    trivial ja existente, com `direct_reason` vazio e o DONE gate exigindo
+    `ExecutionShape=SINGLE_WORKER` + participacao observada; zero participacao
+    em escrita => `ORCHESTRATION_POLICY_BYPASS`. `Test-OrchestrationDoneCompliance`
+    nao mudou; nenhum estado, flag ou parametro novo.
+  - Testes: nova secao `15z P0` (leitura direta, escrita com worker,
+    participacao zero, sensivel/arquitetura fora da rota trivial) e matriz de
+    12 combinacoes de escrita; expectativas de escrita e de `read` com
+    intencao de edicao foram alinhadas. `orchestration-preflight.tests.ps1`
+    286/286, `OrchestrationAdvisorEfficiencyGW.tests.ps1` 145/145,
+    `test-package-consistency.ps1` 17/17.
+  - Achados da revisao independente corrigidos: `ReadWrite=read` com
+    vocabulario de edicao sem evidencia de consulta agora delega; consumidores
+    de evidencia `measure-workflow-efficiency.ps1` (WL-01) e
+    `prove-native-subagents.ps1` (SCENARIO-01) medem lookup read-only e
+    registram `COMPLIANT`.
+  - Instrucoes: `source/global/AGENTS.md` ganhou o contrato de papeis e a
+    autonomia por missao; `source/adapters/opencode-v2.md` separa
+    `DIRECT_VERIFIED` (leitura) de `SINGLE_WORKER` (qualquer mutacao) e fixa o
+    contrato Goal/Loop; `AGENTS.md` deste checkout e `docs/ARCHITECTURE.md`
+    (6 estados, papeis, Goal/Loop) foram alinhados.
+  - Mandato V2 injetado pelo plugin (`shared/mandate.ts`) reescrito para o
+    mesmo contrato (V1 byte-identico), com harness `v2-mock` atualizado e
+    bundle `plugins/dist` + sha256 regenerados; `plugin-dual-runtime` 20/20 e
+    typecheck V1/V2/DUAL PASS.
+  - `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-{SPEC,PLAN}.md` v1.1: P0
+    transversal com diagnostico D1-D8, roteamento, contrato Goal/Loop,
+    entregas P0.1-P0.6 e baseline a medir. M0-M7 preservados.
+  - Sem alteracao de flags, permissoes, credenciais, allowlist ou producao.
+
+- **Pausa de implementação (2026-11-11)** - estado consolidado no PR #238:
+  - Branch `feat/evolution-integrated-20261110`; commits até `8c9befb`; nenhum merge/deploy.
+  - Entregues e verificados: M0, M1 (runtime real), M2, M3 (#139), M4 (#177/#77), M5 (DONE kernel-executed) e M6 (intake + bridge + ack + E2E real `issue:6`).
+  - Parciais/HOLD: #140 (create/remove de worktree), #12/#11/#200/#103 (wiring), #183/#184/#185 (GH-WAKE call-site, admissão, handback), #203 (remoto), M7 (T3 Code), #48/#64/#192.
+  - Validação: package-consistency 17/17; TaskKernel 114/114; ModelProof 169/169; ModelChain 32/32; Learning 20/20; EventIntake 8/8; TaskEvent 12/12; EventBridge 9/9; ReviewIntegration 17/17; fresh-install 53/0; idempotency 17/0; rollback 33/0.
+  - CI do run `42943040689`: linux + smokes V1/V2 PASS; ps51/ps7/v2 lane pendentes no momento da pausa.
+  - Plano e estado por issue: `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-{SPEC,PLAN}.md`; evidências em `evidence/evolution-2026-11-10/`.
+
+- **Plano integrado de evolução 2026-11-10 (25 issues + PR #210) — M0/M1 iniciados**:
+  - SPEC/PLAN canônicos em `docs/specs/EVOLUTION-INTEGRATED-2026-11-10-SPEC.md` e `...-PLAN.md`: 8 marcos (M0–M7), estado reconciliado por issue contra o baseline `54a9d3c`, dependências (`#177` antes de `#77`; `#143`/`#183` antes de `#2`/`#185`), critérios de aceite por marco e protocolo de prova runtime-real do M1.
+  - Decisão de escalonamento (#208) registrada no adapter V2: cadeia canônica `claude-agent/sonnet` (T3) → `claude-agent/opus` (T4) → `openai/gpt-6-astra` (excepcional, após prova T4); `openai/gpt-6.1-sol` é candidato de mesmo tier T4, não degrau T3→Astra; `claude-agent/fable` permanece HOLD. O texto histórico "T3→Sol→Astra" da issue não altera a política.
+  - `scripts/v3/lib/OrchestrationModelChain.ps1` (leitura pura, fail-closed) + `OrchestrationModelChain.tests.ps1` (32 asserts: policy real, T3/T4/excepcional/sol/fable, adapter sem bloco/cadeia/Astra, drifts `T3→Sol`, policy e adapter ilegíveis).
+  - `scripts/test-package-consistency.ps1` ganhou o check 17 (política ↔ adapter V2) e passou 17/17; README atualizado.
+  - M0/#21 revalidada: as 6 suítes citadas passam (53/13/44/9/22/39 asserts; 2 SKIP ambientais de pin em `profile-isolation`); evidência em `evidence/evolution-2026-11-10/m0-issue21-revalidation.md`. Fechamento da issue segue pendente de revisão do maintainer.
+  - M1/#208 provado em runtime real: Task `evo-m1-proof-20261110` executou `model-select → dispatch T3 claude-agent/sonnet → model-attempt → model-proof` a partir de uma única instrução humana, sem comando intermediário; `model-attempt` registrou tier T3, provider/model, sessão filha, mensagem e policy_hash; `model-proof` T3 e T4 falharam fechado (`PROOF_VERIFICATION_MISSING`) sem prova de falha. Reviewer T3 retornou `CHANGES_REQUIRED` e os 3 achados foram corrigidos (fable HOLD, bloco decisório do adapter, drift `T3→Sol`). Evidência em `evidence/evolution-2026-11-10/m1-planner-chain-runtime.md`. Automação em um único comando e dispatch T4/Astra não foram implementados.
+  - M2/#237 entregue: `skills-core` passa de 5 para 8 skills, com `bmad-structured-delivery`, `pocock-technical-decisions` e `addy-incremental-delivery` em texto original (atribuição BMAD v6.12/Matt Pocock/Addy Osmani, sem conteúdo upstream copiado); `hybrid-development` ganhou a tabela de seleção por forma da tarefa (quatro origens). Instalador, catálogo, README/INSTALLATION e suítes de distribuição alinhados. Validação: consistência 17/17, fresh-install 53/0, idempotency 17/0, rollback 33/0; `skills-catalog` 14/15 com falha ambiental de drift user-owned em `hybrid-development` (roots reais divergentes, não causada pela rodada). Evidência em `evidence/evolution-2026-11-10/m2-methodologies-distribution.md`. #48 segue PARCIAL e #64 aberto.
+  - M3 (probes, sem substituição): OpenCode 2.2.6 anuncia `persistentPty=true` mas não prova lifecycle; sem superfície CLI de worktree observada; remoto não probado. #143 coberto; #139/#140/#203 em HOLD/SPIKE. Evidência em `evidence/evolution-2026-11-10/m3-runtime-probes.md`.
+  - M4 (#12/#11): `OrchestrationObservationVirtualization.ps1` (store content-addressed, escrita atômica/idempotente, preview bounded, recall com verificação de hash, 18/18) e `OrchestrationCacheMetrics.ps1` (tokens/cache/custo, `UNKNOWN` sem zero inventado, 18/18). Evidência em `evidence/evolution-2026-11-10/m4-m5-local-libs.md`.
+  - M5 (#200/#103): `OrchestrationReviewAnchor.ps1` (arquivo/linha/commit, drift COMMIT/FILE_MISSING/CONTENT, owner por path, 18/18) e `OrchestrationLocalizedRepair.ps1` (LOCAL_REPAIR/REPLAN/ESCALATE, sem replay externo ambíguo, 13/13).
+  - M6 (#183/#185, primeira fatia): `OrchestrationEventCorrelation.ps1` valida envelope GitHub, deduplica por `sha256(source|repo|delivery)`, roteia para dono único (`ATTACH`), ignora duplicado/informativo, escala thread ambígua e mantém admissão em `OBSERVE` por padrão (11/11). Transporte/Kernel, #184 e #185 completos ficam pendentes. Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
+  - M5 (integração): `Set-OrchestrationTaskReview` aceita `-FindingsJson`; findings ancorados são validados (50/256 KiB/2000 chars), roteados por owner e persistidos no registro de review; `approved` com findings é recusado; CLI `review` ganhou `-FindingsFile`/`-FindingsJson`. Integração 14/0 e Kernel 114/114 + correlação 34/0 + model-proof 169/169 + trusted-paths 8/0. Evidência em `evidence/evolution-2026-11-10/m5-review-kernel-integration.md`.
+  - M5 (E2E vivo): Task `m5-e2e-review-20261110` — coder criou ratio/test, reviewer T3 encontrou 2 defeitos reais ancorados, findings persistidos no Kernel (`changes_required`), coder corrigiu, teste passou (5 casos), reviewer aprovou. O gate `complete` recusou corretamente (`COMPLETION_GATE_FAILED`) por falta de plano de verificação kernel-executed/compliance na Task descartável. Achado real: review aprovado sobrescrevia findings; `review_history` agora preserva rodadas (17/17). Evidência em `evidence/evolution-2026-11-10/m5-review-kernel-integration.md`.
+  - M5 (DONE completo): `m5-done-proof6-20261110` com `-VerifierProfiles criterion-smoke` + `-BaseRevision acc13b2` — record-result `criterion:0` → `verify-run` `verified_pass` (`kernel-executed`) → review approved → transições → `complete` com compliance → state `DONE` (revision 9).
+  - M4 (#177/#77): `OrchestrationLearning.ps1` com gateway estrito (DONE + verificação kernel-executed + review), lição Markdown para o AI Memory, receita determinística e decisão de reuso (`REUSABLE`/`STALE_BASE`/`ENV_MISMATCH`/`NOT_DETERMINISTIC`); 20/20. Registro real `m5-done-proof6` gera lição `ccae5fed…` e receita determinística; round-trip real no AI Memory MCP (write → read → delete) sem resíduo; lição durável `lessons/m4-verified-learning.md` recuperada e aplicada por uma segunda sessão (`researcher`, `LESSON_RECALLED: sim`). Custo: Task `m4-recipe-proof2-20261110` (DONE, `model_attempts=1`) gera receita com `original_model_attempts=1`; replay duplo `run1=0 run2=0 model_calls=0` (`REUSABLE`). Evidência em `evidence/evolution-2026-11-10/m4-learning-recipes.md`.
+  - M6 (intake real): `scripts/v3/event-intake.ps1` valida envelope, roteia, deduplica com ledger limitado e opcionalmente registra a entrega; 8/8. Prova com comentário real do GitHub (issue #6, comment `5993719807`, thread `issue:6`): 1ª execução `ATTACH` para rota sintética com `recorded=true`; 2ª `IGNORE duplicate-delivery`. Correlação/dedup também aceitam rotas como objeto JSON. Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`. Criação/encaminhamento de Task real e wiring GH-WAKE seguem pendentes.
+  - M6 (entrega em Task): `task-kernel.ps1 -Action event-attach` + `Add-OrchestrationTaskEvent` entregam o envelope validado em `event_inbox` (bounded 50), com dedup idempotente por `dedup_key` e CAS/estado terminal. Prova real: Task `m6-event-proof-20261110` recebeu o comentário GitHub `issue:6`/`comment-5993719807` (revision 2, `duplicate=false`); a segunda entrega retornou `duplicate=true` e manteve revision 2; inbox com 1 evento. Testes 12/12. Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`.
+  - M6 (produtivo): `github-event-bridge.ps1` liga intake → `event-attach` no Kernel; `task-kernel.ps1 -Action event-ack` registra consumo/settlement idempotente. E2E real `issue:6`/`comment-5993719807`: bridge `ATTACH`/duplicate, worker `ses_e37b7ee6…` leu e gravou `scratchpad/m6-e2e/response.json`, ack revision 3, segundo ack duplicate sem duplicar; inbox `acknowledged=true`. Bridge test 9/9; kernel 114/114. Evidência em `evidence/evolution-2026-11-10/m6-event-correlation.md`. Call-site automático do GH-WAKE e handback completo ficam pendentes.
+  - M3 (runtime real): PTY `POST /api/pty` → lista `exited exitCode=0`; shell `POST /api/shell` (timeout em ms) com `Start-Sleep 2s` → `status=exited` e output `shell-ok`; `GET /api/worktree?projectID=…` → 42 worktrees `strategy=git`. #139 COBERTO; #140 PARCIAL (create/remove não exercitados); #203 SPIKE. Evidência em `evidence/evolution-2026-11-10/m3-runtime-probes.md`.
+  - Sem alteração de flags/permissões/credenciais e sem produção nesta rodada.
+
 - **Continuidade por missao (issue #234) - fluxo ja coberto + fix real de lease no E2E**:
   - Auditoria read-only confirmou `ALREADY_COVERED` no fluxo de missao: Task DONE/candidate_pass nunca conclui o Goal (o gate `Test-ObjectiveCompletionAllowed` exige `progress.satisfied >= total`), o controller nao tem estado de retorno ao usuario, `Invoke-OrchestrationDurableResume` escolhe a proxima Task nao-DONE e so retorna `complete` com criterios verificados, e `Invoke-OrchestrationSettledContinuation`/NativeDispatch reutilizam receipts sem duplicar efeitos.
   - Bloqueio real encontrado e corrigido no caminho de prova de runtime: o lease de ownership (TTL default 60s) expirava durante o turno do worker, recusando o CAS de progresso com `owner-lease-expired`. `full-delivery-pilot-driver.ps1` agora renova (ou assume o proprio lease expirado) antes do primeiro turno longo e antes de cada CAS, mantendo owner/generation quando o lease esta vivo e sem enfraquecer o fencing do kernel.

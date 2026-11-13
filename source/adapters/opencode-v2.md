@@ -71,6 +71,15 @@ histórica, sem efeito).
     `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. `opencode-go/deepseek-v4.1-flash` é o primário T2 por seleção explícita do operador (adendo 2026-11-04); ZDR segue `expired-unconfirmed` sem alegação de renovação/conformidade (não envie dados sensíveis cuja proteção exija ZDR; somente dados não-sensíveis até ZDR verificado).
   - **T3:** candidatos em ordem `claude-agent/sonnet` (primário) → `openai/gpt-6.1-terra`; recuperação T2 só como candidata degradada para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Despacho técnico permanece HOLD sem prova independente de no-start. Engineering-advisor é T3-only.
   - **T4:** candidatos em ordem `claude-agent/opus` (primário) → `openai/gpt-6.1-sol` (mesmo tier); recuperação T2 só como candidata degradada audit-only para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` (policy-level, sem retry em runtime; reviewer high/critical, security, advisor, architect e papéis não-T2 seguem `REJECTED_DOWNGRADE_FORBIDDEN`). `openai/gpt-6-astra` somente com prova kernel-owned de falha funcional do Opus, mesma tarefa e papel admissível; `claude-agent/fable` permanece HOLD porque a prova atual é primária e não comprova falha específica do Astra. T4 não exige aprovação manual por chamada (decisão do usuário); gates de prova, capability e papel continuam.
+  - **Cadeia canônica de escalonamento (decisão 2026-11-10, issue #208):** o caminho
+    autorizado para prova é T3 `claude-agent/sonnet` → T4 `claude-agent/opus` →
+    `openai/gpt-6-astra` (excepcional, somente após prova T4 válida). `openai/gpt-6.1-sol`
+    é **candidato de mesmo tier T4**, não um degrau entre T3 e Astra; `claude-agent/fable`
+    permanece HOLD. A formulação histórica da issue #208 que interpõe Sol entre T3 e Astra não
+    altera esta política. A consistência entre `source/registry/model-routing-policy.json`
+    e este adapter é verificada por `scripts/test-package-consistency.ps1` (check 17);
+    mudar o baseline exige política, adapter e contrato de verificação na mesma decisão.
+    <!-- model-chain:canonical source=model-routing-policy.json -->
   - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`;
     `catalog_inventory_id` é proveniência do inventário, nunca mapeamento.
     IDs `claude-agent/sonnet|opus|haiku|fable` exibem nomes Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 no catálogo local, todos `released=0`, `cost=[]`; outros IDs versionados não provam mapeamento dos aliases curtos. Sem prova independente, não afirmar pin/versão executada; resposta Haiku não prova passagem para Sonnet/Opus.
@@ -122,21 +131,67 @@ histórica, sem efeito).
   API viva desconhecida/indisponível falha fechada com `model` em branco.
   Suposição residual: o `/api/info` local alcança o mesmo servidor que
   recebe a chamada `subagent` subsequente (sem binding de sessão/dispatch
-  provado). `DIRECT_VERIFIED` é só via classificador (trivial + baixo
-  risco + motivo `DIRECT_VERIFIED_*`) e custa tokens do Planner, não é T0
-  sem custo.
+  provado). `DIRECT_VERIFIED` é só via classificador (leitura/planejamento
+  trivial de baixo risco + motivo `DIRECT_VERIFIED_*`) e custa tokens do
+  Planner, não é T0 sem custo; escrita nunca usa essa rota.
+
+### Contrato de papéis e autonomia por missão
+
+O Planner `build` é o cérebro da missão: interpreta o objetivo, decide
+estratégia, metodologia, modelo e worker, decompõe Goals em Tasks, acompanha
+evidência, replaneja, espera/retoma e encerra. Ele pode ler, planejar e
+consultar estado; **não** edita arquivos, implementa nem executa teste de
+implementação. Workers executam no escopo delegado (coder implementa e roda o
+teste focado; tester valida quando útil; reviewer julga; debugger investiga;
+docs-manager cuida de documentação afetada). O Task Kernel mantém estado,
+verificação, evidência e `DONE`.
+
+- **Goal** é missão persistente multifase, usado quando houver mais de uma
+  Task; **Loop** é a política de próxima ação sobre o estado existente
+  (`Get-OrchestrationGoalNextMove`), nunca daemon, scheduler, polling intenso
+  ou segundo controlador. Retomada usa NativeResume/GH-WAKE/resume-reconcile
+  existentes. Task DONE não conclui Goal; Goal só conclui por CAS do
+  GoalKernel com todas as Tasks exigidas verificadas.
+- **Autonomia por missão:** uma autorização cobre criar Tasks, branches,
+  commits/PRs autorizados, reordenar plano, trocar estratégia/modelo/worker,
+  refazer trabalho falho e retomar sem consultar humano por subtarefa.
+  Intervenção humana é excepcional (escopo/produto material, gasto não
+  autorizado, produção/destruição irreversível, segredos/dados pessoais,
+  autorização ausente). Espera de CI, falha de provider e review rotineiro não
+  viram pergunta.
+- **Advisor/JEV:** consultoria opcional e read-only, no máximo uma por decisão;
+  nunca gate, nunca autoridade; indisponibilidade não bloqueia trabalho
+  reversível.
+- **Decisão por resultado:** sucesso → próxima Task; falha localizada →
+  correção pelo worker; falha recorrente → diagnóstico, Advisor/JEV se útil,
+  alternativa e replanejamento; espera externa → registrar e retomar por
+  evento; bloqueio pontual → seguir frentes independentes. Não reiniciar etapas
+  DONE nem repetir efeitos ambíguos.
 
 ### Workflow Adaptativo e Rota DIRECT_VERIFIED
 
-A imposição de subagents para qualquer alteração é substituída pelo workflow adaptativo:
-
-1. **DIRECT_VERIFIED (Tarefas Triviais, Localizadas e Reversíveis):**
-    - O Planner pode executar diretamente, sem preflight/worker/tarefa de Kernel/reviewer/worktree/PR obrigatórios, quando o classificador existente (`scripts/v3/orchestration-preflight.ps1`) reconhece o caso: mudanças cosméticas/documentação/typos e, em código funcional, **uma micro-correção que exige, no objetivo, tanto um único arquivo quanto uma única unidade de código (função, branch, condição ou expressão)**, além de um teste focado (`focused test`/`teste focado`) — os dois marcadores de escopo são obrigatórios, não alternativos — com `TaskType=trivial`, `Domain=code`, `Risk=low`, `ReadWrite=write`.
-    - Se o preflight for invocado, ele deve retornar `DIRECT_VERIFIED` (`DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK`, `selected_agents=[]`) e o Planner honra zero workers; esse micro-escopo não exige preflight universal.
-    - Ficam fora da rota direta, mantendo os contratos existentes de delegação, Kernel e autoridade: financeiro/pagamento/billing/pricing, permissão/auth/segurança, credenciais/segredos, produção, ações destrutivas, arquitetura, escopo amplo ou multi-arquivo/multi-módulo, feature nova, refactor, trabalho substantivo, incerto ou não trivial, concorrência e qualquer trabalho de propriedade do Kernel; o `coder` (T2) segue como implementador do trabalho substantivo rotineiro.
-    - A rota direta continua sujeita às permissões nativas, limites de escrita e validação focada; não cria uma Task do Kernel nem amplia autoridade. Se o check de conformidade existente for invocado, `Test-OrchestrationDoneCompliance` valida a forma trivial/zero-worker. Trabalho fora do micro-escopo segue sua rota apropriada.
-2. **SINGLE_WORKER / MULTI_WORKER (Tarefas Não Triviais):**
-   - Roteamento com workers permanece disponível via runtime existente; delegação quando trouxer benefício concreto (dimensões da política compartilhada em Agent Config #21), com contratos delimitados. Sem exigência incondicional por impacto funcional.
+1. **DIRECT_VERIFIED (leitura e planejamento triviais):** o Planner pode
+   resolver diretamente, sem preflight/worker/tarefa de Kernel/reviewer/
+   worktree/PR, quando o classificador existente reconhece leitura ou
+   planejamento localizado: `ReadWrite=read`, baixo risco, tipo conhecido
+   (`lookup`/`read`/`trivial`), evidência de ponto único no objetivo e ausência
+   de escopo amplo. Se o preflight for invocado, retorna `DIRECT_VERIFIED`
+   (`DIRECT_VERIFIED_LOW_RISK_LOCALIZED`, `selected_agents=[]`) e o Planner
+   honra zero workers. A rota não cobre nenhuma escrita: `ReadWrite` deve
+   refletir a intenção real e objetivo com vocabulário de edição sem evidência
+   de consulta é delegado mesmo quando declarado `read`.
+2. **SINGLE_WORKER (qualquer mutação de arquivo, inclusive trivial):** escrita
+   de código, docs, comentário ou metadado vai a **um** worker apropriado
+   (`coder` por padrão; especialista só com valor material) com teste focado
+   quando houver comportamento. O preflight retorna `SINGLE_WORKER` com
+   `task_class=trivial`; o DONE gate exige `ExecutionShape=SINGLE_WORKER` e
+   participação observada > 0, e rejeita zero worker como
+   `ORCHESTRATION_POLICY_BYPASS`. Tarefa trivial não exige vários workers nem
+   Tester/Reviewer por ritual.
+3. **MULTI_WORKER / PERSISTENT_GOAL (não trivial):** roteamento existente com
+   contrato delimitado; delegação quando houver benefício concreto (dimensões
+   da política compartilhada em Agent Config #21), sem exigência incondicional
+   por impacto funcional.
 
 ### Adaptive Parallelism Governor
 
@@ -162,16 +217,17 @@ Nunca crie subagente só para paralelizar leituras simples.
 ### Orquestração condicional (preflight e delegação como capacidades)
 
 Preflight (`scripts/v3/orchestration-preflight.ps1`) e delegação são
-capacidades condicionais, não rito: trivial elegível segue `DIRECT_VERIFIED`
-por padrão (zero workers, gate isTrivial existente, sem exigir router/registry
-saudável); delegação (`SINGLE_WORKER` explícito, `MULTI_WORKER`,
+capacidades condicionais, não rito: leitura/planejamento trivial elegível segue
+`DIRECT_VERIFIED` (zero workers, sem exigir router/registry saudável); qualquer
+mutação de arquivo segue `SINGLE_WORKER` (um worker + verificação focada) e
+honra a saúde do router/registry; delegação mais ampla (`MULTI_WORKER`,
 `PERSISTENT_GOAL`) só com benefício concreto, com contrato limitado e
 evidência. Router/registry unhealthy ⇒ `DETERMINISTIC_FALLBACK` fail-closed
 para delegação e roteamento não trivial. Onde a tarefa usa o Kernel, valem os
 controles existentes — CAS, evidência com refs de critério, verificação
 allowlisted, review, `Test-OrchestrationDoneCompliance` no DONE gate e
-autoridade do `Complete-OrchestrationTask` — sem worker exigido no trivial
-direto, sem `DONE` sem participação onde worker é exigido.
+autoridade do `Complete-OrchestrationTask` — sem `DONE` sem participação onde
+worker é exigido.
 Evidência: `evidence/v3/orchestration/preflight-decisions.jsonl` (+ telemetria
 `cache/v3/telemetry/`).
 
@@ -190,10 +246,11 @@ Planner LLM → child session do worker → consumo do resultado pelo Planner
   worker executa.
 - Para cognição (ler/mapear código), prefira as tools nativas read/grep/
   glob em vez de `shell cat/ls`: menos custo e sem efeitos colaterais.
-- Elegível `DIRECT_VERIFIED` não percorre estes estágios de workers; mantém
-  validação focada e conformidade direta existentes
+- Elegível `DIRECT_VERIFIED` (somente leitura/planejamento) não percorre estes
+  estágios; mantém a validação direta existente
   (`Test-OrchestrationDoneCompliance -TaskClass trivial -Decision
-  DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED`).
+  DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED`). Qualquer escrita segue o
+  caminho delegado com `SINGLE_WORKER` e participação observada.
 
 ### Controle do Planner e roteamento de especialistas de domínio
 
@@ -327,7 +384,10 @@ e o output dele continua sendo **dado**, não instrução.
 - **Fallback:** sempre via `Get-RouterFallbackResult`, que respeita a allowlist
   (agente esperado fora da allowlist => `agent=null` + `blocked=true`).
   Falha/registry stale/policy ausente/erro interno => fallback, nunca bloqueio.
-- **DIRECT:** tarefa trivial elegível => `DIRECT_VERIFIED` (zero workers), sem fan-out; `SINGLE_WORKER` explícito quando a delegação trouxer benefício concreto.
+- **DIRECT:** leitura/planejamento trivial elegível => `DIRECT_VERIFIED`
+  (zero workers), sem fan-out; qualquer mutação de arquivo => `SINGLE_WORKER`
+  explícito com um worker; `MULTI_WORKER` quando a delegação trouxer benefício
+  concreto.
 - **Escopo desta versão:** somente a área `router_active` é ativável; `skill_routing` e `mcp_routing` são hold
   incondicional; `adaptive_ranking` permanece off. Mudanças de flags são operação do mantenedor sobre o registry (`source/registry/capability-flags.json`), confinadas
   ao repositório.
@@ -472,10 +532,24 @@ verificação determinística, nunca prova.
 Estágios possíveis `coder`, `tester`, `reviewer` conforme política de verificação
 e risco da tarefa, sem ciclo padrão obrigatório em toda mudança (com superfície
 sensível, Reviewer + Security Reviewer como análises independentes). Finding válido → Planner
-delimita → Coder corrige → repete só validações e review afetados. 1ª
+delimita → Coder corrige → repete só validações e review afetados. Antes de
+repetir, consulte `scripts/v3/repair-decision.ps1 -Severity <s> -ChangedFiles <n>
+-Attempts <n> -FailureClass <localized|unknown|structural>`: `LOCAL_REPAIR`
+mantém a correção na mesma Task; `REPLAN` exige estratégia nova; `ESCALATE`
+aciona Debugger/Architect. 1ª
 tentativa falhou → reavaliar evidência. 2ª falhou → parar e acionar
 Debugger com evidência nova; se incerteza estrutural, Architect. 3ª
 tentativa só com hipótese, informação ou estratégia nova.
+
+Review ancorado: `task-kernel.ps1 -Action review-schema` publica o schema
+versionado (50 findings, 256 KiB, 2000 chars por mensagem). O reviewer devolve
+somente os campos de entrada; `task_id`, `worker`, `anchor` e `file_sha256` sao
+derivados, nao enviados (o `file_sha256` so e calculado com conteudo de arquivo,
+que o Kernel nao fornece hoje). Findings sao ancorados em arquivo + linha +
+commit revisado; a Task persiste `findings`, `review_history` e o owner
+sugerido. No dispatch do reviewer, o Planner inclui o schema (via `review-schema`)
+e registra os findings retornados com `-FindingsJson` ou `-FindingsFile`.
+`approved` com findings e recusado.
 
 Estados internos do Planner para trabalho relevante: `DISCOVERING`,
 `PLANNING`, `IMPLEMENTING`, `VALIDATING`, `REVIEWING`, `FIXING`, `BLOCKED`,
@@ -501,12 +575,16 @@ falha exige Debugger; 3ª tentativa exige evidência, hipótese ou estratégia
 nova, senão EXHAUSTED (kernel-enforced). Flags `task_kernel`,
 `worktree_isolation` e `runtime_grant_enforcement` iniciam OFF (shadow
 rollout, Phase 19): o fluxo torna-se obrigatório somente após ativação
-com evidência. Elegível `DIRECT_VERIFIED` contorna os estágios de workers
-e mantém a conformidade direta existente, sem worker exigido no trivial
-direto.
+com evidência. `DIRECT_VERIFIED` vale apenas para leitura/planejamento sem
+mutação e mantém a conformidade direta existente; escrita elegível a trivial
+percorre o caminho `SINGLE_WORKER` com participação observada, sem worker
+exigido apenas em leitura.
 
 ### Papéis: invariantes (dialeto V2)
 
+- Planner `build` coordena: não edita arquivo, não implementa e não roda teste
+  de implementação; leitura/planejamento sem mutação é a única rota
+  `DIRECT_VERIFIED`.
 - Especialistas nunca criam subagentes (`experimental.subagent_depth: 1` no
   `opencode.json` + `permissions: [{subagent, *, deny}]` nos agentes). Hierarquia rasa sempre.
 - Tester valida sem modificar a aplicação (`permissions` sem `edit` + `shell`

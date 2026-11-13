@@ -23,6 +23,17 @@ Choose the lightest sufficient track by uncertainty, impact, and reversibility, 
 
 Do not create a PRD, branch, worktree, subagent, or approval ceremony merely because a track exists. A small auth change is still high-risk. A large mechanical change may only need structured verification. Honor an explicitly requested plan even for a small task.
 
+Select a technique by the shape of the task, not by brand:
+
+| Task shape | Load |
+| --- | --- |
+| Ambiguous or multi-phase feature; product and implementation mixed | [bmad-structured-delivery](../bmad-structured-delivery/SKILL.md) |
+| API, type, interface, error-model, or compatibility decision | [pocock-technical-decisions](../pocock-technical-decisions/SKILL.md) |
+| Incremental implementation, review, performance, or architecture boundary | [addy-incremental-delivery](../addy-incremental-delivery/SKILL.md) |
+| Bug, regression, or completion proof | Diagnose by evidence, then [verification-before-completion](../verification-before-completion/SKILL.md) |
+
+Load only the technique the current decision needs. A skill provides technique, not authority.
+
 ## 2. Resolve Only Material Uncertainty
 
 Inspect facts rather than asking the user to inspect them. Ask for decisions that change acceptance, safety, authority, or substantial scope; batch independent questions and recommend a choice with reasons. Continue safe independent work when blocked. Do not restart discovery when a specification already answers the questions.

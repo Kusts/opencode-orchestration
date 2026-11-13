@@ -40,16 +40,22 @@ correta; sem commit/install/escrita global salvo pedido explícito.
   install/reconcile. `models.jsonc` é local e ignorado pelo git — nunca
   commitar. `cache/` e telemetria são estado local, não autoridade.
 
-## Orquestração (neste repo): direta no trivial elegível, delegação com benefício
+## Orquestração (neste repo): Planner coordena, worker executa
 
-Trabalho local, reversível e de baixo risco segue direto, sem despachar worker;
-trabalho substantivo prefere delegação quando houver qualquer vantagem concreta:
+O Planner deste checkout é o cérebro da missão (planejar, decidir, delegar,
+acompanhar, replanejar, encerrar); ele **não** edita arquivos, implementa nem
+roda teste de implementação. Leitura/análise/planejamento sem mutação pode ser
+resolvido direto; qualquer escrita de arquivo vai a um worker apropriado com
+teste focado.
+
+Trabalho substantivo prefere delegação quando houver vantagem concreta:
 modelo econômico, preservação do contexto principal, isolamento de grande
 volume, especialização técnica, análise/revisão independente, menor retrabalho,
 paralelismo útil, qualidade e custo total até o DONE verificado. Delegação
-(`SINGLE_WORKER` explícito, `MULTI_WORKER`, `PERSISTENT_GOAL`) ocorre nesses
-casos; checagens seguem proporcionais à política existente (sem tornar
-Tester/Reviewer obrigatórios em toda mudança). O preflight é capacidade condicional, chamada **antes** da
+(`SINGLE_WORKER` inclusive no trivial com escrita, `MULTI_WORKER`,
+`PERSISTENT_GOAL`) ocorre nesses casos; checagens seguem proporcionais à
+política existente (sem tornar Tester/Reviewer obrigatórios em toda mudança).
+O preflight é capacidade condicional, chamada **antes** da
 primeira ação quando houver dúvida sobre a rota:
 
 ```powershell
@@ -61,16 +67,18 @@ Preencha cada placeholder com o valor real da tarefa (nao copie literalmente); `
 Chamada sem parametros falha com exit 2 (uso impresso em stderr);
 alternativa: `-TaskFile <json>` com os mesmos campos.
 
-Estados: `DIRECT_VERIFIED` (trivial elegível, zero workers, sem exigir
-router/registry saudável), `SINGLE_WORKER`, `MULTI_WORKER`, `PERSISTENT_GOAL`,
+Estados: `DIRECT_VERIFIED` (leitura/planejamento trivial, zero workers, sem
+exigir router/registry saudável), `SINGLE_WORKER` (inclui escrita trivial: um
+worker + verificação focada), `MULTI_WORKER`, `PERSISTENT_GOAL`,
 `DETERMINISTIC_FALLBACK`, `BLOCKED` (v0.1.0: `TRIVIAL_DIRECT`/`DELEGATED`
 migrados; compliance de trivial exige `ExecutionShape=DIRECT_VERIFIED` com
-`direct_reason=DIRECT_VERIFIED_*`, ou `ExecutionShape=SINGLE_WORKER` com
-participação observada; tokens `DIRECT_*` legados sao rejeitados fail-closed).
-Sem worker onde worker é exigido (não trivial delegado) ⇒
+`direct_reason=DIRECT_VERIFIED_*` **somente em leitura**, ou
+`ExecutionShape=SINGLE_WORKER` com participação observada em qualquer escrita;
+tokens `DIRECT_*` legados sao rejeitados fail-closed).
+Sem worker onde worker é exigido (não trivial delegado ou escrita trivial) ⇒
 `ORCHESTRATION_POLICY_BYPASS`, sem `DONE` compliant. Router/registry unhealthy
 ⇒ fallback determinístico para delegação e roteamento não trivial, nunca
-execução solitária onde worker é exigido; a rota direta elegível não depende
+execução solitária onde worker é exigido; a rota direta de leitura não depende
 do router.
 
 Delegação com contrato limitado: `TASK_ID`, `OBJECTIVE`, `READ_SCOPE`,

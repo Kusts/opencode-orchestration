@@ -553,7 +553,8 @@ function Get-OrchestrationPreflight {
             # substring/prefixo (fail-closed para delegacao).
             $broadScopeHit = Test-OrchestrationKeyword -Blob $objSubstantiveBlob -Words @('across', 'throughout', 'entire', 'whole', 'codebase', 'repository', 'repositorio', 'modules', 'modulos', 'usages', 'usage', 'inteir', 'varios', 'varias', 'repo-wide', 'repo wide', 'throughout the repository', 'throughout the codebase', 'throughout the repo') -Exact @('all', 'every', 'multiple', 'several', 'various', 'todos', 'todas', 'everywhere', 'globally', 'globalmente')
 
-            $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $substantiveHit) -and ($pointLookupHit -or $microEditHit) -and (-not $broadScopeHit))
+            $isReadTrivial = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $substantiveHit) -and $pointLookupHit -and (-not $broadScopeHit))
+            $isReadEditDelegated = ($lenOk -and $riskOk -and ($rw -ceq 'read') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $substantiveHit) -and $microEditHit -and (-not $pointLookupHit) -and (-not $broadScopeHit))
             $isMicroEditWrite = ($lenOk -and $riskOk -and ($rw -ceq 'write') -and $typeOk -and $localizedOk -and (-not $archHit) -and (-not $sensitiveHit) -and (-not $substantiveHit) -and $microEditHit -and (-not $broadScopeHit) -and ($dom -in @('docs', 'documentation', 'comments', 'formatting', 'metadata', 'chore')))
             # F2 narrow routing change: one localized functional code micro-edit
             # with an explicit focused test. Requires explicit trivial/code
@@ -564,23 +565,23 @@ function Get-OrchestrationPreflight {
             if ($isReadTrivial) {
                 $isTrivial = $true
                 $directReason = 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED'
+            } elseif ($isReadEditDelegated) {
+                $isTrivial = $true
+                $directReason = ''
             } elseif ($isMicroEditWrite) {
                 $isTrivial = $true
-                $directReason = 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK'
+                $directReason = ''
             } elseif ($isCodeMicroEditWrite) {
                 $isTrivial = $true
-                $directReason = 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK'
+                $directReason = ''
             }
         }
         catch { $isTrivial = $false }
 
-        # #201/#201-fatia2: eligible safe trivial with omitted or DIRECT_VERIFIED
-        # strategy takes the existing DIRECT_VERIFIED route (zero workers). The
-        # classifier above (low risk, localized, known task type, no architecture
-        # decision, read or docs-only micro-edit without sensitive keywords) is
-        # pure-local and needs no router/registry, so it returns before the
-        # health check below.
-        if ($isTrivial -and ([string]::IsNullOrWhiteSpace($ExecutionStrategy) -or ($ExecutionStrategy -ieq 'DIRECT_VERIFIED'))) {
+        # Only read-only trivial work may use DIRECT_VERIFIED, independent of
+        # router/registry health. Writes remain delegated, even with an explicit
+        # DIRECT_VERIFIED strategy.
+        if ($isReadTrivial -and ([string]::IsNullOrWhiteSpace($ExecutionStrategy) -or ($ExecutionStrategy -ieq 'DIRECT_VERIFIED'))) {
             $checkDirect = "Test-OrchestrationDoneCompliance -TaskClass trivial -Decision DIRECT_VERIFIED -ExecutionShape DIRECT_VERIFIED -DirectReason $directReason"
             return (& $mkResult 'DIRECT_VERIFIED' 'trivial' $directReason @() '' 'OK' $checkDirect)
         }

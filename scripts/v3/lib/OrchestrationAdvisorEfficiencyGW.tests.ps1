@@ -32,8 +32,8 @@ function Assert-GW([bool]$Condition, [string]$WorkflowId, [string]$Message) {
 }
 
 # GW-ADVISOR-01: Tarefa trivial/cosmetica aciona rota DIRECT_VERIFIED com custo zero de subagent
-$pf01 = Get-OrchestrationPreflight -Objective "fix typo in header" -TaskType "trivial" -Domain "docs" -Risk "low" -ReadWrite "read" -ExecutionStrategy "DIRECT_VERIFIED"
-Assert-GW ($pf01.orchestration_decision -eq 'DIRECT_VERIFIED') 'GW-ADVISOR-01' "Preflight seleciona DIRECT_VERIFIED para typo em documentacao"
+$pf01 = Get-OrchestrationPreflight -Objective "where is the documentation header defined" -TaskType "lookup" -Domain "docs" -Risk "low" -ReadWrite "read" -ExecutionStrategy "DIRECT_VERIFIED"
+Assert-GW ($pf01.orchestration_decision -eq 'DIRECT_VERIFIED') 'GW-ADVISOR-01' "Preflight seleciona DIRECT_VERIFIED para lookup read-only em documentacao"
 $comp01 = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0
 Assert-GW ($comp01 -eq 'COMPLIANT') 'GW-ADVISOR-01' "Compliance aprova conclusao direta com zero workers (conformidade de rota apenas; sem medicao de tokens/custo/savings)"
 
@@ -147,7 +147,7 @@ Assert-GW ($resp08.RejectionReason -match 'Anti-pattern') 'GW-ADVISOR-08' "Motiv
 
 # INT-01-NATIVE-DIRECT: Integracao DIRECT_VERIFIED (leitura trivial e microedicao com escrita)
 # 1a. Leitura trivial de documentacao
-$intPf01Read = Get-OrchestrationPreflight -Objective "update README typos" -TaskType "trivial" -Domain "docs" -Risk "low" -ReadWrite "read" -ExecutionStrategy "DIRECT_VERIFIED"
+$intPf01Read = Get-OrchestrationPreflight -Objective "where is the README section defined" -TaskType "lookup" -Domain "docs" -Risk "low" -ReadWrite "read" -ExecutionStrategy "DIRECT_VERIFIED"
 Assert-GW ($intPf01Read.orchestration_decision -eq 'DIRECT_VERIFIED') 'INT-01-DIRECT' "Preflight real confirma decisao DIRECT_VERIFIED para leitura trivial"
 Assert-GW ($intPf01Read.direct_reason -eq 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED') 'INT-01-DIRECT' "Razao canônica para leitura trivial"
 $intComp01Read = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_LOW_RISK_LOCALIZED' -ActualWorkerParticipation 0
@@ -155,10 +155,9 @@ Assert-GW ($intComp01Read -eq 'COMPLIANT') 'INT-01-DIRECT' "Compliance do kernel
 
 # 1b. Microedicao com escrita legitima (ReadWrite=write, cosmetic/typo em documentacao)
 $intPf01Write = Get-OrchestrationPreflight -Objective "corrigir pontuacao no guia de instalacao" -TaskType "cosmetic" -Domain "docs" -Risk "low" -ReadWrite "write" -ExecutionStrategy "DIRECT_VERIFIED"
-Assert-GW ($intPf01Write.orchestration_decision -eq 'DIRECT_VERIFIED') 'INT-01-DIRECT' "Preflight aceita microedicao com escrita legitima em docs"
-Assert-GW ($intPf01Write.direct_reason -eq 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK') 'INT-01-DIRECT' "Razao canônica DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK para escrita proporcional"
-$intComp01Write = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK' -ActualWorkerParticipation 0
-Assert-GW ($intComp01Write -eq 'COMPLIANT') 'INT-01-DIRECT' "Compliance aprova microedicao com escrita proporcional"
+Assert-GW (($intPf01Write.orchestration_decision -eq 'SINGLE_WORKER') -and (@($intPf01Write.selected_agents).Count -gt 0) -and [string]::IsNullOrEmpty($intPf01Write.direct_reason)) 'INT-01-DIRECT' "Escrita em docs exige worker e nao usa direct_reason"
+$intComp01Write = Test-OrchestrationDoneCompliance -TaskClass 'trivial' -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -ActualWorkerParticipation 1
+Assert-GW ($intComp01Write -eq 'COMPLIANT') 'INT-01-DIRECT' "DONE gate aprova escrita com participacao observada"
 
 # 1c. Protecao contra escrita sensivel ou alto risco (nunca permite DIRECT_VERIFIED)
 $intPf01Sens = Get-OrchestrationPreflight -Objective "alterar permissao de seguranca no auth token" -TaskType "cosmetic" -Domain "security" -Risk "high" -ReadWrite "write" -ExecutionStrategy "DIRECT_VERIFIED"

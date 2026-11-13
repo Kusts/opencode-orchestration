@@ -64,12 +64,23 @@ function Get-GWAllChecksOk {
     }
     return $out
 }
-# --- GW-01: cosmetic typo => DIRECT_VERIFIED with zero workers (default).
-$gw01 = Get-OrchestrationPreflight -Objective 'Fix typo in readme footer' -TaskType 'cosmetic' -Domain '' -Risk 'low' -ReadWrite 'read'
-Assert-GWThat (([string]$gw01.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$gw01.task_class -ceq 'trivial')) 'GW-01 cosmetic typo is direct-verified trivial'
-Assert-GWThat ((@($gw01.selected_agents).Count -eq 0)) 'GW-01 direct path selects zero workers'
-$gw01comp = Test-OrchestrationDoneCompliance -TaskClass ([string]$gw01.task_class) -Decision ([string]$gw01.orchestration_decision) -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$gw01.direct_reason) -ActualWorkerParticipation 0
-Assert-GWThat (([string]$gw01comp -ceq 'COMPLIANT')) 'GW-01 direct-verified trivial is compliant with zero workers'
+# --- GW-01a: pure lookup => DIRECT_VERIFIED with zero workers.
+$gw01a = Get-OrchestrationPreflight -Objective 'where is the readme footer defined' -TaskType 'lookup' -Domain 'docs' -Risk 'low' -ReadWrite 'read'
+Assert-GWThat (([string]$gw01a.orchestration_decision -ceq 'DIRECT_VERIFIED') -and ([string]$gw01a.task_class -ceq 'trivial') -and (@($gw01a.selected_agents).Count -eq 0)) 'GW-01a pure lookup is direct-verified trivial with zero workers'
+$gw01acomp = Test-OrchestrationDoneCompliance -TaskClass ([string]$gw01a.task_class) -Decision 'DIRECT_VERIFIED' -ExecutionShape 'DIRECT_VERIFIED' -DirectReason ([string]$gw01a.direct_reason) -ActualWorkerParticipation 0
+Assert-GWThat (([string]$gw01acomp -ceq 'COMPLIANT')) 'GW-01a direct-verified lookup passes DONE gate with zero workers'
+
+# --- GW-01b: trivial docs write => SINGLE_WORKER with observed participation.
+$gw01b = Get-OrchestrationPreflight -Objective 'Fix typo in readme footer' -TaskType 'cosmetic' -Domain 'docs' -Risk 'low' -ReadWrite 'write'
+Assert-GWThat (([string]$gw01b.orchestration_decision -ceq 'SINGLE_WORKER') -and ([string]$gw01b.task_class -ceq 'trivial') -and [string]::IsNullOrEmpty([string]$gw01b.direct_reason) -and (@($gw01b.selected_agents).Count -ge 1)) 'GW-01b trivial write requires worker with empty direct reason'
+$gw01bcomp = Test-OrchestrationDoneCompliance -TaskClass ([string]$gw01b.task_class) -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -DirectReason ([string]$gw01b.direct_reason) -ActualWorkerParticipation 1
+Assert-GWThat (([string]$gw01bcomp -ceq 'COMPLIANT')) 'GW-01b trivial write passes DONE gate with worker participation'
+$gw01bNoWorker = Test-OrchestrationDoneCompliance -TaskClass ([string]$gw01b.task_class) -Decision 'SINGLE_WORKER' -ExecutionShape 'SINGLE_WORKER' -DirectReason ([string]$gw01b.direct_reason) -ActualWorkerParticipation 0
+Assert-GWThat (([string]$gw01bNoWorker -ceq 'ORCHESTRATION_POLICY_BYPASS')) 'GW-01b trivial write with zero participation is bypass'
+
+# --- GW-01c: write without a recognized domain remains delegated, never direct.
+$gw01c = Get-OrchestrationPreflight -Objective 'Fix typo in readme footer' -TaskType 'cosmetic' -Domain '' -Risk 'low' -ReadWrite 'write'
+Assert-GWThat ([string]$gw01c.orchestration_decision -cne 'DIRECT_VERIFIED') 'GW-01c write without domain is never direct-verified'
 # --- GW-02: bug fix (medium/write) => MULTI_WORKER.
 $gw02 = Get-OrchestrationPreflight -Objective 'Fix cart total calculation bug in checkout rendering flow with rounding edge cases covered by unit tests and review' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write'
 Assert-GWThat (([string]$gw02.orchestration_decision -ceq 'MULTI_WORKER') -and ([string]$gw02.task_class -ceq 'non_trivial')) 'GW-02 bug fix is multi-worker non-trivial'

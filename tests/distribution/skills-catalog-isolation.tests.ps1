@@ -62,7 +62,7 @@ try {
     # sem nenhuma outra falha (inventario, schema, etc.).
     $notOkLines = @([regex]::Matches($b.output, 'NOT OK - [^\r\n]*') | ForEach-Object { $_.Value })
     $onlyExpectedFailure = ($notOkLines.Count -eq 1) -and ($notOkLines[0] -match 'skills-healthcheck verdict PASS')
-    Assert (($b.exit_code -eq 1) -and ($b.output -match 'ok - catalogo == inventario versionado') -and $onlyExpectedFailure) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
+    Assert (($b.exit_code -eq 1) -and ($b.output -match 'ok - catalogo cobre inventario \+ adicoes repo-pinned') -and $onlyExpectedFailure) 'catalogo versionado nao exige igualdade com roots pessoais' $b.output
 
     $coreId = 'hybrid-development'
     $shadowA = Join-Path $agents $coreId

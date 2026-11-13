@@ -83,7 +83,7 @@ function New-SeedHome([string]$Home2) {
   New-Item -ItemType Directory -Path (Join-Path $oc 'agents') -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $oc 'agents\coder.md'), "# coder A`r`n# segunda linha CRLF`r`n", $utf8)
   [IO.File]::WriteAllText((Join-Path $oc 'agents\debugger.md'), "# debugger A`n", $utf8)
-  foreach ($s in @('dispatching-parallel-agents', 'hybrid-development', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
+  foreach ($s in @('addy-incremental-delivery', 'bmad-structured-delivery', 'dispatching-parallel-agents', 'hybrid-development', 'pocock-technical-decisions', 'subagent-driven-development', 'using-superpowers', 'verification-before-completion')) {
     New-Item -ItemType Directory -Path (Join-Path $oc ('skills\' + $s)) -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $oc ('skills\' + $s + '\SKILL.md')), ("# skill A " + $s + "`n"), $utf8)
   }

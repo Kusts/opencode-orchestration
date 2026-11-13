@@ -11,7 +11,10 @@
       record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision; optional strategy/recovery fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -FailureClass -FailureDetail -RecoverySource -NewEvidenceRefs)
       verify        - Set-OrchestrationTaskVerification (UNTRUSTED caller JSON/file; persists verification_source=caller-supplied, never proof-capable)
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
-      review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision)
+      review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
+      review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+      event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
+      event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary; idempotent consumption/settlement ack)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
@@ -62,6 +65,12 @@ param(
     [string]$ReviewKind = '',
     [string]$ReviewStatus = '',
     [string]$ReviewBy = '',
+    [string]$FindingsFile = '',
+    [string]$FindingsJson = '',
+    [string]$EnvelopeFile = '',
+    [string]$EnvelopeJson = '',
+    [string]$DedupKey = '',
+    [string]$ResponseSummary = '',
     [string]$Reason = '',
     [int]$ExpectedRevision = -1,
     [string[]]$ResidualRisks = @(),
@@ -186,9 +195,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|verify|review|review-schema|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
     exit 2
 }
 
@@ -261,6 +270,23 @@ function Convert-TaskKernelBudgetInt {
 
 $result = $null
 switch ($action) {
+    'review-schema' {
+        $hasReviewSchemaArgs = (-not [string]::IsNullOrWhiteSpace($TaskId)) -or
+            (($PSBoundParameters.ContainsKey('ExpectedRevision')) -and ([int]$ExpectedRevision -ne 0)) -or
+            (-not [string]::IsNullOrWhiteSpace($ReviewKind)) -or
+            (-not [string]::IsNullOrWhiteSpace($ReviewStatus)) -or
+            (-not [string]::IsNullOrWhiteSpace($ReviewBy)) -or
+            (-not [string]::IsNullOrWhiteSpace($FindingsFile)) -or
+            (-not [string]::IsNullOrWhiteSpace($FindingsJson))
+        if ($hasReviewSchemaArgs) {
+            Write-TaskKernelCliError 'review-schema nao aceita -TaskId, -ExpectedRevision diferente de 0, -ReviewKind, -ReviewStatus, -ReviewBy, -FindingsFile ou -FindingsJson.'
+            exit 2
+        }
+        . (Join-Path $v3root 'lib\OrchestrationReviewAnchor.ps1')
+        $reviewSchema = Get-OrchestrationReviewFindingsSchema
+        Write-Output (ConvertTo-Json -InputObject $reviewSchema -Depth 8)
+        exit 0
+    }
     'create' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Objective)) {
             Write-TaskKernelCliError 'create exige -TaskId e -Objective.'
@@ -432,8 +458,68 @@ switch ($action) {
             exit 2
         }
         Assert-TaskKernelRevision
+        if ((-not [string]::IsNullOrWhiteSpace($FindingsFile)) -and (-not [string]::IsNullOrWhiteSpace($FindingsJson))) {
+            Write-TaskKernelCliError 'review aceita -FindingsFile OU -FindingsJson, nunca ambos.'
+            exit 2
+        }
+        $reviewFindings = $FindingsJson
+        if (-not [string]::IsNullOrWhiteSpace($FindingsFile)) {
+            if (-not (Test-Path -LiteralPath $FindingsFile -PathType Leaf)) {
+                Write-TaskKernelCliError 'review: arquivo de findings nao encontrado.'
+                exit 2
+            }
+            try { $reviewFindings = [IO.File]::ReadAllText($FindingsFile, [Text.UTF8Encoding]::new($false)) }
+            catch {
+                Write-TaskKernelCliError 'review: falha ao ler o arquivo de findings.'
+                exit 2
+            }
+        }
         $result = Set-OrchestrationTaskReview -TaskId $TaskId -Kind $ReviewKind -Status $ReviewStatus -By $ReviewBy `
-            -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
+            -ExpectedRevision ([int]$ExpectedRevision) -FindingsJson $reviewFindings -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'event-attach' {
+        if ([string]::IsNullOrWhiteSpace($TaskId)) {
+            Write-TaskKernelCliError 'event-attach exige -TaskId -ExpectedRevision e -EnvelopeFile ou -EnvelopeJson.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        if ((-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) -and (-not [string]::IsNullOrWhiteSpace($EnvelopeJson))) {
+            Write-TaskKernelCliError 'event-attach aceita -EnvelopeFile OU -EnvelopeJson, nunca ambos.'
+            exit 2
+        }
+        $envText = $EnvelopeJson
+        if (-not [string]::IsNullOrWhiteSpace($EnvelopeFile)) {
+            if (-not (Test-Path -LiteralPath $EnvelopeFile -PathType Leaf)) {
+                Write-TaskKernelCliError 'event-attach: arquivo de envelope nao encontrado.'
+                exit 2
+            }
+            $envInfo = Get-Item -LiteralPath $EnvelopeFile
+            if ([int64]$envInfo.Length -gt 65536) {
+                Write-TaskKernelCliError 'event-attach: envelope acima do limite.'
+                exit 2
+            }
+            try { $envText = [IO.File]::ReadAllText($EnvelopeFile, [Text.UTF8Encoding]::new($false)) }
+            catch {
+                Write-TaskKernelCliError 'event-attach: falha ao ler o envelope.'
+                exit 2
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($envText)) {
+            Write-TaskKernelCliError 'event-attach exige -EnvelopeFile ou -EnvelopeJson.'
+            exit 2
+        }
+        $result = Add-OrchestrationTaskEvent -TaskId $TaskId -EnvelopeJson $envText -ExpectedRevision ([int]$ExpectedRevision) `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'event-ack' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($DedupKey) -or [string]::IsNullOrWhiteSpace($SessionId)) {
+            Write-TaskKernelCliError 'event-ack exige -TaskId -DedupKey -SessionId -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $result = Confirm-OrchestrationTaskEvent -TaskId $TaskId -DedupKey $DedupKey -SessionId $SessionId `
+            -ResponseSummary $ResponseSummary -ExpectedRevision ([int]$ExpectedRevision) `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'block' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason)) {
