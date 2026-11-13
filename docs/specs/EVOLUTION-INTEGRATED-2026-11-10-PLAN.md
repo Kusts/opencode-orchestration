@@ -371,6 +371,13 @@ mensagem (input 108, cache read 47.744) sem repetir a tarefa. Goal
 (amostras reais, custo `UNKNOWN`) integradas ao mandato. #140 provado com
 `POST/GET/DELETE /api/worktree`; #203 provado em leitura com
 `ssh contabo-prod "uname -a; docker ps"`. M7/#205 permanece HOLD.
+**Retomada 2026-11-12 (#12):** wiring do `worker_result.detail` no Task Kernel
+concluído (`Set-OrchestrationTaskWorkerResult`, preview+artifact_ref
+content-addressed, confinamento/redação, erros tipados); testes
+`OrchestrationTaskKernelEvidenceVirtualization.tests.ps1` 10/10 e runner
+`OrchestrationTaskKernel` 5/5 em PS7/PS5.1; medição 1.939→4.372 B (artefato
+120.003 B, store 326/369 ms, recall 1/8 ms). #11 segue PARCIAL.
+**Atualização 2026-11-12 (#200/#103):** E2E vivo concluído na task `e2e-review-repair-001` (2 findings ancorados CHANGES_REQUIRED → decisão advisory LOCAL_REPAIR persistida em `repair_decisions` → correção → re-review APPROVED → `verified_pass` kernel-executed → DONE rev 12); #200/#103 COBERTOS, sem relaxamento de gates nem mudança em `verified_pass`/DONE.
 
 **M3 fechado em 2026-11-11:** #140 provado com `POST/GET/DELETE /api/worktree`
 (worktree descartável criado, usado e removido; nenhum existente tocado).
@@ -507,7 +514,7 @@ sessão, sem refazer o que já está provado.
 
 ### 14.2 Ordem recomendada
 
-1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).**
+1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).** — **concluído em 2026-11-12 (#12).**
    - Inspecionar `Set-OrchestrationTaskWorkerResult` e `evidence_refs` em
      `OrchestrationTaskKernel.ps1`; integrar `New-OrchestrationArtifactRef`
      para detalhes/logs grandes, persistindo ref + preview e recuperando por
@@ -519,11 +526,12 @@ sessão, sem refazer o que já está provado.
    - Base existente: `scripts/v3/evidence-virtualize.ps1` (7/7),
      `scripts/v3/cache-metrics.ps1` (4/4), `OrchestrationObservationVirtualization.ps1`,
      `OrchestrationCacheMetrics.ps1`.
-2. **#200/#103 — E2E com o fluxo real.**
+   - **Resultado (2026-11-12):** `Set-OrchestrationTaskWorkerResult` passou a aceitar `-DetailContent`/`-DetailPath`/`-DetailKind`/`-EvidenceStoreDir`/`-DetailPreviewChars` e persiste `worker_result.detail` aditivo com `preview` (<=2000 chars), `truncated`, `total_chars` e `artifact_ref` content-addressed ordenado (`sha256/path/bytes/kind/created`). Artefato redigido antes de persistir (`DETAIL_REDACTION_UNAVAILABLE` se indisponível); erros tipados/fail-closed `DETAIL_INPUT_CONFLICT`, `DETAIL_PATH_INVALID`, `DETAIL_PATH_NOT_ALLOWED`, `DETAIL_TOO_LARGE`, `DETAIL_ARTIFACT_FAILED`; `DetailPath`/`EvidenceStoreDir` confinados a `RepoRoot\cache` (boundary case-insensitive, sem `.git`/`models.jsonc`/`.env*`/`TasksDir`/segmentos com `:`/`~`/UNC/`\\?\`/>1 MiB/reparse-junction). Virtualização antes de `Write-TaskKernelRecord` e após todos os gates; sem `evidence_refs` top-level; `claimed_evidence/status/revision/produced_by` e `schema_version=1` intocados; DONE/`verified_pass`/settlement/freshness inalterados. Medição: task JSON 1.939 B sem detalhe → 4.372 B com detalhe 120 KB (delta 2.433 B), artefato 120.003 B; store 326/369 ms e recall 1/8 ms (PS7/PS5.1). Gate feliz: `wr.ok=True verify.ok=True done.ok=True state=DONE detail.sha256=f14668a90eed4e404e6366a6eda7b474a8cb91dd1f6b20c1958e5aa684538455`. Testes: `OrchestrationTaskKernelEvidenceVirtualization.tests.ps1` 10/10 e runner `-Name OrchestrationTaskKernel` 5/5 em PS7/PS5.1; `test-package-consistency.ps1` 17/17; `git diff --check` 0. Revisão independente APPROVED (rodada 4), LOWs aceitos (artefato órfão se write do record falhar; TOCTOU residual reparse→gravação; nomes com `~`/`:` em `cache` recusados). #11 permanece PARCIAL (medição de cache em execução real pendente).
+2. **#200/#103 — E2E com o fluxo real.** — **concluído em 2026-11-12.**
    - Reviewer recebe o schema por padrão (`reviewer.md` + `review-schema`);
-     Planner interpreta findings, roda `repair-decision` e delega a correção.
-   - Aceite: findings ancorados persistidos na Task, decisão registrada e
-     correção validada sem novo gate.
+     Planner interpreta findings, roda `repair-decision`, persiste a decisão
+     advisory e delega a correção.
+   - **Resultado (2026-11-12):** código: `Add-OrchestrationTaskRepairDecision` no Task Kernel persiste `repair_decisions` (array aditivo, bound 20) com `decision/reason/constraints/severity/changed_files/scope_overlap/external_effects_ambiguous/evidence_current/attempts/failure_class/recorded_by/at/revision` (lock+CAS, recusa terminal, erros tipados `REPAIR_DECISION_INVALID`/`REPAIR_DECISION_NOT_ALLOWED`/`REPAIR_DECISION_TOO_LARGE`/`CAS_CONFLICT`, validação de contexto; advisory, sem gate — nenhum consumidor de DONE lê `repair_decisions`). CLI: `task-kernel.ps1 -Action record-repair-decision` (`-TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy`). Mandato V2: Planner roda `review-schema`, inclui schema no dispatch do reviewer, registra findings com `-FindingsJson/-FindingsFile` e persiste a decisão com `record-repair-decision` (bundle regenerado; sidecar confere; typecheck v1/v2/dual PASS). Testes: `OrchestrationReviewRepairLoop` 17/17 (PS7/PS5.1), `OrchestrationReviewAnchor` 29/29, `OrchestrationReviewIntegration` 17/17, `OrchestrationLocalizedRepair` 13/13, `repair-decision` 10/10, runner `-Name OrchestrationTaskKernel` 5/5; `package-consistency` 17/17; `git diff --check` 0. E2E vivo (fixture `cache/e2e-review-repair-6ee1a9eb`, git real, task `e2e-review-repair-001`): implementação inicial `74847a6`; reviewer real com schema retornou CHANGES_REQUIRED com 2 findings ancorados (F1-no-input-validation, F2-missing-nonnumeric-test) persistidos na revisão 6 (âncoras `4016527d...`, `866a2762...`); `repair-decision` retornou LOCAL_REPAIR/localized-finding e decisão persistida na revisão 7; correção `42b2d22` (validação de inteiros e teste negativo); re-review APPROVED; verificação kernel-executed `verified_pass` (revisão 10); REVIEWING (11) e DONE (revisão 12). `review_history` preserva a rodada CHANGES_REQUIRED; `repair_decisions` preserva a decisão. Persistência no E2E feita via libs (as mesmas dos testes); CLI `record-repair-decision` com smoke próprio. Nenhum gate relaxado; `verified_pass`/DONE inalterados.
 3. **#183 — produtor externo de eventos.**
    - Avaliar webhook/Action que emite o envelope `source/trigger/thread/
      delivery_id`; não fabricar `delivery_id` no tick. Se o produtor ficar
