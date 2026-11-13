@@ -7,9 +7,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Unreleased]
 
 - **Agent Teams #2 - fatia 1:** Task Kernel registra membros subordinados
-  com papel canonico, limite 8 e gate de coordenador; sem spawn ou execucao.
-  Suite focada: 25 asserts em PS 5.1/pwsh; Bindings 29/29 em PS 5.1/pwsh, Handback 24,
-  Event 7 suites, package-consistency 17/17 e diff-check limpo.
+  com papel canonico, limite 8 e gate de coordenador obrigatorio; identidade
+  afirmada pelo chamador (nao prova criptografica). Suite focada: 36 asserts
+  em PS 5.1/pwsh; Bindings 29/29 em ambos, Handback 24/24 em ambos,
+  package-consistency 17/17 e diff-check limpo. Sem spawn ou execucao.
 
 - **Verificação HMAC opt-in do ingress GitHub (#183):** verificador reutilizável de `X-Hub-Signature-256`, leitura restrita de segredo e integração fail-closed opcional no intake antes de parse/ledger; sem segredo mantém legado explícito. Testes atualizados: assinatura 31 asserts, intake 18/18; `OrchestrationEvent*` 7/7 suites em Windows PowerShell 5.1 e pwsh; package-consistency 17/17. Evidência: `evidence/evolution-2026-11-10/m6-ingress-signature-183.md`. #183 permanece PARCIAL (sem produtor/receiver real, rotação ou proteção de replay).
 

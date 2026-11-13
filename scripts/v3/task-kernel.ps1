@@ -2,6 +2,9 @@
 .SYNOPSIS
     Task Kernel CLI: thin wrapper over lib/OrchestrationTaskKernel.ps1.
 .DESCRIPTION
+    For team-add/team-release, CoordinatorSessionId is caller-asserted,
+    like bind-session identity. The gate blocks worker self-promotion but
+    does not cryptographically prove the originating session.
     Actions:
       create        - New-OrchestrationTask (needs -TaskId -Objective; optional -Project for active-work dedupe: same objective+scope+DoD+project on an ACTIVE task returns DUPLICATE_ACTIVE_WORK, never merges; optional -RequireTypedWaits switch for a sticky per-task typed-wait requirement; optional -VerificationProfiles commits the immutable verification plan before model dispatch)
       check-duplicate - Get-OrchestrationDuplicateWork query (needs -Objective; optional scopes/criteria/project; read-only, no creation)
@@ -221,7 +224,7 @@ $validActions = @('create', 'get', 'status', 'transition', 'record-result', 'rec
     'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select',
     'team-add', 'team-release', 'team-get')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action <acao>; team-add exige -TaskId -SessionId -Role -RunId -ExpectedRevision; team-release exige -TaskId -SessionId -ExpectedRevision; team-get exige -TaskId.'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action <acao>; team-add exige -TaskId -SessionId -Role -RunId -CoordinatorSessionId -ExpectedRevision; team-release exige -TaskId -SessionId -CoordinatorSessionId -ExpectedRevision; team-get exige -TaskId.'
     exit 2
 }
 
@@ -296,8 +299,9 @@ $result = $null
 switch ($action) {
     'team-add' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or
-            [string]::IsNullOrWhiteSpace($Role) -or [string]::IsNullOrWhiteSpace($RunId)) {
-            Write-TaskKernelCliError 'team-add exige -TaskId -SessionId -Role -RunId -ExpectedRevision.'
+            [string]::IsNullOrWhiteSpace($Role) -or [string]::IsNullOrWhiteSpace($RunId) -or
+            [string]::IsNullOrWhiteSpace($CoordinatorSessionId)) {
+            Write-TaskKernelCliError 'team-add exige -TaskId -SessionId -Role -RunId -CoordinatorSessionId -ExpectedRevision.'
             exit 2
         }
         Assert-TaskKernelRevision
@@ -306,7 +310,11 @@ switch ($action) {
             -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'team-release' {
-        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId)) { Write-TaskKernelCliError 'team-release exige -TaskId -SessionId -ExpectedRevision.'; exit 2 }
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or
+            [string]::IsNullOrWhiteSpace($CoordinatorSessionId)) {
+            Write-TaskKernelCliError 'team-release exige -TaskId -SessionId -CoordinatorSessionId -ExpectedRevision.'
+            exit 2
+        }
         Assert-TaskKernelRevision
         $result = Remove-OrchestrationTaskTeamMember -TaskId $TaskId -SessionId $SessionId `
             -CoordinatorSessionId $CoordinatorSessionId -ExpectedRevision $ExpectedRevision `
@@ -581,7 +589,7 @@ switch ($action) {
             -ContextOnly:$ContextOnly -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'handback' {
-        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Summary)) { Write-TaskKernelCliError 'handback exige -TaskId -SessionId -Summary -ExpectedRevision; team-add/-team-release exigem -TaskId -SessionId -ExpectedRevision.'; exit 2 }
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Summary)) { Write-TaskKernelCliError 'handback exige -TaskId -SessionId -Summary -ExpectedRevision.'; exit 2 }
         Assert-TaskKernelRevision
         $result = Set-OrchestrationTaskHandback -TaskId $TaskId -SessionId $SessionId -Summary $Summary -NextSteps $NextSteps -DedupKey $DedupKey -ContextOnly:$ContextOnly -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
     }

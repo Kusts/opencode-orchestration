@@ -10,8 +10,10 @@ membros ativos e dezesseis entradas historicas.
 ## Gate e limites
 
 O coordenador e `active_execution_owner`; quando vazio, e a sessao raiz do
-run attached mais recente. `CoordinatorSessionId`, quando informado, precisa
-corresponder a esse coordenador. Membro nao se torna coordenador (depth 1).
+run attached mais recente. `CoordinatorSessionId` e obrigatorio. A identidade
+e afirmada pelo chamador, no mesmo modelo de `bind-session`: o gate bloqueia
+worker de agir como coordenador, mas nao prova criptograficamente a origem.
+Membro nao se torna coordenador (depth 1).
 Esta entrega nao faz spawn, execucao, permissao, assentos, reatribuicao,
 telemetria nem enforcement no plugin. Bindings e handback permanecem sem
 alteracoes contratuais.
@@ -24,6 +26,6 @@ Persistencia usa CAS, lock, protecao de caminho e recusa estado terminal.
 
 ## Validacao
 
-Suite focada: 25 asserts, PASS em Windows PowerShell 5.1 e pwsh. Bindings:
+Suite focada: 36 asserts, PASS em Windows PowerShell 5.1 e pwsh. Bindings:
 29/29 em ambos. Handback: 24 asserts em Windows PowerShell 5.1. Event:
 7 suites PASS. Package-consistency: 17/17; `git diff --check` limpo.

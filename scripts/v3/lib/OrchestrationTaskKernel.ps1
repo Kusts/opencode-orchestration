@@ -7445,10 +7445,19 @@ function Get-OrchestrationTaskTeam {
 
 # Canonical roles are the source/agents/*.md basenames; this closed set is case-sensitive.
 function Add-OrchestrationTaskTeamMember {
+    <#
+    .SYNOPSIS
+        Registers a bound team member under an asserted coordinator identity.
+    .DESCRIPTION
+        CoordinatorSessionId is caller-asserted, like bind-session identity;
+        the gate blocks worker self-promotion but is not cryptographic proof.
+        Never throws.
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$SessionId,
         [Parameter(Mandatory=$true)][string]$Role,[Parameter(Mandatory=$true)][string]$RunId,
-        [string]$CoordinatorSessionId='', [Parameter(Mandatory=$true)][int]$ExpectedRevision,
+        [Parameter(Mandatory=$true)][string]$CoordinatorSessionId,
+        [Parameter(Mandatory=$true)][int]$ExpectedRevision,
         [string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot='')
     try {
         $roles=@('ai-agent-engineer','architect','automation-engineer','backend-engineer',
@@ -7456,6 +7465,9 @@ function Add-OrchestrationTaskTeamMember {
             'explorer','frontend-engineer','infra-engineer','product-designer',
             'requirements-analyst','researcher','reviewer','security-reviewer','skeptic','tester')
         if ($roles -cnotcontains $Role) { return (New-TaskKernelError -Code 'TEAM_ROLE_INVALID') }
+        if (-not (Test-TaskKernelBindingId -Value $CoordinatorSessionId)) {
+            return (New-TaskKernelError -Code 'BIND_INVALID_ID')
+        }
         return (Invoke-OrchestrationTaskTeamMutation -Operation add -TaskId $TaskId `
             -SessionId $SessionId -Role $Role -RunId $RunId `
             -CoordinatorSessionId $CoordinatorSessionId -ExpectedRevision $ExpectedRevision `
@@ -7463,14 +7475,28 @@ function Add-OrchestrationTaskTeamMember {
     } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 function Remove-OrchestrationTaskTeamMember {
+    <#
+    .SYNOPSIS
+        Releases a team member under an asserted coordinator or self identity.
+    .DESCRIPTION
+        CoordinatorSessionId is caller-asserted, like bind-session identity;
+        the gate blocks worker impersonation but is not cryptographic proof.
+        Never throws.
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$SessionId,
-        [string]$CoordinatorSessionId='', [Parameter(Mandatory=$true)][int]$ExpectedRevision,
+        [Parameter(Mandatory=$true)][string]$CoordinatorSessionId,
+        [Parameter(Mandatory=$true)][int]$ExpectedRevision,
         [string]$TasksDir='',[string]$FlagsPath='',[string]$RepoRoot='')
-    try { return (Invoke-OrchestrationTaskTeamMutation -Operation remove -TaskId $TaskId `
+    try {
+        if (-not (Test-TaskKernelBindingId -Value $CoordinatorSessionId)) {
+            return (New-TaskKernelError -Code 'BIND_INVALID_ID')
+        }
+        return (Invoke-OrchestrationTaskTeamMutation -Operation remove -TaskId $TaskId `
         -SessionId $SessionId -CoordinatorSessionId $CoordinatorSessionId `
         -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir `
-        -FlagsPath $FlagsPath -RepoRoot $RepoRoot) }
+        -FlagsPath $FlagsPath -RepoRoot $RepoRoot)
+    }
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 function Invoke-OrchestrationTaskTeamMutation {
@@ -7496,10 +7522,13 @@ function Invoke-OrchestrationTaskTeamMutation {
             $b=$rec['bindings']; $runs=@(); if ($null -ne $b) { $runs=@($b['runs']) }
             $owner=''; if ($null -ne $b) { $owner=([string]$b['active_execution_owner']).Trim() }
             if ([string]::IsNullOrWhiteSpace($owner)) { for($i=$runs.Count-1;$i -ge 0;$i--){ if([string]$runs[$i]['status'] -ceq 'attached'){$owner=[string]$runs[$i]['root_session'];break} } }
-            if ((-not [string]::IsNullOrWhiteSpace($CoordinatorSessionId)) -and $CoordinatorSessionId -cne $owner) { return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR') }
+            if ($Operation -eq 'add' -and $CoordinatorSessionId -cne $owner) {
+                return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR')
+            }
             $team=$rec['team']; if ($null -eq $team) { $team=[ordered]@{schema_version=1;max_members=8;members=@();updated_at=''} }
             $members=@($team['members'])
             if ($Operation -eq 'add') {
+                if ($sid -ceq $owner) { return (New-TaskKernelError -Code 'TEAM_MEMBER_INVALID') }
                 $run=$null; foreach($r in $runs){if([string]$r['run_id'] -ceq $RunId){$run=$r;break} }
                 if ($null -eq $run -or [string]$run['status'] -cne 'attached' -or
                     (([string]$run['root_session'] -cne $sid) -and
@@ -7515,7 +7544,6 @@ function Invoke-OrchestrationTaskTeamMutation {
                         return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true}
                     }
                 }
-                if ($sid -ceq $owner) { return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR') }
                 $active=@($members | Where-Object {[string]::IsNullOrWhiteSpace([string]$_['released_at'])})
                 if ($active.Count -ge 8) { return (New-TaskKernelError -Code 'TEAM_LIMIT_EXCEEDED') }
                 $members+=,[ordered]@{session_id=$sid;run_id=$RunId;role=$Role;added_by=$owner;added_at=(Get-TaskKernelTimestamp);released_at=''}
@@ -7529,8 +7557,7 @@ function Invoke-OrchestrationTaskTeamMutation {
                     }
                     return (New-TaskKernelError -Code 'TEAM_MEMBER_NOT_FOUND')
                 }
-                if (-not [string]::IsNullOrWhiteSpace($CoordinatorSessionId) -and
-                    $CoordinatorSessionId -cne $owner -and $sid -cne $CoordinatorSessionId) {
+                if ($CoordinatorSessionId -cne $owner -and $CoordinatorSessionId -cne $sid) {
                     return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR')
                 }
                 $members[$idx]['released_at']=Get-TaskKernelTimestamp
