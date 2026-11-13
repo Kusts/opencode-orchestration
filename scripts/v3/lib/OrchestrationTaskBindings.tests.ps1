@@ -36,6 +36,16 @@ try {
  Check ($again.ok -and $again.idempotent) 'detach idempotent'
  $wrongDetach=Detach-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'other' -ExpectedRevision 5 -TasksDir $tasks -FlagsPath $flags
  Check ($wrongDetach.error -eq 'BIND_CONFLICT') 'detached run rejects foreign session detach'
+ $workerTask=New-OrchestrationTask -TaskId 'p32-worker-bind' -Objective 'worker bind' -Actor planner -TasksDir $tasks -FlagsPath $flags
+ $workerRoot=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-root' -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
+ $workerBind=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -WorkerSession -ExpectedRevision 2 -TasksDir $tasks -FlagsPath $flags
+ Check ($workerTask.ok -and $workerRoot.ok -and $workerBind.ok -and $workerBind.revision -eq 3 -and
+     $workerBind.bindings.active_execution_owner -eq 'ses-root' -and
+     $workerBind.bindings.runs[0].worker_sessions -contains 'ses-w') 'worker binds under active root without taking ownership'
+ $workerRepeat=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-1' -SessionId 'ses-w' -WorkerSession -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
+ Check ($workerRepeat.ok -and $workerRepeat.idempotent -and $workerRepeat.revision -eq 3) 'worker bind is idempotent'
+ $rootConflict=Bind-OrchestrationTaskSession -TaskId 'p32-worker-bind' -RunId 'run-2' -SessionId 'ses-root-2' -ExpectedRevision 3 -TasksDir $tasks -FlagsPath $flags
+ Check ($rootConflict.error -eq 'BIND_CONFLICT') 'competing root still conflicts'
  $reattach=Bind-OrchestrationTaskSession -TaskId 'p32-test-task' -RunId 'run-a' -SessionId 'sess-e' -ExpectedRevision 5 -TasksDir $tasks -FlagsPath $flags
  Check ($reattach.ok -and $reattach.bindings.runs[0].status -eq 'attached') 'reattach after detach'
  $reconstructed=Get-OrchestrationTaskBindings -TaskId 'p32-test-task' -TasksDir $tasks

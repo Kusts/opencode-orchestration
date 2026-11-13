@@ -1454,9 +1454,38 @@ function Invoke-OrchestrationTaskSessionBinding {
                 $entry['root_session']=$sid;$entry['status']='attached';$entry.Remove('detached_at')
                 $b['active_execution_owner']=$sid
             } else {
-                if($idx -lt 0){$entry=[ordered]@{run_id=$run;root_session='';worker_sessions=@();seat_id=$SeatId;status='attached';provenance=[ordered]@{runtime=(Protect-TaskKernelText $Runtime);version=(Protect-TaskKernelText $Version);parent_id=(Protect-TaskKernelText $ParentId);root_id=(Protect-TaskKernelText $RootId)};bound_at=(Get-TaskKernelTimestamp)}; $runs+=,$entry;$idx=$runs.Count-1}
+                if($idx -lt 0) {
+                    $entry=[ordered]@{run_id=$run;root_session='';worker_sessions=@();seat_id=$SeatId;
+                        status='attached';provenance=[ordered]@{runtime=(Protect-TaskKernelText $Runtime);
+                        version=(Protect-TaskKernelText $Version);parent_id=(Protect-TaskKernelText $ParentId);
+                        root_id=(Protect-TaskKernelText $RootId)};bound_at=(Get-TaskKernelTimestamp)}
+                    $runs+=,$entry; $idx=$runs.Count-1
+                }
                 $entry=$runs[$idx]
-                if($WorkerSession){$ws=@(@($entry['worker_sessions']) | Where-Object { ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_)) });if($ws -ccontains $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['worker_sessions']=@($ws + $sid)}else{if([string]$entry['root_session'] -ceq $sid){return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;revision=[int]$rec['revision'];idempotent=$true}};if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and [string]$b['active_execution_owner'] -cne $sid){return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{existing_owner_id=[string]$b['active_execution_owner']})};$entry['root_session']=$sid};$entry['status']='attached';$b['active_execution_owner']=$sid
+                if($WorkerSession) {
+                    $ws=@(@($entry['worker_sessions']) | Where-Object {
+                        ($_ -is [string]) -and (-not [string]::IsNullOrWhiteSpace([string]$_))
+                    })
+                    if($ws -ccontains $sid) {
+                        return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;
+                            revision=[int]$rec['revision'];idempotent=$true}
+                    }
+                    $entry['worker_sessions']=@($ws + $sid)
+                } else {
+                    if([string]$entry['root_session'] -ceq $sid) {
+                        return [PSCustomObject]@{ok=$true;task_id=$tid;run_id=$run;
+                            revision=[int]$rec['revision'];idempotent=$true}
+                    }
+                    if(-not [string]::IsNullOrWhiteSpace([string]$b['active_execution_owner']) -and
+                        [string]$b['active_execution_owner'] -cne $sid) {
+                        return (New-TaskKernelError -Code 'BIND_CONFLICT' -Extra @{
+                            existing_owner_id=[string]$b['active_execution_owner']
+                        })
+                    }
+                    $entry['root_session']=$sid
+                    $b['active_execution_owner']=$sid
+                }
+                $entry['status']='attached'
             }
             $b['runs']=$runs;$rec['bindings']=$b;$rec['revision']=[int]$rec['revision']+1;$rec['updated_at']=Get-TaskKernelTimestamp
             $wr=Write-TaskKernelRecord -Record $rec -TaskFile $file
@@ -7439,8 +7468,29 @@ function Get-OrchestrationTaskTeam {
         if ($slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
         $team=$slot.record['team']
         if ($null -eq $team) { $team=[ordered]@{schema_version=1;max_members=8;members=@();updated_at=''} }
+        elseif (-not (Test-TaskKernelTeamShape -Team $team)) {
+            return (New-TaskKernelError -Code 'MALFORMED')
+        }
         return [PSCustomObject]@{ok=$true;task_id=$TaskId.Trim();revision=[int]$slot.record['revision'];team=$team}
     } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+function Test-TaskKernelTeamShape {
+    [CmdletBinding()]
+    param($Team)
+    try {
+        if (-not ($Team -is [System.Collections.IDictionary])) { return $false }
+        if (-not $Team.Contains('members')) { return $false }
+        $members=$Team['members']
+        if ($null -eq $members -or $members -is [string] -or
+            -not ($members -is [System.Array])) { return $false }
+        foreach($member in $members) {
+            if (-not ($member -is [System.Collections.IDictionary]) -or
+                -not $member.Contains('session_id') -or
+                -not ($member['session_id'] -is [string])) { return $false }
+        }
+        return $true
+    } catch { return $false }
 }
 
 # Canonical roles are the source/agents/*.md basenames; this closed set is case-sensitive.
@@ -7466,6 +7516,9 @@ function Add-OrchestrationTaskTeamMember {
             'requirements-analyst','researcher','reviewer','security-reviewer','skeptic','tester')
         if ($roles -cnotcontains $Role) { return (New-TaskKernelError -Code 'TEAM_ROLE_INVALID') }
         if (-not (Test-TaskKernelBindingId -Value $CoordinatorSessionId)) {
+            return (New-TaskKernelError -Code 'BIND_INVALID_ID')
+        }
+        if (-not (Test-TaskKernelBindingId -Value $RunId)) {
             return (New-TaskKernelError -Code 'BIND_INVALID_ID')
         }
         return (Invoke-OrchestrationTaskTeamMutation -Operation add -TaskId $TaskId `
@@ -7520,12 +7573,26 @@ function Invoke-OrchestrationTaskTeamMutation {
             if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) { return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION' -Extra @{detail='terminal state is immutable'}) }
             if (-not (Test-TaskKernelWriteBoundary -TaskFile $file)) { return (New-TaskKernelError -Code 'PATH_NOT_CONFINED') }
             $b=$rec['bindings']; $runs=@(); if ($null -ne $b) { $runs=@($b['runs']) }
+            $team=$rec['team']
+            if ($null -ne $team -and -not (Test-TaskKernelTeamShape -Team $team)) {
+                return (New-TaskKernelError -Code 'MALFORMED')
+            }
             $owner=''; if ($null -ne $b) { $owner=([string]$b['active_execution_owner']).Trim() }
-            if ([string]::IsNullOrWhiteSpace($owner)) { for($i=$runs.Count-1;$i -ge 0;$i--){ if([string]$runs[$i]['status'] -ceq 'attached'){$owner=[string]$runs[$i]['root_session'];break} } }
+            $ownerIsAttachedRoot=$false
+            if (-not [string]::IsNullOrWhiteSpace($owner)) {
+                foreach($r in $runs) {
+                    if ([string]$r['status'] -ceq 'attached' -and
+                        [string]$r['root_session'] -ceq $owner) {
+                        $ownerIsAttachedRoot=$true
+                        break
+                    }
+                }
+            }
+            if (-not $ownerIsAttachedRoot) { $owner='' }
             if ($Operation -eq 'add' -and $CoordinatorSessionId -cne $owner) {
                 return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR')
             }
-            $team=$rec['team']; if ($null -eq $team) { $team=[ordered]@{schema_version=1;max_members=8;members=@();updated_at=''} }
+            if ($null -eq $team) { $team=[ordered]@{schema_version=1;max_members=8;members=@();updated_at=''} }
             $members=@($team['members'])
             if ($Operation -eq 'add') {
                 if ($sid -ceq $owner) { return (New-TaskKernelError -Code 'TEAM_MEMBER_INVALID') }
@@ -7541,24 +7608,24 @@ function Invoke-OrchestrationTaskTeamMutation {
                         if ([string]$m['role'] -cne $Role -or [string]$m['run_id'] -cne $RunId) {
                             return (New-TaskKernelError -Code 'TEAM_MEMBER_CONFLICT')
                         }
-                        return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true}
+                        return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true;team=$team}
                     }
                 }
                 $active=@($members | Where-Object {[string]::IsNullOrWhiteSpace([string]$_['released_at'])})
                 if ($active.Count -ge 8) { return (New-TaskKernelError -Code 'TEAM_LIMIT_EXCEEDED') }
                 $members+=,[ordered]@{session_id=$sid;run_id=$RunId;role=$Role;added_by=$owner;added_at=(Get-TaskKernelTimestamp);released_at=''}
             } else {
+                if ($CoordinatorSessionId -cne $owner -and $CoordinatorSessionId -cne $sid) {
+                    return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR')
+                }
                 $idx=-1; for($i=0;$i -lt $members.Count;$i++){if([string]$members[$i]['session_id'] -ceq $sid -and [string]::IsNullOrWhiteSpace([string]$members[$i]['released_at'])){$idx=$i;break} }
                 if ($idx -lt 0) {
                     foreach($m in $members) {
                         if ([string]$m['session_id'] -ceq $sid) {
-                            return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true}
+                            return [PSCustomObject]@{ok=$true;task_id=$TaskId;revision=[int]$rec['revision'];duplicate=$true;team=$team}
                         }
                     }
                     return (New-TaskKernelError -Code 'TEAM_MEMBER_NOT_FOUND')
-                }
-                if ($CoordinatorSessionId -cne $owner -and $CoordinatorSessionId -cne $sid) {
-                    return (New-TaskKernelError -Code 'TEAM_NOT_COORDINATOR')
                 }
                 $members[$idx]['released_at']=Get-TaskKernelTimestamp
             }
