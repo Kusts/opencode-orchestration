@@ -540,7 +540,7 @@ sessão, sem refazer o que já está provado.
 4. **#64/#192, #50/#141, #2/#184/#185, #172.**
    - [x] #64: medição de custo reproduzível concluída em 2026-11-12 (`scripts/v3/skill-discovery-metrics.ps1`, 17/17 PS7+PS5.1): 133 skills válidas/1 inválida/109 junctions; metadados 10.174/9.720 tokens (ocorrência/únicos, `chars/4`), razão corpo/metadados 21,90, latência p50 ~196 ms/p95 ~296 ms (não determinística), seleção lexical top-5 ~348 tokens (`selection_ratio_vs_unique` 0,0358), 8 duplicatas com drift de conteúdo em `hybrid-development` (`differs=true`). Protótipo seletivo (F1 shadow) segue pendente: relevância/recall, falsa seleção, custo-até-DONE e continuidade de cache (Golden Workflows); status PARCIAL, sem promoção a COBERTO.
    - #192: comparar Single/Cascade/Critique em cenários representativos.
-   - #50/#141: capability-first e auditoria de autoridade por superfície.
+   - [x] #50/#141: auditoria capability-first e de autoridade concluída em 2026-11-12 — [AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md) (pin inventory, achado do patch-exato nos smokes V2, mapa de ownership por superfície, HIGH-1/2/3 e MEDIUM/LOW, recomendações); ressalvas factuais aplicadas em `docs/PERMISSIONS.md` e `SECURITY.md`; #50/#141 promovidos a PARCIAL na SPEC. Correções de runtime/perfis dependem de operador; provas de runtime (precedência topo vs agente, `/api/session/{id}/shell`) pendentes.
    - #2/#184/#185: sessões subordinadas, observe→auto e handback completo.
    - #172: só reproduzir o flake com sinal real.
 5. **PR #210:** comparar com a master atual; descartar ou reabrir contra a

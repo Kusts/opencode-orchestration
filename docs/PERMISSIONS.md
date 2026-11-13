@@ -136,6 +136,17 @@ claim além do testado.
   planner-enforced (contrato), não barreira de glob.
 - `read-only` depende de **`bash: deny` no runtime + prompt**. Sem shell, a barreira é
   total no runtime; o prompt cobre o que o runtime não vê (ex.: instruções via contrato).
+- **Rota de tool vs superfície REST `/shell` (ressalva factual):** o rótulo
+  "runtime-enforced" vale para a rota de tool; a superfície REST
+  `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)
+  e não deve ser assumida como deny. Prova no binário exato atual permanece
+  pendente; ver [AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md).
+- **Grants do Kernel ≠ enforcement de runtime:** grants são registro/decisão de
+  autoridade; não constituem enforcement de runtime enquanto
+  `runtime_grant_enforcement` (v1/v2) estiver OFF.
+- **Precedência topo vs agente (não provada):** a composição entre `permissions`
+  de topo e permissões por agente (last-match-wins) não foi provada no binário
+  exato para a configuração viva; tratar como incerteza até prova de runtime.
 - `PRODUCTION_AUTHORIZED` ausente equivale a `false`, e `true` **não autoriza por si só**
   ações destrutivas irreversíveis nem operações com credenciais — essas exigem
   confirmação separada do Planner. `CREDENTIAL_SCOPE` carrega apenas
