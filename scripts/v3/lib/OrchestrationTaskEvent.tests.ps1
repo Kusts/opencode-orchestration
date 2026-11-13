@@ -59,6 +59,19 @@ try {
     Assert-TE ([bool]$cancel.ok) '[TE8] task cancelada' ([string]$cancel.error)
     $term = Add-OrchestrationTaskEvent -TaskId 'task-event-2' -EnvelopeJson $env1 -ExpectedRevision 2 -TasksDir $tmp -FlagsPath $flags
     Assert-TE ((-not [bool]$term.ok) -and ([string]$term.error -ceq 'ILLEGAL_TRANSITION')) '[TE8] task terminal recusada' ([string]$term.error)
+
+    $info = '{"source":"github","trigger":"issue_comment","thread":"issue:55","delivery_id":"d-info1","repo":"Kusts/opencode-orchestration","informational_only":true,"summary":"FYI"}'
+    $ic = New-OrchestrationTask -TaskId 'task-event-info' -Objective 'informativo' -TaskType 'validation' -Risk 'low' -Actor 'planner' -TasksDir $tmp -FlagsPath $flags
+    $ia = Add-OrchestrationTaskEvent -TaskId 'task-event-info' -EnvelopeJson $info -ExpectedRevision 1 -TasksDir $tmp -FlagsPath $flags
+    $key = [string]$ia.dedup_key
+    $ack = Confirm-OrchestrationTaskEvent -TaskId 'task-event-info' -DedupKey $key -SessionId 'ses-info' -ExpectedRevision 2 -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    $ackTask = Get-OrchestrationTask -TaskId 'task-event-info' -TasksDir $tmp
+    Assert-TE ([bool]$ack.ok -and [string]$ackTask['event_inbox'][0]['ack_kind'] -ceq 'context_only') '[TE9] ack context-only informativo'
+    $ackDup = Confirm-OrchestrationTaskEvent -TaskId 'task-event-info' -DedupKey $key -SessionId 'ses-info' -ExpectedRevision 3 -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    Assert-TE ([bool]$ackDup.duplicate -and [int]$ackDup.revision -eq 3) '[TE9] segundo ack context-only idempotente'
+    $denied = Confirm-OrchestrationTaskEvent -TaskId 'task-event-1' -DedupKey ([string]$a.dedup_key) -SessionId 'ses-act' -ExpectedRevision 3 -ContextOnly -TasksDir $tmp -FlagsPath $flags
+    $unchanged = Get-OrchestrationTask -TaskId 'task-event-1' -TasksDir $tmp
+    Assert-TE ([string]$denied.error -ceq 'EVENT_CONTEXT_ONLY_NOT_ALLOWED' -and [int]$unchanged.revision -eq 3) '[TE9] context-only acionavel recusado sem revision'
 }
 finally {
     if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }

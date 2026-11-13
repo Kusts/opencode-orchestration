@@ -15,7 +15,8 @@
        review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
        record-repair-decision - Add advisory repair decision (needs -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy; optional -Severity low|medium|high|critical -ChangedFiles 0..100000 -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts 0..100 -FailureClass localized|unknown|structural)
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
-      event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary; idempotent consumption/settlement ack)
+       event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary -ContextOnly; idempotent consumption/settlement ack)
+       handback      - Set-OrchestrationTaskHandback (needs -TaskId -SessionId -Summary -ExpectedRevision; optional -NextSteps -DedupKey -ContextOnly)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
@@ -85,6 +86,9 @@ param(
     [string]$EnvelopeJson = '',
     [string]$DedupKey = '',
     [string]$ResponseSummary = '',
+    [string]$Summary = '',
+    [string]$NextSteps = '',
+    [switch]$ContextOnly,
     [string]$Reason = '',
     [int]$ExpectedRevision = -1,
     [string[]]$ResidualRisks = @(),
@@ -209,9 +213,9 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'record-repair-decision', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'record-repair-decision', 'verify', 'verify-run', 'review', 'review-schema', 'event-attach', 'event-ack', 'handback', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|record-repair-decision|verify|review|review-schema|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...; record-repair-decision exige -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy e aceita -Severity -ChangedFiles -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts -FailureClass.'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|status|transition|record-result|record-repair-decision|verify|review|review-schema|event-ack|handback|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...; handback exige -TaskId -SessionId -Summary -ExpectedRevision.'
     exit 2
 }
 
@@ -545,7 +549,12 @@ switch ($action) {
         Assert-TaskKernelRevision
         $result = Confirm-OrchestrationTaskEvent -TaskId $TaskId -DedupKey $DedupKey -SessionId $SessionId `
             -ResponseSummary $ResponseSummary -ExpectedRevision ([int]$ExpectedRevision) `
-            -TasksDir $TasksDir -FlagsPath $FlagsPath
+            -ContextOnly:$ContextOnly -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'handback' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Summary)) { Write-TaskKernelCliError 'handback exige -TaskId -SessionId -Summary -ExpectedRevision.'; exit 2 }
+        Assert-TaskKernelRevision
+        $result = Set-OrchestrationTaskHandback -TaskId $TaskId -SessionId $SessionId -Summary $Summary -NextSteps $NextSteps -DedupKey $DedupKey -ContextOnly:$ContextOnly -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'block' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason)) {
