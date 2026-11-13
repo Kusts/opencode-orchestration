@@ -3219,6 +3219,56 @@ function Set-OrchestrationTaskHandback {
     } catch { return (New-TaskKernelError 'INTERNAL_ERROR') }
 }
 
+function Set-OrchestrationTaskRepairDecision {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$TaskId,
+        [Parameter(Mandatory=$true)][int]$ExpectedRevision,
+        [Parameter(Mandatory=$true)][string]$Severity,
+        [Parameter(Mandatory=$true)][int]$ChangedFiles,
+        [Parameter(Mandatory=$true)][bool]$ScopeOverlap,
+        [Parameter(Mandatory=$true)][bool]$ExternalEffectsAmbiguous,
+        [Parameter(Mandatory=$true)][bool]$EvidenceCurrent,
+        [Parameter(Mandatory=$true)][string]$FailureClass,
+        [string]$TasksDir='', [string]$FlagsPath='', [string]$RepoRoot=''
+    )
+    try {
+        $flags=Get-TaskKernelFlagState -FlagsPath $FlagsPath -RepoRoot $RepoRoot
+        if (-not [bool]$flags.enabled) { return (New-TaskKernelError -Code 'KERNEL_DISABLED' -Extra @{shadow=[bool]$flags.shadow}) }
+        $tid=([string]$TaskId).Trim()
+        $taskFile=Get-TaskKernelFilePath -TaskId $tid -TasksDir $TasksDir -RepoRoot $RepoRoot
+        if ([string]::IsNullOrWhiteSpace($taskFile)) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+        $lock=Enter-TaskKernelFileLock -TaskFile $taskFile
+        if (-not [bool]$lock.acquired) { return (New-TaskKernelError -Code 'LOCK_TIMEOUT') }
+        try {
+            $slot=Read-TaskKernelRecord -TaskFile $taskFile
+            if (-not [bool]$slot.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
+            if ([bool]$slot.malformed) { return (New-TaskKernelError -Code 'MALFORMED') }
+            $rec=$slot.record
+            if ([int]$rec['revision'] -ne $ExpectedRevision) { return (New-TaskKernelError -Code 'CAS_CONFLICT') }
+            if (Test-TaskKernelTerminalState -State ([string]$rec['state'])) { return (New-TaskKernelError -Code 'ILLEGAL_TRANSITION') }
+            $attemptsKnown=$false
+            $attempts=0
+            if ($rec.Contains('attempts') -and $null -ne $rec['attempts']) { $attemptsKnown=$true; $attempts=@($rec['attempts']).Count }
+            . (Join-Path $PSScriptRoot 'OrchestrationLocalizedRepair.ps1')
+            $decision=Resolve-OrchestrationLocalizedRepair -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap $ScopeOverlap -ExternalEffectsAmbiguous $ExternalEffectsAmbiguous -EvidenceCurrent $EvidenceCurrent -Attempts $attempts -FailureClass $FailureClass
+            if (-not [bool]$decision.ok -or [string]$decision.decision -notin @('LOCAL_REPAIR','REPLAN','ESCALATE')) { return (New-TaskKernelError -Code 'REPAIR_DECISION_INVALID') }
+            $entry=[ordered]@{
+                decision=[string]$decision.decision; reason=[string]$decision.reason; constraints=@($decision.constraints)
+                inputs=[ordered]@{severity=$Severity;changed_files=$ChangedFiles;scope_overlap=$ScopeOverlap;external_effects_ambiguous=$ExternalEffectsAmbiguous;evidence_current=$EvidenceCurrent;failure_class=$FailureClass;attempts=$attempts;attempts_source=$(if($attemptsKnown){'task.attempts'}else{'default-zero-no-counter'})}
+                decided_at=(Get-TaskKernelTimestamp)
+            }
+            $rec['repair_decision']=$entry
+            $rec['revision']=[int]$rec['revision']+1
+            $rec['updated_at']=(Get-TaskKernelTimestamp)
+            $wr=Write-TaskKernelRecord -Record $rec -TaskFile $taskFile
+            if (-not [bool]$wr.ok) { return (New-TaskKernelError -Code ([string]$wr.error)) }
+            return [PSCustomObject]@{ok=$true;task_id=$tid;revision=[int]$rec['revision'];repair_decision=$entry;advisory=$true}
+        } finally { Exit-TaskKernelFileLock -Handle $lock.handle -LockFile $lock.lockFile }
+    } catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
+}
+
+
 function Set-OrchestrationTaskReview {
     [CmdletBinding()]
     param(
