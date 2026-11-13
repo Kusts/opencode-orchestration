@@ -16,10 +16,9 @@ function Assert-V14([bool]$Condition,[string]$Name) {
 }
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V14 ($p.Status -eq 'POLICY_LOADED') 'policy-loads'
-Assert-V14 ($p.PolicyVersion -eq '1.4.0') 'policy-v1.4'
+Assert-V14 ($p.PolicyVersion -eq '1.5.0') 'policy-v1.5'
 $pol = $p.Policy
 $expectedProviders = @{
-    'iceman' = @{ Provider='opencode-go'; Model='opencode-go/iceman-contributor-free' }
     'mimo' = @{ Provider='opencode'; Model='opencode/mimo-v2.6-flash-free' }
     'muse' = @{ Provider='opencode-go'; Model='opencode-go/muse-spark-1.3-contributor' }
     'deepseek_go' = @{ Provider='opencode-go'; Model='opencode-go/deepseek-v4.1-flash' }
@@ -39,7 +38,7 @@ foreach ($modelName in $expectedProviders.Keys) {
 # Disabled legacy Console DeepSeek must not be selected instead of Go DeepSeek.
 Assert-V14 ($pol.models.deepseek.enabled -eq $false -and
     $pol.models.deepseek.model_id -eq 'opencode/deepseek-v4.1-flash-free') 'legacy-console-deepseek-disabled'
-Assert-V14 ($pol.tiers.T1.primary -eq 'iceman') 'T1-iceman'
+Assert-V14 ($pol.tiers.T1.primary -eq 'luna') 'T1-luna'
 Assert-V14 ($pol.tiers.T1.alternatives -contains 'mimo') 'T1-mimo-fallback'
 Assert-V14 ($pol.models.mimo.model_id -eq 'opencode/mimo-v2.6-flash-free') 'mimo-openCode-console-id'
 Assert-V14 ($pol.tiers.T2.primary -eq 'luna') 'T2-luna-primary'
@@ -116,9 +115,9 @@ Assert-V14 (([string]$pol.tiers.T3.description -match 'only') -and ([string]$pol
 Assert-V14 (([string]$pol.tiers.T4.description -match 'Opus') -and ([string]$pol.tiers.T4.description -match 'Sol') -and ([string]$pol.tiers.T4.description -match 'DeepSeek') -and ([string]$pol.tiers.T4.description -match 'Muse') -and ([string]$pol.tiers.T4.description -match 'audit-only')) 'T4-description-Opus-Sol-plus-audit-only-T2-candidates'
 
 $sTesterT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'opencode-go/iceman-contributor-free') 'tester-trivial-LLM-uses-T1'
+Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'openai/gpt-6-luna') 'tester-trivial-LLM-uses-T1'
 $sT1 = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$fT1 = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'opencode-go/iceman-contributor-free' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$fT1 = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'openai/gpt-6-luna' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT1.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT1.FallbackModel -eq $null -and $fT1.CandidateModel -eq 'opencode/mimo-v2.6-flash-free') 'T1-mimo-order-audit-only-hold'
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $fT2 = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true

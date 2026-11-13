@@ -859,7 +859,7 @@ function Validate-Models([string]$ModelsPath, [string]$Root = '') {
     }
   }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Values = $null } }
-  $defaultFree = 'opencode-go/iceman-contributor-free'
+  $defaultFree = 'openai/gpt-6-luna'
   if (-not [string]::IsNullOrWhiteSpace($Root)) {
     $defaultFree = Get-DefaultFreeModel $Root
   }
@@ -884,7 +884,7 @@ function Get-DefaultFreeModel([string]$Root) {
     }
   }
   catch { }
-  return 'opencode-go/iceman-contributor-free'
+  return 'openai/gpt-6-luna'
 }
 
 function Get-RequiredTemplatesForRuntime([string]$RuntimeId) {
@@ -935,7 +935,7 @@ function Validate-AgentDefinitions([string]$Root) {
   return @{ Ok = $true; Errors = @() }
 }
 
-function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/iceman-contributor-free') {
+function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna') {
   $errs = @()
   $tmplPath = Join-Path $Root 'templates\opencode.v1.json.tmpl'
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
@@ -970,7 +970,7 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   return @{ Ok = $true; Errors = @(); Desired = $desired }
 }
 
-function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/iceman-contributor-free') {
+function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna') {
   # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
   # experimental.subagent_depth), 21 blocos agents (build + title + 15
   # subagents explicitos + 4 planning), build.model isolado por MODEL_PLANNER,

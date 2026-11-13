@@ -6,12 +6,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **Agent Teams #2 - fatia 1:** Task Kernel registra membros subordinados
-  com papel canonico, limite 8 e gate de coordenador derivado de owner raiz
-  attached; handback deixa sem coordenador ate novo root bind. Identidade
-  afirmada, nao prova criptografica. Worker bind nao toma owner; conflito
-  continua para raiz. Team 48 asserts, Bindings 32/32 e Handback 24/24
-  em PS 5.1/pwsh; package-consistency 17/17 e diff-check limpo.
+- **T1: Iceman → Luna (2026-11-13):** T1 passa de `opencode-go/iceman-contributor-free` a `openai/gpt-6-luna` (provider `openai`), com fallback free `opencode/mimo-v2.6-flash-free`. Removido Iceman da política, router, install/reconcile, adapter, guias, testes e config ativo. Policy `1.4.0` → `1.5.0`; custo relativo T1 `0.01` → `1` (Luna `usage_billed`). Validações: testes de routing/planner/dynamic, package-consistency 17/17 e diff-check. Pós-revisão: guias alinhados ao ADR-02 (Luna sempre via `openai`) e `$script:ModelTiers.T1` alinhado à política (valor descritivo/telemetria; T2 mantém 0.10 legado, sem consumidor de autorização).
+
+- **Agent Teams #2 - fatia 1 / bindings:** Task Kernel registra membros
+  subordinados com papel canonico, limite 8 e gate de coordenador derivado de
+  owner raiz attached; handback deixa sem coordenador ate novo root bind.
+  Worker so entra em run enraizado e, com owner ativo, exige
+  `-ParentSessionId` igual ao owner/raiz; nao altera owner. Bind de raiz em run
+  ja enraizado exige `rebind-session`; rebind nao toma coordenacao alheia.
+  Owner vazio deixa a janela de bind de raiz aberta a qualquer chamador:
+  identidade afirmada, sem prova criptografica. (Atualizar contagens apos
+  validacao final.)
   Sem spawn ou execucao.
 
 - **Verificação HMAC opt-in do ingress GitHub (#183):** verificador reutilizável de `X-Hub-Signature-256`, leitura restrita de segredo e integração fail-closed opcional no intake antes de parse/ledger; sem segredo mantém legado explícito. Testes atualizados: assinatura 31 asserts, intake 18/18; `OrchestrationEvent*` 7/7 suites em Windows PowerShell 5.1 e pwsh; package-consistency 17/17. Evidência: `evidence/evolution-2026-11-10/m6-ingress-signature-183.md`. #183 permanece PARCIAL (sem produtor/receiver real, rotação ou proteção de replay).
