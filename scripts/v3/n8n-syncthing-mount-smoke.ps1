@@ -203,7 +203,12 @@ function Test-N8nSafeContainerPath {
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
     if (-not $Path.StartsWith('/')) { return $false }
     if ($Path -ceq '/') { return $false }
-    return ($Path -cmatch '\A/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\z')
+    if ($Path.Contains('//')) { return $false }
+    if (-not ($Path -cmatch '\A/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\z')) { return $false }
+    foreach ($segment in @($Path.Split('/') | Where-Object { $_.Length -gt 0 })) {
+        if (($segment -ceq '.') -or ($segment -ceq '..')) { return $false }
+    }
+    return $true
 }
 
 function Test-N8nPathWithin {
@@ -450,6 +455,7 @@ function Test-N8nDockerUnavailableText {
     foreach ($needle in @(
         'cannot connect', 'failed to connect', 'is the docker daemon running',
         'docker_engine', 'error during connect', 'connection refused',
+        'container is not running', 'no such container', 'is not running',
         'context does not exist', 'no such context', 'unable to resolve docker endpoint',
         'ssh: connect', 'ssh: handshake', 'permission denied (publickey)',
         'error while loading context', 'could not resolve'
@@ -707,7 +713,11 @@ function Invoke-N8nUserProbe {
     if (-not [bool]$step.started) { $state.error = 'DOCKER_NOT_STARTED'; return $state }
     if ([int]$step.exit_code -ne 0) { $state.error = 'CONTAINER_USER_UNKNOWN'; return $state }
     $user = ([string]$step.stdout).Trim()
-    if ([string]::IsNullOrWhiteSpace($user)) { $state.error = 'CONTAINER_USER_UNKNOWN'; return $state }
+    if (($user.Length -gt 32) -or ($user -cnotmatch '\A[a-z_][a-z0-9_-]*\z')) {
+        $state.user = 'UNKNOWN'
+        $state.error = 'CONTAINER_USER_UNKNOWN'
+        return $state
+    }
     $state.user = $user
     if (-not ($user -ceq 'node')) { $state.error = 'CONTAINER_USER_MISMATCH'; return $state }
     $state.ok = $true
@@ -842,13 +852,24 @@ function Invoke-N8nMountProbe {
                 }
             }
             if ($state.created -and $cleanup.host_removed) {
-                # HIDDEN requires a started command and exit code exactly 1.
-                # Exit 0 is still visible; not-started, timeout, 125/126/127 or
-                # any other transport/client code is a verification failure and
-                # must never be treated as success.
+                # A missing file is proven only when the container is live in
+                # the same observation and the file probe has no transport error.
                 $hidden = $false
                 $verdictKnown = $false
                 for ($j = 0; $j -lt [int]$Attempts; $j++) {
+                    $live = Invoke-N8nBoundedDockerStep -Invoker $Invoker -Executable $Executable -Arguments (New-N8nDockerArguments -Context $Context -VerbArguments @('exec', $ContainerName, 'test', '-d', $ContainerDirectory)) -Budget $Budget -ReserveSeconds 0
+                    if ([bool]$live['budget_exhausted']) {
+                        $cleanup.error = 'CLEANUP_TIMEOUT'
+                        $cleanup.docker_exit = 'not_started'
+                        $verdictKnown = $true
+                        break
+                    }
+                    if ((-not [bool]$live.started) -or ([int]$live.exit_code -ne 0)) {
+                        $cleanup.error = 'CONTAINER_UNREACHABLE_DURING_CLEANUP'
+                        $cleanup.docker_exit = Get-N8nSafeStepDetail -Step $live
+                        $verdictKnown = $true
+                        break
+                    }
                     $still = Invoke-N8nBoundedDockerStep -Invoker $Invoker -Executable $Executable -Arguments (New-N8nDockerArguments -Context $Context -VerbArguments @('exec', $ContainerName, 'test', '-f', $containerPath)) -Budget $Budget -ReserveSeconds 0
                     if ([bool]$still['budget_exhausted']) {
                         $cleanup.error = 'CLEANUP_TIMEOUT'
@@ -864,6 +885,11 @@ function Invoke-N8nMountProbe {
                     }
                     $code = [int]$still.exit_code
                     $cleanup.docker_exit = [string]$code
+                    if (($code -eq 1) -and (Test-N8nDockerUnavailableText -Text ([string]$still.stderr))) {
+                        $cleanup.error = 'CLEANUP_TRANSPORT_FAILED'
+                        $verdictKnown = $true
+                        break
+                    }
                     if ($code -eq 1) { $hidden = $true; break }
                     if ($code -ne 0) {
                         $cleanup.error = 'CLEANUP_TRANSPORT_FAILED'
@@ -1265,6 +1291,10 @@ function Invoke-N8nMountSmoke {
         local_sha256   = [string]$probe.local_sha256
         remote_sha256  = [string]$probe.remote_sha256
     }
+    if ([bool]$probe.created -and (-not [bool]$probe.cleanup.host_removed)) {
+        Add-Check 'cleanup_host' 'fail' ([string]$probe.cleanup.error)
+        return (New-N8nSmokeResult -Status 'failed' -ErrorCode 'CLEANUP_FAILED' -Checks $checks.ToArray() -Transport $transportView -Source $sourceView -Container $containerView -Mount $mountView -Probe $probeView -Cleanup $probe.cleanup -Detail ([string]$probe.cleanup.error))
+    }
     if (-not $probe.visible) {
         Add-Check 'probe_visible' 'fail' ([string]$probe.readError)
         return (New-N8nSmokeResult -Status 'failed' -ErrorCode ([string]$probe.readError) -Checks $checks.ToArray() -Transport $transportView -Source $sourceView -Container $containerView -Mount $mountView -Probe $probeView -Cleanup $probe.cleanup)
@@ -1286,7 +1316,9 @@ function Invoke-N8nMountSmoke {
             $cleanupDetail = $cleanupDetail + ' docker_exit=' + [string]$probe.cleanup.docker_exit
         }
         Add-Check 'cleanup_container' 'fail' $cleanupDetail
-        return (New-N8nSmokeResult -Status 'failed' -ErrorCode 'CLEANUP_NOT_VERIFIED' -Checks $checks.ToArray() -Transport $transportView -Source $sourceView -Container $containerView -Mount $mountView -Probe $probeView -Cleanup $probe.cleanup)
+        $cleanupErrorCode = 'CLEANUP_NOT_VERIFIED'
+        if ([string]$probe.cleanup.error -ceq 'CONTAINER_UNREACHABLE_DURING_CLEANUP') { $cleanupErrorCode = 'CONTAINER_UNREACHABLE_DURING_CLEANUP' }
+        return (New-N8nSmokeResult -Status 'failed' -ErrorCode $cleanupErrorCode -Checks $checks.ToArray() -Transport $transportView -Source $sourceView -Container $containerView -Mount $mountView -Probe $probeView -Cleanup $probe.cleanup -Detail ([string]$probe.cleanup.error))
     }
     Add-Check 'cleanup_container' 'ok' 'sentinel no longer visible in the container'
     return (New-N8nSmokeResult -Status 'verified' -ErrorCode '' -Checks $checks.ToArray() -Transport $transportView -Source $sourceView -Container $containerView -Mount $mountView -Probe $probeView -Cleanup $probe.cleanup)

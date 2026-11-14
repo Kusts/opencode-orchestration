@@ -150,6 +150,11 @@ function New-N8nFakeState {
         TestCallCount  = 0
         CleanupTestExit = $null
         CleanupTestStarted = $true
+        CleanupTestStderr = ''
+        LivenessExit = 0
+        LivenessStarted = $true
+        LivenessStderr = ''
+        LivenessCallCount = 0
         CatAs          = $null
         InspectFormat  = ''
         Timeouts       = (New-Object System.Collections.ArrayList)
@@ -215,13 +220,17 @@ $script:fakeInvoker = {
             return @{ started = $true; exit_code = [int]$f.UserExit; stdout = [string]$f.User; stderr = '' }
         }
         if ($op -ceq 'test') {
-            if (($a.Count -ne 7) -or ($a[5] -cne '-f')) {
+            if (($a.Count -ne 7) -or (@('-f', '-d') -cnotcontains [string]$a[5])) {
                 [void]$f.Violations.Add('exec test shape: ' + ($a -join ' '))
                 return @{ started = $true; exit_code = 125; stdout = ''; stderr = 'CONTRACT_EXEC' }
             }
+            if ($a[5] -ceq '-d') {
+                $f.LivenessCallCount = [int]$f.LivenessCallCount + 1
+                return @{ started = [bool]$f.LivenessStarted; exit_code = [int]$f.LivenessExit; stdout = ''; stderr = [string]$f.LivenessStderr }
+            }
             $f.TestCallCount = [int]$f.TestCallCount + 1
             if (($f.TestCallCount -gt 1) -and ($null -ne $f.CleanupTestExit)) {
-                return @{ started = [bool]$f.CleanupTestStarted; exit_code = [int]$f.CleanupTestExit; stdout = ''; stderr = '' }
+                return @{ started = [bool]$f.CleanupTestStarted; exit_code = [int]$f.CleanupTestExit; stdout = ''; stderr = [string]$f.CleanupTestStderr }
             }
             if ([bool]$f.StillVisible) { return @{ started = $true; exit_code = 0; stdout = ''; stderr = '' } }
             $hostPath = Get-N8nFakeHostPath -State $f -ContainerPath ([string]$a[6])
@@ -337,6 +346,7 @@ try {
     Assert-N8nSmoke (([int]$good.probe.bytes -gt 0) -and ([string]$good.probe.local_sha256 -match '^[0-9a-f]{64}$')) 'probe reports bytes and local sha256'
     Assert-N8nSmoke ([string]$good.probe.local_sha256 -ceq [string]$good.probe.remote_sha256) 'local and remote sha256 match byte-for-byte'
     Assert-N8nSmoke (([bool]$good.cleanup.host_removed) -and ([bool]$good.cleanup.container_hidden)) 'cleanup verified on both sides'
+    Assert-N8nSmoke (($goodState.LivenessCallCount -gt 0) -and ([string]$goodState.Calls[$goodState.Calls.Count - 2] -match 'exec n8n test -d /data/inbox$') -and ([string]$goodState.Calls[$goodState.Calls.Count - 1] -match 'exec n8n test -f ')) 'cleanup file absence is preceded by positive liveness in the same attempt'
     Assert-N8nSmoke (-not (Test-N8nSentinelLeftovers -Directory $script:syncRoot)) 'no sentinel left anywhere under the sync root'
     Assert-N8nSmoke (-not (Test-N8nSentinelLeftovers -Directory $script:syncRoot -LeafOnly)) 'no sentinel left at the sync root level'
     Assert-N8nSmoke (Test-Path -LiteralPath $script:keepFile -PathType Leaf) 'pre-existing inbox file preserved'
@@ -468,6 +478,9 @@ try {
     Assert-N8nSmoke ([string]$rootRemote.error -ceq 'REMOTE_SYNC_ROOT_INVALID') 'container root sync root blocked'
     $unsafeDestination = Invoke-N8nSmokeCase -State (New-N8nFakeState -HostRoot $script:localInbox) -CaseArguments @{ MountDestination = '/data/in box' }
     Assert-N8nSmoke ([string]$unsafeDestination.error -ceq 'DESTINATION_INVALID') 'unsafe destination blocked'
+    foreach ($unsafePath in @('/data/../etc', '/data/./x', '/data//x')) {
+        Assert-N8nSmoke (-not (Test-N8nSafeContainerPath -Path $unsafePath)) ('unsafe path segment blocked: ' + $unsafePath)
+    }
     $rootDestination = Invoke-N8nSmokeCase -State (New-N8nFakeState -HostRoot $script:localInbox) -CaseArguments @{ MountDestination = '/' }
     Assert-N8nSmoke ([string]$rootDestination.error -ceq 'DESTINATION_INVALID') 'container root destination blocked'
     $unsafeName = Invoke-N8nSmokeCase -State (New-N8nFakeState -HostRoot $script:localInbox) -CaseArguments @{ ContainerName = 'bad name; rm -rf /' }
@@ -533,6 +546,12 @@ try {
     $unknownUserState = New-N8nFakeState -Document $goodDocument -HostRoot $script:localInbox
     $unknownUserState.UserExit = 1
     Assert-N8nSmoke ([string](Invoke-N8nSmokeCase -State $unknownUserState).error -ceq 'CONTAINER_USER_UNKNOWN') 'unreadable container user blocks'
+    foreach ($badUser in @(('x' * 33), 'node;echo')) {
+        $badUserState = New-N8nFakeState -Document $goodDocument -HostRoot $script:localInbox
+        $badUserState.User = $badUser
+        $badUserResult = Invoke-N8nSmokeCase -State $badUserState
+        Assert-N8nSmoke (([string]$badUserResult.error -ceq 'CONTAINER_USER_UNKNOWN') -and ([string]$badUserResult.probe.user -ceq 'UNKNOWN')) 'invalid/oversized user stdout is replaced with UNKNOWN'
+    }
 
     # 8. mount resolution
     $noMatchState = New-N8nFakeState -Document (New-N8nInspectSpec -Mounts @((New-N8nMountSpec -Source '/home/deploy/other'))) -HostRoot $script:localInbox
@@ -578,8 +597,7 @@ try {
     Assert-N8nSmoke (Test-Path -LiteralPath $script:keepFile -PathType Leaf) 'pre-existing inbox file still preserved after failures'
     Assert-N8nSmoke (Test-Path -LiteralPath $script:rootKeepFile -PathType Leaf) 'pre-existing sync root file still preserved after failures'
 
-    # 9b. cleanup verification: only a started command with exit code exactly 1
-    # means hidden; exit 0 is visible and every other result fails closed.
+    # 9b. cleanup verification requires positive liveness in the same attempt.
     foreach ($cleanupCode in @(125, 126, 127, 2, -1)) {
         $transportState = New-N8nFakeState -Document $goodDocument -HostRoot $script:localInbox
         $transportState.CleanupTestExit = $cleanupCode
@@ -599,6 +617,17 @@ try {
     Assert-N8nSmoke (([string]$notStarted.status -ceq 'failed') -and ([string]$notStarted.error -ceq 'CLEANUP_NOT_VERIFIED')) 'cleanup with a docker command that never started fails closed' ([string]$notStarted.error)
     Assert-N8nSmoke (-not [bool]$notStarted.cleanup.container_hidden) 'unstarted cleanup probe is never treated as hidden'
     Assert-N8nSmoke ([string]$notStarted.cleanup.docker_exit -ceq 'not_started') 'unstarted cleanup probe reports a generic diagnostic'
+    $transportOneState = New-N8nFakeState -Document $goodDocument -HostRoot $script:localInbox
+    $transportOneState.CleanupTestExit = 1
+    $transportOneState.CleanupTestStderr = 'error during connect: connection refused'
+    $transportOne = Invoke-N8nSmokeCase -State $transportOneState
+    Assert-N8nSmoke ((-not [bool]$transportOne.cleanup.container_hidden) -and ([string]$transportOne.cleanup.error -ceq 'CLEANUP_TRANSPORT_FAILED')) 'exit 1 with transport stderr is not interpreted as hidden'
+    $deadContainerState = New-N8nFakeState -Document $goodDocument -HostRoot $script:localInbox
+    $deadContainerState.LivenessExit = 1
+    $deadContainerState.LivenessStderr = 'container is not running'
+    $deadContainer = Invoke-N8nSmokeCase -State $deadContainerState
+    Assert-N8nSmoke (([string]$deadContainer.error -ceq 'CONTAINER_UNREACHABLE_DURING_CLEANUP') -and (-not [bool]$deadContainer.cleanup.container_hidden)) 'failed liveness produces explicit cleanup failure'
+    Assert-N8nSmoke ($deadContainerState.TestCallCount -eq 1) 'failed liveness stops before missing-file probe'
     $visibleState = New-N8nFakeState -Document $goodDocument -HostRoot $script:localInbox
     $visibleState.CleanupTestExit = 0
     $visibleAfterCleanup = Invoke-N8nSmokeCase -State $visibleState
