@@ -33,6 +33,13 @@ $SuiteTimeoutOverrides = @{
   # volume desta suite; um default maior mascararia hangs reais nas demais
   # suites e atrasaria a deteccao de falha. As outras suites seguem em 300s.
   'OrchestrationNativeDispatchHandoff.tests' = 420000
+
+  # OrchestrationSettledRecovery e legitimamente pesada: ~38 secoes, repo git
+  # de verificacao e cenarios multi-processo S15b/c/d, F1b/c e F2d com esperas
+  # bounded. Medicao local em PS5.1: ~353s, exit 0. Sobe SO esta suite para
+  # 600s. Nao elevar o default global pelo mesmo racional do Handoff: um
+  # default maior mascararia hangs reais e atrasaria a deteccao nas demais.
+  'OrchestrationSettledRecovery.tests' = 600000
 }
 function Get-SuiteTimeoutMs([string]$BaseName) {
   if ($SuiteTimeoutOverrides.ContainsKey($BaseName)) { return [int]$SuiteTimeoutOverrides[$BaseName] }
