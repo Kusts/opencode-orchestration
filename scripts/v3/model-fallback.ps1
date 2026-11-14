@@ -9,6 +9,9 @@ proves non-start. Missing, malformed, inconsistent, or ambiguous evidence
 fails closed. The caller/Planner performs the single authorized redispatch;
 this helper never dispatches. Output JSON has stable fields status,
 classification, no_start_proof, next_model, next_tier, attempt_id, reason.
+Conscious trade-off: an ineligible failure class takes precedence over
+session/execution evidence and remains HOLD_TERMINAL with reason
+FAILURE_NOT_ELIGIBLE; both conditions still hold, never permission to retry.
 Exit codes: 0 for FALLBACK_AUTHORIZED or EXHAUSTED; 3 for HOLD_*; 2 for
 usage/input errors. -Action record writes model-attempt evidence separately
 from the Task Kernel model_attempts record.
@@ -17,7 +20,7 @@ from the Task Kernel model_attempts record.
 param([Parameter(Mandatory=$true)][ValidateSet('next','record')][string]$Action,[string]$AttemptRole,[string]$FailedModel,[string[]]$AttemptedModels=@(),[string]$FailureJson,[string]$AttemptEvidenceJson,[string]$AttemptId,[string]$Model,[string]$SessionId,[string]$ObservedModel,[string]$TaskId='fallback',[string]$Risk='low',[string]$Complexity='simple',[string]$EvidenceDir='',[string]$PolicyPath='')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'lib\OrchestrationModelFallback.ps1')
-if($AttemptedModels.Count -eq 1 -and $AttemptedModels[0].Contains(',')){$AttemptedModels=@($AttemptedModels[0] -split ',')}
+$AttemptedModels=ConvertFrom-OrchestrationAttemptedModels $AttemptedModels
 try {
  if($Action -eq 'next'){
   if(-not $AttemptRole -or -not $FailedModel -or -not $FailureJson){throw 'Required: AttemptRole, FailedModel, FailureJson'}

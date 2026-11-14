@@ -3,6 +3,11 @@ param()
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'OrchestrationModelAttempt.ps1')
 . (Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1')
+function ConvertFrom-OrchestrationAttemptedModels {
+    [CmdletBinding()] param([string[]]$Models=@())
+    if($Models.Count -eq 1 -and $Models[0].Contains(',')){return ,@($Models[0] -split '\s*,\s*' | ForEach-Object{$_.Trim()} | Where-Object{$_})}
+    return ,$Models
+}
 function Get-OrchestrationModelFallbackDecision {
     [CmdletBinding()] param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$AttemptRole,[string]$Risk='low',[string]$Complexity='simple',[Parameter(Mandatory=$true)][string]$FailedModel,[string[]]$AttemptedModels=@(),[Parameter(Mandatory=$true)]$Failure,[string]$SessionId='',[string]$ObservedModel='',[string]$PolicyPath='',[string]$EvidenceDir='',$AttemptEvidence=$null)
     $tool=$false;$failureShape=$true

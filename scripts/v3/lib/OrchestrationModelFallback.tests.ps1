@@ -6,6 +6,10 @@ $passed=0;$failed=0
 function Assert-MF { param([bool]$Ok,[string]$Name) if($Ok){$script:passed++}else{$script:failed++;Write-Host "FAIL $Name"} }
 $role='coder';$task='fallback-test';$policy=Join-Path $PSScriptRoot '..\..\..\source\registry\model-routing-policy.json'
 if(-not (Test-Path $policy)){$policy=''}
+$attemptedCsv=ConvertFrom-OrchestrationAttemptedModels @('openai/gpt-6.1-terra,  openai/gpt-6.1-sol')
+Assert-MF ($attemptedCsv.Count -eq 2 -and $attemptedCsv[0] -ceq 'openai/gpt-6.1-terra' -and $attemptedCsv[1] -ceq 'openai/gpt-6.1-sol' -and -not ('openai/gpt-6.1-sol' -notin $attemptedCsv)) 'CSV attempted models trim prevents second candidate reauthorization'
+$attemptedArray=@('model-a','model-b');$preservedArray=ConvertFrom-OrchestrationAttemptedModels $attemptedArray
+Assert-MF ($preservedArray.Count -eq 2 -and $preservedArray[1] -ceq 'model-b') 'attempted models array remains unchanged'
 $tool='{"error":{"type":"tool.execution","message":"Model openai/does-not-exist is not available."}}'
 $cases=@(
  @{name='native model unavailable';fail=$tool;model='openai/does-not-exist'},
