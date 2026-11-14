@@ -23,6 +23,16 @@ foreach ($name in $profiles) {
   Assert-Ok ($null -ne $parsed) "$name parses"
   if ($null -eq $parsed) { continue }
   $c = $parsed.Canonical
+  if ($name -ceq 'researcher') {
+    $extras = @($c.ExtraPermissions)
+    $extraNames = @($extras | ForEach-Object { [string]$_.Name } | Sort-Object)
+    $extraEffects = @{}
+    foreach ($extra in $extras) { $extraEffects[[string]$extra.Name] = [string]$extra.Effect }
+    Assert-Ok (($extras.Count -eq 2) -and (($extraNames -join ',') -ceq 'webfetch,websearch') -and
+      ($extraEffects.webfetch -ceq 'allow') -and ($extraEffects.websearch -ceq 'allow')) 'researcher has exactly webfetch/websearch allow extras'
+    $bashText = @($c.ShellRules | ForEach-Object { [string]$_.Pattern }) -join "`n"
+    Assert-Ok ($bashText -notmatch '(?i)webfetch|websearch') 'researcher bash excludes webfetch/websearch'
+  }
   $commands = @('git diff','git diff --stat','git log --oneline -5','git show HEAD:file','git status --short','git blame file','rg TODO src','grep -n x file','Select-String pattern file','git config --get user.name','node --version','npm ls','bun --version','opencode --version','opencode debug agents')
   foreach ($cmd in $commands) {
     $a = Get-V1RuleEffect -Rules @($c.ShellRules) -HasCatchAll ([bool]$c.HasCatchAll) -CatchAllEffect ([string]$c.CatchAllEffect) -Command $cmd

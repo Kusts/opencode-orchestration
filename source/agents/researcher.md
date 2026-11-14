@@ -36,8 +36,8 @@ permission:
     "bun --version*": allow
     "opencode --version*": allow
     "opencode debug agents*": allow
-    "webfetch *": allow
-    "websearch *": allow
+  webfetch: allow
+  websearch: allow
   task: deny
 orchestration:
   build_delegable: true
