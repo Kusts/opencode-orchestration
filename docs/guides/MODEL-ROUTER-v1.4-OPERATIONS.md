@@ -9,7 +9,7 @@
 > fallbacks were not executed. Separately, G1 used kernel-owned T3 proof to
 > select Opus T4 and reached verified DONE; this was capability escalation,
 > not availability fallback. OpenCode 2.3.0 is allowlisted for the live
-> override proof only; the provisioning/CI pin remains 2.3.0. See the mission
+> override proof only; the provisioning/CI pin is now 2.3.0. See the mission
 > PLAN/SPEC and `evidence/mission-2026-11-13/`.
 
 ## Canonical mapping
