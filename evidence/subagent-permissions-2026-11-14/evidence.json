@@ -1,0 +1,174 @@
+{
+  "mission": "SUBAGENT-PERMISSIONS-SIMPLIFICATION",
+  "date": "2026-11-14",
+  "runtime": {
+    "binary": "opencode v2.3.0",
+    "pin_source": "source/registry/runtime-versions.json"
+  },
+  "static_validation": {
+    "readonly_diagnostic_suite": "594/594 pass",
+    "package_consistency": "17/17 pass",
+    "v3_tests": "188 pass, 10 skip, 1 fail nao identificada (saida nao preservada); tres falhas anteriores passam isoladamente: CapabilityShadowSample 73/73, OrchestrationNativeDispatch base 231/231, OrchestrationSettledRecovery 1083/1083; nao leem source/agents nem execution-grants; flakes de carga, CI gate final",
+    "distribution": "24 pass, 1 fail - live-hook-v2 provisionado 2.2.6 vs pin 2.3.0, pre-existente",
+    "git_diff_check": "clean"
+  },
+  "isolated_install": {
+    "command": "install.ps1 -TargetHome <iso> -Runtime V2",
+    "exit_code": 0,
+    "result": "INSTALLED=30 UNCHANGED=0 PRESERVED=0 CONFLICT=0 FAILED=0; states agents/config/plugin/skills/AGENTS.md PASS; smoke v2 OK em opencode v2.3.0",
+    "config_root_resolution": "XDG_CONFIG_HOME=<iso>\\.config => opencode debug paths config=<iso>\\.config\\opencode (data/state/cache reais, auth preservado)"
+  },
+  "runtime_load_proof": {
+    "command": "opencode debug agents --standalone (com XDG_CONFIG_HOME isolado)",
+    "pitfall": "sem --standalone o comando anexa ao servico em background e reflete a config VIVA (perfis antigos)",
+    "reviewer": {
+      "permission_count": 48,
+      "shell_rules": 39,
+      "shell_catch_all": "deny no indice 6 (broad-first)",
+      "named_allows": [
+        "git status*",
+        "git diff*",
+        "git log*",
+        "git show*",
+        "rg *",
+        "Select-String*",
+        "Get-Content*",
+        "Test-Path*",
+        "opencode debug agents*"
+      ],
+      "edit": "deny"
+    },
+    "docs_manager": {
+      "permission_count": 48,
+      "shell_rules": 39,
+      "shell_catch_all": "deny",
+      "edit": "allow"
+    },
+    "coder": {
+      "permission_count": 33,
+      "shell_rules": 24,
+      "shell_catch_all": "allow no indice 6",
+      "git_push": "ask",
+      "git_rebase": "allow"
+    }
+  },
+  "behavioral": {
+    "C_reviewer": {
+      "git_status": "exit 0, sem saida (working tree limpo)",
+      "git_log": "f36520d init",
+      "rg_version": "ripgrep 15.1.0 (rev af60c2de9d)",
+      "set_content": "Permission denied: shell (type=permission.rejected)",
+      "npm_test": "Permission denied: shell",
+      "result": "PASS"
+    },
+    "A_coder": {
+      "created": "hello.txt",
+      "node": "v26.11.1",
+      "git_add": "ok",
+      "commit": "[master 4d1d5d5] test-permissions, 1 file changed, 2 insertions(+), 1 deletion(-); retry concluido com identidade Git local preparada pelo ambiente",
+      "git_status": "vazio",
+      "result": "PASS"
+    },
+    "B_tester": {
+      "commands": "git status, node --version, leitura de hello.txt",
+      "denials": "nenhuma",
+      "result": "PASS"
+    },
+    "D_full_chain": "HOLD (depth 1); cadeia direta exige experimental.subagent_depth >= 2; relay do Planner e o caminho suportado",
+    "E_limits": {
+      "reviewer_allow_for_push": false,
+      "reviewer_allow_for_remove_item": false,
+      "coder_git_push": "ask",
+      "set_content_denied": true,
+      "npm_test_denied": true,
+      "result": "PASS"
+    }
+  },
+  "live_config_preservation": {
+    "opencode_json_sha256": "99A56440ABA7C78C78300697ED2AD68B3BF87876C764C1EDA4554D87DCFC262A",
+    "agents_md": "19/19 inalterados (hashes antes==depois)",
+    "result": "PASS"
+  },
+  "precedence_observation": "Na config viva as regras de topo aparecem ANTES das regras do agente na lista efetiva (observado em opencode debug agents, 2.3.0); com last-match-wins o catch-all do perfil prevalece sobre ask de topo. Nao e falha nova: e o HIGH-2 ja documentado, agora com evidencia de ordenacao.",
+  "review_round_1": {
+    "findings": {
+      "SP7-001": {
+        "status": "fixed"
+      },
+      "SP7-002": {
+        "status": "fixed"
+      },
+      "SP7-003": {
+        "status": "fixed"
+      },
+      "SP7-004": {
+        "status": "fixed"
+      },
+      "SP7-005": {
+        "status": "fixed"
+      },
+      "SP7-006": {
+        "status": "fixed"
+      },
+      "SP7-007": {
+        "status": "fixed"
+      },
+      "SP8-S-01": {
+        "status": "fixed"
+      },
+      "SP8-S-02": {
+        "status": "fixed"
+      },
+      "SP8-S-03": {
+        "status": "fixed"
+      },
+      "SP8-S-04": {
+        "status": "fixed"
+      },
+      "SP8-S-05": {
+        "status": "fixed"
+      },
+      "SP8-S-06": {
+        "status": "fixed"
+      },
+      "SP8-S-07": {
+        "status": "fixed"
+      }
+    },
+    "summary": "Removidos escapes; git push nu pede ask nos 7 writers; cobertura e contagens atualizadas; flags/composicao residuais documentados.",
+    "SP8-S-08": {
+      "status": "documented-residual"
+    },
+    "SP8-S-09": {
+      "status": "accepted"
+    }
+  },
+  "guard_decision": {
+    "attempted": "deny de flags apos o allow",
+    "guard": "ambiguous-permission-overlap (fail-closed)",
+    "resolution": "residuo documentado como prompt-enforced",
+    "files": [
+      "source/agents/*.md (10)"
+    ]
+  },
+  "runtime_validation_round_2": {
+    "cases": [
+      "git diff --stat / git status --short: executaram, saida real, PASS",
+      "git diff --output=sp-out.txt: permitido, arquivo criado",
+      "rg --pre: negado Permission denied: shell; comando mangled, causa ambigua",
+      "Set-Content: negado, arquivo nao criado",
+      "git status; Set-Content: agente dividiu em duas chamadas; primeira ok, segunda negada; composicao single-string nao provada"
+    ],
+    "sp_out_txt": true,
+    "sp_deny_txt": false,
+    "sp_comp_txt": false,
+    "composition_semantics": "agent split; single-string composition unproven",
+    "auth": "ok, no 401",
+    "reviewer_commit": "none"
+  },
+  "review_round_2": {
+    "SP14-S-01": "fixed",
+    "SP14-S-02": "fixed",
+    "SP14-S-03": "fixed"
+  }
+}

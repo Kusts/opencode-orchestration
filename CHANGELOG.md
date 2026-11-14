@@ -6,6 +6,10 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- 2026-11-14: O4-S1 shadow-only, non-authoritative external-action claim diagnostics; no runtime wiring added. Direct name-based scanning covers included repository source/config text and excludes local/runtime/generated/docs/tests/secret files; it is not obfuscation-resistant. Reason codes deferred; O3 remains open; Gate O4 is not claimed; no staging is authorized.
+
+- 2026-11-14: allowlist read-only deny-default para dez perfis; rebase allow nos writers; `Format-Volume`/`diskpart` deny explícitos; grants `shell.diagnostic` alinhados. Evidência em `evidence/subagent-permissions-2026-11-14/`; provas comportamentais C/A/B/E PASS e D HOLD (depth 1). Em 2.3.0, regras de topo precedem as do agente na lista efetiva, então o catch-all do perfil prevalece sobre asks de topo.
+
 - **PRs #245–#249 mergeados:** #245 (`5933b9d`) smoke n8n-Syncthing com correções de segurança; #246 (`693ab07`) timeouts CI step/job 110/140; #247 (`1b9c66b`) pin V2 2.3.0; #248 (`fdaa6ae`) provas de availability fallback T3/T4; #249 (`a9c60fa`) jornada DONE com skill.
 - **Missão — disponibilidade T3/T4 (#248):** T3 pediu o ID deliberadamente inexistente `claude-agent/sonnet-availability-probe-nonexistent`; houve rejeição client-side pré-execução sem sessão (não falha do Sonnet real), seguida de `MODEL_UNAVAILABLE` → `FALLBACK_AUTHORIZED`; execução Terra relatada pelo operador e tentativa registrada. T4 pediu `claude-agent/opus-availability-probe-nonexistent` (não falha do Opus real), usou prova kernel-owned `modelproof:fallback-avail-t4-20261113:T3:2:7` (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`), autorizou Sol; execução relatada pelo operador e tentativa registrada. `observed_model=UNKNOWN`; não prova HTTP 429/503 real, outage de `claude-agent`, Astra nem wiring automático (candidato do resolver segue audit-only).
 - **Missão — jornada de skill (#249):** `skill-bench2-20261113` chegou a DONE (verify Kernel rev 14, review approved rev 13, DONE rev 15); chamada registrada `completed`, `executed=false`. Métricas observadas: input 15765, output 1486, reasoning 133, cache_read 248320, cache_write 0, busy 37549 ms; `cost:0` = não observado. n=1, controle G1 não randomizado; não fecha #64 nem conclui #11.
@@ -2813,3 +2817,9 @@ Primeira release estável do pacote `opencode-orchestration`.
   (`install.ps1 -Runtime Both` / `scripts/runtime/new-opencode-profile.ps1`).
 
 Status da release **1.0.0** (histórico): V2 não suportado naquela data.
+
+- Endurece allowlist read-only contra escapes de escrita/execução e exige ask para git push nu nos writers.
+
+- Endurece allowlist read-only removendo Get-*/git grep/cat-file/debug config, exige ask para git push nu nos writers e declara o resíduo de flags/composição como prompt-enforced.
+
+- 2026-11-14: rodada final de provas read-only em OpenCode 2.3.0 documenta ordering intra-agente e resduos de flags/composio; git diff --output criou arquivo, portanto glob no contm a flag.

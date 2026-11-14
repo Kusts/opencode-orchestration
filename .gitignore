@@ -20,6 +20,7 @@ evidence/v3/etapa6d-resume/*.jsonl
 !evidence/closure/
 !evidence/dev-telemetry/
 !evidence/evolution-2026-11-10/
+!evidence/subagent-permissions-2026-11-14/
 evidence/closure/*
 !evidence/closure/*.md
 cache/

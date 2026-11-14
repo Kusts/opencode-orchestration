@@ -7,11 +7,14 @@ permission:
   edit: allow
   bash:
     "*": allow
+    "Format-Volume*": deny
+    "diskpart*": deny
     "git reset --hard*": deny
     "git reset *--hard*": deny
     "git clean *": deny
     "git branch -D*": deny
-    "git rebase *": ask
+    "git rebase *": allow
+    "git push": ask
     "git push *": ask
     "terraform destroy*": deny
     "kubectl delete *": deny
