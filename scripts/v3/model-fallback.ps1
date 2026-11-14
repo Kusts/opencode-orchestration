@@ -17,11 +17,12 @@ from the Task Kernel model_attempts record.
 param([Parameter(Mandatory=$true)][ValidateSet('next','record')][string]$Action,[string]$AttemptRole,[string]$FailedModel,[string[]]$AttemptedModels=@(),[string]$FailureJson,[string]$AttemptEvidenceJson,[string]$AttemptId,[string]$Model,[string]$SessionId,[string]$ObservedModel,[string]$TaskId='fallback',[string]$Risk='low',[string]$Complexity='simple',[string]$EvidenceDir='',[string]$PolicyPath='')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'lib\OrchestrationModelFallback.ps1')
+if($AttemptedModels.Count -eq 1 -and $AttemptedModels[0].Contains(',')){$AttemptedModels=@($AttemptedModels[0] -split ',')}
 try {
  if($Action -eq 'next'){
   if(-not $AttemptRole -or -not $FailedModel -or -not $FailureJson){throw 'Required: AttemptRole, FailedModel, FailureJson'}
   $f=$FailureJson;if($f.StartsWith('@')){$f=Get-Content -LiteralPath $f.Substring(1) -Raw}
-  $ae=$null;if($AttemptEvidenceJson){$aj=$AttemptEvidenceJson;if($aj.StartsWith('@')){$aj=Get-Content -LiteralPath $aj.Substring(1) -Raw};$ae=ConvertFrom-Json -InputObject $aj -ErrorAction Stop}
+  $ae=$null;if($AttemptEvidenceJson){try{$aj=$AttemptEvidenceJson;if($aj.StartsWith('@')){$aj=Get-Content -LiteralPath $aj.Substring(1) -Raw};$ae=ConvertFrom-Json -InputObject $aj -ErrorAction Stop}catch{$ae=@{source='invalid';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=0}}}
   $d=Get-OrchestrationModelFallbackDecision -TaskId $TaskId -AttemptRole $AttemptRole -Risk $Risk -Complexity $Complexity -FailedModel $FailedModel -AttemptedModels $AttemptedModels -Failure $f -SessionId $SessionId -ObservedModel $ObservedModel -PolicyPath $PolicyPath -EvidenceDir $EvidenceDir -AttemptEvidence $ae
   $o=@{status=$d.Status;classification=$d.Classification;no_start_proof=$d.NoStartProof;next_model=$d.NextModel;next_tier=$d.NextTier;attempt_id=$d.AttemptId;reason=$d.Reason};$o|ConvertTo-Json -Compress
   if($d.Status -like 'HOLD_*'){exit 3};if($d.Status -in @('FALLBACK_AUTHORIZED','EXHAUSTED')){exit 0};exit 3

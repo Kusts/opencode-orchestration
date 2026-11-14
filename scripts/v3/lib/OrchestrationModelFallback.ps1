@@ -32,6 +32,7 @@ function Get-OrchestrationModelFallbackDecision {
     $noStart=[bool]((Get-MAValue $Failure 'Availability' $false) -and $validEvidence)
     $status='HOLD_TERMINAL';$next=$null;$tier=$null;$reason='FAILURE_NOT_ELIGIBLE'
     if(-not $failureShape){$status='HOLD_INVALID_FAILURE';$reason='FAILURE_SHAPE_UNRECOGNIZED'}
+    elseif($class -notin @('RATE_LIMIT','QUOTA_EXCEEDED','MODEL_UNAVAILABLE','PROVIDER_UNAVAILABLE')){$status='HOLD_TERMINAL';$reason='FAILURE_NOT_ELIGIBLE'}
     elseif(-not [string]::IsNullOrWhiteSpace($SessionId) -or ($null -ne $ev -and (-not [string]::IsNullOrWhiteSpace([string](Get-MAValue $ev 'session_id' '')) -or [bool](Get-MAValue $ev 'execution_started' $false)))){$status='HOLD_AMBIGUOUS_EXECUTION';$reason='EXECUTION_MAY_HAVE_STARTED'}
     elseif([string]::IsNullOrWhiteSpace($SessionId) -and [bool](Get-MAValue $Failure 'Availability' $false) -and $null -eq $AttemptEvidence -and -not $tool){$status='HOLD_NO_START_PROOF_UNVERIFIED';$reason='NO_START_PROOF_UNVERIFIED'}
     elseif($null -ne $AttemptEvidence -and -not $validEvidence){$status='HOLD_AMBIGUOUS_EXECUTION';$reason='NO_START_PROOF_INVALID'}
