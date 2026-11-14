@@ -1,0 +1,76 @@
+{
+  "task_id": "fallback-avail-t4-20261113",
+  "selection": {
+    "tier": "T4",
+    "model": "claude-agent/opus",
+    "provider": "claude-agent",
+    "kernel_proof_reference": "modelproof:fallback-avail-t4-20261113:T3:2:7",
+    "kernel_proof_digest": "sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3",
+    "selection_reason": "Kernel-owned T3 failure proof; policy escalates to T4 Opus."
+  },
+  "native_error": {
+    "error": {
+      "type": "tool.execution",
+      "message": "Model \"claude-agent/opus-availability-probe-nonexistent\" is not available. Use the models tool to see what is available."
+    },
+    "content": [],
+    "source_tool": "subagent",
+    "requested_model": "claude-agent/opus-availability-probe-nonexistent",
+    "session_id": null,
+    "execution_started": false,
+    "assistant_messages": 0,
+    "tool_calls": 0,
+    "tier_context": "T4",
+    "kernel_proof_reference": "modelproof:fallback-avail-t4-20261113:T3:2:7",
+    "kernel_proof_digest": "sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3",
+    "interpretation": "Client-side requested-model/catalog rejection before execution; not evidence of provider HTTP failure."
+  },
+  "decision": {
+    "attempt_id": "ae31c980904e4ae08471fe22846355f0",
+    "status": "FALLBACK_AUTHORIZED",
+    "classification": "MODEL_UNAVAILABLE",
+    "next_model": "openai/gpt-6.1-sol",
+    "next_tier": "T4",
+    "no_start_proof": true,
+    "reason": "Same-tier ordered candidate within T4 after MODEL_UNAVAILABLE (audit only). (HOLD: no independent no-start proof in this resolver; CandidateModel is non-authorizing audit only.)"
+  },
+  "fallback_dispatch": {
+    "agent": "coder",
+    "model": "openai/gpt-6.1-sol",
+    "task_id": "fallback-avail-t4-20261113",
+    "session_id": "ses_e284d5e49ffenBXX35BVr1LWaC",
+    "response": "T4_FALLBACK_SOL_OK",
+    "outcome": "REPORTED successful execution",
+    "observed_by": "user-reported real dispatch result"
+  },
+  "model_attempt_record": {
+    "file": "evidence/fallback-availability-2026-11-13/model-attempts.jsonl",
+    "record": {
+      "attempt_id": "ae31c980904e4ae08471fe22846355f0",
+      "task_id": "fallback-avail-t4-20261113",
+      "agent": "coder",
+      "requested_model": "openai/gpt-6.1-sol",
+      "requested_provider": "openai",
+      "stage": "post_dispatch",
+      "session_id": "ses_e284d5e49ffenBXX35BVr1LWaC",
+      "observed_model": "UNKNOWN",
+      "started_at": "2026-11-14T01:36:43.0589347Z",
+      "finished_at": "2026-11-14T01:36:43.0626576Z",
+      "success": true
+    }
+  },
+  "proven": [
+    "Seleção T4 Opus foi retornada com prova Kernel-owned T3 e ref/digest registrados.",
+    "Erro nativo do modelo solicitado foi observado pré-execução e sem sessão; o resolver retornou MODEL_UNAVAILABLE/FALLBACK_AUTHORIZED para candidato same-tier T4 openai/gpt-6.1-sol. no_start_proof=true baseia-se na evidência observada fornecida, e o reason mantém HOLD audit-only/não autorizador.",
+    "REPORTED successful execution: o Planner reportou que openai/gpt-6.1-sol executou com resposta T4_FALLBACK_SOL_OK; sessão e resposta são relato do Planner, não observação independente do registro model-attempts."
+  ],
+  "not_proven": [
+    "HTTP 429/503 real.",
+    "Indisponibilidade do provider claude-agent; erro client-side/catalog de modelo não listado.",
+    "Elegibilidade ou execução Astra.",
+    "Wiring de retry automático.",
+    "Modelo efetivamente observado no registro: observed_model permanece UNKNOWN."
+  ],
+  "fallback_decision_log_line": "{\"task_id\":\"fallback-avail-t4-20261113\",\"attempt_role\":\"coder\",\"failed_model\":\"claude-agent/opus-availability-probe-nonexistent\",\"classification\":\"MODEL_UNAVAILABLE\",\"no_start_proof\":true,\"no_start_reason\":\"OBSERVED_NO_START\",\"status\":\"FALLBACK_AUTHORIZED\",\"decision\":\"FALLBACK_AUTHORIZED\",\"next_model\":\"openai/gpt-6.1-sol\",\"attempt_id\":\"ae31c980904e4ae08471fe22846355f0\",\"session_id\":null,\"observed_model\":\"UNKNOWN\",\"error\":\"Model \\\"claude-agent/opus-availability-probe-nonexistent\\\" is not available. Use the models tool to see what is available.\",\"recorded_at\":\"2026-11-14T01:35:53.4341065Z\"}",
+  "no_start_proof_semantics": "no_start_proof=true é calculado/declarado a partir da evidência observada fornecida; o resolver continua em HOLD e o candidato é audit-only, não autorizador."
+}
