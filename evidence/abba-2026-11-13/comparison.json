@@ -168,8 +168,44 @@
       "Possible learning and cache carryover across runs",
       "Cost value is not observed; API returned zero but cost_observed is false",
       "Skill observed does not establish that it caused any improvement",
-      "Cross-arm contamination in b1: tool call call_b01be8b21d914743806f53be35138b6a read a1/lib/calc.ps1, a2/lib/calc.ps1, and b2/lib/calc.ps1. Since a1 was already fixed, b1 saw a ready-made correction; b1 is not a clean control and its token/time measurements are affected. Reading these other arms violated b1's original write scope scratchpad/abba/b1 and motivated recreating the task with the common parent scope scratchpad/abba.",
+      "Cross-arm contamination in b1: tool call call_b01be8b21d914743806f53be35138b6a read a1/lib/calc.ps1, a2/lib/calc.ps1, and b2/lib/calc.ps1. Since a1 was already fixed, b1 saw a ready-made correction; this reading is contamination, not a write-scope violation, and affects b1's interpretation and token/time measurements. Separately, the verifier classified the modified path scratchpad/abba/a1/lib/calc.ps1 as out_of_scope_changes under b1's original write scope scratchpad/abba/b1. That out-of-scope write, not the cross-arm reading, motivated recreating the task with common parent scope scratchpad/abba.",
       "Reasoning tokens were 0 in both B runs and 33 and 50 in A (a1 and a2). This is a difference in model behavior, not evidence of a skill gain or loss; do not interpret it as a skill effect."
+    ]
+  },
+  "scope_evidence": {
+    "command": "git diff --name-only origin/master...HEAD",
+    "verification_policy_in_diff": false,
+    "path_summary": {
+      "evidence/abba-2026-11-13/**": 13,
+      "scratchpad/abba/**": 12,
+      "other_paths": 0
+    },
+    "paths": [
+      "evidence/abba-2026-11-13/a1/diff.patch",
+      "evidence/abba-2026-11-13/a1/session.json",
+      "evidence/abba-2026-11-13/a2/diff.patch",
+      "evidence/abba-2026-11-13/a2/session.json",
+      "evidence/abba-2026-11-13/b1/diff.patch",
+      "evidence/abba-2026-11-13/b1/session.json",
+      "evidence/abba-2026-11-13/b1/task-rescope-verification.json",
+      "evidence/abba-2026-11-13/b2/diff.patch",
+      "evidence/abba-2026-11-13/b2/session.json",
+      "evidence/abba-2026-11-13/comparison.json",
+      "evidence/abba-2026-11-13/task-rescope-archive/abba-a2-20261113.before-rescope.json",
+      "evidence/abba-2026-11-13/task-rescope-archive/abba-b1-20261113.before-rescope.json",
+      "evidence/abba-2026-11-13/task-rescope-archive/abba-b2-20261113.before-rescope.json",
+      "scratchpad/abba/a1/lib/calc.ps1",
+      "scratchpad/abba/a1/run-tests.ps1",
+      "scratchpad/abba/a1/tests/calc.tests.ps1",
+      "scratchpad/abba/a2/lib/calc.ps1",
+      "scratchpad/abba/a2/run-tests.ps1",
+      "scratchpad/abba/a2/tests/calc.tests.ps1",
+      "scratchpad/abba/b1/lib/calc.ps1",
+      "scratchpad/abba/b1/run-tests.ps1",
+      "scratchpad/abba/b1/tests/calc.tests.ps1",
+      "scratchpad/abba/b2/lib/calc.ps1",
+      "scratchpad/abba/b2/run-tests.ps1",
+      "scratchpad/abba/b2/tests/calc.tests.ps1"
     ]
   },
   "causal_claim": "none"
