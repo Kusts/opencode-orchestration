@@ -17,6 +17,11 @@
       "class": "test",
       "command": "powershell -NoProfile -File scripts/v3/criterion-smoke.ps1",
       "timeout_seconds": 30
+    },
+    "fallback-availability-fixture": {
+      "class": "test",
+      "command": "powershell -NoProfile -File scratchpad/fallback-verify.ps1",
+      "timeout_seconds": 30
     }
   }
 }
