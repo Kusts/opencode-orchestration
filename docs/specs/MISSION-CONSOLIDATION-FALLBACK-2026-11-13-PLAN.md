@@ -5,7 +5,9 @@ OAuth and native Luna/MiMo samples recorded; live-config reinstall remains
 Step 5); Step 3 **DONE** (PR reconciliation); Step 4 **DONE for measured T1/T2 fallbacks**
 (Planner-mediated; not automatic); Step 5 **DONE** (Agent Config fix and live
 sync converged); Step 6 **DONE**
-(measurement; #11/#64 remain PARTIAL); Step 7 **PARTIAL**.
+(measurement, including one skill-invocation journey reaching DONE; #11/#64
+remain PARTIAL); Step 7 **PARTIAL** (T3/T4 availability fallback observed,
+but provider outage/429/503 and Astra unproven).
 
 | Step | Work | Dependency | Initial status |
 |---|---|---|---|
@@ -14,8 +16,8 @@ sync converged); Step 6 **DONE**
 | 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | DONE; #238/#239/#242/#243/#244 MERGED; #240 CLOSED → #243; master evidence `402dbc0`, `f7a233e`, `df74e2a` |
 | 4 | Normalize errors + T1/T2 fallback | classification, observed no-start, Kernel gates | DONE for T1/T2 proofs: authorized decisions, native fallback child sessions succeeded and `model-attempt` recorded; Planner-mediated, not automatic |
 | 5 | Orchestration/Agent Config/-Clean integration | Steps 1-2; ownership and authorized reinstall | DONE; Agent Config fix applied, Instructions/Settings converged, post-sync install WhatIf reports zero drift |
-| 6 | Cache/skills | cache and skill A/B measurements | DONE for measurement; #11/#64 remain PARTIAL (cache in DONE journey; one-pair skill A/B, no skills-assisted completion journey) |
-| 7 | T2-T4 routing | Steps 3-6; runtime/model proof | PARTIAL; T1/T2 availability fallback real; T3→T4 kernel-proof escalation and DONE real; T3/T4 availability fallback and Astra not executed |
+| 6 | Cache/skills | cache and skill A/B measurements | DONE for measurement; skills-assisted journey reached DONE (n=1, non-randomized, `executed=false`); #11/#64 remain PARTIAL |
+| 7 | T2-T4 routing | Steps 3-6; runtime/model proof | PARTIAL; T1/T2 availability fallback real; T3→T4 kernel-proof escalation and DONE real; T3/T4 availability fallback authorized and executed after observed client-side pre-execution model rejection; no real HTTP 429/503 or provider outage proved; Astra not executed |
 
 ## Blockers and risks
 
@@ -65,16 +67,17 @@ passed 39/39, 70/70 and 8/8 in Windows PowerShell 5.1 and pwsh. No parallel
 | explorer T1 | `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` | Transição real executada; evidência T1 |
 | coder T2 | Luna T2 selection → `opencode-go/deepseek-v4.1-flash` | Decision + child execution real; failed model was synthetic `openai/does-not-exist`, not a real Luna provider failure; prompt trivial não-sensível |
 | coder T3→T4 | `claude-agent/sonnet` → `claude-agent/opus` | Escalonamento real com prova Kernel-owned T3; controlled prompt failure, Opus succeeded, review approved, Task DONE |
-| T3 availability fallback | Sonnet → Terra | Não executado |
-| T4 availability fallback | Opus → Sol | Candidato de política/testes; sem transição real |
+| T3 availability fallback | Terra | Prova pediu o ID deliberadamente inexistente `claude-agent/sonnet-availability-probe-nonexistent`, rejeitado client-side antes da execução e sem sessão; isso não é falha do Sonnet real. `MODEL_UNAVAILABLE` → `FALLBACK_AUTHORIZED`; Terra executado conforme relato do operador e tentativa registrada (`observed_model=UNKNOWN`, sessão `ses_e2857aea9ffeBN8x6nE16QeLoR`). Não prova indisponibilidade real do provider nem HTTP 429/503; candidato do resolver é audit-only |
+| T4 availability fallback | Sol | Prova kernel-owned `modelproof:fallback-avail-t4-20261113:T3:2:7` (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`); pediu o ID deliberadamente inexistente `claude-agent/opus-availability-probe-nonexistent`, rejeitado client-side antes da execução — não é falha do Opus real. `FALLBACK_AUTHORIZED`; Sol executado conforme relato do operador e tentativa registrada (`observed_model=UNKNOWN`, sessão `ses_e284d5e49ffenBXX35BVr1LWaC`). Não prova HTTP 429/503; candidato do resolver é audit-only |
 | Astra | Excepcional proof-gated | Não alegado como executado |
 
 As evidências/medições estão limitadas às execuções relatadas; não implicam
 autorização geral de fallback, execução de Astra, nem conclusão dos turns
 18/20/21/22.
 
-Provas detalhadas: `evidence/mission-2026-11-13/fallback-t2-proof.json` e
-`evidence/mission-2026-11-13/g1-t4-done-proof.json`.
+Provas detalhadas: `evidence/mission-2026-11-13/fallback-t2-proof.json`,
+`evidence/mission-2026-11-13/g1-t4-done-proof.json` e
+`evidence/fallback-availability-2026-11-13/`.
 DeepSeek Go tem `sensitive_data_allowed=false` e ZDR
 `expired-unconfirmed`; a execução foi somente um prompt trivial não-sensível.
 Não enviar dados sensíveis.
@@ -116,9 +119,11 @@ tamanho da skill. Lazy loading evita preload dos ~228k tokens estimados de
 corpos, mas uma skill carregada custa um round-trip. Não criar plataforma/flag;
 `skill_routing` permanece OFF.
 
-A medição é limitada a MiMo free, uma amostra por braço e não inclui uma
-jornada de conclusão com skill. #64 segue PARTIAL; #11 segue PARTIAL apesar da
-evidência de cache na jornada DONE.
+A jornada `skill-bench2-2026-11-13` chegou a DONE (verify Kernel rev 14,
+review approved rev 13, DONE rev 15); a chamada da skill ficou registrada
+como `completed`, `executed=false`. A comparação segue n=1 e não randomizada,
+com controle G1 diferente; não demonstra uso/benefício causal. #64 segue
+PARTIAL; #11 segue PARTIAL apesar da evidência de cache na jornada DONE.
 
 ## Issue / PR triage
 
@@ -131,6 +136,11 @@ evidência de cache na jornada DONE.
 | #239 | MERGED | Merge confirmado |
 | #240 | CLOSED → #243 | Substituído pelo follow-up #243 |
 | #242 / #243 / #244 | MERGED | Merge confirmado; commits de master `402dbc0`, `f7a233e`, `df74e2a` |
+| #245 | MERGED | `5933b9d`; smoke n8n-Syncthing com correções de segurança |
+| #246 | MERGED | `693ab07`; CI step/job timeouts 110/140 |
+| #247 | MERGED | `1b9c66b`; pin V2 2.3.0 |
+| #248 | MERGED | `fdaa6ae`; provas T3/T4 availability com limites documentados |
+| #249 | MERGED | `a9c60fa`; jornada DONE com skill, n=1; #11/#64 seguem PARTIAL |
 
 No issue is declared complete in this plan without direct proof and maintainer
 disposition.

@@ -1,0 +1,78 @@
+{
+  "recorded_at": "2026-11-14T14:39:00Z",
+  "diagnosis": {
+    "original_write_scopes": ["scratchpad/abba/b1"],
+    "out_of_scope_changes": ["scratchpad/abba/a1/lib/calc.ps1"],
+    "verifier_reason": "out_of_scope_write",
+    "verifier_evidence": "1 in scope, 1 out"
+  },
+  "diagnosis_trail": [
+    {
+      "sequence": 1,
+      "observation": "CLI verify-run failed first",
+      "literal": {
+        "ok": false,
+        "error": "VERIFY_RUN_CRITERION_UNMAPPED",
+        "detail": "PROOF_CRITERION_COVERAGE_MISMATCH"
+      }
+    },
+    {
+      "sequence": 2,
+      "observation": "Subsequent verifier inspection identified out-of-scope write as the cause",
+      "literal": {
+        "ok": true,
+        "task_id": "abba-b1-20261113",
+        "status": "verification_failed",
+        "reason": "out_of_scope_write",
+        "scope": {
+          "ok": true,
+          "error": "",
+          "status": "scope_checked",
+          "in_scope": ["scratchpad/abba/b1/lib/calc.ps1"],
+          "out_of_scope": ["scratchpad/abba/a1/lib/calc.ps1"],
+          "dirty_untracked": []
+        },
+        "profiles": [],
+        "criterion_map": {},
+        "evidence": ["1 in scope, 1 out"],
+        "command_classes": []
+      }
+    }
+  ],
+  "error_relationship": "The CLI-reported criterion coverage mismatch was the surfaced symptom. The subsequent direct verifier inspection identified out_of_scope_write, caused by scratchpad/abba/a1/lib/calc.ps1 outside the original b1 scope, as the underlying cause.",
+  "replacement_task": {
+    "task_id": "abba-b1-20261113",
+    "write_scopes": ["scratchpad/abba"],
+    "verification_profiles": ["abba-b1"],
+    "acceptance_criteria": ["Fix Get-Total so all calc tests pass"],
+    "run_id": "abba-b1-20261113",
+    "root_session": "ses_e2867895effeybCXdjFDRmmnGc",
+    "worker_session": "ses_e25862c72ffemVH0GOH9Zn3lts"
+  },
+  "verify_run": {
+    "command": "task-kernel.ps1 -Action verify-run -TaskId abba-b1-20261113 -ExpectedRevision 7",
+    "literal": {
+      "ok": true,
+      "task_id": "abba-b1-20261113",
+      "revision": 8,
+      "passed": true,
+      "status": "verified_pass",
+      "verification_source": "kernel-executed"
+    }
+  },
+  "other_recreated_tasks": {
+    "abba-b2-20261113": {
+      "write_scopes": ["scratchpad/abba"],
+      "verification_profiles": ["abba-b2"]
+    },
+    "abba-a2-20261113": {
+      "write_scopes": ["scratchpad/abba"],
+      "verification_profiles": ["abba-a2"]
+    }
+  },
+  "preserved_task_records": [
+    "evidence/abba-2026-11-13/task-rescope-archive/abba-b1-20261113.before-rescope.json",
+    "evidence/abba-2026-11-13/task-rescope-archive/abba-b2-20261113.before-rescope.json",
+    "evidence/abba-2026-11-13/task-rescope-archive/abba-a2-20261113.before-rescope.json"
+  ]
+}

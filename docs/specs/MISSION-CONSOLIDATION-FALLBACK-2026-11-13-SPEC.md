@@ -51,23 +51,42 @@ synthetic-test-only.
   remains open. PS5.1 suite was 91/95 with four pre-existing failures
   (baseline 87/91); pwsh was 95/95.
 - Step 6: **DONE** for measurement. The G1/T4 DONE journey includes observed
-  cache reads/writes. A one-pair MiMo free A/B measured loading
+  cache reads/writes. A separate skills-assisted journey reached DONE
+  (`skill-bench2-20261113`, verify kernel-executed rev 14, review approved
+  rev 13, DONE rev 15). The skill tool call was recorded as `completed`,
+  `executed=false`; this proves invocation record, not skill use or benefit.
+  The observation is n=1 with a non-randomized G1 control; it does not close
+  #64 or conclude #11. A one-pair MiMo free A/B measured loading
   `verification-before-completion` via tool versus no skill; the skill body
   is ~2,184 bytes (~546 estimated tokens), while the ~34k input difference
   reflects context resend/cache rather than body size. Native lazy loading
   avoids preloading ~228k estimated body tokens, but a skill load adds a tool
   round-trip. No new platform/flag; `skill_routing` remains OFF.
   #11 remains **PARTIAL** (cache evidenced in DONE but remaining acceptance
-  criteria open); #64 remains **PARTIAL** (single MiMo pair, no
-  skills-assisted completion journey).
+  criteria open); #64 remains **PARTIAL** (single MiMo pair and one
+  non-randomized completion observation do not establish effect).
 - Step 7: **PARTIAL** - T1 Luna→MiMo and T2 Luna→DeepSeek Go availability
   fallback decisions/child executions were real. For T2, the failed model was
   synthetic `openai/does-not-exist`, not a real Luna provider failure.
   Separately, a real T3→T4 escalation used kernel-owned T3 proof, selected
   Opus, passed verification/review, and reached **DONE**. The T3 failure was
   deliberately induced by prompt and is not evidence of natural incapability.
-  T3/T4 availability fallback Sonnet→Terra and Opus→Sol were not executed;
-  Astra is exceptional/proof-gated and was not executed. DeepSeek Go proof was
+  T3 availability fallback requested the deliberately nonexistent ID
+  `claude-agent/sonnet-availability-probe-nonexistent`, rejected client-side
+  before execution with no session (not a failure of real Sonnet), then reached
+  `MODEL_UNAVAILABLE` → `FALLBACK_AUTHORIZED`; Terra execution was reported by
+  the operator and recorded with `observed_model=UNKNOWN`. T4 requested
+  deliberately nonexistent ID
+  `claude-agent/opus-availability-probe-nonexistent` (not a failure of real
+  Opus). T4 used
+  kernel-owned proof `modelproof:fallback-avail-t4-20261113:T3:2:7`
+  (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`),
+  selected Opus, observed pre-execution rejection, authorized fallback,
+  then operator-reported Sol execution/recording (attempt record
+  `observed_model=UNKNOWN`). Resolver candidates remain audit-only and do not
+  provide automatic authorization. These observations do not prove a real
+  `claude-agent` provider outage or HTTP 429/503. Astra is exceptional/proof-gated
+  and was not executed. DeepSeek Go proof was
   limited to a trivial, non-sensitive prompt; `sensitive_data_allowed=false`
   and ZDR is `expired-unconfirmed`.
 
@@ -75,10 +94,20 @@ PR consolidation status: #238/#239/#242/#243/#244 **MERGED**; #240
 **CLOSED → #243**. Master evidence includes `402dbc0`, `f7a233e`,
 `df74e2a`.
 
+PRs #245–#249 are also **MERGED** (`5933b9d`, `693ab07`, `1b9c66b`,
+`fdaa6ae`, `a9c60fa` respectively); see the PLAN triage and Unreleased
+changelog for scope and evidence.
+
 The G1/T4 evidence is recorded in
 `evidence/mission-2026-11-13/g1-t4-done-proof.json`. The controlled fixture
 lives in the separate, ignored proof worktree; Astra was not used and this
 T4 event is a kernel-proof escalation, not availability fallback.
+T3/T4 availability observations are recorded in
+`evidence/fallback-availability-2026-11-13/`; T3 included client-side
+rejection of a deliberately nonexistent requested model before execution, not
+a failure of real Sonnet or a provider outage. T4 likewise rejected a
+deliberately nonexistent requested model, not real Opus. Resolver candidates
+remain audit-only; automatic fallback wiring is not established.
 
 The explicit native `subagent.model` override was empirically observed on
 Luna/MiMo calls. The allowlist accepts 2.2.5/2.2.6/2.0.23/2.3.0 (PR #244).

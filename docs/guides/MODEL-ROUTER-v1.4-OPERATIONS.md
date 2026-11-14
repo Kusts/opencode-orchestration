@@ -12,6 +12,15 @@
 > override proof only; the provisioning/CI pin is now 2.3.0. See the mission
 > PLAN/SPEC and `evidence/mission-2026-11-13/`.
 
+**Bounded retry contract:** observed error → structured evidence → helper
+`next` decision → one authorized redispatch by the Planner. Missing or
+malformed failure/evidence, non-`pre_dispatch` stage, child session,
+`execution_started`, positive counters, timeout/`EXECUTION_UNKNOWN`, and
+ineligible classifications HOLD; never infer or fabricate evidence. `record`
+remains separate from the Kernel's `model_attempts`. Plugin automation is
+blocked because V2 exposes `tool.execute.before` only, without result/error,
+child `sessionID`, `TaskId`, or `RunId`.
+
 ## Canonical mapping
 
 | Tier | Primary | Fallback(s) | Notes |

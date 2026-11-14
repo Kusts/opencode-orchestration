@@ -6,6 +6,10 @@ $passed=0;$failed=0
 function Assert-MF { param([bool]$Ok,[string]$Name) if($Ok){$script:passed++}else{$script:failed++;Write-Host "FAIL $Name"} }
 $role='coder';$task='fallback-test';$policy=Join-Path $PSScriptRoot '..\..\..\source\registry\model-routing-policy.json'
 if(-not (Test-Path $policy)){$policy=''}
+$attemptedCsv=ConvertFrom-OrchestrationAttemptedModels @('openai/gpt-6.1-terra,  openai/gpt-6.1-sol')
+Assert-MF ($attemptedCsv.Count -eq 2 -and $attemptedCsv[0] -ceq 'openai/gpt-6.1-terra' -and $attemptedCsv[1] -ceq 'openai/gpt-6.1-sol' -and -not ('openai/gpt-6.1-sol' -notin $attemptedCsv)) 'CSV attempted models trim prevents second candidate reauthorization'
+$attemptedArray=@('model-a','model-b');$preservedArray=ConvertFrom-OrchestrationAttemptedModels $attemptedArray
+Assert-MF ($preservedArray.Count -eq 2 -and $preservedArray[1] -ceq 'model-b') 'attempted models array remains unchanged'
 $tool='{"error":{"type":"tool.execution","message":"Model openai/does-not-exist is not available."}}'
 $cases=@(
  @{name='native model unavailable';fail=$tool;model='openai/does-not-exist'},
@@ -60,12 +64,66 @@ foreach($c in $providerCases){
 $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429,"message":"rate limit"}' -PolicyPath $policy
 Assert-MF ($d.Classification -eq 'RATE_LIMIT' -and $d.Status -eq 'HOLD_NO_START_PROOF_UNVERIFIED' -and $null -eq $d.NextModel -and -not $d.NoStartProof) '429 without evidence exact hold'
 foreach($badEv in @(
- @{source='provider';stage='pre_dispatch';session_id='ses_x';execution_started=$false;assistant_messages=0;tool_calls=0},
- @{source='provider';stage='pre_dispatch';session_id='';execution_started=$true;assistant_messages=0;tool_calls=0}
+  @{source='provider';stage='pre_dispatch';session_id='ses_x';execution_started=$false;assistant_messages=0;tool_calls=0},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$true;assistant_messages=0;tool_calls=0},
+  @{source='provider';stage='post_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=0},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=1;tool_calls=0},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=1},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0}
 )){
- $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $badEv -PolicyPath $policy
- Assert-MF ($d.Classification -eq 'RATE_LIMIT' -and $d.Status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $null -eq $d.NextModel) 'ambiguous evidence exact hold'
+  $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $badEv -PolicyPath $policy
+  Assert-MF ($d.Classification -eq 'RATE_LIMIT' -and $d.Status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $null -eq $d.NextModel -and -not [string]::IsNullOrWhiteSpace($d.Reason)) 'ambiguous/inconsistent evidence exact hold'
+ }
+$toolNoSession=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"error":{"type":"tool.execution","message":"model not available"}}' -PolicyPath $policy
+Assert-MF ($toolNoSession.Status -eq 'FALLBACK_AUTHORIZED' -and $toolNoSession.NoStartProof) 'tool_error without session authorizes'
+$toolSession=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"sessionID":"ses_child","error":{"type":"tool.execution","message":"model not available"}}' -PolicyPath $policy
+Assert-MF ($toolSession.Status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $toolSession.Reason -eq 'EXECUTION_MAY_HAVE_STARTED' -and $null -eq $toolSession.NextModel) 'tool_error session holds'
+$missing=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -PolicyPath $policy
+Assert-MF ($missing.Status -eq 'HOLD_NO_START_PROOF_UNVERIFIED' -and $missing.Reason -eq 'NO_START_PROOF_UNVERIFIED') 'missing evidence stable hold reason'
+$invalidFailure=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure 'not-json' -AttemptEvidence $ev -PolicyPath $policy
+Assert-MF ($invalidFailure.Status -eq 'HOLD_INVALID_FAILURE' -and $invalidFailure.Reason -eq 'FAILURE_SHAPE_UNRECOGNIZED' -and -not $invalidFailure.FallbackEligible) 'unrecognized failure shape holds'
+foreach($failure in @('{"code":"timeout"}','{"code":"invalid_request"}','{"status":401}')){
+ $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure $failure -AttemptEvidence $ev -PolicyPath $policy
+ Assert-MF ($d.Status -eq 'HOLD_TERMINAL' -and $d.Reason -eq 'FAILURE_NOT_ELIGIBLE' -and $null -eq $d.NextModel) "ineligible $failure stays terminal"
 }
+$ineligibleTool=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"error":{"type":"tool.execution","message":"timeout"}}' -AttemptEvidence @{source='invalid';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=0} -PolicyPath $policy
+Assert-MF ($ineligibleTool.Status -eq 'HOLD_TERMINAL' -and $ineligibleTool.Reason -eq 'FAILURE_NOT_ELIGIBLE') 'ineligible tool error remains terminal with invalid evidence'
+$stringFalse=@{source='provider';stage='pre_dispatch';session_id='';execution_started='false';assistant_messages=0;tool_calls=0}
+$stringFalseDecision=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $stringFalse -PolicyPath $policy
+Assert-MF ($stringFalseDecision.Status -like 'HOLD_*' -and -not $stringFalseDecision.FallbackEligible) 'execution_started string false cannot authorize'
+
+# Exercise actual CLI process exit codes and JSON payload, on the active PowerShell edition.
+$cli=Join-Path $PSScriptRoot '..\model-fallback.ps1'
+$cliTemp=Join-Path ([IO.Path]::GetTempPath()) ('model-fallback-cli-'+[guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($cliTemp)
+$failureFile=Join-Path $cliTemp 'failure.json';$evidenceFile=Join-Path $cliTemp 'evidence.json'
+[IO.File]::WriteAllText($failureFile,$providerCases[0].failure,[Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($evidenceFile,($ev|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+$psExe=(Get-Process -Id $PID).Path
+function Invoke-FallbackCli {
+ param([string[]]$Arguments)
+ $stdout=Join-Path $cliTemp ([guid]::NewGuid().ToString('N')+'.out')
+ $stderr=Join-Path $cliTemp ([guid]::NewGuid().ToString('N')+'.err')
+ $quoted=@($Arguments|ForEach-Object{'"'+([string]$_).Replace('"','\"')+'"'})
+ $proc=Start-Process -FilePath $psExe -ArgumentList $quoted -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+ $text=Get-Content -LiteralPath $stdout -Raw
+ $json=$null;try{$json=ConvertFrom-Json -InputObject $text -ErrorAction Stop}catch{}
+ return @{code=$proc.ExitCode;json=$json;stdout=$text}
+}
+$baseArgs=@('-NoProfile','-File',$cli,'-Action','next','-AttemptRole','explorer','-FailedModel','openai/does-not-exist','-FailureJson',"@$failureFile")
+$cliAuthorized=Invoke-FallbackCli ($baseArgs+@('-AttemptEvidenceJson',"@$evidenceFile"))
+Assert-MF ($cliAuthorized.code -eq 0 -and $cliAuthorized.json.status -eq 'FALLBACK_AUTHORIZED') 'CLI exit 0 on authorized fallback'
+$exhaustedArgs=@('-NoProfile','-File',$cli,'-Action','next','-AttemptRole','explorer','-FailedModel','opencode/mimo-v2.6-flash-free','-AttemptedModels','opencode/mimo-v2.6-flash-free,openai/gpt-6-luna','-FailureJson',"@$failureFile",'-AttemptEvidenceJson',"@$evidenceFile")
+$cliExhausted=Invoke-FallbackCli $exhaustedArgs
+Assert-MF ($cliExhausted.code -eq 0 -and $cliExhausted.json.status -eq 'EXHAUSTED') 'CLI exit 0 on exhausted fallback'
+$cliHold=Invoke-FallbackCli $baseArgs
+Assert-MF ($cliHold.code -eq 3 -and $cliHold.json.status -eq 'HOLD_NO_START_PROOF_UNVERIFIED') 'CLI exit 3 on HOLD'
+$cliUsage=Invoke-FallbackCli @('-NoProfile','-File',$cli,'-Action','next')
+Assert-MF ($cliUsage.code -eq 2 -and $null -eq $cliUsage.json) 'CLI exit 2 on usage error'
+[IO.File]::WriteAllText($evidenceFile,'{malformed',[Text.UTF8Encoding]::new($false))
+$cliBadEvidence=Invoke-FallbackCli ($baseArgs+@('-AttemptEvidenceJson',"@$evidenceFile"))
+Assert-MF ($cliBadEvidence.code -eq 3 -and $cliBadEvidence.json.status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $cliBadEvidence.json.reason -eq 'NO_START_PROOF_INVALID') 'malformed CLI evidence returns JSON HOLD and exit 3'
+Remove-Item -LiteralPath $cliTemp -Recurse -Force
 $high=Resolve-OrchestrationModelSelection -AgentName reviewer -TaskId $task -Risk high -Complexity simple -PolicyPath $policy -IgnoreUserConfig $true
 Assert-MF ($high.Tier -eq 'T3' -and $high.CatalogModel -eq 'claude-agent/sonnet') 'reviewer high selects T3 Sonnet'
 $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole reviewer -Risk high -FailedModel 'claude-agent/sonnet' -Failure '{"error":{"type":"tool.execution","message":"Model claude-agent/sonnet is not available"}}' -PolicyPath $policy
@@ -79,6 +137,9 @@ $evidenceDir=Join-Path ([IO.Path]::GetTempPath()) ('model-fallback-tests-'+[guid
 $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $ev -PolicyPath $policy -EvidenceDir $evidenceDir
 $line=Get-Content (Join-Path $evidenceDir 'fallback-decisions.jsonl') -Raw | ConvertFrom-Json
 Assert-MF ($line.decision -eq $d.Status -and $line.no_start_reason -and $line.attempt_id -eq $d.AttemptId -and $line.classification -eq $d.Classification -and $line.next_model -eq $d.NextModel) 'JSONL decision evidence fields'
+$recordOutput=& (Join-Path $PSScriptRoot '..\model-fallback.ps1') -Action record -AttemptId 'record-separate' -AttemptRole explorer -Model 'openai/gpt-6-luna' -SessionId 'ses_record' -EvidenceDir $evidenceDir
+$modelRecords=@(Get-Content (Join-Path $evidenceDir 'model-attempts.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+Assert-MF ($modelRecords.Count -eq 1 -and $modelRecords[0].attempt_id -eq 'record-separate' -and (Test-Path (Join-Path $evidenceDir 'fallback-decisions.jsonl'))) 'record remains separate from fallback/kernel model_attempts'
 Remove-Item -LiteralPath $evidenceDir -Recurse -Force
 Write-Host "OrchestrationModelFallback: passed=$passed failed=$failed"
 if($failed){exit 1}
