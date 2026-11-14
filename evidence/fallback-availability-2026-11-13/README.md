@@ -136,3 +136,59 @@ T4 was checked read-only in `D:\projetos\_wt\orch-proof`, task
 returned T3 `claude-agent/sonnet` (exit 0). Thus this task does not currently
 permit T4 selection; no T4 availability dispatch should be attempted from this
 task. The diagnostic did not modify that worktree.
+
+## T4 availability procedure and observed result
+
+This T4 experiment used a separate proof task in this branch:
+`fallback-avail-t4-20261113`. Its verifier profile
+`fallback-availability-fixture` is scoped to this proof branch only and runs
+`powershell -NoProfile -File scratchpad/fallback-verify.ps1`. The ignored
+`scratchpad/fallback-fixture.txt` began as `bad`; the worker was instructed
+not to change it. Kernel `verify-run` returned
+`verification_failed` (`verification_source=kernel-executed`). After recording
+the actual T3 child session/message and binding the observed root/worker
+sessions, `model-attempt` recorded T3 `claude-agent/sonnet`;
+`model-proof -RequiredTier T3` returned:
+
+```text
+reference: modelproof:fallback-avail-t4-20261113:T3:2:7
+digest:    sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3
+```
+
+The subsequent canonical `model-select` returned T4 `claude-agent/opus` with
+that proof reference and digest. The intentionally unavailable Opus request
+was then observed before execution, with no session:
+`claude-agent/opus-availability-probe-nonexistent`. Its native tool error and
+pre-dispatch evidence are in `failure-t4-real.json` and
+`attempt-evidence-t4-real.json`. The command used was:
+
+```powershell
+scripts/v3/model-fallback.ps1 -Action next -AttemptRole coder -Risk high -Complexity complex -TaskId fallback-avail-t4-20261113 -FailedModel claude-agent/opus-availability-probe-nonexistent -FailureJson '@evidence/fallback-availability-2026-11-13/failure-t4-real.json' -AttemptEvidenceJson '@evidence/fallback-availability-2026-11-13/attempt-evidence-t4-real.json' -EvidenceDir 'D:\projetos\_wt\orch-fallback-proof-20261114\evidence\fallback-availability-2026-11-13'
+```
+
+Observed decision: `MODEL_UNAVAILABLE`, `FALLBACK_AUTHORIZED`,
+`next_tier=T4`, `next_model=openai/gpt-6.1-sol`, exit 0. The reason itself
+also contains an audit-only HOLD: “no independent no-start proof in this
+resolver; CandidateModel is non-authorizing audit only.” The Planner reported
+that the real Sol dispatch succeeded with response `T4_FALLBACK_SOL_OK` and
+session `ses_e284d5e49ffenBXX35BVr1LWaC`; the `-Action record` call persisted
+it in `model-attempts.jsonl`. The record's `observed_model` is `UNKNOWN`, so
+the actual model/response are attributed to the Planner's observation in
+`t4-availability-proof.json`.
+
+### Combined proof limits
+
+Proven by the recorded evidence: pre-execution rejection of the requested
+unlisted model without a session; T3 fallback decision/candidate and reported
+successful Terra execution; a Kernel-owned functional T3 failure proof
+enabling canonical T4 Opus selection; T4 fallback decision/candidate and
+reported successful Sol execution. The availability class observed in both
+dispatch errors is `MODEL_UNAVAILABLE`.
+
+Not proven: a real provider HTTP 429/503; unavailability of provider
+`claude-agent` (the errors are client-side requested-model/catalog
+rejections); Astra eligibility or execution; or automatic retry wiring. Both
+fallback resolver reasons carry an audit-only HOLD, so their candidate output
+is not independent dispatch authorization. The successful Terra and Sol
+dispatches were separately reported by the Planner and recorded with
+`observed_model=UNKNOWN`.
