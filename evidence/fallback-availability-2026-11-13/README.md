@@ -79,3 +79,42 @@ recomputes that proof. Only after that proof and an actual failed T3 attempt
 may the Planner evaluate escalation; `model-select` must independently return
 T4 for the task. A caller-provided `T3FailureVerified` or
 `T3FailureReceipt` is untrusted/ignored.
+
+## Real observation: client-side model unavailable
+
+Captured dispatch result is stored in `failure-t3-real.json`, with parser
+evidence in `attempt-evidence-t3-real.json`. The Planner observed
+`subagent(agent=coder, model=claude-agent/sonnet-availability-probe-nonexistent)`
+fail immediately: no `sessionID`, no assistant message, no tool call, and no
+execution. The message says the model is not available and suggests checking
+the models catalog. This is a **client-side/unlisted requested-model** failure
+before execution, not an observed provider 429/503 and not evidence that
+provider `claude-agent` is unavailable.
+
+For this tool-originated `tool.execution` result, the parser's correct
+`attempt-evidence` source is `tool_error`, with `stage=pre_dispatch`, blank
+session ID, `execution_started=false`, and zero counters. This reflects the
+observed tool error; it should not be mislabeled as `provider` or `dispatcher`.
+
+The real `model-fallback.ps1 -Action next` invocation returned
+`classification=MODEL_UNAVAILABLE`, `status=FALLBACK_AUTHORIZED`,
+`next_model=openai/gpt-6.1-terra`, `next_tier=T3`,
+`no_start_proof=true`, exit code 0. The resolver's reason also contains
+`HOLD: no independent no-start proof in this resolver; CandidateModel is
+non-authorizing audit only.` Therefore this output records that the
+availability classifier recognized the model-unavailable class and surfaced
+the ordered candidate, but **does not itself authorize dispatch**. The Planner
+must not treat this client-side invalid/unlisted model observation as proof of
+provider unavailability; a real fallback dispatch needs an independently
+authorizing path and appropriate evidence.
+
+### Evidence boundary
+
+Proved: the exact requested model was rejected by the native dispatch tool
+before a session or execution began, and the local classifier classified its
+error as `MODEL_UNAVAILABLE`.
+
+Not proved: an actual HTTP 429 or 503; unavailability of the `claude-agent`
+provider; successful execution of the fallback model; T4 escalation or Astra
+eligibility. The nonexistent model name is specifically a client-side
+availability/catalog case. Do not generalize it to provider health.
