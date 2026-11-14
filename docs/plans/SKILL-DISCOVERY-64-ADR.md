@@ -1,5 +1,7 @@
 # ADR — Selective skill discovery (issue #64): ADAPT restrito, sem auto-install, sem escalação
 
+> 8 skills-core atuais; 103 é histórico de 2026-10-07 e não descreve o inventário presente.
+
 - **Issue:** #64 — avaliar selective skill discovery (search-first) sem preload total.
 - **Decisão:** **ADAPT restrito** (não full, não reject) — adotar somente padrão adaptado: índice local + protótipo shadow offline + leitura exata verificada.
 - **REJECT:** `skill_routing` / `mcp_routing`, Full/autoload, ativação em V1, auto-install, escalação de modelo.

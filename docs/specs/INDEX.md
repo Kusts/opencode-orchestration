@@ -19,6 +19,9 @@ Este índice mapeia todas as especificações e planos técnicos mantidos no rep
 
 ---
 
+| [MISSION-CONSOLIDATION-FALLBACK-2026-11-13-SPEC.md](MISSION-CONSOLIDATION-FALLBACK-2026-11-13-SPEC.md) | active | Reconciliação documental e fallback, etapas 1–7 |
+| [MISSION-CONSOLIDATION-FALLBACK-2026-11-13-PLAN.md](MISSION-CONSOLIDATION-FALLBACK-2026-11-13-PLAN.md) | active | Plano e triagem inicial da missão |
+
 ## 2. Frente Universal Autonomous Orchestration (v0.1.0 e v0.1.2)
 
 | Documento | Status | Assunto |
@@ -94,4 +97,3 @@ Este índice mapeia todas as especificações e planos técnicos mantidos no rep
 | [FULL-VALIDATION-SPEC-AND-PLAN-2026-10-23.md](../plans/FULL-VALIDATION-SPEC-AND-PLAN-2026-10-23.md) | active | SPEC & Plan de Auditoria Completa e Hardening E2E (RF-01 a RF-06) |
 | [COMPLETE-AUDIT-AND-VALIDATION-REPORT-2026-10-23.md](../audits/COMPLETE-AUDIT-AND-VALIDATION-REPORT-2026-10-23.md) | audit | Relatório consolidado da auditoria profunda de 2026-10-23 |
 | [opencode-capabilities-local-audit-2026-10-06.md](../audits/opencode-capabilities-local-audit-2026-10-06.md) | historical | Inventário e auditoria de ambiente e capacidades OpenCode (2026-10-06) |
-

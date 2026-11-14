@@ -16,12 +16,22 @@ A autoridade canônica de configuração reside em [`source/registry/model-routi
 > [!NOTE]
 > Este guia nasceu no desenho v1.1 (título e especificação acima preservados como artefato histórico). A matriz canônica vigente é a v1.4: para o mapeamento detalhado por tier/papel/fallback, consulte [`docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md`](file:///docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md). A Seção 3 abaixo resume a matriz v1.4 e prevalece sobre qualquer valor legado citado em procedimentos antigos deste arquivo.
 
+> **Prova operacional (2026-11-13):** disponibilidade T1/T2 teve decisões e
+> execuções nativas reais mediadas pelo Planner após `tool.execution` sem
+> child session e autorização do helper `model-fallback.ps1`; isso não é
+> fallback automático. O failed model usado foi sintético
+> `openai/does-not-exist`. Separadamente, G1 provou escalonamento T3→T4 via
+> `model-proof` do Kernel e Task DONE, não fallback de disponibilidade.
+> T3/T4 disponibilidade e Astra não foram executados. OpenCode 2.3.0 está
+> autorizado apenas na prova live-server do override nativo; pin CI/provisioning
+> permanece 2.2.6. Detalhes e limites estão no PLAN/SPEC da missão.
+
 ### Princípios Operacionais Fundamentais
 
 1. **ADR-01 — Um único Model Router:** Toda seleção passa por [`scripts/v3/lib/OrchestrationModelRouter.ps1`](file:///scripts/v3/lib/OrchestrationModelRouter.ps1). Não crie seletores paralelos.
 2. **ADR-02 — Providers Independentes:**
    - `opencode` (Console): DeepSeek V4.1 Flash Free — **desabilitado** na policy, nunca substituto implícito.
-   - `opencode-go`: DeepSeek V4.1 Flash - T2 primário por seleção explícita do operador em 2026-11-04; ZDR `expired-unconfirmed`, `sensitive_data_allowed=false`, sem alegação de renovação/conformidade. Usar somente com dados não sensíveis até confirmação; também Muse Spark 1.3 Contributor.
+   - `opencode-go`: DeepSeek V4.1 Flash (candidato T2; a decisão de primário de 2026-11-04 foi superada pela policy 1.5.0) e Muse Spark 1.3 Contributor. DeepSeek Go ZDR `expired-unconfirmed`; não envie dados que exijam ZDR.
    - `openai`: GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra.
    - `jev`: Jev 1.13 Free (System One).
    - **Regra inviolável:** Modelos OpenAI (Luna, Sol, Astra) devem ser despachados estritamente pelo provider `openai`, nunca convertidos silenciosamente para `opencode` ou `opencode-go`.
@@ -112,11 +122,11 @@ As prioridades de seleção primária e secundária de cada tier são governadas
     "name": "Ultraleve",
     "primary": "luna",
     "fallback": "mimo",
-    "cost_ceiling_multiplier": 0.01
+    "cost_ceiling_multiplier": 1.00
   },
   "T2": {
     "name": "Execucao Economica",
-    "primary": "deepseek_go",
+    "primary": "luna",
     "fallback": "muse",
     "cost_ceiling_multiplier": 0.15
   },
@@ -136,9 +146,8 @@ As prioridades de seleção primária e secundária de cada tier são governadas
 }
 ```
 
-- T2 primário é DeepSeek Go (`opencode-go/deepseek-v4.1-flash`) por seleção explícita do operador (adendo 2026-11-04; ZDR segue expired-unconfirmed sem alegação de renovação; não envie dados sensíveis cuja proteção exija ZDR — somente dados não-sensíveis e workspaces que permitem este provider até ZDR verificado). Ordem candidata T2: `deepseek_go`→`muse`/`haiku`/`luna`. Para retornar ao Muse Spark como primário:
-  Altere `"primary": "deepseek_go"` para `"primary": "muse"` e `"fallback": "muse"` para `"fallback": "claude_haiku"`.
-- Candidatos técnicos T2/T3/T4 permanecem audit-only HOLD (`CandidateModel` não-autorizador, sem replay); downgrade T2 (DeepSeek Go depois Muse) para transporte T3/T4 vale somente para papéis admissíveis a T2.
+- A decisão datada de 2026-11-04 que selecionava DeepSeek Go como T2 primário foi superada pela policy 1.5.0: T2 primário Luna, candidatos DeepSeek Go/Muse/Haiku. DeepSeek Go mantém ZDR `expired-unconfirmed`; não envie dados sensíveis cuja proteção exija ZDR.
+- Candidatos técnicos T2/T3/T4 permanecem audit-only HOLD (`CandidateModel` não-autorizador, sem replay); downgrade T2 (DeepSeek Go antes de Muse) para transporte T3/T4 vale somente para papéis admissíveis a T2.
 - As alterações entram em vigor imediatamente após salvar o arquivo (o cache do Router recalcula automaticamente o `policy_hash`).
 
 ---
@@ -170,16 +179,16 @@ O Advisor presta consultoria técnica sob demanda em impasses ou revisões de ar
 1. Na seção `"advisor"` da política:
    ```json
    "advisor": {
-     "default_model": "luna",
-     "advanced_model": "sol",
+      "default_model": "claude_sonnet",
+      "advanced_model": "claude_opus",
      "exceptional_model": "astra",
      "caching_enabled": true
    }
    ```
 2. **Níveis de Acionamento:**
-   - **Consulta regular (análise de tradeoffs):** Executa com `luna` (Tier T3).
-   - **Deadlock comprovado com 2+ falhas e risco elevado:** Escala para `sol` (Tier T4).
-   - **Deadlock de concorrência/segurança crítica:** Pode escalar para `astra` mediante autorização de orçamento.
+    - **Consulta regular (análise de tradeoffs):** Executa com `claude_sonnet` (Tier T3).
+    - **Falha comprovada de T3 que exige raciocínio crítico:** Kernel pode selecionar `claude_opus` (Tier T4).
+    - **Astra:** excepcional, apenas com prova/gates e autorização excepcional; Sol é candidato técnico T4, nunca escalonamento implícito.
 
 ---
 
@@ -270,23 +279,23 @@ Se uma alteração no catálogo causar falhas ou indisponibilidade inesperada:
 
 | Agente | Tier padrão | Modelo primário | Escalonamento / notas | Provider |
 |---|---|---|---|---|
-| **Planner (`build`)** | T2 | `openai/gpt-6-luna` | Fixo; sem fallback automático | `openai` |
-| **Explorer** | T1 | `openai/gpt-6-luna` | T2 (`deepseek-go`) só sob tarefa `complex` ou risco alto/crítico explícito; nunca T3/T4 | `openai` |
-| **Researcher** | T1 | `openai/gpt-6-luna` | T2 (`deepseek-go`) só sob tarefa `complex` ou risco alto/crítico explícito; nunca T3/T4 | `openai` |
-| **Docs Manager** | T1 | `openai/gpt-6-luna` | T2 só sob critério explícito; nunca T3/T4 | `openai` |
+| **Planner (`build`)** | T2 | `opencode-go/deepseek-v4.1-flash` | Primário declarado; sem fallback automático | `opencode-go` |
+| **Explorer** | T1 | `openai/gpt-6-luna` | Candidatos T2 conforme policy/admissibilidade; nunca T3/T4 | `openai` |
+| **Researcher** | T1 | `openai/gpt-6-luna` | Candidatos T2 conforme policy/admissibilidade; nunca T3/T4 | `openai` |
+| **Docs Manager** | T1 | `openai/gpt-6-luna` | Candidatos T2 conforme policy/admissibilidade; nunca T3/T4 | `openai` |
 | **Tester (T0 determinístico)** | T0 | *Nenhum (código/AST)* | Proibido LLM | `none` |
-| **Tester (com LLM)** | T1 | `openai/gpt-6-luna` | Tarefa trivial/simples de baixo risco; T2 (`deepseek-go`) para autoria de testes e verificações não triviais; nunca T3/T4 | `openai` |
-| **Coder** | T2 | `opencode-go/deepseek-v4.1-flash` | Trabalho `complex` → T3 (`claude-agent/sonnet`); T4 funcional somente com prova Kernel (T3→Opus, Opus→Astra) | `opencode-go` / `claude-agent` |
-| **Frontend / Backend / Database / AI Agent / Automation / Infra Engineer** | T2 | `opencode-go/deepseek-v4.1-flash` | Rotina em T2; sem T4 automático (admissibilidade por papel) | `opencode-go` |
+| **Tester (com LLM)** | T1 | `openai/gpt-6-luna` | MiMo / DeepSeek Go / Muse / Haiku como candidatos admissíveis T1/T2; nunca T3/T4 | `openai` |
+| **Coder** | T2 | `openai/gpt-6-luna` | Alternativas T2 conforme policy 1.5.0 (`muse`, `claude_haiku`); sem fallback produtivo sem prova independente de no-start | `openai` |
+| **Frontend / Backend / Database / AI Agent / Automation / Infra Engineer** | T2 | `openai/gpt-6-luna` | DeepSeek Go / Muse / Haiku candidatos admissíveis; sem T4 automático quando proibido pelo perfil | `openai` |
 | **Engineering Advisor** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Sempre T3 mínimo; T2 proibido; T4 somente com prova Kernel | `claude-agent` |
-| **Reviewer** | T3 | `claude-agent/sonnet` | Risco baixo + tarefa simples → T2 (`deepseek-go`); demais casos T3; risco alto/crítico sem downgrade para T2 | `claude-agent` |
+| **Reviewer** | T3 | `claude-agent/sonnet` | Risco baixo + tarefa simples pode admitir T2 conforme policy; risco alto/crítico sem downgrade para T2 | `claude-agent` |
 | **Security Reviewer** | T3 | `claude-agent/sonnet` | Mínimo T3; T0/T1/T2 proibidos | `claude-agent` |
 | **Debugger** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Análise de causa raiz em T3 | `claude-agent` |
 | **Architect** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Definição de fronteiras em T3 | `claude-agent` |
-| **Requirements Analyst / Product Designer / Skeptic** | T2 | `opencode-go/deepseek-v4.1-flash` | Sem T4 automático | `opencode-go` |
+| **Requirements Analyst / Product Designer / Skeptic** | T2 | `openai/gpt-6-luna` | Candidatos alternativos conforme policy e admissibilidade do perfil | `openai` |
 
 Notas normativas (v1.4):
-- Candidatos técnicos ordenados por tier (T1 Luna→MiMo; T2 DeepSeek Go→Muse→Haiku→Luna; T3 Sonnet→Terra; T4 Opus→Sol mesmo tier) são apenas auditoria (`CandidateModel` não autorizante): o fallback produtivo permanece HOLD (`FallbackModel=null`, `IsAuthorized=false`) e não implica retries. Recuperação T2 degradada (DeepSeek Go→Muse) para transporte T3/T4 é audit-only HOLD apenas para papéis admissíveis a T2 (policy-level, sem retry; reviewer crítico/security/advisor/architect e papéis não-T2 seguem `REJECTED_DOWNGRADE_FORBIDDEN`).
+- Candidatos ordenados na policy 1.5.0: T1 Luna→MiMo; T2 Luna com candidatos DeepSeek Go/Muse/Haiku; T3 Sonnet→Terra; T4 Opus→Sol, Astra excepcional proof-gated. A ordem não autoriza retry: fallback produtivo depende de prova independente de no-start. Downgrade T2 para papéis não admissíveis continua proibido.
 - T4 Opus após prova T3 válida do Kernel não exige aprovação manual por chamada (`cost_policy.t4_requires_authorization=false`).
 - Astra exige prova T4 Opus válida do Kernel **e** `OPENCODE_ASTRA_AUTHORIZED=true` (`cost_policy.astra_requires_exceptional_authorization=true`); sem a variável, a seleção é `REJECTED` sem resquício executável e sem retentar Opus. Fable permanece HOLD.
 - Aliases `claude-agent/*` (haiku/sonnet/opus/fable) permanecem `runtime-unverified`: identidade de despacho é o próprio alias; nenhum ID concreto é afirmado sem prova de sessão.
