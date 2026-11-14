@@ -17,7 +17,7 @@
 
 | Recurso | Fonte / mecanismo | Classificação | Observação |
 |---|---|---|---|
-| Pins de runtime/tools | `source/registry/runtime-versions.json` (V1 `1.18.34`, V2 `2.2.6`, plugins `1.18.34`/`2.2.6`, bun `1.3.14`), loader fail-closed `scripts/runtime/lib/RuntimeVersions.ps1` (sem fallback literal) | `CI_REPRODUCIBILITY` / `SECURITY_GATE` | Fonte única viva para pins; loader falha fechado sem literal de fallback. |
+| Pins de runtime/tools | `source/registry/runtime-versions.json` (V1 `1.18.34`, V2 `2.2.6`, plugins `1.18.34`/`2.2.6`, bun `1.3.14`), loader fail-closed `scripts/runtime/lib/RuntimeVersions.ps1` (sem fallback literal) | `CI_REPRODUCIBILITY` / `SECURITY_GATE` | Baseline desta auditoria; fonte única viva na data da auditoria, loader falha fechado sem literal de fallback. |
 | Registro histórico de runtime | `source/registry/runtimes.json` (`validated_version` / `plugin_dependency_spec` históricos, superseded) | Histórico (não pin vivo) | Não é fonte de pin; manter separado da fonte viva. |
 | Spec exata de plugin em install/CI/typecheck | loader + fluxos de instalação/CI/typecheck que consomem a spec exata | `CI_REPRODUCIBILITY` / `SECURITY_GATE` | Reprodutibilidade e contenção de supply chain por versão fixada. |
 | Gating `exact-binary-live` das 8 features V2-native | `source/registry/v2-native-capabilities.json`, `OrchestrationV2NativeGating.ps1` (todas `hold-unproven`) | `SECURITY_GATE` / prova por binário exato | Promoção/claim de autoridade exige evidência no runtime exato; sem promoção automática. |
@@ -120,3 +120,5 @@
 - Em modo auto, `ask` é confirmação auto-aprovável, não bloqueio incondicional — não reclassificado como deny por esta auditoria.
 - Nada aqui ativa flag, altera permissões/perfis ou concede enforcement novo. Itens de runtime/operador permanecem explicitamente pendentes.
 - Evidências de runtime citadas (p. ex. 2.0.23 para `/shell`) são históricas/registradas; o estado do binário atual deve ser (re)provado antes de qualquer claim de enforcement.
+
+Atualização 2026-11-13: pin canônico passou a 2.3.0; auditoria original preservada como baseline.

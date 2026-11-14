@@ -147,7 +147,8 @@ histórica, sem efeito).
   escopo live-server-only estão em
   `evidence/mission-2026-11-13/native-override-2.3.0.json`. A nota anterior
   desta missão de que 2.3.0 estava fora da allowlist descreve o estado antes
-  dessa mudança. O pin de provisionamento/CI continua 2.2.6, sem alteração.
+  dessa mudança. A allowlist é independente do pin; o pin canônico agora é 2.3.0
+  (bump em 2026-11-13), sujeito ao CI no binário exato antes do merge.
   Suposição residual: o `/api/info` local alcança o mesmo servidor que
   recebe a chamada `subagent` subsequente (sem binding de sessão/dispatch
   provado). `DIRECT_VERIFIED` é só via classificador (leitura/planejamento
@@ -679,4 +680,4 @@ registrada em gate-closure, conforme as seções de Controlled Routing.
 - `test-package-consistency` 16/16; `OrchestrationModelRouterMatrix` 35/35; `OrchestrationModelRouter` 107/107; V14 60/60; `OrchestrationModelRouterHaikuPlanner` 52/52 (nome legada; suíte mantém semântica alias+HOLD); `OrchestrationModelRouterModelConfig` 36/36; Kernel `OrchestrationTaskKernelModelProof` 104/104; `OrchestrationModelExecution` 36/36; `OrchestrationModelRouterKernelProof` 7/7.
 - Estes valores são estado/evidência atual; não afirmar que todos rodaram contra o `head` final integrado a menos que o código esteja inalterado — revalidação final pendente. Teste de matriz determinístico reporta ordem candidata mas não faz dispatch. `AGENTS.md` continua não reconciliado por conflito de proveniência (config ativa ajustada antes; agora direcionada para `build` Luna; root Luna igual; backups/rollback em `~/.config/opencode/reconciliation-backups/`; sem restauração whole-file).
 
-  A evidência 2.3.0 é live-server-only; o pin de source/registry/runtime-versions.json permanece 2.2.6 (alvo de CI/provisionamento). Bump para 2.3.0 exige smoke/CI no binário exato e decisão separada.
+  A evidência 2.3.0 é live-server-only e independente do pin. O pin canônico de source/registry/runtime-versions.json agora é 2.3.0 (bump em 2026-11-13); smoke de lifecycle/CI no binário exato deve ficar verde antes do merge.

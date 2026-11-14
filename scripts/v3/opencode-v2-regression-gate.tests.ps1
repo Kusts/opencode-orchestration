@@ -43,8 +43,8 @@ Assert-Gate ($report.gates.G5_GIT_PROTECTION_BOUNDARY.status -eq "PASS") "G5 Git
 Assert-Gate ($report.compatibility_matrix.Count -eq 4) "Matriz preserva histórico e inclui o pin atual com status de smoke limitado"
 $pBaseline = $report.compatibility_matrix | Where-Object { $_.version -eq "2.0.23" }
 Assert-Gate ($pBaseline.profile -eq "certified-baseline" -and $pBaseline.status -eq "PASS_PINNED_BASELINE") "2.0.23 é certified-baseline com status PASS_PINNED_BASELINE"
-$pCurrent = $report.compatibility_matrix | Where-Object { $_.version -eq "2.2.6" }
-Assert-Gate ($pCurrent.profile -eq "current-pin" -and $pCurrent.status -eq "PASS_EXACT_LIFECYCLE_SMOKE") "2.2.6 lifecycle smoke exato passou; capacidades nativas continuam HOLD"
+$pCurrent = $report.compatibility_matrix | Where-Object { $_.profile -eq "current-pin" }
+Assert-Gate ($pCurrent.profile -eq "current-pin" -and $pCurrent.status -eq "PENDING_EXACT_LIFECYCLE_SMOKE") "current pin is explicitly pending exact-binary lifecycle smoke, not certified"
 $pActive = $report.compatibility_matrix | Where-Object { $_.version -eq "2.1.2" }
 Assert-Gate ($pActive.profile -eq "previous-active-host") "2.1.2 permanece registrado como host anterior"
 

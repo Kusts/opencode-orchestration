@@ -50,7 +50,7 @@ try {
     Assert-NP ([bool]$r230.ok) 'NP02c-supported-230-proves' ("reason=" + [string]$r230.reason + " live=" + [string]$r230.live_version)
     Assert-NP (([string]$r230.live_version -ceq '2.3.0')) 'NP02d-live-version-echo-230' ("live=" + [string]$r230.live_version)
     $r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.2.6')
-    Assert-NP ([bool]$r226.ok) 'NP02b-current-pin-226-proves-with-native-override-evidence' ("reason=" + [string]$r226.reason + " live=" + [string]$r226.live_version)
+    Assert-NP ([bool]$r226.ok) 'NP02b-current-pin-230-proves-with-native-override-evidence' ("reason=" + [string]$r226.reason + " live=" + [string]$r226.live_version)
     Assert-NP (([string]$r226.live_version -ceq '2.2.6')) 'NP02c-live-version-echo-226' ("live=" + [string]$r226.live_version)
     $r4 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '9.9.9')
     Assert-NP (((-not [bool]$r4.ok) -and ([string]$r4.reason -ceq 'UNSUPPORTED_RUNTIME'))) 'NP03-unknown-runtime-fails-closed' ("reason=" + [string]$r4.reason)

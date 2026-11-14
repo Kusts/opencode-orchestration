@@ -8,17 +8,17 @@
   continua funcional para perfis existentes (`-Runtime V1`/`Both` =
   manutenção de perfis legados, não certificação de features novas).
   Pins vigentes em `source/registry/runtime-versions.json`: **V1 1.18.34**
-  e **V2 2.2.6** (smoke explícito do ciclo de serviço passou no binário exato;
-  capacidades nativas específicas seguem em HOLD. Números `1.18.32`/`2.0.18` citados em evidências
+  e **V2 2.3.0** (o smoke explícito do ciclo de serviço no binário exato 2.3.0
+  será reexecutado no CI; a certificação depende dele. Capacidades nativas específicas seguem em HOLD. Números `1.18.32`/`2.0.18` citados em evidências
   antigas são histórico). Instalação
   single-runtime usa o dialeto do `-Runtime` pedido (Phase 6); `-Runtime
   Both` exige um binário provado por geração ou `-ProvisionRuntime`
   (Phase 7, abaixo).
 - **Windows PowerShell 5.1+** ou `pwsh` recente.
 - **`bun` ou `npm`** — somente para a dependência do plugin
-  `@opencode/plugin@2.2.6` (V2, instalações novas; best-effort: se ambos
+  `@opencode/plugin@2.3.0` (V2, instalações novas; best-effort: se ambos
   faltarem ou a rede falhar, o instalador avisa e conclui sem ela; instale
-  depois com `cd ~/.config/opencode; bun add @opencode/plugin@2.2.6`;
+  depois com `cd ~/.config/opencode; bun add @opencode/plugin@2.3.0`;
   legado V1: `@opencode-ai/plugin@1.18.34`).
 - Este repo clonado + `models.jsonc` criado (copiado de
   `models.example.jsonc`, com `planner`/`cheap`/`strong` preenchidos;
@@ -149,7 +149,7 @@ Validação pós-install coberta por `Invoke-InstallValidation` (registrada no m
 | `adopted_paths[]` | Lista legada mantida por compatibilidade (hoje sempre vazia — nenhuma chave é mais adotada). |
 | `config_snapshot{}` | Valores canônicos instalados das chaves geridas (para o uninstall comparar). |
 | `models{}` | `planner`/`cheap`/`strong`/`free` resolvidos na instalação; `frontier` não integra o manifest do instalador. |
-| `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.34` no V1 legado; `@opencode/plugin@2.2.6` no V2). |
+| `plugin_dependency` | Spec do runtime instalado (`@opencode-ai/plugin@1.18.34` no V1 legado; `@opencode/plugin@2.3.0` no V2). |
 | `validation` | Estados pós-install por componente (`plugin`, `planner`, `profiles`, `router`, `skills`, `config`, `instructions`) e `functional_delegation` (`NOT_RUN` pelo instalador). |
 | `clean` | Presente quando `-Clean`: `{ requested, removed, preserved }` com evidência de limpeza/preservação. |
 

@@ -545,7 +545,7 @@ function makePwToolSurface() {
 function makePwSessionSurface(info: any, recorded?: Array<any>) {
   return {
     hook: async (_name: string, _cb: Cb) => ({ dispose: () => {} }),
-    // Test fixture models prior 2.0.23 runtime-observed Promise layer; current 2.2.6 is typechecked, not runtime-observed. get({sessionID})
+    // Test fixture models prior 2.0.23 runtime-observed Promise layer; historically typechecked at 2.2.6, not runtime-observed; 2.3.0 pending CI typecheck. get({sessionID})
     // => Promise<SessionInfo> (direct). Records the raw host argument so
     // tests can assert the object shape ({sessionID} — never a bare string).
     get: async (arg: unknown) => {

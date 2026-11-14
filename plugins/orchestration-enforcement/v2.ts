@@ -161,7 +161,7 @@ async function setupPlannerWaitTool(
       const get = (session as unknown as Record<string, unknown>)?.get;
       if (typeof get === "function") {
         const bound = (get as (...a: Array<any>) => Promise<unknown>).bind(session);
-        // Typechecked against current @opencode/plugin registry pin 2.2.6; prior runtime observation is 2.0.23 only. get({sessionID})
+        // Historically typechecked at @opencode/plugin 2.2.6; 2.3.0 pending CI typecheck. Runtime observation is 2.0.23 only. get({sessionID})
         // => Promise<SessionInfo> (direct; the Promise adapter already
         // unwraps the {data} transport envelope). Never a bare string arg.
         sessionGet = (id: string) => bound({ sessionID: id });
@@ -174,7 +174,7 @@ async function setupPlannerWaitTool(
       spawnFn: (exe, argv, opts) => spawnBridgeProcess(exe, argv, opts),
       sessionGet,
     });
-    // Typecheck uses current registry pin 2.2.6; runtime observation is historical 2.0.23 only. This literal is checked by tsc against
+    // Historically typechecked at registry pin 2.2.6; 2.3.0 pending CI typecheck. Runtime observation is historical 2.0.23 only. This literal is checked by tsc against
     // `Info` from @opencode/plugin/promise/tool — {name, input,
     // description, execute}. A wrong key (id/parameters/args) or a wrong
     // input/execute shape fails the V2 typecheck track.
