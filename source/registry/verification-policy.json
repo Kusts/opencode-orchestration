@@ -17,6 +17,11 @@
       "class": "test",
       "command": "powershell -NoProfile -File scripts/v3/criterion-smoke.ps1",
       "timeout_seconds": 30
+    },
+    "n8n-syncthing-mount": {
+      "class": "diagnostic",
+      "command": "powershell -NoProfile -File scripts/v3/n8n-syncthing-mount-smoke.ps1",
+      "timeout_seconds": 240
     }
   }
 }
