@@ -34,7 +34,7 @@ Allowlist em vez de shell amplo; asks externos preservados; grants `shell.diagno
 
 ## Evidências
 
-Registro completo: [`evidence/subagent-permissions-2026-11-14/evidence.json`](../../evidence/subagent-permissions-2026-11-14/evidence.json). Suíte estática reforçada: **594/594**; package consistency **17/17**; V3 nesta execução **186 pass, 10 skip, 3 fail** (CapabilityShadowSample, OrchestrationNativeDispatch e timeout de OrchestrationSettledRecovery; falhas não atribuídas a esta mudança). Distribution: **24 pass, 1 fail**, drift preexistente do live-hook (provisionado 2.2.6 vs pin 2.3.0). Instalação isolada: exit 0; 30 instalados, zero unchanged/preserved/conflict/failed; smoke V2 em 2.3.0 OK. Provas comportamentais C/A/B/E PASS; D (cadeia direta) HOLD por depth 1.
+Registro completo: [`evidence/subagent-permissions-2026-11-14/evidence.json`](../../evidence/subagent-permissions-2026-11-14/evidence.json). Suíte estática reforçada: **594/594**; package consistency **17/17**; V3 na última execução completa **188 pass, 10 skip, 1 fail não identificada** (saída não preservada); as 3 falhas antes observadas (CapabilityShadowSample 73/73, OrchestrationNativeDispatch base 231/231, OrchestrationSettledRecovery 1083/1083) passam em isolamento e não leem `source/agents` nem `execution-grants` — flakes de carga; CI é o gate final. Distribution: **24 pass, 1 fail**, drift preexistente do live-hook (provisionado 2.2.6 vs pin 2.3.0). Instalação isolada: exit 0; 30 instalados, zero unchanged/preserved/conflict/failed; smoke V2 em 2.3.0 OK. Provas comportamentais C/A/B/E PASS; D (cadeia direta) HOLD por depth 1.
 
 ## Antes/depois por classe
 
@@ -61,7 +61,7 @@ Use o binário pinado e `opencode debug agents --standalone` com `XDG_CONFIG_HOM
 | Critério | Estado |
 |---|---|
 | Suíte read-only reforçada e verde | PASS (384/384) |
-| Package consistency e V3 | HOLD (package 17/17; V3 186 pass, 10 skip, 3 fail nesta execução) |
+| Package consistency e V3 | PASS parcial (package 17/17; V3 188 pass, 10 skip, 1 fail não identificada + 3 flakes que passam isoladas; CI é o gate) |
 | Distribution | HOLD parcial: 24 pass; falha única de drift live-hook 2.2.6 vs 2.3.0 |
 | Instalação isolada e load via standalone | PASS |
 | Comportamento C/A/B/E | PASS |
