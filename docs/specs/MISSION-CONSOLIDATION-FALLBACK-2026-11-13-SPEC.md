@@ -71,15 +71,18 @@ synthetic-test-only.
   Separately, a real T3→T4 escalation used kernel-owned T3 proof, selected
   Opus, passed verification/review, and reached **DONE**. The T3 failure was
   deliberately induced by prompt and is not evidence of natural incapability.
-  T3 availability fallback reached `MODEL_UNAVAILABLE` →
-  `FALLBACK_AUTHORIZED` → executed/recorded Terra after client-side
-  pre-execution rejection of an unlisted model, with no session; Planner
-  reported execution and the attempt record has `observed_model=UNKNOWN`.
-  T4 used
+  T3 availability fallback requested the deliberately nonexistent ID
+  `claude-agent/sonnet-availability-probe-nonexistent`, rejected client-side
+  before execution with no session (not a failure of real Sonnet), then reached
+  `MODEL_UNAVAILABLE` → `FALLBACK_AUTHORIZED`; Terra execution was reported by
+  the operator and recorded with `observed_model=UNKNOWN`. T4 requested
+  deliberately nonexistent ID
+  `claude-agent/opus-availability-probe-nonexistent` (not a failure of real
+  Opus). T4 used
   kernel-owned proof `modelproof:fallback-avail-t4-20261113:T3:2:7`
   (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`),
-  selected Opus, observed pre-execution unavailability, authorized fallback,
-  then Planner-reported Sol execution/recording (attempt record
+  selected Opus, observed pre-execution rejection, authorized fallback,
+  then operator-reported Sol execution/recording (attempt record
   `observed_model=UNKNOWN`). Resolver candidates remain audit-only and do not
   provide automatic authorization. These observations do not prove a real
   `claude-agent` provider outage or HTTP 429/503. Astra is exceptional/proof-gated
@@ -101,8 +104,10 @@ lives in the separate, ignored proof worktree; Astra was not used and this
 T4 event is a kernel-proof escalation, not availability fallback.
 T3/T4 availability observations are recorded in
 `evidence/fallback-availability-2026-11-13/`; T3 included client-side
-rejection before execution, not a provider outage. Resolver candidates remain
-audit-only; automatic fallback wiring is not established.
+rejection of a deliberately nonexistent requested model before execution, not
+a failure of real Sonnet or a provider outage. T4 likewise rejected a
+deliberately nonexistent requested model, not real Opus. Resolver candidates
+remain audit-only; automatic fallback wiring is not established.
 
 The explicit native `subagent.model` override was empirically observed on
 Luna/MiMo calls. The allowlist accepts 2.2.5/2.2.6/2.0.23/2.3.0 (PR #244).
