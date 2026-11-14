@@ -8,8 +8,8 @@
   "static_validation": {
     "readonly_diagnostic_suite": "594/594 pass",
     "package_consistency": "17/17 pass",
-    "v3_tests": "186 pass, 10 skip, 3 fail",
-    "distribution": "24 pass, 1 fail - live-hook-v2.tests.ps1: 'NOT OK - versao exata opencode v2.3.0' obtido 'opencode v2.2.6' (binario provisionado do perfil local vs pin; pre-existente, nao relacionado a permissoes)",
+    "v3_tests": "188 pass, 10 skip, 1 fail nao identificada (saida nao preservada); tres falhas anteriores passam isoladamente: CapabilityShadowSample 73/73, OrchestrationNativeDispatch base 231/231, OrchestrationSettledRecovery 1083/1083; nao leem source/agents nem execution-grants; flakes de carga, CI gate final",
+    "distribution": "24 pass, 1 fail - live-hook-v2 provisionado 2.2.6 vs pin 2.3.0, pre-existente",
     "git_diff_check": "clean"
   },
   "isolated_install": {
@@ -150,5 +150,25 @@
     "files": [
       "source/agents/*.md (10)"
     ]
+  },
+  "runtime_validation_round_2": {
+    "cases": [
+      "git diff --stat / git status --short: executaram, saida real, PASS",
+      "git diff --output=sp-out.txt: permitido, arquivo criado",
+      "rg --pre: negado Permission denied: shell; comando mangled, causa ambigua",
+      "Set-Content: negado, arquivo nao criado",
+      "git status; Set-Content: agente dividiu em duas chamadas; primeira ok, segunda negada; composicao single-string nao provada"
+    ],
+    "sp_out_txt": true,
+    "sp_deny_txt": false,
+    "sp_comp_txt": false,
+    "composition_semantics": "agent split; single-string composition unproven",
+    "auth": "ok, no 401",
+    "reviewer_commit": "none"
+  },
+  "review_round_2": {
+    "SP14-S-01": "fixed",
+    "SP14-S-02": "fixed",
+    "SP14-S-03": "fixed"
   }
 }

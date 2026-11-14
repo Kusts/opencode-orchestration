@@ -2817,3 +2817,5 @@ Status da release **1.0.0** (histórico): V2 não suportado naquela data.
 - Endurece allowlist read-only contra escapes de escrita/execução e exige ask para git push nu nos writers.
 
 - Endurece allowlist read-only removendo Get-*/git grep/cat-file/debug config, exige ask para git push nu nos writers e declara o resíduo de flags/composição como prompt-enforced.
+
+- 2026-11-14: rodada final de provas read-only em OpenCode 2.3.0 documenta ordering intra-agente e resduos de flags/composio; git diff --output criou arquivo, portanto glob no contm a flag.

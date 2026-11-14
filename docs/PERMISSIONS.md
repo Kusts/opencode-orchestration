@@ -237,3 +237,9 @@ não barreira de runtime.
 mantidos, corpo adaptado para diagnóstico (blocker
 `DIAGNOSIS_CAPABILITY_UNAVAILABLE`) — suíte
 `scripts/runtime/debugger-shell-permissions.tests.ps1`.
+
+Resduos adicionais observados: a allowlist valida apenas o comando inicial; `git log --output`, `--ext-diff`/`--textconv` (incluindo drivers de `.gitattributes`/config) e leitura de credenciais via `git remote -v` / `git config --get*` no so contidos pelo glob. No use essas rotas para produzir efeitos ou acessar credenciais.
+
+`ask` de `git push`  atrito best-effort: `git -C <dir> push`, `git -c k=v push` e espao duplo no casam o padro; a conteno real  planner-enforced + gate de delivery.
+
+No 2.3.0, `shell "*": deny` antes de allows nomeados foi observado executando os allows (last-match-wins dentro do array do agente). A composio topo-vs-agente segue no provada.

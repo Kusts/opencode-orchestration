@@ -34,7 +34,7 @@ Allowlist em vez de shell amplo; asks externos preservados; grants `shell.diagno
 
 ## Evidências
 
-Registro completo: [`evidence/subagent-permissions-2026-11-14/evidence.json`](../../evidence/subagent-permissions-2026-11-14/evidence.json). Suíte estática reforçada: **384/384**; package consistency **17/17**; V3 nesta execução **186 pass, 10 skip, 3 fail** (CapabilityShadowSample, OrchestrationNativeDispatch e timeout de OrchestrationSettledRecovery; falhas não atribuídas a esta mudança). Distribution: **24 pass, 1 fail**, drift preexistente do live-hook (provisionado 2.2.6 vs pin 2.3.0). Instalação isolada: exit 0; 30 instalados, zero unchanged/preserved/conflict/failed; smoke V2 em 2.3.0 OK. Provas comportamentais C/A/B/E PASS; D (cadeia direta) HOLD por depth 1.
+Registro completo: [`evidence/subagent-permissions-2026-11-14/evidence.json`](../../evidence/subagent-permissions-2026-11-14/evidence.json). Suíte estática reforçada: **594/594**; package consistency **17/17**; V3 nesta execução **186 pass, 10 skip, 3 fail** (CapabilityShadowSample, OrchestrationNativeDispatch e timeout de OrchestrationSettledRecovery; falhas não atribuídas a esta mudança). Distribution: **24 pass, 1 fail**, drift preexistente do live-hook (provisionado 2.2.6 vs pin 2.3.0). Instalação isolada: exit 0; 30 instalados, zero unchanged/preserved/conflict/failed; smoke V2 em 2.3.0 OK. Provas comportamentais C/A/B/E PASS; D (cadeia direta) HOLD por depth 1.
 
 ## Antes/depois por classe
 
@@ -73,3 +73,18 @@ Use o binário pinado e `opencode debug agents --standalone` com `XDG_CONFIG_HOM
 ## Revisões de segurança
 
 SP7-001..007: fixed (remoções de Get-*, git grep/cat-file/debug config, push nu ask, cobertura de testes e contagens). SP8-S-01..09: fixed para os itens de remoções/push/cobertura/contagens; documented-residual para flags `--output`/`--pre` e composição, pois o guard rejeitou denies por ambiguidade; accepted para `git rebase` allow nos writers e docs-manager sem restrição de caminho. `Clear-Disk`/`Remove-Partition` não são cobertos pelos denies de disco. A allowlist valida o comando inicial; flags de escrita/execução e composição continuam prompt-enforced. Inspeção instalada correta: `opencode debug agents --standalone` (sem ele, mostra a configuração viva).
+## Provas de runtime no 2.3.0 (config isolada, `--standalone --auto --archived`, agente reviewer)
+
+| Caso | Resultado observado | Conclusao |
+|---|---|---|
+| `git diff --stat` / `git status --short` | Executaram; sada real | PASS |
+| `git diff --output=sp-out.txt` | Permitido e criou arquivo (`sp-out.txt=true`) | Resduo confirmado |
+| `rg --pre "..."` | Negado (`Permission denied: shell`); comando mangled no relato do agente | Ambguo; causa no atribuvel com certeza, no afirmar conteno da flag |
+| `Set-Content` | Negado; arquivo no criado (`sp-deny.txt=false`) | PASS |
+| `git status; Set-Content` | Agente dividiu em duas chamadas: primeira ok, segunda negada (`sp-comp.txt=false`) | Composio em comando nico no provada |
+
+`git push` em `ask`  atrito best-effort: `git -C <dir> push`, `git -c k=v push` e espao duplo no casam o padro; conteno real  planner-enforced + gate de delivery.
+
+### Prova de ordering (last-match-wins intra-agente)
+
+Catch-all deny antes; allow nomeado depois; o allow executou no runtime real. Ordem interna do agente provada. Composio topo-vs-agente no provada.
