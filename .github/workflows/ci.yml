@@ -111,7 +111,7 @@ jobs:
   ci-ps51:
     name: CI (ps51)
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 140
     defaults:
       run:
         shell: powershell
@@ -151,7 +151,7 @@ jobs:
       # pwsh, e scripts/ci/*.tests.ps1 nem e descoberto por ele;
       # plugin-healthcheck.tests.ps1 tem engine auto-filho). Fail-loud por
       # suite (exit code propagado, sem continue-on-error); jobs/checks e
-      # timeout total inalterados; V1 frozen inalterado.
+      # timeout total do job: 140 min; V1 frozen inalterado.
       - name: ORFS-F6 regression (engine real powershell 5.1, fail-loud)
         timeout-minutes: 5
         run: |
@@ -178,7 +178,7 @@ jobs:
   ci-ps7:
     name: CI (ps7)
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 140
     defaults:
       run:
         shell: pwsh
@@ -218,7 +218,7 @@ jobs:
       # pwsh, e scripts/ci/*.tests.ps1 nem e descoberto por ele;
       # plugin-healthcheck.tests.ps1 tem engine auto-filho). Fail-loud por
       # suite (exit code propagado, sem continue-on-error); jobs/checks e
-      # timeout total inalterados; V1 frozen inalterado.
+      # timeout total do job: 140 min; V1 frozen inalterado.
       - name: ORFS-F6 regression (engine real pwsh 7, fail-loud)
         timeout-minutes: 5
         run: |
@@ -285,7 +285,7 @@ jobs:
   ci-v2-lane:
     name: CI (v2 lane, perfil V2 provisionado)
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 140
     defaults:
       run:
         shell: pwsh

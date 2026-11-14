@@ -19,12 +19,9 @@ sync converged); Step 6 **DONE**
 
 ## Blockers and risks
 
-- Installed OpenCode is 2.3.0; the native override proof allowlist accepts
-  2.2.5, 2.2.6, 2.0.23 and 2.3.0 (PR #244). The canonical runtime pin remains
-  2.2.6; any pin bump is separate work.
-- Explicit subagent.model override was observed in Luna/MiMo; the allowlist
-  includes 2.3.0 (PR #244), while the canonical pin remains 2.2.6 and any bump
-  is separate work.
+- The explicit `subagent.model` override was observed in Luna/MiMo; the
+  allowlist accepts 2.2.5/2.2.6/2.0.23/2.3.0 (PR #244), while the canonical
+  pin remains 2.2.6 and any bump is separate work.
 - Model-dependent full turns 18/20/21/22 are blocked; no model provider is
   available for their full-turn proofs.
 - DeepSeek Go ZDR is `expired-unconfirmed`; do not send data requiring ZDR.
@@ -41,7 +38,7 @@ sync converged); Step 6 **DONE**
   pwsh 95/95; PS5.1 91/95 with four pre-existing failures (base 87/91);
   OpenCodeSettingsReconciler 36/36.
 - CI V3 suite step timeout raised 60→110 minutes and its three job timeouts
-  75→120 minutes after runner cancellations near 60 minutes despite suite
+  75→140 minutes after runner cancellations near 60 minutes despite suite
   runtimes of approximately 48–57 minutes.
 
 ## Etapa 4 — sequência operacional do Planner

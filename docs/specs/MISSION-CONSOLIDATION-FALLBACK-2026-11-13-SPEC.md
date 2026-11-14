@@ -85,7 +85,7 @@ Luna/MiMo calls. The allowlist accepts 2.2.5/2.2.6/2.0.23/2.3.0 (PR #244).
 The canonical runtime pin remains 2.2.6; bumping it is separate work.
 
 CI V3 suite step timeout is 110 minutes (previously 60), and the three
-containing jobs allow 120 minutes (previously 75). The runner canceled runs
+containing jobs allow 140 minutes (previously 75). The runner canceled runs
 near 60 minutes although suites took approximately 48–57 minutes.
 
 Step 5 install evidence, including backup, preserved settings, ownership
