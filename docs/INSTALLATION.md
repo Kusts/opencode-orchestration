@@ -8,8 +8,8 @@
   continua funcional para perfis existentes (`-Runtime V1`/`Both` =
   manutenção de perfis legados, não certificação de features novas).
   Pins vigentes em `source/registry/runtime-versions.json`: **V1 1.18.34**
-  e **V2 2.3.0** (smoke explícito do ciclo de serviço passou no binário exato;
-  capacidades nativas específicas seguem em HOLD. Números `1.18.32`/`2.0.18` citados em evidências
+  e **V2 2.3.0** (o smoke explícito do ciclo de serviço no binário exato 2.3.0
+  será reexecutado no CI; a certificação depende dele. Capacidades nativas específicas seguem em HOLD. Números `1.18.32`/`2.0.18` citados em evidências
   antigas são histórico). Instalação
   single-runtime usa o dialeto do `-Runtime` pedido (Phase 6); `-Runtime
   Both` exige um binário provado por geração ou `-ProvisionRuntime`

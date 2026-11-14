@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-14",
+  "updated": "2026-11-13",
   "note": "Fonte unica dos pins de runtime/tools. Bump de versao = editar SOamente este arquivo (mais re-validacao no runtime exato). Registros historicos de evidencia (2.0.18/1.18.32) permanecem intactos.",
   "runtimes": {
     "v1": {

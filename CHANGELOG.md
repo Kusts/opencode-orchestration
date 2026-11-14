@@ -6,7 +6,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- Pin canônico V2 atualizado de 2.2.6 para 2.3.0; allowlist live-server de override nativo já incluía 2.3.0. `runtime_grant_enforcement` permanece OFF e as oito features nativas permanecem `hold-unproven` até coleta exact-binary-live em 2.3.0. CI no binário exato 2.3.0 precisa ficar verde antes de qualquer merge.
+- Em 2026-11-13, o pin canônico V2 foi atualizado de 2.2.6 para 2.3.0, supersedendo a decisão anterior registrada nesta seção de manter 2.2.6. A allowlist live-server de override nativo é independente do pin. `runtime_grant_enforcement` permanece OFF e as oito features nativas permanecem `hold-unproven` até coleta exact-binary-live em 2.3.0. Smoke de lifecycle/CI no binário exato 2.3.0 precisa ficar verde antes de qualquer merge.
 
 - **Missão de reconciliação documental (2026-11-13):** SPEC/PLAN adicionados e docs correntes reconciliadas com policy 1.5.0; auditorias datadas permanecem históricas.
 - **Configuração efetiva de modelos (2026-11-13):** OpenAI autenticado por OAuth (quota da assinatura; nenhum segredo registrado); runtime instalado 2.3.0 diverge do pin 2.2.6. Evidência em `evidence/mission-2026-11-13/model-config-effective.json`.
