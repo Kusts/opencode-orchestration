@@ -3,10 +3,24 @@ param()
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'OrchestrationModelAttempt.ps1')
 . (Join-Path $PSScriptRoot 'OrchestrationModelRouter.ps1')
+function ConvertFrom-OrchestrationAttemptedModels {
+    [CmdletBinding()] param([string[]]$Models=@())
+    if($Models.Count -eq 1 -and $Models[0].Contains(',')){return ,@($Models[0] -split '\s*,\s*' | ForEach-Object{$_.Trim()} | Where-Object{$_})}
+    return ,$Models
+}
 function Get-OrchestrationModelFallbackDecision {
     [CmdletBinding()] param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$AttemptRole,[string]$Risk='low',[string]$Complexity='simple',[Parameter(Mandatory=$true)][string]$FailedModel,[string[]]$AttemptedModels=@(),[Parameter(Mandatory=$true)]$Failure,[string]$SessionId='',[string]$ObservedModel='',[string]$PolicyPath='',[string]$EvidenceDir='',$AttemptEvidence=$null)
-    $tool=$false
-    if($Failure -is [string]){try{$parsed=ConvertFrom-Json $Failure -ErrorAction Stop;if($null -ne (Get-MAValue $parsed 'error' $null)){$Failure=ConvertFrom-OrchestrationToolError $parsed;$tool=$true}else{$Failure=ConvertFrom-OrchestrationProviderFailure $parsed -Stage pre_dispatch}}catch{$Failure=ConvertFrom-OrchestrationProviderFailure @{code='unknown result'} -Stage unknown}}
+    $tool=$false;$failureShape=$true
+    if($Failure -is [string]){try{$Failure=ConvertFrom-Json -InputObject $Failure -ErrorAction Stop}catch{$failureShape=$false}}
+    if($failureShape -and $null -eq $Failure){$failureShape=$false}
+    if($failureShape -and $null -ne (Get-MAValue $Failure 'error' $null)){$tool=$true}
+    if($failureShape -and -not $tool){
+        $recognized=$false
+        foreach($field in @('code','status','http_status','message','type')){if($null -ne (Get-MAValue $Failure $field $null)){$recognized=$true}}
+        $failureShape=$recognized
+    }
+    if(-not $failureShape){$Failure=[pscustomobject]@{Classification='NONE';Availability=$false;Source='none';Message=''}}
+    elseif($tool){$Failure=ConvertFrom-OrchestrationToolError $Failure}
     elseif($null -ne (Get-MAValue $Failure 'Source' $null) -and (Get-MAValue $Failure 'Source' '') -ceq 'tool_error'){$tool=$true}
     elseif($null -ne (Get-MAValue $Failure 'error' $null)){$Failure=ConvertFrom-OrchestrationToolError $Failure;$tool=$true}
     else {$Failure=ConvertFrom-OrchestrationProviderFailure $Failure -Stage pre_dispatch}
@@ -15,11 +29,18 @@ function Get-OrchestrationModelFallbackDecision {
     if(-not $SessionId){$SessionId=$sessionFromError}
     $ev=$AttemptEvidence
     if($tool -and $null -eq $ev){$ev=@{source='tool_error';stage='pre_dispatch';session_id=$SessionId;execution_started=$false;assistant_messages=0;tool_calls=0}}
-    $validEvidence=$null -ne $ev -and [string](Get-MAValue $ev 'stage' '') -ceq 'pre_dispatch' -and [string]::IsNullOrWhiteSpace([string](Get-MAValue $ev 'session_id' '')) -and -not [bool](Get-MAValue $ev 'execution_started' $true) -and [int](Get-MAValue $ev 'assistant_messages' -1) -eq 0 -and [int](Get-MAValue $ev 'tool_calls' -1) -eq 0 -and (([string](Get-MAValue $ev 'source' '') -ceq 'tool_error' -and $tool) -or ([string](Get-MAValue $ev 'source' '') -in @('provider','dispatcher') -and $null -ne $AttemptEvidence))
+    $hasEvidenceFields=$null -ne $ev
+    foreach($field in @('source','stage','session_id','execution_started','assistant_messages','tool_calls')){if($null -eq (Get-MAValue $ev $field $null)){$hasEvidenceFields=$false}}
+    $countValid=$false
+    if($hasEvidenceFields){$am=0;$tc=0;$countValid=[int]::TryParse([string](Get-MAValue $ev 'assistant_messages' ''),[ref]$am) -and [int]::TryParse([string](Get-MAValue $ev 'tool_calls' ''),[ref]$tc)}
+    $validEvidence=$hasEvidenceFields -and $countValid -and [string](Get-MAValue $ev 'stage' '') -ceq 'pre_dispatch' -and [string]::IsNullOrWhiteSpace([string](Get-MAValue $ev 'session_id' '')) -and (Get-MAValue $ev 'execution_started' $true) -is [bool] -and -not [bool](Get-MAValue $ev 'execution_started' $true) -and $am -eq 0 -and $tc -eq 0 -and (([string](Get-MAValue $ev 'source' '') -ceq 'tool_error' -and $tool) -or ([string](Get-MAValue $ev 'source' '') -in @('provider','dispatcher') -and $null -ne $AttemptEvidence))
     $noStart=[bool]((Get-MAValue $Failure 'Availability' $false) -and $validEvidence)
     $status='HOLD_TERMINAL';$next=$null;$tier=$null;$reason='FAILURE_NOT_ELIGIBLE'
-    if(-not [string]::IsNullOrWhiteSpace($SessionId) -or ($null -ne $ev -and (-not [string]::IsNullOrWhiteSpace([string](Get-MAValue $ev 'session_id' '')) -or [bool](Get-MAValue $ev 'execution_started' $false)))){$status='HOLD_AMBIGUOUS_EXECUTION';$reason='EXECUTION_MAY_HAVE_STARTED'}
+    if(-not $failureShape){$status='HOLD_INVALID_FAILURE';$reason='FAILURE_SHAPE_UNRECOGNIZED'}
+    elseif($class -notin @('RATE_LIMIT','QUOTA_EXCEEDED','MODEL_UNAVAILABLE','PROVIDER_UNAVAILABLE')){$status='HOLD_TERMINAL';$reason='FAILURE_NOT_ELIGIBLE'}
+    elseif(-not [string]::IsNullOrWhiteSpace($SessionId) -or ($null -ne $ev -and (-not [string]::IsNullOrWhiteSpace([string](Get-MAValue $ev 'session_id' '')) -or [bool](Get-MAValue $ev 'execution_started' $false)))){$status='HOLD_AMBIGUOUS_EXECUTION';$reason='EXECUTION_MAY_HAVE_STARTED'}
     elseif([string]::IsNullOrWhiteSpace($SessionId) -and [bool](Get-MAValue $Failure 'Availability' $false) -and $null -eq $AttemptEvidence -and -not $tool){$status='HOLD_NO_START_PROOF_UNVERIFIED';$reason='NO_START_PROOF_UNVERIFIED'}
+    elseif($null -ne $AttemptEvidence -and -not $validEvidence){$status='HOLD_AMBIGUOUS_EXECUTION';$reason='NO_START_PROOF_INVALID'}
     elseif($noStart){
         $selection=Resolve-OrchestrationModelSelection -AgentName $AttemptRole -TaskId $TaskId -Risk $Risk -Complexity $Complexity -PolicyPath $PolicyPath -IgnoreUserConfig $true
         $trigger=$class;if($trigger -eq 'PROVIDER_UNAVAILABLE'){$trigger='SERVICE_UNAVAILABLE'}
