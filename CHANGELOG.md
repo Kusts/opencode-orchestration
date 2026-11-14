@@ -6,6 +6,7 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **CI V3 timeouts e reconciliação da missão:** steps V3 ampliados de 60 para 110 min e jobs de 75 para 140 min após cancelamentos perto de 60 min (suítes em ~48–57 min); PLAN/SPEC atualizados: PRs #238/#239/#242/#243/#244 mergeados e #240 fechado em favor de #243.
 - **Missão de reconciliação documental (2026-11-13):** SPEC/PLAN adicionados e docs correntes reconciliadas com policy 1.5.0; auditorias datadas permanecem históricas.
 - **Configuração efetiva de modelos (2026-11-13):** OpenAI autenticado por OAuth (quota da assinatura; nenhum segredo registrado); runtime instalado 2.3.0 diverge do pin 2.2.6. Evidência em `evidence/mission-2026-11-13/model-config-effective.json`.
 - **Correção do claim T1 (2026-11-13):** atualização cobre policy/templates e configuração declarada; config viva ainda contém Iceman para quatro agentes e depende de reinstalação.
