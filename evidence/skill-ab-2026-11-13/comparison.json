@@ -1,0 +1,74 @@
+{
+  "sessions": {
+    "a": "ses_e26b4e4c8ffeSler4hYOCnEao1",
+    "b": "ses_e26b3193fffeNcR91ONx6RoJHd"
+  },
+  "comparison_design": "with vs without the verification-before-completion skill",
+  "causal_claim": "none",
+  "model_equal": true,
+  "model": "openai/gpt-6-luna",
+  "tier": "T2",
+  "task_shape_equal": true,
+  "task_shape": {
+    "verifier_profiles": [
+      "skill-ab-fixture"
+    ],
+    "acceptance_criteria": "Fix Get-Total so all calc tests pass",
+    "write_scopes": [
+      "scratchpad/skillab"
+    ],
+    "runtime_profile": "v2",
+    "task_type": "implementation",
+    "runtime_generation": 2,
+    "risk": "medium",
+    "runtime_version": "2.3.0"
+  },
+  "metrics": {
+    "a": {
+      "aggregated_messages": 7,
+      "input_tokens": 3815,
+      "output_tokens": 498,
+      "reasoning_tokens": 21,
+      "cache_read_tokens": 231680,
+      "cache_write_tokens": 0,
+      "cost_observed": false,
+      "cost": null,
+      "busy": null,
+      "busy_note": "Not exposed by API records"
+    },
+    "b": {
+      "aggregated_messages": 11,
+      "input_tokens": 19741,
+      "output_tokens": 784,
+      "reasoning_tokens": 194,
+      "cache_read_tokens": 448256,
+      "cache_write_tokens": 0,
+      "cost_observed": false,
+      "cost": null,
+      "busy": null,
+      "busy_note": "Not exposed by API records"
+    }
+  },
+  "verification_skill": {
+    "skill": "verification-before-completion",
+    "a": true,
+    "b": false
+  },
+  "arm_b_other_skills": [
+    "ai-memory-retrieval",
+    "systematic-debugging"
+  ],
+  "verify": {
+    "a": "verified_pass",
+    "b": "verified_pass",
+    "source": "kernel-executed"
+  },
+  "limitations": [
+    "Arm B is not a no-skill control: it invoked ai-memory-retrieval and systematic-debugging; the comparison is specifically with vs without verification-before-completion.",
+    "Observational comparison only; no causal claim. Arm B used more skills and had about 5.2x the input tokens and 1.9x the cache-read tokens of arm A; no causal inference is warranted.",
+    "n=1 per arm; no replication or variance estimate.",
+    "Order A-to-B was not randomized.",
+    "Possible learning or cache effects between executions.",
+    "Both runs used the same machine."
+  ]
+}
