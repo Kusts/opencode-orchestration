@@ -1,0 +1,4 @@
+{
+  "code": "service_unavailable",
+  "message": "SYNTHETIC parser validation only; replace with the real native pre-dispatch error."
+}
