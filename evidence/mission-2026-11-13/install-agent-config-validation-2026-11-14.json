@@ -1,7 +1,8 @@
 {
   "status": "blocked_live_plugin_dependency_divergence",
   "revision": "fdaa6ae",
-  "backup_path": "C:\\Users\\walis\\.config\\opencode\\backups\\oo-20261114-012006",
+  "revision_note": "Reinstall executado a partir do worktree em fdaa6ae, antes do merge do PR #249 em a9c60fa.",
+  "backup_path": "~/.config/opencode/backups/oo-20261114-012006",
   "install_summary": {
     "exit_code": 0,
     "result": "INSTALLED=15 UNCHANGED=13 PRESERVED=15 CONFLICT=0 FAILED=0",
@@ -13,11 +14,34 @@
     "result": "INSTALLED=0 UNCHANGED=24 PRESERVED=15 CONFLICT=0 FAILED=0",
     "plan_resources": 39
   },
+  "count_semantics_note": "Na execução real, INSTALLED=15 + UNCHANGED=13 = 28 recursos. O -WhatIf reporta UNCHANGED=24 e backup_files=24; a diferença decorre da semântica do instalador entre execução real e plano. plan_resources=39.",
   "plugin_spec": {
     "expected": "@opencode/plugin@2.3.0",
     "manifest": "@opencode/plugin@2.3.0",
     "active_package_json_dependency": "@opencode/plugin 2.0.28",
     "status": "divergent; stopped without manual repair"
+  },
+  "plugin_dependency_followup": {
+    "attempt_1": {
+      "command": "bun add @opencode/plugin@2.3.0",
+      "result": "Timeout de 120 s durante Resolving dependencies",
+      "exit_code": 143,
+      "warning": "Filesystem lento em D:\\npm-cache",
+      "files_changed": {
+        "package.json": false,
+        "bun.lock": false
+      }
+    },
+    "attempt_2": {
+      "result": "Verificação prévia falhou com Get-FileHash: The process cannot access the file because it is being used by another process",
+      "installation_started": false
+    },
+    "final_state": {
+      "package_json_dependency": "@opencode/plugin 2.0.28",
+      "node_modules_dependency": "@opencode/plugin 2.0.28",
+      "opencode_json_touched": false,
+      "backup_path": "~/.config/opencode/backups/plugin-dep-20261114/"
+    }
   },
   "runtime_version": "opencode v2.3.0",
   "profiles_count": {"expected":19,"present":19,"missing":[]},
@@ -38,6 +62,6 @@
     "Instalação V2 Clean concluída com exit 0; backup criado no caminho informado.",
     "WhatIf passou com INSTALLED=0, CONFLICT=0 e FAILED=0.",
     "Após a instalação, package.json ativo informa @opencode/plugin 2.0.28, embora o manifesto indique @opencode/plugin@2.3.0. Como diverge da verificação solicitada, execução parada sem correção manual.",
-    "MCP foi preservado pelo plano do instalador; comparação do conteúdo anterior/posterior de permissões não foi feita."
+    "PRESERVED reflete o relato do instalador; a comparação do conteúdo de permissões antes/depois não foi feita."
   ]
 }
