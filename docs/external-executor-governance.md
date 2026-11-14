@@ -1,9 +1,9 @@
 # External executor governance
 
-The CLI adds a narrow, task-grant-authorized route for two Telegran operations. It does not authorize arbitrary commands, paths, environment overrides, or projects. Task authority is read from the Task Kernel and the executor allowlist; grants are not added to any role baseline.
+The CLI currently performs bounded request and registry validation only. Requests are inline JSON (maximum 8192 characters); registry and grants paths are fixed by the CLI and cannot be overridden by caller parameters. Duplicate top-level JSON keys are rejected.
 
-Enforcement remains `SOFT_ADVISORY`: this boundary records intent and evidence but is not a hard sandbox. Both executors declare high risk, so the external-action gate may require trusted evidence and human review. Missing evidence is blocked; the CLI does not force an allow decision.
+`-DryRun` returns `WAIT` with `DRY_RUN_VALIDATED_NO_EFFECT` and exit 0. This means only that the request is valid: authority has **not** been verified and no execution occurs. A live request fails closed with `EFFECTIVE_GRANT_SOURCE_UNAVAILABLE` because no trusted effective-grant source is wired to this route.
 
-The CLI derives authority from the `grants` explicitly recorded on the task, not from `Get-OrchestrationEffectiveGrants`. That function projects native dispatch permissions by intersecting role baseline, task grants, runtime capability grants, and environment authorization. It is not used by `start-attempt`; because `external.telegran.*` is intentionally absent from every role baseline, that intersection would exclude these grants by construction. This is a conscious operator choice and an assumed risk, not equivalence to Kernel effective-grant enforcement. Receipts remain `SOFT_ADVISORY`; security review should assess this boundary.
+The registered executor map contains inert stubs; it does not spawn Python or perform Telegran operations. External grants remain outside role baselines. If a future implementation is proposed, sensitive external grants must require the intersection of task grant, runtime grant, environment authorization, and explicit human approval. `SOFT_ADVISORY` is not hard enforcement or a sandbox.
 
-Rollback: revert the change that adds these grants and registry/wiring. Removing the grant entries disables authorization; reverting the commit removes the executors and their declarations.
+No executor action or receipt is produced by the current validation-only path.

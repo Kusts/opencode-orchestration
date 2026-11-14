@@ -641,6 +641,12 @@ try {
     Assert-TaskKernel ($eff5 -cnotcontains 'destructive.fs') 'sensitive grant with task grant plus approval but missing runtime/env sets stays out'
     $eff5b = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @('fs.read', 'destructive.fs') -RuntimeCapabilityGrants @('fs.read', 'destructive.fs') -EnvironmentAuthorizationGrants @('fs.read', 'destructive.fs') -HumanApproved -GrantsPath $repoGrants)
     Assert-TaskKernel (($eff5b -ccontains 'destructive.fs') -and ($eff5b -ccontains 'fs.read')) 'sensitive grant admitted only with all three sets plus approval'
+    foreach ($externalGrant in @('external.telegran.fetch','external.telegran.learn')) {
+        $taskOnly = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @($externalGrant) -GrantsPath $repoGrants)
+        $allApproved = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @($externalGrant) -RuntimeCapabilityGrants @($externalGrant) -EnvironmentAuthorizationGrants @($externalGrant) -HumanApproved -GrantsPath $repoGrants)
+        Assert-TaskKernel ($taskOnly -cnotcontains $externalGrant) ($externalGrant + ' requires trusted sources')
+        Assert-TaskKernel ($allApproved -ccontains $externalGrant) ($externalGrant + ' requires every grant source and human approval')
+    }
     $eff5c = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @('fs.read', 'destructive.fs') -RuntimeCapabilityGrants @('fs.read') -EnvironmentAuthorizationGrants @('fs.read', 'destructive.fs') -HumanApproved -GrantsPath $repoGrants)
     Assert-TaskKernel ($eff5c -cnotcontains 'destructive.fs') 'sensitive grant missing from runtime set stays out'
     $effT = @(Get-OrchestrationEffectiveGrants -Role 'tester' -TaskGrants @('fs.read', 'fs.write', 'shell.validation') -RuntimeCapabilityGrants @('fs.read', 'fs.write', 'shell.validation') -EnvironmentAuthorizationGrants @('fs.read', 'fs.write', 'shell.validation') -HumanApproved -GrantsPath $repoGrants)

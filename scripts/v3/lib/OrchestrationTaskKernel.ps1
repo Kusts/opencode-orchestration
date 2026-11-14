@@ -841,7 +841,7 @@ function Test-OrchestrationActorIdentitySource {
 function Get-TaskKernelSensitiveGrants {
     [CmdletBinding()]
     param()
-    return @('destructive.fs', 'deploy.production', 'secrets.read', 'git.push')
+    return @('destructive.fs', 'deploy.production', 'secrets.read', 'git.push', 'external.telegran.fetch', 'external.telegran.learn')
 }
 
 function Get-OrchestrationTaskAllowedTransitions {
