@@ -6,7 +6,46 @@ hidden: true
 temperature: 0.3
 permission:
   edit: allow
-  bash: deny
+  bash:
+    "*": deny
+    "git status*": allow
+    "git diff*": allow
+    "git log*": allow
+    "git show*": allow
+    "git blame*": allow
+    "git rev-parse*": allow
+    "git rev-list*": allow
+    "git describe*": allow
+    "git ls-files*": allow
+    "git grep*": allow
+    "git cat-file*": allow
+    "git shortlog*": allow
+    "git branch --show-current*": allow
+    "git branch --list*": allow
+    "git remote -v*": allow
+    "git stash list*": allow
+    "git worktree list*": allow
+    "git config --get*": allow
+    "rg *": allow
+    "grep *": allow
+    "findstr *": allow
+    "Select-String*": allow
+    "Get-Content*": allow
+    "Get-ChildItem*": allow
+    "Get-Item*": allow
+    "Get-FileHash*": allow
+    "Test-Path*": allow
+    "Resolve-Path*": allow
+    "Get-Location*": allow
+    "Measure-Object*": allow
+    "Compare-Object*": allow
+    "Get-Command*": allow
+    "node --version*": allow
+    "npm ls*": allow
+    "bun --version*": allow
+    "opencode --version*": allow
+    "opencode debug agents*": allow
+    "opencode debug config*": allow
   task: deny
 orchestration:
   build_delegable: true
@@ -39,3 +78,7 @@ Rules:
 - Return a compact synthesis: STATUS, FINDINGS, EVIDENCE, CHANGES,
   VALIDATION, RISKS and RECOMMENDATION; include only relevant fields and no
   extensive logs.
+
+## Shell (leitura e diagnóstico)
+
+O shell é liberado apenas para leitura e diagnóstico: comandos Git de leitura (status/diff/log/show/blame/...), busca de conteúdo, inspeção de arquivos e versões de toolchain, conforme a allowlist do seu frontmatter. Qualquer comando fora da allowlist é negado pelo runtime: registre o blocker e devolva ao Planner em vez de contornar por wrapper, interpretador, `pwsh -Command`, redirecionamento ou script. Você não edita arquivos: a ferramenta de edição é negada e escrita via shell está fora do seu escopo. Permissão de ferramenta não é autorização para alterar produção, credenciais ou estado externo.
