@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "task": {
+    "task_id": "skill-bench2-2026-11-13",
+    "state": "DONE",
+    "final_revision": 15,
+    "base_revision": "da69ff6f26e637141b3877348ed5ec98852a856c",
+    "publication_branch_base": "402dbc0daa8bf081d8ac3e463d58c35a9835628f",
+    "revisions": {
+      "created": 1,
+      "planning": 2,
+      "implementing": 3,
+      "start_attempt": 4,
+      "root_binding": 5,
+      "worker_binding": 6,
+      "candidate_pass": 7,
+      "verified_pass": [8, 9, 10, 14],
+      "review_approved": 13,
+      "reviewing_transitions": [11, 12],
+      "done": 15
+    }
+  },
+  "verification": {
+    "profile": "skill-journey-fixture",
+    "status": "verified_pass",
+    "verification_source": "kernel-executed",
+    "criterion_map": {
+      "0": "verified"
+    },
+    "last_kernel_verify_revision": 14,
+    "document_factual_edits_after_done": true,
+    "post_done_note": "The document was updated after DONE to correct factual status/scope wording. The final document still passes the local fixture directly; the Kernel correctly refuses a new verify-run on terminal tasks. Revision 14 remains the latest kernel-executed verified_pass.",
+    "post_done_kernel_verify_attempt": {
+      "expected_revision": 15,
+      "result": "ILLEGAL_TRANSITION",
+      "detail": "terminal state is immutable"
+    },
+    "final_document_fixture_stdout": "criterion:0:PASS",
+    "reproduction_note": "The profile is proof-local and is not included on the publication branch. Recreate skill-journey-fixture in source/registry/verification-policy.json and scratchpad/skill-journey-verify.ps1 to reproduce verify-run."
+  },
+  "review": {
+    "status": "approved",
+    "reviewer": "reviewer-subagent-sonnet-20261114",
+    "kernel_review_revision": 13,
+    "reviewer_reported_low_items": 2,
+    "kernel_attached_findings": 0,
+    "note": "Kernel schema rejects findings attached to an approved review; approval was recorded without attached findings."
+  },
+  "session_metrics": {
+    "source": "opencode api get /api/session/ses_e28498d25ffeWUzpKxTkuCE0Yo",
+    "session_id": "ses_e28498d25ffeWUzpKxTkuCE0Yo",
+    "model": "openai/gpt-6-luna",
+    "tokens": {
+      "input": 15765,
+      "output": 1486,
+      "reasoning": 133,
+      "cache_read": 248320,
+      "cache_write": 0
+    },
+    "time": {
+      "busy_to_idle_ms": 37549
+    },
+    "cost": {
+      "api_returned": 0,
+      "interpretation": "not observed; zero may reflect missing provider pricing, not free usage"
+    },
+    "semantics_note": "API input, cache_read, and cache_write have distinct local API semantics and should not be summed or compared directly."
+  },
+  "skill_tool_call": {
+    "tool": "skill",
+    "input": {
+      "id": "verification-before-completion"
+    },
+    "tool_call_id": "call_2b94847fce514d2aa6eff3cc12bb1740",
+    "message_id": "msg_1d7b673430011FSFdEpSTW2m7u",
+    "state": "completed",
+    "executed": false,
+    "interpretation": "API records the invocation and returned skill content; executed=false prevents claiming measured use or benefit."
+  },
+  "limitations": {
+    "sample_size": 1,
+    "control": "G1 without skill",
+    "randomized": false,
+    "control_used_different_model_and_task": true,
+    "causal_effect_inference": "not supported",
+    "issues": {
+      "64_closed": false,
+      "11_concluded": false
+    }
+  }
+}
