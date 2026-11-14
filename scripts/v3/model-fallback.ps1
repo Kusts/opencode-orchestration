@@ -2,10 +2,16 @@
 .SYNOPSIS
 Gets the next policy fallback or records an observed attempt.
 .DESCRIPTION
-For -Action next, pass -SessionId only when the runtime returned a child
-session id. A tool.execution error without a session id is the observed
-evidence of non-start. Any returned child session id forces an ambiguous
-execution hold and prevents a duplicate run.
+For -Action next, provide structured failure and, for provider/dispatcher
+errors, complete structured pre_dispatch evidence. Only a recognized
+tool.execution error without child session id or valid explicit evidence
+proves non-start. Missing, malformed, inconsistent, or ambiguous evidence
+fails closed. The caller/Planner performs the single authorized redispatch;
+this helper never dispatches. Output JSON has stable fields status,
+classification, no_start_proof, next_model, next_tier, attempt_id, reason.
+Exit codes: 0 for FALLBACK_AUTHORIZED or EXHAUSTED; 3 for HOLD_*; 2 for
+usage/input errors. -Action record writes model-attempt evidence separately
+from the Task Kernel model_attempts record.
 #>
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][ValidateSet('next','record')][string]$Action,[string]$AttemptRole,[string]$FailedModel,[string[]]$AttemptedModels=@(),[string]$FailureJson,[string]$AttemptEvidenceJson,[string]$AttemptId,[string]$Model,[string]$SessionId,[string]$ObservedModel,[string]$TaskId='fallback',[string]$Risk='low',[string]$Complexity='simple',[string]$EvidenceDir='',[string]$PolicyPath='')

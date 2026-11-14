@@ -60,11 +60,27 @@ foreach($c in $providerCases){
 $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429,"message":"rate limit"}' -PolicyPath $policy
 Assert-MF ($d.Classification -eq 'RATE_LIMIT' -and $d.Status -eq 'HOLD_NO_START_PROOF_UNVERIFIED' -and $null -eq $d.NextModel -and -not $d.NoStartProof) '429 without evidence exact hold'
 foreach($badEv in @(
- @{source='provider';stage='pre_dispatch';session_id='ses_x';execution_started=$false;assistant_messages=0;tool_calls=0},
- @{source='provider';stage='pre_dispatch';session_id='';execution_started=$true;assistant_messages=0;tool_calls=0}
+  @{source='provider';stage='pre_dispatch';session_id='ses_x';execution_started=$false;assistant_messages=0;tool_calls=0},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$true;assistant_messages=0;tool_calls=0},
+  @{source='provider';stage='post_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=0},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=1;tool_calls=0},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=1},
+  @{source='provider';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0}
 )){
- $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $badEv -PolicyPath $policy
- Assert-MF ($d.Classification -eq 'RATE_LIMIT' -and $d.Status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $null -eq $d.NextModel) 'ambiguous evidence exact hold'
+  $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $badEv -PolicyPath $policy
+  Assert-MF ($d.Classification -eq 'RATE_LIMIT' -and $d.Status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $null -eq $d.NextModel -and -not [string]::IsNullOrWhiteSpace($d.Reason)) 'ambiguous/inconsistent evidence exact hold'
+ }
+$toolNoSession=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"error":{"type":"tool.execution","message":"model not available"}}' -PolicyPath $policy
+Assert-MF ($toolNoSession.Status -eq 'FALLBACK_AUTHORIZED' -and $toolNoSession.NoStartProof) 'tool_error without session authorizes'
+$toolSession=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"sessionID":"ses_child","error":{"type":"tool.execution","message":"model not available"}}' -PolicyPath $policy
+Assert-MF ($toolSession.Status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $toolSession.Reason -eq 'EXECUTION_MAY_HAVE_STARTED' -and $null -eq $toolSession.NextModel) 'tool_error session holds'
+$missing=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -PolicyPath $policy
+Assert-MF ($missing.Status -eq 'HOLD_NO_START_PROOF_UNVERIFIED' -and $missing.Reason -eq 'NO_START_PROOF_UNVERIFIED') 'missing evidence stable hold reason'
+$invalidFailure=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure 'not-json' -AttemptEvidence $ev -PolicyPath $policy
+Assert-MF ($invalidFailure.Status -eq 'HOLD_INVALID_FAILURE' -and $invalidFailure.Reason -eq 'FAILURE_SHAPE_UNRECOGNIZED' -and -not $invalidFailure.FallbackEligible) 'unrecognized failure shape holds'
+foreach($failure in @('{"code":"timeout"}','{"code":"invalid_request"}','{"status":401}')){
+ $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure $failure -AttemptEvidence $ev -PolicyPath $policy
+ Assert-MF ($d.Status -ne 'FALLBACK_AUTHORIZED' -and $null -eq $d.NextModel) "ineligible $failure never authorizes"
 }
 $high=Resolve-OrchestrationModelSelection -AgentName reviewer -TaskId $task -Risk high -Complexity simple -PolicyPath $policy -IgnoreUserConfig $true
 Assert-MF ($high.Tier -eq 'T3' -and $high.CatalogModel -eq 'claude-agent/sonnet') 'reviewer high selects T3 Sonnet'
@@ -79,6 +95,9 @@ $evidenceDir=Join-Path ([IO.Path]::GetTempPath()) ('model-fallback-tests-'+[guid
 $d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole explorer -FailedModel 'openai/does-not-exist' -Failure '{"status":429}' -AttemptEvidence $ev -PolicyPath $policy -EvidenceDir $evidenceDir
 $line=Get-Content (Join-Path $evidenceDir 'fallback-decisions.jsonl') -Raw | ConvertFrom-Json
 Assert-MF ($line.decision -eq $d.Status -and $line.no_start_reason -and $line.attempt_id -eq $d.AttemptId -and $line.classification -eq $d.Classification -and $line.next_model -eq $d.NextModel) 'JSONL decision evidence fields'
+$recordOutput=& (Join-Path $PSScriptRoot '..\model-fallback.ps1') -Action record -AttemptId 'record-separate' -AttemptRole explorer -Model 'openai/gpt-6-luna' -SessionId 'ses_record' -EvidenceDir $evidenceDir
+$modelRecords=@(Get-Content (Join-Path $evidenceDir 'model-attempts.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+Assert-MF ($modelRecords.Count -eq 1 -and $modelRecords[0].attempt_id -eq 'record-separate' -and (Test-Path (Join-Path $evidenceDir 'fallback-decisions.jsonl'))) 'record remains separate from fallback/kernel model_attempts'
 Remove-Item -LiteralPath $evidenceDir -Recurse -Force
 Write-Host "OrchestrationModelFallback: passed=$passed failed=$failed"
 if($failed){exit 1}
