@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-11-14",
+  "scope": "Estado da evidência de disponibilidade de providers na cadeia de fallback T1-T4 avaliada em 2026-11-13.",
+  "proven": {
+    "fallback_decisions": [
+      {
+        "tier": "T3",
+        "file": "evidence/fallback-availability-2026-11-13/t3-availability-proof.json",
+        "evidence": "O erro client-side para ID inexistente precedeu execução e não teve sessão; a decisão foi MODEL_UNAVAILABLE/FALLBACK_AUTHORIZED."
+      },
+      {
+        "tier": "T4",
+        "file": "evidence/fallback-availability-2026-11-13/t4-availability-proof.json",
+        "evidence": "O erro client-side para ID inexistente precedeu execução e não teve sessão; a decisão foi MODEL_UNAVAILABLE/FALLBACK_AUTHORIZED."
+      }
+    ],
+    "real_fallback_dispatches": [
+      {
+        "tier": "T3",
+        "provider": "openai",
+        "model": "openai/gpt-6.1-terra",
+        "file": "evidence/fallback-availability-2026-11-13/t3-availability-proof.json",
+        "qualification": "Dispatch real relatado com sucesso; o registro pós-dispatch mantém observed_model UNKNOWN."
+      },
+      {
+        "tier": "T4",
+        "provider": "openai",
+        "model": "openai/gpt-6.1-sol",
+        "file": "evidence/fallback-availability-2026-11-13/t4-availability-proof.json",
+        "qualification": "Dispatch real relatado com sucesso; o registro pós-dispatch mantém observed_model UNKNOWN."
+      }
+    ]
+  },
+  "not_proven": [
+    "HTTP 429 ou 503 real na cadeia T1-T4 atual.",
+    "Indisponibilidade do provider claude-agent: T3/T4 usaram rejeição client-side de IDs de modelo inexistentes, sem sessão ou execução.",
+    "Astra: não há prova de elegibilidade nem de tentativa."
+  ],
+  "historical_evidence": {
+    "event": "429 real de zai/glm-5.3-flash por quota sem saldo; credencial expirada confirmada pelo operador.",
+    "source": {
+      "file": "evidence/closure/P0-F1-CHECKPOINT-2026-10-16.md",
+      "line": 51,
+      "corroborating_file": "evidence/v3.1/runtime-reliability/jev-native-proof-gw06-2026-10-19.json"
+    },
+    "not_usable_for_current_chain": "É de outro provider/modelo, associado a quota e credencial expirada, e não constitui falha pré-execução de dispatch na cadeia T1-T4."
+  },
+  "hold_reason": "Não consumir cota nem provocar falha artificial. Os probes com modelos inexistentes só demonstram a decisão de fallback, não disponibilidade do provider nem resposta HTTP 429/503.",
+  "resume_trigger": {
+    "condition": "Retomar a comprovação quando houver um tool.execution real de modelo/provider pertencente à cadeia T1-T4, com classe de disponibilidade observada e sem sessionID/execução, capturado e persistido; alternativamente, quando o operador autorizar explicitamente um teste de quota com custo conhecido.",
+    "required_evidence": [
+      "Evento tool.execution real da cadeia T1-T4",
+      "Classe de disponibilidade registrada",
+      "Ausência de sessionID e de execução demonstrada",
+      "Evidência capturada e persistida"
+    ]
+  },
+  "astra_trigger": {
+    "condition": "Astra continua excepcional e nunca automático: só considerar após prova excepcional válida exigida pela policy, incluindo prova T4 kernel-owned com seleção elegível para o papel e Astra tentado.",
+    "policy_reference": "source/adapters/opencode-v2.md"
+  }
+}
