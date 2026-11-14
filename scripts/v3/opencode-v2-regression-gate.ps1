@@ -1,6 +1,6 @@
-<#!
+﻿<#!
 .SYNOPSIS
-     Gate operacional de regressão e compatibilidade; a matriz distingue o baseline histórico, o host anterior e o pin atual V2.2.6 (Issues #101 e #146).
+     Gate operacional de regressão e compatibilidade; a matriz distingue o baseline histórico, o host anterior e o pin atual V2 registry pin (Issues #101 e #146).
 .DESCRIPTION
     Executa e valida a matriz de conformidade técnica para versões do OpenCode V2:
       1. Descoberta dinâmica de capacidades e fingerprint sem patch hardcoded.
@@ -68,7 +68,7 @@ $results = [ordered]@{
     gates = [ordered]@{}
     compatibility_matrix = @(
         [ordered]@{ version = "2.0.23"; profile = "certified-baseline"; status = "PASS_PINNED_BASELINE"; note = "Historical exact-runtime baseline; not the current pin" },
-        [ordered]@{ version = "2.2.6"; profile = "current-pin"; status = "PASS_EXACT_LIFECYCLE_SMOKE"; note = "Exact 2.2.6 lifecycle smoke passed; native capability evidence remains HOLD" },
+        [ordered]@{ version = (Get-Content -Raw (Join-Path $RepoRoot 'source\registry\runtime-versions.json' ) | ConvertFrom-Json).runtimes.v2.version; profile = "current-pin"; status = "PENDING_EXACT_LIFECYCLE_SMOKE"; note = "Exact lifecycle smoke must run for current registry pin; native capability evidence remains HOLD" },
         [ordered]@{ version = "2.0.28-2.0.32"; profile = "historical-candidate"; status = "SPEC_COMPATIBLE_UNTESTED"; note = "Subcommands and permissions match specification; candidate pending host binary" },
         [ordered]@{ version = "2.1.2"; profile = "previous-active-host"; status = "HARNESS_PASS"; note = "Previous host; dynamic capability detection verified (surface-level)" }
     )

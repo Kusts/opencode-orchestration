@@ -24,7 +24,7 @@ A autoridade canônica de configuração reside em [`source/registry/model-routi
 > `model-proof` do Kernel e Task DONE, não fallback de disponibilidade.
 > T3/T4 disponibilidade e Astra não foram executados. OpenCode 2.3.0 está
 > autorizado apenas na prova live-server do override nativo; pin CI/provisioning
-> permanece 2.2.6. Detalhes e limites estão no PLAN/SPEC da missão.
+> permanece 2.3.0. Detalhes e limites estão no PLAN/SPEC da missão.
 
 ### Princípios Operacionais Fundamentais
 
@@ -327,4 +327,4 @@ O Kernel valida este recibo no fechamento do objetivo. Inconsistências (como Ti
 
 ### Prova do override nativo subagent.model`r
 
-A allowlist de prova baseada exclusivamente na versão do servidor vivo /api/info é 2.2.5/2.2.6/2.3.0/2.0.23; versão desconhecida/indisponível falha fechada e metadados da task não autorizam. O runtime vivo 2.3.0 foi aceito após evidência exata em 2026-11-13. O pin source/registry/runtime-versions.json permanece 2.2.6, alvo de CI/provisionamento; bump para 2.3.0 exige smoke/CI no binário exato e decisão separada.
+A allowlist de prova baseada exclusivamente na versão do servidor vivo /api/info é 2.2.5/2.3.0/2.3.0/2.0.23; versão desconhecida/indisponível falha fechada e metadados da task não autorizam. O runtime vivo 2.3.0 foi aceito após evidência exata em 2026-11-13. O pin source/registry/runtime-versions.json permanece 2.3.0, alvo de CI/provisionamento; bump para 2.3.0 exige smoke/CI no binário exato e decisão separada.

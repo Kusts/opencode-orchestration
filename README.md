@@ -22,10 +22,10 @@ telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | Requisito | Suporte |
 |---|---|
 | OpenCode **V1.x** (pacote npm `opencode-ai`) | ⚠️ Legado, frozen (issue #62) — funcional para perfis existentes; CI legado validou com **1.18.34** (`opencode --version` responde `1.x`). Sem certificação de features novas. |
-| OpenCode **V2** (pacote `@opencode/cli`) | ⚠️ Pin atual **2.2.6**; smoke de ciclo explícito passou no binário exato. Probes de capacidades nativas disponíveis são históricos de 2.0.23 e não certificam 2.2.6; permanecem em HOLD. Ver [docs/INSTALLATION.md](docs/INSTALLATION.md) e [CHANGELOG](CHANGELOG.md) [0.2.0]. |
+| OpenCode **V2** (pacote `@opencode/cli`) | ⚠️ Pin atual **2.3.0**; smoke de ciclo explícito passou no binário exato. Probes de capacidades nativas disponíveis são históricos de 2.0.23 e não certificam 2.3.0; permanecem em HOLD. Ver [docs/INSTALLATION.md](docs/INSTALLATION.md) e [CHANGELOG](CHANGELOG.md) [0.2.0]. |
 | V1 **e** V2 na mesma máquina | ✅ Via perfis isolados (`.\install.ps1 -Runtime Both`) — migração/manutenção de perfis legados; fail-closed sem binários provados. |
 | Windows PowerShell 5.1+ ou `pwsh` recente | ✅ Obrigatório. |
-| `bun` ou `npm` — dependência do plugin (`@opencode/plugin@2.2.6` no V2, recomendado; `@opencode-ai/plugin@1.18.34` no V1 legado) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
+| `bun` ou `npm` — dependência do plugin (`@opencode/plugin@2.3.0` no V2, recomendado; `@opencode-ai/plugin@1.18.34` no V1 legado) | ⚠️ Best-effort: o instalador avisa e segue sem abortar se falhar. |
 
 ## Versionamento
 
