@@ -6,7 +6,7 @@
     "pin_source": "source/registry/runtime-versions.json"
   },
   "static_validation": {
-    "readonly_diagnostic_suite": "384/384 pass",
+    "readonly_diagnostic_suite": "594/594 pass",
     "package_consistency": "17/17 pass",
     "v3_tests": "186 pass, 10 skip, 3 fail",
     "distribution": "24 pass, 1 fail - live-hook-v2.tests.ps1: 'NOT OK - versao exata opencode v2.3.0' obtido 'opencode v2.2.6' (binario provisionado do perfil local vs pin; pre-existente, nao relacionado a permissoes)",
@@ -89,5 +89,66 @@
     "agents_md": "19/19 inalterados (hashes antes==depois)",
     "result": "PASS"
   },
-  "precedence_observation": "Na config viva as regras de topo aparecem ANTES das regras do agente na lista efetiva (observado em opencode debug agents, 2.3.0); com last-match-wins o catch-all do perfil prevalece sobre ask de topo. Nao e falha nova: e o HIGH-2 ja documentado, agora com evidencia de ordenacao."
+  "precedence_observation": "Na config viva as regras de topo aparecem ANTES das regras do agente na lista efetiva (observado em opencode debug agents, 2.3.0); com last-match-wins o catch-all do perfil prevalece sobre ask de topo. Nao e falha nova: e o HIGH-2 ja documentado, agora com evidencia de ordenacao.",
+  "review_round_1": {
+    "findings": {
+      "SP7-001": {
+        "status": "fixed"
+      },
+      "SP7-002": {
+        "status": "fixed"
+      },
+      "SP7-003": {
+        "status": "fixed"
+      },
+      "SP7-004": {
+        "status": "fixed"
+      },
+      "SP7-005": {
+        "status": "fixed"
+      },
+      "SP7-006": {
+        "status": "fixed"
+      },
+      "SP7-007": {
+        "status": "fixed"
+      },
+      "SP8-S-01": {
+        "status": "fixed"
+      },
+      "SP8-S-02": {
+        "status": "fixed"
+      },
+      "SP8-S-03": {
+        "status": "fixed"
+      },
+      "SP8-S-04": {
+        "status": "fixed"
+      },
+      "SP8-S-05": {
+        "status": "fixed"
+      },
+      "SP8-S-06": {
+        "status": "fixed"
+      },
+      "SP8-S-07": {
+        "status": "fixed"
+      }
+    },
+    "summary": "Removidos escapes; git push nu pede ask nos 7 writers; cobertura e contagens atualizadas; flags/composicao residuais documentados.",
+    "SP8-S-08": {
+      "status": "documented-residual"
+    },
+    "SP8-S-09": {
+      "status": "accepted"
+    }
+  },
+  "guard_decision": {
+    "attempted": "deny de flags apos o allow",
+    "guard": "ambiguous-permission-overlap (fail-closed)",
+    "resolution": "residuo documentado como prompt-enforced",
+    "files": [
+      "source/agents/*.md (10)"
+    ]
+  }
 }

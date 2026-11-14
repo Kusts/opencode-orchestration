@@ -2813,3 +2813,7 @@ Primeira release estável do pacote `opencode-orchestration`.
   (`install.ps1 -Runtime Both` / `scripts/runtime/new-opencode-profile.ps1`).
 
 Status da release **1.0.0** (histórico): V2 não suportado naquela data.
+
+- Endurece allowlist read-only contra escapes de escrita/execução e exige ask para git push nu nos writers.
+
+- Endurece allowlist read-only removendo Get-*/git grep/cat-file/debug config, exige ask para git push nu nos writers e declara o resíduo de flags/composição como prompt-enforced.

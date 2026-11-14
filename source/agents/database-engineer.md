@@ -14,6 +14,7 @@ permission:
     "git clean *": deny
     "git branch -D*": deny
     "git rebase *": allow
+    "git push": ask
     "git push *": ask
     "terraform destroy*": deny
     "kubectl delete *": deny

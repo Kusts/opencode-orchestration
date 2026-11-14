@@ -17,15 +17,15 @@ transferência.
 
 | Agente | Classe | edit | bash | Barreira |
 |---|---|---|---|---|
-| explorer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| researcher | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| architect | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| security-reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| requirements-analyst | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| engineering-advisor | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| product-designer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
-| skeptic | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
+| explorer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| researcher | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| architect | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| security-reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| requirements-analyst | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| engineering-advisor | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| product-designer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| skeptic | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
 | coder | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | frontend-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | backend-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
@@ -33,7 +33,7 @@ transferência.
 | ai-agent-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | automation-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | infra-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| docs-manager | writer-diagnostic | allow | allowlist de leitura/diagnóstico | runtime-enforced (allowlist) + prompt-enforced (escrita via shell fora da allowlist) |
+| docs-manager | writer-diagnostic | allow | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
 | tester | validator-shell | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
 | debugger | validator-shell (diagnóstico) | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
 
@@ -136,7 +136,7 @@ claim além do testado.
   (`Set-Content`, `Out-File`, redirecionamento, `Copy-Item`, git não-listado)
   é proibição comportamental — prompt-enforced (corpo do agente) +
   planner-enforced (contrato), não barreira de glob.
-- `read-only` usa `shell "*": deny` e allowlist nominal de leitura/diagnóstico; comandos fora dela são negados por default. Escrita via shell fora da lista é proibida pelo prompt.
+- `read-only` usa `shell "*": deny` e allowlist nominal de leitura/diagnóstico; comandos fora dela são negados por default. A allowlist valida o comando INICIAL. Flags que escrevem/executam (`git diff --output`, `git show --output`, `rg --pre`) e composição (`;`, `&&`, `|`, `>`) NÃO são contidas pelo glob; são proibição comportamental (corpo do agente + contrato do Planner). Um deny de flag específico foi rejeitado pelo guard `ambiguous-permission-overlap` (fail-closed), e o pacote não contorna o guard por suposição. Inspecione a configuração instalada com `opencode debug agents --standalone`; sem `--standalone`, mostra a configuração viva.
 - **Rota de tool vs superfície REST `/shell` (ressalva factual):** o rótulo
   "runtime-enforced" vale para a rota de tool; a superfície REST
   `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)

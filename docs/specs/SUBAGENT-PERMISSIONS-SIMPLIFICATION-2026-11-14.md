@@ -14,7 +14,7 @@ Allowlist explícita de leitura com deny por default. Asks para efeitos externos
 | docs-manager | validar alteração de documentação (`git diff`, leitura de arquivos) | deny hard | permissão nativa do runtime | allowlist read-only explícita |
 | 10 perfis acima | executar comandos fora da allowlist (testes, scripts, wrappers) | deny (mantido de propósito) | permissão nativa do runtime | sem mudança; limite funcional (devem devolver blocker ao Planner) |
 | 19 perfis | delegação direta entre workers (Planner→Coder→Tester→Reviewer) | deny (`subagent: "*" deny`) + `experimental.subagent_depth: 1` | permissão nativa + limite global de profundidade | HOLD: exigiria depth>=2 global (fora do escopo autorizado); registrar na issue de evolução |
-| 8 writers | `git rebase` dentro da missão | ask (prompt fora do modo auto) | permissão nativa do perfil | `allow` |
+| 7 writers (coder + 6) | `git rebase` dentro da missão | ask (prompt fora do modo auto) | permissão nativa do perfil | `allow` |
 | 7 writers (exceto coder) | `Format-Volume`, `diskpart` | herdavam apenas `ask` do topo, potencialmente sobreposto pelo catch-all allow do perfil | divergência topo vs perfil | `deny` explícito no perfil |
 | writers, tester, debugger | `git push`, deploy, publish, `gh auth`, POST externo | ask | permissão nativa (preservada de propósito) | sem mudança: efeito externo/credencial |
 | tester, debugger | mutação via shell (commit/reset/rm/elevação) | deny | permissão nativa | sem mudança |
@@ -68,3 +68,8 @@ Use o binário pinado e `opencode debug agents --standalone` com `XDG_CONFIG_HOM
 | Cadeia direta D | HOLD (depth 1) |
 | REST `/shell` e comportamento humano | HOLD / não provado |
 | Diff check | A validar ao final da consolidação |
+
+
+## Revisões de segurança
+
+SP7-001..007: fixed (remoções de Get-*, git grep/cat-file/debug config, push nu ask, cobertura de testes e contagens). SP8-S-01..09: fixed para os itens de remoções/push/cobertura/contagens; documented-residual para flags `--output`/`--pre` e composição, pois o guard rejeitou denies por ambiguidade; accepted para `git rebase` allow nos writers e docs-manager sem restrição de caminho. `Clear-Disk`/`Remove-Partition` não são cobertos pelos denies de disco. A allowlist valida o comando inicial; flags de escrita/execução e composição continuam prompt-enforced. Inspeção instalada correta: `opencode debug agents --standalone` (sem ele, mostra a configuração viva).

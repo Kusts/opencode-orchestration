@@ -23,16 +23,21 @@ foreach ($name in $profiles) {
   Assert-Ok ($null -ne $parsed) "$name parses"
   if ($null -eq $parsed) { continue }
   $c = $parsed.Canonical
-  $commands = @('git diff --stat','git log --oneline -5','git show HEAD:file','git status --short','rg TODO src','grep -n x file','Select-String -Path x -Pattern y','Get-Content README.md','Get-ChildItem docs','Test-Path README.md','git config --get user.name')
+  $commands = @('git diff','git diff --stat','git log --oneline -5','git show HEAD:file','git status --short','git blame file','rg TODO src','grep -n x file','Select-String pattern file','git config --get user.name','node --version','npm ls','bun --version','opencode --version','opencode debug agents')
   foreach ($cmd in $commands) {
     $a = Get-V1RuleEffect -Rules @($c.ShellRules) -HasCatchAll ([bool]$c.HasCatchAll) -CatchAllEffect ([string]$c.CatchAllEffect) -Command $cmd
     $b = Get-V2RuleEffect -V2Rules @(Get-OrderedV2ShellRules -Canonical $c) -Action shell -Command $cmd
     Assert-Ok (([string]$a -ceq 'allow') -and ([string]$b -ceq 'allow') -and ([string]$a -ceq [string]$b)) "$name allows $cmd V1/V2"
   }
-  foreach ($cmd in @('Set-Content x.txt y','Out-File x.txt','git commit -m x','git push origin main','npm publish','rm -rf build','Remove-Item -Recurse -Force .','pwsh -NoProfile -Command "Get-ChildItem"','node script.js','npm test','curl -X POST https://x','git reset --hard','dropdb x')) {
+  foreach ($cmd in @('Set-Content x y','git grep -O pwsh x','git cat-file --textconv HEAD:f','Get-Content a > b','git difftool','opencode debug config','pwsh -NoProfile -Command x','npm test','git commit -m x','git push')) {
     $a = Get-V1RuleEffect -Rules @($c.ShellRules) -HasCatchAll ([bool]$c.HasCatchAll) -CatchAllEffect ([string]$c.CatchAllEffect) -Command $cmd
     $b = Get-V2RuleEffect -V2Rules @(Get-OrderedV2ShellRules -Canonical $c) -Action shell -Command $cmd
     Assert-Ok (([string]$a -ceq 'deny') -and ([string]$b -ceq 'deny')) "$name denies $cmd"
+  }
+  foreach ($cmd in @('git diff --output=x','rg --pre pwsh x')) {
+    $a = Get-V1RuleEffect -Rules @($c.ShellRules) -HasCatchAll ([bool]$c.HasCatchAll) -CatchAllEffect ([string]$c.CatchAllEffect) -Command $cmd
+    $b = Get-V2RuleEffect -V2Rules @(Get-OrderedV2ShellRules -Canonical $c) -Action shell -Command $cmd
+    Assert-Ok (([string]$a -ceq 'allow') -and ([string]$b -ceq 'allow')) "$name known-residual: flag escrita/execucao nao contida pelo glob (prompt-enforced): $cmd"
   }
   $expectedEdit = 'deny'
   if ($name -ceq 'docs-manager') { $expectedEdit = 'allow' }
@@ -45,16 +50,26 @@ foreach ($name in $profiles) {
   $body = Get-Content (Join-Path $repoRoot "source\agents\$name.md") -Raw
   Assert-Ok ($body -match '(?m)^## Shell \(leitura e diagn') "$name body title"
   Assert-Ok $body.Contains('em vez de contornar') "$name body bypass contract"
-  Assert-Ok (-not $body.Contains('Set-Content')) "$name body excludes Set-Content"
+  Assert-Ok ($body.Contains('Não encadeie comandos') -and -not $body.Contains('Get-Content')) "$name body composition and no shell read list"
 }
 $writers = @('coder','frontend-engineer','backend-engineer','database-engineer','ai-agent-engineer','automation-engineer','infra-engineer')
 foreach ($name in $writers) {
   $c = (Read-AgentFileCanonical -Path (Join-Path $repoRoot "source\agents\$name.md")).Canonical
   foreach ($case in @(
     @{ Command='git rebase main'; Effect='allow' },
+    @{ Command='git push'; Effect='ask' },
     @{ Command='git push origin main'; Effect='ask' },
     @{ Command='Format-Volume C: x'; Effect='deny' },
-    @{ Command='diskpart'; Effect='deny' }
+    @{ Command='diskpart'; Effect='deny' },
+    @{ Command='git reset --hard HEAD'; Effect='deny' },
+    @{ Command='git clean -fdx'; Effect='deny' },
+    @{ Command='kubectl apply -f x'; Effect='ask' },
+    @{ Command='wrangler deploy'; Effect='ask' },
+    @{ Command='gh auth login'; Effect='ask' },
+    @{ Command='npm publish'; Effect='ask' },
+    @{ Command='curl -X POST https://x'; Effect='ask' },
+    @{ Command='dropdb x'; Effect='deny' },
+    @{ Command='Remove-Item -Recurse .'; Effect='ask' }
   )) {
     $v1 = Get-V1RuleEffect -Rules @($c.ShellRules) -HasCatchAll ([bool]$c.HasCatchAll) -CatchAllEffect ([string]$c.CatchAllEffect) -Command $case.Command
     $v2 = Get-V2RuleEffect -V2Rules @(Get-OrderedV2ShellRules -Canonical $c) -Action shell -Command $case.Command
@@ -66,6 +81,6 @@ foreach ($name in $writers) {
 $doc = Get-Content (Join-Path $repoRoot 'docs\PERMISSIONS.md') -Raw
 Assert-Ok ($doc.Contains('read-only') -and $doc.Contains('allowlist') -and $doc.Contains('subagent_depth')) 'permissions documentation'
 $grants = Get-Content (Join-Path $repoRoot 'source\registry\execution-grants.json') -Raw | ConvertFrom-Json
-foreach ($name in $profiles) { Assert-Ok (@($grants.role_baselines.$name) -contains 'shell.diagnostic') "$name diagnostic grant" }
+foreach ($name in $profiles) { $g=@($grants.role_baselines.$name); Assert-Ok ($g -contains 'shell.diagnostic') "$name diagnostic grant"; foreach($forbidden in @('git.push','git.commit','secrets.read','destructive.fs')) { Assert-Ok ($g -notcontains $forbidden) "$name excludes $forbidden grant" } }
 Write-Host "TEST RESULTS: $passed / $total passed"
 if ($passed -ne $total) { exit 1 }; exit 0
