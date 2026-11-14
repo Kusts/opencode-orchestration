@@ -1,0 +1,14 @@
+diff --git a/scratchpad/abba/a1/lib/calc.ps1 b/scratchpad/abba/a1/lib/calc.ps1
+index fb465dd..917a9b5 100644
+--- a/scratchpad/abba/a1/lib/calc.ps1
++++ b/scratchpad/abba/a1/lib/calc.ps1
+@@ -1,8 +1,6 @@
+ function Get-Total {
+     param([int[]]$Values)
+     $total = 0
+-    $limit = $Values.Count
+-    if (($Values.Count % 2) -eq 1) { $limit-- }
+-    for ($i = 0; $i -lt $limit; $i++) { $total += $Values[$i] }
++    for ($i = 0; $i -lt $Values.Count; $i++) { $total += $Values[$i] }
+     return $total
+ }

@@ -1,0 +1,121 @@
+{
+  "session_id": "ses_e258aed2dffeMJJuAU8ZKQxjwk",
+  "root_session_id": "ses_e2867895effeybCXdjFDRmmnGc",
+  "run_id": "abba-a1-20261113",
+  "assistant_message_id": "msg_1da7560090012yW6OAQ33hLU3S",
+  "response": "ABBA_A1_OK",
+  "model": "openai/gpt-6-luna",
+  "tier": "T2",
+  "snapshot_taken_at": "2026-11-14T14:30:48.9972454Z",
+  "api_snapshot": {
+    "start": "fb7b56f8c2d49353b3d3ba3de3424f3a023e49c8",
+    "end": "fb7b56f8c2d49353b3d3ba3de3424f3a023e49c8",
+    "messages_returned_including_idle": 8,
+    "assistant_messages_aggregated": 6,
+    "user_messages": 1,
+    "idle_records": 1
+  },
+  "metrics_aggregated": {
+    "input_tokens": 3501,
+    "output_tokens": 452,
+    "reasoning_tokens": 33,
+    "cache_read_tokens": 201856,
+    "cache_write_tokens": 0,
+    "cost": 0,
+    "currency": "USD",
+    "elapsed_ms_first_message_created_to_final_completed": 20428
+  },
+  "skill_calls": {
+    "verification-before-completion": {
+      "called": true,
+      "count": 1,
+      "tool_call_id": "call_d8a2c3b1ee0e4078a9c84504ef71dcab",
+      "time_created_ms": 1794666470782
+    }
+  },
+  "tool_calls": [
+    {
+      "id": "call_d8a2c3b1ee0e4078a9c84504ef71dcab",
+      "name": "skill",
+      "input": {"id": "verification-before-completion"},
+      "created_ms": 1794666470782
+    },
+    {
+      "id": "call_72dfa39359034f96bf5189e0d8cd62ce",
+      "name": "shell",
+      "created_ms": 1794666472016
+    },
+    {
+      "id": "call_852fb2989ae34b3dbe16d1ec84f24e3b",
+      "name": "shell",
+      "created_ms": 1794666476163
+    },
+    {
+      "id": "call_ec4756b346464d83b0d372156899e511",
+      "name": "patch",
+      "created_ms": 1794666479334
+    },
+    {
+      "id": "call_3f44915aa3684bf1897aabacdc56ca40",
+      "name": "shell",
+      "created_ms": 1794666483502
+    }
+  ],
+  "assistant_message_timing_ms": [
+    {
+      "message_id": "msg_1da75138c001KDLL9o8EvZSQJf",
+      "created": 1794666470782,
+      "ran": 1794666470945,
+      "completed": 1794666470952
+    },
+    {
+      "message_id": "msg_1da751ea8001kbFv9BsIIwPPZD",
+      "created": 1794666471087,
+      "first_token": 1794666472015,
+      "streamed": 1794666473402,
+      "completed": 1794666474120
+    },
+    {
+      "message_id": "msg_1da752aa20012enoeNd5aZtYHY",
+      "created": 1794666474157,
+      "first_token": 1794666476162,
+      "streamed": 1794666477382,
+      "completed": 1794666477987
+    },
+    {
+      "message_id": "msg_1da7539bf0011TgYJ3rTuTfkei",
+      "created": 1794666478026,
+      "first_token": 1794666479113,
+      "streamed": 1794666482184,
+      "completed": 1794666482272
+    },
+    {
+      "message_id": "msg_1da754bbb001dCV5JyhK4qROhk",
+      "created": 1794666482632,
+      "first_token": 1794666483500,
+      "streamed": 1794666485062,
+      "completed": 1794666487783
+    },
+    {
+      "message_id": "msg_1da7560090012yW6OAQ33hLU3S",
+      "created": 1794666487830,
+      "first_token": 1794666488396,
+      "streamed": 1794666488558,
+      "completed": 1794666488651
+    }
+  ],
+  "task_evidence": {
+    "task_id": "abba-a1-20261113",
+    "worker_status": "candidate_pass",
+    "claimed_evidence": [
+      "session:ses_e258aed2dffeMJJuAU8ZKQxjwk",
+      "message:msg_1da7560090012yW6OAQ33hLU3S"
+    ],
+    "verification": {
+      "status": "verified_pass",
+      "source": "kernel-executed",
+      "profile": "abba-a1",
+      "revision": 8
+    }
+  }
+}
