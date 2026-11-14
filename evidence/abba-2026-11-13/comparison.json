@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-14T14:47:29.8329904Z",
+  "execution_order": [
+    {
+      "position": 1,
+      "run": "a1",
+      "arm": "A",
+      "session_started_at": "2026-11-14T14:27:48.223Z",
+      "session_completed_at": "2026-11-14T14:28:08.651Z",
+      "snapshot_timestamp": "2026-11-14T14:30:48.9972454Z"
+    },
+    {
+      "position": 2,
+      "run": "b1",
+      "arm": "B",
+      "session_started_at": "2026-11-14T14:32:59.714Z",
+      "session_completed_at": "2026-11-14T14:33:26.832Z",
+      "snapshot_timestamp": "2026-11-14T14:35:24.6871909Z"
+    },
+    {
+      "position": 3,
+      "run": "b2",
+      "arm": "B",
+      "session_started_at": "2026-11-14T14:40:10.628Z",
+      "session_completed_at": "2026-11-14T14:40:27.854Z",
+      "snapshot_timestamp": "2026-11-14T14:42:34.5921232Z"
+    },
+    {
+      "position": 4,
+      "run": "a2",
+      "arm": "A",
+      "session_started_at": "2026-11-14T14:43:25.890Z",
+      "session_completed_at": "2026-11-14T14:43:56.675Z",
+      "snapshot_timestamp": "2026-11-14T14:45:10.7411226Z"
+    }
+  ],
+  "runs": [
+    {
+      "run": "a1",
+      "arm": "A",
+      "session_id": "ses_e258aed2dffeMJJuAU8ZKQxjwk",
+      "assistantMessageID": "msg_1da7560090012yW6OAQ33hLU3S",
+      "skill_calls_count": 1,
+      "tool_calls_count": 5,
+      "tool_calls": ["skill", "shell", "shell", "patch", "shell"],
+      "input_tokens": 3501,
+      "output_tokens": 452,
+      "reasoning_tokens": 33,
+      "cache_read_tokens": 201856,
+      "cache_write_tokens": 0,
+      "cost": 0,
+      "cost_observed": false,
+      "elapsed_ms": 20428,
+      "snapshot_timestamp": "2026-11-14T14:30:48.9972454Z",
+      "verify_status": "verified_pass"
+    },
+    {
+      "run": "b1",
+      "arm": "B",
+      "session_id": "ses_e25862c72ffemVH0GOH9Zn3lts",
+      "assistantMessageID": "msg_1da7a359b001qlD2PAZJK6LBgx",
+      "skill_calls_count": 0,
+      "tool_calls_count": 7,
+      "tool_calls": ["glob", "shell", "shell", "shell", "shell", "patch", "shell"],
+      "input_tokens": 3859,
+      "output_tokens": 627,
+      "reasoning_tokens": 0,
+      "cache_read_tokens": 271104,
+      "cache_write_tokens": 0,
+      "cost": 0,
+      "cost_observed": false,
+      "elapsed_ms": 27118,
+      "snapshot_timestamp": "2026-11-14T14:35:24.6871909Z",
+      "verify_status": "verified_pass"
+    },
+    {
+      "run": "b2",
+      "arm": "B",
+      "session_id": "ses_e257f98b2ffeoKOXPXznjYy540",
+      "assistantMessageID": "msg_1da80a186001t9morBfHglFZ3t",
+      "skill_calls_count": 0,
+      "tool_calls_count": 4,
+      "tool_calls": ["shell", "shell", "patch", "shell"],
+      "input_tokens": 1686,
+      "output_tokens": 377,
+      "reasoning_tokens": 0,
+      "cache_read_tokens": 165120,
+      "cache_write_tokens": 0,
+      "cost": 0,
+      "cost_observed": false,
+      "elapsed_ms": 17226,
+      "snapshot_timestamp": "2026-11-14T14:42:34.5921232Z",
+      "verify_status": "verified_pass"
+    },
+    {
+      "run": "a2",
+      "arm": "A",
+      "session_id": "ses_e257c9df7ffevGVz07Fb5VALkm",
+      "assistantMessageID": "msg_1da83cb9a0014Ya5m3eZoXpbTa",
+      "skill_calls_count": 1,
+      "tool_calls_count": 9,
+      "tool_calls": ["skill", "shell", "read", "read", "read", "shell", "patch", "shell", "shell"],
+      "input_tokens": 3809,
+      "output_tokens": 789,
+      "reasoning_tokens": 50,
+      "cache_read_tokens": 336768,
+      "cache_write_tokens": 0,
+      "cost": 0,
+      "cost_observed": false,
+      "elapsed_ms": 30785,
+      "snapshot_timestamp": "2026-11-14T14:45:10.7411226Z",
+      "verify_status": "verified_pass"
+    }
+  ],
+  "arm_aggregates": {
+    "A": {
+      "n": 2,
+      "mean": {
+        "input_tokens": 3655,
+        "cache_read_tokens": 269312,
+        "elapsed_ms": 25606.5
+      },
+      "amplitude_max_minus_min": {
+        "input_tokens": 308,
+        "cache_read_tokens": 134912,
+        "elapsed_ms": 10357
+      },
+      "range": {
+        "input_tokens": [3501, 3809],
+        "cache_read_tokens": [201856, 336768],
+        "elapsed_ms": [20428, 30785]
+      }
+    },
+    "B": {
+      "n": 2,
+      "mean": {
+        "input_tokens": 2772.5,
+        "cache_read_tokens": 218112,
+        "elapsed_ms": 22172
+      },
+      "amplitude_max_minus_min": {
+        "input_tokens": 2173,
+        "cache_read_tokens": 105984,
+        "elapsed_ms": 9892
+      },
+      "range": {
+        "input_tokens": [1686, 3859],
+        "cache_read_tokens": [165120, 271104],
+        "elapsed_ms": [17226, 27118]
+      }
+    }
+  },
+  "control_audit": {
+    "control_valid": true,
+    "basis": "Both B-arm session API traces show 0 skill tool calls.",
+    "qualification": "control_valid=true means only that both B traces have 0 skill calls. The control is instructed and audited, not mechanically enforced; there is no tool-skill blocking mechanism. B1 purity is compromised by cross-arm contamination."
+  },
+  "pilot_scope": {
+    "same_model": "openai/gpt-6-luna",
+    "same_machine": true,
+    "n_per_arm": 2,
+    "interpretation": "Procedure pilot only; n=2 is not a test of superiority.",
+    "limitations": [
+      "n=2 per arm",
+      "ABBA order fixed",
+      "Same machine and model",
+      "Possible learning and cache carryover across runs",
+      "Cost value is not observed; API returned zero but cost_observed is false",
+      "Skill observed does not establish that it caused any improvement",
+      "Cross-arm contamination in b1: tool call call_b01be8b21d914743806f53be35138b6a read a1/lib/calc.ps1, a2/lib/calc.ps1, and b2/lib/calc.ps1. Since a1 was already fixed, b1 saw a ready-made correction; this reading is contamination, not a write-scope violation, and affects b1's interpretation and token/time measurements. Separately, the verifier classified the modified path scratchpad/abba/a1/lib/calc.ps1 as out_of_scope_changes under b1's original write scope scratchpad/abba/b1. That out-of-scope write, not the cross-arm reading, motivated recreating the task with common parent scope scratchpad/abba.",
+      "Reasoning tokens were 0 in both B runs and 33 and 50 in A (a1 and a2). This is a difference in model behavior, not evidence of a skill gain or loss; do not interpret it as a skill effect."
+    ]
+  },
+  "scope_evidence": {
+    "command": "git diff --name-only origin/master...HEAD",
+    "verification_policy_in_diff": false,
+    "path_summary": {
+      "evidence/abba-2026-11-13/**": 13,
+      "scratchpad/abba/**": 12,
+      "other_paths": 0
+    },
+    "paths": [
+      "evidence/abba-2026-11-13/a1/diff.patch",
+      "evidence/abba-2026-11-13/a1/session.json",
+      "evidence/abba-2026-11-13/a2/diff.patch",
+      "evidence/abba-2026-11-13/a2/session.json",
+      "evidence/abba-2026-11-13/b1/diff.patch",
+      "evidence/abba-2026-11-13/b1/session.json",
+      "evidence/abba-2026-11-13/b1/task-rescope-verification.json",
+      "evidence/abba-2026-11-13/b2/diff.patch",
+      "evidence/abba-2026-11-13/b2/session.json",
+      "evidence/abba-2026-11-13/comparison.json",
+      "evidence/abba-2026-11-13/task-rescope-archive/abba-a2-20261113.before-rescope.json",
+      "evidence/abba-2026-11-13/task-rescope-archive/abba-b1-20261113.before-rescope.json",
+      "evidence/abba-2026-11-13/task-rescope-archive/abba-b2-20261113.before-rescope.json",
+      "scratchpad/abba/a1/lib/calc.ps1",
+      "scratchpad/abba/a1/run-tests.ps1",
+      "scratchpad/abba/a1/tests/calc.tests.ps1",
+      "scratchpad/abba/a2/lib/calc.ps1",
+      "scratchpad/abba/a2/run-tests.ps1",
+      "scratchpad/abba/a2/tests/calc.tests.ps1",
+      "scratchpad/abba/b1/lib/calc.ps1",
+      "scratchpad/abba/b1/run-tests.ps1",
+      "scratchpad/abba/b1/tests/calc.tests.ps1",
+      "scratchpad/abba/b2/lib/calc.ps1",
+      "scratchpad/abba/b2/run-tests.ps1",
+      "scratchpad/abba/b2/tests/calc.tests.ps1"
+    ]
+  },
+  "causal_claim": "none"
+}

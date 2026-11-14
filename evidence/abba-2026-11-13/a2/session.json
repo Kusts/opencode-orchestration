@@ -1,0 +1,115 @@
+{
+  "session_id": "ses_e257c9df7ffevGVz07Fb5VALkm",
+  "root_session_id": "ses_e2867895effeybCXdjFDRmmnGc",
+  "run_id": "abba-a2-20261113",
+  "assistantMessageID": "msg_1da83cb9a0014Ya5m3eZoXpbTa",
+  "response": "ABBA_A2_OK",
+  "model": "openai/gpt-6-luna",
+  "snapshot_timestamp": "2026-11-14T14:45:10.7411226Z",
+  "api_snapshot": {
+    "start": "1659941885345053135de2f24207f48abba99998",
+    "end": "1659941885345053135de2f24207f48abba99998",
+    "records_including_user_and_idle": 12,
+    "assistant_messages_aggregated": 10,
+    "tool_calls_count": 9,
+    "skill_calls_count": 1
+  },
+  "metrics_aggregated": {
+    "input_tokens": 3809,
+    "output_tokens": 789,
+    "reasoning_tokens": 50,
+    "cache_read_tokens": 336768,
+    "cache_write_tokens": 0,
+    "cost": 0,
+    "currency": "USD",
+    "elapsed_ms_user_prompt_created_to_final_completed": 30785
+  },
+  "skill_calls": {
+    "verification-before-completion": {
+      "called": true,
+      "count": 1,
+      "tool_call_id": "call_087f975f5bd24908b7ee43ae6182fc75"
+    }
+  },
+  "tool_calls": [
+    {
+      "id": "call_087f975f5bd24908b7ee43ae6182fc75",
+      "name": "skill",
+      "created_ms": 1794667408424,
+      "input": {"id": "verification-before-completion"}
+    },
+    {
+      "id": "call_0f4ded2f4ea74b25aea08516ce73827d",
+      "name": "shell",
+      "created_ms": 1794667409702,
+      "summary": "List directory and git status"
+    },
+    {
+      "id": "call_bdaed14cf4f543e89cf6dde635fe81f7",
+      "name": "read",
+      "created_ms": 1794667412195,
+      "input": {"path": "scratchpad/abba/a2/lib/calc.ps1"}
+    },
+    {
+      "id": "call_96e4c05e9d5941e4a936bb13a0e60fd9",
+      "name": "read",
+      "created_ms": 1794667414157,
+      "input": {"path": "scratchpad/abba/a2/run-tests.ps1"}
+    },
+    {
+      "id": "call_b27dbc5ab38b4d2d9ea26ecc865916a6",
+      "name": "read",
+      "created_ms": 1794667415800,
+      "input": {"path": "scratchpad/abba/a2/tests/calc.tests.ps1"}
+    },
+    {
+      "id": "call_6bce645840dd4a6499668744b9de9bae",
+      "name": "shell",
+      "created_ms": 1794667417802,
+      "summary": "Initial run-tests attempt; criterion:0:FAIL, exit 1"
+    },
+    {
+      "id": "call_80d4fdcb0d1d4fd3a8e24be0d6dc6240",
+      "name": "patch",
+      "created_ms": 1794667421582,
+      "summary": "Fix Get-Total to include final array element"
+    },
+    {
+      "id": "call_25826b249c11459ebfe31c2d8fc1a4ee",
+      "name": "shell",
+      "created_ms": 1794667425105,
+      "summary": "Attempted verification from incorrect working directory"
+    },
+    {
+      "id": "call_a6a8c66844d3493b9a1095fd2cd2cf19",
+      "name": "shell",
+      "created_ms": 1794667429069,
+      "summary": "Rerun test and diff check from fixture directory; test passed"
+    }
+  ],
+  "task_evidence": {
+    "task_id": "abba-a2-20261113",
+    "write_scopes": ["scratchpad/abba"],
+    "verification_profiles": ["abba-a2"],
+    "worker_status": "candidate_pass",
+    "claimed_evidence_requested": [
+      "session:ses_e257c9df7ffevGVz07Fb5VALkm",
+      "message:msg_1da83cb9a0014Ya5m3eZoXpbTa"
+    ],
+    "verify_run": {
+      "revision": 8,
+      "passed": true,
+      "status": "verified_pass",
+      "verification_source": "kernel-executed"
+    }
+  },
+  "manual_test": {
+    "command": "powershell -NoProfile -File scratchpad/abba/a2/run-tests.ps1",
+    "output": "criterion:0:PASS",
+    "exit_code": 0
+  },
+  "git_diff_check": {
+    "passed": true,
+    "exit_code": 0
+  }
+}
