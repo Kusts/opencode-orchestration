@@ -118,3 +118,21 @@ Not proved: an actual HTTP 429 or 503; unavailability of the `claude-agent`
 provider; successful execution of the fallback model; T4 escalation or Astra
 eligibility. The nonexistent model name is specifically a client-side
 availability/catalog case. Do not generalize it to provider health.
+
+## Fallback dispatch recorded and T4 diagnostic
+
+Planner reported that the real `openai/gpt-6.1-terra` fallback dispatch
+succeeded for this task and supplied session
+`ses_e2857aea9ffeBN8x6nE16QeLoR`. `model-fallback.ps1 -Action record` returned
+success (exit 0) and appended the post-dispatch record to
+`model-attempts.jsonl`. The record's `observed_model` remains `UNKNOWN`; the
+actual model/session success is separately attributed to the Planner's
+observation in `t3-availability-proof.json`.
+
+T4 was checked read-only in `D:\projetos\_wt\orch-proof`, task
+`proof-g1-20261113`. `get` showed both persisted T3 and T4 attempts with
+`session_outcome=succeeded`. `model-proof -RequiredTier T3` returned
+`{"ok":false,"error":"PROOF_STATUS_NOT_FAILED"}` (exit 1), and `model-select`
+returned T3 `claude-agent/sonnet` (exit 0). Thus this task does not currently
+permit T4 selection; no T4 availability dispatch should be attempted from this
+task. The diagnostic did not modify that worktree.

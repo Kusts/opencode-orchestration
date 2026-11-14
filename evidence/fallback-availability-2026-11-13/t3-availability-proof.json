@@ -1,0 +1,77 @@
+{
+  "task_id": "fallback-avail-t3-20261113",
+  "decision": {
+    "status": "FALLBACK_AUTHORIZED",
+    "classification": "MODEL_UNAVAILABLE",
+    "next_model": "openai/gpt-6.1-terra",
+    "next_tier": "T3",
+    "no_start_proof": true,
+    "attempt_id": "7d98c80b7a904a60865033f9eed4b444",
+    "resolver_hold": "HOLD: no independent no-start proof in this resolver; CandidateModel is non-authorizing audit only."
+  },
+  "native_error": {
+    "error": {
+      "type": "tool.execution",
+      "message": "Model \"claude-agent/sonnet-availability-probe-nonexistent\" is not available. Use the models tool to see what is available."
+    },
+    "content": [],
+    "source_tool": "subagent",
+    "session_id": null,
+    "execution_started": false,
+    "assistant_messages": 0,
+    "tool_calls": 0,
+    "interpretation": "Client-side requested-model/catalog rejection before execution; not provider HTTP failure."
+  },
+  "fallback_dispatch": {
+    "role": "coder",
+    "task_id": "fallback-avail-t3-20261113",
+    "model": "openai/gpt-6.1-terra",
+    "session_id": "ses_e2857aea9ffeBN8x6nE16QeLoR",
+    "outcome": "succeeded",
+    "observed_by": "user-reported real dispatch success"
+  },
+  "model_attempt_record": {
+    "file": "evidence/fallback-availability-2026-11-13/model-attempts.jsonl",
+    "record": {
+      "attempt_id": "7d98c80b7a904a60865033f9eed4b444",
+      "task_id": "fallback-avail-t3-20261113",
+      "agent": "coder",
+      "requested_model": "openai/gpt-6.1-terra",
+      "requested_provider": "openai",
+      "stage": "post_dispatch",
+      "session_id": "ses_e2857aea9ffeBN8x6nE16QeLoR",
+      "observed_model": "UNKNOWN",
+      "started_at": "2026-11-14T01:25:19.8910458Z",
+      "finished_at": "2026-11-14T01:25:19.8947988Z",
+      "success": true
+    }
+  },
+  "proven": [
+    "Falha pré-execução observada sem sessão para o modelo solicitado, segundo o resultado do dispatch nativo e fatos fornecidos pelo Planner.",
+    "A decisão classificou MODEL_UNAVAILABLE e expôs o candidato same-tier T3 openai/gpt-6.1-terra como FALLBACK_AUTHORIZED, com HOLD audit-only explícito.",
+    "Execução bem-sucedida do candidato openai/gpt-6.1-terra e sessão filha real, conforme observação fornecida pelo Planner; registro post_dispatch persistido pelo comando record."
+  ],
+  "not_proven": [
+    "HTTP 429/503 real.",
+    "Indisponibilidade do provider claude-agent; a mensagem indica modelo solicitado indisponível no cliente/catalog.",
+    "Automatic retry wiring.",
+    "Observed model real no registro model-attempts.jsonl: permanece UNKNOWN, embora o dispatch bem-sucedido tenha sido informado pelo Planner."
+  ],
+  "t4_diagnostic": {
+    "repo": "D:\\projetos\\_wt\\orch-proof",
+    "task_id": "proof-g1-20261113",
+    "get_exit_code": 0,
+    "model_proof_t3": {
+      "exit_code": 1,
+      "literal": "{\"ok\":false,\"error\":\"PROOF_STATUS_NOT_FAILED\"}"
+    },
+    "model_select": {
+      "exit_code": 0,
+      "tier": "T3",
+      "model": "claude-agent/sonnet",
+      "provider": "claude-agent",
+      "selection_reason": "Coder uses T3 Sonnet (Terra fallback) for complex work."
+    },
+    "interpretation": "Task registra tentativas T3 e T4 com session_outcome=succeeded, portanto não prova falha T3; model-proof T3 falha e seleção permanece T3. Não permite T4 hoje."
+  }
+}

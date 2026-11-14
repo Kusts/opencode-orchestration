@@ -1,0 +1,1 @@
+{"attempt_id":"7d98c80b7a904a60865033f9eed4b444","task_id":"fallback-avail-t3-20261113","agent":"coder","requested_model":"openai/gpt-6.1-terra","requested_provider":"openai","stage":"post_dispatch","session_id":"ses_e2857aea9ffeBN8x6nE16QeLoR","observed_model":"UNKNOWN","started_at":"2026-11-14T01:25:19.8910458Z","finished_at":"2026-11-14T01:25:19.8947988Z","success":true}
