@@ -8,7 +8,7 @@ O controle é a jornada G1 sem skill. A comparação não foi randomizada (n=1) 
 
 ## Mudança
 
-Carga da skill observada na API (ver Verificação). Sequência observada até aqui: task Kernel `skill-bench-2026-11-13`; seleção T2 Luna; dispatch deste worker para registrar a jornada.
+Invocação da skill registrada na API (ver Verificação). Sequência observada: task Kernel `skill-bench-2026-11-13`; seleção T2 Luna; dispatch deste worker para registrar a jornada.
 
 ## Verificação
 
@@ -24,4 +24,4 @@ Métricas observadas para a sessão `ses_e28498d25ffeWUzpKxTkuCE0Yo`, modelo `op
 
 ## Resultado
 
-O documento e a criterion única passaram no verifier do Kernel nas revisões 8, 9, 10 e 14 da task `skill-bench2-2026-11-13`; o reviewer independente aprovou a jornada com 2 observações LOW (registro Kernel na revisão 13), e a task chegou a `DONE` na revisão 15. Este registro NÃO fecha #64 nem conclui #11: é uma observação n=1 de métricas de uma sessão.
+Na task `skill-bench2-2026-11-13`, o documento passou no verifier do Kernel nas revisões 8, 9, 10 e 14; a aprovação do reviewer foi registrada pelo Kernel na revisão 13 sem findings anexados, e as 2 observações LOW vieram do relatório do reviewer. A task chegou a `DONE` na revisão 15. Depois do DONE, a redação deste documento foi editada. A versão final passou somente no fixture local (`criterion:0:PASS`); não passou por nova verificação Kernel, recusada por imutabilidade terminal. SHA-256 da versão verificada na revisão 14: hash da versão verificada não recuperável, pois ela não foi commitada nem preservada em snapshot. O SHA-256 da versão final está registrado no JSON de evidências para evitar auto-referência neste documento. Este registro NÃO fecha #64 nem conclui #11: é uma observação n=1 de métricas de uma sessão.

@@ -36,11 +36,15 @@
       "detail": "terminal state is immutable"
     },
     "final_document_fixture_stdout": "criterion:0:PASS",
+    "document_hashes": {
+      "revision_14_verified_version": "hash da versão verificada não recuperável",
+      "final_document_sha256": "56a08443adfd1c57fdb285c17ed10d45477a04bf6f2849533447ead33a57a104"
+    },
     "reproduction_note": "The profile is proof-local and is not included on the publication branch. Recreate skill-journey-fixture in source/registry/verification-policy.json and scratchpad/skill-journey-verify.ps1 to reproduce verify-run."
   },
   "review": {
     "status": "approved",
-    "reviewer": "reviewer-subagent-sonnet-20261114",
+    "reviewer": "reviewer-subagent-sonnet-20261113",
     "kernel_review_revision": 13,
     "reviewer_reported_low_items": 2,
     "kernel_attached_findings": 0,
@@ -49,6 +53,7 @@
   "session_metrics": {
     "source": "opencode api get /api/session/ses_e28498d25ffeWUzpKxTkuCE0Yo",
     "session_id": "ses_e28498d25ffeWUzpKxTkuCE0Yo",
+    "snapshot": "snapshot após a mensagem msg_1d7b6ff6c001HgOroYcx9fVSop",
     "model": "openai/gpt-6-luna",
     "tokens": {
       "input": 15765,
