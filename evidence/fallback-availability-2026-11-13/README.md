@@ -64,11 +64,11 @@ the literal output and exit status when running the exercise.
    scripts/v3/model-fallback.ps1 -Action record -AttemptId <attempt_id-from-next> -AttemptRole coder -TaskId fallback-avail-t3-20261113 -Model openai/gpt-6.1-terra -SessionId <real-fallback-session-id>
    ```
 
-The decision proves the policy authorized a candidate based on the supplied
-error and evidence, not that a real 429/503 occurred. The subsequent dispatch
-and record prove only that the fallback was actually attempted and that its
-session ID was recorded; they do not prove provider-wide availability or
-successful completion unless separately observed.
+`no_start_proof=true` is declared from the supplied observed evidence; it is
+not an independent proof source. In the recorded run the resolver reason
+explicitly retains `HOLD` and says the candidate is audit-only/non-authorizing.
+The output and later dispatch record do not prove a real 429/503 or
+provider-wide availability.
 
 ## T4 note
 
@@ -121,13 +121,14 @@ availability/catalog case. Do not generalize it to provider health.
 
 ## Fallback dispatch recorded and T4 diagnostic
 
-Planner reported that the real `openai/gpt-6.1-terra` fallback dispatch
-succeeded for this task and supplied session
+REPORTED successful execution: Planner reported that the real
+`openai/gpt-6.1-terra` fallback dispatch succeeded for this task and supplied session
 `ses_e2857aea9ffeBN8x6nE16QeLoR`. `model-fallback.ps1 -Action record` returned
 success (exit 0) and appended the post-dispatch record to
 `model-attempts.jsonl`. The record's `observed_model` remains `UNKNOWN`; the
-actual model/session success is separately attributed to the Planner's
-observation in `t3-availability-proof.json`.
+dispatch success is a Planner report, not independently proved by that record.
+The exact resolver JSONL line is embedded as `fallback_decision_log_line` in
+`t3-availability-proof.json`.
 
 T4 was checked read-only in `D:\projetos\_wt\orch-proof`, task
 `proof-g1-20261113`. `get` showed both persisted T3 and T4 attempts with
@@ -140,8 +141,8 @@ task. The diagnostic did not modify that worktree.
 ## T4 availability procedure and observed result
 
 This T4 experiment used a separate proof task in this branch:
-`fallback-avail-t4-20261113`. Its verifier profile
-`fallback-availability-fixture` is scoped to this proof branch only and runs
+`fallback-avail-t4-20261113`. The controlled `verify-run` used a proof-local
+profile `fallback-availability-fixture` that ran
 `powershell -NoProfile -File scratchpad/fallback-verify.ps1`. The ignored
 `scratchpad/fallback-fixture.txt` began as `bad`; the worker was instructed
 not to change it. Kernel `verify-run` returned
@@ -153,6 +154,44 @@ sessions, `model-attempt` recorded T3 `claude-agent/sonnet`;
 ```text
 reference: modelproof:fallback-avail-t4-20261113:T3:2:7
 digest:    sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3
+```
+
+### Proof-local verifier recreation (not merged)
+
+The verifier profile and script below were local proof artifacts used to
+produce the recorded Kernel result. They are not included as an active
+verification-policy change in this PR. The `scratchpad/` directory is ignored
+by Git. **artefato proof-local, NÃO mergeado; recriar para reproduzir**:
+
+Profile object to add temporarily to this proof checkout's
+`source/registry/verification-policy.json`:
+
+```json
+{
+  "fallback-availability-fixture": {
+    "class": "test",
+    "command": "powershell -NoProfile -File scratchpad/fallback-verify.ps1",
+    "timeout_seconds": 30
+  }
+}
+```
+
+Full contents of `scratchpad/fallback-verify.ps1`:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$fixturePath = Join-Path (Get-Location) 'scratchpad/fallback-fixture.txt'
+if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
+    Write-Error 'fallback fixture missing'
+    exit 1
+}
+$content = [IO.File]::ReadAllText($fixturePath).Trim()
+if ($content -ceq 'good') {
+    Write-Output 'fixture verified: good'
+    exit 0
+}
+Write-Error ('fixture verification failed: expected good, found ' + $content)
+exit 1
 ```
 
 The subsequent canonical `model-select` returned T4 `claude-agent/opus` with
@@ -170,20 +209,23 @@ Observed decision: `MODEL_UNAVAILABLE`, `FALLBACK_AUTHORIZED`,
 `next_tier=T4`, `next_model=openai/gpt-6.1-sol`, exit 0. The reason itself
 also contains an audit-only HOLD: “no independent no-start proof in this
 resolver; CandidateModel is non-authorizing audit only.” The Planner reported
-that the real Sol dispatch succeeded with response `T4_FALLBACK_SOL_OK` and
-session `ses_e284d5e49ffenBXX35BVr1LWaC`; the `-Action record` call persisted
-it in `model-attempts.jsonl`. The record's `observed_model` is `UNKNOWN`, so
-the actual model/response are attributed to the Planner's observation in
-`t4-availability-proof.json`.
+`no_start_proof=true` from the observed evidence; this is not an independent
+no-start proof and does not clear that HOLD. REPORTED successful execution:
+the Planner reported that the real Sol dispatch succeeded with response
+`T4_FALLBACK_SOL_OK` and session `ses_e284d5e49ffenBXX35BVr1LWaC`;
+`-Action record` persisted the dispatch in `model-attempts.jsonl`. Its
+`observed_model` is `UNKNOWN`, so model/session success is a Planner report,
+not independently proved by that record. The exact resolver JSONL line is
+embedded as `fallback_decision_log_line` in `t4-availability-proof.json`.
 
 ### Combined proof limits
 
-Proven by the recorded evidence: pre-execution rejection of the requested
-unlisted model without a session; T3 fallback decision/candidate and reported
-successful Terra execution; a Kernel-owned functional T3 failure proof
-enabling canonical T4 Opus selection; T4 fallback decision/candidate and
-reported successful Sol execution. The availability class observed in both
-dispatch errors is `MODEL_UNAVAILABLE`.
+Observed/Kernel-recorded: pre-execution rejection of each requested unlisted
+model without a session; T3/T4 fallback decision outputs and candidates; a
+Kernel-owned functional T3 failure proof enabling canonical T4 Opus selection.
+Terra and Sol execution are **REPORTED successful execution** by the Planner.
+Both `no_start_proof=true` values are based on the supplied observations; both
+resolver reasons retain HOLD and mark the candidate audit-only.
 
 Not proven: a real provider HTTP 429/503; unavailability of provider
 `claude-agent` (the errors are client-side requested-model/catalog

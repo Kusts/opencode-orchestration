@@ -40,7 +40,7 @@
     "task_id": "fallback-avail-t4-20261113",
     "session_id": "ses_e284d5e49ffenBXX35BVr1LWaC",
     "response": "T4_FALLBACK_SOL_OK",
-    "outcome": "succeeded",
+    "outcome": "REPORTED successful execution",
     "observed_by": "user-reported real dispatch result"
   },
   "model_attempt_record": {
@@ -60,16 +60,17 @@
     }
   },
   "proven": [
-    "Seleção T4 Opus foi retornada com prova Kernel-owned T3: ref modelproof:fallback-avail-t4-20261113:T3:2:7 e digest sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3.",
-    "Erro nativo de modelo não disponível foi observado antes de execução e sem sessão; classificador retornou MODEL_UNAVAILABLE e decisão FALLBACK_AUTHORIZED para o candidato same-tier T4 openai/gpt-6.1-sol.",
-    "Dispatch real informado do openai/gpt-6.1-sol concluiu com resposta T4_FALLBACK_SOL_OK e sessão ses_e284d5e49ffenBXX35BVr1LWaC; `model-fallback -Action record` foi executado e gravado."
+    "Seleção T4 Opus foi retornada com prova Kernel-owned T3 e ref/digest registrados.",
+    "Erro nativo do modelo solicitado foi observado pré-execução e sem sessão; o resolver retornou MODEL_UNAVAILABLE/FALLBACK_AUTHORIZED para candidato same-tier T4 openai/gpt-6.1-sol. no_start_proof=true baseia-se na evidência observada fornecida, e o reason mantém HOLD audit-only/não autorizador.",
+    "REPORTED successful execution: o Planner reportou que openai/gpt-6.1-sol executou com resposta T4_FALLBACK_SOL_OK; sessão e resposta são relato do Planner, não observação independente do registro model-attempts."
   ],
   "not_proven": [
     "HTTP 429/503 real.",
-    "Indisponibilidade do provider claude-agent; o erro indica modelo solicitado indisponível no cliente/catalog.",
+    "Indisponibilidade do provider claude-agent; erro client-side/catalog de modelo não listado.",
     "Elegibilidade ou execução Astra.",
     "Wiring de retry automático.",
-    "O resolver reason contém HOLD audit-only; FALLBACK_AUTHORIZED/candidate não foi autorização independente para dispatch.",
-    "O `observed_model` em model-attempts.jsonl é UNKNOWN; modelo executado e resposta são observações reportadas pelo usuário."
-  ]
+    "Modelo efetivamente observado no registro: observed_model permanece UNKNOWN."
+  ],
+  "fallback_decision_log_line": "{\"task_id\":\"fallback-avail-t4-20261113\",\"attempt_role\":\"coder\",\"failed_model\":\"claude-agent/opus-availability-probe-nonexistent\",\"classification\":\"MODEL_UNAVAILABLE\",\"no_start_proof\":true,\"no_start_reason\":\"OBSERVED_NO_START\",\"status\":\"FALLBACK_AUTHORIZED\",\"decision\":\"FALLBACK_AUTHORIZED\",\"next_model\":\"openai/gpt-6.1-sol\",\"attempt_id\":\"ae31c980904e4ae08471fe22846355f0\",\"session_id\":null,\"observed_model\":\"UNKNOWN\",\"error\":\"Model \\\"claude-agent/opus-availability-probe-nonexistent\\\" is not available. Use the models tool to see what is available.\",\"recorded_at\":\"2026-11-14T01:35:53.4341065Z\"}",
+  "no_start_proof_semantics": "no_start_proof=true é calculado/declarado a partir da evidência observada fornecida; o resolver continua em HOLD e o candidato é audit-only, não autorizador."
 }
