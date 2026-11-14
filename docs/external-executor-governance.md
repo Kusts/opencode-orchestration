@@ -1,6 +1,6 @@
 # External executor governance
 
-The CLI currently performs bounded request and registry validation only. Requests are inline JSON (maximum 8192 characters); registry and grants paths are fixed by the CLI and cannot be overridden by caller parameters. Duplicate top-level JSON keys are rejected.
+The CLI currently performs bounded request and registry validation only. Requests are strict inline JSON (maximum 8192 characters): comments, unquoted property names, and trailing commas are rejected. Registry and grants paths are fixed by the CLI and cannot be overridden by caller parameters. Duplicate keys and case-folded key collisions are rejected in JSON objects at any nesting depth.
 
 `-DryRun` returns `WAIT` with `DRY_RUN_VALIDATED_NO_EFFECT` and exit 0. This means only that the request is valid: authority has **not** been verified and no execution occurs. A live request fails closed with `EFFECTIVE_GRANT_SOURCE_UNAVAILABLE` because no trusted effective-grant source is wired to this route.
 

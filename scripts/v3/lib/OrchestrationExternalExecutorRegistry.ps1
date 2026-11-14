@@ -24,13 +24,13 @@ function Import-OcExternalExecutorRegistry {
         foreach ($k in $e.PSObject.Properties.Name) { if ($k -cnotin $executorKeys) { throw "Unknown executor property: $k" } }
         foreach ($k in $executorKeys) { if ($k -cnotin $e.PSObject.Properties.Name) { throw "Missing executor property: $k" } }
         $id = [string]$e.id
-        if ($id -notmatch '^[a-z0-9][a-z0-9.-]*$' -or $ids.ContainsKey($id)) { throw 'Invalid or duplicate executor id' }
+        if ($id -cnotmatch '^[a-z0-9][a-z0-9.-]*$' -or $ids.ContainsKey($id)) { throw 'Invalid or duplicate executor id' }
         $ids[$id] = $true
         if (-not $Implementations.ContainsKey($id)) { throw "Executor implementation missing: $id" }
-        if ([string]$e.risk -notin @('low','medium','high','critical')) { throw "Invalid risk: $id" }
+        if ($e.risk -isnot [string] -or [string]$e.risk -cnotin @('low','medium','high','critical')) { throw "Invalid risk: $id" }
         if (-not (Test-OcIntegral $e.timeout_seconds) -or $e.timeout_seconds -lt 1 -or $e.timeout_seconds -gt 86400) { throw "Invalid timeout: $id" }
         if (@($e.required_grants).Count -eq 0) { throw "required_grants is empty: $id" }
-        foreach ($g in $e.required_grants) { if ($g -cnotin $allowed) { throw "Required grant unavailable: $g" } }
+        foreach ($g in $e.required_grants) { if ($g -isnot [string] -or $g -cnotin $allowed) { throw "Required grant unavailable: $g" } }
         $repo = [string]$e.fixed.repo
         if (-not [IO.Path]::IsPathRooted($repo) -or $repo.Contains('..') -or -not (Test-Path -LiteralPath $repo -PathType Container)) { throw "Invalid fixed repo: $id" }
         foreach ($k in $e.fixed.PSObject.Properties.Name) { if ($k -cne 'repo') { throw "Unknown fixed property: $k" } }

@@ -998,7 +998,8 @@ function Get-OrchestrationEffectiveGrants {
         runtime capability grants and environment grants (never union).
         Unknown/missing role => empty set. Approval is a RESTRICTION,
         never a source: sensitive grants (destructive.fs,
-        deploy.production, secrets.read, git.push) are in no baseline and
+        deploy.production, secrets.read, git.push, external.telegran.fetch,
+        external.telegran.learn) are in no baseline and
         join only when -TaskGrants AND -RuntimeCapabilityGrants AND
         -EnvironmentAuthorizationGrants ALL contain them AND -HumanApproved
         is set; omitting any of the three sets excludes them.

@@ -42,11 +42,18 @@ function Test-OcExternalActionRequest {
         catch { throw 'REGISTRY_INVALID' }
         $entry = @($registry.executors | Where-Object { $_.id -ceq $ExecutorId })
         if ($entry.Count -ne 1) { throw 'UNKNOWN_EXECUTOR' }
-        $keyIssue = Get-OcTopLevelJsonKeyIssue $RequestJson
+        $keyIssue = Get-OcJsonKeyIssue $RequestJson
+        # Case-fold variants are rejected distinctly even where PS5 ConvertFrom-Json
+        # reports them as duplicate properties. All other syntax still goes through
+        # the platform parser before a payload is accepted.
+        try { $req = ConvertFrom-Json -InputObject $RequestJson -ErrorAction Stop }
+        catch {
+            if ($keyIssue -eq 'UNKNOWN_REQUEST_KEY') { throw 'UNKNOWN_REQUEST_KEY' }
+            throw 'MALFORMED_REQUEST_JSON'
+        }
+        if ($keyIssue -eq 'MALFORMED_REQUEST_JSON') { throw 'MALFORMED_REQUEST_JSON' }
         if ($keyIssue -eq 'DUPLICATE_REQUEST_KEY') { throw 'DUPLICATE_REQUEST_KEY' }
         if ($keyIssue -eq 'UNKNOWN_REQUEST_KEY') { throw 'UNKNOWN_REQUEST_KEY' }
-        try { $req = ConvertFrom-Json -InputObject $RequestJson -ErrorAction Stop }
-        catch { throw 'MALFORMED_REQUEST_JSON' }
         if ($null -eq $req -or $req -isnot [System.Management.Automation.PSCustomObject]) { throw 'REQUEST_OBJECT_REQUIRED' }
         $schemaKeys = @($entry[0].request_schema.PSObject.Properties.Name)
         $requestKeys = @($req.PSObject.Properties.Name)
@@ -56,7 +63,7 @@ function Test-OcExternalActionRequest {
             $v = $req.PSObject.Properties[$k].Value; $s = $entry[0].request_schema.PSObject.Properties[$k].Value
             if ($s.type -ceq 'enum' -and ($v -isnot [string] -or $v -cnotin @($s.values))) { throw 'INVALID_ENUM' }
             if ($s.type -ceq 'int' -and (-not (Test-OcIntegral $v) -or $v -lt $s.min -or $v -gt $s.max)) { throw 'INVALID_INT' }
-            if ($s.type -ceq 'string' -and ($v -isnot [string] -or $v.Length -gt $s.max_length -or $v -cnotmatch $s.regex)) { throw 'INVALID_STRING' }
+            if ($s.type -ceq 'string' -and ($v -isnot [string] -or $v.Length -gt $s.max_length -or $v -cnotmatch ('\A(?:' + $s.regex + ')\z'))) { throw 'INVALID_STRING' }
         }
         return @{valid=$true;error=$null;payload=$req}
     } catch {
@@ -67,11 +74,10 @@ function Test-OcExternalActionRequest {
     }
 }
 
-function Get-OcTopLevelJsonKeyIssue {
+function Get-OcJsonKeyIssue {
     param([string]$Json)
-    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
-    $seenIgnoreCase = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    $braceDepth = 0; $bracketDepth = 0; $inString = $false; $escaped = $false; $start = -1
+    $objects = New-Object 'System.Collections.Generic.List[object]'
+    $bracketDepth = 0; $inString = $false; $escaped = $false; $start = -1; $stringIsKey = $false
     for ($i = 0; $i -lt $Json.Length; $i++) {
         $ch = $Json[$i]
         if ($inString) {
@@ -79,26 +85,69 @@ function Get-OcTopLevelJsonKeyIssue {
             if ($ch -eq '\') { $escaped = $true; continue }
             if ($ch -eq '"') {
                 $inString = $false
-                if ($braceDepth -eq 1 -and $bracketDepth -eq 0) {
+                if ($stringIsKey) {
                     $next = $i + 1
                     while ($next -lt $Json.Length -and [char]::IsWhiteSpace($Json[$next])) { $next++ }
                     if ($next -lt $Json.Length -and $Json[$next] -eq ':') {
                         $token = $Json.Substring($start,$i-$start+1)
-                        try { $key = [string](ConvertFrom-Json -InputObject $token -ErrorAction Stop) } catch { continue }
-                        if (-not $seen.Add($key)) { return 'DUPLICATE_REQUEST_KEY' }
-                        if (-not $seenIgnoreCase.Add($key)) { return 'UNKNOWN_REQUEST_KEY' }
-                    }
+                        try { $key = [string](ConvertFrom-Json -InputObject $token -ErrorAction Stop) } catch { return 'MALFORMED_REQUEST_JSON' }
+                        $frame = $objects[$objects.Count - 1]
+                        if (-not $frame.exact.Add($key)) { return 'DUPLICATE_REQUEST_KEY' }
+                        if (-not $frame.folded.Add($key)) { return 'UNKNOWN_REQUEST_KEY' }
+                        $frame.state = 'colon'
+                    } else { return 'MALFORMED_REQUEST_JSON' }
                 }
+                $stringIsKey = $false
             }
             continue
         }
+        if ($ch -eq '/') { return 'MALFORMED_REQUEST_JSON' }
+        if ($ch -eq "'") { return 'MALFORMED_REQUEST_JSON' }
+        $frame = $null
+        if ($objects.Count -gt 0 -and $bracketDepth -eq $objects[$objects.Count - 1].arrayDepth) {
+            $frame = $objects[$objects.Count - 1]
+            if ([char]::IsWhiteSpace($ch)) { continue }
+            if ($frame.state -eq 'keyOrEnd' -or $frame.state -eq 'keyOnly') {
+                if ($ch -eq '"') { $stringIsKey = $true }
+                elseif ($ch -eq '}' -and $frame.state -eq 'keyOrEnd') { }
+                else { return 'MALFORMED_REQUEST_JSON' }
+            } elseif ($frame.state -eq 'colon') {
+                if ($ch -ne ':') { return 'MALFORMED_REQUEST_JSON' }
+                $frame.state = 'value'
+                continue
+            } elseif ($frame.state -eq 'value') {
+                if ($ch -eq ',') { $frame.state = 'keyOnly'; continue }
+                if ($ch -eq '}') { $objects.RemoveAt($objects.Count - 1); continue }
+            } elseif ($frame.state -eq 'commaOrEnd') {
+                if ($ch -eq ',') { $frame.state = 'keyOnly'; continue }
+                if ($ch -eq '}') { $objects.RemoveAt($objects.Count - 1); continue }
+                return 'MALFORMED_REQUEST_JSON'
+            }
+        }
         switch -CaseSensitive ([string]$ch) {
             '"' { $inString = $true; $start = $i }
-            '{' { $braceDepth++ }
-            '}' { $braceDepth-- }
+            '{' {
+                $frame = [pscustomobject]@{
+                    arrayDepth = $bracketDepth
+                    exact = (New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal))
+                    folded = (New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase))
+                    state = 'keyOrEnd'
+                }
+                $objects.Add($frame)
+            }
+            '}' {
+                if ($objects.Count -gt 0 -and $frame -and $frame.state -eq 'keyOrEnd') { $objects.RemoveAt($objects.Count - 1) }
+                elseif ($objects.Count -gt 0 -and $frame) { return 'MALFORMED_REQUEST_JSON' }
+            }
             '[' { $bracketDepth++ }
-            ']' { $bracketDepth-- }
+            ']' {
+                $bracketDepth--
+                if ($objects.Count -gt 0 -and $bracketDepth -eq $objects[$objects.Count - 1].arrayDepth -and $objects[$objects.Count - 1].state -eq 'value') {
+                    $objects[$objects.Count - 1].state = 'commaOrEnd'
+                }
+            }
         }
     }
+    if ($inString) { return 'MALFORMED_REQUEST_JSON' }
     return $null
 }

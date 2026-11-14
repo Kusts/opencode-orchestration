@@ -33,6 +33,121 @@ function Invoke-Request([string]$Request,[string]$Executor='telegran.fetch-one-m
 }
 
 try {
+    . (Join-Path $PSScriptRoot 'lib/OrchestrationExternalExecutors.ps1')
+    $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $fixtureRepo = Join-Path $script:Temp 'fixed-repo'
+    [void](New-Item -ItemType Directory -Path $fixtureRepo)
+    $registry = Get-Content -Raw (Join-Path $repoRoot 'source/registry/external-executors.json') | ConvertFrom-Json
+    foreach ($executor in $registry.executors) { $executor.fixed.repo = $fixtureRepo }
+    $registryPath = Join-Path $script:Temp 'registry.json'
+    $grantsPath = Join-Path $script:Temp 'grants.json'
+    $registry | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $registryPath -Encoding UTF8
+    Copy-Item (Join-Path $repoRoot 'source/registry/execution-grants.json') $grantsPath
+    $fixtureScripts = Join-Path $script:Temp 'fixture/scripts/v3'
+    $fixtureLib = Join-Path $fixtureScripts 'lib'
+    $fixtureRegistryDir = Join-Path $script:Temp 'fixture/source/registry'
+    [void](New-Item -ItemType Directory -Path $fixtureLib -Force)
+    [void](New-Item -ItemType Directory -Path $fixtureRegistryDir -Force)
+    Copy-Item (Join-Path $PSScriptRoot 'external-action-exec.ps1') $fixtureScripts
+    Copy-Item (Join-Path $PSScriptRoot 'lib/OrchestrationExternalExecutors.ps1') $fixtureLib
+    Copy-Item (Join-Path $PSScriptRoot 'lib/OrchestrationExternalExecutorRegistry.ps1') $fixtureLib
+    Copy-Item (Join-Path $PSScriptRoot 'lib/OrchestrationTaskKernel.ps1') $fixtureLib
+    Copy-Item $registryPath (Join-Path $fixtureRegistryDir 'external-executors.json')
+    Copy-Item $grantsPath (Join-Path $fixtureRegistryDir 'execution-grants.json')
+    $script:CliPath = Join-Path $fixtureScripts 'external-action-exec.ps1'
+    $fixtureRegistry = Get-Content -Raw $registryPath | ConvertFrom-Json
+    Assert-ExternalExec (@($fixtureRegistry.executors | Where-Object { $_.fixed.repo -eq $fixtureRepo }).Count -eq 2 -and
+        @($fixtureRegistry.executors | Where-Object { $_.fixed.repo -eq 'D:\projetos\telegran' }).Count -eq 0) 'fixture registry is isolated from real Telegran checkout'
+    function Test-DirectRequest([string]$Json,[string]$Task='task-test') {
+        Test-OcExternalActionRequest -ExecutorId 'telegran.fetch-one-message' -TaskId $Task -RequestJson $Json -RegistryPath $registryPath -GrantsPath $grantsPath
+    }
+    $directFileCountBefore = @(Get-ChildItem -LiteralPath $script:Temp -Recurse -File).Count
+    $r=Test-DirectRequest '{"course":"maquina-de-prospeccao","message_id":7}'
+    Assert-ExternalExec ($r.valid) 'direct valid request'
+    $r=Test-DirectRequest '{"course":"maquina-de-prospeccao","message_id":7}' '../bad'
+    Assert-ExternalExec ($r.error -eq 'INVALID_TASK_ID') 'direct invalid task id'
+    foreach ($case in @(
+        @('unknown key','{"course":"maquina-de-prospeccao","message_id":7,"extra":1}','UNKNOWN_REQUEST_KEY'),
+        @('missing key','{"course":"maquina-de-prospeccao"}','MISSING_REQUEST_KEY'),
+        @('case-variant key','{"Course":"maquina-de-prospeccao","message_id":7}','UNKNOWN_REQUEST_KEY'),
+        @('exact duplicate','{"course":"maquina-de-prospeccao","message_id":7,"message_id":8}','DUPLICATE_REQUEST_KEY'),
+        @('escaped duplicate','{"course":"maquina-de-prospeccao","message_id":7,"message\u005fid":8}','DUPLICATE_REQUEST_KEY'),
+        @('case-folded duplicate','{"course":"maquina-de-prospeccao","message_id":7,"MESSAGE_ID":8}','UNKNOWN_REQUEST_KEY'),
+        @('case-folded key is unknown, not exact duplicate','{"course":"maquina-de-prospeccao","message_id":7,"Message_id":8}','UNKNOWN_REQUEST_KEY'),
+        @('nested duplicate','{"course":"maquina-de-prospeccao","message_id":7,"x":{"a":1,"a":2}}','DUPLICATE_REQUEST_KEY'),
+        @('single-quoted duplicate malformed',"{'course':'maquina-de-prospeccao','message_id':7,'message_id':8}",'MALFORMED_REQUEST_JSON'),
+        @('block comment with quote duplicate malformed','{"course":"maquina-de-prospeccao","message_id":7 /* " */,"message_id":8}','MALFORMED_REQUEST_JSON'),
+        @('line comment duplicate malformed',("{`"course`":`"maquina-de-prospeccao`",`"message_id`":7 // comment`n,`"message_id`":8}"),'MALFORMED_REQUEST_JSON'),
+        @('malformed after duplicate','{"course":"maquina-de-prospeccao","message_id":7,"message_id":8} trailing','MALFORMED_REQUEST_JSON'),
+        @('malformed escaped key','{"course":"maquina-de-prospeccao","message_id\uZZZZ":7}','MALFORMED_REQUEST_JSON'),
+        @('unquoted course and duplicate message id','{course:"maquina-de-prospeccao",message_id:7,message_id:8}','MALFORMED_REQUEST_JSON'),
+        @('quoted course with unquoted duplicate message id','{"course":"x","message_id":7,message_id:8}','MALFORMED_REQUEST_JSON'),
+        @('unquoted true property name','{true:1}','MALFORMED_REQUEST_JSON'),
+        @('quoted course with unquoted message id','{"course":"maquina-de-prospeccao",message_id:7}','MALFORMED_REQUEST_JSON'),
+        @('unquoted numeric property name','{"course":"maquina-de-prospeccao","message_id":7,123:8}','MALFORMED_REQUEST_JSON'),
+        @('unquoted case-variant property name','{"course":"maquina-de-prospeccao","message_id":7,Message_Id:8}','MALFORMED_REQUEST_JSON'),
+        @('nested unquoted property name','{"course":"maquina-de-prospeccao","message_id":7,"extra":{true:1}}','MALFORMED_REQUEST_JSON'),
+        @('unquoted valid key','{"course":"maquina-de-prospeccao","message_id":7,other:1}','MALFORMED_REQUEST_JSON'),
+        @('unquoted duplicate','{"course":"maquina-de-prospeccao",message_id:7,message_id:8}','MALFORMED_REQUEST_JSON'),
+        @('mixed quoted and unquoted duplicate','{"course":"maquina-de-prospeccao","message_id":7,message_id:8}','MALFORMED_REQUEST_JSON'),
+        @('trailing comma','{"course":"maquina-de-prospeccao","message_id":7,}','MALFORMED_REQUEST_JSON'),
+        @('enum case','{"course":"Maquina-de-prospeccao","message_id":7}','INVALID_ENUM'),
+        @('enum numeric type','{"course":1,"message_id":7}','INVALID_ENUM'),
+        @('int coercion','{"course":"maquina-de-prospeccao","message_id":7.0}','INVALID_INT'),
+        @('int range','{"course":"maquina-de-prospeccao","message_id":1000001}','INVALID_INT'),
+        @('string int','{"course":"maquina-de-prospeccao","message_id":"7"}','INVALID_INT'),
+        @('zero int','{"course":"maquina-de-prospeccao","message_id":0}','INVALID_INT'),
+        @('array int','{"course":"maquina-de-prospeccao","message_id":[7]}','INVALID_INT'),
+        @('array request','[{"course":"maquina-de-prospeccao","message_id":7}]','REQUEST_OBJECT_REQUIRED'),
+        @('number array request','[7]','REQUEST_OBJECT_REQUIRED'),
+        @('empty array request','[]','REQUEST_OBJECT_REQUIRED'),
+        @('array-wrapped duplicate','[{"course":"maquina-de-prospeccao","message_id":7,"message_id":8}]','REQUEST_OBJECT_REQUIRED'),
+        @('string request','"text"','REQUEST_OBJECT_REQUIRED'),
+        @('unknown executor','{"course":"maquina-de-prospeccao","message_id":7}','UNKNOWN_EXECUTOR'),
+        @('oversized request',( '{"course":"maquina-de-prospeccao","message_id":7,"pad":"' + ('x' * 8200) + '"}' ),'REQUEST_TOO_LARGE'),
+        @('malformed json','{"course":','MALFORMED_REQUEST_JSON')
+    )) {
+        if ($case[0] -eq 'unknown executor') {
+            $r=Test-OcExternalActionRequest -ExecutorId 'no.such.executor' -TaskId 'task-test' -RequestJson $case[1] -RegistryPath $registryPath -GrantsPath $grantsPath
+        } else { $r=Test-DirectRequest $case[1] }
+        Assert-ExternalExec ($r.error -eq $case[2]) ('direct '+$case[0]) ([pscustomobject]@{ExitCode=0;Stdout='error='+$r.error;Stderr=''})
+    }
+    foreach ($repoCase in @(
+        @('relative','relative/path'),
+        @('rooted missing',(Join-Path $script:Temp 'missing-root')),
+        @('traversal',(Join-Path $fixtureRepo '..\outside'))
+    )) {
+        $badRegistry = Get-Content -Raw $registryPath | ConvertFrom-Json
+        $badRegistry.executors[0].fixed.repo = $repoCase[1]
+        $badRegistry | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $registryPath -Encoding UTF8
+        $r=Test-DirectRequest '{"course":"maquina-de-prospeccao","message_id":7}'
+        Assert-ExternalExec ($r.error -eq 'REGISTRY_INVALID') ('registry rejects '+$repoCase[0]+' fixed repo')
+    }
+    $stringRegistry = Get-Content -Raw (Join-Path $repoRoot 'source/registry/external-executors.json') | ConvertFrom-Json
+    foreach ($executor in $stringRegistry.executors) {
+        $executor.fixed.repo = $fixtureRepo
+        $executor.request_schema = [pscustomobject]@{ label=[pscustomobject]@{ type='string'; regex='^.*$'; max_length=32 } }
+        $executor.target_template = 'telegran:{label}'
+    }
+    $stringRegistry | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $registryPath -Encoding UTF8
+    $r=Test-OcExternalActionRequest -ExecutorId 'telegran.fetch-one-message' -TaskId 'task-test' -RequestJson '{"label":"item\n"}' -RegistryPath $registryPath -GrantsPath $grantsPath
+    Assert-ExternalExec ($r.error -eq 'INVALID_STRING') 'string schema rejects trailing newline'
+    $r=Test-OcExternalActionRequest -ExecutorId 'telegran.fetch-one-message' -TaskId 'task-test' -RequestJson '{"label":"path/a /* comment-like text */"}' -RegistryPath $registryPath -GrantsPath $grantsPath
+    Assert-ExternalExec ($r.valid) 'valid slash and comment-like string accepted'
+    $registry = Get-Content -Raw (Join-Path $repoRoot 'source/registry/external-executors.json') | ConvertFrom-Json
+    foreach ($executor in $registry.executors) { $executor.fixed.repo = $fixtureRepo }
+    $registry | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $registryPath -Encoding UTF8
+    $oldGrants = '{"version":1,"grants":["fs.read"]}'
+    Set-Content -LiteralPath $grantsPath -Value $oldGrants -Encoding UTF8
+    $r=Test-DirectRequest '{"course":"maquina-de-prospeccao","message_id":7}'
+    Assert-ExternalExec ($r.error -eq 'REGISTRY_INVALID') 'old grants deny absent external grant'
+    Set-Content -LiteralPath $grantsPath -Value (Get-Content -Raw (Join-Path $repoRoot 'source/registry/execution-grants.json')) -Encoding UTF8
+    Set-Content -LiteralPath $registryPath -Value '{' -Encoding UTF8
+    $r=Test-DirectRequest '{"course":"maquina-de-prospeccao","message_id":7}'
+    Assert-ExternalExec ($r.error -eq 'REGISTRY_INVALID') 'malformed registry rejected'
+    $directFileCountAfter = @(Get-ChildItem -LiteralPath $script:Temp -Recurse -File).Count
+    Assert-ExternalExec ($directFileCountAfter -eq $directFileCountBefore) 'direct validator creates no helper side effects'
+
     $args = '-NoProfile -ExecutionPolicy Bypass -File ' + (Quote-Arg $script:CliPath)
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName=$script:HostExe; $psi.Arguments=$args; $psi.UseShellExecute=$false
@@ -43,47 +158,14 @@ try {
     Assert-ExternalExec ($p.ExitCode -eq 2 -and $usageJson.reasons -contains 'USAGE') 'usage without arguments' ([pscustomobject]@{ExitCode=$p.ExitCode;Stdout=$usageOut.Trim();Stderr=$usageErr.Trim()})
 
     $valid='{"course":"maquina-de-prospeccao","message_id":7}'
-    $unknown=Invoke-Request $valid 'no.such.executor'
-    Assert-ExternalExec ($unknown.ExitCode -eq 2 -and $unknown.Json.reasons -contains 'UNKNOWN_EXECUTOR') 'unknown executor' $unknown
-    foreach ($case in @(
-        @('string int','{"course":"maquina-de-prospeccao","message_id":"7"}'),
-        @('zero int','{"course":"maquina-de-prospeccao","message_id":0}'),
-        @('above max int','{"course":"maquina-de-prospeccao","message_id":1000001}'),
-        @('array int','{"course":"maquina-de-prospeccao","message_id":[7]}')
-    )) {
-        $r=Invoke-Request $case[1]
-        Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'INVALID_INT') ($case[0]+' rejected') $r
-    }
-    $r=Invoke-Request '{"course":"elsewhere","message_id":7}'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'INVALID_ENUM') 'invalid enum' $r
-    $r=Invoke-Request '{"course":"maquina-de-prospeccao","message_id":7,"extra":1}'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'UNKNOWN_REQUEST_KEY') 'extra field rejected' $r
-    $r=Invoke-Request '{"course":"maquina-de-prospeccao"}'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'MISSING_REQUEST_KEY') 'missing field rejected' $r
-    $r=Invoke-Request '[7]'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'REQUEST_OBJECT_REQUIRED') 'non-object request rejected' $r
-    $r=Invoke-Request '[{"course":"maquina-de-prospeccao","message_id":7,"message_id":8}]'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'REQUEST_OBJECT_REQUIRED') 'array-wrapped duplicate request rejected' $r
-    $r=Invoke-Request '[]'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'REQUEST_OBJECT_REQUIRED') 'empty array rejected' $r
-    $r=Invoke-Request '"texto"'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'REQUEST_OBJECT_REQUIRED') 'string request rejected' $r
-    $r=Invoke-Request '{"a":'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'MALFORMED_REQUEST_JSON') 'malformed JSON rejected with fixed reason' $r
-    $r=Invoke-Request '{"course":"maquina-de-prospeccao","message_id":7,"message_id":8}'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'DUPLICATE_REQUEST_KEY') 'duplicate exact key rejected' $r
-    $r=Invoke-Request '{"course":"maquina-de-prospeccao","message_id":7,"Message_id":8}'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'UNKNOWN_REQUEST_KEY') 'case variant key rejected' $r
-    $r=Invoke-Request ('{"course":"maquina-de-prospeccao","message_id":7,"pad":"' + ('x' * 8200) + '"}')
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'REQUEST_TOO_LARGE') 'oversized request rejected' $r
     $before=@(Get-ChildItem -LiteralPath $script:Temp -Recurse -File).Count
-    $r=Invoke-Request $valid -DryRun
+    $r=Invoke-ExternalCli @('-ExecutorId','telegran.fetch-one-message','-TaskId','task-test','-Request',$valid,'-DryRun','-Json')
     $after=@(Get-ChildItem -LiteralPath $script:Temp -Recurse -File).Count
-    Assert-ExternalExec ($r.ExitCode -eq 0 -and $r.Json.outcome -eq 'WAIT' -and $r.Json.reasons -contains 'DRY_RUN_VALIDATED_NO_EFFECT' -and $before -eq $after) 'dry-run validates without files or authority verification' $r
-    $r=Invoke-Request $valid
-    Assert-ExternalExec ($r.ExitCode -eq 3 -and $r.Json.reasons -contains 'EFFECTIVE_GRANT_SOURCE_UNAVAILABLE') 'live execution fails closed' $r
-    $r=Invoke-Request $valid -Task '../escape'
-    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'INVALID_TASK_ID') 'invalid task id rejected' $r
+    Assert-ExternalExec ($r.ExitCode -eq 0 -and $r.Json.outcome -eq 'WAIT' -and $r.Json.reasons -contains 'DRY_RUN_VALIDATED_NO_EFFECT' -and $before -eq $after) 'CLI dry-run validates without effects' $r
+    $r=Invoke-ExternalCli @('-ExecutorId','telegran.fetch-one-message','-TaskId','task-test','-Request',$valid,'-Json')
+    Assert-ExternalExec ($r.ExitCode -eq 3 -and $r.Json.reasons -contains 'EFFECTIVE_GRANT_SOURCE_UNAVAILABLE') 'CLI live path remains fail-closed' $r
+    $r=Invoke-ExternalCli @('-ExecutorId','telegran.fetch-one-message','-TaskId','../escape','-Request',$valid,'-Json')
+    Assert-ExternalExec ($r.ExitCode -eq 2 -and $r.Json.reasons -contains 'INVALID_TASK_ID') 'CLI rejects invalid task id' $r
     $r=Invoke-ExternalCli @('-ExecutorId','telegran.fetch-one-message','-TaskId','task-test','-Request',$valid,'-RegistryPath','evil.json','-Json')
     Assert-ExternalExec ($r.ExitCode -ne 0 -and $r.Stderr -match 'RegistryPath|parameter') 'registry override parameter unavailable' $r
 } catch {
