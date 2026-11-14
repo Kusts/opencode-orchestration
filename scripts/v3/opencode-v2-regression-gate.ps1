@@ -1,4 +1,4 @@
-﻿<#!
+<#!
 .SYNOPSIS
      Gate operacional de regressão e compatibilidade; a matriz distingue o baseline histórico, o host anterior e o pin atual V2 registry pin (Issues #101 e #146).
 .DESCRIPTION

@@ -1,4 +1,4 @@
-﻿<#!
+<#!
 .SYNOPSIS
     Testes unitários para opencode-v2-regression-gate.ps1 (Issues #101 e #146).
 .DESCRIPTION
@@ -44,7 +44,7 @@ Assert-Gate ($report.compatibility_matrix.Count -eq 4) "Matriz preserva históri
 $pBaseline = $report.compatibility_matrix | Where-Object { $_.version -eq "2.0.23" }
 Assert-Gate ($pBaseline.profile -eq "certified-baseline" -and $pBaseline.status -eq "PASS_PINNED_BASELINE") "2.0.23 é certified-baseline com status PASS_PINNED_BASELINE"
 $pCurrent = $report.compatibility_matrix | Where-Object { $_.profile -eq "current-pin" }
-Assert-Gate ($pCurrent.profile -eq "current-pin" -and $pCurrent.status -eq "PENDING_EXACT_LIFECYCLE_SMOKE") "matriz aponta pin atual; smoke exato pendente e capacidades nativas HOLD"
+Assert-Gate ($pCurrent.profile -eq "current-pin" -and $pCurrent.status -eq "PENDING_EXACT_LIFECYCLE_SMOKE") "current pin is explicitly pending exact-binary lifecycle smoke, not certified"
 $pActive = $report.compatibility_matrix | Where-Object { $_.version -eq "2.1.2" }
 Assert-Gate ($pActive.profile -eq "previous-active-host") "2.1.2 permanece registrado como host anterior"
 

@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $registryPath=Join-Path $repoRoot 'source\registry\v2-native-capabilities.json'
 $registry=ConvertFrom-Json ([IO.File]::ReadAllText($registryPath))
+$expectedPin='2.3.0'
 $passed=0
 function Assert-That {param([bool]$Condition,[string]$Name);if(-not $Condition){throw "FAIL: $Name"};$script:passed++}
 
@@ -15,13 +16,13 @@ try {
 function New-EvidenceFile {
     param([string]$Name,[object[]]$Records)
     $path=Join-Path $script:tempDir $Name
-    $doc=[ordered]@{schema_version=1;runtime='v2';pin= $script:registry.pin;records=@($Records)}
+    $doc=[ordered]@{schema_version=1;runtime='v2';pin=$script:expectedPin;records=@($Records)}
     [IO.File]::WriteAllText($path,(ConvertTo-Json -InputObject $doc -Depth 20),[Text.Encoding]::UTF8)
     return $path
 }
 function New-ProvenRecord {
     param([string]$FeatureId,[string]$Scenario,[hashtable]$Override=@{},[string]$DigestOverride='')
-    $record=[ordered]@{feature_id=$FeatureId;type='exact-binary-live';runtime='v2';pin= $script:registry.pin;scenario=$Scenario;verified_at='2026-10-02T12:00:00Z';verified_by='livehook-v2.tests.ps1'}
+    $record=[ordered]@{feature_id=$FeatureId;type='exact-binary-live';runtime='v2';pin=$script:expectedPin;scenario=$Scenario;verified_at='2026-10-02T12:00:00Z';verified_by='livehook-v2.tests.ps1'}
     foreach($key in $Override.Keys){if($key -cne 'record_hash'){$record[$key]=$Override[$key]}}
     $hash=Get-OrchestrationV2NativeEvidenceHash ([pscustomobject]$record)
     if($DigestOverride){$hash=$DigestOverride}
@@ -39,7 +40,7 @@ $holdCount=0;$fallbackCount=0;$impactOk=$true
 foreach($name in $expectedFeatures){
     $entry=$registry.features.PSObject.Properties[$name].Value
     if($entry.status -eq 'hold-unproven'){$holdCount++}
-    if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq 'exact-binary-live' -and [string]$entry.required_evidence.runtime -ceq 'v2' -and [string]$entry.required_evidence.pin -ceq $registry.pin){$holdCount++}
+    if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq 'exact-binary-live' -and [string]$entry.required_evidence.runtime -ceq 'v2' -and [string]$entry.required_evidence.pin -ceq $expectedPin){$holdCount++}
     if([string]$entry.required_evidence.scenario -match '^[a-z0-9][a-z0-9-]{2,63}$'){$fallbackCount++}
     if([string]$entry.v1_fallback.mode -in @('none','fresh-session','kernel-side-equivalent')){$fallbackCount++}
     if([string]$entry.authority_impact -notin @('none','narrowing')){$impactOk=$false}
@@ -48,7 +49,7 @@ foreach($name in $expectedFeatures){
 Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) 'every candidate is hold-unproven with exact-binary-live/v2/current-pin requirements'
 Assert-That ($fallbackCount -eq ($expectedFeatures.Count*2)) 'every candidate declares a scenario and a v1_fallback.mode from the closed enum'
 Assert-That $impactOk 'authority_impact is none/narrowing only and no candidate carries an enabled key'
-Assert-That ($registry.runtime -ceq 'v2' -and $registry.pin -ceq $registry.pin -and $registry.PSObject.Properties.Name -notcontains 'enabled') 'registry declares no global activation switch'
+Assert-That ($registry.runtime -ceq 'v2' -and $registry.pin -ceq $expectedPin -and $registry.PSObject.Properties.Name -notcontains 'enabled') 'registry declares no global activation switch and retains expected pin 2.3.0'
 Assert-That ([bool]$registry.evidence_contract.append_only -and [string]$registry.evidence_contract.hash_algorithm -ceq 'sha256-canonical-json') 'evidence contract declares append-only sha256-canonical-json'
 Assert-That ($registry.evidence_contract.registry_path -ceq 'evidence/v3.1/runtime-reliability/v2-native-evidence.json') 'evidence contract declares the append-only registry path'
 
