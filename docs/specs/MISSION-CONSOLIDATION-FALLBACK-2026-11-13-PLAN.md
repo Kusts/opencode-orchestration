@@ -2,7 +2,7 @@
 
 Status: Step 1 **PARTIAL** (this slice); Step 2 **DONE** (declared/effective,
 OAuth and native Luna/MiMo samples recorded; live-config reinstall remains
-Step 5); Step 3 **IN PROGRESS**; Step 4 **DONE for measured T1/T2 fallbacks**
+Step 5); Step 3 **DONE** (PR reconciliation); Step 4 **DONE for measured T1/T2 fallbacks**
 (Planner-mediated; not automatic); Step 5 **DONE** (Agent Config fix and live
 sync converged); Step 6 **DONE**
 (measurement; #11/#64 remain PARTIAL); Step 7 **PARTIAL**.
@@ -11,7 +11,7 @@ sync converged); Step 6 **DONE**
 |---|---|---|---|
 | 1 | Docs/backlog against current code | policy/code and issue evidence | PARTIAL; issue closure/update completed only where directly proven; remaining disposition tracked below |
 | 2 | Model policy/quota | policy 1.5.0, OAuth, effective config and native samples | DONE; live configuration still awaits Step 5 reinstall |
-| 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | IN PROGRESS; #238/#239 MERGED; #240 CLOSED → #243; #242/#243/#244 open |
+| 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | DONE; #238/#239/#242/#243/#244 MERGED; #240 CLOSED → #243; master evidence `402dbc0`, `f7a233e`, `df74e2a` |
 | 4 | Normalize errors + T1/T2 fallback | classification, observed no-start, Kernel gates | DONE for T1/T2 proofs: authorized decisions, native fallback child sessions succeeded and `model-attempt` recorded; Planner-mediated, not automatic |
 | 5 | Orchestration/Agent Config/-Clean integration | Steps 1-2; ownership and authorized reinstall | DONE; Agent Config fix applied, Instructions/Settings converged, post-sync install WhatIf reports zero drift |
 | 6 | Cache/skills | cache and skill A/B measurements | DONE for measurement; #11/#64 remain PARTIAL (cache in DONE journey; one-pair skill A/B, no skills-assisted completion journey) |
@@ -19,11 +19,12 @@ sync converged); Step 6 **DONE**
 
 ## Blockers and risks
 
-- Installed OpenCode is 2.3.0, outside the native override proof allowlist
-  (`Test-OrchestrationNativeModelOverrideProof` accepts 2.2.5, 2.2.6, 2.0.23).
-- Explicit `subagent.model` override was empirically observed in Luna/MiMo
-  calls, but the allowlist was not changed; runtime pin/allowlist remains a
-  human decision.
+- Installed OpenCode is 2.3.0; the native override proof allowlist accepts
+  2.2.5, 2.2.6, 2.0.23 and 2.3.0 (PR #244). The canonical runtime pin remains
+  2.2.6; any pin bump is separate work.
+- Explicit subagent.model override was observed in Luna/MiMo; the allowlist
+  includes 2.3.0 (PR #244), while the canonical pin remains 2.2.6 and any bump
+  is separate work.
 - Model-dependent full turns 18/20/21/22 are blocked; no model provider is
   available for their full-turn proofs.
 - DeepSeek Go ZDR is `expired-unconfirmed`; do not send data requiring ZDR.
@@ -39,6 +40,9 @@ sync converged); Step 6 **DONE**
   Agent Config PR #51 (`54f3b9c`) contains the `$lineText` trim fix. Suites:
   pwsh 95/95; PS5.1 91/95 with four pre-existing failures (base 87/91);
   OpenCodeSettingsReconciler 36/36.
+- CI V3 suite step timeout raised 60→110 minutes and its three job timeouts
+  75→120 minutes after runner cancellations near 60 minutes despite suite
+  runtimes of approximately 48–57 minutes.
 
 ## Etapa 4 — sequência operacional do Planner
 
@@ -129,7 +133,7 @@ evidência de cache na jornada DONE.
 | #238 | MERGED | Merge confirmado |
 | #239 | MERGED | Merge confirmado |
 | #240 | CLOSED → #243 | Substituído pelo follow-up #243 |
-| #242 / #243 / #244 | OPEN | Abertos; não declarar concluídos |
+| #242 / #243 / #244 | MERGED | Merge confirmado; commits de master `402dbc0`, `f7a233e`, `df74e2a` |
 
 No issue is declared complete in this plan without direct proof and maintainer
 disposition.

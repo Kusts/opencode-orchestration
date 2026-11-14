@@ -71,8 +71,9 @@ synthetic-test-only.
   limited to a trivial, non-sensitive prompt; `sensitive_data_allowed=false`
   and ZDR is `expired-unconfirmed`.
 
-PR consolidation status: #238 and #239 **MERGED**; #240 **CLOSED → #243**;
-#242/#243/#244 remain **OPEN**. Do not declare open items complete.
+PR consolidation status: #238/#239/#242/#243/#244 **MERGED**; #240
+**CLOSED → #243**. Master evidence includes `402dbc0`, `f7a233e`,
+`df74e2a`.
 
 The G1/T4 evidence is recorded in
 `evidence/mission-2026-11-13/g1-t4-done-proof.json`. The controlled fixture
@@ -80,9 +81,12 @@ lives in the separate, ignored proof worktree; Astra was not used and this
 T4 event is a kernel-proof escalation, not availability fallback.
 
 The explicit native `subagent.model` override was empirically observed on
-Luna/MiMo calls. Runtime 2.3.0 remains outside
-`Test-OrchestrationNativeModelOverrideProof` allowlist (2.2.5/2.2.6/2.0.23).
-The allowlist was not changed; pin/allowlist remains a human decision.
+Luna/MiMo calls. The allowlist accepts 2.2.5/2.2.6/2.0.23/2.3.0 (PR #244).
+The canonical runtime pin remains 2.2.6; bumping it is separate work.
+
+CI V3 suite step timeout is 110 minutes (previously 60), and the three
+containing jobs allow 120 minutes (previously 75). The runner canceled runs
+near 60 minutes although suites took approximately 48–57 minutes.
 
 Step 5 install evidence, including backup, preserved settings, ownership
 manifest and upstream blocker, is recorded in
