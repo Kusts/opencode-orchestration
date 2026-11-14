@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "executors": [
+    {
+      "id": "telegran.fetch-one-message",
+      "required_grants": ["external.telegran.fetch"],
+      "risk": "high",
+      "request_schema": {
+        "course": {"type": "enum", "values": ["maquina-de-prospeccao"]},
+        "message_id": {"type": "int", "min": 1, "max": 1000000}
+      },
+      "target_template": "telegran:{course}:{message_id}",
+      "fixed": {"repo": "D:\\projetos\\telegran"},
+      "timeout_seconds": 7200,
+      "idempotent": true
+    },
+    {
+      "id": "telegran.learn-one",
+      "required_grants": ["external.telegran.learn"],
+      "risk": "high",
+      "request_schema": {
+        "course": {"type": "enum", "values": ["maquina-de-prospeccao"]},
+        "message_id": {"type": "int", "min": 1, "max": 1000000}
+      },
+      "target_template": "telegran:{course}:{message_id}",
+      "fixed": {"repo": "D:\\projetos\\telegran"},
+      "timeout_seconds": 7200,
+      "idempotent": true
+    }
+  ]
+}

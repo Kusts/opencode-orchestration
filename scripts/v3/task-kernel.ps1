@@ -383,7 +383,7 @@ switch ($action) {
             -WriteScopes (Split-TaskKernelCliList -Value $WriteScopes) -Grants (Split-TaskKernelCliList -Value $Grants) `
             -AcceptanceCriteria (Split-TaskKernelCliList -Value $AcceptanceCriteria) `
             -ExpectedArtifacts (Split-TaskKernelCliList -Value $ExpectedArtifacts) `
-            -VerificationProfiles (Split-TaskKernelCliList -Value $VerifierProfiles) `
+            -VerificationProfiles ([string[]]@(Split-TaskKernelCliList -Value $VerifierProfiles)) `
             -EnvironmentAllowed (Split-TaskKernelCliList -Value $EnvironmentAllowed) `
             -ProductionAuthorized ([bool]$ProductionAuthorized) -AttemptBudget ([int]$abConv.value) `
             -BudgetProfile $BudgetProfile -BudgetPolicyPath $BudgetPolicyPath `

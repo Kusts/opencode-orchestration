@@ -281,6 +281,18 @@ function New-DemoTask {
 $roots = New-Object System.Collections.ArrayList
 
 try {
+    # External executor grants are operator-declared task authority, not role baselines.
+    $externalGrantRoot = New-TaskKernelTestRoot
+    [void]$roots.Add($externalGrantRoot.root)
+    $externalGrantTask = New-OrchestrationTask -TaskId 'external-grants-001' -Objective 'Authorize Telegran executor' `
+        -Actor 'planner' -Grants @('external.telegran.fetch', 'external.telegran.learn') `
+        -TasksDir $externalGrantRoot.tasks -FlagsPath $externalGrantRoot.flags -TelemetryRoot $externalGrantRoot.root
+    Assert-TaskKernel ([bool]$externalGrantTask.ok) 'task accepts registered external Telegran grants'
+    $unknownExternalGrant = New-OrchestrationTask -TaskId 'external-grants-unknown-001' -Objective 'Reject unknown grant' `
+        -Actor 'planner' -Grants @('external.unknown.grant') `
+        -TasksDir $externalGrantRoot.tasks -FlagsPath $externalGrantRoot.flags -TelemetryRoot $externalGrantRoot.root
+    Assert-TaskKernel ((-not [bool]$unknownExternalGrant.ok) -and ([string]$unknownExternalGrant.error -ceq 'INVALID_GRANTS')) 'task rejects invented external grant'
+
     # 1. create + roundtrip, all fields survive
     $t = New-TaskKernelTestRoot
     [void]$roots.Add($t.root)

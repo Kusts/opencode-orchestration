@@ -943,7 +943,7 @@ function Assert-OrchestrationGrantsJson {
         $rec = ConvertTo-TaskKernelOrdered -Node $doc
         try { if ([int]$rec['version'] -ne 1) { $errors.Add('version-must-be-1') | Out-Null } }
         catch { $errors.Add('version-must-be-1') | Out-Null }
-        $expected = @('fs.read', 'fs.write', 'shell.validation', 'shell.diagnostic', 'git.diff', 'git.commit', 'git.branch', 'git.worktree', 'git.push', 'docs.write', 'db.migration.create', 'deploy.staging', 'deploy.production', 'secrets.reference', 'secrets.read', 'destructive.fs')
+        $expected = @('db.migration.create', 'deploy.staging', 'deploy.production', 'destructive.fs', 'external.telegran.fetch', 'external.telegran.learn', 'fs.read', 'fs.write', 'git.diff', 'git.commit', 'git.branch', 'git.worktree', 'git.push', 'docs.write', 'shell.validation', 'shell.diagnostic', 'secrets.reference', 'secrets.read')
         $universe = @(& $toArray $rec['grants'])
         foreach ($g in $expected) {
             if ($universe -cnotcontains $g) { $errors.Add(('grants-missing:' + $g)) | Out-Null }
@@ -1146,7 +1146,7 @@ function New-OrchestrationTask {
         if (-not [bool]$writes.valid) { return (New-TaskKernelError -Code 'INVALID_SCOPES') }
         $grantList = Get-TaskKernelCleanList -Value $Grants
         if (-not [bool]$grantList.valid) { return (New-TaskKernelError -Code 'INVALID_GRANTS') }
-        $universe = @('fs.read', 'fs.write', 'shell.validation', 'shell.diagnostic', 'git.diff', 'git.commit', 'git.branch', 'git.worktree', 'git.push', 'docs.write', 'db.migration.create', 'deploy.staging', 'deploy.production', 'secrets.reference', 'secrets.read', 'destructive.fs')
+        $universe = @('db.migration.create', 'deploy.staging', 'deploy.production', 'destructive.fs', 'external.telegran.fetch', 'external.telegran.learn', 'fs.read', 'fs.write', 'git.diff', 'git.commit', 'git.branch', 'git.worktree', 'git.push', 'docs.write', 'shell.validation', 'shell.diagnostic', 'secrets.reference', 'secrets.read')
         foreach ($g in @($grantList.items)) {
             if ($universe -cnotcontains $g) { return (New-TaskKernelError -Code 'INVALID_GRANTS') }
         }
@@ -1220,7 +1220,10 @@ function New-OrchestrationTask {
             $objective = Protect-TaskKernelText -Text $objective
             $criteriaItems = Protect-TaskKernelStringList -Items ([string[]]$criteria.items)
             $artifactItems = Protect-TaskKernelStringList -Items ([string[]]$artifacts.items)
-            $verProfileItems = Protect-TaskKernelStringList -Items ([string[]]$verProfiles)
+            $verProfileItems = @(Protect-TaskKernelStringList -Items ([string[]]$verProfiles))
+            if ($verProfileItems.Count -eq 0) {
+                $verProfileItems = [string[]]@()
+            }
             $taskTypeSafe = Protect-TaskKernelText -Text $taskType
             $parentSafe = Protect-TaskKernelText -Text (([string]$ParentTaskId).Trim())
             $traceSafe = Protect-TaskKernelText -Text (([string]$TraceId).Trim())
