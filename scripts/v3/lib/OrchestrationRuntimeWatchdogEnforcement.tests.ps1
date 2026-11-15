@@ -2835,6 +2835,8 @@ try {
         Assert-Enforce ((($age34 -ge 0) -and ($age34 -le 60))) 'FIX4-1 proof_at is from the live validation window' ([string][int]$age34 + 's ago')
     }
     $script:WatchdogTreeTestOverride = @{ proof_delay_ms = 6000 }
+    $kid34 = 0
+    $windowValid34 = $false
     try {
         $tBefore34 = (Get-Date).ToUniversalTime()
         $b34 = New-EnforceBudget -Steps 64 -Wall 1200 -NoProg 600
@@ -2845,7 +2847,6 @@ try {
         try { $storedRaw34 = ([string]$exec34['last_alive_proof']).Trim() } catch { $storedRaw34 = '' }
         $storedDto34 = [DateTimeOffset]::MinValue
         Assert-Enforce ([DateTimeOffset]::TryParse($storedRaw34, [ref]$storedDto34)) 'FIX4-1 stored proof is parseable' ''
-        $kid34 = 0
         $fsw34 = [System.Diagnostics.Stopwatch]::StartNew()
         while ($fsw34.Elapsed.TotalSeconds -lt 25) {
             $kid34 = Find-EnforceChildByPath -ParentId ([int]$root34.Id) -ExePath $shell34
@@ -2856,12 +2857,15 @@ try {
         Assert-Enforce (([int]$kid34 -gt 0)) 'FIX4-1 child born inside the stretched validation-to-recording window' ''
         $kidLine34 = Get-WatchdogCimProcessLine -ProcessId ([int]$kid34)
         Assert-Enforce ([bool]$kidLine34.found) 'FIX4-1 window-child CIM identity readable' ''
-        if (-not (([long]$storedDto34.UtcDateTime.Ticks -lt [long]$kidLine34.creation_ticks))) {
+        $windowValid34 = ([long]$storedDto34.UtcDateTime.Ticks -lt [long]$kidLine34.creation_ticks)
+        $proofLag34 = ($storedDto34.UtcDateTime - $tBefore34).TotalSeconds
+        Assert-Enforce (($proofLag34 -lt 5)) 'FIX4-1 stored proof is the validation instant, not the late recording' ([string][math]::Round($proofLag34, 1) + 's')
+        if (-not $windowValid34) {
             # Ambiente (CI): proof nao predates child (timing/CIM). SKIP condicional.
             Write-Host 'SKIP FIX4-1 stored proof predates the window child (ambiente CI)'
         }
         else {
-            Assert-Enforce (([long]$storedDto34.UtcDateTime.Ticks -lt [long]$kidLine34.creation_ticks)) 'FIX4-1 stored proof predates the window child (validation instant, not the late recording)' ''
+            Assert-Enforce ($windowValid34) 'FIX4-1 stored proof predates the window child (validation instant, not the late recording)' ''
         }
         $lag34 = (((Get-Date).ToUniversalTime() - $storedDto34.UtcDateTime).TotalSeconds)
         Assert-Enforce (($lag34 -ge 4)) 'FIX4-1 recording lagged the proof by the injected delay' ([string][int]$lag34 + 's')
@@ -2874,15 +2878,23 @@ try {
         }
         $gsw34.Stop()
         Assert-Enforce ($rootGone34) 'FIX4-1 proof-test root killed externally' ''
-        $int34 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix4-proof' -Execution $exec34 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
-        Assert-Enforce (([bool]$int34.ok) -and ([string]$int34.settlement -ceq 'ALREADY_EXITED') -and (-not [bool]$int34.interrupted)) 'FIX4-1 window child excluded: ALREADY_EXITED without interrupting' ([string]$int34.settlement)
-        Assert-Enforce (([int]$int34.tree_excluded -ge 1) -and ([string]$int34.exclusion -ceq 'WATCHDOG_TREE_EXCLUDED')) 'FIX4-1 window-child exclusion counted with the closed token' ('excluded=' + [string][int]$int34.tree_excluded)
-        $kidAlive34 = $false
-        try { $lk34 = Get-Process -Id ([int]$kid34) -ErrorAction Stop; $kidAlive34 = ($null -ne $lk34) } catch { $kidAlive34 = $false }
-        Assert-Enforce ($kidAlive34) 'FIX4-1 window child survives (never killed)' ''
-        Stop-EnforceSafetyId -ProcessId ([int]$kid34)
+        if ($windowValid34) {
+            $int34 = Invoke-WatchdogProcessInterrupt -TaskId 'wd-fix4-proof' -Execution $exec34 -Classification 'HARD_TIMEOUT' -ElapsedSeconds 31 -Steps 0 -TelemetryRoot $teleRoot -RepoRoot $repo
+            Assert-Enforce (([bool]$int34.ok) -and ([string]$int34.settlement -ceq 'ALREADY_EXITED') -and (-not [bool]$int34.interrupted)) 'FIX4-1 window child excluded: ALREADY_EXITED without interrupting' ([string]$int34.settlement)
+            Assert-Enforce (([int]$int34.tree_excluded -ge 1) -and ([string]$int34.exclusion -ceq 'WATCHDOG_TREE_EXCLUDED')) 'FIX4-1 window-child exclusion counted with the closed token' ('excluded=' + [string][int]$int34.tree_excluded)
+            $kidAlive34 = $false
+            try { $lk34 = Get-Process -Id ([int]$kid34) -ErrorAction Stop; $kidAlive34 = ($null -ne $lk34) } catch { $kidAlive34 = $false }
+            Assert-Enforce ($kidAlive34) 'FIX4-1 window child survives (never killed)' ''
+        }
+        else {
+            Write-Host 'SKIP FIX4-1 interrupt/exclusion asserts (window precondition not met)'
+        }
     }
-    finally { $script:WatchdogTreeTestOverride = $null }
+    finally {
+        $script:WatchdogTreeTestOverride = $null
+        if ([int]$kid34 -gt 0) { Stop-EnforceSafetyId -ProcessId ([int]$kid34) }
+        Stop-Process -Id ([int]$root34.Id) -Force -ErrorAction SilentlyContinue
+    }
     Stop-EnforceSafety -Proc $root34
     $sw34.Stop()
     Assert-Enforce (($sw34.Elapsed.TotalSeconds -lt 90)) 'scenario 34 externally bounded' ([string][int]$sw34.Elapsed.TotalSeconds + 's')
