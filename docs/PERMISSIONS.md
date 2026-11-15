@@ -102,8 +102,8 @@ OFF/HOLD.
 
 | Camada | Status |
 |---|---|
-| Permissões V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos) — templates + testes do instalador + smoke CI 1.18.x |
-| Permissões V2 | renderizado + validado por checks (consistency 12–15); claim de enforcement aguarda spike V2 real (Phase 5) |
+| Permissões V1 | legado congelado (prova histórica em 1.18.x cobre o legado); o deny das flags desta rodada não é alegado como contido no V1 — templates + testes do instalador + smoke CI 1.18.x |
+| Permissões V2 | deny de flags (`git diff/show/log *--output*`, `rg *--pre*`, `rg *--hostname-bin*`) provado no runtime 2.3.0 (5/5 comandos, `executed=false`, controles positivos OK, drift 0); renderizado + validado por checks (consistency 12–15). Enforcement geral de grants/policies segue HOLD/Phase 5 |
 | Policies V2 (`experimental.policies`) | HOLD (Phase 5); nenhum hard-deny enviado |
 | Hooks do plugin V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos — testes do plugin) |
 | Hooks do plugin V2 | implementado com testes mock; claim live pendente da lane CI V2 (Phase 8) |
@@ -132,7 +132,7 @@ claim além do testado.
   (`Set-Content`, `Out-File`, redirecionamento, `Copy-Item`, git não-listado)
   é proibição comportamental — prompt-enforced (corpo do agente) +
   planner-enforced (contrato), não barreira de glob.
-- `read-only` usa `shell "*": deny` e allowlist nominal de leitura/diagnóstico; comandos fora dela são negados por default. A allowlist valida o comando INICIAL. Flags que escrevem/executam (`git diff --output`, `git show --output`, `rg --pre`) e composição (`;`, `&&`, `|`, `>`) NÃO são contidas pelo glob; são proibição comportamental (corpo do agente + contrato do Planner). Um deny de flag específico foi rejeitado pelo guard `ambiguous-permission-overlap` (fail-closed), e o pacote não contorna o guard por suposição. Inspecione a configuração instalada com `opencode debug agents --standalone`; sem `--standalone`, mostra a configuração viva.
+- `read-only` usa `shell "*": deny` e allowlist nominal de leitura/diagnóstico; comandos fora dela são negados por default. A allowlist valida o comando INICIAL. Os cinco padrões `git diff/show/log *--output*` e `rg *--pre*`/`*--hostname-bin*` têm deny explícito (provado no runtime V2 2.3.0; V1 congelado, sem alegação de contenção). Flags/resíduos não contidos pelo glob permanecem proibição comportamental (corpo do agente + contrato do Planner): composição (`;`, `&&`, `|`, `>`), abreviações de flags longas, `--ext-diff`/`--textconv`, `rg -z`/`--search-zip` e credenciais via prefix globs amplos (`git config --get*`, `git remote -v*`). Inspecione a configuração instalada com `opencode debug agents --standalone`; sem `--standalone`, mostra a configuração viva.
 - **Rota de tool vs superfície REST `/shell` (ressalva factual):** o rótulo
   "runtime-enforced" vale para a rota de tool; a superfície REST
   `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)
@@ -234,7 +234,7 @@ mantidos, corpo adaptado para diagnóstico (blocker
 `DIAGNOSIS_CAPABILITY_UNAVAILABLE`) — suíte
 `scripts/runtime/debugger-shell-permissions.tests.ps1`.
 
-Resíduos adicionais: abreviações de flags longas do Git (por exemplo `--outp`), `--ext-diff`/`--textconv`, e `rg -z`/`--search-zip` não estão cobertos pelos cinco denies. `git config --get*` e `git remote -v*` são prefix globs que também cobrem subcomandos mais amplos; não alegar proteção de credenciais. Composição (`;`, `&&`, `|`) e redirecionamento (`>`) também não estão contidos. A prova comportamental V2 no runtime 2.3.0 está pendente. V1 não é alegado como contido até a ordem deny-last estar provada e instalada.
+Resíduos adicionais: abreviações de flags longas do Git (por exemplo `--outp`), `--ext-diff`/`--textconv` e `rg -z`/`--search-zip` não estão cobertos pelos cinco denies. `git config --get*` e `git remote -v*` são prefix globs que também cobrem subcomandos mais amplos; não alegar proteção de credenciais. Composição (`;`, `&&`, `|`) e redirecionamento (`>`) também não estão contidos. O deny dos cinco padrões foi provado no runtime V2 2.3.0 (5/5, `executed=false`, controles positivos OK, drift 0); o enforcement geral de grants/policies segue HOLD/Phase 5. V1 é legado congelado e não é alegado como contido para essas regras.
 
 `ask` de `git push`  atrito best-effort: `git -C <dir> push`, `git -c k=v push` e espao duplo no casam o padro; a conteno real  planner-enforced + gate de delivery.
 
