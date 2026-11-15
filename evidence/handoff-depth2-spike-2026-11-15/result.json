@@ -1,0 +1,9 @@
+{
+  "verdict": "NOT_SUPPORTED",
+  "depth": 2,
+  "model": "opencode/mimo-v2.6-flash-free",
+  "child_session_id": null,
+  "parent_id": "ses_e1f422a21ffee4c7zy4gFU4UpS",
+  "agent": "coder",
+  "limitations": ["No subagent tool call appeared in the JSON run; only execute catalog-search calls appeared.", "The runtime response said no subagent/task creation tool was available.", "Parent-filtered session.list returned an empty array; therefore no child parentID chain could be observed."]
+}

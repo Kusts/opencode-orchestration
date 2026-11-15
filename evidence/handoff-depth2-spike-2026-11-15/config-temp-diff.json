@@ -1,0 +1,5 @@
+{
+  "experimental.subagent_depth": {"before": 1, "after": 2},
+  "agents.coder.permissions.append": [{"action":"subagent","resource":"tester","effect":"allow"}],
+  "top_level_removed": ["mcp", "skills"]
+}

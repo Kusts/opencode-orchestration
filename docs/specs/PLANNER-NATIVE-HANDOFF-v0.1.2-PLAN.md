@@ -299,6 +299,24 @@ Retomar a avaliação de handoff nativo direto apenas quando houver evidência o
 2. workers estão autorizados ao hop necessário (subagent/task) sem violar least privilege;
 3. existe prova no binário pinado de que a sessão filha cria outra filha com `parentID` encadeado observável via `session.get/list`;
 4. G1/admission/receipts não são bypassados no fluxo encadeado;
-5. há evidência PASS/FAIL/HOLD registrada em `evidence/`.
+5. há evidência PASS/FAIL/HOLD registrada em `evidence/`;
+6. o runtime expõe delegação a workers e o fluxo produz `parentID` encadeado observável com G1/receipts intactos (requisito reforçado pelo spike depth=2 de 2026-11-15).
 
-**Nada disso foi provado.** Este spike não altera permissões, templates, `source/agents` nem configurações de runtime; não há claim de implementação ou de handoff direto funcional.
+**Nada disso foi provado.** Estes spikes não alteram permissões, templates, `source/agents` nem configurações de runtime; não há claim de implementação ou de handoff direto funcional.
+
+### Spike isolado depth=2 — 2026-11-15
+
+#### Pergunta
+Com `experimental.subagent_depth=2` e permissão explícita de delegação, o runtime expõe ao worker a capacidade de criar subagente (handoff direto worker→worker) no fluxo testado?
+
+#### Método
+Execução isolada e temporária em 2026-11-15: config com `experimental.subagent_depth=2` e permissão `coder -> tester`; invocação `opencode run --standalone --agent coder`. A config ativa foi verificada intacta (hash antes/depois) e o pós-spike `WhatIf` registrou `INSTALLED=0`.
+
+#### Resultado
+**NOT_SUPPORTED** no fluxo standalone testado. O agente `coder` não recebeu a tool de criação de subagente; a execução realizou apenas chamadas `execute` de busca no catálogo; `session.list` filtrado pelo parent retornou vazio; nenhuma sessão filha foi criada.
+
+#### Evidência
+`evidence/handoff-depth2-spike-2026-11-15/` (`result.json`, `run.jsonl`, `session-tree.json`, `debug-agents.txt`).
+
+#### Interpretação e limitação
+A limitação observada não é apenas `depth=1`/permissão: no runtime testado, a tool de delegação não foi exposta ao worker. Esta é evidência negativa do fluxo standalone testado, sem generalização para todos os frontends/superfícies de execução. **Não há claim de handoff funcional.** O critério de retomada (§ acima) exige runtime que exponha delegação a workers com `parentID` encadeado e G1/receipts intactos.
