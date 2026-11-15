@@ -1,0 +1,6 @@
+{
+  "deny-diff.txt": false,
+  "deny-show.txt": false,
+  "deny-log.txt": false,
+  "sentinel-ran.txt": false
+}

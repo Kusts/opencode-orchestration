@@ -7,11 +7,7 @@ Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + templates po
 sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não só no
 `opencode.json`.
 
-No V2 com o marcador completo `agent-config:global`, os 19 perfis worker em
-`agents/*.md` e suas entradas JSON (`agents.<worker>`) pertencem ao Agent
-Config; o instalador preserva essas entradas. O modo standalone sem owner mantém
-os snapshots compatíveis. `build`/`title` e settings de raiz ficam fora dessa
-transferência.
+No V2 com o marcador completo `agent-config:global`, a **Orquestração** instala e é dona dos 19 perfis worker em `agents/*.md` e do bloco `agents` do `opencode.json` (incluindo `build`, `title` e os subagentes do escopo da Orquestração). O **Agent Config** mantém o texto global (`<!-- agent-config:global:start/end -->`) e as `permissions` de topo, além de `mcp` e demais chaves user-owned, que o instalador preserva; os perfis worker e o bloco `agents` não são sobrescritos pelo Agent Config. Sem marcador, o instalador opera em modo standalone/snapshot.
 
 ## Tabela 19 agentes × classe × barreira
 
@@ -73,9 +69,9 @@ Regras da tradução:
   preservados — **nenhuma regra é ampliada** (nunca `deny`→`ask`/`allow`)
   para compatibilidade.
 - A ordem de regras V2 é **security-sensitive**: em V2 vence a **última**
-  regra que casa (last-match-wins), então a tradução emite broad-first
-  (deny geral primeiro, allows estreitos depois). Validado pelo check 13 de
-  consistência.
+  regra que casa (last-match-wins). A tradução emite primeiro o catch-all,
+  depois `allow`/`ask` e, por último, os denies específicos; o guard só aceita
+  um deny após um permit quando prova que o padrão deny é seu subconjunto.
 - Paridade semântica V1↔V2 (mesmos 19 allows, mesmos pools de modelo,
   workers sem subdelegação, `default_agent`/`build`/`title` iguais) é
   validada pelo check 14.
@@ -238,7 +234,7 @@ mantidos, corpo adaptado para diagnóstico (blocker
 `DIAGNOSIS_CAPABILITY_UNAVAILABLE`) — suíte
 `scripts/runtime/debugger-shell-permissions.tests.ps1`.
 
-Resduos adicionais observados: a allowlist valida apenas o comando inicial; `git log --output`, `--ext-diff`/`--textconv` (incluindo drivers de `.gitattributes`/config) e leitura de credenciais via `git remote -v` / `git config --get*` no so contidos pelo glob. No use essas rotas para produzir efeitos ou acessar credenciais.
+Resíduos adicionais: abreviações de flags longas do Git (por exemplo `--outp`), `--ext-diff`/`--textconv`, e `rg -z`/`--search-zip` não estão cobertos pelos cinco denies. `git config --get*` e `git remote -v*` são prefix globs que também cobrem subcomandos mais amplos; não alegar proteção de credenciais. Composição (`;`, `&&`, `|`) e redirecionamento (`>`) também não estão contidos. A prova comportamental V2 no runtime 2.3.0 está pendente. V1 não é alegado como contido até a ordem deny-last estar provada e instalada.
 
 `ask` de `git push`  atrito best-effort: `git -C <dir> push`, `git -c k=v push` e espao duplo no casam o padro; a conteno real  planner-enforced + gate de delivery.
 

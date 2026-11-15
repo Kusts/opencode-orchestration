@@ -1,0 +1,181 @@
+> D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3800:    "id": "explorer",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3801:    "name": "explorer",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3802:    "model": {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3803:      "id": "iceman-contributor-free",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3804:      "providerID": "opencode-go"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3805:    },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3806:    "request": {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3807:      "settings": {},
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3808:      "headers": {},
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3809:      "body": {}
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3810:    },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3811:    "system": "Voc├¬ ├® o Explorer. Investigue sem editar: localize entry points, arquivos,\ns├¡mbolos, contratos, depend├¬ncias e fluxos relacionados. N├úo proponha redesign\namplo nem implemente. N├úo crie subagentes.\n\nRetorne somente STATUS, FINDINGS, EVIDENCE com refer├¬ncias precisas\n(arquivo:s├¡mbolo), poss├¡veis impactos, incertezas e uma RECOMMENDATION curta;\nn├úo envie logs ou dumps extensos.\n\nEquival├¬ncia Codex: `explorer.toml` (`gpt-6-luna/medium`, `read-only`).\nBase atual: baseline cheap via OpenCode Go. Escalonamento, quando necess├írio,\nusa modelos OpenAI (ver pol├¡tica do Planner): Luna/high ÔåÆ Sol/medium.\n\n## Shell (leitura e diagn├│stico)\n\nO shell ├® liberado apenas para leitura e diagn├│stico: comandos Git de leitura (status/diff/log/show/blame/...), busca de conte├║do, inspe├º├úo de arquivos e vers├Áes de toolchain, conforme a allowlist do seu frontmatter. Qualquer comando fora da allowlist ├® negado pelo runtime: registre o blocker e devolva ao Planner em vez de contornar por wrapper, interpretador, `pwsh -Command`, redirecionamento ou script. Voc├¬ n├úo edita arquivos: a ferramenta de edi├º├úo ├® negada e escrita via shell est├í fora do seu escopo. Permiss├úo de ferramenta n├úo ├® autoriza├º├úo para alterar produ├º├úo, credenciais ou estado externo.\n\nN├úo encadeie comandos (`;`, `&&`, `|`) nem use redirecionamento (`>`) para produzir efeitos: a allowlist valida apenas o comando inicial. Flags que escrevem ou executam (`--output`, `--ext-diff`, `--textconv`, `--pre`) n├úo s├úo contidas pelo glob e s├úo proibidas por este contrato; se precisar delas, pare e devolva ao Planner.",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3812:    "description": "Fast read-only codebase explorer. Use PROACTIVELY before any non-trivial change to map entry points, symbols, contracts, dependencies and blast radius. Use para localizar implementacao, fluxos entre arquivos, ownership ou impacto.",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3813:    "mode": "subagent",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3814:    "hidden": false,
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3815:    "permissions": [
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3816:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3817:        "action": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3818:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3819:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3820:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3821:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3822:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3823:        "resource": "*.env",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3824:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3825:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3826:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3827:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3828:        "resource": "*.env.*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3829:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3830:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3831:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3832:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3833:        "resource": "*.env.example",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3834:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3835:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3836:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3837:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3838:        "resource": "git reset --hard*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3839:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3840:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3841:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3842:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3843:        "resource": "git clean *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3844:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3845:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3846:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3847:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3848:        "resource": "git branch -D *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3849:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3850:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3851:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3852:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3853:        "resource": "rm *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3854:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3855:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3856:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3857:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3858:        "resource": "Remove-Item *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3859:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3860:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3861:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3862:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3863:        "resource": "del *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3864:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3865:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3866:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3867:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3868:        "resource": "rmdir *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3869:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3870:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3871:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3872:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3873:        "resource": "Format-Volume*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3874:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3875:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3876:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3877:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3878:        "resource": "diskpart*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3879:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3880:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3881:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3882:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3883:        "resource": "gh *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3884:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3885:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3886:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3887:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3888:        "resource": "docker *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3889:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3890:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3891:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3892:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3893:        "resource": "ctx7 *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3894:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3895:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3896:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3897:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3898:        "resource": "rea-agents *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3899:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3900:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3901:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3902:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3903:        "resource": "rea *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3904:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3905:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3906:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3907:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3908:        "resource": "playwright *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3909:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3910:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3911:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3912:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3913:        "resource": "npx *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3914:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3915:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3916:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3917:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3918:        "resource": "curl.exe *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3919:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3920:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3921:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3922:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3923:        "resource": "curl *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3924:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3925:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3926:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3927:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3928:        "resource": "npm *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3929:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3930:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3931:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3932:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3933:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3934:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3935:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3936:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3937:        "action": "edit",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3938:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3939:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3940:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3941:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3942:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3943:        "resource": "git status *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3944:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3945:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3946:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3947:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3948:        "resource": "git diff *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3949:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3950:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3951:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3952:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3953:        "resource": "git log *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3954:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3955:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3956:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3957:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3958:        "resource": "git push *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3959:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3960:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3961:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3962:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3963:        "resource": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i C:\\Users\\walis\\.ssh\\id_ed25519_contabo_vps deploy@213.199.37.252 *",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3964:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3965:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3966:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3967:        "action": "subagent",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3968:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3969:        "effect": "deny"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3970:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3971:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3972:        "action": "edit",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3973:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3974:        "effect": "deny"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3975:      },
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3976:      {
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3977:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3978:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3979:        "effect": "deny"
+  D:\projetos\opencode-orchestration\evidence\permissions-runtime-2026-11-15\debug-agents.txt:3980:      },

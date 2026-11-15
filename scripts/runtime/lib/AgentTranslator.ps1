@@ -463,7 +463,8 @@ function Convert-CanonicalToV1Frontmatter {
   }
   elseif ([string]$c.BashKind -ceq 'map') {
     [void]$L.Add('  bash:')
-    $ordered = @($c.ShellRules | Sort-Object { [string]$_.Pattern })
+    $ordered = @(@($c.ShellRules | Where-Object { [string]$_.Effect -cne 'deny' } | Sort-Object { [string]$_.Pattern }) +
+      @($c.ShellRules | Where-Object { [string]$_.Effect -ceq 'deny' } | Sort-Object { [string]$_.Pattern }))
     foreach ($r in $ordered) {
       [void]$L.Add(('    ' + (Format-YamlDoubleQuoted -Value ([string]$r.Pattern)) + ': ' + [string]$r.Effect))
     }
@@ -512,11 +513,16 @@ function Get-OrderedV2ShellRules {
   }
   if ([string]$c.BashKind -ceq 'map') {
     $catch = @(@($c.ShellRules) | Where-Object { [string]$_.Pattern -ceq '*' })
-    $spec = @(@($c.ShellRules) | Where-Object { -not ([string]$_.Pattern -ceq '*') } | Sort-Object { [string]$_.Pattern })
+    $nonCatch = @(@($c.ShellRules) | Where-Object { -not ([string]$_.Pattern -ceq '*') })
+    $spec = @($nonCatch | Where-Object { [string]$_.Effect -cne 'deny' } | Sort-Object { [string]$_.Pattern })
+    $deny = @($nonCatch | Where-Object { [string]$_.Effect -ceq 'deny' } | Sort-Object { [string]$_.Pattern })
     foreach ($r in $catch) {
       [void]$rules.Add(@{ Action = 'shell'; Resource = '*'; Effect = [string]$r.Effect })
     }
     foreach ($r in $spec) {
+      [void]$rules.Add(@{ Action = 'shell'; Resource = [string]$r.Pattern; Effect = [string]$r.Effect })
+    }
+    foreach ($r in $deny) {
       [void]$rules.Add(@{ Action = 'shell'; Resource = [string]$r.Pattern; Effect = [string]$r.Effect })
     }
   }
@@ -533,11 +539,16 @@ function Get-OrderedV2TaskRules {
   }
   if ([string]$c.TaskKind -ceq 'map') {
     $catch = @(@($c.TaskRules) | Where-Object { [string]$_.Pattern -ceq '*' })
-    $spec = @(@($c.TaskRules) | Where-Object { -not ([string]$_.Pattern -ceq '*') } | Sort-Object { [string]$_.Pattern })
+    $nonCatch = @(@($c.TaskRules) | Where-Object { -not ([string]$_.Pattern -ceq '*') })
+    $spec = @($nonCatch | Where-Object { [string]$_.Effect -cne 'deny' } | Sort-Object { [string]$_.Pattern })
+    $deny = @($nonCatch | Where-Object { [string]$_.Effect -ceq 'deny' } | Sort-Object { [string]$_.Pattern })
     foreach ($r in $catch) {
       [void]$rules.Add(@{ Action = 'subagent'; Resource = '*'; Effect = [string]$r.Effect })
     }
     foreach ($r in $spec) {
+      [void]$rules.Add(@{ Action = 'subagent'; Resource = [string]$r.Pattern; Effect = [string]$r.Effect })
+    }
+    foreach ($r in $deny) {
       [void]$rules.Add(@{ Action = 'subagent'; Resource = [string]$r.Pattern; Effect = [string]$r.Effect })
     }
   }
@@ -547,8 +558,12 @@ function Get-OrderedV2TaskRules {
 function Convert-CanonicalToV2Frontmatter {
   param($Canonical)
   $c = $Canonical
-  Assert-NoAmbiguousOverlap -ShellRules @($c.ShellRules)
-  Assert-NoAmbiguousOverlap -ShellRules @($c.TaskRules)
+  $orderedShellRules = @(Get-OrderedV2ShellRules -Canonical $c)
+  $orderedTaskRules = @(Get-OrderedV2TaskRules -Canonical $c)
+  $guardShellRules = @($orderedShellRules | ForEach-Object { @{ Pattern = [string]$_.Resource; Effect = [string]$_.Effect } })
+  $guardTaskRules = @($orderedTaskRules | ForEach-Object { @{ Pattern = [string]$_.Resource; Effect = [string]$_.Effect } })
+  Assert-NoAmbiguousOverlap -ShellRules $guardShellRules
+  Assert-NoAmbiguousOverlap -ShellRules $guardTaskRules
   $omitted = New-Object System.Collections.ArrayList
   $dropped = New-Object System.Collections.ArrayList
   $L = New-Object System.Collections.ArrayList
@@ -561,12 +576,12 @@ function Convert-CanonicalToV2Frontmatter {
     [void]$L.Add('    resource: "*"')
     [void]$L.Add(('    effect: ' + [string]$c.Edit))
   }
-  foreach ($r in @(Get-OrderedV2ShellRules -Canonical $c)) {
+  foreach ($r in $orderedShellRules) {
     [void]$L.Add(('  - action: ' + [string]$r.Action))
     [void]$L.Add(('    resource: ' + (Format-YamlDoubleQuoted -Value ([string]$r.Resource))))
     [void]$L.Add(('    effect: ' + [string]$r.Effect))
   }
-  foreach ($r in @(Get-OrderedV2TaskRules -Canonical $c)) {
+  foreach ($r in $orderedTaskRules) {
     [void]$L.Add(('  - action: ' + [string]$r.Action))
     [void]$L.Add(('    resource: ' + (Format-YamlDoubleQuoted -Value ([string]$r.Resource))))
     [void]$L.Add(('    effect: ' + [string]$r.Effect))
@@ -586,14 +601,6 @@ function Convert-CanonicalToV2Frontmatter {
 
 function Assert-NoAmbiguousOverlap {
   param($ShellRules = @())
-  # Guard conservadoramente completo (finding V31-R1 F2): para cada par com
-  # efeitos distintos (ignorando o catch-all "*"), tenta PROVAR disjuncao;
-  # se nao provar, lanca ambiguous-permission-overlap (fail closed).
-  # Provas, em ordem: (1) short-circuit de prefixo literal (prefixos
-  # iniciais distintos onde nenhum e prefixo do outro => disjuntos);
-  # (2) literal direto (lado literal testado no outro glob; se nao casa,
-  # disjuntos); (3) produto estruturado de segmentos nao encontra testemunha
-  # comum. O passo (3) negativo NAO prova disjuncao: fallthrough lanca.
   $rules = @($ShellRules)
   for ($i = 0; $i -lt $rules.Count; $i++) {
     for ($j = ($i + 1); $j -lt $rules.Count; $j++) {
@@ -603,12 +610,14 @@ function Assert-NoAmbiguousOverlap {
       $pb = [string]$b.Pattern
       if (($pa -ceq '*') -or ($pb -ceq '*')) { continue }
       if ([string]$a.Effect -ceq [string]$b.Effect) { continue }
-      $preA = Get-GlobLiteralPrefix -Pattern $pa
-      $preB = Get-GlobLiteralPrefix -Pattern $pb
-      if ((($preA.Length -gt 0)) -and (($preB.Length -gt 0)) -and ($preA -cne $preB)) {
-        $aStartsB = $preA.StartsWith($preB, [StringComparison]::OrdinalIgnoreCase)
-        $bStartsA = $preB.StartsWith($preA, [StringComparison]::OrdinalIgnoreCase)
-        if ((-not $aStartsB) -and (-not $bStartsA)) { continue }
+      if (Test-GlobDisjoint -PatternA $pa -PatternB $pb) { continue }
+      $aDeny = [string]$a.Effect -ceq 'deny'
+      $bDeny = [string]$b.Effect -ceq 'deny'
+      if ($aDeny -xor $bDeny) {
+        $permitPattern = $pa; $denyPattern = $pb; $denyIndex = $j; $permitIndex = $i
+        if ($aDeny) { $permitPattern = $pb; $denyPattern = $pa; $denyIndex = $i; $permitIndex = $j }
+        if (($denyIndex -gt $permitIndex) -and
+            (Test-GlobSubset -Subset $denyPattern -Superset $permitPattern)) { continue }
       }
       $litA = ((-not $pa.Contains('*')) -and (-not $pa.Contains('?')))
       $litB = ((-not $pb.Contains('*')) -and (-not $pb.Contains('?')))
@@ -618,7 +627,9 @@ function Assert-NoAmbiguousOverlap {
       if ($litB -and (Test-GlobMatch -Pattern $pa -Text $pb)) {
         throw ('ambiguous-permission-overlap: "' + $pa + '" (' + [string]$a.Effect + ') x "' + $pb + '" (' + [string]$b.Effect + ') testemunha "' + $pb + '"')
       }
-      if ($litA -or $litB) { continue }
+      if ($litA -or $litB) {
+        throw ('ambiguous-permission-overlap: "' + $pa + '" (' + [string]$a.Effect + ') x "' + $pb + '" (' + [string]$b.Effect + ') (disjuncao nao demonstrada)')
+      }
       $segA = @(Get-GlobSegments -Pattern $pa)
       $segB = @(Get-GlobSegments -Pattern $pb)
       $seenA = @{}
@@ -663,6 +674,55 @@ function Assert-NoAmbiguousOverlap {
     }
   }
   return $true
+}
+
+function Test-GlobDisjoint {
+  param([string]$PatternA, [string]$PatternB)
+  $pa = $PatternA; $pb = $PatternB
+  $preA = Get-GlobLiteralPrefix -Pattern $pa
+  $preB = Get-GlobLiteralPrefix -Pattern $pb
+  if (($preA.Length -gt 0) -and ($preB.Length -gt 0) -and ($preA -cne $preB)) {
+    $aStartsB = $preA.StartsWith($preB, [StringComparison]::OrdinalIgnoreCase)
+    $bStartsA = $preB.StartsWith($preA, [StringComparison]::OrdinalIgnoreCase)
+    if ((-not $aStartsB) -and (-not $bStartsA)) { return $true }
+  }
+  $litA = ((-not $pa.Contains('*')) -and (-not $pa.Contains('?')))
+  $litB = ((-not $pb.Contains('*')) -and (-not $pb.Contains('?')))
+  if ($litA -and (-not (Test-GlobMatch -Pattern $pb -Text $pa))) { return $true }
+  if ($litB -and (-not (Test-GlobMatch -Pattern $pa -Text $pb))) { return $true }
+  if ($litA -and $litB) { return $false }
+  $segA = @(Get-GlobSegments -Pattern $pa)
+  $segB = @(Get-GlobSegments -Pattern $pb)
+  $candsA = New-Object System.Collections.ArrayList
+  foreach ($x in @(@('', 'X', '--probe-value-zzz') + @($segB))) {
+    $k = [string]$x
+    if (-not [string]::IsNullOrWhiteSpace($k) -and -not $candsA.Contains($k)) { [void]$candsA.Add($k) }
+  }
+  [void]$candsA.Add('')
+  $candsB = New-Object System.Collections.ArrayList
+  foreach ($x in @(@('', 'X', '--probe-value-zzz') + @($segA))) {
+    $k = [string]$x
+    if (-not [string]::IsNullOrWhiteSpace($k) -and -not $candsB.Contains($k)) { [void]$candsB.Add($k) }
+  }
+  [void]$candsB.Add('')
+  $witA = Get-GlobWitnesses -Pattern $pa -Candidates @($candsA)
+  if ($null -eq $witA) { return $false }
+  $witB = Get-GlobWitnesses -Pattern $pb -Candidates @($candsB)
+  if ($null -eq $witB) { return $false }
+  foreach ($s in @(@($witA) + @(New-WitnessSamples -Pattern $pa) + @($witB) + @(New-WitnessSamples -Pattern $pb))) {
+    if ((Test-GlobMatch -Pattern $pa -Text $s) -and (Test-GlobMatch -Pattern $pb -Text $s)) { return $false }
+  }
+  return $false
+}
+
+function Test-GlobSubset {
+  param([string]$Subset, [string]$Superset)
+  # Prova deliberadamente estreita: apenas prefixos literais terminados em *.
+  if ($Subset.Contains('?') -or $Superset.Contains('?')) { return $false }
+  if (($Superset.Split('*').Count -ne 2) -or (-not $Superset.EndsWith('*')) -or $Superset.Length -lt 2) { return $false }
+  if ($Subset.Length -lt $Superset.Length) { return $false }
+  $prefix = $Superset.Substring(0, $Superset.Length - 1)
+  return $Subset.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
 }
 
 # ---- avaliadores de efeito -------------------------------------------------------
