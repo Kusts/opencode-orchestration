@@ -1,0 +1,10 @@
+home       C:\Users\walis
+data       C:\Users\walis\.local\share\opencode
+cache      C:\Users\walis\.cache\opencode
+config     C:\Users\walis\.config\opencode
+state      C:\Users\walis\.local\state\opencode
+tmp        C:\Users\walis\AppData\Local\Temp\opencode
+bin        C:\Users\walis\.cache\opencode\bin
+log        C:\Users\walis\.local\share\opencode\log
+repos      C:\Users\walis\.local\share\opencode\repos
+db         C:\Users\walis\.local\share\opencode\opencode.db
