@@ -10,6 +10,13 @@ function Assert-ProviderError {
     else { $script:failed++; Write-Host "FAIL $Name" }
 }
 $cases = @(
+    @('429 structured quota', @{status=429;code='quota_exceeded'}, 'QUOTA_EXCEEDED'),
+    @('429 structured exhausted', @{status=429;code='resource_exhausted'}, 'QUOTA_EXCEEDED'),
+    @('404 model missing', @{status=404;code='model_not_found'}, 'MODEL_UNAVAILABLE'),
+    @('404 model decommissioned', @{status=404;code='model_decommissioned'}, 'MODEL_UNAVAILABLE'),
+    @('401 availability code', @{status=401;code='service_unavailable'}, 'AUTH_OR_PERMISSION_ERROR'),
+    @('403 availability code', @{status=403;code='quota_exceeded'}, 'AUTH_OR_PERMISSION_ERROR'),
+    @('400 context structured', @{status=400;code='context_length_exceeded'}, 'REQUEST_INVALID'),
     @('429', @{status=429}, 'RATE_LIMIT'),
     @('rate limit', @{code='rate_limit_exceeded'}, 'RATE_LIMIT'),
     @('too many', @{code='too_many_requests'}, 'RATE_LIMIT'),
@@ -64,6 +71,22 @@ foreach ($case in $cases) {
     $result = ConvertFrom-OrchestrationProviderFailure -Failure $case[1]
     Assert-ProviderError ($result.Classification -ceq $case[2]) "map $($case[0])"
 }
+$r = ConvertFrom-OrchestrationProviderFailure @{status=429}
+Assert-ProviderError ($r.Availability -and $r.Classification -eq 'RATE_LIMIT') '429 availability'
+$r = ConvertFrom-OrchestrationProviderFailure @{status=400;code='context_length_exceeded'}
+Assert-ProviderError ($r.Configuration -and -not $r.FallbackEligible) '400 context policy'
+$r = ConvertFrom-OrchestrationProviderFailure @{status=413}
+Assert-ProviderError ($r.Configuration -and -not $r.FallbackEligible) '413 context policy'
+foreach ($code in @('timeout','ECONNRESET','aborted')) {
+    $r = ConvertFrom-OrchestrationProviderFailure @{code=$code}
+    Assert-ProviderError ($r.Classification -eq 'EXECUTION_UNKNOWN' -and $r.Ambiguous -and -not $r.RetrySafePreExecution) "structured ambiguous $code"
+}
+$r = ConvertFrom-OrchestrationProviderFailure @{message='unrecognized failure'}
+Assert-ProviderError ($r.Classification -eq 'NONE' -and -not $r.FallbackEligible) 'unknown failure not eligible'
+$r = ConvertFrom-OrchestrationProviderFailure @{code='resource_exhausted'}
+Assert-ProviderError ($r.Signals.source -eq 'structured_code') 'structured code source'
+$r = ConvertFrom-OrchestrationProviderFailure @{message='timeout'}
+Assert-ProviderError ($r.Signals.source -eq 'alias') 'text alias source'
 $r = ConvertFrom-OrchestrationProviderFailure @{status=429;message='invalid api key'}
 Assert-ProviderError ($r.Classification -eq 'RATE_LIMIT' -and $r.Signals.source -eq 'http_status') 'status beats contradictory message'
 $oa = ConvertFrom-OrchestrationProviderFailure '{"error":{"type":"rate_limit_error","code":"rate_limit_exceeded"}}'

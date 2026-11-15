@@ -109,9 +109,13 @@ Esta SPEC trata exclusivamente de roteamento de modelos e integração consultiv
 Fallback produtivo usa exclusivamente a ferramenta nativa `subagent` para criar
 uma child session. A classe do erro é apenas classificação; a prova de
 não-início precisa ser observada independentemente. Um erro nativo
-`tool.execution` sem `sessionID`/child session pode sustentar essa prova quando
-o resultado observado atesta indisponibilidade do modelo antes da criação da
-sessão. Booleanos fornecidos pelo chamador não são prova.
+Histórico (contrato superado): a versão anterior dizia que
+`tool.execution` sem `sessionID`/child session poderia sustentar essa prova.
+O contrato atual exige evidência explícita fornecida pelo chamador e
+correlacionada por task, attempt e modelo solicitado; erro nativo ou ausência
+de sessão, isoladamente, nunca prova não-início. Ver
+`scripts/v3/model-fallback.ps1` e
+`docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md`.
 
 É proibido criar executor paralelo por `opencode run` ou outra via CLI para
 implementar retries/fallback. O Task Kernel permanece dono de
