@@ -1,0 +1,65 @@
+{
+  "runtime_version": "opencode v2.3.0",
+  "model": "opencode-go/iceman-contributor-free",
+  "initial_model": "opencode/mimo-v2.6-flash-free",
+  "probe_agent": "permprobe (temporary; removed after proof)",
+  "deny_tests": {
+    "git_diff_output": {
+      "verdict": "DENIED",
+      "evidence": "probe-git-diff.jsonl",
+      "exact_input_submitted": true,
+      "file_absent": true,
+      "note": "Exact original command; Permission denied: shell, executed=false."
+    },
+    "git_show_output": {
+      "verdict": "DENIED",
+      "evidence": "probe-git-show.jsonl",
+      "exact_input_submitted": true,
+      "file_absent": true,
+      "note": "Exact shell input submitted; runtime returned Permission denied: shell, executed=false."
+    },
+    "git_log_output": {
+      "verdict": "DENIED",
+      "evidence": "probe-git-log.jsonl",
+      "exact_input_submitted": true,
+      "file_absent": true,
+      "note": "Exact shell input submitted; runtime returned Permission denied: shell, executed=false."
+    },
+    "rg_pre": {
+      "verdict": "DENIED",
+      "evidence": "probe-rg-pre.jsonl",
+      "exact_input_submitted": true,
+      "sentinel_ran": false,
+      "note": "Exact shell input submitted; runtime returned Permission denied: shell, executed=false."
+    },
+    "rg_hostname_bin": {
+      "verdict": "DENIED",
+      "evidence": "deny-rg-hostname-bin.jsonl",
+      "exact_input_submitted": true,
+      "sentinel_ran": false,
+      "note": "Exact shell input submitted; runtime returned Permission denied: shell, executed=false."
+    },
+    "sentinel_ran": false
+  },
+  "positive_controls": {
+    "git_diff_stat": {
+      "verdict": "PASS",
+      "evidence": "positive-git-diff-stat.jsonl"
+    },
+    "rg_search": {
+      "verdict": "PASS",
+      "evidence": "positive-rg-search.jsonl"
+    }
+  },
+  "backup_path": "C:\\Users\\walis\\.config\\opencode\\backups\\oo-20261114-231804",
+  "drift_after_install": {
+    "verdict": "PASS",
+    "installed": 0,
+    "unchanged": 24,
+    "conflict": 0,
+    "failed": 0,
+    "evidence": "probe-drift-whatif.log"
+  },
+  "probe_agent_removed": true,
+  "verdict": "PASS"
+}

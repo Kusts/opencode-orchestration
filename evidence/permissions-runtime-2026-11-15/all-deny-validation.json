@@ -1,0 +1,42 @@
+[
+  {
+    "case": "git_diff_output",
+    "exact_input_submitted": true,
+    "runtime_denied": true,
+    "command": "git diff --output=C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\deny-diff.txt",
+    "file_absent": true,
+    "verdict": "DENIED"
+  },
+  {
+    "case": "git_show_output",
+    "exact_input_submitted": true,
+    "runtime_denied": true,
+    "command": "git show HEAD --output=C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\deny-show.txt",
+    "file_absent": true,
+    "verdict": "DENIED"
+  },
+  {
+    "case": "git_log_output",
+    "exact_input_submitted": true,
+    "runtime_denied": true,
+    "command": "git log --output=C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\deny-log.txt",
+    "file_absent": true,
+    "verdict": "DENIED"
+  },
+  {
+    "case": "rg_pre",
+    "exact_input_submitted": true,
+    "runtime_denied": true,
+    "command": "rg --pre C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\pre.cmd x .",
+    "file_absent": true,
+    "verdict": "DENIED"
+  },
+  {
+    "case": "rg_hostname_bin",
+    "exact_input_submitted": true,
+    "runtime_denied": true,
+    "command": "rg --hostname-bin C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\pre.cmd x .",
+    "file_absent": true,
+    "verdict": "DENIED"
+  }
+]

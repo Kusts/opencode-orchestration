@@ -41,13 +41,15 @@ function Read-OrchestrationNativeSessionEvidence {
 function New-OrchestrationModelAttempt {
     [CmdletBinding()] param([Parameter(Mandatory=$true)][string]$TaskId,[Parameter(Mandatory=$true)][string]$Agent,[Parameter(Mandatory=$true)][string]$Model,[Parameter(Mandatory=$true)][string]$AttemptId,[ValidateSet('pre_dispatch','post_dispatch','unknown')][string]$Stage='pre_dispatch',[string]$EvidenceDir='')
     $p,$m=$Model -split '/',2
-    return [pscustomobject]@{ attempt_id=$AttemptId; task_id=$TaskId; agent=$Agent; requested_model=$Model; requested_provider=$p; stage=$Stage; evidence_dir=$EvidenceDir; started_at=[DateTime]::UtcNow.ToString('o'); assistant_messages=0; tool_calls=0; outcome=''; session_id=''; observed_model=$null; execution_started=$false }
+    return [pscustomobject]@{ attempt_id=$AttemptId; task_id=$TaskId; agent=$Agent; requested_model=$Model; requested_provider=$p; stage=$Stage; evidence_dir=$EvidenceDir; started_at=[DateTime]::UtcNow.ToString('o'); assistant_messages=0; tool_calls=0; outcome=''; session_id=''; observed_model=$null; execution_started=$false; session_evidence_present=$false }
 }
 function Test-OrchestrationAttemptNoStartProof {
     [CmdletBinding()] param([Parameter(Mandatory=$true)]$Attempt)
     $f=Get-MAValue $Attempt 'failure' $null; $class=[string](Get-MAValue $f 'Classification' '')
-    $valid=([string](Get-MAValue $f 'Source' '') -ceq 'tool_error') -and -not [bool](Get-MAValue $Attempt 'execution_started' $true) -and ([int](Get-MAValue $Attempt 'assistant_messages' 0) -eq 0) -and ([int](Get-MAValue $Attempt 'tool_calls' 0) -eq 0) -and [string]::IsNullOrWhiteSpace([string](Get-MAValue $Attempt 'session_id' '')) -and ($null -eq (Get-MAValue $Attempt 'observed_model' $null)) -and ($class -in @('RATE_LIMIT','QUOTA_EXCEEDED','MODEL_UNAVAILABLE','PROVIDER_UNAVAILABLE'))
-    return [pscustomobject]@{ proven=[bool]$valid; reason=$(if($valid){'OBSERVED_NO_START'}else{'NO_START_REQUIREMENTS_NOT_MET'}) }
+    $am=Get-MAValue $Attempt 'assistant_messages' $null;$tc=Get-MAValue $Attempt 'tool_calls' $null
+    $evidencePresent=(Get-MAValue $Attempt 'session_evidence_present' $false) -eq $true
+    $valid=$evidencePresent -and (-not [string]::IsNullOrWhiteSpace([string](Get-MAValue $Attempt 'task_id' ''))) -and (-not [string]::IsNullOrWhiteSpace([string](Get-MAValue $Attempt 'attempt_id' ''))) -and (-not [string]::IsNullOrWhiteSpace([string](Get-MAValue $Attempt 'requested_model' ''))) -and (Get-MAValue $Attempt 'execution_started' $true) -is [bool] -and -not [bool](Get-MAValue $Attempt 'execution_started' $true) -and (($am -is [int]) -or ($am -is [long])) -and (($tc -is [int]) -or ($tc -is [long])) -and $am -eq 0 -and $tc -eq 0 -and [string]::IsNullOrWhiteSpace([string](Get-MAValue $Attempt 'session_id' '')) -and ($null -eq (Get-MAValue $Attempt 'observed_model' $null)) -and ($class -in @('RATE_LIMIT','QUOTA_EXCEEDED','MODEL_UNAVAILABLE','PROVIDER_UNAVAILABLE'))
+    return [pscustomobject]@{ proven=[bool]$valid; reason=$(if($valid){'OBSERVED_NO_START'}elseif(-not $evidencePresent){'NO_START_PROOF_UNVERIFIED'}else{'NO_START_REQUIREMENTS_NOT_MET'}) }
 }
 function ConvertFrom-OrchestrationToolError {
     [CmdletBinding()] param([Parameter(Mandatory=$true)]$ErrorObject)
@@ -72,14 +74,17 @@ function Get-OrchestrationFailureFromOutput {
 }
 function Complete-OrchestrationModelAttempt {
     [CmdletBinding()] param([Parameter(Mandatory=$true)]$Attempt,[int]$ExitCode,[AllowEmptyString()][string]$StdOut='',[AllowEmptyString()][string]$StdErr='',$SessionEvidence=$null,$FailureOverride=$null)
-    $native=$SessionEvidence; if ($null -eq $native) {$native=@{}}
+    $evidencePresent=$null -ne $SessionEvidence -and (Get-MAValue $SessionEvidence 'ok' $true) -eq $true
+    $native=$SessionEvidence; if (-not $evidencePresent) {$native=@{}}
     $failureInput=$FailureOverride; if ($null -eq $failureInput) {$failureInput=Get-OrchestrationFailureFromOutput $StdOut $StdErr}
     $failure=ConvertFrom-OrchestrationProviderFailure -Failure $failureInput -Stage ([string]$Attempt.stage)
-    $started=[bool](Get-MAValue $native 'execution_started' $false); $am=[int](Get-MAValue $native 'assistant_messages' 0); $tc=[int](Get-MAValue $native 'tool_calls' 0)
+    $started=$false;$am=0;$tc=0
+    if($evidencePresent){$started=[bool](Get-MAValue $native 'execution_started' $false);$am=[int](Get-MAValue $native 'assistant_messages' 0);$tc=[int](Get-MAValue $native 'tool_calls' 0)}
     if (($ExitCode -ne 0) -and ($null -eq $failureInput)) {$failure=ConvertFrom-OrchestrationProviderFailure -Failure @{code='unknown result'} -Stage 'unknown'}
     $Attempt | Add-Member -NotePropertyName failure -NotePropertyValue $failure -Force
     foreach ($n in @('session_id','outcome','observed_model','usage_input','usage_output','usage_reasoning','cache_read','cache_write','cost')) { $Attempt | Add-Member -NotePropertyName $n -NotePropertyValue (Get-MAValue $native $n $(if($n -like 'usage*' -or $n -like 'cache*' -or $n -eq 'cost'){'UNKNOWN'}else{$null})) -Force }
     $Attempt | Add-Member -NotePropertyName assistant_messages -NotePropertyValue $am -Force; $Attempt | Add-Member -NotePropertyName tool_calls -NotePropertyValue $tc -Force; $Attempt | Add-Member -NotePropertyName execution_started -NotePropertyValue $started -Force
+    $Attempt | Add-Member -NotePropertyName session_evidence_present -NotePropertyValue $evidencePresent -Force
     $proof=Test-OrchestrationAttemptNoStartProof $Attempt
     $Attempt | Add-Member -NotePropertyName no_start_proof -NotePropertyValue $proof.proven -Force; $Attempt | Add-Member -NotePropertyName no_start_reason -NotePropertyValue $proof.reason -Force
     $Attempt | Add-Member -NotePropertyName success -NotePropertyValue ([bool]($ExitCode -eq 0 -and $am -gt 0)) -Force; $Attempt | Add-Member -NotePropertyName finished_at -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force

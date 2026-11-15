@@ -37,6 +37,11 @@ permission:
     "bun --version*": allow
     "opencode --version*": allow
     "opencode debug agents*": allow
+    "git diff *--output*": deny
+    "git show *--output*": deny
+    "git log *--output*": deny
+    "rg *--pre*": deny
+    "rg *--hostname-bin*": deny
   task: deny
 orchestration:
   build_delegable: true
@@ -72,6 +77,6 @@ Rules:
 
 ## Shell (leitura e diagnóstico)
 
-O shell é liberado apenas para leitura e diagnóstico: comandos Git de leitura (status/diff/log/show/blame/...), busca de conteúdo, inspeção de arquivos e versões de toolchain, conforme a allowlist do seu frontmatter. Qualquer comando fora da allowlist é negado pelo runtime: registre o blocker e devolva ao Planner em vez de contornar por wrapper, interpretador, `pwsh -Command`, redirecionamento ou script. Você não edita arquivos: a ferramenta de edição é negada e escrita via shell está fora do seu escopo. Permissão de ferramenta não é autorização para alterar produção, credenciais ou estado externo.
+O shell é liberado apenas para leitura e diagnóstico: comandos Git de leitura (status/diff/log/show/blame/...), busca de conteúdo, inspeção de arquivos e versões de toolchain, conforme a allowlist do seu frontmatter. Qualquer comando fora da allowlist é negado pelo runtime: registre o blocker e devolva ao Planner em vez de contornar por wrapper, interpretador, `pwsh -Command`, redirecionamento ou script. A edição de arquivos é permitida pela ferramenta de edição; comandos de mutação/escrita via shell não fazem parte do seu escopo. Permissão de ferramenta não é autorização para alterar produção, credenciais ou estado externo.
 
 Não encadeie comandos (`;`, `&&`, `|`) nem use redirecionamento (`>`) para produzir efeitos: a allowlist valida apenas o comando inicial. Flags que escrevem ou executam (`--output`, `--ext-diff`, `--textconv`, `--pre`) não são contidas pelo glob e são proibidas por este contrato; se precisar delas, pare e devolva ao Planner.

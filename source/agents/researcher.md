@@ -5,6 +5,8 @@ model: {{MODEL_FREE}}
 temperature: 0.2
 permission:
   edit: deny
+  webfetch: allow
+  websearch: allow
   bash:
     "*": deny
     "git status": allow
@@ -36,8 +38,11 @@ permission:
     "bun --version*": allow
     "opencode --version*": allow
     "opencode debug agents*": allow
-  webfetch: allow
-  websearch: allow
+    "git diff *--output*": deny
+    "git show *--output*": deny
+    "git log *--output*": deny
+    "rg *--pre*": deny
+    "rg *--hostname-bin*": deny
   task: deny
 orchestration:
   build_delegable: true

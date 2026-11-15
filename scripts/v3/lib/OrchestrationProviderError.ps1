@@ -82,29 +82,51 @@ function ConvertFrom-OrchestrationProviderFailure {
     if ($null -ne $status) {
         $source = 'http_status'
         switch ($status) {
-            429 { $classification = 'RATE_LIMIT' }
+            429 {
+                $classification = 'RATE_LIMIT'
+                $refined = & $classifyCode ($codeNorm + ' ' + $typeNorm)
+                if ($refined -eq 'QUOTA_EXCEEDED') { $classification = $refined }
+            }
             529 { if ($aliasText -match 'overloaded') { $classification = 'RATE_LIMIT' } else { $classification = 'PROVIDER_UNAVAILABLE' } }
+            404 {
+                $refined = & $classifyCode ($codeNorm + ' ' + $typeNorm)
+                if ($refined -eq 'MODEL_UNAVAILABLE') { $classification = $refined }
+            }
             502 { $classification = 'PROVIDER_UNAVAILABLE' }
             503 { $classification = 'PROVIDER_UNAVAILABLE' }
             504 { $classification = 'PROVIDER_UNAVAILABLE' }
             500 { $classification = 'PROVIDER_ERROR' }
             401 { $classification = 'AUTH_OR_PERMISSION_ERROR' }
             403 { $classification = 'AUTH_OR_PERMISSION_ERROR' }
-            400 { $classification = 'REQUEST_INVALID' }
+            400 {
+                $classification = 'REQUEST_INVALID'
+                $refined = & $classifyCode ($codeNorm + ' ' + $typeNorm)
+                if ($refined -eq 'REQUEST_INVALID') { $classification = $refined }
+            }
             413 { $classification = 'REQUEST_INVALID' }
             408 { $classification = 'EXECUTION_UNKNOWN' }
             409 { $classification = 'PROVIDER_ERROR' }
             default { $classification = & $classifyCode $aliasText; if ($classification -eq 'NONE') { $source = 'http_status' } }
         }
-    } elseif ($code) {
-        $classification = & $classifyCode $codeNorm
-        $source = 'structured_code'
+    } else {
+        if ($code) {
+            $classification = & $classifyCode $codeNorm
+            if ($classification -ne 'NONE') { $source = 'structured_code' }
+        }
+        if ($classification -eq 'NONE' -and $type) {
+            $classification = & $classifyCode $typeNorm
+            if ($classification -ne 'NONE') { $source = 'error_type' }
+        }
+        if ($classification -eq 'NONE' -and $text) {
+            $classification = & $classifyCode $text.ToLowerInvariant()
+            if ($classification -ne 'NONE') { $source = 'alias' }
+        }
     }
-    if ($classification -eq 'NONE' -and $type) {
+    if ($null -ne $status -and $classification -eq 'NONE' -and $status -notin @(401,403,400,413,404,429) -and $type) {
         $classification = & $classifyCode $typeNorm
         if ($classification -ne 'NONE') { $source = 'error_type' }
     }
-    if ($classification -eq 'NONE' -and $text) {
+    if ($null -ne $status -and $classification -eq 'NONE' -and $text) {
         $classification = & $classifyCode $text.ToLowerInvariant()
         if ($classification -ne 'NONE') { $source = 'alias' }
     }

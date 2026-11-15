@@ -1,25 +1,52 @@
 # Model Router v1.4 — execution and fallback contract
 
-> **Mission evidence (2026-11-13):** the T1 Luna→MiMo and T2 Luna→DeepSeek Go
-> decisions and native child executions were performed by the Planner after
-> observed `tool.execution` no-start and explicit authorization from
-> `scripts/v3/model-fallback.ps1`. This is Planner-mediated, not automatic;
-> the primary unavailable model was synthetic `openai/does-not-exist`, not a
-> real Luna provider failure. T3 Sonnet→Terra and T4 Opus→Sol availability
-> fallbacks were not executed. Separately, G1 used kernel-owned T3 proof to
-> select Opus T4 and reached verified DONE; this was capability escalation,
-> not availability fallback. OpenCode 2.3.0 is allowlisted for the live
-> override proof only; the provisioning/CI pin is now 2.3.0. See the mission
-> PLAN/SPEC and `evidence/mission-2026-11-13/`.
+> **Mission evidence (2026-11-13, Planner-mediated):** the T1 Luna→MiMo and T2
+> Luna→DeepSeek Go decisions and native child executions were performed by the
+> Planner after observed `tool.execution` no-start and explicit authorization
+> from `scripts/v3/model-fallback.ps1 -Action next` (with `-AttemptId` and
+> caller-supplied correlated `-AttemptEvidenceJson`). Evidence:
+> `evidence/mission-2026-11-13/fallback-t1-proof.json`,
+> `evidence/mission-2026-11-13/fallback-t2-proof.json` and
+> `evidence/mission-2026-11-13/native-override-2.3.0.json`. **Limitation:** the
+> failed primary model in both runs was synthetic `openai/does-not-exist`; this
+> does **not** prove behavior on real 429/quota/503 provider failures (synthetic
+> test coverage only). T3 Sonnet→Terra and T4 Opus→Sol availability fallbacks
+> were not executed. Separately, G1 used kernel-owned T3 proof to select Opus T4
+> and reached verified DONE; this was capability escalation, not availability
+> fallback. OpenCode 2.3.0 native `subagent.model` override is allowlisted for
+> the recorded live-server proof.
 
-**Bounded retry contract:** observed error → structured evidence → helper
-`next` decision → one authorized redispatch by the Planner. Missing or
-malformed failure/evidence, non-`pre_dispatch` stage, child session,
-`execution_started`, positive counters, timeout/`EXECUTION_UNKNOWN`, and
-ineligible classifications HOLD; never infer or fabricate evidence. `record`
-remains separate from the Kernel's `model_attempts`. Plugin automation is
-blocked because V2 exposes `tool.execute.before` only, without result/error,
-child `sessionID`, `TaskId`, or `RunId`.
+**Bounded retry contract (Planner-mediated, no parallel controller):** observed
+error → **caller-supplied** structured pre-dispatch evidence → helper `next`
+decision → **one** authorized native redispatch by the Planner on the **same
+Task** (no mission replan) → post-dispatch recording. The helper **never
+fabricates** evidence and **never dispatches**. A bare error or classification
+alone is not proof of non-start.
+
+- `scripts/v3/model-fallback.ps1 -Action next` requires `-AttemptId`, `-TaskId`,
+  `-AttemptRole`, `-FailedModel`, and `-FailureJson`, plus `-AttemptEvidenceJson`
+  with explicit, correlated proof: `source` ∈ {`dispatcher`,`runtime_event`,`provider`},
+  `stage` = `pre_dispatch`, `task_id`, `attempt_id` (equal to `-AttemptId`),
+  `requested_model` (equal to `-FailedModel`), empty `session_id`,
+  `execution_started=false` (bool), and `assistant_messages=0`, `tool_calls=0`
+  (integers). The caller emits this evidence; the helper only validates it.
+  Malformed evidence fails closed and cannot authorize fallback.
+- Outcomes: `FALLBACK_AUTHORIZED` returns `next_model`/`next_tier`/`attempt_id`;
+  missing evidence ⇒ `HOLD_NO_START_PROOF_UNVERIFIED`; present session or
+  `execution_started` ⇒ `HOLD_AMBIGUOUS_EXECUTION` (`EXECUTION_MAY_HAVE_STARTED`);
+  divergent/malformed/unrecognized evidence ⇒ `HOLD_AMBIGUOUS_EXECUTION`
+  (`NO_START_PROOF_INVALID` or invalid-failure hold); ineligible failure
+  (auth/context/timeout/`EXECUTION_UNKNOWN`, etc.) ⇒ `HOLD_TERMINAL`
+  (`FAILURE_NOT_ELIGIBLE`). A session present always holds — the helper never
+  duplicates execution.
+- Continuity: the Planner performs exactly one new native `subagent` dispatch
+  with `next_model` on the same Task, then records the child session with
+  `scripts/v3/model-fallback.ps1 -Action record` and `task-kernel -Action
+  model-attempt`. `record` remains separate from the Kernel's `model_attempts`.
+- **Plugin limitation (OpenCode V2 2.3.0):** the plugin hook is
+  `tool.execute.before` only (no result/error and no child `sessionID`), so full
+  in-plugin automation is not possible; the flow is Planner-mediated. Do not
+  create a parallel controller/executor.
 
 ## Canonical mapping
 
@@ -48,7 +75,7 @@ Catalog observation (local `claude-agent`): ids `claude-agent/sonnet`, `claude-a
 Router validation is limited to the closed dispatch-alias map (`model_id` + `alias`, case-sensitive), failing closed with `CLAUDE_UNKNOWN_ALIAS` / `CLAUDE_ALIAS_MISSING` / `CLAUDE_MODEL_ID_MISSING` / `CLAUDE_ALIAS_MISMATCH` on any tamper. Alias-to-concrete runtime resolution therefore stays UNRESOLVED (`resolution_status: runtime-unverified`); if a session event ever reports a concrete ID, post-execution verification must stay `PROOF_ABSENT` / `UNAUTHORIZED_MISMATCH` until the mapping is independently proven — never `EXACT_MATCH` or `AUTHORIZED_FALLBACK` off an unverified ID. Record the alias and the listed inventory ID on every use (the ID as provenance only); never invent other concrete models. Each alias lists effort variants `low`/`medium`/`high`/`xhigh`/`max` as catalog metadata only. Aliases stay selectable only while the policy's fail-closed dispatch-alias identity check is satisfied; static tests assert the recorded alias identity and gating, never actual version resolution.
 
 1. **Claude capability and aliases.** The `claude-agent` provider is reject-closed without local authenticated `claude` capability (or explicit remote capability). Catalog labels do not prove immutable wire model IDs: aliases remain `runtime-unverified`. Capability can filter a candidate, but does not authorize execution.
-2. **Generic resolver remains audit-only.** `Resolve-OrchestrationModelFallback` enumerates candidates for audit and returns `CandidateModel` as non-authorizing with `FallbackModel=null` and `IsAuthorized=false`. Caller-supplied `NoExecutionStarted` booleans, allowlisted transport classes and catalog presence are not independent proof that an operation did not start. The separately implemented `model-fallback.ps1` helper authorized the measured Planner-mediated T1/T2 cases only after observed no-start. This does not enable automatic retries or prove other tiers; ambiguous failures/timeouts never replay.
+2. **Generic resolver remains audit-only.** `Resolve-OrchestrationModelFallback` enumerates candidates for audit and returns `CandidateModel` as non-authorizing with `FallbackModel=null` and `IsAuthorized=false`. Caller-supplied `NoExecutionStarted` booleans, allowlisted transport classes and catalog presence are not independent proof that an operation did not start. The separately implemented `model-fallback.ps1 -Action next` helper authorizes measured Planner-mediated T1/T2 cases only when the **caller supplies explicit, correlated** `-AttemptEvidenceJson` (`pre_dispatch`, empty session, `execution_started=false`, zero counters, matching `task_id`/`attempt_id`/`requested_model`); the helper never fabricates that proof and never dispatches. This does not enable automatic retries or prove other tiers; ambiguous failures/timeouts never replay.
 3. **Role admissibility and functional proof.** Researcher/Explorer/Docs Manager start at T1 and may escalate to T2; Tester uses deterministic T0, simple LLM T1 and non-trivial LLM T2. These roles do not use T3/T4 automatically. Engineering-advisor is T3 minimum (Sonnet primary, Terra candidate), and T2 is prohibited. Functional T3 escalation requires a sticky Task Kernel proof for the executed Sonnet primary; T4 proof is for executed Opus and requires prior T3 proof.
 4. **Exceptional capacity.** Astra is selected only after a valid Task Kernel proof for Opus and role/policy admissibility. Fable remains HOLD: current persisted proof is primary-tier-bound and does not establish a model-specific failed Astra attempt. Do not convert a generic receipt or availability signal into Astra/Fable incapacity proof.
 5. **Single-call execution.** `Invoke-OrchestrationModelExecution` makes exactly ONE call; missing or ambiguous execution evidence yields `PROOF_ABSENT`. The router adds no retry and authorizes no transport fallback. Only the canonical `task-kernel model-select` path can consume functional failure proof.
@@ -68,8 +95,8 @@ Official catalogs: https://opencode.ai/v2/docs/console/models/ and https://openc
 
 ## Distinguish transport failure from capability failure
 
-1. Provider/model transport faults (`RATE_LIMIT`, `PROVIDER_ERROR`, `MODEL_UNAVAILABLE`, `MODEL_ERROR`, `SERVICE_UNAVAILABLE`, plus `QUOTA_EXCEEDED` and `OFFLINE`) NEVER authorize retry by classification alone. A `NoExecutionStarted` boolean from a caller is not proof. Execution failure without independent no-start evidence yields `PROOF_ABSENT`, fail-closed; do not replay unknown failures, missing dispatch telemetry, or ambiguous timeouts. Changing the configured Planner model is not runtime fallback.
-   - **Generic fallback resolver (audit/HOLD):** `Resolve-OrchestrationModelFallback` only enumerates candidate order for audit and returns HOLD with `CandidateModel` non-authorizing, `FallbackModel = null`, `IsAuthorized = false`. No-start booleans and errors/timeouts are untrusted; without independent proof there is no replay. `Invoke-OrchestrationModelExecution` remains single-call only. The separate Planner-mediated helper path has real T1/T2 evidence recorded above; it is not automatic and does not turn the generic resolver or matrix tests into dispatch.
+1. Provider/model transport faults (`RATE_LIMIT`, `PROVIDER_ERROR`, `MODEL_UNAVAILABLE`, `MODEL_ERROR`, `SERVICE_UNAVAILABLE`, plus `QUOTA_EXCEEDED` and `OFFLINE`) NEVER authorize retry by classification alone. A `NoExecutionStarted` boolean, the error alone, or classification alone is not proof. Execution failure without independent, caller-supplied correlated no-start evidence yields `PROOF_ABSENT`/HOLD, fail-closed; do not replay unknown failures, missing dispatch telemetry, or ambiguous timeouts. Changing the configured Planner model is not runtime fallback.
+   - **Generic fallback resolver (audit/HOLD):** `Resolve-OrchestrationModelFallback` only enumerates candidate order for audit and returns HOLD with `CandidateModel` non-authorizing, `FallbackModel = null`, `IsAuthorized = false`. No-start booleans and errors/timeouts are untrusted; without independent proof there is no replay. `Invoke-OrchestrationModelExecution` remains single-call only. The separate Planner-mediated `model-fallback.ps1 -Action next` path requires `-AttemptId` and explicit caller-supplied `-AttemptEvidenceJson` and has bounded T1/T2 evidence (`evidence/mission-2026-11-13/fallback-t1-proof.json`, `fallback-t2-proof.json`) where the failed primary was synthetic `openai/does-not-exist` (not real 429/quota/503); it is not automatic and does not turn the generic resolver or matrix tests into dispatch.
  2. T1 Luna -> MiMo; T2 Luna primary with DeepSeek Go/Muse/Haiku candidates. The technical fallback resolver remains audit/HOLD and does not replay; transport exhaustion does not upgrade tiers. DeepSeek Go ZDR is expired-unconfirmed; do not send sensitive data whose protection requires ZDR.
 2b. `FailureCount` never promotes Coder or engineering-advisor. Coder low/simple stays T2 and complex work selects T3 by role policy. Engineering-advisor is T3 Sonnet primary with Terra candidate, T2 prohibited. Architect/security-reviewer likewise never use T2. The fallback resolver never executes or retries; a functional escalation requires Task Kernel proof.
  3. T3 Sonnet -> Terra and T4 Opus -> Sol are same-tier static candidate orders/HOLD for transport; neither transport class proves incapacity or authorizes a substitute. T3 capability failure proof is bound to executed Sonnet. T2 downgrade candidates remain audit-only HOLD for T2-admissible roles; no runtime retry. Medium/low reviewers admit T2; high/critical reviewers and security fail closed below their minimums; engineering-advisor/architect never use T2.
@@ -89,7 +116,7 @@ Exact native model arg syntax is `providerID/modelID` (for example `openai/gpt-6
 4. Record the observation without dispatch: `task-kernel -Action model-attempt -TaskId <id> -SessionId <child> -ExpectedRevision <rev>` (persists exact refs + policy hash; no proof params; path flags compat-only as above).
 5. Execute the committed plan against the task repo: `task-kernel -Action verify-run -TaskId <id> -ExpectedRevision <rev>` (trusted kernel-executed marks; caller JSON can never yield proof; path flags compat-only as above).
 6. Recompute the gate read-only: `task-kernel -Action model-proof -TaskId <id> -RequiredTier T3|T4` (path flags compat-only as above). T3 proof is bound to the executed Sonnet primary and gates `model-select` T4 (Opus); a later valid T4 proof is bound to the executed Opus primary and may select Astra with priority over the head T3 proof. This proves primary incapability only; it does not prove a fallback model failed. `FailureCount`, risk, and receipt text never gate.
- 7. `DispatchExecutor` in `Invoke-OrchestrationModelExecution` remains test-only and makes exactly ONE call with no retry or automatic fallback. A `NoExecutionStarted`/`FailureClass` envelope without an independently observed `Model` is a transport-failure hold (`PROOF_ABSENT` / `transport-failure-no-proof`), never verified execution. The separate native helper path is Planner-mediated and has bounded T1/T2 real evidence; a native no-child error without observed proof remains blocked. Do not infer T3/T4 availability fallback or generalize from the bounded runs.
+ 7. `DispatchExecutor` in `Invoke-OrchestrationModelExecution` remains test-only and makes exactly ONE call with no retry or automatic fallback. A `NoExecutionStarted`/`FailureClass` envelope without an independently observed `Model` is a transport-failure hold (`PROOF_ABSENT` / `transport-failure-no-proof`), never verified execution. The separate native helper path is Planner-mediated (`-Action next` needs `-AttemptId` + caller-supplied correlated `-AttemptEvidenceJson`; helper never fabricates proof/never dispatches), with bounded T1/T2 evidence using synthetic `openai/does-not-exist` (not real 429/quota/503). A native no-child error alone, without that validated evidence, remains blocked. Do not infer T3/T4 availability fallback or generalize from the bounded runs. Continuity is same Task → one new native `subagent` → `-Action record` + `task-kernel -Action model-attempt`.
 
 ## Native dispatch binding: NOT_PROVEN (`model-select` / G1)
 
@@ -146,4 +173,4 @@ powershell -NoProfile -File scripts/v3/lib/OrchestrationModelRoutingEtapa4.tests
 
 ## Integration caution
 
-`Invoke-OrchestrationModelExecution` itself remains single-call: no native retry occurs there, and a caller-supplied `NoExecutionStarted` envelope never authorizes one. The separate Planner-mediated `model-fallback.ps1` path implements proof-gated pre-execution availability fallback and has bounded T1/T2 evidence; G1 separately proves T3→T4 capability escalation and DONE. A caught exception, caller boolean or unverified typed envelope never authorizes retry. Do not generalize beyond those measured paths.
+`Invoke-OrchestrationModelExecution` itself remains single-call: no native retry occurs there, and a caller-supplied `NoExecutionStarted` envelope never authorizes one. The separate Planner-mediated `model-fallback.ps1 -Action next` path implements proof-gated pre-execution availability fallback only with `-AttemptId` and explicit, caller-supplied correlated `-AttemptEvidenceJson` (helper never fabricates evidence, never dispatches); it has bounded T1/T2 evidence (`fallback-t1-proof.json`, `fallback-t2-proof.json`, `native-override-2.3.0.json`) where the failed primary was synthetic `openai/does-not-exist` (not real 429/quota/503). G1 separately proves T3→T4 capability escalation and DONE. Plugin V2 2.3.0 exposes only `tool.execute.before`, so full automation is impossible and the flow remains Planner-mediated on the same Task with one new native `subagent` and post-dispatch recording; do not create a parallel controller. A caught exception, caller boolean, bare error, or unverified typed envelope never authorizes retry. Do not generalize beyond those measured paths.

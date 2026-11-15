@@ -36,6 +36,11 @@ permission:
     "bun --version*": allow
     "opencode --version*": allow
     "opencode debug agents*": allow
+    "git diff *--output*": deny
+    "git show *--output*": deny
+    "git log *--output*": deny
+    "rg *--pre*": deny
+    "rg *--hostname-bin*": deny
   task: deny
 orchestration:
   build_delegable: true

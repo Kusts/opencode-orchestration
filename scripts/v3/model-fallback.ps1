@@ -2,11 +2,10 @@
 .SYNOPSIS
 Gets the next policy fallback or records an observed attempt.
 .DESCRIPTION
-For -Action next, provide structured failure and, for provider/dispatcher
-errors, complete structured pre_dispatch evidence. Only a recognized
-tool.execution error without child session id or valid explicit evidence
-proves non-start. Missing, malformed, inconsistent, or ambiguous evidence
-fails closed. The caller/Planner performs the single authorized redispatch;
+For -Action next, provide AttemptId, structured failure, and explicit,
+correlated pre_dispatch no-start evidence. The caller supplies that evidence;
+this helper never fabricates it. Missing, malformed, inconsistent, or
+ambiguous evidence fails closed. The caller/Planner performs the single authorized redispatch;
 this helper never dispatches. Output JSON has stable fields status,
 classification, no_start_proof, next_model, next_tier, attempt_id, reason.
 Conscious trade-off: an ineligible failure class takes precedence over
@@ -23,10 +22,10 @@ $ErrorActionPreference='Stop'
 $AttemptedModels=ConvertFrom-OrchestrationAttemptedModels $AttemptedModels
 try {
  if($Action -eq 'next'){
-  if(-not $AttemptRole -or -not $FailedModel -or -not $FailureJson){throw 'Required: AttemptRole, FailedModel, FailureJson'}
+  if(-not $AttemptId -or -not $PSBoundParameters.ContainsKey('TaskId') -or [string]::IsNullOrWhiteSpace($TaskId) -or -not $AttemptRole -or -not $FailedModel -or -not $FailureJson){throw 'Required: AttemptId, TaskId, AttemptRole, FailedModel, FailureJson'}
   $f=$FailureJson;if($f.StartsWith('@')){$f=Get-Content -LiteralPath $f.Substring(1) -Raw}
-  $ae=$null;if($AttemptEvidenceJson){try{$aj=$AttemptEvidenceJson;if($aj.StartsWith('@')){$aj=Get-Content -LiteralPath $aj.Substring(1) -Raw};$ae=ConvertFrom-Json -InputObject $aj -ErrorAction Stop}catch{$ae=@{source='invalid';stage='pre_dispatch';session_id='';execution_started=$false;assistant_messages=0;tool_calls=0}}}
-  $d=Get-OrchestrationModelFallbackDecision -TaskId $TaskId -AttemptRole $AttemptRole -Risk $Risk -Complexity $Complexity -FailedModel $FailedModel -AttemptedModels $AttemptedModels -Failure $f -SessionId $SessionId -ObservedModel $ObservedModel -PolicyPath $PolicyPath -EvidenceDir $EvidenceDir -AttemptEvidence $ae
+  $ae=$null;if($AttemptEvidenceJson){try{$aj=$AttemptEvidenceJson;if($aj.StartsWith('@')){$aj=Get-Content -LiteralPath $aj.Substring(1) -Raw};$ae=ConvertFrom-Json -InputObject $aj -ErrorAction Stop}catch{$ae=@{source='invalid';stage='pre_dispatch';task_id='';attempt_id='';requested_model='';session_id='';execution_started=$false;assistant_messages=0;tool_calls=0}}}
+  $d=Get-OrchestrationModelFallbackDecision -TaskId $TaskId -AttemptRole $AttemptRole -Risk $Risk -Complexity $Complexity -FailedModel $FailedModel -AttemptedModels $AttemptedModels -Failure $f -SessionId $SessionId -ObservedModel $ObservedModel -PolicyPath $PolicyPath -EvidenceDir $EvidenceDir -AttemptEvidence $ae -AttemptId $AttemptId
   $o=@{status=$d.Status;classification=$d.Classification;no_start_proof=$d.NoStartProof;next_model=$d.NextModel;next_tier=$d.NextTier;attempt_id=$d.AttemptId;reason=$d.Reason};$o|ConvertTo-Json -Compress
   if($d.Status -like 'HOLD_*'){exit 3};if($d.Status -in @('FALLBACK_AUTHORIZED','EXHAUSTED')){exit 0};exit 3
  }
