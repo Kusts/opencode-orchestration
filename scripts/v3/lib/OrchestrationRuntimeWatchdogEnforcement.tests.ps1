@@ -1343,6 +1343,7 @@ try {
     # leg; divergence is proven via executable-path and start-time legs.
     $fbFail8b = [int]$script:failed
     $c8b = Start-EnforceChild -SleepSeconds 60
+    [void](Wait-EnforceReady -Proc $c8b -TimeoutMs 10000)
     $livePath8 = ''
     try { $livePath8 = ([string](Get-Process -Id ([int]$c8b.Id) -ErrorAction Stop).Path).Trim() } catch { $livePath8 = '' }
     $liveStart8 = ''
@@ -1363,9 +1364,16 @@ try {
     Assert-Enforce (Test-EnforceAlive -Proc $c8b) 'refused child intact' ''
     $skewStart = ''
     try { $skewStart = ((([DateTime]$c8b.StartTime).ToUniversalTime().AddHours(1)).ToString('o')) } catch { $skewStart = '' }
-    $timeExec = @{ process = [ordered]@{ process_id = ([int]$c8b.Id); process_path = $livePath8; parent_process_id = ([int]$PID); process_start_time = $skewStart } }
-    $ownTime = Test-WatchdogProcessOwnership -Execution $timeExec
-    Assert-Enforce (((-not [bool]$ownTime.owned)) -and ([string]$ownTime.reason -ceq 'WATCHDOG_INTERRUPT_REFUSED') -and ([string]$ownTime.detail -ceq 'start-time-mismatch')) 'reused-PID skew => REFUSED, never killed' ([string]$ownTime.reason + '/' + [string]$ownTime.detail)
+    $livePath8b = ''
+    try { $livePath8b = ([string](Get-Process -Id ([int]$c8b.Id) -ErrorAction Stop).Path).Trim() } catch { $livePath8b = '' }
+    if ([string]::IsNullOrWhiteSpace($livePath8b)) {
+        Write-Host 'SKIP reused-PID skew => REFUSED, never killed (path nao legivel no ambiente)'
+    }
+    else {
+        $timeExec = @{ process = [ordered]@{ process_id = ([int]$c8b.Id); process_path = $livePath8b; parent_process_id = ([int]$PID); process_start_time = $skewStart } }
+        $ownTime = Test-WatchdogProcessOwnership -Execution $timeExec
+        Assert-Enforce (((-not [bool]$ownTime.owned)) -and ([string]$ownTime.reason -ceq 'WATCHDOG_INTERRUPT_REFUSED') -and ([string]$ownTime.detail -ceq 'start-time-mismatch')) 'reused-PID skew => REFUSED, never killed' ([string]$ownTime.reason + '/' + [string]$ownTime.detail)
+    }
     Assert-Enforce (Test-EnforceAlive -Proc $c8b) 'skew-refused child intact' ''
     $selfExec = @{ process = [ordered]@{ process_id = ([int]$PID); process_path = ''; parent_process_id = 0; process_start_time = '' } }
     $ownSelf = Test-WatchdogProcessOwnership -Execution $selfExec
