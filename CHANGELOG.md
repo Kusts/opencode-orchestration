@@ -6,6 +6,12 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- 2026-11-14: a rota de executores externos foi substituída por validação advisory-only fail-closed: a implementação anterior podia executar fora de uma fonte confiável de effective grants; dry-run confirma apenas validade do request e execução viva permanece bloqueada até existir essa fonte e a autorização correspondente. Removida a dependência de Newtonsoft para detectar chaves JSON duplicadas e respostas agora usam reasons fixas, sem propagar mensagens de exceção.
+
+- 2026-11-14: timeout do verificador `v3-kernel` ampliado de 300s para 900s após uma execução confiável atingir o limite anterior. Comando e classe de perfil permanecem inalterados; a mudança apenas amplia o prazo do verificador, sem alterar o status O3/O4 ou a autoridade de execução.
+
+- **Histórico, supersedido (2026-11-14):** a entrada abaixo descreve uma rota anterior de execução/intent/receipt e suas provas; não representa o estado atual. Foi supersedida pela entrada de validação advisory-only fail-closed acima. Não há claim atual de execução externa, intents/receipts, nem das contagens de testes aqui registradas.
+
 - 2026-11-14: O4-S1 shadow-only, non-authoritative external-action claim diagnostics; no runtime wiring added. Direct name-based scanning covers included repository source/config text and excludes local/runtime/generated/docs/tests/secret files; it is not obfuscation-resistant. Reason codes deferred; O3 remains open; Gate O4 is not claimed; no staging is authorized.
 
 - 2026-11-14: allowlist read-only deny-default para dez perfis; rebase allow nos writers; `Format-Volume`/`diskpart` deny explícitos; grants `shell.diagnostic` alinhados. Evidência em `evidence/subagent-permissions-2026-11-14/`; provas comportamentais C/A/B/E PASS e D HOLD (depth 1). Em 2.3.0, regras de topo precedem as do agente na lista efetiva, então o catch-all do perfil prevalece sobre asks de topo.

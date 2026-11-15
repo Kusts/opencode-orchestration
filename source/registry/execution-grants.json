@@ -16,7 +16,9 @@
     "deploy.production",
     "secrets.reference",
     "secrets.read",
-    "destructive.fs"
+    "destructive.fs",
+    "external.telegran.fetch",
+    "external.telegran.learn"
   ],
   "role_baselines": {
     "build": ["fs.read", "fs.write", "shell.validation", "shell.diagnostic", "git.diff", "git.commit", "git.branch", "git.worktree", "docs.write"],

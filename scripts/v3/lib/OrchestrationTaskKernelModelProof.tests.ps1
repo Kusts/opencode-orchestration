@@ -355,6 +355,26 @@ try {
     Assert-ModelProof ([bool]$hasFailer) 'executed evidence carries the planned profile identity'
     Assert-ModelProof (((@($gpt2['verification_profiles'])).Count -eq 1) -and ([string](@($gpt2['verification_profiles'])[0]) -ceq 'failer')) 'plan immutable across verify-run'
 
+    # Exercise the canonical CLI: omitted -VerifierProfiles must persist a real empty plan.
+    $emptyCliId = 'proof-emptyplan-cli-001'
+    $cliScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'task-kernel.ps1'
+    $cliOutput = @(& powershell -NoProfile -File $cliScript -Action create -TaskId $emptyCliId `
+        -Objective 'Create task with omitted verifier profiles' -Actor 'planner' `
+        -TasksDir $rt.tasks -FlagsPath $rt.flags 2>&1)
+    $cliExit = $LASTEXITCODE
+    $emptyJsonPath = Join-Path $rt.tasks ($emptyCliId + '.json')
+    $emptyJson = ''
+    if (Test-Path -LiteralPath $emptyJsonPath -PathType Leaf) {
+        $emptyJson = [IO.File]::ReadAllText($emptyJsonPath, [Text.UTF8Encoding]::new($false))
+    }
+    $emptyRecord = $null
+    try { $emptyRecord = Get-OrchestrationTask -TaskId $emptyCliId -TasksDir $rt.tasks } catch { }
+    Assert-ModelProof (($cliExit -eq 0) -and ($emptyJson -match '"verification_profiles"\s*:\s*\[\s*\]') -and ($null -ne $emptyRecord)) 'CLI create with omitted profiles persists JSON empty array' ('exit=' + [string]$cliExit + '; output=' + (@($cliOutput) -join ' '))
+    $emptyBefore = Get-ModelProofBytesHash -Path $emptyJsonPath
+    $emptyVerify = Invoke-TaskKernelVerifyRun -TaskId $emptyCliId -ExpectedRevision ([int]$emptyRecord['revision']) -TasksDir $rt.tasks -FlagsPath $rt.flags -RepoRoot (Get-TaskKernelRepoRoot -RepoRoot '')
+    $emptyAfter = Get-ModelProofBytesHash -Path $emptyJsonPath
+    Assert-ModelProof (((-not [bool]$emptyVerify.ok) -and ([string]$emptyVerify.error -ceq 'VERIFIER_PLAN_MISSING') -and ($emptyBefore -ceq $emptyAfter))) 'empty verifier plan fails verify-run without mutation'
+
     # 3. creation rejects malformed plans with zero mutation
     $badPlans = @(@(''), @('failer', 'failer'), @('FAILER', 'failer'), @('x' * 129), @('bad profile!'))
     $badIdx = 0

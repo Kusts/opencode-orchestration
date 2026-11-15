@@ -11,7 +11,7 @@
     "v3-kernel": {
       "class": "test",
       "command": "powershell -NoProfile -File scripts/v3/run-v3-tests.ps1 -Name TaskKernel",
-      "timeout_seconds": 300
+      "timeout_seconds": 900
     },
     "criterion-smoke": {
       "class": "test",

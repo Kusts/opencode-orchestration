@@ -281,6 +281,18 @@ function New-DemoTask {
 $roots = New-Object System.Collections.ArrayList
 
 try {
+    # External executor grants are operator-declared task authority, not role baselines.
+    $externalGrantRoot = New-TaskKernelTestRoot
+    [void]$roots.Add($externalGrantRoot.root)
+    $externalGrantTask = New-OrchestrationTask -TaskId 'external-grants-001' -Objective 'Authorize Telegran executor' `
+        -Actor 'planner' -Grants @('external.telegran.fetch', 'external.telegran.learn') `
+        -TasksDir $externalGrantRoot.tasks -FlagsPath $externalGrantRoot.flags -TelemetryRoot $externalGrantRoot.root
+    Assert-TaskKernel ([bool]$externalGrantTask.ok) 'task accepts registered external Telegran grants'
+    $unknownExternalGrant = New-OrchestrationTask -TaskId 'external-grants-unknown-001' -Objective 'Reject unknown grant' `
+        -Actor 'planner' -Grants @('external.unknown.grant') `
+        -TasksDir $externalGrantRoot.tasks -FlagsPath $externalGrantRoot.flags -TelemetryRoot $externalGrantRoot.root
+    Assert-TaskKernel ((-not [bool]$unknownExternalGrant.ok) -and ([string]$unknownExternalGrant.error -ceq 'INVALID_GRANTS')) 'task rejects invented external grant'
+
     # 1. create + roundtrip, all fields survive
     $t = New-TaskKernelTestRoot
     [void]$roots.Add($t.root)
@@ -629,6 +641,12 @@ try {
     Assert-TaskKernel ($eff5 -cnotcontains 'destructive.fs') 'sensitive grant with task grant plus approval but missing runtime/env sets stays out'
     $eff5b = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @('fs.read', 'destructive.fs') -RuntimeCapabilityGrants @('fs.read', 'destructive.fs') -EnvironmentAuthorizationGrants @('fs.read', 'destructive.fs') -HumanApproved -GrantsPath $repoGrants)
     Assert-TaskKernel (($eff5b -ccontains 'destructive.fs') -and ($eff5b -ccontains 'fs.read')) 'sensitive grant admitted only with all three sets plus approval'
+    foreach ($externalGrant in @('external.telegran.fetch','external.telegran.learn')) {
+        $taskOnly = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @($externalGrant) -GrantsPath $repoGrants)
+        $allApproved = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @($externalGrant) -RuntimeCapabilityGrants @($externalGrant) -EnvironmentAuthorizationGrants @($externalGrant) -HumanApproved -GrantsPath $repoGrants)
+        Assert-TaskKernel ($taskOnly -cnotcontains $externalGrant) ($externalGrant + ' requires trusted sources')
+        Assert-TaskKernel ($allApproved -ccontains $externalGrant) ($externalGrant + ' requires every grant source and human approval')
+    }
     $eff5c = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @('fs.read', 'destructive.fs') -RuntimeCapabilityGrants @('fs.read') -EnvironmentAuthorizationGrants @('fs.read', 'destructive.fs') -HumanApproved -GrantsPath $repoGrants)
     Assert-TaskKernel ($eff5c -cnotcontains 'destructive.fs') 'sensitive grant missing from runtime set stays out'
     $effT = @(Get-OrchestrationEffectiveGrants -Role 'tester' -TaskGrants @('fs.read', 'fs.write', 'shell.validation') -RuntimeCapabilityGrants @('fs.read', 'fs.write', 'shell.validation') -EnvironmentAuthorizationGrants @('fs.read', 'fs.write', 'shell.validation') -HumanApproved -GrantsPath $repoGrants)
