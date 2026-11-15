@@ -4,9 +4,11 @@ Status: Step 1 **PARTIAL** (this slice); Step 2 **DONE** (declared/effective,
 OAuth and native Luna/MiMo samples recorded; live-config reinstall remains
 Step 5); Step 3 **DONE** (PR reconciliation); Step 4 **DONE for measured T1/T2 fallbacks**
 (Planner-mediated; not automatic); Step 5 **DONE** (Agent Config fix and live
-sync converged); Step 6 **DONE**
-(measurement, including one skill-invocation journey reaching DONE; #11/#64
-remain PARTIAL); Step 7 **PARTIAL** (T3/T4 availability fallback observed,
+sync converged); Step 6 **DONE** para medição, com decisão registrada
+(manter carregamento nativo de skills e telemetria de cache existente; #11/#64
+permanecem PARTIAL, sem claim causal, critério objetivo para reabrir
+investimento: n>=3, ordem randomizada, mesmo modelo/tarefa, custo observável e
+métrica de qualidade); Step 7 **PARTIAL** (T3/T4 availability fallback observed,
 but provider outage/429/503 and Astra unproven).
 
 | Step | Work | Dependency | Initial status |
@@ -16,7 +18,7 @@ but provider outage/429/503 and Astra unproven).
 | 3 | Consolidate PRs #238/#239/#240 | merge state and focused reconciliation evidence | DONE; #238/#239/#242/#243/#244 MERGED; #240 CLOSED → #243; master evidence `402dbc0`, `f7a233e`, `df74e2a` |
 | 4 | Normalize errors + T1/T2 fallback | classification, observed no-start, Kernel gates | DONE for T1/T2 proofs: authorized decisions, native fallback child sessions succeeded and `model-attempt` recorded; Planner-mediated, not automatic |
 | 5 | Orchestration/Agent Config/-Clean integration | Steps 1-2; ownership and authorized reinstall | DONE; Agent Config fix applied, Instructions/Settings converged, post-sync install WhatIf reports zero drift |
-| 6 | Cache/skills | cache and skill A/B measurements | DONE for measurement; skills-assisted journey reached DONE (n=1, non-randomized, `executed=false`); #11/#64 remain PARTIAL |
+| 6 | Cache/skills | cache/skills evidence and decision | DONE for measurement/decision: manter skills nativas (catálogo+sob demanda, `skill_routing` OFF) e telemetria de cache existente; NÃO criar plataforma/flag/otimização de cache. #11/#64 PARTIAL (observacional, sem causalidade; `cost_observed=false`); reabrir só com n>=3, ordem randomizada, mesmo modelo/tarefa, custo observável e métrica de qualidade |
 | 7 | T2-T4 routing | Steps 3-6; runtime/model proof | PARTIAL; T1/T2 availability fallback real; T3→T4 kernel-proof escalation and DONE real; T3/T4 availability fallback authorized and executed after observed client-side pre-execution model rejection; no real HTTP 429/503 or provider outage proved; Astra not executed |
 
 ## Blockers and risks
@@ -60,27 +62,29 @@ This measured fallback is Planner-mediated, not automatic. Helper suites
 passed 39/39, 70/70 and 8/8 in Windows PowerShell 5.1 and pwsh. No parallel
 `opencode run` executor is allowed.
 
-## Etapa 7 — cadeias observadas
+## Etapa 7 — cadeias observadas e consolidação T3/T4 (evidência verificável)
 
-| Role / tier | Modelo observado em ordem | Estado / limite |
+**PASS / verificado (com prova):**
+- **G1 T3→T4 (Task `proof-g1-20261113`):** `model-select` T3 = `claude-agent/sonnet` (coder, medium, complex); `model-attempt` registrado com sessão filha (`ses_e293f74bcffeG5cNj9f7N8OSNo`, `parentSessionID=ses_e29b0ad23ffeG1hVvNxGf05KYr`, `assistantMessageID=msg_1d6c0a0090010aF8ixEb1WyRN1`); `model-proof` Kernel-owned T3 (`modelproof:proof-g1-20261113:T3:2:9`, digest `sha256:df06d9f728227a510c890f2e9d55ac58f663ad752fd69b3588c7daa6afa77c8e`); escalonamento `model-select` T4 = `claude-agent/opus` no mesmo `TaskId` com referência/digest da prova T3; `observed_model` igual ao selecionado em T3 e T4; `verify-run` `verified_pass` (kernel-executed); review `approved`; Task `DONE` (rev 18, `worker_attempts=2`, `model_attempts=2`). Fonte: `evidence/mission-2026-11-13/g1-t4-done-proof.json`.
+- **T1/T2 (wiring nativo e fallback mediado pelo Planner):** em T1 e T2, tentativa primária com modelo sintético indisponível (`openai/does-not-exist`) produziu erro nativo `tool.execution` sem `sessionID`/sessão filha; decisão `model-fallback.ps1 -Action next` autorizou fallback de mesmo tier e houve sessão filha subsequente com `observed_model` igual ao modelo solicitado/autorizado (T1: MiMo `ses_e29808f9dffeyyU67grp62rgFD`; T2: DeepSeek Go `ses_e295a469effeMUnrmkh0CrTgXn`, prompt trivial não-sensível, `sensitive_data_allowed=false`, ZDR `expired-unconfirmed`). O primário falho foi sintético (`openai/does-not-exist`), não falha real de Luna. Fontes: `evidence/mission-2026-11-13/fallback-t1-proof.json`, `fallback-t2-proof.json`, `native-override-2.3.0.json`.
+- **Política/routing (confirmado em registry/código):** T1 Luna→MiMo; T2 Luna→DeepSeek/Muse/Haiku (ordem/candidatos conforme policy 1.5.0); T3 Sonnet→Terra; T4 Opus→Sol; Astra excepcional/proof-gated (`fable-requires-astra-failure`, prova/ordem audit-only conforme policy/router). `fallback_policy.prevent_cycles=true` (`source/registry/model-routing-policy.json`) e exclusão/rastreamento `ALREADY_ATTEMPTED` de modelos já tentados (`scripts/v3/lib/OrchestrationModelRouter.ps1`). Fallback é **Planner-mediated, não automático**; sem alegação de execução duplicada.
+
+| Cadeia / observação | Estado verificável | Limite objetivo |
 |---|---|---|
-| explorer T1 | `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` | Transição real executada; evidência T1 |
-| coder T2 | Luna T2 selection → `opencode-go/deepseek-v4.1-flash` | Decision + child execution real; failed model was synthetic `openai/does-not-exist`, not a real Luna provider failure; prompt trivial não-sensível |
-| coder T3→T4 | `claude-agent/sonnet` → `claude-agent/opus` | Escalonamento real com prova Kernel-owned T3; controlled prompt failure, Opus succeeded, review approved, Task DONE |
-| T3 availability fallback | Terra | Prova pediu o ID deliberadamente inexistente `claude-agent/sonnet-availability-probe-nonexistent`, rejeitado client-side antes da execução e sem sessão; isso não é falha do Sonnet real. `MODEL_UNAVAILABLE` → `FALLBACK_AUTHORIZED`; Terra executado conforme relato do operador e tentativa registrada (`observed_model=UNKNOWN`, sessão `ses_e2857aea9ffeBN8x6nE16QeLoR`). Não prova indisponibilidade real do provider nem HTTP 429/503; candidato do resolver é audit-only |
-| T4 availability fallback | Sol | Prova kernel-owned `modelproof:fallback-avail-t4-20261113:T3:2:7` (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`); pediu o ID deliberadamente inexistente `claude-agent/opus-availability-probe-nonexistent`, rejeitado client-side antes da execução — não é falha do Opus real. `FALLBACK_AUTHORIZED`; Sol executado conforme relato do operador e tentativa registrada (`observed_model=UNKNOWN`, sessão `ses_e284d5e49ffenBXX35BVr1LWaC`). Não prova HTTP 429/503; candidato do resolver é audit-only |
-| Astra | Excepcional proof-gated | Não alegado como executado |
+| explorer T1: `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` | Transição/execução filha real (Planner-mediated) | Primário falho sintético `openai/does-not-exist`; não prova 429/quota/503 real |
+| coder T2: seleção T2 → `opencode-go/deepseek-v4.1-flash` | Decisão + sessão filha real | Primário falho sintético; prompt trivial não-sensível; ZDR `expired-unconfirmed` |
+| coder T3→T4: `claude-agent/sonnet` → `claude-agent/opus` (mesmo TaskId) | Escalonamento com prova Kernel-owned, verify/review/DONE reais | Falha funcional de T3 induzida por prompt (controlada), não incapacidade natural |
+| T3 availability fallback (Terra) | ID deliberadamente inexistente `claude-agent/sonnet-availability-probe-nonexistent` rejeitado client-side antes da execução, sem sessão; `MODEL_UNAVAILABLE`→`FALLBACK_AUTHORIZED`; execução Terra relatada/registrada (`observed_model=UNKNOWN`, `ses_e2857aea9ffeBN8x6nE16QeLoR`, evidência `fallback-availability-2026-11-13/` se presente) | Não é falha do Sonnet real nem outage/429/503 real; candidato do resolver audit-only |
+| T4 availability fallback (Sol) | Prova kernel-owned `modelproof:fallback-avail-t4-20261113:T3:2:7` (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`); ID inexistente `claude-agent/opus-availability-probe-nonexistent` rejeitado client-side antes da execução; `FALLBACK_AUTHORIZED`; execução Sol relatada/registrada (`observed_model=UNKNOWN`, `ses_e284d5e49ffenBXX35BVr1LWaC`) | Não é falha do Opus real nem HTTP 429/503 real; candidato do resolver audit-only |
+| Astra | Excepcional, proof-gated | Não executado |
 
-As evidências/medições estão limitadas às execuções relatadas; não implicam
-autorização geral de fallback, execução de Astra, nem conclusão dos turns
-18/20/21/22.
+**PARTIAL / HOLD (critérios objetivos):**
+- **429/quota/503/outage real de provider:** **não observado**. Probe com ID/modelo inexistente é rejeição client-side pré-execução (sem sessão), não indisponibilidade real. **Retomar quando** um evento real de provider for observado com prova de não-início (no-start) independente/aceita pelo Kernel antes de qualquer retry/fallback.
+- **Falha natural de T3:** a prova G1 foi **induzida por prompt** (controlada), não estabelece incapacidade natural do modelo. **Retomar quando** uma falha funcional espontânea de T3 for verificada pelo Kernel (prova Kernel-owned) em cenário não induzido artificialmente.
+- **Astra:** **não executado**. **Retomar apenas** se Sol não resolver, com prova Kernel-owned conforme gates de policy (excepcional/proof-gated); nunca automático.
+- **Timeout/resultado ambíguo:** **HOLD**, sem retry e sem execução duplicada (aguardar prova de estado/no-start antes de qualquer ação).
 
-Provas detalhadas: `evidence/mission-2026-11-13/fallback-t2-proof.json`,
-`evidence/mission-2026-11-13/g1-t4-done-proof.json` e
-`evidence/fallback-availability-2026-11-13/`.
-DeepSeek Go tem `sensitive_data_allowed=false` e ZDR
-`expired-unconfirmed`; a execução foi somente um prompt trivial não-sensível.
-Não enviar dados sensíveis.
+Provas detalhadas: `evidence/mission-2026-11-13/fallback-t1-proof.json`, `fallback-t2-proof.json`, `g1-t4-done-proof.json`, `native-override-2.3.0.json`; observações T3/T4 availability em `evidence/fallback-availability-2026-11-13/` (quando presentes). Medições limitadas às execuções relatadas; sem claim de 429/503/outage real, sem claim de falha natural de T3, sem claim de Astra e sem claim de automação total. Não implica conclusão dos turns 18/20/21/22. DeepSeek Go: execução T2 limitada a prompt trivial não-sensível (`sensitive_data_allowed=false`, ZDR `expired-unconfirmed`).
 
 ## Etapa 5 — instalação e ownership
 
@@ -108,22 +112,22 @@ Post-sync install `-WhatIf`: `INSTALLED=0 UNCHANGED=24 PRESERVED=15
 CONFLICT=0 FAILED=0`. Full evidence:
 `evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`.
 
-## Etapa 6 — medição A/B de skill (#64)
+## Etapa 6 — decisão cache (#11) e skills (#64)
 
-`evidence/mission-2026-11-13/skill-load-ab.json` registra dois subagents
-MiMo/explorer (uma amostra por braço): A carregou
-`verification-before-completion` e B não carregou skill. O corpo é ~2.184
-bytes (~546 tokens), mas o round-trip da tool adiciona uma inferência com
-reenvio/cache de contexto; a diferença de ~34k tokens de prompt não é o
-tamanho da skill. Lazy loading evita preload dos ~228k tokens estimados de
-corpos, mas uma skill carregada custa um round-trip. Não criar plataforma/flag;
-`skill_routing` permanece OFF.
+Decisão registrada com base em evidências existentes, sem repetir experimento caro e sem claim causal.
 
-A jornada `skill-bench2-2026-11-13` chegou a DONE (verify Kernel rev 14,
-review approved rev 13, DONE rev 15); a chamada da skill ficou registrada
-como `completed`, `executed=false`. A comparação segue n=1 e não randomizada,
-com controle G1 diferente; não demonstra uso/benefício causal. #64 segue
-PARTIAL; #11 segue PARTIAL apesar da evidência de cache na jornada DONE.
+**Evidências (números e limitações):**
+- `evidence/skill-ab-2026-11-13/comparison.json`/`README.md`: mesmo modelo `openai/gpt-6-luna` T2, runtime 2.3.0, tarefa/perfil/escopo iguais, `verified_pass`/DONE em ambos, n=1, ordem A→B não randomizada, `cost_observed=false`. A (com `verification-before-completion`): 3.815 input / 231.680 cache-read / 498 output / 21 reasoning. B (sem `verification-before-completion`, com `ai-memory-retrieval` e `systematic-debugging`): 19.741 input / 448.256 cache-read / 784 output / 194 reasoning (~5,2× input e ~1,9× cache-read vs A). Limitações: arm B não é controle sem skills; observacional; possível aprendizado/cache; mesma máquina.
+- `evidence/abba-2026-11-13/comparison.json`: ABBA, n=2 por braço, mesmo modelo/máquina. Médias A 3.655 input / 269.312 cache-read / 25.606,5 ms; B 2.772,5 input / 218.112 cache-read / 22.172 ms (amplitudes/ranges relevantes). `control_valid=true` apenas indica 0 `skill` calls em B (controle instruído/auditado, sem bloqueio mecânico). Limitações: n=2, contaminação cruzada em b1 (leitura de correção pronta de a1; write out-of-scope motivou rescope), carryover aprendizado/cache, custo não observado. Piloto de procedimento, não teste de superioridade.
+- `docs/specs/SKILL-BENCH-JOURNEY-2026-11-13.md`: invocação `completed` com `executed=false` em jornada DONE n=1 não randomizada — registro de invocação, não uso/benefício.
+- Medição prévia `evidence/mission-2026-11-13/skill-load-ab.json`: corpo ~2.184 bytes (~546 tokens estimados) para `verification-before-completion`; round-trip de tool adiciona reenvio/cache de contexto; lazy loading nativo evita preload (~228k tokens estimados de corpos no lote medido), mas carregar uma skill custa um round-trip.
+
+**Decisões:**
+1. **Skills:** manter carregamento nativo (catálogo + invocação sob demanda). NÃO construir plataforma/flag de descoberta seletiva; `skill_routing` permanece OFF. O corpo custa round-trip quando carregada; lazy loading já evita preload — manter.
+2. **Cache (#11, PARTIAL):** manter telemetria de cache existente. NÃO adicionar otimização de cache agora. #11 permanece PARTIAL porque custo/cache provider-neutral e custo-to-DONE ajustado por cache não estão observáveis (`cost_observed=false`), apesar de leituras de cache observadas.
+3. **#64, PARTIAL:** comparação observacional (n=1 no A/B principal; ABBA piloto contaminado), sem inferência causal. O braço com skill usou menos tokens no A/B principal, mas a diferença não prova benefício nem generaliza.
+4. **Critério objetivo para reabrir investimento:** repetição com n>=3, ordem randomizada, mesmo modelo/tarefa, custo observável e métrica de qualidade; sem isso, não há base para plataforma nova.
+5. **Interpretação:** "manter nativo" é decisão baseada em evidência insuficiente para justificar plataforma nova, não prova de que a otimização funciona. Nenhum claim causal.
 
 ## Issue / PR triage
 
@@ -131,7 +135,7 @@ PARTIAL; #11 segue PARTIAL apesar da evidência de cache na jornada DONE.
 |---|---|---|
 | PR #210 | Recommend closing as obsolete/conflicting; do not close here | Superseded by #238/#239; retain useful planner/Haiku components only where already absorbed |
 | #208 | Update with evidence and actual remaining blockers | Do not claim complete; cite runtime and proof gaps |
-| #11 / #64 | Partial | Existing implementation is not full acceptance; document remaining requirements and require proof |
+| #11 / #64 | Partial (decisão registrada) | **#11:** manter telemetria de cache existente, sem otimização agora; permanece PARTIAL porque custo/cache provider-neutral e custo-to-DONE ajustado por cache não são observáveis (`cost_observed=false`). **#64:** manter carregamento nativo de skills (catálogo+sob demanda, `skill_routing` OFF, sem plataforma/flag); permanece PARTIAL — comparações observacionais (A/B n=1; ABBA n=2 contaminado), sem causalidade, diferença de tokens não prova benefício nem generaliza. "Manter nativo" = evidência insuficiente para plataforma nova, não prova de otimização. **Reabrir só com:** n>=3, ordem randomizada, mesmo modelo/tarefa, custo observável e métrica de qualidade. |
 | #238 | MERGED | Merge confirmado |
 | #239 | MERGED | Merge confirmado |
 | #240 | CLOSED → #243 | Substituído pelo follow-up #243 |

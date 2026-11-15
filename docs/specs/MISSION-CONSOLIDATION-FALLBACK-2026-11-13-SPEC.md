@@ -50,21 +50,10 @@ synthetic-test-only.
   `evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`. The PR
   remains open. PS5.1 suite was 91/95 with four pre-existing failures
   (baseline 87/91); pwsh was 95/95.
-- Step 6: **DONE** for measurement. The G1/T4 DONE journey includes observed
-  cache reads/writes. A separate skills-assisted journey reached DONE
-  (`skill-bench2-20261113`, verify kernel-executed rev 14, review approved
-  rev 13, DONE rev 15). The skill tool call was recorded as `completed`,
-  `executed=false`; this proves invocation record, not skill use or benefit.
-  The observation is n=1 with a non-randomized G1 control; it does not close
-  #64 or conclude #11. A one-pair MiMo free A/B measured loading
-  `verification-before-completion` via tool versus no skill; the skill body
-  is ~2,184 bytes (~546 estimated tokens), while the ~34k input difference
-  reflects context resend/cache rather than body size. Native lazy loading
-  avoids preloading ~228k estimated body tokens, but a skill load adds a tool
-  round-trip. No new platform/flag; `skill_routing` remains OFF.
-  #11 remains **PARTIAL** (cache evidenced in DONE but remaining acceptance
-  criteria open); #64 remains **PARTIAL** (single MiMo pair and one
-  non-randomized completion observation do not establish effect).
+- Step 6: **DONE** for measurement; decisão registrada sem repetir experimento caro. Evidências existentes: `evidence/skill-ab-2026-11-13/comparison.json` (Luna `openai/gpt-6-luna` T2, runtime 2.3.0, mesma tarefa/perfil/escopo, `verified_pass`/DONE em A e B, n=1, ordem A→B não randomizada, `cost_observed=false`, custo/busy não observados). Arm A (com `verification-before-completion`, 1 skill): 3.815 input / 231.680 cache-read / 498 output / 21 reasoning / 7 mensagens. Arm B (sem `verification-before-completion`, mas com `ai-memory-retrieval` e `systematic-debugging`, 2 skills): 19.741 input / 448.256 cache-read / 784 output / 194 reasoning / 11 mensagens (~5,2× input e ~1,9× cache-read vs A). `evidence/abba-2026-11-13/comparison.json` (ABBA, n=2 por braço, mesmo modelo/máquina, procedimento-piloto) observou médias A 3.655 input / 269.312 cache-read / 25.606,5 ms e B 2.772,5 input / 218.112 cache-read / 22.172 ms, com amplitudes/ranges relevantes, contaminação cruzada em b1 (`control_valid=true` apenas como ausência de `skill` calls em B, não bloqueio mecânico), possível carryover de aprendizado/cache e custo não observado (`0` com `cost_observed=false`). `docs/specs/SKILL-BENCH-JOURNEY-2026-11-13.md` registra invocação `completed` com `executed=false` em jornada DONE n=1 não randomizada — evidência de registro, não de uso/benefício.
+  **Decisão cache (#11, PARTIAL):** manter a telemetria de cache existente; NÃO adicionar otimização de cache agora. #11 permanece PARTIAL porque custo/cache provider-neutral e custo-to-DONE ajustado por cache não estão observáveis (`cost_observed=false`); leituras de cache foram observadas, mas os critérios restantes de aceitação continuam abertos.
+  **Decisão skills (#64, PARTIAL):** manter o carregamento nativo de skills (catálogo + invocação sob demanda); NÃO construir plataforma/flag de descoberta seletiva; `skill_routing` permanece OFF. O corpo da skill custa um round-trip quando carregada; lazy loading nativo já evita preload dos corpos (~228k tokens estimados em um lote medido; corpo de `verification-before-completion` ~2.184 bytes/~546 tokens estimados, diferença observada dominada por reenvio/cache, não pelo corpo). #64 permanece PARTIAL: comparação observacional (n=1 no A/B principal; ABBA piloto com contaminação), sem inferência causal; o braço com skill teve menos tokens no A/B principal, mas a diferença não prova benefício nem generaliza, e ABBA não sustenta conclusão por contaminação/variância.
+  **Interpretação e retomada:** "manter nativo" é decisão baseada em evidência insuficiente para justificar plataforma nova, não prova de que otimização funciona. Critério objetivo para reabrir investimento: repetição com n>=3, ordem randomizada, mesmo modelo/tarefa, custo observável e métrica de qualidade; sem isso, não há base para plataforma nova. Não há claim causal.
 - Step 7: **PARTIAL** - T1 Luna→MiMo and T2 Luna→DeepSeek Go availability
   fallback decisions/child executions were real. For T2, the failed model was
   synthetic `openai/does-not-exist`, not a real Luna provider failure.
