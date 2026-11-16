@@ -1,824 +1,578 @@
-﻿{
-    "scan_scope":  [
-                       "scripts/",
-                       "plugins/",
-                       "templates/",
-                       "install.ps1",
-                       "uninstall.ps1",
-                       "source/registry/"
-                   ],
-    "excluded_paths":  [
-                           "evidence/",
-                           "docs/",
-                           "cache/",
-                           ".git/",
-                           "node_modules/"
-                       ],
-    "declared_pins":  [
-                          {
-                              "key":  "runtimes.v1",
-                              "package":  "opencode-ai",
-                              "version":  "1.18.34",
-                              "spec":  "opencode-ai@1.18.34"
-                          },
-                          {
-                              "key":  "runtimes.v2",
-                              "package":  "@opencode/cli",
-                              "version":  "2.2.6",
-                              "spec":  "@opencode/cli@2.2.6"
-                          },
-                          {
-                              "key":  "plugins.v1",
-                              "package":  "@opencode-ai/plugin",
-                              "version":  "1.18.34",
-                              "spec":  "@opencode-ai/plugin@1.18.34"
-                          },
-                          {
-                              "key":  "plugins.v2",
-                              "package":  "@opencode/plugin",
-                              "version":  "2.2.6",
-                              "spec":  "@opencode/plugin@2.2.6"
-                          },
-                          {
-                              "key":  "tools.bun",
-                              "package":  "bun",
-                              "version":  "1.3.14",
-                              "spec":  "bun@1.3.14"
-                          }
-                      ],
-    "distinct_literals":  [
-                              "1.18.34",
-                              "2.2.6",
-                              "1.3.14"
-                          ],
-    "literals":  [
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  243,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "// typechecked at 2.2.6, runtime-observed only at 2.0.23 (sessionID, agent -",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  344,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "// 2.0.23, not 2.2.6: required keys",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                         "line":  414,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "// SessionInfo; the 2.2.6 runtime shape remains unobserved.",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  164,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "// Typechecked against current @opencode/plugin registry pin 2.2.6; prior runtime observation is 2.0.23 only. get({sessionID})",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "plugins/orchestration-enforcement/v2.ts",
-                         "line":  177,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "// Typecheck uses current registry pin 2.2.6; runtime observation is historical 2.0.23 only. This literal is checked by tsc against",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "scripts/ci/session-real-lane-v2.ps1",
-                         "line":  2968,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "# V1 imprime so \u00271.18.34\u0027 (sem o prefixo \u0027opencode v\u0027 do V2);",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "scripts/runtime/detect-opencode-capabilities.tests.ps1",
-                         "line":  82,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "return @{ Ok = $true; ExitCode = 0; Output = \"opencode v1.18.34\"; Reason = \"probe ok\" }",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-objective.tests.ps1",
-                         "line":  102,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$c = New-OrchestrationTask -TaskId $TaskId -Objective \u0027Create and verify resume-proof.txt inside the authorized write scope.\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86o\u0027 -ReadScopes @(\u0027src/readme.md\u0027) -WriteScopes @(\u0027resume-proof.txt\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/github-wake-86-settlement.tests.ps1",
-                         "line":  89,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$c = New-OrchestrationTask -TaskId $tid -Objective (\u0027obj \u0027 + $tid) -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -Actor \u0027planner-1\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -BaseRevision \u0027rev-86s\u0027 -ReadScopes @(\u0027src/s86.ps1\u0027) -Grants @(\u0027fs.read\u0027) -AcceptanceCriteria @(\u0027criterion:0\u0027) -AttemptBudget 3 -TasksDir $Env.tasksDir -FlagsPath $Env.flagsPath -TelemetryRoot $Env.root",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2551,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23; official raw",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2553,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "parent.model). 2.2.6 was authorized by an exact native-override probe",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                         "line":  2661,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$supported = @(\u00272.2.5\u0027, \u00272.2.6\u0027, \u00272.0.23\u0027)",
-                         "classification":  "PRODUCT_CODE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  12,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "the canonical supported allowlist (2.2.5, 2.2.6, 2.0.23). Unknown/missing live",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  49,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$r226 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam \u00272.2.6\u0027)",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
-                         "line":  51,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "Assert-NP (([string]$r226.live_version -ceq \u00272.2.6\u0027)) \u0027NP02c-live-version-echo-226\u0027 (\"live=\" + [string]$r226.live_version)",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationReviewIntegration.tests.ps1",
-                         "line":  32,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$create = New-OrchestrationTask -TaskId \u0027task-review-1\u0027 -Objective \u0027validar review ancorado\u0027 -TaskType \u0027implementation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
-                         "line":  76,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "$probeV1=\"opencode version 1.18.34 windows\"",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  30,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-event-1\u0027 -Objective \u0027receber evento\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationTaskEvent.tests.ps1",
-                         "line":  57,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$c2 = New-OrchestrationTask -TaskId \u0027task-event-2\u0027 -Objective \u0027task terminal\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  18,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$doc=[ordered]@{schema_version=1;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;records=@($Records)}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  24,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$record=[ordered]@{feature_id=$FeatureId;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$Scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  42,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "if([string]$entry.feature_id -ceq $name -and [string]$entry.required_evidence.type -ceq \u0027exact-binary-live\u0027 -and [string]$entry.required_evidence.runtime -ceq \u0027v2\u0027 -and [string]$entry.required_evidence.pin -ceq \u00272.2.6\u0027){$holdCount++}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  48,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "Assert-That ($holdCount -eq ($expectedFeatures.Count*2)) \u0027every candidate is hold-unproven with exact-binary-live/v2/2.2.6 requirements\u0027",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  51,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "Assert-That ($registry.runtime -ceq \u0027v2\u0027 -and $registry.pin -ceq \u00272.2.6\u0027 -and $registry.PSObject.Properties.Name -notcontains \u0027enabled\u0027) \u0027registry declares no global activation switch\u0027",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  88,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "[void](Assert-NotProven -Name \u0027pin.json\u0027 -Reason \u0027evidence-pin-mismatch\u0027 -Records @((New-ProvenRecord -FeatureId $target -Scenario $scenario -Override @{pin=\u00272.0.23\u0027})) -Label \u0027historical 2.0.23 evidence does not prove current 2.2.6\u0027)",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  224,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$typedInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]\u00272026-10-02T12:00:00Z\u0027);verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  225,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$textInstant=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=\u00272026-10-02T12:00:00Z\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  248,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$unspecified=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=([DateTime]::SpecifyKind([DateTime]\u00272026-10-02 12:00:00\u0027,[DateTimeKind]::Unspecified));verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
-                         "line":  250,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$wallClock=[ordered]@{feature_id=$target;type=\u0027exact-binary-live\u0027;runtime=\u0027v2\u0027;pin=\u00272.2.6\u0027;scenario=$scenario;verified_at=[DateTime]\u00272026-10-02 12:00:00\u0027;verified_by=\u0027livehook-v2.tests.ps1\u0027}",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  3,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "Gate operacional de regress??o e compatibilidade; a matriz distingue o baseline hist??rico, o host anterior e o pin atual V2.2.6 (Issues #101 e #146).",
-                         "classification":  "COMMENT_OR_DOC"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                         "line":  71,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "[ordered]@{ version = \"2.2.6\"; profile = \"current-pin\"; status = \"PASS_EXACT_LIFECYCLE_SMOKE\"; note = \"Exact 2.2.6 lifecycle smoke passed; native capability evidence remains HOLD\" },",
-                         "classification":  "PRODUCT_CODE"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  46,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$pCurrent = $report.compatibility_matrix | Where-Object { $_.version -eq \"2.2.6\" }",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/opencode-v2-regression-gate.tests.ps1",
-                         "line":  47,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "Assert-Gate ($pCurrent.profile -eq \"current-pin\" -and $pCurrent.status -eq \"PASS_EXACT_LIFECYCLE_SMOKE\") \"2.2.6 lifecycle smoke exato passou; capacidades nativas continuam HOLD\"",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/OrchestrationEventBridge.tests.ps1",
-                         "line":  40,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$c = New-OrchestrationTask -TaskId \u0027task-bridge-1\u0027 -Objective \u0027receber evento via bridge\u0027 -TaskType \u0027validation\u0027 -Risk \u0027low\u0027 -RuntimeId \u0027opencode-v2\u0027 -RuntimeGeneration 2 -RuntimeProfile \u0027v2\u0027 -RuntimeVersion \u00272.2.6\u0027 -Actor \u0027planner\u0027 -TasksDir $tmp -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  47,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$c=New-OrchestrationTask -TaskId $id -Objective \u0027review repair proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BaseRevision $baseRevision -AcceptanceCriteria @(\u0027fixture passes\u0027) -VerificationProfiles @(\u0027passes\u0027) -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  75,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$ic=New-OrchestrationTask -TaskId $invalidId -Objective \u0027invalid policy must not persist\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "scripts/v3/retry-decision-e2e.tests.ps1",
-                         "line":  81,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "$ec=New-OrchestrationTask -TaskId $escalateId -Objective \u0027retry budget proof\u0027 -TaskType implementation -Risk low -RuntimeId opencode-v2 -RuntimeGeneration 2 -RuntimeProfile v2 -RuntimeVersion \u00272.2.6\u0027 -Actor planner -BudgetPolicyPath $budgetPolicy -RepoRoot $testRepo -TasksDir $tasks -FlagsPath $flags",
-                         "classification":  "TEST_FIXTURE"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  72,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"runtime\": { \"v2\": true, \"note\": \"plugin V2 @opencode/plugin@2.2.6; tipo checado contra o pin; shape runtime observado somente em 2.0.23\" },",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  75,
-                         "literals":  [
-                                          "1.18.34",
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23; flags task_kernel/watchdog/bounded_execution ON\" },",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  475,
-                         "literals":  [
-                                          "1.18.34",
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.2.6; certificacao runtime 2.2.6 pendente).\",",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  477,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"runtime\": { \"v2\": true, \"note\": \"pin V2 atual 2.2.6 via loader fail-closed RuntimeVersions.ps1; probes 2.0.23 sao historicos\" },",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/capabilities-v2.json",
-                         "line":  480,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"pin V2 2.2.6 exato; smoke expl??cito do ciclo de servi??o passou; provas de capacidades nativas espec??ficas seguem em HOLD\" },",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  8,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "\"version\": \"1.18.34\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  9,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "\"spec\": \"opencode-ai@1.18.34\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  13,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"version\": \"2.2.6\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  14,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"spec\": \"@opencode/cli@2.2.6\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  20,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "\"version\": \"1.18.34\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  21,
-                         "literals":  [
-                                          "1.18.34"
-                                      ],
-                         "context":  "\"spec\": \"@opencode-ai/plugin@1.18.34\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  25,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"version\": \"2.2.6\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  26,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"spec\": \"@opencode/plugin@2.2.6\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  32,
-                         "literals":  [
-                                          "1.3.14"
-                                      ],
-                         "context":  "\"version\": \"1.3.14\",",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/runtime-versions.json",
-                         "line":  33,
-                         "literals":  [
-                                          "1.3.14"
-                                      ],
-                         "context":  "\"spec\": \"bun@1.3.14\"",
-                         "classification":  "SOURCE_OF_TRUTH"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  4,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"pin\": \"2.2.6\",",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  5,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"pin_note\": \"This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); the target moved from 2.0.23 to 2.2.6 on 2026-11-07 by explicit operator request. The exact 2.2.6 service-lifecycle smoke passed on 2026-11-07, but it does not prove any feature below. CLOSURE 2026-10-06: historical real-runtime probe collection ran against 2.0.23 (evidence/v3.1/runtime-reliability/session-lane-2026-10-06/v2-native-probes.json); those observations do not prove 2.2.6. Session-permission-narrowing was observed NOT enforced on the /shell surface (fail-open observed there) on 2.0.23; the other probes stayed ambiguous without model inference or operator-owned policy config. NO feature-specific exact-binary-live record exists for 2.2.6, so all 8 features remain hold-unproven; runtime_grant_enforcement.v2 stays OFF (sustained HOLD, program-status.json#closure_2026_10_06). Collection plus validation is operator-owned by design (see evidence_contract.writer_contract).\",",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  22,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"session-hierarchy-provenance-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  30,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"session-permission-narrowing-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  38,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"experimental-policies-hard-deny-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  46,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"native-step-limits-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  54,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"background-subagents-bounded-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  62,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"plugin-storage-index-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  70,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"snapshots-auxiliary-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     },
-                     {
-                         "path":  "source/registry/v2-native-capabilities.json",
-                         "line":  78,
-                         "literals":  [
-                                          "2.2.6"
-                                      ],
-                         "context":  "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.2.6\", \"scenario\": \"durable-event-log-replay-exact-binary\"},",
-                         "classification":  "REGISTRY_RECORD"
-                     }
-                 ],
-    "counts":  {
-                   "distinct_literals":  3,
-                   "path_lines":  62,
-                   "SOURCE_OF_TRUTH":  10,
-                   "REGISTRY_RECORD":  25,
-                   "TEST_FIXTURE":  26,
-                   "COMMENT_OR_DOC":  9,
-                   "PRODUCT_CODE":  2,
-                   "UNCLASSIFIED_NEEDS_REVIEW":  0,
-                   "comparators":  0
-               },
-    "reviewed_product_code":  [
-                                  {
-                                      "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                                      "line":  71,
-                                      "rationale":  "Output matrix data, not a gate."
-                                  },
-                                  {
-                                      "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                                      "line":  2661,
-                                      "rationale":  "Hardcoded supported-runtime allowlist gates UNSUPPORTED_RUNTIME; explicit supported set or capability probe, fail-closed."
-                                  }
-                              ],
-    "reviewed_comment_or_doc":  [
-                                    {
-                                        "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                                        "line":  243
-                                    },
-                                    {
-                                        "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                                        "line":  344
-                                    },
-                                    {
-                                        "path":  "plugins/orchestration-enforcement/shared/planner-wait.ts",
-                                        "line":  414
-                                    },
-                                    {
-                                        "path":  "plugins/orchestration-enforcement/v2.ts",
-                                        "line":  164
-                                    },
-                                    {
-                                        "path":  "plugins/orchestration-enforcement/v2.ts",
-                                        "line":  177
-                                    },
-                                    {
-                                        "path":  "scripts/ci/session-real-lane-v2.ps1",
-                                        "line":  2968
-                                    },
-                                    {
-                                        "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                                        "line":  2551
-                                    },
-                                    {
-                                        "path":  "scripts/v3/lib/OrchestrationModelRouter.ps1",
-                                        "line":  2553
-                                    },
-                                    {
-                                        "path":  "scripts/v3/opencode-v2-regression-gate.ps1",
-                                        "line":  3
-                                    }
-                                ],
-    "comparators":  [
-
-                    ],
-    "comparator_search":  {
-                              "operator_probe":  [
-                                                     "-ge",
-                                                     "-lt"
-                                                 ],
-                              "operator_matches":  0,
-                              "method":  "Case-insensitive directed keyword search; operator probe requires -ge/-lt adjacent to a numeric version literal, preventing -Generation and $PSVersionTable noise.",
-                              "matches":  2,
-                              "needles":  [
-                                              "[version]",
-                                              "CompareTo",
-                                              "semver"
-                                          ],
-                              "excluded":  "*.tests.ps1",
-                              "scope":  "scripts/, plugins/, templates/, install.ps1, uninstall.ps1, source/registry/",
-                              "comparator_matches":  0
-                          },
-    "comparator_search_hits":  [
-                                   {
-                                       "path":  "scripts/runtime/lib/RuntimeAdapters.ps1",
-                                       "line":  115,
-                                       "needle":  "semver",
-                                       "context":  "$res.Reason = \u0027nenhum token semver x.y.z na saida\u0027",
-                                       "actual_comparator":  false,
-                                       "rationale":  "Keyword hit only; no comparison expression on this line."
-                                   },
-                                   {
-                                       "path":  "scripts/runtime/lib/RuntimeVersions.ps1",
-                                       "line":  119,
-                                       "needle":  "semver",
-                                       "context":  "throw (\u0027runtime versions registry: \u0027 + $group + \u0027.\u0027 + $key + \u0027 com version fora do semver exato (esperado \u0027 + $verPattern + \u0027; rejeita latest/range/^/~/espaco): \u0027 + $ver + \u0027 em \u0027 + $path)",
-                                       "actual_comparator":  false,
-                                       "rationale":  "Keyword hit only; no comparison expression on this line."
-                                   }
-                               ],
-    "unparseable":  [
-
-                    ],
-    "protected_files":  [
-                            {
-                                "path":  "templates/opencode.v1.json.tmpl",
-                                "sha256":  "658DEC2718FDC8288BDA7D8A9C0BE2D2D1498C14E8A71EAF6425E1C272F76850"
-                            },
-                            {
-                                "path":  "templates/opencode.v2.json.tmpl",
-                                "sha256":  "FC5B101B2EEE1B656CAF11CBBBFABAA10A8A848DF5E448E0657963369FBD5C24"
-                            },
-                            {
-                                "path":  "source/agents/ai-agent-engineer.md",
-                                "sha256":  "CEDE0F80545389F998421B0A0362587C05421E8D67F71A56F9AA9DBEB3448AB2"
-                            },
-                            {
-                                "path":  "source/agents/architect.md",
-                                "sha256":  "00015C30D171A005ED78E9A822255E009CD0928E61997B7830B13B26B28D606E"
-                            },
-                            {
-                                "path":  "source/agents/automation-engineer.md",
-                                "sha256":  "C8C4CA5120A0D28EB0D4992DD2DF6ACA33D0E9447EB28CC43B06017BE4325BA1"
-                            },
-                            {
-                                "path":  "source/agents/backend-engineer.md",
-                                "sha256":  "0DA30EBDFABC8881D80E11E97440937C986D90E9EB1117F6972903A65E8A8AA2"
-                            },
-                            {
-                                "path":  "source/agents/coder.md",
-                                "sha256":  "56AFFF8FF184E296BE82547B34A27E96D938050C46BF4E9127AD31C6D1A6CDA2"
-                            },
-                            {
-                                "path":  "source/agents/database-engineer.md",
-                                "sha256":  "77E4709AE79A3560DE73C853FEB7EE21911D428A8AD387226F381825193BD5D5"
-                            },
-                            {
-                                "path":  "source/agents/debugger.md",
-                                "sha256":  "FEAB3BEE2C06EB45884A85D8C6BA932ACBFAAF05F926C1792FBBD35341338C01"
-                            },
-                            {
-                                "path":  "source/agents/docs-manager.md",
-                                "sha256":  "3AEFC8B9CFC56543EBFC5273C1E08870CD33FECA6AB41D0B8EEEDB6778F64F37"
-                            },
-                            {
-                                "path":  "source/agents/engineering-advisor.md",
-                                "sha256":  "0D6E1DEE9557D88B1A40EC4566F3472529D63E92175CAA9C9AAE17DAC03A11B5"
-                            },
-                            {
-                                "path":  "source/agents/explorer.md",
-                                "sha256":  "7FF10BED33FFAC40DD3CEC39F22686C018161D077A3D7D1A9F84F2154C8049B2"
-                            },
-                            {
-                                "path":  "source/agents/frontend-engineer.md",
-                                "sha256":  "C383529A8E120C350F2E81E2A4C131075E4ADF561A8B186F2E3B65A4D25FB530"
-                            },
-                            {
-                                "path":  "source/agents/infra-engineer.md",
-                                "sha256":  "818456B72C401EF150F716FC146140A2D9DE4CA9658B0E7AE3F22B78BDF8E906"
-                            },
-                            {
-                                "path":  "source/agents/product-designer.md",
-                                "sha256":  "9E671ADED93E6078CED5F1A34057E3D7EFC1BF2EC3108DDE1A84E75B4CA9C626"
-                            },
-                            {
-                                "path":  "source/agents/requirements-analyst.md",
-                                "sha256":  "47B46541E70D5A47C24B4DDAA3B2216C9D683D77E4AE08251C1105826133834A"
-                            },
-                            {
-                                "path":  "source/agents/researcher.md",
-                                "sha256":  "A5CD9875B8543DA700D344CBB4982E144ECB1226736B7782561AE252C7B4CC8B"
-                            },
-                            {
-                                "path":  "source/agents/reviewer.md",
-                                "sha256":  "8654C6DAEDB824A9688BA97A9DE818675122DC29F19DF0ED6EF1F78C7A3F0633"
-                            },
-                            {
-                                "path":  "source/agents/security-reviewer.md",
-                                "sha256":  "0490861086C437C04289C23C70C6B1932FE044CA10F1FCF22130ED1EC800A687"
-                            },
-                            {
-                                "path":  "source/agents/skeptic.md",
-                                "sha256":  "D3E3006595F7D7FEB347FE0EE232CEBB132CC420FCC801F39E8BD996A683A247"
-                            },
-                            {
-                                "path":  "source/agents/tester.md",
-                                "sha256":  "C2C0893D71C7A8CB0B3DE12F1385098D5C674AD593C8D5302EDA589012EDFEB8"
-                            },
-                            {
-                                "path":  "source/global/AGENTS.md",
-                                "sha256":  "1B9CDA5F01C6D91023AE5A4305A43B759F6C0AED546369C98A360726D44CFDA8"
-                            },
-                            {
-                                "path":  "source/adapters/opencode-v2.md",
-                                "sha256":  "3D96992C426D8EA0D5F072D66B874DCCF6005227C0E10AD871829ED4A4264A1A"
-                            },
-                            {
-                                "path":  "source/adapters/opencode.md",
-                                "sha256":  "9A881C1DBF4CABD7837FD21B1AB52AF5CF9543C532D469186F16AB17491F4932"
-                            }
-                        ],
-    "method":  {
-                   "mode":  "git_grep_fixed_literal_path_line_dedup",
-                   "no_model_call":  true,
-                   "base_revision":  "0f08b6552e56233f8c2dd730b35e92721bdab95c",
-                   "generated_by_commit":  "0f08b6552e56233f8c2dd730b35e92721bdab95c",
-                   "limitations":  "Literal search does not detect dynamically assembled versions; semantic comparators are found only by directed keyword search."
-               },
-    "generated_at":  "2026-11-12T00:00:00Z"
+{
+  "scan_scope": [
+    "scripts/",
+    "plugins/",
+    "templates/",
+    "install.ps1",
+    "uninstall.ps1",
+    "source/registry/"
+  ],
+  "excluded_paths": [
+    "evidence/",
+    "docs/",
+    "cache/",
+    ".git/",
+    "node_modules/"
+  ],
+  "declared_pins": [
+    {
+      "key": "runtimes.v1",
+      "package": "opencode-ai",
+      "version": "1.18.34",
+      "spec": "opencode-ai@1.18.34"
+    },
+    {
+      "key": "runtimes.v2",
+      "package": "@opencode/cli",
+      "version": "2.3.0",
+      "spec": "@opencode/cli@2.3.0"
+    },
+    {
+      "key": "plugins.v1",
+      "package": "@opencode-ai/plugin",
+      "version": "1.18.34",
+      "spec": "@opencode-ai/plugin@1.18.34"
+    },
+    {
+      "key": "plugins.v2",
+      "package": "@opencode/plugin",
+      "version": "2.3.0",
+      "spec": "@opencode/plugin@2.3.0"
+    },
+    {
+      "key": "tools.bun",
+      "package": "bun",
+      "version": "1.3.14",
+      "spec": "bun@1.3.14"
+    }
+  ],
+  "distinct_literals": [
+    "1.18.34",
+    "2.3.0",
+    "1.3.14"
+  ],
+  "literals": [
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 164,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "// Historically typechecked at @opencode/plugin 2.2.6; 2.3.0 pending CI typecheck. Runtime observation is 2.0.23 only. get({sessionID})",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 177,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "// Historically typechecked at registry pin 2.2.6; 2.3.0 pending CI typecheck. Runtime observation is historical 2.0.23 only. This literal is checked by tsc against",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "scripts/ci/session-real-lane-v2.ps1",
+      "line": 2968,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "# V1 imprime so '1.18.34' (sem o prefixo 'opencode v' do V2);",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "scripts/runtime/detect-opencode-capabilities.tests.ps1",
+      "line": 82,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "return @{ Ok = $true; ExitCode = 0; Output = \"opencode v1.18.34\"; Reason = \"probe ok\" }",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2555,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "the canonical supported allowlist (2.2.5, 2.2.6, 2.3.0, 2.0.23; official raw",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2665,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "$supported = @('2.2.5', '2.2.6', '2.3.0', '2.0.23')",
+      "classification": "PRODUCT_CODE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+      "line": 12,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "the canonical supported allowlist (2.2.5, 2.2.6, 2.3.0, 2.0.23). Unknown/missing live",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+      "line": 49,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "$r230 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.3.0')",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+      "line": 51,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "Assert-NP (([string]$r230.live_version -ceq '2.3.0')) 'NP02d-live-version-echo-230' (\"live=\" + [string]$r230.live_version)",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
+      "line": 76,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "$probeV1=\"opencode version 1.18.34 windows\"",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+      "line": 7,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "$expectedPin='2.3.0'",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+      "line": 52,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "Assert-That ($registry.runtime -ceq 'v2' -and $registry.pin -ceq $expectedPin -and $registry.PSObject.Properties.Name -notcontains 'enabled') 'registry declares no global activation switch and retains expected pin 2.3.0'",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 72,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"runtime\": { \"v2\": true, \"note\": \"pin atual do plugin V2: @opencode/plugin@2.3.0; typecheck contra 2.2.6 ?? hist??rico; typecheck 2.3.0 depende do CI; shape runtime observado somente em 2.0.23\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 75,
+      "literals": [
+        "1.18.34",
+        "2.3.0"
+      ],
+      "context": "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"observa????o hist??rica: bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23. Pin atual @opencode/plugin@2.3.0; typecheck no pin atual depende do CI.\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 475,
+      "literals": [
+        "1.18.34",
+        "2.3.0"
+      ],
+      "context": "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.3.0; smoke exact-binary-live pendente).\",",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 477,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"runtime\": { \"v2\": true, \"note\": \"pin V2 atual 2.3.0 via loader fail-closed RuntimeVersions.ps1; smoke exact-binary-live em 2.3.0 depende do CI; probes 2.0.23 sao historicos\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 480,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"observa????o hist??rica em 2.2.6; pin can??nico atual 2.3.0. Smoke expl??cito do ciclo no bin??rio exato 2.3.0 depende do CI; provas de capacidades nativas espec??ficas seguem em HOLD.\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 8,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"version\": \"1.18.34\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 9,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"spec\": \"opencode-ai@1.18.34\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 13,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"version\": \"2.3.0\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 14,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"spec\": \"@opencode/cli@2.3.0\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 20,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"version\": \"1.18.34\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 21,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"spec\": \"@opencode-ai/plugin@1.18.34\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 25,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"version\": \"2.3.0\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 26,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"spec\": \"@opencode/plugin@2.3.0\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 32,
+      "literals": [
+        "1.3.14"
+      ],
+      "context": "\"version\": \"1.3.14\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 33,
+      "literals": [
+        "1.3.14"
+      ],
+      "context": "\"spec\": \"bun@1.3.14\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 4,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"pin\": \"2.3.0\",",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 5,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"pin_note\": \"This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); the target moved from 2.2.6 to 2.3.0 on 2026-11-13 by explicit operator request. The explicit lifecycle smoke must be re-run on the exact 2.3.0 binary; CI must be green before merge. This does not prove any feature below. CLOSURE 2026-10-06: historical real-runtime probe collection ran against 2.0.23 (evidence/v3.1/runtime-reliability/session-lane-2026-10-06/v2-native-probes.json); those observations do not prove 2.3.0. Session-permission-narrowing was observed NOT enforced on the /shell surface (fail-open observed there) on 2.0.23; the other probes stayed ambiguous without model inference or operator-owned policy config. NO feature-specific exact-binary-live record exists for 2.3.0, so all 8 features remain hold-unproven; runtime_grant_enforcement.v2 stays OFF (sustained HOLD, program-status.json#closure_2026_10_06). Collection plus validation is operator-owned by design (see evidence_contract.writer_contract).\",",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 22,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"session-hierarchy-provenance-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 30,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"session-permission-narrowing-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 38,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"experimental-policies-hard-deny-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 46,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"native-step-limits-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 54,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"background-subagents-bounded-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 62,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"plugin-storage-index-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 70,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"snapshots-auxiliary-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 78,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"durable-event-log-replay-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    }
+  ],
+  "counts": {
+    "distinct_literals": 3,
+    "path_lines": 37,
+    "SOURCE_OF_TRUTH": 10,
+    "REGISTRY_RECORD": 25,
+    "TEST_FIXTURE": 7,
+    "COMMENT_OR_DOC": 4,
+    "PRODUCT_CODE": 1,
+    "UNCLASSIFIED_NEEDS_REVIEW": 0,
+    "comparators": 0
+  },
+  "reviewed_product_code": [
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2665,
+      "rationale": "Hardcoded supported-runtime allowlist gates UNSUPPORTED_RUNTIME; explicit supported set or capability probe, fail-closed."
+    }
+  ],
+  "reviewed_comment_or_doc": [
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 164
+    },
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 177
+    },
+    {
+      "path": "scripts/ci/session-real-lane-v2.ps1",
+      "line": 2968
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2555
+    }
+  ],
+  "comparators": [],
+  "comparator_search": {
+    "operator_probe": [
+      "-ge",
+      "-lt"
+    ],
+    "comparator_matches": 0,
+    "scope": "scripts/, plugins/, templates/, install.ps1, uninstall.ps1, source/registry/",
+    "operator_matches": 0,
+    "method": "Case-insensitive directed keyword search; operator probe requires -ge/-lt adjacent to a numeric version literal, preventing -Generation and $PSVersionTable noise.",
+    "needles": [
+      "[version]",
+      "CompareTo",
+      "semver"
+    ],
+    "excluded": "*.tests.ps1",
+    "matches": 3
+  },
+  "comparator_search_hits": [
+    {
+      "path": "scripts/runtime/lib/RuntimeAdapters.ps1",
+      "line": 115,
+      "needle": "semver",
+      "context": "$res.Reason = 'nenhum token semver x.y.z na saida'",
+      "actual_comparator": false,
+      "rationale": "Keyword hit only; no version-comparison expression on this line."
+    },
+    {
+      "path": "scripts/runtime/lib/RuntimeVersions.ps1",
+      "line": 119,
+      "needle": "semver",
+      "context": "throw ('runtime versions registry: ' + $group + '.' + $key + ' com version fora do semver exato (esperado ' + $verPattern + '; rejeita latest/range/^/~/espaco): ' + $ver + ' em ' + $path)",
+      "actual_comparator": false,
+      "rationale": "Keyword hit only; no version-comparison expression on this line."
+    },
+    {
+      "path": "scripts/v3/skill-discovery-metrics.ps1",
+      "line": 95,
+      "needle": "CompareTo",
+      "context": "$rankList.Sort([System.Comparison[object]]{param($left,$right);$c=$right.score.CompareTo($left.score);if($c -eq 0){$c=[string]::CompareOrdinal($left.skill.name,$right.skill.name)};if($c -eq 0){$c=[string]::CompareOrdinal($left.skill.root,$right.skill.root)};return $c})",
+      "actual_comparator": false,
+      "rationale": "Keyword hit only; no version-comparison expression on this line."
+    }
+  ],
+  "unparseable": [],
+  "protected_files": [
+    {
+      "path": "templates/opencode.v1.json.tmpl",
+      "sha256": "658DEC2718FDC8288BDA7D8A9C0BE2D2D1498C14E8A71EAF6425E1C272F76850"
+    },
+    {
+      "path": "templates/opencode.v2.json.tmpl",
+      "sha256": "FC5B101B2EEE1B656CAF11CBBBFABAA10A8A848DF5E448E0657963369FBD5C24"
+    },
+    {
+      "path": "source/agents/ai-agent-engineer.md",
+      "sha256": "3BA59E3C0C06A27B9CA1F621D1E365384B7986E73136B95DD7451E85279512F7"
+    },
+    {
+      "path": "source/agents/architect.md",
+      "sha256": "D35B190D04498A33FF5339B5D6E2E854F0351327C15AF7B10297399A9803D030"
+    },
+    {
+      "path": "source/agents/automation-engineer.md",
+      "sha256": "C921CEC53FDD3AC5548AA5B4C4E7A295543043E63C7DAA784F623279393A5853"
+    },
+    {
+      "path": "source/agents/backend-engineer.md",
+      "sha256": "D320DF2DAA7DD849886AE52AFE6BDE404124E179C85111032BD52B28DF6410BA"
+    },
+    {
+      "path": "source/agents/coder.md",
+      "sha256": "5DD6F9C893A021AF0932AB0264221B95FEC710A012FFCB5DCB297A47A011D54F"
+    },
+    {
+      "path": "source/agents/database-engineer.md",
+      "sha256": "E3789F44B12DF41009B076340BA8B36F0F7E21C80945DBBE31DD4B63214CA1AE"
+    },
+    {
+      "path": "source/agents/debugger.md",
+      "sha256": "FEAB3BEE2C06EB45884A85D8C6BA932ACBFAAF05F926C1792FBBD35341338C01"
+    },
+    {
+      "path": "source/agents/docs-manager.md",
+      "sha256": "C0CE48485C98BF5A23A8879373AE8EBE3D525BDA7AFE02405EDE90153F50A9D9"
+    },
+    {
+      "path": "source/agents/engineering-advisor.md",
+      "sha256": "3029EA00397B5AEA9797E0D16C8E09A37F17846F39B92EE288200E5DF50EC9BD"
+    },
+    {
+      "path": "source/agents/explorer.md",
+      "sha256": "72002AB4011C0B119961EFAC98EF0D3987C26170DE708BDCC54B66816F9BFD5D"
+    },
+    {
+      "path": "source/agents/frontend-engineer.md",
+      "sha256": "AF404901490A593C7C49B1055FB33452AEC176B93883EF9272414D2281839F2C"
+    },
+    {
+      "path": "source/agents/infra-engineer.md",
+      "sha256": "2822EFE23CC4D7DAD9444B63AFDD1F388F03925CE280F9758E86F9268CABEB0F"
+    },
+    {
+      "path": "source/agents/product-designer.md",
+      "sha256": "63838E7D8484A522C1AAA9D72F4E69F42B112A6A2653D0A4C62377580000C7A8"
+    },
+    {
+      "path": "source/agents/requirements-analyst.md",
+      "sha256": "83E03822C6E751ED441D8A5F258CF8008E72D37BB3036F5C39FAB39CA06E41DC"
+    },
+    {
+      "path": "source/agents/researcher.md",
+      "sha256": "C718E10BAE0EE1BB6EDB5DEC29268CAE443AE09C94240C417BC0CA4A167E5F76"
+    },
+    {
+      "path": "source/agents/reviewer.md",
+      "sha256": "AC969EFDFA2A889B9633F6179485B4C15563DDE05B8AD76715E7AC5A84D08931"
+    },
+    {
+      "path": "source/agents/security-reviewer.md",
+      "sha256": "B19273C2B76D16093601092B6769A6F343DFFDADF7FC39ADD68B7ABE89810339"
+    },
+    {
+      "path": "source/agents/skeptic.md",
+      "sha256": "43E82B9653CF01D2543E8CE49B7FC99EEAAADA8FB56C9ACE38559C4C58D41527"
+    },
+    {
+      "path": "source/agents/tester.md",
+      "sha256": "C2C0893D71C7A8CB0B3DE12F1385098D5C674AD593C8D5302EDA589012EDFEB8"
+    },
+    {
+      "path": "source/global/AGENTS.md",
+      "sha256": "1B9CDA5F01C6D91023AE5A4305A43B759F6C0AED546369C98A360726D44CFDA8"
+    },
+    {
+      "path": "source/adapters/opencode-v2.md",
+      "sha256": "CA275B1E753F6FEBFDB740CAB36A7B571DF7443C66436E6108E75B30EDBAF632"
+    },
+    {
+      "path": "source/adapters/opencode.md",
+      "sha256": "9A881C1DBF4CABD7837FD21B1AB52AF5CF9543C532D469186F16AB17491F4932"
+    }
+  ],
+  "method": {
+    "mode": "git_grep_fixed_literal_path_line_dedup",
+    "no_model_call": true,
+    "base_revision": "c05744f6a0c64476c710580f98f5892bbfffcd97",
+    "generated_by_commit": "c05744f6a0c64476c710580f98f5892bbfffcd97",
+    "limitations": "Literal search does not detect dynamically assembled versions; semantic comparators are found only by directed keyword search."
+  },
+  "generated_at": "2026-11-16T10:16:39.9849282Z"
 }

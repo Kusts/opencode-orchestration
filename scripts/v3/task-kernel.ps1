@@ -18,8 +18,6 @@
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
        retry-decision - Record advisory localized-repair decision; increments revision (concurrent writers may CAS_CONFLICT); EXHAUSTED is terminal, so ESCALATE is recordable only while attempts < budget
-
-       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
        record-repair-decision - Add advisory repair decision (needs -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy; optional -Severity low|medium|high|critical -ChangedFiles 0..100000 -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts 0..100 -FailureClass localized|unknown|structural)
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
        event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary -ContextOnly; idempotent consumption/settlement ack)

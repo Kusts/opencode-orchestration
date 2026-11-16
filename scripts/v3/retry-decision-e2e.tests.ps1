@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Deterministic TEMP-store coverage for reviewer schema and retry decisions.
+    Canonical-store coverage for reviewer schema and retry decisions, with finally cleanup.
 #>
 [CmdletBinding()]
 param()
@@ -15,8 +15,9 @@ function Invoke-DecisionCli([string]$id,[int]$revision,[bool]$ambiguous=$false,[
     $hostPath=[string](Get-Process -Id $PID).Path
     $scriptPath=(Join-Path $PSScriptRoot 'task-kernel.ps1').Replace("'", "''")
     $taskIdArg=$id.Replace("'", "''")
+    $failureClassArg=$failureClass.Replace("'", "''")
     $ambiguousLiteral=if($ambiguous){'$true'}else{'$false'}
-    $command="& '$scriptPath' -Action retry-decision -TaskId '$taskIdArg' -ExpectedRevision $revision -Severity high -ChangedFiles 1 -ScopeOverlap:`$true -ExternalEffectsAmbiguous:$ambiguousLiteral -EvidenceCurrent:`$true -FailureClass '$failureClass'"
+    $command="& '$scriptPath' -Action retry-decision -TaskId '$taskIdArg' -ExpectedRevision $revision -Severity high -ChangedFiles 1 -ScopeOverlap:`$true -ExternalEffectsAmbiguous:$ambiguousLiteral -EvidenceCurrent:`$true -FailureClass '$failureClassArg'"
     $oldPreference=$ErrorActionPreference; $ErrorActionPreference='Continue'
     try {$out=& $hostPath -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1} finally {$ErrorActionPreference=$oldPreference}
     $script:lastCliOutput=$out -join "`n"

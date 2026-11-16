@@ -280,7 +280,7 @@ tarefas concluídas; comparação apresenta sucesso, custo e latência observado
 - Contrato role `reviewer` inclui schema da fonte canônica; demais roles não.
 - `retry-decision` persiste resultado da política pura sob lock/CAS; advisory,
   sem dispatch, gate ou mudança de autoridade.
-- Harness TEMP cobre LOCAL_REPAIR/REPLAN/ESCALATE, input inválido fail-closed,
+- Harness com store canônico e cleanup em `finally` cobre LOCAL_REPAIR/REPLAN/ESCALATE, input inválido fail-closed,
   review bloqueante, re-review e DONE pelo verifier-executed existente.
 - A prova não inclui chamada de modelo nem valida adesão do Planner em runtime.
 
@@ -360,7 +360,7 @@ está com CI 6/6 verde e permanece aberto; nenhum merge/deploy.
 - `task-kernel -Action retry-decision` consulta a política canônica sob lock e
   persiste decisão advisory com sinais e motivo. Não despacha nem adiciona gate.
   #103 coberto no ponto de decisão; execução de reparo pelo Planner/LLM não provada.
-- Harness TEMP: cadeia Kernel até review `changes_required`, retry LOCAL_REPAIR,
+- Harness com store canônico e cleanup em `finally`: cadeia Kernel até review `changes_required`, retry LOCAL_REPAIR,
   re-review aprovada e DONE pelo verifier-executed existente; negativos REPLAN
   e argumentos inválidos. Nenhum `pass-real` alegado.
 - Testes: ReviewAnchor 29/29 (PS5.1 e PS7), repair-decision 10/10 (PS5.1 e
@@ -505,29 +505,26 @@ trabalho em andamento. Branch, commits e PR preservados.
 automático; M7; dispatch T4/Astra; qualquer alteração de flag, permissão,
 credencial ou produção.
 
-## 14. Handoff para a próxima sessão (2026-11-12)
+## 14. Handoff para a próxima sessão (2026-11-11)
+
+**Objetivo:** continuar a implementação do backlog residual M0–M7 na próxima
+sessão, sem refazer o que já está provado.
 
 ### 14.1 Estado atual (reconciliar antes de agir)
 
-- **Worktree/branch/HEAD:** `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`; base atual `d59c59d` (contrato #183) + commit local deste fix. Commits anteriores de código: `3909600` (wiring #200/#103 + E2E), `cbae9d7` (confinement), `de0d26c` (schema cap ladder + fail-closed), `589cce4` (write-refusal tests).
-- **Publicado:** branch `feat/kernel-evidence-store-20261111` publicada em `origin`; PR #240 aberto contra `master` (não-draft, MERGEABLE). Nada foi mergeado ou deployado. O CI do PR tem 6 jobs: `linux capability collector`, `smoke opencode real` e `smoke opencode v2 real` passaram; `ps51`, `ps7` e `v2 lane` estavam pending no momento deste registro. Resultado final do CI não afirmado.
-- **Checkout principal (outro fluxo, não tocar):** branch `feat/install-ownership-agent-config-20261111` avança em outro fluxo (HEAD `4f1aa65` no momento desta rodada); checkout limpo.
-- **Entrega #12/#11:** `-EvidenceStoreDir` opt-in (vazio = legado byte-idêntico) + `-VirtualizeThresholdBytes`; conteúdo redigido persistido content-addressed; `evidence_artifacts` com `sha256`/`bytes`/`kind`/`preview<=2000`/`field=failure_detail`/`store_rel`; fail-closed `EVIDENCE_REDACTION_UNAVAILABLE`; escrita dentro do lock; confinamento de store + reparse point; ação CLI `get-evidence` com recall verificado; `verified_pass`/`DONE` intocados.
-- **Decisão:** ADOTAR (opt-in) com medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash e byte-idêntico `true`; tokens (estimativa `chars/4`) 50.004.
-- **Validação #12/#11 (commit `8b9a22e`):** kernel 125/125 e CLI 20/20 em pwsh e PS 5.1; virtualização 18/18; runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); `package-consistency` 17/17; `git diff --check` limpo; DONE compliance COMPLIANT.
-- **Validação #200/#103:** reviewer rodada 2 APPROVED; security APPROVED. PS 5.1 pós-reparo: DispatchPipeline 206, retry-decision-e2e 9, TaskKernel 126, ReviewAnchor 29, ReviewIntegration 17, LocalizedRepair 13, repair-decision 10; package-consistency 17/17. Em pwsh, conjunto equivalente verde antes do reparo (204/6/125/29/17/13/10); reexecução pós-reparo não observada nesta rodada. Runner amplo NÃO verde: 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184. Falhas ambientais sem overlap: `OrchestrationCapabilityDoctor` (“doctor does not mutate filesystem state”; assert compara listing de `$env:TEMP` linhas 9 e 35-36, sensível a atividade externa; 46 asserts em 3/3 execuções isoladas) e `OrchestrationRuntimeWatchdogEnforcement` (log ilegível/ausente, condição de captura do runner; 459 asserts em 2/2 execuções isoladas).
-- **Revisões:** reviewer rodada 2 APPROVED; security APPROVED.
-- **Evidências:** `evidence/evolution-2026-11-10/evidence-store-integration/` (inclui `measurement.json`), além de `evidence/evolution-2026-11-10/` e `evidence/evolution-2026-11-10/p0-autonomy/`.
-- **Ressalva honesta:** #11 marcada COBERTA no escopo medido; "prefixo estável/cache antes-depois" continua dependente de métricas do provedor.
+- Branch `feat/evolution-integrated-20261110`; HEAD `16a1c84`; PR #238 aberto e
+  mergeable; CI do HEAD **6/6 SUCCESS** (linux collector, ps51, ps7, v2 lane,
+  smokes V1/V2). Nenhum merge/deploy.
+- Missão integrada encerrada pelo orientador em 2026-11-11. O encerramento vale
+  para os critérios da missão, **não** para todo o backlog: 9 issues COBERTAS,
+  9 PARCIAIS, 6 ABERTAS, 1 HOLD e PR #210 não integrado.
+- Config ativo `~/.config/opencode` **não** foi reconciliado; as mudanças estão
+  em `source/`, `generated/` e no bundle do plugin. Reconciliar só com pedido
+  explícito.
+- Evidências: `evidence/evolution-2026-11-10/` (P0, P0.5, P0.6, M3, M5, M6,
+  M7) e `evidence/evolution-2026-11-10/p0-autonomy/`.
 
 ### 14.2 Ordem recomendada
-
-1. **CONCLUÍDO (2026-11-12) — #200/#103 — E2E com fluxo real.** Contrato reviewer/schema, decisão advisory persistida, bloqueio por changes_required, re-review e DONE validado em harness TEMP; o consumo do schema e a execução da correção pelo Planner/LLM real ainda exigem prova runtime e não são declarados COBERTOS.
-2. **#183 — contrato do produtor codificado e testado; PARCIAL.** Commits `d59c59d` + este fix cobrem envelope, validação/replay e documentação de consumo; produtor externo não existe e `delivery_id` real não pode ser fabricado. Próximo passo é decisão de operador: construir produtor externo (webhook/Action) ou seguir para #64/#192.
-3. **#64 PARCIAL, #192 PARCIAL, #50 COBERTA (com residual), #141 COBERTA, #2/#184/#185, #172.** #50: 3 literais distintos, 62 path:line deduplicados: 25 registros de registry (10 `SOURCE_OF_TRUTH` + 15 outros), 26 fixtures, 9 comentários/docs e 2 revisados como `PRODUCT_CODE`; comparadores 0. O gate `OrchestrationModelRouter.ps1:2661` tem allowlist hardcoded de runtime; proposta de conjunto suportado explícito ou probe fail-closed ainda não executada. #141 usa JSON e parser de frontmatter estruturados, encontra 0 tokens em superfícies distintas; Agent Config não declara permissões estruturadas. R4 mapeia `enforced_by` por token; `hard` somente com guard+teste, demais advisory/documented-only. Nenhuma permissão alterada; remoção não aplicável. Correção: números R1/R2 (126/108/536/4) vinham de scanners regex/prosa imprecisos e foram substituídos por este método estruturado.
-4. **PR #210.** Aceite: comparar com a master; descartar ou reabrir contra a master; não integrar configuração anterior ao merge #236.
-5. **M7/#205.** Aceite: piloto somente com produto/credenciais; sem acesso/produto, manter HOLD com resultado registrado.
-6. **Reconciliação do config ativo.** Aceite: somente após pedido explícito de install/reconcile, usando `scripts/reconcile-opencode-config.ps1` com backup.
 
 1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).** — **concluído em 2026-11-12 (#12).**
    - Inspecionar `Set-OrchestrationTaskWorkerResult` e `evidence_refs` em
@@ -564,32 +561,26 @@ credencial ou produção.
 
 ### 14.3 Restrições que continuam valendo
 
-Residuais LOW aceitos: `repair_decision` last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E usa o store default real com cleanup em `finally` (crash pode deixar resíduo); comportamento mediado por LLM/provider fora da prova.
-
 - Sem novo controlador, scheduler, banco ou framework.
 - Sem alterar flags, permissões, allowlist, credenciais ou produção.
-- Sem merge/deploy sem autorização explícita.
-- Preservar evidências; não refazer etapas já provadas.
+- Sem merge/deploy fora de autorização explícita.
+- Preservar evidências e não refazer etapas já provadas.
 - Worker executa implementação/teste; Planner decide e delega; Kernel verifica.
 
 ### 14.4 Comandos de retomada
 
 ```powershell
-cd D:\projetos\opencode-orchestration-wt-evidence
-git log --oneline -3
-powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+git status --short
+gh pr view 238 --json state,mergeable,statusCheckRollup
 powershell -NoProfile -File scripts\test-package-consistency.ps1
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
 ```
 
-Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem realizar merge/deploy.
+Primeira ação da próxima sessão: reconciliar HEAD/PR/CI e iniciar pelo item 1
+(#12/#11), registrando a decisão de adotar ou não a integração com base em
+benefício medido.
 
 ### 14.5 Handoff compacto (5 campos)
-
-- **Objetivo/estado:** base `1559483` + commit de handoff `289e960`; o backlog avançou em quatro fatias: #200/#103 entregue, revisado e com E2E determinístico; #183 PARCIAL (contrato codificado/testado, produtor externo ausente); #64 PARCIAL (medição local de descoberta de skills); #192 PARCIAL (comparação pré-execução, Cascade/Critique NOT_IMPLEMENTED); #50/#141 COBERTAS com residuais. PR #240 aberto contra `master`.
-- **Alterações:** `retry-decision` + schema no contrato `reviewer`; `GITHUB-EVENT-PRODUCER-CONTRACT.md` + casos de contrato; `measure-skills-discovery-cost.ps1` + evidência; `compare-execution-strategies.ps1` + evidência; `audit-pinned-versions.ps1`/`audit-authority-surfaces.ps1` + evidências. Nenhuma permissão/flag/credencial alterada.
-- **Validação:** suítes focadas PS 5.1 pós-reparo 206/9/126/29/17/13/10 e package-consistency 17/17; pwsh pré-reparo 204/6/125/29/17/13/10 (pós-reparo não observado). Runner amplo NÃO verde: 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184; as duas falhas ambientais — CapabilityDoctor (listing de `$env:TEMP` sensível a atividade externa) e RuntimeWatchdogEnforcement (log ilegível/ausente) — estão caracterizadas no CHANGELOG.
-- **Decisões/pendências:** LOWs aceitos conforme registro. #50 mantém allowlist `OrchestrationModelRouter.ps1:2661` sem substituição; #141 não encontrou duplicação real; #183 aguarda produtor externo; #192 só poderá medir desempenho após implementar Cascade/Critique e executar cenários. PR #210 e M7/#205 permanecem HOLD. Branch publicada; PR #240 aberto contra `master`, não-draft e MERGEABLE; nada mergeado nem deployado. CI do HEAD final estava em andamento no encerramento; resultado ainda não observado. Retomada nesta worktree `D:\projetos\opencode-orchestration-wt-evidence`, branch `feat/kernel-evidence-store-20261111`; o checkout principal `D:\projetos\opencode-orchestration` pertence a outro fluxo e não deve ser tocado.
-- **Próximo passo:** #2/#184/#185; depois #172, PR #210 e M7/#205 (HOLD).
 
 - **Objetivo/estado:** continuar M0–M7; P0, P0.5 e P0.6 provados; missão
   encerrada com residuais.
@@ -716,3 +707,100 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1 -Name 'OrchestrationEven
 - **Validação:** handback 24/24 + eventos 16/16; admission 40 asserts + 5/5 suites; slow path 146 asserts; assinatura 31 asserts, intake 18/18, `OrchestrationEvent*` 7/7; Team 50, Bindings 38, Handback 24, PlannerRootBinding 16 (PS 5.1 e pwsh); package-consistency 17/17; tester `verified_pass`; reviews APPROVED (code+security) nas fatias indicadas.
 - **Decisões/pendências:** #184 fatias 4-6, #2 fatias seguintes (spawn/execução, assentos/reatribuição, telemetria, plugin), #183 ponta a ponta com receiver real/rotação/replay, #11, #192, #50/#141, #172, decisão do usuário sobre PR #210, M7 HOLD; resíduos aceitos listados em 16.4.
 - **Próximo passo:** reconciliar CI do HEAD; decisão do usuário sobre PR #210; #184 fatias 4-6 sob autorização; #2 fatias seguintes.
+
+
+## 17. Registro da rodada (2026-11-12; reconciliação em 2026-11-16)
+
+### 17.1 Estado atual (reconciliar antes de agir)
+
+- **Worktree/branch/HEAD:** worktree `D:\projetos\_wt\orch-240`, branch `fix/240-reconcile-20261113`; merge `c05744f` sobre master `bac73e3`. Reconciliação concluída; oito testes focados verdes. Commits anteriores de código: `3909600` (wiring #200/#103 + E2E), `cbae9d7` (confinement), `de0d26c` (schema cap ladder + fail-closed), `589cce4` (write-refusal tests).
+- **Publicado:** branch reconciliada localmente no merge `c05744f` sobre `bac73e3`; oito testes focados passaram. Sem push ou integração no master.
+- **Entrega #12/#11:** `-EvidenceStoreDir` opt-in (vazio = legado byte-idêntico) + `-VirtualizeThresholdBytes`; conteúdo redigido persistido content-addressed; `evidence_artifacts` com `sha256`/`bytes`/`kind`/`preview<=2000`/`field=failure_detail`/`store_rel`; fail-closed `EVIDENCE_REDACTION_UNAVAILABLE`; escrita dentro do lock; confinamento de store + reparse point; ação CLI `get-evidence` com recall verificado; `verified_pass`/`DONE` intocados.
+- **Decisão:** ADOTAR (opt-in) com medição `evidence/evolution-2026-11-10/evidence-store-integration/measurement.json`: detalhe 200.013 B; record 4.633/6.880 B; artifact 200.013 B; preview 2.000 B; recall 815 ms; hash e byte-idêntico `true`; tokens (estimativa `chars/4`) 50.004.
+- **Validação #12/#11 (commit `8b9a22e`):** kernel 125/125 e CLI 20/20 em pwsh e PS 5.1; virtualização 18/18; runner V3 173 PASS / 0 FAIL / 10 SKIP (183, exit 0); `package-consistency` 17/17; `git diff --check` limpo; DONE compliance COMPLIANT.
+- **Validação #200/#103:** reviewer rodada 2 APPROVED; security APPROVED. PS 5.1 pós-reparo: DispatchPipeline 206, retry-decision-e2e 9, TaskKernel 126, ReviewAnchor 29, ReviewIntegration 17, LocalizedRepair 13, repair-decision 10; package-consistency 17/17. Em pwsh, conjunto equivalente verde antes do reparo (204/6/125/29/17/13/10); reexecução pós-reparo não observada nesta rodada. Runner amplo NÃO verde: 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184. Falhas ambientais sem overlap: `OrchestrationCapabilityDoctor` (“doctor does not mutate filesystem state”; assert compara listing de `$env:TEMP` linhas 9 e 35-36, sensível a atividade externa; 46 asserts em 3/3 execuções isoladas) e `OrchestrationRuntimeWatchdogEnforcement` (log ilegível/ausente, condição de captura do runner; 459 asserts em 2/2 execuções isoladas).
+- **Revisões:** reviewer rodada 2 APPROVED; security APPROVED.
+- **Evidências:** `evidence/evolution-2026-11-10/evidence-store-integration/` (inclui `measurement.json`), além de `evidence/evolution-2026-11-10/` e `evidence/evolution-2026-11-10/p0-autonomy/`.
+- **Ressalva honesta:** #11 marcada COBERTA no escopo medido; "prefixo estável/cache antes-depois" continua dependente de métricas do provedor.
+
+### 17.2 Ordem recomendada
+
+1. **CONCLUÍDO (2026-11-12) — #200/#103 — E2E com fluxo real.** Contrato reviewer/schema, decisão advisory persistida, bloqueio por changes_required, re-review e DONE validado em harness com store canônico e cleanup em `finally`; o consumo do schema e a execução da correção pelo Planner/LLM real ainda exigem prova runtime e não são declarados COBERTOS.
+2. **#183 — contrato do produtor codificado e testado; PARCIAL.** Commits `d59c59d` + este fix cobrem envelope, validação/replay e documentação de consumo; produtor externo não existe e `delivery_id` real não pode ser fabricado. Próximo passo é decisão de operador: construir produtor externo (webhook/Action) ou seguir para #64/#192.
+3. **#64 PARCIAL, #192 PARCIAL, #50 COBERTA (com residual), #141 COBERTA, #2/#184/#185, #172.** #50: baseline re-medido no merge `c05744f` sobre pin 2.3.0: 3 literais em 37 path:line (25 registros de registry, 7 fixtures, 4 comentário/doc, 1 product code), sem comparador de versão; evidência em `evidence/issue-50/pinned-versions-audit.json`. O gate `OrchestrationModelRouter.ps1:2665` tem allowlist hardcoded de runtime; proposta de conjunto suportado explícito ou probe fail-closed ainda não executada. #141 usa JSON e parser de frontmatter estruturados, encontra 0 tokens em superfícies distintas; Agent Config não declara permissões estruturadas. R4 mapeia `enforced_by` por token; `hard` somente com guard+teste, demais advisory/documented-only. Nenhuma permissão alterada; remoção não aplicável. Correção: números R1/R2 (126/108/536/4) vinham de scanners regex/prosa imprecisos e foram substituídos por este método estruturado.
+4. **PR #210.** Aceite: comparar com a master; descartar ou reabrir contra a master; não integrar configuração anterior ao merge #236.
+5. **M7/#205.** Aceite: piloto somente com produto/credenciais; sem acesso/produto, manter HOLD com resultado registrado.
+6. **Reconciliação do config ativo.** Aceite: somente após pedido explícito de install/reconcile, usando `scripts/reconcile-opencode-config.ps1` com backup.
+
+1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).** — **concluído em 2026-11-12 (#12).**
+   - Inspecionar `Set-OrchestrationTaskWorkerResult` e `evidence_refs` em
+     `OrchestrationTaskKernel.ps1`; integrar `New-OrchestrationArtifactRef`
+     para detalhes/logs grandes, persistindo ref + preview e recuperando por
+     hash. Não alterar o significado de `verified_pass`/`DONE`.
+   - Aceite: Task real com log grande; ref e preview persistidos; recall
+     íntegro; comparação de bytes/contexto/tokens/tempo com e sem
+     virtualização. Se não houver benefício medido, manter apenas os helpers
+     atuais e registrar a decisão.
+   - Base existente: `scripts/v3/evidence-virtualize.ps1` (7/7),
+     `scripts/v3/cache-metrics.ps1` (4/4), `OrchestrationObservationVirtualization.ps1`,
+     `OrchestrationCacheMetrics.ps1`.
+   - **Resultado (2026-11-12):** `Set-OrchestrationTaskWorkerResult` passou a aceitar `-DetailContent`/`-DetailPath`/`-DetailKind`/`-EvidenceStoreDir`/`-DetailPreviewChars` e persiste `worker_result.detail` aditivo com `preview` (<=2000 chars), `truncated`, `total_chars` e `artifact_ref` content-addressed ordenado (`sha256/path/bytes/kind/created`). Artefato redigido antes de persistir (`DETAIL_REDACTION_UNAVAILABLE` se indisponível); erros tipados/fail-closed `DETAIL_INPUT_CONFLICT`, `DETAIL_PATH_INVALID`, `DETAIL_PATH_NOT_ALLOWED`, `DETAIL_TOO_LARGE`, `DETAIL_ARTIFACT_FAILED`; `DetailPath`/`EvidenceStoreDir` confinados a `RepoRoot\cache` (boundary case-insensitive, sem `.git`/`models.jsonc`/`.env*`/`TasksDir`/segmentos com `:`/`~`/UNC/`\\?\`/>1 MiB/reparse-junction). Virtualização antes de `Write-TaskKernelRecord` e após todos os gates; sem `evidence_refs` top-level; `claimed_evidence/status/revision/produced_by` e `schema_version=1` intocados; DONE/`verified_pass`/settlement/freshness inalterados. Medição: task JSON 1.939 B sem detalhe → 4.372 B com detalhe 120 KB (delta 2.433 B), artefato 120.003 B; store 326/369 ms e recall 1/8 ms (PS7/PS5.1). Gate feliz: `wr.ok=True verify.ok=True done.ok=True state=DONE detail.sha256=f14668a90eed4e404e6366a6eda7b474a8cb91dd1f6b20c1958e5aa684538455`. Testes: `OrchestrationTaskKernelEvidenceVirtualization.tests.ps1` 10/10 e runner `-Name OrchestrationTaskKernel` 5/5 em PS7/PS5.1; `test-package-consistency.ps1` 17/17; `git diff --check` 0. Revisão independente APPROVED (rodada 4), LOWs aceitos (artefato órfão se write do record falhar; TOCTOU residual reparse→gravação; nomes com `~`/`:` em `cache` recusados). #11 permanece PARCIAL (medição de cache em execução real pendente).
+2. **#200/#103 — E2E com o fluxo real.** — **concluído em 2026-11-12.**
+   - Reviewer recebe o schema por padrão (`reviewer.md` + `review-schema`);
+     Planner interpreta findings, roda `repair-decision`, persiste a decisão
+     advisory e delega a correção.
+   - **Resultado (2026-11-12):** código: `Add-OrchestrationTaskRepairDecision` no Task Kernel persiste `repair_decisions` (array aditivo, bound 20) com `decision/reason/constraints/severity/changed_files/scope_overlap/external_effects_ambiguous/evidence_current/attempts/failure_class/recorded_by/at/revision` (lock+CAS, recusa terminal, erros tipados `REPAIR_DECISION_INVALID`/`REPAIR_DECISION_NOT_ALLOWED`/`REPAIR_DECISION_TOO_LARGE`/`CAS_CONFLICT`, validação de contexto; advisory, sem gate — nenhum consumidor de DONE lê `repair_decisions`). CLI: `task-kernel.ps1 -Action record-repair-decision` (`-TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy`). Mandato V2: Planner roda `review-schema`, inclui schema no dispatch do reviewer, registra findings com `-FindingsJson/-FindingsFile` e persiste a decisão com `record-repair-decision` (bundle regenerado; sidecar confere; typecheck v1/v2/dual PASS). Testes: `OrchestrationReviewRepairLoop` 17/17 (PS7/PS5.1), `OrchestrationReviewAnchor` 29/29, `OrchestrationReviewIntegration` 17/17, `OrchestrationLocalizedRepair` 13/13, `repair-decision` 10/10, runner `-Name OrchestrationTaskKernel` 5/5; `package-consistency` 17/17; `git diff --check` 0. E2E vivo (fixture `cache/e2e-review-repair-6ee1a9eb`, git real, task `e2e-review-repair-001`): implementação inicial `74847a6`; reviewer real com schema retornou CHANGES_REQUIRED com 2 findings ancorados (F1-no-input-validation, F2-missing-nonnumeric-test) persistidos na revisão 6 (âncoras `4016527d...`, `866a2762...`); `repair-decision` retornou LOCAL_REPAIR/localized-finding e decisão persistida na revisão 7; correção `42b2d22` (validação de inteiros e teste negativo); re-review APPROVED; verificação kernel-executed `verified_pass` (revisão 10); REVIEWING (11) e DONE (revisão 12). `review_history` preserva a rodada CHANGES_REQUIRED; `repair_decisions` preserva a decisão. Persistência no E2E feita via libs (as mesmas dos testes); CLI `record-repair-decision` com smoke próprio. Nenhum gate relaxado; sem mudança em `verified_pass`/DONE.
+3. **#183 — produtor externo de eventos.** — **concluído em 2026-11-12 (documentação).**
+   - Resultado: fronteira operacional/honesta documentada em `docs/specs/GITHUB-EVENT-ENVELOPE-BOUNDARY-2026-11-12.md` (contrato do envelope, mapeamento trigger→thread, `dedup_key`/`X-GitHub-Delivery`, fluxo, idempotência em três camadas, modelo de confiança com ingress devendo validar `X-Hub-Signature-256`/HMAC-SHA256, exemplos de referência não ativados, critérios para sair de PARTIAL).
+   - Nota: integração automática externa autenticada/persistente segue **PARTIAL**; sem webhook/Action instalado/ativo, sem scheduler/daemon/controlador e sem fabricação de `delivery_id`.
+4. **#64/#192, #50/#141, #2/#184/#185, #172.**
+   - [x] #64: medição de custo reproduzível concluída em 2026-11-12 (`scripts/v3/skill-discovery-metrics.ps1`, 17/17 PS7+PS5.1): 133 skills válidas/1 inválida/109 junctions; metadados 10.174/9.720 tokens (ocorrência/únicos, `chars/4`), razão corpo/metadados 21,90, latência p50 ~196 ms/p95 ~296 ms (não determinística), seleção lexical top-5 ~348 tokens (`selection_ratio_vs_unique` 0,0358), 8 duplicatas com drift de conteúdo em `hybrid-development` (`differs=true`). Protótipo seletivo (F1 shadow) segue pendente: relevância/recall, falsa seleção, custo-até-DONE e continuidade de cache (Golden Workflows); status PARCIAL, sem promoção a COBERTO.
+   - [x] #192 (2026-11-12, desenho + harness): corpus/design/harness concluídos (`docs/specs/STRATEGY-BENCHMARK-192-DESIGN-2026-11-12.md`, `source/registry/strategy-benchmark-corpus.json`, `scripts/v3/strategy-benchmark.ps1`/`strategy-benchmark.tests.ps1`, 74/74 PS7/PS5.1). Execução/piloto segue pendente (fixtures/verificadores e teto numérico > 0 aprovados).
+   - [x] #50/#141: auditoria capability-first e de autoridade concluída em 2026-11-12 — [AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md) (pin inventory, achado do patch-exato nos smokes V2, mapa de ownership por superfície, HIGH-1/2/3 e MEDIUM/LOW, recomendações); ressalvas factuais aplicadas em `docs/PERMISSIONS.md` e `SECURITY.md`; #50/#141 promovidos a PARCIAL na SPEC. Correções de runtime/perfis dependem de operador; provas de runtime (precedência topo vs agente, `/api/session/{id}/shell`) pendentes.
+   - #2/#184/#185: sessões subordinadas e handback completo. **#184 (fatia 1 concluída em 2026-11-12, fast path):** admissão determinística/shadow em `scripts/v3/lib/OrchestrationEventAdmissionIntent.ps1`, `scripts/v3/event-admission-intent.ps1` e `scripts/v3/lib/OrchestrationEventAdmissionIntent.tests.ps1` (`explicit|candidate|context_only|ignore`, modos `off|observe|auto` com `auto` `shadow=true`/`executable=false` sempre, fail-closed, sem Task/intake/bridge/kernel/LLM/flag nova). **Faltam (fatias 2-6):** regras de operador de baixo risco, slow path seletivo (LLM), auto executável com policy/grant, criação de Task e ingest autenticado.
+   - #172: só reproduzir o flake com sinal real.
+5. **PR #210:** comparar com a master atual; descartar ou reabrir contra a
+   master. Não integrar configuração anterior ao merge #236.
+6. **M7/#205:** piloto somente com produto/credenciais; caso contrário, HOLD.
+7. **Reconciliação do config ativo:** somente após pedido explícito de
+   install/reconcile; usar `scripts/reconcile-opencode-config.ps1` com backup.
+
+### 17.3 Restrições que continuam valendo
+
+Residuais LOW aceitos: `repair_decision` last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E usa o store default real com cleanup em `finally` (crash pode deixar resíduo); comportamento mediado por LLM/provider fora da prova.
+
+- Sem novo controlador, scheduler, banco ou framework.
+- Sem alterar flags, permissões, allowlist, credenciais ou produção.
+- Sem merge/deploy sem autorização explícita.
+- Preservar evidências; não refazer etapas já provadas.
+- Worker executa implementação/teste; Planner decide e delega; Kernel verifica.
+
+### 17.4 Comandos de retomada
+
+```powershell
+cd D:\projetos\_wt\orch-240
+git log --oneline -3
+powershell -NoProfile -File scripts\v3\run-v3-tests.ps1
+powershell -NoProfile -File scripts\test-package-consistency.ps1
+```
+
+Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem realizar merge/deploy.
+
+### 17.5 Handoff compacto (5 campos)
+
+- **Objetivo/estado:** base `1559483` + commit de handoff `289e960`; o backlog avançou em quatro fatias: #200/#103 entregue, revisado e com E2E determinístico; #183 PARCIAL (contrato codificado/testado, produtor externo ausente); #64 PARCIAL (medição local de descoberta de skills); #192 PARCIAL (comparação pré-execução, Cascade/Critique NOT_IMPLEMENTED); #50/#141 COBERTAS com residuais. branch reconciliada no merge `c05744f` sobre o master `bac73e3`; oito testes focados verdes.
+- **Alterações:** `retry-decision` + schema no contrato `reviewer`; `GITHUB-EVENT-PRODUCER-CONTRACT.md` + casos de contrato; `measure-skills-discovery-cost.ps1` + evidência; `compare-execution-strategies.ps1` + evidência; `audit-pinned-versions.ps1`/`audit-authority-surfaces.ps1` + evidências. Nenhuma permissão/flag/credencial alterada.
+- **Validação:** suítes focadas PS 5.1 pós-reparo 206/9/126/29/17/13/10 e package-consistency 17/17; pwsh pré-reparo 204/6/125/29/17/13/10 (pós-reparo não observado). Runner amplo NÃO verde: 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184; as duas falhas ambientais — CapabilityDoctor (listing de `$env:TEMP` sensível a atividade externa) e RuntimeWatchdogEnforcement (log ilegível/ausente) — estão caracterizadas no CHANGELOG.
+- **Decisões/pendências:** LOWs aceitos conforme registro. #50 mantém allowlist `OrchestrationModelRouter.ps1:2665` sem substituição; #141 não encontrou duplicação real; #183 aguarda produtor externo; #192 só poderá medir desempenho após implementar Cascade/Critique e executar cenários. PR #210 e M7/#205 permanecem HOLD. Branch publicada; reconciliação concluída no merge `c05744f` sobre `bac73e3`; oito testes focados verdes. Sem push nem integração no master. Retomada nesta worktree worktree `D:\projetos\_wt\orch-240`, branch `feat/kernel-evidence-store-20261111`; o checkout principal `D:\projetos\opencode-orchestration` pertence a outro fluxo e não deve ser tocado.
+- **Próximo passo:** #2/#184/#185; depois #172, PR #210 e M7/#205 (HOLD).
+
+- **Objetivo/estado:** continuar M0–M7; P0, P0.5 e P0.6 provados; missão
+  encerrada com residuais.
+- **Alterações:** P0 (papéis/roteamento/instruções/mandato), M5 wiring, P0.5
+  (Goal 3 Tasks), P0.6 (resume nativo), #12/#11 helpers, M3 (#140/#203).
+- **Validação:** CI 6/6; V3 168/179; preflight 286/286; GW 145/145;
+  TaskKernel 117/117; P0.5 14/14; evidence-virtualize 7/7; cache-metrics 4/4;
+  typecheck PASS; package-consistency 17/17.
+- **Decisões/pendências:** #183 opção (b); M7 HOLD; #12/#11 no EvidenceStore;
+  #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172; PR #210; config ativo.
+- **Próximo passo:** item 1 de §17.2.
