@@ -279,6 +279,20 @@ ok(
   "F2 V2 planner: DIRECT_VERIFIED somente read-only",
 );
 ok(
+  /model-fallback\.ps1 -Action next/i.test(v2PlannerText) &&
+    /pre_dispatch/i.test(v2PlannerText) &&
+    /without asking the user/i.test(v2PlannerText),
+  "M2 V2 planner: availability fallback is an automatic mandate",
+);
+const v2WorkerText =
+  Array.isArray(ctxEmpty.system) && typeof ctxEmpty.system[0]?.text === "string"
+    ? (ctxEmpty.system[0].text as string)
+    : "";
+ok(
+  !/model-fallback\.ps1 -Action next/i.test(v2WorkerText),
+  "M2 V2 worker: no fallback mandate",
+);
+ok(
   /SINGLE_WORKER/i.test(v2PlannerText) && /one appropriate worker/i.test(v2PlannerText),
   "F2 V2 planner: SINGLE_WORKER despacha um worker",
 );
