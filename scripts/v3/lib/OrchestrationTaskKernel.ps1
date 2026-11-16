@@ -2658,6 +2658,15 @@ function Set-OrchestrationTaskVerification {
     catch { return (New-TaskKernelError -Code 'INTERNAL_ERROR') }
 }
 
+function Get-TaskKernelCoverageFailureCode {
+    [CmdletBinding()]
+    param([string]$Status)
+    if (([string]$Status).Trim() -ceq 'verification_failed') {
+        return 'VERIFY_RUN_VERIFICATION_FAILED'
+    }
+    return 'VERIFY_RUN_CRITERION_UNMAPPED'
+}
+
 function Invoke-TaskKernelVerifyRun {
     <#
     .SYNOPSIS
@@ -2838,7 +2847,20 @@ function Invoke-TaskKernelVerifyRun {
         catch { $vrEvidence = @() }
         $covSlot = Test-TaskKernelCriterionCoverage -Evidence $vrEvidence -CriterionCount (@($criteria).Count)
         if (-not [bool]$covSlot.ok) {
-            return (New-TaskKernelError -Code 'VERIFY_RUN_CRITERION_UNMAPPED' -Extra @{ detail = ([string]$covSlot.error) })
+            $coverageFailureCode = Get-TaskKernelCoverageFailureCode -Status $vrStatus
+            if ($coverageFailureCode -ceq 'VERIFY_RUN_VERIFICATION_FAILED') {
+                $vrReason = [string](Get-TaskKernelNodeField -Object $vr -Name 'reason')
+                $vrReason = [string](Protect-TaskKernelText -Text $vrReason)
+                $vrReason = ([regex]::Replace($vrReason, '[\x00-\x1F\x7F]', ' ')).Trim()
+                $vrDetail = [string](Protect-TaskKernelText -Text ([string]$covSlot.error))
+                $vrDetail = ([regex]::Replace($vrDetail, '[\x00-\x1F\x7F]', ' ')).Trim()
+                return (New-TaskKernelError -Code 'VERIFY_RUN_VERIFICATION_FAILED' -Extra @{
+                    status = $vrStatus
+                    reason = $vrReason
+                    detail = $vrDetail
+                })
+            }
+            return (New-TaskKernelError -Code $coverageFailureCode -Extra @{ detail = ([string]$covSlot.error) })
         }
         $fresh = Read-TaskKernelRecord -TaskFile $taskFile
         if (-not [bool]$fresh.found) { return (New-TaskKernelError -Code 'NOT_FOUND') }
