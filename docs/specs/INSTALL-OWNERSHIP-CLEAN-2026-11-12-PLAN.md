@@ -1,8 +1,8 @@
 # Plano: ownership do instalador e reinstalação limpa
 
-**Data:** 2026-11-12  
-**Repositórios:** `Kusts/opencode-orchestration` e `kust-projetos/agent-config`  
-**Prioridade:** Alta  
+**Data:** 2026-11-12
+**Repositórios:** `Kusts/opencode-orchestration` e `kust-projetos/agent-config`
+**Prioridade:** Alta
 **Runtime alvo:** OpenCode V2
 
 ## 1. Objetivo e problema comprovado

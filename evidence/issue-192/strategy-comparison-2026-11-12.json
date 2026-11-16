@@ -1,0 +1,337 @@
+{
+    "evidence_kind":  "decision_and_policy_probe",
+    "runtime_real":  false,
+    "execution_performed":  false,
+    "generated_at":  "2026-11-12T00:00:00Z",
+    "decisions":  [
+                      {
+                          "id":  "A",
+                          "inputs":  {
+                                         "Objective":  "Where is the definition of the local setting?",
+                                         "TaskType":  "lookup",
+                                         "Domain":  "code",
+                                         "Risk":  "low",
+                                         "ReadWrite":  "read"
+                                     },
+                          "objective_chars_observed":  45,
+                          "decision":  "DIRECT_VERIFIED",
+                          "selected_agents":  [
+
+                                              ],
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  true,
+                                                 "derived_from":  "decision"
+                                             }
+                      },
+                      {
+                          "id":  "B",
+                          "inputs":  {
+                                         "Objective":  "Fix typo in one file comment",
+                                         "TaskType":  "trivial",
+                                         "Domain":  "docs",
+                                         "Risk":  "low",
+                                         "ReadWrite":  "write"
+                                     },
+                          "objective_chars_observed":  28,
+                          "decision":  "SINGLE_WORKER",
+                          "selected_agents":  [
+                                                  "coder"
+                                              ],
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  false,
+                                                 "derived_from":  "decision"
+                                             }
+                      },
+                      {
+                          "id":  "C",
+                          "inputs":  {
+                                         "Objective":  "Implement a new validation workflow",
+                                         "TaskType":  "implementation",
+                                         "Domain":  "code",
+                                         "Risk":  "medium",
+                                         "ReadWrite":  "write"
+                                     },
+                          "objective_chars_observed":  35,
+                          "decision":  "MULTI_WORKER",
+                          "selected_agents":  [
+                                                  "automation-engineer"
+                                              ],
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  false,
+                                                 "derived_from":  "decision"
+                                             }
+                      },
+                      {
+                          "id":  "D",
+                          "inputs":  {
+                                         "Objective":  "Design architecture for a local cache",
+                                         "TaskType":  "planning",
+                                         "Domain":  "architecture",
+                                         "Risk":  "medium",
+                                         "ReadWrite":  "write"
+                                     },
+                          "objective_chars_observed":  37,
+                          "decision":  "MULTI_WORKER",
+                          "selected_agents":  [
+                                                  "requirements-analyst"
+                                              ],
+                          "selected_agent_semantics":  "single_lead_selection",
+                          "direct_allowed":  {
+                                                 "value":  false,
+                                                 "derived_from":  "decision"
+                                             }
+                      }
+                  ],
+    "policy_probe":  [
+                         {
+                             "id":  "direct_valid",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "DIRECT_VERIFIED",
+                                            "DirectReason":  "DIRECT_VERIFIED_LOW_RISK_LOCALIZED",
+                                            "Decision":  "DIRECT_VERIFIED"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "COMPLIANT"
+                         },
+                         {
+                             "id":  "direct_missing_reason",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "DIRECT_VERIFIED",
+                                            "Decision":  "DIRECT_VERIFIED"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                         },
+                         {
+                             "id":  "single_zero",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "SINGLE_WORKER",
+                                            "ActualWorkerParticipation":  0,
+                                            "Decision":  "SINGLE_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "ORCHESTRATION_POLICY_BYPASS"
+                         },
+                         {
+                             "id":  "single_one",
+                             "inputs":  {
+                                            "TaskClass":  "trivial",
+                                            "ExecutionShape":  "SINGLE_WORKER",
+                                            "ActualWorkerParticipation":  1,
+                                            "Decision":  "SINGLE_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "COMPLIANT"
+                         },
+                         {
+                             "id":  "multi_zero",
+                             "inputs":  {
+                                            "TaskClass":  "non_trivial",
+                                            "ActualWorkerParticipation":  0,
+                                            "Decision":  "MULTI_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "ORCHESTRATION_POLICY_BYPASS"
+                         },
+                         {
+                             "id":  "multi_one",
+                             "inputs":  {
+                                            "TaskClass":  "non_trivial",
+                                            "ActualWorkerParticipation":  1,
+                                            "Decision":  "MULTI_WORKER"
+                                        },
+                             "declared_inputs":  true,
+                             "token":  "COMPLIANT"
+                         }
+                     ],
+    "strategies":  [
+                       {
+                           "name":  "Direct",
+                           "status":  "implemented",
+                           "mapping":  "DIRECT_VERIFIED",
+                           "source":  "scripts/v3/lib/OrchestrationPreflight.ps1:Get-OrchestrationPreflight"
+                       },
+                       {
+                           "name":  "Single",
+                           "status":  "implemented",
+                           "mapping":  "SINGLE_WORKER",
+                           "source":  "scripts/v3/lib/OrchestrationPreflight.ps1:Get-OrchestrationPreflight"
+                       },
+                       {
+                           "name":  "Cascade",
+                           "status":  "NOT_IMPLEMENTED",
+                           "reason":  "Only present in docs; no selector, registry, or implementation."
+                       },
+                       {
+                           "name":  "Critique",
+                           "status":  "NOT_IMPLEMENTED",
+                           "reason":  "Only present in docs; no selector, registry, or implementation."
+                       }
+                   ],
+    "comparison":  [
+                       {
+                           "scenario_id":  "A",
+                           "decision":  "DIRECT_VERIFIED",
+                           "selected_agent_count":  {
+                                                        "value":  0,
+                                                        "derived_from":  "selected_agents"
+                                                    },
+                           "selected_agents":  [
+
+                                               ],
+                           "selected_agent_semantics":  "single_lead_selection",
+                           "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "direct_valid",
+                                                               "direct_missing_reason"
+                                                           ],
+                           "compliance_tokens":  [
+                                                     "COMPLIANT",
+                                                     "NON_COMPLIANT_MISSING_DIRECT_REASON"
+                                                 ]
+                       },
+                       {
+                           "scenario_id":  "B",
+                           "decision":  "SINGLE_WORKER",
+                           "selected_agent_count":  {
+                                                        "value":  1,
+                                                        "derived_from":  "selected_agents"
+                                                    },
+                           "selected_agents":  [
+                                                   "coder"
+                                               ],
+                           "selected_agent_semantics":  "single_lead_selection",
+                           "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "single_zero",
+                                                               "single_one"
+                                                           ],
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT"
+                                                 ]
+                       },
+                       {
+                           "scenario_id":  "C",
+                           "decision":  "MULTI_WORKER",
+                           "selected_agent_count":  {
+                                                        "value":  1,
+                                                        "derived_from":  "selected_agents"
+                                                    },
+                           "selected_agents":  [
+                                                   "automation-engineer"
+                                               ],
+                           "selected_agent_semantics":  "single_lead_selection",
+                           "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "multi_zero",
+                                                               "multi_one"
+                                                           ],
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT"
+                                                 ]
+                       },
+                       {
+                           "scenario_id":  "D",
+                           "decision":  "MULTI_WORKER",
+                           "selected_agent_count":  {
+                                                        "value":  1,
+                                                        "derived_from":  "selected_agents"
+                                                    },
+                           "selected_agents":  [
+                                                   "requirements-analyst"
+                                               ],
+                           "selected_agent_semantics":  "single_lead_selection",
+                           "execution_performed":  false,
+                           "compliance_policy_probe_ids":  [
+                                                               "multi_zero",
+                                                               "multi_one"
+                                                           ],
+                           "compliance_tokens":  [
+                                                     "ORCHESTRATION_POLICY_BYPASS",
+                                                     "COMPLIANT"
+                                                 ]
+                       }
+                   ],
+    "metrics":  {
+                    "objective_chars_proxy":  [
+                                                  {
+                                                      "scenario_id":  "A",
+                                                      "value":  12,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  },
+                                                  {
+                                                      "scenario_id":  "B",
+                                                      "value":  7,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  },
+                                                  {
+                                                      "scenario_id":  "C",
+                                                      "value":  9,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  },
+                                                  {
+                                                      "scenario_id":  "D",
+                                                      "value":  10,
+                                                      "is_estimate":  true,
+                                                      "method":  "chars/4",
+                                                      "measures_performance":  false
+                                                  }
+                                              ]
+                },
+    "unknown":  [
+                    {
+                        "name":  "wall_clock",
+                        "reason":  "No execution performed."
+                    },
+                    {
+                        "name":  "provider_tokens",
+                        "reason":  "No model call."
+                    },
+                    {
+                        "name":  "provider_cost",
+                        "reason":  "No model call."
+                    },
+                    {
+                        "name":  "execution_shape_observed",
+                        "reason":  "No execution performed; preflight returns no observed shape."
+                    },
+                    {
+                        "name":  "worker_participation_observed",
+                        "reason":  "No execution performed."
+                    },
+                    {
+                        "name":  "cascade_outcome",
+                        "reason":  "Cascade is not implemented."
+                    },
+                    {
+                        "name":  "critique_outcome",
+                        "reason":  "Critique is not implemented."
+                    }
+                ],
+    "method":  {
+                   "type":  "deterministic_local_io",
+                   "no_model_call":  true,
+                   "no_second_router":  true,
+                   "base_revision":  "bb5bf7204ced4b55c5a357a42e09a50138bd081c",
+                   "generated_by_commit":  "505968e",
+                   "limitations":  [
+                                       "No execution was performed; decisions are pre-execution and the compliance matrix uses declared inputs.",
+                                       "MULTI_WORKER is a decision class; selected_agents is a single lead selection, not executed worker count.",
+                                       "objective_chars_proxy is identical across strategies and is not a strategy performance comparison."
+                                   ]
+               }
+}

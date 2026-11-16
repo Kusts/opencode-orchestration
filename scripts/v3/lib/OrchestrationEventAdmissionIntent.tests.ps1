@@ -115,4 +115,3 @@ $activeDoc=@{schema_version=1;policy_version='1';rules=@($rules.rules)};$activeD
 $active=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesRegistry',$activeRegistry,'-Mode','auto');$activeFile=Invoke-Cli @('-EnvelopeFile',$ef,'-ContextFile',$cf,'-RulesFile',$activeRules,'-Mode','auto');$activeOut=$active.text|ConvertFrom-Json;Assert ($active.code -eq 0 -and $active.text -ceq $activeFile.text -and $activeOut.intent -eq 'candidate' -and $activeOut.action -eq 'would_new_task' -and $activeOut.shadow -and !$activeOut.executable) ('CLI enabled normalized registry: '+$active.code+' '+$active.text+' vs '+$activeFile.text)
 Remove-Item -LiteralPath $tmp -Recurse -Force
 Write-Output 'PASS AdmissionIntent'
-

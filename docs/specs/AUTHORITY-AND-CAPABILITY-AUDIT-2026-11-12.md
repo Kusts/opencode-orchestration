@@ -1,7 +1,7 @@
 # AUTHORITY AND CAPABILITY AUDIT — 2026-11-12
 
-**Status:** PARCIAL (auditoria documental concluída; correções de runtime/perfis e provas de runtime pendem de decisão de operador)  
-**Escopo:** issues #50 (capability-first/pins) e #141 (autoridade por superfície)  
+**Status:** PARCIAL (auditoria documental concluída; correções de runtime/perfis e provas de runtime pendem de decisão de operador)
+**Escopo:** issues #50 (capability-first/pins) e #141 (autoridade por superfície)
 **Baseline:** estado do checkout em 2026-11-12 (read-only)
 
 ## 1. Escopo e método

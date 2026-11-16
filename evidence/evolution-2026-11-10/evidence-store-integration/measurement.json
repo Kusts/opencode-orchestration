@@ -1,0 +1,22 @@
+{
+  "detail_bytes": 200013,
+  "record_bytes_without_virtualization": 4633,
+  "record_bytes_with_virtualization": 6880,
+  "artifact_bytes": 200013,
+  "preview_bytes": 2000,
+  "recall_ms": 815,
+  "tokens": {
+    "estimate": "chars/4",
+    "value": 50004
+  },
+  "recall_integrity": {
+    "byte_identical": true,
+    "hash_verified": true
+  },
+  "redaction": "applied",
+  "redaction_fail_closed": true,
+  "store_rel": true,
+  "decision": "Adopt opt-in virtualization: complete redacted detail is stored externally and hash-verified; the legacy record remains bounded to 2000 characters. Redaction avoids persisting secret material at rest.",
+  "generated_at": "2026-11-12T02:02:43.6590463Z",
+  "runtime": "PowerShell 7.6.9 (Core)"
+}

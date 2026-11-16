@@ -11,11 +11,13 @@
       get           - Get-OrchestrationTask (needs -TaskId)
       status        - Get-OrchestrationTaskStatus (needs -TaskId)
       transition    - Invoke-OrchestrationTaskTransition (needs -TaskId -ToState -Actor -ExpectedRevision; optional typed wait for -ToState BLOCKED; unblock from BLOCKED needs -WaitFingerprint or -UnblockAction when a typed wait is active)
-      record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision; optional strategy/recovery fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -FailureClass -FailureDetail -RecoverySource -NewEvidenceRefs)
+      record-result - Set-OrchestrationTaskWorkerResult (needs -TaskId -WorkerStatus -ProducedBy -ExpectedRevision; optional strategy/recovery fields -StrategyId -StrategyApproach -StrategyTool -StrategyParams -StrategyFingerprint -FailureClass -FailureDetail -RecoverySource -NewEvidenceRefs; optional -EvidenceStoreDir (empty = legacy) and -VirtualizeThresholdBytes (default 4096; 1024..1048576))
+      get-evidence  - Read evidence by -TaskId and exactly one of -Attempt (1-based) or -ArtifactId (sha256); optional -StoreDir (repo-confined) and -Full (include content); returns JSON verified by SHA-256
       verify        - Set-OrchestrationTaskVerification (UNTRUSTED caller JSON/file; persists verification_source=caller-supplied, never proof-capable)
       verify-run    - Invoke-TaskKernelVerifyRun (TRUSTED: executes the task's committed verification_profiles plan in-process in the task repo; needs -TaskId -ExpectedRevision; no result JSON accepted)
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
-       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+      review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+       retry-decision - Record advisory localized-repair decision; increments revision (concurrent writers may CAS_CONFLICT); EXHAUSTED is terminal, so ESCALATE is recordable only while attempts < budget
        record-repair-decision - Add advisory repair decision (needs -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy; optional -Severity low|medium|high|critical -ChangedFiles 0..100000 -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts 0..100 -FailureClass localized|unknown|structural)
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
        event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary -ContextOnly; idempotent consumption/settlement ack)
@@ -64,7 +66,6 @@ param(
     [string]$DetailContent = '',
     [string]$DetailPath = '',
     [ValidateSet('tool-output','session-log','test-output','diff','other')][string]$DetailKind = 'other',
-    [string]$EvidenceStoreDir = '',
     [int]$DetailPreviewChars = 2000,
     [string[]]$ClaimedEvidence = @(),
     [string]$Passed = '',
@@ -146,6 +147,12 @@ param(
     [string]$StrategyFingerprint = '',
     [string]$FailureClass = '',
     [string]$FailureDetail = '',
+    [string]$EvidenceStoreDir = '',
+    [int]$VirtualizeThresholdBytes = 4096,
+    [int]$Attempt = 0,
+    [string]$ArtifactId = '',
+    [string]$StoreDir = '',
+    [switch]$Full,
     [string]$RecoverySource = '',
     [string]$AttemptHypothesis = '',
     [string]$WaitType = '',
@@ -217,14 +224,14 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'status', 'transition', 'record-result', 'record-repair-decision',
+$validActions = @('create', 'get', 'get-evidence', 'status', 'transition', 'record-result', 'record-repair-decision',
     'verify', 'verify-run', 'review', 'review-schema', 'retry-decision', 'event-attach', 'event-ack', 'handback',
     'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn',
     'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session',
     'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select',
     'team-add', 'team-release', 'team-get')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action <acao>; retry-decision exige -TaskId -ExpectedRevision -Severity -ChangedFiles -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -FailureClass; team-add exige -TaskId -SessionId -Role -RunId -CoordinatorSessionId -ExpectedRevision; team-release exige -TaskId -SessionId -CoordinatorSessionId -ExpectedRevision; team-get exige -TaskId.'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action <acao> (inclui get-evidence); retry-decision exige -TaskId -ExpectedRevision -Severity -ChangedFiles -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -FailureClass; team-add exige -TaskId -SessionId -Role -RunId -CoordinatorSessionId -ExpectedRevision; team-release exige -TaskId -SessionId -CoordinatorSessionId -ExpectedRevision; team-get exige -TaskId.'
     exit 2
 }
 
@@ -354,7 +361,11 @@ switch ($action) {
         if (-not $PSBoundParameters.ContainsKey('ScopeOverlap') -or -not $PSBoundParameters.ContainsKey('ExternalEffectsAmbiguous') -or -not $PSBoundParameters.ContainsKey('EvidenceCurrent')) {
             Write-TaskKernelCliError 'retry-decision exige os tres sinais booleanos explicitamente.'; exit 2
         }
-        $result=Set-OrchestrationTaskRepairDecision -TaskId $TaskId -ExpectedRevision $ExpectedRevision -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap:($ScopeOverlap -eq 'true') -ExternalEffectsAmbiguous:($ExternalEffectsAmbiguous -eq 'true') -EvidenceCurrent:($EvidenceCurrent -eq 'true') -FailureClass $FailureClass -TasksDir $TasksDir -FlagsPath $FlagsPath
+        $canonTasksRetry=Get-TaskKernelDefaultTasksDir -RepoRoot ''
+        $canonFlagsRetry=Get-TaskKernelDefaultFlagsPath -RepoRoot ''
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksRetry)) { $result=New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{path_role='tasks_dir';action='retry-decision'}; break }
+        if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsRetry)) { $result=New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{path_role='flags_path';action='retry-decision'}; break }
+        $result=Set-OrchestrationTaskRepairDecision -TaskId $TaskId -ExpectedRevision $ExpectedRevision -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap:($ScopeOverlap -eq 'true') -ExternalEffectsAmbiguous:($ExternalEffectsAmbiguous -eq 'true') -EvidenceCurrent:($EvidenceCurrent -eq 'true') -FailureClass $FailureClass -TasksDir $canonTasksRetry -FlagsPath $canonFlagsRetry
     }
     'create' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Objective)) {
@@ -476,20 +487,86 @@ switch ($action) {
             exit 2
         }
         Assert-TaskKernelRevision
+        if (-not [string]::IsNullOrWhiteSpace($EvidenceStoreDir)) {
+            $canonRootRecord = Get-TaskKernelCliCanonicalRoot
+            $canonTasksRecord = Get-TaskKernelDefaultTasksDir -RepoRoot ''
+            $canonFlagsRecord = Get-TaskKernelDefaultFlagsPath -RepoRoot ''
+            if (-not (Test-TaskKernelCliTrustedPath -Provided $CliRepoRoot -Canonical $canonRootRecord)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'repo_root'; action = 'record-result' }; break }
+            if (-not (Test-TaskKernelCliTrustedPath -Provided $TasksDir -Canonical $canonTasksRecord)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'tasks_dir'; action = 'record-result' }; break }
+            if (-not (Test-TaskKernelCliTrustedPath -Provided $FlagsPath -Canonical $canonFlagsRecord)) { $result = New-TaskKernelError -Code 'TRUSTED_PATH_MISMATCH' -Extra @{ path_role = 'flags_path'; action = 'record-result' }; break }
+        }
         $workerResultArgs = @{
             TaskId = $TaskId; Status = $WorkerStatus
             ClaimedEvidence = (Split-TaskKernelCliList -Value $ClaimedEvidence); ProducedBy = $ProducedBy
             ExpectedRevision = [int]$ExpectedRevision; Hypothesis = $Hypothesis; NewEvidence = [bool]$NewEvidence
-            DebuggerInvoked = [bool]$DebuggerInvoked; StrategyId = $StrategyId; StrategyApproach = $StrategyApproach
-            StrategyTool = $StrategyTool; StrategyParams = (Split-TaskKernelCliList -Value $StrategyParams)
-            StrategyFingerprint = $StrategyFingerprint; FailureClass = $FailureClass; FailureDetail = $FailureDetail
-            RecoverySource = $RecoverySource; NewEvidenceRefs = (Split-TaskKernelCliList -Value $NewEvidenceRefs)
-            TasksDir = $TasksDir; FlagsPath = $FlagsPath; DetailKind = $DetailKind
-            EvidenceStoreDir = $EvidenceStoreDir; DetailPreviewChars = $DetailPreviewChars
+            DebuggerInvoked = [bool]$DebuggerInvoked
+            StrategyId = $StrategyId; StrategyApproach = $StrategyApproach; StrategyTool = $StrategyTool
+            StrategyParams = (Split-TaskKernelCliList -Value $StrategyParams); StrategyFingerprint = $StrategyFingerprint
+            FailureClass = $FailureClass; FailureDetail = $FailureDetail; RecoverySource = $RecoverySource
+            NewEvidenceRefs = (Split-TaskKernelCliList -Value $NewEvidenceRefs)
+            TasksDir = $TasksDir; FlagsPath = $FlagsPath; EvidenceStoreDir = $EvidenceStoreDir
+            VirtualizeThresholdBytes = $VirtualizeThresholdBytes; DetailKind = $DetailKind; DetailPreviewChars = $DetailPreviewChars
         }
         if ($PSBoundParameters.ContainsKey('DetailContent')) { $workerResultArgs.DetailContent = $DetailContent }
         if ($PSBoundParameters.ContainsKey('DetailPath')) { $workerResultArgs.DetailPath = $DetailPath }
+        if (-not [string]::IsNullOrWhiteSpace($EvidenceStoreDir)) {
+            $workerResultArgs.TasksDir = $canonTasksRecord
+            $workerResultArgs.FlagsPath = $canonFlagsRecord
+            $workerResultArgs.RepoRoot = $canonRootRecord
+        }
         $result = Set-OrchestrationTaskWorkerResult @workerResultArgs
+    }
+    'get-evidence' {
+        $hasAttempt = ($Attempt -gt 0)
+        $hasArtifactId = -not [string]::IsNullOrWhiteSpace($ArtifactId)
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or ($Attempt -lt 0) -or ($hasAttempt -eq $hasArtifactId)) { Write-TaskKernelCliError 'get-evidence exige -TaskId e exatamente um de -Attempt (>=1) ou -ArtifactId.'; exit 2 }
+        try {
+            . (Join-Path $v3root 'lib\OrchestrationObservationVirtualization.ps1')
+            $canonRootEvidence = Get-TaskKernelCliCanonicalRoot
+            $canonTasksEvidence = Get-TaskKernelDefaultTasksDir -RepoRoot ''
+            # Read actions share the caller-provided TasksDir contract; artifact integrity is protected by SHA verification and store confinement.
+            $task = Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir
+            $taskErr = Get-TaskKernelResultError -Result $task
+            if (($taskErr -ceq 'NOT_FOUND') -or ($taskErr -ceq 'MALFORMED')) { $result = $task; break }
+            if (-not [string]::IsNullOrWhiteSpace($taskErr)) { $result = $task; break }
+            $found = $null; $attemptN = $Attempt
+            $ats = @($task['attempts'])
+            for ($i = 0; $i -lt $ats.Count; $i++) {
+                $entries = @((Get-TaskKernelAttemptField -Attempt $ats[$i] -Name 'evidence_artifacts') | Where-Object { $null -ne $_ })
+                if ($entries.Count -eq 0) { continue }
+                foreach ($entry in $entries) {
+                    if (($Attempt -gt 0 -and ($i + 1) -eq $Attempt) -or ((-not [string]::IsNullOrWhiteSpace($ArtifactId)) -and ([string]$entry['sha256'] -ceq $ArtifactId))) { $found = $entry; $attemptN = $i + 1; break }
+                }
+                if ($null -ne $found) { break }
+            }
+            if ($null -eq $found) { $result = New-TaskKernelError -Code 'EVIDENCE_ARTIFACT_NOT_FOUND'; break }
+            $store = $StoreDir
+            if ([string]::IsNullOrWhiteSpace($store)) {
+                $storeRel = [string]$found['store_rel']
+                if (-not [string]::IsNullOrWhiteSpace($storeRel)) {
+                    if ([IO.Path]::IsPathRooted($storeRel) -or $storeRel -match '(^|[\\/])\.\.([\\/]|$)') { $result = New-TaskKernelError -Code 'ARTIFACT_PATH_ESCAPE'; break }
+                    $store = Join-Path $canonRootEvidence $storeRel
+                }
+                else { $store = [string]$found['store_dir'] }
+            }
+            if ([string]::IsNullOrWhiteSpace($store)) { $result = New-TaskKernelError -Code 'ARTIFACT_STORE_REQUIRED' }
+            else {
+                $kind = ([string]$found['kind']).Trim().ToLowerInvariant(); $sha = [string]$found['sha256']
+                if ($script:ObservationArtifactKinds -notcontains $kind) { $result = New-TaskKernelError -Code 'ARTIFACT_KIND_INVALID'; break }
+                if ($sha -cnotmatch '^[0-9a-f]{64}$') { $result = New-TaskKernelError -Code 'ARTIFACT_HASH_INVALID'; break }
+                $fullStore = [IO.Path]::GetFullPath($store).TrimEnd('\','/')
+                $rootPrefix = $canonRootEvidence.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+                if (-not $fullStore.StartsWith($rootPrefix,[StringComparison]::OrdinalIgnoreCase)) { $result = New-TaskKernelError -Code 'ARTIFACT_PATH_ESCAPE'; break }
+                if ((Test-TaskKernelPathHasReparsePoint -Path $fullStore) -or (Test-TaskKernelPathHasReparsePoint -Path (Join-Path $fullStore $kind))) { $result = New-TaskKernelError -Code 'ARTIFACT_PATH_ESCAPE'; break }
+                $path = Get-OrchestrationArtifactStorePath -StoreDir $fullStore -Kind $kind -Sha256 $sha
+                if ([string]::IsNullOrWhiteSpace($path)) { $result = New-TaskKernelError -Code 'ARTIFACT_PATH_ESCAPE'; break }
+                $read = Read-OrchestrationArtifactRef -Path $path -ExpectedSha256 ([string]$found['sha256']) -StoreDir $fullStore -MaxBytes 1048576
+                $result = [ordered]@{ ok = [bool]$read.ok; task_id = $TaskId; attempt = $attemptN; sha256 = [string]$found['sha256']; bytes = [int]$found['bytes']; kind = [string]$found['kind']; preview = [string]$found['preview']; verified = [bool]$read.ok; error = [string]$read.error }
+                if ($Full -and $read.ok) { $result['content'] = [string]$read.content }
+            }
+        }
+        catch { $result = New-TaskKernelError -Code 'ARTIFACT_READ_FAILED' }
+
     }
     'record-repair-decision' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($RecordedBy) -or [string]::IsNullOrWhiteSpace($RepairDecisionJson)) { Write-TaskKernelCliError 'record-repair-decision exige -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy.'; exit 2 }

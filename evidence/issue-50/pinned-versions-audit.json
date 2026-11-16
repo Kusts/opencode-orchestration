@@ -1,0 +1,578 @@
+{
+  "scan_scope": [
+    "scripts/",
+    "plugins/",
+    "templates/",
+    "install.ps1",
+    "uninstall.ps1",
+    "source/registry/"
+  ],
+  "excluded_paths": [
+    "evidence/",
+    "docs/",
+    "cache/",
+    ".git/",
+    "node_modules/"
+  ],
+  "declared_pins": [
+    {
+      "key": "runtimes.v1",
+      "package": "opencode-ai",
+      "version": "1.18.34",
+      "spec": "opencode-ai@1.18.34"
+    },
+    {
+      "key": "runtimes.v2",
+      "package": "@opencode/cli",
+      "version": "2.3.0",
+      "spec": "@opencode/cli@2.3.0"
+    },
+    {
+      "key": "plugins.v1",
+      "package": "@opencode-ai/plugin",
+      "version": "1.18.34",
+      "spec": "@opencode-ai/plugin@1.18.34"
+    },
+    {
+      "key": "plugins.v2",
+      "package": "@opencode/plugin",
+      "version": "2.3.0",
+      "spec": "@opencode/plugin@2.3.0"
+    },
+    {
+      "key": "tools.bun",
+      "package": "bun",
+      "version": "1.3.14",
+      "spec": "bun@1.3.14"
+    }
+  ],
+  "distinct_literals": [
+    "1.18.34",
+    "2.3.0",
+    "1.3.14"
+  ],
+  "literals": [
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 164,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "// Historically typechecked at @opencode/plugin 2.2.6; 2.3.0 pending CI typecheck. Runtime observation is 2.0.23 only. get({sessionID})",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 177,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "// Historically typechecked at registry pin 2.2.6; 2.3.0 pending CI typecheck. Runtime observation is historical 2.0.23 only. This literal is checked by tsc against",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "scripts/ci/session-real-lane-v2.ps1",
+      "line": 2968,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "# V1 imprime so '1.18.34' (sem o prefixo 'opencode v' do V2);",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "scripts/runtime/detect-opencode-capabilities.tests.ps1",
+      "line": 82,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "return @{ Ok = $true; ExitCode = 0; Output = \"opencode v1.18.34\"; Reason = \"probe ok\" }",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2555,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "the canonical supported allowlist (2.2.5, 2.2.6, 2.3.0, 2.0.23; official raw",
+      "classification": "COMMENT_OR_DOC"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2665,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "$supported = @('2.2.5', '2.2.6', '2.3.0', '2.0.23')",
+      "classification": "PRODUCT_CODE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+      "line": 12,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "the canonical supported allowlist (2.2.5, 2.2.6, 2.3.0, 2.0.23). Unknown/missing live",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+      "line": 49,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "$r230 = Test-OrchestrationNativeModelOverrideProof -InfoReader (New-NPSeam '2.3.0')",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouterNativeProof.tests.ps1",
+      "line": 51,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "Assert-NP (([string]$r230.live_version -ceq '2.3.0')) 'NP02d-live-version-echo-230' (\"live=\" + [string]$r230.live_version)",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationRuntimeAdapterContract.tests.ps1",
+      "line": 76,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "$probeV1=\"opencode version 1.18.34 windows\"",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+      "line": 7,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "$expectedPin='2.3.0'",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationV2NativeGating.tests.ps1",
+      "line": 52,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "Assert-That ($registry.runtime -ceq 'v2' -and $registry.pin -ceq $expectedPin -and $registry.PSObject.Properties.Name -notcontains 'enabled') 'registry declares no global activation switch and retains expected pin 2.3.0'",
+      "classification": "TEST_FIXTURE"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 72,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"runtime\": { \"v2\": true, \"note\": \"pin atual do plugin V2: @opencode/plugin@2.3.0; typecheck contra 2.2.6 ?? hist??rico; typecheck 2.3.0 depende do CI; shape runtime observado somente em 2.0.23\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 75,
+      "literals": [
+        "1.18.34",
+        "2.3.0"
+      ],
+      "context": "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"observa????o hist??rica: bundle + sidecar presentes; typecheck V1/V2/DUAL passou contra @opencode-ai/plugin@1.18.34 e @opencode/plugin@2.2.6; shape runtime de SessionInfo observado somente em 2.0.23. Pin atual @opencode/plugin@2.3.0; typecheck no pin atual depende do CI.\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 475,
+      "literals": [
+        "1.18.34",
+        "2.3.0"
+      ],
+      "context": "\"description\": \"CLI OpenCode que executa Planner e workers (pins canonicos em runtime-versions.json: V1 1.18.34, V2 2.3.0; smoke exact-binary-live pendente).\",",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 477,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"runtime\": { \"v2\": true, \"note\": \"pin V2 atual 2.3.0 via loader fail-closed RuntimeVersions.ps1; smoke exact-binary-live em 2.3.0 depende do CI; probes 2.0.23 sao historicos\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/capabilities-v2.json",
+      "line": 480,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"status\": { \"desired\": \"ACTIVE\", \"observed\": \"ACTIVE\", \"observed_at\": \"2026-11-07\", \"observed_note\": \"observa????o hist??rica em 2.2.6; pin can??nico atual 2.3.0. Smoke expl??cito do ciclo no bin??rio exato 2.3.0 depende do CI; provas de capacidades nativas espec??ficas seguem em HOLD.\" },",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 8,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"version\": \"1.18.34\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 9,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"spec\": \"opencode-ai@1.18.34\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 13,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"version\": \"2.3.0\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 14,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"spec\": \"@opencode/cli@2.3.0\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 20,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"version\": \"1.18.34\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 21,
+      "literals": [
+        "1.18.34"
+      ],
+      "context": "\"spec\": \"@opencode-ai/plugin@1.18.34\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 25,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"version\": \"2.3.0\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 26,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"spec\": \"@opencode/plugin@2.3.0\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 32,
+      "literals": [
+        "1.3.14"
+      ],
+      "context": "\"version\": \"1.3.14\",",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/runtime-versions.json",
+      "line": 33,
+      "literals": [
+        "1.3.14"
+      ],
+      "context": "\"spec\": \"bun@1.3.14\"",
+      "classification": "SOURCE_OF_TRUTH"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 4,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"pin\": \"2.3.0\",",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 5,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"pin_note\": \"This pin follows the canonical registry source/registry/runtime-versions.json (runtimes.v2.version); the target moved from 2.2.6 to 2.3.0 on 2026-11-13 by explicit operator request. The explicit lifecycle smoke must be re-run on the exact 2.3.0 binary; CI must be green before merge. This does not prove any feature below. CLOSURE 2026-10-06: historical real-runtime probe collection ran against 2.0.23 (evidence/v3.1/runtime-reliability/session-lane-2026-10-06/v2-native-probes.json); those observations do not prove 2.3.0. Session-permission-narrowing was observed NOT enforced on the /shell surface (fail-open observed there) on 2.0.23; the other probes stayed ambiguous without model inference or operator-owned policy config. NO feature-specific exact-binary-live record exists for 2.3.0, so all 8 features remain hold-unproven; runtime_grant_enforcement.v2 stays OFF (sustained HOLD, program-status.json#closure_2026_10_06). Collection plus validation is operator-owned by design (see evidence_contract.writer_contract).\",",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 22,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"session-hierarchy-provenance-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 30,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"session-permission-narrowing-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 38,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"experimental-policies-hard-deny-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 46,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"native-step-limits-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 54,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"background-subagents-bounded-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 62,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"plugin-storage-index-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 70,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"snapshots-auxiliary-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    },
+    {
+      "path": "source/registry/v2-native-capabilities.json",
+      "line": 78,
+      "literals": [
+        "2.3.0"
+      ],
+      "context": "\"required_evidence\": {\"type\": \"exact-binary-live\", \"runtime\": \"v2\", \"pin\": \"2.3.0\", \"scenario\": \"durable-event-log-replay-exact-binary\"},",
+      "classification": "REGISTRY_RECORD"
+    }
+  ],
+  "counts": {
+    "distinct_literals": 3,
+    "path_lines": 37,
+    "SOURCE_OF_TRUTH": 10,
+    "REGISTRY_RECORD": 25,
+    "TEST_FIXTURE": 7,
+    "COMMENT_OR_DOC": 4,
+    "PRODUCT_CODE": 1,
+    "UNCLASSIFIED_NEEDS_REVIEW": 0,
+    "comparators": 0
+  },
+  "reviewed_product_code": [
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2665,
+      "rationale": "Hardcoded supported-runtime allowlist gates UNSUPPORTED_RUNTIME; explicit supported set or capability probe, fail-closed."
+    }
+  ],
+  "reviewed_comment_or_doc": [
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 164
+    },
+    {
+      "path": "plugins/orchestration-enforcement/v2.ts",
+      "line": 177
+    },
+    {
+      "path": "scripts/ci/session-real-lane-v2.ps1",
+      "line": 2968
+    },
+    {
+      "path": "scripts/v3/lib/OrchestrationModelRouter.ps1",
+      "line": 2555
+    }
+  ],
+  "comparators": [],
+  "comparator_search": {
+    "operator_probe": [
+      "-ge",
+      "-lt"
+    ],
+    "comparator_matches": 0,
+    "scope": "scripts/, plugins/, templates/, install.ps1, uninstall.ps1, source/registry/",
+    "operator_matches": 0,
+    "method": "Case-insensitive directed keyword search; operator probe requires -ge/-lt adjacent to a numeric version literal, preventing -Generation and $PSVersionTable noise.",
+    "needles": [
+      "[version]",
+      "CompareTo",
+      "semver"
+    ],
+    "excluded": "*.tests.ps1",
+    "matches": 3
+  },
+  "comparator_search_hits": [
+    {
+      "path": "scripts/runtime/lib/RuntimeAdapters.ps1",
+      "line": 115,
+      "needle": "semver",
+      "context": "$res.Reason = 'nenhum token semver x.y.z na saida'",
+      "actual_comparator": false,
+      "rationale": "Keyword hit only; no version-comparison expression on this line."
+    },
+    {
+      "path": "scripts/runtime/lib/RuntimeVersions.ps1",
+      "line": 119,
+      "needle": "semver",
+      "context": "throw ('runtime versions registry: ' + $group + '.' + $key + ' com version fora do semver exato (esperado ' + $verPattern + '; rejeita latest/range/^/~/espaco): ' + $ver + ' em ' + $path)",
+      "actual_comparator": false,
+      "rationale": "Keyword hit only; no version-comparison expression on this line."
+    },
+    {
+      "path": "scripts/v3/skill-discovery-metrics.ps1",
+      "line": 95,
+      "needle": "CompareTo",
+      "context": "$rankList.Sort([System.Comparison[object]]{param($left,$right);$c=$right.score.CompareTo($left.score);if($c -eq 0){$c=[string]::CompareOrdinal($left.skill.name,$right.skill.name)};if($c -eq 0){$c=[string]::CompareOrdinal($left.skill.root,$right.skill.root)};return $c})",
+      "actual_comparator": false,
+      "rationale": "Keyword hit only; no version-comparison expression on this line."
+    }
+  ],
+  "unparseable": [],
+  "protected_files": [
+    {
+      "path": "templates/opencode.v1.json.tmpl",
+      "sha256": "658DEC2718FDC8288BDA7D8A9C0BE2D2D1498C14E8A71EAF6425E1C272F76850"
+    },
+    {
+      "path": "templates/opencode.v2.json.tmpl",
+      "sha256": "FC5B101B2EEE1B656CAF11CBBBFABAA10A8A848DF5E448E0657963369FBD5C24"
+    },
+    {
+      "path": "source/agents/ai-agent-engineer.md",
+      "sha256": "3BA59E3C0C06A27B9CA1F621D1E365384B7986E73136B95DD7451E85279512F7"
+    },
+    {
+      "path": "source/agents/architect.md",
+      "sha256": "D35B190D04498A33FF5339B5D6E2E854F0351327C15AF7B10297399A9803D030"
+    },
+    {
+      "path": "source/agents/automation-engineer.md",
+      "sha256": "C921CEC53FDD3AC5548AA5B4C4E7A295543043E63C7DAA784F623279393A5853"
+    },
+    {
+      "path": "source/agents/backend-engineer.md",
+      "sha256": "D320DF2DAA7DD849886AE52AFE6BDE404124E179C85111032BD52B28DF6410BA"
+    },
+    {
+      "path": "source/agents/coder.md",
+      "sha256": "5DD6F9C893A021AF0932AB0264221B95FEC710A012FFCB5DCB297A47A011D54F"
+    },
+    {
+      "path": "source/agents/database-engineer.md",
+      "sha256": "E3789F44B12DF41009B076340BA8B36F0F7E21C80945DBBE31DD4B63214CA1AE"
+    },
+    {
+      "path": "source/agents/debugger.md",
+      "sha256": "FEAB3BEE2C06EB45884A85D8C6BA932ACBFAAF05F926C1792FBBD35341338C01"
+    },
+    {
+      "path": "source/agents/docs-manager.md",
+      "sha256": "C0CE48485C98BF5A23A8879373AE8EBE3D525BDA7AFE02405EDE90153F50A9D9"
+    },
+    {
+      "path": "source/agents/engineering-advisor.md",
+      "sha256": "3029EA00397B5AEA9797E0D16C8E09A37F17846F39B92EE288200E5DF50EC9BD"
+    },
+    {
+      "path": "source/agents/explorer.md",
+      "sha256": "72002AB4011C0B119961EFAC98EF0D3987C26170DE708BDCC54B66816F9BFD5D"
+    },
+    {
+      "path": "source/agents/frontend-engineer.md",
+      "sha256": "AF404901490A593C7C49B1055FB33452AEC176B93883EF9272414D2281839F2C"
+    },
+    {
+      "path": "source/agents/infra-engineer.md",
+      "sha256": "2822EFE23CC4D7DAD9444B63AFDD1F388F03925CE280F9758E86F9268CABEB0F"
+    },
+    {
+      "path": "source/agents/product-designer.md",
+      "sha256": "63838E7D8484A522C1AAA9D72F4E69F42B112A6A2653D0A4C62377580000C7A8"
+    },
+    {
+      "path": "source/agents/requirements-analyst.md",
+      "sha256": "83E03822C6E751ED441D8A5F258CF8008E72D37BB3036F5C39FAB39CA06E41DC"
+    },
+    {
+      "path": "source/agents/researcher.md",
+      "sha256": "C718E10BAE0EE1BB6EDB5DEC29268CAE443AE09C94240C417BC0CA4A167E5F76"
+    },
+    {
+      "path": "source/agents/reviewer.md",
+      "sha256": "AC969EFDFA2A889B9633F6179485B4C15563DDE05B8AD76715E7AC5A84D08931"
+    },
+    {
+      "path": "source/agents/security-reviewer.md",
+      "sha256": "B19273C2B76D16093601092B6769A6F343DFFDADF7FC39ADD68B7ABE89810339"
+    },
+    {
+      "path": "source/agents/skeptic.md",
+      "sha256": "43E82B9653CF01D2543E8CE49B7FC99EEAAADA8FB56C9ACE38559C4C58D41527"
+    },
+    {
+      "path": "source/agents/tester.md",
+      "sha256": "C2C0893D71C7A8CB0B3DE12F1385098D5C674AD593C8D5302EDA589012EDFEB8"
+    },
+    {
+      "path": "source/global/AGENTS.md",
+      "sha256": "1B9CDA5F01C6D91023AE5A4305A43B759F6C0AED546369C98A360726D44CFDA8"
+    },
+    {
+      "path": "source/adapters/opencode-v2.md",
+      "sha256": "CA275B1E753F6FEBFDB740CAB36A7B571DF7443C66436E6108E75B30EDBAF632"
+    },
+    {
+      "path": "source/adapters/opencode.md",
+      "sha256": "9A881C1DBF4CABD7837FD21B1AB52AF5CF9543C532D469186F16AB17491F4932"
+    }
+  ],
+  "method": {
+    "mode": "git_grep_fixed_literal_path_line_dedup",
+    "no_model_call": true,
+    "base_revision": "c05744f6a0c64476c710580f98f5892bbfffcd97",
+    "generated_by_commit": "c05744f6a0c64476c710580f98f5892bbfffcd97",
+    "limitations": "Literal search does not detect dynamically assembled versions; semantic comparators are found only by directed keyword search."
+  },
+  "generated_at": "2026-11-16T10:16:39.9849282Z"
+}

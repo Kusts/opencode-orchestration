@@ -5,7 +5,8 @@
     Writes large observations to a content-addressed artifact store and
     returns a bounded preview plus an ArtifactRef. Recall verifies the
     SHA-256 before returning content, so a tampered or truncated file is
-    refused. Pure local IO; no network, no model call, no secrets handling.
+    refused. Pure local IO; no network or model call. Callers storing sensitive
+    text must redact it before persistence.
     PS 5.1 compatible, ASCII-only.
 #>
 $script:ObservationArtifactKinds = @('tool-output', 'session-log', 'test-output', 'diff', 'other')

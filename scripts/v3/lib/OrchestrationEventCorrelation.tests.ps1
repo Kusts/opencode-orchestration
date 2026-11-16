@@ -58,6 +58,63 @@ try {
     Assert-EV ((-not [bool]$badSource.ok) -and ([string]$badSource.error -ceq 'EVENT_SOURCE_UNSUPPORTED')) '[EV9] fonte fora do escopo recusada' ([string]$badSource.error)
     $badThread = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'issue_comment' -Thread 'fora:1' -DeliveryId 'd-1234' -Repo 'a/b'
     Assert-EV ((-not [bool]$badThread.ok) -and ([string]$badThread.error -ceq 'EVENT_THREAD_INVALID')) '[EV9] thread invalido recusado' ([string]$badThread.error)
+
+    # Producer derives source/repo/thread/trigger/summary/informational_only;
+    # producer supplies delivery_id from the upstream delivery identity.
+    $canonical = @(
+        @{ trigger = 'issue_comment'; thread = 'pr:123' },
+        @{ trigger = 'pull_request_review'; thread = 'issue:456' },
+        @{ trigger = 'ci_status'; thread = 'branch:main' },
+        @{ trigger = 'push'; thread = 'pr:789' }
+    )
+    $canonicalEnvelopes = @()
+    foreach ($case in $canonical) {
+        $env = New-OrchestrationEventEnvelope -Source 'github' -Trigger $case.trigger -Thread $case.thread -DeliveryId ('d-synthetic-' + $case.trigger) -Repo 'Kusts/opencode-orchestration' -Summary 'synthetic producer contract'
+        $canonicalEnvelopes += $env
+        Assert-EV ([bool]$env.ok) ('[EV10] canonical ' + $case.trigger + '/' + $case.thread) ([string]$env.error)
+    }
+    $same = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'd-synthetic-stable' -Repo 'Kusts/opencode-orchestration'
+    $sameAgain = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'd-synthetic-stable' -Repo 'Kusts/opencode-orchestration'
+    $changedDelivery = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'd-synthetic-other' -Repo 'Kusts/opencode-orchestration'
+    Assert-EV ($same.dedup_key -ceq $sameAgain.dedup_key) '[EV11] dedup estavel'
+    Assert-EV ($same.dedup_key -cne $changedDelivery.dedup_key) '[EV11] dedup sensivel a delivery_id'
+    $repoCase = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'd-synthetic-stable' -Repo 'KUSTS/OpenCode-Orchestration'
+    Assert-EV ($repoCase.dedup_key -ceq $same.dedup_key) '[EV11] repo case-folded no dedup'
+    $changedRouting = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'ci_status' -Thread 'issue:other/path' -DeliveryId 'd-synthetic-stable' -Repo 'Kusts/opencode-orchestration'
+    Assert-EV ($changedRouting.dedup_key -ceq $same.dedup_key) '[EV11] trigger/thread nao alteram dedup'
+    $caseDelivery = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'D-synthetic-stable' -Repo 'Kusts/opencode-orchestration'
+    Assert-EV ($caseDelivery.dedup_key -cne $same.dedup_key) '[EV11] delivery_id case-sensitive'
+    $upperThread = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'BRANCH:Main/Release' -DeliveryId 'd-synthetic-threadcase' -Repo 'a/b'
+    Assert-EV ([bool]$upperThread.ok -and ([string]$upperThread.thread -ceq 'branch:main/release')) '[EV11] thread normalizado lowercase'
+    foreach ($edge in @(@{ value = 'abcd'; valid = $true }, @{ value = ('x' * 160); valid = $true }, @{ value = 'abc'; valid = $false }, @{ value = ('x' * 161); valid = $false })) {
+        $edgeEnvelope = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId $edge.value -Repo 'a/b'
+        Assert-EV (([bool]$edgeEnvelope.ok) -eq [bool]$edge.valid) ('[EV11] delivery length ' + $edge.value.Length) ([string]$edgeEnvelope.error)
+    }
+    $exactSummary = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'd-synthetic-summary' -Repo 'a/b' -Summary ('x' * 2000)
+    Assert-EV ([bool]$exactSummary.ok) '[EV11] summary exatamente 2000 aceito' ([string]$exactSummary.error)
+    $threadPathIndex = 0
+    foreach ($threadPath in @('issue:org/repo/42', 'branch:feature/topic')) {
+        $threadPathIndex++
+        $pathEnvelope = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread $threadPath -DeliveryId ('d-synthetic-threadpath-' + $threadPathIndex) -Repo 'a/b'
+        Assert-EV ([bool]$pathEnvelope.ok) ('[EV11] slash aceito ' + $threadPath) ([string]$pathEnvelope.error)
+    }
+    $replay = Resolve-OrchestrationEventRoute -Envelope $same -SeenDeliveryKeys @([string]$sameAgain.dedup_key)
+    Assert-EV (([string]$replay.route -ceq 'IGNORE') -and ([string]$replay.reason -ceq 'duplicate-delivery')) '[EV12] replay ignorado como duplicata' ([string]$replay.reason)
+
+    $rejects = @(
+        @{ name = 'source'; args = @{ Source = 'gitlab'; Trigger = 'push'; Thread = 'branch:main'; DeliveryId = 'd-synthetic-bad1'; Repo = 'a/b' }; error = 'EVENT_SOURCE_UNSUPPORTED' },
+        @{ name = 'trigger'; args = @{ Source = 'github'; Trigger = 'unknown'; Thread = 'branch:main'; DeliveryId = 'd-synthetic-bad2'; Repo = 'a/b' }; error = 'EVENT_TRIGGER_UNSUPPORTED' },
+        @{ name = 'thread'; args = @{ Source = 'github'; Trigger = 'push'; Thread = 'bad:1'; DeliveryId = 'd-synthetic-bad3'; Repo = 'a/b' }; error = 'EVENT_THREAD_INVALID' },
+        @{ name = 'delivery'; args = @{ Source = 'github'; Trigger = 'push'; Thread = 'branch:main'; DeliveryId = 'x'; Repo = 'a/b' }; error = 'EVENT_DELIVERY_INVALID' },
+        @{ name = 'repo'; args = @{ Source = 'github'; Trigger = 'push'; Thread = 'branch:main'; DeliveryId = 'd-synthetic-bad5'; Repo = 'bad repo' }; error = 'EVENT_REPO_INVALID' }
+    )
+    foreach ($case in $rejects) {
+        $caseArgs = $case.args
+        $invalid = New-OrchestrationEventEnvelope @caseArgs
+        Assert-EV ((-not [bool]$invalid.ok) -and ([string]$invalid.error -ceq $case.error)) ('[EV13] rejeicao ' + $case.name) ([string]$invalid.error)
+    }
+    $tooLong = New-OrchestrationEventEnvelope -Source 'github' -Trigger 'push' -Thread 'branch:main' -DeliveryId 'd-synthetic-long' -Repo 'a/b' -Summary ('x' * 2001)
+    Assert-EV ((-not [bool]$tooLong.ok) -and ([string]$tooLong.error -ceq 'EVENT_SUMMARY_TOO_LARGE')) '[EV13] summary acima do limite' ([string]$tooLong.error)
 }
 finally { }
 

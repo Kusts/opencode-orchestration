@@ -1,7 +1,7 @@
 # GITHUB Event Envelope — Boundary do Produtor Externo (#183)
 
-**Versão:** 1.0  
-**Data:** 2026-11-12  
+**Versão:** 1.0
+**Data:** 2026-11-12
 **Status:** #183 **PARCIAL** — este documento fixa a fronteira operacional e honesta; nada de novo controlador/daemon. A integração automática externa (produtor autenticado real) permanece pendente.
 
 ---
